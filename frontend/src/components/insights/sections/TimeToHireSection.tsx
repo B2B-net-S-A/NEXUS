@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Loader2 } from "lucide-react";
 import { phase3Api } from "@/lib/api";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { SectionError } from "./_shared";
 
 interface TimeToHireRow {
   recruiter_id: number;
@@ -18,13 +20,22 @@ interface TTHResponse {
 }
 
 export function TimeToHireSection() {
-  const { data, isLoading } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["insights-tth"],
     queryFn: () => phase3Api.timeToHire().then((r) => r.data as TTHResponse),
   });
 
   const rows = data?.by_recruiter ?? [];
   const totalPlacements = data?.total_placements ?? 0;
+  // Zdanie „Brak zatrudnień w okresie" jest twierdzeniem o rekrutacji i nie
+  // wolno go wypowiadać, gdy raport w ogóle nie odpowiedział (audyt F-20).
+  // `isPending` zamiast `isLoading` — patrz komentarz w BoardKPI.
+  const viewState = resolveViewState({
+    isLoading: isPending,
+    isError,
+    error,
+    isEmpty: rows.length === 0,
+  });
 
   return (
     <section className="bg-card rounded-xl border border-border p-6 shadow-xs">
@@ -32,15 +43,25 @@ export function TimeToHireSection() {
         <BarChart3 className="w-5 h-5 text-green-500" />
         Time-to-hire
         <span className="ml-auto text-xs text-muted-foreground font-normal">
-          180 dni · łącznie {totalPlacements} zatrudnień
+          {/* Bez odpowiedzi z raportu `totalPlacements` to 0 z inicjalizacji,
+              a nie zmierzone zero — nagłówek milczy zamiast zmyślać. */}
+          {isBlockingViewState(viewState)
+            ? "180 dni"
+            : `180 dni · łącznie ${totalPlacements} zatrudnień`}
         </span>
       </h2>
 
-      {isLoading ? (
+      {viewState === "loading" ? (
         <div className="py-8 flex items-center justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
         </div>
-      ) : rows.length === 0 ? (
+      ) : isBlockingViewState(viewState) ? (
+        <SectionError
+          label="Time-to-hire"
+          error={error}
+          onRetry={() => void refetch()}
+        />
+      ) : viewState === "empty" ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
           Brak zatrudnień w okresie — dane pojawią się po pierwszej zamkniętej rekrutacji ze stage „Zatrudniony".
         </p>

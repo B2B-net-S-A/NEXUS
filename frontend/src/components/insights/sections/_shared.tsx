@@ -3,6 +3,11 @@
 import type { ElementType } from "react";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
+import {
+  QueryStateNotice,
+  type BlockingViewState,
+} from "@/components/ds/QueryStateNotice";
 
 export function formatPLN(value: number): string {
   return new Intl.NumberFormat("pl-PL", {
@@ -145,5 +150,48 @@ export function LoadingSpinner() {
     <div className="flex items-center justify-center py-12">
       <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
+  );
+}
+
+/**
+ * Awaria sekcji raportowej.
+ *
+ * Kit miał `LoadingSpinner`, ale nie miał NIC na awarię — i to jest powód, dla
+ * którego sześć sekcji robiło `if (!data) return null` albo pisało „Brak
+ * danych.". 403 z bramki RBAC i 500 z raportu wyglądały wtedy jak pusty lejek,
+ * czyli jak informacja, a nie jak jej brak. Cienka nakładka na
+ * `QueryStateNotice`, żeby każda sekcja nie powtarzała mapowania statusu HTTP.
+ */
+export function SectionError({
+  label,
+  error,
+  onRetry,
+}: {
+  /** Nazwa sekcji w mianowniku — wchodzi w komunikat o braku uprawnień. */
+  label: string;
+  error: unknown;
+  onRetry?: () => void;
+}) {
+  // `isLoading: false` + `isError: true` gwarantuje jeden z trzech stanów
+  // blokujących — `resolveViewState` nie ma tu innej gałęzi do zwrócenia.
+  const state = resolveViewState({
+    isLoading: false,
+    isError: true,
+    error,
+  }) as BlockingViewState;
+  const description =
+    state === "forbidden"
+      ? `Twoja rola nie ma dostępu do sekcji „${label}". Dane NIE są puste — poproś administratora o uprawnienia.`
+      : state === "error" && httpStatusFromError(error) === undefined
+        ? `Nie udało się połączyć z serwerem („${label}"). Sprawdź internet lub VPN i spróbuj ponownie.`
+        : state === "error"
+          ? `Nie udało się pobrać danych sekcji „${label}". Dane mogą istnieć — spróbuj ponownie za chwilę.`
+          : undefined;
+  return (
+    <QueryStateNotice
+      state={state}
+      description={description}
+      onRetry={state === "error" ? onRetry : undefined}
+    />
   );
 }

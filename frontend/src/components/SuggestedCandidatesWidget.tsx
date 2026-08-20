@@ -340,6 +340,23 @@ export function SuggestedCandidatesWidget({
     : mode === "snapshot"
       ? (snapshot?.hidden ?? null)
       : (liveMeta?.hidden ?? null);
+  const hiddenTotal =
+    (hiddenCounts?.over_budget ?? 0) + (hiddenCounts?.remote_only ?? 0);
+  // Snapshot sprzed 0237 NIE przeszedł przez sufit budżetu — `hidden` jest
+  // wtedy puste. Etykieta „Poza budżetem: ukryci" obiecywała nad taką listą
+  // filtr, którego nie było, i to bez chipa „Ukryto N", bo nie ma czego
+  // policzyć. Wybieram wariant „stan nieaktywny": przełącznik nie ma tu co
+  // odsłonić (lista już zawiera wszystkich), a jedyną drogą do sufitu jest
+  // regeneracja — stąd podpowiedź „Odśwież propozycje" zamiast klikalnego
+  // przełącznika, który zmieniłby tylko podpis pod niezmienioną listą.
+  // Oferta bez budżetu jest poza tym stanem: tam sufit nie ma na czym działać
+  // i odesłanie do regeneracji byłoby kolejną pustą obietnicą.
+  const legacyUnfilteredSnapshot =
+    jobHasBudget &&
+    !filteredActive &&
+    mode === "snapshot" &&
+    isSnapReady &&
+    (snapshot?.hidden ?? null) === null;
   const showLiveEmptyState =
     !filteredActive && mode === "fallback-live" && !liveLoaded && !liveLoading;
   const showLiveNoResults =
@@ -363,8 +380,11 @@ export function SuggestedCandidatesWidget({
   // location badge over an unfiltered list.
   const serverLocationApplied =
     locationActive && (locationQuery.data?.location_filter ?? null) !== null;
-  const showLocationLoading = filteredActive && locationQuery.isLoading;
-  const showLocationError = filteredActive && locationQuery.isError;
+  // Oba stany wiszą na `filteredActive`, więc obejmują TAKŻE tryb samych
+  // przełączników (bez tekstu lokalizacji). Nazwa „location" przykleiła do
+  // nich komunikaty o filtrze, którego w tym trybie nikt nie ustawił.
+  const showFilteredLoading = filteredActive && locationQuery.isLoading;
+  const showFilteredError = filteredActive && locationQuery.isError;
   const showLocationNoResults =
     locationActive &&
     !locationQuery.isLoading &&
@@ -431,26 +451,30 @@ export function SuggestedCandidatesWidget({
             )}
             <button
               onClick={() => setExcludeOverBudget((v) => !v)}
-              disabled={!jobHasBudget}
+              disabled={!jobHasBudget || legacyUnfilteredSnapshot}
               className={`text-xs px-2 py-1 rounded-md border ${
-                !jobHasBudget
+                !jobHasBudget || legacyUnfilteredSnapshot
                   ? "border-border text-muted-foreground opacity-60 cursor-not-allowed"
                   : excludeOverBudget
                     ? "bg-amber-100 border-amber-300 text-amber-900 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-200"
                     : "border-border text-muted-foreground hover:bg-accent"
               }`}
               title={
-                jobHasBudget
-                  ? "Budżet oferty działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
-                  : "Oferta nie ma budżetu PLN/h ani stawki Championa — sufit nie ma na czym działać. Uzupełnij budżet na formularzu oferty."
+                !jobHasBudget
+                  ? "Oferta nie ma budżetu PLN/h ani stawki Championa — sufit nie ma na czym działać. Uzupełnij budżet na formularzu oferty."
+                  : legacyUnfilteredSnapshot
+                    ? "Ten ranking powstał przed wprowadzeniem sufitu budżetu — nikogo nie ukryto. Kliknij „Odśwież propozycje”, żeby wygenerować ranking z sufitem."
+                    : "Budżet oferty działa jako twardy sufit (domyślnie): kandydaci ze ZNANĄ stawką powyżej niego są ukryci. Nieznana stawka zawsze przechodzi. Kliknij, żeby pokazać też przekraczających."
               }
               data-testid="switch-over-budget"
             >
               {!jobHasBudget
                 ? "Budżet oferty: brak"
-                : excludeOverBudget
-                  ? "Poza budżetem: ukryci"
-                  : "Poza budżetem: widoczni"}
+                : legacyUnfilteredSnapshot
+                  ? "Budżet oferty: ranking sprzed filtra"
+                  : excludeOverBudget
+                    ? "Poza budżetem: ukryci"
+                    : "Poza budżetem: widoczni"}
             </button>
             <button
               onClick={() => setExcludeRemoteOnly((v) => !v)}
@@ -547,9 +571,27 @@ export function SuggestedCandidatesWidget({
       )}
 
       {(() => {
-        const total =
-          (hiddenCounts?.over_budget ?? 0) + (hiddenCounts?.remote_only ?? 0);
-        if (!total) return null;
+        // Snapshot sprzed 0237 nie ma czego zliczyć w chipie „Ukryto N" — bo
+        // nikt nie został ukryty. Zamiast milczenia (które nad etykietą
+        // obiecującą sufit czytało się jak „ukryto zero") mówimy wprost, że
+        // ten ranking powstał przed filtrem, i podajemy drogę wyjścia.
+        // Wyklucza się z chipami: `hidden === null` daje `hiddenTotal === 0`.
+        if (legacyUnfilteredSnapshot) {
+          return (
+            <div
+              role="status"
+              data-testid="legacy-snapshot-budget-notice"
+              className="mb-3 flex flex-wrap gap-2 text-xs"
+            >
+              <span className="rounded-md border border-border bg-muted px-2 py-1 text-muted-foreground">
+                Ten ranking powstał przed wprowadzeniem sufitu budżetu — nikogo
+                nie ukryto. Kliknij „Odśwież propozycje”, żeby wygenerować
+                ranking z sufitem.
+              </span>
+            </div>
+          );
+        }
+        if (!hiddenTotal) return null;
         // Ukrywanie nigdy nie jest ciche: pustka bez wyjaśnienia czyta się
         // jak utrata danych (reguła „awaria ≠ pustka").
         return (
@@ -593,16 +635,40 @@ export function SuggestedCandidatesWidget({
         </div>
       )}
 
-      {showLocationLoading && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
+      {showFilteredLoading && (
+        <div
+          className="flex items-center gap-2 text-sm text-muted-foreground py-6"
+          data-testid="filtered-loading"
+        >
           <Loader2 className="w-4 h-4 animate-spin text-violet-500" />
-          Szukam kandydatów w lokalizacji „{locationFilter.trim()}”…
+          {/* Bez tego rozgałęzienia tryb samych przełączników renderował
+              „w lokalizacji „”" — puste cudzysłowy czytają się jak zjedzona
+              wartość, a nie jak brak filtra. */}
+          {locationActive
+            ? `Szukam kandydatów w lokalizacji „${locationFilter.trim()}”…`
+            : "Szukam kandydatów z włączonymi filtrami wykluczającymi…"}
         </div>
       )}
 
-      {showLocationError && (
-        <p className="text-sm text-destructive py-2">
-          Błąd wyszukiwania kandydatów po lokalizacji. Zmień filtr i spróbuj ponownie.
+      {showFilteredError && (
+        <p
+          role="alert"
+          className="text-sm text-destructive py-2"
+          data-testid="filtered-error"
+        >
+          {/* „Zmień filtr" tylko wtedy, gdy filtr lokalizacji faktycznie
+              istnieje — inaczej odsyłamy do pola, którego nikt nie wypełnił. */}
+          {locationActive
+            ? "Błąd wyszukiwania kandydatów po lokalizacji. Zmień filtr i spróbuj ponownie."
+            : "Nie udało się pobrać rekomendowanych kandydatów z włączonymi filtrami wykluczającymi."}
+          <button
+            type="button"
+            onClick={() => locationQuery.refetch()}
+            className="ml-2 underline hover:opacity-80"
+            data-testid="filtered-retry"
+          >
+            Spróbuj ponownie
+          </button>
         </p>
       )}
 
@@ -614,9 +680,22 @@ export function SuggestedCandidatesWidget({
       )}
 
       {showSwitchesNoResults && (
-        <p className="text-sm text-muted-foreground py-2">
-          Wszyscy rekomendowani kandydaci zostali ukryci przez włączone filtry
-          wykluczające. Poluzuj margines budżetu albo wyłącz przełączniki powyżej.
+        <p
+          className="text-sm text-muted-foreground py-2"
+          data-testid="switches-no-results"
+        >
+          {/* Przy zerowych licznikach NIKT nie został ukryty — oskarżanie
+              filtrów wysyłało wtedy rekrutera do przełączników, które niczego
+              nie odsłonią. Odwołanie do „marginesu budżetu" wypadło razem
+              z samym marginesem: od #1207 sufit jest twardy i w UI nie ma
+              suwaka do poluzowania. Zdanie „nikogo nie ukryły" wolno tu
+              postawić, bo ta gałąź działa wyłącznie na ścieżce filtrowanej,
+              a `/recommendations` zwraca `meta.hidden` w KAŻDYM returnie
+              (`recommendations.py::_meta`) — brak pola oznacza wyłącznie
+              rozjazd wersji FE/BE w trakcie deployu. */}
+          {hiddenTotal > 0
+            ? "Wszyscy rekomendowani kandydaci zostali ukryci przez włączone filtry wykluczające. Wyłącz przełączniki powyżej, żeby ich zobaczyć."
+            : "Nie znaleziono pasujących kandydatów dla tej rekrutacji. Włączone filtry wykluczające nikogo nie ukryły — ich wyłączenie niczego tu nie odsłoni."}
         </p>
       )}
 

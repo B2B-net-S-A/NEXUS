@@ -10,6 +10,7 @@ import {
   HorizontalBar,
   DonutChart,
   LoadingSpinner,
+  SectionError,
 } from "./_shared";
 import type { Period } from "./PeriodSelector";
 
@@ -43,14 +44,27 @@ interface Props {
 export function TendersSection({ period }: Props) {
   const reportPeriod = REPORT_PERIOD_MAP[period];
 
-  const { data, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ["insights-tenders", reportPeriod],
     queryFn: () =>
       reportsApi.tenders({ period: reportPeriod }).then((r) => r.data as TendersData),
   });
 
-  if (isLoading) return <LoadingSpinner />;
-  if (!data) return null;
+  // Ładowanie → awaria → dane (audyt F-20). Dawne `if (!data) return null`
+  // kasowało sekcję przy 403/500, czyli awaria była nieodróżnialna od „nie
+  // startowaliśmy w żadnym przetargu". `isPending`, nie `isLoading` — patrz
+  // komentarz w BoardKPI.
+  if (query.isPending) return <LoadingSpinner />;
+  if (query.isError) {
+    return (
+      <SectionError
+        label="Przetargi"
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+  const data = query.data;
 
   const tenderValues = data.per_tender.filter((t) => t.value > 0).map((t) => t.value);
   const avgTenderValue =
