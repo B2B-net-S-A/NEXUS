@@ -329,11 +329,18 @@ async def _recommend_candidates_core(
     pool_size = settings.MATCH_POOL_SIZE
     if location_active:
         pool_size = max(pool_size, settings.RECOMMENDATION_LOCATION_POOL_SIZE)
+    # C12: noga BM25 hybrydy MUSI dostać terminy, nie `query_text`. Dokument
+    # w roli tsquery to koniunkcja setek leksemów, czyli zero trafień zawsze —
+    # i to zero jest niewidoczne, bo fuzja RRF z pustą listą zwraca czysty
+    # porządek wektora. Bez tego argumentu hybryda kosztuje, a nie wnosi.
+    from app.services.hybrid_search import build_job_bm25_query
+
     hits = await retrieve_candidate_pool(
         db,
         query_text,
         top_k=pool_size,
         query_variants=build_job_query_variants(job, query_text),
+        bm25_query=build_job_bm25_query(job),
     )
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
@@ -699,6 +706,8 @@ async def candidates_from_similar_jobs(
     if tier not in {"primary", "extended", "all"}:
         raise HTTPException(status_code=400, detail="tier must be primary|extended|all")
 
+    from datetime import datetime, timezone
+
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -741,6 +750,23 @@ async def candidates_from_similar_jobs(
     if cand_ids:
         cand_res = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
         cand_rows = list(cand_res.scalars().all())
+
+    # P0-A: ta sekcja jest na przeciek SZCZEGÓLNIE narażona, nie mniej.
+    # „Kandydaci z podobnych projektów" z definicji celują w ludzi, którzy BYLI
+    # już rozważani u tego klienta — a to dokładnie ta populacja, w której
+    # siedzą aktywne blacklisty klienta, NDA i weta hiring managera. Serwis
+    # (`similar_job_candidates._rank_candidates_from_similar`) filtruje wyłącznie
+    # blacklistę GLOBALNĄ i nie ma dostępu do `job`; endpoint ma komplet wejść
+    # bramki, więc bramka stoi tutaj.
+    #
+    # Licznik liczy się po ZHYDRATOWANYCH wierszach, nie po `cand_ids`: kandydat,
+    # który zniknął z bazy w międzyczasie, nie jest „ukryty" — mówienie o nim
+    # „zablokowany dla tego klienta" byłoby nieprawdą w drugą stronę.
+    before_gate = len(cand_rows)
+    cand_rows = await filter_eligible_candidates(
+        db, job=job, candidates=cand_rows, now=datetime.now(timezone.utc)
+    )
+    hidden_ineligible = before_gate - len(cand_rows)
     cand_by_id = {c.id: c for c in cand_rows}
 
     def _availability_sort_key(c: HistoricalCandidateOut) -> tuple[int, float]:
@@ -790,6 +816,13 @@ async def candidates_from_similar_jobs(
 
     out_candidates.sort(key=_availability_sort_key)
 
+    # Pustka SKORELOWANA z przyczyną. Reguła z repo mówi, że „ukryto N" bez
+    # wskazania jest bezużyteczne — ale pustka bez wyjaśnienia jest gorsza,
+    # a tutaj przyczyna jest systematyczna, nie przypadkowa: sekcja będzie pusta
+    # dokładnie u tych klientów, u których historia jest najgęstsza.
+    if not out_candidates and hidden_ineligible:
+        reason_empty = "all_hidden_by_eligibility"
+
     return CandidatesFromSimilarOut(
         job_id=job_id,
         tier_used=tier_used,
@@ -808,6 +841,7 @@ async def candidates_from_similar_jobs(
             tier_b_count=tier_b_count,
             total_sources=total_sources,
             reason_if_empty=reason_empty,
+            hidden_ineligible=hidden_ineligible,
         ),
     )
 

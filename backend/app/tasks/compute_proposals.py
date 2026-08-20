@@ -147,11 +147,17 @@ async def compute_proposal_for_job(
             # 1000). `top_k` still caps what comes back — it just no longer decides what
             # scoring is allowed to see.
             pool_size = settings.MATCH_POOL_SIZE
+            # C12: noga BM25 dostaje TERMINY, nie `query_text`. Dokument
+            # w roli tsquery ANDuje setki leksemów, czyli zwraca zero zawsze —
+            # cicho, bo fuzja RRF z pustą listą wygląda jak porządek wektora.
+            from app.services.hybrid_search import build_job_bm25_query
+
             hits = await retrieve_candidate_pool(
                 session,
                 query_text,
                 top_k=pool_size,
                 query_variants=build_job_query_variants(job, query_text),
+                bm25_query=build_job_bm25_query(job),
             )
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())

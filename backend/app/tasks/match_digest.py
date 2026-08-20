@@ -117,8 +117,14 @@ def _is_due(last_synced_at: Optional[datetime], now: datetime) -> bool:
 async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     """Top świeżych dopasowań (spoza pipeline'u) dla jednej rekrutacji."""
     from app.services.canonical_text import build_job_query_variants
+    from app.services.dealbreaker_filters import (
+        apply_dealbreakers,
+        resolve_job_budget_hourly,
+    )
     from app.services.embedding_service import _build_job_text
+    from app.services.hybrid_search import build_job_bm25_query
     from app.services.match_score_cache import bulk_get_or_compute
+    from app.services.pipeline_eligibility import filter_eligible_candidates
     from app.services.retrieval_pool import retrieve_candidate_pool
     from app.services.scoring_service import resolve_active_profile
 
@@ -129,6 +135,9 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
             query_text,
             top_k=int(settings.MATCH_DIGEST_TOP_N) * 40,
             query_variants=build_job_query_variants(job, query_text),
+            # C12: noga BM25 dostaje terminy, nie dokument — inaczej ANDuje
+            # setki leksemów i nie trafia w nikogo, cicho i bez awarii.
+            bm25_query=build_job_bm25_query(job),
         )
     except Exception as exc:  # noqa: BLE001 — awaria retrievalu = pusta lista
         logger.warning("match-digest: retrieval padł dla job=%s: %s", job.id, exc)
@@ -152,11 +161,40 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     if not fresh_ids:
         return []
 
-    candidates = (
+    candidates = list(
         (await db.execute(select(Candidate).where(Candidate.id.in_(fresh_ids))))
         .scalars()
         .all()
     )
+
+    # Liczba w powiadomieniu MUSI dać się odnaleźć w zakładce, do której
+    # powiadomienie linkuje. Bez tego digest jest gorszy niż jego brak: uczy,
+    # że „12 świeżych kandydatów" znaczy „kliknij i policz sam". Do 2026-08-20
+    # ta ścieżka nie miała ani bramki dopuszczalności, ani dealbreakerów —
+    # ani nawet globalnej blacklisty, którą ma każda inna powierzchnia.
+    #
+    # Obietnica jest WĘŻSZA niż „ta sama liczba" i taka ma zostać: digest ma
+    # własny próg (`MATCH_DIGEST_MIN_SCORE`) i własną definicję świeżości, więc
+    # równości nie będzie. Gwarantujemy tylko tyle: żaden kandydat wliczony do
+    # digestu nie jest kimś, kogo zakładka ukrywa z powodu zawierania albo
+    # dealbreakera.
+    candidates = await filter_eligible_candidates(
+        db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
+    )
+    # Parametry są lustrem `compute_proposals` (snapshot = DOMYŚLNY widok
+    # zakładki), nie wywołania /recommendations z parametrami: widget startuje
+    # z budżetem ON / biurem OFF i przy tych wartościach żywego zapytania
+    # w ogóle nie robi. `remote_only` zostaje opt-in per wyszukiwanie —
+    # powiadomienie nie niesie deklaracji rekrutera.
+    candidates = apply_dealbreakers(
+        candidates, budget_hourly=resolve_job_budget_hourly(job)
+    ).kept
+    # Oba filtry PRZED scoringiem: (a) nie płacimy za ludzi, których i tak nie
+    # pokażemy, (b) nie zapisujemy do `match_score_cache` wierszy, których
+    # zakładka i tak nie wyświetli.
+    if not candidates:
+        return []
+
     profile = await resolve_active_profile(db)
     breakdowns = await bulk_get_or_compute(
         job, candidates, db, similarity_map=similarity_map, profile=profile

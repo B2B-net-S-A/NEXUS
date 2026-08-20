@@ -112,13 +112,14 @@ async def retrieve_candidate_pool(
     top_k: int,
     raise_on_error: bool = False,
     query_variants: list[str] | None = None,
+    bm25_query: str | None = None,
 ) -> list[dict]:
     """Zwróć pulę kandydatów w kształcie `[{candidate_id, score}]`.
 
-    Kontrakt zwrotu jest IDENTYCZNY z `search_candidates_semantic`, żeby cztery
-    miejsca wywołania (rekomendacje, Talent Radar, propozycje, eval) nie musiały
-    wiedzieć, która strategia jest pod spodem. `score` to zawsze kosinus — patrz
-    docstring modułu.
+    Kontrakt zwrotu jest IDENTYCZNY z `search_candidates_semantic`, żeby pięć
+    miejsc wywołania (rekomendacje, Talent Radar, propozycje, digest, eval) nie
+    musiało wiedzieć, która strategia jest pod spodem. `score` to zawsze
+    kosinus — patrz docstring modułu.
 
     `raise_on_error` obowiązuje na OBU ścieżkach. Konsumenci fasady (poza
     harnessem ewaluacyjnym) wołają z domyślnym `False` i liczą na łagodną
@@ -129,8 +130,19 @@ async def retrieve_candidate_pool(
 
     `query_variants` (runda 2): dodatkowe sformułowania zapytania dla unii pul
     przy `MULTI_QUERY_RETRIEVAL_ENABLED` — patrz `_multi_query_pool`. Ścieżka
-    hybrydowa je ignoruje (hybryda ma własną nogę BM25 na dokładne tokeny,
-    czyli dokładnie to, co wnosi wariant skillowy).
+    hybrydowa je ignoruje, bo dokładne tokeny wnosi jej własna noga BM25 —
+    ale patrz akapit niżej: musi je najpierw DOSTAĆ.
+
+    `bm25_query` (C12): wejście dla nogi BM25, ZAWSZE różne od `query_text`.
+    `query_text` tej fasady jest dokumentem (wszystkich pięciu callerów buduje
+    go `_build_job_text`), a `websearch_to_tsquery` ANDuje leksemy — dokument
+    dawał więc ZERO trafień BM25 dla każdej oferty, przez cały czas istnienia
+    hybrydy. Poprzednia wersja tego docstringa twierdziła, że „hybryda ma
+    własną nogę BM25 na dokładne tokeny"; nie miała.
+
+    Brak `bm25_query` ⇒ przekazujemy "" ⇒ nogi BM25 się nie pyta. To
+    ŚWIADOMIE inna domyślna niż w `hybrid_candidates` (tam `None` znaczy „użyj
+    query", bo tam `query` bywa prawdziwym zapytaniem rekrutera).
     """
 
     if not hybrid_pool_enabled():
@@ -149,7 +161,12 @@ async def retrieve_candidate_pool(
 
     try:
         hybrid = await hybrid_candidates(
-            db, query_text, pool=top_k, final_top_k=top_k, use_rerank=None
+            db,
+            query_text,
+            pool=top_k,
+            final_top_k=top_k,
+            use_rerank=None,
+            bm25_query=bm25_query or "",
         )
     except Exception:
         if raise_on_error:
@@ -165,6 +182,18 @@ async def retrieve_candidate_pool(
         return await _embedding.search_candidates_semantic(
             query_text, top_k=top_k, raise_on_error=False
         )
+    # Trzy stany nogi BM25 są rozróżnialne CELOWO — mają różne diagnozy:
+    # `bm25=n/d` w każdym wierszu = ktoś zapomniał `bm25_query` na callsicie
+    # (pula jedzie na samym wektorze, cicho); `bm25=0` w każdym wierszu =
+    # terminy są, ale nie trafiają — to już pytanie o taksonomię, nie o kod.
+    if hybrid.bm25_failed:
+        logger.error("[retrieval-pool] noga BM25 padła — pula wyłącznie z wektora")
+    logger.info(
+        "[retrieval-pool] hybryda: bm25=%s dense_degraded=%s pula=%s",
+        "n/d" if hybrid.bm25_hits is None else hybrid.bm25_hits,
+        hybrid.degraded,
+        len(hybrid.pairs),
+    )
     ids = [candidate_id for candidate_id, _ in hybrid.pairs]
     if hybrid.degraded:
         # Noga wektorowa padła — ranking oparł się na samym BM25. To nadal

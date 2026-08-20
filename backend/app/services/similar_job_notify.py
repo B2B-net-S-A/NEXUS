@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Optional, Sequence
 
 from sqlalchemy import select
@@ -33,6 +34,7 @@ from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.job import Job
 from app.models.notification import NotificationType
 from app.services.notification_triggers import emit
+from app.services.pipeline_eligibility import filter_eligible_candidates
 from app.services.similar_job_candidates import (
     CLIENT_FACING_STAGES,
     HistoricalCandidate,
@@ -109,6 +111,47 @@ def build_message(job_title: str, alert: SimilarJobAlert, available_count: int) 
     return "".join(parts)
 
 
+async def _keep_assignable(
+    db: AsyncSession, *, job: Job, ranked: Sequence[HistoricalCandidate]
+) -> list[HistoricalCandidate]:
+    """Zawęź ranking do osób, które zakładka faktycznie pokaże.
+
+    Powiadomienie linkuje do `?tab=similar`, a ta zakładka przepuszcza pulę
+    przez bramkę dopuszczalności (`recommendations.candidates_from_similar_jobs`).
+    Bez tego samego zawężenia tutaj dzwonek obiecywałby „N kandydatów poszło już
+    do klienta", a ekran pokazywałby mniej — czyli dokładnie ten rozjazd, który
+    uczy ignorować powiadomienia („kliknij i policz sam").
+
+    To NIE jest dług zastany: rozjazd powstaje w chwili, w której bramka wchodzi
+    do endpointu, więc poprawka musi jechać razem z nią.
+
+    Kandydat, którego wiersz w `candidates` zniknął, wypada — tak samo jak
+    w zakładce (`if c is None: continue`). Milczenie o kimś, kogo ekran i tak
+    nie pokaże, jest tu poprawną odpowiedzią.
+    """
+    if not ranked:
+        return list(ranked)
+
+    rows = (
+        (
+            await db.execute(
+                select(Candidate).where(
+                    Candidate.id.in_([c.candidate_id for c in ranked])
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    allowed = {
+        c.id
+        for c in await filter_eligible_candidates(
+            db, job=job, candidates=list(rows), now=datetime.now(timezone.utc)
+        )
+    }
+    return [c for c in ranked if c.candidate_id in allowed]
+
+
 async def notify_similar_job_candidates(db: AsyncSession, job_id: int) -> int:
     """Sprawdź podobieństwo i wyemituj notyfikacje. Zwraca liczbę emisji."""
     job = await db.scalar(select(Job).where(Job.id == job_id))
@@ -123,6 +166,7 @@ async def notify_similar_job_candidates(db: AsyncSession, job_id: int) -> int:
         include_negative=True,
         target_client_id=job.client_id,
     )
+    ranked = await _keep_assignable(db, job=job, ranked=ranked)
     alert = build_alert(ranked, similar_refs)
     if alert is None:
         return 0
