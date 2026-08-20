@@ -68,6 +68,14 @@ class RadarQuery:
     # produktowa 19.08). Nieznana stawka/preferencja kandydata PRZECHODZI.
     budget_hourly_max: Optional[float] = None
     exclude_remote_only: bool = False
+    # Wymagania podane WPROST (front bierze je z `parse-champion`). Puste =
+    # dotychczasowe zachowanie: `_score_skills` wywodzi must regexem z profilu
+    # Championa albo z prozy. `list`, nie `tuple`, mimo `frozen=True`:
+    # dataclass zabrania tylko mutowalnej wartości DOMYŚLNEJ, a `None` nią nie
+    # jest — i tak `champion_profile: Optional[dict]` obok czyni ten rekord
+    # niehaszowalnym.
+    must_skills: Optional[list[str]] = None
+    nice_skills: Optional[list[str]] = None
 
 
 @dataclass
@@ -119,6 +127,62 @@ def shape_radar_candidate(candidate: Any) -> dict[str, Any]:
     }
 
 
+# Sufity dla wymagań przychodzących z zewnątrz. Liczba pozycji jest twarda
+# (dłuższa lista odbija się 422 w modelu requestu), pojedyncza nazwa jest
+# PRZYCINANA, nie odrzucana: jeden gadatliwy punkt z dokumentu nie może
+# wywalić całego wyszukiwania, a przycięty i tak przechodzi przez mapę aliasów.
+_MAX_RADAR_SKILLS = 50
+_MAX_RADAR_SKILL_LEN = 100
+
+
+def normalize_skill_names(raw: Any) -> list[str]:
+    """`[{"name": "Python"}, "python ", …]` → `["Python"]` — bez duplikatów.
+
+    Przyjmuje oba kształty, bo z jednej strony stoi wyjście parsera profilu
+    (lista dictów), a z drugiej ciało requestu (lista nazw — klient może je
+    POST-ować wprost, więc normalizacja musi zajść też tam).
+
+    Zachowuje ORYGINALNĄ wielkość liter (nazwy wracają do interfejsu), ale
+    dedupe idzie po `casefold()`. Odpowiednik ze scoringu lowercase'uje, więc
+    do warstwy prezentacji się nie nadaje.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        name = item.get("name") if isinstance(item, dict) else item
+        if not isinstance(name, str):
+            continue
+        name = name.strip()[:_MAX_RADAR_SKILL_LEN].strip()
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+        if len(out) >= _MAX_RADAR_SKILLS:
+            break
+    return out
+
+
+def _structured_skills(names: Optional[list[str]]) -> Optional[list[dict]]:
+    """Wymagania wprost → kształt JSONB oferty. ZA FLAGĄ, bo zmieniają ranking.
+
+    I to nie tylko warstwę punktową: nazwy wchodzą też do tekstu embedowanego
+    zapytania (`_build_job_text`) i do wariantu „skills"
+    (`build_job_query_variants`), więc flip zmienia również to, KTO w ogóle
+    trafia do puli. Pozycja OFF musi znaczyć dokładnie „jak przed zmianą" —
+    dlatego zwraca `None`, nie `[]` (puste `[]` też jest inną wartością niż
+    dzisiejsze `None` dla czytelników, którzy sprawdzają obecność klucza).
+
+    Flaga czytana w CIELE funkcji, nie przy imporcie — konwencja reszty
+    modułów scoringu; testy podmieniają `settings` w czasie wywołania.
+    """
+    if not settings.TALENT_RADAR_STRUCTURED_SKILLS_ENABLED:
+        return None
+    return [{"name": n, "level": None} for n in names or ()] or None
+
+
 def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
     """A Job-shaped object that is never persisted.
 
@@ -139,11 +203,14 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         description=(query.text or "").strip() or None,
         requirements=None,
         champion_profile=query.champion_profile or None,
-        # No structured skills: `_score_skills` derives implicit must-skills from
-        # the Champion profile, then from the narrative, so a pasted request is
-        # scored on its content rather than on an empty list.
-        must_skills=None,
-        nice_skills=None,
+        # Kształt 1:1 z `jobs.must_skills` (`[{"name": str, "level": None}]` —
+        # tak pisze importer Championów), bo ten sam obiekt czyta
+        # `_build_job_text` i `build_job_query_variants`.
+        # Puste (albo flaga OFF) → `None` → `_score_skills` wraca do wywodzenia
+        # must z profilu Championa, a potem z prozy, więc wklejony request jest
+        # dalej oceniany po swojej treści, a nie po pustej liście.
+        must_skills=_structured_skills(query.must_skills),
+        nice_skills=_structured_skills(query.nice_skills),
         location=(query.location or "").strip() or None,
         remote_policy=None,
         salary_min=None,
@@ -201,11 +268,20 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     if not query_text.strip():
         raise TalentRadarError("Zapytanie jest puste po normalizacji.")
 
+    # C12: terminy dla nogi BM25 (dokument w roli tsquery = zero trafień
+    # zawsze). Oferta efemeryczna nie ma `must_skills`, więc terminy przyjdą
+    # z profilu/prozy Championa przez taksonomię — czyta wyłącznie atrybuty,
+    # które `build_ephemeral_job` już ustawia. To zmiana CZŁONKOSTWA puli,
+    # aktywna tylko przy `HYBRID_POOL_ENABLED=true`, i NIE jest tą zmianą
+    # rankingu radaru, która ma własną flagę (tamta dotyczy `_score_skills`).
+    from app.services.hybrid_search import build_job_bm25_query
+
     hits = await retrieve_candidate_pool(
         db,
         query_text,
         top_k=settings.MATCH_POOL_SIZE,
         query_variants=build_job_query_variants(job, query_text),
+        bm25_query=build_job_bm25_query(job),
     )
     if not hits:
         # Qdrant or Voyage is down. Say so instead of returning an empty list

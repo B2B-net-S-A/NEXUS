@@ -78,6 +78,116 @@ def test_ephemeral_job_sets_every_attribute_the_scoring_path_reads():
     )
 
 
+# ── wymagania MUST/NICE podane wprost (za flagą) ────────────────────────────
+
+
+def test_normalize_skill_names_matches_the_parser_shape():
+    """Jeden normalizator dla dwóch wejść: parsera i ciała requestu.
+
+    Parser zwraca `[{"name": …}]`, klient może POST-ować `["…"]` — a wpis bez
+    `name` musi odpaść, zanim policzy go plakietka „8 must · 5 nice".
+    """
+    got = tr.normalize_skill_names(
+        [
+            {"name": "Python"},
+            {"name": "   "},
+            "Go",
+            {"nope": 1},
+            "python",  # duplikat wyłącznie wielkością liter
+            None,
+        ]
+    )
+    assert got == ["Python", "Go"], (
+        "kolejność i oryginalna pisownia zostają (nazwy wracają do "
+        "interfejsu), dedupe idzie po casefold"
+    )
+    assert tr.normalize_skill_names("Python") == []
+    assert tr.normalize_skill_names(None) == []
+    assert len(tr.normalize_skill_names([f"skill-{i}" for i in range(200)])) == 50
+    assert len(tr.normalize_skill_names(["x" * 500])[0]) == 100
+
+
+def test_structured_skills_are_off_by_default_and_off_means_identical():
+    """Asercja ROLLBACKU, nie funkcji.
+
+    Bez niej „OFF" po cichu staje się „prawie OFF" — a cała wartość tej flagi
+    polega na tym, że przy OFF namespace jest bajt w bajt dzisiejszy: ten sam
+    tekst zapytania, ta sama pula, te same score'y.
+    """
+    job = build_ephemeral_job(
+        RadarQuery(
+            client_id=7,
+            text="Senior Python Developer",
+            must_skills=["Python"],
+            nice_skills=["Go"],
+        )
+    )
+    assert job.must_skills is None and job.nice_skills is None
+
+
+def test_structured_skills_reach_the_job_in_the_jsonb_shape(monkeypatch):
+    """Kształt sprawdzony PRZECIW funkcji, która go naprawdę czyta.
+
+    `canonical_skill_names` jest tym, przez co scoring przepuszcza
+    `jobs.must_skills`; asercja na samym literale dowodziłaby tylko tego, jak
+    ja sobie ten kształt wyobrażam.
+    """
+    from app.services.scoring_service import canonical_skill_names
+
+    monkeypatch.setattr(
+        tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True
+    )
+    job = build_ephemeral_job(
+        RadarQuery(client_id=7, text="x", must_skills=["Python"], nice_skills=["Go"])
+    )
+
+    assert job.must_skills == [{"name": "Python", "level": None}]
+    assert job.nice_skills == [{"name": "Go", "level": None}]
+    assert canonical_skill_names(job.must_skills) == ["python"]
+
+    # Puste listy przy fladze ON dalej znaczą „brak wymagań wprost", więc
+    # scoring wraca do wywodzenia ich z prozy — inaczej wklejony request
+    # byłby oceniany po pustej liście.
+    empty = build_ephemeral_job(RadarQuery(client_id=7, text="x", must_skills=[]))
+    assert empty.must_skills is None
+
+
+def test_structured_skills_change_the_query_text_not_only_the_score(monkeypatch):
+    """Po co w ogóle flaga — dla recenzenta myślącego „to tylko warstwa skills".
+
+    Nazwy wchodzą do tekstu, który Voyage zamienia na wektor zapytania, więc
+    flip zmienia ZBIÓR retrievowanych kandydatów, a nie tylko ich kolejność.
+    """
+    from app.services.embedding_service import _build_job_text
+
+    query = RadarQuery(client_id=7, text="Zbudujemy platformę", must_skills=["Kafka"])
+
+    off = _build_job_text(build_ephemeral_job(query))
+    monkeypatch.setattr(
+        tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True
+    )
+    on = _build_job_text(build_ephemeral_job(query))
+
+    assert "Kafka" not in off
+    assert "Kafka" in on
+
+
+def test_radar_flag_stays_out_of_the_score_cache_key():
+    """Świadoma NIEobecność, zamrożona razem z powodem.
+
+    Radar liczy score'y z pominięciem cache (`rank_candidates_for_job`, nie
+    `bulk_get_or_compute` — pilnuje tego test niżej), więc ta flaga nie ma jak
+    wyprodukować nieaktualnego wiersza. Dopisanie jej tutaj unieważniłoby
+    CAŁĄ tabelę score'ów przy każdym flipie, za zero korekty.
+
+    Gdyby radar kiedyś przeszedł na cache, ten test jest miejscem, w którym
+    decyzja musi zostać odwrócona.
+    """
+    from app.services.scoring_service import _SCORING_CACHE_INPUTS
+
+    assert "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED" not in _SCORING_CACHE_INPUTS
+
+
 def test_ephemeral_job_has_no_id_so_it_cannot_touch_pipeline_history():
     """`id=None` is load-bearing, not a placeholder.
 
@@ -236,41 +346,235 @@ def test_result_rows_carry_the_person_not_just_an_id():
     assert "expected_rate_hourly" not in shaped and "phone" not in shaped
 
 
-def test_salary_layer_is_blanked_because_a_radar_query_has_no_budget():
-    """`/recommendations` redacts this layer; the radar has nothing to redact.
-
-    `build_ephemeral_job` sets `salary_min`/`salary_max` to None, so
-    `_score_salary` short-circuits and the layer is structurally unscored.
-    Returning its raw zero would read as "bad fit on money" rather than "not
-    applicable" — and would leave the contract one refactor away from becoming
-    the budget oracle the sibling endpoint guards against.
-    """
-
-    from app.api.talent_radar import _shape_result
-
-    breakdown = SimpleNamespace(
+def _breakdown_with_salary_status(status: str) -> SimpleNamespace:
+    return SimpleNamespace(
         candidate_id=7,
         as_dict=lambda: {
             "candidate_id": 7,
             "total": 61.0,
             "salary": {
-                "points": 0.0,
+                "points": 12.0,
                 "max": 15,
-                "reason": "brak widełek",
-                "status": "scored",
+                "reason": "w budżecie Championa (120 ≤ 150 PLN/h)",
+                "status": status,
             },
         },
     )
 
-    shaped = _shape_result(breakdown, None)
+
+def test_scored_salary_layer_is_redacted_not_declared_inapplicable():
+    """The numbers stay hidden; the STATUS has to stop lying about why.
+
+    This endpoint used to blank the layer as `not_applicable` unconditionally,
+    on the premise that a radar query carries no budget so `_score_salary`
+    short-circuits. That premise died with the Champion signals: an uploaded
+    profile carries `rate_value`, a candidate carries `expected_rate_hourly`,
+    and the layer then scores for real — those points are inside `total`. A
+    card claiming "not applicable" was denying the existence of the very reason
+    someone had slipped down the ranking.
+
+    Withholding the numbers is a separate, still-valid decision: they are a
+    linear function of a rate the recruiter already knows, so publishing them
+    would recover the candidate's expected rate to the złoty — from a list that
+    deliberately does not carry it (`test_result_rows_carry_the_person…`).
+    """
+
+    from app.api.talent_radar import _shape_result
+
+    shaped = _shape_result(_breakdown_with_salary_status("scored"), None)
 
     assert shaped["salary"] == {
         "points": None,
         "max": None,
         "reason": None,
-        "status": "not_applicable",
+        "status": "redacted",
     }
     assert shaped["candidate"] is None, "a vanished row must not crash the response"
+
+
+@pytest.mark.parametrize("status", ["unknown", "not_comparable"])
+def test_unscored_salary_layer_stays_not_applicable(status: str):
+    """The honest case keeps the honest word.
+
+    Pasted text (no Champion rate) or a candidate with no rate: the layer had
+    nothing to judge, so it did not enter `total` and "not applicable" is
+    exactly what happened.
+    """
+
+    from app.api.talent_radar import _shape_result
+
+    shaped = _shape_result(_breakdown_with_salary_status(status), None)
+
+    assert shaped["salary"]["status"] == "not_applicable"
+
+
+def test_salary_layer_is_really_scored_on_the_radar_path(monkeypatch):
+    """Closes the reasoning above with a run, not with a paragraph.
+
+    Without this, the only evidence that `not_applicable` was a lie is someone
+    reading `_score_salary`. Here the radar's own ephemeral job is fed to the
+    real scorer: Champion rate in, candidate rate in, `scored` out.
+    """
+    from app.services import scoring_service
+
+    monkeypatch.setattr(
+        scoring_service.settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True
+    )
+
+    job = build_ephemeral_job(
+        RadarQuery(
+            client_id=7,
+            champion_profile={"rate_value": 150.0},
+            title="Senior Python Developer",
+        )
+    )
+    candidate = SimpleNamespace(
+        id=7,
+        expected_rate_hourly=120.0,
+        expected_rate_currency=None,  # NULL = udokumentowane legacy PLN
+        cv_extracted_data=None,
+    )
+
+    layer = scoring_service._score_salary(candidate, job)
+
+    assert layer.scored is True, (
+        "the radar path really does score money — this is what made the "
+        "unconditional `not_applicable` a false statement about the result"
+    )
+    assert layer.points > 0
+
+
+# ── trasa `parse-champion`: co wraca i jak nazywa awarię ────────────────────
+
+
+class _FakeUpload:
+    """Tyle z `UploadFile`, ile ta trasa naprawdę czyta."""
+
+    filename = "profil-championa.docx"
+    size = 4096
+
+    async def read(self) -> bytes:
+        return b"x" * 4096
+
+
+def _parse_champion_handler():
+    """Ciało handlera bez dekoratora rate-limitu.
+
+    `@limiter.limit` chce prawdziwego `Request` z limiterem w `app.state`;
+    testowane jest ciało, nie slowapi. `functools.wraps` zostawia oryginał pod
+    `__wrapped__` — gdyby przestał, ten test padnie głośno i od razu.
+    """
+    from app.api.talent_radar import talent_radar_parse_champion
+
+    return talent_radar_parse_champion.__wrapped__
+
+
+def _stub_champion_path(monkeypatch, *, parsed=None, error=None):
+    """Podmienia wszystko, co ta trasa woła poza swoim własnym ciałem.
+
+    Importy w handlerze są lokalne, więc rozwiązują się z modułu w czasie
+    wywołania — podmiana atrybutów modułu wystarcza i nie wymaga ani DB, ani
+    HTTP, ani klucza do dostawcy.
+    """
+    import contextlib
+
+    from app.services import ai_quota
+    from app.services import champion_profile_ingest as ingest
+
+    monkeypatch.setattr(ingest, "oversize_precheck", lambda *_a, **_k: None)
+    monkeypatch.setattr(ingest, "validate_upload", lambda *_a, **_k: None)
+    monkeypatch.setattr(ingest, "extract_document_text", lambda *_a, **_k: "t" * 500)
+
+    async def _parse(_text):
+        if error is not None:
+            raise error
+        return parsed or {}
+
+    monkeypatch.setattr(ingest, "parse_champion_document", _parse)
+
+    @contextlib.asynccontextmanager
+    async def _feature(*_a, **_k):
+        yield None
+
+    monkeypatch.setattr(ai_quota, "ai_feature", _feature)
+
+
+@pytest.mark.asyncio
+async def test_parse_champion_response_carries_the_lists(monkeypatch):
+    """Zbiór KLUCZY tej odpowiedzi jest kontraktem, na którym stoi front.
+
+    Endpoint parsował wymagania, pokazywał „8 must · 5 nice" i je WYRZUCAŁ —
+    a `build_champion_dict` ich nie kopiuje, więc po odrzuceniu odpowiedzi
+    listy nie istniały już nigdzie i ranking wywodził wymagania z prozy.
+    """
+    _stub_champion_path(
+        monkeypatch,
+        parsed={
+            "role_name": "Senior Python Developer",
+            "must_skills": [{"name": "Python"}, {"name": "  "}, {"name": "python"}],
+            "nice_skills": [{"name": "Go"}],
+            "rate_value": 150.0,
+        },
+    )
+
+    out = await _parse_champion_handler()(
+        request=None, current_user=None, file=_FakeUpload(), db=None
+    )
+
+    assert out["must_skills"] == ["Python"]
+    assert out["nice_skills"] == ["Go"]
+    assert out["summary"]["must_count"] == len(out["must_skills"]), (
+        "plakietka ma liczyć to, co POJEDZIE do rankingu — wpis bez nazwy "
+        "odpada w normalizacji, więc licznik z surowej listy zawyżałby"
+    )
+    assert out["champion_profile"]["_source"] == "talent_radar_upload"
+
+
+@pytest.mark.asyncio
+async def test_provider_outage_is_a_503_not_a_corsless_500(monkeypatch):
+    """Awaria dostawcy ≠ zepsuty plik.
+
+    `parse_champion_document` zamienia na `ValueError` wyłącznie błędy
+    parsowania ODPOWIEDZI; 529/timeout/zerwane połączenie leciały wyżej i
+    kończyły się 500, a 500 z tej trasy nie niesie nagłówków CORS — w
+    przeglądarce widać było „Network Error". Rekruter czytał to jako „ten plik
+    jest zepsuty" i próbował kolejnych zamiast poczekać minutę.
+    """
+    import anthropic
+    import httpx
+    from fastapi import HTTPException
+
+    _stub_champion_path(
+        monkeypatch,
+        error=anthropic.APITimeoutError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await _parse_champion_handler()(
+            request=None, current_user=None, file=_FakeUpload(), db=None
+        )
+
+    assert exc.value.status_code == 503
+    assert "niedost" in exc.value.detail.lower(), (
+        "komunikat musi mówić o dostawcy, nie o dokumencie"
+    )
+
+
+@pytest.mark.asyncio
+async def test_unparsable_document_still_maps_to_422(monkeypatch):
+    """Nowa gałąź nie może połknąć starej: 422 dalej znaczy „popraw plik"."""
+    from fastapi import HTTPException
+
+    _stub_champion_path(monkeypatch, error=ValueError("nieparsowalny JSON profilu"))
+
+    with pytest.raises(HTTPException) as exc:
+        await _parse_champion_handler()(
+            request=None, current_user=None, file=_FakeUpload(), db=None
+        )
+
+    assert exc.value.status_code == 422
 
 
 async def test_search_survives_the_real_eligibility_path(monkeypatch):
@@ -311,8 +615,18 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
         await db.commit()
         await db.refresh(cand)
 
+        # `bm25_query` doszedł razem z ożywieniem nogi BM25 (noga dostawała cały
+        # dokument oferty, a `websearch_to_tsquery` ANDuje leksemy, więc zwracała
+        # pustkę zawsze). Atrapa MUSI przyjmować komplet kwargów realnej fasady —
+        # inaczej ten test przewraca się na sygnaturze zamiast na tym, czego pilnuje.
         async def _fake_pool(
-            _db, _text, *, top_k, raise_on_error=False, query_variants=None
+            _db,
+            _text,
+            *,
+            top_k,
+            raise_on_error=False,
+            query_variants=None,
+            bm25_query=None,
         ):
             return [{"candidate_id": cand.id, "score": 0.71}]
 

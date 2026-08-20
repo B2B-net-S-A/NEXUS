@@ -3,7 +3,7 @@
 /**
  * Talent Radar — wklejasz treść requestu, dostajesz ranking bazy kandydatów.
  *
- * Trzy decyzje, które widać w kodzie i które nie są kosmetyczne:
+ * Cztery decyzje, które widać w kodzie i które nie są kosmetyczne:
  *
  * 1. Klient jest OBOWIĄZKOWY i pilnowany po stronie FE. Filtr dopuszczalności
  *    sprawdza względem niego blacklistę, NDA, konflikty konkurencyjne i weto
@@ -20,6 +20,11 @@
  *    Qdrant albo Voyage nie odpowiada, backend zwraca zero wyników z tą flagą;
  *    pokazanie wtedy „brak dopasowań" byłoby kłamstwem w najgorszą stronę —
  *    rekruter uznałby, że w bazie nie ma nikogo takiego.
+ *
+ * 4. To samo dotyczy błędu HTTP, który wcześniej lądował WYŁĄCZNIE w toaście:
+ *    po jego zniknięciu zostawał ekran startowy „Zacznij od wklejenia
+ *    requestu", czyli zdanie o tym, że rekruter nic nie zrobił. Błąd jedzie
+ *    więc do `TalentRadarResults` i zostaje na ekranie do następnej próby.
  */
 
 import { useMemo, useState } from "react";
@@ -74,6 +79,15 @@ export function TalentRadarWorkspace() {
   > | null>(null);
   const [championSummary, setChampionSummary] =
     useState<ChampionParseSummary | null>(null);
+  // Wymagania z profilu trzymane OSOBNO od `championProfile`: ten obiekt jest
+  // przekazywany na backend verbatim jako `jobs.champion_profile` i wymagań
+  // NIE niesie (`build_champion_dict` ich nie kopiuje). Bez tego stanu listy
+  // z `parse-champion` przepadają po jednym renderze i ranking wraca do
+  // wywodzenia wymagań z prozy — czyli tu urywał się łańcuch.
+  const [championSkills, setChampionSkills] = useState<{
+    must: string[];
+    nice: string[];
+  } | null>(null);
   const [parsingChampion, setParsingChampion] = useState(false);
 
   const search = useMutation({
@@ -88,16 +102,35 @@ export function TalentRadarWorkspace() {
           ? championSummary?.role_name || undefined
           : title.trim() || undefined,
         top_k: 20,
+        // Puste listy pomijamy (`undefined`), żeby nie wysyłać `[]` — dla
+        // backendu „brak wymagań wprost" i „pusta lista" to ta sama decyzja,
+        // ale krótsze ciało requestu czyta się jednoznacznie.
+        must_skills: championSkills?.must.length
+          ? championSkills.must
+          : undefined,
+        nice_skills: championSkills?.nice.length
+          ? championSkills.nice
+          : undefined,
         budget_hourly_max:
           Number(budgetMax) > 0 ? Number(budgetMax) : undefined,
         exclude_remote_only: excludeRemoteOnly || undefined,
       }),
     onSuccess: (data) => setResponse(data),
     onError: (error: unknown) => {
+      // Toast zostaje (natychmiastowy sygnał), ale nie jest już JEDYNYM
+      // śladem awarii — `search.error` renderuje się w wynikach.
       setResponse(null);
       showError(extractErrorMsg(error));
     },
   });
+
+  // Zmiana wejścia unieważnia POPRZEDNI błąd tak samo jak poprzednie wyniki:
+  // komunikat „nie udało się" wiszący nad świeżo wybranym klientem opisywałby
+  // zapytanie, którego już nie ma.
+  const clearResults = () => {
+    setResponse(null);
+    search.reset();
+  };
 
   const hasProfile = championProfile !== null;
   const tooShort = text.trim().length < MIN_QUERY_LENGTH;
@@ -119,12 +152,19 @@ export function TalentRadarWorkspace() {
       const res = await talentRadarApi.parseChampion(f);
       setChampionProfile(res.champion_profile);
       setChampionSummary(res.summary);
+      // `?? []` mimo wymaganych pól w typie: to dane z sieci, a nie z
+      // kompilatora. Starsza odpowiedź bez tych kluczy zamieniłaby klik
+      // „Szukaj kandydatów" w TypeError zamiast w wyszukiwanie.
+      setChampionSkills({
+        must: res.must_skills ?? [],
+        nice: res.nice_skills ?? [],
+      });
       // Stawka z profilu = budżet klienta na kandydata — pre-fill dla
       // dealbreakera (rekruter może nadpisać/wyczyścić).
       if (res.summary.rate_value && !budgetMax) {
         setBudgetMax(String(res.summary.rate_value));
       }
-      setResponse(null);
+      clearResults();
     } catch (error: unknown) {
       showError(extractErrorMsg(error));
     } finally {
@@ -174,7 +214,8 @@ export function TalentRadarWorkspace() {
                 onClick={() => {
                   setChampionProfile(null);
                   setChampionSummary(null);
-                  setResponse(null);
+                  setChampionSkills(null);
+                  clearResults();
                 }}
               >
                 Usuń
@@ -247,7 +288,7 @@ export function TalentRadarWorkspace() {
                 // klientowi", wskazującym już na klienta B — czyli fałszywe
                 // zapewnienie zgodności, dokładnie to, czemu obowiązkowy klient
                 // ma zapobiegać.
-                setResponse(null);
+                clearResults();
               }}
             />
           </div>
@@ -317,6 +358,8 @@ export function TalentRadarWorkspace() {
         meta={meta ?? null}
         results={results}
         pending={search.isPending}
+        error={search.isError ? search.error : null}
+        onRetry={() => search.mutate()}
         canOpenProfile={canOpenProfile}
       />
     </div>
