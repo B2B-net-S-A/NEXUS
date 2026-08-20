@@ -126,6 +126,38 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (RecruiterPlus, bez HoR).
+  // HoR czyta teczkę, ale nie wgrywa — upload dostałby 403.
+  "candidate.document.manage": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
+  // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES.
+  // HoR i sourcer CELOWO na true — polityka produktowa faktów globalnych.
+  "candidate.profile_fact.manage": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
+  // GET /api/dashboard/v2/recruitment-stats → OperationalUser.
+  "dashboard.recruitment_stats.view": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
   // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
   "client.portfolio.manage": {
     admin: true,
@@ -342,6 +374,27 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
     expect(hasCapability(mkUser("finance"), "nav.finance")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.candidates")).toBe(true);
+  });
+});
+
+describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po HoR)", () => {
+  it("HoR edytuje fakty globalne, ale nie wgrywa plik\u00f3w", () => {
+    const hor = mkUser("head_of_recruitment");
+    // CandidateProfileFacts*Access = _INTERNAL_OPERATIONAL_ROLES (z HoR).
+    expect(hasCapability(hor, "candidate.profile_fact.manage")).toBe(true);
+    // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (bez HoR) \u2192 upload = 403.
+    // Ta asercja p\u0119ka, gdy kto\u015b „upro\u015bci" oba wpisy do jednego \u2014 r\u00f3\u017cnica
+    // mi\u0119dzy nimi to dok\u0142adnie HoR i jest niewidoczna w code review od strony UI.
+    expect(hasCapability(hor, "candidate.document.manage")).toBe(false);
+  });
+
+  it("radar jest szerszy ni\u017c dost\u0119p do kandydat\u00f3w", () => {
+    // Zapobiega powrotowi r\u0119cznej listy r\u00f3l z `app/talent-radar/page.tsx`.
+    expect(hasCapability(mkUser("user"), "nav.talent_radar")).toBe(true);
+    expect(hasCapability(mkUser("user"), "nav.candidates")).toBe(false);
+    expect(
+      hasCapability(mkUser("head_of_recruitment"), "nav.talent_radar"),
+    ).toBe(true);
   });
 });
 

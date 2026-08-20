@@ -28,11 +28,17 @@ vi.mock("@/components/v2/files/FilePreviewModal", async () => {
 
 let currentRole = "recruiter";
 
+// `getUserRoles` MUSI być w tej fabryce: bramka zakładki idzie przez
+// `useCapability` → `hasCapability` (realny `@/lib/capabilities`) →
+// `getUserRoles` z TEGO mocka. Bez niego leci TypeError w renderze i pada
+// CAŁY plik — objaw wygląda jak zepsuta bramka, przyczyną jest setup testu.
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (state: { user: { role: string } }) => unknown) =>
     selector({ user: { role: currentRole } }),
   hasRole: (user: { role: string } | null, ...roles: string[]) =>
     !!user && roles.includes(user.role),
+  getUserRoles: (user: { role: string; roles?: string[] } | null) =>
+    user ? Array.from(new Set([user.role, ...(user.roles ?? [])])) : [],
 }));
 
 function renderTab() {
@@ -144,5 +150,31 @@ describe("CandidateFilesTab upload", () => {
     expect(
       screen.queryByRole("button", { name: /Dodaj plik/ }),
     ).not.toBeInTheDocument();
+  });
+
+  // Granica dwóch capability kandydackich przebiega DOKŁADNIE po HoR: teczkę
+  // czyta (CandidateDocumentAccess), ale POST dokumentu to CandidateWriteAccess
+  // bez niego. Ten przypadek był dotąd zielony przypadkiem — ręczna lista
+  // gubiła HoR razem z finansami, więc nie pilnował właściwego guardu.
+  it("HoR widzi listę plików, ale nie ma uploadera (CandidateWriteAccess bez HoR)", async () => {
+    currentRole = "head_of_recruitment";
+    renderTab();
+
+    expect(await screen.findByText("Brak plików.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Dodaj plik/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  // Odwrotna regresja: CANDIDATE_WRITE_ROLES zawiera `finance` (tier
+  // recruitera od 19.08), więc backend odpowiada mu 200, a front chował
+  // uploader. Ten przypadek jest CZERWONY przed zmianą.
+  it("finance ma uploader (CANDIDATE_WRITE_ROLES zawiera finance)", async () => {
+    currentRole = "finance";
+    renderTab();
+
+    expect(
+      await screen.findByRole("button", { name: /Dodaj plik/ }),
+    ).toBeInTheDocument();
   });
 });
