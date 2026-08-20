@@ -12,9 +12,8 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -334,72 +333,124 @@ async def import_candidates(
     }
 
 
+_CANDIDATE_EXPORT_HEADER = (
+    "id",
+    "name",
+    "lastname",
+    "email",
+    "phone",
+    "location",
+    "source",
+    "status",
+    "skills",
+    "expected_rate_hourly",
+    "created_at",
+    "open_to_side_projects",
+    "open_to_sales_support",
+    "open_to_expert_consult",
+)
+
+# Dokladnie te kolumny, ktore `_candidate_export_row` wypisuje (plus waluta,
+# ktorej sam CSV nie ma, ale bez ktorej nie da sie zredagowac stawki). Reszta
+# modelu — `raw_cv_text`, JSONB-y profilu, embeddingi — nigdy nie trafiala do
+# pliku, a mimo to szla przez siec i pamiec procesu przy KAZDYM eksporcie.
+_CANDIDATE_EXPORT_ENTITIES = (
+    Candidate.id,
+    Candidate.name,
+    Candidate.lastname,
+    Candidate.email,
+    Candidate.phone,
+    Candidate.location,
+    Candidate.source,
+    Candidate.status,
+    Candidate.skills,
+    Candidate.expected_rate_hourly,
+    Candidate.expected_rate_currency,
+    Candidate.created_at,
+    Candidate.open_to_side_projects,
+    Candidate.open_to_sales_support,
+    Candidate.open_to_expert_consult,
+)
+
+# Ile wierszy asyncpg materializuje naraz przy strumieniowaniu. Ta sama
+# wartosc co w `POST /api/candidates/export` — jedno miejsce mniej do
+# rozjechania sie.
+_EXPORT_YIELD_PER = 500
+_EXPORT_CHUNK_BYTES = 64 * 1024
+
+
+def _candidate_export_row(c) -> list:
+    """Jeden wiersz CSV. Przyjmuje ORM ``Candidate`` ALBO wiersz projekcji —
+    liczy sie tylko dostep po nazwach atrybutow, ktory daja oba."""
+    # Flatten skills list → "Python, React, AWS"
+    skills_list = c.skills or []
+    if isinstance(skills_list, list):
+        skills_str = ", ".join(
+            s.get("name", s) if isinstance(s, dict) else str(s) for s in skills_list
+        )
+    else:
+        skills_str = ""
+
+    created = c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else ""
+    profile_rate = canonical_profile_rate_amount(
+        c.expected_rate_hourly,
+        c.expected_rate_currency,
+    )
+
+    return [
+        c.id,
+        c.name or "",
+        c.lastname or "",
+        c.email or "",
+        c.phone or "",
+        c.location or "",
+        c.source or "",
+        c.status.value if c.status else "",
+        skills_str,
+        profile_rate if profile_rate is not None else "",
+        created,
+        "tak" if c.open_to_side_projects else "",
+        "tak" if c.open_to_sales_support else "",
+        "tak" if c.open_to_expert_consult else "",
+    ]
+
+
 def _build_candidates_csv(candidates) -> bytes:
     """Serialize candidates to CSV bytes (UTF-8 BOM for Excel/Polish chars).
 
-    Sync/CPU-bound over the full candidate list — call via run_in_threadpool so
-    the serialization of tens of thousands of rows does not block the loop.
+    Sync/CPU-bound — zostaje dla wolajacych, ktorzy maja juz cala liste w
+    pamieci (testy). Endpoint eksportu strumieniuje, wiec calej listy nigdy
+    nie tworzy.
     """
     output = io.StringIO()
     writer = csv.writer(output)
-
-    # Header
-    writer.writerow(
-        [
-            "id",
-            "name",
-            "lastname",
-            "email",
-            "phone",
-            "location",
-            "source",
-            "status",
-            "skills",
-            "expected_rate_hourly",
-            "created_at",
-            "open_to_side_projects",
-            "open_to_sales_support",
-            "open_to_expert_consult",
-        ]
-    )
-
+    writer.writerow(_CANDIDATE_EXPORT_HEADER)
     for c in candidates:
-        # Flatten skills list → "Python, React, AWS"
-        skills_list = c.skills or []
-        if isinstance(skills_list, list):
-            skills_str = ", ".join(
-                s.get("name", s) if isinstance(s, dict) else str(s) for s in skills_list
-            )
-        else:
-            skills_str = ""
-
-        created = c.created_at.strftime("%Y-%m-%d %H:%M") if c.created_at else ""
-        profile_rate = canonical_profile_rate_amount(
-            c.expected_rate_hourly,
-            c.expected_rate_currency,
-        )
-
-        writer.writerow(
-            [
-                c.id,
-                c.name or "",
-                c.lastname or "",
-                c.email or "",
-                c.phone or "",
-                c.location or "",
-                c.source or "",
-                c.status.value if c.status else "",
-                skills_str,
-                profile_rate if profile_rate is not None else "",
-                created,
-                "tak" if c.open_to_side_projects else "",
-                "tak" if c.open_to_sales_support else "",
-                "tak" if c.open_to_expert_consult else "",
-            ]
-        )
+        writer.writerow(_candidate_export_row(c))
 
     # Encode with UTF-8 BOM for Polish characters in Excel
     return codecs.BOM_UTF8 + output.getvalue().encode("utf-8")
+
+
+async def _stream_candidates_csv(db: AsyncSession, query):
+    """Wypuszcza CSV kawalkami, w miare jak Postgres oddaje wiersze."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_CANDIDATE_EXPORT_HEADER)
+    # BOM tylko raz, przed naglowkiem — Excel czyta go z poczatku pliku.
+    yield codecs.BOM_UTF8 + buffer.getvalue().encode("utf-8")
+    buffer.seek(0)
+    buffer.truncate(0)
+
+    stream = await db.stream(query.execution_options(yield_per=_EXPORT_YIELD_PER))
+    async for row in stream:
+        writer.writerow(_candidate_export_row(row))
+        if buffer.tell() >= _EXPORT_CHUNK_BYTES:
+            yield buffer.getvalue().encode("utf-8")
+            buffer.seek(0)
+            buffer.truncate(0)
+    if buffer.tell():
+        yield buffer.getvalue().encode("utf-8")
 
 
 @router.get("/export/candidates")
@@ -409,11 +460,26 @@ async def export_candidates(
 ):
     """
     Export all candidates as CSV with UTF-8 BOM (Polish characters support).
-    """
-    result = await db.execute(select(Candidate).order_by(Candidate.created_at.desc()))
-    candidates = result.scalars().all()
 
-    csv_bytes = await run_in_threadpool(_build_candidates_csv, candidates)
+    Projekcja + strumien, nie `select(Candidate).scalars().all()`. Tamto
+    ladowalo ~49 tys. pelnych wierszy ORM (z `raw_cv_text` i JSONB-ami) do
+    pamieci procesu, zeby wypisac z nich 14 kolumn — przy `mem_limit`
+    kontenera realne bylo ubicie backendu, a wtedy 502 dostaja WSZYSCY
+    zalogowani, nie tylko eksportujacy.
+
+    Ksztalt CSV celowo NIE jest scalany z `POST /api/candidates/export`:
+    tamten ma inny zestaw kolumn i wlasny format XLSX, wiec wspolna sciezka
+    zmienilaby plik pod istniejacymi odbiorcami tej trasy. Kontrakt, ktorego
+    pilnuje `test_parallel_export_surface_matches_export_capability`, dotyczy
+    UPRAWNIEN (matryca 403), nie serializacji — i ten zostaje nietkniety.
+    """
+    query = select(*_CANDIDATE_EXPORT_ENTITIES).order_by(Candidate.created_at.desc())
+
+    # Audyt musi byc utrwalony ZANIM zaczniemy oddawac bajty: po starcie
+    # StreamingResponse nie ma juz gdzie zapisac wiersza, a slad ma powstac
+    # nawet gdy pobieranie urwie sie w polowie. Stad osobny `count()` —
+    # `row_count` to liczba kandydatow w chwili zadania, tak jak dotad.
+    row_count = int(await db.scalar(select(func.count()).select_from(Candidate)) or 0)
 
     # Ten sam nieusuwalny slad audytowy co /api/candidates/export (PR1) —
     # bez PII, same liczniki.
@@ -424,7 +490,7 @@ async def export_candidates(
         details={
             "endpoint": "GET /api/export/candidates",
             "format": "csv",
-            "row_count": len(candidates),
+            "row_count": row_count,
         },
     )
     await db.commit()
@@ -433,10 +499,11 @@ async def export_candidates(
     filename = f"kandydaci_{timestamp}.csv"
 
     return StreamingResponse(
-        io.BytesIO(csv_bytes),
+        _stream_candidates_csv(db, query),
         media_type="text/csv; charset=utf-8-sig",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "Content-Length": str(len(csv_bytes)),
-        },
+        # Bez `Content-Length` — rozmiaru nie znamy przed wyslaniem, a
+        # zgadniety naglowek jest gorszy niz jego brak (przegladarka ucina
+        # plik do zadeklarowanej dlugosci). Transfer leci chunked, tak jak w
+        # `POST /api/candidates/export`.
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

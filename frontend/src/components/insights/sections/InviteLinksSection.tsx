@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link2, Target, Users } from "lucide-react";
 import { reportsApi } from "@/lib/api";
-import { KpiCard, LoadingSpinner } from "./_shared";
+import { KpiCard, LoadingSpinner, SectionError } from "./_shared";
 import type { Period } from "./PeriodSelector";
 
 interface InviteLinksReportChannel {
@@ -39,7 +39,7 @@ interface Props {
 export function InviteLinksSection({ period }: Props) {
   const reportPeriod = REPORT_PERIOD_MAP[period];
 
-  const { data, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ["insights-invite-links", reportPeriod],
     queryFn: () =>
       reportsApi
@@ -47,8 +47,21 @@ export function InviteLinksSection({ period }: Props) {
         .then((r) => r.data as InviteLinksReportData),
   });
 
-  if (isLoading) return <LoadingSpinner />;
-  if (!data) return null;
+  // Ładowanie → awaria → dane (audyt F-20). Dawne `if (!data) return null`
+  // znaczyło, że przy awarii raportu sekcja znikała bez śladu — a niżej i tak
+  // jest już uczciwy pusty stan dla „zero linków". `isPending`, nie
+  // `isLoading` — patrz komentarz w BoardKPI.
+  if (query.isPending) return <LoadingSpinner />;
+  if (query.isError) {
+    return (
+      <SectionError
+        label="Linki aplikacyjne"
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+  const data = query.data;
 
   const hasData = data.channels.length > 0;
 

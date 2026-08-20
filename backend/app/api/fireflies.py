@@ -8,7 +8,7 @@ GET /api/fireflies/status      — current integration status
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -82,9 +82,20 @@ async def fireflies_status(
 
     status = get_sync_status()
 
-    # Count total meeting notes in DB
-    result = await db.execute(select(Note).where(Note.note_type == NoteType.meeting))
-    total_notes = len(result.scalars().all())
+    # Kafelek pokazuje JEDNĄ liczbę, więc liczy ją baza. Wcześniej szło tu
+    # `select(Note)` bez limitu i `len(...all())` — czyli komplet notatek ze
+    # spotkań ładowany do pamięci procesu razem z `Note.content` (Text: pełne
+    # transkrypty), żeby zaraz wyrzucić wszystko poza długością listy.
+    #
+    # Świadomie BEZ indeksu na `notes.note_type`: indeks to migracja plus
+    # lustro w `entrypoint.sh`, a ten PR nie rusza schematu. Sam `count()`
+    # zabiera główny koszt (transfer i pamięć), zostawiając skan.
+    total_notes = int(
+        await db.scalar(
+            select(func.count(Note.id)).where(Note.note_type == NoteType.meeting)
+        )
+        or 0
+    )
 
     return {
         "connected": bool(os.getenv("FIREFLIES_API_KEY")),

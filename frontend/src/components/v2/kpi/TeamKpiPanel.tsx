@@ -84,7 +84,14 @@ const COLUMNS: { key: NumKey; label: string; hint: string }[] = [
  *
  * Widoczny dla każdej roli operacyjnej (decyzja właściciela 2026-08-07:
  * cały zespół widzi imienne wyniki wszystkich, jak w InfraReporterze).
- * Finance i legacy `user` — null (backend też ich odcina).
+ * Legacy viewer `user` — null; `finance` ma tier operacyjny od 19.08, a
+ * backendowy `TeamPanelViewer` (= OperationalUser) odpowiada mu 200.
+ *
+ * Bramka ZOSTAJE listą inline, a nie wpisem w rejestrze capability: jedyny
+ * importer tego panelu (`components/v2/pages/DashboardV2.tsx`) sam nie jest
+ * importowany znikąd, więc capability nie miałaby żywego konsumenta, a rejestr
+ * reklamuje się jako „świadomy diff uprawnień". Przenieść razem z decyzją
+ * o sierocie — podpiąć `DashboardV2` z powrotem albo ją usunąć.
  */
 export function TeamKpiPanel({ className }: { className?: string }) {
   const user = useAuthStore((s) => s.user)
@@ -95,6 +102,7 @@ export function TeamKpiPanel({ className }: { className?: string }) {
     "delivery_lead",
     "tac",
     "recruiter",
+    "finance",
     "sourcer",
   )
 
@@ -124,6 +132,9 @@ export function TeamKpiPanel({ className }: { className?: string }) {
       "tac",
       "recruiter",
       "sourcer",
+      // Rola spoza tej listy jest odfiltrowana, więc wiersz finansisty
+      // przyszedłby z backendu, ale zniknął z dropdowna filtra ról.
+      "finance",
       "admin",
       "user",
     ]

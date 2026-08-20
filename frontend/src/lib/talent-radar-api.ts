@@ -9,6 +9,9 @@
  */
 
 import { api } from "@/lib/api";
+// Sufit czasu dla endpointów LLM/scoringowych — jedna stała dla całej
+// aplikacji, nie kopia w każdym kliencie (kopie rozjeżdżają się cicho).
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 /** Warstwa punktowa scoringu — jedna z sześciu składowych wyniku. */
 export interface TalentRadarLayer {
@@ -16,9 +19,15 @@ export interface TalentRadarLayer {
   max: number | null;
   reason: string | null;
   /**
-   * Obecne tylko na warstwie wynagrodzenia. `not_applicable` znaczy, że radar
-   * nie ma widełek do porównania — inaczej niż zero punktów, które znaczyłoby
-   * „nie pasuje finansowo".
+   * Obecne tylko na warstwie wynagrodzenia — dwie różne rzeczy pod jedną
+   * nazwą, więc rozróżnienie jest istotne:
+   * `not_applicable` — nie było czego porównać (wklejony request bez stawki
+   * Championa albo kandydat bez stawki), więc warstwa nie weszła do wyniku;
+   * `redacted` — weszła i realnie przesunęła `total`, ale LICZB nie
+   * pokazujemy: są liniową funkcją stawki Championa, którą rekruter zna, więc
+   * odsłoniłyby oczekiwania kandydata co do złotówki (ta lista celowo ich nie
+   * niesie). Zero punktów znaczyłoby „nie pasuje finansowo" i nie jest tym
+   * samym co żadne z powyższych.
    */
   status?: string;
 }
@@ -96,6 +105,14 @@ export interface TalentRadarSearchRequest {
    */
   budget_hourly_max?: number;
   exclude_remote_only?: boolean;
+  /**
+   * Wymagania twarde/miękkie WPROST, prosto z `parse-champion`. Bez nich
+   * ranking wywodzi wymagania regexem z prozy, a plakietka „8 must · 5 nice"
+   * obiecuje wiedzę, której scoring nigdy nie dostał. Puste przy wklejonym
+   * tekście — wtedy działa dotychczasowy fallback.
+   */
+  must_skills?: string[];
+  nice_skills?: string[];
 }
 
 export interface ChampionParseSummary {
@@ -109,17 +126,16 @@ export interface ChampionParseSummary {
 
 export interface ChampionParseResponse {
   champion_profile: Record<string, unknown>;
+  /**
+   * Wymagania z dokumentu. MUSZĄ zostać przekazane do `search` — profil
+   * (`champion_profile`) ich NIE niesie (`build_champion_dict` ich nie
+   * kopiuje), więc porzucenie tej odpowiedzi gubi je bezpowrotnie i to tutaj
+   * łańcuch od parsera do rankingu się urywał.
+   */
+  must_skills: string[];
+  nice_skills: string[];
   summary: ChampionParseSummary;
 }
-
-/**
- * Sufit czasu dla endpointów LLM/scoringowych radaru. Domyślny timeout
- * instancji `api` (30 s) jest dla CRUD-ów — parse profilu (Haiku,
- * 10-31+ s zmierzone) i search na zimnym cache (embed + scoring ~2000
- * kandydatów, ~30+ s) ubijał ŻYWE requesty sekundę przed odpowiedzią
- * (#1210, #1211). 120 s pokrywa ogon z zapasem.
- */
-const SLOW_ENDPOINT_TIMEOUT_MS = 120_000;
 
 export const talentRadarApi = {
   search: (

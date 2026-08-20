@@ -1,16 +1,23 @@
-"""Fasada puli — jeden flip dla czterech powierzchni, skala semantyczna nietknięta.
+"""Fasada puli — jeden flip dla pięciu powierzchni, skala semantyczna nietknięta.
 
 Decyzja zamrożona tu testami: hybryda wybiera CZŁONKOSTWO puli, ale warstwa
 semantyczna scoringu dalej dostaje KOSINUSY. Wyniki fuzji RRF (~1/60 na
 pozycję) i rerankera żyją na innych skalach — wpuszczone do `similarity_map`
 rozstroiłyby kalibrację (gamma, frakcja neutralna) i zatruły cache score'ów.
+
+Drugi kontrakt (C12, 2026-08-20): każde wywołanie fasady podaje `bm25_query`.
+Fasada dostaje DOKUMENT, a `websearch_to_tsquery` ANDuje leksemy — więc noga
+BM25 karmiona `query_text` zwracała zero dla każdej oferty, przez cały czas
+istnienia hybrydy, i nie było tego widać, bo fuzja RRF z pustą listą wygląda
+identycznie jak porządek nogi gęstej.
 """
 
 import ast
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+
+from app.services.hybrid_search import HybridResult
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -57,10 +64,16 @@ async def test_flag_on_membership_from_hybrid_scores_from_cosine(monkeypatch):
 
     from app.services import retrieval_pool as rp
 
-    async def fake_hybrid(db, query, *, pool, final_top_k, use_rerank):
-        return SimpleNamespace(
-            pairs=[(7, 0.032), (9, 0.031), (4, 0.030)], degraded=False
+    # Atrapa zwraca PRAWDZIWY `HybridResult`, nie `SimpleNamespace`: fasada
+    # czyta z niego telemetrię nogi BM25 (`bm25_hits`/`bm25_failed`), więc
+    # atrapa o luźnym kształcie przepuściłaby zmianę, która na produkcji
+    # wywala się na `AttributeError`.
+    async def fake_hybrid(db, query, *, pool, final_top_k, use_rerank, bm25_query):
+        assert bm25_query == "", (
+            "brak `bm25_query` na callsicie ⇒ nogi BM25 się NIE PYTA — "
+            "dokument w roli tsquery daje zero, tyle że niewidzialnie"
         )
+        return HybridResult(pairs=[(7, 0.032), (9, 0.031), (4, 0.030)])
 
     async def fake_cosines(query, ids):
         assert ids == [7, 9, 4], "kosinusy liczone dokładnie dla wybranych"
@@ -161,8 +174,8 @@ async def test_cosine_failure_after_bm25_gives_zero_score_pool(monkeypatch):
 
     from app.services import retrieval_pool as rp
 
-    async def fake_hybrid(db, query, *, pool, final_top_k, use_rerank):
-        return SimpleNamespace(pairs=[(7, 0.032), (4, 0.030)], degraded=False)
+    async def fake_hybrid(db, query, *, pool, final_top_k, use_rerank, bm25_query):
+        return HybridResult(pairs=[(7, 0.032), (4, 0.030)])
 
     async def exploding_cosines(query, ids):
         raise RuntimeError("Voyage w awarii")
@@ -201,22 +214,47 @@ def test_hybrid_flag_is_deliberately_absent_from_scoring_cache_inputs():
     from app.services.scoring_service import _SCORING_CACHE_INPUTS
 
     assert "HYBRID_POOL_ENABLED" not in _SCORING_CACHE_INPUTS
+    # Ta sama decyzja, ten sam powód: sufit członkostwa nogi BM25 zmienia
+    # KOGO oglądamy, nie JAK liczymy. Kosinusy dalej idą z
+    # `similarity_for_candidate_ids`, więc istniejące wiersze cache zostają
+    # poprawne — dopisanie klucza byłoby czystą inwalidacją bez korekty.
+    assert "HYBRID_BM25_POOL_LIMIT" not in _SCORING_CACHE_INPUTS
 
 
-def test_all_four_pool_sites_go_through_the_facade():
+# Callsite fasady, który jeszcze NIE przekazuje `bm25_query`. Skutek jest
+# konkretny i trzeba go znać przed pomiarem: harness ewaluacyjny mierzy ramię
+# „hybryda ON" z nogą BM25, o którą się nie pyta — czyli mierzy pulę
+# wyłącznie wektorową i pokaże brak różnicy niezależnie od jakości terminów.
+# Plik jest poza zakresem tej zmiany; wpis znika razem z uzupełnieniem
+# `bm25_query=build_job_bm25_query(job)` w `scripts/eval_matching.py:518`.
+_BM25_QUERY_PENDING = {"scripts/eval_matching.py"}
+
+
+def test_all_five_pool_sites_go_through_the_facade():
     """Częściowy flip to jedyny naprawdę błędny stan — patrz pasaże.
 
-    Każde z czterech miejsc puli (rekomendacje, Talent Radar, propozycje, eval)
-    woła fasadę; żadne nie woła `search_candidates_semantic` bezpośrednio dla
-    PULI. (Inne użycia — np. `similarity_for_candidate_ids` — zostają.)
+    Każde z pięciu miejsc puli (rekomendacje, Talent Radar, propozycje,
+    digest, eval) woła fasadę; żadne nie woła `search_candidates_semantic`
+    bezpośrednio dla PULI. (Inne użycia — np. `similarity_for_candidate_ids` —
+    zostają.)
+
+    Drugi wymóg (C12): każde wywołanie fasady podaje `bm25_query`. Zapomniany
+    argument nie wywala niczego — po prostu wyłącza nogę BM25 dla tej
+    powierzchni, cicho i bez awarii. To dokładnie ta klasa defektu, przez którą
+    hybryda przez cały czas swojego istnienia była kosztem bez wkładu, więc
+    strażnik pilnuje obecności argumentu, nie samego przejścia przez fasadę.
     """
 
     sites = {
         "app/api/recommendations.py",
         "app/services/talent_radar_search.py",
         "app/tasks/compute_proposals.py",
+        # Digest wołał fasadę od początku, ale nigdy nie był na tej liście —
+        # istniejąca luka strażnika, nie nowy callsite.
+        "app/tasks/match_digest.py",
         "scripts/eval_matching.py",
     }
+    assert _BM25_QUERY_PENDING <= sites, "wyjątek na plik spoza listy callsite'ów"
     for rel in sites:
         source = (BACKEND / rel).read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -241,6 +279,21 @@ def test_all_four_pool_sites_go_through_the_facade():
         assert "search_candidates_semantic" not in attr_calls, (
             f"{rel}: atrybutowe wywołanie puli obok fasady — częściowy flip"
         )
+
+        if rel in _BM25_QUERY_PENDING:
+            continue
+        pool_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "retrieve_candidate_pool"
+        ]
+        for call in pool_calls:
+            assert any(kw.arg == "bm25_query" for kw in call.keywords), (
+                f"{rel}: pula bez `bm25_query` — noga BM25 nie dostanie o co "
+                f"pytać i zwróci zero, cicho i bez awarii"
+            )
 
 
 # ── multi-query (runda 2): unia wariantów, kosinusy z zapytania głównego ─────

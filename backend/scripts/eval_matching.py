@@ -75,6 +75,7 @@ from app.services.similar_job_candidates import (  # noqa: E402
     fetch_historical_boost_map,
 )
 from app.services.canonical_text import build_job_query_variants  # noqa: E402
+from app.services.hybrid_search import build_job_bm25_query  # noqa: E402
 from app.services.retrieval_pool import retrieve_candidate_pool  # noqa: E402
 
 logger = logging.getLogger("eval_matching")
@@ -520,6 +521,13 @@ async def _score_job_candidates(
             query_text,
             top_k=pool_cap,
             query_variants=build_job_query_variants(job, query_text),
+            # Bez tego eval mierzy pulę BEZ nogi BM25 — czyli dokładnie ten stan,
+            # który naprawiamy. Pominięcie tego argumentu tutaj sprawiłoby, że
+            # przyrząd pomiarowy potwierdzi „hybryda nic nie dała" niezależnie od
+            # tego, czy naprawa zadziałała: to ta sama pomyłka, przez którą A/B
+            # z 18.08 zapisało metryki identyczne z baselinem i uzasadniło wniosek
+            # „sufit architektury".
+            bm25_query=build_job_bm25_query(job),
         )
     except Exception as e:
         logger.warning("semantic search failed for job=%s: %s", job.id, e)

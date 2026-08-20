@@ -6,6 +6,9 @@ import pytest
 
 from app.services import claude_client
 from app.services.ai_health import (
+    CLAUDE_SLOW_THRESHOLD_MS,
+    CONSECUTIVE_FAILURE_THRESHOLD,
+    SLOW_THRESHOLD_MS,
     provider_health_label,
     provider_observed,
     provider_status,
@@ -77,6 +80,59 @@ def test_health_label_reports_degraded_on_slow_streak():
     for _ in range(3):
         record_provider_call("qdrant", 6000, failed=False)
     assert provider_health_label("qdrant") == "degraded"
+
+
+# ── "slow" is a property of the provider, not of the module ─────────────────
+
+
+def test_claude_is_not_degraded_by_ordinary_multi_second_calls():
+    """Measured defect, not a hypothetical: prod said `"anthropic": "degraded"`.
+
+    One module constant (5 s, sized for Voyage/Qdrant) judged every tracker, so
+    three ORDINARY SUCCESSFUL Claude calls — the provider legitimately runs
+    10-31+ s, which is why the HTTP timeouts were raised to 120 s — pinned the
+    provider on yellow permanently. A probe that is always yellow teaches the
+    operator to skip that line, which is how the next real outage goes unread.
+    """
+    for _ in range(5):
+        record_provider_call("claude", 31_000, failed=False)
+    assert provider_health_label("claude") == "healthy"
+
+
+def test_retrieval_keeps_the_five_second_bar_while_claude_does_not():
+    """Paired on purpose: the SAME latency, two verdicts.
+
+    Six seconds is a broken retrieval call and an unremarkable LLM call. A
+    single threshold cannot say both, so the pair is what proves the bar is
+    per provider rather than merely raised for everyone.
+    """
+    for _ in range(3):
+        record_provider_call("voyage", SLOW_THRESHOLD_MS + 1000, failed=False)
+        record_provider_call("claude", SLOW_THRESHOLD_MS + 1000, failed=False)
+    assert provider_health_label("voyage") == "degraded"
+    assert provider_health_label("claude") == "healthy"
+
+
+def test_claude_still_reports_degraded_when_calls_crawl_toward_the_timeout():
+    """The wider bar is still a bar — otherwise the criterion is decoration.
+
+    A call that SUCCEEDS a minute in is a provider about to start failing; the
+    yellow light is worth having before the red one.
+    """
+    for _ in range(3):
+        record_provider_call("claude", CLAUDE_SLOW_THRESHOLD_MS + 1000, failed=False)
+    assert provider_health_label("claude") == "degraded"
+
+
+def test_claude_failure_streak_still_reports_unhealthy():
+    """Widening the slow bar must not blunt the error criterion.
+
+    That criterion is what keeps a genuine outage distinguishable — the whole
+    reason the slow one could be relaxed without losing anything.
+    """
+    for _ in range(CONSECUTIVE_FAILURE_THRESHOLD):
+        record_provider_call("claude", 12_000, failed=True)
+    assert provider_health_label("claude") == "unhealthy"
 
 
 def test_observation_survives_recovery():

@@ -592,6 +592,96 @@ async def test_swap_gives_successor_the_planned_end_date(
     )
 
 
+async def test_line_stays_editable_after_a_swap(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Każda kolejna edycja linii po zamianie kontraktora musi dać 200.
+
+    Serializacja linii schodzi z poprzednika aż do kandydata
+    (`predecessor_consultant_name`). Płaski `selectinload(predecessor)`
+    ładował samego poprzednika i zostawiał tam leniwą relację, a w async
+    SQLAlchemy leniwe doczytanie leci `MissingGreenlet` → 500 bez nagłówków
+    CORS, czyli „Network Error" bez żadnej wskazówki. Wybuch następował już
+    PO `commit()`: stawka zapisywała się w bazie, operator widział błąd bez
+    treści i ponawiał — u BIK/Polkomtela/BNP codziennie.
+
+    Dowód MUSI iść przez prawdziwego Postgresa. Na podstawionej sesji leniwe
+    doczytanie nie ma jak wybuchnąć, więc test na mocku byłby zielony także
+    przed poprawką — czyli nie dowodziłby niczego.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert swap.status_code == 201, swap.text
+    successor_id = swap.json()["id"]
+
+    patch = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{successor_id}",
+        json={"rate_cost": 820},
+        headers=app_auth_headers,
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body["rate_cost"] == pytest.approx(820.0)
+    # Poprzednik ma się nie tylko doczytać, ale i przedstawić — pusta nazwa
+    # znaczyłaby, że łańcuch loaderów urwał się o jedno ogniwo za wcześnie.
+    assert body["predecessor_consultant_name"] == names[0]
+
+
+async def test_manual_adjustment_after_a_swap_survives_the_read(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Korekta MD na linii z poprzednikiem też musi się odczytać.
+
+    Ta ścieżka wraca przez `db.refresh(line)`, a nie przez świeże zapytanie —
+    gdyby odświeżenie gubiło loadery, `MissingGreenlet` wróciłby tędy mimo
+    poprawionego zapytania wejściowego.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert swap.status_code == 201, swap.text
+    successor_id = swap.json()["id"]
+
+    patch = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{successor_id}",
+        json={"md_remaining": 12},
+        headers=app_auth_headers,
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body["md_remaining"] == pytest.approx(12.0)
+    assert body["predecessor_consultant_name"] == names[0]
+
+
 # ── Import MD ───────────────────────────────────────────────────────────────
 
 

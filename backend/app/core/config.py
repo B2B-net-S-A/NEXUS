@@ -294,6 +294,22 @@ class Settings(BaseSettings):
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
     # nakładają i włączone razem są niemierzalne).
     HYBRID_POOL_ENABLED: bool = False
+    # Talent Radar: wymagania MUST/NICE podane WPROST (z `parse-champion`)
+    # zamiast wywodzonych regexem z prozy. Flip zmienia CZTERY rzeczy naraz,
+    # nie jedną warstwę punktową:
+    #   1. warstwę `skills` — `_score_skills` przestaje wywodzić must z prozy,
+    #      a `nice` po raz pierwszy bywa niepuste, więc przy renormalizacji
+    #      zmienia się MIANOWNIK dla każdego kandydata;
+    #   2. tekst embedowanego zapytania (`_build_job_text_v1`) — czyli wektor,
+    #      którym pytamy Qdranta;
+    #   3. wariant retrievalu „skills" (`build_job_query_variants`);
+    #   4. źródło terminów BM25 (`build_job_bm25_query` czyta `job.must_skills`
+    #      JAKO PIERWSZE, na Championa spada dopiero przy pustych) — działa
+    #      wyłącznie przy `HYBRID_POOL_ENABLED=true`.
+    # Punkty 2-4 zmieniają PULĘ, nie tylko kolejność — dlatego default OFF do
+    # czasu pomiaru evalem, z ustaloną (najlepiej wyłączoną) pozycją
+    # `HYBRID_POOL_ENABLED`, inaczej dwie dźwignie są nie do rozplątania.
+    TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
