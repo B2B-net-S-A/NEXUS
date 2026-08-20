@@ -128,41 +128,42 @@ async def require_b2b_generator_access(
 ) -> User:
     """Gate for the B2B contract generator specifically.
 
-    The generator is a first-class TAC tool, so — unlike the shared legal gate
-    ``require_contract_legal_access`` — a TAC (and Admin/Head of Recruitment)
-    opens it by role alone, with no client-assignment precondition. A brand new
-    TAC who has not yet been wired to any client must still be able to draft and
-    list B2B contracts; the client-team graph is not the key here (see
-    ``b2b_contract_generator`` for the matching unscoped entity/list behaviour).
+    Sourcing tooling open to every logged-in role (product decision, 20.08 —
+    mirrors Talent Radar 19.08 and the finance full-access-tier decision,
+    19.08). The sidebar entry for this tool has never carried a `roles`
+    restriction ("Generator Umów B2B — dostępny dla wszystkich ról"), so the
+    previous role gate here (Admin/HoR/TAC unconditionally, Delivery Lead only
+    with a client assignment, everyone else denied) produced exactly the
+    visible-link-but-403 gap already fixed once for Talent Radar: recruiter,
+    sourcer, finance and the legacy `user` role saw the link and got 403.
 
-    Delivery Lead keeps the original fail-closed contract: an empty DL client
+    Delivery Lead keeps its original fail-closed contract: an empty DL client
     graph is still denied, so this change does not widen the Delivery Lead
-    persona. Every other role is rejected.
+    persona — it operates its own client portfolio, not the whole base. Every
+    other role now passes unconditionally, same as Admin/HoR/TAC already did
+    (see ``_generator_unscoped`` in ``b2b_contract_generator`` for the
+    matching full-access — not merely auth-passing — behaviour those roles
+    need, since they have no ``ClientTacAssignment``/
+    ``DeliveryLeadClientAssignment`` row to be scoped by).
     """
 
-    if current_user.has_any_role(
-        UserRole.admin,
-        UserRole.head_of_recruitment,
-        UserRole.tac,
-    ):
-        return current_user
     if current_user.has_role(UserRole.delivery_lead):
         # Delivery Lead stays fail-closed: it needs a non-empty explicit client
         # graph. ``resolve_client_team_client_ids`` only returns ``None`` for
-        # admin-like roles (already returned above), so for a DL it is always a
-        # concrete set here — an empty one is an authoritative deny.
+        # admin-like roles, so for a DL it is always a concrete set here — an
+        # empty one is an authoritative deny.
         client_ids = await resolve_client_team_client_ids(db, current_user)
         if client_ids:
             return current_user
         raise deny("dostęp prawny wymaga jawnego przypisania klienta")
-    raise deny(
-        "Generator umów B2B jest dostępny dla ról: "
-        "administrator, head of recruitment, delivery lead, TAC"
-    )
+    return current_user
 
 
-# Entry gate for the B2B generator surfaces. TAC/Admin/HoR pass by role;
-# Delivery Lead still needs a non-empty client graph. Client-level scoping of
-# individual entities/lists for TAC is intentionally disabled inside
-# ``b2b_contract_generator`` (full-access TAC tool).
+# Entry gate for the B2B generator surfaces. Every role passes except an
+# unassigned Delivery Lead, which still needs a non-empty client graph.
+# Client-level scoping of individual entities/lists is intentionally disabled
+# for every non-DL role inside ``b2b_contract_generator`` (full-access tool,
+# see ``_generator_unscoped``) — otherwise roles with no client-assignment
+# graph at all (recruiter/sourcer/finance/user) would pass this gate and then
+# hit a permanently empty list.
 B2BGeneratorAccess = Annotated[User, Depends(require_b2b_generator_access)]
