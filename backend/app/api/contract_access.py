@@ -122,6 +122,26 @@ async def apply_contract_legal_client_scope(
 ContractLegalAccess = Annotated[User, Depends(require_contract_legal_access)]
 
 
+# Every role except Delivery Lead, admitted unconditionally by
+# ``require_b2b_generator_access`` (20.08 product decision). Explicit tuple
+# rather than an implicit "everyone else" fallthrough — a bare `return
+# current_user` default would silently hand full generator access to any
+# *future* UserRole the moment it's added to the enum, with no callsite
+# forcing a conscious decision. Mirrors the same discipline already used by
+# ``_generator_unscoped`` and ``capabilities.ts``'s `ALL_ROLES` on the
+# frontend. A role added to ``UserRole`` and left off this tuple fails closed
+# here until someone deliberately widens it.
+_B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.tac,
+    UserRole.finance,
+    UserRole.recruiter,
+    UserRole.sourcer,
+    UserRole.user,
+)
+
+
 async def require_b2b_generator_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -140,13 +160,18 @@ async def require_b2b_generator_access(
     Delivery Lead keeps its original fail-closed contract: an empty DL client
     graph is still denied, so this change does not widen the Delivery Lead
     persona — it operates its own client portfolio, not the whole base. Every
-    other role now passes unconditionally, same as Admin/HoR/TAC already did
-    (see ``_generator_unscoped`` in ``b2b_contract_generator`` for the
-    matching full-access — not merely auth-passing — behaviour those roles
-    need, since they have no ``ClientTacAssignment``/
-    ``DeliveryLeadClientAssignment`` row to be scoped by).
+    other *current* role passes unconditionally via
+    ``_B2B_GENERATOR_UNCONDITIONAL_ROLES`` (see ``_generator_unscoped`` in
+    ``b2b_contract_generator`` for the matching full-access — not merely
+    auth-passing — behaviour those roles need, since they have no
+    ``ClientTacAssignment``/``DeliveryLeadClientAssignment`` row to be scoped
+    by). A role that isn't Delivery Lead and isn't in that tuple is denied —
+    today that only means a role added to the system after this function was
+    last touched.
     """
 
+    if current_user.has_any_role(*_B2B_GENERATOR_UNCONDITIONAL_ROLES):
+        return current_user
     if current_user.has_role(UserRole.delivery_lead):
         # Delivery Lead stays fail-closed: it needs a non-empty explicit client
         # graph. ``resolve_client_team_client_ids`` only returns ``None`` for
@@ -156,14 +181,19 @@ async def require_b2b_generator_access(
         if client_ids:
             return current_user
         raise deny("dostęp prawny wymaga jawnego przypisania klienta")
-    return current_user
+    raise deny(
+        "Generator umów B2B: nieznana rola bez jawnej decyzji dostępu "
+        "(require_b2b_generator_access)"
+    )
 
 
-# Entry gate for the B2B generator surfaces. Every role passes except an
-# unassigned Delivery Lead, which still needs a non-empty client graph.
-# Client-level scoping of individual entities/lists is intentionally disabled
-# for every non-DL role inside ``b2b_contract_generator`` (full-access tool,
-# see ``_generator_unscoped``) — otherwise roles with no client-assignment
-# graph at all (recruiter/sourcer/finance/user) would pass this gate and then
-# hit a permanently empty list.
+# Entry gate for the B2B generator surfaces. Every role in
+# ``_B2B_GENERATOR_UNCONDITIONAL_ROLES`` passes unconditionally; Delivery Lead
+# still needs a non-empty client graph; anything else (a future role not yet
+# triaged here) fails closed. Client-level scoping of individual entities/
+# lists is intentionally disabled for every non-DL role inside
+# ``b2b_contract_generator`` (full-access tool, see ``_generator_unscoped``)
+# — otherwise roles with no client-assignment graph at all
+# (recruiter/sourcer/finance/user) would pass this gate and then hit a
+# permanently empty list.
 B2BGeneratorAccess = Annotated[User, Depends(require_b2b_generator_access)]
