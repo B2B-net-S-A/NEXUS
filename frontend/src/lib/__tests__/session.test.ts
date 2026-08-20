@@ -9,6 +9,7 @@ import {
 describe("clearSessionArtifacts", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it("usuwa wszystkie klucze sesji (w tym markery podgladu jako-user)", () => {
@@ -26,6 +27,18 @@ describe("clearSessionArtifacts", () => {
     expect(localStorage.getItem("nexus_impersonate_id")).toBeNull();
     // Nie dotyka niepowiązanych kluczy.
     expect(localStorage.getItem("unrelated_key")).toBe("keep");
+  });
+
+  it("usuwa robocze wyszukiwanie Talent Radaru (sessionStorage)", () => {
+    // Snapshot radaru niesie dane kandydatów — wylogowanie/martwa sesja nie
+    // może zostawić go w karcie dla kolejnej zalogowanej osoby.
+    sessionStorage.setItem("nexus_talent_radar_session_v1", "{}");
+    sessionStorage.setItem("unrelated_session_key", "keep");
+
+    clearSessionArtifacts();
+
+    expect(sessionStorage.getItem("nexus_talent_radar_session_v1")).toBeNull();
+    expect(sessionStorage.getItem("unrelated_session_key")).toBe("keep");
   });
 
   it("kasuje cookie nexus_access", () => {

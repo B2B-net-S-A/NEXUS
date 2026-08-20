@@ -12,6 +12,8 @@
  *     X-Impersonate-User-Id jechał dalej z każdym requestem).
  */
 
+import { clearTalentRadarSession } from "./talent-radar-session";
+
 /**
  * Klucz JWT — wydzielony ze zbioru poniżej, bo czyta go nie tylko teardown,
  * ale i każde pobranie pliku idące `fetch`em z pominięciem axiosa (podgląd CV,
@@ -91,6 +93,10 @@ export function clearSessionArtifacts(): void {
       /* storage wyłączony / środowisko nie-przeglądarkowe */
     }
   }
+  // Robocze wyszukiwanie Talent Radaru (sessionStorage) niesie dane
+  // kandydatów — nazwiska i dopasowania nie mogą doczekać w karcie na
+  // kolejną osobę logującą się na tym samym stanowisku.
+  clearTalentRadarSession();
   if (typeof document !== "undefined") {
     document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
   }
