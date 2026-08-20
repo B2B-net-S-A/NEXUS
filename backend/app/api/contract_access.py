@@ -127,11 +127,18 @@ ContractLegalAccess = Annotated[User, Depends(require_contract_legal_access)]
 # rather than an implicit "everyone else" fallthrough — a bare `return
 # current_user` default would silently hand full generator access to any
 # *future* UserRole the moment it's added to the enum, with no callsite
-# forcing a conscious decision. Mirrors the same discipline already used by
-# ``_generator_unscoped`` and ``capabilities.ts``'s `ALL_ROLES` on the
-# frontend. A role added to ``UserRole`` and left off this tuple fails closed
-# here until someone deliberately widens it.
-_B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
+# forcing a conscious decision (matches the discipline behind
+# ``capabilities.ts``'s `ALL_ROLES` on the frontend). A role added to
+# ``UserRole`` and left off this tuple fails closed here until someone
+# deliberately widens it.
+#
+# Public (no leading underscore) because ``b2b_contract_generator``'s
+# ``_generator_unscoped`` imports and reuses it directly, rather than keeping
+# its own copy — auto-review on #1216 flagged two independently-maintained
+# role tuples as a sync hazard: a role added to one but not the other would
+# pass this entry gate and then hit a permanently empty list inside the
+# generator. One tuple, two call sites, no drift possible.
+B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.tac,
@@ -161,7 +168,7 @@ async def require_b2b_generator_access(
     graph is still denied, so this change does not widen the Delivery Lead
     persona — it operates its own client portfolio, not the whole base. Every
     other *current* role passes unconditionally via
-    ``_B2B_GENERATOR_UNCONDITIONAL_ROLES`` (see ``_generator_unscoped`` in
+    ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` (see ``_generator_unscoped`` in
     ``b2b_contract_generator`` for the matching full-access — not merely
     auth-passing — behaviour those roles need, since they have no
     ``ClientTacAssignment``/``DeliveryLeadClientAssignment`` row to be scoped
@@ -170,7 +177,7 @@ async def require_b2b_generator_access(
     last touched.
     """
 
-    if current_user.has_any_role(*_B2B_GENERATOR_UNCONDITIONAL_ROLES):
+    if current_user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES):
         return current_user
     if current_user.has_role(UserRole.delivery_lead):
         # Delivery Lead stays fail-closed: it needs a non-empty explicit client
@@ -188,7 +195,7 @@ async def require_b2b_generator_access(
 
 
 # Entry gate for the B2B generator surfaces. Every role in
-# ``_B2B_GENERATOR_UNCONDITIONAL_ROLES`` passes unconditionally; Delivery Lead
+# ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` passes unconditionally; Delivery Lead
 # still needs a non-empty client graph; anything else (a future role not yet
 # triaged here) fails closed. Client-level scoping of individual entities/
 # lists is intentionally disabled for every non-DL role inside

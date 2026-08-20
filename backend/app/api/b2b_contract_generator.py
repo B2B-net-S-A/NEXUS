@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from app.api.contract_access import (
+    B2B_GENERATOR_UNCONDITIONAL_ROLES,
     B2BGeneratorAccess,
     apply_contract_legal_client_scope,
     assert_contract_legal_client_access,
@@ -208,17 +209,16 @@ def _generator_unscoped(user: User) -> bool:
     permanently empty list/403 on every entity — auth without access, not a
     real access decision. Delivery Lead is deliberately excluded — it keeps
     the per-client assignment scope, unchanged by the 20.08 decision.
+
+    Reuses ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` from ``contract_access``
+    instead of its own copy of the role tuple (auto-review on #1216 flagged
+    the two-tuple duplication as a sync hazard: a role added to the entry
+    gate but not here would silently pass auth into a permanently empty
+    list). One tuple, two call sites — the entry gate and this scope check
+    can no longer drift apart.
     """
 
-    return user.has_any_role(
-        UserRole.admin,
-        UserRole.head_of_recruitment,
-        UserRole.tac,
-        UserRole.finance,
-        UserRole.recruiter,
-        UserRole.sourcer,
-        UserRole.user,
-    )
+    return user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES)
 
 
 async def _assert_generator_client_access(
