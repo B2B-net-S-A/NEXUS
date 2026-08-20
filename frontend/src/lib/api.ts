@@ -1,5 +1,6 @@
 import axios, { AxiosError } from "axios";
 
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -11,6 +12,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // QA 2026-05-27 zaobserwował "API timeout" na /microsoft365/connection
 // i /teams-channels — diagnostykę poprawia 30s timeout zamiast wiecznego
 // hangu.
+// Wywołania, w których liczy model (LLM / scoring / generacja dokumentu),
+// nadpisują ten domyślny sufit per-request `SLOW_ENDPOINT_TIMEOUT_MS`
+// — powód w `lib/http-timeouts.ts`.
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 export const api = axios.create({
@@ -800,18 +804,29 @@ export interface PrepKitResponse {
 }
 
 export const prepKitApi = {
+  // Generacja LLM — użytkownik czeka przy ekranie, więc 120 s zamiast
+  // domyślnych 30 s instancji (patrz `lib/http-timeouts.ts`).
   generate: (job_id: number, candidate_id: number) =>
-    api.post<PrepKitResponse>("/api/prep-kit/generate", { job_id, candidate_id }),
+    api.post<PrepKitResponse>(
+      "/api/prep-kit/generate",
+      { job_id, candidate_id },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    ),
 };
 
 // ── AI Writer ─────────────────────────────────────────────────────────────────
 export const aiWriterApi = {
+  // Obie generacje idą do modelu, a formularz stoi otwarty i czeka na wynik —
+  // stąd wspólny sufit 120 s (patrz `lib/http-timeouts.ts`).
   generateJobDescription: (data: {
     title: string;
     client_name?: string;
     requirements?: string;
     seniority?: string;
-  }) => api.post("/api/ai/generate-job-description", data),
+  }) =>
+    api.post("/api/ai/generate-job-description", data, {
+      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+    }),
 
   generateJob: (data: {
     title: string;
@@ -819,7 +834,10 @@ export const aiWriterApi = {
     seniority?: string;
     skills?: string[];
     description_hint?: string;
-  }) => api.post("/api/ai/generate-job", data),
+  }) =>
+    api.post("/api/ai/generate-job", data, {
+      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+    }),
 };
 
 // ── AI Matching ───────────────────────────────────────────────────────────────
@@ -900,7 +918,12 @@ export const matchScoringApi = {
   get: (candidateId: number, jobId: number, opts?: { refresh?: boolean }) =>
     api.get<MatchJustification>(
       `/api/candidates/${candidateId}/scoring/${jobId}`,
-      { params: { refresh: opts?.refresh ? true : undefined } },
+      {
+        params: { refresh: opts?.refresh ? true : undefined },
+        // `refresh: true` to ŚWIEŻA, płatna generacja Sonnetem — 30 s bywa za
+        // mało, a zerwane połączenie i tak jest opłacone (http-timeouts.ts).
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      },
     ),
   // "Oceń ten scoring" feedback. rating: -1 | 0 (reset) | 1.
   feedback: (
@@ -952,9 +975,13 @@ export const activitySummaryApi = {
       `/api/candidates/${candidateId}/activity-summary`,
     ),
   // "Aktualizuj notatkę" — re-gathers history; regenerates only when it changed.
+  // Gdy historia się zmieniła, to pełne wywołanie LLM pod kliknięciem
+  // użytkownika — stąd 120 s (patrz `lib/http-timeouts.ts`).
   refresh: (candidateId: number) =>
     api.post<CandidateActivitySummary>(
       `/api/candidates/${candidateId}/activity-summary/refresh`,
+      undefined,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
 };
 
@@ -2584,7 +2611,13 @@ export const signingApi = {
         signers: string[];
         both_parties_signed: boolean;
         pipeline_stage: string;
-      }>(`/api/signing/contracts/${contractId}/upload-signed`, form)
+      }>(`/api/signing/contracts/${contractId}/upload-signed`, form, {
+        // Bez jawnego multipartu axios serializuje FormData do JSON-a
+        // (instancja `api` ma domyślne application/json) → backend widzi puste
+        // ciało i odpowiada 422 „file Field required", czyli podpisana umowa
+        // nigdy nie przechodzi na „Umowa podpisana".
+        headers: { "Content-Type": "multipart/form-data" },
+      })
       .then((r) => r.data);
   },
 };
@@ -2995,6 +3028,14 @@ export interface CandidatesFromSimilarResponse {
     tier_b_count: number;
     total_sources: number;
     reason_if_empty: string | null;
+    /**
+     * Ilu kandydatów odsiała bramka dopuszczalności (NDA / blacklista tego
+     * klienta / konflikt konkurencyjny / weto hiring managera). Opcjonalne,
+     * bo kontrakt jest addytywny — starsza odpowiedź bez tego pola czyta się
+     * jako 0. Sekcja MUSI rozróżniać „historii nie ma" od „historia jest, ale
+     * zablokowana u tego klienta": bez tego bramka wygląda jak utrata danych.
+     */
+    hidden_ineligible?: number;
   };
 }
 
@@ -3131,9 +3172,15 @@ export const recommendationsApi = {
       `/api/candidates/${candidateId}/recommendations`,
       { params: opts },
     ),
+  // Cztery wywołania poniżej liczą po stronie modelu (kryteria, klasyfikacja
+  // technologii) albo przeliczają scoring całej puli, a użytkownik czeka na
+  // wynik przy otwartym ekranie — 120 s zamiast domyślnych 30 s instancji
+  // (uzasadnienie: `lib/http-timeouts.ts`).
   refreshCriteria: (jobId: number) =>
     api.post<{ job_id: number; must_skills: unknown; nice_skills: unknown; criteria_generated_at: string }>(
       `/api/jobs/${jobId}/refresh-criteria`,
+      undefined,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   previewCriteria: (jobId: number) =>
     api.post<{
@@ -3143,14 +3190,20 @@ export const recommendationsApi = {
       source: "ollama" | "heuristic";
       current_must_skills: Array<{ name: string; level?: string | null }>;
       current_nice_skills: Array<{ name: string; level?: string | null }>;
-    }>(`/api/jobs/${jobId}/generate-criteria-preview`),
+    }>(`/api/jobs/${jobId}/generate-criteria-preview`, undefined, {
+      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+    }),
   classifyTechnologies: (names: string[]) =>
     api.post<{ technologies: Record<string, boolean> }>(
       "/api/cv-generator/classify-technologies",
       { names },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   recomputeScores: (jobId: number, topK = 200) =>
-    api.post(`/api/jobs/${jobId}/recompute-scores`, null, { params: { top_k: topK } }),
+    api.post(`/api/jobs/${jobId}/recompute-scores`, null, {
+      params: { top_k: topK },
+      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+    }),
   assignToJob: (candidateId: number, jobId: number) =>
     api.post(`/api/candidates/${candidateId}/assign-to-job/${jobId}`),
   seekingContractors: (params?: SeekingContractorsParams) =>
@@ -3158,15 +3211,19 @@ export const recommendationsApi = {
       "/api/recommendations/seeking-contractors",
       { params },
     ),
+  // Oba zwracają wygenerowaną przez LLM treść, na którą użytkownik patrzy
+  // w oknie — dlatego 120 s (patrz `lib/http-timeouts.ts`).
   sendCandidateShortlistEmail: (payload: { candidate_id: number; job_ids: number[] }) =>
     api.post<ShortlistEmailDraftResponse>(
       "/api/recommendations/send-candidate-shortlist-email",
       payload,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   prepareClientProposal: (payload: { candidate_id: number; job_id: number }) =>
     api.post<ClientProposalResponse>(
       "/api/recommendations/prepare-client-proposal",
       payload,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   cvUploadPreview: (file: File, params?: CvUploadPreviewParams) => {
     const fd = new FormData();
@@ -3185,10 +3242,17 @@ export const recommendationsApi = {
       "/api/recommendations/cv-upload-preview",
       fd,
       {
+        // Obiekt konfiguracji tu BYŁ, ale niósł same `params` — a bez jawnego
+        // multipartu axios serializuje FormData do JSON-a (instancja ma
+        // domyślne application/json) i plik nie dojeżdża: 422 „file Field
+        // required". Ten sam defekt co w #1209, dwa tygodnie później.
+        headers: { "Content-Type": "multipart/form-data" },
         params: {
           top_k: params?.top_k,
           threshold: params?.threshold,
         },
+        // Parse CV + scoring puli — użytkownik czeka (http-timeouts.ts).
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       },
     );
   },
@@ -4602,9 +4666,13 @@ export const candidateStageCvApi = {
         `/api/candidates/stages/${stageId}/cv/branded`,
         payload,
       ),
+    // Finalizacja renderuje dokument po stronie serwera, a rekruter czeka na
+    // plik — 120 s zamiast domyślnych 30 s (patrz `lib/http-timeouts.ts`).
     finalize: (stageId: number) =>
       api.post<CVBrandedFinalizeResponseT>(
         `/api/candidates/stages/${stageId}/cv/branded/finalize`,
+        undefined,
+        { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
       ),
   },
   share: {
