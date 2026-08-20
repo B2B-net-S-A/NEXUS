@@ -763,7 +763,6 @@ export const postingsApi = {
   delete: (id: number) => api.delete(`/api/postings/${id}`),
   publishAll: (jobId: number, data: { portals: string[]; expires_days?: number }) =>
     api.post(`/api/jobs/${jobId}/publish-all`, data),
-  stats: () => api.get("/api/postings/stats"),
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────────
