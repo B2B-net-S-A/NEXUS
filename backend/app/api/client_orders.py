@@ -392,21 +392,19 @@ def _order_response_for_user(
     return order
 
 
-async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRead:
-    """Pełny widok Orderu z computed fields (candidate_name, monthly_margin, etc)."""
-    contract = order.contract or await db.scalar(
-        select(Contract).where(Contract.id == order.contract_id)
-    )
-    candidate: Optional[Candidate] = None
-    if contract:
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == contract.candidate_id)
-        )
-    job_title = None
-    if order.job_id:
-        job = await db.scalar(select(Job).where(Job.id == order.job_id))
-        job_title = job.title if job else None
+def _build_order_read(
+    order: ClientOrder,
+    contract: Optional[Contract],
+    candidate: Optional[Candidate],
+    job_title: Optional[str],
+) -> ClientOrderRead:
+    """Złożenie ``ClientOrderRead`` z obiektów, które wołający ma już w ręku.
 
+    Czysta funkcja, ZERO zapytań — po to, żeby lista zamówień mogła ją wołać
+    w pętli. Skąd wołający weźmie kontrakt/kandydata/tytuł rekrutacji, jest
+    jego sprawą: widok listy bierze je z relacji zaciągniętych jednym
+    `selectinload`, pojedyncze endpointy dopytują (``_order_to_read``).
+    """
     monthly_margin = _compute_monthly_margin(order, contract) if contract else None
 
     return ClientOrderRead(
@@ -441,6 +439,32 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
     )
 
 
+async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRead:
+    """Pełny widok Orderu dla endpointów operujących na JEDNYM zamówieniu.
+
+    Dopytuje kandydata i rekrutację, bo na tych ścieżkach `order` przychodzi
+    z `selectinload(ClientOrder.contract)` i niczym więcej — a lazy-load na
+    sesji async to `MissingGreenlet`, czyli 500 bez CORS. Widok listy tego
+    NIE używa: tam te same dwa zapytania mnożyły się przez liczbę zamówień
+    (klient z 30 kontraktorami po 5 zamówień = ~300 zbędnych round-tripów),
+    mimo że dane leżały już w pamięci.
+    """
+    contract = order.contract or await db.scalar(
+        select(Contract).where(Contract.id == order.contract_id)
+    )
+    candidate: Optional[Candidate] = None
+    if contract:
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == contract.candidate_id)
+        )
+    job_title = None
+    if order.job_id:
+        job = await db.scalar(select(Job).where(Job.id == order.job_id))
+        job_title = job.title if job else None
+
+    return _build_order_read(order, contract, candidate, job_title)
+
+
 # ── Grouped list (main GET) ────────────────────────────────────────────────
 
 
@@ -462,7 +486,13 @@ async def list_contractors_with_orders(
                 select(Contract)
                 .options(
                     selectinload(Contract.candidate),
-                    selectinload(Contract.client_orders),
+                    # Rekrutacja POJEDYNCZEGO zamówienia — `ClientOrder.job_id`
+                    # bywa inne niż `Contract.job_id` (przedłużenie potrafi
+                    # przyjść z innego zlecenia), więc `Contract.job` niżej go
+                    # nie zastąpi. `selectin` dociąga wszystkie te rekrutacje
+                    # JEDNYM `IN`-em na całą odpowiedź, zamiast jednego
+                    # zapytania na zamówienie.
+                    selectinload(Contract.client_orders).selectinload(ClientOrder.job),
                     selectinload(Contract.job),
                 )
                 .where(Contract.client_id == client_id)
@@ -485,7 +515,13 @@ async def list_contractors_with_orders(
         latest_end = latest.end_date if latest else None
         days_to_end = (latest_end - today).days if latest_end else None
 
-        orders_read = [await _order_to_read(db, o) for o in orders_list]
+        # Bez dopytywania bazy: kandydat i rekrutacja są już w pamięci z
+        # `selectinload` wyżej. Wcześniej szło tu `_order_to_read`, czyli
+        # dwa SELECT-y na KAŻDE zamówienie każdego kontraktora.
+        orders_read = [
+            _build_order_read(o, c, c.candidate, o.job.title if o.job else None)
+            for o in orders_list
+        ]
 
         items.append(
             ContractWithOrdersRead(

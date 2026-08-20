@@ -71,6 +71,7 @@ from app.schemas.client_order_group import (
 )
 from app.services.client_order_lines import (
     CLIENT_CONTRACT_STATUSES,
+    _line_query,
     consultant_display_name,
     lines_for_group,
     list_consultant_options,
@@ -1392,14 +1393,14 @@ async def add_line(
     )
     await db.commit()
 
-    refreshed = await db.scalar(
-        select(ClientOrder)
-        .options(
-            selectinload(ClientOrder.contract).selectinload(Contract.candidate),
-            selectinload(ClientOrder.predecessor),
-        )
-        .where(ClientOrder.id == line.id)
-    )
+    # Wspólne `_line_query()`, a nie własna lista loaderów: serializacja linii
+    # schodzi przez poprzednika aż do kandydata (`predecessor_consultant_name`),
+    # więc płaski `selectinload(predecessor)` zostawia tam leniwą relację —
+    # w async SQLAlchemy `MissingGreenlet`, czyli 500 bez nagłówków CORS.
+    # Linia z `add_line` poprzednika nie ma, więc dziś by nie wybuchła; kopia
+    # loaderów obok kanonicznej jest jednak miną dla pierwszej zmiany kształtu
+    # odpowiedzi, a nie oszczędnością.
+    refreshed = await db.scalar(_line_query().where(ClientOrder.id == line.id))
     return _line_to_read(refreshed, with_finance=_can_see_finance(user))
 
 
@@ -1422,13 +1423,15 @@ async def update_line(
     _assert_multi_client(client_id)
     await _load_group(db, client_id, group_id)
 
+    # `_line_query()` (kanoniczny komplet loaderów), bo płaski
+    # `selectinload(predecessor)` ładował samego poprzednika, a `_line_to_read`
+    # schodzi z niego na `contract.candidate` (`predecessor_consultant_name`).
+    # W async SQLAlchemy to leniwe doczytanie leci `MissingGreenlet` → 500 bez
+    # nagłówków CORS, czyli „Network Error" w przeglądarce. Trafiało w KAŻDĄ
+    # edycję linii po zamianie kontraktora, i to już PO `commit()` — zmiana
+    # zapisywała się, a operator widział błąd bez treści i ponawiał.
     line = await db.scalar(
-        select(ClientOrder)
-        .options(
-            selectinload(ClientOrder.contract).selectinload(Contract.candidate),
-            selectinload(ClientOrder.predecessor),
-        )
-        .where(
+        _line_query().where(
             ClientOrder.id == line_id,
             ClientOrder.order_group_id == group_id,
             ClientOrder.client_id == client_id,

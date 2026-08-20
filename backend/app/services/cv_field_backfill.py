@@ -55,6 +55,14 @@ COMMIT_EVERY = 25
 # i nie może zmonopolizować ani limitów dostawcy, ani pętli zdarzeń.
 SLEEP_BETWEEN_CALLS_S = 0.15
 
+# Ile ID padłych wierszy zmieści się w statystykach biegu. Lustro
+# ``PhaseProgress._MAX_ERROR_REFS`` (``app/services/traffit/importer.py``) —
+# liczba skopiowana świadomie, nie zaimportowana: ten moduł nie zna importera
+# Traffita i nie warto zakładać tej krawędzi dla stałej. Powyżej progu to nie
+# jest zatruty wiersz, tylko awaria systemowa; nadmiar zostaje NIEprzypisany
+# i dalej mrozi watermark, co jest tu bezpieczną odpowiedzią.
+_MAX_ERROR_IDS = 500
+
 # Pola, których brak kwalifikuje kandydata do biegu i których wypełnienie
 # liczymy jako efekt. Semantyka "puste" jest per pole — patrz _missing_*.
 TARGET_FIELDS = ("skills", "city", "years_it_experience")
@@ -150,6 +158,12 @@ async def backfill_cv_fields(
     stats.setdefault("updated", 0)
     stats.setdefault("skipped_no_result", 0)
     stats.setdefault("errors", 0)
+    # ID wierszy, które padły. Bez nich faza `candidates_cv_fields` w nocnym
+    # syncu raportuje anonimowe "errors: N", a taki błąd jest dla kwarantanny
+    # NIEprzypisany — jeden trwale nieparsowalny CV mrozi wtedy globalny
+    # watermark `__daily__` bezterminowo. `setdefault`, bo `stats` bywa
+    # obiektem współdzielonym z wywołującym (`progress`).
+    stats.setdefault("error_ids", [])
     stats.setdefault("email_collisions", 0)
     stats.setdefault("fields_filled", {f: 0 for f in TARGET_FIELDS})
     stats.setdefault("usage", {"input_tokens": 0, "output_tokens": 0, "calls": 0})
@@ -307,6 +321,11 @@ async def backfill_cv_fields(
                         await db.flush()
                 except Exception as exc:  # noqa: BLE001 — wiersz, nie bieg
                     stats["errors"] += 1
+                    # Zatrzymaj ID — faza syncu robi z tego błąd PRZYPISANY do
+                    # wiersza, więc kwarantanna ma co zaparkować zamiast mrozić
+                    # watermark całej bazie.
+                    if len(stats["error_ids"]) < _MAX_ERROR_IDS:
+                        stats["error_ids"].append(candidate.id)
                     logger.warning(
                         "[cv-backfill] apply/flush padł dla id=%s: %r — wiersz "
                         "pominięty, bieg trwa",

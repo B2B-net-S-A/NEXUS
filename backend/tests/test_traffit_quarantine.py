@@ -22,8 +22,17 @@ M2-IMP-01 exists to prevent.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.services.traffit.importer import PhaseProgress
-from app.tasks.traffit_sync import _blocking_errors, _next_quarantine
+from app.tasks.traffit_sync import (
+    _blocking_errors,
+    _CortexPhaseResult,
+    _CvFieldsPhaseResult,
+    _next_quarantine,
+)
+
+_T = datetime(2026, 8, 20, 2, 0, tzinfo=timezone.utc)
 
 
 # ── Attributing an error to a source row ────────────────────────────────────
@@ -186,3 +195,123 @@ def test_production_shape_unblocks_after_five_runs() -> None:
     assert blocked_runs == 4, "should retry four times before parking"
     assert quarantine["candidate:48895"] == 5
     assert _blocking_errors(1, refs, quarantine, 5) == 0
+
+
+# ── Atrybucja w fazach spoza importera (cortex / candidates_cv_fields) ──────
+#
+# Te dwie fazy nie idą przez `TraffitImporter`, więc ich wynik to adapter nad
+# zwykłym słownikiem statystyk, a nie `PhaseProgress`. Do 2026-08-20 adaptery
+# nie wystawiały `error_refs`/`attributed_errors`, więc `_blocking_errors`
+# uznawał KAŻDY ich błąd za nieprzypisany: watermark stał bezterminowo,
+# a kwarantanna nie miała czego zaparkować. Mechanizm wyglądał na sprawny
+# i był martwy dokładnie w tych dwóch fazach.
+
+
+def _cortex(stats: dict) -> _CortexPhaseResult:
+    return _CortexPhaseResult(stats, _T, _T)
+
+
+def _cv_fields(stats: dict) -> _CvFieldsPhaseResult:
+    return _CvFieldsPhaseResult(stats, _T, _T)
+
+
+def test_cortex_adapter_attributes_errors_to_rows() -> None:
+    out = _cortex(
+        {"errors": 2, "error_ids": [7, 9], "processed": 2, "total": 2}
+    ).as_dict()
+    assert out["error_refs"] == ["candidate_facts:7", "candidate_facts:9"]
+    assert out["attributed_errors"] == 2
+    assert out["errors"] == 2
+
+
+def test_cv_fields_adapter_attributes_errors_to_rows() -> None:
+    out = _cv_fields({"errors": 2, "error_ids": [7, 9], "processed": 2}).as_dict()
+    assert out["error_refs"] == ["candidate_cv_fields:7", "candidate_cv_fields:9"]
+    assert out["attributed_errors"] == 2
+    assert out["errors"] == 2
+
+
+def test_adapter_refs_do_not_collide_with_the_candidates_phase() -> None:
+    """ID Nexusa i zewnętrzne ID Traffita nie mogą wpaść do jednego wpisu.
+
+    Faza `candidates` kluczuje referencje po ext-ID z Traffita, adaptery po ID
+    Nexusa. Wspólne słowo encji scaliłoby dwie różne przestrzenie
+    identyfikatorów w jeden licznik kwarantanny — i to po cichu, bo obie
+    wartości bywają tą samą liczbą. Rozdzielenie stoi WYŁĄCZNIE na słowie
+    encji w komunikacie, więc pilnuje go test, nie komentarz.
+    """
+    p = PhaseProgress(phase="candidates")
+    p.add_error("upsert candidate ext=7: boom")
+    cortex_refs = set(_cortex({"errors": 1, "error_ids": [7]}).as_dict()["error_refs"])
+    cv_refs = set(_cv_fields({"errors": 1, "error_ids": [7]}).as_dict()["error_refs"])
+    assert p.error_refs == {"candidate:7"}
+    assert cortex_refs == {"candidate_facts:7"}
+    assert cv_refs == {"candidate_cv_fields:7"}
+    assert not (p.error_refs & cortex_refs & cv_refs)
+
+
+def test_adapter_leftover_errors_stay_unattributable() -> None:
+    """Błąd bez ID nadal mrozi watermark — atrybucja nie rozluźnia reguły."""
+    result = _cortex({"errors": 3, "error_ids": [1]})
+    out = result.as_dict()
+    assert out["attributed_errors"] == 1
+    assert result.errors == 3
+    blocking = _blocking_errors(
+        result.errors,
+        out["error_refs"],
+        {"candidate_facts:1": 99},
+        5,
+        attributed_errors=out["attributed_errors"],
+    )
+    assert blocking == 2, "dwa nieatrybutowalne błędy muszą dalej blokować"
+
+
+def test_exception_repr_does_not_steal_the_row_key() -> None:
+    """Treść błędu idzie na KOŃCU komunikatu — `re.search` bierze PIERWSZE.
+
+    Dlatego repr wyjątku świadomie nie wchodzi do komunikatu adaptera: gdyby
+    niósł własne `<słowo> id=`, kwarantanna liczyłaby próby nie temu wierszowi.
+    Pełny wyjątek jest i tak w `logger.exception` po stronie źródła.
+    """
+    p = PhaseProgress(phase="cortex")
+    p.add_error("extract candidate_facts id=7: cortex extraction failed, other id=999")
+    assert p.error_refs == {"candidate_facts:7"}
+
+
+def test_adapter_without_error_ids_degrades_to_unattributable() -> None:
+    """Stary kształt statystyk (bez `error_ids`) nie wybucha — tylko blokuje.
+
+    `import_cortex_facts` potrafi zwrócić `{"skipped": "already_running"}`, a
+    starsze źródła mogą nie znać `error_ids`. Poprawka nie wymaga zmiany
+    kontraktu wszystkich źródeł naraz: brak ID = stan sprzed poprawki.
+    """
+    out = _cortex({"errors": 1}).as_dict()
+    assert out["error_refs"] == []
+    assert out["attributed_errors"] == 0
+    assert out["errors"] == 1
+
+
+def test_cortex_row_reaches_quarantine_after_five_runs() -> None:
+    """Dowód przez ścieżkę, którą przechodzi orkiestrator — nie przez atrapę.
+
+    Odtwarza dokładnie arytmetykę z `run_traffit_sync` (`_next_quarantine` +
+    `_blocking_errors` na `as_dict()`). Przed poprawką `error_refs` w ogóle nie
+    było w słowniku, więc `blocking` wynosiło 1 w KAŻDYM biegu i wiersz nie
+    dobijał do limitu nigdy — watermark stał w nieskończoność.
+    """
+    quarantine: dict[str, int] = {}
+    blocking = None
+    for _ in range(5):
+        result = _cortex({"errors": 1, "error_ids": [7]})
+        pd = result.as_dict()
+        refs = pd.get("error_refs") or []
+        quarantine = _next_quarantine(quarantine, refs)
+        blocking = _blocking_errors(
+            result.errors,
+            refs,
+            quarantine,
+            5,
+            attributed_errors=pd.get("attributed_errors"),
+        )
+    assert quarantine == {"candidate_facts:7": 5}
+    assert blocking == 0, "zaparkowany wiersz nadal mrozi watermark"
