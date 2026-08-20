@@ -1873,7 +1873,14 @@ export function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Status podpisu</th>
                   <th className="py-2 pr-4 font-medium">Wygenerował</th>
                   <th className="py-2 pr-4 font-medium">Wygenerowano</th>
-                  <th className="py-2 text-right font-medium">Akcje</th>
+                  {/* `sticky right-0`: przy 10 kolumnach tabela przelewa się
+                      w poziomy scroll i akcje lądowały za prawą krawędzią —
+                      ucięty przycisk czyta się jak brak możliwości („nie da
+                      się usunąć"), więc kolumna akcji musi być widoczna bez
+                      przewijania. */}
+                  <th className="sticky right-0 z-10 bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))]">
+                    Akcje
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2081,7 +2088,7 @@ export function GeneratedContractsTab() {
                           ? r.created_at.slice(0, 16).replace("T", " ")
                           : "—"}
                       </td>
-                      <td className="py-2 text-right">
+                      <td className="sticky right-0 z-10 bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))]">
                         <div className="flex items-center justify-end gap-1">
                           {editing ? (
                             <>
@@ -2390,7 +2397,9 @@ function LifecycleContractsTab({
                     Powód zakończenia projektu
                   </th>
                   {allowActions ? (
-                    <th className="py-2 text-right font-medium">Akcje</th>
+                    <th className="sticky right-0 z-10 bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))]">
+                      Akcje
+                    </th>
                   ) : null}
                 </tr>
               </thead>
@@ -2438,7 +2447,7 @@ function LifecycleContractsTab({
                       ) || "—"}
                     </td>
                     {allowActions ? (
-                      <td className="py-2 text-right">
+                      <td className="sticky right-0 z-10 bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))]">
                         <div className="flex items-center justify-end gap-1">
                           {r.can_change_status ? (
                             <>
