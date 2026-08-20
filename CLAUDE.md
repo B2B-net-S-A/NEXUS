@@ -511,10 +511,13 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   nie ma widełek i surowe zero czytałoby się jako „nie pasuje finansowo".
 - **Role: KAŻDA zalogowana** (decyzja produktowa Artura 19.08 — poszła po
   zrzucie 403 od Head of Recruitment; wcześniej `require_candidate_write` bez
-  HoR). Cztery lustrzane miejsca: backend oba endpointy na `CurrentUser`,
+  HoR). PIĘĆ lustrzanych miejsc: backend oba endpointy na `CurrentUser`,
   middleware BEZ wpisu `/talent-radar` (brak wpisu = brak zawężenia ról, sam
   login wymagany), sidebar bez `roles`, `nav.talent_radar = ALL_ROLES` w
-  `CAPABILITY_ROLES` (paleta ⌘K czyta stamtąd). Test kontraktowy pilnuje, że
+  `CAPABILITY_ROLES` (paleta ⌘K czyta stamtąd) oraz SAM `page.tsx` BEZ
+  `RequireRole` — piąta kopia starej listy ról (in-page `RequireRole` z
+  fallbackiem „Brak uprawnień") przeżyła otwarcie #1212 i wyszła dopiero ze
+  zrzutu użytkownika, zdjęta w follow-upie. Test kontraktowy pilnuje, że
   guard rolowy (`_check`) NIE wróci na trasy radaru cichym refaktorem.
   **Granice, które ZOSTAJĄ**: wyniki niosą tożsamość węższą niż profil (bez
   kontaktu i stawek), a „Otwórz profil" renderuje się tylko dla ról z
