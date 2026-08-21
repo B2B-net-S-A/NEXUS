@@ -502,11 +502,13 @@ async def list_jobs(
 ):
     from app.models.recruitment_pipeline import CandidateStage
 
+    # The recruitment register is an organization-wide discovery surface.
+    # Delivery Leads still have their exact client–TAC scope enforced on job
+    # details and every mutation below, but an empty relationship graph must
+    # not turn the top-level /jobs register into "Brak rekrutacji".  Other
+    # operational roles already see this complete register; DLs now follow the
+    # same read-only list contract while finance fields remain redacted.
     query = select(Job)
-    query = _apply_delivery_lead_job_scope(
-        query,
-        await _delivery_lead_job_pairs(current_user, db),
-    )
     priority_now = datetime.now(timezone.utc)
     priority_assignment_job_ids = (
         select(RecruitmentPriorityAssignment.job_id)
