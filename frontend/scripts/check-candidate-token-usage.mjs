@@ -19,7 +19,6 @@ const TARGETS = [
   "src/components/v2/pages/CandidatesTiles.tsx",
   "src/components/v2/pages/CandidateDetailV2.tsx",
   "src/components/v2/pages/CandidateQuickView.tsx",
-  "src/components/v2/pages/CandidateProfileHeader.tsx",
   "src/components/v2/CandidateNav.tsx",
   "src/components/v2/candidates/CandidateTabsRail.tsx",
 ]
