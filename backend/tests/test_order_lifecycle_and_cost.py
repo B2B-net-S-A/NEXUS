@@ -426,11 +426,18 @@ async def test_extend_creates_successor_linked_to_predecessor(
     assert body["predecessor_group_id"] == group["id"]
     assert body["order_number"] == "446"
     assert len(body["lines"]) == 1
-    # Poprzednik ZOSTAJE — na jego podstawie rozliczono już faktury.
+    # Poprzednik ZOSTAJE — na jego podstawie rozliczono już faktury. Przyszły
+    # następca jest jednak zagnieżdżony pod bieżącą kartą, a nie renderowany
+    # jako drugie równorzędne zamówienie.
     listed = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
     )
-    assert len(listed.json()["groups"]) == 2
+    assert listed.status_code == 200, listed.text
+    listed_body = listed.json()
+    assert len(listed_body["groups"]) == 1
+    assert [future["id"] for future in listed_body["groups"][0]["future_orders"]] == [
+        body["id"]
+    ]
 
 
 async def test_extend_inherits_settlement_type(
