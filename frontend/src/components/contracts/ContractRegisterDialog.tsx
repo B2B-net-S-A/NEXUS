@@ -78,6 +78,22 @@ const STATUS_OPTIONS = [
   { value: "ended", label: "Zakończony" },
 ];
 
+// Rejestr NIE zna wszystkich statusów kontraktu: enum ma jeszcze
+// `ready_for_signature` (umowa czeka na podpis) i `void` (anulowana). Lista
+// kontraktów wyklucza domyślnie tylko `void`, więc wiersz w
+// `ready_for_signature` JEST na ekranie i da się go otworzyć do edycji.
+//
+// Bez tego zbioru stan Selecta hydratował się wartością spoza listy opcji
+// (kontrolka nie miała czego pokazać, ale stan trzymał `ready_for_signature`)
+// i odsyłał ją przy KAŻDYM zapisie. Skutek: poprawka numeru projektu kończyła
+// się odmową serwera z komunikatem o statusie, którego użytkownik nie dotykał.
+const REGISTER_STATUS_VALUES = new Set(STATUS_OPTIONS.map((o) => o.value));
+
+const OUT_OF_REGISTER_STATUS_LABEL: Record<string, string> = {
+  ready_for_signature: "Oczekuje na podpis",
+  void: "Anulowany",
+};
+
 export function ContractRegisterDialog({
   open,
   onOpenChange,
@@ -161,7 +177,14 @@ export function ContractRegisterDialog({
           : "",
       );
       setProlongation(contract.prolongation_status ?? "unknown");
-      setStatusVal(contract.status ?? "active");
+      // Status spoza rejestru (np. `ready_for_signature`) prowadzi proces
+      // podpisu — do stanu formularza NIE wchodzi, żeby nie dało się go
+      // odesłać z powrotem przy edycji zupełnie innego pola.
+      setStatusVal(
+        REGISTER_STATUS_VALUES.has(contract.status ?? "")
+          ? (contract.status as string)
+          : "",
+      );
       setRateSchedule([{ rate: "", effectiveFrom: "" }]);
     } else {
       setCandidate(null);
@@ -203,9 +226,20 @@ export function ContractRegisterDialog({
         hours_pool_total: isPool && hoursTotal ? Number(hoursTotal) : null,
         hours_pool_consumed: isPool && hoursConsumed ? Number(hoursConsumed) : null,
         prolongation_status: prolongation,
-        status: statusVal,
       };
       if (isEdit && contract) {
+        // Status jedzie TYLKO gdy operator faktycznie go zmienił. Wysyłanie go
+        // przy każdym zapisie miało dwa skutki: wywracało edycję kontraktu w
+        // statusie spoza rejestru (patrz `REGISTER_STATUS_VALUES`) i czyniło
+        // martwym serwerowe samoleczenie „edytujesz samą datę końca na
+        // bezterminowo → kontrakt błędnie oznaczony jako zakończony wraca na
+        // aktywny", bo tamto uruchamia się wyłącznie dla PATCH-a BEZ statusu.
+        if (
+          REGISTER_STATUS_VALUES.has(statusVal) &&
+          statusVal !== (contract.status ?? "")
+        ) {
+          payload.status = statusVal;
+        }
         return contractsApi.update(contract.id, payload);
       }
       // Etapy z wpisaną stawką → harmonogram; pusty „od" = data rozpoczęcia,
@@ -224,11 +258,17 @@ export function ContractRegisterDialog({
     onSuccess: () => {
       showSuccess(isEdit ? "Kontrakt zaktualizowany" : "Kontrakt dodany");
       queryClient.invalidateQueries({ queryKey: ["client-register", clientId] });
-      // Status napędza projekcję „Obecni konsultanci" na profilu klienta oraz
-      // liczniki katalogu. Bez invalidacji poprawny zapis wyglądał jak
-      // nieskuteczny aż do ręcznego odświeżenia strony.
+      // Status kontraktu napędza projekcję „Obecni konsultanci" na profilu
+      // klienta ORAZ liczniki konsultantów w katalogu — dwie różne kwerendy,
+      // więc dwie invalidacje.
+      //
+      // Klucz katalogu MUSI brzmieć `clients-directory`: react-query dopasowuje
+      // prefiks po RÓWNOŚCI elementów, więc `["clients"]` nie trafia w
+      // `["clients-directory"]` i jest cichym no-opem (pod `["clients"]` nie
+      // stoi w tym froncie ani jedna kwerenda). Poprawny zapis wyglądałby
+      // wtedy na nieskuteczny aż do ręcznego odświeżenia strony.
       queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
-      queryClient.invalidateQueries({ queryKey: ["clients"] });
+      queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
       onSaved();
       onOpenChange(false);
     },
@@ -269,6 +309,12 @@ export function ContractRegisterDialog({
     }
     saveMutation.mutate();
   };
+
+  // Listę rozwijaną statusu pokazujemy tylko wtedy, gdy bieżący status w niej
+  // jest. Inaczej kontrolka nie ma czego pokazać, a jej stan i tak niósłby
+  // wartość, której serwer nie przyjmie.
+  const statusEditable =
+    !isEdit || REGISTER_STATUS_VALUES.has(contract?.status ?? "");
 
   const candidateLabel = useMemo(() => {
     if (isEdit) return contract?.candidate_name ?? "—";
@@ -512,18 +558,39 @@ export function ContractRegisterDialog({
               </div>
               <div>
                 <Label className="mb-1.5 block">Status kontraktu</Label>
-                <Select value={statusVal} onValueChange={setStatusVal}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {!isEdit ? (
+                  // Kontrakt RODZI SIĘ szkicem — dojście do „Aktywny" jest
+                  // strzeżone (komplet pól, a przy rozpoczętym podpisie
+                  // ukończony podpis kwalifikowany). Lista rozwijana przy
+                  // tworzeniu obiecywałaby wybór, którego serwer i tak nie
+                  // wykona, więc pokazujemy fakt zamiast kontrolki.
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                    Szkic — status ustawisz po utworzeniu kontraktu.
+                  </div>
+                ) : statusEditable ? (
+                  <Select value={statusVal} onValueChange={setStatusVal}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUS_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  // Status spoza rejestru prowadzi osobny proces (podpis /
+                  // anulowanie). Pokazujemy go jako fakt — pusta lista
+                  // rozwijana czytałaby się jak brak danych, a lista z
+                  // czterema obcymi opcjami zapraszałaby do nadpisania go.
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                    {OUT_OF_REGISTER_STATUS_LABEL[contract?.status ?? ""] ??
+                      contract?.status}{" "}
+                    — tego statusu nie zmienia się z rejestru.
+                  </div>
+                )}
               </div>
             </div>
           </DialogBody>

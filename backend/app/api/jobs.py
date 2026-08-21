@@ -183,6 +183,56 @@ def _redact_delivery_lead_job_finance(payload: dict, current_user: User) -> dict
     return payload
 
 
+# Pola, których projekcja LISTY rekrutacji nie ma prawa wozić — niezależnie od
+# roli pytającego.
+_LIST_ONLY_STRIPPED_JOB_FIELDS: tuple[str, ...] = (
+    "champion_profile",
+    "close_notes",
+)
+
+
+def _strip_champion_payload_from_list_row(payload: dict) -> dict:
+    """Zdejmij Profil Championa i wewnętrzne notatki z wiersza listy rekrutacji.
+
+    Lista NIE jest powierzchnią Championa. `champion_profile` niesie nazwisko
+    i `candidate_id` naszego konsultanta pracującego u klienta,
+    `verification.client.key_corrections` (czego klient naprawdę potrzebuje),
+    `internal_consultant_insight`, `sourcing.target_companies`, wzorcowe
+    odpowiedzi screeningowe wraz z `deal_breaker` oraz klucz nagrania
+    briefingu. `close_notes` to wewnętrzny komentarz do przegranej. Oba są na
+    liście `_VIEWER_REDACTED_JOB_FIELDS` — repo od dawna uważa je za wrażliwe.
+
+    Detal (`GET /api/jobs/{id}`) i dedykowany `.../champion-profile` mają dla
+    nich bramkę ZAKRESU (`_ensure_delivery_lead_job_visible`) — pytają o jedną
+    rekrutację, więc da się sprawdzić, czy pytający ma do NIEJ dostęp. Lista
+    z definicji takiej bramki mieć nie może, bo zwraca N wierszy naraz, a jej
+    widoczność jest regulowana wyłącznie filtrem zapytania. To czyni ją cichym
+    kanałem obocznym: KAŻDE poszerzenie widoczności rejestru (np. otwarcie go
+    Delivery Leadom, żeby pusty graf przypisań nie dawał „Brak rekrutacji")
+    wynosi przy okazji Championa całej organizacji jednym żądaniem
+    `?page_size=100`. Ta klasa wraca w repo raz po raz — bramka na jednej
+    trasie, ta sama treść bez bramki na trasie równoległej
+    (`champion_suggestions.py`: „any Delivery Lead could read another client's
+    Champion draft by incrementing an integer"; tam trzeba było enumerować po
+    jednym id, tutaj wystarcza jedno żądanie).
+
+    Dlatego zdejmujemy je z projekcji BEZWARUNKOWO, zamiast dokładać kolejną
+    redakcję zależną od roli: front nie ma tu konsumenta (`champion_profile`
+    czytają wyłącznie detal, arkusz screeningowy i publiczna karta share), więc
+    ten JSONB jechał do przeglądarki bez odbiorcy. Redakcja per rola musiałaby
+    być poprawiana przy każdej zmianie widoczności listy; brak pola w
+    projekcji nie musi.
+
+    Ustawiamy `None`, nie usuwamy klucza — KSZTAŁT odpowiedzi zostaje bez
+    zmian, tak samo jak w `redact_job_for_viewer`.
+    """
+
+    for field in _LIST_ONLY_STRIPPED_JOB_FIELDS:
+        if field in payload:
+            payload[field] = None
+    return payload
+
+
 # Fields that, when changed, should trigger re-embedding the job (Phase 2).
 _EMBED_TRIGGER_FIELDS = {
     "title",
@@ -776,6 +826,7 @@ async def list_jobs(
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)
         _redact_delivery_lead_job_finance(d, current_user)
+        _strip_champion_payload_from_list_row(d)
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}

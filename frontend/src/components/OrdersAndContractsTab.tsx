@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import { foldText } from "@/lib/contract-client-filter";
+import { countPl } from "@/lib/plural-pl";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   downloadAuthenticatedFile,
@@ -173,6 +175,23 @@ export function OrdersAndContractsTab({
     }
   }
 
+  // Rejestr jest PUSTY tylko wtedy, gdy klient naprawdę nie ma kontraktorów —
+  // i to jedyny warunek, pod którym wolno napisać „Dodaj pierwszego".
+  // Wyliczanie tego z „pigułka = Wszyscy ORAZ nie szukam" jest kruche: każdy
+  // DOŁOŻONY filtr (daty, budżet, „kończące się", sortowanie) musiałby dopisać
+  // się do tamtej listy, a jeden zapomniany zamienia zawężony wynik w komunikat
+  // zaprzeczający danym, które są w pamięci przeglądarki — i zapraszający do
+  // założenia duplikatu. Warunek liczony ze ŹRÓDŁA nie wymaga wyliczania
+  // filtrów, więc nie zdezaktualizuje się przy dokładaniu kolejnych.
+  const contractorCount = data?.contractors.length ?? 0;
+
+  // Panel filtrów bywa zwinięty, więc użytkownik może nie widzieć, że coś
+  // filtruje — pusty stan musi dawać wyjście, nie tylko diagnozę.
+  function clearFilters() {
+    setFilter("all");
+    setSearch("");
+  }
+
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
     // Ten sam plik żyje w sekcji „Dokumenty zamówień" w zakładce Dokumenty
@@ -254,13 +273,40 @@ export function OrdersAndContractsTab({
       {filtered.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
           <Users className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          {/* Pustka po wyszukaniu ≠ brak danych — inaczej czyta się jak utratę
+          {/* Pustka po zawężeniu ≠ brak danych — inaczej czyta się jak utratę
               danych (ten sam wzorzec co ProjectsTab / rejestr umów B2B). */}
-          {searching
-            ? "Brak zamówień pasujących do wyszukiwania."
-            : filter === "all"
-              ? "Brak kontraktorów u tego klienta. Dodaj pierwszego kontraktora i zamówienie."
-              : "Brak wyników dla wybranego filtra."}
+          {contractorCount === 0 ? (
+            <p>
+              Brak kontraktorów u tego klienta. Dodaj pierwszego kontraktora i
+              zamówienie.
+            </p>
+          ) : (
+            <>
+              <p>
+                {searching
+                  ? "Brak zamówień pasujących do wyszukiwania."
+                  : "Brak wyników dla aktywnych filtrów."}
+              </p>
+              <p className="mt-1 text-xs">
+                Ten klient ma{" "}
+                {countPl(
+                  contractorCount,
+                  "kontraktora",
+                  "kontraktorów",
+                  "kontraktorów",
+                )}{" "}
+                w rejestrze — ukryły ich aktywne filtry.
+              </p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-muted focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="w-4 h-4" aria-hidden="true" />
+                Wyczyść filtry
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <ul className="space-y-3">
