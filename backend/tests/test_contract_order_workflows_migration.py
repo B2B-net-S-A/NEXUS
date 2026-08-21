@@ -57,7 +57,7 @@ def test_migration_is_the_single_head_after_0237():
     assert values["revision"] == "0238_contract_order_workflows"
     assert values["down_revision"] == "0237_proposal_snapshot_hidden"
 
-    assert _alembic_heads() == ["0238_contract_order_workflows"]
+    assert _alembic_heads() == ["0239_bik_contract_order_backfill"]
 
 
 def test_every_new_column_has_an_entrypoint_mirror():
