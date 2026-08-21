@@ -17,6 +17,10 @@ import api from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
 import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
+import {
+ CONTRACT_STATUS_LABEL,
+ CONTRACT_STATUS_VARIANT,
+} from"@/lib/contract-register";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { useCapability } from"@/hooks/useCapability";
 import { Badge } from"@/components/ui/badge";
@@ -68,14 +72,38 @@ interface ContractRow {
  currency?: string;
 }
 
-const STATUS_VARIANT: Record<
- string, "success" |"warning" |"neutral" |"danger" |"soft"
-> = {
- active: "success",
- expiring: "warning",
- ended: "neutral",
- terminated: "danger",
- draft: "soft",
+type ContractStatusBadge = {
+ label: string;
+ variant: "success" |"warning" |"neutral" |"danger" |"soft" |"info";
+};
+
+// Plakietka statusu musi pokrywać CAŁY enum `ContractStatus`
+// (backend/app/models/contract.py). Do 2026-08 stały tu klucze `expiring`
+// i `terminated`, których backend nigdy nie emitował, a brakowało `ending` —
+// czyli JEDYNEGO statusu istniejącego po to, żeby ostrzegać („< 30 dni do
+// końca"): renderował się w neutralnej szarości, nieodróżnialny od kontraktu
+// zakończonego. Plakietka drukowała też surowy klucz enuma, więc polski
+// rejestr pokazywał „active" i dosłowne „ready_for_signature".
+//
+// Cztery wartości bierzemy z `lib/contract-register.ts` — tego samego źródła,
+// z którego korzysta rejestr per klient na tej samej stronie — żeby ten sam
+// kontrakt nie nazywał się na dwóch listach inaczej. Dwie pozostałe są znane
+// tylko tutaj: rejestr per klient pokazuje realizowane kontrakty, a globalny
+// widzi też te czekające na podpis (`contract_lifecycle`) i anulowane (`void`
+// = miękkie usunięcie, trzymane jako dowód podpisu).
+//
+// Kompletności pilnuje `__tests__/ContractsListV2Status.test.ts` wobec enuma
+// backendu: dodanie tam nowej wartości ma wywalić CI, a nie wyciec do UI jako
+// angielski identyfikator.
+export const CONTRACT_STATUS_BADGE: Record<string, ContractStatusBadge> = {
+ draft: { label: CONTRACT_STATUS_LABEL.draft, variant: CONTRACT_STATUS_VARIANT.draft },
+ active: { label: CONTRACT_STATUS_LABEL.active, variant: CONTRACT_STATUS_VARIANT.active },
+ ending: { label: CONTRACT_STATUS_LABEL.ending, variant: CONTRACT_STATUS_VARIANT.ending },
+ ended: { label: CONTRACT_STATUS_LABEL.ended, variant: CONTRACT_STATUS_VARIANT.ended },
+ // Oczekiwanie na podpis to nie jest ostrzeżenie (bursztyn zarezerwowany dla
+ // `ending`), tylko stan przejściowy — stąd `info`.
+ ready_for_signature: { label: "Do podpisu", variant: "info" },
+ void: { label: "Anulowany", variant: "danger" },
 };
 
 function marginColor(margin: number | undefined, rateClient: number | undefined) {
@@ -537,8 +565,11 @@ export function ContractsListV2() {
  )}
  <TableCell>
  {c.status ? (
- <Badge size="sm" variant={STATUS_VARIANT[c.status] ??"neutral"}>
- {c.status}
+ <Badge
+ size="sm"
+ variant={CONTRACT_STATUS_BADGE[c.status]?.variant ??"neutral"}
+ >
+ {CONTRACT_STATUS_BADGE[c.status]?.label ?? c.status}
  </Badge>
  ) : (
  <span className="text-xs text-muted-foreground">—</span>

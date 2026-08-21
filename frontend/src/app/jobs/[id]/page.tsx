@@ -758,7 +758,19 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
   const matches = data?.matches ?? [];
   const searchType = data?.search_type;
-  const degraded = data?.meta?.degraded === true;
+  // Sygnałem degradacji jest koperta `meta` — `/api/jobs/{id}/ai-matches`
+  // wypełnia ją na OBU gałęziach (semantycznej i tag-fallback). Warunek na
+  // `search_type` jest awaryjny: odpowiedź bez `meta` (starszy backend, wpis
+  // z cache'u) nie może wyrenderować się jako zdrowy ranking, bo BRAK sygnału
+  // jest nieodróżnialny od sygnału „wszystko w porządku". Jedyne wartości
+  // uznane za zdrowe to rodzina „semantic*" (`semantic`, `semantic+rerank`).
+  const degraded =
+    data?.meta?.degraded === true ||
+    (searchType != null && !searchType.startsWith("semantic"));
+  // `semantic_unavailable` (padł Qdrant/Voyage) vs `no_semantic_hits`
+  // (rekrutacja nie ma jeszcze trafień w indeksie) — dla rekrutera to dwie
+  // różne instrukcje, więc nie zlewamy ich w jeden komunikat.
+  const degradedReason = data?.meta?.reason;
   const requiredSkills = data?.required_skills ?? [];
   // Server echoes the effective location filter it applied (param, or the
   // job's own location). Non-empty → results are location-restricted.
@@ -778,18 +790,15 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
             ) : (
               <>
                 Znaleziono <strong>{matches.length}</strong>{" "}
-                {degraded ? "wyników tekstowych" : "pasujących kandydatów"}
+                {degraded ? "wyników zastępczych" : "pasujących kandydatów"}
               </>
             )}
           </span>
           {searchType?.startsWith("semantic") && (
             <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
           )}
-          {searchType === "bm25" && (
-            <span className="text-[10px] px-2 py-0.5 bg-muted text-muted-foreground rounded-full font-medium">BM25 · tryb awaryjny</span>
-          )}
-          {searchType === "unavailable" && (
-            <span className="text-[10px] px-2 py-0.5 bg-destructive/10 text-destructive rounded-full font-medium">Wyszukiwanie niedostępne</span>
+          {degraded && (
+            <span className="text-[10px] px-2 py-0.5 border border-warning/25 bg-warning-muted text-warning-muted-foreground rounded-full font-medium">Tryb awaryjny · bez rankingu AI</span>
           )}
           {locationActive && (
             <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium inline-flex items-center gap-1">
@@ -823,10 +832,14 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
       {degraded && (
         <div
           role="status"
-          className="rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
+          className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
         >
-          Wyszukiwanie semantyczne jest chwilowo niedostępne. Wyniki pochodzą z
-          rankingu tekstowego BM25 i nie mają standardowego wyniku dopasowania.
+          {degradedReason === "no_semantic_hits"
+            ? "Ta rekrutacja nie ma jeszcze trafień w indeksie semantycznym."
+            : "Wyszukiwanie semantyczne jest chwilowo niedostępne."}{" "}
+          Lista poniżej to ranking zastępczy po pokryciu wymaganych umiejętności
+          i kompletności profilu — to NIE jest wynik dopasowania AI. Zweryfikuj
+          profile przed wysłaniem do klienta.
         </div>
       )}
 
