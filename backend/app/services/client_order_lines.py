@@ -51,6 +51,7 @@ from app.models.md_consumption import (
     ClientOrderMdConsumption,
 )
 from app.services.candidate_identity_quarantine import normalize_person_name_part
+from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
     format_md,
     is_multi_consultant_client,
@@ -58,6 +59,8 @@ from app.services.multi_consultant_orders import (
 )
 
 ZERO = Decimal("0")
+STANDARD_WORKING_DAYS_PER_MONTH = Decimal("22")
+MONEY_SCALE = Decimal("0.01")
 
 
 # ── Miesiąc raportu ─────────────────────────────────────────────────────────
@@ -201,9 +204,12 @@ def _contract_recency_key(contract: Contract) -> tuple[date, int]:
 
 
 def _rate_suggestion(
-    contracts: list[Contract], *, on: date
+    contracts: list[Contract],
+    *,
+    on: date,
+    currency_rates: dict[str, Optional[Decimal]],
 ) -> tuple[Optional[Decimal], bool, Optional[int]]:
-    """Podpowiedź kosztu z bieżącego kontraktu + sygnał rozbieżności.
+    """Podpowiedź kosztu /MD z bieżącego kontraktu + sygnał rozbieżności.
 
     `active` i `ending` są biznesowo żywe (cron przenosi kontrakt do
     `ending` już 30 dni przed końcem), więc oba kwalifikują się do
@@ -211,19 +217,39 @@ def _rate_suggestion(
     z cache'owanej kolumny `contracts.rate_candidate`, która może być
     nieaktualna po wejściu w życie zaplanowanego aneksu.
 
+    Kontrakt przechowuje stawkę godzinową, dzienną albo miesięczną, a linia
+    zamówienia zawsze zł/MD. Dlatego każdą stawkę normalizujemy najpierw do
+    miesięcznej wartości tym samym mechanizmem co marża kontraktu, a potem do
+    standardowego miesiąca 22 MD. Kwoty w obcych walutach przeliczamy po
+    zapisanym kursie na PLN; przy braku kursu nie podpowiadamy wartości. W
+    przeciwnym razie np. 100 EUR/h trafiłoby do formularza jako 100 zł/MD.
+
     Ostrzeżenie porównuje wszystkie nieanulowane kontrakty tej osoby u TEGO
-    klienta, także historyczne. Brak stawki nie jest inną stawką; dwa
-    kontrakty z tą samą wartością nie generują ostrzeżenia.
+    klienta, także historyczne, już po tej samej normalizacji. Brak stawki nie
+    jest inną stawką; dwa kontrakty z tą samą wartością /MD nie generują
+    ostrzeżenia.
     """
+
+    def rate_per_md(contract: Contract) -> Optional[Decimal]:
+        rate = contract.effective_candidate_rate(on)
+        monthly = contract.monthly_rate(rate)
+        currency = (contract.currency or "PLN").upper()
+        rate_to_pln = currency_rates.get(currency)
+        if monthly is None or rate_to_pln is None:
+            return None
+        return (monthly * rate_to_pln / STANDARD_WORKING_DAYS_PER_MONTH).quantize(
+            MONEY_SCALE
+        )
+
     live = [c for c in contracts if c.status in LIVE_CONTRACT_STATUSES]
     current = max(live, key=_contract_recency_key) if live else None
-    suggested = current.effective_candidate_rate(on) if current is not None else None
+    suggested = rate_per_md(current) if current is not None else None
 
     distinct_rates = {
-        Decimal(str(rate)).normalize()
+        rate.normalize()
         for contract in contracts
         if contract.status != ContractStatus.void
-        and (rate := contract.effective_candidate_rate(on)) is not None
+        and (rate := rate_per_md(contract)) is not None
     }
     return suggested, len(distinct_rates) > 1, current.id if current else None
 
@@ -343,6 +369,17 @@ async def list_consultant_options(
                     contract
                 )
 
+    today = date.today()
+    currency_rates = await rates_to_pln(
+        db,
+        {
+            (contract.currency or "PLN").upper()
+            for contracts in contracts_by_candidate.values()
+            for contract in contracts
+        },
+        today,
+    )
+
     rows_by_candidate: dict[int, list[tuple]] = {}
     for row in client_rows:
         rows_by_candidate.setdefault(row[1], []).append(row)
@@ -350,7 +387,7 @@ async def list_consultant_options(
     for candidate_id, rows in rows_by_candidate.items():
         contracts = contracts_by_candidate.get(candidate_id, [])
         suggested_rate, has_different_rates, current_contract_id = _rate_suggestion(
-            contracts, on=date.today()
+            contracts, on=today, currency_rates=currency_rates
         )
 
         # Aktywny/kończący się kontrakt wygrywa z nowszym szkicem. Dopiero

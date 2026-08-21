@@ -1127,7 +1127,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
 
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
-    from app.models.contract import Contract, ContractStatus
+    from app.models.contract import Contract, ContractStatus, RateUnit
     from app.models.contract_candidate_rate import ContractCandidateRate
 
     surname = f"Stawka{uuid.uuid4().hex[:6]}"
@@ -1151,6 +1151,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             start_date=_TODAY - timedelta(days=90),
             # Celowo nieaktualny cache: resolver harmonogramu ma zwrócić 560.
             rate_candidate=Decimal("999.000"),
+            rate_unit=RateUnit.daily,
         )
         ended = Contract(
             candidate_id=candidate.id,
@@ -1158,6 +1159,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             status=ContractStatus.ended,
             start_date=_TODAY - timedelta(days=400),
             rate_candidate=Decimal("520.000"),
+            rate_unit=RateUnit.daily,
         )
         newer_draft = Contract(
             candidate_id=candidate.id,
@@ -1165,6 +1167,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             status=ContractStatus.draft,
             start_date=_TODAY - timedelta(days=1),
             rate_candidate=Decimal("700.000"),
+            rate_unit=RateUnit.daily,
         )
         other = Contract(
             candidate_id=candidate.id,
@@ -1172,6 +1175,7 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
             status=ContractStatus.active,
             start_date=_TODAY - timedelta(days=20),
             rate_candidate=Decimal("600.000"),
+            rate_unit=RateUnit.daily,
         )
         active.candidate_rate_schedule = [
             ContractCandidateRate(
@@ -1224,17 +1228,33 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
 async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """600 u Polkomtela nie wpływa na 560 u BIK; równa historia nie ostrzega."""
+    """Inny klient jest ignorowany; równe stawki /MD nie ostrzegają.
+
+    Aktywne 19,25 w obcej walucie/h × 160 h × kurs 4 / 22 MD daje 560 zł/MD,
+    tyle samo co historyczna stawka dzienna. Test chroni przed skopiowaniem
+    surowej kwoty do pola /MD i przed fałszywym ostrzeżeniem dla równoważnych
+    jednostek/walut.
+    """
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
-    from app.models.contract import Contract, ContractStatus
+    from app.models.contract import Contract, ContractStatus, RateUnit
+    from app.models.fx_rate import FxRate
 
     surname = f"Stawka{uuid.uuid4().hex[:6]}"
+    foreign_currency = f"X{uuid.uuid4().hex[:2].upper()}"
     client_id, _, _ = await _seed_client_with_contracts(0)
     other_client = await _seed_bare_client()
     _enable_for(monkeypatch, client_id)
 
     async with AsyncSessionLocal() as db:
+        db.add(
+            FxRate(
+                effective_date=_TODAY,
+                currency=foreign_currency,
+                rate_to_pln=Decimal("4.0000"),
+                source="test",
+            )
+        )
         candidate = Candidate(
             name="Marek",
             lastname=surname,
@@ -1249,7 +1269,10 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     client_id=client_id,
                     status=ContractStatus.active,
                     start_date=_TODAY - timedelta(days=30),
-                    rate_candidate=Decimal("560.000"),
+                    rate_candidate=Decimal("19.250"),
+                    rate_unit=RateUnit.hourly,
+                    billing_hours_per_month=160,
+                    currency=foreign_currency,
                 ),
                 Contract(
                     candidate_id=candidate.id,
@@ -1257,6 +1280,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     status=ContractStatus.ended,
                     start_date=_TODAY - timedelta(days=300),
                     rate_candidate=Decimal("560.000"),
+                    rate_unit=RateUnit.daily,
                 ),
                 Contract(
                     candidate_id=candidate.id,
@@ -1264,6 +1288,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     status=ContractStatus.active,
                     start_date=_TODAY - timedelta(days=5),
                     rate_candidate=Decimal("600.000"),
+                    rate_unit=RateUnit.daily,
                 ),
             ]
         )
