@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import api from "@/lib/api";
-import { RequireRole } from "@/components/RequireRole";
+import api, { extractErrorMsg } from "@/lib/api";
+import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { formatCurrency } from "@/lib/utils";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import { Plus, Trash2, Loader2, Pencil, X } from "lucide-react";
 
 const SENIORITIES = ["", "junior", "mid", "senior", "lead", "architect"];
@@ -69,15 +71,29 @@ function range(min: number | null, max: number | null, currency: string): string
 
 export function RateCardsTab({ clientId }: { clientId: number }) {
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [error, setError] = useState("");
 
-  const { data, isLoading } = useQuery<RateCard[]>({
+  // Lustro backendu: GET = `FinanceReadUser` (VIEW_FINANCE), zapisy =
+  // `FinanceManageUser` (MANAGE_FINANCE) — api/rate_cards.py. Ręczna lista
+  // `["admin","delivery_lead"]` była pozostałością po erze `DeliveryLeadPlus`
+  // sprzed cutoveru RBAC (#1031): jednocześnie ZA SZEROKA (DL nie ma
+  // VIEW_FINANCE, więc każdy zapis kończył się 403) i ZA WĄSKA (finance, jedyna
+  // nie-adminowa rola z tą capability, nie widziała żadnych kontrolek).
+  const canRead = hasAnalyticsCapability(user, "view_finance");
+  const canManage = hasAnalyticsCapability(user, "manage_finance");
+
+  const { data, isLoading, isError, error: queryError, refetch } = useQuery<
+    RateCard[]
+  >({
     queryKey: ["rate-cards", clientId],
     queryFn: () =>
       api.get(`/api/rate-cards?client_id=${clientId}`).then((r) => r.data),
+    // Bez VIEW_FINANCE backend i tak odpowie 403 — nie ma po co go pytać.
+    enabled: canRead,
   });
 
   const saveMutation = useMutation({
@@ -95,15 +111,21 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
       setError("");
     },
     onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : "Błąd zapisu cennika";
-      setError(message);
+      setError(extractErrorMsg(err));
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.delete(`/api/rate-cards/${id}`),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["rate-cards", clientId] }),
+    onSuccess: () => {
+      setError("");
+      queryClient.invalidateQueries({ queryKey: ["rate-cards", clientId] });
+    },
+    // Usuwanie było jedyną akcją bez żadnej ścieżki błędu — odrzucone 403
+    // wyglądało dokładnie tak jak udane usunięcie, które „nie odświeżyło listy".
+    onError: (err: unknown) => {
+      setError(extractErrorMsg(err));
+    },
   });
 
   const startEdit = (card: RateCard) => {
@@ -161,9 +183,32 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
 
   const cards = data ?? [];
 
+  // `enabled: canRead` sprawia, że przy braku uprawnień zapytanie stoi w stanie
+  // „nie wystartowało" (isLoading=false, data=undefined) — czyli wpadłoby wprost
+  // w gałąź pustą. Brak uprawnień musi mieć własną, jawną odpowiedź.
+  if (!canRead) {
+    return (
+      <QueryStateNotice
+        state="forbidden"
+        description="Cennik klienta jest częścią danych finansowych. Twoja rola go nie widzi — to nie znaczy, że cennik jest pusty."
+      />
+    );
+  }
+
+  const viewState = resolveViewState({
+    isLoading,
+    isError,
+    error: queryError,
+    isEmpty: cards.length === 0,
+  });
+  const failed =
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error";
+
   return (
     <div className="space-y-4">
-      <RequireRole roles={["admin", "delivery_lead"]}>
+      {canManage && (
         <button
           onClick={() => {
             setEditingId(null);
@@ -175,7 +220,14 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
         >
           <Plus className="w-4 h-4" /> Dodaj wpis cennika
         </button>
-      </RequireRole>
+      )}
+
+      {/* Błąd usuwania nie ma gdzie indziej wyjść — formularz bywa zamknięty. */}
+      {error && !showForm && (
+        <div className="text-sm text-destructive bg-destructive/10 dark:bg-red-900/30 dark:text-red-300 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
 
       {showForm && (
         <form
@@ -332,9 +384,21 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie cennika…
         </div>
+      ) : failed ? (
+        <QueryStateNotice
+          state={viewState as "forbidden" | "not_found" | "error"}
+          description={
+            viewState === "forbidden"
+              ? "Twoja rola nie ma dostępu do cennika tego klienta. Cennik NIE jest pusty — nie zakładaj wpisów od nowa."
+              : undefined
+          }
+          onRetry={() => void refetch()}
+        />
       ) : cards.length === 0 ? (
         <div className="text-sm text-muted-foreground italic">
-          Brak wpisów cennika — dodaj pierwszy, żeby móc korzystać z auto-suggest przy tworzeniu kontraktu.
+          {canManage
+            ? "Brak wpisów cennika — dodaj pierwszy, żeby móc korzystać z auto-suggest przy tworzeniu kontraktu."
+            : "Brak wpisów cennika dla tego klienta."}
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-border dark:border-border">
@@ -372,7 +436,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                     {c.valid_from || "—"} → {c.valid_to || "∞"}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <RequireRole roles={["admin", "delivery_lead"]}>
+                    {canManage && (
                       <div className="inline-flex gap-1">
                         <button
                           onClick={() => startEdit(c)}
@@ -390,7 +454,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    </RequireRole>
+                    )}
                   </td>
                 </tr>
               ))}

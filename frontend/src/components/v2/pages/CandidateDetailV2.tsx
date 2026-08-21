@@ -2014,11 +2014,17 @@ function CurrentContractCard({
  candidatePhone: string | null;
 }) {
  const { showError } = useToast();
- const { data: docs } = useQuery<any[]>({
+ // `isError`/`isSuccess`, nie samo `data`. Padnięte `GET /api/contracts/{id}/
+ // documents` (500 albo 403 dla roli bez dostępu do kontraktów) rozwiązuje się
+ // z `data === undefined`, a `?? []` zamieniało to w „Brak załączników" — czyli
+ // POZYTYWNE twierdzenie o podpisanej umowie, które jest nieprawdziwe.
+ // Rekruter wnioskował, że podpisany PDF nigdy nie wpłynął, i wysyłał umowę
+ // do podpisu drugi raz.
+ const docsQuery = useQuery<any[]>({
  queryKey: ["contract-docs", contract.id],
  queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
  });
- const documents = docs ?? [];
+ const documents = docsQuery.data ?? [];
 
  const handleDownload = async (d: any) => {
  try {
@@ -2091,7 +2097,24 @@ function CurrentContractCard({
  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
  Dokumenty
  </div>
- {documents.length === 0 ? (
+ {docsQuery.isError ? (
+ <div className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+ <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+ <span>
+ Nie udało się wczytać listy załączników — nie wiemy, czy umowa
+ je ma.
+ </span>
+ <button
+ type="button"
+ onClick={() => docsQuery.refetch()}
+ className="underline"
+ >
+ Ponów
+ </button>
+ </div>
+ ) : !docsQuery.isSuccess ? (
+ <div className="text-xs text-muted-foreground">Wczytywanie…</div>
+ ) : documents.length === 0 ? (
  <div className="text-xs text-muted-foreground">
  Brak załączników. Dodasz je z poziomu strony kontraktu.
  </div>
@@ -4166,7 +4189,10 @@ function PipelinePane({
  candidateLastname?: string | null;
 }) {
  const { showError } = useToast();
- const { data: documents } = useQuery<CandidateDocument[]>({
+ // Ta sama zasada co przy załącznikach umowy: padnięte pobranie dokumentów
+ // NIE MOŻE renderować się jako „Brak CV w profilu kandydata" — to zdanie
+ // o kandydacie, a nie o awarii, i wysyła rekrutera po CV, które już mamy.
+ const documentsQuery = useQuery<CandidateDocument[]>({
  queryKey: candidateQueryKeys.cvDocuments(candidateId),
  queryFn: async () => {
  const res = await api.get<CandidateDocument[]>(
@@ -4177,6 +4203,7 @@ function PipelinePane({
  enabled: !!candidateId,
  staleTime: 30_000,
  });
+ const documents = documentsQuery.data;
 
  // Główny dokument: primary → dopasowany po cv_filename → pierwszy z listy.
  const primaryDoc = useMemo<CandidateDocument | null>(() => {
@@ -4225,6 +4252,26 @@ function PipelinePane({
  hidePdfSidebar
  className="flex-1 min-h-0"
  />
+ </div>
+ ) : documentsQuery.isError ? (
+ <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">
+ <AlertTriangle className="h-8 w-8 text-destructive" />
+ <p className="text-sm text-destructive">
+ Nie udało się wczytać dokumentów kandydata — nie wiemy, czy CV
+ tu jest.
+ </p>
+ <button
+ type="button"
+ onClick={() => documentsQuery.refetch()}
+ className="text-sm text-[hsl(var(--accent-primary))] underline"
+ >
+ Ponów
+ </button>
+ </div>
+ ) : !documentsQuery.isSuccess ? (
+ <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">
+ <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+ <p className="text-sm text-muted-foreground">Wczytywanie CV…</p>
  </div>
  ) : (
  <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">

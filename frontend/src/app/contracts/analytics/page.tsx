@@ -11,6 +11,8 @@ import api, {
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { RequireRole } from "@/components/RequireRole";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState, type ViewState } from "@/lib/view-state";
 import {
   TrendingUp,
   Users,
@@ -53,6 +55,18 @@ interface ForecastMonth {
 interface Forecast {
   horizon_months: number;
   months: ForecastMonth[];
+  // Backend CELOWO degraduje prognozę, gdy brakuje kursu NBP: kwoty w tych
+  // walutach są POMIJANE, nie przeliczane 1:1. Bez tych dwóch pól we froncie
+  // wykres wyglądał na kompletny mimo wyrzuconych kontraktów w EUR/USD.
+  fx_missing?: boolean;
+  fx_warnings?: string[];
+}
+
+/** Stany blokujące, w których wolno renderować `QueryStateNotice`. */
+function isFailedState(
+  state: ViewState,
+): state is "forbidden" | "not_found" | "error" {
+  return state === "forbidden" || state === "not_found" || state === "error";
 }
 
 function MetricCard({
@@ -84,12 +98,16 @@ function MarginLeaderboard({
   title,
   rows,
   isLoading,
+  viewState,
+  onRetry,
   nameKey,
   linkPrefix,
 }: {
   title: string;
   rows: MarginRow[] | undefined;
   isLoading: boolean;
+  viewState: ViewState;
+  onRetry: () => void;
   nameKey: "candidate_name" | "client_name";
   linkPrefix: string;
 }) {
@@ -102,6 +120,12 @@ function MarginLeaderboard({
         <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
         </div>
+      ) : isFailedState(viewState) ? (
+        <QueryStateNotice
+          state={viewState}
+          className="border-0"
+          onRetry={onRetry}
+        />
       ) : !rows || rows.length === 0 ? (
         <div className="p-6 text-sm text-muted-foreground italic">Brak danych.</div>
       ) : (
@@ -153,18 +177,60 @@ function MarginLeaderboard({
   );
 }
 
-function ForecastChart({ forecast }: { forecast: Forecast | undefined }) {
+function ForecastChart({
+  forecast,
+  isLoading,
+  viewState,
+  onRetry,
+}: {
+  forecast: Forecast | undefined;
+  isLoading: boolean;
+  viewState: ViewState;
+  onRetry: () => void;
+}) {
+  // Wcześniej komponent nie przyjmował w ogóle stanu zapytania i wnioskował
+  // „brak danych" z `!forecast` — czyli wypisywał „Brak danych prognozy."
+  // także przy pierwszym renderze i przy każdej awarii.
+  if (isLoading) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie prognozy…
+      </div>
+    );
+  }
+  if (isFailedState(viewState)) {
+    return <QueryStateNotice state={viewState} onRetry={onRetry} />;
+  }
   if (!forecast || forecast.months.length === 0) {
     return (
       <div className="p-6 text-sm text-muted-foreground italic">Brak danych prognozy.</div>
     );
   }
   const maxRev = Math.max(...forecast.months.map((m) => m.revenue), 1);
+  const fxWarnings = forecast.fx_warnings ?? [];
   return (
     <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 overflow-x-auto">
       <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
         <LineChart className="w-4 h-4" /> Prognoza przychodu i marży (12 mies.)
       </h2>
+      {(forecast.fx_missing || fxWarnings.length > 0) && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <div className="space-y-0.5">
+            {fxWarnings.length > 0 ? (
+              fxWarnings.map((w) => <p key={w}>{w}</p>)
+            ) : (
+              <p>
+                Prognoza jest niepełna — dla części walut brakuje kursu NBP, a te
+                kwoty zostały POMINIĘTE w sumach.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex items-end gap-2 h-60 min-w-fit">
         {forecast.months.map((m) => {
           const revHeight = (m.revenue / maxRev) * 100;
@@ -208,22 +274,22 @@ function ForecastChart({ forecast }: { forecast: Forecast | undefined }) {
 }
 
 export default function ContractAnalyticsPage() {
-  const { data: byContractor, isLoading: l1 } = useQuery<MarginRow[]>({
+  const contractorQ = useQuery<MarginRow[]>({
     queryKey: ["contract-analytics-margin-contractor"],
     queryFn: () =>
       api.get("/api/contract-analytics/margin-by-contractor").then((r) => r.data),
   });
-  const { data: byClient, isLoading: l2 } = useQuery<MarginRow[]>({
+  const clientQ = useQuery<MarginRow[]>({
     queryKey: ["contract-analytics-margin-client"],
     queryFn: () =>
       api.get("/api/contract-analytics/margin-by-client").then((r) => r.data),
   });
-  const { data: util } = useQuery<UtilizationData>({
+  const utilQ = useQuery<UtilizationData>({
     queryKey: ["contract-analytics-utilization"],
     queryFn: () =>
       api.get("/api/contract-analytics/utilization").then((r) => r.data),
   });
-  const { data: forecast } = useQuery<Forecast>({
+  const forecastQ = useQuery<Forecast>({
     queryKey: ["contract-analytics-forecast"],
     queryFn: () =>
       api
@@ -231,6 +297,33 @@ export default function ContractAnalyticsPage() {
         .then((r) => r.data),
   });
 
+  const byContractor = contractorQ.data;
+  const byClient = clientQ.data;
+  const util = utilQ.data;
+  const forecast = forecastQ.data;
+
+  const contractorState = resolveViewState({
+    isLoading: contractorQ.isLoading,
+    isError: contractorQ.isError,
+    error: contractorQ.error,
+  });
+  const clientState = resolveViewState({
+    isLoading: clientQ.isLoading,
+    isError: clientQ.isError,
+    error: clientQ.error,
+  });
+  const forecastState = resolveViewState({
+    isLoading: forecastQ.isLoading,
+    isError: forecastQ.isError,
+    error: forecastQ.error,
+  });
+
+  // Kafle „Miesięczna marża" / „Miesięczny przychód" liczą się z listy
+  // margin-by-client. Gdy jej pobranie padnie, `?? []` dawało pewne siebie
+  // „0,00 zł" — nieodróżnialne od prawdziwego wyniku na ekranie, na którym
+  // admin odpowiada sobie na pytanie „ile zarabiamy w tym miesiącu".
+  // Dlatego bez sukcesu renderujemy „—", a nie sformatowane zero.
+  const marginTotalsKnown = clientQ.isSuccess && byClient !== undefined;
   const totalMonthlyMargin = (byClient ?? []).reduce(
     (acc, r) => acc + r.total_monthly_margin,
     0,
@@ -260,17 +353,36 @@ export default function ContractAnalyticsPage() {
           <MetricCard
             icon={TrendingUp}
             label="Miesięczna marża"
-            value={formatCurrency(totalMonthlyMargin, "PLN")}
+            value={
+              marginTotalsKnown
+                ? formatCurrency(totalMonthlyMargin, "PLN")
+                : "—"
+            }
             sub={
-              totalMonthlyRevenue
-                ? `${((totalMonthlyMargin / totalMonthlyRevenue) * 100).toFixed(1)}% z przychodu`
-                : undefined
+              !marginTotalsKnown
+                ? clientQ.isLoading
+                  ? "Ładowanie…"
+                  : "Nie udało się pobrać marży"
+                : totalMonthlyRevenue
+                  ? `${((totalMonthlyMargin / totalMonthlyRevenue) * 100).toFixed(1)}% z przychodu`
+                  : undefined
             }
           />
           <MetricCard
             icon={LineChart}
             label="Miesięczny przychód"
-            value={formatCurrency(totalMonthlyRevenue, "PLN")}
+            value={
+              marginTotalsKnown
+                ? formatCurrency(totalMonthlyRevenue, "PLN")
+                : "—"
+            }
+            sub={
+              marginTotalsKnown
+                ? undefined
+                : clientQ.isLoading
+                  ? "Ładowanie…"
+                  : "Nie udało się pobrać przychodu"
+            }
           />
           <MetricCard
             icon={Users}
@@ -279,31 +391,48 @@ export default function ContractAnalyticsPage() {
             sub={
               util
                 ? `${util.candidates_active}/${util.total_candidates} kandydatów aktywnych`
-                : undefined
+                : utilQ.isError
+                  ? "Nie udało się pobrać utylizacji"
+                  : undefined
             }
           />
           <MetricCard
             icon={Building2}
             label="Śr. dni na bench"
             value={util?.avg_bench_days !== null && util?.avg_bench_days !== undefined ? `${util.avg_bench_days}` : "—"}
-            sub={util ? `${util.candidates_on_bench} kandydatów bez kontraktu` : undefined}
+            sub={
+              util
+                ? `${util.candidates_on_bench} kandydatów bez kontraktu`
+                : utilQ.isError
+                  ? "Nie udało się pobrać danych bench"
+                  : undefined
+            }
           />
         </div>
 
-        <ForecastChart forecast={forecast} />
+        <ForecastChart
+          forecast={forecast}
+          isLoading={forecastQ.isLoading}
+          viewState={forecastState}
+          onRetry={() => void forecastQ.refetch()}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <MarginLeaderboard
             title="Top kontraktorzy wg marży"
             rows={byContractor}
-            isLoading={l1}
+            isLoading={contractorQ.isLoading}
+            viewState={contractorState}
+            onRetry={() => void contractorQ.refetch()}
             nameKey="candidate_name"
             linkPrefix="/candidates/"
           />
           <MarginLeaderboard
             title="Top klienci wg marży"
             rows={byClient}
-            isLoading={l2}
+            isLoading={clientQ.isLoading}
+            viewState={clientState}
+            onRetry={() => void clientQ.refetch()}
             nameKey="client_name"
             linkPrefix="/clients/"
           />
@@ -321,17 +450,29 @@ export default function ContractAnalyticsPage() {
 
 
 function RoleClientMixCard() {
-  const { data, isLoading } = useQuery<RoleClientMix>({
+  const { data, isLoading, isError, error, refetch } = useQuery<RoleClientMix>({
     queryKey: ["contract-analytics-role-client-mix"],
     queryFn: async () =>
       (await contractAnalyticsExpansionApi.roleClientMix()).data,
   });
+  const viewState = resolveViewState({ isLoading, isError, error });
 
   if (isLoading) {
     return (
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola × klient…
       </div>
+    );
+  }
+  // „Brak aktywnych kontraktów do analizy." było dotąd wypisywane także dla
+  // awarii — trzecie z rzędu twierdzenie na tym ekranie, że firma nie ma kontraktów.
+  if (isFailedState(viewState)) {
+    return (
+      <QueryStateNotice
+        state={viewState}
+        className="bg-card dark:bg-muted rounded-2xl border-solid"
+        onRetry={() => void refetch()}
+      />
     );
   }
   if (!data || data.rows.length === 0) {
@@ -421,17 +562,30 @@ function RoleClientMixCard() {
 
 
 function LocationDistributionCard() {
-  const { data, isLoading } = useQuery<LocationDistribution>({
-    queryKey: ["contract-analytics-location-distribution"],
-    queryFn: async () =>
-      (await contractAnalyticsExpansionApi.locationDistribution()).data,
-  });
+  const { data, isLoading, isError, error, refetch } =
+    useQuery<LocationDistribution>({
+      queryKey: ["contract-analytics-location-distribution"],
+      queryFn: async () =>
+        (await contractAnalyticsExpansionApi.locationDistribution()).data,
+    });
+  const viewState = resolveViewState({ isLoading, isError, error });
 
   if (isLoading) {
     return (
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie lokalizacji…
       </div>
+    );
+  }
+  // `return null` na awarii kasowało całą kartę bez śladu — sekcja po prostu
+  // znikała z raportu i nikt nie miał jak zauważyć, że czegoś brakuje.
+  if (isFailedState(viewState)) {
+    return (
+      <QueryStateNotice
+        state={viewState}
+        className="bg-card dark:bg-muted rounded-2xl border-solid"
+        onRetry={() => void refetch()}
+      />
     );
   }
   if (!data) return null;
@@ -486,11 +640,13 @@ function LocationDistributionCard() {
 
 
 function TerminationAnalysisCard() {
-  const { data, isLoading } = useQuery<TerminationAnalysis>({
-    queryKey: ["contract-analytics-termination-analysis"],
-    queryFn: async () =>
-      (await contractAnalyticsExpansionApi.terminationAnalysis(12)).data,
-  });
+  const { data, isLoading, isError, error, refetch } =
+    useQuery<TerminationAnalysis>({
+      queryKey: ["contract-analytics-termination-analysis"],
+      queryFn: async () =>
+        (await contractAnalyticsExpansionApi.terminationAnalysis(12)).data,
+    });
+  const viewState = resolveViewState({ isLoading, isError, error });
 
   if (isLoading) {
     return (
@@ -498,6 +654,15 @@ function TerminationAnalysisCard() {
         <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie analizy
         zakończeń…
       </div>
+    );
+  }
+  if (isFailedState(viewState)) {
+    return (
+      <QueryStateNotice
+        state={viewState}
+        className="bg-card dark:bg-muted rounded-2xl border-solid"
+        onRetry={() => void refetch()}
+      />
     );
   }
   if (!data) return null;

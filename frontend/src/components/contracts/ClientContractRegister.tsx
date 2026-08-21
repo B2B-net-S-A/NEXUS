@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FilterBar } from "@/components/ds/FilterBar";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import { MultiSelectFilter } from "@/components/v2/filters/MultiSelectFilter";
 import {
   CONTRACT_STATUS_OPTIONS,
@@ -307,7 +309,7 @@ export function ClientContractRegister({
     periodTo,
     subcatKey,
   ];
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey,
     queryFn: () =>
       api
@@ -399,6 +401,22 @@ export function ClientContractRegister({
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // 403 (zmienione przypisanie klienta dla DL) i 5xx NIE mogą renderować się
+  // jako „Brak kontraktów dla tego klienta." z zachętą „Dodaj pierwszy kontrakt"
+  // — CTA na nieudanym pobraniu produkuje duplikat kontraktu konsultanta, który
+  // wpływa dalej do MRR, skanera wygasania i marży klienta (audyt F-20).
+  // Bliźniaczy ContractsListV2 na tej samej stronie robi to już tak samo.
+  const viewState = resolveViewState({
+    isLoading,
+    isError,
+    error,
+    isEmpty: items.length === 0,
+  });
+  const failed =
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error";
   const resolvedName = clientName ?? items[0]?.candidate_name ?? undefined;
 
   const openNew = () => {
@@ -424,7 +442,9 @@ export function ClientContractRegister({
           <p className="text-sm text-muted-foreground mt-1">
             {isLoading
               ? "Ładowanie…"
-              : `${total} kontrakt${total === 1 ? "" : total > 1 && total < 5 ? "y" : "ów"}`}
+              : failed
+                ? "Nie udało się pobrać rejestru"
+                : `${total} kontrakt${total === 1 ? "" : total > 1 && total < 5 ? "y" : "ów"}`}
           </p>
         </div>
         {canEdit && (
@@ -541,6 +561,21 @@ export function ClientContractRegister({
                 className="text-center py-10 text-muted-foreground"
               >
                 Ładowanie…
+              </TableCell>
+            </TableRow>
+          ) : failed ? (
+            <TableRow>
+              <TableCell colSpan={canEdit ? 8 : 7} className="p-0">
+                <QueryStateNotice
+                  state={viewState as "forbidden" | "not_found" | "error"}
+                  className="border-0"
+                  description={
+                    viewState === "forbidden"
+                      ? "Twoja rola nie ma dostępu do rejestru kontraktów tego klienta. Rejestr NIE jest pusty — nie zakładaj kontraktu od nowa."
+                      : undefined
+                  }
+                  onRetry={() => void refetch()}
+                />
               </TableCell>
             </TableRow>
           ) : items.length === 0 ? (

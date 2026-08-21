@@ -10,7 +10,15 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useState, useRef, useEffect } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useState,
+  useRef,
+  useEffect,
+  useId,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
@@ -226,13 +234,46 @@ function Modal({ title, onClose, children, wide }: { title: string; onClose: () 
   );
 }
 
+/**
+ * Podpis pola + kontrolka. `<label>` jest RODZEŃSTWEM kontrolki, więc bez pary
+ * `htmlFor`/`id` przeglądarka nie ma czego powiązać: klik w podpis nie ustawia
+ * fokusu, czytnik ekranu czyta „edycja, puste", a sterowanie głosem („kliknij
+ * Imię") nie ma celu. Dotyczyło to wszystkich 60 pól modali Dodaj/Edytuj w tym
+ * pliku — dla `<select>` najboleśniej, bo tam nawet placeholder nie podstawia
+ * się pod brakującą nazwę.
+ *
+ * `id` nadajemy WYŁĄCZNIE lokalnym kontrolkom (Input/Textarea/Select) i tylko
+ * pierwszej z nich. Gdy w środku jest grupa (dwie kontrolki w `<div>`, np.
+ * „Okres wypowiedzenia" — te mają własne `aria-label`) albo sam tekst
+ * objaśniający, `htmlFor` wskazywałby w próżnię, a martwe powiązanie jest
+ * gorsze od jego braku: czytnik ekranu ogłasza nazwę, po której nie da się
+ * nawigować.
+ */
 function FieldGroup({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  const generatedId = useId();
+  let controlId: string | undefined;
+
+  const labelled = Children.map(children, (child) => {
+    if (controlId !== undefined || !isValidElement(child)) return child;
+    if (!LABELLABLE_CONTROLS.includes(child.type)) return child;
+    const own = (child.props as { id?: string }).id;
+    const nextId = own ?? generatedId;
+    controlId = nextId;
+    if (own) return child;
+    return cloneElement(child as React.ReactElement<{ id?: string }>, {
+      id: nextId,
+    });
+  });
+
   return (
     <div>
-      <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+      <label
+        htmlFor={controlId}
+        className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
+      >
         {label} {required && <span className="text-destructive">*</span>}
       </label>
-      {children}
+      {labelled}
     </div>
   );
 }
@@ -266,6 +307,11 @@ function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectEle
   );
 }
 
+// Kontrolki, którym `FieldGroup` potrafi nadać `id` i spiąć je z `<label>`.
+// Deklaracje funkcji są hoistowane, więc ta stała może stać po nich, a
+// `FieldGroup` (wyżej) i tak ją widzi w czasie renderu.
+const LABELLABLE_CONTROLS: readonly unknown[] = [Input, Textarea, Select];
+
 function SaveButton({ saving, label = "Zapisz" }: { saving: boolean; label?: string }) {
   return (
     <button
@@ -282,6 +328,51 @@ function SaveButton({ saving, label = "Zapisz" }: { saving: boolean; label?: str
 
 function ErrorBanner({ error }: { error: string }) {
   return <div className="text-sm text-destructive dark:text-destructive bg-destructive/10 dark:bg-red-900/30 rounded-lg px-4 py-2">{error}</div>;
+}
+
+/**
+ * Komunikat błędu do stanu typu string. Handlery w tym pliku czytały wprost
+ * `err.response.data.detail`, a `detail` bywa NIE-STRINGIEM:
+ *   - obiektem `{feature, reason, used, limit}` — 503 o wyczerpanej kwocie AI
+ *     (`ai_writer.py`, jedno kliknięcie admina w Ustawienia → AI od tego stanu),
+ *   - obiektem `{message, ...}` — konflikty domenowe,
+ *   - tablicą `{msg, loc}` — 422 z Pydantica.
+ * Taka wartość trafiała do stanu i była renderowana jako dziecko Reacta, co
+ * rzuca „Objects are not valid as a React child" W TRAKCIE RENDERU: error
+ * boundary App Routera podmieniał całą stronę, a wypełniony do połowy formularz
+ * (tytuł, klient, TAC, DL, wymagania) przepadał. Zwykły błąd zapisu kasował
+ * więc pracę użytkownika.
+ *
+ * Zwracana wartość jest ZAWSZE stringiem. `reason` czytamy zaraz po `message`,
+ * bo dla kwot AI jest jedynym polem pisanym po polsku do użytkownika. Z 422
+ * bierzemy wyłącznie błędy z `body` — tylko one opisują to, co użytkownik
+ * wpisał; `query`/`path` ustawia kod aplikacji i surowy `loc` byłby wyciekiem
+ * wewnętrznego kontraktu (ta sama zasada co w `extractErrorMsg`; logika jest
+ * tu powtórzona świadomie, żeby ten plik nie zyskał zależności, której nie
+ * pokrywają istniejące mocki `@/lib/api` w testach modali).
+ */
+function formErrorMsg(error: unknown, fallback: string): string {
+  const detail = (
+    error as { response?: { data?: { detail?: unknown } } } | null | undefined
+  )?.response?.data?.detail;
+
+  if (typeof detail === "string" && detail.trim()) return detail;
+
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const { message, reason } = detail as { message?: unknown; reason?: unknown };
+    if (typeof message === "string" && message.trim()) return message;
+    if (typeof reason === "string" && reason.trim()) return reason;
+  }
+
+  if (Array.isArray(detail)) {
+    const first = detail[0] as { msg?: unknown; loc?: unknown } | undefined;
+    const loc = Array.isArray(first?.loc) ? first.loc : [];
+    if (typeof first?.msg === "string" && first.msg.trim() && loc[0] === "body") {
+      return `${loc.slice(1).join(".") || "pole"}: ${first.msg}`;
+    }
+  }
+
+  return fallback;
 }
 
 // ── Modal: Dodaj / Edytuj kandydata ───────────────────────────────────────────
@@ -725,7 +816,7 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
       onSuccess("Kandydat dodany pomyślnie");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -843,7 +934,7 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
       onSuccess("Kandydat zaktualizowany");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1435,7 +1526,7 @@ export function AddJobModal({
         salary_min: f.salary_min || (data.salary_range_suggestion?.match(/(\d[\d\s]+)/)?.[1]?.replace(/\s/g, "") || ""),
       }));
     } catch (e: any) {
-      setAiError(e?.response?.data?.detail || "Błąd generowania AI");
+      setAiError(formErrorMsg(e, "Błąd generowania AI"));
     } finally {
       setAiGenerating(false);
     }
@@ -1514,7 +1605,7 @@ export function AddJobModal({
         router.push(`/jobs/${newJob.id}?highlight=ai-proposals`);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1678,7 +1769,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1846,7 +1937,7 @@ export function AddClientModal({
       onSuccess("Firma dodana pomyślnie");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1902,7 +1993,7 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
       onSuccess("Firma zaktualizowana");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -1954,7 +2045,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
       onSuccess("Spotkanie zaplanowane pomyślnie");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
   };
 
@@ -2047,7 +2138,7 @@ export function AddContactModal({ onClose, onSuccess }: { onClose: () => void; o
       onSuccess("Osoba kontaktowa dodana pomyślnie");
       onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Błąd podczas zapisywania");
+      setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally {
       setSaving(false);
     }
