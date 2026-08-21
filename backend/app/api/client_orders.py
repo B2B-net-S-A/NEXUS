@@ -63,6 +63,7 @@ from app.schemas.new_contractor_order import (
 from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
+from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.ezdrowie import validate_project_part
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
@@ -212,21 +213,34 @@ def _normalize_monthly(
 
 
 def _compute_monthly_margin(
-    order: ClientOrder, contract: Contract
+    order: ClientOrder, contract: Contract, on: Optional[date] = None
 ) -> Optional[Decimal | int]:
-    """Marża/mc dla Order: (Order.rate_client ?? Contract.rate_client) - Contract.rate_candidate."""
+    """Marża/mc dla Order: (Order.rate_client ?? stawka klienta z umowy) - stawka kandydata.
+
+    Obie stawki umowy są rozstrzygane NA DZIEŃ ``on`` z harmonogramów
+    (``effective_rate_fields``), nie czytane z kolumn ``contracts.rate_*``.
+    Kolumna to cache zapisywany przy ZAPISIE umowy: krok stawki progresywnej
+    albo aneks ``rate_change``, którego data już minęła, nigdy jej nie dotyka,
+    więc te trzy powierzchnie (wiersz zamówienia, „ostatnie zamówienie" na
+    liście kontraktorów, odpowiedź po utworzeniu zamówienia) pokazywały marżę
+    z PIERWSZEGO okresu stawkowego. Wymaga wczytanych ``RATE_SCHEDULE_LOADS``.
+
+    Stawka na poziomie ZAMÓWIENIA nadal wygrywa — to fakt o tym zamówieniu,
+    a nie o umowie.
+    """
+    eff = effective_rate_fields(contract, on or date.today())
     # `is not None` zamiast `or` — stawka 0 na Orderze jest legalna i nie może
     # po cichu spadać do stawki kontraktu.
     rate_client_effective = (
-        order.rate_client if order.rate_client is not None else contract.rate_client
+        order.rate_client if order.rate_client is not None else eff["rate_client"]
     )
-    if rate_client_effective is None or contract.rate_candidate is None:
+    if rate_client_effective is None or eff["rate_candidate"] is None:
         return None
     monthly_client = _normalize_monthly(
         rate_client_effective, contract.rate_unit, contract.billing_hours_per_month
     )
     monthly_cand = _normalize_monthly(
-        contract.rate_candidate, contract.rate_unit, contract.billing_hours_per_month
+        eff["rate_candidate"], contract.rate_unit, contract.billing_hours_per_month
     )
     if monthly_client is None or monthly_cand is None:
         return None
@@ -495,9 +509,21 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
     NIE używa: tam te same dwa zapytania mnożyły się przez liczbę zamówień
     (klient z 30 kontraktorami po 5 zamówień = ~300 zbędnych round-tripów),
     mimo że dane leżały już w pamięci.
+
+    Umowa jest pobierana Z HARMONOGRAMAMI stawek nawet wtedy, gdy
+    `order.contract` jest już w pamięci: marża wiersza liczy się z kroku
+    obowiązującego dziś, a wołający wpinają tu `selectinload(ClientOrder.contract)`
+    BEZ zagnieżdżonych harmonogramów. Zapytanie trafia w identity map sesji,
+    więc kosztuje jeden dociąg relacji, nie drugi obiekt.
     """
-    contract = order.contract or await db.scalar(
-        select(Contract).where(Contract.id == order.contract_id)
+    contract = (
+        await db.scalar(
+            select(Contract)
+            .options(*RATE_SCHEDULE_LOADS)
+            .where(Contract.id == order.contract_id)
+        )
+        if order.contract_id is not None
+        else None
     )
     candidate: Optional[Candidate] = None
     if contract:
@@ -532,6 +558,7 @@ async def list_contractors_with_orders(
             await db.execute(
                 select(Contract)
                 .options(
+                    *RATE_SCHEDULE_LOADS,
                     selectinload(Contract.candidate),
                     # Rekrutacja POJEDYNCZEGO zamówienia — `ClientOrder.job_id`
                     # bywa inne niż `Contract.job_id` (przedłużenie potrafi
@@ -1387,7 +1414,20 @@ async def create_contract_with_order(
     await db.commit()
 
     # Callers without finance access never receive a computed/inferred value.
-    monthly_margin = _compute_monthly_margin(order, contract) if can_finance else None
+    monthly_margin: Optional[Decimal | int] = None
+    if can_finance:
+        # Umowa powstała przed chwilą w tym żądaniu, więc jej harmonogramy
+        # stawek nie są wczytane — a `effective_rate_fields` sięga po nie
+        # atrybutem i lazy-load na sesji async to `MissingGreenlet` (500 bez
+        # CORS). Jedno dociągnięcie po commicie zamyka tę krawędź; wiersze
+        # harmonogramu i tak są tu puste, więc resolver zejdzie do kolumn.
+        priced = await db.scalar(
+            select(Contract)
+            .options(*RATE_SCHEDULE_LOADS)
+            .where(Contract.id == contract.id)
+        )
+        if priced is not None:
+            monthly_margin = _compute_monthly_margin(order, priced)
 
     return NewContractorOrderResponse(
         contract_id=contract.id,

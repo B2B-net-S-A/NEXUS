@@ -525,13 +525,24 @@ async def _group_to_read(
                 if line.id not in with_month:
                     missing_month[line.id] = latest_import_month
 
+    # Kwoty grupy i sumy zafakturowane są po TEJ SAMEJ stronie linii co stawki
+    # linii: `md_total` jest jawne z założenia (liczba MD jest operacyjna), więc
+    # rola bez VIEW_FINANCE, widząc kwotę zamówienia obok liczby MD, odtwarza
+    # dzieleniem dokładnie tę stawkę przychodową, którą serwer właśnie
+    # zredagował. Siostrzany moduł jednoosobowy redaguje bezpośredni
+    # odpowiednik (`ClientOrder.total_value`, `_ORDER_FINANCE_FIELDS`) dla tych
+    # samych ról — tu było przeoczenie, nie odrębna decyzja.
     reads: list[OrderLineRead] = []
     for line in lines:
         item = _line_to_read(
             line,
             with_finance=with_finance,
-            invoiced=invoiced.get(line.id) if group.is_cost_based else None,
-            unsettled=unsettled.get(line.id) if group.is_cost_based else None,
+            invoiced=(
+                invoiced.get(line.id) if group.is_cost_based and with_finance else None
+            ),
+            unsettled=(
+                unsettled.get(line.id) if group.is_cost_based and with_finance else None
+            ),
             missing_month=missing_month.get(line.id),
         )
         if item.job_id:
@@ -571,11 +582,13 @@ async def _group_to_read(
         closure_date=group.closure_date,
         closure_reason=group.closure_reason,
         is_cost_based=group.is_cost_based,
-        budget_amount=group.budget_amount,
-        budget_used=budget_used,
-        budget_remaining=group.budget_remaining,
+        budget_amount=group.budget_amount if with_finance else None,
+        budget_used=budget_used if with_finance else None,
+        budget_remaining=group.budget_remaining if with_finance else None,
         budget_manual_adjustment=(
-            group.budget_manual_adjustment if group.is_cost_based else None
+            group.budget_manual_adjustment
+            if group.is_cost_based and with_finance
+            else None
         ),
         predecessor_group_id=group.predecessor_group_id,
         filename=group.filename,

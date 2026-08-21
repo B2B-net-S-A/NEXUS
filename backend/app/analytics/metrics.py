@@ -15,7 +15,9 @@ Definicje (plan §4.2):
 - źródło               = pierwszy CandidateSourceEvent (first-touch,
   view ``analytics_candidate_first_sources``),
 - aktywny kontrakt     = date-effective ``start_date <= dziś < end_date``
-  (NULL end = bezterminowy), status poza draft,
+  (NULL end = bezterminowy), status w ``REVENUE_BEARING_STATUSES``,
+- stawka kontraktu     = date-effective z harmonogramu na dzień odniesienia
+  (``effective_rate_fields``), nigdy z cache'owanej kolumny ``rate_*``,
 - wynik przetargu      = ``Job.close_reason``; NULL = "unknown",
 - finanse              = Decimal; kwoty wychodzą jako decimal-string + PLN.
 
@@ -30,15 +32,19 @@ from typing import Any, Literal
 
 from sqlalchemy import distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.analytics.periods import Period
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract
 from app.models.job import Job, JobStatus
 from app.models.user import User
+from app.services.contract_rates import (
+    RATE_SCHEDULE_LOADS,
+    REVENUE_BEARING_STATUSES,
+    effective_rate_fields,
+)
 
 # Stage'y milestone'ów w kolejności lejka.
 FUNNEL_STAGES = ["verified", "cv_sent", "interview", "client_interview", "hired"]
@@ -85,7 +91,7 @@ async def overview(db: AsyncSession, period: Period) -> dict[str, Any]:
     clients_active = (
         await db.execute(
             select(func.count(distinct(Contract.client_id))).where(
-                Contract.status != ContractStatus.draft,
+                Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= today,
                 (Contract.end_date.is_(None)) | (Contract.end_date >= today),
@@ -95,7 +101,7 @@ async def overview(db: AsyncSession, period: Period) -> dict[str, Any]:
     contracts_active = (
         await db.execute(
             select(func.count(Contract.id)).where(
-                Contract.status != ContractStatus.draft,
+                Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= today,
                 (Contract.end_date.is_(None)) | (Contract.end_date >= today),
@@ -106,7 +112,7 @@ async def overview(db: AsyncSession, period: Period) -> dict[str, Any]:
     expiring = (
         await db.execute(
             select(func.count(Contract.id)).where(
-                Contract.status != ContractStatus.draft,
+                Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.end_date.isnot(None),
                 Contract.end_date >= today,
                 Contract.end_date <= date.fromordinal(today.toordinal() + 30),
@@ -444,21 +450,24 @@ async def _active_contracts(
 
     ``on`` czyni to zapytanie point-in-time (M7-P0.4): dla historycznego okresu
     zwraca kontrakty aktywne na koniec tamtego okresu, nie stan bieżący.
+
+    Filtr statusu jest POZYTYWNY (``REVENUE_BEARING_STATUSES``). Dawne
+    ``status != draft`` wpuszczało wszystko dopisane do enuma później —
+    ``void`` (anulowany soft-delete, który świadomie zachowuje ``end_date``,
+    więc przechodził wszystkie cztery predykaty) i ``ready_for_signature``
+    (niepodpisany dokument). Zarząd widział wtedy przychód, który nigdy nie
+    zostanie zafakturowany.
     """
     on = on or date.today()
     stmt = (
         select(Contract)
         .where(
-            Contract.status != ContractStatus.draft,
+            Contract.status.in_(REVENUE_BEARING_STATUSES),
             Contract.start_date.isnot(None),
             Contract.start_date <= on,
             (Contract.end_date.is_(None)) | (Contract.end_date >= on),
         )
-        .options(
-            selectinload(Contract.candidate_rate_schedule),
-            selectinload(Contract.client_rate_schedule),
-            selectinload(Contract.framework_rate_schedule),
-        )
+        .options(*RATE_SCHEDULE_LOADS)
     )
     if client_id is not None:
         stmt = stmt.where(Contract.client_id == client_id)
@@ -515,10 +524,17 @@ async def _sum_finance(
         if rate is None:
             missing[cur] = missing.get(cur, 0) + 1
             continue
-        if c.monthly_rate_client is not None:
-            mrr += Decimal(c.monthly_rate_client) * rate
-        if c.monthly_margin is not None:
-            margin += Decimal(c.monthly_margin) * rate
+        # Stawka MUSI być rozstrzygnięta na dzień ``on``, nie odczytana
+        # z kolumny ``contracts.rate_*``. Kolumna to cache zapisywany przy
+        # ZAPISIE kontraktu: krok harmonogramu, którego data już nadeszła,
+        # nigdy jej nie dotyka. Bez tego każdy punkt trendu był wyceniony
+        # DZISIEJSZĄ stawką, więc lipcowa podwyżka retroaktywnie podnosiła
+        # styczeń i płaski biznes wyglądał na rosnący.
+        eff = effective_rate_fields(c, on)
+        if eff["monthly_rate_client"] is not None:
+            mrr += Decimal(eff["monthly_rate_client"]) * rate
+        if eff["monthly_margin"] is not None:
+            margin += Decimal(eff["monthly_margin"]) * rate
 
     flag: QualityFlag = "complete"
     if missing:
@@ -560,7 +576,7 @@ async def _bench_and_utilization(
     active_cands = (
         await db.execute(
             select(func.count(distinct(Contract.candidate_id))).where(
-                Contract.status != ContractStatus.draft,
+                Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= on,
                 (Contract.end_date.is_(None)) | (Contract.end_date >= on),
@@ -570,7 +586,7 @@ async def _bench_and_utilization(
     ever_cands = (
         await db.execute(
             select(func.count(distinct(Contract.candidate_id))).where(
-                Contract.status != ContractStatus.draft,
+                Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= on,
             )
@@ -637,16 +653,12 @@ async def finance_trend(
     stmt = (
         select(Contract)
         .where(
-            Contract.status != ContractStatus.draft,
+            Contract.status.in_(REVENUE_BEARING_STATUSES),
             Contract.start_date.isnot(None),
             Contract.start_date <= date.today(),
             (Contract.end_date.is_(None)) | (Contract.end_date >= earliest),
         )
-        .options(
-            selectinload(Contract.candidate_rate_schedule),
-            selectinload(Contract.client_rate_schedule),
-            selectinload(Contract.framework_rate_schedule),
-        )
+        .options(*RATE_SCHEDULE_LOADS)
     )
     contracts = (await db.execute(stmt)).scalars().all()
 
@@ -786,7 +798,7 @@ async def client_operations(
         await db.execute(
             select(func.count(Contract.id)).where(
                 Contract.client_id == client_id,
-                Contract.status != ContractStatus.draft,
+                Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= today,
                 (Contract.end_date.is_(None)) | (Contract.end_date >= today),
@@ -847,7 +859,7 @@ METRIC_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "name": "active_contract",
-        "definition": "Date-effective: start_date <= dziś < end_date (NULL = bezterminowy), status ≠ draft",
+        "definition": "Date-effective: start_date <= dziś < end_date (NULL = bezterminowy), status w (active, ending, ended)",
         "unit": "count",
         "source": "live_ats",
     },
@@ -859,7 +871,7 @@ METRIC_DEFINITIONS: list[dict[str, str]] = [
     },
     {
         "name": "mrr",
-        "definition": "Suma monthly_rate_client aktywnych (date-effective) kontraktów; Decimal, PLN; waluty obce wymagają kursu (PR 6)",
+        "definition": "Suma miesięcznej stawki klienta aktywnych (date-effective) kontraktów; stawka też jest date-effective — brana z harmonogramu na dzień odniesienia, nie z cache'owanej kolumny; Decimal, PLN; waluty obce wymagają kursu (PR 6)",
         "unit": "PLN",
         "source": "live_ats",
     },
