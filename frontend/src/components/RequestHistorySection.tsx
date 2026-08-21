@@ -130,8 +130,20 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
       return r.data;
     },
     onSuccess: () => {
+      // Strona rekrutacji cachuje kanban i nagłówek SUROWYM parametrem trasy
+      // (`useParams()` → string), a tutaj `jobId` jest liczbą. React Query
+      // porównuje prymitywy przez `===`, więc sama forma liczbowa nie trafia
+      // w nic: zakładka Pipeline pokazywała stan sprzed dodania mimo toasta
+      // o sukcesie, a kwerendy żyją w komponencie strony, więc przełączenie
+      // zakładek ich nie odmontowuje i refetch nie następuje. Odpalamy obie
+      // formy — tak jak pięć pozostałych miejsc dodających do pipeline'u.
+      const jobKey = String(jobId);
+      qc.invalidateQueries({ queryKey: ["kanban", jobKey] });
       qc.invalidateQueries({ queryKey: ["kanban", jobId] });
+      qc.invalidateQueries({ queryKey: ["job", jobKey] });
       qc.invalidateQueries({ queryKey: ["job", jobId] });
+      // Pierścień scoringu świeżo dodanego kandydata (prefiks → dowolne id).
+      qc.invalidateQueries({ queryKey: ["pipeline-scores"] });
       showToast("Dodano championa do pipeline", "success");
     },
     onError: (error: unknown) =>

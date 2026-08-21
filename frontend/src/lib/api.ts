@@ -166,11 +166,52 @@ api.interceptors.request.use((config) => {
 // ~30-90s window where Traefik returns 502/503 with no CORS headers, so saves
 // fail with a cryptic "Nie udało się zapisać" toast. Retry up to 2× with
 // exponential backoff (1.5s, 3s) so users don't lose their input.
+//
+// Powtarzanie jest ZAWĘŻONE po czasowniku HTTP, bo to jedyna warstwa retry dla
+// zapisów (QueryProvider ustawia `retry` tylko pod `queries`, mutacje mają
+// w react-query domyślne 0). Bez guardu najszersza gałąź (`!err.response`)
+// powtarzała POST/PATCH/DELETE — a ta gałąź jest prawdziwa NIE tylko dla okna
+// deployu: backendowe 500 traci nagłówki CORS na najbardziej zewnętrznym
+// ServerErrorMiddleware Starlette, więc w przeglądarce wygląda identycznie jak
+// zerwane połączenie. Wyjątek rzucony PO commicie INSERT-a dawał trzy notatki,
+// trzech kandydatów albo trzy pozycje faktury i jeden generyczny toast.
+//
+// Dla zapisów powtarzamy WYŁĄCZNIE 502/503 z realną (widoczną dla przeglądarki)
+// odpowiedzią — brama odpowiedziała ZA aplikacją, więc żądanie dowodliwie do
+// niej nie dotarło. Świadomie NIE 504: to znaczy „czekałem za długo", a backend
+// mógł pracę dokończyć. I świadomie NIE `!err.response`: ta gałąź nie odróżnia
+// niedostępnej bramy od 500 po zapisie. Cena jest znana i przyjęta: jeśli
+// w oknie deployu Traefik odpowie 502/503 BEZ nagłówków CORS, zapis nie
+// zostanie powtórzony i użytkownik zobaczy błąd — utrata wpisanych danych jest
+// odwracalna (ponowne kliknięcie), zduplikowany kandydat albo pozycja faktury
+// nie jest.
 const TRANSIENT_RETRY_STATUSES = new Set([502, 503, 504]);
+/** Zapisu nie da się bezpiecznie powtórzyć poza tymi dwoma kodami. */
+const NEVER_REACHED_APP_STATUSES = new Set([502, 503]);
+const IDEMPOTENT_METHODS = new Set(["get", "head", "options"]);
 const TRANSIENT_RETRY_MAX = 2;
 const TRANSIENT_RETRY_BASE_MS = 1500;
 
 type RetryableConfig = { _transientRetryCount?: number };
+
+/**
+ * Timeout po stronie PRZEGLĄDARKI (sufit instancji albo per-request
+ * `SLOW_ENDPOINT_TIMEOUT_MS`). Żądanie dotarło i backend nadal je liczy —
+ * powtórka nie skraca oczekiwania, tylko mnoży pracę i koszt modelu
+ * (`lib/http-timeouts.ts` opisuje dokładnie ten tryb awarii). Nie powtarzamy
+ * takiego błędu żadnym czasownikiem.
+ */
+function isClientTimeout(err: AxiosError): boolean {
+  return err.code === "ECONNABORTED" || err.code === "ETIMEDOUT";
+}
+
+function isRetryable(err: AxiosError, method: string): boolean {
+  if (isClientTimeout(err)) return false;
+  if (IDEMPOTENT_METHODS.has(method)) {
+    return !err.response || TRANSIENT_RETRY_STATUSES.has(err.response.status);
+  }
+  return !!err.response && NEVER_REACHED_APP_STATUSES.has(err.response.status);
+}
 
 api.interceptors.response.use(
   (res) => res,
@@ -179,9 +220,9 @@ api.interceptors.response.use(
     if (!config) return Promise.reject(err);
 
     const attempts = config._transientRetryCount ?? 0;
-    const isTransient =
-      !err.response || TRANSIENT_RETRY_STATUSES.has(err.response.status);
-    if (!isTransient || attempts >= TRANSIENT_RETRY_MAX) {
+    // Axios domyślnie wysyła GET, gdy `method` nie podano.
+    const method = (config.method ?? "get").toLowerCase();
+    if (!isRetryable(err, method) || attempts >= TRANSIENT_RETRY_MAX) {
       return Promise.reject(err);
     }
 
@@ -3651,10 +3692,16 @@ export const championApi = {
     api.get<ChampionConsultantSuggestion[]>(
       `/api/jobs/${jobId}/champion-profile/consultant-suggestions`
     ),
+  // Synchroniczne wywołanie Claude w requeście — z map-reduce transkryptu
+  // (jeden sekwencyjny call na 30k znaków), więc sufit CRUD-a 30 s realnego
+  // spotkania nie obejmuje. Kwota `champion_draft` jest commitowana PRZED
+  // wywołaniem modelu, więc zerwanie po stronie przeglądarki pali limit
+  // i płaci za generację, której nikt nie zobaczy.
   setBriefing: (jobId: number, noteId: number, enrich = true) =>
     api.post<ChampionProfileResponse & { suggestion_id?: number | null }>(
       `/api/jobs/${jobId}/champion-profile/briefing`,
-      { note_id: noteId, enrich }
+      { note_id: noteId, enrich },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
   clearBriefing: (jobId: number) =>
     api.delete<ChampionProfileResponse>(
@@ -3666,7 +3713,9 @@ export const championApi = {
     ),
   generateRecommendedSearches: (jobId: number) =>
     api.post<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile/recommended-searches/generate`
+      `/api/jobs/${jobId}/champion-profile/recommended-searches/generate`,
+      undefined,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
   decideRecommendedSearch: (
     jobId: number,
@@ -3776,6 +3825,7 @@ export const championSuggestionsApi = {
     api.post<ChampionProfileSuggestion>(
       `/api/jobs/${jobId}/champion-profile/generate-from-jd`,
       { raw_description: rawDescription },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   list: (jobId: number, statusFilter?: ChampionSuggestionStatus) => {
     const qs = statusFilter ? `?status=${statusFilter}` : "";
@@ -3809,6 +3859,7 @@ export const championSuggestionsApi = {
         cross_client: opts.crossClient ?? false,
         raw_description: opts.rawDescription,
       },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
     ),
   // Preview (no LLM): list up to top_k similar closed roles with a populated
   // champion_profile + aggregated skill frequencies. Powers "podobne role z

@@ -85,8 +85,15 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
     queryClient.invalidateQueries({ queryKey: ["jobs"] });
     queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
     queryClient.invalidateQueries({ queryKey: ["clients"] });
-    queryClient.invalidateQueries({ queryKey: ["clients-v2"] });
-    queryClient.invalidateQueries({ queryKey: ["contacts"] });
+    // Katalog klientów NIE stoi pod kluczem z sufiksem `-v2` (jak kandydaci
+    // i rekrutacje), tylko `["clients-directory", …]` (ClientsListV2), a lista
+    // osób kontaktowych pod `["client-contacts", clientId]`. `clients-v2`
+    // i `contacts` nie mają w `src/` ŻADNEGO producenta — obie inwalidacje
+    // były no-opami, więc firma dodana z globalnego „+ Dodaj" nie pojawiała
+    // się na liście mimo toasta o sukcesie i bywała zakładana drugi raz
+    // (a rozbicie klienta na dwa wiersze rozbija kontrakty, zamówienia i MRR).
+    queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+    queryClient.invalidateQueries({ queryKey: ["client-contacts"] });
     queryClient.invalidateQueries({ queryKey: ["calendar"] });
     queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
     queryClient.invalidateQueries({ queryKey: ["sidebar-badges-v2"] });
