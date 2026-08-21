@@ -130,6 +130,31 @@ def _safe_pct(numerator: int, denominator: int) -> float:
     return round(numerator / denominator * 100, 1)
 
 
+def _month_window_series(anchor: date, months: int = 12) -> list[tuple[date, date]]:
+    """``months`` kolejnych miesięcy kalendarzowych kończących się miesiącem
+    ``anchor``, jako półotwarte pary ``(początek, koniec)``.
+
+    Wcześniej oba trendy 12-miesięczne cofały się krokiem ``timedelta(days=30)``.
+    Dwanaście miesięcy to nie 360 dni, więc dla ``anchor`` w marcu, kwietniu i
+    maju seria gubiła luty i dublowała sąsiedni miesiąc — wykres miał dwanaście
+    słupków opisanych jedenastoma różnymi etykietami. Szkoda jest cicha: liczby
+    są arytmetycznie poprawne, tylko opisują nie ten miesiąc.
+
+    Krok idzie po liczbach ``(rok, miesiąc)`` przez ``divmod``, więc długość
+    miesiąca nie ma znaczenia. Wspólny helper, bo rozjazd między raportem dla
+    Rady Nadzorczej a trendem MRR sprzedaży już raz się zdarzył.
+    """
+    base = anchor.year * 12 + (anchor.month - 1)
+    series: list[tuple[date, date]] = []
+    for offset in range(months - 1, -1, -1):
+        year, month = divmod(base - offset, 12)
+        month_start = date(year, month + 1, 1)
+        next_year, next_month = divmod(base - offset + 1, 12)
+        month_end = date(next_year, next_month + 1, 1)
+        series.append((month_start, month_end))
+    return series
+
+
 # ── Recruitment Report ─────────────────────────────────────────────────────────
 
 
@@ -428,14 +453,7 @@ async def report_sales(
 
     # MRR Trend — last 12 months (from all contracts with start_date in range)
     mrr_trend = []
-    for i in range(11, -1, -1):
-        month_start = (today.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
-        # last day of that month
-        if month_start.month == 12:
-            month_end = month_start.replace(year=month_start.year + 1, month=1, day=1)
-        else:
-            month_end = month_start.replace(month=month_start.month + 1, day=1)
-
+    for month_start, month_end in _month_window_series(today):
         month_contracts = (
             (
                 await db.execute(
@@ -1537,13 +1555,7 @@ async def report_board(
 
     # ── 12-month Trends ───────────────────────────────────────────────────────
     trends = []
-    for i in range(11, -1, -1):
-        month_start = (today.replace(day=1) - timedelta(days=i * 30)).replace(day=1)
-        if month_start.month == 12:
-            month_end = month_start.replace(year=month_start.year + 1, month=1, day=1)
-        else:
-            month_end = month_start.replace(month=month_start.month + 1, day=1)
-
+    for month_start, month_end in _month_window_series(today):
         m_placements = (
             await db.execute(
                 select(func.count(CandidateStage.id)).where(

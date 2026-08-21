@@ -325,6 +325,16 @@ async def create_import(
     invoice_orders: dict[int, ClientOrder] = {}
     touched_groups: dict[int, ClientOrderGroup] = {}
 
+    # MD idą tą samą drogą co faktury i z DOKŁADNIE tego samego powodu.
+    # Wcześniej ``_apply_to_line`` szło wewnątrz pętli po wierszach, więc
+    # ``ON CONFLICT DO UPDATE`` na kluczu (linia, miesiąc) zostawiał MD z
+    # OSTATNIEGO wiersza, a wcześniejsze znikały — przy „Kowalski Jan | 15 MD"
+    # i „Kowalski Jan | 5 MD" budżet tracił 15 dni, a oba wiersze i tak były
+    # w podsumowaniu oznaczone jako „Zaktualizowano", więc operator nie miał
+    # żadnego sygnału.
+    pending_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    md_orders: dict[int, tuple[ClientOrder, Optional[int]]] = {}
+
     for parsed_row in parsed.rows:
         matches = match_by_name(candidates, parsed_row.consultant_name)
         row = MdConsumptionImportRow(
@@ -341,15 +351,8 @@ async def create_import(
             match = matches[0]
             row.status = IMPORT_ROW_APPLIED
             row.matched_order_id = match.order.id
-            await _apply_to_line(
-                db,
-                match_order=match.order,
-                group_id=match.group.id,
-                period_month=period_month,
-                md_reported=parsed_row.md_reported,
-                import_id=batch.id,
-                user_id=user.id,
-            )
+            pending_md[match.order.id] += parsed_row.md_reported
+            md_orders[match.order.id] = (match.order, match.group.id)
         elif len(matches) > 1:
             row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
             row.candidate_order_ids = [m.order.id for m in matches]
@@ -364,6 +367,18 @@ async def create_import(
             touched_groups=touched_groups,
         )
         db.add(row)
+
+    for order_id, md_total in pending_md.items():
+        order_obj, group_id = md_orders[order_id]
+        await _apply_to_line(
+            db,
+            match_order=order_obj,
+            group_id=group_id,
+            period_month=period_month,
+            md_reported=md_total,
+            import_id=batch.id,
+            user_id=user.id,
+        )
 
     for order_id, amount in pending_invoices.items():
         await upsert_invoice(
@@ -615,12 +630,26 @@ async def assign_row(
             ),
         )
 
+    # Zapis idzie po kluczu (linia, miesiąc) i NADPISUJE, więc rozstrzygnięcie
+    # nie może wysłać samego ``row.md_reported``: gdyby na tę samą linię trafił
+    # już inny wiersz tego importu (automatycznie albo wcześniejszym
+    # przypisaniem), jego MD zostałyby skasowane. Wysyłamy sumę wszystkich
+    # zastosowanych wierszy tej paczki dla tej linii — to daje ten sam wynik co
+    # ścieżka wsadowa i jest odporne na kolejność rozstrzygania.
+    already_applied = await db.scalar(
+        select(func.coalesce(func.sum(MdConsumptionImportRow.md_reported), 0)).where(
+            MdConsumptionImportRow.import_id == batch.id,
+            MdConsumptionImportRow.matched_order_id == order.id,
+            MdConsumptionImportRow.status == IMPORT_ROW_APPLIED,
+            MdConsumptionImportRow.id != row.id,
+        )
+    )
     await _apply_to_line(
         db,
         match_order=order,
         group_id=order.order_group_id,
         period_month=batch.period_month,
-        md_reported=row.md_reported,
+        md_reported=Decimal(str(already_applied or 0)) + row.md_reported,
         import_id=batch.id,
         user_id=user.id,
     )

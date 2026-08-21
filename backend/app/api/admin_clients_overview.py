@@ -12,6 +12,7 @@ i DL to widok zarządczy; per-client scope dla DL to osobna decyzja — §31/Fal
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -34,8 +35,21 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 
 router = APIRouter()
+
+
+# „Konsultant pracuje u tego klienta" = active LUB ending. Dzienny cron
+# ``contract_alerts._promote_statuses`` przestawia active→ending 30 dni przed
+# końcem, a konsultant w ostatnim miesiącu wciąż pracuje i wciąż fakturuje —
+# liczenie samego ``active`` zdejmowało go z liczby głów i wycinało całą jego
+# marżę, przez co ten ekran przeczył profilowi klienta (``clients.py``) i
+# banerowi wygasających (``contracts.py``), które od dawna liczą oba statusy.
+# Marża idzie z HARMONOGRAMÓW, nie z kolumn ``contracts.rate_*``: kolumna
+# niesie kwotę z ostatniego ZAPISU kontraktu, więc krok progresywny albo aneks
+# z datą, która już nadeszła, pokazywały tu marżę pierwszego okresu.
+_LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
 
 @router.get("", response_model=list[OverviewRow])
@@ -154,31 +168,23 @@ async def clients_overview(
     margin_rows = list(
         (
             await db.execute(
-                select(
-                    Contract.client_id,
-                    Contract.rate_client,
-                    Contract.rate_candidate,
-                    Contract.rate_unit,
-                    Contract.billing_hours_per_month,
-                    Contract.status,
-                ).where(Contract.status == ContractStatus.active)
+                select(Contract)
+                .options(*RATE_SCHEDULE_LOADS)
+                .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
             )
-        )
+        ).scalars()
     )
-    margin_lookup: dict[int, int] = {}
+    margin_lookup: dict[int, Decimal] = {}
     consultants_lookup: dict[int, int] = {}
+    today = date.today()
     for r in margin_rows:
         consultants_lookup[r.client_id] = consultants_lookup.get(r.client_id, 0) + 1
-        if r.rate_client is None or r.rate_candidate is None:
+        monthly = effective_rate_fields(r, today)["monthly_margin"]
+        if monthly is None:
             continue
-        diff = r.rate_client - r.rate_candidate
-        if r.rate_unit == "daily":
-            monthly = diff * 22
-        elif r.rate_unit == "hourly":
-            monthly = diff * (r.billing_hours_per_month or 160)
-        else:
-            monthly = diff
-        margin_lookup[r.client_id] = margin_lookup.get(r.client_id, 0) + monthly
+        margin_lookup[r.client_id] = (
+            margin_lookup.get(r.client_id, Decimal(0)) + monthly
+        )
 
     items: list[OverviewRow] = []
     for c, effective in client_rows:
@@ -295,31 +301,23 @@ async def kpi_by_dl(
         margin_rows_dl = list(
             (
                 await db.execute(
-                    select(
-                        Contract.rate_client,
-                        Contract.rate_candidate,
-                        Contract.rate_unit,
-                        Contract.billing_hours_per_month,
-                    ).where(
+                    select(Contract)
+                    .options(*RATE_SCHEDULE_LOADS)
+                    .where(
                         Contract.client_id.in_(client_ids),
-                        Contract.status == ContractStatus.active,
+                        Contract.status.in_(_LIVE_CONTRACT_STATUSES),
                     )
                 )
-            )
+            ).scalars()
         )
         active_consultants = len(margin_rows_dl)
-        margin_total = 0
+        margin_total: Decimal | int = 0
         has_margin = False
+        today = date.today()
         for r in margin_rows_dl:
-            if r.rate_client is None or r.rate_candidate is None:
+            monthly = effective_rate_fields(r, today)["monthly_margin"]
+            if monthly is None:
                 continue
-            diff = r.rate_client - r.rate_candidate
-            if r.rate_unit == "daily":
-                monthly = diff * 22
-            elif r.rate_unit == "hourly":
-                monthly = diff * (r.billing_hours_per_month or 160)
-            else:
-                monthly = diff
             margin_total += monthly
             has_margin = True
 

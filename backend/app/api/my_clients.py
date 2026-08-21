@@ -41,8 +41,18 @@ from app.services.client_identity import (
     resolve_visible_client,
     visible_client_predicates,
 )
+from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 
 router = APIRouter()
+
+
+# „Konsultant pracuje u tego klienta" = active LUB ending. Dzienny cron
+# ``contract_alerts._promote_statuses`` przestawia active→ending na 30 dni
+# przed końcem, a taki kontrakt nadal jest wykonywany i fakturowany. Liczenie
+# samego ``active`` zdejmowało konsultanta z obu kafli naraz (nie przechodził
+# do „zakończonych", tylko znikał) i ucinało jego marżę — podczas gdy profil
+# tego samego klienta, o jedno kliknięcie dalej, liczył go dalej.
+_LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
 
 async def require_dl_assigned_or_admin_after_merge(
@@ -375,20 +385,29 @@ async def client_dashboard(
             )
         ).scalars()
     )
-    monthly_margin_total = 0
+    monthly_margin_total: Decimal | int = 0
     has_margin = False
     if finance_ok:
+        # Filtr statusu zszedł do WHERE (wcześniej ładowaliśmy WSZYSTKIE
+        # kontrakty klienta — szkice, zakończone, anulowane — żeby odsiać je
+        # w Pythonie), a stawki idą z harmonogramów: kolumna ``rate_*`` niesie
+        # wartość z ostatniego ZAPISU kontraktu, więc krok progresywny albo
+        # aneks z datą, która już nadeszła, dawały tu starą marżę.
         contract_rows = list(
             (
                 await db.execute(
-                    select(Contract).where(Contract.client_id == client_id)
+                    select(Contract)
+                    .options(*RATE_SCHEDULE_LOADS)
+                    .where(
+                        Contract.client_id == client_id,
+                        Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+                    )
                 )
             ).scalars()
         )
+        today = date.today()
         for contract in contract_rows:
-            if contract.status != ContractStatus.active:
-                continue
-            margin = contract.monthly_margin
+            margin = effective_rate_fields(contract, today)["monthly_margin"]
             if margin is not None:
                 monthly_margin_total += margin
                 has_margin = True
@@ -398,7 +417,9 @@ async def client_dashboard(
         margin_pct = round(float(monthly_margin_total) / float(active_rev) * 100, 2)
 
     # Konsultanci active vs completed (na podstawie kontraktów linkowanych do orderów)
-    active_consultants = contract_statuses.count(ContractStatus.active)
+    active_consultants = sum(
+        1 for st in contract_statuses if st in _LIVE_CONTRACT_STATUSES
+    )
     completed_consultants = contract_statuses.count(ContractStatus.ended)
 
     # Order velocity — średnio dni od `created_at` do gdy
