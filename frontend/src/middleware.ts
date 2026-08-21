@@ -87,16 +87,19 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // backendowego `ContactCaller`); sama strona odbija resztę własnym
   // komunikatem „Brak dostępu".
   //
-  // UWAGA — powierzchni nadzoru, na którą powoływał się poprzedni komentarz,
-  // NIE MA: `<ContactOversightPanel />` przestał być montowany wraz z
-  // przepisaniem dashboardów na `RoleDashboard` (#1031), a alerty HoR
-  // (`dashboard_v2.py`, `href="/candidates/contact-queue"`) linkują wprost
-  // tutaj, więc Head of Recruitment klikający własny alert dostaje /403.
-  // Poszerzenie tej listy tego NIE naprawia — backend i tak wpuszcza do
-  // `/queue` tylko role wykonawcze, a HoR zobaczyłby drugi ślepy zaułek.
-  // Naprawa należy do dashboardu: zamontować panel nadzoru (który wciąż woła
-  // żywe `GET /api/candidate-contact/oversight`) albo przekierować `href`
-  // alertów tam, gdzie ten panel wyląduje.
+  // Admin i Head of Recruitment mają WŁASNĄ powierzchnię: `<ContactOversightPanel />`
+  // w presetach `head-of-recruitment` / `admin-ops` na /dashboard (stoi za
+  // `GET /api/candidate-contact/oversight`, bramka `ContactOversight`).
+  // Panel przestał być montowany przy przepisaniu dashboardów na `RoleDashboard`
+  // (#1031) i przez 16 dni nikt tego nie zauważył — od tamtej pory jest z powrotem.
+  // NIE poszerzaj tej listy o admina/HoR: backend wpuszcza do `/queue` wyłącznie
+  // role wykonawcze (`ContactCaller`), więc zamieniłbyś /403 na drugi ślepy
+  // zaułek, tracąc przy okazji warstwę defense-in-depth.
+  //
+  // Alerty SLA z `dashboard_v2.py` celują już kotwicą w ten panel
+  // (`/dashboard?preset=head-of-recruitment#nadzor-kontaktu`), a nie tutaj —
+  // wcześniej odbiorca alertu, klikając własny alert, lądował na /403.
+  // Zmieniając tę listę ról, przemieć też tamten `href`.
   {
     prefix: "/candidates/contact-queue",
     roles: ["tac", "recruiter", "sourcer"],

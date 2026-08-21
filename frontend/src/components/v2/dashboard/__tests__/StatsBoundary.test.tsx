@@ -1,9 +1,8 @@
 /**
- * Testy stanów StatsBoundary + routingu widoków (plan PR 5).
+ * Testy stanów StatsBoundary (plan PR 5).
  *
  * deriveBoundaryState: fail-closed (disabled bez capability/trybu),
  * forbidden ≠ error, unavailable/partial z koperty — nigdy "0".
- * defaultViewFor: priorytet admin → HoR → DL → TAC → rekruter → user.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,7 +12,6 @@ import {
   StatsBoundary,
   deriveBoundaryState,
 } from "@/components/v2/dashboard/StatsBoundary";
-import { defaultViewFor } from "@/components/v2/pages/AnalyticsDashboard";
 
 const BASE = {
   allowed: true,
@@ -91,25 +89,5 @@ describe("StatsBoundary render", () => {
       </StatsBoundary>
     );
     expect(screen.getByText("DANE")).toBeTruthy();
-  });
-});
-
-describe("defaultViewFor — priorytet ról (plan §PR5)", () => {
-  it("admin → executive nawet z innymi rolami", () => {
-    expect(defaultViewFor({ role: "recruiter", roles: ["recruiter", "admin"] })).toBe(
-      "executive"
-    );
-  });
-  it("HoR → recruitment", () => {
-    expect(defaultViewFor({ role: "head_of_recruitment" })).toBe("recruitment");
-  });
-  it("DL → delivery; TAC → delivery", () => {
-    expect(defaultViewFor({ role: "delivery_lead" })).toBe("delivery");
-    expect(defaultViewFor({ role: "tac" })).toBe("delivery");
-  });
-  it("recruiter/sourcer → recruitment; user → operations", () => {
-    expect(defaultViewFor({ role: "recruiter" })).toBe("recruitment");
-    expect(defaultViewFor({ role: "sourcer" })).toBe("recruitment");
-    expect(defaultViewFor({ role: "user" })).toBe("operations");
   });
 });

@@ -96,6 +96,7 @@ from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
     can_hard_delete,
     move_to_ready_for_signature,
+    reopen_contract,
     revert_contract,
     void_contract,
 )
@@ -1189,9 +1190,13 @@ async def bulk_extend_contracts(
         c.client_order_end_date = _synced_client_order_end(
             c.client_order_end_date, new_end
         )
-        # If the contract had rolled to ending/ended, bring it back to active
-        if c.status in (ContractStatus.ending, ContractStatus.ended):
-            c.status = ContractStatus.active
+        # Zakończony/kończący się kontrakt wraca na `active`. Przez warstwę
+        # cyklu życia, a nie przypisaniem wprost: inaczej przejście najściślej
+        # powiązane z przychodem (konsultant wracający do pracy, bo współpracę
+        # przedłużono) jako JEDYNE nie zostawia wiersza `Activity` z
+        # `from_status`/`to_status`, więc nie da się go odtworzyć ze śladu
+        # audytowego. Funkcja sama pilnuje `assert_transition`.
+        await reopen_contract(db, c, actor_id=current_user.id)
         extended += 1
     for cid in contract_ids:
         db.add(
@@ -2447,9 +2452,10 @@ async def create_contract_amendment(
             new_values["client_order_end_date"] = (
                 synced_order_end.isoformat() if synced_order_end else None
             )
-        # If status was 'ending' or 'ended', flip back to active after extension.
-        if contract.status in (ContractStatus.ending, ContractStatus.ended):
-            contract.status = ContractStatus.active
+        # Powrót `ending`/`ended` → `active` po przedłużeniu — przez warstwę
+        # cyklu życia (audyt `contract_reopened` + `assert_transition`), a nie
+        # drugą ręczną kopią tej samej reguły. Patrz `reopen_contract`.
+        await reopen_contract(db, contract, actor_id=current_user.id)
         new_values["end_date"] = data.new_end_date.isoformat()
         new_values["status"] = contract.status.value
 

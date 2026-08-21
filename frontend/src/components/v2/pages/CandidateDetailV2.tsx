@@ -3,10 +3,9 @@
 import * as React from"react";
 import { useEffect, useMemo, useRef, useState } from"react";
 import Link from"next/link";
+import dynamic from"next/dynamic";
 import { useParams, useRouter, useSearchParams } from"next/navigation";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
-import { EditorContent, useEditor } from"@tiptap/react";
-import StarterKit from"@tiptap/starter-kit";
 import {
  AlertTriangle,
  ArrowLeft,
@@ -31,7 +30,6 @@ import {
   MessageSquare,
  PencilLine,
  Plus,
- Printer,
  RefreshCcw,
  ShieldAlert,
  Sparkles,
@@ -48,7 +46,6 @@ import api, {
  candidatesApi,
  contractsApi,
  extractErrorMsg,
- type ContractDraftResponse,
  type RateUnit,
  candidateStageCvApi,
  type CVOriginalSnapshot,
@@ -108,13 +105,45 @@ import { EditCandidateModal } from"@/components/AppShell";
 import { IdentityEditor } from"./CandidateIdentityEditor";
 import { canHardDeleteCandidate } from"@/lib/candidate-delete-access";
 import { ConfirmV2 } from"@/components/v2/modals/ConfirmV2";
+import { ConfirmModal } from"./ConfirmModal";
+
+// TipTap/ProseMirror ładowany dopiero, gdy edytor draftu ma się faktycznie
+// pokazać (Dokumenty → Umowy → istniejący draft). Statyczny import trzymał
+// całe drzewo ProseMirror w chunku trasy `/candidates/[id]` — czyli w koszcie
+// KAŻDEGO otwarcia profilu kandydata, choć zdecydowana większość wizyt nigdy
+// tam nie dochodzi. `ssr: false`, bo edytor i tak montuje się po stronie
+// klienta. `loading` jest lustrem stanu ładowania samego draftu — inaczej
+// przejście na zakładkę Umowy miałoby dziurę zamiast komponentu.
+const DraftEditor = dynamic(
+ () => import("./ContractDraftEditor").then((m) => m.DraftEditor),
+ {
+ ssr: false,
+ loading: () => (
+ <Card variant="default" size="md">
+ <CardContent className="py-6 text-center text-sm text-muted-foreground">
+ Ładowanie edytora…
+ </CardContent>
+ </Card>
+ ),
+ },
+);
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { SendEmailV2 } from"@/components/v2/modals/SendEmailV2";
 import { AutentiEnvelopeCard } from"@/components/v2/contract/AutentiEnvelopeCard";
 import { CVGeneratorV2 } from"@/components/v2/modals/CVGeneratorV2";
 import { CVOriginalPreviewModal } from"@/components/v2/modals/CVOriginalPreviewModal";
-import { openAuthenticatedFile } from "@/lib/authenticated-files";
-import { CVBrandedEditModal } from"@/components/v2/modals/CVBrandedEditModal";
+// Druga (i większa) porcja TipTapa na tej trasie: modal edycji brandowanego
+// CV. Renderuje się wyłącznie po kliknięciu w konkretnej rekrutacji, więc
+// statyczny import kazał każdemu otwarciu profilu pobrać drzewo ProseMirror
+// po raz drugi. Bez tej zmiany wyniesienie samego `DraftEditor` nic by nie
+// dało — tiptap zostałby w chunku trasy przez ten import.
+const CVBrandedEditModal = dynamic(
+ () =>
+ import("@/components/v2/modals/CVBrandedEditModal").then(
+ (m) => m.CVBrandedEditModal,
+ ),
+ { ssr: false },
+);
 import { CVShareLinkModal } from"@/components/v2/modals/CVShareLinkModal";
 import {
   FilePreviewModal,
@@ -2151,285 +2180,6 @@ function CurrentContractCard({
  />
  </CardContent>
  </Card>
- );
-}
-
-function DraftEditor({
- contractId,
- candidateName,
- contractMeta,
-}: {
- contractId: number;
- candidateName: string;
- contractMeta: any;
-}) {
- const queryClient = useQueryClient();
- const { showSuccess, showError } = useToast();
- const [confirmFinalize, setConfirmFinalize] = useState(false);
- const [confirmTemplateId, setConfirmTemplateId] = useState<number | null>(
- null,
- );
-
- const { data, isLoading } = useQuery<ContractDraftResponse>({
- queryKey: ["contract-draft", contractId],
- queryFn: () => contractsApi.draft.get(contractId).then((r) => r.data),
- });
-
- const editor = useEditor({
- extensions: [StarterKit],
- content: "",
- editorProps: {
- attributes: {
- class: "prose prose-sm max-w-none min-h-[400px] focus:outline-hidden border border-border rounded-lg bg-card p-4",
- },
- },
- });
-
- // Hydrate editor when draft is loaded the first time / after re-render swap.
- const lastLoadedSig = useRef<string | null>(null);
- useEffect(() => {
- if (!editor || !data) return;
- const sig = `${data.template_id ??""}:${data.updated_at ??""}`;
- if (sig === lastLoadedSig.current) return;
- lastLoadedSig.current = sig;
- editor.commands.setContent(data.content_html ??"<p></p>", false);
- }, [editor, data]);
-
- // Debounced autosave for manual edits.
- const dirtyRef = useRef(false);
- const saveMutation = useMutation({
- mutationFn: (html: string) =>
- contractsApi.draft.update(contractId, { content_html: html }),
- onSuccess: () => {
- showSuccess("Zapisano draft");
- queryClient.invalidateQueries({ queryKey: ["contract-draft", contractId] });
- },
- onError: () => showError("Nie udało się zapisać draftu"),
- });
-
- useEffect(() => {
- if (!editor) return;
- const handler = () => {
- dirtyRef.current = true;
- };
- editor.on("update", handler);
- return () => {
- editor.off("update", handler);
- };
- }, [editor]);
-
- useEffect(() => {
- if (!editor) return;
- const id = setInterval(() => {
- if (dirtyRef.current && !saveMutation.isPending) {
- dirtyRef.current = false;
- saveMutation.mutate(editor.getHTML());
- }
- }, 2000);
- return () => clearInterval(id);
- }, [editor, saveMutation]);
-
- const swapTemplate = useMutation({
- mutationFn: (templateId: number) =>
- contractsApi.draft.update(contractId, { template_id: templateId }),
- onSuccess: () => {
- showSuccess("Wczytano nowy szablon");
- lastLoadedSig.current = null; // force editor re-hydration
- queryClient.invalidateQueries({ queryKey: ["contract-draft", contractId] });
- },
- onError: () => showError("Nie udało się wczytać szablonu"),
- });
-
- const finalize = useMutation({
- mutationFn: () => contractsApi.draft.finalize(contractId),
- onSuccess: () => {
- showSuccess("Umowa sfinalizowana — status: aktywna");
- setConfirmFinalize(false);
- queryClient.invalidateQueries({
- queryKey: ["candidate-contracts"],
- });
- queryClient.invalidateQueries({
- queryKey: ["contract-draft", contractId],
- });
- },
- onError: (err: unknown) => {
- const detail =
- err && typeof err === "object" &&"response" in err
- ? (err as any).response?.data?.detail
- : null;
- if (detail && typeof detail === "object" && Array.isArray(detail.missing)) {
- showError(`Uzupełnij wymagane pola: ${detail.missing.join(",")}`);
- } else {
- showError("Nie udało się sfinalizować draftu");
- }
- },
- });
-
- if (isLoading || !data) {
- return (
- <Card variant="default" size="md">
- <CardContent className="py-6 text-center text-sm text-muted-foreground">
- Ładowanie draftu…
- </CardContent>
- </Card>
- );
- }
-
- const lastSaved = data.updated_at
- ? `zapisano ${formatRelativeTime(data.updated_at)}`
- :"jeszcze nie zapisano";
-
- return (
- <Card variant="default" size="md">
- <CardContent className="space-y-3">
- <div className="flex items-start justify-between gap-3 flex-wrap">
- <div className="min-w-0">
- <div className="text-sm text-muted-foreground">
- Draft umowy dla <strong>{candidateName}</strong> — kontrakt #
- {contractId}
- {contractMeta.client_name
- ? ` (${contractMeta.client_name})`
- :""}
- </div>
- <div className="text-xs text-muted-foreground">
- {lastSaved}
- {data.updated_by_name ? ` przez ${data.updated_by_name}` :""}
- </div>
- </div>
- <div className="flex items-center gap-2 flex-wrap">
- <select
- className="rounded-lg border border-border bg-card px-2 py-1 text-xs"
- value={data.template_id ??""}
- onChange={(e) => {
- const newId = Number(e.target.value);
- if (newId && newId !== data.template_id) {
- setConfirmTemplateId(newId);
- }
- }}
- >
- <option value="">— wybierz szablon —</option>
- {data.available_templates.map((t) => (
- <option key={t.id} value={t.id}>
- {t.name}
- {t.is_default ?"(domyślny)" :""}
- </option>
- ))}
- </select>
- <Button
- size="sm"
- variant="outline"
- onClick={async () => {
- // Print view is Bearer-guarded — raw window.open → white
- // "Not authenticated" page. Fetch HTML with auth → blob URL.
- try {
- await openAuthenticatedFile(
- `/api/contracts/${contractId}/draft/render-pdf`,
- "text/html",
- );
- } catch {
- showError("Nie udało się otworzyć umowy do druku.");
- }
- }}
- disabled={!data.content_html}
- title="Otwiera HTML w nowej karcie z auto-print → Save as PDF"
- >
- <Printer className="h-3.5 w-3.5" /> Drukuj / PDF
- </Button>
- <Button
- size="sm"
- onClick={() => setConfirmFinalize(true)}
- disabled={!data.content_html || finalize.isPending}
- >
- <CheckCircle2 className="h-3.5 w-3.5" /> Sfinalizuj umowę
- </Button>
- </div>
- </div>
-
- {data.available_templates.length === 0 && (
- <div className="flex items-center gap-1 text-xs text-warning-muted-foreground">
- <AlertTriangle className="h-3.5 w-3.5" />
- Brak szablonu dla typu <code>{contractMeta.contract_type}</code>.
- Dodaj szablon w panelu administracyjnym.
- </div>
- )}
-
- <EditorContent editor={editor} />
-
- {saveMutation.isPending && (
- <div className="text-xs text-muted-foreground flex items-center gap-1">
- <RefreshCcw className="h-3 w-3 animate-spin" /> Zapisywanie…
- </div>
- )}
- </CardContent>
-
- {/* Modal: confirm template swap (overwrites manual edits) */}
- {confirmTemplateId !== null && (
- <ConfirmModal
- title="Wczytać nowy szablon ? "
- message="Przełączenie szablonu nadpisze obecną treść draftu. Zapisane edycje zostaną stracone."
- confirmLabel="Wczytaj szablon"
- onConfirm={() => {
- swapTemplate.mutate(confirmTemplateId);
- setConfirmTemplateId(null);
- }}
- onCancel={() => setConfirmTemplateId(null)}
- />
- )}
-
- {/* Modal: confirm finalize */}
- {confirmFinalize && (
- <ConfirmModal
- title="Sfinalizować draft ? "
- message="Bieżąca treść zostanie zapisana jako dokument umowy, a status kontraktu zmieni się z draft na active. Edycja w tym widoku nie będzie już możliwa."
- confirmLabel={finalize.isPending ?"Finalizuję…" :"Tak, finalizuj"}
- onConfirm={() => finalize.mutate()}
- onCancel={() => setConfirmFinalize(false)}
- />
- )}
- </Card>
- );
-}
-
-function ConfirmModal({
- title,
- message,
- confirmLabel,
- onConfirm,
- onCancel,
-}: {
- title: string;
- message: string;
- confirmLabel: string;
- onConfirm: () => void;
- onCancel: () => void;
-}) {
- return (
- <div
- className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40"
- onClick={onCancel}
- >
- <Card
- variant="default"
- size="md"
- className="max-w-md w-full mx-4"
- onClick={(e: React.MouseEvent) => e.stopPropagation()}
- >
- <CardHeader>
- <CardTitle>{title}</CardTitle>
- </CardHeader>
- <CardContent className="space-y-4">
- <p className="text-sm text-foreground">{message}</p>
- <div className="flex justify-end gap-2">
- <Button variant="outline" size="sm" onClick={onCancel}>
- Anuluj
- </Button>
- <Button size="sm" onClick={onConfirm}>
- {confirmLabel}
- </Button>
- </div>
- </CardContent>
- </Card>
- </div>
  );
 }
 

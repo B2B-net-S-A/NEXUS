@@ -15,7 +15,9 @@ import {
   type DashboardPreset,
 } from "@/lib/dashboard-presets"
 import type { FinanceDashboardTab } from "@/lib/dashboard-v2-api"
-import { useAuthStore } from "@/store/auth"
+import { getUserRoles, useAuthStore, type UserRole } from "@/store/auth"
+import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
+import { MyContactQueueWidget } from "@/components/candidate-contact/MyContactQueueWidget"
 
 import { DashboardShell } from "./DashboardShell"
 import { DashboardV2Preset } from "./DashboardV2Preset"
@@ -47,13 +49,56 @@ function FinancePreset({ period }: { period: DashboardPeriod }) {
   )
 }
 
-function presetContent(preset: DashboardPreset, period: DashboardPeriod) {
+// Kto może wołać `/api/candidate-contact/queue` (backendowe `ContactCaller`).
+// Admin świadomie NIE jest na tej liście — swoją powierzchnią do kolejki ma
+// panel nadzoru niżej, a zamontowanie mu widgetu „moja kolejka" dałoby kartę
+// błędu 403 zamiast danych.
+const CONTACT_CALLER_ROLES: UserRole[] = ["recruiter", "sourcer", "tac"]
+
+function presetContent(
+  preset: DashboardPreset,
+  period: DashboardPeriod,
+  roles: UserRole[],
+) {
   if (preset === "finance") return <FinancePreset period={period} />
+
+  // Nadzór nad kolejką pierwszego kontaktu. Head of Recruitment i admin nie
+  // mieli po #1031 ŻADNEJ powierzchni do tej kolejki: middleware odbija ich
+  // z `/candidates/contact-queue` na /403, wpis w sidebarze jest ograniczony
+  // do zespołu wykonawczego, a panel dashboardu został odmontowany razem
+  // z przepisaniem dashboardów — mimo że alerty SLA generowane w
+  // `dashboard_v2.py` linkują dokładnie tam. Osoba, której zadaniem jest
+  // wyłapywanie utkniętej pracy, latała na ślepo.
+  //
+  // Komponent jest fail-closed na fladze `CANDIDATE_CONTACT_ENABLED`
+  // (`useCandidateContactFeature` → `enabled === true`), więc przy wyłączonej
+  // funkcji nie renderuje ani nie pyta o nic poza samym statusem.
+  const oversight =
+    preset === "head-of-recruitment" || preset === "admin-ops" ? (
+      <ContactOversightPanel />
+    ) : null
+
+  // Wykonawcy stracili swój skrót do kolejki w tym samym PR-ze. Do kolejki
+  // dochodzą przez sidebar, więc to była regresja odkrywalności, nie odcięcie.
+  const myQueue =
+    preset === "my-work" &&
+    roles.some((role) => CONTACT_CALLER_ROLES.includes(role)) ? (
+      <MyContactQueueWidget />
+    ) : null
 
   // CompactGamification usunięty — pełny blok rywalizacji (hero ligi,
   // wyścigi, Hall of Fame) renderuje RecruitmentStatsSection pod każdym
   // presetem; skrót dublowałby requesty do /api/competitions.
-  return <DashboardV2Preset preset={preset} period={period} />
+  if (!oversight && !myQueue) {
+    return <DashboardV2Preset preset={preset} period={period} />
+  }
+  return (
+    <div className="space-y-6">
+      {oversight}
+      {myQueue}
+      <DashboardV2Preset preset={preset} period={period} />
+    </div>
+  )
 }
 
 export function RoleDashboard() {
@@ -166,7 +211,7 @@ export function RoleDashboard() {
       onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod)}
     >
       <div className="space-y-6">
-        {presetContent(preset, period)}
+        {presetContent(preset, period, getUserRoles(user))}
         {/* Sekcja wspólna dla WSZYSTKICH presetów (także finance, gdy ogląda
             ją admin multi-preset); role bez dostępu (finance-only, viewer)
             nie montują jej wcale — zero requestów i 403 w konsoli. */}

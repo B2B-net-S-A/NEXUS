@@ -90,6 +90,17 @@ async def _tick(interval: int) -> None:
         #  - is_active=True
         #  - status is NOT 'error', OR the error is older than 30 min (backoff)
         #  - last_sync_at is NULL or older than the loop interval
+        #
+        # Świadomie NIE ma tu warunku na `last_sync_status != running`, choć to
+        # właśnie tik pętli wpadał w trwający backfill z callbacku OAuth
+        # (`last_sync_at` jest stemplowany dopiero na KOŃCU, więc predykat
+        # `is_(None)` dopasowuje pierwszą synchronizację przez cały jej czas).
+        # Sam warunek na `running` bez znacznika startu zamurowałby skrzynkę na
+        # zawsze, gdyby kontener padł w połowie przebiegu — a Coolify restartuje
+        # go przy każdym pushu na main. Do wersji bazodanowej potrzebna jest
+        # kolumna `last_sync_started_at` (migracja). Do tego czasu bramkę trzyma
+        # `sync_connection` (lock per połączenie, `services/m365/sync.py`):
+        # wybrany tu wiersz zostanie po prostu odrzucony bez ruchu do Graph.
         stmt = (
             select(M365Connection)
             .where(
