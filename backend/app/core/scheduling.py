@@ -25,6 +25,70 @@ def local_now(tz: str = DEFAULT_TZ) -> datetime:
     return datetime.now(ZoneInfo(tz))
 
 
+def business_today(tz: str = DEFAULT_TZ) -> date:
+    """Dzisiejsza data według kalendarza, w którym pracuje firma.
+
+    ``date.today()`` czyta zegar KONTENERA, a ten chodzi w UTC. Między północą
+    UTC a północą warszawską (1 h latem, 2 h zimą) obie odpowiedzi się różnią —
+    więc raport „dzisiejszy", alert deadline'owy i licznik miesięczny odpalone
+    o 00:30 w Warszawie datują się wczorajszym dniem. Objaw jest cichy: liczba
+    jest prawidłowa, tylko opisuje inny dzień.
+    """
+    return local_now(tz).date()
+
+
+@dataclass(frozen=True)
+class PeriodBounds:
+    """Granice lokalnego okresu kalendarzowego przeliczone do UTC.
+
+    Półotwarte: ``start_utc <= x < end_utc``. Domknięty koniec wymagałby
+    „ostatniego mikrosekundy" i przy porównaniu z ``timestamptz`` gubi zdarzenia
+    zapisane w tej mikrosekundzie.
+    """
+
+    start_utc: datetime
+    end_utc: datetime
+
+
+def _local_month_start(year: int, month: int, zone: ZoneInfo) -> datetime:
+    return datetime.combine(date(year, month, 1), time.min, tzinfo=zone)
+
+
+def local_month_bounds(day: date, tz: str = DEFAULT_TZ) -> PeriodBounds:
+    """Miesiąc kalendarzowy, w którym leży ``day``, jako półotwarty zakres UTC.
+
+    Po co, skoro można porównać kolumnę do ``date``: ``date.today()`` zestawione
+    z kolumną ``timestamptz`` kompiluje się do ``$1::DATE`` i granica wypada
+    o północy UTC sesji, nie o północy warszawskiej. Zdarzenia z pierwszych
+    godzin pierwszego dnia miesiąca lądują wtedy w miesiącu poprzednim —
+    i dwie powierzchnie liczące to samo (podium konkursu vs panel KPI tego
+    samego rekrutera) podają różne liczby.
+    """
+    zone = ZoneInfo(tz)
+    start = _local_month_start(day.year, day.month, zone)
+    nxt = (day.year + 1, 1) if day.month == 12 else (day.year, day.month + 1)
+    end = _local_month_start(nxt[0], nxt[1], zone)
+    return PeriodBounds(
+        start_utc=start.astimezone(timezone.utc),
+        end_utc=end.astimezone(timezone.utc),
+    )
+
+
+def local_quarter_bounds(day: date, tz: str = DEFAULT_TZ) -> PeriodBounds:
+    """Kwartał kalendarzowy, w którym leży ``day``, jako półotwarty zakres UTC."""
+    zone = ZoneInfo(tz)
+    first_month = 3 * ((day.month - 1) // 3) + 1
+    start = _local_month_start(day.year, first_month, zone)
+    end_year, end_month = (
+        (day.year + 1, 1) if first_month == 10 else (day.year, first_month + 3)
+    )
+    end = _local_month_start(end_year, end_month, zone)
+    return PeriodBounds(
+        start_utc=start.astimezone(timezone.utc),
+        end_utc=end.astimezone(timezone.utc),
+    )
+
+
 @dataclass(frozen=True)
 class DayBounds:
     """UTC-aware start/end of a single local-calendar day in the given zone.
