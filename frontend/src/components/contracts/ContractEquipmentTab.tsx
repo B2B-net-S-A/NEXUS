@@ -48,9 +48,26 @@ const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
   written_off: "Spisany",
 };
 
+/** Dzisiejsza data w strefie firmy, jako "YYYY-MM-DD". */
+function warsawToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Warsaw",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 function isOverdue(item: ContractEquipmentItem): boolean {
   if (item.return_status !== "pending" || !item.return_due_date) return false;
-  return new Date(item.return_due_date) < new Date();
+  // Porównujemy DNI KALENDARZOWE, nie chwile. `new Date("2026-08-20")`
+  // ECMAScript parsuje jako północ UTC, czyli 02:00 w Warszawie, więc
+  // zestawienie z `new Date()` malowało sprzęt z terminem DZIŚ jako spóźniony
+  // przez 22 z 24 godzin doby — i rozjeżdżało się z backendem, który dla tej
+  // samej pozycji wysyła powiadomienie „(0 dni)", a nie „po terminie".
+  // Stringi "YYYY-MM-DD" porządkują się leksykograficznie, więc obchodzimy
+  // parsowanie `Date` w całości.
+  return item.return_due_date.slice(0, 10) < warsawToday();
 }
 
 export function ContractEquipmentTab({ contractId }: Props) {

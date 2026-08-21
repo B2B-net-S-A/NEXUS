@@ -403,7 +403,12 @@ function avatarColorClass(id: number): string {
 const SORT_OPTIONS = [
  { value: "newest", label: "Najnowsi" },
  { value: "oldest", label: "Najstarsi" },
- { value: "name", label: "Nazwisko (A-Z)" },
+ // Etykieta neutralna, bo backend pod kluczem "name" sortuje po IMIENIU
+ // (candidates.py: `Candidate.name ASC, Candidate.lastname ASC`), a nie po
+ // nazwisku — „Nazwisko (A-Z)" obiecywało porządek, którego ta kontrolka nie
+ // dostarcza. To samo brzmienie co na drugiej powierzchni sortującej ten sam
+ // klucz (CandidateSearchView: „Alfabetycznie"), żeby obie mówiły jedno.
+ { value: "name", label: "Alfabetycznie (A-Z)" },
  { value: "relevance", label: "Trafność" },
 ];
 

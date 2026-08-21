@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -68,7 +69,7 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
     """Whole months between two dates (floor). None when start is missing."""
     if start is None:
         return None
-    boundary = end or date.today()
+    boundary = end or business_today()
     if boundary < start:
         return 0
     days = (boundary - start).days
@@ -82,7 +83,7 @@ def _contract_total_revenue(
 ) -> Optional[int]:
     """Cumulative revenue from a contract up to a boundary date (exclusive).
 
-    For active contracts the caller passes `boundary=date.today()` so LTV keeps
+    For active contracts the caller passes `boundary=business_today()` so LTV keeps
     ticking. For ended contracts the caller passes the actual end date
     (terminated_at preferred, falls back to end_date, then today).
 
@@ -146,6 +147,25 @@ def _effective_client_name():
     return client_display_name_expression()
 
 
+# Prod stoi na `postgres:16-alpine`, czyli musl — a musl nie implementuje
+# ŻADNEJ kolacji, więc `ORDER BY` na tekście degraduje się do porządku
+# bajtowego. Samo `lower()` (tak było tu wcześniej) naprawia wyłącznie połowę
+# dotyczącą wielkości liter: „alfa" wraca obok „Alior", ale „Łukasiewicz"
+# (U+0142, bajty C5 82) dalej ląduje ZA „Zurich" — czyli każdy klient
+# o polskim inicjale na ostatniej stronie katalogu. Fold diakrytyków robimy
+# `translate()`, a nie `COLLATE "pl-PL-x-icu"`, żeby porządek był IDENTYCZNY
+# z `client_order_lines._sort_key`, który tę samą regułę realizuje w Pythonie
+# przez `normalize_person_name_part` — dwie powierzchnie tej samej aplikacji
+# nie mogą się różnić co do alfabetu. Zero zależności od ICU i od rozszerzeń.
+_PL_DIACRITICS = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+_PL_ASCII_FOLD = "acelnoszzACELNOSZZ"
+
+
+def polish_alphabetical_key(expr):
+    """Klucz porządkowania widocznych dla użytkownika nazw (bez kolacji w DB)."""
+    return func.lower(func.translate(expr, _PL_DIACRITICS, _PL_ASCII_FOLD))
+
+
 def _escaped_like_pattern(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
@@ -181,7 +201,7 @@ def _merged_client_redirect(
 def _days_to(target: Optional[date]) -> Optional[int]:
     if target is None:
         return None
-    return (target - date.today()).days
+    return (target - business_today()).days
 
 
 def _representative_order(contract: Contract) -> Optional[ClientOrder]:
@@ -204,7 +224,7 @@ def _representative_order(contract: Contract) -> Optional[ClientOrder]:
     ]
     if not orders:
         return None
-    today = date.today()
+    today = business_today()
     started = [o for o in orders if o.start_date is None or o.start_date <= today]
     if started:
         return max(started, key=lambda o: (o.start_date or date.min, o.id))
@@ -266,7 +286,7 @@ async def list_clients(
     query = (
         select(Client, effective_name.label("effective_name"))
         .where(*visible_client_predicates())
-        .order_by(func.lower(effective_name).asc(), Client.id.asc())
+        .order_by(polish_alphabetical_key(effective_name).asc(), Client.id.asc())
     )
     query = apply_delivery_lead_client_scope(
         query,
@@ -390,7 +410,11 @@ async def get_client_profile(
     if client.hidden or client.archived_at is not None:
         raise HTTPException(status_code=404, detail="Client not found")
 
-    today = date.today()
+    # Zegar firmy, nie zegar kontenera (UTC): przez pierwsze 1–2 godziny
+    # polskiej doby `date.today()` zwraca WCZORAJ, więc zamówienie
+    # rozpoczynające się DZIŚ nie byłoby jeszcze „rozpoczęte", a licznik dni
+    # do końca kontraktu pokazywałby o jeden za dużo.
+    today = business_today()
 
     # ── 1. Open jobs ──────────────────────────────────────────────────────
     # `published` jobs with a candidate-count subquery + recruiter join.

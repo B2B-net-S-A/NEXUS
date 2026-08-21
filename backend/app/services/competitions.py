@@ -19,14 +19,20 @@ snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import DEFAULT_TZ, is_business_day
+from app.core.scheduling import (
+    DEFAULT_TZ,
+    business_today,
+    is_business_day,
+    local_month_bounds,
+    local_quarter_bounds,
+)
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -92,39 +98,41 @@ class RankedUser:
 # ── Period helpers ───────────────────────────────────────────────────────
 
 
+# Granice okresów liczymy w kalendarzu WARSZAWSKIM, nie UTC. Granica UTC
+# opisywała polski miesiąc jako [1. dnia 02:00, 1. dnia następnego 02:00), więc
+# zdarzenie z pierwszych godzin miesiąca lądowało w miesiącu poprzednim — a te
+# same zdarzenia `hired`/`cv_sent` panel KPI rekrutera kubełkuje już po miesiącu
+# warszawskim (`kpi_engine.period_bounds`). Dwie powierzchnie liczące to samo
+# podawały różne liczby, a wynik konkursu jest potem ZAMRAŻANY niezmiennie,
+# z nagrodą pieniężną. Zwracamy dalej UTC-aware datetime, bo porównania idą
+# przeciw kolumnom `timestamptz` — poza granicą nic się nie zmienia.
+
+
 def quarter_bounds(year: int, quarter: int) -> tuple[datetime, datetime]:
-    """Zwraca [start, end_exclusive) dla kwartału (Q1..Q4)."""
+    """Zwraca [start, end_exclusive) dla kwartału (Q1..Q4), w UTC."""
     if not 1 <= quarter <= 4:
         raise ValueError(f"Invalid quarter: {quarter}")
     month_start = (quarter - 1) * 3 + 1
-    start = datetime(year, month_start, 1, tzinfo=timezone.utc)
-    month_end = month_start + 3
-    if month_end > 12:
-        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-    else:
-        end = datetime(year, month_end, 1, tzinfo=timezone.utc)
-    return start, end
+    bounds = local_quarter_bounds(date(year, month_start, 1))
+    return bounds.start_utc, bounds.end_utc
 
 
 def month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    """Zwraca [start, end_exclusive) dla miesiąca kalendarzowego, w UTC."""
     if not 1 <= month <= 12:
         raise ValueError(f"Invalid month: {month}")
-    start = datetime(year, month, 1, tzinfo=timezone.utc)
-    if month == 12:
-        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
-    else:
-        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
-    return start, end
+    bounds = local_month_bounds(date(year, month, 1))
+    return bounds.start_utc, bounds.end_utc
 
 
 def current_quarter_period(today: Optional[date] = None) -> str:
-    today = today or date.today()
+    today = today or business_today()
     q = (today.month - 1) // 3 + 1
     return f"Q{q} {today.year}"
 
 
 def current_month_period(today: Optional[date] = None) -> str:
-    today = today or date.today()
+    today = today or business_today()
     return today.strftime("%Y-%m")
 
 
@@ -184,7 +192,11 @@ async def _rank_recruiters_by_stage(
                   AND u.is_active IS TRUE
                 GROUP BY u.id, u.name, u.role
                 HAVING count(*) >= :min_value
-                ORDER BY count(*) DESC, u.name ASC
+                -- Remis rozstrzyga `u.id`, NIE `u.name`: pod musl porównanie
+                -- tekstu jest porządkiem bajtowym, więc „Łukasz" przegrywał
+                -- z „Zbigniewem" ZAWSZE — a pierwszy wiersz tego rankingu to
+                -- nazwisko przypisane do nagrody, potem zamrażane niezmiennie.
+                ORDER BY count(*) DESC, u.id ASC
                 {limit_sql}
                 """
             ),
@@ -309,7 +321,7 @@ async def _rank_recruiters_by_points(
 
 
 def days_left_in_quarter(today: Optional[date] = None) -> int:
-    today = today or date.today()
+    today = today or business_today()
     q = (today.month - 1) // 3 + 1
     end_month = q * 3
     if end_month == 12:
@@ -320,7 +332,7 @@ def days_left_in_quarter(today: Optional[date] = None) -> int:
 
 
 def days_left_in_month(today: Optional[date] = None) -> int:
-    today = today or date.today()
+    today = today or business_today()
     if today.month == 12:
         end = date(today.year + 1, 1, 1)
     else:
@@ -503,13 +515,18 @@ async def monthly_most_recommendations(
                     HAVING count(*) FILTER (WHERE c.stage = 'cv_sent') >= 1
                 ),
                 race_ranked AS (
+                    -- Remis rozstrzyga `id`, NIE `name` (patrz komentarz przy
+                    -- `_rank_recruiters_by_stage`): tie-break po tekście pod
+                    -- musl systematycznie wypycha nazwy z polskimi
+                    -- diakrytykami na koniec, a tu decyduje o nagrodzie
+                    -- i o cięciu TOP-10.
                     SELECT t.*,
                            ROW_NUMBER() OVER (
-                               ORDER BY t.recommendations DESC, t.name ASC
+                               ORDER BY t.recommendations DESC, t.id ASC
                            ) AS display_rank,
                            ROW_NUMBER() OVER (
                                PARTITION BY t.qualified
-                               ORDER BY t.recommendations DESC, t.name ASC
+                               ORDER BY t.recommendations DESC, t.id ASC
                            ) AS rank_in_group
                     FROM race_totals t
                 )
@@ -517,7 +534,7 @@ async def monthly_most_recommendations(
                 FROM race_ranked
                 WHERE display_rank <= :ranking_size
                    OR (qualified AND rank_in_group <= :ranking_size)
-                ORDER BY recommendations DESC, name ASC
+                ORDER BY recommendations DESC, id ASC
                 """
             ),
             {
@@ -573,9 +590,12 @@ def business_days_elapsed_in_month(
     próg „4 weryfikacje / dzień roboczy" liczyłby np. styczeń jako 22 dni zamiast
     20 i wykluczał z nagrody osobę, która trafiła w target każdego realnego dnia.
     """
-    today = today or date.today()
-    _, end_dt = month_bounds(year, month)
-    month_last = (end_dt - timedelta(days=1)).date()
+    today = today or business_today()
+    # Ostatni dzień miesiąca liczymy z kalendarza, NIE z `month_bounds`:
+    # tamten zwraca granicę warszawską przeliczoną do UTC (1.09 00:00 lokalnie
+    # = 31.08 22:00Z), więc odjęcie doby dałoby 30., a nie 31. sierpnia.
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    month_last = next_first - timedelta(days=1)
     if (year, month) == (today.year, today.month):
         last = min(today, month_last)
     elif (year, month) < (today.year, today.month):
@@ -630,7 +650,9 @@ async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
                   )
                   AND u.is_active IS TRUE
                 GROUP BY u.id, u.name
-                ORDER BY count(*) DESC, u.name ASC
+                -- Tie-break po `u.id`, nie po nazwie — jak w pozostałych
+                -- rankingach; porządek bajtowy pod musl nie jest neutralny.
+                ORDER BY count(*) DESC, u.id ASC
                 LIMIT :limit
                 """
             ),
@@ -663,7 +685,7 @@ async def compose_monthly_races(
     quarterly = await quarterly_champions_recruiter(db, quarter_period)
     excluded_ids = {quarterly[0].user_id} if quarterly else set()
 
-    days_left = days_left_in_month(date.today())
+    days_left = days_left_in_month(business_today())
 
     def _format(ranked: list[RankedUser], extra_reqs: list[str]) -> dict:
         ranking = [
@@ -846,7 +868,7 @@ async def freeze_competition(
 
 
 async def previous_quarter_period(today: Optional[date] = None) -> str:
-    today = today or date.today()
+    today = today or business_today()
     q = (today.month - 1) // 3 + 1
     year = today.year
     prev_q = q - 1
@@ -857,7 +879,7 @@ async def previous_quarter_period(today: Optional[date] = None) -> str:
 
 
 async def previous_month_period(today: Optional[date] = None) -> str:
-    today = today or date.today()
+    today = today or business_today()
     first_of_month = today.replace(day=1)
     last_prev_month = first_of_month - timedelta(days=1)
     return last_prev_month.strftime("%Y-%m")
