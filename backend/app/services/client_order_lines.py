@@ -257,10 +257,20 @@ def _rate_suggestion(
 def _sort_key(option: ConsultantOption) -> tuple[str, str, int]:
     """Alfabetycznie po imieniu, po kluczu bez diakrytyków.
 
-    Sortowanie robimy w Pythonie, a nie `ORDER BY` w bazie: prod nie ma
-    rozszerzenia `unaccent`, więc „Łukasz" w SQL-u wylądowałby za „Zbigniewem".
+    Sortowanie robimy w Pythonie, a nie `ORDER BY` w bazie, bo „Łukasz"
+    w SQL-u wylądowałby za „Zbigniewem". Powodem NIE jest brak rozszerzenia
+    `unaccent` (tak mówił poprzedni komentarz i wysyłał następną osobę
+    w ślepą uliczkę: `unaccent` nie ma wpływu na `ORDER BY`). Powodem jest
+    KOLACJA: prod stoi na `postgres:16-alpine`, czyli musl, a musl nie
+    implementuje żadnej kolacji — porównanie tekstu degraduje się do porządku
+    bajtowego, w którym Ł (U+0142) jest większe niż z (0x7A). Zmierzone na tym
+    samym tagu obrazu: `SELECT 'Łukasz' < 'Zbigniew'` zwraca `f`, a katalog
+    i tak raportuje `datcollate = en_US.utf8`, więc odczyt `pg_database`
+    daje złą odpowiedź.
+
     Ten sam normalizator co przy dopasowaniu nazwisk, żeby kolejność i wyniki
-    wyszukiwania nie rozjeżdżały się między sobą.
+    wyszukiwania nie rozjeżdżały się między sobą. Odpowiednik po stronie SQL
+    (ten sam fold, przez `translate()`) to `api.clients.polish_alphabetical_key`.
     """
     return (
         normalize_person_name_part(option.first_name),

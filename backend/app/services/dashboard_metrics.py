@@ -6,12 +6,13 @@ cache). Ops/cron calls /api/admin/snapshot (token or admin, 30-sec cache).
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today, local_month_bounds
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
@@ -38,7 +39,10 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
     # clients total/active (aktywny = date-effective kontrakt DZIŚ).
     jobs_total = (await db.execute(select(func.count(Job.id)))).scalar()
     clients_total = (await db.execute(select(func.count(Client.id)))).scalar()
-    today_d = date.today()
+    # Dzień roboczy firmy, nie dzień zegara kontenera: Dockerfile nie ustawia
+    # TZ, więc `date.today()` zwraca datę UTC — przez pierwsze 1–2 godziny
+    # polskiej doby jest to WCZORAJ.
+    today_d = business_today()
     clients_active = (
         await db.execute(
             select(func.count(distinct(Contract.client_id))).where(
@@ -57,7 +61,7 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
         )
     ).scalar()
 
-    cutoff = date.today() + timedelta(days=30)
+    cutoff = today_d + timedelta(days=30)
     # active + ending: the cron promotes active→ending at the 30-day mark, so
     # an active-only count under-reports (often to 0). Keep this in sync with
     # the /api/contracts/expiring banner.
@@ -65,18 +69,25 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
         await db.execute(
             select(func.count(Contract.id)).where(
                 Contract.end_date <= cutoff,
-                Contract.end_date >= date.today(),
+                Contract.end_date >= today_d,
                 Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
             )
         )
     ).scalar()
 
-    first_of_month = date.today().replace(day=1)
+    # `moved_at` to `timestamptz`, a naiwna data w bindzie kompiluje się do
+    # `$1::DATE` i granica wypada o północy UTC sesji — nie o północy
+    # warszawskiej. Zatrudnienie ostemplowane 31.08 o 23:00Z (= 1.09 o 01:00
+    # w Warszawie) wypadało wtedy z SIERPNIA po tej stronie granicy i z
+    # WRZEŚNIA po drugiej, czyli znikało z KPI na stałe. Samo `ENV TZ` tego nie
+    # naprawia — o granicy decyduje strefa sesji Postgresa, nie procesu.
+    month = local_month_bounds(today_d)
     hired_this_month = (
         await db.execute(
             select(func.count(CandidateStage.id)).where(
                 CandidateStage.stage == PipelineStage.hired,
-                CandidateStage.moved_at >= first_of_month,
+                CandidateStage.moved_at >= month.start_utc,
+                CandidateStage.moved_at < month.end_utc,
             )
         )
     ).scalar()

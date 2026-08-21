@@ -31,22 +31,39 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: "bg-muted text-muted-foreground line-through",
 };
 
-const TODAY = new Date().toISOString().slice(0, 10);
+/** Dzisiejsza data kalendarzowa w strefie firmy (YYYY-MM-DD).
+ *
+ *  Liczona PRZY KAŻDYM wywołaniu, nigdy raz na moduł. Poprzednia wersja trzymała
+ *  stałą na poziomie modułu komponentu `"use client"`, który wykonuje się raz na
+ *  załadowanie dokumentu i nie jest przeliczany przy miękkich nawigacjach — karta
+ *  ATS zostawiona otwarta przez kilka dni zamrażała datę płatności na dzień jej
+ *  otwarcia. `toISOString()` był dodatkowo w UTC, więc między północą warszawską
+ *  a północą UTC stemplował dzień wcześniejszy. Skutek był cichy: `paid_date`
+ *  wcześniejszy niż `issue_date` wypada z `avg_dso_days` (`GET /api/invoices/dso`
+ *  odrzuca takie wiersze), a we froncie nie ma żadnego pola do jego poprawienia.
+ *  `sv-SE` wybrane, bo jako jedyne popularne locale formatuje wprost `YYYY-MM-DD`. */
+function todayWarsawISO(): string {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Warsaw" }).format(
+    new Date(),
+  );
+}
 
-const EMPTY = {
-  direction: "to_client",
-  invoice_number: "",
-  issue_date: TODAY,
-  due_date: "",
-  amount: "",
-  currency: "PLN",
-  notes: "",
-};
+function emptyForm() {
+  return {
+    direction: "to_client",
+    invoice_number: "",
+    issue_date: todayWarsawISO(),
+    due_date: "",
+    amount: "",
+    currency: "PLN",
+    notes: "",
+  };
+}
 
 export function ContractInvoicesTab({ contractId }: { contractId: number }) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState(emptyForm);
 
   const { data, isLoading } = useQuery<Invoice[]>({
     queryKey: ["contract-invoices", contractId],
@@ -60,7 +77,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contract-invoices", contractId] });
       setShowForm(false);
-      setForm(EMPTY);
+      setForm(emptyForm());
     },
   });
 
@@ -68,7 +85,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
     mutationFn: (id: number) =>
       api.patch(`/api/invoices/${id}`, {
         status: "paid",
-        paid_date: TODAY,
+        paid_date: todayWarsawISO(),
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["contract-invoices", contractId] }),
@@ -87,7 +104,13 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
       <RequireRole roles={["admin", "delivery_lead", "tac"]}>
         {!showForm ? (
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => {
+              // Data wystawienia liczona przy OTWARCIU formularza, nie przy
+              // montażu karty — inaczej długo otwarta zakładka podpowiada dzień
+              // swojego otwarcia (ten sam defekt co zamrożone `paid_date`).
+              setForm(emptyForm());
+              setShowForm(true);
+            }}
             className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
           >
             <Plus className="w-4 h-4" /> Dodaj fakturę
@@ -171,7 +194,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                 type="button"
                 onClick={() => {
                   setShowForm(false);
-                  setForm(EMPTY);
+                  setForm(emptyForm());
                 }}
                 className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
               >

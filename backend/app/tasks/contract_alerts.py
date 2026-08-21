@@ -16,7 +16,7 @@ import asyncio
 import logging
 import os
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Iterable
 
 import httpx
@@ -25,6 +25,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
@@ -50,8 +51,16 @@ _STAFF_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
 
 
 async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
-    """Move active→ending and ending→ended based on end_date."""
-    today = date.today()
+    """Move active→ending and ending→ended based on end_date.
+
+    `business_today()`, nie `date.today()`: kontener chodzi w UTC (Dockerfile
+    nie ustawia TZ), więc między północą warszawską a północą UTC — 2 h latem,
+    1 h zimą — `date.today()` zwraca WCZORAJ. Kontrakt kończący się dziś
+    zostawałby wtedy `active` jeszcze przez dobę, a alert liczyłby o dzień
+    więcej niż widzi odbiorca. Objaw jest cichy: liczba jest poprawna, tylko
+    opisuje inny dzień.
+    """
+    today = business_today()
     cutoff = today + timedelta(days=30)
 
     ending_count = await db.execute(
@@ -169,7 +178,7 @@ async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Cont
     a day; instead we use a one-day window per threshold, combined with the
     already-notified dedup, so each contract alerts exactly once per window.
     """
-    today = date.today()
+    today = business_today()
     target = today + timedelta(days=threshold)
     window_start = target - timedelta(days=1)
     res = await db.execute(
@@ -215,7 +224,7 @@ async def _post_slack_summary(webhook: str, events: list[tuple[int, Contract]]) 
 
 async def _compliance_documents_expiring(db: AsyncSession) -> list[ContractDocument]:
     """Return NIP/OC/ZUS docs whose expiry_date is within COMPLIANCE_THRESHOLD_DAYS."""
-    today = date.today()
+    today = business_today()
     cutoff = today + timedelta(days=COMPLIANCE_THRESHOLD_DAYS)
     res = await db.execute(
         select(ContractDocument).where(
@@ -258,7 +267,7 @@ async def _compliance_already_notified(db: AsyncSession) -> set[tuple[int, str]]
 
 
 async def _equipment_due_for_return(db: AsyncSession) -> list[ContractEquipment]:
-    today = date.today()
+    today = business_today()
     cutoff = today + timedelta(days=EQUIPMENT_RETURN_THRESHOLD_DAYS)
     res = await db.execute(
         select(ContractEquipment).where(
@@ -294,7 +303,7 @@ async def _equipment_already_notified(db: AsyncSession) -> set[tuple[int, str]]:
 
 
 async def _client_orders_ending(db: AsyncSession) -> list[Contract]:
-    today = date.today()
+    today = business_today()
     cutoff = today + timedelta(days=CLIENT_ORDER_THRESHOLD_DAYS)
     res = await db.execute(
         select(Contract).where(
@@ -464,7 +473,7 @@ async def run_contract_alerts_cycle() -> dict:
                 # new due date just like the SELECT pre-filter above.
                 if not await _claim_alert(db, f"equipment:{item.id}:{episode}"):
                     continue
-                days_left = (item.return_due_date - date.today()).days
+                days_left = (item.return_due_date - business_today()).days
                 title = f"[eq_ret|{episode}] Sprzęt do zwrotu — item #{item.id}"
                 message = (
                     f"Sprzęt {item.item_type.value} "
@@ -511,7 +520,7 @@ async def run_contract_alerts_cycle() -> dict:
                 # on an extended order just like the SELECT pre-filter above.
                 if not await _claim_alert(db, f"client_order:{c.id}:{episode}"):
                     continue
-                days_left = (c.client_order_end_date - date.today()).days
+                days_left = (c.client_order_end_date - business_today()).days
                 title = (
                     f"[client_order|{episode}] Kontrakt #{c.id} — "
                     f"zamówienie klienta kończy się"
