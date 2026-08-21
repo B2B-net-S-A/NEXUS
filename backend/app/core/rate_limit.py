@@ -67,4 +67,26 @@ def client_ip_key(request: Request) -> str:
     return _peer_address(request)
 
 
+# ``default_limits=[]`` jest ŚWIADOME i nie wolno go "naprawić" w tym pliku.
+#
+# W slowapi limity globalne (``_application_limits``) sprawdza wyłącznie
+# ``SlowAPIMiddleware`` — ``Limiter._check_request_limit`` wchodzi w nie tylko
+# przy ``in_middleware=True``. Ścieżka dekoratora (``@limiter.limit``) czyta
+# ``_route_limits`` i globalne pomija. ``app/main.py`` montuje wyłącznie
+# ``SecurityHeadersMiddleware``, ``LegacyStatsDeprecationMiddleware`` i CORS —
+# ``SlowAPIMiddleware`` NIE jest tam dodany.
+#
+# Skutek: wpisanie tutaj np. ``["60/minute"]`` daje konfigurację, która wygląda
+# jak ochrona całej aplikacji, a nie limituje NICZEGO. To najgorszy z możliwych
+# stanów — gorszy niż pusta lista, bo pustej nikt nie bierze za zabezpieczenie.
+#
+# Kto chce limitu globalnego, musi w JEDNYM commicie dołożyć obie rzeczy:
+# ``app.add_middleware(SlowAPIMiddleware)`` ORAZ tę listę. Pilnuje tego
+# ``tests/test_rate_limit_default_limits_not_inert.py``.
+#
+# Kontekst historyczny (#74): audyt wskazywał tę linię jako powód, dla którego
+# nielimitowane ``/openapi.json`` mogło zapchać jednoprocesową pętlę zdarzeń.
+# Naprawą było USUNIĘCIE tej trasy poza dev-em (``main.py``, ``openapi_url=None``
+# przy ``DEBUG=false``), a nie limit globalny — trasa wbudowana FastAPI i tak
+# nie ma dekoratora, więc dekoratorowa ścieżka slowapi nigdy by jej nie objęła.
 limiter = Limiter(key_func=client_ip_key, default_limits=[])

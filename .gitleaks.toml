@@ -6,32 +6,48 @@ title = "Nexus ATS gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Intentional placeholders and docs"
+description = "Build artefacts and untracked per-developer scratch — NO tracked files"
+# W tej liście mogą być WYŁĄCZNIE pliki, których git nie śledzi.
+#
+# Wpis ścieżkowy nie wycisza jednego trafienia — wyłącza skaner na CAŁYM pliku,
+# na zawsze, także dla reguł, które dopiero powstaną. Ten konfig sam ostrzegał
+# przed tą techniką: to ona pozwoliła przeleżeć w repo działającemu hasłu
+# administratora. Placeholdery allowlistuj po WARTOŚCI — globalnie w
+# ``regexes`` niżej albo, dla reguły z własnym blokiem, w jej
+# ``[rules.allowlist]`` (per-reguła NADPISUJE globalny).
+#
+# Zdjęte 21.08.2026 (#211) — każde usunięcie zweryfikowane skanem, żaden nowy
+# finding nie doszedł:
+#   * .github/workflows/backup-drill.yml — jedyne miejsce w repo dotykające
+#     PRYWATNEJ połowy klucza age (odszyfrowuje CAŁĄ archiwalną kopię
+#     kandydatów) oraz kluczy Backblaze B2. Ślepota skanera akurat tam była
+#     najgorszym możliwym wyborem. Jego DSN siedzi teraz w bloku per-reguła
+#     przy ``hardcoded-db-password``.
+#   * .github/workflows/ci.yml — j.w., DSN po WARTOŚCI.
+#   * frontend/package-lock.json — plik śledzony; lockfile npm potrafi nieść
+#     ``_authToken`` do prywatnego rejestru.
+#   * .claude/ — prefiks obejmował ŚLEDZONE ``.claude/commands/*.md`` i
+#     ``.claude/ops.yaml`` (procedury SSH/DB), czyli dokładnie te pliki, w które
+#     ktoś wkleja poświadczenie „na chwilę". Zostają dwa konkretne pliki
+#     NIEŚLEDZONE, żeby lokalny skan nie hałasował.
+#   * NEXUS_AUDIT_AND_PLAN.md, REQUIREMENTS_V<n>.md, QA_STRATEGY.md,
+#     .env.example, backend/app/core/config.py, backend/embed_all.py —
+#     martwe ślepe plamy: żaden z tych plików nie zapala dziś ANI JEDNEJ
+#     reguły, więc wpisy nie kupowały nic, a kosztowały bezterminowe
+#     wyłączenie sześciu plików ze skanowania.
+#   * backend/tests/test_schema_inventory.py — ten JEDEN naprawdę zapalał
+#     regułę (placeholdery ``u:p``), więc trafiły one do bloku per-reguła.
+#     Test o hasłach jest ostatnim plikiem, który chcemy mieć niezeskanowany.
+#
+# Niezmiennika pilnuje
+# ``backend/tests/test_gitleaks_no_tracked_path_blindspots.py`` — dopisanie tu
+# pliku śledzonego przez gita zapala czerwone, zamiast po cichu oślepić bramkę.
 paths = [
   '''frontend/tsconfig\.tsbuildinfo''',
-  '''frontend/package-lock\.json''',
-  '''NEXUS_AUDIT_AND_PLAN\.md''',
-  '''REQUIREMENTS_V[0-9]+\.md''',
-  '''QA_STRATEGY\.md''',
-  '''\.github/workflows/ci\.yml''',
-  '''\.github/workflows/backup-drill\.yml''',
-  # Build artefacts + per-developer scratch files. These are gitignored on
-  # disk; the path entry is a belt-and-suspenders for the CI scanner which
-  # walks the checked-out tree, not just ``git log``.
   '''__pycache__/''',
   '''\.pyc$''',
-  '''\.claude/''',
-  # Lokalny domyślny DSN jest allowlistowany po WARTOŚCI — ale w allowliście
-  # PER-REGUŁA (``[rules.allowlist]`` przy ``hardcoded-db-password``), bo ta
-  # nadpisuje globalną. Wpis tutaj nie zadziała. Wcześniej obchodzono to
-  # allowlistowaniem całych ŚCIEŻEK, co oślepiało skaner na te pliki i
-  # pozwoliło przeleżeć w nich działającemu hasłu administratora.
-  '''\.env\.example''',
-  '''backend/app/core/config\.py''',
-  '''backend/embed_all\.py''',
-  # Schema-inventory test seeds the local-dev DSN (nexus:nexus@localhost) to
-  # spin up throwaway DBs — same benign default as scripts/seed above.
-  '''backend/tests/test_schema_inventory\.py''',
+  '''\.claude/settings\.local\.json''',
+  '''\.claude/scheduled_tasks\.lock''',
 ]
 regexes = [
   '''change-me''',
@@ -46,6 +62,17 @@ regexes = [
   '''postgresql\+asyncpg://nexus:nexus@''',
   # Placeholder examples in docstrings / error messages (no real secret)
   '''postgresql://user:pass@db\.<project-ref>\.supabase\.co''',
+  # Stały, publiczny nagłówek JWT — base64 z ``{"alg":"HS256","typ":"JWT"}``.
+  # Nie niesie ŻADNEGO materiału klucza (podpis to trzeci segment, którego tu
+  # nie ma), a pojawia się w testach redakcji logów jako realistyczna atrapa.
+  # Po WARTOŚCI, nie po ścieżce: allowlistowanie ``backend/tests/`` oślepiłoby
+  # skaner na katalog, w którym prawdziwy token wkleja się najłatwiej.
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9''',
+  # Dosłowna atrapa z asercji ``redact_sensitive("token=abcdef123456")``.
+  # Zakotwiczona, bo ten globalny blok dopasowuje regexy do SAMEGO SEKRETU
+  # (``regexTarget`` domyślnie ``"secret"``, nie ``"line"`` jak w blokach
+  # per-reguła niżej) — wpis z prefiksem ``token=`` nigdy by nie zadziałał.
+  '''^abcdef123456$''',
 ]
 
 [[rules]]
@@ -131,4 +158,19 @@ regexes = [
   # plik. Wersja globalna ``nexus:nexus-ci-password`` w [allowlist].regexes
   # nie wystarcza, bo ten per-regułowy blok ją nadpisuje.
   '''postgresql\+asyncpg://nexus:nexus-ci-password@''',
+  # DSN kontenera postgresa w ``backup-drill.yml``. Hasło pochodzi z
+  # ``POSTGRES_PASSWORD`` ustawianego w tym samym pliku i żyje tyle, co job.
+  #
+  # Ten wpis JEST konieczny, mimo że ``drill:drill-password`` figuruje już
+  # w globalnym ``[allowlist].regexes``: blok per-reguła NADPISUJE globalny.
+  # Dopóki plik był allowlistowany po ścieżce, nikt tego nie zauważył — to
+  # dokładnie ta zależność, która sprawiała, że wpisu ścieżkowego „nie dało
+  # się" usunąć.
+  '''postgresql\+asyncpg://drill:drill-password@''',
+  # Dosłowne placeholdery ``u``/``p`` w parametryzacji
+  # ``tests/test_schema_inventory.py`` — sprawdza tam, że bramka kasowania
+  # schematu ODRZUCA DSN-y wyglądające produkcyjnie. Wcześniej cały ten plik
+  # był allowlistowany po ścieżce; test o hasłach to ostatnie miejsce, które
+  # chcemy mieć wyłączone ze skanowania.
+  '''postgresql(\+asyncpg)?://u:p@''',
 ]
