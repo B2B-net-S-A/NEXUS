@@ -152,6 +152,57 @@ const KNOWLEDGE_CATEGORIES: {
   },
 ];
 
+// ── Lazy collapsible ──────────────────────────────────────────────────────────
+
+/**
+ * Zwinięty <details> MONTUJE swoje dzieci — przeglądarka je wyłącznie ukrywa.
+ * Na domyślnej zakładce "Profil" oznaczało to, że każde otwarcie profilu
+ * klienta odpalało zapytania trzech paneli, których nikt nie ogląda (m.in.
+ * niecache'owany raport hit-ratio i listowanie dokumentów), konkurując o
+ * budżet połączeń przeglądarki z treścią faktycznie rysowaną. Delivery Leadzi
+ * i TAC-e otwierają profile bez przerwy, więc to była stała wielokrotność
+ * obciążenia w całości wyrzucana do kosza.
+ *
+ * Natywne <details> zostaje (argument z pierwotnego komentarza — brak stanu
+ * Reacta na rozwijanie — jest sensowny); zabramkowane jest wyłącznie
+ * MONTOWANIE dziecka. Raz otwarta sekcja zostaje zamontowana także po
+ * zwinięciu: ponowne zwijanie nie ma kasować stanu formularzy ani zmuszać do
+ * powtórnego pobrania danych.
+ *
+ * Uwaga przy pisaniu testów: zdarzenie `toggle` jest ZAKOLEJKOWANE (spec HTML),
+ * więc w jsdom klik w <summary> ustawia `open`, ale handler odpala się dopiero
+ * w kolejnym zadaniu — asercja tuż po `fireEvent.click` zobaczy jeszcze pustkę.
+ */
+function LazyDetails({
+  icon,
+  title,
+  contentClassName = "p-4 pt-0 border-t border-border",
+  children,
+}: {
+  icon: React.ReactNode;
+  title: React.ReactNode;
+  contentClassName?: string;
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(false);
+
+  return (
+    <details
+      className="border border-border rounded-lg group"
+      onToggle={(e) => {
+        if (e.currentTarget.open) setMounted(true);
+      }}
+    >
+      <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
+        {icon}
+        {title}
+        <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
+      </summary>
+      <div className={contentClassName}>{mounted ? children : null}</div>
+    </details>
+  );
+}
+
 // ── Knowledge Tab ─────────────────────────────────────────────────────────────
 
 function KnowledgeTab({ clientId }: { clientId: number }) {
@@ -879,43 +930,39 @@ export default function ClientDetailPage() {
         </div>
 
         {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
-            jako collapsibles (<details>/<summary> = native HTML, no React state) */}
+            jako collapsibles. Rozwijaniem steruje natywne <details>, ale
+            dziecko montuje się dopiero po pierwszym otwarciu (LazyDetails) —
+            zwinięty <details> montuje treść i odpalał zapytania paneli, których
+            nikt nie ogląda. */}
         <div className="p-6">
           {activeTab === "profil" && (
             <div className="space-y-4">
               <ProfileTab clientId={Number(id)} />
 
-              <details className="border border-border rounded-lg group">
-                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
-                  <Building2 className="w-4 h-4 text-muted-foreground" />
-                  Informacje + statystyki współpracy
-                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
-                </summary>
-                <div className="p-4 pt-0 space-y-6 border-t border-border">
-                  <CooperationStatsSection clientId={Number(id)} />
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                      Notatki
-                    </p>
-                    {client.notes ? (
-                      <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
-                    )}
-                  </div>
+              <LazyDetails
+                icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
+                title="Informacje + statystyki współpracy"
+                contentClassName="p-4 pt-0 space-y-6 border-t border-border"
+              >
+                <CooperationStatsSection clientId={Number(id)} />
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                    Notatki
+                  </p>
+                  {client.notes ? (
+                    <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
+                  )}
                 </div>
-              </details>
+              </LazyDetails>
 
-              <details className="border border-border rounded-lg group">
-                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
-                  <FolderOpen className="w-4 h-4 text-muted-foreground" />
-                  Materiały sprzedażowe
-                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
-                </summary>
-                <div className="p-4 pt-0 border-t border-border">
-                  <MaterialsTab clientId={Number(id)} />
-                </div>
-              </details>
+              <LazyDetails
+                icon={<FolderOpen className="w-4 h-4 text-muted-foreground" />}
+                title="Materiały sprzedażowe"
+              >
+                <MaterialsTab clientId={Number(id)} />
+              </LazyDetails>
             </div>
           )}
 
@@ -927,16 +974,12 @@ export default function ClientDetailPage() {
             <div className="space-y-4">
               <FrameworkContractsTab clientId={Number(id)} />
 
-              <details className="border border-border rounded-lg group">
-                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
-                  <DollarSign className="w-4 h-4 text-muted-foreground" />
-                  Cennik (rate cards)
-                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
-                </summary>
-                <div className="p-4 pt-0 border-t border-border">
-                  <RateCardsTab clientId={Number(id)} />
-                </div>
-              </details>
+              <LazyDetails
+                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                title="Cennik (rate cards)"
+              >
+                <RateCardsTab clientId={Number(id)} />
+              </LazyDetails>
             </div>
           )}
 
@@ -968,16 +1011,12 @@ export default function ClientDetailPage() {
                 <OwnersTab clientId={Number(id)} />
               </div>
 
-              <details className="border border-border rounded-lg group">
-                <summary className="cursor-pointer p-4 font-medium flex items-center gap-2 hover:bg-accent/30">
-                  <BookOpen className="w-4 h-4 text-muted-foreground" />
-                  Wiedza o kliencie (selling points, tech stack, kultura)
-                  <span className="ml-auto text-xs text-muted-foreground group-open:hidden">rozwiń</span>
-                </summary>
-                <div className="p-4 pt-0 border-t border-border">
-                  <KnowledgeTab clientId={Number(id)} />
-                </div>
-              </details>
+              <LazyDetails
+                icon={<BookOpen className="w-4 h-4 text-muted-foreground" />}
+                title="Wiedza o kliencie (selling points, tech stack, kultura)"
+              >
+                <KnowledgeTab clientId={Number(id)} />
+              </LazyDetails>
             </div>
           )}
         </div>
