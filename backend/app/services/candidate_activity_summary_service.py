@@ -32,7 +32,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.recruitment_access import job_scope_clause
-from app.models.ai_feature import AIFeatureKey, AIUsageLog
+from app.models.ai_feature import AIFeatureKey
 from app.models.call import Call
 from app.models.candidate import Candidate
 from app.models.candidate_activity_summary import CandidateActivitySummary
@@ -46,9 +46,9 @@ from app.models.screening_note import ScreeningNote
 from app.models.user import User
 from app.services.ai_quota import (
     AIQuotaExceeded,
+    ai_feature,
     get_feature_config,
     get_master_enabled,
-    get_total_usage_for_period,
 )
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
@@ -1129,36 +1129,6 @@ async def _ensure_feature_enabled(db: AsyncSession) -> None:
         raise AIQuotaExceeded(feature, "Funkcja AI wyłączona w ustawieniach")
 
 
-async def _gate_and_count(db: AsyncSession, user_id: Optional[int]) -> None:
-    """Recheck the kill switch/quota immediately before the paid call."""
-    feature = AIFeatureKey.candidate_summary
-    await _ensure_feature_enabled(db)
-    config = await get_feature_config(db, feature)
-    limit = config.monthly_limit if config else 0
-    period = datetime.now(timezone.utc).date().replace(day=1)
-    used = await get_total_usage_for_period(db, feature, period)
-    if limit > 0 and used >= limit:
-        raise AIQuotaExceeded(
-            feature, "Miesięczny limit wyczerpany", used=used, limit=limit
-        )
-
-    now = datetime.now(timezone.utc)
-    await db.execute(
-        pg_insert(AIUsageLog)
-        .values(
-            feature=feature,
-            user_id=user_id,
-            period_start=period,
-            count=1,
-            last_call_at=now,
-        )
-        .on_conflict_do_update(
-            constraint="uq_ai_usage_feature_user_period",
-            set_={"count": AIUsageLog.count + 1, "last_call_at": now},
-        )
-    )
-
-
 # ── Scope-aware cache and lease/CAS orchestration ────────────────────────────
 
 
@@ -1530,15 +1500,22 @@ async def get_or_generate(
         raise CandidateActivitySummaryBusy("Nie udało się uzyskać lease")
 
     try:
+        # Jedna bramka kwot w całym repo (`ai_quota.ai_feature`), nie druga kopia
+        # tej samej logiki. Poprzednie `_gate_and_count` reimplementowało główny
+        # przełącznik, limit i upsert `ON CONFLICT`, ale NIE ustawiało kontekstu
+        # wywołania AI — więc poprawnie obciążona karta „Podsumowanie aktywności"
+        # logowała się na granicy providera jako „UNGATED", a pod
+        # `AI_QUOTA_STRICT` rzuciłaby wyjątkiem, mimo że kwota była naliczona.
+        #
         # Commit the usage record before leaving for the provider.  No database
         # transaction remains open during the network call.
-        await _gate_and_count(db, user_id)
-        await db.commit()
-        summary = await generate_summary(
-            context.sections,
-            candidate_id=candidate_id,
-            visibility_scope_hash=context.visibility_scope_hash,
-        )
+        async with ai_feature(db, AIFeatureKey.candidate_summary, user_id=user_id):
+            await db.commit()
+            summary = await generate_summary(
+                context.sections,
+                candidate_id=candidate_id,
+                visibility_scope_hash=context.visibility_scope_hash,
+            )
         final_candidate, final_user = await _refresh_generation_principals(
             db,
             candidate_id=candidate_id,
