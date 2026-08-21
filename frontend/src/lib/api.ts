@@ -490,22 +490,6 @@ export const authApi = {
     api.post("/api/auth/resend-verification", { email }),
 };
 
-// ── Dashboard ────────────────────────────────────────────────────────────────
-export const dashboardApi = {
-  getStats: () => api.get("/api/dashboard/stats"),
-  getKpis: () => api.get("/api/dashboard/kpis"),
-  getRecentActivity: (limit = 20) => api.get(`/api/dashboard/recent-activity?limit=${limit}`),
-  getPipelineFunnel: () => api.get("/api/dashboard/pipeline-funnel"),
-};
-
-// ── Activities ───────────────────────────────────────────────────────────────
-export const activitiesApi = {
-  getStats: (params: { user_id?: number; period?: string }) =>
-    api.get("/api/activities/stats", { params }),
-  getLeaderboard: (params: { period?: string; limit?: number }) =>
-    api.get("/api/activities/leaderboard", { params }),
-};
-
 // ── KPI Coach ────────────────────────────────────────────────────────────────
 
 export type KpiPeriod = "day" | "week" | "month";
@@ -1234,17 +1218,6 @@ export const interviewFeedbackApi = {
   update: (id: number, data: Record<string, unknown>) =>
     api.patch(`/api/interview-feedback/${id}`, data),
   delete: (id: number) => api.delete(`/api/interview-feedback/${id}`),
-};
-
-// ── Contacts ──────────────────────────────────────────────────────────────────
-export const contactsApi = {
-  listAll: (search?: string) =>
-    api.get("/api/contacts", { params: search ? { search } : undefined }),
-  listForClient: (clientId: number) =>
-    api.get(`/api/clients/${clientId}/contacts`),
-  create: (data: Record<string, unknown>) => api.post("/api/contacts", data),
-  update: (id: number, data: Record<string, unknown>) => api.put(`/api/contacts/${id}`, data),
-  delete: (id: number) => api.delete(`/api/contacts/${id}`),
 };
 
 // ── Contracts ─────────────────────────────────────────────────────────────────

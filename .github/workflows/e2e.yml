@@ -8,6 +8,11 @@ on:
 
 permissions:
   contents: read
+  # Nocny bieg, od którego NIC nie zależy (nie jest required checkiem), nie
+  # woła nikogo z siebie — czerwień przez 21 nocy z rzędu nie doczekała się
+  # żadnej reakcji, bo nie było gdzie jej zobaczyć. Alert-issue to ten sam
+  # wzorzec co w disk-alert.yml: cichy kanał zamieniony w pingnięcie.
+  issues: write
 
 jobs:
   playwright:
@@ -51,3 +56,32 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
+
+      - name: Open or refresh alert issue
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          marker="Nocny E2E przeciw produkcji jest czerwony"
+          existing=$(gh issue list --repo "$REPO" --state open \
+            --search "$marker in:title" --json number --jq '.[0].number // empty' || echo "")
+          body=$(printf '%s\n' \
+            "Nocny bieg \`e2e.yml\` (Playwright przeciw https://nexus.dynaminds.pl) nie przeszedł." \
+            "" \
+            "Log: ${RUN_URL}" \
+            "" \
+            "To jedyny automatyczny test dotykający produkcji. Trwale czerwony bieg jest" \
+            "GORSZY niż brak biegu: prawdziwa regresja daje dokładnie ten sam czerwony X" \
+            "co przeterminowana asercja i nie da się ich od siebie odróżnić." \
+            "" \
+            "Zamknij to zgłoszenie dopiero, gdy bieg jest zielony." \
+            "" \
+            "_Wygenerowane przez .github/workflows/e2e.yml._")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+          else
+            gh issue create --repo "$REPO" --title "⚠️ ${marker}" --body "$body"
+          fi
