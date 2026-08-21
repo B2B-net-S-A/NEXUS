@@ -12,6 +12,11 @@ import { Button } from"@/components/ui/button"
 import { Checkbox } from"@/components/ui/checkbox"
 import { Input } from"@/components/ui/input"
 import { markOnboardingCompleted } from "@/lib/onboarding-storage"
+import {
+ QueryStateNotice,
+ type BlockingViewState,
+} from "@/components/ds/QueryStateNotice"
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state"
 
 interface JobListItem {
  id: number
@@ -46,7 +51,7 @@ export function OnboardingRecruiterV2() {
  const [search, setSearch] = useState("")
  const [selected, setSelected] = useState<Set<number>>(new Set())
 
- const { data, isLoading } = useQuery<JobsResponse>({
+ const { data, isLoading, isError, error, refetch } = useQuery<JobsResponse>({
  queryKey: ["onboarding-jobs", "recruiter"],
  queryFn: () =>
  api
@@ -86,7 +91,18 @@ export function OnboardingRecruiterV2() {
  })
  }
 
- const isEmpty = !isLoading && allJobs.length === 0
+ // Pusty stan MUSI wisieć na sukcesie, nie na `!isLoading`. „Zakończ onboarding"
+ // zapisuje `profile_completed=true` bezwarunkowo i nie ma ścieżki powrotnej w UI,
+ // więc nieudane pobranie listy udające „firma nie ma rekrutacji" zostawia rekrutera
+ // trwale bez żadnej rekrutacji — a to wejście do „Mojej pracy", priorytetów i KPI.
+ const viewState = resolveViewState({
+ isLoading,
+ isError,
+ error,
+ isEmpty: allJobs.length === 0,
+ })
+ const isBlocked = isBlockingViewState(viewState)
+ const isEmpty = viewState === "empty"
  const submitting = mutation.isPending
 
  return (
@@ -112,7 +128,7 @@ export function OnboardingRecruiterV2() {
  placeholder="Szukaj po tytule, kliencie, lokalizacji…"
  value={search}
  onChange={(e) => setSearch(e.target.value)}
- disabled={isLoading || isEmpty}
+ disabled={isLoading || isBlocked || isEmpty}
  />
  </div>
 
@@ -126,6 +142,16 @@ export function OnboardingRecruiterV2() {
  />
  ))}
  </div>
+ ) : isBlocked ? (
+ <QueryStateNotice
+ state={viewState as BlockingViewState}
+ description={
+ viewState === "forbidden"
+ ?"Twoja rola nie ma dostępu do listy rekrutacji. Zgłoś się do administratora — nie kończ onboardingu z pustym wyborem."
+ :"Nie udało się wczytać listy rekrutacji. Ponów próbę — pusta lista nie znaczy tu, że rekrutacji nie ma."
+ }
+ onRetry={() => refetch()}
+ />
  ) : isEmpty ? (
  <div className="py-10 text-center">
  <Sparkles className="h-8 w-8 mx-auto text-primary opacity-50 mb-2" />
@@ -196,6 +222,12 @@ export function OnboardingRecruiterV2() {
  <Button
  variant="primary"
  loading={submitting}
+ disabled={isBlocked}
+ title={
+ isBlocked
+ ?"Najpierw wczytaj listę rekrutacji — inaczej zapiszesz pusty wybór na stałe."
+ : undefined
+ }
  onClick={() => mutation.mutate()}
  >
  {submitting ?"Zapisuję…" : (

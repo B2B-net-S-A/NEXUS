@@ -8,11 +8,13 @@ import { z } from"zod";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import { AlertTriangle, Send, Sparkles, User } from"lucide-react";
 import {
+ extractErrorMsg,
  screeningApi,
  type ScreeningAnswerItem,
  type ScreeningAnswers,
  type ScreeningQuestion,
 } from"@/lib/api";
+import { useToast } from"@/components/Toast";
 import {
  Sheet,
  SheetBody,
@@ -77,6 +79,8 @@ export function ScreeningSheet({
  onSubmitted,
 }: Props) {
  const queryClient = useQueryClient();
+ const { showError } = useToast();
+ const [submitError, setSubmitError] = React.useState<string | null>(null);
 
  const { data, isLoading } = useQuery({
  queryKey: ["screening-v2", stageId],
@@ -115,17 +119,31 @@ export function ScreeningSheet({
  });
  }, [data, existing, questions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
+ // Jedyną ścieżką wyjścia tej mutacji był `onSuccess`, więc odrzucony zapis
+ // (403 — bramka POST-a jest węższa niż bramka GET-a, albo 422 z walidacji)
+ // wyglądał identycznie jak kliknięcie, które nie zadziałało: spinner mignął,
+ // sheet został otwarty. Screening niesie flagi `deal_breaker_hit`, które
+ // wykluczają kandydata z shortlisty — cicho nieudany zapis kosztuje kandydata.
  const submitMut = useMutation({
  mutationFn: (payload: ScreeningAnswers) => screeningApi.submit(stageId, payload),
  onSuccess: (r) => {
+ setSubmitError(null);
  queryClient.invalidateQueries({ queryKey: ["screening-v2", stageId] });
  queryClient.invalidateQueries({ queryKey: ["candidate"] });
  onSubmitted?.(r.data.match_percent);
  onOpenChange(false);
  },
+ onError: (e) => {
+ // Toast znika, a arkusz zostaje otwarty z niezapisanymi danymi — dlatego
+ // powód porażki zostaje też na stałe nad stopką.
+ const msg = extractErrorMsg(e);
+ setSubmitError(msg);
+ showError(msg);
+ },
  });
 
  const onSubmit = (values: FormValues) => {
+ setSubmitError(null);
  const answers: ScreeningAnswerItem[] = questions.map((q) => ({
  question_id: q.id,
  response: values.answers[q.id]?.response ??"",
@@ -263,6 +281,18 @@ export function ScreeningSheet({
  />
  </FormField>
  </div>
+ {submitError && (
+ <div
+ role="alert"
+ className="mt-4 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+ >
+ <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" aria-hidden="true" />
+ <span>
+ Nie udało się zapisać screeningu: {submitError} Odpowiedzi są nadal
+ w formularzu — popraw przyczynę i spróbuj ponownie.
+ </span>
+ </div>
+ )}
  </SheetBody>
 
  <SheetFooter>
