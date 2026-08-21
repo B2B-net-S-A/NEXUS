@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 VECTOR_SIZE = 1024
 VOYAGE_API_URL = "https://api.voyageai.com/v1/embeddings"
 
+# Ponowienia wywołania Voyage'a. Do 2026-08-21 nie było ŻADNEGO na żadnej
+# ścieżce providera, a przy zakładaniu kandydata to nie jest chwilowa
+# niedogodność: nieudany embedding zostawia rekord poprawny w Postgresie i
+# TRWALE nieobecny w matchingu (kolumna `embedding_id` zostaje NULL, a nic jej
+# potem nie ogląda). Jedno 429 w oknie kilkudziesięciu sekund kosztowało więc
+# kandydata na zawsze. Ponawiamy tylko sygnały PRZEJŚCIOWE i tylko takie, które
+# zawodzą szybko — patrz komentarz przy `ConnectError`.
+_VOYAGE_RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+_VOYAGE_RETRY_BACKOFF_SECONDS = 0.5
+
 JOBS_COLLECTION = "nexus_jobs"
 
 
@@ -176,39 +186,52 @@ async def _voyage_embed_batch(
 
     started = time.monotonic()
     failed = True
+    attempts = max(1, int(getattr(settings, "VOYAGE_MAX_ATTEMPTS", 3)))
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                VOYAGE_API_URL,
-                headers={
-                    "Authorization": f"Bearer {settings.VOYAGE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": _voyage_model(),
-                    "input": payload_texts,
-                    "input_type": input_type,
-                    "output_dimension": VECTOR_SIZE,
-                    "truncation": True,
-                },
-            )
-            response.raise_for_status()
-            data = response.json().get("data") or []
-            # Voyage returns items with `index` field; reorder to input order.
-            by_idx = {
-                int(item["index"]): item["embedding"]
-                for item in data
-                if "embedding" in item
-            }
-            failed = False
-            return [by_idx.get(i) for i in range(len(texts))]
-    except httpx.HTTPStatusError as e:
-        logger.warning(
-            "[Voyage] HTTP %s — %s", e.response.status_code, e.response.text[:200]
-        )
-        return None
-    except Exception as e:
-        logger.warning("[Voyage] error: %s", e)
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        VOYAGE_API_URL,
+                        headers={
+                            "Authorization": f"Bearer {settings.VOYAGE_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": _voyage_model(),
+                            "input": payload_texts,
+                            "input_type": input_type,
+                            "output_dimension": VECTOR_SIZE,
+                            "truncation": True,
+                        },
+                    )
+                    response.raise_for_status()
+                    data = response.json().get("data") or []
+                    # Voyage returns items with `index` field; reorder to input order.
+                    by_idx = {
+                        int(item["index"]): item["embedding"]
+                        for item in data
+                        if "embedding" in item
+                    }
+                    failed = False
+                    return [by_idx.get(i) for i in range(len(texts))]
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code
+                logger.warning("[Voyage] HTTP %s — %s", status, e.response.text[:200])
+                if status not in _VOYAGE_RETRY_STATUSES or attempt == attempts:
+                    return None
+            except httpx.ConnectError as e:
+                # Świadomie WYŁĄCZNIE błąd nawiązania połączenia. Read-timeout
+                # też bywa przejściowy, ale kosztuje pełne 60 s na próbę — trzy
+                # takie to 180 s na request, czyli fronton (axios 30 s) i tak
+                # zdąży się poddać, a my zapłacimy trzykrotnie.
+                logger.warning("[Voyage] connect error: %s", e)
+                if attempt == attempts:
+                    return None
+            except Exception as e:
+                logger.warning("[Voyage] error: %s", e)
+                return None
+            await asyncio.sleep(_VOYAGE_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
         return None
     finally:
         record_provider_call("voyage", int((time.monotonic() - started) * 1000), failed)
@@ -420,10 +443,54 @@ def _build_candidate_text_v1(candidate) -> str:
     return " ".join(p for p in parts if p and p.strip())
 
 
+async def _record_failed_embed_intent(candidate_id: int, db: AsyncSession) -> None:
+    """Zostaw po nieudanym embedowaniu ślad, na którym system może zadziałać.
+
+    Zwracany `bool` nie jest naprawą: WSZYSTKIE ścieżki zapisu kandydata
+    odrzucają go i łapią wyłącznie wyjątek, więc jedno przejściowe 429 z
+    Voyage'a kończyło się rekordem poprawnym w Postgresie i trwale nieobecnym
+    w matchingu — bez wpisu, który ktokolwiek mógłby później zdrenować
+    (`enqueue()` jest no-opem przy wyłączonej fladze outboxu, a reconciler
+    dryfu z założenia pomija rekordy NIGDY nieindeksowane). `record_bulk_reindex`
+    świadomie ignoruje flagę outboxu — jego kontrakt to „wiersz albo nic",
+    a nic jest właśnie tym błędem.
+
+    Piszemy w sesji WOŁAJĄCEGO (bez commita): intencja ma się utrwalić dokładnie
+    wtedy, gdy utrwali się kandydat, którego dotyczy.
+
+    `worker_enabled()` jest warunkiem KONIECZNYM, nie ostrożnością: przy
+    włączonym workerze to ON woła `embed_candidate` (`_default_reindex`) i sam
+    prowadzi księgowość prób (`attempts` → `failed`/`dead`). Dopisanie stamtąd
+    nowego zdarzenia zamieniłoby każdą nieudaną próbę drenażu w kolejny wiersz
+    kolejki — podczas awarii providera kolejka rosłaby wykładniczo, a licznik
+    prób przestałby cokolwiek znaczyć.
+    """
+    from app.services.index_outbox_service import (
+        CANDIDATE,
+        record_bulk_reindex,
+        worker_enabled,
+    )
+
+    if worker_enabled():
+        return
+    try:
+        await record_bulk_reindex(db, CANDIDATE, [candidate_id])
+    except Exception as exc:  # noqa: BLE001 — zapis intencji jest best-effort
+        logger.warning(
+            "[Embed] nie udało się zapisać intencji reindeksu dla kandydata %s: %s",
+            candidate_id,
+            exc,
+        )
+
+
 async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
     """
     Generate an embedding for a candidate and upsert it into Qdrant.
     Returns True on success, False on failure.
+
+    Porażka providera zostawia dodatkowo trwałą intencję reindeksu
+    (:func:`_record_failed_embed_intent`) — bez niej „nie udało się" znikało
+    razem z requestem.
     """
     from app.models.candidate import Candidate
 
@@ -441,6 +508,7 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
         embedding = await generate_embedding(text)
         if embedding is None:
+            await _record_failed_embed_intent(candidate_id, db)
             return False
 
         # Upsert into Qdrant
@@ -477,6 +545,7 @@ async def embed_candidate(candidate_id: int, db: AsyncSession) -> bool:
 
     except Exception as e:
         logger.error(f"[Embed] Failed to embed candidate {candidate_id}: {e}")
+        await _record_failed_embed_intent(candidate_id, db)
         return False
 
 
