@@ -15,9 +15,17 @@ Contract
 
 Fresh-vs-stale decision
 -----------------------
-A row is considered fresh iff `stale == False`. We do NOT use TTL — explicit
-invalidation is safer (avoids surprise recomputes and churn). The background
-worker (future) can sweep `stale=True` rows and refresh them in batch.
+A row is fresh iff `stale == False` AND it was written by the CURRENT scoring
+algorithm (`scoring_algorithm_version()`). Both halves are mandatory and live in
+exactly one place: `fresh_score_conditions()`. Build every query over
+`CandidateJobMatchScore` from it — a hand-written WHERE that checks only `stale`
+treats a version-obsolete row as usable, and the two failure modes differ per
+call site: a read-only surface silently shows a score from the previous
+algorithm, while a compute path excludes the row from its own recompute set and
+then writes a semantic-less score back under the new version, permanently.
+
+There is no TTL — explicit invalidation is safer (avoids surprise recomputes and
+churn). The background worker (future) can sweep `stale=True` rows in batch.
 """
 
 from __future__ import annotations
@@ -49,6 +57,37 @@ logger = logging.getLogger(__name__)
 
 
 # ── Cache round-trip ──────────────────────────────────────────────────────────
+
+
+def fresh_score_conditions(
+    *,
+    job_id: int,
+    profile_id: int,
+    candidate_ids: Optional[Sequence[int]] = None,
+) -> list:
+    """Kryteria „ten wiersz cache nadaje się do użycia". JEDNO miejsce.
+
+    Świeżość ma DWIE połowy — nieunieważniony (``stale is False``) i policzony
+    BIEŻĄCYM algorytmem. Pominięcie drugiej połowy nie objawia się błędem, tylko
+    liczbą: wiersz sprzed bumpu wag przechodzi jako aktualny.
+
+    Skutek zależy od tego, co robi wywołujący. Powierzchnia tylko-do-odczytu
+    pokaże wynik poprzedniego algorytmu obok wyniku bieżącego i dwa ekrany będą
+    się różnić dla tego samego kandydata. Ścieżka licząca zrobi gorzej: wyłączy
+    wiersz z własnego zbioru „do przeliczenia", więc nie pobierze dla niego
+    podobieństwa semantycznego, a potem policzy go z ``semantic_similarity=None``
+    (0 z 60 punktów) i zapisze jako świeży pod NOWĄ wersją — czyli utrwali
+    zaniżony wynik, którego już nic nie przeliczy.
+    """
+    conds = [
+        CandidateJobMatchScore.job_id == job_id,
+        CandidateJobMatchScore.profile_id == profile_id,
+        CandidateJobMatchScore.stale.is_(False),
+        CandidateJobMatchScore.scoring_algorithm_version == scoring_algorithm_version(),
+    ]
+    if candidate_ids is not None:
+        conds.append(CandidateJobMatchScore.candidate_id.in_(candidate_ids))
+    return conds
 
 
 def _breakdown_from_row(row: CandidateJobMatchScore) -> ScoreBreakdown:
@@ -317,12 +356,11 @@ async def bulk_get_or_compute(
         (
             await db.execute(
                 select(CandidateJobMatchScore).where(
-                    CandidateJobMatchScore.job_id == job.id,
-                    CandidateJobMatchScore.candidate_id.in_([c.id for c in candidates]),
-                    CandidateJobMatchScore.profile_id == profile.id,
-                    CandidateJobMatchScore.stale.is_(False),
-                    CandidateJobMatchScore.scoring_algorithm_version
-                    == scoring_algorithm_version(),
+                    *fresh_score_conditions(
+                        job_id=job.id,
+                        profile_id=profile.id,
+                        candidate_ids=[c.id for c in candidates],
+                    )
                 )
             )
         )

@@ -20,7 +20,7 @@
    "P2": 57,
    "P3": 10
   },
-  "total": 128
+  "total": 130
  },
  "themes": [
   {
@@ -328,7 +328,7 @@
   },
   {
    "id": 32,
-   "status": "open",
+   "status": "fixed",
    "severity": "P0",
    "effort": "S",
    "bucket": "nie działa",
@@ -349,7 +349,7 @@
    "verifier_note": "Niezależne dowody, które zebrałem sam:\n\nA. DRYF JEST ASYMETRYCZNY I DATOWANY. Predykat świeżości endpointu (recommendations.py:602-608) filtruje cztery kolumny:\n    CandidateJobMatchScore.job_id == job_id,\n    CandidateJobMatchScore.candidate_id.in_(pipeline_ids),\n    CandidateJobMatchScore.profile_id == profile.id,\n    CandidateJobMatchScore.stale.is_(False),\nWłasny predykat cache (match_score_cache.py:319-326) filtruje pięć:\n    CandidateJobMatchScore.stale.is_(False),\n    CandidateJobMatchScore.scoring_algorithm_version\n    == scoring_algorithm_version(),\n`git log -L` dowodzi, że kiedyś były identyczne i się rozjechały: lustro w endpoincie napisano 2026-06-21 w 69439b3d (#557); predykat wersji dodano do `bulk_get_or_compute` 2026-07-15 w 33e43e6e (#736, \"versioned cache (plan PR4)\"), zostawiając endpoint nietknięty. To jest zduplikowana, równoległa implementacja jednej ",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Kod naprawiony: predykat świeżości ma teraz JEDNO źródło (app/services/match_score_cache.fresh_score_conditions) i wszystkie trzy zapytania z niego korzystają. UWAGA: wiersze już zatrute (zapisane z wyzerowaną warstwą semantyczną pod BIEŻĄCĄ wersją) NIE naprawiają się same — nowy predykat traktuje je jako świeże, bo mają aktualną wersję. Czyszczenie danych to osobna pozycja #130."
   },
   {
    "id": 201,
@@ -3497,6 +3497,54 @@
    "commit": null,
    "pr": null,
    "note": ""
+  },
+  {
+   "id": 129,
+   "status": "fixed",
+   "severity": "P2",
+   "effort": "S",
+   "bucket": "nie działa",
+   "area": "Backend · API",
+   "category": "broken",
+   "verified": true,
+   "confidence": "high",
+   "themes": [
+    1
+   ],
+   "title": "POST /api/search/match-scores ma trzecią kopię reguły świeżości cache, też bez predykatu wersji — wbrew własnemu docstringowi serwuje wyniki poprzedniego algorytmu",
+   "file": "backend/app/api/search.py",
+   "line": 172,
+   "impact": "Endpoint deklaruje w docstringu: 'Returns only candidates that already have a fresh cached score'. Jego definicja świeżości pomijała scoring_algorithm_version, więc po każdym bumpie wag (ostatnio 17-18.08) wiersze wyszukiwania w kontekście oferty pokazywały wynik POPRZEDNIEGO algorytmu obok kanbanu i rekomendacji, które filtrują po wersji poprawnie. Ten sam kandydat miał dwie różne liczby na dwóch ekranach, bez żadnego sygnału, który jest aktualny.",
+   "failure_scenario": "Bump wag 17-18.08 (45/25/10/8/2 -> 60/10/15/5/0). Wiersz (kand=7, oferta=42) ma stale=false i starą wersję algorytmu. Rekruter otwiera wyszukiwanie w kontekście oferty 42: search.py:172 filtruje tylko po stale, więc zwraca stary total_score. Ten sam kandydat na kanbanie tej samej oferty pokazuje inną wartość, bo tamta ścieżka sprawdza wersję. Endpoint nie zapisuje do cache, więc nie truje danych — pokazuje po prostu nieaktualną liczbę jako aktualną.",
+   "evidence": "            ).where(\n                CandidateJobMatchScore.job_id == body.job_id,\n                CandidateJobMatchScore.candidate_id.in_(body.candidate_ids),\n                CandidateJobMatchScore.profile_id == DEFAULT_PROFILE.id,\n                CandidateJobMatchScore.stale.is_(False),\n            )",
+   "fix_sketch": "Podmienione na *fresh_score_conditions(...). Znalezione przy budowie fundamentu do #32 — audyt wskazał tylko recommendations.py. Obie kopie były WIERNE: powielały regułę z docstringu modułu match_score_cache ('A row is considered fresh iff stale == False'), którego nikt nie zaktualizował po dołożeniu predykatu wersji. Docstring poprawiony, a test kontraktowy skanuje AST-em całe app/ i pada przy czwartej kopii.",
+   "verifier_note": "Znalezione i naprawione w tym samym commicie; strażnik AST potwierdza zero pozostałych kopii w app/.",
+   "commit": null,
+   "pr": null
+  },
+  {
+   "id": 130,
+   "status": "needs_operator",
+   "severity": "P1",
+   "effort": "S",
+   "bucket": "nie działa",
+   "area": "Backend · dane",
+   "category": "broken",
+   "verified": true,
+   "confidence": "high",
+   "themes": [
+    1
+   ],
+   "title": "Wiersze cache zatrute przez #32 nie naprawiają się same — wymagają jednorazowego unieważnienia na produkcji",
+   "file": "backend/app/services/match_score_cache.py",
+   "line": 0,
+   "impact": "Poprawka #32 zatrzymuje POWSTAWANIE nowych zaniżonych wyników, ale nie naprawia tych, które już powstały. Zatruty wiersz ma BIEŻĄCĄ wersję algorytmu i stale=false, więc nowy, poprawny predykat też uzna go za świeży. Kandydaci, których pipeline ktoś otworzył między bumpem wag 17-18.08 a wdrożeniem poprawki, mają trwale zaniżony pierścień dopasowania (do 60 ze 100 punktów).",
+   "failure_scenario": "Nie da się ich odróżnić po samej wersji — mają aktualną. Po breakdownie też nie: warstwa semantyczna 0 punktów z powodem 'brak embeddingu' jest ZGODNA Z PRAWDĄ dla kandydatów, którzy faktycznie nie mają embeddingu.",
+   "evidence": "UPDATE candidate_job_match_scores SET stale = true;  -- tępe, ale jedyne bezpieczne",
+   "fix_sketch": "Decyzja Artura: (a) tępo i bezpiecznie — UPDATE candidate_job_match_scores SET stale = true (przeliczenie jest leniwe, przy odczycie, więc koszt rozkłada się w czasie; ceną jest jednorazowy zimny start scoringu), albo (b) wąsko — unieważnić tylko wiersze, których warstwa semantyczna ma 0 punktów, a kandydat MA wektor w Qdrancie (wymaga zapytania krzyżowego do Qdranta). Wymaga dostępu do produkcyjnej bazy, którego nie mam.",
+   "verifier_note": "",
+   "commit": null,
+   "pr": null
   }
  ]
 }

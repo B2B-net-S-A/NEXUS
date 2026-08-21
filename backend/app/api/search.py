@@ -28,6 +28,7 @@ from app.schemas.candidate_search import (
     SearchMeta,
     WaterfallStage,
 )
+from app.services.match_score_cache import fresh_score_conditions
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
@@ -166,10 +167,11 @@ async def candidate_match_scores(
                 CandidateJobMatchScore.total_score,
                 CandidateJobMatchScore.breakdown,
             ).where(
-                CandidateJobMatchScore.job_id == body.job_id,
-                CandidateJobMatchScore.candidate_id.in_(body.candidate_ids),
-                CandidateJobMatchScore.profile_id == DEFAULT_PROFILE.id,
-                CandidateJobMatchScore.stale.is_(False),
+                *fresh_score_conditions(
+                    job_id=body.job_id,
+                    profile_id=DEFAULT_PROFILE.id,
+                    candidate_ids=body.candidate_ids,
+                )
             )
         )
     ).all()
