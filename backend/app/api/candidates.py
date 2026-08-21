@@ -52,6 +52,9 @@ from app.models.candidate_document import (
 )
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.cv_generated_share import CvGeneratedShareToken
+from app.models.index_outbox import IndexOutboxEvent
 from app.models.activity import Activity
 from app.models.invite_link import CandidateInviteLink
 from app.models.user_activity import UserActivity, UserActionType
@@ -118,6 +121,7 @@ from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
     load_manager_rejections,
 )
+from app.services.pipeline_eligibility import assert_candidate_move_eligible
 from app.services.text_cleaning import clean_rich_text
 from app.services.note_mention_render import (
     build_traffit_user_label_map,
@@ -1085,12 +1089,46 @@ async def _build_candidate_filtered_query(
     return query, q_any_groups
 
 
+# Fold polskich znaków dla sortowania „Nazwisko (A-Z)". Kolacja bazy to
+# `en_US.utf8` na musl (obraz `postgres:16-alpine`), gdzie `'Łukasz' < 'Zbigniew'`
+# jest FAŁSZEM — a lista jest cięta OFFSET/LIMIT po stronie serwera, więc
+# kandydat na Ł/Ś/Ż/Ć/Ó/Ą/Ę/Ń nie był „nisko", tylko NIEOBECNY na każdej stronie
+# poza kilkoma ostatnimi (przy ~49 tys. wierszy rekruter uznaje, że w bazie nie
+# ma żadnego Łukasza). Fold w SQL, a nie kolacja ICU: prod nie ma `unaccent`,
+# a dostępność `pl-PL-x-icu` zależy od builda Postgresa — brak kolacji wywaliłby
+# NAJWIĘKSZĄ powierzchnię produktu na 500. Ten sam wybór zrobił już
+# `client_order_lines.py` dla pickera konsultanta (tam po stronie Pythona).
+_PL_SORT_SOURCE = "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+_PL_SORT_TARGET = "acelnoszzACELNOSZZ"
+# Nazwiska-placeholdery (import Traffita bez imienia/nazwiska). Lista lustrzana
+# do `candidate_identity_quarantine._PLACEHOLDERS`.
+_NAME_SORT_PLACEHOLDERS = ("", "?", "-", "nieznane", "nieznany", "unknown", "n/a", "na")
+
+
+def _pl_sort_key(column):
+    """Klucz sortowania: bez diakrytyków, lowercase, NULL jako pusty string."""
+    return func.lower(
+        func.translate(func.coalesce(column, ""), _PL_SORT_SOURCE, _PL_SORT_TARGET)
+    )
+
+
 def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
     if filters.sort == "oldest":
         return query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
     if filters.sort == "name":
+        # Etykieta w UI brzmi „Nazwisko (A-Z)", więc kluczem wiodącym jest
+        # NAZWISKO — dotąd sortowaliśmy po imieniu i lista tylko wyglądała na
+        # alfabetyczną.
+        last_key = _pl_sort_key(Candidate.lastname)
+        first_key = _pl_sort_key(Candidate.name)
+        # Placeholdery na KONIEC: „?" sortuje się przed literami, więc rekordy
+        # bez nazwiska okupowały stronę 1 listy alfabetycznej.
+        unknown_last = case((last_key.in_(_NAME_SORT_PLACEHOLDERS), 1), else_=0)
         return query.order_by(
-            Candidate.name.asc(), Candidate.lastname.asc(), Candidate.id.asc()
+            unknown_last.asc(),
+            last_key.asc(),
+            first_key.asc(),
+            Candidate.id.asc(),
         )
     if filters.sort == "relevance":
         terms: list[str] = []
@@ -2427,11 +2465,28 @@ async def _assign_candidate_to_job(
     for terminal stages, verification gating, or rate validation (those flow
     through the full pipeline endpoint).
 
-    Raises ``HTTPException(404)`` if the job does not exist.
+    Raises ``HTTPException(404)`` if the job does not exist, ``409`` if the
+    candidate is hard-blocked for this job.
     """
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    # Bramka dopuszczalności — TA SAMA, którą stosuje każde inne wejście
+    # zapisujące `CandidateStage` (`/api/pipeline/move`, rekomendacje, bulk).
+    # Bez niej ta ścieżka sprawdzała WYŁĄCZNIE weto hiring managera, więc
+    # kandydat objęty NDA, czarną listą klienta, globalną czarną listą albo
+    # konfliktem konkurencyjnym trafiał do pipeline'u tego klienta jednym
+    # kliknięciem z wtyczki — podczas gdy ten sam ruch w kanbanie kończył się
+    # 409. `enforce_manager_verdict=False`, bo weto rozstrzyga wywołujący
+    # (degraduje je do `assignment_skipped_reason` zamiast 409).
+    await assert_candidate_move_eligible(
+        db,
+        candidate_id=candidate_id,
+        job=job,
+        now=datetime.now(timezone.utc),
+        enforce_manager_verdict=False,
+    )
 
     stage_row = await open_process(
         db,
@@ -2543,13 +2598,23 @@ async def create_candidate_from_linkedin(
                 if verdict is not None:
                     assignment_skipped = verdict.as_polish_detail()
                 else:
-                    await _assign_candidate_to_job(
-                        db=db,
-                        candidate_id=existing_id,
-                        job_id=data.job_id,
-                        stage=target_stage,
-                        user_id=current_user.id,
-                    )
+                    try:
+                        await _assign_candidate_to_job(
+                            db=db,
+                            candidate_id=existing_id,
+                            job_id=data.job_id,
+                            stage=target_stage,
+                            user_id=current_user.id,
+                        )
+                    except HTTPException as exc:
+                        # 409 z bramki dopuszczalności (NDA / czarna lista /
+                        # konkurent) degradujemy tak samo jak weto managera:
+                        # dane kandydata zapisujemy, przypisania nie robimy,
+                        # a wtyczka pokazuje polski powód. Twarde 409 wywaliłoby
+                        # cały zapis, a wtyczka nie ma jak się z tego podnieść.
+                        if exc.status_code != status.HTTP_409_CONFLICT:
+                            raise
+                        assignment_skipped = str(exc.detail)
             if assignment_skipped is None:
                 assigned_job = data.job_id
 
@@ -4224,24 +4289,31 @@ async def delete_candidate(
 ):
     """Trwałe usunięcie profilu kandydata (admin). Operacja nieodwracalna.
 
-    ODBLOKOWANE po M2-PRIV-02, ale nie przez samo zdjęcie blokady — audyt
-    wskazywał dwa konkretne defekty i oba są tu zaadresowane:
-
-    1. NADMIAROWOŚĆ. Kaskada szła `candidates` → `contracts` → `invoices` /
-       `document_signatures` / `client_orders`, czyli „usuń kandydata" kasowało
-       faktury. Migracja 0224 przestawia ten jeden FK na `SET NULL`, więc umowa
-       i całe jej poddrzewo finansowe zostają. Umowy są przed usunięciem
-       stemplowane pseudonimowym `candidate_subject_ref`, bo po wyzerowaniu FK
-       nic już nie wiązałoby ze sobą faktur tej samej osoby.
-    2. NIEKOMPLETNOŚĆ. Pliki CV i dokumenty w object storage zostawały po
-       usunięciu wiersza. Zbieramy klucze PRZED usunięciem (potem nie ma ich
-       skąd odczytać) i kasujemy po commicie.
-
-    Czego ta operacja nadal NIE sprząta — świadomie, żeby nie udawać, że
-    „usunięcie całkowite" jest całkowite: `traffit_webhook_events` nie ma FK na
-    kandydata, więc surowy payload integracji zostaje. To znany brak,
-    mierzalny przez `/api/admin/candidate-pii-orphans`.
+    Zwraca 204. 503, gdy operacji nie da się wykonać kompletnie (brak klucza
+    pseudonimizacji albo niedostępny object storage) — nic wtedy nie jest
+    usuwane i żądanie można powtórzyć.
     """
+    # UWAGA: docstring wyżej jest PUBLIKOWANY w `/openapi.json`, więc inwentarz
+    # tego, czego usunięcie NIE sprząta, trzymamy w komentarzu — publiczna
+    # specyfikacja nie jest miejscem na listę luk w kasowaniu danych.
+    #
+    # ODBLOKOWANE po M2-PRIV-02, ale nie przez samo zdjęcie blokady — audyt
+    # wskazywał dwa konkretne defekty i oba są tu zaadresowane:
+    #
+    # 1. NADMIAROWOŚĆ. Kaskada szła `candidates` → `contracts` → `invoices` /
+    #    `document_signatures` / `client_orders`, czyli „usuń kandydata" kasowało
+    #    faktury. Migracja 0224 przestawia ten jeden FK na `SET NULL`, więc umowa
+    #    i całe jej poddrzewo finansowe zostają. Umowy są przed usunięciem
+    #    stemplowane pseudonimowym `candidate_subject_ref`, bo po wyzerowaniu FK
+    #    nic już nie wiązałoby ze sobą faktur tej samej osoby.
+    # 2. NIEKOMPLETNOŚĆ. Pliki CV i dokumenty w object storage zostawały po
+    #    usunięciu wiersza. Zbieramy klucze PRZED usunięciem (potem nie ma ich
+    #    skąd odczytać) i kasujemy w tej samej transakcji — patrz niżej.
+    #
+    # Czego ta operacja nadal NIE sprząta — świadomie, żeby nie udawać, że
+    # „usunięcie całkowite" jest całkowite: `traffit_webhook_events` nie ma FK na
+    # kandydata, więc surowy payload integracji zostaje. To znany brak,
+    # mierzalny przez `/api/admin/candidate-pii-orphans`.
     candidate = await db.get(Candidate, candidate_id)
     if candidate is None:
         raise HTTPException(
@@ -4260,6 +4332,25 @@ async def delete_candidate(
         )
     )
     storage_keys.extend(k for k in document_keys.scalars().all() if k)
+
+    # Fail-closed, ZANIM cokolwiek zmutujemy: bez działającego object storage
+    # pliki CV zostałyby w buckecie (i w kopii off-site, którą backup.sh celowo
+    # wyklucza z przycinania retencji), a wiersz audytu i tak twierdziłby, że
+    # usunięcie się powiodło. Wcześniej `is_available()` == False po cichu
+    # pomijało kasowanie plików w całości. 503 zamiast 500 — to stan
+    # infrastruktury, a nie błąd żądania; po powrocie storage'u operator
+    # powtarza to samo żądanie i nic nie zostało po drodze utracone.
+    from app.services.object_storage import delete_cv, is_available
+
+    if storage_keys and not is_available():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Object storage jest niedostępny — usunięcie wstrzymane, bo "
+                f"{len(storage_keys)} plik(ów) kandydata zostałoby w buckecie. "
+                "Powtórz żądanie, gdy storage wróci."
+            ),
+        )
 
     # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,
     # ale zerwie jedyne powiązanie między fakturami jednego podmiotu.
@@ -4285,8 +4376,39 @@ async def delete_candidate(
         )
     ).rowcount
 
+    # Odwołanie publicznych linków do WYGENEROWANYCH CV tej osoby. `cv_generated
+    # _documents.candidate_id` to `SET NULL`, więc dokument (a z nim
+    # `render_payload` = pełne CV) przeżywa usunięcie — a token, który go
+    # odblokowuje, kaskaduje z dokumentu, nie z kandydata. Bez tego
+    # `/api/public/cv-i/{token}` dalej serwowałby CV usuniętej osoby hiring
+    # managerowi u klienta przez cały TTL linku (do 90 dni), a jego czat AI
+    # dalej odpowiadałby na nowe pytania o nią. Dwie pozostałe rodziny tokenów
+    # (`champion_share`, `cv_share_token`) kaskadują z kandydata i znikają same.
+    now = datetime.now(timezone.utc)
+    tokens_revoked = (
+        await db.execute(
+            update(CvGeneratedShareToken)
+            .where(
+                CvGeneratedShareToken.generated_document_id.in_(
+                    select(CvGeneratedDocument.id).where(
+                        CvGeneratedDocument.candidate_id == candidate_id
+                    )
+                ),
+                CvGeneratedShareToken.revoked.is_(False),
+            )
+            .values(
+                revoked=True,
+                revoked_at=now,
+                revoked_by=current_user.id,
+                revoke_reason="candidate_erasure",
+            )
+        )
+    ).rowcount
+
     # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
     # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.
+    # `share_tokens_revoked` jest tu, bo inaczej odwołanie publicznych linków
+    # nie zostawiałoby żadnego śladu w dowodzie wykonania żądania z art. 17.
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.HARD_DELETED,
@@ -4296,33 +4418,78 @@ async def delete_candidate(
             "operation": "hard_delete",
             "contracts_detached": contracts_detached,
             "storage_objects": len(storage_keys),
+            "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
         },
     )
 
+    # Trwały retry kasowania wektora — ten sam kontrakt, którego używa
+    # kwarantanna tożsamości (`candidate_identity_quarantine`). `match_index
+    # _outbox` nie ma FK na `candidates`, więc wiersz przeżywa usunięcie i
+    # worker dokończy sprzątanie, gdy Qdrant wróci. Bez niego wartość zwracana
+    # przez `delete_candidate_embedding` (a ono NIE rzuca — łapie wyjątek u
+    # siebie i zwraca False) była porzucana i wektor z nazwiskiem oraz
+    # fragmentami CV zostawał w indeksie na zawsze.
+    db.add(
+        IndexOutboxEvent(
+            entity_type="candidate",
+            entity_id=candidate_id,
+            entity_revision=int(now.timestamp() * 1_000_000),
+            desired_hash="",
+            operation="delete",
+            status="pending",
+        )
+    )
+
     await db.delete(candidate)
+    # Flush PRZED sprzątaniem storage: kaskady w bazie wykonują się tutaj, więc
+    # ewentualny FK bez `ON DELETE` wywali się, ZANIM skasujemy nieodwracalne
+    # obiekty w buckecie.
+    await db.flush()
+
+    # Pliki kasujemy w transakcji, nie po commicie. Po `commit()` klucze nie
+    # istnieją już nigdzie w bazie (odczytaliśmy je z `candidate_documents`,
+    # które właśnie zniknęły), więc nieudane sprzątanie było NIE DO ODZYSKANIA:
+    # zostawał CV w PDF w buckecie, jego kopia off-site i linia WARNING w Loki
+    # jako jedyny ślad. Przy błędzie rollback cofa usunięcie — kandydat zostaje,
+    # klucze dalej są w bazie, a operator powtarza żądanie (DELETE obiektu w S3
+    # jest idempotentny, więc już skasowane pliki nie przeszkadzają).
+    for key in storage_keys:
+        try:
+            await asyncio.to_thread(delete_cv, key)
+        except Exception as exc:  # noqa: BLE001 — fail-closed, patrz komentarz
+            logger.error(
+                "Storage cleanup failed for candidate %s (key=%s): %s — usunięcie wycofane",
+                candidate_id,
+                key,
+                exc,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Nie udało się usunąć plików kandydata z object storage — "
+                    "usunięcie wycofane w całości. Powtórz żądanie."
+                ),
+            ) from exc
+
     await db.commit()
 
-    # Best-effort, PO commicie: nieosiągalny Qdrant ani storage nie może
-    # wycofać usunięcia, które w bazie już się stało. Importy lokalne, spójnie
-    # z resztą tego modułu (object storage jest opcjonalny w dev).
+    # Natychmiastowa próba kasowania wektora. Nieudana NIE jest błędem żądania —
+    # usunięcie w bazie już się stało, a wiersz outboxu wyżej gwarantuje retry.
     from app.services.embedding_service import delete_candidate_embedding
-    from app.services.object_storage import delete_cv, is_available
 
     try:
-        await delete_candidate_embedding(candidate_id)
-    except Exception:  # noqa: BLE001 - best effort, patrz docstring
-        logger.warning("Qdrant cleanup failed for deleted candidate %s", candidate_id)
-    if storage_keys and is_available():
-        for key in storage_keys:
-            try:
-                delete_cv(key)
-            except Exception:  # noqa: BLE001 - best effort, patrz docstring
-                logger.warning(
-                    "Storage cleanup failed for deleted candidate %s (key=%s)",
-                    candidate_id,
-                    key,
-                )
+        deleted = await delete_candidate_embedding(candidate_id)
+    except Exception:  # noqa: BLE001 — retry stoi w outboxie
+        deleted = False
+        logger.exception("Qdrant cleanup raised for deleted candidate %s", candidate_id)
+    if not deleted:
+        logger.error(
+            "[delete_candidate] natychmiastowe kasowanie wektora nieudane; "
+            "trwały retry zakolejkowany candidate=%s (odwołanych linków: %s)",
+            candidate_id,
+            tokens_revoked,
+        )
 
 
 # CV-enrichment helpers live in app.services.cv_enrichment so the Traffit

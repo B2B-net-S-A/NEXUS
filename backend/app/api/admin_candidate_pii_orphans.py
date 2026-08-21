@@ -11,11 +11,15 @@ changing anything:
   contact-intake ledger); one integration table (``traffit_webhook_events``)
   never had a candidate FK at all, so the raw Traffit candidate JSON persists
   indefinitely.
-- **Evidence is over-deleted.** A candidate hard delete cascades into
-  ``contracts`` and from there into ``invoices``, ``document_signatures`` and
-  ``client_orders`` — destroying the commercial and legal trail that must be
-  retained. This report previews that blast radius as an aggregate so the cost
-  is visible *before* any executor is built.
+- **Evidence is detached, not destroyed** (since migration 0225, 2026-08-12).
+  ``contracts.candidate_id`` is ``ON DELETE SET NULL`` and the delete endpoint
+  stamps every contract with a pseudonymous ``candidate_subject_ref`` first, so
+  contracts — and with them ``invoices``, ``document_signatures`` and
+  ``client_orders`` — survive an erasure, unlinked. The ``blast_*`` counts below
+  therefore measure REACH ("how many retention-worthy rows lose their link to a
+  person"), NOT destruction. Until 2026-08-12 the same counts really did mean
+  destruction, which is why the wording changed; a run predating
+  ``query_version`` v3 must be read with the old meaning.
 
 Contract, identical to the other admin inventories:
 - **Read-only.** SELECT / COUNT only. No DDL, no DML, no delete, nothing.
@@ -25,12 +29,11 @@ Contract, identical to the other admin inventories:
   rather than collapsing the report.
 - ``query_version`` lets successive runs be compared.
 
-This is the safe first step of the erasure work. It deliberately does NOT
-re-enable the disabled DELETE endpoint, does NOT run the merge CLI, and does NOT
-touch production data. The real fix — a deferred privacy executor that reaches
-object storage / Qdrant / integration payloads and *retains* contracts,
-invoices and signatures — is a separate, destructive change that needs its own
-review and a verified backup.
+This report stays read-only: it does NOT delete, does NOT run the merge CLI and
+does NOT touch production data. ``DELETE /api/candidates/{id}`` is live again
+(2026-08-12) and now reaches object storage and the Qdrant index itself, so what
+this report still measures is the residue nobody erases: unlinked payloads whose
+tables have no candidate FK to follow.
 
 Auth: same as ``/api/admin/snapshot`` — ``X-Snapshot-Token`` or admin JWT.
 """
@@ -51,7 +54,7 @@ from app.core.database import get_db
 
 router = APIRouter()
 
-QUERY_VERSION = "candidate-pii-orphans-v2"
+QUERY_VERSION = "candidate-pii-orphans-v3"
 CHECK_TIMEOUT_SECONDS = 20.0
 
 
@@ -74,7 +77,10 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
         "high",
         "Traffit webhook events — raw candidate JSON in `payload`, with NO "
         "candidate FK at all, so a candidate erasure never reaches them. Every "
-        "row is un-erasable candidate PII.",
+        "row is un-erasable candidate PII. NOTE: no endpoint writes to this "
+        "table today, so a 0 here means 'the inbox was never wired up', not "
+        "'the erasure gap is closed' — the check stays as a tripwire for the "
+        "day it is.",
         "SELECT count(*) AS n FROM traffit_webhook_events",
     ),
     (
@@ -105,22 +111,25 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
         "unlinked.",
         "SELECT count(*) AS n FROM calendar_events WHERE candidate_id IS NULL",
     ),
-    # ── Legal / financial evidence a hard delete WOULD destroy (over-deletion)─
-    # These are aggregate blast-radius previews: how many retention-worthy rows
-    # are reachable from candidates via the cascade. They are NOT deletions.
+    # ── Legal / financial evidence a hard delete DETACHES ────────────────────
+    # Aggregate reach previews: how many retention-worthy rows lose their link
+    # to a person when that person is erased. They are NOT deletions, and since
+    # migration 0225 they are not destructions either.
     (
         "blast_contracts_on_candidates",
         "high",
-        "Contracts reachable from a live candidate — a candidate hard delete "
-        "cascades into every one of these (contracts.candidate_id CASCADE).",
+        "Contracts reachable from a live candidate. A hard delete does NOT "
+        "destroy these — since migration 0225 contracts.candidate_id is ON "
+        "DELETE SET NULL and each row is stamped with a pseudonymous "
+        "candidate_subject_ref first, so the contract survives, unlinked.",
         "SELECT count(*) AS n FROM contracts WHERE candidate_id IS NOT NULL",
     ),
     (
         "blast_invoices_via_candidate_contracts",
         "high",
-        "Invoices that a candidate hard delete would destroy via "
-        "candidate → contracts → invoices CASCADE. Financial records that must "
-        "be retained.",
+        "Invoices hanging off a live candidate's contracts. They have no "
+        "candidate FK of their own, so they survive an erasure untouched — the "
+        "contract above keeps them reconcilable via candidate_subject_ref.",
         "SELECT count(*) AS n FROM invoices i "
         "JOIN contracts c ON c.id = i.contract_id "
         "WHERE c.candidate_id IS NOT NULL",
@@ -128,8 +137,8 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
     (
         "blast_signatures_via_candidate_contracts",
         "high",
-        "Signed-document / e-signature records destroyed via the same "
-        "candidate → contracts cascade. Legal evidence that must be retained.",
+        "Signed-document / e-signature records hanging off a live candidate's "
+        "contracts. Retained across an erasure for the same reason as invoices.",
         "SELECT count(*) AS n FROM document_signatures s "
         "JOIN contracts c ON c.id = s.contract_id "
         "WHERE c.candidate_id IS NOT NULL",
@@ -137,7 +146,8 @@ _CHECKS: tuple[tuple[str, str, str, str], ...] = (
     (
         "blast_client_orders_via_candidate_contracts",
         "medium",
-        "Client purchase orders destroyed via the candidate → contracts cascade.",
+        "Client purchase orders hanging off a live candidate's contracts. "
+        "Retained across an erasure, reachable through the pseudonymised contract.",
         "SELECT count(*) AS n FROM client_orders o "
         "JOIN contracts c ON c.id = o.contract_id "
         "WHERE c.candidate_id IS NOT NULL",
@@ -194,7 +204,13 @@ async def candidate_pii_orphans(
     out["summary"] = {
         # Rows still holding candidate PII after an erasure (under-deletion).
         "pii_bearing_rows_surviving": pii_survives,
-        # Retention-worthy rows a candidate hard delete would destroy today.
+        # Retention-worthy rows a hard delete UNLINKS from the person (they
+        # survive, pseudonymised through the contract). Nazwa mówiąca prawdę.
+        "evidence_rows_detached_by_a_hard_delete": evidence_at_risk,
+        # DEPRECATED alias tej samej liczby pod dawną, już nieprawdziwą nazwą
+        # („…would_destroy"). Zostaje wyłącznie dlatego, że pinuje ją
+        # `tests/test_candidate_pii_orphans.py`; do usunięcia razem z tamtą
+        # asercją. NIE opieraj na niej nowych konsumentów.
         "evidence_rows_a_hard_delete_would_destroy": evidence_at_risk,
         "checks_run": len(checks),
         "checks_errored": sum(1 for c in checks if "error" in c),

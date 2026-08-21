@@ -39,9 +39,13 @@ _KEY_PREFIX_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")
 _BEARER_RE = re.compile(r"(?i)\b(bearer)\s+[A-Za-z0-9._\-]{8,}")
 # label=value / label: value — only '=' or ':' separators, so ordinary prose after
 # the word "password" etc. is not touched.
+# Prefiks `(?:[a-z0-9]+[_-])*` przed etykietą jest load-bearing: samo `\b` NIE
+# dopasowuje się po podkreślniku (`_` jest znakiem słowa), więc `refresh_token=…`
+# przechodziło przez ten filtr dosłownie — a to poświadczenie o 30-dniowym życiu,
+# które access log uvicorna zapisuje razem z query stringiem.
 _LABELED_SECRET_RE = re.compile(
-    r"(?i)\b(token|api[_-]?key|secret|password|passwd|access[_-]?key"
-    r"|client[_-]?secret|authorization)(\s*[=:]\s*)(['\"]?)([^\s'\"]{4,})"
+    r"(?i)\b((?:[a-z0-9]+[_-])*(?:token|api[_-]?key|secret|password|passwd"
+    r"|access[_-]?key|client[_-]?secret|authorization))(\s*[=:]\s*)(['\"]?)([^\s'\"]{4,})"
 )
 # Capability tokens that travel in the URL PATH — signature links, CV / champion
 # / apply share links, CloudTalk webhooks. The default uvicorn access log writes
@@ -74,10 +78,14 @@ def redact_sensitive(text: str) -> str:
 
 
 class RedactingFilter(logging.Filter):
-    """Logging filter that scrubs PII/secrets from every emitted record.
+    """Logging filter that scrubs PII/secrets from the record's MESSAGE.
 
     Attached to the production JSON handler so redaction is central. Never drops a
     record and never raises — logging must not break because redaction hit an edge.
+
+    Świadomie obejmuje wyłącznie `record.msg`: traceback i pola `extra` formatter
+    emituje osobno i redaguje je :class:`RedactingJsonFormatter` (mutowanie
+    `record.exc_info` tutaj zabrałoby Sentry stack trace'y — patrz tamten docstring).
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -90,6 +98,46 @@ class RedactingFilter(logging.Filter):
             record.msg = redacted
             record.args = ()
         return True
+
+
+# Baza formattera trzymana w zmiennej, żeby moduł dał się zaimportować także bez
+# python-json-logger (ten sam fallback co wyżej) — instancjonujemy tę klasę
+# WYŁĄCZNIE gdy `JsonFormatter is not None`.
+_JsonFormatterBase = JsonFormatter if JsonFormatter is not None else logging.Formatter
+
+
+class RedactingJsonFormatter(_JsonFormatterBase):  # type: ignore[misc,valid-type]
+    """JSON formatter, który redaguje CAŁY emitowany rekord, nie tylko wiadomość.
+
+    ``RedactingFilter`` przepisuje `record.msg` — a formatter emituje `exc_info`
+    OSOBNYM polem, renderując je wprost z `record.exc_info` (ustawienie
+    `record.exc_text` jest przez python-json-logger ignorowane, gdy `exc_info`
+    jest obecne). Tam właśnie SQLAlchemy wkłada `[parameters: ('Jan','Kowalski',
+    'jan@x.pl','+48601234567')]` przy każdym `IntegrityError`/`DataError`, więc
+    „zredagowana" wiadomość jechała do Loki razem z niezredagowanym PII kandydata.
+
+    Redakcji NIE robimy przez wyzerowanie `record.exc_info` w filtrze: sentry-sdk
+    czyta ten sam rekord PO handlerach, więc skasowanie `exc_info` odebrałoby
+    Sentry stack trace'y. Nadpisujemy tylko to, co formatter sam wypisuje.
+    """
+
+    def formatException(self, ei) -> str:  # noqa: N802 — nazwa z logging.Formatter
+        return redact_sensitive(super().formatException(ei))
+
+    def formatStack(self, stack_info) -> str:  # noqa: N802 — j.w.
+        return redact_sensitive(super().formatStack(stack_info))
+
+    def process_log_record(self, log_record):
+        """Ostatnia bramka: redakcja każdej wartości tekstowej w gotowym rekordzie.
+
+        Obejmuje też `extra={...}` — dowolne pole dołożone przez wywołującego
+        (np. `extra={"email": ...}`) trafia do JSON-a z pominięciem `record.msg`.
+        """
+        processed = super().process_log_record(log_record)
+        return {
+            key: (redact_sensitive(value) if isinstance(value, str) else value)
+            for key, value in processed.items()
+        }
 
 
 def configure_json_logging(debug: bool = False) -> None:
@@ -112,7 +160,7 @@ def configure_json_logging(debug: bool = False) -> None:
     # carry it. Versions >= 3 correctly treat it as reserved and drop it, which
     # would silently change the log contract — naming it here keeps the emitted key
     # set identical (null outside a task, the task name inside one).
-    formatter = JsonFormatter(
+    formatter = RedactingJsonFormatter(
         "%(asctime)s %(levelname)s %(name)s %(taskName)s %(message)s",
         rename_fields={"asctime": "timestamp", "levelname": "level"},
     )

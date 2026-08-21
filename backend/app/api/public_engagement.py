@@ -10,20 +10,26 @@ Bezpieczeństwo:
 - Token jednokrotny (`used_at` set on first successful POST → ponowne POST → 410).
 - TTL 30 dni (`expires_at` < now → 410).
 - Brak auth, ale ekspozycja jest minimalna: zwracamy tylko imię kandydata.
-- Rate-limit przez globalny slowapi (limit per IP).
-"""
+- Rate-limit: JAWNY dekorator `@limiter.limit` na KAŻDEJ trasie. Do 2026-08 ten
+  akapit powoływał się na „globalny slowapi", a `rate_limit.py` ma
+  `default_limits=[]` i nie ma `SlowAPIMiddleware` — deklarowana ochrona nie
+  istniała, a docstring był powodem, dla którego nikt tego nie zauważył.
 
-from __future__ import annotations
+Uwaga przy dokładaniu tras: ten moduł NIE MOŻE dostać
+`from __future__ import annotations` — PEP 563 + slowapi #579 zamieniają guardy
+`Annotated` w wymagane parametry query (422 na poprawnym body).
+"""
 
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.engagement_token import EngagementDeclarationToken
 
 
@@ -47,7 +53,10 @@ class PublicEngagementSubmit(BaseModel):
     open_to_side_projects: bool
     open_to_sales_support: bool
     open_to_expert_consult: bool
-    notes: Optional[str] = None
+    # `max_length` jest tu obroną, nie kosmetyką: notatka jest DOPISYWANA do
+    # `candidates.engagement_notes`, uvicorn startuje bez limitu rozmiaru body,
+    # a rekruterzy czytają to pole jako zaufaną notatkę wewnętrzną.
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class PublicEngagementSubmitResponse(BaseModel):
@@ -90,11 +99,16 @@ async def _resolve_token(token: str, db: AsyncSession) -> EngagementDeclarationT
     "/public/engagement-declaration/{token}",
     response_model=PublicEngagementView,
 )
-async def get_engagement_form(token: str, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def get_engagement_form(
+    token: str,
+    request: Request,  # required by slowapi limiter
+    db: AsyncSession = Depends(get_db),
+):
     """Public read — zwraca obecne wartości flag + imię kandydata.
 
     Nie zwracamy emaila/telefonu/skilli — żeby enumeracja tokenów nie dała
-    wycieku PII.
+    wycieku PII. Rate-limited: 30 req/min per IP.
     """
     row = await _resolve_token(token, db)
     candidate = row.candidate
@@ -111,8 +125,10 @@ async def get_engagement_form(token: str, db: AsyncSession = Depends(get_db)):
     "/public/engagement-declaration/{token}",
     response_model=PublicEngagementSubmitResponse,
 )
+@limiter.limit("5/minute; 30/hour")
 async def submit_engagement_form(
     token: str,
+    request: Request,  # required by slowapi limiter
     data: PublicEngagementSubmit,
     db: AsyncSession = Depends(get_db),
 ):
@@ -120,6 +136,7 @@ async def submit_engagement_form(
 
     Token zostaje oznaczony jako `used_at = now` (jednokrotny). Backend
     aktualizuje też 3 timestampy `*_updated_at` zgodnie z Fazą 2.2.
+    Rate-limited: 5 req/min i 30 req/h per IP — jak `public_share.apply`.
     """
     row = await _resolve_token(token, db)
     candidate = row.candidate

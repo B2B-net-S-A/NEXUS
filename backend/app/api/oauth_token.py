@@ -21,14 +21,20 @@ Security:
 - Disabled clients (``enabled=False``) are rejected even if creds match.
 - ``last_used_at`` is stamped on every successful exchange so admin can
   see "this integration is dead — disable it" in the Settings UI.
-"""
+- Rate-limited jak każdy inny endpoint weryfikujący poświadczenia. Do 2026-08
+  był JEDYNYM bez limitu, a wykonuje bcrypt (`verify_password`) raz na żądanie
+  dla dowolnego istniejącego `client_id` — czyli tania, nieuwierzytelniona
+  dźwignia wyczerpania CPU na backendzie obsługującym też rekruterów, plus
+  wyrocznia do brute-force'u na `OAuthClient.secret_hash`.
 
-from __future__ import annotations
+Uwaga: ten moduł NIE MOŻE dostać `from __future__ import annotations` —
+PEP 563 + slowapi #579 zamieniają guardy `Annotated` w parametry query.
+"""
 
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
@@ -37,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.core.security import ALGORITHM, verify_password
 from app.models.oauth_client import OAuthClient, OAuthScope
 
@@ -102,11 +109,23 @@ def _create_client_token(client: OAuthClient, scopes: List[str]) -> str:
 
 
 @router.post("/oauth/token", response_model=TokenResponse)
+@limiter.limit("10/minute; 100/hour")
 async def issue_token(
     payload: TokenRequest,
+    request: Request,  # required by slowapi limiter
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Exchange client credentials for a scoped access token."""
+    """Exchange client credentials for a scoped access token.
+
+    Rate-limited: 10 req/min i 100 req/h per IP.
+    """
+    # NIEDOKOŃCZONA POWIERZCHNIA: `require_scope` niżej nie ma dziś ANI JEDNEGO
+    # konsumenta (`get_current_user` odrzuca `type="client"`), więc każdy wydany
+    # tu token jest bezużyteczny, a Ustawienia reklamują integracje, których
+    # kontrakt nie istnieje. Do rozstrzygnięcia: podpiąć `require_scope` pod
+    # endpointy integracyjne ALBO zabramkować cały router flagą
+    # `OAUTH_CLIENTS_ENABLED` (wzorzec `CLOUDTALK_ENABLED`). Limit wyżej to
+    # doraźna obrona, nie decyzja o losie tej funkcji.
     # Look up client. We answer ALL credential failures with the same 401
     # message + body so a probing caller cannot tell whether the client_id
     # exists or the secret is wrong.

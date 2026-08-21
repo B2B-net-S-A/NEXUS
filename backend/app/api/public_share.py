@@ -69,15 +69,24 @@ router = APIRouter()
 
 
 @router.get("/champion-card/{token}")
+@limiter.limit("30/minute")
 async def get_public_champion_card(
-    token: str, db: AsyncSession = Depends(get_db)
+    token: str,
+    request: Request,  # required by slowapi limiter
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Client-facing read of a filled Champion card.
+    """Client-facing read of a filled Champion card. Rate-limited: 30 req/min per IP.
 
     Returns 404 when the token is unknown, revoked, or expired. The response
     shape is slimmed down — no internal fields (scores, stage ids) — so that
     the client only sees what the recruiter meant to share.
     """
+    # Limiter dodany, bo to była JEDYNA trasa w tym pliku bez niego, a
+    # `rate_limit.py` ma `default_limits=[]` — nic jej nie przykrywało. Każde
+    # trafienie to cztery sekwencyjne round-tripy do produkcyjnego Postgresa
+    # bez uwierzytelnienia, a przy poprawnym tokenie odpowiedź niesie PII
+    # kandydata. Reguła WAF Cloudflare jest zawężona do `/api/auth/*`, więc ta
+    # ścieżka szła na wprost.
     # Dual-read (same pattern as CVShareToken): v2 rows match the SHA-256 digest
     # of the incoming secret; legacy rows kept the raw secret in the PK and are
     # matched directly, scoped to token_sha256 IS NULL so they age out on expiry.
@@ -278,6 +287,16 @@ async def _load_generated_share(token: str, db: AsyncSession) -> CvGeneratedShar
 def _generated_doc_or_404(row: CvGeneratedShareToken) -> CvGeneratedDocument:
     doc = row.generated_document
     if doc is None or doc.status != "ready" or not doc.render_payload:
+        raise HTTPException(status_code=404, detail="CV nie jest już dostępne.")
+    # Kandydat usunięty (RODO art. 17) → dokument przeżywa z `candidate_id`
+    # wyzerowanym przez `ON DELETE SET NULL`, ale `render_payload` to nadal
+    # PEŁNE CV tej osoby. Tryb „new" ZAWSZE powstaje z istniejącego kandydata
+    # (`POST /generate` odpowiada 404, gdy go nie ma), więc pusty FK na tej
+    # ścieżce znaczy dokładnie jedno: wiersz został odpięty. Ten strażnik jest
+    # niezależny od odwoływania tokenów w `delete_candidate` — zamyka tę samą
+    # dziurę dla każdej PRZYSZŁEJ ścieżki odpinającej dokument. Tryb „upload"
+    # nie ma kandydata w bazie z definicji i celowo go nie dotyczy.
+    if doc.mode == "new" and doc.candidate_id is None:
         raise HTTPException(status_code=404, detail="CV nie jest już dostępne.")
     return doc
 
