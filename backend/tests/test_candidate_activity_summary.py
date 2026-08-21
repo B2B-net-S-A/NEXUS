@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -709,8 +710,9 @@ async def test_generation_revalidates_context_after_lease_and_drops_old_canary(
     async def release(_candidate_id, _db, context, _token):
         released.append(context.source_version)
 
-    async def no_quota(_db, _user_id):
-        return None
+    @asynccontextmanager
+    async def no_quota(_db, _feature, **_kwargs):
+        yield None
 
     async def provider(sections, **_kwargs):
         provider_sections.append(sections)
@@ -726,7 +728,7 @@ async def test_generation_revalidates_context_after_lease_and_drops_old_canary(
     monkeypatch.setattr(cas, "get_cached", no_cache)
     monkeypatch.setattr(cas, "_acquire_generation_lease", acquire)
     monkeypatch.setattr(cas, "_release_generation_lease", release)
-    monkeypatch.setattr(cas, "_gate_and_count", no_quota)
+    monkeypatch.setattr(cas, "ai_feature", no_quota)
     monkeypatch.setattr(cas, "generate_summary", provider)
     monkeypatch.setattr(cas, "_publish_generation", publish)
 
@@ -792,8 +794,9 @@ async def test_generation_rejects_membership_change_during_provider_call(
     async def release(_candidate_id, _db, _context, token):
         released.append(token)
 
-    async def no_quota(_db, _user_id):
-        return None
+    @asynccontextmanager
+    async def no_quota(_db, _feature, **_kwargs):
+        yield None
 
     async def provider(*_args, **_kwargs):
         return "Tekst wygenerowany ze starego zakresu."
@@ -806,7 +809,7 @@ async def test_generation_rejects_membership_change_during_provider_call(
     monkeypatch.setattr(cas, "get_cached", no_cache)
     monkeypatch.setattr(cas, "_acquire_generation_lease", acquire)
     monkeypatch.setattr(cas, "_release_generation_lease", release)
-    monkeypatch.setattr(cas, "_gate_and_count", no_quota)
+    monkeypatch.setattr(cas, "ai_feature", no_quota)
     monkeypatch.setattr(cas, "generate_summary", provider)
     monkeypatch.setattr(cas, "_publish_generation", publish)
 
@@ -925,15 +928,16 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
     async def enabled(_db):
         return None
 
-    async def no_quota(_db, _user_id):
-        return None
+    @asynccontextmanager
+    async def no_quota(_db, _feature, **_kwargs):
+        yield None
 
     async def fake_provider(*, prompt, **_kwargs):
         captured_prompts.append(prompt)
         return "Bezpieczne podsumowanie widocznej historii."
 
     monkeypatch.setattr(cas, "_ensure_feature_enabled", enabled)
-    monkeypatch.setattr(cas, "_gate_and_count", no_quota)
+    monkeypatch.setattr(cas, "ai_feature", no_quota)
     monkeypatch.setattr(cas, "_call_claude_text", fake_provider)
 
     async with AsyncSessionLocal() as db:

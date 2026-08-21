@@ -12,11 +12,12 @@ over capacity.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
-from typing import List
+from typing import Iterable, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import Text, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
@@ -40,6 +41,8 @@ from app.services.ai_quota import (
     get_total_usage_for_period,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/settings/ai", tags=["ai-settings"])
 
 
@@ -50,6 +53,27 @@ def _end_of_month(period_start: date) -> date:
     else:
         next_month_start = period_start.replace(month=period_start.month + 1)
     return next_month_start - timedelta(days=1)
+
+
+def resolve_feature_rows(
+    rows: Iterable[tuple[object, object, object]],
+) -> tuple[List[tuple[AIFeatureKey, bool, int]], List[str]]:
+    """Rozdziel wiersze `ai_features` na znane funkcje i osierocone klucze.
+
+    Wyniesione z handlera, żeby dało się to sprawdzić bez bazy: to jedyne
+    miejsce, które decyduje, czy wiersz po usuniętej funkcji wywróci panel,
+    czy zostanie pominięty.
+    """
+    known: List[tuple[AIFeatureKey, bool, int]] = []
+    stale: List[str] = []
+    for raw_feature, enabled, monthly_limit in rows:
+        try:
+            key = AIFeatureKey(str(raw_feature))
+        except ValueError:
+            stale.append(str(raw_feature))
+            continue
+        known.append((key, bool(enabled), int(monthly_limit or 0)))
+    return known, stale
 
 
 @router.get("", response_model=AISettingsOut)
@@ -65,10 +89,35 @@ async def get_ai_settings(
     if master_enabled is None:
         master_enabled = True
 
+    # Kolumna `feature` czytana jako TEKST, a nie przez pythonowy `Enum(AIFeatureKey)`.
+    # Prod trzyma w `ai_features` wiersze po funkcjach przemianowanych i usuniętych
+    # (`embeddings`, `matching`, `reranking`, …). SQLAlchemy hydratuje kolumnę enumem
+    # przy ODCZYCIE, więc jeden taki wiersz rzucał `LookupError` na całym `select()`
+    # i zwracał 500 z JEDYNEGO w produkcie panelu, w którym da się ustawić miesięczny
+    # limit i przełączyć główny kill-switch AI — a front tłumaczył to adminowi jako
+    # brak uprawnień, więc przestawał szukać. Dokładnie ta sama poprawka co w sondzie
+    # `/api/health.checks.ai_features` (main.py). ORDER BY zostaje na kolumnie enuma:
+    # sortuje Postgres po stronie serwera, nic tam nie jest hydratowane.
     cfg_result = await db.execute(
-        select(AIFeatureConfig).order_by(AIFeatureConfig.feature)
+        select(
+            cast(AIFeatureConfig.feature, Text),
+            AIFeatureConfig.enabled,
+            AIFeatureConfig.monthly_limit,
+        ).order_by(AIFeatureConfig.feature)
     )
-    configs = list(cfg_result.scalars().all())
+
+    configs, stale = resolve_feature_rows(cfg_result.all())
+
+    if stale:
+        # Osierocone wiersze pomijamy, ale nie po cichu: dopóki nie posprząta ich
+        # migracja danych, to jedyny ślad, że w `ai_features` siedzi konfiguracja
+        # funkcji, których już nie ma.
+        logger.warning(
+            "[ai-settings] pominięto %d osieroconych wierszy ai_features "
+            "(nie są elementami AIFeatureKey): %s",
+            len(stale),
+            ",".join(sorted(stale)),
+        )
 
     period_start = _current_period_start()
     period_end = _end_of_month(period_start)
@@ -76,23 +125,23 @@ async def get_ai_settings(
     feature_configs: List[FeatureConfig] = []
     feature_usage: List[FeatureUsage] = []
 
-    for cfg in configs:
+    for feature, enabled, monthly_limit in configs:
         feature_configs.append(
             FeatureConfig(
-                feature=cfg.feature,
-                enabled=cfg.enabled,
-                monthly_limit=cfg.monthly_limit,
-                label=FEATURE_LABELS.get(cfg.feature, cfg.feature.value),
-                data_sent_to_ai=FEATURE_DATA_SENT.get(cfg.feature, []),
+                feature=feature,
+                enabled=enabled,
+                monthly_limit=monthly_limit,
+                label=FEATURE_LABELS.get(feature, feature.value),
+                data_sent_to_ai=FEATURE_DATA_SENT.get(feature, []),
             )
         )
 
-        used = await get_total_usage_for_period(db, cfg.feature, period_start)
+        used = await get_total_usage_for_period(db, feature, period_start)
         feature_usage.append(
             FeatureUsage(
-                feature=cfg.feature,
+                feature=feature,
                 used=used,
-                limit=cfg.monthly_limit,
+                limit=monthly_limit,
                 period_start=period_start,
                 period_end=period_end,
             )
