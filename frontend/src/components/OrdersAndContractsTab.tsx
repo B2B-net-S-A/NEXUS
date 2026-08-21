@@ -11,7 +11,6 @@ import {
   History,
   Pencil,
   Plus,
-  Search,
   TrendingUp,
   Trash2,
   UserPlus,
@@ -20,10 +19,18 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import { foldText } from "@/lib/contract-client-filter";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
-import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
+import {
+  downloadAuthenticatedFile,
+  downloadBlob,
+  postAuthenticatedDownload,
+} from "@/lib/authenticated-files";
+import {
+  DEFAULT_ORDER_LIST_FILTERS,
+  filterAndSortContractors,
+  visibleLegacyOrderIds,
+  type OrderListFilters,
+} from "@/lib/client-order-list";
 import type {
   ClientOrderRead,
   ClientOrderStatus,
@@ -41,9 +48,13 @@ import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
+import { OrderListControls } from "@/components/client-profile/orders/OrderListControls";
+import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
+import { useAuthStore } from "@/store/auth";
 
 interface OrdersAndContractsTabProps {
   clientId: number;
+  clientName?: string;
 }
 
 type Filter = "all" | "active" | "expiring_30d" | "ended" | "drafts";
@@ -64,13 +75,20 @@ const STATUS_COLORS: Record<ClientOrderStatus, string> = {
   cancelled: "bg-red-100 text-red-700",
 };
 
-export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) {
+export function OrdersAndContractsTab({
+  clientId,
+  clientName = "",
+}: OrdersAndContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const user = useAuthStore((state) => state.user);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search, 300);
-  const searching = debouncedSearch.trim().length > 0;
+  const [listFilters, setListFilters] = useState<OrderListFilters>({
+    ...DEFAULT_ORDER_LIST_FILTERS,
+  });
+  const [exporting, setExporting] = useState(false);
+  const searching = search.trim().length > 0;
   const [extendingContract, setExtendingContract] = useState<ContractWithOrdersRead | null>(
     null,
   );
@@ -136,19 +154,24 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
     const contractors = data?.contractors ?? [];
     const byPill =
       filter === "all" ? contractors : contractors.filter(PILL_PREDICATES[filter]);
-    // Filtr tekstowy działa PO stronie klienta, bo GET /orders zwraca pełną
-    // listę bez paginacji — jeśli kiedyś dojdzie limit/paginacja, przenieś
-    // wyszukiwanie na serwer (?q=), inaczej zacznie cicho gubić trafienia.
-    // Dopasowanie po konsultancie ORAZ po numerze KAŻDEGO zamówienia
-    // (aktywnego, przyszłego i historycznego), diacritic-insensitive.
-    const q = foldText(debouncedSearch.trim());
-    if (!q) return byPill;
-    return byPill.filter(
-      (c) =>
-        foldText(c.candidate_name).includes(q) ||
-        c.orders.some((o) => foldText(o.title).includes(q)),
-    );
-  }, [data, filter, debouncedSearch, PILL_PREDICATES]);
+    return filterAndSortContractors(byPill, search, listFilters);
+  }, [data, filter, search, listFilters, PILL_PREDICATES]);
+
+  async function exportVisible() {
+    setExporting(true);
+    try {
+      const result = await postAuthenticatedDownload(
+        `/api/clients/${clientId}/orders/export`,
+        { order_ids: visibleLegacyOrderIds(filtered, search) },
+      );
+      downloadBlob(result.blob, result.filename ?? "Zamowienia.xlsx");
+      showToast("Pobrano zamówienia do Excela", "success");
+    } catch {
+      showToast("Nie udało się przygotować pliku Excel.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
@@ -180,16 +203,6 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Szukaj po konsultancie lub numerze zamówienia…"
-          aria-label="Szukaj zamówień"
-          className="w-full border border-border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
-        />
-      </div>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex flex-wrap gap-2 items-center">
           <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
@@ -220,6 +233,23 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
           Nowy kontraktor / zamówienie
         </button>
       </div>
+
+      <OrderListControls
+        search={search}
+        onSearchChange={setSearch}
+        filters={listFilters}
+        onFiltersChange={setListFilters}
+        showMdSort={false}
+        showBudgetFilter={false}
+        resultCount={filtered.length}
+        exporting={exporting}
+        onExport={exportVisible}
+      />
+
+      {(user?.role === "admin" || user?.roles?.includes("admin")) &&
+      clientName.toLocaleLowerCase("pl").includes("nordea") ? (
+        <NordeaOrderImportPanel clientId={clientId} onApplied={refresh} />
+      ) : null}
 
       {filtered.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">

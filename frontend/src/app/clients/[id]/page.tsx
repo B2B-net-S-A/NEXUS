@@ -952,7 +952,10 @@ export default function ClientDetailPage() {
                 costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
               />
             ) : (
-              <OrdersAndContractsTab clientId={Number(id)} />
+              <OrdersAndContractsTab
+                clientId={Number(id)}
+                clientName={client?.display_name || client?.name || ""}
+              />
             ))}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
 

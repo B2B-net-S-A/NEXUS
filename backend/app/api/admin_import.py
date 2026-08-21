@@ -21,11 +21,22 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, get_db
+from app.models.activity import Activity
+from app.models.client import Client
+from app.services.nordea_order_import import (
+    MAX_NORDEA_IMPORT_BYTES,
+    NordeaImportError,
+    import_nordea_orders,
+    parse_nordea_csv,
+    payload_sha256,
+)
 from app.services.talent_radar_embedding_copier import (
     CopyProgress,
     TalentRadarEmbeddingCopier,
@@ -196,3 +207,85 @@ async def list_import_tasks(_admin: AdminUser):
         TaskStatus(**t)
         for t in sorted(_TASKS.values(), key=lambda t: t["started_at"], reverse=True)
     ]
+
+
+@router.post("/admin/clients/{client_id}/nordea-orders/import")
+async def import_nordea_client_orders(
+    client_id: int,
+    admin: AdminUser,
+    dry_run: bool = Query(True),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview or apply the validated Nordea order/framework-rate CSV."""
+
+    filename = file.filename or "Nordea.csv"
+    if not filename.casefold().endswith(".csv"):
+        raise HTTPException(422, detail="Import wymaga pliku CSV")
+    payload = await file.read(MAX_NORDEA_IMPORT_BYTES + 1)
+    if len(payload) > MAX_NORDEA_IMPORT_BYTES:
+        raise HTTPException(413, detail="Plik CSV przekracza limit 2 MB")
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    if client is None:
+        raise HTTPException(404, detail="Client not found")
+
+    try:
+        rows = parse_nordea_csv(payload)
+        report = await import_nordea_orders(
+            db,
+            client=client,
+            rows=rows,
+            filename=filename,
+            user_id=admin.id,
+            dry_run=dry_run,
+            sha256=payload_sha256(payload),
+        )
+        if dry_run:
+            await db.rollback()
+        else:
+            if report["unmatched_file"] or report["ambiguous_file"]:
+                await db.rollback()
+                raise HTTPException(
+                    409,
+                    detail={
+                        "message": (
+                            "Import nie został zapisany: najpierw rozwiąż "
+                            "niedopasowane lub niejednoznaczne osoby z podglądu."
+                        ),
+                        "unmatched": len(report["unmatched_file"]),
+                        "ambiguous": len(report["ambiguous_file"]),
+                    },
+                )
+            db.add(
+                Activity(
+                    entity_type="client",
+                    entity_id=client_id,
+                    action="nordea_orders_imported",
+                    user_id=admin.id,
+                    external_source="nordea_csv",
+                    details={
+                        key: report[key]
+                        for key in (
+                            "filename",
+                            "sha256",
+                            "rows_total",
+                            "contractors_in_file",
+                            "matched_contractors",
+                            "orders_created",
+                            "orders_updated",
+                            "orders_unchanged",
+                            "framework_created",
+                            "framework_updated",
+                            "framework_unchanged",
+                        )
+                    },
+                )
+            )
+            await db.commit()
+        return report
+    except NordeaImportError as exc:
+        await db.rollback()
+        raise HTTPException(422, detail=str(exc)) from exc
+    except Exception:
+        await db.rollback()
+        raise

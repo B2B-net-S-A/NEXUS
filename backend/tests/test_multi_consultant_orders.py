@@ -1707,3 +1707,55 @@ async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
         )
         assert document is not None
         assert document.source_order_group_id is None
+
+
+async def test_excel_export_uses_visible_group_order_and_rejects_cross_client_ids(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Each consultant is a typed row; IDs remain scoped to the path client."""
+    from openpyxl import load_workbook
+
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    other_client_id, other_contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id, other_client_id)
+    current = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_line_payload(contracts[1]), _line_payload(contracts[0])],
+    )
+    foreign = await _create_group(
+        app_client,
+        app_auth_headers,
+        other_client_id,
+        [_line_payload(other_contracts[0])],
+    )
+
+    response = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/export",
+        headers=app_auth_headers,
+        json={"group_ids": [current["id"]]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    workbook = load_workbook(io.BytesIO(response.content))
+    sheet = workbook.active
+    assert [cell.value for cell in sheet[1]][:5] == [
+        "Imię i nazwisko",
+        "Numer zamówienia",
+        "Stawka kosztowa",
+        "Stawka przychodowa",
+        "Okres zamówienia",
+    ]
+    assert [sheet["A2"].value, sheet["A3"].value] == sorted(names)
+    assert sheet["F2"].value == 50
+    assert sheet["G2"].value == 0
+
+    forbidden = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/export",
+        headers=app_auth_headers,
+        json={"group_ids": [foreign["id"]]},
+    )
+    assert forbidden.status_code == 404, forbidden.text

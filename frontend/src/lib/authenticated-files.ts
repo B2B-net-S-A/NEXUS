@@ -35,6 +35,42 @@ export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   return res.blob();
 }
 
+export interface AuthenticatedDownload {
+  blob: Blob;
+  filename: string | null;
+}
+
+/**
+ * POST JSON to a protected backend endpoint and return the generated file.
+ * Native fetch is intentional; see the cross-origin axios caveat above.
+ */
+export async function postAuthenticatedDownload(
+  path: string,
+  payload: unknown,
+): Promise<AuthenticatedDownload> {
+  const token = getAccessToken();
+  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail || `HTTP ${res.status}`);
+  }
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return {
+    blob: await res.blob(),
+    filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
+  };
+}
+
 /** Trigger a browser download of an in-memory blob (programmatic `<a download>`). */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

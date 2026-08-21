@@ -24,6 +24,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Response,
     UploadFile,
     status,
 )
@@ -46,6 +47,7 @@ from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.job import Job
 from app.models.user import UserRole
 from app.schemas.client_order import (
+    ClientOrderExportRequest,
     ClientOrderRead,
     ClientOrdersGroupedResponse,
     ClientOrderUpdate,
@@ -66,6 +68,11 @@ from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
     enforce_nordea_order_number,
     parse_order_document,
+)
+from app.services.order_excel_export import (
+    OrderExportRow,
+    build_orders_workbook,
+    orders_export_filename,
 )
 
 router = APIRouter()
@@ -612,6 +619,51 @@ async def list_contractors_with_orders(
         # 403 na zapisie. Cała zakładka dotyczy jednego klienta, więc jedna
         # flaga na odpowiedź wystarcza.
         can_manage_finance=can_finance,
+    )
+
+
+@router.post("/{client_id}/orders/export")
+async def export_client_orders(
+    client_id: int,
+    payload: ClientOrderExportRequest,
+    user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export exactly the ordered rows visible in the caller's client view."""
+
+    client = await _assert_client(db, client_id)
+    grouped = await list_contractors_with_orders(client_id, user, db)
+    by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
+    for contractor in grouped.contractors:
+        for order in contractor.orders:
+            by_id[order.id] = (contractor, order)
+
+    requested = list(dict.fromkeys(payload.order_ids))
+    if any(order_id not in by_id for order_id in requested):
+        # Do not reveal whether an ID belongs to another client.
+        raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
+
+    rows = [
+        OrderExportRow(
+            consultant_name=by_id[order_id][0].candidate_name,
+            order_number=by_id[order_id][1].title,
+            cost_rate=by_id[order_id][0].rate_candidate,
+            revenue_rate=by_id[order_id][1].rate_client,
+            start_date=by_id[order_id][1].start_date,
+            end_date=by_id[order_id][1].end_date,
+        )
+        for order_id in requested
+    ]
+    content = await run_in_threadpool(
+        build_orders_workbook, rows, include_model_columns=False
+    )
+    filename = orders_export_filename(client.display_name or client.name)
+    return Response(
+        content=content,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

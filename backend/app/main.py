@@ -675,7 +675,10 @@ app.add_middleware(
         # Optimistic concurrency for typed candidate profile facts.
         "If-Match",
     ],
-    expose_headers=["ETag"],
+    # `Content-Disposition` carries server-generated export filenames. Without
+    # exposing it, cross-origin frontend fetches can download the bytes but
+    # cannot read the required client/date filename.
+    expose_headers=["ETag", "Content-Disposition"],
 )
 
 # Register routers
