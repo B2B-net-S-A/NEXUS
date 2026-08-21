@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import { foldText } from "@/lib/contract-client-filter";
 import { countPl } from "@/lib/plural-pl";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import {
