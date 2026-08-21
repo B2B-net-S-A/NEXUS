@@ -131,15 +131,55 @@ async def _query_alembic_head() -> dict[str, str | None]:
 
 
 def _background_tasks_status(request: Request) -> dict[str, Any]:
-    """Inspect app.state.background_tasks dict (populated by lifespan)."""
+    """Inspect app.state.background_tasks dict (populated by lifespan).
+
+    Klasyfikuje KAŻDY wpis, zamiast liczyć sam ułamek „running/expected".
+    Ułamek jest z założenia nierówny: 23 z 34 zarejestrowanych pętli kończą się
+    celowo przed swoim `while True`, bo sprawdzają własny kill-switch
+    (`AUTENTI_ENABLED`, `AI_INDEX_WORKER_ENABLED`, `CLOUDTALK_ENABLED`, …).
+    Czyli `running: 22, expected: 34` to normalny, zdrowy odczyt, a `running: 21`
+    — jedna pętla PADŁA — jest od niego nieodróżnialny. Nic w kodzie nie
+    odtwarza zakończonego taska, więc taka pętla jest martwa do najbliższego
+    deployu; sensu ma to tylko wtedy, gdy da się ją policzyć.
+
+    `crashed` przy zdrowej instalacji wynosi zero, więc każda wartość powyżej
+    zera jest jednoznaczna — i to jest liczba, po której operator ma alarmować.
+    `running`/`expected` zostają dla zgodności z istniejącymi konsumentami.
+    """
     tasks = getattr(request.app.state, "background_tasks", None)
     if not isinstance(tasks, dict):
-        return {"running": 0, "expected": 0, "tasks": []}
-    running = [name for name, task in tasks.items() if not task.done()]
+        return {
+            "running": 0,
+            "expected": 0,
+            "tasks": [],
+            "crashed": 0,
+            "crashed_tasks": {},
+            "exited_cleanly": [],
+        }
+    running: list[str] = []
+    exited_cleanly: list[str] = []
+    crashed: dict[str, str] = {}
+    for name, task in tasks.items():
+        if not task.done():
+            running.append(name)
+            continue
+        if task.cancelled():
+            # Anulowany = zamykanie aplikacji, nie awaria.
+            exited_cleanly.append(name)
+            continue
+        exc = task.exception()
+        if exc is None:
+            # Powrót z kill-switcha — pętla nigdy nie wystartowała, i tak ma być.
+            exited_cleanly.append(name)
+        else:
+            crashed[name] = repr(exc)
     return {
         "running": len(running),
         "expected": len(tasks),
         "tasks": sorted(running),
+        "crashed": len(crashed),
+        "crashed_tasks": dict(sorted(crashed.items())),
+        "exited_cleanly": sorted(exited_cleanly),
     }
 
 
