@@ -99,6 +99,7 @@ from app.services.contract_lifecycle import (
     revert_contract,
     void_contract,
 )
+from app.services.contract_rates import effective_rate_fields
 from app.services.contract_service import validate_ready_for_activation
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
@@ -122,44 +123,12 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 EXPIRY_WARNING_DAYS = 30
 
 
-def _effective_rate_fields(contract: Contract, on: date) -> dict:
-    """Derive the current candidate + client rates (+ margin) at read time.
-
-    Both rates live in effective-dated schedules (the source of truth over time),
-    so we recompute `rate_candidate`/`rate_client`/`margin`/monthly-equivalents
-    from the entries in effect on `on` rather than trusting any cached column. A
-    future-dated step (e.g. a `rate_change` amendment for the next order) does not
-    change today's rate. The framework rate ("stawka z umowy ramowej") is derived
-    the same way so a planned framework-rate change shows up on its date without an
-    edit — it never feeds the margin. Requires `candidate_rate_schedule`,
-    `client_rate_schedule` and `framework_rate_schedule` to be eager-loaded.
-    """
-    eff_candidate = contract.effective_candidate_rate(on)
-    eff_client = contract.effective_client_rate(on)
-    eff_framework = contract.effective_framework_rate(on)
-    candidate_dec = Contract._as_decimal(eff_candidate)
-    client_dec = Contract._as_decimal(eff_client)
-    margin = (
-        client_dec - candidate_dec
-        if client_dec is not None and candidate_dec is not None
-        else None
-    )
-    monthly_candidate = contract.monthly_rate(eff_candidate)
-    monthly_client = contract.monthly_rate(eff_client)
-    monthly_margin = (
-        monthly_client - monthly_candidate
-        if monthly_client is not None and monthly_candidate is not None
-        else None
-    )
-    return {
-        "rate_candidate": eff_candidate,
-        "rate_client": eff_client,
-        "framework_rate": eff_framework,
-        "margin": margin,
-        "monthly_rate_candidate": monthly_candidate,
-        "monthly_rate_client": monthly_client,
-        "monthly_margin": monthly_margin,
-    }
+# Resolver stawek efektywnych mieszka w ``app.services.contract_rates`` — czytają
+# go analityka, raporty, /my-clients, zamówienia i profil klienta, a moduł api.*
+# importowany przez inny moduł api.* tylko po to, żeby policzyć marżę, prędzej
+# czy później zostaje skopiowany i rozjeżdża się cicho (temat 1 audytu 21.08.2026).
+# Alias zostaje, żeby nie ruszać istniejących wywołań w tym pliku i w api/clients.py.
+_effective_rate_fields = effective_rate_fields
 
 
 def _schedule_entries(contract: Contract) -> list[ContractCandidateRateEntry]:
