@@ -28,11 +28,16 @@ from app.services.location_utils import (
     location_tokens as _location_tokens,
 )
 from app.services.reranker_service import rerank_or_passthrough
+from app.services.scoring_service import candidate_skill_names, canonical_skill_names
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# UWAGA: `_normalize_skill` / `_extract_skills` / `_extract_tags` NIE są już
+# źródłem chipów ✓/✗ — te czyta `candidate_skill_names` z silnika scoringu
+# (patrz `_build_match_info`). Zostają, bo pokrywa je osobny test jednostkowy
+# kształtów `skills` z Traffita; nie podłączaj ich z powrotem pod chipy.
 def _normalize_skill(s) -> str:
     """Normalize a skill to lowercase string."""
     if isinstance(s, dict):
@@ -103,24 +108,49 @@ def _build_match_info(
     required_skills: list[str],
     score: float | None = None,
 ) -> dict:
-    """Build the match result dict for a candidate."""
-    c_skills = _extract_skills(candidate.skills)
-    c_tags = _extract_tags(candidate.tags)
-    all_candidate_skills = set(c_skills + c_tags)
+    """Build the match result dict for a candidate.
 
-    req_set = set(s.lower() for s in required_skills if s)
+    Chipy ✓/✗ czyta REGUŁA SILNIKA (`candidate_skill_names`), nie kolumna
+    `candidate.skills`. Ta kolumna jest pusta dla 49 440 z 49 802 kandydatów na
+    prodzie — technologie siedzą w `cv_extracted_data.traffit_technologie` albo
+    w `raw_cv_text` — więc wiersz wyrankowany przez Qdranta na 0.94 renderował
+    się CAŁY na czerwono: ranking czytał CV, a chipy pustą kolumnę. Ta sama
+    funkcja rozwija też RODZINY aliasów z bazy (`MSSQL` = `SQL Server`,
+    `K8s` = `Kubernetes`), których lokalna tabelka dwóch par nie znała.
 
-    matching = sorted(
-        s for s in req_set if _candidate_has_skill(s, all_candidate_skills)
-    )
-    gaps = sorted(
-        s for s in req_set if not _candidate_has_skill(s, all_candidate_skills)
-    )
+    Wymagania porównujemy w przestrzeni kanonicznej, ale wyświetlamy ETYKIETĘ
+    z treści rekrutacji — obok chipów stoi lista „Wymagane" zbudowana z tych
+    samych surowych stringów i rozjazd nazw czytałby się jak inny wymóg.
+    """
+    all_candidate_skills = candidate_skill_names(candidate)
+
+    req_labels: list[str] = []
+    seen: set[str] = set()
+    for raw in required_skills:
+        if not raw:
+            continue
+        label = str(raw).lower().strip()
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        req_labels.append(label)
+
+    matching: list[str] = []
+    gaps: list[str] = []
+    for label in sorted(req_labels):
+        canon = canonical_skill_names([label])
+        # `_candidate_has_skill` zostaje jako druga warstwa tolerancji: gdy
+        # taksonomia nie jest wczytana (`ALIAS_MAP` pusty), kanonizacja jest
+        # tożsamością i tylko ona łapie `postgresql`/`postgres`.
+        if _candidate_has_skill(canon[0] if canon else label, all_candidate_skills):
+            matching.append(label)
+        else:
+            gaps.append(label)
 
     # Compute score if not provided by Qdrant
     if score is None:
-        if req_set:
-            score = len(matching) / len(req_set)
+        if req_labels:
+            score = len(matching) / len(req_labels)
         else:
             # Fallback score based on profile completeness
             filled = sum(
@@ -273,6 +303,7 @@ async def get_ai_matches(
     # unbound" dla każdego, kto puści tu mypy.
     from app.services.embedding_service import (
         _build_candidate_text,
+        SemanticSearchUnavailable,
         search_candidates_semantic,
     )
 
@@ -293,10 +324,25 @@ async def get_ai_matches(
     # Po zwężeniu awaria bramki kończy się 500 — to jest CEL, nie efekt uboczny:
     # fail-closed w regule zawierania. Strona oferty ma gałąź `isError`
     # (`app/jobs/[id]/page.tsx`), więc wyrenderuje się jako awaria, nie jako zero.
+    #
+    # `raise_on_error=True` jest tu warunkiem koniecznym, nie ozdobą: domyślny
+    # kontrakt `search_candidates_semantic` POŁYKA awarię providera i zwraca
+    # `[]`, więc padnięty Voyage/Qdrant był nieodróżnialny od zdrowego zapytania,
+    # które po prostu nic nie znalazło. Bez tego rozróżnienia `meta.degraded`
+    # niżej byłoby zgadywaniem.
     hits: list = []
+    semantic_unavailable = False
     try:
-        hits = await search_candidates_semantic(query_text, top_k=effective_pool)
+        hits = await search_candidates_semantic(
+            query_text, top_k=effective_pool, raise_on_error=True
+        )
+    except SemanticSearchUnavailable as e:
+        semantic_unavailable = True
+        logger.warning(
+            f"[AIMatch] semantic retrieval unavailable for job {job_id}: {e} — falling back to tag-based"
+        )
     except Exception as e:
+        semantic_unavailable = True
         logger.warning(
             f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based"
         )
@@ -368,6 +414,7 @@ async def get_ai_matches(
             "min_score": round(threshold, 3),
             "location_filter": requested_location if location_active else None,
             "matches": matches,
+            "meta": {"mode": search_type, "degraded": False, "reason": None},
         }
 
     # ── Fallback: tag-based matching ─────────────────────────────────────────
@@ -423,6 +470,14 @@ async def get_ai_matches(
     matches.sort(key=lambda x: x["match_score"], reverse=True)
     matches = matches[:max_results]
 
+    # `meta.degraded` — strona rekrutacji ma gotowy baner „wyszukiwanie
+    # semantyczne niedostępne" wpięty dokładnie w ten klucz, tylko backend go
+    # nigdy nie wypełniał: awaria Qdranta/Voyage renderowała się albo jako
+    # nieoznaczona lista dopasowań (rekruter dodawał z niej ludzi do pipeline'u
+    # i wysyłał CV do klienta), albo jako „Brak pasujących kandydatów w bazie".
+    # Ta gałąź jest zdegradowana ZAWSZE — także gdy Qdrant odpowiedział zdrowo,
+    # ale pusto: ranking po pokryciu tagów to nie jest ranking semantyczny,
+    # a jedyne, co odróżnia te dwa przypadki, to `reason`.
     return {
         "job_id": job_id,
         "job_title": job.title,
@@ -431,4 +486,11 @@ async def get_ai_matches(
         "min_score": round(threshold, 3),
         "location_filter": requested_location if location_active else None,
         "matches": matches,
+        "meta": {
+            "mode": "tag_fallback",
+            "degraded": True,
+            "reason": (
+                "semantic_unavailable" if semantic_unavailable else "no_semantic_hits"
+            ),
+        },
     }

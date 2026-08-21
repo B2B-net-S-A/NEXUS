@@ -247,6 +247,44 @@ async def compute_proposal_for_job(
                         profile=profile,
                         allow_cache_write=not semantic_degraded,
                     )
+                    # Boost historyczny — TA SAMA składowa, którą /recommendations
+                    # dokłada PRZED odcięciem po min-score. Snapshot jej nie
+                    # stosował, więc domyślny widok „Sugerowani kandydaci"
+                    # (widget startuje w trybie snapshot) był rankowany słabszym
+                    # wzorem niż każdy widok z filtrem, który przełącza się na
+                    # żywy endpoint: kandydat ze score 28, sprawdzony już na
+                    # trzech semantycznie podobnych projektach, dobija na żywo
+                    # do 43 i przechodzi próg 40 — a w snapshocie po prostu go
+                    # nie było. Sygnał „pierwszy ogień" to dokładnie ten, który
+                    # rekruter chce zobaczyć najwyżej.
+                    #
+                    # Kolejność jest istotna: `bulk_get_or_compute` zapisał już
+                    # cache W ŚRODKU, więc boost dołożony TUTAJ nie trafia do
+                    # utrwalonych wierszy score'ów (recommendations.py trzyma go
+                    # poza cache'em z tego samego powodu — stan pipeline'u zmienia
+                    # się za często, żeby dało się to rzetelnie unieważniać).
+                    #
+                    # `_apply_historical_boost` mieszka w routerze; import jest
+                    # leniwy i celowy — kopia tej pętli byłaby CZWARTĄ
+                    # implementacją tego samego wzoru (router, harness ewaluacyjny
+                    # i tutaj), a rozjazd między nimi jest właśnie tym defektem,
+                    # który to zamyka.
+                    from app.api.recommendations import _apply_historical_boost
+                    from app.services.similar_job_candidates import (
+                        fetch_historical_boost_map,
+                    )
+
+                    try:
+                        boost_map = await fetch_historical_boost_map(session, job_id)
+                    except Exception as boost_exc:  # pragma: no cover — best-effort
+                        logger.warning(
+                            "[Proposals] historical_boost lookup failed for job=%s: %s",
+                            job_id,
+                            boost_exc,
+                        )
+                        boost_map = {}
+                    _apply_historical_boost(breakdowns, boost_map)
+
                     # Persist ALL candidates that fit (score >= threshold),
                     # ranked best-first — not a fixed top-K. `top_k` is now just
                     # a payload safety cap. Mirrors the live /recommendations
