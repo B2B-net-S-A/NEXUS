@@ -20,6 +20,10 @@ import { QueryStateNotice } from "@/components/ds";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { orderGroupsApi, type OrderGroupRead, type OrderLineRead } from "@/lib/api/orderGroups";
+import {
+  consultantMatchesQuery,
+  sortOrderLinesByConsultant,
+} from "@/lib/client-order-list";
 import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
@@ -90,6 +94,7 @@ function BudgetBar({ group }: { group: OrderGroupRead }) {
 
 interface FutureOrdersProps {
   orders: OrderGroupRead[];
+  searchQuery: string;
   canManage: boolean;
   canManageLifecycle: boolean;
   onEditGroup: (group: OrderGroupRead) => void;
@@ -103,6 +108,7 @@ interface FutureOrdersProps {
  *  bieżącym zamówieniem i przed jego historią. */
 function FutureOrders({
   orders,
+  searchQuery,
   canManage,
   canManageLifecycle,
   onEditGroup,
@@ -177,10 +183,15 @@ function FutureOrders({
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-border/70">
-                {future.lines.map((line) => (
+                {sortOrderLinesByConsultant(future.lines).map((line) => (
                   <li
                     key={line.id}
-                    className="grid grid-cols-1 gap-2 py-2 text-xs sm:grid-cols-[minmax(9rem,1fr)_repeat(3,minmax(6.5rem,auto))_auto] sm:items-center"
+                    className={cn(
+                      "grid grid-cols-1 gap-2 py-2 text-xs sm:grid-cols-[minmax(9rem,1fr)_repeat(3,minmax(6.5rem,auto))_auto] sm:items-center",
+                      searchQuery.trim() &&
+                        consultantMatchesQuery(line.consultant_name, searchQuery) &&
+                        "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
+                    )}
                   >
                     <span className="truncate font-medium text-foreground">
                       {line.consultant_name}
@@ -224,6 +235,7 @@ function FutureOrders({
 interface Props {
   clientId: number;
   group: OrderGroupRead;
+  searchQuery?: string;
   canManage: boolean;
   /** Usuwanie / kończenie / przywracanie / przedłużanie — szersza rola niż
    *  `canManage` (stawki). Lustro backendowego `_ORDER_LIFECYCLE_ROLES`. */
@@ -242,6 +254,7 @@ interface Props {
 export function OrderGroupCard({
   clientId,
   group,
+  searchQuery = "",
   canManage,
   canManageLifecycle,
   onAddConsultant,
@@ -263,7 +276,8 @@ export function OrderGroupCard({
     enabled: historyOpen,
   });
 
-  const activeLines = group.lines.filter((l) => l.is_active);
+  const sortedLines = sortOrderLinesByConsultant(group.lines);
+  const activeLines = sortedLines.filter((l) => l.is_active);
   const isActive = group.status === "active";
 
   return (
@@ -354,12 +368,15 @@ export function OrderGroupCard({
             </p>
           ) : (
             <ul className="flex flex-col divide-y divide-border">
-              {group.lines.map((line) => (
+              {sortedLines.map((line) => (
                 <li
                   key={line.id}
                   className={cn(
                     "flex flex-wrap items-center gap-x-6 gap-y-3 py-3",
                     !line.is_active && "opacity-60",
+                    searchQuery.trim() &&
+                      consultantMatchesQuery(line.consultant_name, searchQuery) &&
+                      "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
                   )}
                 >
                   <div className="flex min-w-[13rem] flex-1 items-center gap-3">
@@ -558,6 +575,7 @@ export function OrderGroupCard({
 
           <FutureOrders
             orders={group.future_orders}
+            searchQuery={searchQuery}
             canManage={canManage}
             canManageLifecycle={canManageLifecycle}
             onEditGroup={onEditGroup}

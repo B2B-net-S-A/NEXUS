@@ -17,6 +17,16 @@ import {
 } from "@/lib/api/orderGroups";
 import { countPl } from "@/lib/plural-pl";
 import {
+  DEFAULT_ORDER_LIST_FILTERS,
+  filterAndSortOrderGroups,
+  flattenOrderGroupIds,
+  type OrderListFilters,
+} from "@/lib/client-order-list";
+import {
+  downloadBlob,
+  postAuthenticatedDownload,
+} from "@/lib/authenticated-files";
+import {
   canManageMultiConsultantOrders,
   canManageOrderLifecycle,
   useAuthStore,
@@ -27,6 +37,7 @@ import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { OrderGroupCard } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
+import { OrderListControls } from "./OrderListControls";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
 /** Wyciąga czytelny komunikat z odpowiedzi API (detail bywa stringiem lub obiektem). */
@@ -84,6 +95,11 @@ export function MultiConsultantOrdersTab({
   const canLifecycle = canManageOrderLifecycle(user);
 
   const [pill, setPill] = useState<PillKey>("all");
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<OrderListFilters>({
+    ...DEFAULT_ORDER_LIST_FILTERS,
+  });
+  const [exporting, setExporting] = useState(false);
   const [groupModal, setGroupModal] = useState<{ open: boolean; group: OrderGroupRead | null }>(
     { open: false, group: null },
   );
@@ -306,10 +322,27 @@ export function MultiConsultantOrdersTab({
     }
     return byStatus;
   }, [groups]);
-  const visible = useMemo(
-    () => (pill === "all" ? groups : groups.filter((g) => g.status === pill)),
-    [groups, pill],
-  );
+  const visible = useMemo(() => {
+    const byPill =
+      pill === "all" ? groups : groups.filter((group) => group.status === pill);
+    return filterAndSortOrderGroups(byPill, search, filters);
+  }, [groups, pill, search, filters]);
+
+  async function exportVisible() {
+    setExporting(true);
+    try {
+      const result = await postAuthenticatedDownload(
+        `/api/clients/${clientId}/order-groups/export`,
+        { group_ids: flattenOrderGroupIds(visible) },
+      );
+      downloadBlob(result.blob, result.filename ?? "Zamowienia.xlsx");
+      showToast("Pobrano zamówienia do Excela", "success");
+    } catch {
+      showToast("Nie udało się przygotować pliku Excel.", "error");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -384,6 +417,18 @@ export function MultiConsultantOrdersTab({
         </div>
       ) : null}
 
+      {query.isSuccess ? (
+        <OrderListControls
+          search={search}
+          onSearchChange={setSearch}
+          filters={filters}
+          onFiltersChange={setFilters}
+          resultCount={visible.length}
+          exporting={exporting}
+          onExport={exportVisible}
+        />
+      ) : null}
+
       {query.isError ? (
         /* Awaria pobrania MUSI mieć własną gałąź — pusty stan czytałby się jak
            „klient nie ma zamówień", czyli jak utrata danych. */
@@ -402,9 +447,17 @@ export function MultiConsultantOrdersTab({
         </p>
       ) : visible.length === 0 ? (
         <EmptyState
-          title={pill === "all" ? "Brak zamówień" : "Brak wyników dla tego filtra"}
+          title={
+            search.trim()
+              ? "Nie znaleziono zamówienia pasującego do wyszukiwania"
+              : pill === "all"
+                ? "Brak zamówień"
+                : "Brak wyników dla tego filtra"
+          }
           description={
-            pill === "all"
+            search.trim()
+              ? "Zmień wyszukiwaną frazę albo wyczyść aktywne filtry."
+              : pill === "all"
               ? "Ten klient nie ma jeszcze zamówień wielo-konsultantowych."
               : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
           }
@@ -416,6 +469,7 @@ export function MultiConsultantOrdersTab({
               key={group.id}
               clientId={clientId}
               group={group}
+              searchQuery={search}
               canManage={canManage}
               canManageLifecycle={canLifecycle}
               onAddConsultant={(g) => {

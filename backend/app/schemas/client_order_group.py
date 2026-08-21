@@ -339,6 +339,12 @@ class OrderGroupListResponse(BaseModel):
     total_consultants: int = 0
 
 
+class OrderGroupExportRequest(BaseModel):
+    """Ordered group IDs currently visible after filters/search/sorting."""
+
+    group_ids: list[int] = Field(default_factory=list, max_length=5000)
+
+
 class OrderGroupEventsResponse(BaseModel):
     events: list[OrderGroupEventRead] = Field(default_factory=list)
 

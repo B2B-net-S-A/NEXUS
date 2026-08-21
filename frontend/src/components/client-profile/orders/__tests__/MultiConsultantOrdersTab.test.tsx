@@ -175,6 +175,65 @@ describe("MultiConsultantOrdersTab", () => {
     expect(screen.getByText("/ 63 MD")).toBeInTheDocument();
   });
 
+  it("wyszukuje na żywo po nazwisku w dowolnej kolejności i podświetla osobę", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            id: 10,
+            order_number: "274607",
+            lines: [
+              line({ id: 1, consultant_name: "Anna Nowak" }),
+              line({ id: 2, consultant_name: "Zofia Kowalska" }),
+            ],
+          }),
+          group({ id: 11, order_number: "999", lines: [line({ id: 3 })] }),
+        ],
+        total_groups: 2,
+        total_consultants: 3,
+      },
+    } as never);
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText("Zamówienie nr 274607");
+
+    await user.type(screen.getByLabelText("Szukaj zamówień"), "Kowal Zof");
+
+    expect(screen.getByText("Zamówienie nr 274607")).toBeInTheDocument();
+    expect(screen.getByText("Anna Nowak")).toBeInTheDocument();
+    expect(screen.queryByText("Zamówienie nr 999")).not.toBeInTheDocument();
+    expect(screen.getByText("Zofia Kowalska").closest("li")).toHaveClass(
+      "bg-primary/10",
+    );
+  });
+
+  it("łączy aktywną zakładkę statusu z wyszukiwaniem i pokazuje jasny pusty stan", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({ id: 10, order_number: "ACTIVE-1" }),
+          group({
+            id: 11,
+            order_number: "DONE-1",
+            status: "completed",
+            status_label: "Zakończone",
+          }),
+        ],
+        total_groups: 2,
+        total_consultants: 2,
+      },
+    } as never);
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText("Zamówienie nr ACTIVE-1");
+    await user.click(screen.getByRole("button", { name: /Aktywne \(1\)/ }));
+    await user.type(screen.getByLabelText("Szukaj zamówień"), "DONE-1");
+
+    expect(
+      screen.getByText("Nie znaleziono zamówienia pasującego do wyszukiwania"),
+    ).toBeInTheDocument();
+  });
+
   it("awaria pobrania renderuje komunikat błędu, NIE pusty stan", async () => {
     // Regresja klasy „403/500 renderowane jako pustka" — pusty ekran czyta się
     // jak utrata danych i wysyła użytkownika szukać zamówień, których nie ma.

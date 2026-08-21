@@ -26,8 +26,18 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -65,6 +75,7 @@ from app.schemas.client_order_group import (
     OrderGroupExtend,
     OrderGroupEventRead,
     OrderGroupEventsResponse,
+    OrderGroupExportRequest,
     OrderGroupListResponse,
     OrderGroupRead,
     OrderGroupUpdate,
@@ -83,6 +94,7 @@ from app.services.client_order_lines import (
     recompute_remaining,
 )
 from app.services.client_access import deny, resolve_client_access
+from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.cost_orders import (
     assert_cost_order_client,
     quantize_money,
@@ -109,6 +121,11 @@ from app.services.multi_consultant_orders import (
     swap_md_total,
 )
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_excel_export import (
+    OrderExportRow,
+    build_orders_workbook,
+    orders_export_filename,
+)
 from app.services import storage_service
 
 router = APIRouter()
@@ -520,6 +537,12 @@ async def _group_to_read(
         if item.job_id:
             item.job_title = job_titles.get(item.job_id)
         reads.append(item)
+    reads.sort(
+        key=lambda item: (
+            normalize_person_name_part(item.consultant_name),
+            item.id,
+        )
+    )
 
     event_count = await db.scalar(
         select(func.count(ClientOrderGroupEvent.id)).where(
@@ -803,7 +826,7 @@ async def list_order_groups(
     result = await db.execute(
         select(ClientOrderGroup)
         .where(ClientOrderGroup.client_id == client_id)
-        .order_by(ClientOrderGroup.start_date.desc(), ClientOrderGroup.id.desc())
+        .order_by(ClientOrderGroup.created_at.desc(), ClientOrderGroup.id.desc())
     )
     with_finance = _can_see_finance(user)
     models = list(result.scalars())
@@ -852,6 +875,93 @@ async def list_order_groups(
         groups=groups,
         total_groups=len(models),
         total_consultants=sum(read.active_consultants for read in reads_by_id.values()),
+    )
+
+
+@router.post("/{client_id}/order-groups/export")
+async def export_order_groups(
+    client_id: int,
+    payload: OrderGroupExportRequest,
+    user: OrderGroupReader,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export the exact filtered/sorted group sequence supplied by the UI."""
+
+    await _require_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    client = await _assert_client(db, client_id)
+    requested = list(dict.fromkeys(payload.group_ids))
+    models = list(
+        (
+            await db.execute(
+                select(ClientOrderGroup).where(
+                    ClientOrderGroup.client_id == client_id,
+                    ClientOrderGroup.id.in_(requested),
+                )
+            )
+        ).scalars()
+    )
+    by_id = {group.id: group for group in models}
+    if any(group_id not in by_id for group_id in requested):
+        # Same response for an absent ID and an ID belonging to another client.
+        raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
+
+    rows: list[OrderExportRow] = []
+    for group_id in requested:
+        group = await _group_to_read(
+            db, by_id[group_id], with_finance=_can_see_finance(user)
+        )
+        if not group.lines:
+            rows.append(
+                OrderExportRow(
+                    consultant_name="",
+                    order_number=group.order_number,
+                    cost_rate=None,
+                    revenue_rate=None,
+                    start_date=group.start_date,
+                    end_date=group.end_date,
+                    allocation=group.budget_amount if group.is_cost_based else None,
+                    consumption=None,
+                )
+            )
+            continue
+        for line in group.lines:
+            consumption: Optional[Decimal]
+            if group.is_cost_based:
+                consumption = line.invoiced_total
+            elif line.md_total is None:
+                consumption = None
+            else:
+                consumption = (
+                    line.md_total
+                    + (line.md_manual_adjustment or Decimal("0"))
+                    - (line.md_remaining or Decimal("0"))
+                )
+            rows.append(
+                OrderExportRow(
+                    consultant_name=line.consultant_name,
+                    order_number=group.order_number,
+                    cost_rate=line.rate_cost,
+                    revenue_rate=line.rate_revenue,
+                    start_date=group.start_date,
+                    end_date=group.end_date,
+                    allocation=(
+                        group.budget_amount if group.is_cost_based else line.md_total
+                    ),
+                    consumption=consumption,
+                )
+            )
+
+    content = await run_in_threadpool(
+        build_orders_workbook, rows, include_model_columns=True
+    )
+    filename = orders_export_filename(client.display_name or client.name)
+    return Response(
+        content=content,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

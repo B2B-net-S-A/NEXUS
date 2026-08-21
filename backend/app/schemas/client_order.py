@@ -142,6 +142,12 @@ class ClientOrdersGroupedResponse(BaseModel):
     can_manage_finance: bool = False
 
 
+class ClientOrderExportRequest(BaseModel):
+    """Ordered IDs currently visible in the client-side list."""
+
+    order_ids: list[int] = Field(default_factory=list, max_length=5000)
+
+
 class OrderExtractionResult(BaseModel):
     """`POST /api/clients/{client_id}/orders/extract` — odczyt pól z PDF/DOCX.
 
