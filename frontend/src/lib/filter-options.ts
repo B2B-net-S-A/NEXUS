@@ -122,14 +122,25 @@ export const CONTRACT_STATUS_OPTIONS: ReadonlyArray<
   { value: "draft", label: "Draft" },
 ];
 
-export type ContractTypeValue = "body_leasing" | "fixed_price" | "t_and_m";
+// Słownik MUSI być lustrem `ContractType` z `backend/app/models/contract.py`.
+// Kolumna `contracts.contract_type` to natywny enum PG (`contracttype`),
+// a handler przyjmuje `list[str]` — więc wartość spoza enuma nie jest
+// odrzucana przez FastAPI, tylko przez Postgresa: `invalid input value for
+// enum contracttype` → 500 (a to API przy 500 gubi nagłówki CORS, więc
+// w przeglądarce widać „Network Error"). Do 2026-08 były tu wartości
+// przepisane z `RecruitmentType` (body_leasing/sales_project/tender), który
+// żyje na `Job`, NIE na `Contract` — filtr „Typ" na /contracts i eksport
+// XLSX/CSV padały na każdej z trzech opcji.
+// Etykiety trzymamy zgodne z `_CONTRACT_TYPE_LABELS` w `app/api/contracts.py`,
+// żeby ta sama umowa nazywała się tak samo w filtrze i w eksporcie.
+export type ContractTypeValue = "b2b" | "uop" | "uzlecenie";
 
 export const CONTRACT_TYPE_OPTIONS: ReadonlyArray<
   MultiSelectFilterOption<ContractTypeValue>
 > = [
-  { value: "body_leasing", label: "Body leasing" },
-  { value: "fixed_price", label: "Fixed price" },
-  { value: "t_and_m", label: "T&M" },
+  { value: "b2b", label: "B2B" },
+  { value: "uop", label: "Umowa o pracę" },
+  { value: "uzlecenie", label: "Umowa zlecenie" },
 ];
 
 // ── Sourcing — competence categories ───────────────────────────────────────
