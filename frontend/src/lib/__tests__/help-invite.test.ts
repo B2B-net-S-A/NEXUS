@@ -16,13 +16,15 @@ import {
 
 /** Treść 1:1 z seeda migracji 0229 — testujemy to, co realnie jedzie do Outlooka. */
 const SEED_SUBJECT =
-  "Przygotowanie do spotkania z (nazwa Klienta) – (imię i nazwisko kandydata)";
+  "Przygotowanie do interview z (nazwa Klienta) – (imię i nazwisko kandydata)";
 const SEED_BODY = [
-  "Dzień dobry,",
+  "Dzień dobry (bądź per „Ty”),",
   "",
-  "Zapraszam na spotkanie przygotowujące do rozmowy z (nazwa Klienta) na stanowisko (nazwa stanowiska), które odbędzie się (data interview).",
+  "Zapraszam na spotkanie przygotowujące do interview z (nazwa Klienta) na stanowisko (nazwa stanowiska).",
+  "Termin spotkania przygotowującego: (data prepa)",
   "",
-  "Link do opisu stanowiska: (link do pracuj / rocketjobs)",
+  "Termin interview z (nazwa klienta): (data interview)",
+  "Link do opisu stanowiska: (link do pracuj / rocketjobs / JJIT)",
   "",
   "W razie pytań pozostaję do dyspozycji.",
   "",
@@ -56,7 +58,7 @@ describe("Zaproszenie prep — deeplink do Outlook Web", () => {
       buildOutlookComposeUrl({ subject: SEED_SUBJECT, body: SEED_BODY }),
     );
     expect(url.searchParams.get("subject")).toBe(SEED_SUBJECT);
-    expect(url.searchParams.get("body")).toContain("Dzień dobry,");
+    expect(url.searchParams.get("body")).toContain("Dzień dobry (bądź per");
     expect(url.searchParams.get("body")).toContain("pozostaję do dyspozycji");
   });
 
@@ -118,7 +120,8 @@ describe("Zaproszenie prep — plik .ics (ścieżka główna, Outlook desktop)",
       }, [])
       .find((line) => line.startsWith("DESCRIPTION:"));
     expect(description).toBeDefined();
-    expect(description).toContain("Dzień dobry\\,\\n\\nZapraszam");
+    // Przecinek po powitaniu escapowany jako `\,`, podwójna nowa linia jako `\n\n`.
+    expect(description).toContain("\\,\\n\\nZapraszam");
     expect(description).toContain("Pozdrawiam");
   });
 
@@ -129,7 +132,7 @@ describe("Zaproszenie prep — plik .ics (ścieżka główna, Outlook desktop)",
     // Rekonstrukcja musi odtworzyć oryginał — dowód, że nie zgubiliśmy bajtu.
     const unfolded = ics.split("\r\n ").join("");
     expect(unfolded).toContain("przygotowujące");
-    expect(unfolded).toContain("odbędzie się");
+    expect(unfolded).toContain("Termin interview z (nazwa klienta)");
   });
 
   it("NIE zawiera instrukcji dla rekrutera o CV", () => {
@@ -146,7 +149,7 @@ describe("Zaproszenie prep — nazwa pliku", () => {
     // Nawiasy zostają — są legalne w nazwach plików i niosą informację, że
     // temat wciąż ma placeholdery do uzupełnienia.
     expect(name).toBe(
-      "Przygotowanie-do-spotkania-z-(nazwa-Klienta)-(imie-i-nazwisko-kandydata).ics",
+      "Przygotowanie-do-interview-z-(nazwa-Klienta)-(imie-i-nazwisko-kandydata).ics",
     );
     expect(name).toMatch(/^[\x20-\x7e]+\.ics$/);
     expect(icsFileName('a/b:c*d?e"f<g>h|i')).toBe("abcdefghi.ics");
@@ -165,11 +168,12 @@ describe("Zaproszenie prep — podstawianie danych", () => {
       { candidateName: "Jan Kowalski" },
     );
     expect(filled.subject).toBe(
-      "Przygotowanie do spotkania z (nazwa Klienta) – Jan Kowalski",
+      "Przygotowanie do interview z (nazwa Klienta) – Jan Kowalski",
     );
     expect(filled.body).toContain("(nazwa Klienta)");
     expect(filled.body).toContain("(nazwa stanowiska)");
     expect(filled.body).toContain("(data interview)");
+    expect(filled.body).toContain("(data prepa)");
   });
 
   it("NIE podstawia linku do ogłoszenia", () => {
@@ -181,13 +185,17 @@ describe("Zaproszenie prep — podstawianie danych", () => {
       jobTitle: "DevOps",
       interviewDate: "20.08.2026",
     });
-    expect(filled).toContain("(link do pracuj / rocketjobs)");
+    expect(filled).toContain("(link do pracuj / rocketjobs / JJIT)");
     expect(filled).toContain("z BNP na stanowisko DevOps");
-    expect(filled).toContain("odbędzie się 20.08.2026");
+    // (data prepa) nie jest znane NEXUS-owi — zostaje do ręcznego uzupełnienia.
+    expect(filled).toContain("(data prepa)");
+    // Dowód, że wariant małą literą „(nazwa klienta)" też dostał realną nazwę,
+    // a „(data interview)" podstawiło się poprawnie.
+    expect(filled).toContain("Termin interview z BNP: 20.08.2026");
   });
 
   it("puste i białe wartości nie kasują placeholdera", () => {
-    // Podmiana na pusty string zostawiłaby „rozmowy z  na stanowisko" —
+    // Podmiana na pusty string zostawiłaby „interview z  na stanowisko" —
     // zdanie wygląda na sprawne, a rekruter nie widzi, że czegoś brakuje.
     const filled = fillInviteTemplate(SEED_BODY, {
       clientName: "   ",
@@ -197,12 +205,23 @@ describe("Zaproszenie prep — podstawianie danych", () => {
     expect(filled).toContain("(nazwa stanowiska)");
   });
 
-  it("podstawia KAŻDE wystąpienie, nie tylko pierwsze", () => {
+  it("podstawia KAŻDE wystąpienie, niezależnie od wielkości liter", () => {
+    // Szablon pisany naturalnym zdaniem miesza „(nazwa Klienta)" i
+    // „(nazwa klienta)"; obie wzmianki muszą dostać tę samą realną nazwę.
     const filled = fillInviteTemplate(
-      "(nazwa Klienta) — druga wzmianka: (nazwa Klienta)",
+      "(nazwa Klienta) — druga wzmianka: (nazwa klienta)",
       { clientName: "BNP" },
     );
     expect(filled).toBe("BNP — druga wzmianka: BNP");
+  });
+
+  it("nazwa klienta z znakiem $ nie psuje podmiany", () => {
+    // Zamiana przez RegExp: `$&`/`$1` w wartości byłyby odwołaniami wstecznymi,
+    // gdyby podstawiać stringiem zamiast funkcją.
+    const filled = fillInviteTemplate("z (nazwa Klienta)", {
+      clientName: "A$B Sp. z o.o.",
+    });
+    expect(filled).toBe("z A$B Sp. z o.o.");
   });
 });
 
