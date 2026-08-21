@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   CalendarPlus,
   ChevronDown,
+  Clock3,
   History,
   Pencil,
   Plus,
@@ -22,7 +23,7 @@ import { orderGroupsApi, type OrderGroupRead, type OrderLineRead } from "@/lib/a
 import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
-import { MdBudgetBar } from "./MdBudgetBar";
+import { formatMd, MdBudgetBar } from "./MdBudgetBar";
 
 function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
@@ -41,6 +42,7 @@ function periodLabel(group: OrderGroupRead): string {
 
 const STATUS_BADGE: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-800",
+  scheduled: "bg-sky-100 text-sky-800",
   completed: "bg-zinc-200 text-zinc-700",
   exhausted: "bg-destructive/15 text-destructive",
 };
@@ -82,6 +84,139 @@ function BudgetBar({ group }: { group: OrderGroupRead }) {
           {formatPLN(group.budget_remaining)}
         </span>
       </p>
+    </div>
+  );
+}
+
+interface FutureOrdersProps {
+  orders: OrderGroupRead[];
+  canManage: boolean;
+  canManageLifecycle: boolean;
+  onEditGroup: (group: OrderGroupRead) => void;
+  onAddConsultant: (group: OrderGroupRead) => void;
+  onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onDeleteGroup: (group: OrderGroupRead) => void;
+}
+
+/** Zwarta lista według wzorca Tailwind Plus „stacked list with actions".
+ *  To celowo NIE są osobne karty: wszystkie kontynuacje pozostają pod
+ *  bieżącym zamówieniem i przed jego historią. */
+function FutureOrders({
+  orders,
+  canManage,
+  canManageLifecycle,
+  onEditGroup,
+  onAddConsultant,
+  onEditLine,
+  onDeleteGroup,
+}: FutureOrdersProps) {
+  if (orders.length === 0) return null;
+
+  return (
+    <div className="mt-4 border-t border-border pt-3">
+      <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <Clock3 className="h-3.5 w-3.5" aria-hidden />
+        Przyszłe zamówienia ({orders.length})
+      </p>
+      <ul className="mt-2 divide-y divide-border rounded-lg border border-border bg-background">
+        {orders.map((future) => (
+          <li key={future.id} className="p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">
+                  nr {future.order_number} · od {formatDate(future.start_date)}
+                </p>
+                {future.end_date ? (
+                  <p className="text-xs text-muted-foreground">
+                    obowiązuje do {formatDate(future.end_date)}
+                  </p>
+                ) : null}
+              </div>
+              {canManage || canManageLifecycle ? (
+                <div className="flex shrink-0 items-center gap-1">
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => onAddConsultant(future)}
+                      aria-label={`Dodaj konsultanta do przyszłego zamówienia nr ${future.order_number}`}
+                      title="Dodaj konsultanta"
+                      className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <Plus className="h-4 w-4" aria-hidden />
+                    </button>
+                  ) : null}
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => onEditGroup(future)}
+                      aria-label={`Uzupełnij przyszłe zamówienie nr ${future.order_number}`}
+                      title="Uzupełnij zamówienie"
+                      className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden />
+                    </button>
+                  ) : null}
+                  {canManageLifecycle ? (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteGroup(future)}
+                      aria-label={`Usuń przyszłe zamówienie nr ${future.order_number}`}
+                      title="Usuń przyszłe zamówienie"
+                      className="rounded p-1.5 text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {future.lines.length === 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Brak przypisanych konsultantów.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-border/70">
+                {future.lines.map((line) => (
+                  <li
+                    key={line.id}
+                    className="grid grid-cols-1 gap-2 py-2 text-xs sm:grid-cols-[minmax(9rem,1fr)_repeat(3,minmax(6.5rem,auto))_auto] sm:items-center"
+                  >
+                    <span className="truncate font-medium text-foreground">
+                      {line.consultant_name}
+                    </span>
+                    <span className="text-muted-foreground">
+                      <span className="block text-[10px] uppercase tracking-wide">kosztowa</span>
+                      {line.rate_cost == null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
+                    </span>
+                    <span className="text-muted-foreground">
+                      <span className="block text-[10px] uppercase tracking-wide">przychodowa</span>
+                      {line.rate_revenue == null
+                        ? "—"
+                        : `${formatPLN(line.rate_revenue)}/MD`}
+                    </span>
+                    <span className="text-muted-foreground">
+                      <span className="block text-[10px] uppercase tracking-wide">liczba MD</span>
+                      {formatMd(line.md_total)}
+                    </span>
+                    {canManage ? (
+                      <button
+                        type="button"
+                        onClick={() => onEditLine(future, line)}
+                        aria-label={`Edytuj dane konsultanta ${line.consultant_name} w przyszłym zamówieniu`}
+                        title="Edytuj stawki i MD"
+                        className="justify-self-start rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground sm:justify-self-end"
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden />
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -376,7 +511,7 @@ export function OrderGroupCard({
                   onClick={() => onEditGroup(group)}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                 >
-                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Edytuj zamówienie
+                  <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Uzupełnij zamówienie
                 </button>
               ) : null}
 
@@ -420,6 +555,16 @@ export function OrderGroupCard({
               ) : null}
             </div>
           ) : null}
+
+          <FutureOrders
+            orders={group.future_orders}
+            canManage={canManage}
+            canManageLifecycle={canManageLifecycle}
+            onEditGroup={onEditGroup}
+            onAddConsultant={onAddConsultant}
+            onEditLine={onEditLine}
+            onDeleteGroup={onDeleteGroup}
+          />
 
           <div className="mt-4 border-t border-border pt-3">
             <button

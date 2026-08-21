@@ -66,10 +66,16 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     budget_remaining: null,
     budget_manual_adjustment: null,
     predecessor_group_id: null,
+    filename: null,
+    has_file: false,
+    content_type: null,
+    size_bytes: null,
+    file_uploaded_at: null,
     can_add_consultant: true,
     lines: [line(), line({ id: 2, consultant_name: "Anna Nowak", md_remaining: 8 })],
     active_consultants: 2,
     event_count: 4,
+    future_orders: [],
     ...overrides,
   };
 }

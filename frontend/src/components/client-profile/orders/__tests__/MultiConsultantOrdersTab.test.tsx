@@ -44,6 +44,8 @@ vi.mock("@/lib/api/orderGroups", () => ({
     close: vi.fn(),
     reopen: vi.fn(),
     extend: vi.fn(),
+    replaceFile: vi.fn(),
+    deleteFile: vi.fn(),
   },
   mdConsumptionApi: {},
 }));
@@ -102,10 +104,16 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     budget_remaining: null,
     budget_manual_adjustment: null,
     predecessor_group_id: null,
+    filename: null,
+    has_file: false,
+    content_type: null,
+    size_bytes: null,
+    file_uploaded_at: null,
     can_add_consultant: true,
     lines: [line()],
     active_consultants: 1,
     event_count: 3,
+    future_orders: [],
     ...overrides,
   };
 }
@@ -300,6 +308,87 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     vi.mocked(orderGroupsApi.removeLine).mockResolvedValue({} as never);
     vi.mocked(orderGroupsApi.remove).mockResolvedValue({} as never);
     vi.mocked(orderGroupsApi.reopen).mockResolvedValue({ data: {} } as never);
+  });
+
+  it("zagnieżdża wiele przyszłych zamówień przed historią z danymi i akcjami", async () => {
+    const futureA = group({
+      id: 21,
+      order_number: "4500030684",
+      start_date: "2026-09-11",
+      status: "scheduled",
+      status_label: "Przyszłe",
+      predecessor_group_id: 10,
+      can_add_consultant: false,
+      lines: [
+        line({
+          id: 31,
+          group_id: 21,
+          status: "draft",
+          is_active: false,
+          start_date: "2026-09-11",
+          md_total: 87,
+          md_remaining: 87,
+        }),
+      ],
+      active_consultants: 0,
+    });
+    const futureB = group({
+      id: 22,
+      order_number: "4500031050",
+      start_date: "2027-01-01",
+      status: "scheduled",
+      status_label: "Przyszłe",
+      predecessor_group_id: 10,
+      can_add_consultant: false,
+      lines: [
+        line({
+          id: 32,
+          group_id: 22,
+          status: "draft",
+          is_active: false,
+          start_date: "2027-01-01",
+          md_total: 65,
+          md_remaining: 65,
+        }),
+      ],
+      active_consultants: 0,
+    });
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group({ future_orders: [futureA, futureB] })],
+        total_groups: 3,
+        total_consultants: 3,
+      },
+    } as never);
+
+    renderTab();
+
+    const futureHeading = await screen.findByText("Przyszłe zamówienia (2)");
+    expect(screen.getByText(/4500030684/)).toBeInTheDocument();
+    expect(screen.getByText(/4500031050/)).toBeInTheDocument();
+    expect(screen.getByText("87")).toBeInTheDocument();
+    expect(screen.getByText("65")).toBeInTheDocument();
+    // Zaplanowane wersje nie są równorzędnymi kartami głównej listy.
+    expect(screen.getAllByText(/Zamówienie nr/)).toHaveLength(1);
+    expect(
+      screen.getByRole("button", {
+        name: "Uzupełnij przyszłe zamówienie nr 4500030684",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Dodaj konsultanta do przyszłego zamówienia nr 4500030684",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Usuń przyszłe zamówienie nr 4500030684",
+      }),
+    ).toBeInTheDocument();
+    const history = screen.getByRole("button", { name: /Historia zamówienia/ });
+    expect(
+      futureHeading.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("pigułki pokazują liczniki i filtrują po statusie", async () => {

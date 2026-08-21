@@ -64,10 +64,16 @@ const GROUP: OrderGroupRead = {
   budget_remaining: null,
   budget_manual_adjustment: null,
   predecessor_group_id: null,
+  filename: null,
+  has_file: false,
+  content_type: null,
+  size_bytes: null,
+  file_uploaded_at: null,
   can_add_consultant: true,
   lines: [],
   active_consultants: 0,
   event_count: 0,
+  future_orders: [],
 };
 
 function renderModal(onSubmit = vi.fn(), group: OrderGroupRead = GROUP) {

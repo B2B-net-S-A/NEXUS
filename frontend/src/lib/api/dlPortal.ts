@@ -422,6 +422,9 @@ export const dlPortalApi = {
     );
   },
 
+  deleteOrderPo: (clientId: number, orderId: number) =>
+    api.delete(`/api/clients/${clientId}/orders/${orderId}/file`),
+
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
 

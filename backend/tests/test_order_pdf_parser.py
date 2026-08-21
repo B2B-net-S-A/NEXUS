@@ -104,6 +104,44 @@ class TestRegexFallback:
         assert r.rate_client == Decimal("17000")
 
 
+class TestNordeaCallOffNumber:
+    def test_exact_field_wins_over_other_numbers(self):
+        text = """
+        Offer number: OFF-998877
+        Project number: 123456
+        Call Off Agreement number: COA-4500030222/26
+        """
+        result = m.OrderExtraction(
+            title="OFF-998877",
+            confidence={"title": 0.42},
+            uncertain=True,
+            uncertain_reasons=["Niska pewność numeru/tytułu zamówienia"],
+        )
+
+        enforced = m.enforce_nordea_order_number(result, text)
+
+        assert enforced.title == "COA-4500030222/26"
+        assert enforced.confidence["title"] == 1.0
+        assert not any(
+            "numeru/tytułu zamówienia" in reason
+            for reason in enforced.uncertain_reasons
+        )
+
+    def test_missing_call_off_field_never_keeps_another_number(self):
+        result = m.OrderExtraction(
+            title="PROJECT-123",
+            confidence={"title": 0.99},
+            uncertain=False,
+        )
+
+        enforced = m.enforce_nordea_order_number(result, "Project number: PROJECT-123")
+
+        assert enforced.title is None
+        assert "title" not in enforced.confidence
+        assert enforced.uncertain is True
+        assert any("Call Off Agreement number" in r for r in enforced.uncertain_reasons)
+
+
 class TestNormalizeClaudeShape:
     def test_full_confident(self):
         data = {

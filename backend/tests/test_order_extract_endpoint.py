@@ -20,12 +20,12 @@ from httpx import AsyncClient
 _TODAY = date(2026, 8, 5)
 
 
-async def _seed_client() -> int:
+async def _seed_client(name: str | None = None) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.client import Client
 
     async with AsyncSessionLocal() as db:
-        client = Client(name=f"OrdClient-{uuid.uuid4().hex[:6]}")
+        client = Client(name=name or f"OrdClient-{uuid.uuid4().hex[:6]}")
         db.add(client)
         await db.commit()
         await db.refresh(client)
@@ -167,6 +167,44 @@ async def test_extract_order_pdf_admin_sees_finance(
     assert Decimal(str(data["total_value"])) == Decimal("102000")
     assert data["uncertain"] is True
     assert data["uncertain_reasons"]
+
+
+async def test_nordea_endpoint_forces_call_off_agreement_number(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+
+    client_id = await _seed_client("Nordea Bank ABP")
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        lambda path, filename: (
+            "Offer number: OFFER-999\n"
+            "Project number: PROJECT-123\n"
+            "Call Off Agreement number: COA-4500030222"
+        ),
+    )
+
+    async def _wrong_ai_choice(text: str) -> OrderExtraction:
+        return OrderExtraction(
+            title="OFFER-999",
+            start_date="2026-06-01",
+            end_date="2026-12-31",
+            confidence={"title": 0.99},
+            uncertain=False,
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _wrong_ai_choice)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("nordea.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["title"] == "COA-4500030222"
 
 
 async def test_extract_rejects_bad_extension(

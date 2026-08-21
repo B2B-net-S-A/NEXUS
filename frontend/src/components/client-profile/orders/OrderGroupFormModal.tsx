@@ -1,10 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, FileSearch } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  ExternalLink,
+  FileSearch,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import {
+  downloadAuthenticatedFile,
+  openAuthenticatedFile,
+} from "@/lib/authenticated-files";
 import type { OrderGroupInput, OrderGroupRead } from "@/lib/api/orderGroups";
 import {
   extractionErrorMessage,
@@ -21,7 +32,7 @@ const labelClass = "mb-1 block text-xs font-semibold text-muted-foreground";
 
 /** Ten sam limit co na endpointach zamówień (25 MB) i te same rozszerzenia. */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const ACCEPT = ".pdf,.docx,.doc";
+const ACCEPT = ".pdf";
 
 interface Props {
   open: boolean;
@@ -33,7 +44,8 @@ interface Props {
   costOrdersEnabled: boolean;
   submitting: boolean;
   error: string | null;
-  onSubmit: (values: OrderGroupInput) => void;
+  onSubmit: (values: OrderGroupInput, file: File | null) => void;
+  onDeleteFile: () => Promise<void>;
 }
 
 export function OrderGroupFormModal({
@@ -45,6 +57,7 @@ export function OrderGroupFormModal({
   submitting,
   error,
   onSubmit,
+  onDeleteFile,
 }: Props) {
   const editing = Boolean(group);
   const [orderNumber, setOrderNumber] = useState("");
@@ -55,6 +68,8 @@ export function OrderGroupFormModal({
   const [budgetAmount, setBudgetAmount] = useState("");
 
   const [file, setFile] = useState<File | null>(null);
+  const [hasExistingFile, setHasExistingFile] = useState(false);
+  const [busyExistingFile, setBusyExistingFile] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -72,6 +87,7 @@ export function OrderGroupFormModal({
     setIsCostBased(group?.is_cost_based ?? false);
     setBudgetAmount(numberToField(group?.budget_amount));
     setFile(null);
+    setHasExistingFile(Boolean(group?.has_file));
     setFileError(null);
     setExtractError(null);
     setCheckData(false);
@@ -146,11 +162,27 @@ export function OrderGroupFormModal({
   const canSubmit =
     !submitting && orderNumber.trim() !== "" && startDate !== "" && !budgetMissing;
 
+  const fileEndpoint = group
+    ? `/api/clients/${clientId}/order-groups/${group.id}/file`
+    : null;
+
+  async function withExistingFileBusy(action: () => Promise<void>, message: string) {
+    setBusyExistingFile(true);
+    setFileError(null);
+    try {
+      await action();
+    } catch {
+      setFileError(message);
+    } finally {
+      setBusyExistingFile(false);
+    }
+  }
+
   return (
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title={editing ? "Edytuj zamówienie" : "Nowe zamówienie"}
+      title={editing ? "Uzupełnij zamówienie" : "Nowe zamówienie"}
       description={
         editing
           ? "Numer i okres obowiązywania. Linie konsultantów edytujesz osobno."
@@ -184,7 +216,7 @@ export function OrderGroupFormModal({
                 ...(isCostBased
                   ? { budget_amount: Number(budgetAmount.replace(",", ".")) }
                   : {}),
-              })
+              }, file)
             }
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
           >
@@ -323,6 +355,65 @@ export function OrderGroupFormModal({
 
         <div>
           <p className={labelClass}>PDF zamówienia od klienta</p>
+          {group && hasExistingFile && fileEndpoint ? (
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">
+                {group.filename ?? `${group.order_number}.pdf`}
+              </span>
+              {busyExistingFile ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Przetwarzanie pliku" />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Otwórz plik PDF zamówienia"
+                    title="Otwórz"
+                    onClick={() =>
+                      withExistingFileBusy(
+                        () => openAuthenticatedFile(fileEndpoint, "application/pdf", `${group.order_number}.pdf`),
+                        "Nie udało się otworzyć pliku PDF.",
+                      )
+                    }
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <ExternalLink className="h-4 w-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Pobierz plik PDF zamówienia"
+                    title="Pobierz"
+                    onClick={() =>
+                      withExistingFileBusy(
+                        () => downloadAuthenticatedFile(fileEndpoint, `${group.order_number}.pdf`),
+                        "Nie udało się pobrać pliku PDF.",
+                      )
+                    }
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <Download className="h-4 w-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Usuń plik PDF zamówienia"
+                    title="Usuń"
+                    onClick={() => {
+                      if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")) return;
+                      void withExistingFileBusy(async () => {
+                        await onDeleteFile();
+                        setHasExistingFile(false);
+                        setFile(null);
+                        setCheckData(false);
+                        setCheckReasons([]);
+                      }, "Nie udało się usunąć pliku PDF.");
+                    }}
+                    className="rounded p-1 text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                  </button>
+                </>
+              )}
+            </div>
+          ) : null}
           <FileDropZone
             inputId="group-po"
             file={file}
@@ -339,18 +430,38 @@ export function OrderGroupFormModal({
             error={fileError ?? extractError}
             accept={ACCEPT}
             maxBytes={MAX_UPLOAD_BYTES}
-            label="Dodaj PDF do zamówienia"
-            hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
+            label="Zamień plik PDF"
+            hint=".pdf · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
           />
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={!file || extracting}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            <FileSearch className="h-4 w-4" aria-hidden />
-            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
-          </button>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={!file || extracting}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              <FileSearch className="h-4 w-4" aria-hidden />
+              {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+            </button>
+            {file ? (
+              <button
+                type="button"
+                aria-label="Usuń wybrany plik PDF zamówienia"
+                title="Usuń wybrany plik"
+                onClick={() => {
+                  if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")) return;
+                  setFile(null);
+                  setFileError(null);
+                  setExtractError(null);
+                  setCheckData(false);
+                  setCheckReasons([]);
+                }}
+                className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 

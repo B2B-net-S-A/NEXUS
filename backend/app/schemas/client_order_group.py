@@ -314,6 +314,11 @@ class OrderGroupRead(BaseModel):
 
     budget_manual_adjustment: Optional[MoneyPLN] = None
     predecessor_group_id: Optional[int] = None
+    filename: Optional[str] = None
+    has_file: bool = False
+    content_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    file_uploaded_at: Optional[datetime] = None
     can_add_consultant: bool = True
     """Wyliczane przez serwer. Front nie zna reguły „wyczerpane blokuje
     dodawanie", a przycisk, który na zapisie kończy się 409, czyta się jak
@@ -322,6 +327,10 @@ class OrderGroupRead(BaseModel):
     lines: list[OrderLineRead] = Field(default_factory=list)
     active_consultants: int = 0
     event_count: int = 0
+    # Zaplanowane kontynuacje nie są równorzędnymi kartami głównej listy.
+    # Każda zachowuje pełny kształt (linie, stawki, MD), żeby można ją było
+    # edytować/usunąć jeszcze przed datą wejścia w życie.
+    future_orders: list["OrderGroupRead"] = Field(default_factory=list)
 
 
 class OrderGroupListResponse(BaseModel):

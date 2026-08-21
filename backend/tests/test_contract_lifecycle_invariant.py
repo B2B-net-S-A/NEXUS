@@ -2,9 +2,10 @@
 
 Locks the single guarded state machine (``app.services.contract_lifecycle``):
 
-* no route creates ``active`` without verified completion when a signature is
-  required (a completed ``DocumentSignature``);
-* the create/update schemas can no longer set an arbitrary ``status``;
+* guarded lifecycle routes still require verified completion when a signature
+  is required (a completed ``DocumentSignature``);
+* the client contract register can write its four operational statuses, while
+  ``ready_for_signature``/``void`` stay exclusive to guarded lifecycle routes;
 * finalizing an unsigned HTML draft ends at ``ready_for_signature`` (never
   ``active``), and emits no ``contract_signed`` side effect;
 * a QES lane with ``DSS_VALIDATION_URL`` unset — or a timed-out / INDETERMINATE
@@ -255,9 +256,7 @@ async def test_activate_finalized_blocked_without_signature_when_signing_on(
     app_client, app_auth_headers, monkeypatch
 ) -> None:
     monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
-    cid = await _seed_contract(
-        status=ContractStatus.ready_for_signature, complete=True
-    )
+    cid = await _seed_contract(status=ContractStatus.ready_for_signature, complete=True)
     resp = await app_client.post(
         f"/api/contracts/{cid}/activate", json={}, headers=app_auth_headers
     )
@@ -265,12 +264,13 @@ async def test_activate_finalized_blocked_without_signature_when_signing_on(
     assert resp.json()["detail"]["reason"] == "signature_required"
 
 
-# ── Schemas can no longer set status (HTTP) ───────────────────────────────────
+# ── Contract register status writes (HTTP) ───────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_create_contract_ignores_status_body(
-    app_client, app_auth_headers
+@pytest.mark.parametrize("selected_status", ["draft", "active", "ending", "ended"])
+async def test_create_contract_honours_register_status_body(
+    app_client, app_auth_headers, selected_status
 ) -> None:
     cand_id, cli_id = await _seed_candidate_and_client()
     resp = await app_client.post(
@@ -284,16 +284,16 @@ async def test_create_contract_ignores_status_body(
             "rate_client": 20000,
             "contract_type": "b2b",
             "work_mode": "remote",
-            "status": "active",  # must be ignored
+            "status": selected_status,
         },
         headers=app_auth_headers,
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "draft"
+    assert resp.json()["status"] == selected_status
 
 
 @pytest.mark.asyncio
-async def test_patch_contract_ignores_status_body(
+async def test_patch_contract_honours_register_status_body(
     app_client, app_auth_headers
 ) -> None:
     cid = await _seed_contract(status=ContractStatus.draft, complete=True)
@@ -303,8 +303,76 @@ async def test_patch_contract_ignores_status_body(
         headers=app_auth_headers,
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["status"] == "draft"
+    assert resp.json()["status"] == "active"
     assert resp.json()["team_name"] == "X"
+
+    for selected_status in ("ending", "ended", "draft"):
+        changed = await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={"status": selected_status},
+            headers=app_auth_headers,
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["status"] == selected_status
+
+
+@pytest.mark.asyncio
+async def test_register_rejects_lifecycle_only_statuses(
+    app_client, app_auth_headers
+) -> None:
+    cid = await _seed_contract(status=ContractStatus.draft, complete=True)
+    resp = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "void"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422, resp.text
+
+    null_status = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": None},
+        headers=app_auth_headers,
+    )
+    assert null_status.status_code == 422, null_status.text
+
+
+@pytest.mark.asyncio
+async def test_register_status_updates_client_active_consultants(
+    app_client, app_auth_headers
+) -> None:
+    """Active dodaje konsultanta do profilu klienta, inny status go usuwa."""
+
+    cid = await _seed_contract(status=ContractStatus.draft, complete=True)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, cid)
+        assert contract is not None
+        client_id = contract.client_id
+
+    activate = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "active"},
+        headers=app_auth_headers,
+    )
+    assert activate.status_code == 200, activate.text
+    profile = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert profile.status_code == 200, profile.text
+    assert cid in {row["contract_id"] for row in profile.json()["active_consultants"]}
+
+    end = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "ended"},
+        headers=app_auth_headers,
+    )
+    assert end.status_code == 200, end.text
+    profile = await app_client.get(
+        f"/api/clients/{client_id}/profile", headers=app_auth_headers
+    )
+    assert profile.status_code == 200, profile.text
+    assert cid not in {
+        row["contract_id"] for row in profile.json()["active_consultants"]
+    }
 
 
 # ── Delete guard + void + reopen (HTTP) ───────────────────────────────────────
@@ -313,9 +381,7 @@ async def test_patch_contract_ignores_status_body(
 @pytest.mark.asyncio
 async def test_delete_draft_allowed(app_client, app_auth_headers) -> None:
     cid = await _seed_contract(status=ContractStatus.draft, complete=True)
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 204, resp.text
 
 
@@ -326,9 +392,7 @@ async def test_delete_executed_contract_409_then_void(
     cid = await _seed_contract(status=ContractStatus.active, complete=True)
 
     # Hard delete of an executed contract is refused.
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 409, resp.text
     assert "void_endpoint" in resp.json()["detail"]
 
@@ -355,16 +419,12 @@ async def test_delete_contract_with_completed_signature_409(
     uid = await _seed_user()
     cid = await _seed_contract(status=ContractStatus.draft, complete=True)
     await _seed_signature(cid, uid, SignatureStatus.completed)
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 409, resp.text
 
 
 @pytest.mark.asyncio
-async def test_reopen_reverts_active_to_draft(
-    app_client, app_auth_headers
-) -> None:
+async def test_reopen_reverts_active_to_draft(app_client, app_auth_headers) -> None:
     cid = await _seed_contract(status=ContractStatus.active, complete=True)
     resp = await app_client.post(
         f"/api/contracts/{cid}/reopen",

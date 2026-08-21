@@ -177,3 +177,68 @@ async def test_bridge_lists_nothing_before_upload(
     )
     assert bridge.status_code == 200, bridge.text
     assert bridge.json()["documents"] == []
+
+
+async def test_delete_pdf_clears_file_without_changing_order_fields(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    ids = await _seed_order()
+    url = f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}/file"
+    upload = await app_client.put(
+        url,
+        headers=app_auth_headers,
+        files={"file": ("wrong.pdf", _PDF, "application/pdf")},
+    )
+    assert upload.status_code == 200, upload.text
+    before = upload.json()
+
+    deleted = await app_client.delete(url, headers=app_auth_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    order = await app_client.get(
+        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
+        headers=app_auth_headers,
+    )
+    assert order.status_code == 200, order.text
+    body = order.json()
+    assert body["has_file"] is False
+    assert body["filename"] is None
+    assert body["title"] == before["title"]
+    assert body["status"] == before["status"]
+
+
+async def test_complete_draft_auto_activates_and_remains_editable(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    ids = await _seed_order()
+    url = f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}"
+
+    partial = await app_client.patch(
+        url,
+        headers=app_auth_headers,
+        json={
+            "start_date": _TODAY.isoformat(),
+            "rate_candidate": 110,
+            "rate_client": 160,
+        },
+    )
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["status"] == "draft", "brak końca okresu aktywował draft"
+
+    completed = await app_client.patch(
+        url,
+        headers=app_auth_headers,
+        json={"end_date": (_TODAY + timedelta(days=90)).isoformat()},
+    )
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "active"
+
+    edited = await app_client.patch(
+        url,
+        headers=app_auth_headers,
+        json={"title": "PO-ACTIVE-EDIT", "rate_client": 175},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["status"] == "active"
+    assert edited.json()["title"] == "PO-ACTIVE-EDIT"
+    assert Decimal(str(edited.json()["rate_client"])) == Decimal("175")

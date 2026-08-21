@@ -63,7 +63,10 @@ from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
 from app.services.ezdrowie import validate_project_part
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
-from app.services.order_pdf_parser import parse_order_document
+from app.services.order_pdf_parser import (
+    enforce_nordea_order_number,
+    parse_order_document,
+)
 
 router = APIRouter()
 
@@ -75,9 +78,11 @@ _ALLOWED_EXT = (".pdf", ".docx", ".doc")
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-async def _assert_client(db: AsyncSession, client_id: int) -> None:
-    if not await db.scalar(select(Client.id).where(Client.id == client_id)):
+async def _assert_client(db: AsyncSession, client_id: int) -> Client:
+    client = await db.scalar(select(Client).where(Client.id == client_id))
+    if client is None:
         raise HTTPException(404, detail="Client not found")
+    return client
 
 
 async def _require_client_order_read(
@@ -140,6 +145,41 @@ def _attach_po_bytes(
     order.file_uploaded_by = user.id
     order.file_uploaded_at = datetime.now(timezone.utc)
     return previous if previous and previous != rel_path else None
+
+
+def _order_has_required_activation_data(order: ClientOrder) -> bool:
+    """Czy draft ma komplet pól wskazanych przez formularz zamówienia.
+
+    Numer zastępczy ``(bez numeru)`` powstaje po pierwszej edycji pojedynczego
+    pola i nie jest prawdziwym numerem. „Okres” oznacza obie granice; dzięki
+    temu częściowo uzupełniony rekord pozostaje w Draft zamiast przedwcześnie
+    trafiać do Aktywnych.
+    """
+
+    title = (order.title or "").strip()
+    return bool(
+        title
+        and title != "(bez numeru)"
+        and order.start_date is not None
+        and order.end_date is not None
+        and order.rate_client is not None
+        and order.contract is not None
+        and order.contract.rate_candidate is not None
+    )
+
+
+def _activate_complete_draft(order: ClientOrder) -> bool:
+    """Promuj kompletny draft; zwróć czy nastąpiła zmiana statusu."""
+
+    if (
+        order.status != ClientOrderStatus.draft
+        or not _order_has_required_activation_data(order)
+    ):
+        return False
+    order.status = ClientOrderStatus.active
+    if order.filled_at is None:
+        order.filled_at = datetime.now(timezone.utc)
+    return True
 
 
 def _days_to(target: Optional[date]) -> Optional[int]:
@@ -725,6 +765,7 @@ async def create_order_extension(
     order = ClientOrder(
         client_id=client_id,
         contract_id=contract_id,
+        contract=contract,
         job_id=job_id,
         framework_contract_id=framework_contract_id,
         title=title,
@@ -756,6 +797,10 @@ async def create_order_extension(
             content_type=content_type,
             user=user,
         )
+    # Formularz może świadomie zacząć od draftu i uzupełniać cztery wymagane
+    # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
+    # rekord od razu trafia do „Aktywnych”.
+    _activate_complete_draft(order)
     db.add(
         Activity(
             entity_type="client",
@@ -766,7 +811,7 @@ async def create_order_extension(
                 "contract_id": contract_id,
                 "job_id": job_id,
                 "title": title,
-                "status": order_status.value,
+                "status": order.status.value,
             },
         )
     )
@@ -798,7 +843,7 @@ async def extract_order_pdf(
     Bramkowane: DL przypisany do klienta lub Admin (jak create), plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
-    await _assert_client(db, client_id)
+    client = await _assert_client(db, client_id)
 
     filename = file.filename or "zamowienie.pdf"
     ext = os.path.splitext(filename)[1].lower()
@@ -858,6 +903,13 @@ async def extract_order_pdf(
         ) from exc
 
     extraction = await parse_order_document(text)
+    client_names = " ".join(
+        value
+        for value in (client.name, client.display_name, client.legal_name)
+        if value
+    ).casefold()
+    if client.name.casefold() == "nordea" or "nordea bank abp" in client_names:
+        extraction = enforce_nordea_order_number(extraction, text)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
     # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
@@ -955,6 +1007,10 @@ async def update_order(
     for field, value in data.items():
         setattr(order, field, value)
 
+    auto_activated = _activate_complete_draft(order)
+    if auto_activated:
+        data["status"] = ClientOrderStatus.active
+
     # PR 6 (plan analytics): pierwsze przejście na active stempluje filled_at
     # (fakt, ustawiany RAZ — kolejne pauzy/reaktywacje go nie ruszają).
     if (
@@ -973,6 +1029,7 @@ async def update_order(
             details={
                 "order_id": order_id,
                 "changed": sorted(payload.model_fields_set),
+                "auto_activated": auto_activated,
             },
         )
     )
@@ -1237,6 +1294,7 @@ async def create_contract_with_order(
     order = ClientOrder(
         client_id=client_id,
         contract_id=contract.id,
+        contract=contract,
         job_id=payload.job_id,
         framework_contract_id=payload.framework_contract_id,
         title=payload.title,
@@ -1252,6 +1310,11 @@ async def create_contract_with_order(
         **order_finance_kwargs,
     )
     db.add(order)
+    # To samo kryterium co przy późniejszym „Uzupełnij zamówienie": jeżeli
+    # formularz atomowy już niesie numer, obie stawki i pełny okres, Order nie
+    # powinien zaliczać zbędnego przystanku w zakładce Draft. Kontrakt zachowuje
+    # własny, niezależny i bardziej rygorystyczny lifecycle podpisu.
+    _activate_complete_draft(order)
 
     db.add(
         Activity(
@@ -1359,3 +1422,50 @@ async def replace_order_po(
     return _order_response_for_user(
         await _order_to_read(db, order), user, can_finance=can_finance
     )
+
+
+@router.delete(
+    "/{client_id}/orders/{order_id}/file",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_order_po(
+    client_id: int,
+    order_id: int,
+    user: DlAssignedOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń wyłącznie aktualny PDF zamówienia, bez zmiany innych pól."""
+
+    await _assert_client(db, client_id)
+    order = await db.scalar(
+        select(ClientOrder).where(
+            ClientOrder.id == order_id, ClientOrder.client_id == client_id
+        )
+    )
+    if order is None:
+        raise HTTPException(404, detail="Order not found")
+    if order.file_path is None:
+        raise HTTPException(404, detail="File not found")
+
+    previous_path = order.file_path
+    previous_filename = order.filename
+    order.filename = None
+    order.file_path = None
+    order.content_type = None
+    order.size_bytes = None
+    order.file_uploaded_by = None
+    order.file_uploaded_at = None
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=client_id,
+            action="order_file_deleted",
+            user_id=user.id,
+            details={"order_id": order_id, "filename": previous_filename},
+        )
+    )
+    await db.commit()
+    # Najpierw commit metadanych, potem zwolnienie blobu: awaria dysku nie może
+    # cofnąć poprawnego usunięcia z formularza ani zostawić bazy wskazującej na
+    # nieistniejący plik.
+    storage_service.delete_client_order_po(previous_path)

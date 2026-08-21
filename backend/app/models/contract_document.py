@@ -52,6 +52,17 @@ class ContractDocument(Base, TimestampMixin):
         ForeignKey("users.id"), nullable=True
     )
 
+    # Automatyczna kopia PDF zamówienia wielo-konsultantowego. NULL oznacza
+    # dokument ręczny albo historyczny po usunięciu grupy (FK SET NULL).
+    # Unikalność (contract_id, source_order_group_id) jest w migracji jako
+    # indeks częściowy: podmiana PDF aktualizuje wiersz, nigdy nie dopisuje
+    # duplikatu obok starego.
+    source_order_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_order_groups.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     contract = relationship("Contract", back_populates="documents_rel")
 
     def __repr__(self) -> str:

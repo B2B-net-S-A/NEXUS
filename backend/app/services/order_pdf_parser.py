@@ -327,6 +327,54 @@ _MD_COUNT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Nordea ma w dokumentach kilka numerów (oferta, projekt, wewnętrzne
+# referencje), ale numerem zamówienia jest WYŁĄCZNIE wartość pola
+# ``Call Off Agreement number``. Reguła jest deterministyczna i stosowana po
+# odpowiedzi LLM, żeby model nie mógł wybrać atrakcyjniejszego numeru z innej
+# części dokumentu.
+_NORDEA_CALL_OFF_NUMBER_RE = re.compile(
+    r"Call\s+Off\s+Agreement\s+(?:number|no\.?)\s*[:#\-]?\s*"
+    r"([A-Z0-9][A-Z0-9._/\-]*)",
+    re.IGNORECASE,
+)
+
+
+def nordea_call_off_agreement_number(text: str) -> Optional[str]:
+    """Zwróć numer z etykiety Nordea, nigdy inny numer z dokumentu."""
+
+    match = _NORDEA_CALL_OFF_NUMBER_RE.search(text or "")
+    return match.group(1).strip() if match else None
+
+
+def enforce_nordea_order_number(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Nadpisz wynik parsera twardą polityką numeru zamówienia Nordea.
+
+    Brak etykiety czyści ``title`` zamiast pozostawiać numer wybrany przez AI.
+    To stan jawnie niepewny do poprawienia przez operatora, ale nigdy ciche
+    przypisanie numeru oferty lub projektu jako numeru zamówienia.
+    """
+
+    number = nordea_call_off_agreement_number(document_text)
+    if number:
+        result.title = number
+        result.confidence["title"] = 1.0
+        result.uncertain_reasons = [
+            reason
+            for reason in result.uncertain_reasons
+            if "numeru/tytułu zamówienia" not in reason
+        ]
+        return result
+
+    result.title = None
+    result.confidence.pop("title", None)
+    reason = "Nie znaleziono pola „Call Off Agreement number”"
+    if reason not in result.uncertain_reasons:
+        result.uncertain_reasons.append(reason)
+    result.uncertain = True
+    return result
+
 
 def _extract_with_regex(text: str) -> OrderExtraction:
     result = OrderExtraction(source="regex", uncertain=True)

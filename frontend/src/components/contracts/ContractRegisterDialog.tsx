@@ -224,6 +224,11 @@ export function ContractRegisterDialog({
     onSuccess: () => {
       showSuccess(isEdit ? "Kontrakt zaktualizowany" : "Kontrakt dodany");
       queryClient.invalidateQueries({ queryKey: ["client-register", clientId] });
+      // Status napędza projekcję „Obecni konsultanci" na profilu klienta oraz
+      // liczniki katalogu. Bez invalidacji poprawny zapis wyglądał jak
+      // nieskuteczny aż do ręcznego odświeżenia strony.
+      queryClient.invalidateQueries({ queryKey: ["client-profile", clientId] });
+      queryClient.invalidateQueries({ queryKey: ["clients"] });
       onSaved();
       onOpenChange(false);
     },

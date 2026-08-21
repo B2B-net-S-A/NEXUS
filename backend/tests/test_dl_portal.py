@@ -272,6 +272,11 @@ async def test_contract_with_order_atomic_create(
         assert body["order_id"] > 0
         # 18000 - 14000 = 4000 monthly margin
         assert Decimal(body["monthly_margin"]) == Decimal(4000)
+        async with AsyncSessionLocal() as db:
+            order = await db.get(ClientOrder, body["order_id"])
+            assert order is not None
+            assert order.status == ClientOrderStatus.active
+            assert order.filled_at is not None
     finally:
         await _cleanup([client_id], [], [cand_id])
 

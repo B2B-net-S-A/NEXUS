@@ -3069,6 +3069,16 @@ _COLUMN_STATEMENTS = [
     # ukrywanie nigdy nie jest ciche. ORM czyta kolumnę, brak =>
     # UndefinedColumnError na /proposals/latest.
     "ALTER TABLE proposal_snapshots ADD COLUMN IF NOT EXISTS hidden JSONB NULL",
+    # 0238: trwały master PDF grupy zamówienia + źródło automatycznej kopii w
+    # dokumentach kontraktu. Alembic bywa na prodzie osierocony, a metadata
+    # create_all nie dodaje kolumn do istniejących tabel.
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS filename VARCHAR(255) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS file_path VARCHAR(512) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS content_type VARCHAR(128) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS size_bytes INTEGER NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS file_uploaded_by INTEGER NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS file_uploaded_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contract_documents ADD COLUMN IF NOT EXISTS source_order_group_id INTEGER NULL",
     # 0218: materiały w zakładce Pomoc — biblioteka LINKÓW do dokumentów w
     # SharePoincie (NEXUS ich nie hostuje). Bez tej tabeli GET
     # /api/help-materials => UndefinedTableError (500).
@@ -3619,6 +3629,53 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_interactive_chat', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_interactive_chat')",
+    # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
+    # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
+    # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
+    """WITH marker AS (
+           INSERT INTO app_settings (key, value)
+           VALUES (
+               '0238_bik_contract_status_correction',
+               jsonb_build_object(
+                   'revision', '0238_contract_order_workflows',
+                   'completed_at', clock_timestamp(),
+                   'source', 'entrypoint_safety_net'
+               )
+           )
+           ON CONFLICT (key) DO NOTHING
+           RETURNING key
+       ), ranked AS (
+           SELECT
+               co.id,
+               row_number() OVER (
+                   PARTITION BY co.candidate_id, co.client_id
+                   ORDER BY co.end_date DESC NULLS FIRST, co.id DESC
+               ) AS position
+           FROM contracts co
+           JOIN candidates ca ON ca.id = co.candidate_id
+           JOIN clients cl ON cl.id = co.client_id
+           WHERE co.status <> 'void'::contractstatus
+             AND lower(concat_ws(' ', cl.name, cl.display_name, cl.legal_name))
+                   LIKE '%biuro informacji kredytowej%'
+             AND lower(trim(ca.name) || ' ' || trim(ca.lastname)) IN (
+                   'aleksander wojdyła',
+                   'daniel madejski',
+                   'maciej koc',
+                   'robert łuszczyński',
+                   'paweł łaski',
+                   'konrad teper',
+                   'michał leśniak',
+                   'wojciech wojtak',
+                   'grzegorz wadecki'
+             )
+             AND EXISTS (SELECT 1 FROM marker)
+       )
+       UPDATE contracts co
+       SET status = 'active'::contractstatus,
+           updated_at = now()
+       FROM ranked
+       WHERE co.id = ranked.id
+         AND ranked.position = 1""",
     # 0173: rejection_reasons.external_source backfill (integracja Traffit).
     "UPDATE rejection_reasons SET external_source = 'manual' "
     "WHERE external_source IS NULL",
@@ -4491,8 +4548,45 @@ _CONSTRAINT_STATEMENTS = [
     """DO $$ BEGIN
         ALTER TABLE client_order_groups
             ADD CONSTRAINT ck_client_order_groups_status
-            CHECK (status IN ('active', 'completed', 'exhausted')) NOT VALID;
+            CHECK (status IN ('active', 'scheduled', 'completed', 'exhausted')) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0238 — master PDF grupy i automatyczna kopia na kontrakcie. Sprawdzamy
+    # semantycznie po kolumnie/target table, nie wyłącznie po nazwie więzu.
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint c
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.contype = 'f'
+              AND c.conrelid = 'client_order_groups'::regclass
+              AND c.confrelid = 'users'::regclass
+              AND a.attname = 'file_uploaded_by'
+        ) THEN
+            ALTER TABLE client_order_groups
+                ADD CONSTRAINT fk_client_order_groups_file_uploaded_by_users
+                FOREIGN KEY (file_uploaded_by) REFERENCES users(id)
+                ON DELETE SET NULL NOT VALID;
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint c
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.contype = 'f'
+              AND c.conrelid = 'contract_documents'::regclass
+              AND c.confrelid = 'client_order_groups'::regclass
+              AND a.attname = 'source_order_group_id'
+        ) THEN
+            ALTER TABLE contract_documents
+                ADD CONSTRAINT fk_contract_documents_source_order_group
+                FOREIGN KEY (source_order_group_id)
+                REFERENCES client_order_groups(id)
+                ON DELETE SET NULL NOT VALID;
+        END IF;
+    END $$""",
     "ALTER TABLE client_order_groups "
     "DROP CONSTRAINT IF EXISTS ck_client_order_groups_cost_coherence",
     """DO $$ BEGIN
@@ -4824,6 +4918,13 @@ _INDEX_STATEMENTS = [
     # przebiegu, a log rośnie w nieskończoność (nie jest kasowany).
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_client_order_groups_status "
     "ON client_order_groups (client_id, status)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_contract_documents_source_order_group_id "
+    "ON contract_documents (source_order_group_id)",
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
+    "uq_contract_documents_contract_order_group "
+    "ON contract_documents (contract_id, source_order_group_id) "
+    "WHERE source_order_group_id IS NOT NULL",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_open "
     "ON dl_alerts (user_id, created_at) WHERE status = 'new'",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_rule_scope "

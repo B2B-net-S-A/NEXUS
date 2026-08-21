@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, model_validator
 
 from app.models.contract import (
     ContractStatus,
@@ -13,6 +13,33 @@ from app.models.contract import (
     ProlongationStatus,
     RateUnit,
 )
+
+
+# Cztery stany świadomie edytowalne w rejestrze klienta. Stany techniczne
+# ``ready_for_signature`` i ``void`` pozostają wyłącznie w audytowanym
+# lifecycle (podpis / anulowanie) i nie pojawiają się w zwykłym dropdownie.
+_CONTRACT_REGISTER_STATUSES = frozenset(
+    {
+        ContractStatus.draft,
+        ContractStatus.active,
+        ContractStatus.ending,
+        ContractStatus.ended,
+    }
+)
+
+
+def _validate_contract_register_status(status: ContractStatus) -> ContractStatus:
+    if status not in _CONTRACT_REGISTER_STATUSES:
+        raise ValueError("Status jest dostępny wyłącznie przez lifecycle kontraktu")
+    return status
+
+
+# Najpierw Pydantic zamienia tekst z JSON (np. ``"active"``) na enum, potem
+# walidator zawęża go do czterech stanów edytowalnych w rejestrze. ``Literal``
+# z elementami enuma odrzucał zwykłe stringi jeszcze przed tą konwersją.
+ContractRegisterStatus = Annotated[
+    ContractStatus, AfterValidator(_validate_contract_register_status)
+]
 
 
 class ContractCandidateRateInput(BaseModel):
@@ -106,9 +133,11 @@ class ContractCreate(BaseModel):
     # the framework rate over time; `framework_rate` is derived from it.
     framework_rate_schedule: Optional[list[ContractFrameworkRateInput]] = None
     contract_type: ContractType = ContractType.b2b
-    # `status` is intentionally NOT accepted here. A contract is always born a
-    # `draft`; reaching `active` is guarded by ``contract_lifecycle`` (requires
-    # signed evidence). Any `status` in the request body is ignored server-side.
+    # Rejestr kontraktów per klient pozwala operatorowi jawnie wybrać stan
+    # importowanego / już istniejącego kontraktu. Brak pola nadal oznacza
+    # bezpieczny ``draft``; wartość przesłana z formularza jest intencją i nie
+    # może zostać po cichu zgubiona przez Pydantic ``extra=ignore``.
+    status: ContractRegisterStatus = ContractStatus.draft
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
@@ -153,10 +182,10 @@ class ContractUpdate(BaseModel):
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = None
     contract_type: Optional[ContractType] = None
-    # `status` is intentionally NOT accepted here — free status writes are the
-    # bug this hardening closes. Status changes go through the dedicated
-    # lifecycle endpoints (`/activate`, `/reopen`, `/void`, `/terminate`,
-    # `/draft/finalize`). Any `status` in the request body is ignored.
+    # Rejestr klienta edytuje wszystkie cztery operacyjne stany kontraktu.
+    # Dedykowane endpointy lifecycle nadal obsługują podpis, void i zakończenie
+    # z metadanymi; ten PATCH zachowuje jednak jawny wybór statusu z rejestru.
+    status: Optional[ContractRegisterStatus] = None
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
@@ -178,6 +207,12 @@ class ContractUpdate(BaseModel):
     # Zużycie zamówienia (migracja 0144) — opcjonalne dla PATCH.
     order_consumption: Optional[float] = None
     order_consumption_unit: Optional[OrderConsumptionUnit] = None
+
+    @model_validator(mode="after")
+    def reject_explicit_null_status(self) -> "ContractUpdate":
+        if "status" in self.model_fields_set and self.status is None:
+            raise ValueError("Status kontraktu nie może być pusty")
+        return self
 
 
 class ContractResponse(BaseModel):
