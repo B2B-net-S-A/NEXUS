@@ -133,10 +133,22 @@ class ContractCreate(BaseModel):
     # the framework rate over time; `framework_rate` is derived from it.
     framework_rate_schedule: Optional[list[ContractFrameworkRateInput]] = None
     contract_type: ContractType = ContractType.b2b
-    # Rejestr kontraktów per klient pozwala operatorowi jawnie wybrać stan
-    # importowanego / już istniejącego kontraktu. Brak pola nadal oznacza
-    # bezpieczny ``draft``; wartość przesłana z formularza jest intencją i nie
-    # może zostać po cichu zgubiona przez Pydantic ``extra=ignore``.
+    # UWAGA: ta wartość NIE jest honorowana. Kontrakt rodzi się szkicem —
+    # ``create_contract`` usuwa ``status`` z ładunku, bo dojście do ``active``
+    # prowadzi wyłącznie ``contract_lifecycle`` (komplet pól, ukończony podpis
+    # kwalifikowany, wiersz audytu), a ``ended`` musi jeszcze zsynchronizować
+    # zamówienia klienta. Pole zostaje wyłącznie po to, żeby ``{"status":
+    # "active"}`` z istniejących klientów (i z seedów testowych) nie zaczęło
+    # nagle wracać 422 — nie dlatego, że coś robi.
+    #
+    # DŁUG, którego nie da się domknąć w tym pliku: legacy strona
+    # ``/contracts/new`` wciąż renderuje listę rozwijaną statusu i wysyła
+    # wybór, który serwer wyrzuca bez słowa — operator wychodzi z formularza
+    # przekonany, że umowa jest aktywna, choć nie wchodzi ani do MRR, ani do
+    # liczników konsultantów. Rejestr umów (``ContractRegisterDialog``) ma to
+    # już zrobione poprawnie: przy tworzeniu pokazuje FAKT („Szkic — status
+    # ustawisz po utworzeniu"), a nie kontrolkę. Ten sam zabieg należy się
+    # tamtej stronie; wtedy pole można stąd usunąć.
     status: ContractRegisterStatus = ContractStatus.draft
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
@@ -212,6 +224,37 @@ class ContractUpdate(BaseModel):
     def reject_explicit_null_status(self) -> "ContractUpdate":
         if "status" in self.model_fields_set and self.status is None:
             raise ValueError("Status kontraktu nie może być pusty")
+        return self
+
+    @model_validator(mode="after")
+    def reject_ending_without_end_date(self) -> "ContractUpdate":
+        """„Kończący się" bez daty końca to kontrakt, który nigdy nie ustanie.
+
+        ``ending`` jest w ``REVENUE_BEARING_STATUSES`` i przechodzi predykat
+        ``end_date IS NULL OR end_date >= on``, więc bezterminowy wiersz
+        w tym statusie liczy się jako aktywny BEZTERMINOWO i bez końca alarmuje
+        skaner wygasania. Serwerowe samoleczenie (``_status_after_end_date_change``)
+        jest tu wyłączone z rozmysłem — uruchamia się wyłącznie dla PATCH-a BEZ
+        statusu, żeby nie nadpisywać jawnego wyboru operatora. Skoro nikt tego
+        nie naprawi później, sprzeczność trzeba odrzucić od razu.
+
+        Świadomie NIE dotyczy to ``ended``: tam handler stempluje datę dnia
+        bieżącego i synchronizuje zamówienia klienta, czyli intencja „ta umowa
+        się skończyła" ma pełne, udokumentowane wykonanie.
+
+        Warunek patrzy na ``model_fields_set``, bo PATCH jest częściowy: brak
+        klucza ``end_date`` znaczy „nie ruszaj daty z bazy" i może dotyczyć
+        kontraktu, który datę końca ma. Odrzucamy wyłącznie ładunek sprzeczny
+        sam ze sobą.
+        """
+        sends_null_end_date = (
+            "end_date" in self.model_fields_set and self.end_date is None
+        )
+        if sends_null_end_date and self.status == ContractStatus.ending:
+            raise ValueError(
+                "Status \u201eKończący się\u201d wymaga daty zakończenia "
+                "— kontrakt bezterminowy się nie kończy"
+            )
         return self
 
 

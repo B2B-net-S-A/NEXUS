@@ -82,9 +82,21 @@ def _email_domain(addr: str) -> Optional[str]:
     return norm.rsplit("@", 1)[1]
 
 
+# Litery, których NFKD NIE rozkłada, bo znak diakrytyczny jest wpisany w sam
+# glif (kreska przecinająca literę), a nie doklejony jako osobny znak łączący.
+# Bez tej mapy `encode("ascii", "ignore")` je KASUJE zamiast uprościć: „Łukasz"
+# stawał się „ukasz", więc dopasowanie po nazwisku milczało dla każdego
+# kandydata z Ł/ł w imieniu lub nazwisku (Łukasz, Michał, Paweł…) — a to nie
+# jest przypadek brzegowy w polskiej bazie.
+_UNDECOMPOSABLE = str.maketrans({"Ł": "L", "ł": "l"})
+
+
 def _fold_diacritics(s: str) -> str:
     """Lowercase + strip Polish diacritics for robust name matching."""
-    folded = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    pre = s.translate(_UNDECOMPOSABLE)
+    folded = (
+        unicodedata.normalize("NFKD", pre).encode("ascii", "ignore").decode("ascii")
+    )
     return folded.lower()
 
 

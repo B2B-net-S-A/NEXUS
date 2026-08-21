@@ -187,23 +187,56 @@ async def test_jobs_status_filter_accepts_multiple_values(
 async def test_delivery_lead_list_shows_jobs_outside_relationship_scope(
     app_client: AsyncClient,
 ):
-    """The /jobs register is organization-wide, while job details stay scoped."""
+    """Rejestr /jobs jest ogólnoorganizacyjny, a detal rekrutacji zostaje zakresowy.
+
+    UWAGA — to jest UTRWALONY STAN FAKTYCZNY, nie wzorzec do kopiowania.
+    Dla Delivery Leada bez ani jednego przypisania (`DeliveryLeadClientAssignment`
+    → `ClientTacAssignment`) `delivery_lead_job_pairs` zwraca PUSTY zbiór par,
+    a `assert_delivery_lead_job_visible` odrzuca wtedy KAŻDĄ rekrutację — nie
+    tylko tę „spoza zakresu". Rejestr pokazuje komplet, ale żaden wiersz się nie
+    otwiera: „Brak rekrutacji" zamieniło się w listę martwych linków. Dlatego
+    test nie poprzestaje na jednym 403, tylko mierzy, że żaden zwrócony wiersz
+    nie jest otwieralny — inaczej nazwa testu („outside scope") sugerowałaby
+    wyjątek tam, gdzie jest reguła.
+
+    Front obsługuje to poprawnie (403 → QueryStateNotice „Nie masz uprawnień do
+    tej rekrutacji"), więc to defekt uprawnień, a nie awaria udająca pustkę.
+
+    Domknięcie wymaga decyzji poza tym plikiem: albo uzupełnić przypisania
+    Delivery Leadom (naprawa danych, bez zmiany kodu), albo świadomie otworzyć
+    ODCZYT detalu z tą samą redakcją pól co lista
+    (`_strip_champion_payload_from_list_row`), zostawiając mutacje i pipeline na
+    `_ensure_delivery_lead_job_visible`.
+    """
+
     delivery_lead_id = await _seed_user(role="delivery_lead")
     outside_client_id = await _seed_client()
+    other_client_id = await _seed_client()
     outside_job_id = await _seed_job(client_id=outside_client_id)
+    other_job_id = await _seed_job(client_id=other_client_id)
     headers = await _auth_headers_for_user(app_client, delivery_lead_id)
     try:
         listing = await app_client.get(
-            f"/api/jobs?client_id={outside_client_id}&page_size=100",
+            "/api/jobs"
+            f"?client_id={outside_client_id}&client_id={other_client_id}"
+            "&page_size=100",
             headers=headers,
         )
         assert listing.status_code == 200, listing.text
-        assert outside_job_id in {item["id"] for item in listing.json()["items"]}
+        listed_ids = [item["id"] for item in listing.json()["items"]]
+        assert {outside_job_id, other_job_id} <= set(listed_ids)
 
-        detail = await app_client.get(f"/api/jobs/{outside_job_id}", headers=headers)
-        assert detail.status_code == 403
+        # Każdy widoczny wiersz, nie „ten jeden spoza zakresu".
+        for job_id in listed_ids:
+            detail = await app_client.get(f"/api/jobs/{job_id}", headers=headers)
+            assert detail.status_code == 403, (
+                f"job {job_id}: detal przestał odmawiać — jeśli to zmiana "
+                "świadoma, ten test opisuje już nieistniejący stan"
+            )
     finally:
-        await _cleanup(job_ids=[outside_job_id], user_ids=[delivery_lead_id])
+        await _cleanup(
+            job_ids=[outside_job_id, other_job_id], user_ids=[delivery_lead_id]
+        )
 
 
 @pytest.mark.asyncio
@@ -226,9 +259,7 @@ async def test_jobs_status_single_value_back_compat(
 
 
 @pytest.mark.asyncio
-async def test_jobs_open_only_filter(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_jobs_open_only_filter(app_client: AsyncClient, app_auth_headers: dict):
     """`open_only=true` ('Otwarte') returns non-closed jobs only (draft +
     published), excluding closed ones."""
     pub = await _seed_job(status="published")

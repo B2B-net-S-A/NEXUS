@@ -17,7 +17,7 @@ QUERY (ten sam trap co w ``cv_match_preview``/``candidate_activity_summary``).
 
 import logging
 from datetime import date, timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
@@ -35,6 +35,9 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
+
+if TYPE_CHECKING:  # tylko dla typów — import w runtime jest lokalny (koszt ładowania)
+    from app.services.ai_quota import AIQuotaExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -157,22 +160,44 @@ async def _fetch_user_kpi(
     )
 
 
-async def _ensure_ai_master_enabled(db: AsyncSession) -> None:
-    """Główny wyłącznik AI musi zatrzymywać też MINDY.
+def _mindy_quota(db: AsyncSession, user_id: int):
+    """Kwota AI dla MINDY: obciąż, zadeklaruj i zatrzymaj, gdy wyczerpana.
 
-    MINDY nie ma własnego `AIFeatureKey` (a więc ani miesięcznego limitu, ani
-    wpisu w `ai_usage_log`), więc dotąd stała CAŁKOWICIE poza systemem kwot:
-    admin gasił AI w Ustawieniach → AI, a oba POST-y dalej wołały Claude'a.
-    Sam odczyt przełącznika nie wymaga nowego elementu enuma i domyka
-    najostrzejszą połowę luki — kill-switch znowu znaczy to, co obiecuje.
+    MINDY nie miała własnego `AIFeatureKey`, więc stała CAŁKOWICIE poza systemem
+    kwot: ani miesięcznego sufitu, ani jednego wiersza w `ai_usage_log`. Sam
+    główny wyłącznik (poprzednia bramka) domykał najostrzejszą połowę luki, ale
+    zaseedowanie limitów dla wszystkich pozostałych kluczy i tak nie tknęłoby tej
+    powierzchni — nie było czego ograniczyć.
+
+    `ai_feature(...)`, nie gołe `check_and_increment`: oba handlery wołają
+    Claude'a przez `claude_client.call_claude`, a ten pyta na granicy dostawcy,
+    czy wywołanie zostało ZADEKLAROWANE. Samo obciążenie licznika kontekstu nie
+    ustawia, więc poprawnie naliczona MINDY dalej logowałaby się jako „UNGATED"
+    i zaśmiecała detektor, na którym stoi `AI_QUOTA_STRICT`. Kontekst propaguje
+    się do `run_in_threadpool` (anyio kopiuje contextvars).
+
+    JEDEN kubełek na `/commentary` i `/chat`: to ten sam strumień wydatku (front
+    odpala komentarz bezwarunkowo przy montowaniu strony), a dwa sufity dla
+    jednej funkcji znaczyłyby dwa miejsca do pilnowania i żadnej odpowiedzi na
+    pytanie „ile kosztuje MINDY".
     """
-    from app.services.ai_quota import get_master_enabled
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import ai_feature
 
-    if not await get_master_enabled(db):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Funkcje AI są wyłączone globalnie",
-        )
+    return ai_feature(db, AIFeatureKey.mindy_chat, user_id=user_id)
+
+
+def _quota_exceeded_response(exc: "AIQuotaExceeded") -> HTTPException:
+    """`AIQuotaExceeded` → 503 z powodem odmowy (kalka generatora ogłoszeń)."""
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "feature": exc.feature.value,
+            "reason": exc.reason,
+            "used": exc.used,
+            "limit": exc.limit,
+        },
+    )
 
 
 @router.post("/commentary", response_model=MindyResponse)
@@ -183,50 +208,72 @@ async def commentary(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> MindyResponse:
-    """Jednorazowy insight MINDY o KPI usera."""
-    await _ensure_ai_master_enabled(db)
+    """Jednorazowy insight MINDY o KPI usera.
+
+    Podlega kwocie `mindy_chat` z Ustawień → AI: 503, gdy główny wyłącznik jest
+    zgaszony, funkcja wyłączona albo miesięczny sufit wyczerpany.
+    """
+    # Brak klucza dostawcy sprawdzamy PRZED obciążeniem kwoty — nic tu nie
+    # wyleci na zewnątrz, więc naliczenie wywołania byłoby kłamstwem w raporcie
+    # zużycia (i po cichu zjadałoby sufit w środowisku bez klucza).
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ANTHROPIC_API_KEY not configured",
         )
 
-    days_map = {"week": 7, "month": 30, "quarter": 90}
-    days = days_map[payload.period]
-    plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
-        db, current_user.id, days
-    )
-    context = _build_user_context(
-        plc, intv, rec, ver, leads, sent, won, lost, payload.period
-    )
-
-    user_prompt = (
-        f"Dla użytkownika {current_user.name} ({current_user.email}):\n\n"
-        f"{context}\n\n"
-        "Daj zwięzły (3-5 zdań) komentarz o jego performance i 1 konkretną sugestię."
-    )
-
-    from app.services.claude_client import call_claude  # local: avoid load-time cost
+    from app.services.ai_quota import AIQuotaExceeded
 
     try:
-        # Shared resilient helper (explicit timeout + transient-retry backoff),
-        # offloaded off the single-worker event loop.
-        message = await run_in_threadpool(
-            call_claude,
-            model=settings.CLAUDE_MODEL_CV,
-            max_tokens=400,
-            system=MINDY_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        content = "".join(
-            block.text for block in message.content if hasattr(block, "text")
-        )
-        return MindyResponse(
-            content=content, model=settings.CLAUDE_MODEL_CV, context_summary=context
-        )
-    except Exception as e:
-        logger.exception("MINDY commentary failed")
-        raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
+        async with _mindy_quota(db, current_user.id):
+            # Licznik commitujemy PRZED wywołaniem dostawcy: naliczamy decyzję o
+            # dopuszczeniu, nie sukces round-tripu. Bez tego 502 od Claude'a
+            # zwracałby wywołanie za darmo, mimo że tokeny zostały wydane.
+            await db.commit()
+
+            days_map = {"week": 7, "month": 30, "quarter": 90}
+            days = days_map[payload.period]
+            plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
+                db, current_user.id, days
+            )
+            context = _build_user_context(
+                plc, intv, rec, ver, leads, sent, won, lost, payload.period
+            )
+
+            user_prompt = (
+                f"Dla użytkownika {current_user.name} ({current_user.email}):\n\n"
+                f"{context}\n\n"
+                "Daj zwięzły (3-5 zdań) komentarz o jego performance "
+                "i 1 konkretną sugestię."
+            )
+
+            # local: avoid load-time cost
+            from app.services.claude_client import call_claude
+
+            try:
+                # Shared resilient helper (explicit timeout + transient-retry
+                # backoff), offloaded off the single-worker event loop.
+                message = await run_in_threadpool(
+                    call_claude,
+                    model=settings.CLAUDE_MODEL_CV,
+                    max_tokens=400,
+                    system=MINDY_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                content = "".join(
+                    block.text for block in message.content if hasattr(block, "text")
+                )
+                return MindyResponse(
+                    content=content,
+                    model=settings.CLAUDE_MODEL_CV,
+                    context_summary=context,
+                )
+            except Exception as e:
+                logger.exception("MINDY commentary failed")
+                raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise _quota_exceeded_response(exc) from exc
 
 
 @router.post("/chat", response_model=MindyResponse)
@@ -237,43 +284,60 @@ async def chat(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> MindyResponse:
-    """Interactive chat z MINDY. History trzymana po stronie frontendu."""
-    await _ensure_ai_master_enabled(db)
+    """Interactive chat z MINDY. History trzymana po stronie frontendu.
+
+    Ten sam kubełek kwoty co `/commentary` (`mindy_chat`) — jedna funkcja, jeden
+    sufit, jedna odpowiedź na pytanie „ile kosztuje MINDY".
+    """
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="ANTHROPIC_API_KEY not configured",
         )
 
-    # Dodaj kontekst KPI usera do system prompt
-    plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
-        db, current_user.id, 30
-    )
-    context = _build_user_context(plc, intv, rec, ver, leads, sent, won, lost, "month")
-    full_system = (
-        f"{MINDY_SYSTEM_PROMPT}\n\n"
-        f"Aktualne KPI rozmówcy ({current_user.name}):\n{context}"
-    )
-
-    # Convert messages format
-    api_messages = [{"role": m.role, "content": m.content} for m in payload.messages]
-
-    from app.services.claude_client import call_claude  # local: avoid load-time cost
+    from app.services.ai_quota import AIQuotaExceeded
 
     try:
-        # Shared resilient helper (explicit timeout + transient-retry backoff),
-        # offloaded off the single-worker event loop.
-        message = await run_in_threadpool(
-            call_claude,
-            model=settings.CLAUDE_MODEL_CV,
-            max_tokens=800,
-            system=full_system,
-            messages=api_messages,
-        )
-        content = "".join(
-            block.text for block in message.content if hasattr(block, "text")
-        )
-        return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV)
-    except Exception as e:
-        logger.exception("MINDY chat failed")
-        raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
+        async with _mindy_quota(db, current_user.id):
+            await db.commit()  # patrz `/commentary`: naliczamy dopuszczenie
+
+            # Dodaj kontekst KPI usera do system prompt
+            plc, intv, rec, ver, leads, sent, won, lost = await _fetch_user_kpi(
+                db, current_user.id, 30
+            )
+            context = _build_user_context(
+                plc, intv, rec, ver, leads, sent, won, lost, "month"
+            )
+            full_system = (
+                f"{MINDY_SYSTEM_PROMPT}\n\n"
+                f"Aktualne KPI rozmówcy ({current_user.name}):\n{context}"
+            )
+
+            # Convert messages format
+            api_messages = [
+                {"role": m.role, "content": m.content} for m in payload.messages
+            ]
+
+            # local: avoid load-time cost
+            from app.services.claude_client import call_claude
+
+            try:
+                # Shared resilient helper (explicit timeout + transient-retry
+                # backoff), offloaded off the single-worker event loop.
+                message = await run_in_threadpool(
+                    call_claude,
+                    model=settings.CLAUDE_MODEL_CV,
+                    max_tokens=800,
+                    system=full_system,
+                    messages=api_messages,
+                )
+                content = "".join(
+                    block.text for block in message.content if hasattr(block, "text")
+                )
+                return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV)
+            except Exception as e:
+                logger.exception("MINDY chat failed")
+                raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise _quota_exceeded_response(exc) from exc

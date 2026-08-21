@@ -44,7 +44,7 @@ def _alembic_heads() -> list[str]:
     return sorted(revisions - parents)
 
 
-def test_migration_is_the_single_head_after_0237():
+def test_migration_chains_onto_0237():
     tree = ast.parse(MIGRATION.read_text(encoding="utf-8"))
     values: dict[str, object] = {}
     for node in tree.body:
@@ -57,7 +57,36 @@ def test_migration_is_the_single_head_after_0237():
     assert values["revision"] == "0238_contract_order_workflows"
     assert values["down_revision"] == "0237_proposal_snapshot_hidden"
 
-    assert _alembic_heads() == ["0239_bik_contract_order_backfill"]
+
+def test_only_one_alembic_head():
+    """Liczba głów, NIE nazwa czubka.
+
+    Wcześniej stała tu równość z konkretną rewizją (`== ["0239_..."]`) — jedyne
+    takie miejsce w repo; trzy pozostałe strażniki jednogłowości
+    (`test_multi_consultant_orders_migration`, `test_order_lifecycle_migration`,
+    `test_analytics_release_gates`) liczą głowy. Przypięta nazwa pada przy
+    KAŻDEJ następnej migracji, niezależnie od tego, czy cokolwiek się
+    rozszczepiło, i kieruje diagnostykę na niewłaściwą migrację: czerwony test
+    „…_after_0237" w pliku o 0238, gdy zmiana dotyczy zupełnie innej rewizji.
+    Fakt „ile jest głów" jest wyliczalny — nie ma powodu zapisywać go literałem.
+    """
+
+    heads = _alembic_heads()
+    assert len(heads) == 1, f"łańcuch rozszczepiony, głowy: {heads}"
+
+    # Osierocona rewizja nigdy się nie wykona na produkcji, a sam licznik głów
+    # tego nie wykryje — 0238 ma nadal wisieć w łańcuchu.
+    referenced = {
+        node.value.value
+        for path in MIGRATION.parent.glob("*.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Assign)
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"revision", "down_revision"}
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    }
+    assert "0238_contract_order_workflows" in referenced
 
 
 def test_every_new_column_has_an_entrypoint_mirror():
@@ -85,6 +114,36 @@ def test_scheduled_status_is_widened_with_drop_then_add_in_both_paths():
     assert "ADD CONSTRAINT ck_client_order_groups_status" in entrypoint
     assert "'scheduled'" in migration
     assert "'scheduled'" in ENTRYPOINT.read_text(encoding="utf-8")
+
+
+def test_0239_widens_the_status_check_before_writing_scheduled():
+    """Blok 0239 nie może polegać na kolejności list w `backfill()`.
+
+    `_DATA_STATEMENTS` biegną PRZED `_CONSTRAINT_STATEMENTS`, więc zapis
+    `status = 'scheduled'` trafia na wąski CHECK z 0233 wszędzie tam, gdzie
+    poszerzenie z 0238 jeszcze nie weszło (świeża baza, osierocony alembic).
+    Wyjątek wywraca CAŁY blok DO — razem z aktywacją kontraktu i markerem —
+    a w logu zostaje jedna linijka „backfill data skip"; `/api/health` jest
+    wtedy zielony, więc regresja jest CICHA i to jest jedyne miejsce, w którym
+    da się ją złapać przed produkcją.
+    """
+
+    entrypoint = ENTRYPOINT.read_text(encoding="utf-8")
+    block = entrypoint.split("DO $contract_order_backfill$", 1)[1].split(
+        "$contract_order_backfill$;", 1
+    )[0]
+
+    widen = block.find("ADD CONSTRAINT ck_client_order_groups_status")
+    write = block.find("SET status = 'scheduled'")
+
+    assert widen != -1, "0239 zapisuje 'scheduled' bez lustra poszerzonego CHECK-a"
+    assert write != -1, "blok 0239 przestał ustawiać status grupy na 'scheduled'"
+    assert widen < write, "poszerzenie CHECK-a musi poprzedzać zapis 'scheduled'"
+
+    # Poszerzenie ma być idempotentne i faktycznie dopuszczać nową wartość:
+    # sam ADD bez DROP-a wywróciłby się na istniejącym więzie o tej nazwie.
+    assert "DROP CONSTRAINT IF EXISTS ck_client_order_groups_status" in block
+    assert "'scheduled'" in block[widen:write]
 
 
 def test_pdf_link_is_unique_and_foreign_keyed_in_both_paths():

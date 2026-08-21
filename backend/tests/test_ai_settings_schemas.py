@@ -51,6 +51,11 @@ class TestFeatureKeyEnum:
             # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync).
             "notes_extraction",
             "champion_profile_parse",
+            # 0240: dwie powierzchnie, które dotąd nie miały czym być
+            # ograniczone — generator CV B2B (najdroższe wywołanie Claude'a
+            # w produkcie) i MINDY (oba endpointy LLM w jednym kubełku).
+            "cv_generator",
+            "mindy_chat",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

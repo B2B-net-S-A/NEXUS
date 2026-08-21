@@ -60,6 +60,17 @@ class AIFeatureKey(str, enum.Enum):
     # osobny kubełek z tego samego powodu co cv_backfill.
     notes_extraction = "notes_extraction"
     champion_profile_parse = "champion_profile_parse"
+    # Generowanie CV B2B — NAJDROŻSZE wywołanie Claude'a w produkcie (16 384
+    # tokeny outputu, łańcuch Sonnet → Opus, do 3 prób na model), a do 0240
+    # stało całkowicie poza systemem kwot: bez klucza nie było ani miesięcznego
+    # sufitu, ani jednego wiersza w `ai_usage_log`, więc raport zużycia w
+    # Ustawieniach → AI zaniżał realne wydatki dokładnie o tę powierzchnię.
+    cv_generator = "cv_generator"
+    # MINDY (DynaReporter): JEDEN kubełek na oba endpointy LLM — `/commentary`
+    # i `/chat`. Rozdzielenie ich dałoby dwa sufity do pilnowania dla jednej
+    # funkcji, a `/commentary` odpala się sam przy montowaniu strony, więc to
+    # ten sam strumień wydatku co czat.
+    mindy_chat = "mindy_chat"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -76,6 +87,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_backfill: "Masowe uzupełnianie pól z CV",
     AIFeatureKey.notes_extraction: "Fakty z notatek rekruterskich",
     AIFeatureKey.champion_profile_parse: "Odczyt profili Championa (Traffit)",
+    AIFeatureKey.cv_generator: "Generator CV B2B",
+    AIFeatureKey.mindy_chat: "MINDY — komentarz i czat (DynaReporter)",
 }
 
 
@@ -119,6 +132,16 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.champion_profile_parse: [
         "Treść dokumentu Profilu Championa (wymagania, stawka, kontekst projektu)",
+    ],
+    AIFeatureKey.cv_generator: [
+        "Treść CV kandydata (PDF/DOCX → tekst)",
+        "Profil Championa i wymagania rekrutacji",
+        "Notatki ze screeningu (tryb upload)",
+    ],
+    AIFeatureKey.mindy_chat: [
+        "Agregaty KPI rozmówcy (placementy, leady, oferty)",
+        "Imię i e-mail rozmówcy",
+        "Treść pytań zadanych MINDY",
     ],
     AIFeatureKey.cv_requirement_map: [
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",

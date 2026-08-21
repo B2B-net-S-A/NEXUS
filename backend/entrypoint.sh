@@ -162,6 +162,12 @@ _ENUM_STATEMENTS = [
     # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync)
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'notes_extraction'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'champion_profile_parse'",
+    # 0240: generator CV B2B (`cv_generator`) i MINDY (`mindy_chat`) — dwie
+    # powierzchnie Claude'a, które dotąd nie miały czym być ograniczone. Bez
+    # tych wartości seed niżej ORAZ każdy INSERT do ai_usage_log przy generacji
+    # CV / odpowiedzi MINDY lecą InvalidTextRepresentationError.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_generator'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'mindy_chat'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -3629,6 +3635,17 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_interactive_chat', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_interactive_chat')",
+    # 0240: seedy `cv_generator` i `mindy_chat`. Brak wiersza w ai_features nie
+    # blokuje wywołania (quota jest fail-open), ale czyni funkcję NIEWIDOCZNĄ
+    # w Ustawieniach → AI — czyli nie do ograniczenia przez administratora.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_generator', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_generator')",
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'mindy_chat', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'mindy_chat')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -3710,6 +3727,38 @@ _DATA_STATEMENTS = [
                       ' ', client.name, client.display_name, client.legal_name
                   )) LIKE '%biuro informacji kredytowej%';
            GET DIAGNOSTICS contract_rows = ROW_COUNT;
+
+           -- Lustro poszerzonego CHECK-a z 0238 MUSI stać TUTAJ, a nie tylko
+           -- w `_CONSTRAINT_STATEMENTS`: pętla w `backfill()` wykonuje
+           -- `_DATA_STATEMENTS` PRZED więzami, więc na deployu, na którym
+           -- poszerzenie jeszcze nie weszło (świeża baza — tabele powstają
+           -- dopiero w `Base.metadata.create_all` PO backfillu — albo
+           -- osierocony alembic, czyli dokładnie tryb awarii, pod który ten
+           -- safety-net powstał), UPDATE na 'scheduled' łamałby wąski CHECK
+           -- z 0233. Wyjątek wywraca CAŁY ten blok DO, razem z aktywacją
+           -- kontraktu i markerem, a jedynym śladem jest jedna linijka
+           -- „backfill data skip" w logu kontenera — `/api/health` zostaje
+           -- zielony. Że na prodzie nie ugryzło, wynika wyłącznie z tego, że
+           -- 0238 i 0239 wjechały dwoma osobnymi deployami.
+           --
+           -- Sprawdzamy DEFINICJĘ więzu, nie samą nazwę: wąski i szeroki
+           -- wariant nazywają się tak samo, więc test na obecność nazwy
+           -- przepuściłby stary CHECK i nic by nie naprawił.
+           IF NOT EXISTS (
+               SELECT 1
+               FROM pg_constraint
+               WHERE conrelid = 'client_order_groups'::regclass
+                 AND conname = 'ck_client_order_groups_status'
+                 AND pg_get_constraintdef(oid) LIKE '%scheduled%'
+           ) THEN
+               ALTER TABLE client_order_groups
+                   DROP CONSTRAINT IF EXISTS ck_client_order_groups_status;
+               ALTER TABLE client_order_groups
+                   ADD CONSTRAINT ck_client_order_groups_status
+                   CHECK (
+                       status IN ('active', 'scheduled', 'completed', 'exhausted')
+                   ) NOT VALID;
+           END IF;
 
            SELECT count(*), max(order_group.id)
              INTO target_group_count, target_group_id

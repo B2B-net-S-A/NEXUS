@@ -3548,7 +3548,7 @@
   },
   {
    "id": 301,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -3565,13 +3565,13 @@
    "evidence": "    if \"status\" not in updates:\n        coerced_status = _status_after_end_date_change(\n            contract.status, contract.end_date, date.today()\n        )",
    "fix_sketch": "Nie zdejmować pola (ticket jest słuszny — dropdown musi zapisywać), tylko przepuścić je przez maszynę stanów: w `update_contract`, gdy `\"status\" in updates`, wołaj `contract_lifecycle.assert_transition(contract.status, target)` przed setattr, a dla `target == active` deleguj do `activate_contract(db, contract, actor_id=...)`, dla `target == ended` — do tej samej ścieżki, którą robi `/terminate` (co najmniej sync `ClientOrder` + koherencja `end_date`). `void` i tak odrzuca już walidator schematu, ale przejście Z `void` trzeba zablokować jawnie.",
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. NAWRÓT klasy: P1-CONTRACT-01 — swobodny zapis `status` z pominięciem `contract_lifecycle` (usunięty wcześniej defekt; docstring `contract_lifecycle.py` opisuje go jako naprawiony)",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1225,
-   "note": ""
+   "note": "Zapis `status` w PATCH kontraktu przechodzi teraz przez maszynę stanów zamiast surowego setattr: nowa `_apply_contract_status_change` deleguje do `reopen_contract` (ended/ending → active), `lifecycle_activate_contract` (draft/ready_for_signature → active, czyli komplet pól + dowód podpisu), `revert_contract` (→ draft), `void_contract` (→ void), a dla `ended` przypina `end_date` na `business_today()` i woła sync zamówień. Sync `ClientOrder` wyniesiony z `/terminate` do `_sync_client_orders_to_contract_end` — jedna implementacja, dwóch wołających (`/terminate` dostaje z niej licznik do audytu). Przejście stanu wykonywane PO pętli setattr, żeby walidacja aktywacji widziała pola z tego samego żądania, a przypięta data końca nie została nadpisana przysłaną datą. Samoleczenie `_status_after_end_date_change` pomijane, gdy PATCH niósł status (inaczej „Zakończony\" na umowie bezterminowej kasowałb || Zweryfikowane samodzielnie, wbrew opisowi w backlogu: TA GAŁĄŹ NIE MA jeszcze PR-ów #1225-#1229 (`git merge-base --is-ancestor origin/main HEAD` → NIE; fork-point 61a217d9). `ContractUpdate` i `ContractCreate` nadal NIE mają pola `status` (schemas/contract.py:109 i :156 to komentarze „intentionally NOT accepted\"), więc dziś PATCH nie potrafi go przysłać i luka jest na tej gałęzi NIEOSIĄGALNA — jest żywa na `main`. Napisałem bramkę tak, żeby uzbroiła się sama w chwili scalenia (`\"status\" in updates` jest dziś zawsze fałszywe, więc zachowanie gałęzi bez zmian), a samą logikę przejść wystawiłem jako funkcję i przetestowałem jednostkowo — inaczej nie dałoby się jej dowieść przed mergem. Świadomi"
   },
   {
    "id": 302,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -3588,9 +3588,9 @@
    "evidence": "        prolongation_status: prolongation,\n        status: statusVal,\n      };",
    "fix_sketch": "Wysyłaj `status` tylko gdy operator go zmienił (`statusVal !== contract?.status`), albo — lepiej — zainicjalizuj `statusVal` bezpiecznie i nie pozwól odesłać wartości spoza `STATUS_OPTIONS`: gdy `contract.status` jest spoza listy, ukryj Select i pomiń klucz w payloadzie. Test regresyjny: PATCH z rejestru na kontrakcie w `ready_for_signature` ma zwrócić 200 i zostawić status bez zmian.",
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. ",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1225,
-   "note": ""
+   "note": "Dialog rejestru wysyła `status` wyłącznie wtedy, gdy operator go zmienił ORAZ nowa wartość jest jedną z czterech opcji rejestru. `statusVal` nie hydratuje się już wartością spoza `STATUS_OPTIONS` (nowy zbiór `REGISTER_STATUS_VALUES`), a dla kontraktu w takim statusie zamiast pustej listy rozwijanej renderuje się fakt („Oczekuje na podpis — tego statusu nie zmienia się z rejestru\"). W trybie tworzenia lista rozwijana ustąpiła miejsca informacji „Szkic — status ustawisz po utworzeniu kontraktu\", bo serwer i tak zakłada kontrakt jako szkic (patrz #301) — kontrolka obiecywałaby wybór, którego nie wykona. || Frontendowa część zgłoszenia JEST na tej gałęzi (`statusVal` na :135, `status: statusVal` w payloadzie na :206) i już dziś jest defektem, tyle że cichym: backend bez pola `status` ignoruje je (Pydantic `extra=ignore`), więc lista rozwijana statusu w rejestrze NIC NIE ROBI. Po merdżu #1225 ta sama linia zamienia się w 422 przy edycji numeru projektu. Naprawa działa w obu światach. Zamknięty też drugi skutek tej samej linii: samoleczenie „edycja samej daty końca na bezterminowo\" uruchamia się wyłącznie dla PATCH-a BEZ statusu, więc z rejestru było martwe. Nie dodałem testu FE: worktree nie ma `node_modules` (a `npm install` jest zabroniony), więc vitest/tsc nie mają jak się uruchomić i test by"
   },
   {
    "id": 303,
@@ -3613,11 +3613,11 @@
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Kod nie istnieje na tej gałęzi. || `_activate_complete_draft` nie występuje w `backend/app/api/client_orders.py` ani nigdzie w `app/` (grep = 0 trafień). Funkcja przyszła z PR #1225, którego ta gałąź nie zawiera. Nie da się poprawić czegoś, czego nie ma, a napisanie „na ślepo\" pod przyszły kształt kodu (jak przy #301) jest tu niemożliwe: naprawa to jeden warunek WEWNĄTRZ ciała tej funkcji. DO ZROBIENIA PRZY MERDŻU: w `update_order`, w miejscu `auto_activated = _activate_complete_draft(order)`, dodaj `if \"status\" not in payload.model_fields_set:` — jawna intencja operatora (udokumentowana w CLAUDE.md ścieżka `PATCH {\"status\":\"draft\"}` → `DELETE`) musi wygrywać z heurystyką kompletności."
   },
   {
    "id": 304,
-   "status": "open",
+   "status": "fixed",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3634,9 +3634,9 @@
    "evidence": "      queryClient.invalidateQueries({ queryKey: [\"client-profile\", clientId] });\n      queryClient.invalidateQueries({ queryKey: [\"clients\"] });",
    "fix_sketch": "Zamień na `[\"clients-directory\"]` (i dopisz ten literał do listy w `query-key-producers.test.ts`, żeby kolejna zmiana nazwy klucza wywaliła test zamiast cicho przestać odświeżać).",
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Temat 10 backlogu — „mutacje unieważniają klucze cache, których nikt nie produkuje\"",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1225,
-   "note": ""
+   "note": "`onSuccess` dialogu unieważnia teraz `[\"clients-directory\"]` — klucz, pod którym faktycznie stoi kwerenda katalogu klientów (`ClientsListV2.tsx:283`). Komentarz przy linii tłumaczy, dlaczego `[\"clients\"]` jest cichym no-opem: react-query dopasowuje prefiks po RÓWNOŚCI elementów tablicy, więc `[\"clients\"]` nie trafia w `[\"clients-directory\"]`. || Martwej linii `queryKey: [\"clients\"]` na tej gałęzi jeszcze nie ma (dialog unieważniał tylko `[\"client-register\", clientId]`), więc nie było czego kasować — dołożyłem POPRAWNY klucz, bo objaw (status kontraktu zmienia liczniki katalogu, a katalog tego nie widzi) jest tu realny niezależnie od #1225. UWAGA PRZY MERDŻU: codex dokłada w tym samym hunku `[\"client-profile\", clientId]` (poprawne, zostaw) i `[\"clients\"]` (martwe, USUŃ — moja linia je zastępuje). `clients-directory` jest już na liście strażnika `lib/__tests__/query-key-producers.test.ts:70`, więc zmiana nazwy klucza wywali test zamiast cicho przestać odświeżać."
   },
   {
    "id": 305,
@@ -3659,7 +3659,7 @@
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Temat 13 backlogu — „dopasowanie po ID klienta, nie po podciągu nazwy. To samo pole nazwy jest nadpisywane przez import z Traffita\"",
    "commit": null,
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Kod nie istnieje na tej gałęzi. || `enforce_nordea_order_number` nie występuje w `client_orders.py` ani nigdzie w `app/` (grep = 0 trafień) — przyszedł z PR #1227. Diagnoza w backlogu jest trafna i zgodna z resztą modułu (`MULTI_CONSULTANT_ORDER_CLIENT_IDS`, `COST_ORDER_CLIENT_IDS`, oraz pamięć [ezdrowie-client-id-serial-collision]): `Client.name` nadpisuje import z Traffita, a klient bywa RODZINĄ rekordów. DO ZROBIENIA PRZY MERDŻU: `NORDEA_ORDER_NUMBER_CLIENT_IDS` (CSV w Coolify) + predykat `is_nordea_order_client(client_id)` wzorowany na `is_cost_order_client`, fail-closed przy pustej liście."
   },
   {
    "id": 306,
@@ -3682,7 +3682,7 @@
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Temat 0 backlogu — czytanie cache'owanych kolumn `contracts.rate_*` zamiast stawek efektywnych z harmonogramów",
    "commit": null,
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Kod nie istnieje na tej gałęzi; przyczyna źródłowa (zapis do cache'owanej kolumny) zamknięta w #326. || `_order_has_required_activation_data` nie występuje w `client_orders.py` (grep = 0 trafień) — przyszło z PR #1225. DO ZROBIENIA PRZY MERDŻU: zamień `order.contract.rate_candidate is not None` na `effective_rate_fields(order.contract, business_today())[\"rate_candidate\"] is not None`. Eager-load JEST JUŻ ZAŁATWIONY moją zmianą w #326 — zapytanie `update_order` dociąga teraz `selectinload(ClientOrder.contract).selectinload(Contract.candidate_rate_schedule)`, więc bramka nie wywali `MissingGreenlet`."
   },
   {
    "id": 307,
@@ -3705,7 +3705,7 @@
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Dwa wywołania API pod jedną mutacją zapisu zamówienia — awaria uploadu PDF-a udaje awarię zapisu, a ponowienie zakłada duplikat. Kodu nie ma na tej gałęzi (feature wgrywania pliku wjechał z PR #1225 na main), więc łatki nie da się nałożyć bez wciągnięcia całego feature'u. || DOWÓD BRAKU KODU: `git grep -c replaceFile HEAD -- frontend/` → 0 plików; ta sama komenda na `origin/main` → 3 pliki (MultiConsultantOrdersTab.tsx, jego test, lib/api/orderGroups.ts:297). Lokalny MultiConsultantOrdersTab.tsx ma 503 linie, wersja z main 590. Lokalny `saveGroup.mutationFn` przyjmuje `values: OrderGroupInput` i kończy się na `return (await orderGroupsApi.create(clientId, values)).data` (linia 134) — nie ma "
   },
   {
    "id": 308,
@@ -3726,9 +3726,9 @@
    "evidence": "            previous.status = GROUP_STATUS_COMPLETED\n            previous.closure_date = history_boundary\n            previous.closure_reason = (\n                f\"Automatycznie zastąpione zamówieniem {current.order_number}\"\n            )",
    "fix_sketch": "Dopisz `record_event(db, group_id=previous.id, event_type=EVENT_ORDER_CLOSED, ...)` (typ jest już w CHECK-u `ck_client_order_group_events_type`) i dociągnij `previous.end_date`, jak robi to `close_order_group`. `user_id=None` jest tu poprawne — to przejście systemowe.",
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. ",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Ten sam brakujący plik (`order_group_lifecycle.py`). Automatyczne domknięcie poprzednika nie zapisuje `record_event` ani nie dociąga `previous.end_date` — do naprawy po scaleniu. || Zweryfikowałem finding na wersji z maina (`git show origin/main:./app/services/order_group_lifecycle.py`) — jest trafny. Blok domykania poprzednika (linie 113-120) ustawia `status`, `closure_date`, `closure_reason`, `closed_at` i NIE robi trzech rzeczy, które robi ręczna ścieżka `close_order_group` (client_order_groups.py:1590-1624): nie zapisuje zdarzenia, nie stempluje `closed_by_user_id` i nie dociąga `group.end_date`.\n\nDOKŁADNA TREŚĆ DO ZASTOSOWANIA PO SCALENIU (`backend/app/services/order_group_lifecycle.py`"
   },
   {
    "id": 309,
@@ -3751,7 +3751,7 @@
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE kod codexa jest już w drzewie. Poprzednie ustalenia agenta: BLOKADA: fix jest niezapisywalny na tej gałęzi, bo stała, o którą chodzi, nie istnieje. `grep -c '^GROUP_STATUS_[A-Z]* = ' backend/app/models/client_order_group.py` = 3 (active/completed/exhausted), `grep -c scheduled` w tym pliku = 0. Cała przesłanka finding-u („po dołożeniu `scheduled`\") to świat po PR #1225. Lokalny `reopen_order_group` (client_order_groups.py:1188) jest wersją sprzed — jego dwie bramki są dziś WYCZERPUJĄCE i poprawne. Import nieistniejącego GROUP_STATUS_SCHEDULED wywaliłby aplikację na starcie.\n\nPATCH po mergu — w reopen_order_group, między bramkę ACTIVE a EXHAUSTED:\n```\n    if group.status == GROUP_STATUS_SCHEDULED:\n        raise HTTPException(\n            409,\n            detail=(\n                \"Zamówienie jeszcze nie ruszyło — nie ma czego przywracać. \"\n          "
   },
   {
    "id": 310,
@@ -3774,7 +3774,7 @@
    "verifier_note": "Źródło: PR #1225 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Temat 5 backlogu — 113 wywołań `date.today()` na zegarze kontenera zamiast doby warszawskiej",
    "commit": null,
    "pr": 1225,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Ten sam brakujący plik co #329 (`order_group_lifecycle.py:50`), plus druga połowa w `client_order_groups.py:294` — obie poza tą gałęzią i poza moją listą plików. || Duplikat mechaniczny #329 w backlogu (oba wskazują `order_group_lifecycle.py:50`, `boundary_day = today or date.today()`), rozszerzony o `_initial_group_status`. Pełną, gotową do wklejenia treść — import `business_today`, podmiana w `materialize_scheduled_order_groups`, trzy wystąpienia w `dl_portal_expiry_scanner.py` i `client_order_groups.py:294` — podałem w uzasadnieniu #329, żeby nie rozjechały się dwie wersje tej samej łatki.\n\nJedna rzecz warta odnotowania ponad #329: `app/core/scheduling.business_today()` JUŻ ISTNIEJE na te"
   },
   {
    "id": 311,
@@ -3797,7 +3797,7 @@
    "verifier_note": "Źródło: PR #1226 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1226,
-   "note": ""
+   "note": "PO REBASIE kod codexa jest już w drzewie. Poprzednie ustalenia agenta: BLOKADA: backend/alembic/versions/0239_bik_contract_order_backfill.py nie istnieje w tym worktree (git cat-file: BRAK lokalnie, JEST na origin/main). Gałąź jest 16 commitów za main i `git merge-base --is-ancestor origin/main HEAD` = NIE. Nie mogę utworzyć tego pliku — to nie byłaby edycja mojego pliku, tylko zaimportowanie całego PR #1226, co skolidowałoby z właściwym mergem.\n\nPOTWIERDZIŁEM PRZESŁANKĘ w kodzie, który JEST lokalnie: app/services/contract_service.py:21 ACTIVATION_REQUIRED_FIELDS = (start_date, end_date, rate_candidate, rate_client, contract_type, work_mode); contract_lifecycle.py:203 odrzuca aktywację przy brakach, a linia 228 dokłada wiersz 'contract_activated'. Migracja nie robi ani jednego, ani drugiego. Activity.created_at/updated_at mają server_default=func.now() (model"
   },
   {
    "id": 312,
@@ -3820,7 +3820,7 @@
    "verifier_note": "Źródło: PR #1226 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1226,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Marker jednorazowy w 0239 zapisuje się także przy zerowym dopasowaniu grupy — fail-closed łapie tylko nadmiar; plik nieobecny na gałęzi, patch gotowy. || BLOKADA: ten sam nieobecny plik co #311 (0239_bik_contract_order_backfill.py — lokalnie BRAK, na origin/main JEST).\n\nDIAGNOZA POTWIERDZONA z treści origin/main: bramka to wyłącznie `IF target_group_count > 1 THEN RAISE`. Blok `IF target_group_count = 1` jest pomijany przy zerze, a `INSERT INTO app_settings` stoi POZA obydwoma IF-ami, czyli wykonuje się bezwarunkowo. Zapytanie ma sześć koniunkcji, w tym `predecessor_group_id IS NOT NULL` — a docstring tej samej migracji mówi, że grupa powstała starą ścieżką, gdzie powiązanie z poprzednikiem "
   },
   {
    "id": 313,
@@ -3843,7 +3843,7 @@
    "verifier_note": "Źródło: PR #1226 (codex), przegląd po mergu 21.08. NAWRÓT klasy: ADD CONSTRAINT bez poprzedzającego DROP w entrypoint.sh / migracja bez działającego lustra w entrypoint.sh",
    "commit": null,
    "pr": 1226,
-   "note": ""
+   "note": "PO REBASIE kod codexa jest już w drzewie. Poprzednie ustalenia agenta: DOWÓD BRAKU KODU: `grep -n \"scheduled\" backend/entrypoint.sh` na HEAD → 2 trafienia, oba niezwiązane (`rejection_email_scheduled` w linii 515, `meeting_scheduled_at` w linii 1076). Marker `0239_bik_contract_order_backfill` → 0 trafień na HEAD, obecny w main w linii 3736 (`SET status = 'scheduled'`). Lustro więzu na HEAD jest w liniach 4490-4495 i ma WĄSKĄ postać `CHECK (status IN ('active', 'completed', 'exhausted')) NOT VALID` (mirror 0233); na main ta sama para stoi w liniach 4632-4637 już z `'scheduled'`. Alembic: `backend/alembic/versions/` na HEAD ma 266 rewizji z czubkiem `0237_proposal_snapshot_hidden`, plików `0238*`/`0239*` → 0 (na main → 2). Dołożenie tu DDL z `'scheduled'` opisywałoby stan schematu, którego ta gałąź nie zna (modele nie mają tego statusu), czyli kłamałoby w lustr"
   },
   {
    "id": 314,
@@ -3866,7 +3866,7 @@
    "verifier_note": "Źródło: PR #1226 (codex), przegląd po mergu 21.08. NAWRÓT klasy: lista skopiowana do kolejnego miejsca zamiast wyliczona",
    "commit": null,
    "pr": 1226,
-   "note": ""
+   "note": "PO REBASIE kod codexa jest już w drzewie. Poprzednie ustalenia agenta: DOWÓD BRAKU PLIKU: `git ls-tree --name-only HEAD backend/tests/ | grep -c contract_order_workflows` → 0; ta sama komenda na `origin/main` → 1. `ls backend/tests/ | grep -E 'migration|order'` na HEAD listuje m.in. `test_multi_consultant_orders_migration.py` i `test_order_lifecycle_migration.py`, ale NIE `test_contract_order_workflows_migration.py`. Utworzenie go tutaj od zera dałoby konflikt add/add przy merge'u main, a treść i tak testowałaby migrację 0238, której na tej gałęzi nie ma (czubek to `0237_proposal_snapshot_hidden`).\n\nPOTWIERDZENIE STANU NA MAIN: `git show origin/main:backend/tests/test_contract_order_workflows_migration.py` — linia 60 to `assert _alembic_heads() == [\"0239_bik_contract_order_backfill\"]`, w funkcji nazwanej `test_migration_is_the_single_head_after_0237`, w pliku"
   },
   {
    "id": 315,
@@ -3889,11 +3889,11 @@
    "verifier_note": "Źródło: PR #1226 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1226,
-   "note": ""
+   "note": "PO REBASIE kod codexa jest już w drzewie. Poprzednie ustalenia agenta: DLACZEGO BLOCKED — dwie niezależne przeszkody:\n\n(1) PLIKU NIE MA W DRZEWIE. `backend/alembic/versions/` na tej gałęzi kończy się na `0237_proposal_snapshot_hidden.py` (266 plików, 0 dopasowań do `023[89]*`). `git merge-base --is-ancestor 559293d7 HEAD` → NIE. 0238 przyszło z PR #1225 (5fda719a), 0239 z #1226 (559293d7) — oba są na `origin/main` (HEAD fb1a8c32), o 16 commitów przed HEAD tej gałęzi. Nie mogę zmergować maina (reguła 1: zero mutujących poleceń git), a odtworzenie 0238 w tym drzewie byłoby duplikatem kodu codeksa i konfliktem przy scalaniu.\n\n(2) NAWET PO MERGU EDYCJA 0238 NIC NIE DAJE. 0238 jest już wykonane na produkcji (marker `0238_bik_contract_status_correction` w `app_settings`), a alembic nie odtwarza zastosowanych rewizji. Korekta danych dla rekordu zapisanego w NFD musi"
   },
   {
    "id": 316,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -3910,9 +3910,9 @@
    "evidence": "cost_rate=by_id[order_id][0].rate_candidate,",
    "fix_sketch": "W `list_contractors_with_orders` (linia 565) wyliczaj `rate_candidate` z rezolwera — `effective_rate_fields(c, date.today())[\"rate_candidate\"]` albo `c.effective_candidate_rate(date.today())` — i upewnij się, że zapytanie ma `*RATE_SCHEDULE_LOADS` w `.options(...)`, inaczej dostaniesz `MissingGreenlet` zamiast wartości. Wtedy eksport naprawia się bez zmian, bo czyta to samo pole. Do testu eksportu dołóż kontrakt z krokiem harmonogramu wchodzącym w życie po dacie ostatniego zapisu i asertuj, że w kolumnie C jest stawka z kroku, a nie z kolumny.",
    "verifier_note": "Źródło: PR #1227 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Pieniądze liczone ze stalej kolumny (`contracts.rate_*` zamiast `effective_rate_fields`) — temat 0 audytu, findingi #27/#64",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1227,
-   "note": ""
+   "note": "Naprawione u ŹRÓDŁA: `list_contractors_with_orders` wylicza `rate_candidate` z `effective_rate_fields(c, today)`, a nie z kolumny `c.rate_candidate` (patrz #327). Eksport XLSX reużywa tej samej funkcji i tego samego pola `ContractWithOrdersRead.rate_candidate`, więc po scaleniu `cost_rate=by_id[order_id][0].rate_candidate` czyta już stawkę z harmonogramu — bez żadnej zmiany w kodzie eksportu. || Sam `export_client_orders` nie istnieje na tej gałęzi (grep = 0), ale fix_sketch wskazuje dokładnie linię, która TU JEST (dawne :565, `rate_candidate=c.rate_candidate`) — i to ją naprawiłem. Test dowodzi, że dla umowy z krokiem harmonogramu sprzed 200 dni odpowiedź niesie 12000 (krok), a nie 10000 (kolumna cache). Do rozważenia przy merdżu: `tests/test_client_order_excel_export_api.py` asertuje `C2 == 123.456` na umowie BEZ harmonogramu — ten przypadek dalej przechodzi (resolver schodzi wtedy do kolumny); warto dołożyć tam drugi przypadek z krokiem wchodzącym w życie po ostatnim zapisie umowy."
   },
   {
    "id": 317,
@@ -3935,11 +3935,11 @@
    "verifier_note": "Źródło: PR #1227 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1227,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Kolumna „Liczba MD / Kwota zamówienia\" miesza granulację w jednym arkuszu — kwota grupy powtórzona w każdym wierszu konsultanta; kod eksportu nieobecny na gałęzi. || BLOKADA: endpoint eksportu (client_order_groups.py ~948 na origin/main) nie istnieje w lokalnej wersji pliku — lokalny client_order_groups.py ma 1731 linii i nie zawiera ani `OrderExportRow`, ani `build_orders_workbook`. backend/app/services/order_excel_export.py w ogóle nie istnieje lokalnie (BRAK).\n\nDIAGNOZA POTWIERDZONA: `allocation=(group.budget_amount if group.is_cost_based else line.md_total)` — per grupa vs per linia — obok `consumption`, które dla trybu kosztowego jest `line.invoiced_total`, czyli ZAWSZE per linia. Nagłó"
   },
   {
    "id": 318,
-   "status": "open",
+   "status": "fixed",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3956,9 +3956,9 @@
    "evidence": "? \"Brak kontraktorów u tego klienta. Dodaj pierwszego kontraktora i zamówienie.\"",
    "fix_sketch": "W obu tabach policz `hasActiveFilters` z tej samej funkcji, której używa `OrderListControls.activeFilterCount`, i dodaj trzecią gałąź: „Brak wyników dla aktywnych filtrów\" + przycisk „Wyczyść filtry\". Warunek `pill === \"all\" && !search` przestaje wtedy być równoznaczny z „klient nie ma danych\".",
    "verifier_note": "Źródło: PR #1227 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Awaria (tu: filtr) renderuje się jako pustka — temat 3 audytu",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1227,
-   "note": ""
+   "note": "Pusty stan w OrdersAndContractsTab.tsx twierdził „Brak kontraktorów u tego klienta. Dodaj pierwszego…” na podstawie warunku `!searching && filter === \"all\"`, czyli przez WYLICZANIE zestawu filtrów. Zamienione na warunek liczony ze ŹRÓDŁA: `contractorCount = data?.contractors.length ?? 0`. Trzy gałęzie: (a) `contractorCount === 0` → dotychczasowe „Dodaj pierwszego”; (b) dane są, ale zawężone → „Brak wyników dla aktywnych filtrów.” / „Brak zamówień pasujących do wyszukiwania.” + zdanie „Ten klient ma N kontraktorów w rejestrze — ukryły ich aktywne filtry.” (countPl, trzy formy PL) + przycisk „Wyczyść filtry” resetujący pigułkę i wyszukiwarkę. || UWAGA — rozbieżność z treścią zgłoszenia: ten worktree NIE zawiera codexowego #1227. `git merge-base --is-ancestor origin/main HEAD` → main NIE jest przodkiem HEAD; lokalny plik nie ma `listFilters`, `OrderListControls` ani `filterAndSortContractors` (istnieją tylko w `origin/main`), a `frontend/src/lib/order-list-filters.ts` w ogóle nie istnieje. Świadomie NIE odtwarzałem fix_sketchu opartego na `hasActiveFilters` liczonym z `OrderListControls.activeFilterCount` — enumeracja filtrów dezaktualizuje się przy każdym DOŁOŻONYM filtrze, czyli reprodukuje przyczynę. Warunek ze źródła jest odporny na merge: po scaleniu z main „klient nie ma danych” pozostaje prawdą niezależnie od tego, ile filtrów"
   },
   {
    "id": 319,
@@ -3981,7 +3981,7 @@
    "verifier_note": "Źródło: PR #1227 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1227,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Dry-run importu Nordea zwraca same liczniki — nie pokazuje, które zamówienie zostanie nadpisane ani jakich wartości; plik serwisu nieobecny na gałęzi. || BLOKADA: backend/app/services/nordea_order_import.py nie istnieje w tym worktree (`grep -rl nordea backend/app` zwraca 2 pliki, oba niezwiązane: data/client_portfolio_2026_07_30.json i services/train_name_extractor.py). Na origin/main plik jest.\n\nDIAGNOZA POTWIERDZONA z treści origin/main: `_pick_existing_order` przy `first_for_contractor=True` schodzi przez trzy heurystyki (ta sama data brzegowa → jedyne zamówienie → jedyne obejmujące dziś) i zwraca cel, któremu potem nadpisywane są `title`, obie daty i `rate_client`. Raport zwraca wyłączn"
   },
   {
    "id": 320,
@@ -4004,7 +4004,7 @@
    "verifier_note": "Źródło: PR #1227 (codex), przegląd po mergu 21.08. NAWRÓT klasy: Czas i sortowanie: UTC vs Warszawa — temat 5 audytu",
    "commit": null,
    "pr": 1227,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Import Nordea rozstrzyga completed/active po `date.today()` na zegarze kontenera w UTC — plik serwisu nieobecny; fundament `business_today` jest na tej gałęzi, ale w innym module niż wskazuje backlog. || BLOKADA: nordea_order_import.py nie istnieje w tym worktree (patrz #319).\n\nSPROSTOWANIE DO BACKLOGU: fix_sketch odsyła do `app/core/business_time.py` — taki plik NIE ISTNIEJE na tej gałęzi. Fundament to `app/core/scheduling.py::business_today(tz='Europe/Warsaw')` (zweryfikowane: `grep -c 'def business_today'` = 1). Jego docstring opisuje dokładnie ten objaw: „liczba jest prawidłowa, tylko opisuje inny dzień\". Ktokolwiek zastosuje ten patch, niech nie szuka business_time.py.\n\nPATCH — cztery m"
   },
   {
    "id": 321,
@@ -4027,11 +4027,11 @@
    "verifier_note": "Źródło: PR #1227 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1227,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Parser CSV Nordea waliduje tylko nagłówki A i B, a stawki bierze z fallbacku pozycyjnego — zmieniony nagłówek cicho podmienia stawkę przychodową na ramową; plik nieobecny na gałęzi. || BLOKADA: nordea_order_import.py nie istnieje w tym worktree (patrz #319).\n\nDIAGNOZA POTWIERDZONA z treści origin/main, i jest MOCNIEJSZA niż w backlogu. Komentarz w kodzie uzasadnia pozycyjny fallback tak: „Historical files contain one or two spaces in the revenue header\". To uzasadnienie jest NIEPRAWDZIWE — `_header_key` robi NFKD, zdejmuje znaki łączące i `re.sub(r'[^a-z0-9]', '', ...)`, więc spacje (pojedyncze i podwójne) już są normalizowane do niczego. Fallback pozycyjny dla kolumn stawkowych nigdy nie ch"
   },
   {
    "id": 322,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -4048,9 +4048,9 @@
    "evidence": "    # same read-only list contract while finance fields remain redacted.\n    query = select(Job)",
    "fix_sketch": "Najprościej: dopisać do `_redact_delivery_lead_job_finance` (jobs.py:175) `payload[\"champion_profile\"] = None` i `payload[\"close_notes\"] = None` — funkcja jest wołana i w liście (778) i w detalu (1191), więc jedna zmiana pokrywa obie powierzchnie, a nazwę warto poszerzyć na `_redact_delivery_lead_job_fields`. Czyściej: nie wystawiać `champion_profile` w projekcji listy w ogóle — `grep -rn champion_profile frontend/src/` pokazuje, że konsumentami są wyłącznie detal (`ChampionProfileEditor`, `ChampionCard`, `ScreeningSheet`) i publiczna karta share, a nie `JobsListV2`; lista wozi ten JSONB bez odbiorcy. Test: rozszerzyć `test_delivery_lead_list_shows_jobs_outside_relationship_scope` o asercję, że wiersz spoza zakresu ma `champion_profile` puste/None — dziś ten test przechodzi z pełnym Championem w payloadzie.",
    "verifier_note": "Źródło: PR #1228 (codex), przegląd po mergu 21.08. NAWRÓT klasy: rbac containment przez równoległą powierzchnię — bramka na jednej trasie, ta sama treść bez bramki na drugiej (klasa zamknięta w #1069 / #791→#815→#819, opisana w test_job_scope_contract.py: „a role guard counts as gated\")",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1228,
-   "note": ""
+   "note": "Projekcja listy /api/jobs przestała wozić `champion_profile` i `close_notes` — nowy `_strip_champion_payload_from_list_row` zdejmuje oba pola z KAŻDEGO wiersza listy, bezwarunkowo, zachowując kształt odpowiedzi (None, nie usunięty klucz). Detal i dedykowany `.../champion-profile` — nietknięte. || Wybrałem wariant „czyściej\" z fix_sketch, nie „najprościej\", i to jest decyzja, nie kosmetyka. Dopisanie `payload['champion_profile'] = None` do `_redact_delivery_lead_job_finance` byłoby REGRESJĄ funkcjonalną: ta funkcja jest wołana w czterech miejscach DETALU (jobs.py:1091/1189/1367/1511), a Delivery Lead ma prawo do Championa swojej rekrutacji — `GET /api/jobs/{id}/champion-profile` przepuszcza go przez `_ensure_delivery_lead_job_visible`. Redakcja per rola zabrałaby mu dane, do których jest uprawniony, i musiałaby być poprawiana przy każdej kolejnej zmianie widoczności listy. Brak pola w projekcji nie musi.\n\nPotwierdziłem brak konsumenta przed usunięciem: `grep -rn champion_profile front"
   },
   {
    "id": 323,
@@ -4071,9 +4071,9 @@
    "evidence": "        detail = await app_client.get(f\"/api/jobs/{outside_job_id}\", headers=headers)\n        assert detail.status_code == 403",
    "fix_sketch": "Rozstrzygnąć, co ma być prawdą, zamiast trzymać dwie: albo (a) uzupełnić dane — DL-om brakuje wierszy `ClientTacAssignment`/`DeliveryLeadClientAssignment` i to jest właściwa naprawa, jednorazowa i bez zmiany kodu; albo (b) świadomie otworzyć ODCZYT detalu dla DL z tą samą redakcją pól co lista (salary + champion_profile + close_notes), zostawiając mutacje i pipeline na dotychczasowym `_ensure_delivery_lead_job_visible`. Wariant (b) zamyka też P1, bo redakcja staje się jedną, wspólną regułą dla obu powierzchni. Jeśli stan obecny ma zostać — warto to zapisać w CLAUDE.md, bo dziś docstring `delivery_lead_job_pairs` mówi coś przeciwnego niż zachowanie `/api/jobs`.",
    "verifier_note": "Źródło: PR #1228 (codex), przegląd po mergu 21.08. NAWRÓT klasy: „link widoczny, klik = 403\" — bramka wejścia poszerzona bez poszerzenia dostępu do zasobu (klasa z #1215 Talent Radar i #1216 generator B2B)",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": 1228,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Nie da się naprawić z mojej listy plików, a opisany stan w tym worktree jeszcze nie istnieje. Przyczyna źródłowa siedzi w `backend/app/api/jobs.py` (commit 9523e02f / PR #1228 zdjął `_apply_delivery_lead_job_scope` z `list_jobs`, zostawiając 403 na detalu) — a mój jedyny plik z tej pozycji to test, który ten stan utrwala. || Dwa niezależne blokery. (1) ZAKRES: fix_sketch wymaga zmiany w `backend/app/api/jobs.py` i/lub `backend/app/api/recruitment_access.py` (wariant b: otworzyć ODCZYT detalu dla DL z tą samą redakcją pól co lista — salary, champion_profile, close_notes — zostawiając mutacje i pipeline na `_ensure_delivery_lead_job_visible`), albo uzupełnienia danych `ClientTacAssignment`/`De"
   },
   {
    "id": 324,
@@ -4096,7 +4096,7 @@
    "verifier_note": "Źródło: PR #1229 (codex), przegląd po mergu 21.08. ",
    "commit": null,
    "pr": 1229,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Komponent na tej gałęzi nie zawiera ostrzeżenia ani pól `suggested_rate_cost`/`has_different_client_contract_rates` — cały mechanizm przyszedł z PR #1229, którego tu nie ma; poniżej gotowa łatka i dwa testy do zastosowania po scaleniu maina. || DLACZEGO BLOCKED: `frontend/src/components/client-profile/orders/ConsultantLineModal.tsx` istnieje w drzewie, ale w wersji SPRZED #1229. `grep -r \"has_different_client_contract_rates\" backend/app frontend/src` → 0 trafień; `grep -r \"suggested_rate_cost\"` → 0 trafień. `git diff HEAD fb1a8c32` na tym pliku pokazuje 28 wstawień / 1 usunięcie, których tu nie ma: handler `handlePersonChange`, podmiana `onChange={setPerson}` → `onChange={handlePersonChange}"
   },
   {
    "id": 325,
@@ -4119,11 +4119,11 @@
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: filtr statusu / swobodny zapis statusu z pominięciem strzeżonej maszyny stanów",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Kod opisany w findingu NIE ISTNIEJE na tej gałęzi. `backend/app/schemas/contract.py` wciąż ma stan strzeżony: `ContractCreate`/`ContractUpdate` jawnie NIE przyjmują `status`, a `ContractRegisterStatus` nie ma w pliku. Naprawa wymagałaby najpierw napisania zmiany codexa, potem jej ograniczenia. || Weryfikacja: `grep -n status backend/app/schemas/contract.py` zwraca na tej gałęzi komentarze w liniach 109-111 („`status` is intentionally NOT accepted here… Any `status` in the request body is ignored server-side\") i 156-159, oraz `prolongation_status` — ZERO `ContractRegisterStatus`. `grep -n '\"status\" not in updates' backend/app/api/contracts.py` — brak trafień. `grep -n 'ONLY path' backend/app/"
   },
   {
    "id": 326,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -4140,13 +4140,13 @@
    "evidence": "        order.contract.rate_candidate = rate_candidate",
    "fix_sketch": "W `update_order`, w gałęzi `if \"rate_candidate\" in payload.model_fields_set`, sprawdź `order.contract.candidate_rate_schedule`: gdy niepuste, albo odmów (409 „stawka jest prowadzona harmonogramem — edytuj w kontrakcie\"), albo dopisz krok `ContractCandidateRate(rate=..., effective_from=business_today())` dokładnie tak, jak robi to `contracts.update_contract` w gałęzi `schedule_sent`. Zapytanie w `update_order` musi wtedy dociągnąć `selectinload(ClientOrder.contract).selectinload(Contract.candidate_rate_schedule)` — dziś ładuje sam `contract`, więc dotknięcie relacji harmonogramu w async da `MissingGreenlet`. Przy okazji `_order_has_required_activation_data` (`:174`, `order.contract.rate_candidate is not None`) też powinno pytać o stawkę efektywną, a nie o kolumnę.",
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: pieniądze liczone/zapisywane na stałych kolumnach contracts.rate_* zamiast effective_rate_fields()",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": null,
-   "note": ""
+   "note": "Zapis stawki kosztowej z formularza zamówienia trafia tam, skąd czyta odczyt. Nowa `_apply_candidate_rate` dopisuje do `candidate_rate_schedule` KROK obowiązujący od `business_today()` (ten sam zapis, co aneks `rate_change`: historia nietknięta, zmienia się przyszłość), a ponowna edycja tego samego dnia nadpisuje krok zamiast dokładać kolejny. Kolumna `rate_candidate` nadal jest zapisywana — pozostaje cache'em dla umów bez harmonogramu i karmi `calculate_margin()`. Próba WYCZYSZCZENIA stawki prowadzonej harmonogramem kończy się 409 z komunikatem po polsku, a nie cichym no-opem (krok nie może mieć pustej stawki, a wyzerowanie kolumny i tak nic by nie zmieniło). Zapytanie `update_order` dociąga `selectinload(ClientOrder.contract).selectinload(Contract.candidate_rate_schedule)` — bez tego dotknięcie relacji w sesji async to `MissingGreenlet`, czyli 500 bez CORS. || Wbrew opisowi („codex dokłada NOWĄ ścieżkę zapisu\") ta ścieżka JUŻ ISTNIEJE na tej gałęzi — `client_orders.py:972` robiło `order.contract.rate_candidate = rate_candidate`, a `rate_candidate` jest w `_ORDER_FINANCE_WRITE_FIELDS` od dawna. #1227 tylko dokłada jej konsumenta w UI, więc naprawa była należna niezależnie od merdża. Z dwóch wariantów fix_sketcha wybrałem DOPISANIE KROKU, nie 409: rejestr umów tworzy kontrakty z harmonogramem (`buildCandidateRateSchedule` w `ContractRegisterDialog`), więc odmowa uczyniłaby pole nieużywalnym dokładnie dla tej populacji, dla której powstało. `_resolve_scheduled_rate` wybiera najpóźniejszy krok z `effective_from <= on` i ignoruje `effective_to`, więc d"
   },
   {
    "id": 327,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -4165,11 +4165,11 @@
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: pieniądze liczone ze stałych kolumn contracts.rate_* zamiast effective_rate_fields()",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "`list_contractors_with_orders` liczy `eff = effective_rate_fields(c, today)` RAZ na kontrakt i podaje z niego zarówno `rate_candidate`, jak i fallback `latest_order_rate_client` — te same stawki, z których liczy się `latest_order_monthly_margin`. Do `_compute_monthly_margin` przekazywany jest ten sam `today`, więc trzy liczby na karcie nie mogą już pochodzić z dwóch różnych dni ani z dwóch różnych źródeł. Zero dodatkowych zapytań — `RATE_SCHEDULE_LOADS` jest w `.options(...)` tej kwerendy. || Test asertuje wszystkie trzy liczby naraz (12000 / 18000 / 6000) na umowie, której kolumny legacy stoją na 10000/15000 — czyli sprawdza SPÓJNOŚĆ karty, nie pojedyncze pole. Przed zmianą marża wynosiła 6000, a stawka kosztowa obok niej 10000, więc odejmowanie na ekranie nie wychodziło i użytkownik nie miał jak rozstrzygnąć, która liczba jest prawdziwa."
   },
   {
    "id": 328,
-   "status": "open",
+   "status": "fixed",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -4186,9 +4186,9 @@
    "evidence": "  const total = group.budget_amount ?? 0;",
    "fix_sketch": "W `BudgetBar` wyjdź wcześnie: `if (group.budget_amount == null) return null;` (albo wyrenderuj samą etykietę „—\" bez paska i bez stanu `depleted`), a decyzję o pokazaniu paska przenieś do wołającego w `OrderGroupCard`. Warunek musi patrzeć na `null`, nie na `0` — zamówienie z realnym budżetem 0 to inny stan niż brak uprawnień.",
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: awaria/brak uprawnień renderowany jako wartość (403 czyta się jak utrata danych)",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": null,
-   "note": ""
+   "note": "BudgetBar w OrderGroupCard.tsx domykał zredagowaną kwotę przez `?? 0`, więc rola bez VIEW_FINANCE (m.in. TAC, który tę zakładkę widzi) dostawała `remaining = 0` → `depleted = true` → pasek `bg-destructive` pod podpisem „Kwota — · wykorzystano — · pozostało —”. Brak uprawnień renderował się jako alarm o wyczerpanym budżecie. Dodane wczesne wyjście na `group.budget_amount == null` (świadomie `null`, NIE `0` — zamówienie z realnym budżetem 0 to inny stan świata): renderuje samą etykietę z „—”, bez progressbara i bez stanu `depleted`. To samo zachowanie, które MdBudgetBar ma już od początku przez `hasBudget = total !== null && total > 0`. || Defekt REPRODUKOWALNY w tym worktree: `backend/app/api/client_order_groups.py:453` ma `budget_amount=group.budget_amount if with_finance else None` (plus to samo dla budget_used/budget_remaining/invoiced/unsettled), a `_can_see_finance` (linia 275-283) świadomie odcina TAC-a. Alert „Budżet wyczerpany” przy `group.status === \"exhausted\"` (OrderGroupCard ~linia 220) zostawiony bez zmian — status jest faktem serwerowym, nie jest redagowany, więc jest uczciwy także dla TAC-a."
   },
   {
    "id": 329,
@@ -4211,11 +4211,11 @@
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: date.today() na zegarze kontenera (UTC) tam, gdzie chodzi o dobę warszawską",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "PO REBASIE (35 commitów, main jest przodkiem) kod z PR-ów codex JEST w drzewie. Plik `backend/app/services/order_group_lifecycle.py` NIE ISTNIEJE na tej gałęzi (dodany przez #1225 na origin/main). Utworzenie go tutaj byłoby przepisaniem pliku z maina i gwarantowanym konfliktem przy scaleniu. || Weryfikacja: `ls backend/app/services/ | grep -i order` → `client_order_lines.py`, `cost_orders.py`, `multi_consultant_orders.py`, `order_pdf_parser.py`. `git cat-file -e origin/main:backend/app/services/order_group_lifecycle.py` → istnieje na mainie. Zakaz nowych rewizji alembica ma tę samą logikę co zakaz odtwarzania cudzego pliku: druga kopia = konflikt.\n\nDOKŁADNA TREŚĆ DO ZASTOSOWANIA PO SCALENIU (`backend/app/services/order_group_lifecycle.py`, wersja z maina):\n\n  linia 11, "
   },
   {
    "id": 330,
-   "status": "open",
+   "status": "fixed",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -4234,11 +4234,11 @@
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: pieniądze liczone ze stałych kolumn zamiast z jednego resolvera",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "`_apply_candidate_rate` kończy się `contract.margin = contract.calculate_margin()` — tym samym krokiem, którym kończy `PATCH /api/contracts/{id}`. Filtr „marża od\" w rejestrze umów porównuje UTRWALONĄ kolumnę `contracts.margin` (`query.where(Contract.margin >= margin_min)`), a nie wyrażenie, więc bez przeliczenia kontrakt po zmianie stawki kosztowej kwalifikowałby się po nieistniejącej już wartości. || Naprawione razem z #326, bo to ten sam zapis — rozdzielenie ich dałoby dwie ścieżki, które trzeba pamiętać wołać parami. Sugestię z fix_sketcha („docelowo ta ścieżka powinna przechodzić przez tę samą logikę co contracts.update_contract\") zrealizowałem połowicznie i świadomie: wspólna jest REGUŁA (harmonogram + kolumna + marża, jedna funkcja), ale nie handler — `update_contract` ma własną, admin-only bramkę osłaniającą 17 pól, a komentarz przy `rate_candidate` w `update_order` wprost tłumaczy, dlaczego stawka NIE idzie tamtędy."
   },
   {
    "id": 331,
-   "status": "open",
+   "status": "fixed",
    "severity": "P3",
    "effort": "S",
    "bucket": "ryzyko",
@@ -4255,9 +4255,9 @@
    "evidence": "    eff = effective_rate_fields(contract, on or date.today())",
    "fix_sketch": "Ustal jedno źródło „dziś\" dla pieniędzy i użyj `business_today()` jako domyślnego `on` w `_compute_monthly_margin`, `admin_clients_overview.clients_overview`, `my_clients.client_dashboard` i `order_group_lifecycle`. `metrics.py` zostaw na później — tam `on` bywa datą historyczną z `Period` i zmiana wymaga osobnego przeglądu granic okresów.",
    "verifier_note": "Źródło: kolizja dług×codex, przegląd po mergu 21.08. NAWRÓT klasy: date.today() na zegarze kontenera (UTC) tam, gdzie chodzi o dobę warszawską",
-   "commit": null,
+   "commit": "e8bd2b0c4d00",
    "pr": null,
-   "note": ""
+   "note": "W moich plikach `date.today()` na powierzchniach pieniężnych zastąpione przez `business_today()`: domyślne `on` w `_compute_monthly_margin`, `today` w `list_contractors_with_orders`, `_status_after_end_date_change` w `update_contract`, przypięcie daty końca i próg `completed` w `_sync_client_orders_to_contract_end`, oraz `_apply_candidate_rate`. || CZĘŚCIOWO — pozostałe miejsca wskazane w zgłoszeniu są POZA moją listą plików i muszą je domknąć inne grupy: `app/api/admin_clients_overview.py:179,316`, `app/api/my_clients.py:253,408,461` oraz `order_group_lifecycle`. `analytics/metrics.py` zgodnie z fix_sketchem zostawiam (tam `on` bywa datą historyczną z `Period`). Świadomie NIE ruszyłem `_days_to` (`client_orders.py:151`) — to licznik dni do końca, nie kwota; zmiana rozlałaby się na pola `days_to_*` w kilku odpowiedziach bez związku z tym zgłoszeniem."
   }
  ]
 }
