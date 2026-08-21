@@ -41,18 +41,24 @@ _CHECK_NAME = "ck_help_materials_link_or_template"
 _SEED_SLUG = "zaproszenie-prep-spotkanie"
 
 _SEED_SUBJECT = (
-    "Przygotowanie do spotkania z (nazwa Klienta) – (imię i nazwisko kandydata)"
+    "Przygotowanie do interview z (nazwa Klienta) – (imię i nazwisko kandydata)"
 )
 
 # Treść dosłowna — puste linie są częścią układu wiadomości, więc zapisujemy je
 # tak, jak mają wyjść w Outlooku (żadnego re-wrapowania przy odczycie).
+#
+# „(nazwa klienta)" małą literą jest CELOWO zostawione tak, jak podał autor.
+# Podstawianie na profilu kandydata jest niewrażliwe na wielkość liter
+# (patrz ``fillInviteTemplate``), więc oba warianty dostają realną nazwę.
 _SEED_BODY = (
-    "Dzień dobry,\n"
+    "Dzień dobry (bądź per „Ty”),\n"
     "\n"
-    "Zapraszam na spotkanie przygotowujące do rozmowy z (nazwa Klienta) "
-    "na stanowisko (nazwa stanowiska), które odbędzie się (data interview).\n"
+    "Zapraszam na spotkanie przygotowujące do interview z (nazwa Klienta) "
+    "na stanowisko (nazwa stanowiska).\n"
+    "Termin spotkania przygotowującego: (data prepa)\n"
     "\n"
-    "Link do opisu stanowiska: (link do pracuj / rocketjobs)\n"
+    "Termin interview z (nazwa klienta): (data interview)\n"
+    "Link do opisu stanowiska: (link do pracuj / rocketjobs / JJIT)\n"
     "\n"
     "W razie pytań pozostaję do dyspozycji.\n"
     "\n"

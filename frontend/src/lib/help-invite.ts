@@ -299,8 +299,23 @@ const PLACEHOLDERS = {
   interviewDate: "(data interview)",
 } as const;
 
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Podmiana niewrażliwa na wielkość liter.
+ *
+ * Szablon jest edytowalny przez admina i pisany naturalnym zdaniem, więc ta sama
+ * nazwa placeholdera pojawia się raz wielką, raz małą literą — „z (nazwa
+ * Klienta)" na początku, „Termin interview z (nazwa klienta)" w środku. Dopasowanie
+ * dokładnym ciągiem podstawiłoby tylko jeden wariant, a rekruter dostałby w
+ * jednym zdaniu realną nazwę, a w drugim goły placeholder. Zamiana przez funkcję
+ * (a nie string), żeby `$` w nazwie klienta nie był traktowany jako odwołanie
+ * wsteczne regexpa.
+ */
 function replaceAll(source: string, needle: string, value: string): string {
-  return source.split(needle).join(value);
+  return source.replace(new RegExp(escapeRegExp(needle), "gi"), () => value);
 }
 
 /**
