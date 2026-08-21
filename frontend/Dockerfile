@@ -2,8 +2,20 @@
 # Build stage: install deps + produce Next.js standalone output.
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN --mount=type=cache,target=/root/.npm npm install --legacy-peer-deps
+# BEZ glob-gwiazdki przy lockfile'u: `package-lock.json*` sprawiało, że brak
+# locka NIE wywalał builda — COPY kończył się sukcesem, a `npm install`
+# rozwiązywał całe drzewo od zera z registry.
+COPY package.json package-lock.json ./
+# `npm ci`, NIE `npm install` — to jest obraz, który naprawdę jedzie na prod.
+# `npm install` po cichu godzi rozjazd package.json <-> package-lock.json,
+# rozwiązując zależności od nowa i przepisując lock WEWNĄTRZ kontenera builda.
+# Skutek: rozjechany lock daje czerwone CI (`npm ci` przerywa) i ZIELONY build
+# produkcyjny — z drzewem zależności, którego nie przeszedł ani type-check, ani
+# Vitest, ani skan Trivy (ten audytuje zacommitowany lock). W repo, które robi
+# squash-merge z kilkuset gałęzi, rozjazd locka to rutynowy artefakt mergowania.
+# `--legacy-peer-deps` ZOSTAJE: .npmrc nie jest kopiowane do tego etapu, więc
+# `legacy-peer-deps=true` stamtąd tu nie obowiązuje (React 19 + pakiety RC).
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps
 
 FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS builder
 WORKDIR /app

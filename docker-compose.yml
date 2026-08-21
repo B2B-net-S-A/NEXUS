@@ -21,6 +21,32 @@ x-logging: &default-logging
 
 services:
   postgres:
+    # UWAGA: ten tag decyduje o PORZĄDKU SORTOWANIA CAŁEGO TEKSTU w bazie —
+    # nazwisk kandydatów, nazw klientów, nazw etapów pipeline'u. `-alpine` to
+    # musl, a nie glibc, więc porównania idą praktycznie po bajtach:
+    # zmierzone na tym obrazie `SELECT 'Łukasz' < 'Zbigniew'` → `f` (na obrazie
+    # glibc → `t`). Katalog przy tym KŁAMIE: `datcollate` raportuje `en_US.utf8`
+    # na obu, więc „sprawdzenie kolacji" w `pg_database` daje złą odpowiedź.
+    #
+    # NIGDY nie zmieniaj tego tagu na istniejącym wolumenie bez `REINDEX
+    # DATABASE`. `initdb` się nie powtórzy, `datcollversion` jest pod musl PUSTY
+    # (zmierzone: `''` vs `'2.41'` na glibc), a PostgreSQL podnosi ostrzeżenie
+    # „collation version mismatch, rebuild indexes" WYŁĄCZNIE gdy zapisana
+    # wersja jest niepusta i różna — więc ten bezpiecznik tutaj nie wystrzeli
+    # nigdy. Po cichej podmianie każdy btree na kolumnie tekstowej byłby
+    # uporządkowany inaczej, niż zakłada planista: skan po indeksie zaczyna
+    # GUBIĆ wiersze, a UNIQUE na tekście przestaje łapać duplikaty (dotyczy
+    # m.in. `uq_stage_name_in_template`, na którym opiera się importer Traffita).
+    # 225 instrukcji `CREATE INDEX IF NOT EXISTS` w `backend/entrypoint.sh` NIE
+    # odtworzy tego samo z siebie — `IF NOT EXISTS` pomija indeks, który
+    # istnieje, tylko jest źle uporządkowany.
+    #
+    # Stan jest widoczny w `/api/health/deep` → `collation` (patrz
+    # `backend/app/api/health.py`), łącznie z żywą sondą `'Ł' < 'Z'`, więc
+    # podmiana obrazu przestaje być niema. Docelowa naprawa polskiego
+    # sortowania idzie przez kolacje ICU per kolumna/zapytanie
+    # (`pl-PL-x-icu` W TYM OBRAZIE ISTNIEJE i MA wersję, więc dla niej
+    # ostrzeżenie o dryfie znów działa), a nie przez podmianę tagu.
     image: postgres:16-alpine
     restart: unless-stopped
     # Limity pamięci mieszkają w TYM pliku, nie w docker-compose.prod.yml:
@@ -138,6 +164,42 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Healthcheck MUSI stać w TYM pliku, nie w docker-compose.prod.yml — Coolify
+    # buduje wyłącznie z docker_compose_location, więc definicja trzymana
+    # w overlayu NIGDY na prodzie nie obowiązywała. To ta sama klasa defektu, co
+    # `mem_limit` (Memory=0, zweryfikowane 2026-08-12); tamta poprawka przeniosła
+    # limity i zostawiła healthcheck na miejscu.
+    #
+    # Dlaczego to boli bez healthchecka:
+    #  - Coolify przełącza Traefika na nowy kontener, gdy Docker zgłosi „running",
+    #    czyli w chwili STARTU entrypoint.sh — przed `alembic upgrade heads`,
+    #    siatką DDL, seedem i importem portfela klientów. Każdy deploy ma wtedy
+    #    realne okno 502 dla ludzi w trakcie pracy.
+    #  - `restart: unless-stopped` reaguje tylko na WYJŚCIE procesu, nigdy na
+    #    unhealthy. Backend, który stoi, ale się zakleszczył (wyczerpana pula
+    #    połączeń, pętla w tle blokująca event loop, alembic wiszący na locku),
+    #    raportuje „Up" i nie serwuje niczego, dopóki nie zauważy tego człowiek.
+    healthcheck:
+      # /api/health = standardowy kształt wg ~/.claude/rules/deployment.md.
+      # `-f` => 503 (`status: unhealthy`, np. padnięta baza) też liczy się jako
+      # porażka sondy — to celowe: kontener, który nie potrafi dobić do bazy,
+      # nie powinien udawać gotowego do przyjmowania ruchu.
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      # start_interval=2s => kontener zostaje `healthy` ~2 s po gotowości
+      # uvicorna (nie czeka pełnego start_period), więc Coolify szybko przełącza
+      # proxy i okno „no available server" przy deployu jest krótkie.
+      start_interval: 2s
+      # 300 s, a NIE 60 s jak w overlayu. Nieudane sondy w oknie start_period nie
+      # liczą się do `retries`, a pierwsza udana kończy to okno natychmiast —
+      # więc hojny zapas nic nie kosztuje przy szybkim starcie, za to chroni
+      # ciężką migrację przed oznaczeniem kontenera jako unhealthy w połowie
+      # `alembic upgrade` (repo ma 266 migracji i udokumentowany incydent
+      # timeoutu smoke-testu przy ciężkiej migracji). Po tym oknie 3 x 15 s
+      # wystarczy, by zakleszczony backend przestał kłamać, że jest „Up".
+      start_period: 300s
     volumes:
       - uploads_data:/tmp/nexus/uploads
     logging: *default-logging
@@ -171,7 +233,14 @@ services:
     expose:
       - "3000"
     depends_on:
-      - backend
+      # `condition: service_healthy`, nie goła lista: bez warunku Docker uznaje
+      # zależność za spełnioną w chwili startu kontenera backendu, więc frontend
+      # wstawał w trakcie migracji i renderował RSC-e przeciw serwerowi, którego
+      # jeszcze nie ma. Warunek działa tylko przy `compose up` (nie przy
+      # późniejszych restartach) — to wyłącznie porządkowanie startu, nie
+      # nadzór ciągły.
+      backend:
+        condition: service_healthy
     logging: *default-logging
 
   # Grafana Alloy log shipper. Profile-gated so this PR is safe to merge
