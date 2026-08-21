@@ -34,6 +34,25 @@ async def _seed_user(*, role: str = "recruiter") -> int:
         return u.id
 
 
+async def _auth_headers_for_user(
+    app_client: AsyncClient, user_id: int
+) -> dict[str, str]:
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        email = user.email
+
+    response = await app_client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "test-pass"},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 async def _seed_client() -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.client import Client
@@ -162,6 +181,29 @@ async def test_jobs_status_filter_accepts_multiple_values(
         assert cls not in ids
     finally:
         await _cleanup(job_ids=[pub, drf, cls], user_ids=[])
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_list_shows_jobs_outside_relationship_scope(
+    app_client: AsyncClient,
+):
+    """The /jobs register is organization-wide, while job details stay scoped."""
+    delivery_lead_id = await _seed_user(role="delivery_lead")
+    outside_client_id = await _seed_client()
+    outside_job_id = await _seed_job(client_id=outside_client_id)
+    headers = await _auth_headers_for_user(app_client, delivery_lead_id)
+    try:
+        listing = await app_client.get(
+            f"/api/jobs?client_id={outside_client_id}&page_size=100",
+            headers=headers,
+        )
+        assert listing.status_code == 200, listing.text
+        assert outside_job_id in {item["id"] for item in listing.json()["items"]}
+
+        detail = await app_client.get(f"/api/jobs/{outside_job_id}", headers=headers)
+        assert detail.status_code == 403
+    finally:
+        await _cleanup(job_ids=[outside_job_id], user_ids=[delivery_lead_id])
 
 
 @pytest.mark.asyncio

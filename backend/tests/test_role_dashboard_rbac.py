@@ -279,7 +279,7 @@ async def test_onboarding_gate_and_admin_superadmin_guard() -> None:
     assert await finance_guard(current_user=admin) is admin
 
 
-def test_legacy_job_surface_uses_exact_delivery_scope_and_hides_budget() -> None:
+def test_scoped_job_operations_use_exact_delivery_scope_and_hide_budget() -> None:
     from sqlalchemy import select
 
     pairs = frozenset({(10, 100), (20, 200)})
