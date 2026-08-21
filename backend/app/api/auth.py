@@ -218,12 +218,19 @@ async def login(
 ):
     """Authenticate user and return JWT tokens. Rate-limited: 30 req/min per IP.
 
-    Bramka ``PASSWORD_LOGIN_ENABLED``: NEXUS to narzędzie wewnętrzne i na
-    produkcji jedyną drogą wejścia jest Microsoft SSO (ograniczony do
-    ``SSO_ALLOWED_DOMAINS``). Flaga stoi tam na False → 503. Domyślnie True,
-    żeby nie wysadzić testów (``tests/conftest.py`` loguje się hasłem) — patrz
-    komentarz przy fladze w ``app/core/config.py``.
+    Zwraca 503, gdy logowanie hasłem jest w tej instancji wyłączone.
     """
+    # UWAGA: docstring wyżej jest PUBLIKOWANY w `/openapi.json` (FastAPI kopiuje
+    # go do `description`), więc uzasadnienia bezpieczeństwa trzymamy w
+    # komentarzach `#`, których FastAPI nigdy nie publikuje. Dotyczy to każdego
+    # handlera w tym pliku.
+    #
+    # Bramka ``PASSWORD_LOGIN_ENABLED``: NEXUS to narzędzie wewnętrzne i na
+    # produkcji jedyną drogą wejścia jest Microsoft SSO (ograniczony do
+    # ``SSO_ALLOWED_DOMAINS``). Flaga stoi tam na False → 503. Domyślnie True,
+    # żeby nie wysadzić testów (``tests/conftest.py`` loguje się hasłem) — patrz
+    # komentarz przy fladze w ``app/core/config.py``.
+    #
     # NB: /change-password NIE jest objęte tą bramką i tak ma zostać — to
     # mechanizm utrzymania poświadczenia awaryjnego (rotacja hasła admina,
     # gdy logowanie hasłem jest wyłączone). Konta SSO-only mają
@@ -487,14 +494,40 @@ async def resend_verification(
     return {"detail": _RESEND_GENERIC_DETAIL}
 
 
+class RefreshRequest(BaseModel):
+    """Refresh token w CIELE żądania — nigdy w URL-u."""
+
+    refresh_token: str
+
+
 @router.post("/refresh", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def refresh_token(
-    request: Request, refresh_token: str, db: AsyncSession = Depends(get_db)
+    request: Request,
+    payload_in: RefreshRequest | None = None,
+    refresh_token: str | None = None,
+    db: AsyncSession = Depends(get_db),
 ):
-    """Exchange a refresh token for a new access token. Rate-limited: 10 req/min per IP."""
+    """Exchange a refresh token for a new access token. Rate-limited: 10 req/min per IP.
+
+    Token przyjmujemy w ciele (`{"refresh_token": "..."}`).
+    """
+    # `refresh_token` jako goły skalar wiąże się w FastAPI jako parametr QUERY,
+    # więc 30-dniowe poświadczenie jechało w URL-u — a stamtąd do access loga
+    # uvicorna (stdout → json-file → Loki), historii przeglądarki i Referera.
+    # To ta sama klasa błędu, przez którą usunięto webhook CloudTalka z tokenem
+    # w ścieżce. Wariant query ZOSTAJE przyjmowany wyłącznie jako ścieżka
+    # zgodności (żaden klient produkcyjny go nie używa — front nigdy nie
+    # przechowuje refresh tokena) i jest do usunięcia razem z aktualizacją
+    # `tests/test_session_revocation.py`, który wciąż woła go przez `params=`.
+    token = payload_in.refresh_token if payload_in is not None else refresh_token
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Pole `refresh_token` jest wymagane w ciele żądania.",
+        )
     try:
-        payload = decode_token(refresh_token)
+        payload = decode_token(token)
         if payload.get("type") != "refresh":
             raise ValueError
         user_id = int(payload["sub"])
@@ -620,19 +653,18 @@ async def forgot_password(
 ):
     """Request a password reset link via email.
 
-    Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — reset
-    hasła, którym i tak nie da się zalogować, tylko myli użytkownika.
-
     Anti-enumeration: zawsze zwraca 200 OK z tym samym komunikatem,
-    niezależnie czy email istnieje w DB. Jeśli istnieje — generujemy token
-    i wysyłamy mail. Jeśli nie — silent no-op.
-
-    Rate-limited 3/min per IP. Activity audit log dla każdego requestu
-    (nawet nieznany email — ślad dla analizy bezpieczeństwa).
-
-    Break-glass: adres z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` pomija bramkę,
-    żeby admin awaryjny mógł odzyskać hasło mimo wyłączonej flagi.
+    niezależnie czy email istnieje w DB. Rate-limited 3/min per IP. Zwraca 503,
+    gdy logowanie hasłem jest w tej instancji wyłączone.
     """
+    # Uzasadnienia w komentarzu, nie w docstringu — patrz nota przy `/login`
+    # (docstring handlera trafia do publicznego `/openapi.json`).
+    #
+    # Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — reset
+    # hasła, którym i tak nie da się zalogować, tylko myli użytkownika.
+    # Activity audit log dla każdego requestu (nawet nieznany email — ślad dla
+    # analizy bezpieczeństwa). Adres z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS``
+    # pomija bramkę, żeby admin awaryjny mógł odzyskać hasło mimo wyłączonej flagi.
     if not settings.PASSWORD_LOGIN_ENABLED and not _password_login_break_glass(
         data.email
     ):
@@ -696,20 +728,20 @@ async def reset_password_with_token(
 ):
     """Set new password using a valid reset token from email.
 
-    Token jest jednorazowy — atomic UPDATE w
-    ``verify_and_consume_token`` zapobiega replay attack. Po sukcesie
-    czyścimy ``force_password_change`` flag (gdy była ustawiona przez
-    admin-reset) + audit log + email notification.
-
-    Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — domyka
-    ścieżkę także dla linków resetowych wysłanych zanim flagę wyłączono.
-
-    Break-glass: żądanie niesie tylko token (bez emaila), więc decyzję o
-    wyjątku odraczamy do momentu ustalenia konta. Gdy lista break-glass jest
-    pusta, zachowanie jest jak dawniej — 503 bez zużywania tokenu. Gdy jest
-    skonfigurowana, zużywamy token i dopuszczamy tylko konto z listy; pozostałe
-    dalej dostają 503, żeby admin awaryjny mógł dokończyć odzyskiwanie hasła.
+    Token jest jednorazowy — atomic UPDATE w ``verify_and_consume_token``
+    zapobiega replay attack. Po sukcesie czyścimy ``force_password_change``
+    (gdy była ustawiona przez admin-reset) + audit log + email notification.
+    Zwraca 503, gdy logowanie hasłem jest w tej instancji wyłączone.
     """
+    # Uzasadnienia w komentarzu, nie w docstringu — patrz nota przy `/login`.
+    #
+    # Wyłączone razem z logowaniem hasłem (``PASSWORD_LOGIN_ENABLED``) — domyka
+    # ścieżkę także dla linków resetowych wysłanych zanim flagę wyłączono.
+    # Żądanie niesie tylko token (bez emaila), więc decyzję o wyjątku break-glass
+    # odraczamy do momentu ustalenia konta. Gdy lista jest pusta, zachowanie jest
+    # jak dawniej — 503 bez zużywania tokenu. Gdy jest skonfigurowana, zużywamy
+    # token i dopuszczamy tylko konto z listy; pozostałe dalej dostają 503, żeby
+    # admin awaryjny mógł dokończyć odzyskiwanie hasła.
     break_glass_configured = bool(settings.password_login_break_glass_email_set)
     if not settings.PASSWORD_LOGIN_ENABLED and not break_glass_configured:
         raise HTTPException(
