@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useMemo, useRef } from "react";
 import { X, CheckCircle, AlertCircle, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useThemeStore } from "@/store/theme";
@@ -86,6 +86,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // Wartość kontekstu MUSI być memoizowana. Provider siedzi nad całą aplikacją
+  // i re-renderuje się DWA RAZY na każdy toast (dodanie + usunięcie przez
+  // setTimeout). Świeży literał obiektu przy każdym renderze unieważnia kontekst
+  // u wszystkich ~99 konsumentów useToast() — w tym u list wirtualizowanych
+  // (CandidatesListV2, KanbanBoardV2) — więc lista re-renderuje się rekruterowi
+  // pod palcami 3 s po akcji masowej, bez żadnego jego udziału.
+  // Gorszy przypadek: konsument, który trzyma cały obiekt kontekstu w tablicy
+  // zależności useEffect i woła z niego showError (InsightsView) — zmiana
+  // tożsamości obiektu ponawia efekt, efekt pokazuje toast, toast zmienia
+  // tożsamość obiektu: pętla, która sama się napędza.
+  // Wszystkie cztery funkcje są już stabilne przez useCallback, więc to memo
+  // nie unieważni się nigdy.
+  const value = useMemo<ToastContextValue>(
+    () => ({ showToast, showSuccess, showError, showActionToast }),
+    [showToast, showSuccess, showError, showActionToast]
+  );
+
   const dismiss = (id: number) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
   const handleAction = async (toast: Toast) => {
@@ -98,7 +115,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <ToastContext.Provider value={{ showToast, showSuccess, showError, showActionToast }}>
+    <ToastContext.Provider value={value}>
       {children}
 
       {/* Toast container */}
