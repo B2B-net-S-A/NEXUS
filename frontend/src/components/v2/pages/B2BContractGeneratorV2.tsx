@@ -246,25 +246,55 @@ export function areaPrefillDescription(params: {
   return smartDescription(role, language, clientName);
 }
 
+/** Needle'e wpisów rejestru klauzul, które NIE dają modyfikacji umowy.
+ *
+ * „BNP Paribas Cardif" to odrębny Klient (ubezpieczyciel), nie Bank BNP Paribas
+ * Polska — dostaje zwykły szablon. Musi być sprawdzane PRZED listą pozytywną,
+ * spójnie z kolejnością wpisów w backendowym CLIENT_OVERRIDES (needle jest
+ * podciągiem, pierwsze trafienie wygrywa). */
+export const CLAUSE_OVERRIDE_NEEDLES_NONE = [
+  "bnp paribas cardif",
+  "bnp cardif",
+];
+
+/** Needle'e Klientów z niestandardowymi zapisami umowy — LUSTRO backendu
+ * (clause_override_content.CLIENT_OVERRIDES).
+ *
+ * Ta lista rozjechała się już raz w praktyce: commit poszerzający needle
+ * „e-zdrowia" o warianty „e-zdrowie"/„ezdrowie" zaktualizował inne lustro
+ * (ContractRegisterDialog) i pominął to, więc backend podmieniał cały § 10
+ * (zakaz konkurencji + kary umowne), a baner ostrzegawczy milczał. Pilnuje tego
+ * teraz test kontraktowy po stronie backendu (`test_b2b_clause_needle_mirror`),
+ * który parsuje TĘ tablicę i porównuje ją z rejestrem — rozjazd wywala CI. */
+export const CLAUSE_OVERRIDE_NEEDLES = [
+  "pfron",
+  "rehabilitacji osób niepełnosprawnych",
+  "centrum e-zdrowia",
+  "e-zdrowia",
+  "e-zdrowie",
+  "ezdrowie",
+  "bnp paribas",
+  "alior",
+  "credit agricole",
+  "biuro informacji kredytowej",
+  "bik",
+];
+
 /** Klienci z niestandardowymi zapisami umowy — zwraca true gdy wybrany klient
- * wymaga modyfikacji. Musi być zgodne z backendem
- * (clause_override_content.CLIENT_OVERRIDES). PL i EN. */
+ * wymaga modyfikacji. PL i EN. */
 export function hasSpecialClauses(clientName: string): boolean {
-  const n = clientName.trim().toLowerCase();
-  // „BNP Paribas Cardif" to odrębny Klient (ubezpieczyciel), nie Bank BNP
-  // Paribas Polska — zwykły szablon. Sprawdzane PRZED „bnp paribas", spójnie
-  // z kolejnością wpisów w CLIENT_OVERRIDES.
-  if (n.includes("bnp paribas cardif") || n.includes("bnp cardif")) return false;
-  return (
-    n.includes("pfron") ||
-    n.includes("rehabilitacji osób niepełnosprawnych") ||
-    n.includes("e-zdrowia") ||
-    n.includes("bnp paribas") ||
-    n.includes("credit agricole") ||
-    n.includes("biuro informacji kredytowej") ||
-    n.includes("bik") ||
-    n.includes("alior")
-  );
+  // Lustro backendowego `_norm`: NFC + zwinięcie ciągów białych znaków.
+  // NFC, bo needle „rehabilitacji osób niepełnosprawnych" ma znaki rozkładalne,
+  // a nazwa wklejona (macOS, komórka arkusza) bywa w NFD — wizualnie identyczna,
+  // bajtowo niedopasowalna. `\s+`, bo nazwy z importu miewają podwójne spacje.
+  const n = clientName
+    .normalize("NFC")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (CLAUSE_OVERRIDE_NEEDLES_NONE.some((needle) => n.includes(needle)))
+    return false;
+  return CLAUSE_OVERRIDE_NEEDLES.some((needle) => n.includes(needle));
 }
 
 export type GeneratedContractMemo = {
