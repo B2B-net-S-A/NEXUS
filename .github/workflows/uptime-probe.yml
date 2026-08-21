@@ -158,3 +158,148 @@ jobs:
           bytes="$(jq -r '.artefacts[] | select(.artefact == "cv_corpus") | .bytes' /tmp/manifest.json)"
           echo "CV corpus mirrored: ${objects} objects / ${bytes} bytes"
           echo "All artefacts present and ok."
+
+  # ── Per-check degradation ───────────────────────────────────────────────────
+  # Drugi (i do dziś jedyny obok `disk-alert.yml`) czytelnik tego, co
+  # `/api/health` naprawdę wylicza. Job `probe` wyżej asertuje `.status`, a
+  # `.status` z konstrukcji zależy WYŁĄCZNIE od `checks.database`
+  # (`app/main.py`: `overall = "healthy" if db_healthy else "unhealthy"`).
+  # Każdy pozostały check jest udokumentowany jako „informacyjny, nigdy nie
+  # przestawia overall" — czyli trzynaście sond pisało do kanału bez odbiorcy.
+  # Martwa baza to jedyna awaria, którą `probe` umie wykryć, i akurat ona kładzie
+  # całą aplikację, więc sondy nie potrzebuje.
+  #
+  # Dlaczego OSOBNY job, a nie krok w `probe`:
+  #   1. Potrzebuje `issues: write` (wzorzec z `disk-alert.yml`), a `probe` ma
+  #      świadomie `contents: read` — nie rozszerzamy uprawnień kroku, który
+  #      dotyka TLS-a i frontendu.
+  #   2. Nie zależy od `probe`. Gdy baza padnie, `probe` failuje na `.status`;
+  #      wtedy tym bardziej chcemy wiedzieć, co jeszcze jest zdegradowane.
+  #   3. Ten job NIE dotyka `.status`, więc nie ma jak zwrócić 503 kontenerowi
+  #      ani wywalić deployu — jedynym skutkiem jest issue i czerwony cron.
+  #
+  # Progi (dwa poziomy, świadomie):
+  #   • ERROR (issue + exit 1): `unhealthy` / `misconfigured` / `critical` /
+  #     `crashed: …`. To stany, w których coś JEST zepsute i ma właściciela.
+  #   • WARN (podsumowanie runu, run zostaje zielony): `degraded`, `warning`,
+  #     `unknown`, `uncapped: …`, `disabled`/`unconfigured` spoza allowlisty.
+  #     Twarde padanie na `degraded` dałoby czerwień permanentną (np. Traffit
+  #     bywa zdegradowany całymi dniami z powodów operacyjnych), a stały
+  #     czerwony alarm jest dokładnie tak samo niewidoczny jak brak alarmu.
+  #
+  # `ALLOWLIST` jest JAWNA i celowo minimalna — bez niej `autenti=unconfigured`
+  # i `priority_work=disabled` (stan produkcji na 2026-08-21, oba wynikają z
+  # wyłączonych kill-switchy) hałasowałyby przy każdym biegu, a nowy check
+  # zaczynałby życie już na czerwono. Dopisuj tu WYŁĄCZNIE stany, o których
+  # wiadomo, że są oczekiwane — cichnięcie stanu jest decyzją, nie sprzątaniem.
+  health-checks:
+    name: /api/health per-check degradation
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Classify .checks
+        id: classify
+        run: |
+          set -euo pipefail
+          # UA wymagana przez bypass-rule Cloudflare (patrz observability.md);
+          # api.nexus.* jest dziś DNS-only, ale zgodność kosztuje jedną flagę.
+          body=$(curl -sS --max-time 20 \
+            -A "dynaminds-smoke-test/1.0 (+github-actions; Nexus)" \
+            https://api.nexus.dynaminds.pl/api/health || true)
+          if ! printf '%s' "$body" | jq -e 'has("checks")' > /dev/null 2>&1; then
+            # Backend nieosiągalny albo bez `.checks` — to jest awaria, którą job
+            # `probe` już zgłasza głośno. Tutaj cisza, żeby jedna awaria nie
+            # otwierała dwóch alarmów o różnej treści.
+            echo "::warning::/api/health nie zwrócił JSON-a z polem .checks — patrz job 'probe'."
+            echo "fail=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s' "$body" | jq '.checks'
+
+          # `configured` to zdrowa wartość checku `anthropic` (mapa
+          # {"ok": "configured"} w app/main.py) — bez tego wyjątku ostrzeżenie
+          # wisiałoby stale przy poprawnie skonfigurowanym kluczu.
+          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"]}'
+          classified=$(printf '%s' "$body" | jq -r --argjson allow "$ALLOWLIST" '
+            .checks
+            | to_entries
+            | map(.value |= tostring)
+            | map(select(.value != "healthy" and .value != "configured"))
+            | map(. as $e | select(($allow[$e.key] // []) | index($e.value) | not))
+            | map(. + {sev: (
+                if (.value | test("^(unhealthy|misconfigured|critical|crashed)"))
+                then "error" else "warn" end)})
+            | .[] | "\(.sev)\t\(.key)\t\(.value)"
+          ')
+
+          errors=$(printf '%s' "$classified" | grep -c '^error' || true)
+          warns=$(printf '%s' "$classified" | grep -c '^warn' || true)
+          echo "errors=$errors warns=$warns"
+
+          {
+            echo "### /api/health — checks poza stanem zdrowym"
+            echo
+            if [ -z "$classified" ]; then
+              echo "Wszystkie checki zdrowe (albo na allowliście)."
+            else
+              echo "| poziom | check | stan |"
+              echo "| --- | --- | --- |"
+              printf '%s\n' "$classified" | awk -F'\t' '{printf "| %s | `%s` | `%s` |\n", $1, $2, $3}'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          printf '%s\n' "$classified" | awk -F'\t' '
+            $1 == "warn"  { printf "::warning::health check %s = %s\n", $2, $3 }
+            $1 == "error" { printf "::error::health check %s = %s\n", $2, $3 }'
+
+          if [ "$errors" -gt 0 ]; then
+            echo "fail=1" >> "$GITHUB_OUTPUT"
+            {
+              echo "detail<<CLASSIFIED_EOF"
+              printf '%s\n' "$classified" | awk -F'\t' '$1 == "error" { printf "- `%s` = `%s`\n", $2, $3 }'
+              echo "CLASSIFIED_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "fail=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or refresh alert issue
+        if: steps.classify.outputs.fail == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DETAIL: ${{ steps.classify.outputs.detail }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          marker="NEXUS health checks unhealthy"
+          existing=$(gh issue list --repo "$REPO" --state open \
+            --search "$marker in:title" --json number --jq '.[0].number // empty' || echo "")
+          # --body-file zamiast inline heredoca: treść niesie backticki i
+          # wartości z sieci, więc nie chcemy jej przepuszczać przez kolejny
+          # poziom interpretacji powłoki.
+          {
+            echo "Sonda \`/api/health\` zgłasza checki w stanie awaryjnym:"
+            echo
+            printf '%s\n' "$DETAIL"
+            echo
+            echo "\`/api/health\` zwraca \`status: healthy\` mimo tego — \`status\` zależy"
+            echo "wyłącznie od \`checks.database\`. Reszta checków jest informacyjna i to"
+            echo "issue jest ich jedynym kanałem."
+            echo
+            echo "Bieg: ${RUN_URL}"
+            echo
+            echo "_Auto-generated by \`.github/workflows/uptime-probe.yml\`._"
+          } > /tmp/health-issue.md
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file /tmp/health-issue.md
+          else
+            gh issue create --repo "$REPO" --title "⚠️ ${marker}" --body-file /tmp/health-issue.md
+          fi
+
+      - name: Fail run so GitHub emails the owner
+        if: steps.classify.outputs.fail == '1'
+        run: exit 1
