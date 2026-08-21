@@ -8,6 +8,7 @@ import {
   type SeniorityLevel,
 } from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Plus, Trash2, Upload, X, Save } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -26,8 +27,23 @@ const RATE_UNIT_LABELS: Record<string, string> = {
 };
 
 export default function RateBenchmarksPage() {
+  // Kafelek „Stawki rynkowe" w Ustawieniach → Zaawansowane pokazuje się także
+  // Delivery Leadowi, a ta strona wpuszcza wyłącznie admina (spójnie z
+  // backendem: POST/PATCH/DELETE/import stoją na `AdminUser`). Domyślny
+  // `fallback = null` w RequireRole zamieniał ten rozjazd w BIAŁY obszar
+  // treści — nieodróżnialny od zwiechy strony, więc zgłaszany jako „aplikacja
+  // się wysypała", a nie „nie mam uprawnień". Komunikat mówi wprost, co się
+  // stało; middleware trzyma tę samą regułę dla wejścia z paska adresu.
   return (
-    <RequireRole roles={["admin"]}>
+    <RequireRole
+      roles={["admin"]}
+      fallback={
+        <QueryStateNotice
+          state="forbidden"
+          description="Benchmarki stawek rynkowych edytuje administrator. Poproś go o dodanie lub korektę wiersza."
+        />
+      }
+    >
       <RateBenchmarksAdmin />
     </RequireRole>
   );

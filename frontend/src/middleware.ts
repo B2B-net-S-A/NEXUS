@@ -63,6 +63,12 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
     roles: ["admin", "head_of_recruitment"],
   },
   { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
+  // Benchmarki stawek rynkowych. Kafelek w Ustawieniach → Zaawansowane
+  // deklaruje `["admin", "delivery_lead"]`, ale strona (i zapisy w backendzie:
+  // POST/PATCH/DELETE/import na `AdminUser`) wpuszczają wyłącznie admina. Bez
+  // tego wpisu wejście z paska adresu nie kończyło się nawet na /403 — samo
+  // `RequireRole` bez fallbacku dawało pusty obszar treści.
+  { prefix: "/settings/rate-benchmarks", roles: ["admin"] },
   // Audyt M7 PR-01 (P0.1): clients-overview pokazuje lifetime/active revenue —
   // dane finansowe (VIEW_FINANCE). HoR nie ma tej capability → admin-only,
   // spójnie z backendem /api/admin/clients-overview (AdminUser).
@@ -77,8 +83,20 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
     prefix: "/cortex",
     roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
   },
-  // Wykonywanie telefonów jest ograniczone do ról operacyjnych. Admin i Head
-  // of Recruitment korzystają z osobnego panelu nadzoru na dashboardzie.
+  // Wykonywanie telefonów jest ograniczone do ról operacyjnych (lustro
+  // backendowego `ContactCaller`); sama strona odbija resztę własnym
+  // komunikatem „Brak dostępu".
+  //
+  // UWAGA — powierzchni nadzoru, na którą powoływał się poprzedni komentarz,
+  // NIE MA: `<ContactOversightPanel />` przestał być montowany wraz z
+  // przepisaniem dashboardów na `RoleDashboard` (#1031), a alerty HoR
+  // (`dashboard_v2.py`, `href="/candidates/contact-queue"`) linkują wprost
+  // tutaj, więc Head of Recruitment klikający własny alert dostaje /403.
+  // Poszerzenie tej listy tego NIE naprawia — backend i tak wpuszcza do
+  // `/queue` tylko role wykonawcze, a HoR zobaczyłby drugi ślepy zaułek.
+  // Naprawa należy do dashboardu: zamontować panel nadzoru (który wciąż woła
+  // żywe `GET /api/candidate-contact/oversight`) albo przekierować `href`
+  // alertów tam, gdzie ten panel wyląduje.
   {
     prefix: "/candidates/contact-queue",
     roles: ["tac", "recruiter", "sourcer"],
