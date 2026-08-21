@@ -11,6 +11,7 @@
    "fixed",
    "wont_fix",
    "needs_operator",
+   "needs_investigation",
    "superseded"
   ],
   "counts": {
@@ -929,7 +930,7 @@
   },
   {
    "id": 42,
-   "status": "needs_operator",
+   "status": "open",
    "severity": "P1",
    "effort": "S",
    "bucket": "nie działa",
@@ -1705,7 +1706,7 @@
   },
   {
    "id": 213,
-   "status": "needs_operator",
+   "status": "open",
    "severity": "P1",
    "effort": "S",
    "bucket": "ryzyko",
@@ -1730,7 +1731,7 @@
   },
   {
    "id": 217,
-   "status": "open",
+   "status": "needs_investigation",
    "severity": "P1",
    "effort": "S",
    "bucket": "ryzyko",
@@ -1755,7 +1756,7 @@
   },
   {
    "id": 218,
-   "status": "open",
+   "status": "needs_investigation",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -1780,7 +1781,7 @@
   },
   {
    "id": 219,
-   "status": "open",
+   "status": "needs_investigation",
    "severity": "P1",
    "effort": "M",
    "bucket": "ryzyko",
@@ -1805,7 +1806,7 @@
   },
   {
    "id": 220,
-   "status": "open",
+   "status": "needs_investigation",
    "severity": "P1",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3148,7 +3149,7 @@
   },
   {
    "id": 221,
-   "status": "needs_operator",
+   "status": "needs_investigation",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3173,7 +3174,7 @@
   },
   {
    "id": 222,
-   "status": "open",
+   "status": "needs_investigation",
    "severity": "P2",
    "effort": "S",
    "bucket": "ryzyko",
@@ -3198,7 +3199,7 @@
   },
   {
    "id": 223,
-   "status": "needs_operator",
+   "status": "needs_investigation",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3223,7 +3224,7 @@
   },
   {
    "id": 224,
-   "status": "open",
+   "status": "needs_investigation",
    "severity": "P2",
    "effort": "L",
    "bucket": "dług",
