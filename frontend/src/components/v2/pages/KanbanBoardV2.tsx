@@ -1280,14 +1280,32 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }
  }, [pendingRemoval, jobId, queryClient, showSuccess, showError]);
 
- const toggleSelect = (id: number) => {
+ // Cztery handlery poniżej MUSZĄ mieć stabilne referencje. `KanbanColumnV2`
+ // (:582) i `CandidateKanbanCard` (:343) są opakowane w `memo()` z domyślnym
+ // płytkim porównaniem propsów — świeżo alokowana strzałka przy każdym
+ // renderze tablicy przebija obie granice, więc tiknięcie jednego checkboxa
+ // re-renderowało wszystkie karty (z ich SVG-owymi ScoreRingami) w każdej
+ // kolumnie. Setterzy `useState` są stabilni, stąd puste tablice zależności.
+ const toggleSelect = useCallback((id: number) => {
  setSelected((p) => {
  const n = new Set(p);
  if (n.has(id)) n.delete(id);
  else n.add(id);
  return n;
  });
- };
+ }, []);
+
+ const handleOpenScreening = useCallback((stageId: number, name: string) => {
+ setScreeningPrompt({ stageId, candidateName: name });
+ }, []);
+
+ const handleRejectVerification = useCallback((item: KanbanItem) => {
+ setPendingRejectVerification({ item, note: "" });
+ }, []);
+
+ const handleRemoveFromRecruitment = useCallback((item: KanbanItem) => {
+ setPendingRemoval(item);
+ }, []);
 
  // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
  // recruiter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
@@ -1571,18 +1589,14 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  jobId={jobId}
  selectedIds={selected}
  onToggleSelect={toggleSelect}
- onOpenScreening={(stageId, name) =>
- setScreeningPrompt({ stageId, candidateName: name })
- }
+ onOpenScreening={handleOpenScreening}
  density={density}
  isApprover={isApprover}
  scoreMap={scoreMap}
  scoresLoading={scoresLoading}
  onAcceptVerification={handleAcceptVerification}
- onRejectVerification={(item) =>
- setPendingRejectVerification({ item, note: "" })
- }
- onRemoveFromRecruitment={(item) => setPendingRemoval(item)}
+ onRejectVerification={handleRejectVerification}
+ onRemoveFromRecruitment={handleRemoveFromRecruitment}
  contactFeatureEnabled={contactFeature.enabled}
  />
  ))

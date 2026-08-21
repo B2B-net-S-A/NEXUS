@@ -309,11 +309,21 @@ function renderResult(body, footer, resp) {
   const resyncNote = c.resync_scheduled
     ? `<div class="preview-line" style="margin-top:6px;">Profil ostatnio synchronizowany dawno — zlecono odświeżenie z LinkedIn.</div>`
     : "";
+  // Serwer zapisał kandydata, ale ŚWIADOMIE nie dopiął go do wybranej
+  // rekrutacji (dziś: weto hiring managera) i mówi o tym w
+  // `assignment_skipped_reason`. Bez tej linii popup renderuje dokładnie ten
+  // sam banner co przy udanym przypisaniu, więc rekruter odchodzi przekonany,
+  // że kandydat jest w pipelinie — i za tydzień szuka go w kanbanie albo
+  // dodaje drugi raz. Tekst przychodzi gotowym polskim zdaniem z backendu.
+  const assignmentSkippedNote = c.assignment_skipped_reason
+    ? `<div style="margin-top:6px; font-weight:600;">Zapisany w bazie, ale NIE dodany do rekrutacji: ${escapeHtml(c.assignment_skipped_reason)}</div>`
+    : "";
 
   body.innerHTML = `
     <div class="banner ${bannerClass}">
       <div style="font-weight: 600;">${titleText}</div>
       <div style="margin-top: 4px;">${profileLink}</div>
+      ${assignmentSkippedNote}
       ${resyncNote}
     </div>
   `;
