@@ -15,6 +15,7 @@ from httpx import AsyncClient
 
 from app.services.contract_service import (
     ACTIVATION_REQUIRED_FIELDS,
+    ENDING_SOON_WINDOW_DAYS,
     validate_ready_for_activation,
 )
 
@@ -98,8 +99,16 @@ async def test_list_contractors_filter_by_status(
         "/api/contractors?status=active", headers=app_auth_headers
     )
     assert resp.status_code == 200, resp.text
+    today = date.today()
+    cutoff = today + timedelta(days=ENDING_SOON_WINDOW_DAYS)
     for item in resp.json()["items"]:
-        assert item["status"] == "active"
+        # ``active`` is a date bucket, not an equality filter on the stored
+        # status. A legacy ``ending`` row outside the 30-day window belongs in
+        # this tab until the lifecycle cron normalizes its stored status.
+        assert item["status"] in ("active", "ending")
+        if item["end_date"] is not None:
+            end_date = date.fromisoformat(item["end_date"])
+            assert end_date < today or end_date > cutoff
 
 
 @pytest.mark.asyncio
