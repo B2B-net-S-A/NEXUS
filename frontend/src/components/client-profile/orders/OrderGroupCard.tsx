@@ -283,15 +283,15 @@ export function OrderGroupCard({
   return (
     <section className="rounded-xl border border-border bg-card">
       {/* Nagłówek karty — numer, okres, awatary konsultantów */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-4 px-5 py-4 text-left"
-      >
+      <div className="flex w-full items-center gap-4 px-5 py-4">
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
-            Zamówienie nr {group.order_number}
+            {/* Numer jest poza przyciskiem rozwijającym i jawnie zezwala na
+                zaznaczanie tekstu. Natywny button przejmował gest myszy,
+                przez co kopiowanie numeru nie działało standardowo. */}
+            <span className="cursor-text select-text">
+              Zamówienie nr {group.order_number}
+            </span>
             {group.status !== "active" ? (
               <span
                 className={cn(
@@ -316,36 +316,48 @@ export function OrderGroupCard({
           </p>
         </div>
 
-        <div className="flex -space-x-2">
-          {activeLines.slice(0, 5).map((line) => (
-            <Avatar
-              key={line.id}
-              className="h-7 w-7 border-2 border-card"
-              title={line.consultant_name}
-            >
-              <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
-                {initials(line.consultant_name)}
-              </AvatarFallback>
-            </Avatar>
-          ))}
-          {activeLines.length > 5 ? (
-            <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground">
-              +{activeLines.length - 5}
-            </span>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-controls={`order-group-${group.id}-content`}
+          aria-label={`${expanded ? "Zwiń" : "Rozwiń"} zamówienie nr ${group.order_number}`}
+          className="-my-2 flex shrink-0 items-center gap-4 rounded-md p-2 text-left transition-colors hover:bg-muted"
+        >
+          <span className="flex -space-x-2" aria-hidden="true">
+            {activeLines.slice(0, 5).map((line) => (
+              <Avatar
+                key={line.id}
+                className="h-7 w-7 border-2 border-card"
+                title={line.consultant_name}
+              >
+                <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+                  {initials(line.consultant_name)}
+                </AvatarFallback>
+              </Avatar>
+            ))}
+            {activeLines.length > 5 ? (
+              <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground">
+                +{activeLines.length - 5}
+              </span>
+            ) : null}
+          </span>
 
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-            expanded && "rotate-180",
-          )}
-          aria-hidden="true"
-        />
-      </button>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
+        </button>
+      </div>
 
       {expanded ? (
-        <div className="border-t border-border px-5 py-4">
+        <div
+          id={`order-group-${group.id}-content`}
+          className="border-t border-border px-5 py-4"
+        >
           {group.is_cost_based ? (
             <div className="mb-4">
               <BudgetBar group={group} />

@@ -97,6 +97,19 @@ export function ConsultantLineModal({
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
 
+  const handlePersonChange = (next: ConsultantOption | null) => {
+    setPerson(next);
+    // Każda zmiana osoby resetuje poprzednią wartość. Podpowiedź pochodzi
+    // wyłącznie z aktywnego kontraktu tej osoby u bieżącego klienta;
+    // `null` (brak kontraktu albo brak zapisanej stawki) zostawia puste pole.
+    // Dalsze wpisywanie jest zwykłą lokalną edycją linii zamówienia.
+    setRateCost(
+      next?.suggested_rate_cost != null
+        ? String(next.suggested_rate_cost)
+        : "",
+    );
+  };
+
   useEffect(() => {
     if (!open) return;
     setPerson(null);
@@ -265,7 +278,7 @@ export function ConsultantLineModal({
             <ConsultantPicker
               clientId={clientId}
               value={person}
-              onChange={setPerson}
+              onChange={handlePersonChange}
               enabled={open}
             />
             <p className="mt-1 text-xs text-muted-foreground">
@@ -301,6 +314,20 @@ export function ConsultantLineModal({
               className={inputClass}
               placeholder="1000"
             />
+            {person?.has_different_client_contract_rates ? (
+              <p
+                role="status"
+                className="mt-2 flex items-start gap-1.5 text-xs text-amber-700"
+              >
+                <AlertTriangle
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+                Uwaga: ten konsultant ma u klienta kontrakty z różnymi
+                stawkami. Wstawiono stawkę z aktywnego kontraktu — sprawdź,
+                którą zastosować.
+              </p>
+            ) : null}
           </div>
           <div>
             <label htmlFor="line-revenue" className={labelClass}>

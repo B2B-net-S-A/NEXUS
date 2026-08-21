@@ -997,6 +997,7 @@ async def list_consultant_options_for_client(
     options, total = await list_consultant_options(
         db, client_id=client_id, query=q, limit=limit
     )
+    include_rate_suggestions = _has_md_line_management_role(user)
     return ConsultantOptionsResponse(
         options=[
             ConsultantOptionRead(
@@ -1008,6 +1009,17 @@ async def list_consultant_options_for_client(
                 source=o.source,
                 source_label=o.source_label,
                 job_title=o.job_title,
+                # Endpoint nazwisk jest dostępny także Head of Recruitment,
+                # ale stawki linii prowadzą wyłącznie admin i przypisany DL.
+                # Nie rozszerzamy uprawnień finansowych przy okazji autofillu.
+                suggested_rate_cost=(
+                    o.suggested_rate_cost if include_rate_suggestions else None
+                ),
+                has_different_client_contract_rates=(
+                    o.has_different_client_contract_rates
+                    if include_rate_suggestions
+                    else False
+                ),
             )
             for o in options
         ],

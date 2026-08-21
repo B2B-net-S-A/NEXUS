@@ -153,6 +153,14 @@ class ConsultantOption:
     source: str
     #: Rekrutacja u TEGO klienta (źródło A). Dla bazy Nexus zawsze `None`.
     job_title: Optional[str]
+    #: Aktualna stawka kosztowa z aktywnego/kończącego się kontraktu
+    #: TEJ osoby u TEGO klienta. To tylko podpowiedź dla nowej linii
+    #: zamówienia — jej późniejsza edycja nie zapisuje nic na kontrakcie.
+    suggested_rate_cost: Optional[Decimal]
+    #: Co najmniej dwa nieanulowane kontrakty tej osoby u klienta mają różne
+    #: efektywne stawki kosztowe. Front pokazuje wtedy ostrzeżenie zamiast
+    #: udawać, że podpowiedź jest jedyną możliwą wartością.
+    has_different_client_contract_rates: bool
 
     @property
     def source_label(self) -> str:
@@ -167,6 +175,8 @@ def _option(
     lastname: Optional[str],
     source: str,
     job_title: Optional[str] = None,
+    suggested_rate_cost: Optional[Decimal] = None,
+    has_different_client_contract_rates: bool = False,
 ) -> ConsultantOption:
     first = (name or "").strip()
     last = (lastname or "").strip()
@@ -180,7 +190,42 @@ def _option(
         full_name=f"{first} {last}".strip() or f"#{candidate_id}",
         source=source,
         job_title=job_title,
+        suggested_rate_cost=suggested_rate_cost,
+        has_different_client_contract_rates=has_different_client_contract_rates,
     )
+
+
+def _contract_recency_key(contract: Contract) -> tuple[date, int]:
+    """Deterministyczny wybór najnowszego kontraktu w tej samej klasie statusu."""
+    return (contract.start_date or date.min, contract.id)
+
+
+def _rate_suggestion(
+    contracts: list[Contract], *, on: date
+) -> tuple[Optional[Decimal], bool, Optional[int]]:
+    """Podpowiedź kosztu z bieżącego kontraktu + sygnał rozbieżności.
+
+    `active` i `ending` są biznesowo żywe (cron przenosi kontrakt do
+    `ending` już 30 dni przed końcem), więc oba kwalifikują się do
+    podpowiedzi. Stawkę rozwiązujemy z harmonogramu na dzień odczytu, a nie
+    z cache'owanej kolumny `contracts.rate_candidate`, która może być
+    nieaktualna po wejściu w życie zaplanowanego aneksu.
+
+    Ostrzeżenie porównuje wszystkie nieanulowane kontrakty tej osoby u TEGO
+    klienta, także historyczne. Brak stawki nie jest inną stawką; dwa
+    kontrakty z tą samą wartością nie generują ostrzeżenia.
+    """
+    live = [c for c in contracts if c.status in LIVE_CONTRACT_STATUSES]
+    current = max(live, key=_contract_recency_key) if live else None
+    suggested = current.effective_candidate_rate(on) if current is not None else None
+
+    distinct_rates = {
+        Decimal(str(rate)).normalize()
+        for contract in contracts
+        if contract.status != ContractStatus.void
+        and (rate := contract.effective_candidate_rate(on)) is not None
+    }
+    return suggested, len(distinct_rates) > 1, current.id if current else None
 
 
 def _sort_key(option: ConsultantOption) -> tuple[str, str, int]:
@@ -247,37 +292,75 @@ async def list_consultant_options(
     options: list[ConsultantOption] = []
     seen: set[int] = set()
 
-    # Oba zapytania wyciągają KOLUMNY, nie encje: picker potrzebuje czterech
-    # pól, a hydratacja pełnych `Contract` + `Candidate` przez `selectinload`
-    # kosztowała dwa dodatkowe SELECT-y i tysiące obiektów ORM na jedno
-    # otwarcie listy. Przy okazji znika ryzyko `MissingGreenlet` — nie ma tu
-    # żadnej relacji, po którą można sięgnąć leniwie.
+    # Zapytania listy nadal wyciągają KOLUMNY, nie pełne encje: picker
+    # potrzebuje nazwiska i tytułu, a hydratacja wszystkich relacji kontraktu
+    # kosztowałaby tysiące obiektów. Pełne encje pobieramy niżej wyłącznie
+    # dla kontraktów tych kandydatów i tylko z harmonogramem stawki.
 
     # ── A. Kontrakty u TEGO klienta ────────────────────────────────────────
-    client_rows = await db.execute(
-        select(
-            Contract.id,
-            Candidate.id,
-            Candidate.name,
-            Candidate.lastname,
-            Job.title,
-        )
-        # JOIN, nie `candidate_id IS NOT NULL`: umowa osieroconego kandydata
-        # (`ON DELETE SET NULL`) nie ma kogo pokazać na liście.
-        .join(Candidate, Candidate.id == Contract.candidate_id)
-        .outerjoin(Job, Job.id == Contract.job_id)
-        .where(
-            Contract.client_id == client_id,
-            Contract.status.in_(CLIENT_CONTRACT_STATUSES),
-        )
-        # Osoba z dwoma żywymi kontraktami u jednego klienta ma na liście być
-        # RAZ (wymóg „każda osoba widoczna tylko raz"), więc bierzemy jej
-        # bieżące zaangażowanie — kontrakt o najpóźniejszym starcie.
-        .order_by(Contract.start_date.desc().nullslast(), Contract.id.desc())
+    client_rows = list(
+        (
+            await db.execute(
+                select(
+                    Contract.id,
+                    Candidate.id,
+                    Candidate.name,
+                    Candidate.lastname,
+                    Job.title,
+                    Contract.status,
+                    Contract.start_date,
+                )
+                # JOIN, nie `candidate_id IS NOT NULL`: umowa osieroconego
+                # kandydata (`ON DELETE SET NULL`) nie ma kogo pokazać.
+                .join(Candidate, Candidate.id == Contract.candidate_id)
+                .outerjoin(Job, Job.id == Contract.job_id)
+                .where(
+                    Contract.client_id == client_id,
+                    Contract.status.in_(CLIENT_CONTRACT_STATUSES),
+                )
+            )
+        ).all()
     )
-    for contract_id, candidate_id, name, lastname, job_title in client_rows:
-        if candidate_id in seen:
-            continue
+
+    # Historia jest potrzebna WYŁĄCZNIE dla osób, które i tak mają trafić
+    # do źródła A. `selectinload` dociąga autorytatywny harmonogram stawki;
+    # bez niego resolver w async próbowałby lazy-loadu i kończył 500.
+    client_candidate_ids = {row[1] for row in client_rows}
+    contracts_by_candidate: dict[int, list[Contract]] = {}
+    if client_candidate_ids:
+        history_result = await db.execute(
+            select(Contract)
+            .options(selectinload(Contract.candidate_rate_schedule))
+            .where(
+                Contract.client_id == client_id,
+                Contract.candidate_id.in_(client_candidate_ids),
+                Contract.status != ContractStatus.void,
+            )
+        )
+        for contract in history_result.scalars():
+            if contract.candidate_id is not None:
+                contracts_by_candidate.setdefault(contract.candidate_id, []).append(
+                    contract
+                )
+
+    rows_by_candidate: dict[int, list[tuple]] = {}
+    for row in client_rows:
+        rows_by_candidate.setdefault(row[1], []).append(row)
+
+    for candidate_id, rows in rows_by_candidate.items():
+        contracts = contracts_by_candidate.get(candidate_id, [])
+        suggested_rate, has_different_rates, current_contract_id = _rate_suggestion(
+            contracts, on=date.today()
+        )
+
+        # Aktywny/kończący się kontrakt wygrywa z nowszym szkicem. Dopiero
+        # gdy nie ma żywego kontraktu, wybieramy najnowszy draft — zachowuje to
+        # dotychczasową listę, ale nigdy nie podpowiada draftu jako „aktywnego".
+        chosen = next((row for row in rows if row[0] == current_contract_id), None)
+        if chosen is None:
+            chosen = max(rows, key=lambda row: (row[6] or date.min, row[0]))
+        contract_id, _, name, lastname, job_title, _, _ = chosen
+
         seen.add(candidate_id)
         options.append(
             _option(
@@ -287,6 +370,8 @@ async def list_consultant_options(
                 lastname=lastname,
                 source=SOURCE_CLIENT_RECRUITMENT,
                 job_title=job_title,
+                suggested_rate_cost=suggested_rate,
+                has_different_client_contract_rates=has_different_rates,
             )
         )
 
