@@ -23,11 +23,11 @@
     "service_worker": "src/background/service-worker.js",
     "type": "module"
   },
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://api.nexus.dynaminds.pl/*",
-    "https://*.dynaminds.pl/*",
+    "https://nexus.dynaminds.pl/*",
     "http://localhost/*"
   ],
   "content_scripts": [
