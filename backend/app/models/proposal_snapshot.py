@@ -63,6 +63,11 @@ class ProposalSnapshot(Base):
     profile_id: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     candidate_ids: Mapped[Optional[list[int]]] = mapped_column(JSONB, nullable=True)
     breakdowns: Mapped[Optional[list[dict]]] = mapped_column(JSONB, nullable=True)
+    # Liczniki dealbreakerów z generacji ({"over_budget": N, "remote_only": M}).
+    # Budżet oferty działa z automatu jako twardy sufit (decyzja 19.08), a
+    # ukrywanie nigdy nie jest ciche — UI renderuje z tego chip „ukryto N".
+    # NULL = snapshot sprzed 0237 (nieprzefiltrowany).
+    hidden: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # P0-A: True when this ranking was produced with a degraded semantic leg
     # (Qdrant/Voyage down or the job not yet indexed → neutral-semantic

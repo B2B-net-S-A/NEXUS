@@ -1,32 +1,21 @@
 "use client";
 
-import { QueryStateNotice } from "@/components/ds";
-import { RequireRole } from "@/components/RequireRole";
 import { TalentRadarWorkspace } from "@/components/talent-radar/TalentRadarWorkspace";
 
 /**
- * Role lustrzane wobec backendowego `require_candidate_write`
- * (`CANDIDATE_WRITE_ROLES` w `backend/app/api/candidate_access.py`) — świadomie
- * BEZ `head_of_recruitment`. Backend zostaje ostatecznym arbitrem; ta bramka
- * istnieje po to, żeby ktoś bez uprawnień zobaczył zdanie wyjaśniające zamiast
- * pustej listy po 403, bo pustka czyta się jak „nikogo nie ma w bazie".
+ * Dostęp: KAŻDA zalogowana rola (decyzja produktowa Artura 19.08).
+ *
+ * Ta strona CELOWO nie ma żadnej bramki rolowej. Lustrzane miejsca tej
+ * decyzji: backend (oba endpointy radaru na `CurrentUser`), middleware
+ * (brak wpisu `/talent-radar` = sam login wymagany, deny-by-default),
+ * sidebar (pozycja bez `roles`) i `nav.talent_radar = ALL_ROLES`
+ * w `lib/capabilities.ts`.
+ *
+ * Historia: do 19.08 stał tu `RequireRole` z listą ról require_candidate_write
+ * — PIĄTA kopia tej listy, która przeżyła otwarcie radaru w #1212 i dalej
+ * pokazywała „Brak uprawnień" rolom spoza starej piątki. Nie przywracaj
+ * bramki tutaj bez zmiany wszystkich luster naraz.
  */
 export default function TalentRadarPage() {
-  return (
-    <RequireRole
-      roles={["admin", "delivery_lead", "tac", "recruiter", "sourcer"]}
-      fallback={
-        // `RequireRole` domyślnie renderuje `null`, czyli DOSŁOWNIE pusty DOM —
-        // a docstring wyżej obiecuje zdanie wyjaśniające. Pusta strona czyta się
-        // jak awaria albo jak „nic tu nie ma", nie jak „nie masz uprawnień",
-        // i to ta sama pomyłka co renderowanie awarii jako pustego stanu.
-        <QueryStateNotice
-          state="forbidden"
-          description="Talent Radar przeszukuje całą bazę kandydatów, więc wymaga uprawnień do pracy na kandydatach. Poproś administratora o dostęp."
-        />
-      }
-    >
-      <TalentRadarWorkspace />
-    </RequireRole>
-  );
+  return <TalentRadarWorkspace />;
 }

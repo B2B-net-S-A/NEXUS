@@ -90,3 +90,49 @@ def location_matches(requested_tokens: set[str], candidate_location: object) -> 
     if not cand_tokens:
         return False
     return tokens_overlap(requested_tokens, cand_tokens)
+
+
+# ── Źródła lokalizacji kandydata (switch „skąd brać miasto", runda 3) ────────
+#
+# CV-side: kolumny `location` (blob/tekst) + `city` (backfill Fali 3, ~81%).
+# Notes-side: fakty potwierdzone w rozmowach — `preferences.locations[]`
+# oraz `relocation.targets[]` (te drugie tylko, gdy `willing` nie jest False:
+# kierunek relokacji, na który kandydat się NIE godzi, nie jest jego
+# lokalizacją). Dostęp przez jawne isinstance — `cv_extracted_data` na prodzie
+# bywa listą (repo-wide guard-test zakazuje idiomu `or {}`).
+
+LOCATION_SOURCES = ("all", "cv", "notes")
+
+
+def _notes_insights_dict(candidate) -> dict | None:
+    data = getattr(candidate, "cv_extracted_data", None)
+    if not isinstance(data, dict):
+        return None
+    ins = data.get("_notes_insights")
+    return ins if isinstance(ins, dict) else None
+
+
+def candidate_location_tokens(candidate, source: str = "all") -> set[str]:
+    """Tokeny miejsc kandydata z wybranego źródła (``all``/``cv``/``notes``)."""
+    tokens: set[str] = set()
+    if source in ("all", "cv"):
+        tokens |= location_tokens(getattr(candidate, "location", None))
+        tokens |= location_tokens(getattr(candidate, "city", None))
+    if source in ("all", "notes"):
+        ins = _notes_insights_dict(candidate)
+        if ins is not None:
+            prefs = ins.get("preferences")
+            if isinstance(prefs, dict):
+                locs = prefs.get("locations")
+                if isinstance(locs, list):
+                    for item in locs:
+                        if isinstance(item, str):
+                            tokens |= location_tokens(item)
+            reloc = ins.get("relocation")
+            if isinstance(reloc, dict) and reloc.get("willing") is not False:
+                targets = reloc.get("targets")
+                if isinstance(targets, list):
+                    for item in targets:
+                        if isinstance(item, str):
+                            tokens |= location_tokens(item)
+    return tokens

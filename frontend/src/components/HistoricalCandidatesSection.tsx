@@ -28,6 +28,15 @@ import {
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
 import { useToast } from "@/components/Toast";
 import { assignErrorMessage } from "@/lib/assign-error";
+import {
+  httpStatusFromError,
+  isBlockingViewState,
+  resolveViewState,
+} from "@/lib/view-state";
+import {
+  QueryStateNotice,
+  type BlockingViewState,
+} from "@/components/ds/QueryStateNotice";
 
 interface Props {
   jobId: number;
@@ -393,15 +402,42 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
     onError: (error: unknown) => showError(assignErrorMessage(error)),
   });
 
-  // Quietly hide the section when nothing useful is available — we never want
-  // to scream "no data" when the real answer is "we haven't run this before".
-  const hasCandidates = (query.data?.candidates.length ?? 0) > 0;
-  if (query.isError) return null;
-  if (query.isFetched && !hasCandidates) return null;
-
   const candidates = query.data?.candidates ?? [];
   const similarJobs = query.data?.similar_jobs ?? [];
   const tierUsed = query.data?.tier_used ?? "primary";
+
+  // Do sierpnia 2026 stały tu DWA `return null`: jeden na `query.isError`, drugi
+  // na pusty wynik. Cała sekcja znikała wtedy z profilu rekrutacji — nie „pusta
+  // lista", nie komunikat, po prostu jej nie było. Rekruter zgłaszał „zniknęła
+  // mi sekcja", a system nie miał na to żadnej odpowiedzi. Do tego z
+  // powiadomienia „Podobny request — gotowi kandydaci" prowadzi deep link
+  // `?tab=similar` do kotwicy, której w DOM-ie nie ma.
+  //
+  // Kolejność kanoniczna (`lib/view-state.ts`): ładowanie → awaria → pusto →
+  // dane. Pusty stan wisi na sukcesie (`isPending`, nie `isLoading`) —
+  // w przerwie między ponowieniami `isLoading` jest już `false`, a `candidates`
+  // dalej puste, więc na `isLoading` twierdzilibyśmy „brak kandydatów", zanim
+  // cokolwiek wiadomo.
+  const viewState = resolveViewState({
+    isLoading: query.isPending,
+    isError: query.isError,
+    error: query.error,
+    isEmpty: candidates.length === 0,
+  });
+  const failed = isBlockingViewState(viewState);
+
+  // Bramka dopuszczalności (backend, `candidates_from_similar_jobs`) wycina
+  // z tej sekcji jej NAJBOGATSZĄ populację: ludzi rozważanych już u TEGO
+  // klienta, czyli dokładnie tych, u których siedzą aktywne blacklisty, NDA,
+  // konflikty konkurencyjne i weta hiring managera. Bez rozgałęzienia poniżej
+  // zdanie „Brak kandydatów w historii podobnych projektów" stałoby się
+  // nieprawdą właśnie u klientów z najgęstszą historią — czyli tam, gdzie ta
+  // sekcja jest najbardziej potrzebna.
+  //
+  // LICZBY świadomie nie pokazujemy. „Ukryto 3" byłoby wyrocznią na NDA:
+  // powiedziałoby rekruterowi, ilu ludzi u tego klienta istnieje, a nie wolno
+  // mu ich zobaczyć. Renderujemy sam FAKT blokady, nie jej rozmiar.
+  const hiddenIneligible = query.data?.meta?.hidden_ineligible ?? 0;
 
   // Faza 3: kandydaci znani temu klientowi na górze — to najszybsza ścieżka.
   const sameClient = candidates.filter((c) => c.same_client);
@@ -473,22 +509,43 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
           Kandydaci z podobnych projektów
         </h3>
         <span className="text-xs text-slate-500">
-          {query.isLoading
+          {/* Liczniki przy awarii byłyby zerami z inicjalizacji, a nie
+              wynikiem szukania — nagłówek mówi wtedy wprost, że nie wiemy. */}
+          {viewState === "loading"
             ? "ładowanie…"
-            : `${candidates.length} kandydatów z ${similarJobs.length} podobnych projektów${
-                tierUsed === "extended" ? " (Tier A + B)" : ""
-              }`}
+            : failed
+              ? "nie udało się pobrać"
+              : `${candidates.length} kandydatów z ${similarJobs.length} podobnych projektów${
+                  tierUsed === "extended" ? " (Tier A + B)" : ""
+                }`}
         </span>
         <span className="ml-auto text-xs text-indigo-600 hover:underline">
           {expanded ? "Zwiń" : "Rozwiń"}
         </span>
       </button>
 
-      {!expanded ? null : query.isLoading ? (
+      {!expanded ? null : viewState === "loading" ? (
         <p className="text-sm text-slate-500">Szukam kandydatów z pokrewnych rekrutacji…</p>
-      ) : candidates.length === 0 ? (
+      ) : failed ? (
+        <QueryStateNotice
+          state={viewState as BlockingViewState}
+          className="bg-white"
+          description={
+            viewState === "forbidden"
+              ? "Twoja rola nie ma dostępu do historii podobnych projektów. Historia NIE jest pusta — poproś administratora o uprawnienia."
+              : httpStatusFromError(query.error) === undefined
+                ? "Nie udało się połączyć z serwerem. Sprawdź internet lub VPN i spróbuj ponownie."
+                : undefined
+          }
+          onRetry={
+            viewState === "error" ? () => void query.refetch() : undefined
+          }
+        />
+      ) : viewState === "empty" ? (
         <p className="text-sm text-slate-500">
-          Brak kandydatów w historii podobnych projektów.
+          {hiddenIneligible > 0
+            ? "W historii podobnych projektów są kandydaci, ale wszyscy są zablokowani dla tego klienta (blacklista, NDA, konflikt konkurencyjny albo weto hiring managera)."
+            : "Brak kandydatów w historii podobnych projektów."}
         </p>
       ) : (
         <>

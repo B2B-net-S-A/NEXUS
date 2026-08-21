@@ -19,11 +19,17 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showError, showSuccess }),
 }));
 
+// `getUserRoles` MUSI być w tej fabryce: bramka stawki idzie przez
+// `useCapability` → `hasCapability` (realny `@/lib/capabilities`) →
+// `getUserRoles` z TEGO mocka. Bez niego leci TypeError w renderze i pada
+// CAŁY plik — objaw wygląda jak zepsuta bramka, przyczyną jest setup testu.
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (state: { user: { role: string; roles: string[] } }) => unknown,
   ) => selector({ user: { role: auth.role, roles: [auth.role] } }),
   hasRole: (_user: unknown, ...roles: string[]) => roles.includes(auth.role),
+  getUserRoles: (user: { role: string; roles?: string[] } | null) =>
+    user ? Array.from(new Set([user.role, ...(user.roles ?? [])])) : [],
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -494,5 +500,27 @@ describe("CandidateProfileFactsBar", () => {
     expect(await screen.findByText("Angielski · C1")).toBeInTheDocument();
     expect(screen.queryByText("Stawka B2B")).not.toBeInTheDocument();
     expect(mockedFactsApi.getProfileRate).not.toHaveBeenCalled();
+  });
+
+  // Fakty globalne stoją na _INTERNAL_OPERATIONAL_ROLES, a nie na węższym
+  // RECRUITMENT_RATE_EDIT_ROLES (bramka stawki w pipelinie, bez HoR
+  // i sourcera). Ten przypadek pilnuje, żeby nikt nie „poprawił" mapowania
+  // na tamten zbiór — HoR straciłby uprawnienie, które backend mu jawnie daje.
+  it("pokazuje stawkę HoR-owi (fakty globalne, nie RECRUITMENT_RATE_EDIT_ROLES)", async () => {
+    auth.role = "head_of_recruitment";
+    renderBar();
+
+    expect(await screen.findByText("Stawka B2B")).toBeInTheDocument();
+    expect(mockedFactsApi.getProfileRate).toHaveBeenCalled();
+  });
+
+  // Finance ma tier operacyjny od 19.08 — backend odpowiada 200, front chował.
+  // Ten przypadek jest CZERWONY przed zmianą.
+  it("pokazuje stawkę finansom (tier operacyjny 19.08)", async () => {
+    auth.role = "finance";
+    renderBar();
+
+    expect(await screen.findByText("Stawka B2B")).toBeInTheDocument();
+    expect(mockedFactsApi.getProfileRate).toHaveBeenCalled();
   });
 });

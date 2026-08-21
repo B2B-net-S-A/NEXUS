@@ -15,6 +15,15 @@ import {
 } from "lucide-react";
 import { marketplaceApi, MarketplaceCandidate } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  httpStatusFromError,
+  isBlockingViewState,
+  resolveViewState,
+} from "@/lib/view-state";
+import {
+  QueryStateNotice,
+  type BlockingViewState,
+} from "@/components/ds/QueryStateNotice";
 import { MarketplaceStatusBadge } from "./MarketplaceStatusBadge";
 import { CandidateMatchesExpansion } from "./CandidateMatchesExpansion";
 
@@ -49,7 +58,7 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
   const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["marketplace-candidates", { page, pageSize, q, sourceEvent }],
     queryFn: () =>
       marketplaceApi
@@ -73,6 +82,18 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+  // Przy awarii ten ekran mówił „Brak kandydatów na targu" i DODATKOWO
+  // instruował, jak ich dodać — czyli namawiał do naprawiania stanu, który jest
+  // w porządku (audyt F-20). Pusty stan wisi na sukcesie: `isPending`, nie
+  // `isLoading`, bo między ponowieniami `isLoading` jest już `false` przy
+  // wciąż pustych `items`.
+  const viewState = resolveViewState({
+    isLoading: isPending,
+    isError,
+    error,
+    isEmpty: items.length === 0,
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
@@ -90,16 +111,30 @@ export function MarketplaceTable({ sourceEvent, emptyHint }: MarketplaceTablePro
           />
         </div>
         <div className="text-xs text-muted-foreground">
-          Razem na targu: <strong>{total}</strong>
+          {/* Bez odpowiedzi `total` to zero z inicjalizacji, nie stan targu. */}
+          Razem na targu:{" "}
+          <strong>{isBlockingViewState(viewState) ? "—" : total}</strong>
         </div>
       </div>
 
-      {isLoading ? (
+      {viewState === "loading" ? (
         <div className="flex items-center justify-center py-20 text-muted-foreground gap-2">
           <Loader2 className="w-5 h-5 animate-spin" />
           Ładuję kandydatów…
         </div>
-      ) : items.length === 0 ? (
+      ) : isBlockingViewState(viewState) ? (
+        <QueryStateNotice
+          state={viewState as BlockingViewState}
+          description={
+            viewState === "forbidden"
+              ? "Twoja rola nie ma dostępu do targu kandydatów. Targ NIE jest pusty — poproś administratora o uprawnienia."
+              : httpStatusFromError(error) === undefined
+                ? "Nie udało się połączyć z serwerem. Sprawdź internet lub VPN i spróbuj ponownie."
+                : undefined
+          }
+          onRetry={viewState === "error" ? () => void refetch() : undefined}
+        />
+      ) : viewState === "empty" ? (
         <div className="text-center py-16 bg-muted dark:bg-card/40 rounded-2xl">
           <Store className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
           <h3 className="text-lg font-semibold text-muted-foreground mb-1">

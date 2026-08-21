@@ -13,6 +13,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 
 import { StatCard, StatCardGrid } from "@/components/ds"
+import { useCapability } from "@/hooks/useCapability"
 import { cn } from "@/lib/utils"
 import {
   getRecruitmentStats,
@@ -20,7 +21,7 @@ import {
   type RecruitmentStatsKpis,
 } from "@/lib/dashboard-v2-api"
 import type { DashboardPeriod } from "@/lib/dashboard-presets"
-import { hasRole, useAuthStore } from "@/store/auth"
+import { useAuthStore } from "@/store/auth"
 
 import { RecruitmentCompetitions } from "./RecruitmentCompetitions"
 import { RecruitmentLinkedInPanel } from "./RecruitmentLinkedInPanel"
@@ -30,9 +31,11 @@ import { StatsBoundary, type StatsBoundaryState } from "./StatsBoundary"
 
 // Sekcja „Statystyki rekrutacji" — wspólna dla WSZYSTKICH presetów
 // /dashboard (decyzja właściciela 2026-08-07: każda rola operacyjna widzi
-// wyniki całego zespołu, jak w InfraReporterze). Finance i legacy `user`
-// nie montują sekcji (backend i tak odpowiada 403). Okres sekcji jest
-// NIEZALEŻNY od okresu presetu — własny selektor, default MIESIĄC.
+// wyniki całego zespołu, jak w InfraReporterze). Legacy viewer `user` nie
+// montuje sekcji; `finance` ma tier operacyjny od 19.08 i backendowy
+// OperationalUser odpowiada mu 200 — bramka węższa od API chowałaby dane,
+// do których użytkownik ma prawo. Okres sekcji jest NIEZALEŻNY od okresu
+// presetu — własny selektor, default MIESIĄC.
 
 const PERIODS: { value: DashboardPeriod; label: string }[] = [
   { value: "day", label: "Dziś" },
@@ -85,15 +88,9 @@ function boundaryState(
 
 export function RecruitmentStatsSection({ className }: { className?: string }) {
   const user = useAuthStore((s) => s.user)
-  const canView = hasRole(
-    user,
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "tac",
-    "recruiter",
-    "sourcer",
-  )
+  // GET /api/dashboard/v2/recruitment-stats → OperationalUser. Ręczna lista
+  // gubiła tu `finance`; rejestr trzyma zbiór razem z nazwą guardu backendu.
+  const canView = useCapability("dashboard.recruitment_stats.view")
 
   // Domyślnie miesiąc (decyzja właściciela) — niezależnie od `?period=` strony.
   const [period, setPeriod] = useState<DashboardPeriod>("month")

@@ -99,13 +99,23 @@ export function FinanceResultsTab() {
         }}
       />
 
+      {/* Kolejność gałęzi jest istotna: awaria → „jeszcze nie wiem" → pustka →
+          dane. Wcześniej warunek pustki brzmiał `periods.length === 0 &&
+          !isLoading`, więc stan „lista miesięcy jeszcze się wczytuje" spadał do
+          gałęzi z danymi i rysował KOMPLETNY moduł na pustce: trzy kafle
+          z „—" i pusty selektor miesiąca. Wyglądało to jak zaimportowany
+          miesiąc bez ani jednej złotówki, a nie jak „nic tu jeszcze nie ma". */}
       {periodsQuery.isError ? (
         <QueryStateNotice
           state="error"
           description="Nie udało się wczytać listy miesięcy."
           onRetry={() => periodsQuery.refetch()}
         />
-      ) : periods.length === 0 && !periodsQuery.isLoading ? (
+      ) : !periodsQuery.isSuccess ? (
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          Ładowanie miesięcy…
+        </div>
+      ) : periods.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           Nie zaimportowano jeszcze żadnego miesiąca. Wgraj plik Excel powyżej.
         </div>

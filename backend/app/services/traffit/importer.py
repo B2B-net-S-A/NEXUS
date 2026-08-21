@@ -437,7 +437,19 @@ _UPSERT_CANDIDATE = text(
         email             = COALESCE(EXCLUDED.email, candidates.email),
         phone             = COALESCE(EXCLUDED.phone, candidates.phone),
         linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
-        status            = EXCLUDED.status,
+        -- Blacklista jest LEPKA. `EXCLUDED.status` niesie to, co przysłał
+        -- Traffit, a tam blacklisty nie ma w żadnym polu: jest wklejona
+        -- w imię. Bez tego warunku każdy, kogo admin oznaczył ręcznie
+        -- w Nexusie, wracałby na `active` przy najbliższym syncu — czyli
+        -- cichy powrót do proponowania osoby, której proponować nie wolno.
+        -- Zdjęcie blacklisty jest świadomą decyzją człowieka i musi się
+        -- odbyć w Nexusie, a nie przez brak markera w cudzym systemie.
+        status            = CASE
+                              WHEN candidates.status
+                                   = CAST('blacklisted' AS candidatestatus)
+                              THEN candidates.status
+                              ELSE EXCLUDED.status
+                            END,
         profile_about     = COALESCE(
             EXCLUDED.profile_about,
             candidates.profile_about

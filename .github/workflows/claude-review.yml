@@ -46,28 +46,50 @@ jobs:
             with a short summary of your overall verdict.
 
             Work within a turn budget — a review that never posts is worth nothing:
-            - Fetch the diff ONCE with `gh pr diff` and review from it. Do not use
+            - Start with `gh pr diff --name-only` and decide the scope from the file
+              list BEFORE you pull the patch.
+            - Then fetch the patch with `gh pr diff`. Do not use
               `git diff origin/main...HEAD`; the checkout is shallow (fetch-depth 1)
-              and it will fail.
-            - Open files with Read only where the diff genuinely lacks the context
-              needed to confirm a suspicion. Do not read every changed file.
+              and it will fail. If the output is too large and lands in a file, read
+              that file with Read in chunks (offset/limit) — do NOT re-run
+              `gh pr diff`, it returns the same bytes. Never pipe `gh pr diff`
+              through head/sed/grep: those tools are NOT allowed here and every
+              attempt is a wasted turn (4 such denials in PR #1218).
             - On a large diff, prioritise: backend logic, auth/permissions, DB
               migrations, and anything touching candidate data. Skim lockfiles,
-              snapshots, generated output and pure-formatting hunks.
+              snapshots, generated output and pure-formatting hunks. Treat test
+              files as EVIDENCE for findings you already have, not as material to
+              review — in this repo they are routinely half the diff (51.5% of the
+              characters in PR #1218).
+            - Open files with Read only where the diff genuinely lacks the context
+              needed to confirm a suspicion. Do not read every changed file.
+            - As soon as you finish reading the diff, and BEFORE you open a single
+              file, post a preliminary verdict with `gh pr comment`: what you already
+              have and what you have not touched yet. This is NOT optional. Refine it
+              later if the budget allows.
             - Each inline comment costs a turn. Post at most the 10 most severe
               findings inline; fold the rest into the summary.
-            - Post the summary verdict while you still have budget left. If you are
-              running out of turns, post what you have — a partial review beats a
-              failed job with no output at all.
+            - If you are running out of turns, post what you have and name the files
+              you never got to. A partial review beats a failed job with no output.
           # Turn history: 5 was razor-thin (error_max_turns on a 3-line diff,
           # dynaminds-elevate PR #122, run 29494194302) -> 15. But 15 is BELOW the
           # floor of a normal review: dynaminds-elevate at --max-turns 45 spends
           # 15-23 turns on ordinary PRs (runs 30263361383, 30260709398, 30262668831),
           # so on 2026-07-27 every Nexus run was dying at turn 16 regardless of PR
           # size — zero inline comments, no verdict (e.g. PR #919, run 30265654190).
-          # 50 gives ~2x headroom over the observed 23-turn ceiling and covers the
-          # bigger diffs this monorepo produces. Elevate proved 30 was still too low.
+          # 50 gave ~2x headroom over that 23-turn ceiling and Elevate proved 30 was
+          # still too low — but 50 only held for ordinary PRs. It kept dying on the
+          # >=25-file class (~10% of traffic): runs 32384345811, 32140289551 and
+          # 31843049474 all ended at num_turns 51 / error_max_turns, and PR #1218
+          # (75 files) burned $2.24 to produce literally nothing ("No buffered
+          # inline comments"). A 64-file PR finished in 42 turns, so the job IS
+          # doable inside a budget — what was missing is headroom, not an order of
+          # magnitude. The actual fix is the forced preliminary verdict in the prompt
+          # above: the model has no turn counter, so "post while you still have
+          # budget" was never executable. 80 is the safety margin (~1.9x the measured
+          # 42-turn success, the way 50 was ~2.2x the earlier 23-turn ceiling) and is
+          # invisible to the 90% of PRs that spend 4-13 turns.
           claude_args: |
             --model claude-sonnet-4-6
-            --max-turns 50
+            --max-turns 80
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"

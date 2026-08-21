@@ -1,7 +1,9 @@
 # Edycja zamówień Draft + PDF · moduł Finanse — raport z wdrożenia
 
-> **Status:** scalone jako [#1161](https://github.com/artur-t-96/Nexus/pull/1161) i wdrożone na
-> produkcję 2026-08-14 (commit `f1c7e5f`). `/api/health/deep` zielony, obie nowe tabele obecne.
+> **Status:** scalone jako [#1161](https://github.com/artur-t-96/Nexus/pull/1161), raport
+> zaktualizowany w [#1166](https://github.com/artur-t-96/Nexus/pull/1166), dwa defekty UI naprawione
+> w [#1171](https://github.com/artur-t-96/Nexus/pull/1171). Produkcja: `00c5104`, `/api/health/deep`
+> zielony, obie nowe tabele obecne, interfejs przeklikany.
 
 Dwa tickety, jeden PR, dwa rozłączne obszary kodu. Migracja `0228` obsługuje oba,
 bo rozbicie na dwie rewizje dałoby wyłącznie drugą okazję do rozjazdu głów alembica.
@@ -234,15 +236,58 @@ po nieudanym imporcie, próba blokady przy nierozstrzygalnym bindzie).
 commita**: pada tam identycznie, jest w `--ignore` w `ci.yml` i w zadeklarowanej liście znanych
 awarii w `test_ci_coverage_contract.py`. Nie jest efektem tych zmian.
 
-### Czego NIE zweryfikowano
+### Smoke UI na produkcji — wykonany, znalazł dwa błędy
 
-**Smoke UI przez Chrome nie został wykonany.** Ani wbudowana przeglądarka, ani lokalny Chrome nie
-miały aktywnej sesji — oba przekierowały na `/login`; zalogowanie wymaga SSO Microsoft, czego
-automatyzacja nie robi. Zweryfikowana została wyłącznie **bramka trasy**: `/finance` przekierowuje na
-`/login?next=%2Ffinance`, czyli trasa istnieje i jest chroniona deny-by-default (to nie 404).
+Pierwotnie ta sekcja mówiła „nie wykonano" (brak sesji SSO dla automatyzacji). Smoke odbył się
+później, na zalogowanej sesji, i **znalazł dwa defekty, których nie złapał żaden z 1193 testów
+frontendu ani zielone CI** — naprawione w [#1171](https://github.com/artur-t-96/Nexus/pull/1171).
 
-Nieobejrzane na oczy: tabela wyników, trzy zakładki, edycja dwuklikiem, dialog uzupełniania draftu
-i sekcja „Dokumenty zamówień" z kolumną Typ. Warto przeklikać ręcznie.
+Oba były tej samej natury: **stan NIEWIEDZY renderował się jako konkretne, fałszywe twierdzenie.**
+
+1. **Admin widział „Brak uprawnień" na `/finance`.** `RequireRole` czytał wyłącznie `user`, a ten
+   jest `null` do czasu `hydrate()` (tożsamość leży w localStorage, SSR jej nie zna). Dla wszystkich
+   dotychczasowych wywołań z domyślnym `fallback={null}` to okno było **niewidoczne** — wystarczyło
+   podać własny komunikat, żeby zaczęło twierdzić, że użytkownik nie ma uprawnień. Efekt: admin
+   czytał „Poproś administratora o dostęp", będąc administratorem. Komponent sprawdza teraz
+   `hydrated` i dopóki tożsamość jest nieznana, nie orzeka w żadną stronę.
+
+2. **Pusty moduł udawał zaimportowany miesiąc.** Warunek pustki brzmiał
+   `periods.length === 0 && !isLoading`, więc stan „lista miesięcy się wczytuje" spadał do gałęzi
+   z danymi i rysował trzy kafle z „—" oraz pusty selektor miesiąca. Kolejność gałęzi to teraz
+   `awaria → nie wiem → pustka → dane`.
+
+**Wniosek, który wykracza poza ten PR.** Ten sam dokument wyżej opisuje regułę „awaria nie może
+renderować się jak pustka" i chwali się jej pilnowaniem w cudzym kodzie. Lustrzany błąd —
+**niewiedza renderująca się jako odmowa i jako dane** — został tu popełniony w dwóch miejscach naraz
+i przeżył pełny zestaw testów, bo żaden test nie odtwarzał okna przed hydracją z jawnym fallbackiem.
+Testy sprawdzały `hasRole` (poprawne) i bramki backendu (poprawne); defekt siedział w szczelinie
+między nimi. Dopisanie własnego `fallback` do `RequireRole` jest odtąd zmianą, która wymaga pytania
+„co ten komunikat mówi, dopóki nic nie wiemy?".
+
+Oba testy sprawdzono jako **nośne**: po tymczasowym cofnięciu poprawek padają 3/6 i 1/4, a asercje
+pozytywne (po hydracji, z danymi) nadal przechodzą — poprawka nie osłabiła bramki.
+
+**Uwaga metodyczna:** pomiary czasu okna błędu przez `javascript_tool` były **niewiarygodne** —
+kontekst wykonania odpadał po nawigacji i raportował brak tekstu, który zrzut ekranu wyraźnie
+pokazywał. Diagnoza opiera się wyłącznie na zrzutach i czytaniu kodu. Gdybym uwierzył tamtym
+liczbom, wyciągnąłbym błędne wnioski o przyczynie.
+
+### Co potwierdzono klikaniem (produkcja, `00c5104`)
+
+- Trzy zakładki ze stanem w URL (`?view=archive`, `?view=md`); `MdImportWorkspace` z #1162 bez zmian.
+- Uczciwy pusty stan modułu przy zerze importów, także na **zimnym wejściu** (1 s i 5 s po nawigacji).
+- „Uzupełnij zamówienie" **wyłącznie** na draftach — kontraktor bez zamówień go nie pokazuje.
+- Dialog: numer, okres, obie stawki (widoczne dla admina), opis, sekcja PDF z podmianą.
+- **Podgląd PDF otwiera się inline** w nowej karcie (blob z prawdziwym tytułem dokumentu) — wymóg
+  „widoczny/dostępny do podglądu" spełniony, nie tylko pobranie.
+- Sekcja „Dokumenty zamówień" w Dokumentach kontraktu: kolumna **Typ = „Zamówienie"** i e-mail
+  wgrywającego. W trakcie weryfikacji widoczny był plik wgrany przez realną użytkowniczkę
+  (`anna.korycka@…`) — czyli nowa ścieżka jest już w użyciu produkcyjnym.
+- `can_manage_finance` przychodzi z serwera `true` dla admina na 10 klientach z draftami.
+
+Nadal **nieprzetestowany**: sam import arkusza i edycja komórek dwuklikiem — wymagałyby wgrania
+danych testowych na produkcję, a moduł nie ma endpointu usuwania importu (tylko archiwizację), więc
+taki wiersz zostałby tam na stałe. Do sprawdzenia pierwszym prawdziwym arkuszem.
 
 ### Testy, które zmieniły znaczenie (świadomie)
 
@@ -290,7 +335,9 @@ jednym PR-ze właściwym narzędziem jest `scripts/merge-train.sh`, nie ręczne 
 1. ~~`/api/health/deep` musi być zielony~~ — **zweryfikowane**, `finance_import_runs`
    i `finance_monthly_results` obecne na produkcji. To był jedyny realny dowód, że migracja utworzyła
    tabele (prodowy alembic bywa osierocony, stąd lustro DDL w `entrypoint.sh`).
-2. **Ręczny smoke UI** — patrz „Czego NIE zweryfikowano" wyżej.
+2. ~~Ręczny smoke UI~~ — **wykonany**, znalazł dwa defekty (naprawione w #1171). Patrz sekcja
+   „Smoke UI na produkcji". Zostaje do sprawdzenia pierwszym prawdziwym arkuszem: import i edycja
+   komórek dwuklikiem.
 3. Archiwalne pliki xlsx lądują na wolumenie lokalnym, który — jak reszta uploadów w NEXUSIE — **nie
    ma kopii off-site**. Archiwum to ślad audytowy, nie backup.
 4. Do rozważenia w osobnym ticketcie: zunifikowanie `_can_manage_order_finance` (ten PR) z

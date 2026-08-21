@@ -204,6 +204,7 @@ export function MdImportWorkspace() {
                   <th className="px-5 py-2 font-medium">Wiersz</th>
                   <th className="px-5 py-2 font-medium">Konsultant</th>
                   <th className="px-5 py-2 font-medium text-right">MD</th>
+                  <th className="px-5 py-2 font-medium text-right">Faktura</th>
                   <th className="px-5 py-2 font-medium">Status</th>
                   <th className="px-5 py-2 font-medium">Zamówienie</th>
                 </tr>
@@ -303,11 +304,49 @@ function ImportRowLine({
   const style = STATUS_STYLE[row.status];
   const Icon = style.icon;
 
+  // Wiersz jest „zgubiony" dopiero wtedy, gdy NIC z niego nie zeszło z żadnego
+  // budżetu — ani MD po nazwisku, ani kwota po numerze z „Uwag".
+  //
+  // Dwa rozróżnienia, bez których czerwień kłamie:
+  //  * `cost_status === null` znaczy „wiersz nie dotyczy zamówień kosztowych",
+  //    a nie „nie udało się dopasować" — inaczej KAŻDY wiersz zwykłego arkusza
+  //    MD zapalałby się na czerwono,
+  //  * wiersz rozliczony kosztowo, ale bez linii MD, jest w porządku — u
+  //    Polkomtela to normalny przypadek.
+  const mdSettled = row.status === "applied";
+  const mdPending = row.status === "needs_assignment";
+  const costSettled = row.cost_status === "applied";
+  const costFailed = row.cost_status != null && row.cost_status !== "applied";
+  const unmatchedRow = !mdSettled && !mdPending && !costSettled;
+
   return (
     <tr>
       <td className="px-5 py-2 tabular-nums text-muted-foreground">{row.row_number}</td>
-      <td className="px-5 py-2 font-medium text-foreground">{row.consultant_name}</td>
+      {/* Czerwone nazwisko = wiersz, który NIE trafił na żadne zamówienie —
+          ani po nazwisku (MD), ani po numerze z „Uwag" (kwota). To jedyny
+          sygnał, że zaraportowana praca nie zeszła z niczyjego budżetu. */}
+      <td
+        className={cn(
+          "px-5 py-2 font-medium",
+          unmatchedRow ? "text-destructive" : "text-foreground",
+        )}
+      >
+        {row.consultant_name}
+        {row.order_number_hint ? (
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            nr {row.order_number_hint}
+          </span>
+        ) : null}
+      </td>
       <td className="px-5 py-2 text-right tabular-nums">{formatMd(row.md_reported)}</td>
+      <td className="px-5 py-2 text-right tabular-nums">
+        {row.invoice_amount == null
+          ? "—"
+          : row.invoice_amount.toLocaleString("pl-PL", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+      </td>
       <td className="px-5 py-2">
         <span
           className={cn(
@@ -347,6 +386,12 @@ function ImportRowLine({
         ) : row.matched ? (
           <span className="text-xs text-muted-foreground">
             {row.matched.client_name} · nr {row.matched.order_number}
+          </span>
+        ) : costFailed ? (
+          <span className="text-xs text-destructive">{row.cost_status_label}</span>
+        ) : costSettled ? (
+          <span className="text-xs text-muted-foreground">
+            Rozliczono kwotowo · nr {row.order_number_hint}
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">

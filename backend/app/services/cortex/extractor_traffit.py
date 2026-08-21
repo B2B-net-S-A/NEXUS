@@ -44,6 +44,16 @@ _RAW_SPLIT_RE = re.compile(r"[,;\n]+")
 _COMMIT_EVERY = 100
 _LOG_EVERY = 500
 
+# Ile ID padłych wierszy zmieści się w statystykach runu. Lustro
+# ``PhaseProgress._MAX_ERROR_REFS`` (``app/services/traffit/importer.py``) —
+# świadomie skopiowana liczba, nie import: ekstraktor Cortexa nie ma dziś
+# żadnej krawędzi do importera Traffita i nie warto jej zakładać dla stałej.
+# Powyżej tego progu to nie jest zatruty wiersz, tylko awaria systemowa, więc
+# nadmiar ma zostać NIEprzypisany (i dalej mrozić watermark). Cap chroni też
+# JSONB ``cortex_extraction_runs.stats`` — pełny reconcile po awarii taksonomii
+# wpisałby tam 49k identyfikatorów.
+_MAX_ERROR_IDS = 500
+
 
 def split_traffit_technologie(value: str) -> list[str]:
     """Podziel surowe pole na tokeny (oryginalna pisownia zachowana)."""
@@ -93,6 +103,11 @@ async def run_traffit_backfill(
         "facts_upserted": 0,
         "unmatched_tokens": 0,
         "errors": 0,
+        # ID wierszy, które padły — bez nich faza syncu ma tylko anonimowe
+        # "errors: 3" i każdy taki błąd jest dla kwarantanny NIEprzypisany,
+        # czyli mrozi watermark bezterminowo. Patrz `_attributed_progress`
+        # w `app/tasks/traffit_sync.py`.
+        "error_ids": [],
     }
     if progress is not None:
         progress.update(stats)
@@ -123,6 +138,11 @@ async def run_traffit_backfill(
             stats["unmatched_tokens"] += fact_stats.unmatched
         except Exception:  # noqa: BLE001 — pojedynczy kandydat nie ubija runu
             stats["errors"] += 1
+            # Zatrzymaj ID: faza syncu robi z tego błąd PRZYPISANY do wiersza,
+            # więc kwarantanna może zaparkować trwale zepsutego kandydata
+            # zamiast mrozić watermark wszystkim pozostałym.
+            if len(stats["error_ids"]) < _MAX_ERROR_IDS:
+                stats["error_ids"].append(candidate_id)
             logger.exception("cortex traffit backfill failed for id=%s", candidate_id)
 
         stats["processed"] += 1

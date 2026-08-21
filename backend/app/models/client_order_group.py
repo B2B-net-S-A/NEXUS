@@ -17,15 +17,18 @@ o istnieniu tego modelu.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     func,
@@ -37,6 +40,22 @@ from app.core.database import Base
 from app.models.base import TimestampMixin
 
 
+GROUP_STATUS_ACTIVE = "active"
+GROUP_STATUS_COMPLETED = "completed"
+GROUP_STATUS_EXHAUSTED = "exhausted"
+GROUP_STATUSES: tuple[str, ...] = (
+    GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_COMPLETED,
+    GROUP_STATUS_EXHAUSTED,
+)
+
+GROUP_STATUS_LABELS: dict[str, str] = {
+    GROUP_STATUS_ACTIVE: "Aktywne",
+    GROUP_STATUS_COMPLETED: "Zakończone",
+    GROUP_STATUS_EXHAUSTED: "Wyczerpane",
+}
+
+
 class ClientOrderGroup(Base, TimestampMixin):
     """Zamówienie od klienta obejmujące jedną lub wiele linii konsultantów."""
 
@@ -46,7 +65,29 @@ class ClientOrderGroup(Base, TimestampMixin):
             "end_date IS NULL OR end_date >= start_date",
             name="ck_client_order_groups_dates",
         ),
+        CheckConstraint(
+            "status IN ('active', 'completed', 'exhausted')",
+            name="ck_client_order_groups_status",
+        ),
+        # Zamówienie kosztowe jest albo kompletne, albo go nie ma. Kwota bez
+        # reszty (albo odwrotnie) wysadza odejmowanie w środku transakcji
+        # importu, a kwota <= 0 nie jest budżetem.
+        CheckConstraint(
+            "("
+            "is_cost_based = FALSE AND budget_amount IS NULL "
+            "AND budget_remaining IS NULL"
+            ") OR ("
+            "is_cost_based = TRUE AND budget_amount IS NOT NULL "
+            "AND budget_amount > 0 AND budget_remaining IS NOT NULL"
+            ")",
+            name="ck_client_order_groups_cost_coherence",
+        ),
+        CheckConstraint(
+            "status <> 'completed' OR closure_date IS NOT NULL",
+            name="ck_client_order_groups_closure",
+        ),
         Index("ix_client_order_groups_client", "client_id"),
+        Index("ix_client_order_groups_status", "client_id", "status"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -66,12 +107,75 @@ class ClientOrderGroup(Base, TimestampMixin):
 
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=GROUP_STATUS_ACTIVE
+    )
+    """``active`` | ``completed`` | ``exhausted``.
+
+    Stan jest PRZECHOWYWANY, a nie wyliczany z dat — data nie odróżnia
+    zamówienia domkniętego świadomie („konsultant odchodzi") od takiego,
+    któremu po prostu minął termin, a te dwie sytuacje prowadzą do różnych
+    działań. ``exhausted`` dochodzi automatycznie, gdy budżet kosztowy zejdzie
+    do zera; różni się od ``completed`` tym, że nie da się go cofnąć zwykłym
+    przywróceniem (trzeba skorygować kwotę)."""
+
+    closure_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    closure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    closed_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    is_cost_based: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    """Zamówienie rozliczane KWOTĄ, nie liczbą MD (Polkomtel).
+
+    Kwota mieszka na grupie, bo to jedna pula dzielona przez kilku
+    konsultantów. Trzymanie jej per linia wymagałoby podziału budżetu z góry —
+    czego nikt nie robi — i uniemożliwiłoby odpowiedź na jedyne pytanie, które
+    tu ma znaczenie: ile jeszcze zostało na całym zamówieniu."""
+
+    budget_amount: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 2), nullable=True
+    )
+    """Kwota wyjściowa — niezmienna w toku zwykłej pracy, do wglądu."""
+
+    budget_remaining: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 2), nullable=True
+    )
+    """WYLICZANE: ``budget_amount - Σ rozliczonych faktur + korekta``.
+
+    Nie schodzi poniżej zera — nadwyżka nad budżetem zostaje zapisana jako
+    ``unsettled_amount`` na konkretnym wierszu konsumpcji, żeby dało się
+    powiedzieć, KTÓREJ osobie zabrakło pieniędzy, a nie tylko że zabrakło."""
+
+    budget_manual_adjustment: Mapped[Decimal] = mapped_column(
+        Numeric(16, 2), nullable=False, server_default="0"
+    )
+    """Ręczna korekta trzymana OSOBNO od konsumpcji — dokładnie z tego samego
+    powodu co ``ClientOrder.md_manual_adjustment``: korekta nadpisująca
+    ``budget_remaining`` wprost przeżyłaby do najbliższego importu, który
+    przelicza resztę od ``budget_amount`` i skasowałby ją po cichu."""
+
+    predecessor_group_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_order_groups.id", ondelete="SET NULL"), nullable=True
+    )
+    """Zamówienie, które to przedłuża. ``SET NULL`` — usunięcie poprzednika nie
+    może kasować jego kontynuacji."""
+
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     client = relationship("Client")
     creator = relationship("User", foreign_keys=[created_by_user_id])
+    closer = relationship("User", foreign_keys=[closed_by_user_id])
+    predecessor = relationship(
+        "ClientOrderGroup", remote_side=[id], foreign_keys=[predecessor_group_id]
+    )
     lines = relationship(
         "ClientOrder",
         back_populates="order_group",
@@ -111,7 +215,8 @@ class ClientOrderGroupEvent(Base):
     __table_args__ = (
         CheckConstraint(
             "event_type IN ('utworzenie', 'dodanie_konsultanta', 'import_md', "
-            "'zamiana_kontraktora', 'edycja_reczna')",
+            "'zamiana_kontraktora', 'edycja_reczna', 'zakonczenie', "
+            "'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur')",
             name="ck_client_order_group_events_type",
         ),
         Index("ix_client_order_group_events_group", "group_id"),

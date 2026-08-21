@@ -126,6 +126,38 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (RecruiterPlus, bez HoR).
+  // HoR czyta teczkę, ale nie wgrywa — upload dostałby 403.
+  "candidate.document.manage": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
+  // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES.
+  // HoR i sourcer CELOWO na true — polityka produktowa faktów globalnych.
+  "candidate.profile_fact.manage": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
+  // GET /api/dashboard/v2/recruitment-stats → OperationalUser.
+  "dashboard.recruitment_stats.view": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
   // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
   "client.portfolio.manage": {
     admin: true,
@@ -155,16 +187,17 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
-  // Lustro backendowego require_candidate_write — head_of_recruitment świadomie
-  // poza, tak samo jak w RECRUITER_PLUS.
+  // Radar dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08 —
+  // poszła po zrzucie 403 od Head of Recruitment). Backend lustrzanie na
+  // CurrentUser, middleware bez wpisu.
   "nav.talent_radar": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
     sourcer: true,
-    user: false,
+    user: true,
   },
   "nav.sourcing": {
     admin: true,
@@ -229,8 +262,8 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // /api/finance/* → require_roles(admin, finance). Jedyna capability, którą
-  // rola `finance` w ogóle posiada — patrz FINANCE_CAPABILITIES niżej.
+  // /api/finance/* → require_roles(admin, finance) — moduł własny finance
+  // (finance poza tym dziedziczy tier recruitera, patrz financeExpected).
   "nav.finance": {
     admin: true,
     head_of_recruitment: false,
@@ -243,12 +276,16 @@ const EXPECTED: Record<
 };
 
 /**
- * Capability, które przysługują roli `finance`. Lista jawna, nie wyliczana —
- * dopisanie tu czegokolwiek ma być świadomym diffem w PR, bo `finance` to
- * rola WYŁĄCZNA (CHECK ck_users_exclusive_finance_viewer_roles): jej
- * użytkownik nie ma żadnej innej roli, która mogłaby czegoś dołożyć.
+ * Reguła dla `finance` (decyzja produktowa Artura 19.08 — pełny dostęp
+ * operacyjny): finance ma DOKŁADNIE to co recruiter, plus własny moduł
+ * `nav.finance`. Wyliczana z macierzy, nie ręczna lista — dzięki temu nowa
+ * capability przyznana recruiterowi automatycznie obejmuje finance, a
+ * odstępstwo od reguły wymaga świadomej zmiany tej funkcji.
  */
-const FINANCE_CAPABILITIES: readonly Capability[] = ["nav.finance"];
+function financeExpected(capability: Capability): boolean {
+  if (capability === "nav.finance") return true;
+  return EXPECTED[capability].recruiter;
+}
 
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[];
 
@@ -275,11 +312,10 @@ describe("rejestr capability — kompletność", () => {
 describe("hasCapability — pełna macierz rola × capability", () => {
   for (const capability of ALL_CAPABILITIES) {
     for (const role of ALL_ROLES) {
-      // Finance jest rolą ekskluzywną: poza własnym modułem rejestr opisuje
-      // wyłącznie capability operacyjne, więc wszystkie są dla niej fail-closed.
+      // Finance = tier recruitera + własny moduł (decyzja 19.08).
       const expected =
         role === "finance"
-          ? FINANCE_CAPABILITIES.includes(capability)
+          ? financeExpected(capability)
           : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
@@ -319,23 +355,46 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("rola `user` (read-only viewer) nie ma NICZEGO", () => {
+  it("rola `user` (read-only viewer) ma WYŁĄCZNIE Talent Radar", () => {
+    // Jedyny wyjątek od „viewer nie ma niczego": radar jest dla każdej
+    // zalogowanej roli (decyzja produktowa 19.08). Pętla nadal domyka
+    // resztę katalogu — nowa capability przyznana viewerowi przypadkiem
+    // dalej robi czerwono.
     for (const capability of ALL_CAPABILITIES) {
-      expect(hasCapability(mkUser("user"), capability)).toBe(false);
+      const expected = capability === "nav.talent_radar";
+      expect(hasCapability(mkUser("user"), capability)).toBe(expected);
     }
   });
 
-  it("rola `finance` nie dziedziczy żadnej capability operacyjnej", () => {
+  it("rola `finance` = tier recruitera + własny moduł (decyzja 19.08)", () => {
     for (const capability of ALL_CAPABILITIES) {
-      if (FINANCE_CAPABILITIES.includes(capability)) continue;
-      expect(hasCapability(mkUser("finance"), capability)).toBe(false);
+      expect(hasCapability(mkUser("finance"), capability)).toBe(
+        financeExpected(capability),
+      );
     }
+    expect(hasCapability(mkUser("finance"), "nav.finance")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.candidates")).toBe(true);
+  });
+});
+
+describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po HoR)", () => {
+  it("HoR edytuje fakty globalne, ale nie wgrywa plik\u00f3w", () => {
+    const hor = mkUser("head_of_recruitment");
+    // CandidateProfileFacts*Access = _INTERNAL_OPERATIONAL_ROLES (z HoR).
+    expect(hasCapability(hor, "candidate.profile_fact.manage")).toBe(true);
+    // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (bez HoR) \u2192 upload = 403.
+    // Ta asercja p\u0119ka, gdy kto\u015b „upro\u015bci" oba wpisy do jednego \u2014 r\u00f3\u017cnica
+    // mi\u0119dzy nimi to dok\u0142adnie HoR i jest niewidoczna w code review od strony UI.
+    expect(hasCapability(hor, "candidate.document.manage")).toBe(false);
   });
 
-  it("rola `finance` MA dostęp do własnego modułu", () => {
-    for (const capability of FINANCE_CAPABILITIES) {
-      expect(hasCapability(mkUser("finance"), capability)).toBe(true);
-    }
+  it("radar jest szerszy ni\u017c dost\u0119p do kandydat\u00f3w", () => {
+    // Zapobiega powrotowi r\u0119cznej listy r\u00f3l z `app/talent-radar/page.tsx`.
+    expect(hasCapability(mkUser("user"), "nav.talent_radar")).toBe(true);
+    expect(hasCapability(mkUser("user"), "nav.candidates")).toBe(false);
+    expect(
+      hasCapability(mkUser("head_of_recruitment"), "nav.talent_radar"),
+    ).toBe(true);
   });
 });
 

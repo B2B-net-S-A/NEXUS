@@ -267,94 +267,108 @@ async def get_ai_matches(
     # default pool.
     effective_pool = max(pool_size, max_results) if location_active else pool_size
 
+    # Import lokalny (cykl importów), ale POZA `try`: nieudany import to błąd
+    # kodu, nie degradacja providera — 500 jest tu poprawną odpowiedzią, a
+    # trzymanie go pod `try` zostawiało `_build_candidate_text` „possibly
+    # unbound" dla każdego, kto puści tu mypy.
+    from app.services.embedding_service import (
+        _build_candidate_text,
+        search_candidates_semantic,
+    )
+
+    # Pull a wide pool so "show all who match" isn't artificially capped by
+    # retrieval. The threshold filter below — not a fixed top-K — decides
+    # who is shown. Rerank cost scales ~linearly with pool size, hence the
+    # tunable AI_MATCH_POOL_SIZE.
+    rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
+
     # ── Attempt Qdrant semantic search (+ optional Voyage rerank) ────────────
+    # `try` obejmuje WYŁĄCZNIE wywołanie sieciowe. Do 2026-08-20 obejmował całą
+    # gałąź semantyczną RAZEM z bramką dopuszczalności — więc wyjątek z samej
+    # bramki (padnięty DB na `candidate_conflicts`, timeout, `AttributeError`
+    # na niekompletnym `job`) był łapany tutaj i spychał request do gałęzi
+    # tag-fallback, która bramki nie miała. Bramka bezpieczeństwa, której własna
+    # awaria omijała bramkę bezpieczeństwa.
+    #
+    # Po zwężeniu awaria bramki kończy się 500 — to jest CEL, nie efekt uboczny:
+    # fail-closed w regule zawierania. Strona oferty ma gałąź `isError`
+    # (`app/jobs/[id]/page.tsx`), więc wyrenderuje się jako awaria, nie jako zero.
+    hits: list = []
     try:
-        from app.services.embedding_service import (
-            _build_candidate_text,
-            search_candidates_semantic,
-        )
-
-        # Pull a wide pool so "show all who match" isn't artificially capped by
-        # retrieval. The threshold filter below — not a fixed top-K — decides
-        # who is shown. Rerank cost scales ~linearly with pool size, hence the
-        # tunable AI_MATCH_POOL_SIZE.
-        rerank_enabled = bool(getattr(settings, "RERANKER_ENABLED", False))
         hits = await search_candidates_semantic(query_text, top_k=effective_pool)
-
-        if hits:
-            candidate_ids = [h["candidate_id"] for h in hits]
-            qdrant_scores = {h["candidate_id"]: h["score"] for h in hits}
-
-            cand_result = await db.execute(
-                select(Candidate).where(Candidate.id.in_(candidate_ids))
-            )
-            candidates_by_id = {c.id: c for c in cand_result.scalars().all()}
-
-            # Preserve Qdrant ranking order while dropping anyone the recruiter
-            # could not actually assign.
-            #
-            # This used to check the GLOBAL blacklist only, while the sibling
-            # `/recommendations` ran the full eligibility filter. The difference
-            # is not cosmetic: an active client blacklist, an NDA, a competitor
-            # conflict and a standing hiring-manager veto all passed straight
-            # through to a list the job page renders with an "add to pipeline"
-            # button next to every row. Same engine, same page, two different
-            # containment rules — and the weaker one was the default view.
-            ordered: list[Candidate] = [
-                c for cid in candidate_ids if (c := candidates_by_id.get(cid))
-            ]
-            ordered = await filter_eligible_candidates(
-                db, job=job, candidates=ordered, now=datetime.now(timezone.utc)
-            )
-
-            search_type = "semantic"
-            scores_by_idx: dict[int, float] = {
-                i: qdrant_scores.get(c.id, 0.0) for i, c in enumerate(ordered)
-            }
-
-            if rerank_enabled and ordered:
-                docs = [_build_candidate_text(c)[:4000] for c in ordered]
-                # Rerank the whole pool (top_k=len(docs)) so threshold filtering
-                # below sees a fully-ranked list, not a pre-trimmed one.
-                pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
-                if pairs and any(score != 1.0 for _, score in pairs):
-                    # Real rerank result (passthrough returns score=1.0 for all).
-                    # Reorder per rerank, scores aligned to new positions.
-                    search_type = "semantic+rerank"
-                    ordered = [ordered[idx] for idx, _ in pairs]
-                    scores_by_idx = {i: score for i, (_, score) in enumerate(pairs)}
-                # Passthrough / failure → keep Qdrant order + scores as-is.
-
-            matches = [
-                _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
-                for i, c in enumerate(ordered)
-            ]
-            # Location filter (when active): keep only candidates whose location
-            # matches the request, preserving the semantic ranking order.
-            if location_active:
-                matches = [
-                    m
-                    for m in matches
-                    if _location_matches(requested_tokens, m["candidate"]["location"])
-                ]
-            # Threshold filter: show everyone who fits, capped for payload safety.
-            matches = [m for m in matches if m["match_score"] >= threshold][
-                :max_results
-            ]
-
-            return {
-                "job_id": job_id,
-                "job_title": job.title,
-                "required_skills": required_skills,
-                "search_type": search_type,
-                "min_score": round(threshold, 3),
-                "location_filter": requested_location if location_active else None,
-                "matches": matches,
-            }
     except Exception as e:
         logger.warning(
             f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based"
         )
+
+    if hits:
+        candidate_ids = [h["candidate_id"] for h in hits]
+        qdrant_scores = {h["candidate_id"]: h["score"] for h in hits}
+
+        cand_result = await db.execute(
+            select(Candidate).where(Candidate.id.in_(candidate_ids))
+        )
+        candidates_by_id = {c.id: c for c in cand_result.scalars().all()}
+
+        # Preserve Qdrant ranking order while dropping anyone the recruiter
+        # could not actually assign.
+        #
+        # This used to check the GLOBAL blacklist only, while the sibling
+        # `/recommendations` ran the full eligibility filter. The difference
+        # is not cosmetic: an active client blacklist, an NDA, a competitor
+        # conflict and a standing hiring-manager veto all passed straight
+        # through to a list the job page renders with an "add to pipeline"
+        # button next to every row. Same engine, same page, two different
+        # containment rules — and the weaker one was the default view.
+        ordered: list[Candidate] = [
+            c for cid in candidate_ids if (c := candidates_by_id.get(cid))
+        ]
+        ordered = await filter_eligible_candidates(
+            db, job=job, candidates=ordered, now=datetime.now(timezone.utc)
+        )
+
+        search_type = "semantic"
+        scores_by_idx: dict[int, float] = {
+            i: qdrant_scores.get(c.id, 0.0) for i, c in enumerate(ordered)
+        }
+
+        if rerank_enabled and ordered:
+            docs = [_build_candidate_text(c)[:4000] for c in ordered]
+            # Rerank the whole pool (top_k=len(docs)) so threshold filtering
+            # below sees a fully-ranked list, not a pre-trimmed one.
+            pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
+            if pairs and any(score != 1.0 for _, score in pairs):
+                # Real rerank result (passthrough returns score=1.0 for all).
+                # Reorder per rerank, scores aligned to new positions.
+                search_type = "semantic+rerank"
+                ordered = [ordered[idx] for idx, _ in pairs]
+                scores_by_idx = {i: score for i, (_, score) in enumerate(pairs)}
+            # Passthrough / failure → keep Qdrant order + scores as-is.
+
+        matches = [
+            _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
+            for i, c in enumerate(ordered)
+        ]
+        # Location filter (when active): keep only candidates whose location
+        # matches the request, preserving the semantic ranking order.
+        if location_active:
+            matches = [
+                m
+                for m in matches
+                if _location_matches(requested_tokens, m["candidate"]["location"])
+            ]
+        # Threshold filter: show everyone who fits, capped for payload safety.
+        matches = [m for m in matches if m["match_score"] >= threshold][:max_results]
+
+        return {
+            "job_id": job_id,
+            "job_title": job.title,
+            "required_skills": required_skills,
+            "search_type": search_type,
+            "min_score": round(threshold, 3),
+            "location_filter": requested_location if location_active else None,
+            "matches": matches,
+        }
 
     # ── Fallback: tag-based matching ─────────────────────────────────────────
     logger.info(f"[AIMatch] Using tag-based fallback for job {job_id}")
@@ -363,7 +377,36 @@ async def get_ai_matches(
     all_result = await db.execute(
         select(Candidate).where(Candidate.status != "blacklisted").limit(effective_pool)
     )
-    all_candidates = all_result.scalars().all()
+    all_candidates = list(all_result.scalars().all())
+
+    # Ta sama reguła zawierania co w gałęzi semantycznej. Do 2026-08-20 ten
+    # fallback filtrował WYŁĄCZNIE `status != "blacklisted"`, a wchodzi się
+    # w niego TRZEMA drogami: wyjątek z retrievalu, wyjątek z czegokolwiek
+    # w gałęzi semantycznej — i CICHO, gdy Qdrant zwróci pustą listę (wtedy
+    # `if hits:` jest fałszywe i nie leci żaden wyjątek, więc sterowanie po
+    # prostu tu schodzi). Aktywny blacklist klienta, NDA, konflikt
+    # konkurencyjny i weto hiring managera przechodziły prosto na listę, którą
+    # strona oferty renderuje z przyciskiem „dodaj do pipeline'u" przy każdym
+    # wierszu. Samo dodanie zwróciłoby 409 — ale nazwisko zostało już pokazane
+    # w kontekście klienta, który je zablokował, więc 409 jest za późno.
+    before_gate = len(all_candidates)
+    all_candidates = await filter_eligible_candidates(
+        db, job=job, candidates=all_candidates, now=datetime.now(timezone.utc)
+    )
+
+    # Licznik idzie WYŁĄCZNIE do logu, świadomie nie do odpowiedzi. „Ukryto N"
+    # w body byłoby wyrocznią na NDA: rekruter dowiedziałby się, że u tego
+    # klienta istnieje N osób, których nie wolno mu zobaczyć. W logu jest po to,
+    # żeby zgłoszenie „lista jest podejrzanie krótka" dało się rozstrzygnąć
+    # bez zgadywania — bez niego skrócenie listy jest niediagnozowalne.
+    hidden = before_gate - len(all_candidates)
+    if hidden:
+        logger.info(
+            "[AIMatch] tag-fallback job=%s: bramka dopuszczalności odsiała %s z %s",
+            job_id,
+            hidden,
+            before_gate,
+        )
 
     matches = []
     for c in all_candidates:

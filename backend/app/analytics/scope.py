@@ -96,15 +96,15 @@ async def ensure_client_scope(db: AsyncSession, user: User, client_id: int) -> S
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Brak uprawnień do danych klientów",
         )
-    # Finance receives a separate, person-free client finance contract below.
-    # VIEW_CLIENT_OPERATIONS is used by its dashboard composition but must not
-    # open the recruitment-oriented client endpoint.
-    if user.has_role(UserRole.finance) and not user.has_role(UserRole.admin):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Finance uses the finance-safe client analytics endpoint",
-        )
-    if user.has_any_role(UserRole.admin, UserRole.head_of_recruitment, UserRole.tac):
+    # Finance ma globalne VIEW_CLIENT_OPERATIONS (jak HoR) i od 19.08 pełny
+    # dostęp operacyjny — dawny bounce na osobny „finance-safe" endpoint
+    # zdjęty; wchodzi tym samym torem co role globalno-klienckie.
+    if user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+        UserRole.finance,
+    ):
         return Scope(kind=ScopeKind.client, client_id=client_id)
     # delivery_lead: tylko przypisani klienci
     assigned = await db.scalar(

@@ -1,23 +1,28 @@
-"""In-memory circuit breaker for the AI matching pipeline.
+"""In-memory circuit breaker for the AI providers this app calls.
 
-Tracks recent calls to Voyage embeddings + Qdrant retrieval and exposes a
-simple ``ok | degraded | down`` status the API surfaces in
-``meta.ai_status``. The frontend consumes that to decide whether to nudge
-the user toward manual search.
+Two views live in this module:
+
+* the **module-level tracker** — the matching pipeline (Voyage embeddings +
+  Qdrant retrieval), exposed as ``ok | degraded | down`` in ``meta.ai_status``
+  so the frontend can nudge the user toward manual search;
+* **named per-provider trackers** (``voyage``, ``qdrant``, ``reranker``,
+  ``claude``), exposed per dependency by ``/api/health``.
 
 Design choices:
 
 * **In-process, single instance.** The deployment runs one FastAPI process
-  per Hetzner CAX21 box; cross-process consensus isn't worth the
-  Redis/lock complexity here. Each replica has its own view.
+  per Hetzner box; cross-process consensus isn't worth the Redis/lock
+  complexity here. Each replica has its own view.
 * **Rolling window of 10 calls per endpoint.** Enough to absorb a single
   flaky call without flipping the banner, small enough to recover quickly
   after the dependency stabilizes.
 * **Reset on first OK.** A clean call after a degraded streak returns
   status to ``ok``; we don't require N consecutive successes.
 
-Thresholds match ``.claude/plans/zaplanuj-wszystko-teraz-pamietaj-wondrous-moon.md``:
-3 consecutive failures → ``down``; 3 consecutive >5s p95 → ``degraded``.
+Thresholds: 3 consecutive failures → ``down``; 3 consecutive slow calls →
+``degraded``. "Slow" is **per provider** (see ``_PROVIDER_SLOW_THRESHOLD_MS``)
+— one constant for retrieval and for an LLM meant that three ordinary,
+successful Claude calls reported ``degraded`` forever.
 """
 
 from __future__ import annotations
@@ -31,7 +36,25 @@ from typing import Deque, Literal
 AiStatus = Literal["ok", "degraded", "down"]
 
 WINDOW_SIZE = 10
+# Default "slow" bar — sized for retrieval, where a call is a fraction of a
+# second and five seconds already means something is wrong.
 SLOW_THRESHOLD_MS = 5000
+# Claude is NOT a retrieval call and must not be judged on a retrieval bar.
+# A Claude request legitimately runs 10-31+ s (that is exactly why #1210/#1211
+# raised the HTTP timeouts to 120 s), so at 5 s the criterion fired on THREE
+# CONSECUTIVE SUCCESSFUL calls and stuck: prod on 2026-08-20 reported
+# `"anthropic": "degraded"` with nothing broken. A light that is always on is a
+# light the operator learns to ignore — and then it cannot report the real
+# outage either.
+#
+# 60 s rather than dropping the criterion for Claude entirely: it stays
+# reachable and it still means something. A call that SUCCEEDS this close to
+# the client timeout (``ANTHROPIC_TIMEOUT_SECONDS``, 90 s by default) is an
+# overloaded provider about to start failing outright — worth a yellow light
+# before it goes red. Failures keep their own, independent criterion (3 in a
+# row → ``down`` → ``unhealthy``), so a genuine outage is distinguishable
+# whatever this number is.
+CLAUDE_SLOW_THRESHOLD_MS = 60_000
 CONSECUTIVE_FAILURE_THRESHOLD = 3
 CONSECUTIVE_SLOW_THRESHOLD = 3
 
@@ -43,14 +66,19 @@ class CallSample:
 
 
 class _AiHealthTracker:
-    """Thread-safe rolling window of recent AI matching calls.
+    """Thread-safe rolling window of recent calls to one AI dependency.
 
     Public surface: :meth:`record`, :meth:`status`, :meth:`reset` (testing).
+
+    ``slow_threshold_ms`` is per instance, not a module constant, because what
+    counts as slow is a property of the dependency: sub-second for retrieval,
+    tens of seconds for an LLM.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, slow_threshold_ms: int = SLOW_THRESHOLD_MS) -> None:
         self._samples: Deque[CallSample] = deque(maxlen=WINDOW_SIZE)
         self._lock = threading.Lock()
+        self._slow_threshold_ms = slow_threshold_ms
 
     def record(self, elapsed_ms: int, failed: bool) -> None:
         with self._lock:
@@ -71,7 +99,7 @@ class _AiHealthTracker:
 
         slow_tail = tail[-CONSECUTIVE_SLOW_THRESHOLD:]
         if len(slow_tail) >= CONSECUTIVE_SLOW_THRESHOLD and all(
-            s.elapsed_ms >= SLOW_THRESHOLD_MS for s in slow_tail
+            s.elapsed_ms >= self._slow_threshold_ms for s in slow_tail
         ):
             return "degraded"
 
@@ -127,17 +155,26 @@ class AiCallTimer:
 # Qdrant, surfaced as meta.ai_status). These named trackers let individual
 # providers (e.g. "claude") report their own recent health independently — used
 # by /api/health to show a provider as degraded/down after a run of failures,
-# without any of them flipping the app's overall status.
+# without any of them flipping the app's overall status. Each carries its OWN
+# slow bar: they are not all retrieval calls.
 
 _PROVIDER_TRACKERS: dict[str, _AiHealthTracker] = {}
 _PROVIDER_REGISTRY_LOCK = threading.Lock()
+
+# Providers whose "slow" bar differs from the retrieval default. Anything not
+# listed keeps ``SLOW_THRESHOLD_MS``.
+_PROVIDER_SLOW_THRESHOLD_MS: dict[str, int] = {"claude": CLAUDE_SLOW_THRESHOLD_MS}
 
 
 def _tracker_for(provider: str) -> _AiHealthTracker:
     with _PROVIDER_REGISTRY_LOCK:
         tracker = _PROVIDER_TRACKERS.get(provider)
         if tracker is None:
-            tracker = _AiHealthTracker()
+            tracker = _AiHealthTracker(
+                slow_threshold_ms=_PROVIDER_SLOW_THRESHOLD_MS.get(
+                    provider, SLOW_THRESHOLD_MS
+                )
+            )
             _PROVIDER_TRACKERS[provider] = tracker
         return tracker
 

@@ -163,25 +163,27 @@ async def test_handoff_rejects_non_operational_recruiter(
     from app.models.user import User, UserRole
     from app.core.security import hash_password
 
+    # Finance jest od 19.08 rolą operacyjną (może być odbiorcą handoffu) —
+    # nie-operacyjnym odbiorcą pozostaje wycofywany viewer `user`.
     job_id = await _seed_job(champion=_READY_CHAMPION)
     async with AsyncSessionLocal() as db:
-        finance = User(
-            email=f"fin-{uuid.uuid4().hex[:8]}@example.com",
+        viewer = User(
+            email=f"viewer-{uuid.uuid4().hex[:8]}@example.com",
             password_hash=hash_password("x"),
-            name="Finance",
-            role=UserRole.finance,
-            roles=["finance"],
+            name="Viewer",
+            role=UserRole.user,
+            roles=["user"],
             is_active=True,
         )
-        db.add(finance)
+        db.add(viewer)
         await db.commit()
-        await db.refresh(finance)
-        finance_id = finance.id
+        await db.refresh(viewer)
+        viewer_id = viewer.id
 
     resp = await app_client.post(
         f"/api/jobs/{job_id}/handoff",
         headers=app_auth_headers,
-        json={"recruiter_id": finance_id},
+        json={"recruiter_id": viewer_id},
     )
 
     assert resp.status_code == 422, resp.text

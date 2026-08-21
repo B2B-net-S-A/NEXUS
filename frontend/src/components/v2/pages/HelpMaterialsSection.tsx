@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarClock,
   ExternalLink,
   File,
   FileSpreadsheet,
@@ -20,13 +21,24 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { HelpMaterial, helpMaterialsApi } from "@/lib/api/help-materials";
+import { isTemplateMaterial } from "@/lib/help-invite";
+import {
+  PrepInviteActions,
+  PrepInviteCvReminder,
+} from "@/components/v2/PrepInviteActions";
 
 // ── Stałe prezentacyjne ─────────────────────────────────────────────────────
 // Świadomie TUTAJ, nie w `@/lib/api/help-materials`: testy mockują moduły API
 // w całości, więc etykiety trzymane po stronie API wychodziłyby jako
 // `undefined` (udokumentowana pułapka w CLAUDE.md tego repo).
 
-type MaterialFileKind = "word" | "pdf" | "spreadsheet" | "folder" | "other";
+type MaterialFileKind =
+  | "word"
+  | "pdf"
+  | "spreadsheet"
+  | "folder"
+  | "template"
+  | "other";
 
 const FILE_KIND_META: Record<
   MaterialFileKind,
@@ -36,6 +48,7 @@ const FILE_KIND_META: Record<
   pdf: { Icon: FileType, label: "Plik PDF" },
   spreadsheet: { Icon: FileSpreadsheet, label: "Arkusz kalkulacyjny" },
   folder: { Icon: FolderOpen, label: "Folder" },
+  template: { Icon: CalendarClock, label: "Szablon zaproszenia" },
   other: { Icon: File, label: "Dokument" },
 };
 
@@ -43,13 +56,25 @@ const FILE_KIND_META: Record<
  * SharePoint koduje typ zasobu w segmencie ścieżki: `/:w:/` = Word,
  * `/:b:/` = PDF, `/:x:/` = Excel, `/:f:/` = folder. Gdy linka nie da się
  * rozpoznać, schodzimy na rozszerzenie w tytule.
+ *
+ * `url` bywa NULL-em: pozycja-szablon (0229) nie wskazuje żadnego pliku.
+ * Wcześniej `material.url.toLowerCase()` wywracało tu CAŁĄ sekcję Materiałów
+ * — na wierszu, który migracja seeduje na każdym środowisku.
  */
-export function fileKindFor(material: Pick<HelpMaterial, "url" | "title">): MaterialFileKind {
-  const url = material.url.toLowerCase();
+export function fileKindFor(
+  material: Pick<HelpMaterial, "url" | "title"> &
+    Partial<Pick<HelpMaterial, "template_body">>,
+): MaterialFileKind {
+  const url = material.url?.toLowerCase() ?? "";
   if (url.includes("/:w:/")) return "word";
   if (url.includes("/:b:/")) return "pdf";
   if (url.includes("/:x:/")) return "spreadsheet";
   if (url.includes("/:f:/")) return "folder";
+  // Ikona opisuje PLIK, więc adres ma pierwszeństwo: wiersz z linkiem ORAZ
+  // treścią zostaje dokumentem, a to, że niesie też szablon, widać po podglądzie
+  // treści i po przyciskach zaproszenia obok. Ikona kalendarza jest dla pozycji,
+  // które żadnego pliku nie mają.
+  if (!url && material.template_body) return "template";
 
   const ext = material.title.toLowerCase().trim().match(/\.([a-z0-9]{2,5})$/)?.[1];
   if (!ext) return "other";
@@ -77,7 +102,10 @@ const CONTROL_CHARS_RE = /[\u0000-\u001F\u007F]/g;
  * wierszu wyglądającym na sprawny. Widoczne „Nieprawidłowy link" jest lepsze,
  * bo mówi adminowi, co poprawić.
  */
-export function safeExternalHref(rawUrl: string): string | null {
+export function safeExternalHref(rawUrl: string | null | undefined): string | null {
+  // Brak adresu to legalny stan (pozycja-szablon), nie błąd — i na pewno nie
+  // powód, żeby wywrócić render całej sekcji na `null.trim()`.
+  if (typeof rawUrl !== "string") return null;
   // Przeglądarki historycznie usuwały znaki sterujące z href PRZED
   // interpretacją schematu, więc "java\nscript:" potrafiło się wykonać.
   // Oceniamy i renderujemy TĘ SAMĄ wartość — oczyszczoną. Zwracanie oryginału
@@ -95,7 +123,8 @@ export function safeExternalHref(rawUrl: string): string | null {
  * Niepoprawny URL zwraca `null`: degradujemy do zwykłego „Otwórz" zamiast
  * wywalać stronę wyjątkiem.
  */
-export function buildWordEditUrl(rawUrl: string): string | null {
+export function buildWordEditUrl(rawUrl: string | null | undefined): string | null {
+  if (typeof rawUrl !== "string") return null;
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
@@ -146,7 +175,9 @@ export interface HelpMaterialsSectionProps {
   onEdit?: (material: HelpMaterial) => void;
   /** CTA „dodaj pierwszy materiał" w pustym stanie dla admina. */
   onAdd?: () => void;
-  onToast?: (message: string) => void;
+  /** `type` niesie rozróżnienie sukces/błąd — `PrepInviteActions` woła to
+      dwoma argumentami, a węższy typ cicho gubił drugi. */
+  onToast?: (message: string, type?: "success" | "error") => void;
   /**
    * Kategorie obecne na liście — strona karmi nimi datalist w edytorze.
    * Wołane z `useEffect`, więc referencja musi być stabilna (`useCallback`).
@@ -297,6 +328,7 @@ export function HelpMaterialsSection({
                     isAdmin={isAdmin}
                     onEdit={onEdit}
                     onDelete={handleDelete}
+                    onToast={onToast}
                   />
                 ))}
               </ul>
@@ -313,17 +345,26 @@ function MaterialRow({
   isAdmin,
   onEdit,
   onDelete,
+  onToast,
 }: {
   material: HelpMaterial;
   isAdmin: boolean;
   onEdit?: (material: HelpMaterial) => void;
   onDelete: (material: HelpMaterial) => void;
+  /** `type` niesie rozróżnienie sukces/błąd — `PrepInviteActions` woła to
+      dwoma argumentami, a węższy typ cicho gubił drugi. */
+  onToast?: (message: string, type?: "success" | "error") => void;
 }) {
   const { Icon, label } = FILE_KIND_META[fileKindFor(material)];
   const safeHref = safeExternalHref(material.url);
+  // „Wiersz DEKLARUJE adres" — niezależnie od tego, czy da się go otworzyć.
+  // Rozróżnia stan „szablon bez pliku" (zamierzony) od „admin wpisał adres,
+  // którego nie umiemy otworzyć" (do naprawy, więc musi być widoczny).
+  const hasUrl = (material.url ?? "").trim().length > 0;
   const editUrl = material.is_editable_template
     ? buildWordEditUrl(material.url)
     : null;
+  const isTemplate = isTemplateMaterial(material);
 
   return (
     <li className="px-4 py-3 flex items-start gap-3 flex-wrap sm:flex-nowrap">
@@ -346,9 +387,39 @@ function MaterialRow({
             {material.description}
           </p>
         )}
+        {isTemplate && (
+          <>
+            {/* Podgląd treści w `whitespace-pre-wrap`: puste linie są częścią
+                układu wiadomości, a admin musi widzieć dokładnie to, co
+                wyląduje w Outlooku. */}
+            <pre className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap break-words font-sans border border-border rounded bg-muted/40 p-2">
+              {material.template_subject
+                ? `Temat: ${material.template_subject}\n\n${material.template_body}`
+                : material.template_body}
+            </pre>
+            <PrepInviteCvReminder className="mt-2" />
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+        {/* Akcje szablonu i link do pliku to DWA NIEZALEŻNE stany, nie gałęzie
+            tego samego `if`. CHECK w bazie to `url IS NOT NULL OR
+            template_body IS NOT NULL`, a PUT dopisujący treść do wiersza-linku
+            jest legalny (pinuje to test backendu), więc wiersz może mieć oba.
+            Przełącznik `isTemplate ? … : safeHref ? …` gubił wtedy „Otwórz" —
+            dokument znikał z UI, choć adres siedział w bazie. */}
+        {isTemplate && (
+          <PrepInviteActions
+            draft={{
+              subject: material.template_subject ?? material.title,
+              body: material.template_body,
+            }}
+            label={material.title}
+            onToast={onToast}
+          />
+        )}
+
         {/* Celowo goły <a> ze stylami `buttonVariants`, nie `<Button asChild>`:
             Button dokłada slot na spinner, więc Radix Slot dostaje dwoje dzieci. */}
         {safeHref ? (
@@ -361,17 +432,22 @@ function MaterialRow({
           >
             <ExternalLink className="h-4 w-4" aria-hidden="true" /> Otwórz
           </a>
-        ) : (
+        ) : hasUrl || !isTemplate ? (
           // Adres inny niż bezwzględny http(s) NIE staje się klikalnym
           // linkiem: `javascript:` wstrzyknięty surowym SQL-em wykonałby się
           // po kliknięciu, a adres bez schematu otworzyłby 404 NEXUSa.
+          //
+          // Sam szablon BEZ adresu tej etykiety nie dostaje — brak `url` jest
+          // tam zamierzonym stanem, a „Nieprawidłowy link" byłoby kłamstwem.
+          // Szablon z adresem WADLIWYM już tak: admin ma się dowiedzieć, że
+          // wpisał coś, czego nie da się otworzyć.
           <span
             className="text-xs text-muted-foreground border border-border rounded px-2 py-1"
-            title={`Adres wymaga pełnego http:// lub https:// — zablokowano: ${material.url}`}
+            title={`Adres wymaga pełnego http:// lub https:// — zablokowano: ${material.url ?? "(brak)"}`}
           >
             Nieprawidłowy link
           </span>
-        )}
+        ) : null}
 
         {editUrl && (
           <a

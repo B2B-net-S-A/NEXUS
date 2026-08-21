@@ -179,16 +179,32 @@ describe("RecruitmentStatsSection", () => {
     expect(getStats).toHaveBeenCalledWith("month")
   })
 
-  it("does not mount at all for finance-only and legacy viewer users", () => {
-    for (const u of [user("finance"), user("user")]) {
-      act(() => {
-        useAuthStore.setState({ user: u, hydrated: true })
-      })
-      const { container, unmount } = renderSection()
-      expect(container).toBeEmptyDOMElement()
-      unmount()
-    }
+  it("does not mount at all for the legacy viewer role", () => {
+    act(() => {
+      useAuthStore.setState({ user: user("user"), hydrated: true })
+    })
+
+    const { container } = renderSection()
+
+    expect(container).toBeEmptyDOMElement()
     expect(getStats).not.toHaveBeenCalled()
+  })
+
+  // Regresja ODWROTNA (zmiana polityki, nie przypadek): finance ma tier
+  // operacyjny od 19.08, a backendowy OperationalUser (dashboard_v2.py)
+  // odpowiada mu 200. Do tej pory ten plik utrwalał stan sprzed decyzji —
+  // front chował dane, do których użytkownik ma prawo. Bramka węższa od API
+  // jest gorsza niż jej brak: wygląda jak „nie ma danych".
+  it("mounts for finance (tier operacyjny, decyzja 19.08)", async () => {
+    act(() => {
+      useAuthStore.setState({ user: user("finance"), hydrated: true })
+    })
+    getStats.mockResolvedValue(fullResponse())
+
+    renderSection()
+
+    expect(await screen.findByText("Marlena Testowa")).toBeInTheDocument()
+    expect(getStats).toHaveBeenCalledWith("month")
   })
 
   it("renders dashes (never zeros) when the funnel source is unavailable", async () => {

@@ -20,6 +20,16 @@ MdValue = Annotated[
 ]
 
 
+def _money_out(value: Decimal) -> float:
+    return float(Decimal(value).quantize(Decimal("0.01")))
+
+
+# Liczba, nie string — front rysuje z tego pasek budżetu i porównuje kwoty.
+MoneyValue = Annotated[
+    Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
+]
+
+
 class LineOption(BaseModel):
     """Linia do wyboru przy wierszu „wymaga przypisania".
 
@@ -48,6 +58,16 @@ class ImportRowRead(BaseModel):
     options: list[LineOption] = Field(default_factory=list)
     resolved_at: Optional[datetime] = None
 
+    # ── Rozliczenie kosztowe (Polkomtel) ──
+    # `cost_status is None` znaczy „wiersz nie dotyczy zamówień kosztowych",
+    # a nie „nie udało się dopasować" — front musi te dwa stany rozróżniać,
+    # inaczej każdy wiersz zwykłego arkusza MD zapaliłby się na czerwono.
+    notes_raw: Optional[str] = None
+    order_number_hint: Optional[str] = None
+    invoice_amount: Optional[MoneyValue] = None
+    cost_status: Optional[str] = None
+    cost_status_label: Optional[str] = None
+
 
 class ImportSummary(BaseModel):
     id: int
@@ -57,6 +77,8 @@ class ImportSummary(BaseModel):
     rows_applied: int = 0
     rows_ambiguous: int = 0
     rows_unmatched: int = 0
+    rows_cost_applied: int = 0
+    rows_cost_unmatched: int = 0
     uploaded_by_user_id: Optional[int] = None
     created_at: datetime
 
