@@ -204,36 +204,34 @@ class _ModelExhausted(Exception):
 
 
 def _is_retryable(err: BaseException) -> bool:
-    """Overloaded / rate-limited / 5xx / connection problems are retryable."""
-    status = getattr(err, "status_code", None)
-    if status is None:
-        response = getattr(err, "response", None)
-        if response is not None:
-            status = getattr(response, "status_code", None)
+    """Overloaded / rate-limited / 5xx / connection problems are retryable.
 
-    err_type = ""
-    body = getattr(err, "body", None)
-    if isinstance(body, dict):
-        err_obj = body.get("error") or {}
-        if isinstance(err_obj, dict):
-            err_type = err_obj.get("type", "")
+    Cienka delegacja do `claude_client.is_retryable_anthropic_error`: predykat
+    był tutaj skopiowany co do bajtu, a dwie kopie jednej polityki retry
+    rozjeżdżają się po cichu przy pierwszej zmianie — nikt nie pamięta, że
+    trzeba ją zrobić dwa razy. Import lokalny, żeby `app.core.config` nie
+    wchodził w czas importu tego modułu (patrz `_api_key`).
+    """
+    from app.services.claude_client import is_retryable_anthropic_error
 
-    if not err_type:
-        err_type = getattr(err, "type", "") or ""
+    return is_retryable_anthropic_error(err)
 
-    if status in (429, 529):
-        return True
-    if err_type in ("overloaded_error", "rate_limit_error"):
-        return True
-    if (
-        isinstance(err, anthropic.APIStatusError)
-        and status
-        and 500 <= int(status) < 600
-    ):
-        return True
-    if isinstance(err, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
-        return True
-    return False
+
+def _record_provider_health(started: float, *, failed: bool) -> None:
+    """Nakarm circuit breaker Claude'a wynikiem próby (nigdy nie rzuca).
+
+    Generator CV jest najcięższym konsumentem Claude'a w produkcie (16 384
+    tokeny outputu, łańcuch modeli fallbackowych) i jako jedyny nie przechodzi
+    przez `claude_client.call_claude` — więc pozycja `anthropic` w `/api/health`
+    i jej circuit breaker były na niego ŚLEPE: awaria dostawcy widoczna dla
+    każdej innej funkcji AI zostawiała tu zielony healthcheck i strumień 502.
+    """
+    try:
+        from app.services.ai_health import record_provider_call
+
+        record_provider_call("claude", int((time.monotonic() - started) * 1000), failed)
+    except Exception:  # noqa: BLE001 — telemetria nie może wywrócić wywołania
+        pass
 
 
 def _call_model(
@@ -259,6 +257,7 @@ def _call_model(
     last_retryable = False
 
     for attempt in range(max_retries + 1):
+        attempt_started = time.monotonic()
         try:
             logger.info(
                 "[cv_b2b][%s] Claude attempt %d/%d model=%s prompt=%s/v%d",
@@ -301,6 +300,7 @@ def _call_model(
                 # block) — surface a clean error instead of returning "" that
                 # later fails JSON parsing at "char 0".
                 raise CVGeneratorAIError("Claude returned no text content")
+            _record_provider_health(attempt_started, failed=False)
             duration = int((time.time() - start) * 1000)
             usage = getattr(message, "usage", None)
             logger.info(
@@ -316,8 +316,13 @@ def _call_model(
             )
             return text or ""
         except CVGeneratorTruncatedError:
+            # Ucięcie to problem długości treści, nie kondycji dostawcy —
+            # wywołanie WRÓCIŁO. Zaliczenie go jako awarii otwierałoby circuit
+            # breaker na zdrowym Claude.
+            _record_provider_health(attempt_started, failed=False)
             raise
         except BaseException as err:  # noqa: BLE001 — broad on purpose, retry inspects type
+            _record_provider_health(attempt_started, failed=True)
             last_err = err
             last_retryable = _is_retryable(err)
             logger.warning(

@@ -26,8 +26,7 @@ from app.services.note_mention_render import (
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.api.deps import DeliveryLeadPlus
 from app.api.recruitment_access import ensure_delivery_lead_job_visible
-from app.models.ai_feature import AIFeatureKey
-from app.services.ai_quota import check_and_increment
+from app.services.ai_quota import AIQuotaExceeded
 from app.services.mention_dispatch import (
     build_note_context_label,
     build_note_deep_link,
@@ -357,12 +356,12 @@ async def link_note_to_job(
     # enrichment that writes a Champion draft onto it.
     await ensure_delivery_lead_job_visible(job, current_user, db)
 
-    # Quota is charged here rather than inside `enrich_from_meeting`, because
-    # this route is one of the paths that reaches Claude without passing the
-    # feature gate at all — the master "turn AI off" switch did not stop it and
-    # `ai_usage_log` never saw it, so the usage report was incomplete by design.
-    await check_and_increment(db, AIFeatureKey.champion_draft, user_id=current_user.id)
-
+    # Kwota jest obciążana WYŁĄCZNIE w `enrich_from_meeting` (`async with
+    # ai_feature(...)`), który pokrywa każdy punkt wejścia. Wcześniejsze
+    # obciążenie na poziomie trasy pochodziło sprzed tamtej bramki i nigdy nie
+    # zostało zdjęte: gołe `check_and_increment` nie ustawia kontekstu wywołania,
+    # więc serwis nie widział go jako zagnieżdżonego i naliczał `champion_draft`
+    # DRUGI raz na jedno kliknięcie.
     note.job_id = body.job_id
     await db.commit()
     await db.refresh(note)
@@ -372,15 +371,34 @@ async def link_note_to_job(
     title_line = (
         note.content.split("\n", 1)[0].lstrip("# ").strip() if note.content else ""
     )
-    suggestion = await enrich_from_meeting(
-        db,
-        job_id=body.job_id,
-        meeting_title=title_line or f"Meeting #{note.id}",
-        meeting_summary="",
-        meeting_transcript=note.content or "",
-        source_ref=f"note:{note.id}",
-        user_id=current_user.id,
-    )
+    # Powiązanie notatki z rekrutacją jest już zapisane i AI do niego nie jest
+    # potrzebne — wyłączenie AI nie może cofać operacji na danych. Blokada kwoty
+    # dotyczy wyłącznie wzbogacenia i wychodzi jako 503 z tym samym słownikiem
+    # `detail`, co bliźniacze handlery (front ma na to gotową gałąź). Bez tego
+    # `AIQuotaExceeded` uciekało tędy jako 500: to jedyne miejsce wywołania kwoty
+    # w `app/api` bez własnego `except`, a aplikacja nie rejestruje dla niego
+    # handlera globalnego.
+    try:
+        suggestion = await enrich_from_meeting(
+            db,
+            job_id=body.job_id,
+            meeting_title=title_line or f"Meeting #{note.id}",
+            meeting_summary="",
+            meeting_transcript=note.content or "",
+            source_ref=f"note:{note.id}",
+            user_id=current_user.id,
+        )
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
     out = ChampionProfileSuggestionOut.model_validate(suggestion)
     out.patches = patches_from_payload(suggestion.payload or {})
     return {"note_id": note.id, "job_id": body.job_id, "suggestion": out}

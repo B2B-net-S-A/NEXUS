@@ -9,15 +9,17 @@ Asystent AI dla DynaReportera. Dwa endpointy:
 
 Używa modelu z CLAUDE_MODEL_CV (domyślnie Claude Sonnet 5) do generacji
 quick analytical insight'ów.
-"""
 
-from __future__ import annotations
+BEZ ``from __future__ import annotations`` — moduł niesie ``@limiter.limit``,
+a PEP 563 + slowapi #579 zamieniają guardy ``Annotated`` w wymagane parametry
+QUERY (ten sam trap co w ``cv_match_preview``/``candidate_activity_summary``).
+"""
 
 import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -30,6 +32,7 @@ from app.analytics.capabilities import (
 from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
 
@@ -74,7 +77,11 @@ class MindyCommentaryRequest(BaseModel):
 
 class MindyChatMessage(BaseModel):
     role: str = Field(pattern="^(user|assistant)$")
-    content: str
+    # Sufit długości: bez niego uwierzytelniony użytkownik kontrolował CAŁY
+    # prompt lecący do Sonneta na koncie firmy — 20 wiadomości bez ograniczenia
+    # rozmiaru to dowolnie duży, płatny input, którego nie widzi ani główny
+    # przełącznik, ani żaden miesięczny limit (MINDY nie ma `AIFeatureKey`).
+    content: str = Field(max_length=4000)
 
 
 class MindyChatRequest(BaseModel):
@@ -150,13 +157,34 @@ async def _fetch_user_kpi(
     )
 
 
+async def _ensure_ai_master_enabled(db: AsyncSession) -> None:
+    """Główny wyłącznik AI musi zatrzymywać też MINDY.
+
+    MINDY nie ma własnego `AIFeatureKey` (a więc ani miesięcznego limitu, ani
+    wpisu w `ai_usage_log`), więc dotąd stała CAŁKOWICIE poza systemem kwot:
+    admin gasił AI w Ustawieniach → AI, a oba POST-y dalej wołały Claude'a.
+    Sam odczyt przełącznika nie wymaga nowego elementu enuma i domyka
+    najostrzejszą połowę luki — kill-switch znowu znaczy to, co obiecuje.
+    """
+    from app.services.ai_quota import get_master_enabled
+
+    if not await get_master_enabled(db):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Funkcje AI są wyłączone globalnie",
+        )
+
+
 @router.post("/commentary", response_model=MindyResponse)
+@limiter.limit("10/minute")
 async def commentary(
+    request: Request,
     payload: MindyCommentaryRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> MindyResponse:
     """Jednorazowy insight MINDY o KPI usera."""
+    await _ensure_ai_master_enabled(db)
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -202,12 +230,15 @@ async def commentary(
 
 
 @router.post("/chat", response_model=MindyResponse)
+@limiter.limit("10/minute")
 async def chat(
+    request: Request,
     payload: MindyChatRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> MindyResponse:
     """Interactive chat z MINDY. History trzymana po stronie frontendu."""
+    await _ensure_ai_master_enabled(db)
     if not settings.ANTHROPIC_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

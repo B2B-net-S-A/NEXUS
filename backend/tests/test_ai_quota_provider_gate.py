@@ -31,24 +31,117 @@ BACKEND = pathlib.Path(__file__).resolve().parent.parent
 # ── One gate, not two ────────────────────────────────────────────────────────
 
 
+def _files_defining_a_parallel_gate() -> set[str]:
+    """Any file under app/ that reimplements the quota gate.
+
+    Two shapes count: a function literally named `_gate_and_count`, and an
+    `AIUsageLog` upsert outside `ai_quota` (the increment half of the gate).
+    """
+    found: set[str] = set()
+    for path in (BACKEND / "app").rglob("*.py"):
+        rel = str(path.relative_to(BACKEND))
+        if rel == "app/services/ai_quota.py":
+            continue  # the one legitimate implementation
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == "_gate_and_count"
+            ):
+                found.add(rel)
+            # `pg_insert(AIUsageLog)` — the counter upsert, wherever it is spelled.
+            if (
+                isinstance(node, ast.Call)
+                and any(
+                    isinstance(a, ast.Name) and a.id == "AIUsageLog" for a in node.args
+                )
+                and isinstance(node.func, ast.Name)
+                and "insert" in node.func.id.lower()
+            ):
+                found.add(rel)
+    return found
+
+
 def test_the_parallel_quota_implementation_is_gone():
     """`_gate_and_count` duplicated `check_and_increment` and disagreed with it.
 
     Whether an unseeded feature worked depended on which of the two a request
     reached — the worst kind of bug, because both copies looked correct.
+
+    Walks every file under app/, not one hard-coded path. The single-path
+    version passed while asserting a global property it had verified in exactly
+    one file — a second copy survived in `candidate_activity_summary_service`
+    for the whole time this test was green.
     """
-    path = BACKEND / "app/services/match_justification_service.py"
-    src = path.read_text()
-    tree = ast.parse(src)
-    defined = {
-        n.name
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    # Definitions, not mentions: the comment explaining why it was removed is
-    # the most useful line in that file and must not trip its own test.
-    assert "_gate_and_count" not in defined
+    assert not _files_defining_a_parallel_gate(), (
+        "these reimplement the quota gate instead of using "
+        "`async with ai_feature(...)`:\n"
+        + "\n".join(f"  {p}" for p in sorted(_files_defining_a_parallel_gate()))
+    )
+
+    src = (BACKEND / "app/services/match_justification_service.py").read_text()
     assert "ai_feature(" in src, "the surviving gate must actually be used here"
+
+
+# ── Charging without declaring ───────────────────────────────────────────────
+#
+# `check_and_increment` charges the quota but does NOT set the AI-call context,
+# so a caller that uses it directly is charged correctly and still reaches
+# `claude_client._assert_declared` undeclared: it logs as "UNGATED" (poisoning
+# the detector that `AI_QUOTA_STRICT` is built on) and, under STRICT, raises on
+# a path that actually paid. `async with ai_feature(...)` does both in one step.
+#
+# The entries below are pre-existing and each needs its own migration. The list
+# must only ever shrink.
+_BARE_CHARGE_BASELINE = {
+    "app/api/jobs.py",
+    "app/api/client_orders.py",
+    "app/services/cv_generator_b2b/requirement_map.py",
+    "app/services/cv_generator_b2b/interactive_chat.py",
+}
+
+
+def _files_charging_without_declaring() -> set[str]:
+    found: set[str] = set()
+    for path in (BACKEND / "app").rglob("*.py"):
+        rel = str(path.relative_to(BACKEND))
+        if rel == "app/services/ai_quota.py":
+            continue  # defines it
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:  # pragma: no cover
+            continue
+        for node in ast.walk(tree):
+            # Calls, not imports or mentions in comments/docstrings.
+            if isinstance(node, ast.Call) and (
+                (isinstance(node.func, ast.Name) and node.func.id == "check_and_increment")
+                or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "check_and_increment"
+                )
+            ):
+                found.add(rel)
+    return found
+
+
+def test_no_new_bare_quota_charge_appears():
+    new = _files_charging_without_declaring() - _BARE_CHARGE_BASELINE
+    assert not new, (
+        "These charge the quota with `check_and_increment` but never declare "
+        "the call, so the provider-boundary gate still logs them as UNGATED "
+        "and `AI_QUOTA_STRICT` would refuse them:\n"
+        + "\n".join(f"  {p}" for p in sorted(new))
+        + "\n\nUse `async with ai_feature(...)` — it charges and declares."
+    )
+
+
+def test_bare_charge_baseline_has_no_stale_entries():
+    """Guard the guard: a stale entry makes the debt look bigger than it is."""
+    stale = _BARE_CHARGE_BASELINE - _files_charging_without_declaring()
+    assert not stale, f"already migrated, remove from the baseline: {sorted(stale)}"
 
 
 def test_missing_feature_row_is_treated_as_enabled_without_a_ceiling():
@@ -126,7 +219,10 @@ def test_declared_call_passes_in_strict_mode(monkeypatch):
 # (the CV generator carries a bespoke retry loop and prompt caching), so they
 # are frozen rather than pretended away. The list must only ever shrink.
 _RAW_CLIENT_BASELINE = {
-    "app/api/ai_writer.py",
+    # `ai_writer` migrated to `call_claude`; the CV generator keeps its own
+    # client because it carries a bespoke retry loop, prompt caching and a
+    # model fallback chain the shared helper does not have — it now at least
+    # feeds `record_provider_call` and shares the retry predicate.
     "app/services/cv_generator_b2b/ai_client.py",
 }
 

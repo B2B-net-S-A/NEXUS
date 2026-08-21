@@ -161,10 +161,16 @@ async def check_and_increment(
     # two copies of this logic the request happened to reach. That second copy
     # is gone; this is the one behaviour.
     #
-    # Fail-open has a real cost: a feature nobody seeded also has no monthly
-    # ceiling, and nothing in the product says so. `/api/health.checks.ai_features`
-    # lists the missing keys for exactly that reason — it is a spend warning,
-    # not an outage.
+    # Fail-open has a real cost, and on prod it is not hypothetical — but the
+    # missing half is NOT the row. All 11 `AIFeatureKey` rows exist there and
+    # every one of them still carries the column default `monthly_limit = 0`,
+    # which this module documents as "no ceiling". So the branch below can
+    # never fire for any feature, and seeding more rows would change nothing:
+    # only a positive number does, and picking it is an admin decision
+    # (Ustawienia → AI writes `monthly_limit` straight into this column).
+    # `/api/health.checks.ai_features` therefore lists every key WITHOUT a
+    # positive ceiling — a missing row and a row at 0 alike — as a spend
+    # warning, not an outage.
     config = await get_feature_config(db, feature)
     if config is not None and not config.enabled:
         raise AIQuotaExceeded(feature, "Funkcja AI wyłączona w ustawieniach")

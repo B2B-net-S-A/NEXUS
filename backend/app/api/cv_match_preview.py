@@ -228,16 +228,21 @@ async def cv_upload_preview(
         # Charge cv_parser only when we'll actually invoke parse_cv() with
         # extracted text. Counted before commit so a quota-blocked upload
         # gets 503 without burning a Claude call.
+        #
+        # `ai_feature(...)`, nie gołe `check_and_increment`: obciążenie i
+        # DEKLARACJA to jeden krok. Samo obciążenie nie ustawia kontekstu
+        # wywołania, więc `parse_cv` (wołany bez `db`) docierał do
+        # `claude_client._assert_declared` jako niezadeklarowany i logował się
+        # jako „UNGATED" mimo poprawnie naliczonej kwoty — zatruwało to detektor
+        # nieobjętych bramką wywołań i pod `AI_QUOTA_STRICT` wywaliłoby tę
+        # ścieżkę do cichego fallbacku regex/Ollama.
         from app.models.ai_feature import AIFeatureKey
-        from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+        from app.services.ai_quota import AIQuotaExceeded, ai_feature
 
         try:
-            await check_and_increment(
-                db,
-                AIFeatureKey.cv_parser,
-                user_id=current_user.id,
-            )
-            await db.commit()
+            async with ai_feature(db, AIFeatureKey.cv_parser, user_id=current_user.id):
+                await db.commit()
+                parsed = await parse_cv(cv_text)
         except AIQuotaExceeded as exc:
             await db.rollback()
             raise HTTPException(
@@ -249,8 +254,6 @@ async def cv_upload_preview(
                     "limit": exc.limit,
                 },
             ) from exc
-
-        parsed = await parse_cv(cv_text)
         query_text = _build_query_text_from_parsed(parsed) or cv_text[:2000]
 
         # Wider Qdrant pool when reranker is on so the cross-encoder has room
