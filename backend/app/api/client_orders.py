@@ -37,6 +37,7 @@ from starlette.concurrency import run_in_threadpool
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import DlAssignedOrAdmin, TacPlus
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
@@ -44,6 +45,7 @@ from app.models.client import Client
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
+from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
 from app.models.user import UserRole
 from app.schemas.client_order import (
@@ -227,8 +229,15 @@ def _compute_monthly_margin(
 
     Stawka na poziomie ZAMÓWIENIA nadal wygrywa — to fakt o tym zamówieniu,
     a nie o umowie.
+
+    Domyślne „dziś" to ``business_today()``, nie ``date.today()``: to drugie
+    czyta zegar KONTENERA (UTC), więc krok harmonogramu z ``effective_from``
+    na 1. dnia miesiąca zaczynałby obowiązywać w marży o 01:00/02:00 czasu
+    warszawskiego. Ta sama kwota otwarta rano i w nocy pierwszego dnia
+    miesiąca podawałaby dwie różne liczby, a objaw jest cichy — liczba jest
+    poprawna, tylko opisuje inną dobę.
     """
-    eff = effective_rate_fields(contract, on or date.today())
+    eff = effective_rate_fields(contract, on or business_today())
     # `is not None` zamiast `or` — stawka 0 na Orderze jest legalna i nie może
     # po cichu spadać do stawki kontraktu.
     rate_client_effective = (
@@ -245,6 +254,78 @@ def _compute_monthly_margin(
     if monthly_client is None or monthly_cand is None:
         return None
     return monthly_client - monthly_cand
+
+
+def _apply_candidate_rate(
+    contract: Contract,
+    rate: Optional[Decimal | int],
+    *,
+    actor_id: Optional[int],
+    on: Optional[date] = None,
+) -> None:
+    """Zapisz stawkę kosztową TAM, SKĄD CZYTA ODCZYT.
+
+    Do 21.08 ten zapis szedł wprost do kolumny ``contracts.rate_candidate``,
+    a wszystkie odczyty pieniędzy (marża wiersza zamówienia, karta
+    kontraktora, ``/my-clients``, panel admina, analityka) idą przez
+    ``effective_rate_fields`` → ``_resolve_scheduled_rate``, który schodzi do
+    kolumny WYŁĄCZNIE wtedy, gdy harmonogram jest pusty. Dla kontraktu ze
+    stawką progresywną albo z aneksem ``rate_change`` — czyli dokładnie dla
+    populacji, dla której harmonogram powstał — zapis był więc ignorowany
+    przez cały system. Użytkownik dostawał 200, pole na ekranie pokazywało
+    nową wartość (bo czytało tę samą kolumnę), a pieniądze się nie zmieniały:
+    awaria cicha w najgorszą stronę, bez błędu i bez logu.
+
+    Reguła: harmonogram jest prawdą, więc zmiana stawki dopisuje do niego
+    KROK obowiązujący od dziś. To ten sam zapis, co aneks ``rate_change`` —
+    historia zostaje nietknięta, zmienia się przyszłość. Ponowna edycja tego
+    samego dnia nadpisuje krok zamiast dokładać kolejny (rozstrzygnięcie i
+    tak byłoby to samo — ``_resolve_scheduled_rate`` przy remisie dat wybiera
+    ostatnio wstawiony — ale historia nie musi puchnąć od poprawek literówek).
+
+    Kolumna jest nadal zapisywana: pozostaje cache'em dla umów BEZ
+    harmonogramu, karmi ``calculate_margin()`` (a po niej filtr „marża od"
+    w rejestrze umów, który filtruje po utrwalonej kolumnie ``contracts.margin``,
+    nie po wyrażeniu) i jest tym samym, co zapisuje ``contracts.update_contract``
+    po podmianie harmonogramu.
+
+    Wymaga wczytanego ``contract.candidate_rate_schedule``.
+    """
+    today = on or business_today()
+    schedule = contract.candidate_rate_schedule or []
+    if schedule and rate is None:
+        # Wyczyszczenie stawki prowadzonej harmonogramem jest niewykonalne:
+        # krok nie może mieć pustej stawki (``rate`` NOT NULL), a samo
+        # wyzerowanie kolumny nic by nie zmieniło, bo resolver i tak czyta
+        # harmonogram. Odmowa zamiast cichego no-opu.
+        raise HTTPException(
+            409,
+            detail=(
+                "Stawka kosztowa jest prowadzona harmonogramem — "
+                "wyczyść ją w umowie, edytując harmonogram stawek."
+            ),
+        )
+    contract.rate_candidate = rate
+    if schedule:
+        same_day = [step for step in schedule if step.effective_from == today]
+        if same_day:
+            same_day[-1].rate = rate
+        else:
+            schedule.append(
+                ContractCandidateRate(
+                    rate=rate,
+                    effective_from=today,
+                    note="Zmiana stawki z formularza zamówienia",
+                    created_by=actor_id,
+                )
+            )
+    # Filtr „marża od" w rejestrze umów porównuje UTRWALONĄ kolumnę
+    # `contracts.margin`, a nie wyrażenie — bez tego przeliczenia kontrakt po
+    # zmianie stawki kosztowej kwalifikowałby się po nieistniejącej już
+    # wartości: zostawałby w wynikach filtra, do którego już nie należy, albo
+    # z niego wypadał, mimo że należy. `PATCH /api/contracts/{id}` robi
+    # dokładnie ten sam krok na końcu.
+    contract.margin = contract.calculate_margin()
 
 
 # F-13 / P0.12: kwoty (stawki, marża, wartość zamówienia) widzą tylko role z
@@ -576,7 +657,7 @@ async def list_contractors_with_orders(
     )
 
     items: list[ContractWithOrdersRead] = []
-    today = date.today()
+    today = business_today()
     for c in contracts:
         orders_list = sorted(
             c.client_orders or [],
@@ -585,7 +666,20 @@ async def list_contractors_with_orders(
         )
         latest = orders_list[0] if orders_list else None
 
-        latest_margin = _compute_monthly_margin(latest, c) if latest else None
+        # JEDNO źródło stawek na tę odpowiedź. Do 21.08 marża szła z
+        # harmonogramów, a `rate_candidate` i fallback stawki przychodowej —
+        # z cache'owanych kolumn `contracts.rate_*`. Karta kontraktora
+        # renderuje obie liczby obok siebie, więc kontrakt z krokiem
+        # progresywnym, który już wszedł w życie, pokazywał
+        # „stawka przychodowa − stawka kosztowa ≠ marża" i wzrokiem nie dało
+        # się rozstrzygnąć, która liczba jest prawdziwa. Kolumny zapisuje
+        # wyłącznie ZAPIS kontraktu — żadne zadanie w tle nie odświeża ich
+        # w dniu wejścia kroku w życie. Schematy są już wczytane
+        # (`RATE_SCHEDULE_LOADS` w `.options(...)` wyżej), więc to zero
+        # dodatkowych zapytań.
+        eff = effective_rate_fields(c, today)
+
+        latest_margin = _compute_monthly_margin(latest, c, today) if latest else None
         latest_end = latest.end_date if latest else None
         days_to_end = (latest_end - today).days if latest_end else None
 
@@ -609,7 +703,7 @@ async def list_contractors_with_orders(
                 contract_status=c.status.value,
                 contract_start_date=c.start_date,
                 contract_end_date=c.end_date,
-                rate_candidate=c.rate_candidate,
+                rate_candidate=eff["rate_candidate"],
                 rate_unit=c.rate_unit.value,
                 initial_job_id=c.job_id,
                 initial_job_title=c.job.title if c.job else None,
@@ -620,10 +714,10 @@ async def list_contractors_with_orders(
                     (
                         latest.rate_client
                         if latest.rate_client is not None
-                        else c.rate_client
+                        else eff["rate_client"]
                     )
                     if latest
-                    else c.rate_client
+                    else eff["rate_client"]
                 ),
                 latest_order_monthly_margin=latest_margin,
                 days_to_latest_end=days_to_end,
@@ -1056,7 +1150,18 @@ async def update_order(
         select(ClientOrder)
         # Eager-load jak w get_order — _order_to_read czyta order.contract,
         # a lazy-load na async sesji = MissingGreenlet (500).
-        .options(selectinload(ClientOrder.contract))
+        #
+        # Harmonogram stawki kandydata dociągany JAWNIE, bo `_apply_candidate_rate`
+        # niżej dotyka `contract.candidate_rate_schedule`. Sam `selectinload`
+        # na relacji `contract` go nie obejmuje, a sięgnięcie po niego bez
+        # wczytania to w sesji async nie wolniejszy odczyt, tylko
+        # `MissingGreenlet` — HTTP 500 bez nagłówków CORS, który front pokazuje
+        # jako „Network Error".
+        .options(
+            selectinload(ClientOrder.contract).selectinload(
+                Contract.candidate_rate_schedule
+            )
+        )
         .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
     )
     if order is None:
@@ -1073,7 +1178,7 @@ async def update_order(
     if "rate_candidate" in payload.model_fields_set:
         if order.contract is None:
             raise HTTPException(409, detail="Order has no contract to price")
-        order.contract.rate_candidate = rate_candidate
+        _apply_candidate_rate(order.contract, rate_candidate, actor_id=user.id)
     if "project_part" in data:
         # Edycja/uzupełnienie draftu: wartość ze słownika albo NULL; u klientów
         # innych niż e-Zdrowie pole pozostaje zabronione (ticket #3).

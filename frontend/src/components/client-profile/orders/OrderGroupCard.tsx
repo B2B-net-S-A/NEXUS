@@ -55,7 +55,24 @@ const STATUS_BADGE: Record<string, string> = {
  *  ta sama konwencja co przy MD, żeby dwa paski obok siebie nie znaczyły
  *  czegoś przeciwnego. */
 function BudgetBar({ group }: { group: OrderGroupRead }) {
-  const total = group.budget_amount ?? 0;
+  // Rola bez VIEW_FINANCE (m.in. TAC, który tę zakładkę WIDZI) dostaje kwoty
+  // grupy jako `null` — redakcja w `client_order_groups.py`. Domykanie tego
+  // przez `?? 0` zamieniało BRAK UPRAWNIEŃ w „pozostało 0", czyli `depleted`,
+  // czyli czerwony pasek `bg-destructive` pod podpisem „Kwota — · pozostało —".
+  // Brak uprawnień nie może czytać się jak alarm o wyczerpanym budżecie —
+  // nieuprawniony widziałby wtedy nie MNIEJ niż uprawniony, tylko COŚ INNEGO.
+  // Warunek patrzy na `null`, NIE na `0`: zamówienie z realnym budżetem 0 to
+  // inny stan świata (pieniądze się skończyły) niż brak dostępu do kwoty.
+  if (group.budget_amount == null) {
+    return (
+      <p className="min-w-[14rem] text-xs text-muted-foreground">
+        Kwota {formatPLN(null)} · wykorzystano {formatPLN(null)} · pozostało{" "}
+        {formatPLN(null)}
+      </p>
+    );
+  }
+
+  const total = group.budget_amount;
   const remaining = group.budget_remaining ?? 0;
   const pct = total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
   const depleted = remaining <= 0;

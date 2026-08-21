@@ -26,6 +26,7 @@ from sqlalchemy.orm import selectinload
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contract_templates import _contract_vars, _jinja_env
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.call import Call
 from app.models.candidate import Candidate
@@ -94,6 +95,7 @@ from app.schemas.contract_onboarding import (
 from app.services import storage_service
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
+    assert_transition,
     can_hard_delete,
     move_to_ready_for_signature,
     reopen_contract,
@@ -196,6 +198,153 @@ def _status_after_end_date_change(
     if status == ContractStatus.ending and end_date is None:
         return ContractStatus.active
     return status
+
+
+async def _sync_client_orders_to_contract_end(
+    db: AsyncSession, contract_id: int, when: date
+) -> int:
+    """JEDNA data końca w obu modelach — kontrakt i jego zamówienia klienta.
+
+    ``Contract.end_date`` i ``ClientOrder.end_date`` to osobne kolumny
+    skanowane przez dwa niezależne demony (``contract_alerts`` /
+    ``dl_portal_expiry_scanner``) — bez jawnego syncu zakończony kontrakt
+    zostawia otwarte zamówienia dryfujące bezterminowo, a skaner wygasania
+    dalej alarmuje o czymś, co się skończyło. Reguły:
+
+      * zamówienie startujące PO dacie końca → ``cancelled`` (nigdy nie ruszy),
+      * pozostałe otwarte (draft/active/paused): ``end_date = when``;
+        ``completed`` dopiero gdy data nadeszła — przyszłą datę materializuje
+        dzienny skaner (lustrzana semantyka P0.7 kontraktu),
+      * ``B2BGeneratedContract`` celowo NIETKNIĘTY (zamknięcie dokumentu
+        prawnego to odrębna, ręczna operacja).
+
+    Wyniesione z ``/terminate`` do funkcji, bo ma DWÓCH wołających: dyspozycję
+    wypowiedzenia i ustawienie statusu „Zakończony" wprost z rejestru umów.
+    Druga ścieżka miała tę regułę pominiętą, więc kończyła kontrakt i
+    zostawiała jego zamówienia otwarte — objaw widoczny dopiero jako alert DL
+    o zamówieniu nieistniejącej już współpracy.
+
+    Zwraca liczbę dotkniętych zamówień — ``/terminate`` zapisuje ją w audycie.
+    """
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    open_orders = (
+        (
+            await db.execute(
+                select(ClientOrder).where(
+                    ClientOrder.contract_id == contract_id,
+                    ClientOrder.status.in_(
+                        (
+                            ClientOrderStatus.draft,
+                            ClientOrderStatus.active,
+                            ClientOrderStatus.paused,
+                        )
+                    ),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for order in open_orders:
+        if order.start_date is not None and order.start_date > when:
+            order.status = ClientOrderStatus.cancelled
+        else:
+            if order.end_date is None or order.end_date > when:
+                order.end_date = when
+            if when <= business_today():
+                order.status = ClientOrderStatus.completed
+    return len(open_orders)
+
+
+async def _apply_contract_status_change(
+    db: AsyncSession,
+    contract: Contract,
+    target: ContractStatus,
+    *,
+    actor_id: Optional[int],
+) -> None:
+    """Jedyne wejście dla zapisu ``status`` z PATCH-a rejestru umów.
+
+    Rejestr umów ma w dialogu edycji listę rozwijaną ze statusem i ta lista
+    MA działać — ticket jest słuszny. Czym innym jest jednak „zapisz wybraną
+    wartość do kolumny", a czym innym „wykonaj przejście stanu". Surowy
+    ``setattr(contract, "status", ...)`` omija ``contract_lifecycle`` w
+    całości i daje cztery skutki, z których każdy jest cichy:
+
+      * ``ALLOWED_TRANSITIONS[void] == frozenset()`` — ``void`` jest TERMINALNY
+        (soft-delete zachowujący dokumenty i hashe podpisów), a surowy zapis
+        wskrzeszał go do MRR, liczników konsultantów i alertów DL;
+      * ``active`` bez ``validate_ready_for_activation`` — umowa wchodzi do
+        liczenia pieniędzy z pustymi polami, na których to liczenie stoi;
+      * ``active`` mimo rozpoczętego, niedokończonego procesu podpisu —
+        ``activate_contract`` odmawia tego z 409 ``signature_required``;
+      * ``ended`` bez koherencji ``end_date`` i bez syncu ``ClientOrder`` —
+        operacyjnie najgorsze, bo zamówienia klienta zostają otwarte, a skaner
+        wygasania alarmuje o zakończonej współpracy.
+
+    Dlatego pole nie jest odbierane, tylko przepuszczane przez maszynę stanów.
+    Każda gałąź deleguje do funkcji, która JUŻ ma swój audyt i swoje bramki;
+    ``assert_transition`` odpowiada za krawędzie, których żadna z nich nie
+    obsługuje.
+
+    Świadomie NIE ustawiamy tu ``terminated_at``/``termination_reason``:
+    „Zakończony" w rejestrze znaczy „ta umowa się skończyła", a nie „wypowiadam
+    ją przed czasem". Wypowiedzenie ma własny endpoint (``/terminate``), który
+    wymaga powodu i dopisuje aneks ``early_termination``. Dopisanie tu daty
+    wypowiedzenia bez powodu twierdziłoby coś, czego nikt nie zadeklarował.
+    """
+    if target == contract.status:
+        return
+
+    if target == ContractStatus.active:
+        if contract.status in (ContractStatus.ended, ContractStatus.ending):
+            # Powrót zakończonej/kończącej się umowy to REAKTYWACJA, nie
+            # świeża aktywacja: dowód podpisu już istnieje z chwili, w której
+            # umowę wykonano pierwszy raz. `reopen_contract` ma tę regułę i
+            # zapisuje `contract_reopened` z `from_status`/`to_status`.
+            await reopen_contract(db, contract, actor_id=actor_id)
+        else:
+            # draft / ready_for_signature → pełne bramki: legalne przejście,
+            # komplet pól, a przy rozpoczętym podpisie — ukończony
+            # `DocumentSignature`. Każda odmowa to 409, stan bez zmian.
+            await lifecycle_activate_contract(db, contract, actor_id=actor_id)
+        return
+
+    if target == ContractStatus.draft:
+        await revert_contract(
+            db,
+            contract,
+            actor_id=actor_id,
+            reason="Zmiana statusu w rejestrze umów",
+        )
+        return
+
+    if target == ContractStatus.void:
+        # Rejestr tej wartości nie oferuje, ale kontrakt HTTP nie jest listą
+        # rozwijaną: gdyby dotarła, ma trafić w audytowany soft-delete, a nie
+        # w surowy zapis kolumny.
+        await void_contract(
+            db,
+            contract,
+            actor_id=actor_id,
+            reason="Zmiana statusu w rejestrze umów",
+        )
+        return
+
+    assert_transition(contract.status, target)
+
+    if target == ContractStatus.ended:
+        when = business_today()
+        # Bez tego `_status_after_end_date_change` (niżej w handlerze oraz w
+        # dziennym cronie) natychmiast cofnąłby `ended` na `active`, bo umowa
+        # bezterminowa albo z datą w przyszłości „jeszcze się nie skończyła".
+        # Zapis wyglądałby na udany i sam się kasował.
+        if contract.end_date is None or contract.end_date > when:
+            contract.end_date = when
+        await _sync_client_orders_to_contract_end(db, contract.id, when)
+
+    contract.status = target
 
 
 def _to_detail(contract: Contract) -> ContractDetailResponse:
@@ -1072,6 +1221,14 @@ async def create_contract(
         await resolve_delivery_lead_client_ids(current_user, db),
     )
     payload = data.model_dump()
+    # Kontrakt RODZI SIĘ szkicem — to jest niezmiennik, nie domyślna wartość.
+    # `Contract(**payload)` zapisałby przysłany `status` wprost do kolumny, więc
+    # POST z `{"status": "active"}` zakładałby umowę od razu w przychodzie:
+    # bez `validate_ready_for_activation` (pola, na których stoi liczenie
+    # pieniędzy) i bez sprawdzenia podpisu. Dojście do `active` prowadzi
+    # `contract_lifecycle` — z rejestru przez PATCH, patrz
+    # `_apply_contract_status_change`.
+    payload.pop("status", None)
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     contract = Contract(**payload)
@@ -1469,8 +1626,29 @@ async def update_contract(
     # replace-on-presence contract as the candidate schedule above.
     framework_sent = "framework_rate_schedule" in updates
     framework_input = updates.pop("framework_rate_schedule", None)
+    # `status` NIE może przejść przez pętlę `setattr` niżej — surowy zapis
+    # omija maszynę stanów (m.in. wskrzesza terminalny `void`) i zostawia
+    # zakończony kontrakt z otwartymi zamówieniami klienta.
+    # `_apply_contract_status_change` opisuje komplet skutków.
+    status_sent = "status" in updates
+    status_target = updates.pop("status", None)
     for k, v in updates.items():
         setattr(contract, k, v)
+    # Przejście stanu PO zapisaniu pozostałych pól, nie przed. Kolejność jest
+    # nośna w obie strony: `activate_contract` sprawdza komplet pól, więc musi
+    # widzieć wartości z TEGO żądania, a domknięcie umowy przypina `end_date`
+    # do dziś — pętla `setattr` odtworzyłaby potem przysłaną datę i zostawiła
+    # `ended` z datą w przyszłości, czyli status niezgodny z własną datą.
+    if status_sent and status_target is not None:
+        await _apply_contract_status_change(
+            db,
+            contract,
+            ContractStatus(status_target),
+            actor_id=current_user.id,
+        )
+        # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
+        # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
+        updates["status"] = contract.status.value
     if schedule_sent:
         contract.candidate_rate_schedule = [
             ContractCandidateRate(
@@ -1503,13 +1681,19 @@ async def update_contract(
         # setattr loop when present in this same PATCH).
         if contract.framework_rate_schedule:
             contract.framework_rate = contract.effective_framework_rate(date.today())
-    # Przy edycji samej daty zachowujemy dotychczasowy guard spójności. Gdy
-    # operator przesłał ``status`` jawnie, musi zostać zapisany dokładnie ten
-    # status — inaczej dropdown potwierdza zapis, a lista nadal pokazuje starą
-    # wartość.
-    if "status" not in updates:
+    # Coherence guard: a PATCH that leaves the contract indefinite or with a
+    # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
+    # active so editing only the end date to "bezterminowo" heals a contract
+    # wrongly marked ended; the daily cron re-derives "ending" within 30 days.
+    #
+    # Pomijany, gdy PATCH NIÓSŁ status: to samoleczenie jest heurystyką
+    # („nikt nie prosił, więc domyśl się z daty"), a jawny wybór operatora nie
+    # jest heurystyką. Bez tego wyjątku wybranie „Zakończony" dla umowy
+    # bezterminowej zostałoby natychmiast cofnięte na `active` w tym samym
+    # żądaniu — zapis zwracałby 200 i nie robił nic.
+    if not status_sent:
         coerced_status = _status_after_end_date_change(
-            contract.status, contract.end_date, date.today()
+            contract.status, contract.end_date, business_today()
         )
         if coerced_status != contract.status:
             contract.status = coerced_status
@@ -2890,45 +3074,7 @@ async def terminate_contract(
         ContractStatus.ended, contract.end_date, date.today()
     )
 
-    # ── Sync zamówień (ticket #5, Faza C): JEDNA data końca w obu modelach ──
-    # Contract.end_date i ClientOrder.end_date to osobne kolumny skanowane
-    # przez dwa niezależne demony (contract_alerts / dl_portal_expiry_scanner)
-    # — bez jawnego syncu zakończony kontrakt zostawiał otwarte zamówienia
-    # dryfujące bezterminowo. Reguły:
-    #  • zamówienie startujące PO dacie końca → cancelled (nigdy nie ruszy),
-    #  • pozostałe otwarte (draft/active/paused): end_date = when; completed
-    #    dopiero gdy data nadeszła — przyszłą datę materializuje dzienny
-    #    skaner (lustrzana semantyka P0.7 kontraktu),
-    #  • B2BGeneratedContract celowo NIETKNIĘTY (step 6 ticketa — zamknięcie
-    #    dokumentu prawnego to odrębna, ręczna operacja).
-    from app.models.client_order import ClientOrder, ClientOrderStatus
-
-    open_orders = (
-        (
-            await db.execute(
-                select(ClientOrder).where(
-                    ClientOrder.contract_id == contract_id,
-                    ClientOrder.status.in_(
-                        (
-                            ClientOrderStatus.draft,
-                            ClientOrderStatus.active,
-                            ClientOrderStatus.paused,
-                        )
-                    ),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for order in open_orders:
-        if order.start_date is not None and order.start_date > when:
-            order.status = ClientOrderStatus.cancelled
-        else:
-            if order.end_date is None or order.end_date > when:
-                order.end_date = when
-            if when <= date.today():
-                order.status = ClientOrderStatus.completed
+    synced_orders = await _sync_client_orders_to_contract_end(db, contract_id, when)
 
     # Audit amendment if the contract was cut short.
     if previous_end_date is not None and when < previous_end_date:
@@ -2964,7 +3110,7 @@ async def terminate_contract(
                 "termination_reason": data.termination_reason.value,
                 "terminated_at": when.isoformat(),
                 "early": previous_end_date is not None and when < previous_end_date,
-                "synced_orders": len(open_orders),
+                "synced_orders": synced_orders,
             },
         )
     )
