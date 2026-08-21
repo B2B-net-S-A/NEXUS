@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Hard ceiling on a single sync pass — guards against a hung Graph call
@@ -65,6 +66,43 @@ class SyncResult:
     events_ingested: int = 0
     errors: int = 0
     error_samples: list[str] = field(default_factory=list)
+    #: Przebieg NIE ruszył, bo ta sama skrzynka była już synchronizowana.
+    #: Odróżnia „nic nie przyszło" od „w ogóle nie pytaliśmy" — bez tego pola
+    #: odmowa jest nieodróżnialna od pustego, udanego syncu.
+    skipped_already_running: bool = False
+
+
+# ── Bramka „jedna synchronizacja na skrzynkę" ──────────────────────────────
+#
+# Do sierpnia 2026 `last_sync_status = running` był ZAPISYWANY i przez nic
+# nie CZYTANY, więc nic w systemie nie potrafiło stwierdzić, że skrzynka jest
+# już synchronizowana. Cztery ścieżki wołają `sync_connection` i wszystkie
+# mogą trafić na siebie: zaplanowana pętla (co 300 s), backfill z callbacku
+# OAuth (`trigger_backfill`, potrafi trwać ponad godzinę przy 12 miesiącach
+# historii), `_webhook_dispatch_sync` oraz `POST /sync/trigger` (rate limit
+# 10/min i żadnej innej bramki). Dwa równoległe przebiegi tej samej skrzynki
+# podwajają ruch do Graph, ścigają się na kursorze delta, a przy kolizji na
+# UNIQUE `emails.m365_message_id` zatruwały sesję tak, że commit strony
+# odrzucał całą stronę maili.
+#
+# Mutex jest W PROCESIE, a nie w bazie — świadomie. Wariant bazowy wymaga
+# kolumny `last_sync_started_at` (bez niej nie da się odróżnić przebiegu
+# TRWAJĄCEGO od porzuconego przez restart kontenera, a sam warunek
+# `status == running` zamurowałby skrzynkę na zawsze po każdym redeployu
+# w trakcie backfillu), czyli migracji. Wszystkie cztery ścieżki żyją w tym
+# samym procesie aplikacji, więc lock je pokrywa; przy przejściu na wiele
+# workerów (patrz uwaga o leader-election dla pętli tła) trzeba dołożyć
+# wariant bazodanowy.
+_sync_locks: dict[int, asyncio.Lock] = {}
+
+
+def _connection_lock(connection_id: int) -> asyncio.Lock:
+    """Lock per połączenie. Słownik jest malutki (jeden wpis na skrzynkę)."""
+    lock = _sync_locks.get(connection_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _sync_locks[connection_id] = lock
+    return lock
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
@@ -78,6 +116,10 @@ async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
     - `last_sync_at` is set on BOTH success and error so the scheduler's cutoff
       test behaves correctly (otherwise a failing row keeps being picked up
       every loop iteration).
+    - Jedna synchronizacja na skrzynkę naraz (patrz `_sync_locks`). Drugi
+      przebieg jest ODRZUCANY, a nie kolejkowany: kolejkowanie za trwającym
+      12-miesięcznym backfillem zablokowałoby pętlę na godziny, a i tak
+      chodziłoby o tę samą robotę.
     """
     result = SyncResult(connection_id=conn.id)
     if not await connection_owner_is_eligible(db, conn):
@@ -87,6 +129,23 @@ async def sync_connection(db: AsyncSession, conn: M365Connection) -> SyncResult:
         )
         return result
 
+    lock = _connection_lock(conn.id)
+    if lock.locked():
+        # `locked()` + `async with` nie mają między sobą punktu zawieszenia
+        # (nieobciążone `Lock.acquire` nie oddaje sterowania pętli zdarzeń),
+        # więc dwa wywołania nie prześlizgną się tędy równocześnie.
+        logger.info("m365 sync skipped: connection_id=%s is already syncing", conn.id)
+        result.skipped_already_running = True
+        return result
+
+    async with lock:
+        return await _sync_connection_locked(db, conn, result)
+
+
+async def _sync_connection_locked(
+    db: AsyncSession, conn: M365Connection, result: SyncResult
+) -> SyncResult:
+    """Właściwy przebieg — wołany wyłącznie z trzymanym lockiem połączenia."""
     conn.last_sync_status = M365SyncStatus.running
     conn.last_error = None
     await db.commit()
@@ -316,7 +375,25 @@ async def _sync_messages_for_folder(
                 if len(result.error_samples) < 20:
                     result.error_samples.append(f"msg: {exc!r}")
         # Commit per page so long backfills don't hold one huge transaction.
-        await db.commit()
+        # Ten commit stoi POZA `except` wyżej, więc na zatrutej sesji sam rzucał
+        # wyjątkiem i cała strona maili przepadała, a wyjątek uciekał do
+        # wywołującego (w ścieżce `/sync/trigger` — całkowicie niewidocznie,
+        # jako „Task exception was never retrieved" dopiero przy GC).
+        # Wstawienie maila siedzi teraz w SAVEPOINCIE, więc zatrucie sesji jest
+        # znacznie mniej prawdopodobne; gdy jednak wystąpi, rollback przywraca
+        # sesję do stanu używalnego i sync leci dalej zamiast się urwać.
+        try:
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "m365 conn %s: page commit failed for %s — page dropped",
+                conn.id,
+                folder,
+            )
+            await db.rollback()
+            result.errors += 1
+            if len(result.error_samples) < 20:
+                result.error_samples.append(f"page-commit: {exc!r}")
         if page.get("@odata.deltaLink"):
             last_delta_link = page["@odata.deltaLink"]
 
@@ -420,13 +497,12 @@ async def _upsert_message(
         matched_at = datetime.now(timezone.utc) if m.candidate_id is not None else None
 
     if existing is None:
-        row = Email(
-            user_id=conn.user_id,
-            candidate_id=candidate_id,
-            m365_message_id=m365_id,
-            m365_internet_message_id=internet_message_id,
-            m365_conversation_id=conversation_id,
-            subject=subject[:998] if subject else None,
+        row = _new_email_row(
+            conn=conn,
+            m365_id=m365_id,
+            internet_message_id=internet_message_id,
+            conversation_id=conversation_id,
+            subject=subject,
             from_address=from_address,
             from_name=from_name,
             to_addresses=to_addresses,
@@ -439,28 +515,56 @@ async def _upsert_message(
             direction=direction,
             has_attachments=has_attachments,
             is_read=bool(msg.get("isRead")),
-            is_private_filtered=is_private,
+            is_private=is_private,
             match_method=match_method,
             match_confidence=match_confidence,
             matched_at=matched_at,
-            raw_categories=categories,
+            candidate_id=candidate_id,
+            categories=categories,
         )
-        db.add(row)
-        await db.flush()
-    else:
-        existing.is_read = bool(msg.get("isRead"))
-        existing.body_html = body_html
-        existing.body_text = body_text
-        existing.body_preview = body_preview
-        existing.has_attachments = has_attachments
-        existing.raw_categories = categories
-        existing.is_private_filtered = is_private
-        if candidate_id != existing.candidate_id:
-            existing.candidate_id = candidate_id
-            existing.match_method = match_method
-            existing.match_confidence = match_confidence
-            existing.matched_at = matched_at
-        row = existing
+        try:
+            # SAVEPOINT: `emails.m365_message_id` ma indeks UNIQUE, a to jest
+            # SELECT-then-INSERT. Gdy ten sam mail wejdzie równolegle (drugi
+            # przebieg, webhook, ponowienie), IntegrityError bez savepointu
+            # zatruwa CAŁĄ sesję: dalsze wiadomości lecą na martwej sesji, a
+            # commit strony odrzuca komplet zaciągniętych maili. Savepoint
+            # ogranicza szkodę do jednej wiadomości.
+            async with db.begin_nested():
+                db.add(row)
+                await db.flush()
+        except IntegrityError:
+            # Przegraliśmy wyścig — wiersz istnieje. Traktujemy to jak trafienie
+            # w `existing` (upsert), a nie jak błąd: mail jest w bazie, więc
+            # liczenie tego jako porażki wprowadzałoby w błąd raport syncu.
+            logger.info(
+                "m365 conn %s: message %s inserted concurrently — switching to update",
+                conn.id,
+                m365_id,
+            )
+            existing = await db.scalar(
+                select(Email).where(Email.m365_message_id == m365_id)
+            )
+            if existing is None:
+                # Druga strona wyścigu jeszcze nie zacommitowała — nie mamy na
+                # czym pracować, następny przebieg delty dociągnie tę wiadomość.
+                return None
+            row = existing
+
+    if existing is not None:
+        row = _apply_email_update(
+            existing,
+            body_html=body_html,
+            body_text=body_text,
+            body_preview=body_preview,
+            has_attachments=has_attachments,
+            is_read=bool(msg.get("isRead")),
+            is_private=is_private,
+            categories=categories,
+            candidate_id=candidate_id,
+            match_method=match_method,
+            match_confidence=match_confidence,
+            matched_at=matched_at,
+        )
 
     # Attachments — only for non-filtered messages and when we actually have any.
     if not is_private and has_attachments:
@@ -473,6 +577,97 @@ async def _upsert_message(
             logger.exception("attachment handling failed for email %s", row.id)
 
     return row
+
+
+def _new_email_row(
+    *,
+    conn: M365Connection,
+    m365_id: str,
+    internet_message_id: Optional[str],
+    conversation_id: str,
+    subject: str,
+    from_address: str,
+    from_name: Optional[str],
+    to_addresses: list[dict],
+    cc_addresses: list[dict],
+    body_html: Optional[str],
+    body_text: Optional[str],
+    body_preview: Optional[str],
+    sent_at: Optional[datetime],
+    received_at: datetime,
+    direction: EmailDirection,
+    has_attachments: bool,
+    is_read: bool,
+    is_private: bool,
+    match_method: EmailMatchMethod,
+    match_confidence: Optional[float],
+    matched_at: Optional[datetime],
+    candidate_id: Optional[int],
+    categories: list,
+) -> Email:
+    """Świeży wiersz `Email` — wydzielone, żeby konstrukcja mieściła się razem
+    z `db.add` w bloku savepointu (obiekt dodany przed savepointem przeżyłby
+    jego rollback i wysadził następny flush)."""
+    return Email(
+        user_id=conn.user_id,
+        candidate_id=candidate_id,
+        m365_message_id=m365_id,
+        m365_internet_message_id=internet_message_id,
+        m365_conversation_id=conversation_id,
+        subject=subject[:998] if subject else None,
+        from_address=from_address,
+        from_name=from_name,
+        to_addresses=to_addresses,
+        cc_addresses=cc_addresses,
+        body_html=body_html,
+        body_text=body_text,
+        body_preview=body_preview,
+        sent_at=sent_at,
+        received_at=received_at,
+        direction=direction,
+        has_attachments=has_attachments,
+        is_read=is_read,
+        is_private_filtered=is_private,
+        match_method=match_method,
+        match_confidence=match_confidence,
+        matched_at=matched_at,
+        raw_categories=categories,
+    )
+
+
+def _apply_email_update(
+    existing: Email,
+    *,
+    body_html: Optional[str],
+    body_text: Optional[str],
+    body_preview: Optional[str],
+    has_attachments: bool,
+    is_read: bool,
+    is_private: bool,
+    categories: list,
+    candidate_id: Optional[int],
+    match_method: EmailMatchMethod,
+    match_confidence: Optional[float],
+    matched_at: Optional[datetime],
+) -> Email:
+    """Nadpisanie istniejącego wiersza świeżą treścią z Graph.
+
+    Wydzielone bez zmiany zachowania, bo tę samą ścieżkę wykonuje teraz także
+    przegrany wyścig na UNIQUE (INSERT → IntegrityError → SELECT → update).
+    """
+    existing.is_read = is_read
+    existing.body_html = body_html
+    existing.body_text = body_text
+    existing.body_preview = body_preview
+    existing.has_attachments = has_attachments
+    existing.raw_categories = categories
+    existing.is_private_filtered = is_private
+    if candidate_id != existing.candidate_id:
+        existing.candidate_id = candidate_id
+        existing.match_method = match_method
+        existing.match_confidence = match_confidence
+        existing.matched_at = matched_at
+    return existing
 
 
 def _parse_recipients(value) -> list[dict]:

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { useQuery } from "@tanstack/react-query"
 import {
   BadgeCheck,
@@ -26,8 +27,22 @@ import { useAuthStore } from "@/store/auth"
 import { RecruitmentCompetitions } from "./RecruitmentCompetitions"
 import { RecruitmentLinkedInPanel } from "./RecruitmentLinkedInPanel"
 import { RecruitmentTeamTable } from "./RecruitmentTeamTable"
-import { RecruitmentTrendChart } from "./RecruitmentTrendChart"
 import { StatsBoundary, type StatsBoundaryState } from "./StatsBoundary"
+
+// Recharts (~100 kB) statycznie w tym module oznaczał, że KAŻDE otwarcie
+// /dashboard płaci za wykres trendu, także gdy użytkownik nigdy do niego nie
+// doscrolluje albo gdy sekcja renderuje pusty/niedostępny stan. `ssr: false`,
+// bo wykres i tak liczy wymiary z DOM. Placeholder trzyma wysokość, żeby
+// doładowanie nie przeskakiwało treścią pod kursorem.
+const RecruitmentTrendChart = dynamic(
+  () => import("./RecruitmentTrendChart").then((m) => m.RecruitmentTrendChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[320px] rounded-lg border border-border bg-card" />
+    ),
+  }
+)
 
 // Sekcja „Statystyki rekrutacji" — wspólna dla WSZYSTKICH presetów
 // /dashboard (decyzja właściciela 2026-08-07: każda rola operacyjna widzi

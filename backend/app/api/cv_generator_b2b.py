@@ -303,6 +303,35 @@ async def _finalize_success(db: AsyncSession, generated_id: int, *, result) -> b
     return True
 
 
+async def _ensure_ai_master_enabled(db: AsyncSession) -> None:
+    """Główny wyłącznik AI musi zatrzymywać też generowanie CV B2B.
+
+    To NAJDROŻSZE wywołanie Claude'a w produkcie (16 384 tokeny outputu, łańcuch
+    Sonnet → Opus, do 3 prób na model), a stało całkowicie poza systemem kwot:
+    `AIMasterToggle.enabled = False` jest sprawdzany wyłącznie wewnątrz
+    `check_and_increment`, którego ta ścieżka nigdy nie woła. Admin gasił AI
+    w Ustawieniach → AI (UI twierdzi „Wszystkie funkcje AI są wyłączone
+    globalnie"), a `POST /generate` i `/generate-upload` dalej wydawały pieniądze.
+
+    Sam odczyt przełącznika NIE wymaga nowego elementu `AIFeatureKey`, więc
+    domyka najostrzejszą połowę luki bez migracji. Do zrobienia osobno (wymaga
+    rewizji alembica): własny `AIFeatureKey.cv_generator`, a więc miesięczny
+    limit i wpisy w `ai_usage_log` — bez nich raport zużycia dalej zaniża
+    realne wydatki o tę powierzchnię.
+
+    Bramka stoi w handlerze, PRZED założeniem wiersza „processing": odrzucenie
+    w tle zostawiłoby na liście wiersz „failed" zamiast czytelnego 503, a
+    rekruter nie dowiedziałby się, że to decyzja administratora, nie awaria.
+    """
+    from app.services.ai_quota import get_master_enabled
+
+    if not await get_master_enabled(db):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Funkcje AI są wyłączone globalnie",
+        )
+
+
 async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
     """Mark a „processing" row „failed" with the reason. No-op if it's gone."""
     row = await db.get(CvGeneratedDocument, generated_id)
@@ -653,6 +682,7 @@ async def generate(
     notes present) is validated inside the background job and any failure is
     written onto that row.
     """
+    await _ensure_ai_master_enabled(db)
     candidate = await db.get(Candidate, payload.candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
@@ -726,6 +756,7 @@ async def generate_from_upload(
     wynik ląduje na liście „Wygenerowane CV". Poza wpisem audytowym nic nie
     trafia do NEXUS DB.
     """
+    await _ensure_ai_master_enabled(db)
     cv_bytes = await cv_file.read()
     champion_bytes: bytes | None = None
     champion_filename: str | None = None

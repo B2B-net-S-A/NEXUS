@@ -1950,6 +1950,7 @@ async def api_health_deep_check():
     from fastapi.responses import JSONResponse
     from sqlalchemy import select, text
 
+    from app.core import db_collation
     from app.core.database import AsyncSessionLocal
     from app.models.b2b_generated_contract import B2BGeneratedContract
     from app.models.b2b_generated_contract_status_event import (
@@ -2734,12 +2735,37 @@ async def api_health_deep_check():
         errors["client_portfolio_import"] = type(exc).__name__
         logger.warning("health/deep: client portfolio import probe failed: %r", exc)
 
+    # Kolacja bazy — patrz `app/core/db_collation.py` po pełne uzasadnienie.
+    # W skrócie: porządek sortowania CAŁEGO tekstu wybiera niejawnie tag obrazu
+    # w docker-compose.yml, katalog `pg_database` na to pytanie odpowiada
+    # MYLĄCO (obie warianty raportują `en_US.utf8`), a wbudowane ostrzeżenie
+    # PostgreSQL o dryfie kolacji nie może wystrzelić, bo pod musl
+    # `datcollversion` jest pusty. Ta sonda jest jedynym miejscem, w którym
+    # podmiana obrazu na istniejącym wolumenie przestaje być niema.
+    collation_report: dict = {"status": "unknown"}
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await asyncio.wait_for(
+                session.execute(db_collation.COLLATION_PROBE_SQL), timeout=3.0
+            )
+            row = result.mappings().one()
+        matches, collation_report = db_collation.evaluate(dict(row))
+        checks["db_collation"] = "healthy" if matches else "unhealthy"
+        if not matches:
+            errors["db_collation"] = "CollationDrift"
+    except Exception as exc:  # noqa: BLE001
+        checks["db_collation"] = "unhealthy"
+        errors["db_collation"] = type(exc).__name__
+        collation_report = {"error": type(exc).__name__}
+        logger.warning("health/deep: db_collation probe failed: %r", exc)
+
     all_healthy = all(v == "healthy" for v in checks.values())
 
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
         "checks": checks,
+        "collation": collation_report,
         "client_portfolio_import": portfolio_import,
     }
     if errors:

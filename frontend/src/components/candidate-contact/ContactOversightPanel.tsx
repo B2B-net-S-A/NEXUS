@@ -126,7 +126,10 @@ export function ContactOversightPanel({
   const counters = query.data?.counters;
   const rows = query.data?.items ?? [];
   return (
-    <Card>
+    // `id` jest LOAD-BEARING: alerty SLA Head of Recruitment
+    // (`dashboard_v2.py`) linkują kotwicą wprost tutaj, bo trasa
+    // `/candidates/contact-queue` jest dla tej roli zamknięta.
+    <Card id="nadzor-kontaktu" className="scroll-mt-24">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <UsersRound aria-hidden className="h-4 w-4 text-primary" />

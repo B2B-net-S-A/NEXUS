@@ -920,7 +920,13 @@ async def build_head_of_recruitment_dashboard(
                     else "warning",
                     title=f"{label}: {value}",
                     source="candidate_contact",
-                    href="/candidates/contact-queue",
+                    # NIE „/candidates/contact-queue": tamta trasa jest zamknięta
+                    # dla Head of Recruitment (middleware + backendowe
+                    # `ContactCaller` = tylko role wykonawcze), więc odbiorca
+                    # TEGO alertu, klikając własny alert, lądował na /403.
+                    # Powierzchnią nadzoru dla HoR jest panel na jego własnym
+                    # dashboardzie — kotwica prowadzi wprost do niego.
+                    href="/dashboard?preset=head-of-recruitment#nadzor-kontaktu",
                 )
             )
     alerts.sort(
