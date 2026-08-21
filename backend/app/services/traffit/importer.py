@@ -1026,20 +1026,41 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1  # treat as would-insert
                 continue
+            was_insert: Optional[bool] = None
             try:
-                result = await self.db.execute(_UPSERT_CLIENT, payload)
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
+                # SAVEPOINT per rekord, tak jak w `import_workflows` /
+                # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
+                # SESJĘ, a ta faza commituje RAZ na końcu — więc jeden zły wiersz
+                # kasował wszystko, co zapisano wcześniej w tym biegu, podczas gdy
+                # `progress.inserted`/`updated` (zbijane przed rollbackiem) dalej
+                # raportowały te rekordy jako zapisane. Dokładnie ten tryb awarii
+                # opisano dla `workflows`: `processed: 2, updated: 2, errors: 1`
+                # znaczyło „0 z 2 zapisanych", 23 biegi z rzędu.
+                async with self.db.begin_nested():
+                    result = await self.db.execute(_UPSERT_CLIENT, payload)
+                    row = result.fetchone()
+                    if row is not None:
+                        was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert client ext={payload.get('external_id')}: {e!r}"
                 )
-                await self.db.rollback()
+                # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
+                # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
+                # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
+                # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self.db.rollback()
+                continue
+            # Liczone dopiero, gdy savepoint się utrzymał — inkrementacja w
+            # środku jest tym, co na prodzie kazało statystykom opisywać PRÓBY
+            # zamiast ZAPISÓW.
+            if was_insert is None:
+                continue
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
@@ -1073,20 +1094,38 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+            was_insert: Optional[bool] = None
             try:
-                result = await self.db.execute(_UPSERT_CONTACT, payload)
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
+                # SAVEPOINT per rekord, tak jak w `import_workflows` /
+                # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
+                # SESJĘ, a ta faza commituje RAZ na końcu — więc jeden zły wiersz
+                # kasował wszystko, co zapisano wcześniej w tym biegu, podczas gdy
+                # `progress.inserted`/`updated` (zbijane przed rollbackiem) dalej
+                # raportowały te rekordy jako zapisane. Dokładnie ten tryb awarii
+                # opisano dla `workflows`: `processed: 2, updated: 2, errors: 1`
+                # znaczyło „0 z 2 zapisanych", 23 biegi z rzędu.
+                async with self.db.begin_nested():
+                    result = await self.db.execute(_UPSERT_CONTACT, payload)
+                    row = result.fetchone()
+                    if row is not None:
+                        was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert contact ext={payload.get('external_id')}: {e!r}"
                 )
-                await self.db.rollback()
+                # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
+                # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
+                # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
+                # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self.db.rollback()
+                continue
+            if was_insert is None:
+                continue
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
@@ -1211,36 +1250,59 @@ class TraffitImporter:
                 continue
 
             existing_id = nexus_email_to_id.get(payload["email"])
+            # `None` = nic nie zapisano (wiersz nie wrócił); "inserted"/"updated"
+            # rozstrzygane dopiero po utrzymaniu się savepointu.
+            outcome: Optional[str] = None
+            fresh_user_id: Optional[int] = None
             try:
-                if existing_id is not None:
-                    # Adopt — mark istniejącego usera jako Traffit-imported
-                    await self.db.execute(
-                        _UPDATE_USER_ADOPT,
-                        {
-                            "nexus_id": existing_id,
-                            "external_id": payload["external_id"],
-                            "external_source": payload["external_source"],
-                        },
-                    )
-                    progress.updated += 1
-                else:
-                    result = await self.db.execute(_UPSERT_USER, payload)
-                    row = result.fetchone()
-                    if row is None:
-                        continue
-                    if row[1]:
-                        progress.inserted += 1
-                        # Cache fresh email→id dla intra-run dedup (gdyby
-                        # Traffit miał 2 userów z tym samym emailem)
-                        nexus_email_to_id[payload["email"]] = row[0]
+                # SAVEPOINT per rekord, tak jak w `import_workflows` /
+                # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
+                # SESJĘ, a ta faza commituje RAZ na końcu — więc jeden zły wiersz
+                # kasował wszystko, co zapisano wcześniej w tym biegu, podczas gdy
+                # `progress.inserted`/`updated` (zbijane przed rollbackiem) dalej
+                # raportowały te rekordy jako zapisane.
+                async with self.db.begin_nested():
+                    if existing_id is not None:
+                        # Adopt — mark istniejącego usera jako Traffit-imported
+                        await self.db.execute(
+                            _UPDATE_USER_ADOPT,
+                            {
+                                "nexus_id": existing_id,
+                                "external_id": payload["external_id"],
+                                "external_source": payload["external_source"],
+                            },
+                        )
+                        outcome = "updated"
                     else:
-                        progress.updated += 1
+                        result = await self.db.execute(_UPSERT_USER, payload)
+                        row = result.fetchone()
+                        if row is not None:
+                            if row[1]:
+                                outcome = "inserted"
+                                fresh_user_id = row[0]
+                            else:
+                                outcome = "updated"
             except Exception as e:  # noqa: BLE001
                 msg = f"upsert user ext={payload['external_id']}: {e!r}"
                 progress.add_error(msg)
                 if progress.errors <= 5:
                     logger.warning("User upsert error: %s", msg[:300])
-                await self.db.rollback()
+                # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
+                # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
+                # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
+                # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self.db.rollback()
+                continue
+            if outcome == "inserted":
+                progress.inserted += 1
+                # Cache fresh email→id dla intra-run dedup (gdyby Traffit miał
+                # 2 userów z tym samym emailem). Po savepoincie, nie w środku —
+                # cofnięty wiersz nie może zostawić po sobie id w mapie.
+                if fresh_user_id is not None:
+                    nexus_email_to_id[payload["email"]] = fresh_user_id
+            elif outcome == "updated":
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
@@ -1535,12 +1597,31 @@ class TraffitImporter:
         since_commit = 0
         adopted = 0
         collisions = 0
-        # Tylko NOWO wstawieni. Świadomie nie obejmujemy update'ów: pełny
-        # reconcile dotyka wszystkich 55 tys. wierszy co tydzień, więc
-        # zapisanie intencji dla każdego z nich kazałoby workerowi
-        # przeliczyć całą bazę na Voyage'u raz w tygodniu. Nowy kandydat na
-        # pewno nie ma wektora; zmieniony przeważnie ma nadal poprawny.
+        # NOWO wstawieni — ci na pewno nie mają wektora.
         new_candidate_ids: list[int] = []
+        # ZAKTUALIZOWANI, ale WYŁĄCZNIE w trybie delta (`since is not None`).
+        #
+        # Do 2026-08-21 update'y były pomijane całkowicie, ze świadomym
+        # uzasadnieniem kosztowym: pełny reconcile dotyka wszystkich ~55 tys.
+        # wierszy co tydzień, więc intencja dla każdego z nich kazałaby workerowi
+        # przeliczyć całą bazę na Voyage'u raz w tygodniu, a `mark_stale`
+        # unieważniłby przy okazji CAŁY cache dopasowań — i to za przepisanie
+        # wartości, które się nie zmieniły. To uzasadnienie zostaje w mocy i
+        # dlatego pełny sweep nadal niczego tu nie zbiera.
+        #
+        # Ale wniosek „zmieniony przeważnie ma nadal poprawny wektor" był
+        # nieprawdziwy: `DO UPDATE SET` nadpisuje `name`, `lastname` i
+        # `profile_about`, a dwa pierwsze to dosłownie pierwsze wywołania
+        # `parts.append` w `_build_candidate_text_v1`. Kandydat, któremu w
+        # Traffit zmieniono profil, zostawał z wektorem sprzed zmiany i z
+        # zacache'owanym score'em policzonym z tego samego starego tekstu —
+        # rekruter szukał umiejętności dodanej wczoraj i nie znajdował nikogo.
+        #
+        # Delta godzi jedno z drugim: jej feed jest już PRZEFILTROWANY po
+        # `updated_at` w Traffit, więc „updated" znaczy tam realną zmianę u
+        # źródła, a wolumen to setki wierszy na noc, nie 55 tysięcy.
+        record_updates = since is not None
+        updated_candidate_ids: list[int] = []
 
         # Resumable page cursor — the largest feed (~49k) and the phase every
         # later one depends on. Without it a Coolify restart (every push to
@@ -1648,6 +1729,8 @@ class TraffitImporter:
                             candidate_id = row[0]
                             progress.updated += 1
                             adopted += 1
+                            if record_updates:
+                                updated_candidate_ids.append(candidate_id)
                         else:
                             params = dict(payload)
                             params["cv_extracted_data"] = json.dumps(
@@ -1676,6 +1759,8 @@ class TraffitImporter:
                                 new_candidate_ids.append(row[0])
                             else:
                                 progress.updated += 1
+                                if record_updates:
+                                    updated_candidate_ids.append(row[0])
                         if payload.get("languages"):
                             from app.services.candidate_language_writer import (
                                 sync_candidate_languages_from_source,
@@ -1704,7 +1789,7 @@ class TraffitImporter:
                     since_commit += 1
                     if since_commit >= commit_every:
                         await self._record_new_candidate_index_intent(
-                            new_candidate_ids, progress
+                            new_candidate_ids, updated_candidate_ids, progress
                         )
                         if not saw_fallback:
                             await self._write_mode_cursor(
@@ -1762,7 +1847,9 @@ class TraffitImporter:
                         since_commit = 0
 
         if not self.dry_run:
-            await self._record_new_candidate_index_intent(new_candidate_ids, progress)
+            await self._record_new_candidate_index_intent(
+                new_candidate_ids, updated_candidate_ids, progress
+            )
             # Reached the end of the feed → retire this mode's slot so the next
             # run starts a fresh pass.
             await self._clear_mode_cursor(_CANDIDATES_CURSOR_PHASE, since_iso)
@@ -1781,32 +1868,58 @@ class TraffitImporter:
         return progress
 
     async def _record_new_candidate_index_intent(
-        self, new_ids: list[int], progress: PhaseProgress
+        self,
+        new_ids: list[int],
+        updated_ids: list[int],
+        progress: PhaseProgress,
     ) -> None:
-        """Zapisz intencję reindeksu dla nowych kandydatów i wyczyść bufor.
+        """Zapisz intencję reindeksu i wyczyść oba bufory.
+
+        Obejmuje NOWYCH i ZAKTUALIZOWANYCH. Do 2026-08-21 tylko nowych — a
+        importer Traffita jest dominującą ścieżką zapisu w tym produkcie, więc
+        kandydat, któremu zmieniło się imię, profil albo umiejętności, zostawał
+        z wektorem sprzed zmiany i z zacache'owanym score'em policzonym z tego
+        samego, starego tekstu. Objaw: rekruter szuka umiejętności dodanej
+        wczoraj, a kandydat się nie pojawia; nic tego nie wykrywa, bo
+        `/api/health.checks.traffit` to sonda ŚWIEŻOŚCI, nie kompletności.
+
+        Zaktualizowani dodatkowo unieważniają cache dopasowań — nowi nie mają
+        w nim jeszcze żadnego wiersza, więc `mark_stale` byłby dla nich no-opem.
 
         Best-effort: kolejka indeksu nigdy nie może wywalić importu — kandydat
         w bazie bez wektora jest gorszy niż kandydat z wektorem, ale kandydat,
         którego w ogóle nie ma, jest gorszy od obu.
         """
-        if not new_ids:
+        if not new_ids and not updated_ids:
             return
         try:
             from app.services.index_outbox_service import (
                 CANDIDATE,
                 record_bulk_reindex,
             )
+            from app.services.match_score_cache import (
+                mark_stale_for_many_candidates,
+            )
 
-            await record_bulk_reindex(self.db, CANDIDATE, list(new_ids))
+            # Dedup: adopcja potrafi trafić do obu buforów w tym samym biegu.
+            all_ids = list(dict.fromkeys([*new_ids, *updated_ids]))
+            await record_bulk_reindex(self.db, CANDIDATE, all_ids)
+            if updated_ids:
+                await mark_stale_for_many_candidates(
+                    self.db, list(dict.fromkeys(updated_ids))
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "Recording reindex intent failed for %d new candidates: %s",
+                "Recording reindex intent failed for %d new / %d updated "
+                "candidates: %s",
                 len(new_ids),
+                len(updated_ids),
                 e,
             )
             progress.add_error(f"index intent: {e!r}")
         finally:
             new_ids.clear()
+            updated_ids.clear()
 
     # ── Faza 5: jobs ────────────────────────────────────────────────────────
 
@@ -1936,22 +2049,38 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+            was_insert: Optional[bool] = None
             try:
-                params = dict(payload)
-                params["custom_fields"] = json.dumps(payload["custom_fields"])
-                result = await self.db.execute(_UPSERT_JOB, params)
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
+                # SAVEPOINT per rekord, tak jak w `import_workflows` /
+                # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
+                # SESJĘ, a ta faza commituje RAZ na końcu — więc jeden zły wiersz
+                # kasował wszystko, co zapisano wcześniej w tym biegu, podczas gdy
+                # `progress.inserted`/`updated` (zbijane przed rollbackiem) dalej
+                # raportowały te rekordy jako zapisane.
+                async with self.db.begin_nested():
+                    params = dict(payload)
+                    params["custom_fields"] = json.dumps(payload["custom_fields"])
+                    result = await self.db.execute(_UPSERT_JOB, params)
+                    row = result.fetchone()
+                    if row is not None:
+                        was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert job ext={payload.get('external_id')}: {e!r}"
                 )
-                await self.db.rollback()
+                # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
+                # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
+                # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
+                # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self.db.rollback()
+                continue
+            if was_insert is None:
+                continue
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
@@ -1982,20 +2111,38 @@ class TraffitImporter:
             if self.dry_run:
                 progress.inserted += 1
                 continue
+            was_insert: Optional[bool] = None
             try:
-                result = await self.db.execute(_UPSERT_TALENT_POOL, payload)
-                row = result.fetchone()
-                if row is None:
-                    continue
-                if row[1]:
-                    progress.inserted += 1
-                else:
-                    progress.updated += 1
+                # SAVEPOINT per rekord, tak jak w `import_workflows` /
+                # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
+                # SESJĘ, a ta faza commituje RAZ na końcu — więc jeden zły wiersz
+                # kasował wszystko, co zapisano wcześniej w tym biegu, podczas gdy
+                # `progress.inserted`/`updated` (zbijane przed rollbackiem) dalej
+                # raportowały te rekordy jako zapisane. Dokładnie ten tryb awarii
+                # opisano dla `workflows`: `processed: 2, updated: 2, errors: 1`
+                # znaczyło „0 z 2 zapisanych", 23 biegi z rzędu.
+                async with self.db.begin_nested():
+                    result = await self.db.execute(_UPSERT_TALENT_POOL, payload)
+                    row = result.fetchone()
+                    if row is not None:
+                        was_insert = bool(row[1])
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert talent ext={payload.get('external_id')}: {e!r}"
                 )
-                await self.db.rollback()
+                # Savepoint już cofnął sam zapis, więc transakcja zewnętrzna
+                # żyje i rollback SESJI byłby tym, co wyrzuca paczkę. Podnosimy
+                # ją tylko przy utracie połączenia — wtedy `ROLLBACK TO SAVEPOINT`
+                # nie ma dokąd pójść i każdy kolejny wiersz fazy padnie.
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self.db.rollback()
+                continue
+            if was_insert is None:
+                continue
+            if was_insert:
+                progress.inserted += 1
+            else:
+                progress.updated += 1
 
         if not self.dry_run:
             await self.db.commit()
@@ -2447,6 +2594,27 @@ class TraffitImporter:
         if leftover > 0:  # defensive: keep the count honest if ids go missing
             progress.errors += leftover
 
+        # Ta faza pisze `raw_cv_text`, `skills`, `experience`, `education`,
+        # `ai_summary` i `years_it_experience` — sześć wejść do tekstu
+        # embeddingu — i do 2026-08-21 nie zapisywała ŻADNEJ intencji reindeksu.
+        # Skutek był najgorszy z możliwych: kandydat wjeżdżał tu jako „? ?",
+        # czyli z wektorem zbudowanym praktycznie z niczego, po wzbogaceniu
+        # dostawał pełny profil w bazie — i zostawał z tamtym pustym wektorem na
+        # zawsze. Nie wchodził do puli retrievalu, więc żaden scoring nie miał
+        # szansy go odzyskać, a `checks.traffit` świecił na zielono (to sonda
+        # świeżości, nie kompletności).
+        #
+        # `backfill_missing_names` nie zwraca listy zapisanych id, więc
+        # wyprowadzamy je z bazy: `updated_at` ma `onupdate=func.now()`, a
+        # poprzednie fazy commitują przed startem tej, więc stempel nowszy niż
+        # `progress.started_at` w przemiecionym zakresie id to dokładnie wiersze,
+        # które ten backfill zapisał. Nadmiarowy wpis nic nie psuje (worker
+        # przeliczy raz za dużo); pominięty kosztuje kandydata niewidocznego
+        # w wyszukiwaniu.
+        await self._record_enriched_candidate_index_intent(
+            progress, after_id=after_id, last_id=stats.get("last_id")
+        )
+
         if cursor_phase is not None:
             # Short batch = swept to the end → retire the cursor so the next full
             # run starts a fresh pass (otherwise it parks at the tail forever).
@@ -2468,6 +2636,68 @@ class TraffitImporter:
         progress.finished_at = datetime.now(timezone.utc)
         logger.info("Enrich missing names done: %s", stats)
         return progress
+
+    async def _record_enriched_candidate_index_intent(
+        self,
+        progress: PhaseProgress,
+        *,
+        after_id: int,
+        last_id: Optional[int],
+    ) -> None:
+        """Intencja reindeksu + unieważnienie cache'u dla wzbogaconych CV.
+
+        Best-effort, jak `_record_candidate_index_intent`: kolejka indeksu nie
+        może wywalić nocnego syncu.
+        """
+        if last_id is None:
+            return
+        try:
+            rows = await self.db.execute(
+                text(
+                    """
+                    SELECT id FROM candidates
+                    WHERE external_source = 'traffit'
+                      AND id > :after_id
+                      AND id <= :last_id
+                      AND updated_at >= :started_at
+                    """
+                ),
+                {
+                    "after_id": after_id or 0,
+                    "last_id": last_id,
+                    "started_at": progress.started_at,
+                },
+            )
+            touched = [r[0] for r in rows.fetchall()]
+            if not touched:
+                return
+
+            from app.services.index_outbox_service import (
+                CANDIDATE,
+                record_bulk_reindex,
+            )
+            from app.services.match_score_cache import (
+                mark_stale_for_many_candidates,
+            )
+
+            await record_bulk_reindex(self.db, CANDIDATE, touched)
+            await mark_stale_for_many_candidates(self.db, touched)
+            # Własny commit: w trybie delta ta faza nie ma innego, a intencje
+            # wiszące w niezacommitowanej sesji przepadłyby przy pierwszym
+            # rollbacku kolejnej fazy.
+            await self.db.commit()
+            logger.info(
+                "Enrich missing names: reindex intent for %d enriched candidate(s)",
+                len(touched),
+            )
+        except Exception as e:  # noqa: BLE001
+            # Świadomie sam log, bez `progress.add_error`: błąd bez `ext=`/`id=`
+            # jest dla `_blocking_errors` NIEATRYBUTOWALNY, więc zamroziłby
+            # globalny watermark dzienny, a kwarantanna nie miałaby czego
+            # zaparkować — dokładnie ta pułapka, którą ta faza już raz dostała.
+            # Nieodświeżony indeks jest gorszy od aktualnego, ale zatrzymany
+            # sync jest gorszy od obu.
+            logger.warning("Enrich missing names: reindex intent failed: %s", e)
 
     # ── Faza A: candidates-files (multi-file CV w candidate_documents) ──────
 
@@ -3672,42 +3902,54 @@ class TraffitImporter:
 
         # Apply: read existing tags, dedup po (type, source_id), write back
         for candidate_id, new_tags in per_candidate.items():
+            added = 0
             try:
-                row = await self.db.execute(
-                    text("SELECT tags FROM candidates WHERE id=:id"),
-                    {"id": candidate_id},
-                )
-                rec = row.fetchone()
-                existing = rec[0] if rec and rec[0] else []
-                if not isinstance(existing, list):
-                    existing = []
-
-                seen_ids = {
-                    t.get("source_id")
-                    for t in existing
-                    if isinstance(t, dict) and t.get("type") == "traffit_source"
-                }
-                added = 0
-                for t in new_tags:
-                    if t.get("source_id") in seen_ids:
-                        continue
-                    existing.append(t)
-                    seen_ids.add(t.get("source_id"))
-                    added += 1
-                if added > 0:
-                    await self.db.execute(
-                        text(
-                            "UPDATE candidates SET tags=CAST(:tags AS JSONB), "
-                            "updated_at=NOW() WHERE id=:id"
-                        ),
-                        {"tags": json.dumps(existing), "id": candidate_id},
+                # SAVEPOINT per kandydata, jak w `import_workflows` /
+                # `import_candidates`. Goły `db.rollback()` w handlerze podnosi
+                # SESJĘ, a ta faza commituje RAZ na końcu — jeden zły wiersz
+                # kasował atrybucję źródeł wszystkim policzonym wcześniej,
+                # a `progress.inserted` dalej ich liczyło.
+                async with self.db.begin_nested():
+                    row = await self.db.execute(
+                        text("SELECT tags FROM candidates WHERE id=:id"),
+                        {"id": candidate_id},
                     )
-                    progress.inserted += added
-                else:
-                    progress.skipped += 1
+                    rec = row.fetchone()
+                    existing = rec[0] if rec and rec[0] else []
+                    if not isinstance(existing, list):
+                        existing = []
+
+                    seen_ids = {
+                        t.get("source_id")
+                        for t in existing
+                        if isinstance(t, dict) and t.get("type") == "traffit_source"
+                    }
+                    for t in new_tags:
+                        if t.get("source_id") in seen_ids:
+                            continue
+                        existing.append(t)
+                        seen_ids.add(t.get("source_id"))
+                        added += 1
+                    if added > 0:
+                        await self.db.execute(
+                            text(
+                                "UPDATE candidates SET tags=CAST(:tags AS JSONB), "
+                                "updated_at=NOW() WHERE id=:id"
+                            ),
+                            {"tags": json.dumps(existing), "id": candidate_id},
+                        )
             except Exception as e:  # noqa: BLE001
                 progress.add_error(f"merge tags candidate={candidate_id}: {e!r}")
-                await self.db.rollback()
+                # Savepoint już cofnął zapis; sesję podnosimy tylko przy utracie
+                # połączenia (`ROLLBACK TO SAVEPOINT` nie ma wtedy dokąd pójść).
+                if needs_session_rollback(e, past_savepoint=False):
+                    await self.db.rollback()
+                continue
+            # Liczone po utrzymaniu się savepointu, nie w jego środku.
+            if added > 0:
+                progress.inserted += added
+            else:
+                progress.skipped += 1
 
         await self.db.commit()
         progress.finished_at = datetime.now(timezone.utc)

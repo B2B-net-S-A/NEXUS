@@ -57,6 +57,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC —
+# pętla zdarzeń trzyma tylko słabą referencję, więc zadanie może zniknąć
+# w połowie backfillu albo synchronizacji z webhooka, bez żadnego śladu).
+# Wzorzec przeniesiony z app/api/cortex.py, rozszerzony o log wyjątku: bez
+# niego padnięte zadanie jest niewidoczne, bo nikt nie czyta jego wyniku.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro, label: str) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+
+    def _done(finished: asyncio.Task) -> None:
+        _bg_tasks.discard(finished)
+        if finished.cancelled():
+            # Redeploy Coolify ubija pętlę zdarzeń — to nie jest błąd, ale ma
+            # zostawić ślad, żeby ucięty backfill dało się później wyjaśnić.
+            logger.warning("m365 background task cancelled: %s", label)
+            return
+        exc = finished.exception()
+        if exc is not None:
+            logger.exception("m365 background task failed: %s", label, exc_info=exc)
+
+    task.add_done_callback(_done)
+
+
 # ── Schemas ─────────────────────────────────────────────────────────────────
 
 
@@ -244,20 +270,34 @@ async def callback(
         existing.last_error = None
         existing.last_sync_status = M365SyncStatus.idle
         # On reconnect, reset delta so backfill fills potential gaps.
+        # Kasujemy kursory PER-FOLDER (Faza 2.5), bo tylko one są żywe.
+        # `delta_token_messages` jest martwe od 2.5 — zerowanie samej tej
+        # kolumny zostawiało wypełnione `delta_token_inbox`/`delta_token_sent`,
+        # więc `_sync_messages` nie widział ani jednego folderu „pierwszy raz",
+        # `any_backfill` było False i `backfill_completed_at` (jedyny pisarz
+        # siedzi w tym bloku) NIGDY nie było stemplowane ponownie: karta M365
+        # zostawała na zawsze ze spinnerem „Pobieramy historię" i wyszarzonym
+        # „Synchronizuj teraz". Przy okazji historia z okna, w którym skrzynka
+        # była odłączona, faktycznie się dociąga — o to chodziło w komentarzu.
         existing.delta_token_messages = None
+        existing.delta_token_inbox = None
+        existing.delta_token_sent = None
         existing.delta_token_events = None
         existing.backfill_completed_at = None
     await db.commit()
     await db.refresh(existing)
 
     # Fire-and-forget initial backfill.
-    asyncio.create_task(trigger_backfill(existing.id))
+    _spawn(trigger_backfill(existing.id), f"trigger_backfill(conn={existing.id})")
 
     # Auto-enrol Graph push subscriptions. Background task so the redirect
     # is not delayed by 3× Graph POST /subscriptions calls. The helper is a
     # no-op when M365_WEBHOOKS_ENABLED=false, so it's safe to fire here even
     # before the flag is flipped in prod.
-    asyncio.create_task(m365_webhooks.auto_subscribe_after_connect(existing.id))
+    _spawn(
+        m365_webhooks.auto_subscribe_after_connect(existing.id),
+        f"auto_subscribe_after_connect(conn={existing.id})",
+    )
 
     return RedirectResponse(_frontend_callback_url("success"), status_code=302)
 
@@ -352,7 +392,7 @@ async def trigger_sync(
             if fresh_conn:
                 await sync_connection(fresh_db, fresh_conn)
 
-    asyncio.create_task(_run())
+    _spawn(_run(), f"manual_sync(conn={conn_id})")
     return {"status": "accepted", "connection_id": conn_id}
 
 
@@ -570,7 +610,9 @@ async def webhooks(
         conns_to_sync.add(sub.m365_connection_id)
 
     for conn_id in conns_to_sync:
-        asyncio.create_task(_webhook_dispatch_sync(conn_id))
+        _spawn(
+            _webhook_dispatch_sync(conn_id), f"webhook_dispatch_sync(conn={conn_id})"
+        )
 
     return Response(status_code=status.HTTP_202_ACCEPTED)
 

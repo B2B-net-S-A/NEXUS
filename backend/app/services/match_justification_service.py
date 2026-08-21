@@ -506,6 +506,29 @@ async def get_or_generate(
     # `ai_features` row (this one allowed, the other blocked). Which behaviour
     # you got depended on which copy the request reached. Gone; one gate now.
     async with ai_feature(db, AIFeatureKey.scoring, user_id=user_id):
+        # Commit PRZED round-tripem do Claude'a — dwa powody, oba mierzalne.
+        #
+        # 1. Zwolnienie połączenia. `check_and_increment` zapisuje wiersz
+        #    `ai_usage_logs` w sesji WOŁAJĄCEGO i nie commituje, więc bez tego
+        #    `AsyncSession` trzyma wypożyczone połączenie z puli (20+40 na
+        #    JEDNYM workerze uvicorna) przez cały czas wywołania LLM — a to jest
+        #    do ~273 s przy 3 próbach × 90 s timeoutu. Dziesięciu rekruterów na
+        #    zakładce „Dopasowanie" podczas przeciążenia Anthropica zjada pulę,
+        #    po czym KAŻDE inne żądanie — lista kandydatów, logowanie, ruch w
+        #    pipelinie — czeka `pool_timeout` i wywala 500 bez nagłówków CORS.
+        #    Ubocznie: transakcja otwarta przez minuty przypina horyzont xmin,
+        #    więc autovacuum nie odzyskuje martwych krotek w CAŁYM klastrze.
+        # 2. Zwolnienie blokady wiersza. Upsert bierze blokadę na
+        #    `(feature, user_id, period_start)`, więc drugie równoległe żądanie
+        #    tego samego użytkownika czekało na niej tyle, ile trwał LLM
+        #    pierwszego.
+        #
+        # Bezpieczne: sesja ma `expire_on_commit=False`, więc `candidate`, `job`
+        # i `row` zostają wypełnione i `generate_prose` nie robi lazy-loadu.
+        # Commit utrwala też licznik kwoty — to ta sama decyzja, co w czacie
+        # interaktywnego CV („żeby licznik nie przepadł przy późniejszym
+        # rollbacku ścieżki LLM").
+        await db.commit()
         prose = await generate_prose(candidate, job, breakdown)
 
     if row is None:

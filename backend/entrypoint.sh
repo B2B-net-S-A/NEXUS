@@ -78,7 +78,7 @@ alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade faile
 # back to alembic-only behavior if anything unexpected happens.
 echo "Backfilling critical Phase 8 columns (idempotent)..."
 python - <<'PY' || echo "column backfill failed; continuing"
-import asyncio, os
+import asyncio, os, re
 import asyncpg
 
 # Every statement here is idempotent. Order matters for enum ADD VALUE
@@ -4925,8 +4925,14 @@ _CONSTRAINT_STATEMENTS = [
 ]
 
 # ── Indeksy zadeklarowane w ORM (index=True), których nie tworzy żadna migracja ──
-# Zmierzone na produkcji 2026-07-20. Wszystkie NIEUNIKALNE, więc to strata
-# wydajności, nie integralności (brakujących UNIQUE jest zero).
+# Zmierzone na produkcji 2026-07-20. Wtedy wszystkie były NIEUNIKALNE, więc
+# nieudany build był stratą wydajności, nie integralności — i to uzasadniało
+# połykanie porażek do samego `print()`. TO JUŻ NIEPRAWDA: lista urosła od
+# 2026-07-24 o cztery pozycje UNIQUE (jedno główne CV na kandydata, jeden
+# bieżący miesiąc importu finansowego, jeden pierwszy priorytet TAC na klienta,
+# jedna główna kategoria kompetencji użytkownika). Nieprawidłowy indeks unikalny
+# NIE wymusza niczego, więc porażka buildu to dziś także utrata inwariantu —
+# stąd `_drop_invalid_indexes` przed pętlą.
 #
 # Najlepiej udokumentowany koszt: calendar_events.external_id odpytywane przez
 # ical_import.py:255,281 RAZ NA KAŻDE wydarzenie — bez indeksu każdy import
@@ -5064,12 +5070,96 @@ async def _ensure_profile_rate_numeric(conn):
     return True
 
 
+async def _apply_limits(conn, lock, statement):
+    """Ustaw ``lock_timeout``/``statement_timeout`` na tym połączeniu.
+
+    Wartości podajemy już jako literały SQL (``"'3s'"`` albo ``"0"``) — to
+    parametry sesji, których nie da się związać placeholderem, a jedynym
+    źródłem są stałe w tym pliku.
+    """
+    for name, value in (("lock_timeout", lock), ("statement_timeout", statement)):
+        try:
+            await conn.execute(f"SET {name} = {value}")
+        except Exception as e:
+            print(f"backfill: nie udało się ustawić {name}={value} -> {e!r}")
+
+
+_INDEX_NAME_RE = re.compile(
+    r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"
+    r"([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE,
+)
+
+
+def _declared_index_names(statements):
+    names = set()
+    for stmt in statements:
+        m = _INDEX_NAME_RE.search(stmt)
+        if m:
+            names.add(m.group(1).lower())
+    return names
+
+
+async def _drop_invalid_indexes(conn, statements):
+    """Usuń NIEPRAWIDŁOWE indeksy z naszej listy, żeby dały się zbudować ponownie.
+
+    Komentarz nad fazą indeksów obiecuje, że „nieudany indeks powtórzy się przy
+    następnym starcie" — i dla CONCURRENTLY to nieprawda. Anulowany albo padnięty
+    build zostawia w katalogu indeks z ``indisvalid = false``, a ``IF NOT EXISTS``
+    widzi wtedy samą NAZWĘ relacji i pomija instrukcję już na zawsze. Czyli jedyny
+    tryb awarii, przed którym broni statement_timeout, jest dokładnie tym, który
+    staje się trwały.
+
+    To nie jest wyłącznie strata wydajności: cztery pozycje z tej listy są UNIQUE
+    i niosą inwarianty biznesowe (jedno główne CV na kandydata, jeden bieżący
+    miesiąc importu finansowego). Nieprawidłowy indeks unikalny NIE wymusza
+    niczego, więc duplikaty narastają w ciszy.
+
+    Kasujemy wyłącznie nazwy, które sami deklarujemy tuż niżej — cudzego
+    nieprawidłowego indeksu (np. z ręcznej operacji DBA) nie ruszamy.
+    """
+    declared = _declared_index_names(statements)
+    if not declared:
+        return
+    try:
+        rows = await conn.fetch(
+            "SELECT c.relname FROM pg_index i "
+            "JOIN pg_class c ON c.oid = i.indexrelid "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE NOT i.indisvalid AND n.nspname = current_schema()"
+        )
+    except Exception as e:
+        print(f"backfill: nie udało się odpytać o nieprawidłowe indeksy -> {e!r}")
+        return
+    for row in rows:
+        name = row["relname"]
+        if name.lower() not in declared:
+            print(f"backfill: nieprawidłowy indeks spoza listy, pomijam: {name}")
+            continue
+        try:
+            await conn.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{name}"')
+            print(f"backfill: usunięto nieprawidłowy indeks {name} (zbuduje się ponownie)")
+        except Exception as e:
+            print(f"backfill: DROP nieprawidłowego indeksu {name} nie powiódł się -> {e!r}")
+
+
 async def backfill():
     url = os.environ.get("DATABASE_URL", "postgresql+asyncpg://nexus:nexus@postgres:5432/nexus")
     url = url.replace("postgresql+asyncpg://", "postgresql://")
     # Enum ADD VALUE must run in autocommit mode.
     conn = await asyncpg.connect(url)
     try:
+        # Limit CZEKANIA NA ZAMEK dla faz DDL biorących ACCESS EXCLUSIVE
+        # (ALTER TABLE, ADD CONSTRAINT, zwykłe CREATE INDEX). Bez niego jedno
+        # długie zapytanie na `candidates` ustawia ALTER-a w kolejce, a za nim
+        # KAŻDEGO kolejnego czytelnika tabeli — żądania ACCESS EXCLUSIVE nie są
+        # wyprzedzane. To nie jest awaria, tylko zwis: DDL nic nie zwraca, więc
+        # `|| echo ... continuing` nigdy nie zadziała, a rekruterzy widzą po
+        # prostu zawieszony ATS. Instrukcja, która trafi na kontencję, poddaje
+        # się z LockNotAvailable, per-instrukcyjny `except` już to toleruje,
+        # a przy następnym boocie spróbuje ponownie — to model odzyskiwania
+        # zakładany w tym pliku wszędzie indziej.
+        await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _ENUM_STATEMENTS:
             try:
                 await conn.execute(stmt)
@@ -5081,11 +5171,17 @@ async def backfill():
             except Exception as e:
                 print(f"backfill column skip: {stmt!r} -> {e!r}")
         await _ensure_profile_rate_numeric(conn)
+        # `_DATA_STATEMENTS` to backfille i seedy, nie DDL — wolno im trwać
+        # (przerankowanie `candidate_documents` idzie po ~136 tys. wierszy).
+        # Limit czasu zdejmujemy, limit CZEKANIA NA ZAMEK zostaje: instrukcja
+        # ma się poddać, a nie ustawiać kolejki przed gorącą tabelą.
+        await _apply_limits(conn, lock="'3s'", statement="0")
         for stmt in _DATA_STATEMENTS:
             try:
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
+        await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _CONSTRAINT_STATEMENTS:
             try:
                 await conn.execute(stmt)
@@ -5093,12 +5189,16 @@ async def backfill():
                 print(f"backfill constraint skip: {stmt!r} -> {e!r}")
         # Indeksy na końcu: najwolniejsze i najmniej krytyczne. Limit czasu na
         # instrukcję, żeby jeden wolny CREATE INDEX nie zawiesił startu
-        # kontenera — nieudany indeks powtórzy się przy następnym starcie,
+        # kontenera — nieudany indeks powtórzy się przy następnym starcie
+        # (patrz `_drop_invalid_indexes`, bez którego ta obietnica była pusta),
         # zablokowany deploy trzeba ratować ręcznie.
-        try:
-            await conn.execute("SET statement_timeout = '120s'")
-        except Exception as e:
-            print(f"backfill: nie udało się ustawić statement_timeout -> {e!r}")
+        #
+        # `lock_timeout = 0` z powrotem: CREATE INDEX CONCURRENTLY z założenia
+        # CZEKA na wydrenowanie transakcji widzących tabelę i robi to nie
+        # blokując zapisów, więc trzysekundowy limit z faz wyżej byłby tu
+        # przeciwskuteczny — zamieniałby normalne oczekiwanie w porażkę.
+        await _apply_limits(conn, lock="0", statement="'120s'")
+        await _drop_invalid_indexes(conn, _INDEX_STATEMENTS)
         try:
             for stmt in _INDEX_STATEMENTS:
                 try:
@@ -5112,6 +5212,10 @@ async def backfill():
             # na tym połączeniu. Ta ścieżka biegnie przy każdym deployu.
             try:
                 await conn.execute("SET statement_timeout = 0")
+            except Exception:
+                pass
+            try:
+                await conn.execute("SET lock_timeout = 0")
             except Exception:
                 pass
         print("backfill: ok")
