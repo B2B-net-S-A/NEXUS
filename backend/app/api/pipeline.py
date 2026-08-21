@@ -93,6 +93,29 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# Referencje zadań w tle (fire-and-forget ``create_task`` gubi je pod GC —
+# pętla zdarzeń trzyma tylko słabą referencję). Wzorzec z app/api/cortex.py,
+# rozszerzony o log: powiadomienie Teams padłe w zadaniu nie ma czytelnika,
+# więc bez done_callbacku znika bez śladu.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro, label: str) -> None:
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+
+    def _done(finished: asyncio.Task) -> None:
+        _bg_tasks.discard(finished)
+        if finished.cancelled():
+            logger.warning("pipeline background task cancelled: %s", label)
+            return
+        exc = finished.exception()
+        if exc is not None:
+            logger.exception("pipeline background task failed: %s", label, exc_info=exc)
+
+    task.add_done_callback(_done)
+
+
 # ── Helpers to bridge legacy enum ↔ new stage_def FK ────────────────────────
 
 
@@ -1271,10 +1294,23 @@ async def submit_stage_screening(
     await db.commit()
 
     # Mark cached scores stale — champion_fit layer depends on these answers.
+    # Cache nie ma TTL, więc nieudana invalidacja NIE naprawia się sama: kompozyt
+    # (kandydat, oferta) serwuje przedscreeningowy `champion_fit` do czasu, aż coś
+    # innego przypadkiem oznaczy tego kandydata. Milczące połknięcie czytało się
+    # jak „AI nie zgadza się z moim screeningiem", więc zostawiamy ślad w logu
+    # (LoggingIntegration mostkuje to do Sentry) i mówimy UI, że wynik jest stary.
+    cache_invalidated = True
     try:
         await mark_stale_for_candidate(db, stage.candidate_id)
         await db.commit()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        cache_invalidated = False
+        logger.warning(
+            "match-score staleness marking failed for candidate=%s stage=%s: %s",
+            stage.candidate_id,
+            stage.id,
+            exc,
+        )
         await db.rollback()
 
     await db.refresh(stage)
@@ -1282,6 +1318,7 @@ async def submit_stage_screening(
         "stage_id": stage.id,
         "match_percent": answers.match_percent(),
         "screening_answers": stage.screening_answers,
+        "cache_invalidated": cache_invalidated,
     }
 
 
@@ -1714,12 +1751,13 @@ async def accept_verification(
     try:
         from app.services.teams_notifications import notify_decision_by_stage_id
 
-        asyncio.create_task(
+        _spawn(
             notify_decision_by_stage_id(
                 stage.id,
                 decision="accepted",
                 actor_name=current_user.name or current_user.email,
-            )
+            ),
+            f"teams_notify_decision_accepted(stage={stage.id})",
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Teams notify (decision_accepted) scheduling failed: %s", exc)
@@ -1799,13 +1837,14 @@ async def reject_verification(
     try:
         from app.services.teams_notifications import notify_decision_by_stage_id
 
-        asyncio.create_task(
+        _spawn(
             notify_decision_by_stage_id(
                 stage.id,
                 decision="rejected",
                 actor_name=current_user.name or current_user.email,
                 note=payload.note,
-            )
+            ),
+            f"teams_notify_decision_rejected(stage={stage.id})",
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Teams notify (decision_rejected) scheduling failed: %s", exc)
