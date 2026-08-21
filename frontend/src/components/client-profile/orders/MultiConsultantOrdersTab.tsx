@@ -46,7 +46,8 @@ function apiError(err: unknown, fallback: string): string {
   return fallback;
 }
 
-type PillKey = "all" | OrderGroupStatus;
+type MainOrderGroupStatus = Exclude<OrderGroupStatus, "scheduled">;
+type PillKey = "all" | MainOrderGroupStatus;
 
 const PILLS: Array<{ key: PillKey; label: string }> = [
   { key: "all", label: "Wszystkie" },
@@ -114,12 +115,20 @@ export function MultiConsultantOrdersTab({
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
     queryClient.invalidateQueries({ queryKey: ["order-group-events", clientId] });
+    queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
   };
 
   const saveGroup = useMutation({
-    mutationFn: async (values: OrderGroupInput) => {
+    mutationFn: async ({
+      values,
+      file,
+    }: {
+      values: OrderGroupInput;
+      file: File | null;
+    }) => {
+      let saved: OrderGroupRead;
       if (groupModal.group) {
-        return (
+        saved = (
           await orderGroupsApi.update(clientId, groupModal.group.id, {
             order_number: values.order_number,
             start_date: values.start_date,
@@ -130,8 +139,13 @@ export function MultiConsultantOrdersTab({
               : {}),
           })
         ).data;
+      } else {
+        saved = (await orderGroupsApi.create(clientId, values)).data;
       }
-      return (await orderGroupsApi.create(clientId, values)).data;
+      if (file) {
+        saved = (await orderGroupsApi.replaceFile(clientId, saved.id, file)).data;
+      }
+      return saved;
     },
     onSuccess: () => {
       setGroupModal({ open: false, group: null });
@@ -255,10 +269,20 @@ export function MultiConsultantOrdersTab({
   });
 
   const extendGroup = useMutation({
-    mutationFn: (values: OrderGroupExtendInput) => {
+    mutationFn: async ({
+      values,
+      file,
+    }: {
+      values: OrderGroupExtendInput;
+      file: File | null;
+    }) => {
       const group = extendModal.group;
       if (!group) throw new Error("Brak zamówienia");
-      return orderGroupsApi.extend(clientId, group.id, values);
+      const created = (await orderGroupsApi.extend(clientId, group.id, values)).data;
+      if (file) {
+        return (await orderGroupsApi.replaceFile(clientId, created.id, file)).data;
+      }
+      return created;
     },
     onSuccess: () => {
       setExtendModal({ open: false, group: null });
@@ -277,7 +301,9 @@ export function MultiConsultantOrdersTab({
       completed: 0,
       exhausted: 0,
     };
-    for (const group of groups) byStatus[group.status] += 1;
+    for (const group of groups) {
+      if (group.status !== "scheduled") byStatus[group.status] += 1;
+    }
     return byStatus;
   }, [groups]);
   const visible = useMemo(
@@ -452,7 +478,14 @@ export function MultiConsultantOrdersTab({
         costOrdersEnabled={costOrdersEnabled}
         submitting={saveGroup.isPending}
         error={formError}
-        onSubmit={(values) => saveGroup.mutate(values)}
+        onSubmit={(values, file) => saveGroup.mutate({ values, file })}
+        onDeleteFile={async () => {
+          const group = groupModal.group;
+          if (!group) return;
+          await orderGroupsApi.deleteFile(clientId, group.id);
+          invalidate();
+          showToast("Plik PDF zamówienia usunięty", "success");
+        }}
       />
 
       <ConsultantLineModal
@@ -496,7 +529,7 @@ export function MultiConsultantOrdersTab({
         group={extendModal.group}
         submitting={extendGroup.isPending}
         error={formError}
-        onSubmit={(values) => extendGroup.mutate(values)}
+        onSubmit={(values, file) => extendGroup.mutate({ values, file })}
       />
     </div>
   );

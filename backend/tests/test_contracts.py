@@ -289,6 +289,7 @@ async def test_contract_register_fields_round_trip(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     cid = body["id"]
+    assert body["status"] == "active"
     assert body["project_code"] == "NDA-TEST-001"
     assert body["engagement_model"] == "hours_pool"
     assert body["prolongation_status"] == "negotiate"
@@ -319,7 +320,24 @@ async def test_contract_register_fields_round_trip(
     assert row["prolongation_status"] == "yes"
     assert row["hours_pool_remaining"] == 150
 
+    status_only = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "ended"},
+        headers=app_auth_headers,
+    )
+    assert status_only.status_code == 200, status_only.text
+    assert status_only.json()["status"] == "ended"
+    assert status_only.json()["start_date"] == "2026-04-17"
+    assert status_only.json()["engagement_model"] == "hours_pool"
+    assert status_only.json()["prolongation_status"] == "yes"
+    assert status_only.json()["hours_pool_total"] == 200
+
     # Clean up
+    await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "draft"},
+        headers=app_auth_headers,
+    )
     await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
 
 

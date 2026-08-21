@@ -41,16 +41,19 @@ from app.models.base import TimestampMixin
 
 
 GROUP_STATUS_ACTIVE = "active"
+GROUP_STATUS_SCHEDULED = "scheduled"
 GROUP_STATUS_COMPLETED = "completed"
 GROUP_STATUS_EXHAUSTED = "exhausted"
 GROUP_STATUSES: tuple[str, ...] = (
     GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_SCHEDULED,
     GROUP_STATUS_COMPLETED,
     GROUP_STATUS_EXHAUSTED,
 )
 
 GROUP_STATUS_LABELS: dict[str, str] = {
     GROUP_STATUS_ACTIVE: "Aktywne",
+    GROUP_STATUS_SCHEDULED: "Przyszłe",
     GROUP_STATUS_COMPLETED: "Zakończone",
     GROUP_STATUS_EXHAUSTED: "Wyczerpane",
 }
@@ -66,7 +69,7 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_dates",
         ),
         CheckConstraint(
-            "status IN ('active', 'completed', 'exhausted')",
+            "status IN ('active', 'scheduled', 'completed', 'exhausted')",
             name="ck_client_order_groups_status",
         ),
         # Zamówienie kosztowe jest albo kompletne, albo go nie ma. Kwota bez
@@ -110,7 +113,7 @@ class ClientOrderGroup(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=GROUP_STATUS_ACTIVE
     )
-    """``active`` | ``completed`` | ``exhausted``.
+    """``active`` | ``scheduled`` | ``completed`` | ``exhausted``.
 
     Stan jest PRZECHOWYWANY, a nie wyliczany z dat — data nie odróżnia
     zamówienia domkniętego świadomie („konsultant odchodzi") od takiego,
@@ -166,6 +169,20 @@ class ClientOrderGroup(Base, TimestampMixin):
     """Zamówienie, które to przedłuża. ``SET NULL`` — usunięcie poprzednika nie
     może kasować jego kontynuacji."""
 
+    # Master PDF zamówienia wielo-konsultantowego. Każdy przypisany kontrakt
+    # dostaje własną kopię ``ContractDocument``; master pozwala dosynchronizować
+    # dokument osobie dodanej później i podmienić wszystkie istniejące kopie.
+    filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    content_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    file_uploaded_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    file_uploaded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -173,6 +190,7 @@ class ClientOrderGroup(Base, TimestampMixin):
     client = relationship("Client")
     creator = relationship("User", foreign_keys=[created_by_user_id])
     closer = relationship("User", foreign_keys=[closed_by_user_id])
+    file_uploader = relationship("User", foreign_keys=[file_uploaded_by])
     predecessor = relationship(
         "ClientOrderGroup", remote_side=[id], foreign_keys=[predecessor_group_id]
     )

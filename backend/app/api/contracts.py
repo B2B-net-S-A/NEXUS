@@ -1129,11 +1129,10 @@ async def create_contract(
             )
             for step in framework_schedule_input
         ]
-    # "Zakończony"/"Kończący się" only hold once the end date has passed; a fresh
-    # indefinite or future-dated contract stays active (see update_contract).
-    contract.status = _status_after_end_date_change(
-        contract.status, contract.end_date, date.today()
-    )
+    # Status przesłany jawnie przez rejestr jest źródłem prawdy. Poprzednia
+    # normalizacja nadpisywała każdy wybrany ``ending``/``ended`` na ``active``
+    # przy przyszłej albo pustej dacie końca, przez co formularz zapisywał inny
+    # stan niż pokazywał użytkownikowi. Brak pola nadal daje modelowy ``draft``.
     db.add(contract)
     await db.flush()
     if schedule_input:
@@ -1530,16 +1529,17 @@ async def update_contract(
         # setattr loop when present in this same PATCH).
         if contract.framework_rate_schedule:
             contract.framework_rate = contract.effective_framework_rate(date.today())
-    # Coherence guard: a PATCH that leaves the contract indefinite or with a
-    # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
-    # active so editing only the end date to "bezterminowo" heals a contract
-    # wrongly marked ended; the daily cron re-derives "ending" within 30 days.
-    coerced_status = _status_after_end_date_change(
-        contract.status, contract.end_date, date.today()
-    )
-    if coerced_status != contract.status:
-        contract.status = coerced_status
-        updates["status"] = coerced_status.value  # reflect the outcome in audit
+    # Przy edycji samej daty zachowujemy dotychczasowy guard spójności. Gdy
+    # operator przesłał ``status`` jawnie, musi zostać zapisany dokładnie ten
+    # status — inaczej dropdown potwierdza zapis, a lista nadal pokazuje starą
+    # wartość.
+    if "status" not in updates:
+        coerced_status = _status_after_end_date_change(
+            contract.status, contract.end_date, date.today()
+        )
+        if coerced_status != contract.status:
+            contract.status = coerced_status
+            updates["status"] = coerced_status.value  # reflect the outcome in audit
     contract.margin = contract.calculate_margin()
     db.add(
         Activity(

@@ -301,15 +301,16 @@ export function OrdersAndContractsTab({ clientId }: OrdersAndContractsTabProps) 
             setEditingOrder(null);
             refresh();
           }}
+          onChanged={refresh}
         />
       )}
     </div>
   );
 }
 
-/** „Uzupełnij zamówienie" — widoczny wyłącznie na draftach, w każdym slocie
- *  karty (aktualny / przyszły / historia). Draft bez dat ląduje w slocie
- *  aktualnym, więc jeden przycisk musi działać w trzech miejscach. */
+/** „Uzupełnij zamówienie" — dostępne dla każdego statusu i w każdym slocie
+ *  karty. Ten sam formularz służy zarówno do domknięcia draftu, jak i korekty
+ *  aktywnego / przyszłego / historycznego zamówienia. */
 function CompleteOrderButton({
   order,
   onEditOrder,
@@ -319,7 +320,6 @@ function CompleteOrderButton({
   onEditOrder: (order: ClientOrderRead) => void;
   compact?: boolean;
 }) {
-  if (order.status !== "draft") return null;
   return (
     <button
       type="button"

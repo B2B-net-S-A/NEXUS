@@ -35,6 +35,7 @@ from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,8 @@ async def _already_notified(
     return res.scalar_one_or_none() is not None
 
 
-async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
-    """active → expired (FC) i active → completed (Order) gdy data minęła."""
+async def _promote_statuses(db: AsyncSession) -> tuple[int, int, int]:
+    """Materializuj dzienne przejścia FC, Order i przyszłych grup."""
     today = date.today()
 
     fc_expired = await db.execute(
@@ -115,7 +116,12 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         )
         .values(status=ClientOrderStatus.completed)
     )
-    return (fc_expired.rowcount or 0, order_completed.rowcount or 0)
+    groups_promoted = await materialize_scheduled_order_groups(db, today=today)
+    return (
+        fc_expired.rowcount or 0,
+        order_completed.rowcount or 0,
+        groups_promoted,
+    )
 
 
 async def _scan_framework_contracts(db: AsyncSession) -> int:
@@ -232,7 +238,7 @@ async def run_once() -> dict:
     """Uruchom scan + status promotions raz; zwraca summary dict."""
     async with AsyncSessionLocal() as db:
         try:
-            fc_expired, order_completed = await _promote_statuses(db)
+            fc_expired, order_completed, groups_promoted = await _promote_statuses(db)
             fc_alerts = await _scan_framework_contracts(db)
             order_alerts = await _scan_orders(db)
             await db.commit()
@@ -243,6 +249,7 @@ async def run_once() -> dict:
     summary = {
         "fc_expired": fc_expired,
         "orders_completed": order_completed,
+        "order_groups_promoted": groups_promoted,
         "fc_alerts_dispatched": fc_alerts,
         "order_alerts_dispatched": order_alerts,
     }

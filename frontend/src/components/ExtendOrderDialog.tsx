@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg } from "@/lib/api";
@@ -329,14 +329,38 @@ export function ExtendOrderDialog({
             label="PDF zamówienia od klienta"
             hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
           />
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={!file || extracting}
-            className="mt-2 w-full inline-flex items-center justify-center gap-2 rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
-          </button>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={!file || extracting}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+            </button>
+            {file ? (
+              <button
+                type="button"
+                aria-label="Usuń plik PDF zamówienia"
+                title="Usuń plik"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Czy na pewno chcesz usunąć plik PDF zamówienia?",
+                    )
+                  ) {
+                    setFile(null);
+                    setFileError(null);
+                    setCheckData(false);
+                    setCheckReasons([]);
+                  }
+                }}
+                className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

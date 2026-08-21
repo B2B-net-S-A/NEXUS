@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, FileSearch } from "lucide-react";
+import { AlertTriangle, FileSearch, Trash2 } from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
 import { dlPortalApi } from "@/lib/api/dlPortal";
@@ -25,7 +25,7 @@ const inputClass =
 const labelClass = "mb-1 block text-xs font-semibold text-muted-foreground";
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
-const ACCEPT = ".pdf,.docx,.doc";
+const ACCEPT = ".pdf";
 
 /** Dzień po dacie — start przedłużenia domyślnie następuje po końcu poprzednika. */
 function dayAfter(iso: string | null): string {
@@ -54,7 +54,7 @@ interface Props {
   group: OrderGroupRead | null;
   submitting: boolean;
   error: string | null;
-  onSubmit: (values: OrderGroupExtendInput) => void;
+  onSubmit: (values: OrderGroupExtendInput, file: File | null) => void;
 }
 
 /**
@@ -258,7 +258,7 @@ export function ExtendOrderGroupModal({
                   ? { budget_amount: Number(budgetAmount.replace(",", ".")) }
                   : {}),
                 lines: buildLines(),
-              })
+              }, file)
             }
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
           >
@@ -488,18 +488,38 @@ export function ExtendOrderGroupModal({
             error={fileError ?? extractError}
             accept={ACCEPT}
             maxBytes={MAX_UPLOAD_BYTES}
-            label="Dodaj PDF do zamówienia"
-            hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
+            label="Zamień plik PDF"
+            hint=".pdf · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
           />
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={!file || extracting}
-            className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            <FileSearch className="h-4 w-4" aria-hidden />
-            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
-          </button>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleExtract}
+              disabled={!file || extracting}
+              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              <FileSearch className="h-4 w-4" aria-hidden />
+              {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+            </button>
+            {file ? (
+              <button
+                type="button"
+                aria-label="Usuń wybrany plik PDF zamówienia"
+                title="Usuń wybrany plik"
+                onClick={() => {
+                  if (!window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")) return;
+                  setFile(null);
+                  setFileError(null);
+                  setExtractError(null);
+                  setCheckData(false);
+                  setCheckReasons([]);
+                }}
+                className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 

@@ -1397,3 +1397,313 @@ async def test_unknown_candidate_is_rejected(
         headers=app_auth_headers,
     )
     assert resp.status_code == 400, resp.text
+
+
+# ── Przyszłe zamówienia + PDF kontraktu ────────────────────────────────────
+
+
+def _isolated_upload_storage(monkeypatch, tmp_path) -> None:
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "CONTRACTS_DIR", tmp_path / "contracts")
+    monkeypatch.setattr(
+        storage_service,
+        "CLIENT_ORDER_GROUP_POS_DIR",
+        tmp_path / "client_order_groups",
+    )
+
+
+async def test_group_pdf_syncs_on_upload_assignment_replace_and_survives_detach(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    tmp_path,
+):
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract_document import ContractDocument, ContractDocumentType
+    from app.services import storage_service
+
+    _isolated_upload_storage(monkeypatch, tmp_path)
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    file_url = f"/api/clients/{client_id}/order-groups/{group['id']}/file"
+
+    first_pdf = b"%PDF-1.4\nfirst version\n"
+    upload = await app_client.put(
+        file_url,
+        headers=app_auth_headers,
+        files={"file": ("order.pdf", first_pdf, "application/pdf")},
+    )
+    assert upload.status_code == 200, upload.text
+    assert upload.json()["has_file"] is True
+
+    async with AsyncSessionLocal() as db:
+        documents = list(
+            (
+                await db.execute(
+                    select(ContractDocument).where(
+                        ContractDocument.source_order_group_id == group["id"]
+                    )
+                )
+            ).scalars()
+        )
+        assert len(documents) == 1
+        assert documents[0].contract_id == contracts[0]
+        assert documents[0].doc_type == ContractDocumentType.order
+        assert documents[0].filename == group["order_number"]
+        assert (
+            storage_service.get_contract_document_path(
+                documents[0].file_path
+            ).read_bytes()
+            == first_pdf
+        )
+
+    added = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json=_line_payload(contracts[1]),
+        headers=app_auth_headers,
+    )
+    assert added.status_code == 201, added.text
+    second_line_id = added.json()["id"]
+
+    async with AsyncSessionLocal() as db:
+        documents = list(
+            (
+                await db.execute(
+                    select(ContractDocument).where(
+                        ContractDocument.source_order_group_id == group["id"]
+                    )
+                )
+            ).scalars()
+        )
+        assert {doc.contract_id for doc in documents} == set(contracts)
+        original_ids = {doc.contract_id: doc.id for doc in documents}
+
+    second_pdf = b"%PDF-1.4\nreplacement version\n"
+    replace = await app_client.put(
+        file_url,
+        headers=app_auth_headers,
+        files={"file": ("replacement.pdf", second_pdf, "application/pdf")},
+    )
+    assert replace.status_code == 200, replace.text
+
+    async with AsyncSessionLocal() as db:
+        documents = list(
+            (
+                await db.execute(
+                    select(ContractDocument).where(
+                        ContractDocument.source_order_group_id == group["id"]
+                    )
+                )
+            ).scalars()
+        )
+        assert len(documents) == 2, "podmiana PDF utworzyła duplikat"
+        assert {doc.contract_id: doc.id for doc in documents} == original_ids
+        assert all(
+            storage_service.get_contract_document_path(doc.file_path).read_bytes()
+            == second_pdf
+            for doc in documents
+        )
+
+    removed = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{second_line_id}",
+        headers=app_auth_headers,
+    )
+    assert removed.status_code == 204, removed.text
+    async with AsyncSessionLocal() as db:
+        documents = list(
+            (
+                await db.execute(
+                    select(ContractDocument).where(
+                        ContractDocument.source_order_group_id == group["id"]
+                    )
+                )
+            ).scalars()
+        )
+        assert {doc.contract_id for doc in documents} == set(contracts), (
+            "odpięcie konsultanta usunęło historyczny PDF"
+        )
+
+
+async def test_future_groups_are_nested_sorted_and_promoted_on_start_date(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+):
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_group import (
+        GROUP_STATUS_ACTIVE,
+        GROUP_STATUS_COMPLETED,
+        ClientOrderGroup,
+    )
+    from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    current = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    dates = (_TODAY + timedelta(days=30), _TODAY + timedelta(days=60))
+    future: list[dict] = []
+    for index, start in enumerate(reversed(dates), start=1):
+        response = await app_client.post(
+            f"/api/clients/{client_id}/order-groups/{current['id']}/extend",
+            json={
+                "order_number": f"FUTURE-{index}",
+                "start_date": start.isoformat(),
+                "lines": [_line_payload(contracts[0], start_date=start.isoformat())],
+            },
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 201, response.text
+        assert response.json()["status"] == "scheduled"
+        future.append(response.json())
+
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    assert listing.status_code == 200, listing.text
+    body = listing.json()
+    assert len(body["groups"]) == 1, "przyszłe wpisy są osobnymi kartami"
+    nested = body["groups"][0]["future_orders"]
+    assert [item["start_date"] for item in nested] == [day.isoformat() for day in dates]
+    assert all(item["lines"][0]["status"] == "draft" for item in nested)
+
+    nearest = next(
+        item for item in future if item["start_date"] == dates[0].isoformat()
+    )
+    async with AsyncSessionLocal() as db:
+        changed = await materialize_scheduled_order_groups(
+            db, client_id=client_id, today=dates[0]
+        )
+        assert changed == 2
+        await db.commit()
+        old = await db.get(ClientOrderGroup, current["id"])
+        promoted = await db.get(ClientOrderGroup, nearest["id"])
+        promoted_line = await db.scalar(
+            select(ClientOrder).where(ClientOrder.order_group_id == nearest["id"])
+        )
+        assert old is not None and old.status == GROUP_STATUS_COMPLETED
+        assert old.closure_date == dates[0] - timedelta(days=1)
+        assert promoted is not None and promoted.status == GROUP_STATUS_ACTIVE
+        assert promoted_line is not None
+        assert promoted_line.status == ClientOrderStatus.active
+
+
+async def test_deleting_future_group_keeps_pdf_as_historical_contract_document(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    tmp_path,
+):
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract_document import ContractDocument
+    from app.services import storage_service
+
+    _isolated_upload_storage(monkeypatch, tmp_path)
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    current = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    start = _TODAY + timedelta(days=30)
+    extension = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{current['id']}/extend",
+        json={
+            "order_number": "FUTURE-PDF",
+            "start_date": start.isoformat(),
+            "lines": [_line_payload(contracts[0], start_date=start.isoformat())],
+        },
+        headers=app_auth_headers,
+    )
+    assert extension.status_code == 201, extension.text
+    future_id = extension.json()["id"]
+    upload = await app_client.put(
+        f"/api/clients/{client_id}/order-groups/{future_id}/file",
+        headers=app_auth_headers,
+        files={"file": ("future.pdf", b"%PDF-1.4\nhistory\n", "application/pdf")},
+    )
+    assert upload.status_code == 200, upload.text
+
+    assigned_later = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{future_id}/lines",
+        headers=app_auth_headers,
+        json=_line_payload(contracts[1], start_date=start.isoformat()),
+    )
+    assert assigned_later.status_code == 201, assigned_later.text
+
+    async with AsyncSessionLocal() as db:
+        synced = list(
+            (
+                await db.execute(
+                    select(ContractDocument).where(
+                        ContractDocument.source_order_group_id == future_id
+                    )
+                )
+            ).scalars()
+        )
+        assert {document.contract_id for document in synced} == set(contracts)
+        before = next(
+            document for document in synced if document.contract_id == contracts[0]
+        )
+        document_id = before.id
+        original_path = before.file_path
+        original_bytes = storage_service.get_contract_document_path(
+            original_path
+        ).read_bytes()
+
+    # Edycja metadanych i stawek przyszłego wpisu nie dotyka historycznej kopii
+    # PDF. Wyłącznie osobny PUT .../file może ją podmienić.
+    edited_group = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{future_id}",
+        headers=app_auth_headers,
+        json={
+            "order_number": "FUTURE-EDITED",
+            "start_date": (start + timedelta(days=1)).isoformat(),
+        },
+    )
+    assert edited_group.status_code == 200, edited_group.text
+    line_id = extension.json()["lines"][0]["id"]
+    edited_line = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{future_id}/lines/{line_id}",
+        headers=app_auth_headers,
+        json={"rate_cost": 975},
+    )
+    assert edited_line.status_code == 200, edited_line.text
+
+    async with AsyncSessionLocal() as db:
+        unchanged = await db.get(ContractDocument, document_id)
+        assert unchanged is not None
+        assert unchanged.filename == "FUTURE-PDF"
+        assert unchanged.file_path == original_path
+        assert (
+            storage_service.get_contract_document_path(unchanged.file_path).read_bytes()
+            == original_bytes
+        )
+
+    deleted = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{future_id}",
+        headers=app_auth_headers,
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    async with AsyncSessionLocal() as db:
+        document = await db.scalar(
+            select(ContractDocument).where(
+                ContractDocument.contract_id == contracts[0],
+                ContractDocument.filename == "FUTURE-PDF",
+            )
+        )
+        assert document is not None
+        assert document.source_order_group_id is None

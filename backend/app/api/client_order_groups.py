@@ -21,11 +21,13 @@ per MD i dotyczą wyłącznie tej powierzchni.
 
 from __future__ import annotations
 
+import io
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -41,6 +43,7 @@ from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_COMPLETED,
     GROUP_STATUS_EXHAUSTED,
+    GROUP_STATUS_SCHEDULED,
     GROUP_STATUS_LABELS,
     ClientOrderGroup,
     ClientOrderGroupEvent,
@@ -51,6 +54,7 @@ from app.models.md_consumption import (
     MdConsumptionImport,
 )
 from app.models.contract import Contract, ContractStatus
+from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.job import Job
 from app.models.user import User, UserRole
 from app.schemas.client_order_group import (
@@ -104,8 +108,12 @@ from app.services.multi_consultant_orders import (
     remaining_value_pln,
     swap_md_total,
 )
+from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services import storage_service
 
 router = APIRouter()
+
+MAX_GROUP_PDF_BYTES = 25 * 1024 * 1024
 
 
 # Pola pieniężne linii. Nazwy są WŁASNE, nie z `_ORDER_FINANCE_WRITE_FIELDS`
@@ -283,6 +291,107 @@ def _can_see_finance(user: User) -> bool:
     )
 
 
+def _initial_group_status(start_date: date) -> str:
+    return GROUP_STATUS_SCHEDULED if start_date > date.today() else GROUP_STATUS_ACTIVE
+
+
+def _group_family_root_id(
+    group: ClientOrderGroup, by_id: dict[int, ClientOrderGroup]
+) -> int:
+    current = group
+    seen = {group.id}
+    while current.predecessor_group_id in by_id:
+        parent = by_id[current.predecessor_group_id]  # type: ignore[index]
+        if parent.id in seen:
+            break
+        seen.add(parent.id)
+        current = parent
+    return current.id
+
+
+async def _sync_group_pdf_documents(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    payload: bytes,
+    user: User,
+) -> list[str]:
+    """Upsert one automatic ``ContractDocument`` per assigned contract.
+
+    Existing linked documents are included even after a consultant was removed
+    from the group, so replacing the master PDF updates the historical copy as
+    required. Manual documents have ``source_order_group_id IS NULL`` and are
+    never touched.
+    """
+
+    current_contract_ids = set(
+        (
+            await db.execute(
+                select(ClientOrder.contract_id).where(
+                    ClientOrder.order_group_id == group.id
+                )
+            )
+        ).scalars()
+    )
+    linked = list(
+        (
+            await db.execute(
+                select(ContractDocument).where(
+                    ContractDocument.source_order_group_id == group.id
+                )
+            )
+        ).scalars()
+    )
+    by_contract = {document.contract_id: document for document in linked}
+    target_contract_ids = current_contract_ids | set(by_contract)
+    superseded_paths: list[str] = []
+
+    for contract_id in sorted(target_contract_ids):
+        rel_path, size = storage_service.save_contract_document(
+            contract_id,
+            f"{group.order_number}.pdf",
+            io.BytesIO(payload),
+        )
+        document = by_contract.get(contract_id)
+        if document is None:
+            document = ContractDocument(
+                contract_id=contract_id,
+                source_order_group_id=group.id,
+                doc_type=ContractDocumentType.order,
+                filename=group.order_number,
+                file_path=rel_path,
+                content_type="application/pdf",
+                size_bytes=size,
+                uploaded_by=user.id,
+            )
+            db.add(document)
+        else:
+            if document.file_path and document.file_path != rel_path:
+                superseded_paths.append(document.file_path)
+            document.filename = group.order_number
+            document.file_path = rel_path
+            document.content_type = "application/pdf"
+            document.size_bytes = size
+            document.doc_type = ContractDocumentType.order
+            document.uploaded_by = user.id
+    await db.flush()
+    return superseded_paths
+
+
+async def _sync_group_pdf_for_new_line(
+    db: AsyncSession, *, group: ClientOrderGroup, user: User
+) -> list[str]:
+    if not group.file_path:
+        return []
+    try:
+        payload = storage_service.get_client_order_group_po_path(
+            group.file_path
+        ).read_bytes()
+    except FileNotFoundError as exc:
+        raise HTTPException(410, detail="Plik PDF zamówienia nie istnieje") from exc
+    return await _sync_group_pdf_documents(db, group=group, payload=payload, user=user)
+
+
 async def _load_group(
     db: AsyncSession, client_id: int, group_id: int
 ) -> ClientOrderGroup:
@@ -446,7 +555,13 @@ async def _group_to_read(
             group.budget_manual_adjustment if group.is_cost_based else None
         ),
         predecessor_group_id=group.predecessor_group_id,
-        can_add_consultant=group.status == GROUP_STATUS_ACTIVE,
+        filename=group.filename,
+        has_file=group.file_path is not None,
+        content_type=group.content_type,
+        size_bytes=group.size_bytes,
+        file_uploaded_at=group.file_uploaded_at,
+        can_add_consultant=group.status
+        in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED),
         lines=reads,
         active_consultants=sum(1 for r in reads if r.is_active),
         event_count=int(event_count or 0),
@@ -605,16 +720,21 @@ async def _build_line(
         else ""
     )
     now = datetime.now(timezone.utc)
+    line_status = (
+        ClientOrderStatus.draft
+        if group.status == GROUP_STATUS_SCHEDULED
+        else ClientOrderStatus.active
+    )
     line = ClientOrder(
         client_id=group.client_id,
         contract_id=contract.id,
         job_id=payload.job_id,
         order_group_id=group.id,
         title=f"Zamówienie {group.order_number} — {who or 'konsultant'}"[:255],
-        status=ClientOrderStatus.active,
+        status=line_status,
         start_date=payload.start_date,
         end_date=payload.end_date or group.end_date,
-        filled_at=now,
+        filled_at=now if line_status == ClientOrderStatus.active else None,
         md_rate_cost=payload.rate_cost,
         md_rate_revenue=payload.rate_revenue,
         md_input_mode=payload.input_mode,
@@ -673,19 +793,65 @@ async def list_order_groups(
     if not is_multi_consultant_client(client_id):
         return OrderGroupListResponse(groups=[], total_groups=0, total_consultants=0)
 
+    # Scanner materializuje przejścia codziennie, ale odczyt jest dodatkową
+    # idempotentną bramą: zamówienie zaczynające się dziś ma stać się bieżące
+    # przy pierwszym wejściu użytkownika, nawet jeśli pętla dobowa jeszcze nie
+    # zdążyła wykonać iteracji.
+    if await materialize_scheduled_order_groups(db, client_id=client_id):
+        await db.commit()
+
     result = await db.execute(
         select(ClientOrderGroup)
         .where(ClientOrderGroup.client_id == client_id)
         .order_by(ClientOrderGroup.start_date.desc(), ClientOrderGroup.id.desc())
     )
     with_finance = _can_see_finance(user)
+    models = list(result.scalars())
+    reads_by_id = {
+        group.id: await _group_to_read(db, group, with_finance=with_finance)
+        for group in models
+    }
+
+    # Każda rodzina = bieżąca karta + chronologiczna kolejka kontynuacji.
+    # Scheduled nigdy nie trafia jako równorzędna karta głównej listy, jeśli
+    # istnieje jej aktywny poprzednik.
+    by_id = {group.id: group for group in models}
+    families: dict[int, list[ClientOrderGroup]] = {}
+    for group in models:
+        root_id = _group_family_root_id(group, by_id)
+        families.setdefault(root_id, []).append(group)
+
+    hidden_future_ids: set[int] = set()
+    for family in families.values():
+        future = sorted(
+            (g for g in family if g.status == GROUP_STATUS_SCHEDULED),
+            key=lambda g: (g.start_date, g.id),
+        )
+        if not future:
+            continue
+        active = sorted(
+            (g for g in family if g.status == GROUP_STATUS_ACTIVE),
+            key=lambda g: (g.start_date, g.id),
+            reverse=True,
+        )
+        if active:
+            parent = active[0]
+            reads_by_id[parent.id].future_orders = [reads_by_id[g.id] for g in future]
+            hidden_future_ids.update(g.id for g in future)
+        else:
+            # Rodzina utworzona wyłącznie na przyszłość: najbliższy wpis jest
+            # kartą-kotwicą, kolejne pozostają zagnieżdżone pod nim.
+            anchor, *rest = future
+            reads_by_id[anchor.id].future_orders = [reads_by_id[g.id] for g in rest]
+            hidden_future_ids.update(g.id for g in rest)
+
     groups = [
-        await _group_to_read(db, g, with_finance=with_finance) for g in result.scalars()
+        reads_by_id[group.id] for group in models if group.id not in hidden_future_ids
     ]
     return OrderGroupListResponse(
         groups=groups,
-        total_groups=len(groups),
-        total_consultants=sum(g.active_consultants for g in groups),
+        total_groups=len(models),
+        total_consultants=sum(read.active_consultants for read in reads_by_id.values()),
     )
 
 
@@ -782,6 +948,145 @@ async def list_group_events(
     return OrderGroupEventsResponse(events=events)
 
 
+@router.get("/{client_id}/order-groups/{group_id}/file")
+async def download_order_group_file(
+    client_id: int,
+    group_id: int,
+    user: OrderGroupReader,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pobierz master PDF zamówienia wielo-konsultantowego."""
+
+    await _require_group_read(db, user, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    if not group.file_path:
+        raise HTTPException(404, detail="To zamówienie nie ma pliku PDF")
+    try:
+        path = storage_service.get_client_order_group_po_path(group.file_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(410, detail="Plik PDF zamówienia nie istnieje") from exc
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=f"{group.order_number}.pdf",
+    )
+
+
+@router.put(
+    "/{client_id}/order-groups/{group_id}/file",
+    response_model=OrderGroupRead,
+)
+async def replace_order_group_file(
+    client_id: int,
+    group_id: int,
+    user: DlAssignedOrAdmin,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Zapisz master PDF i upsertuj jego kopię na każdym kontrakcie z grupy."""
+
+    await _assert_client(db, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+
+    filename = file.filename or "zamowienie.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(415, detail="Plik zamówienia musi być PDF-em")
+    payload = await file.read(MAX_GROUP_PDF_BYTES + 1)
+    if len(payload) > MAX_GROUP_PDF_BYTES:
+        raise HTTPException(413, detail="Plik jest za duży (limit 25 MB)")
+    if not payload.startswith(b"%PDF-"):
+        raise HTTPException(415, detail="Plik nie ma poprawnego formatu PDF")
+
+    previous_master = group.file_path
+    master_path, master_size = storage_service.save_client_order_group_po(
+        group.id, filename, io.BytesIO(payload)
+    )
+    superseded_paths = await _sync_group_pdf_documents(
+        db, group=group, payload=payload, user=user
+    )
+    group.filename = filename
+    group.file_path = master_path
+    group.content_type = "application/pdf"
+    group.size_bytes = master_size
+    group.file_uploaded_by = user.id
+    group.file_uploaded_at = datetime.now(timezone.utc)
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=client_id,
+            action="order_group_file_replaced",
+            user_id=user.id,
+            details={"group_id": group.id, "filename": filename},
+        )
+    )
+    await db.commit()
+    if previous_master and previous_master != master_path:
+        storage_service.delete_client_order_group_po(previous_master)
+    for path in superseded_paths:
+        storage_service.delete_contract_document(path)
+    await db.refresh(group)
+    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+
+
+@router.delete(
+    "/{client_id}/order-groups/{group_id}/file",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_order_group_file(
+    client_id: int,
+    group_id: int,
+    user: DlAssignedOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Usuń master i tylko automatyczne kopie PDF z kontraktów.
+
+    Ręczne dokumenty (``source_order_group_id IS NULL``) nie są dotykane.
+    Usunięcie samej grupy korzysta z innej ścieżki i zachowuje kopie jako
+    historię — tutaj operator jawnie usuwa błędny załącznik z formularza.
+    """
+
+    await _assert_client(db, client_id)
+    _assert_multi_client(client_id)
+    group = await _load_group(db, client_id, group_id)
+    if not group.file_path:
+        raise HTTPException(404, detail="To zamówienie nie ma pliku PDF")
+
+    master_path = group.file_path
+    linked_documents = list(
+        (
+            await db.execute(
+                select(ContractDocument).where(
+                    ContractDocument.source_order_group_id == group.id
+                )
+            )
+        ).scalars()
+    )
+    contract_paths = [document.file_path for document in linked_documents]
+    for document in linked_documents:
+        await db.delete(document)
+    group.filename = None
+    group.file_path = None
+    group.content_type = None
+    group.size_bytes = None
+    group.file_uploaded_by = None
+    group.file_uploaded_at = None
+    db.add(
+        Activity(
+            entity_type="client",
+            entity_id=client_id,
+            action="order_group_file_deleted",
+            user_id=user.id,
+            details={"group_id": group.id},
+        )
+    )
+    await db.commit()
+    storage_service.delete_client_order_group_po(master_path)
+    for path in contract_paths:
+        storage_service.delete_contract_document(path)
+
+
 # ── Zapis ───────────────────────────────────────────────────────────────────
 
 
@@ -815,6 +1120,7 @@ async def create_order_group(
         start_date=payload.start_date,
         end_date=payload.end_date,
         notes=payload.notes,
+        status=_initial_group_status(payload.start_date),
         is_cost_based=payload.is_cost_based,
         budget_amount=payload.budget_amount,
         # Startowa reszta = pełna kwota. Zamówienie kosztowe bez tej wartości
@@ -915,8 +1221,27 @@ async def update_order_group(
     if "budget_manual_adjustment" in data and data["budget_manual_adjustment"] is None:
         raise HTTPException(422, detail="Korekta kwoty nie może być pusta")
 
+    previous_start_date = group.start_date
+    previous_end_date = group.end_date
     for field, value in data.items():
         setattr(group, field, value.strip() if field == "order_number" else value)
+
+    if data.keys() & {"order_number", "start_date", "end_date"}:
+        group_lines = await lines_for_group(db, group.id)
+        for line in group_lines:
+            if "order_number" in data:
+                who = consultant_display_name(line) or "konsultant"
+                line.title = f"Zamówienie {group.order_number} — {who}"[:255]
+            if "start_date" in data and (
+                group.status == GROUP_STATUS_SCHEDULED
+                or line.start_date == previous_start_date
+            ):
+                line.start_date = group.start_date
+            if "end_date" in data and (
+                group.status == GROUP_STATUS_SCHEDULED
+                or line.end_date == previous_end_date
+            ):
+                line.end_date = group.end_date
 
     if data.keys() & budget_fields:
         # Zmiana kwoty MUSI przeliczyć rozliczenie od zera, a nie tylko
@@ -946,6 +1271,10 @@ async def update_order_group(
         payload={"changed": sorted(data.keys())},
         user_id=user.id,
     )
+    # Edycja danych przyszłego zamówienia celowo NIE regeneruje ani nie
+    # przemianowuje historycznej kopii PDF w kontrakcie. Kopię aktualizuje
+    # wyłącznie jawne podmienienie pliku przez endpoint PUT .../file.
+    await materialize_scheduled_order_groups(db, client_id=client_id)
     await db.commit()
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
@@ -974,6 +1303,7 @@ async def delete_order_group(
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
+    master_path = group.file_path
 
     lines = await lines_for_group(db, group.id)
     detached = 0
@@ -996,6 +1326,11 @@ async def delete_order_group(
         )
     )
     await db.commit()
+    # Automatyczne kopie na kontraktach są osobnymi plikami i pozostają jako
+    # zapis historyczny (FK źródła przechodzi na NULL). Master należący do
+    # usuniętej grupy nie ma już konsumenta, więc można go bezpiecznie zwolnić.
+    if master_path:
+        storage_service.delete_client_order_group_po(master_path)
 
 
 async def _detach_or_delete_line(db: AsyncSession, line: ClientOrder) -> bool:
@@ -1276,6 +1611,9 @@ async def extend_order_group(
         start_date=payload.start_date,
         end_date=payload.end_date,
         notes=payload.notes,
+        # Każde przedłużenie zaczyna jako zaplanowane. Jeśli data już nadeszła,
+        # wspólny materializer poniżej od razu aktywuje je i zamknie poprzednika.
+        status=GROUP_STATUS_SCHEDULED,
         is_cost_based=source.is_cost_based,
         budget_amount=payload.budget_amount,
         budget_remaining=payload.budget_amount,
@@ -1336,6 +1674,7 @@ async def extend_order_group(
             },
         )
     )
+    await materialize_scheduled_order_groups(db, client_id=client_id)
     await db.commit()
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
@@ -1359,10 +1698,12 @@ async def add_line(
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     # Wyczerpane/zakończone zamówienie nie przyjmuje nowych konsultantów.
+    # Zaplanowane przyjmuje — model wieloosobowy zakłada, że obsada może być
+    # kompletowana już po utworzeniu zamówienia, jeszcze przed jego startem.
     # 409, nie 422: żądanie jest poprawne, to STAN ŚWIATA go odrzuca — i to
     # ten stan trzeba zmienić gdzie indziej (nowe zamówienie albo korekta
     # kwoty), a nie treść żądania.
-    if group.status != GROUP_STATUS_ACTIVE:
+    if group.status not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=(
@@ -1391,7 +1732,10 @@ async def add_line(
         },
         user_id=user.id,
     )
+    superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
     await db.commit()
+    for path in superseded_paths:
+        storage_service.delete_contract_document(path)
 
     # Wspólne `_line_query()`, a nie własna lista loaderów: serializacja linii
     # schodzi przez poprzednika aż do kandydata (`predecessor_consultant_name`),
@@ -1703,7 +2047,10 @@ async def swap_consultant(
             details={"group_id": group.id, "from": old.id, "to": new_line.id},
         )
     )
+    superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
     await db.commit()
+    for path in superseded_paths:
+        storage_service.delete_contract_document(path)
 
     refreshed = await db.scalar(
         select(ClientOrder)

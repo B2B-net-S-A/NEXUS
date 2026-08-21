@@ -244,6 +244,11 @@ async def test_extension_syncs_client_order_end_date(
         assert after["end_date"] == new_end
         assert after["client_order_end_date"] == new_end
     finally:
+        await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={"status": "draft"},
+            headers=app_auth_headers,
+        )
         await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
 
 
@@ -290,4 +295,9 @@ async def test_extension_leaves_untracked_order_end_null(
         ).json()
         assert after["client_order_end_date"] is None
     finally:
+        await app_client.patch(
+            f"/api/contracts/{cid}",
+            json={"status": "draft"},
+            headers=app_auth_headers,
+        )
         await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)

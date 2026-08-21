@@ -43,7 +43,7 @@ export interface OrderLineRead {
   missing_consumption_month: string | null;
 }
 
-export type OrderGroupStatus = "active" | "completed" | "exhausted";
+export type OrderGroupStatus = "active" | "scheduled" | "completed" | "exhausted";
 
 export interface OrderGroupRead {
   id: number;
@@ -68,6 +68,11 @@ export interface OrderGroupRead {
   budget_remaining: number | null;
   budget_manual_adjustment: number | null;
   predecessor_group_id: number | null;
+  filename: string | null;
+  has_file: boolean;
+  content_type: string | null;
+  size_bytes: number | null;
+  file_uploaded_at: string | null;
   /** Wyliczane serwerowo — front nie zna reguły „wyczerpane blokuje dodawanie",
    *  a przycisk kończący się 409 czyta się jak „zapis nie działa". */
   can_add_consultant: boolean;
@@ -75,6 +80,8 @@ export interface OrderGroupRead {
   lines: OrderLineRead[];
   active_consultants: number;
   event_count: number;
+  /** Zaplanowane przedłużenia, chronologicznie po dacie startu. */
+  future_orders: OrderGroupRead[];
 }
 
 export interface OrderGroupListResponse {
@@ -281,6 +288,19 @@ export const orderGroupsApi = {
       `/api/clients/${clientId}/order-groups/${groupId}/extend`,
       payload,
     ),
+
+  replaceFile: (clientId: number, groupId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.put<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/file`,
+      form,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+  },
+
+  deleteFile: (clientId: number, groupId: number) =>
+    api.delete(`/api/clients/${clientId}/order-groups/${groupId}/file`),
 
   /** Kogo można dołożyć do zamówienia: osoby z kontraktem u tego klienta
    *  ORAZ pozostali aktywni konsultanci z bazy — jedna lista, z etykietą

@@ -8,6 +8,7 @@ import {
   ExternalLink,
   FileSearch,
   Loader2,
+  Trash2,
 } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
@@ -37,6 +38,8 @@ interface EditOrderDialogProps {
   canManageFinance: boolean;
   onClose: () => void;
   onSaved: () => void;
+  /** Odświeża kartę po zmianie samego pliku, bez zamykania formularza. */
+  onChanged?: () => void;
 }
 
 /**
@@ -59,6 +62,7 @@ export function EditOrderDialog({
   canManageFinance,
   onClose,
   onSaved,
+  onChanged,
 }: EditOrderDialogProps) {
   const { showToast } = useToast();
   const ezdrowie = isEzdrowieClient(clientId);
@@ -77,6 +81,7 @@ export function EditOrderDialog({
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
+  const [hasExistingFile, setHasExistingFile] = useState(order.has_file);
 
   // „Zczytaj dane z dokumentu" — ta sama funkcja co w przedłużeniu, ta sama
   // implementacja odczytu (`lib/order-extraction.ts`). W TYM widoku odczyt
@@ -183,6 +188,23 @@ export function EditOrderDialog({
     } finally {
       setBusyFile(false);
     }
+  }
+
+  async function handleDeleteExistingFile() {
+    if (
+      !window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")
+    ) {
+      return;
+    }
+    await withBusy(async () => {
+      await dlPortalApi.deleteOrderPo(clientId, order.id);
+      setHasExistingFile(false);
+      setFile(null);
+      setCheckData(false);
+      setCheckReasons([]);
+      onChanged?.();
+      showToast("Plik PDF zamówienia usunięty", "success");
+    }, "Nie udało się usunąć pliku PDF zamówienia.");
   }
 
   const canSubmit = title.trim().length > 0 && !mutation.isPending;
@@ -338,7 +360,7 @@ export function EditOrderDialog({
         <div className="space-y-2">
           <span className="text-sm font-medium">PDF zamówienia</span>
 
-          {order.has_file && (
+          {hasExistingFile && (
             <div className="flex items-center gap-2 text-sm rounded-md border border-border bg-muted/40 px-3 py-2">
               <span className="truncate flex-1">{order.filename}</span>
               <button
@@ -373,6 +395,16 @@ export function EditOrderDialog({
                   <Download className="w-4 h-4" />
                 )}
               </button>
+              <button
+                type="button"
+                title="Usuń"
+                aria-label="Usuń plik PDF zamówienia"
+                disabled={busyFile}
+                onClick={handleDeleteExistingFile}
+                className="p-1 rounded hover:bg-destructive/10 text-destructive disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
           )}
 
@@ -384,7 +416,7 @@ export function EditOrderDialog({
             error={fileError || null}
             accept=".pdf"
             maxBytes={MAX_UPLOAD_BYTES}
-            label={order.has_file ? "Zamień plik PDF" : "Dodaj plik PDF"}
+            label="Zamień plik PDF"
             hint="PDF · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
           />
           <button
