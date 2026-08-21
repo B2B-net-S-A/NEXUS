@@ -22,13 +22,13 @@ written reason, nor linger in the baseline after the debt is paid. Categories:
   stale: the test never ran, so nobody noticed when a schema column went NOT
   NULL or a request contract gained a required field underneath it.
 
-Status 2026-08-11: 439 test modules on disk, 23 excluded, 416 run — measured
+Status 2026-08-21: 548 test modules on disk, 19 excluded, 529 run — measured
 with this file's own `_disk_files()` / `_ci_ignored_files()`, not counted by
-hand. The line before it read "2026-07-27: 318 on disk, 26 excluded, 292 run"
-and had drifted on every figure; entries had left the baseline without anyone
-restating the total. A stale headline number is the one defect this file cannot
-afford, because the burn-down it advertises is the only thing that says whether
-the debt is shrinking.
+hand. The line before it read "2026-08-11: 439 on disk, 23 excluded, 416 run";
+the exclusion count was right, the disk count had drifted by 109 modules in ten
+days. A stale headline number is the one defect this file cannot afford, because
+the burn-down it advertises is the only thing that says whether the debt is
+shrinking.
 (An earlier revision said 313 on disk / 281 wired; the real figures were 317 and
 285 — 317 = 285 enumerated + the then 32-file baseline. Corrected rather than
 carried forward, since the whole point of the number is to be measurable.)
@@ -62,6 +62,26 @@ History of the burn-down:
                  conflict matrix (blacklist / competitor / NDA). Worth noting
                  for the remaining entries: "the test is red so production
                  changed" is an assumption, and here it was wrong.
+   19 excluded → four FAILING entries burned down at once (68 test functions
+                 back in CI). Two were STALE — `test_cv_enrichment.py` (30
+                 tests, the CV → candidate entry path of the whole database)
+                 and `test_jobs_auto_assign.py` were green on the spot, their
+                 recorded diagnoses long since overtaken by other fixes; the
+                 tests had simply gone on being excluded because nobody
+                 re-measured. The other two were the `test_recommendation_
+                 filters` lesson repeating itself, and this time in the other
+                 direction — the tests were RIGHT and production was wrong:
+                 `_fold_diacritics` fed Ł/ł to `encode("ascii", "ignore")`,
+                 which DELETES a character NFKD cannot decompose, so "Łukasz"
+                 folded to "ukasz" and M365 subject matching silently missed
+                 every candidate with Ł in their name; and `_normalize_value`
+                 returned early on None before reaching the skills branch, so
+                 a job edit materialising `must_skills` from NULL to `[]`
+                 counted as a scoring-significant change and fired a marketplace
+                 rescan with candidate notifications for a job that had not
+                 changed. Both are two-line production fixes. Neither would have
+                 been found by anything else — the tests that caught them had
+                 been sitting outside CI for weeks.
    26 excluded → the SUITE_INTERFERENCE category is retired. Those four files
                  (test_contract_analytics, test_contracts_expansion,
                  test_contracts_filters_multi, test_contracts_search) were green
@@ -201,23 +221,12 @@ _FAILING = {
     # 2 fails — endpoint answers {"status":"dry-run","enabled":false}; the test
     # assumes the Champion AI intake flag is on.
     "test_champion_ai_intake.py",
-    # 2 fails — summary is now concatenated with extra fields, expected strings stale.
-    "test_cv_enrichment.py",
     # 1 fail — parsed-CV dict gained current_position_started_at_precision.
     "test_cv_parser.py",
     # 1 fail — fixture inserts client_orders without contract_id, now NOT NULL.
     "test_dl_portal_scheduler.py",
-    # 1 fail — client_id is now required, so the invalid payload 422s where the
-    # test expects 400.
-    "test_jobs_auto_assign.py",
-    # 2 fails — name folding returns 'aka zow kowalski' where the test expects
-    # 'laka zolw kowalski' (leading character dropped).
-    "test_m365_matcher.py",
     # 3 fails — two same-day notifications of one type hit ix_notif_dedup_daily.
     "test_marketplace_flow.py",
-    # 1 fail — is_significant_job_update({'must_skills': None}, {'must_skills': []})
-    # is now True, the test expects False.
-    "test_marketplace_service.py",
     # 2 fails — endpoint now validates and answers 422 where the test expects 201.
     "test_new_endpoints.py",
     # 1 fail — trigger set gained post_interview_t15.

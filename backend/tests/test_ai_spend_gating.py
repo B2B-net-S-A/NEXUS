@@ -129,39 +129,65 @@ async def test_missing_key_still_yields_a_labelled_template(
     assert resp.json()["source"] == "template"
 
 
-# ── MINDY: powierzchnia bez `AIFeatureKey`, ale pod kill-switchem ────────────
+# ── MINDY: własny kubełek kwoty (`mindy_chat`) ───────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_mindy_refuses_when_the_master_ai_switch_is_off(monkeypatch) -> None:
-    """MINDY nie ma własnego klucza kwoty, więc główny wyłącznik był jej jedyną
-    możliwą bramką — i do tej pory jej nie dotyczył."""
-    from fastapi import HTTPException
+async def test_mindy_charges_its_own_quota_bucket(monkeypatch) -> None:
+    """MINDY nie miała żadnego `AIFeatureKey`, więc zaseedowanie limitów dla
+    pozostałych kluczy dowodliwie by jej nie tknęło — nie było czego ograniczyć.
 
+    Kubełek musi być WŁASNY i nieść id użytkownika: doklejenie MINDY do cudzego
+    klucza schowałoby jej wydatek w cudzym raporcie zużycia."""
     from app.api import dynareporter_mindy
+    from app.models.ai_feature import AIFeatureKey
     from app.services import ai_quota
 
-    async def master_off(_db):
-        return False
+    seen: dict[str, object] = {}
 
-    monkeypatch.setattr(ai_quota, "get_master_enabled", master_off)
+    async def _accept(_db, feature, user_id=None):
+        seen["feature"] = feature
+        seen["user_id"] = user_id
+        return None
 
-    with pytest.raises(HTTPException) as exc:
-        await dynareporter_mindy._ensure_ai_master_enabled(object())
+    monkeypatch.setattr(ai_quota, "check_and_increment", _accept)
 
-    assert exc.value.status_code == 503
+    async with dynareporter_mindy._mindy_quota(object(), 11):
+        # Wewnątrz bloku wywołanie jest ZADEKLAROWANE — inaczej `call_claude`
+        # loguje je na granicy dostawcy jako „UNGATED" mimo poprawnego licznika.
+        assert ai_quota.current_ai_call() is not None
+
+    assert seen == {"feature": AIFeatureKey.mindy_chat, "user_id": 11}
 
 
 @pytest.mark.asyncio
-async def test_mindy_passes_when_the_master_ai_switch_is_on(monkeypatch) -> None:
+async def test_mindy_quota_propagates_refusal(monkeypatch) -> None:
+    """Master toggle, wyłączona funkcja i wyczerpany sufit lecą tą samą drogą."""
     from app.api import dynareporter_mindy
     from app.services import ai_quota
 
-    async def master_on(_db):
-        return True
+    async def _refuse(_db, feature, user_id=None):
+        raise ai_quota.AIQuotaExceeded(feature, "Funkcje AI są wyłączone globalnie")
 
-    monkeypatch.setattr(ai_quota, "get_master_enabled", master_on)
-    await dynareporter_mindy._ensure_ai_master_enabled(object())  # nie rzuca
+    monkeypatch.setattr(ai_quota, "check_and_increment", _refuse)
+
+    with pytest.raises(ai_quota.AIQuotaExceeded):
+        async with dynareporter_mindy._mindy_quota(object(), 11):
+            pytest.fail("blok nie może się wykonać po odmowie kwoty")
+
+
+def test_mindy_refusal_becomes_503_with_a_reason() -> None:
+    """Wyczerpany limit czytany jako gołe 500 kończy zgłoszeniem do supportu."""
+    from app.api import dynareporter_mindy
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import AIQuotaExceeded
+
+    exc = dynareporter_mindy._quota_exceeded_response(
+        AIQuotaExceeded(AIFeatureKey.mindy_chat, "Miesięczny limit wyczerpany", 20, 20)
+    )
+    assert exc.status_code == 503
+    assert exc.detail["feature"] == "mindy_chat"
+    assert exc.detail["limit"] == 20
 
 
 def test_mindy_message_content_has_a_ceiling() -> None:
@@ -177,7 +203,7 @@ def test_mindy_message_content_has_a_ceiling() -> None:
     assert len(ok.messages) == 1
 
 
-def test_both_mindy_handlers_are_behind_the_master_switch() -> None:
+def test_both_mindy_handlers_are_behind_the_quota() -> None:
     """Bramka musi stać przy KAŻDYM handlerze — nowy endpoint w tym module
     domyślnie znowu stałby poza systemem kwot."""
     import inspect
@@ -186,5 +212,5 @@ def test_both_mindy_handlers_are_behind_the_master_switch() -> None:
 
     for name in ("commentary", "chat"):
         src = inspect.getsource(getattr(dynareporter_mindy, name))
-        assert "_ensure_ai_master_enabled" in src, name
+        assert "_mindy_quota(" in src, name
         assert "limiter.limit" in src, name

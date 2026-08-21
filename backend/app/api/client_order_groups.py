@@ -132,6 +132,14 @@ router = APIRouter()
 
 MAX_GROUP_PDF_BYTES = 25 * 1024 * 1024
 
+COST_GROUP_TOTAL_LABEL = "Całe zamówienie (kwota łączna)"
+"""Etykieta wiersza zbiorczego w eksporcie zamówień kosztowych.
+
+Nagłówki arkusza są wspólne z eksportem legacy (``order_excel_export``), więc
+nie da się kolumny przemianować na „kwota całego zamówienia" bez zmiany
+znaczenia tej samej kolumny w drugim eksporcie. Zamiast tego rozróżniamy
+wiersze: zbiorczy niesie kwotę grupy, wiersze osób — własne zużycie."""
+
 
 # Pola pieniężne linii. Nazwy są WŁASNE, nie z `_ORDER_FINANCE_WRITE_FIELDS`
 # w `client_orders.py` — tamten zbiór opisuje `rate_client`/`rate_candidate`,
@@ -891,6 +899,136 @@ async def list_order_groups(
     )
 
 
+def assert_group_is_reopenable(status: str) -> None:
+    """Przywrócić da się WYŁĄCZNIE zamówienie zakończone ręcznie.
+
+    Bramka jest WYCZERPUJĄCA i musi taka zostać. Poprzednia wersja odmawiała
+    tylko dla ``active`` i ``exhausted``, bo pisano ją w świecie trzech
+    statusów, gdzie „nic z tych dwóch" znaczyło „completed". Po dołożeniu
+    ``scheduled`` zamówienie przyszłe przechodziło obie bramki i dostawało
+    ``active`` PRZED datą startu, a jego linie zostawały w ``draft`` (reopen
+    ich nie rusza) — czyli „bieżące" zamówienie z zerem aktywnych konsultantów.
+    Materializer już by tego nie naprawił: kolejkę bierze wyłącznie z wierszy
+    ``scheduled``, więc ani ta grupa nie wróciłaby do kolejki, ani jej
+    poprzednik nie zostałby domknięty — w rodzinie zostałyby dwa aktywne
+    zamówienia naraz.
+
+    Wyniesione z handlera, żeby dołożenie kolejnego statusu dało się sprawdzić
+    bez stawiania klienta, grupy i sesji: to jest miejsce, w którym nowy status
+    cicho wpada w gałąź „zakończone".
+    """
+
+    if status == GROUP_STATUS_ACTIVE:
+        raise HTTPException(409, detail="To zamówienie jest już aktywne")
+    if status == GROUP_STATUS_SCHEDULED:
+        # Zamówienia, które jeszcze nie ruszyło, się nie przywraca — się je
+        # edytuje albo usuwa.
+        raise HTTPException(
+            409,
+            detail=(
+                "To zamówienie jeszcze nie ruszyło — nie ma czego przywracać. "
+                "Zmień datę rozpoczęcia albo usuń zamówienie."
+            ),
+        )
+    if status == GROUP_STATUS_EXHAUSTED:
+        raise HTTPException(
+            409,
+            detail=(
+                "Zamówienie jest wyczerpane, nie zakończone. Skoryguj kwotę "
+                "zamówienia albo załóż nowe."
+            ),
+        )
+    if status != GROUP_STATUS_COMPLETED:
+        # Nowy status dorzucony do modelu bez zajrzenia tutaj ma zostać
+        # odrzucony, a nie potraktowany jak „zakończone".
+        raise HTTPException(
+            409,
+            detail=(
+                "Zamówienia w stanie "
+                f"„{GROUP_STATUS_LABELS.get(status, status)}” nie da się "
+                "przywrócić."
+            ),
+        )
+
+
+def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
+    """Wiersze arkusza dla jednej grupy — czysta funkcja, bez bazy.
+
+    Wyniesione z handlera, żeby dało się sprawdzić granulację kolumn bez
+    stawiania klienta, kontraktów i zamówienia: to właśnie tu regresja jest
+    CICHA (arkusz się generuje, liczby są poprawne arytmetycznie, tylko opisują
+    co innego).
+    """
+
+    rows: list[OrderExportRow] = []
+    if group.is_cost_based and group.lines:
+        # Kwota zamówienia kosztowego jest JEDNA na całą grupę, a nie per
+        # konsultant. Wklejana dotąd do każdego wiersza osoby dawała
+        # w jednym arkuszu, pod jednym nagłówkiem, dwie różne granulacje:
+        # sąsiednie „Zużycie zamówienia" jest zawsze per linia, więc wiersz
+        # „zużycie 5 000 z 200 000" czytał się jak budżet TEJ osoby, a suma
+        # kolumny (arkusz ma auto-filtr i ludzie go sumują) rosła krotnie do
+        # liczby konsultantów. Kwota idzie więc raz, do wiersza zbiorczego,
+        # a wiersze konsultantów niosą wyłącznie własne zużycie — dzięki temu
+        # obie kolumny sumują się do prawdy.
+        rows.append(
+            OrderExportRow(
+                consultant_name=COST_GROUP_TOTAL_LABEL,
+                order_number=group.order_number,
+                cost_rate=None,
+                revenue_rate=None,
+                start_date=group.start_date,
+                end_date=group.end_date,
+                allocation=group.budget_amount,
+                consumption=None,
+            )
+        )
+    if not group.lines:
+        # Grupa bez konsultantów: sam wiersz zamówienia. Bez etykiety zbiorczej
+        # — nie ma tu od czego go odróżniać.
+        rows.append(
+            OrderExportRow(
+                consultant_name="",
+                order_number=group.order_number,
+                cost_rate=None,
+                revenue_rate=None,
+                start_date=group.start_date,
+                end_date=group.end_date,
+                allocation=group.budget_amount if group.is_cost_based else None,
+                consumption=None,
+            )
+        )
+        return rows
+    for line in group.lines:
+        consumption: Optional[Decimal]
+        if group.is_cost_based:
+            consumption = line.invoiced_total
+        elif line.md_total is None:
+            consumption = None
+        else:
+            consumption = (
+                line.md_total
+                + (line.md_manual_adjustment or Decimal("0"))
+                - (line.md_remaining or Decimal("0"))
+            )
+        rows.append(
+            OrderExportRow(
+                consultant_name=line.consultant_name,
+                order_number=group.order_number,
+                cost_rate=line.rate_cost,
+                revenue_rate=line.rate_revenue,
+                start_date=group.start_date,
+                end_date=group.end_date,
+                # Zamówienie kosztowe ma kwotę w wierszu zbiorczym powyżej;
+                # tutaj zostaje pusto, żeby jedna liczba nie powtórzyła się
+                # tylu razy, ilu jest konsultantów.
+                allocation=None if group.is_cost_based else line.md_total,
+                consumption=consumption,
+            )
+        )
+    return rows
+
+
 @router.post("/{client_id}/order-groups/export")
 async def export_order_groups(
     client_id: int,
@@ -924,46 +1062,7 @@ async def export_order_groups(
         group = await _group_to_read(
             db, by_id[group_id], with_finance=_can_see_finance(user)
         )
-        if not group.lines:
-            rows.append(
-                OrderExportRow(
-                    consultant_name="",
-                    order_number=group.order_number,
-                    cost_rate=None,
-                    revenue_rate=None,
-                    start_date=group.start_date,
-                    end_date=group.end_date,
-                    allocation=group.budget_amount if group.is_cost_based else None,
-                    consumption=None,
-                )
-            )
-            continue
-        for line in group.lines:
-            consumption: Optional[Decimal]
-            if group.is_cost_based:
-                consumption = line.invoiced_total
-            elif line.md_total is None:
-                consumption = None
-            else:
-                consumption = (
-                    line.md_total
-                    + (line.md_manual_adjustment or Decimal("0"))
-                    - (line.md_remaining or Decimal("0"))
-                )
-            rows.append(
-                OrderExportRow(
-                    consultant_name=line.consultant_name,
-                    order_number=group.order_number,
-                    cost_rate=line.rate_cost,
-                    revenue_rate=line.rate_revenue,
-                    start_date=group.start_date,
-                    end_date=group.end_date,
-                    allocation=(
-                        group.budget_amount if group.is_cost_based else line.md_total
-                    ),
-                    consumption=consumption,
-                )
-            )
+        rows.extend(export_rows_for_group(group))
 
     content = await run_in_threadpool(
         build_orders_workbook, rows, include_model_columns=True
@@ -1654,22 +1753,13 @@ async def reopen_order_group(
     (``exhausted``) zwraca 409: tam problemem nie jest błędna data, tylko brak
     pieniędzy, więc właściwą akcją jest korekta kwoty albo nowe zamówienie —
     przywrócenie zostawiłoby zamówienie z zerową pulą, które i tak niczego nie
-    przyjmie.
+    przyjmie. Zaplanowane (``scheduled``) też zwraca 409 — patrz niżej.
     """
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
-    if group.status == GROUP_STATUS_ACTIVE:
-        raise HTTPException(409, detail="To zamówienie jest już aktywne")
-    if group.status == GROUP_STATUS_EXHAUSTED:
-        raise HTTPException(
-            409,
-            detail=(
-                "Zamówienie jest wyczerpane, nie zakończone. Skoryguj kwotę "
-                "zamówienia albo załóż nowe."
-            ),
-        )
+    assert_group_is_reopenable(group.status)
 
     previous_closure = group.closure_date
     group.status = GROUP_STATUS_ACTIVE

@@ -128,7 +128,25 @@ def upgrade() -> None:
             WHERE co.status <> 'void'::contractstatus
               AND lower(concat_ws(' ', cl.name, cl.display_name, cl.legal_name))
                     LIKE '%biuro informacji kredytowej%'
-              AND lower(trim(ca.name) || ' ' || trim(ca.lastname)) IN (
+              -- Porównanie idzie po formie NFC, nie po surowym napisie.
+              -- Część rekordów ma nazwisko zapisane w formie ROZŁOŻONEJ
+              -- ("ń" = "n" + U+0301), więc równość CAŁEGO napisu
+              -- cicho ich nie trafiała. Kosztowało to kontrakt #571,
+              -- doaktywowany dopiero rewizją 0239 -- punktowo, jednym
+              -- prefiksem LIKE, więc przyczyna zostawała. Tę samą podatność
+              -- ma na tej liście "michał leśniak" ("ś" rozkłada się dokładnie
+              -- tak samo), a migracja nie raportuje, ilu z dziewięciu ludzi
+              -- faktycznie trafiła -- częściowe pudło było NIEWIDOCZNE.
+              --
+              -- UWAGA: ta poprawka NIE leczy produkcji. Marker
+              -- '0238_bik_contract_status_correction' jest tam już wstawiony,
+              -- więc UPDATE nigdy się nie powtórzy, a brakujące rekordy trzeba
+              -- domknąć ręcznie. Działa dla baz odtwarzanych od zera i
+              -- zdejmuje pułapkę ze wzorca, który ktoś skopiuje przy
+              -- następnej liście nazwisk. Literały poniżej muszą zostać
+              -- w NFC -- pilnuje tego test tests/test_migration_0238_name_matching.py
+              AND lower(normalize(trim(ca.name) || ' ' || trim(ca.lastname), NFC))
+                  IN (
                     'aleksander wojdyła',
                     'daniel madejski',
                     'maciej koc',

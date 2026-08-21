@@ -314,6 +314,14 @@ export function ConsultantLineModal({
               className={inputClass}
               placeholder="1000"
             />
+            {/* Obie flagi wracają z backendu NIEZALEŻNIE od siebie:
+                podpowiedź liczy się wyłącznie z kontraktu `active`/`ending`,
+                a ostrzeżenie porównuje WSZYSTKIE nieanulowane, także `ended`
+                i `draft`. Konsultant wracający do klienta (stary `ended` +
+                nowy `draft`, zero żywych) daje więc `has_different = true`
+                przy `suggested_rate_cost = null`. Jeden wspólny komunikat
+                twierdził wtedy, że stawkę wstawiono z aktywnego kontraktu —
+                pod PUSTYM polem i bez żadnego aktywnego kontraktu. */}
             {person?.has_different_client_contract_rates ? (
               <p
                 role="status"
@@ -323,9 +331,19 @@ export function ConsultantLineModal({
                   className="mt-0.5 h-3.5 w-3.5 shrink-0"
                   aria-hidden="true"
                 />
-                Uwaga: ten konsultant ma u klienta kontrakty z różnymi
-                stawkami. Wstawiono stawkę z aktywnego kontraktu — sprawdź,
-                którą zastosować.
+                {person.suggested_rate_cost != null ? (
+                  <>
+                    Uwaga: ten konsultant ma u klienta kontrakty z różnymi
+                    stawkami. Wstawiono stawkę z aktywnego kontraktu —
+                    sprawdź, którą zastosować.
+                  </>
+                ) : (
+                  <>
+                    Uwaga: ten konsultant ma u klienta kontrakty z różnymi
+                    stawkami, ale żaden nie jest aktywny — wpisz stawkę dla
+                    tej linii.
+                  </>
+                )}
               </p>
             ) : null}
           </div>

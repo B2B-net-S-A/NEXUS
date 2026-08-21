@@ -57,6 +57,13 @@ function apiError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Wynik zapisu zamówienia razem z osobnym, drugim wywołaniem — wgraniem PDF-a.
+ *
+ *  `fileError` niepuste znaczy: zamówienie JEST zapisane, plik nie wszedł.
+ *  Rozdzielenie tych dwóch faktów jest tu istotne, bo mylenie ich prowadzi
+ *  wprost do duplikatu zamówienia (patrz `attachFile`). */
+type GroupSaveResult = { saved: OrderGroupRead; fileError: string | null };
+
 type MainOrderGroupStatus = Exclude<OrderGroupStatus, "scheduled">;
 type PillKey = "all" | MainOrderGroupStatus;
 
@@ -134,6 +141,51 @@ export function MultiConsultantOrdersTab({
     queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
   };
 
+  /** Dogrywa PDF do zamówienia, które JUŻ jest w bazie.
+   *
+   *  Zapis zamówienia z plikiem to DWA wywołania API pod jedną mutacją.
+   *  `replaceFile` ma własne ścieżki odmowy (415 nie-PDF, 415 zły magic
+   *  `%PDF-`, 413 powyżej 25 MB, 410 brak pliku) plus 30-sekundowy timeout
+   *  instancji axios — a `order_number` jest świadomie BEZ unikalności w bazie.
+   *  Gdyby błąd uploadu leciał do `onError` mutacji, komunikat mówiłby „nie
+   *  udało się zapisać zamówienia" przy otwartym modalu, mimo że grupa razem
+   *  z liniami konsultantów już istnieje — a kliknięcie „Zapisz" jeszcze raz
+   *  zakładałoby DRUGIE zamówienie o tym samym numerze. Niejednoznaczność
+   *  wyszłaby dopiero przy imporcie zużycia MD, czyli daleko od przyczyny.
+   *  Dlatego awarię uploadu zwracamy jako część UDANEGO wyniku: modal się
+   *  zamyka, lista się odświeża, a komunikat mówi prawdę o tym, co nie weszło.
+   */
+  async function attachFile(
+    group: OrderGroupRead,
+    file: File | null,
+  ): Promise<GroupSaveResult> {
+    if (!file) return { saved: group, fileError: null };
+    try {
+      const withFile = (await orderGroupsApi.replaceFile(clientId, group.id, file))
+        .data;
+      return { saved: withFile, fileError: null };
+    } catch (err) {
+      return {
+        saved: group,
+        fileError: apiError(err, "Nie udało się wgrać pliku PDF."),
+      };
+    }
+  }
+
+  /** Jeden komunikat na dwa możliwe wyniki: pełny sukces albo zapis bez pliku. */
+  function announceSaved(result: GroupSaveResult, savedMessage: string) {
+    if (result.fileError) {
+      showToast(
+        `${savedMessage}, ale nie udało się wgrać PDF-a: ${result.fileError} ` +
+          "Wgraj plik ponownie przez edycję zamówienia — NIE zakładaj go " +
+          "drugi raz.",
+        "error",
+      );
+      return;
+    }
+    showToast(savedMessage, "success");
+  }
+
   const saveGroup = useMutation({
     mutationFn: async ({
       values,
@@ -141,7 +193,7 @@ export function MultiConsultantOrdersTab({
     }: {
       values: OrderGroupInput;
       file: File | null;
-    }) => {
+    }): Promise<GroupSaveResult> => {
       let saved: OrderGroupRead;
       if (groupModal.group) {
         saved = (
@@ -158,16 +210,13 @@ export function MultiConsultantOrdersTab({
       } else {
         saved = (await orderGroupsApi.create(clientId, values)).data;
       }
-      if (file) {
-        saved = (await orderGroupsApi.replaceFile(clientId, saved.id, file)).data;
-      }
-      return saved;
+      return attachFile(saved, file);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       setGroupModal({ open: false, group: null });
       setFormError(null);
       invalidate();
-      showToast("Zapisano zamówienie", "success");
+      announceSaved(result, "Zapisano zamówienie");
     },
     onError: (err) => setFormError(apiError(err, "Nie udało się zapisać zamówienia.")),
   });
@@ -291,20 +340,20 @@ export function MultiConsultantOrdersTab({
     }: {
       values: OrderGroupExtendInput;
       file: File | null;
-    }) => {
+    }): Promise<GroupSaveResult> => {
       const group = extendModal.group;
       if (!group) throw new Error("Brak zamówienia");
       const created = (await orderGroupsApi.extend(clientId, group.id, values)).data;
-      if (file) {
-        return (await orderGroupsApi.replaceFile(clientId, created.id, file)).data;
-      }
-      return created;
+      // Ta sama pułapka co przy zakładaniu, tylko dotkliwsza: ponowienie po
+      // awarii uploadu założyłoby DRUGIE przedłużenie tego samego zamówienia,
+      // czyli dwie równorzędne karty następcy z jednym poprzednikiem.
+      return attachFile(created, file);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       setExtendModal({ open: false, group: null });
       setFormError(null);
       invalidate();
-      showToast("Utworzono przedłużenie", "success");
+      announceSaved(result, "Utworzono przedłużenie");
     },
     onError: (err) => setFormError(apiError(err, "Nie udało się utworzyć przedłużenia.")),
   });

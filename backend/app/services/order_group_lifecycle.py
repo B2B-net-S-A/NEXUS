@@ -14,6 +14,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
@@ -21,6 +22,8 @@ from app.models.client_order_group import (
     GROUP_STATUS_SCHEDULED,
     ClientOrderGroup,
 )
+from app.services.client_order_lines import record_event
+from app.services.multi_consultant_orders import EVENT_ORDER_CLOSED
 
 
 def _family_root(group: ClientOrderGroup, by_id: dict[int, ClientOrderGroup]) -> int:
@@ -47,7 +50,14 @@ async def materialize_scheduled_order_groups(
     Returns the number of groups whose stored status changed.
     """
 
-    boundary_day = today or date.today()
+    # `business_today()`, nie `date.today()`: kontener chodzi w UTC, więc
+    # między północą warszawską a UTC (1 h zimą, 2 h latem) `date.today()`
+    # zwraca WCZORAJ. W tym oknie zamówienie startujące „dziś" zostawało
+    # `scheduled` z liniami w `draft` — czyli poza `active_md_lines` i poza
+    # licznikiem konsultantów — a bliźniaczy cron kontraktów
+    # (`contract_alerts._promote_statuses`) był już na nowym dniu. Dwa
+    # mechanizmy tego samego modułu datowały się różnymi dobami.
+    boundary_day = today or business_today()
     stmt = select(ClientOrderGroup)
     if client_id is not None:
         stmt = stmt.where(ClientOrderGroup.client_id == client_id)
@@ -117,6 +127,43 @@ async def materialize_scheduled_order_groups(
                 f"Automatycznie zastąpione zamówieniem {current.order_number}"
             )
             previous.closed_at = now
+            # `end_date` dociągane jak w ręcznym `close_order_group`: bez tego
+            # karta zakończonego zamówienia dalej głosi „do 31.12", podczas gdy
+            # jego linie są już przycięte do `history_boundary`.
+            #
+            # Dolne ograniczenie datą startu jest OBOWIĄZKOWE, nie ostrożnością:
+            # `ck_client_order_groups_dates` wymaga `end_date >= start_date`, a
+            # następca startujący tego samego dnia co poprzednik daje
+            # `history_boundary < previous.start_date`. Materializacja jest
+            # wołana z `list_order_groups`, więc naruszenie CHECK-a wywaliłoby
+            # 500 przy KAŻDYM otwarciu zakładki, nie tylko w nocnym skanerze.
+            previous_end = max(history_boundary, previous.start_date)
+            if previous.end_date is None or previous.end_date > previous_end:
+                previous.end_date = previous_end
+            # Historia zamówienia JEST raportem: bez tego wpisu dialog
+            # „Historia statusów" nie pokazuje nic między `przedluzenie`
+            # a stanem obecnym, więc nie da się odpowiedzieć, kiedy i czym
+            # zamówienie zostało zastąpione. `closure_reason` przepada przy
+            # pierwszym `przywroceniu`, które je czyści — dziennik zostaje.
+            # `user_id=None` jest poprawne: to przejście systemowe, nie decyzja
+            # człowieka, i z tego samego powodu `closed_by_user_id` zostaje puste.
+            record_event(
+                db,
+                group_id=previous.id,
+                event_type=EVENT_ORDER_CLOSED,
+                description=(
+                    f"Zakończono zamówienie {previous.order_number} "
+                    f"z dniem {previous_end.isoformat()} — automatycznie "
+                    f"zastąpione zamówieniem {current.order_number}"
+                ),
+                payload={
+                    "closure_date": history_boundary.isoformat(),
+                    "end_date": previous_end.isoformat(),
+                    "successor_group_id": current.id,
+                    "successor_order_number": current.order_number,
+                    "automatic": True,
+                },
+            )
             changed += 1
 
             previous_lines = list(

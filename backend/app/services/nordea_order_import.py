@@ -17,6 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.scheduling import business_today
+
 MAX_NORDEA_IMPORT_BYTES = 2 * 1024 * 1024
 LIVE_CONTRACT_STATUSES = {
     "active",
@@ -116,6 +118,12 @@ def parse_nordea_csv(payload: bytes) -> list[NordeaRow]:
     except StopIteration as exc:
         raise NordeaImportError("Plik CSV jest pusty") from exc
     keys = [_header_key(cell) for cell in header]
+    # Sprawdzenie struktury PRZED odczytem keys[0]/keys[1] — plik z jedną
+    # kolumną wywalał się wtedy IndexError-em, czyli 500 zamiast czytelnego 422.
+    if len(header) < 7 or keys[0] != "numerzamowienia" or keys[1] != "kontraktor":
+        raise NordeaImportError(
+            "Nie rozpoznano nagłówków pliku Nordea (wymagane kolumny A–G)"
+        )
     expected = {
         "ord": "numerzamowienia",
         "name": "kontraktor",
@@ -124,25 +132,34 @@ def parse_nordea_csv(payload: bytes) -> list[NordeaRow]:
         "revenue": "stawkaprzychodowa",
         "framework": "stawkazumowyramowej",
     }
-    # Historical files contain one or two spaces in the revenue header. Match
-    # semantically, then fall back to the documented column position.
     indexes: dict[str, int] = {}
     for label, key in expected.items():
         if key in keys:
             indexes[label] = keys.index(key)
-    positional = {
-        "ord": 0,
-        "name": 1,
-        "start": 3,
-        "end": 4,
-        "revenue": 5,
-        "framework": 6,
-    }
-    for label, index in positional.items():
+    # Fallback pozycyjny WYŁĄCZNIE dla dat. Dla kolumn stawkowych był cichą
+    # pułapką na kwoty: gdyby Finanse przysłały plik z innym brzmieniem
+    # nagłówka stawki i jednocześnie dołożoną kolumną, `setdefault` przypiąłby
+    # „przychodową" do indeksu 5, czyli najpewniej do stawki ramowej — a raport
+    # dry-run pokazuje same liczniki, więc nikt by tego przed zapisem nie
+    # zobaczył. Pomyłka w kolumnie okresu jest widoczna w podglądzie zamówienia,
+    # pomyłka w kolumnie stawki — nie.
+    #
+    # Historyczne pliki mają w nagłówku stawki jedną albo dwie spacje; to NIE
+    # jest powód do fallbacku — `_header_key` i tak zdejmuje wszystko poza
+    # [a-z0-9], więc dopasowanie semantyczne łapie oba warianty.
+    for label, index in (("start", 3), ("end", 4)):
         indexes.setdefault(label, index)
-    if len(header) < 7 or keys[0] != "numerzamowienia" or keys[1] != "kontraktor":
+    unrecognized = [label for label in ("revenue", "framework") if label not in indexes]
+    if unrecognized:
+        names = {
+            "revenue": "Stawka przychodowa",
+            "framework": "Stawka z umowy ramowej",
+        }
+        found = "; ".join(cell.strip() for cell in header if cell.strip())[:300]
         raise NordeaImportError(
-            "Nie rozpoznano nagłówków pliku Nordea (wymagane kolumny A–G)"
+            "Nie rozpoznano nagłówka kolumny ze stawką: "
+            + ", ".join(f"„{names[label]}”" for label in unrecognized)
+            + f". Znalezione nagłówki: {found}"
         )
 
     rows: list[NordeaRow] = []
@@ -213,9 +230,28 @@ def _choose_contract(contracts: list[Any], rows: list[NordeaRow]) -> Optional[An
     )
 
 
+# Nazwy heurystyk dopasowania, w kolejności malejącej pewności. Wszystko poniżej
+# "exact" jest zgadywaniem po datach — a zgadnięte zamówienie dostaje potem
+# nadpisany numer, obie daty i stawkę przychodową, więc operator musi wiedzieć,
+# które z nich zeszło poniżej dokładnego numeru.
+MATCH_EXACT = "exact"
+MATCH_SAME_PERIOD = "same_period"
+MATCH_ONLY_ORDER = "only_order"
+MATCH_CURRENT = "current"
+
+MATCH_LABELS = {
+    MATCH_EXACT: "ten sam numer zamówienia",
+    MATCH_SAME_PERIOD: "ta sama data brzegowa okresu",
+    MATCH_ONLY_ORDER: "jedyne zamówienie kontraktora",
+    MATCH_CURRENT: "jedyne zamówienie obejmujące dziś",
+}
+
+
 def _pick_existing_order(
-    contract: Any, row: NordeaRow, *, first_for_contractor: bool
-) -> Optional[Any]:
+    contract: Any, row: NordeaRow, *, first_for_contractor: bool, today: date
+) -> tuple[Optional[Any], Optional[str]]:
+    """Zwraca zamówienie do nadpisania i NAZWĘ heurystyki, która je wybrała."""
+
     orders = [
         order
         for order in contract.client_orders
@@ -228,25 +264,27 @@ def _pick_existing_order(
             for order in exact
             if order.start_date == row.start_date and order.end_date == row.end_date
         ]
-        return max(same_period or exact, key=lambda order: order.id)
+        return max(same_period or exact, key=lambda order: order.id), MATCH_EXACT
     if not first_for_contractor:
-        return None
+        return None, None
     same_period = [
         order
         for order in orders
         if order.start_date == row.start_date or order.end_date == row.end_date
     ]
     if len(same_period) == 1:
-        return same_period[0]
+        return same_period[0], MATCH_SAME_PERIOD
     if len(orders) == 1:
-        return orders[0]
+        return orders[0], MATCH_ONLY_ORDER
     current = [
         order
         for order in orders
-        if (order.start_date is None or order.start_date <= date.today())
-        and (order.end_date is None or order.end_date >= date.today())
+        if (order.start_date is None or order.start_date <= today)
+        and (order.end_date is None or order.end_date >= today)
     ]
-    return current[0] if len(current) == 1 else None
+    if len(current) == 1:
+        return current[0], MATCH_CURRENT
+    return None, None
 
 
 def _order_state(order: Any) -> tuple[Any, ...]:
@@ -257,6 +295,23 @@ def _order_state(order: Any) -> tuple[Any, ...]:
         order.rate_client,
         order.status,
     )
+
+
+def _order_snapshot(order: Any) -> dict[str, Any]:
+    """Wartości zamówienia w kształcie nadającym się do podglądu „przed → po".
+
+    Świadomie NIE zastępuje ``_order_state``: tam porównujemy Decimale
+    liczbowo (``149.000 == 149``), a tu serializujemy do tekstu, żeby raport
+    nie zależał od tego, jak FastAPI zakoduje ``Decimal`` i ``date``.
+    """
+
+    return {
+        "order_number": order.title,
+        "start_date": order.start_date.isoformat() if order.start_date else None,
+        "end_date": order.end_date.isoformat() if order.end_date else None,
+        "revenue_rate": (None if order.rate_client is None else str(order.rate_client)),
+        "status": _status_value(order.status),
+    }
 
 
 async def import_nordea_orders(
@@ -316,8 +371,15 @@ async def import_nordea_orders(
     unmatched: list[dict[str, Any]] = []
     ambiguous: list[dict[str, Any]] = []
     overlaps: list[dict[str, Any]] = []
+    order_changes: list[dict[str, Any]] = []
     matched_keys: set[str] = set()
     counters: Counter[str] = Counter()
+    # JEDNA data na cały bieg, liczona w kalendarzu, w którym pracuje firma.
+    # `date.today()` czyta zegar kontenera (UTC), więc między 00:00 a 02:00
+    # czasu warszawskiego zamówienie kończące się „wczoraj" zapisywało się jako
+    # `active`. Wyliczana raz, żeby przy imporcie przechodzącym przez północ
+    # wszystkie wiersze były datowane tym samym dniem.
+    today = business_today()
 
     for key, person_rows in sorted(
         rows_by_name.items(), key=lambda item: item[1][0].contractor_name
@@ -357,7 +419,9 @@ async def import_nordea_orders(
                 )
 
         for index, row in enumerate(person_rows):
-            order = _pick_existing_order(contract, row, first_for_contractor=index == 0)
+            order, match_kind = _pick_existing_order(
+                contract, row, first_for_contractor=index == 0, today=today
+            )
             created = order is None
             if created:
                 order = ClientOrder(
@@ -366,7 +430,7 @@ async def import_nordea_orders(
                     title=row.order_number,
                     status=(
                         ClientOrderStatus.completed
-                        if row.end_date < date.today()
+                        if row.end_date < today
                         else ClientOrderStatus.active
                     ),
                     start_date=row.start_date,
@@ -380,6 +444,9 @@ async def import_nordea_orders(
                 counters["orders_created"] += 1
             else:
                 before = _order_state(order)
+                before_snapshot = _order_snapshot(order)
+                if match_kind != MATCH_EXACT:
+                    counters["fuzzy_matched"] += 1
                 # Intentionally do not mutate Contract.rate_candidate or
                 # ClientOrder.md_rate_cost: the ticket explicitly preserves cost.
                 order.title = row.order_number
@@ -388,14 +455,30 @@ async def import_nordea_orders(
                 order.rate_client = row.revenue_rate
                 order.status = (
                     ClientOrderStatus.completed
-                    if row.end_date < date.today()
+                    if row.end_date < today
                     else ClientOrderStatus.active
                 )
-                counters[
-                    "orders_unchanged"
-                    if before == _order_state(order)
-                    else "orders_updated"
-                ] += 1
+                changed = before != _order_state(order)
+                counters["orders_unchanged" if not changed else "orders_updated"] += 1
+                if changed:
+                    # Podgląd musi pokazywać, KTÓRE zamówienie zostanie
+                    # nadpisane i czym. Same liczniki („orders_updated: 1")
+                    # ukrywały najgroźniejszy przypadek: dopasowanie, które
+                    # zeszło poniżej dokładnego numeru, trafia w żywe
+                    # zamówienie o zupełnie innym numerze i podmienia mu numer,
+                    # okres oraz stawkę przychodową — bezpowrotnie i bez śladu.
+                    order_changes.append(
+                        {
+                            "contractor": row.contractor_name,
+                            "row_number": row.row_number,
+                            "order_id": order.id,
+                            "match": match_kind,
+                            "match_label": MATCH_LABELS.get(match_kind, match_kind),
+                            "exact_number_match": match_kind == MATCH_EXACT,
+                            "before": before_snapshot,
+                            "after": _order_snapshot(order),
+                        }
+                    )
 
             schedule = list(contract.framework_rate_schedule)
             same_day = [
@@ -425,7 +508,7 @@ async def import_nordea_orders(
                 contract.framework_rate_schedule.append(step)
                 counters["framework_created"] += 1
 
-        contract.framework_rate = contract.effective_framework_rate(date.today())
+        contract.framework_rate = contract.effective_framework_rate(today)
 
     nexus_only = [
         {
@@ -450,6 +533,8 @@ async def import_nordea_orders(
         "framework_updated": counters["framework_updated"],
         "framework_unchanged": counters["framework_unchanged"],
         "cost_rates_changed": 0,
+        "fuzzy_matched": counters["fuzzy_matched"],
+        "order_changes": order_changes,
         "unmatched_file": unmatched,
         "ambiguous_file": ambiguous,
         "nexus_only": nexus_only,

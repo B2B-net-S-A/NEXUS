@@ -632,10 +632,16 @@ def _normalize_skills(bucket: Any) -> frozenset[str]:
 
 def _normalize_value(field: str, value: Any) -> Any:
     """Znormalizuj surowe wartości (enum.value itp.) do porównania starego/nowego."""
+    if field in ("must_skills", "nice_skills"):
+        # PRZED guardem na None: dla kubełka umiejętności `None` i `[]` znaczą
+        # to samo („brak wymagań"), a wcześniej `None` wychodziło stąd jako
+        # `None` i nie było równe `frozenset()`. Skutek był realny i cichy:
+        # zapis rekrutacji, który materializował kolumnę z NULL na pustą listę,
+        # przechodził za ISTOTNĄ zmianę scoringową i odpalał ponowne skanowanie
+        # targu razem z powiadomieniami o rekrutacji, która się nie zmieniła.
+        return _normalize_skills(value)
     if value is None:
         return None
-    if field in ("must_skills", "nice_skills"):
-        return _normalize_skills(value)
     if hasattr(value, "value"):
         return value.value
     if isinstance(value, str):

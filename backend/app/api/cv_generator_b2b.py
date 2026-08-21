@@ -303,33 +303,51 @@ async def _finalize_success(db: AsyncSession, generated_id: int, *, result) -> b
     return True
 
 
-async def _ensure_ai_master_enabled(db: AsyncSession) -> None:
-    """Główny wyłącznik AI musi zatrzymywać też generowanie CV B2B.
+async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> None:
+    """Obciąż kwotę AI za generację CV B2B — i odmów, gdy jest wyczerpana.
 
     To NAJDROŻSZE wywołanie Claude'a w produkcie (16 384 tokeny outputu, łańcuch
     Sonnet → Opus, do 3 prób na model), a stało całkowicie poza systemem kwot:
     `AIMasterToggle.enabled = False` jest sprawdzany wyłącznie wewnątrz
-    `check_and_increment`, którego ta ścieżka nigdy nie woła. Admin gasił AI
+    `check_and_increment`, którego ta ścieżka nigdy nie wołała. Admin gasił AI
     w Ustawieniach → AI (UI twierdzi „Wszystkie funkcje AI są wyłączone
-    globalnie"), a `POST /generate` i `/generate-upload` dalej wydawały pieniądze.
+    globalnie"), a `POST /generate` i `/generate-upload` dalej wydawały
+    pieniądze — przy czym w tym samym background-jobie tani precompute mapy
+    wymagań był posłusznie odmawiany, bo TEN akurat miał swój klucz.
 
-    Sam odczyt przełącznika NIE wymaga nowego elementu `AIFeatureKey`, więc
-    domyka najostrzejszą połowę luki bez migracji. Do zrobienia osobno (wymaga
-    rewizji alembica): własny `AIFeatureKey.cv_generator`, a więc miesięczny
-    limit i wpisy w `ai_usage_log` — bez nich raport zużycia dalej zaniża
-    realne wydatki o tę powierzchnię.
+    `check_and_increment`, nie `async with ai_feature(...)`: kontekst deklaracji
+    z `ai_feature` nie przeżyłby do miejsca wydatku. Claude jest tu wołany w
+    `BackgroundTasks`, czyli PO zamknięciu bloku handlera, a `ai_client` tego
+    generatora buduje klienta SDK bezpośrednio (nie przez `claude_client`), więc
+    `_assert_declared` i tak go nie ogląda. Deklaracja byłaby obietnicą pokrycia,
+    którego nie ma; liczenie i sufit działają niezależnie od niej.
+
+    Naliczamy DECYZJĘ O DOPUSZCZENIU, nie sukces round-tripu do dostawcy —
+    tak samo jak generator ogłoszeń. Nieudana generacja też kosztowała tokeny,
+    więc darmowe ponowienie po awarii byłoby dziurą w suficie.
 
     Bramka stoi w handlerze, PRZED założeniem wiersza „processing": odrzucenie
     w tle zostawiłoby na liście wiersz „failed" zamiast czytelnego 503, a
     rekruter nie dowiedziałby się, że to decyzja administratora, nie awaria.
+    Licznik commituje wywołujący razem z wierszem „processing" — 404 na
+    kandydacie nie commituje niczego, więc nie obciąża kwoty.
     """
-    from app.services.ai_quota import get_master_enabled
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 
-    if not await get_master_enabled(db):
+    try:
+        await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
+    except AIQuotaExceeded as exc:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Funkcje AI są wyłączone globalnie",
-        )
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
 
 
 async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
@@ -682,7 +700,7 @@ async def generate(
     notes present) is validated inside the background job and any failure is
     written onto that row.
     """
-    await _ensure_ai_master_enabled(db)
+    await _charge_cv_generation_quota(db, current_user.id)
     candidate = await db.get(Candidate, payload.candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
@@ -756,7 +774,7 @@ async def generate_from_upload(
     wynik ląduje na liście „Wygenerowane CV". Poza wpisem audytowym nic nie
     trafia do NEXUS DB.
     """
-    await _ensure_ai_master_enabled(db)
+    await _charge_cv_generation_quota(db, current_user.id)
     cv_bytes = await cv_file.read()
     champion_bytes: bytes | None = None
     champion_filename: str | None = None

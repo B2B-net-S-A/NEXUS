@@ -176,6 +176,11 @@ async def test_nordea_endpoint_forces_call_off_agreement_number(
     from app.services.order_pdf_parser import OrderExtraction
 
     client_id = await _seed_client("Nordea Bank ABP")
+    # Polityka numeru zamówienia jest bramkowana LISTĄ ID w Coolify, nie
+    # podciągiem nazwy: `Client.name` nadpisuje import z Traffita, a klient
+    # bywa rodziną rekordów. Nazwa klienta zostaje w seedzie wyłącznie po to,
+    # żeby test czytał się jak scenariusz z produkcji.
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
     monkeypatch.setattr(
         co,
         "extract_text",

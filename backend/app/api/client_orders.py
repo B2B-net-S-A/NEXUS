@@ -29,7 +29,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -157,6 +157,86 @@ def _attach_po_bytes(
     return previous if previous and previous != rel_path else None
 
 
+# CSV z `client_id` klientów, u których numer zamówienia podlega twardej
+# polityce Nordei (`enforce_nordea_order_number`). Ustawiana w Coolify, jak
+# `MULTI_CONSULTANT_ORDER_CLIENT_IDS` i `COST_ORDER_CLIENT_IDS`.
+#
+# Czytane z `os.environ`, a nie z `Settings`, dlatego że to bramka jednego
+# routera, a nie kontrakt współdzielony z frontem (tamte dwie listy wychodzą
+# do UI przez `ClientSafeResponse`). Precedens w tej samej warstwie:
+# `admin_import` czyta `TALENT_RADAR_DSN` tak samo.
+_NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV = "NORDEA_ORDER_NUMBER_CLIENT_IDS"
+
+
+def _nordea_order_number_client_ids() -> frozenset[int]:
+    """Lista klientów objętych polityką numeru zamówienia Nordei.
+
+    Wpisy nienumeryczne są POMIJANE, nie wysadzają requestu: literówka w
+    zmiennej środowiskowej ma wyłączyć politykę jednemu klientowi, a nie
+    położyć odczyt PDF-a wszystkim.
+    """
+    ids: set[int] = set()
+    for chunk in os.environ.get(_NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV, "").split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            ids.add(int(chunk))
+        except ValueError:
+            continue
+    return frozenset(ids)
+
+
+def _is_nordea_order_number_client(client_id: Optional[int]) -> bool:
+    """Czy u tego klienta numer zamówienia wymusza reguła Nordei.
+
+    Dopasowanie po ID, nie po nazwie — tak jak `is_cost_order_client` i
+    `is_multi_consultant_client`, i z tego samego powodu: `Client.name`
+    nadpisuje import z Traffita, a klient bywa RODZINĄ rekordów (BNP) albo ma
+    duplikat wiersza (e-Zdrowie). Podciąg „nordea bank abp" w wolnym tekście
+    przestawał trafiać po jednej edycji nazwy u źródła — a wtedy parser
+    zwracał numer oferty/projektu jako numer zamówienia, czyli dokładnie to,
+    przed czym ta reguła chroni, tylko bez żadnego sygnału. Odwrotnie też:
+    dowolny nowy klient z tym podciągiem w `legal_name` dostawał politykę bez
+    niczyjej decyzji.
+
+    Pusta lista → `False` dla każdego klienta (fail-closed, jak obie sąsiednie
+    bramki). Aktywacja na prodzie = ustawienie
+    `NORDEA_ORDER_NUMBER_CLIENT_IDS` w Coolify.
+    """
+    if client_id is None:
+        return False
+    return client_id in _nordea_order_number_client_ids()
+
+
+def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
+    """Stawka kosztowa, którą bramka aktywacji uznaje za „wypełnioną”.
+
+    ``contract.rate_candidate`` jest kolumną CACHE: odświeża ją wyłącznie zapis
+    kontraktu, a ``create_contract`` ustawia ją na ``effective_candidate_rate``
+    liczone NA DZIŚ. Dla umowy ze stawką progresywną zaczynającą się w
+    przyszłości (dialog rejestru buduje pierwszy krok harmonogramu na dacie
+    rozpoczęcia kontraktu) kolumna zostaje więc pusta. Efekt był taki, że dwa
+    identycznie wypełnione formularze dawały różny wynik: umowa ze stawką
+    płaską auto-aktywowała zamówienie, umowa ze stawką progresywną zostawiała
+    je w Draft — bez żadnego komunikatu, a draftowa linia nie wchodzi ani do
+    ``active_md_lines``, ani do licznika konsultantów.
+
+    Odpowiedź daje ``effective_candidate_rate``: przy samych krokach przyszłych
+    zwraca NAJBLIŻSZY nadchodzący, więc świeży kontrakt ma stawkę od razu.
+
+    Harmonogram czytamy tylko wtedy, gdy jest wczytany. Sięgnięcie po
+    niezaładowaną relację w sesji async to nie wolniejszy odczyt, tylko
+    ``MissingGreenlet`` — HTTP 500 bez nagłówków CORS. Ścieżki, na których
+    harmonogram ma znaczenie (PATCH zamówienia, POST przedłużenia), ładują go
+    jawnie; ścieżka atomowa Flow B tworzy kontrakt bez harmonogramu, więc
+    kolumna JEST tam prawdą.
+    """
+    if "candidate_rate_schedule" in inspect(contract).unloaded:
+        return contract.rate_candidate
+    return contract.effective_candidate_rate(business_today())
+
+
 def _order_has_required_activation_data(order: ClientOrder) -> bool:
     """Czy draft ma komplet pól wskazanych przez formularz zamówienia.
 
@@ -174,8 +254,28 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
         and order.end_date is not None
         and order.rate_client is not None
         and order.contract is not None
-        and order.contract.rate_candidate is not None
+        and _activation_candidate_rate(order.contract) is not None
     )
+
+
+def _auto_activate_unless_status_explicit(
+    order: ClientOrder, *, explicit_fields: set[str]
+) -> bool:
+    """Heurystyka kompletności ustępuje jawnej decyzji operatora.
+
+    ``ClientOrderUpdate.status`` jest polem publicznym, a ciąg
+    ``PATCH {"status": "draft"}`` → ``DELETE`` to udokumentowana (CLAUDE.md)
+    i używana realnie JEDYNA droga twardego usunięcia zamówienia z aplikacji —
+    ``DELETE`` kasuje wyłącznie szkice, każdy inny status tylko anuluje. Bez
+    tego warunku promocja leciała po ślepym ``setattr`` i nie odróżniała
+    „draft, bo nikt jeszcze nie uzupełnił" od „draft, bo operator właśnie o to
+    poprosił": kompletne zamówienie wracało z PATCH-a jako ``active``, a
+    osierocone wiersze ``client_orders`` po skasowanej grupie stawały się
+    nieusuwalne z interfejsu.
+    """
+    if "status" in explicit_fields:
+        return False
+    return _activate_complete_draft(order)
 
 
 def _activate_complete_draft(order: ClientOrder) -> bool:
@@ -894,9 +994,15 @@ async def create_order_extension(
         raise HTTPException(422, detail=str(e)) from None
 
     contract = await db.scalar(
-        select(Contract).where(
-            Contract.id == contract_id, Contract.client_id == client_id
-        )
+        select(Contract)
+        # Harmonogram stawki kandydata dociągany JAWNIE: bramka
+        # `_activation_candidate_rate` niżej pyta o stawkę OBOWIĄZUJĄCĄ, a nie
+        # o cache'owaną kolumnę. Bez tego `selectinload` sięgnięcie po
+        # harmonogram byłoby w sesji async `MissingGreenlet` (HTTP 500 bez
+        # CORS), a z ostrożnościowym fallbackiem — cichym powrotem do kolumny,
+        # czyli dokładnie do defektu, który ta bramka zamyka.
+        .options(selectinload(Contract.candidate_rate_schedule))
+        .where(Contract.id == contract_id, Contract.client_id == client_id)
     )
     if contract is None:
         raise HTTPException(
@@ -1016,7 +1122,7 @@ async def extract_order_pdf(
     Bramkowane: DL przypisany do klienta lub Admin (jak create), plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
-    client = await _assert_client(db, client_id)
+    await _assert_client(db, client_id)
 
     filename = file.filename or "zamowienie.pdf"
     ext = os.path.splitext(filename)[1].lower()
@@ -1076,12 +1182,7 @@ async def extract_order_pdf(
         ) from exc
 
     extraction = await parse_order_document(text)
-    client_names = " ".join(
-        value
-        for value in (client.name, client.display_name, client.legal_name)
-        if value
-    ).casefold()
-    if client.name.casefold() == "nordea" or "nordea bank abp" in client_names:
+    if _is_nordea_order_number_client(client_id):
         extraction = enforce_nordea_order_number(extraction, text)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
@@ -1191,7 +1292,9 @@ async def update_order(
     for field, value in data.items():
         setattr(order, field, value)
 
-    auto_activated = _activate_complete_draft(order)
+    auto_activated = _auto_activate_unless_status_explicit(
+        order, explicit_fields=payload.model_fields_set
+    )
     if auto_activated:
         data["status"] = ClientOrderStatus.active
 
