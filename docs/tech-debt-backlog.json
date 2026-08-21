@@ -1577,7 +1577,7 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Fakt systemowy: brak miesięcznego sufitu wydatków AI. Konkretne miejsca: #91–#95, #33, #26, #36. Duplikat #222 oznaczony jako superseded."
   },
   {
    "id": 203,
@@ -1731,7 +1731,7 @@
   },
   {
    "id": 217,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P1",
    "effort": "S",
    "bucket": "ryzyko",
@@ -1752,11 +1752,11 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [72, 73, 74, 75]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 218,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P1",
    "effort": "M",
    "bucket": "nie działa",
@@ -1777,11 +1777,11 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [76, 77, 78, 79]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 219,
-   "status": "needs_investigation",
+   "status": "open",
    "severity": "P1",
    "effort": "M",
    "bucket": "ryzyko",
@@ -1802,11 +1802,11 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Druga runda skonwertowała na konkretne znaleziska tylko wątek M365 (#80, #81). Sama klasa — 21 miejsc asyncio.create_task bez silnej referencji — pozostaje do przejścia."
   },
   {
    "id": 220,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P1",
    "effort": "M",
    "bucket": "ryzyko",
@@ -1827,7 +1827,7 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [82, 83, 84, 85]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 7,
@@ -3149,7 +3149,7 @@
   },
   {
    "id": 221,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3170,11 +3170,11 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [86, 87, 88, 89, 90]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 222,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P2",
    "effort": "S",
    "bucket": "ryzyko",
@@ -3195,11 +3195,11 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [91, 92, 93, 94, 95]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 223,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P2",
    "effort": "M",
    "bucket": "ryzyko",
@@ -3220,11 +3220,11 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [96, 97, 98, 99, 100]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 224,
-   "status": "needs_investigation",
+   "status": "superseded",
    "severity": "P2",
    "effort": "L",
    "bucket": "dług",
@@ -3245,7 +3245,7 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Pytanie krytyka kompletności; odpowiedziały na nie konkretne znaleziska drugiej rundy: [101, 102, 103, 104]. Trzymane dla śladu, nie do naprawy osobno."
   },
   {
    "id": 1,
