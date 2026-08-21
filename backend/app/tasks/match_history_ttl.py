@@ -68,6 +68,11 @@ async def match_history_ttl_loop(
             deleted = await _prune_once(days, min_score)
             if deleted > 0:
                 logger.info("match_history_ttl: pruned %d rows", deleted)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("match_history_ttl: error %s", e)
+        except Exception:  # noqa: BLE001
+            # `exception`, nie `warning`: Sentry ma `event_level=logging.ERROR`
+            # (`main.py`), więc na WARNING trwale padający cykl nie wygenerowałby
+            # ŻADNEGO zdarzenia — pętla kręciłaby się w kółko, `match_history`
+            # rosłoby bez ograniczenia, a jedynym objawem byłby alert o zużyciu
+            # dysku po miesiącach. Ta sama decyzja co w `contract_alerts`.
+            logger.exception("match_history_ttl: cycle error")
         await asyncio.sleep(interval_hours * 3600)
