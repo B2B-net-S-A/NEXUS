@@ -22,7 +22,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.fx_rate import FxRate
 from app.models.user import User, UserRole
 
@@ -43,13 +43,29 @@ def test_month_starts_true_calendar_arithmetic():
     assert over_year[-1] == date(2026, 1, 1)
 
 
-class _FakeContract:
-    """Minimalny duck-type do _sum_finance (Decimal properties)."""
+def _priced_contract(
+    rate: str | None, margin: str | None, currency: str = "PLN"
+) -> Contract:
+    """Nieprzypisana umowa o zadanej miesięcznej stawce klienta i marży.
 
-    def __init__(self, rate: str | None, margin: str | None, currency: str = "PLN"):
-        self.currency = currency
-        self.monthly_rate_client = Decimal(rate) if rate is not None else None
-        self.monthly_margin = Decimal(margin) if margin is not None else None
+    Prawdziwy ``Contract``, nie duck-type z dwiema właściwościami: ``_sum_finance``
+    rozstrzyga stawkę na dzień odniesienia przez ``effective_rate_fields``, więc
+    atrapa przestała odpowiadać na pytania, które ta ścieżka zadaje. Obiekt
+    transient ma puste kolekcje harmonogramów, więc resolver schodzi do kolumn —
+    dokładnie jak umowa bez zaplanowanych kroków stawkowych.
+    """
+    client_rate = Decimal(rate) if rate is not None else None
+    candidate_rate = (
+        client_rate - Decimal(margin)
+        if client_rate is not None and margin is not None
+        else None
+    )
+    return Contract(
+        rate_client=client_rate,
+        rate_candidate=candidate_rate,
+        rate_unit=RateUnit.monthly,
+        currency=currency,
+    )
 
 
 async def _seed_rate(currency: str, rate: str, on: date) -> None:
@@ -75,7 +91,7 @@ async def test_sum_finance_pln_only():
     async with AsyncSessionLocal() as db:
         data, warnings, flag = await _sum_finance(
             db,
-            [_FakeContract("10000", "3000"), _FakeContract("5000.50", "1000.25")],
+            [_priced_contract("10000", "3000"), _priced_contract("5000.50", "1000.25")],
         )
     assert flag == "complete"
     assert data["mrr"] == "15000.50"
@@ -88,7 +104,7 @@ async def test_sum_finance_fx_conversion_with_rate():
     async with AsyncSessionLocal() as db:
         data, warnings, flag = await _sum_finance(
             db,
-            [_FakeContract("1000", "100", "EUR"), _FakeContract("1000", "100")],
+            [_priced_contract("1000", "100", "EUR"), _priced_contract("1000", "100")],
             on=date(2026, 1, 10),
         )
     assert flag == "complete"
@@ -102,7 +118,7 @@ async def test_sum_finance_missing_rate_is_unavailable_never_nominal():
     async with AsyncSessionLocal() as db:
         data, warnings, flag = await _sum_finance(
             db,
-            [_FakeContract("1000", "100", "XXX"), _FakeContract("2000", "200")],
+            [_priced_contract("1000", "100", "XXX"), _priced_contract("2000", "200")],
         )
     assert flag == "unavailable"
     assert data["mrr"] == "2000.00", "kwota XXX nie może wejść nominalnie"
