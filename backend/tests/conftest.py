@@ -283,6 +283,43 @@ def _apply_ci_shard_filter(config, items) -> None:
         )
 
 
+def _client_fixture_is_live_server(item) -> bool:
+    """Czy `client` w TYM teście to live-serverowy fixture z conftestu?
+
+    Reguła skipowania dopasowywała się po samej NAZWIE fixture'a, a nazwa nie
+    mówi, gdzie fixture został zdefiniowany. Plik testowy, który lokalnie
+    nadpisuje `client` transportem ASGI (in-process, żaden serwer nie jest
+    potrzebny), nadal wnosi nazwę `client` do ``item.fixturenames`` — i był
+    cicho skipowany razem z legacy testami wymagającymi uvicorna na :8000.
+    Tak zniknął z CI cały ``test_dynareporter_readonly.py`` (6 testów, w tym
+    ten enumerujący KAŻDĄ mutującą trasę /api/dynareporter), a kontrakt
+    pokrycia tego nie widział, bo audytuje wyłącznie listę ``--ignore``.
+
+    Pytamy więc o miejsce definicji: ``FixtureDef.baseid`` to id węzła, do
+    którego fixture jest przypięty — dla fixture'a z conftestu jest to KATALOG
+    ("tests"), dla lokalnego override'u ŚCIEŻKA PLIKU ("tests/test_x.py").
+    Skipujemy tylko ten pierwszy przypadek.
+
+    Gdy introspekcja się nie uda (inna wersja pytest, zmiana API), wracamy do
+    poprzedniego zachowania — czyli skipujemy. Fałszywy skip jest cichy, ale
+    fałszywe URUCHOMIENIE 31 live-serverowych testów bez serwera zamieniłoby
+    CI w czerwień na wszystkich PR-ach.
+    """
+    fixtures = getattr(item, "fixturenames", ())
+    if "client" not in fixtures or "app_client" in fixtures:
+        return False
+
+    info = getattr(item, "_fixtureinfo", None)
+    defs = (getattr(info, "name2fixturedefs", None) or {}).get("client")
+    if not defs:
+        return True  # nie wiemy — zachowaj dotychczasowe zachowanie
+    # pytest trzyma definicje od najbardziej ogólnej; wygrywa ostatnia (najbliższa).
+    baseid = getattr(defs[-1], "baseid", None)
+    if baseid is None:
+        return True
+    return not str(baseid).endswith(".py")
+
+
 def pytest_collection_modifyitems(config, items):
     run_live = os.environ.get("RUN_LIVE_TESTS", "").lower() in ("1", "true", "yes")
     if not run_live:
@@ -290,8 +327,8 @@ def pytest_collection_modifyitems(config, items):
             reason="Live-server test; set RUN_LIVE_TESTS=1 to enable"
         )
         for item in items:
-            # The legacy tests use `client` (not `app_client`)
-            fixtures = getattr(item, "fixturenames", ())
-            if "client" in fixtures and "app_client" not in fixtures:
+            # The legacy tests use `client` (not `app_client`) — ale tylko wtedy,
+            # gdy `client` rozwiązuje się do fixture'a z tego conftestu.
+            if _client_fixture_is_live_server(item):
                 item.add_marker(skip_live)
     _apply_ci_shard_filter(config, items)

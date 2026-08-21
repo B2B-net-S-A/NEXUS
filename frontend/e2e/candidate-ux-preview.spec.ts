@@ -99,9 +99,20 @@ test.describe("candidate UX deterministic previews", () => {
     await page.goto("/preview/candidate-profile");
     await page.getByRole("button", { name: "Quick view" }).click();
 
-    await expect(page.getByRole("region", { name: "Szybki podgląd kandydata" })).toBeVisible();
+    const quickView = page.getByRole("region", { name: "Szybki podgląd kandydata" });
+    await expect(quickView).toBeVisible();
     await expect(page.getByRole("button", { name: "Zamknij szybki podgląd" })).toHaveCount(1);
-    await expect(page.getByText("Oczekiwana stawka")).toBeVisible();
+    // Asercja szła po WIDOCZNEJ etykiecie („Oczekiwana stawka"). PR #1009
+    // przemianował ją na „Stawka B2B" i nocny bieg zrobił się czerwony na 21
+    // nocy z rzędu — przestał odróżniać regresję od przeterminowanego napisu,
+    // a jest to jedyny automatyczny test dotykający produkcji. Pytamy więc
+    // o STRUKTURĘ: quick view ma listę faktów kandydata z kompletem pozycji.
+    // Zmiana copy nie może już zepsuć alarmu; usunięcie faktów — może.
+    // Pierwszy `dl` w quick view to KeyFacts — jedyny komponent w `ds/`, który
+    // renderuje listę definicji; `dl`-e rekomendacji są niżej w DOM.
+    const facts = quickView.locator("dl").first();
+    await expect(facts).toBeVisible();
+    await expect(facts.locator("dt")).toHaveCount(4);
     await expect(page.getByRole("heading", { name: "Sugerowane rekrutacje" })).toBeVisible();
 
     const order = await page.evaluate(() => {

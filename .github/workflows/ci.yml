@@ -216,6 +216,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
       - run: npm ci --legacy-peer-deps
+      # Bramka sierot: usunięcie ostatniego miejsca montowania komponentu NIE
+      # psuje builda ani testów (własny test komponentu trzyma go przy życiu),
+      # więc funkcja potrafi zniknąć z produktu przy zielonym CI — tak zginął
+      # nadzór nad kolejką kontaktu w #1031 i nikt nie zauważył przez 16 dni.
+      # Zero zależności, więc może stać przed resztą kroków.
+      - name: Nieosiągalne moduły (dead-code gate)
+        run: node scripts/check-unreachable-modules.mjs
       - name: ESLint
         run: npm run lint
       - run: npm run type-check
@@ -242,7 +249,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      # Report-only first pass — flip continue-on-error:false / exit-code:'1' after triaging findings.
+      # Advisory (nie blokuje merge'a) — ale każdy skaner tutaj MUSI zostawić
+      # ślad, który da się przeczytać. Hadolint wystawia adnotacje `##[error]`
+      # w UI i to jest wzorzec; Trivy do 2026-08 nie zostawiał nic (patrz niżej).
       - name: Hadolint (backend)
         uses: hadolint/hadolint-action@2a66e89f53d0771bb131a7fa31f3136336094aa6 # v3.4.0
         with:
@@ -255,6 +264,20 @@ jobs:
           dockerfile: frontend/Dockerfile
           failure-threshold: warning
         continue-on-error: true
+      # „Report-only" znaczyło do 2026-08 „report-donikąd": `format: table` bez
+      # `output:`, bez artefaktu i bez adnotacji, więc znaleziska istniały
+      # wyłącznie jako zwykły tekst w okolicach 500. linii loga joba. Przez trzy
+      # miesiące odraczany „triage" nie miał na czym pracować, a milczenie kroku
+      # ukrywało dwa HIGH z opublikowaną poprawką w produkcyjnych wpisach
+      # lockfile'a (postcss, sharp — ten drugi jest w runtime obrazu frontendu).
+      # Teraz: tabela w podsumowaniu biegu (widoczna wprost na stronie PR-a),
+      # adnotacja `::warning::` z liczbą znalezisk i artefakt do pobrania.
+      # Dopiero mając czytelny raport można świadomie zdecydować o `exit-code: 1`.
+      #
+      # SARIF + zakładka Security świadomie NIE: `upload-sarif` wymaga Advanced
+      # Security, którego prywatne repo na koncie osobistym nie ma — krok padłby
+      # na 403 i zamienił advisory w czerwień, czyli powtórzył ten sam błąd
+      # z drugiej strony.
       - name: Trivy filesystem scan (deps + Dockerfile misconfig)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -265,3 +288,41 @@ jobs:
           ignore-unfixed: true
           skip-dirs: .claude,node_modules
           exit-code: '0'
+          format: table
+          output: trivy-report.txt
+      - name: Publish Trivy findings
+        if: ${{ !cancelled() }}
+        run: |
+          set -eu
+          report=trivy-report.txt
+          if [ ! -s "$report" ]; then
+            echo "Trivy: brak znalezisk HIGH/CRITICAL z dostępną poprawką." > "$report"
+          fi
+          # `Total: N` występuje raz na przeskanowany cel (lockfile, Dockerfile).
+          # `|| true` jest konieczne: grep bez trafienia kończy się kodem 1,
+          # a `set -e` ubiłby wtedy krok raportujący ZERO znalezisk.
+          count=$(grep -oE 'Total: [0-9]+' "$report" | awk '{s+=$2} END {print s+0}' || true)
+          [ -n "$count" ] || count=0
+          {
+            echo "### Trivy — HIGH/CRITICAL z dostępną poprawką (advisory)"
+            echo
+            echo '```'
+            # Sufit podsumowania biegu to 1 MB; obcinamy, żeby duży raport nie
+            # wywalił całego kroku i nie zabrał ze sobą także tej części, która
+            # by się zmieściła.
+            head -c 100000 "$report"
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$count" -gt 0 ]; then
+            echo "::warning::Trivy: $count znalezisk HIGH/CRITICAL z dostępną poprawką — tabela w podsumowaniu biegu, pełny raport w artefakcie trivy-report."
+          else
+            echo "Trivy: brak znalezisk HIGH/CRITICAL z dostępną poprawką."
+          fi
+      - name: Upload Trivy report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
+          retention-days: 30
