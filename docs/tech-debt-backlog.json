@@ -1656,7 +1656,7 @@
   },
   {
    "id": 208,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "S",
    "bucket": "ryzyko",
@@ -1677,7 +1677,7 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "dependabot dopisany do allowed_bots w claude-review.yml. Nadal jawna lista dwóch botów, nie '*'."
   },
   {
    "id": 212,
@@ -1706,7 +1706,7 @@
   },
   {
    "id": 213,
-   "status": "open",
+   "status": "fixed",
    "severity": "P1",
    "effort": "S",
    "bucket": "ryzyko",
@@ -1727,7 +1727,7 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Dodany job frontend-fast (sam `tsc --noEmit`) do ci-gate.yml — bramki, na której faktycznie wisi deploy. Flagi ignoreBuildErrors/ignoreDuringBuilds w next.config.ts ZOSTAJĄ świadomie (szybkie rebuildy prod); naprawiony jest brak kontroli w bramce, nie sam build. Uzasadnienie w nagłówku ci-gate.yml poprawione, bo powoływało się na kontrolę, która nie istniała."
   },
   {
    "id": 217,

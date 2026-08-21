@@ -25,8 +25,19 @@ name: CI Gate
 #   * import smoke   — aplikacja, która się nie importuje, nie wstanie
 #
 # Czego tu NIE ma i dlaczego to bezpieczne:
-#   * build frontendu — Coolify i tak buduje oba obrazy ze źródeł, więc zepsuty
-#     build = nieudany deployment = czerwony job "Deploy" = brak wdrożenia.
+#   * pełny build frontendu — Coolify i tak buduje oba obrazy ze źródeł, więc
+#     zepsuty build = nieudany deployment = czerwony job "Deploy" = brak wdrożenia.
+#
+# UWAGA (#213, audyt 21.08.2026): powyższe uzasadnienie NIE pokrywało błędów
+# TYPÓW. `frontend/Dockerfile` odpala samo `npm run build`, a next.config.ts każe
+# temu buildowi ignorować TS i ESLint (`ignoreBuildErrors`, `ignoreDuringBuilds`)
+# — świadomie, żeby rebuildy prod były szybkie. Efekt: bramka deployu nie miała
+# ŻADNEJ kontroli frontendu, bo `frontend-lint-build` mieszka w "CI", który na
+# main leci RÓWNOLEGLE z deployem, nie przed nim. Scenariusz z komentarza niżej
+# („dwa PR-y zmergowane blisko siebie, osobno zielone, razem nie") kończył się
+# wtedy wdrożeniem bundla, który rzuca wyjątkiem przy montowaniu. Stąd job
+# `frontend-fast` — sam `tsc --noEmit`, bez builda i bez lintu, żeby zmieścić się
+# w budżecie czasowym bramki.
 #     Bramkowanie na nim byłoby duplikatem tej samej weryfikacji.
 #   * pytest — przeszedł już na PR na tym samym kodzie (strict: true) i nadal
 #     leci na main w "CI". Świadomy kompromis: prod może żyć ~6 min przed
@@ -81,6 +92,28 @@ jobs:
             --redact \
             --verbose \
             --exit-code 1
+
+  frontend-fast:
+    name: Frontend (typecheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      # React 19 + kilka pakietów jeszcze na RC — bez tej flagi npm odmawia
+      # instalacji (ta sama flaga co w ci.yml i w Dockerfile).
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      # Samo `tsc --noEmit`. Pełny `next build` i lint zostają w "CI" — tutaj
+      # liczy się to, czego build produkcyjny NIE sprawdza, a nie powtórzenie go.
+      - name: Type check
+        run: npm run type-check
 
   backend-fast:
     name: Backend (lint + migrations)

@@ -31,8 +31,10 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # dynaminds-codex-bot pushes fix commits to PR branches; without this entry the
           # actor check fails the job (rerun keeps the actor, so it can never recover).
-          # Deliberately a single named bot, not '*'.
-          allowed_bots: "dynaminds-codex-bot"
+          # dependabot dopisany 21.08.2026 (#208): review padał na 100% jego PR-ów,
+          # czyli jedyna klasa zmian dotykająca CUDZEGO kodu była jedyną bez recenzji.
+          # Nadal jawna lista dwóch botów, nie '*'.
+          allowed_bots: "dynaminds-codex-bot,dependabot"
           # Post the review to the PR (sticky tracking comment + inline comments)
           # instead of leaving it buried in the Actions log.
           track_progress: true
