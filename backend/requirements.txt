@@ -27,7 +27,29 @@ httpx==0.28.1
 # historical_jobs_retrieval.py, cc_classifier.py. Migracja na query_points —
 # osobny PR, razem z sondą `checks.qdrant` w /api/health.
 qdrant-client==1.12.1
-anthropic>=0.122.0,<1.0
+# Dependabot #1169 (zmergowany 21.08) podniósł tu DOLNĄ granicę zakresu do
+# >=0.122.0. Pin 0.125.0 mieści się w niej i jest ściśle mocniejszy, więc
+# zastępuje zakres zamiast się z nim ścierać.
+# PIN DOKŁADNY, nie zakres. `>=0.121.0,<1.0` był ostatnią pływającą zależnością
+# BEZPOŚREDNIĄ, a Coolify przebudowuje obraz ze źródeł przy KAŻDYM deployu ORAZ
+# przy każdym rollbacku (Deployments -> poprzedni -> Redeploy klonuje repo i
+# odpala pip od nowa). Skutki, które to realnie psuło:
+#  - rollback cofał kod aplikacji, ale NIE jej zależności — regresja wywołana
+#    bumpem biblioteki wracała wiernie zainstalowana;
+#  - CI zielenił się na jednym rozwiązaniu zakresu, a prod startował z innym,
+#    rozwiązanym w innej chwili;
+#  - bump lądował na prodzie bez ani jednego diffa i bez review.
+# To nie jest hipoteza: ta biblioteka leży na ścieżce generowania CV, uzasadnień
+# dopasowania i chatu w interaktywnym CV, a ścieżki AI są celowo fail-open —
+# objawem nie byłoby 500, tylko po cichu pusty wynik. Dokładnie ten scenariusz
+# jest już udokumentowany wyżej przy qdrant-client (przeszło CI i healthcheck,
+# a wyszukiwanie semantyczne zwracało pustkę).
+# 0.125.0 = wersja, którą stary zakres rozwiązywał w chwili przypięcia
+# (2026-08-21), więc to zamrożenie stanu bieżącego, nie podbicie. Uwaga: 1.0.0
+# JUŻ istnieje na PyPI — górna granica `<1.0` była jedyną rzeczą, która trzymała
+# prod przed wskoczeniem w major. Podnoszenie = świadomy PR z lekturą release
+# notes, nie efekt uboczny deployu.
+anthropic==0.125.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
 #   pdfplumber 0.11.4/0.11.5 -> 20231228 | 0.11.6 -> 20250327 | 0.11.7 -> 20250506
