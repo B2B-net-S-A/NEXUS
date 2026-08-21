@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   parseChampion: vi.fn(),
   showError: vi.fn(),
+  showSuccess: vi.fn(),
 }));
 
 vi.mock("next/link", () => ({
@@ -41,26 +42,45 @@ vi.mock("@/lib/talent-radar-api", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+  recommendationsApi: { assignToJob: vi.fn() },
   extractErrorMsg: (error: unknown) =>
     (error as { message?: string })?.message ?? "błąd",
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showError: mocks.showError }),
+  useToast: () => ({
+    showError: mocks.showError,
+    showSuccess: mocks.showSuccess,
+  }),
 }));
 
 vi.mock("@/hooks/useCapability", () => ({
   useCapability: () => true,
 }));
 
-vi.mock("@/components/talent-radar/TalentRadarClientPicker", () => ({
-  TalentRadarClientPicker: ({
+vi.mock("@/components/talent-radar/TalentRadarRecruitmentPicker", () => ({
+  TalentRadarRecruitmentPicker: ({
     onChange,
   }: {
-    onChange: (client: { id: number; name: string }) => void;
+    onChange: (recruitment: {
+      id: number;
+      title: string;
+      clientId: number;
+      clientName: string;
+    }) => void;
   }) => (
-    <button type="button" onClick={() => onChange({ id: 1, name: "Klient" })}>
-      Wybierz klienta (mock)
+    <button
+      type="button"
+      onClick={() =>
+        onChange({
+          id: 11,
+          title: "Senior Python Developer",
+          clientId: 1,
+          clientName: "Klient",
+        })
+      }
+    >
+      Wybierz rekrutację (mock)
     </button>
   ),
 }));
@@ -128,7 +148,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
 
   it("wysyła must/nice z `parse-champion` do wyszukiwania", async () => {
     const user = renderWorkspace();
-    await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
+    await user.click(screen.getByRole("button", { name: /Wybierz rekrutację/ }));
     await uploadProfile(user);
 
     await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
@@ -143,7 +163,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
 
   it("przycisk „Usuń” zabiera wymagania razem z profilem", async () => {
     const user = renderWorkspace();
-    await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
+    await user.click(screen.getByRole("button", { name: /Wybierz rekrutację/ }));
     await uploadProfile(user);
     await user.click(screen.getByRole("button", { name: "Usuń" }));
 

@@ -5,11 +5,9 @@
  *
  * Cztery decyzje, które widać w kodzie i które nie są kosmetyczne:
  *
- * 1. Klient jest OBOWIĄZKOWY i pilnowany po stronie FE. Filtr dopuszczalności
- *    sprawdza względem niego blacklistę, NDA, konflikty konkurencyjne i weto
- *    hiring managera. Puszczenie żądania bez klienta dałoby 422 z dosłownym
- *    `client_id: Field required` (tak `extractErrorMsg` formatuje błędy body),
- *    czyli komunikat kontraktu API zamiast zdania po polsku.
+ * 1. Rekrutacja jest OBOWIĄZKOWA i wybrana przed wyszukiwaniem. Jej klient
+ *    zasila filtr dopuszczalności (blacklista, NDA, konflikty i weto), a jej id
+ *    jest jednoznacznym celem przycisku „Przypisz do rekrutacji”.
  *
  * 2. Szukanie idzie na PRZYCISK (`useMutation`), nie na wpisywanie. Zapytanie
  *    liczy embedding i przemiela pulę do tysiąca kandydatów — debounce na
@@ -29,20 +27,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Radar } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import {
-  TalentRadarClientPicker,
-  type ClientRef,
-} from "@/components/talent-radar/TalentRadarClientPicker";
+import { TalentRadarRecruitmentPicker } from "@/components/talent-radar/TalentRadarRecruitmentPicker";
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
-import { extractErrorMsg } from "@/lib/api";
+import { extractErrorMsg, recommendationsApi } from "@/lib/api";
+import { assignErrorMessage } from "@/lib/assign-error";
+import type { TalentRadarRecruitmentRef } from "@/lib/talent-radar-recruitment";
 import {
   talentRadarApi,
   type ChampionParseSummary,
@@ -58,12 +55,15 @@ import { TalentRadarResults } from "@/components/talent-radar/TalentRadarResults
 const MIN_QUERY_LENGTH = 30;
 
 export function TalentRadarWorkspace() {
-  const { showError } = useToast();
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
   // Radar jest dla KAŻDEJ roli, ale pełny profil kandydata pozostaje za
   // bramkami modułu kandydatów — rola bez tej capability nie dostaje
   // martwego przycisku „Otwórz profil" (klik kończyłby się 403).
   const canOpenProfile = useCapability("nav.candidates");
-  const [client, setClient] = useState<ClientRef | null>(null);
+  const canAssignCandidate = useCapability("candidate.assign_to_job");
+  const [recruitment, setRecruitment] =
+    useState<TalentRadarRecruitmentRef | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [response, setResponse] = useState<TalentRadarSearchResponse | null>(
@@ -93,6 +93,9 @@ export function TalentRadarWorkspace() {
     nice: string[];
   } | null>(null);
   const [parsingChampion, setParsingChampion] = useState(false);
+  const [assignedCandidateIds, setAssignedCandidateIds] = useState<Set<number>>(
+    () => new Set(),
+  );
 
   // ── Snapshot roboczy (sessionStorage) ────────────────────────────────
   // „Otwórz profil" nawiguje w tej samej karcie, a ta strona przy powrocie
@@ -109,7 +112,7 @@ export function TalentRadarWorkspace() {
   useEffect(() => {
     const saved = loadTalentRadarSession();
     if (saved) {
-      setClient(saved.client);
+      setRecruitment(saved.recruitment);
       setTitle(saved.title);
       setText(saved.text);
       setBudgetMax(saved.budgetMax);
@@ -124,7 +127,7 @@ export function TalentRadarWorkspace() {
   useEffect(() => {
     if (!hydrated) return;
     saveTalentRadarSession({
-      client,
+      recruitment,
       title,
       text,
       budgetMax,
@@ -135,7 +138,7 @@ export function TalentRadarWorkspace() {
     });
   }, [
     hydrated,
-    client,
+    recruitment,
     title,
     text,
     budgetMax,
@@ -148,7 +151,7 @@ export function TalentRadarWorkspace() {
   const search = useMutation({
     mutationFn: () =>
       talentRadarApi.search({
-        client_id: client!.id,
+        client_id: recruitment!.clientId,
         text: championProfile ? undefined : text.trim() || undefined,
         champion_profile: championProfile ?? undefined,
         // Przy profilu nazwa roli pochodzi Z NIEGO (championSummary.role_name),
@@ -179,8 +182,45 @@ export function TalentRadarWorkspace() {
     },
   });
 
+  const assignCandidate = useMutation({
+    mutationFn: async ({
+      candidateId,
+      recruitmentId,
+    }: {
+      candidateId: number;
+      recruitmentId: number;
+    }) => {
+      const response = await recommendationsApi.assignToJob(
+        candidateId,
+        recruitmentId,
+      );
+      return {
+        candidateId,
+        recruitmentId,
+        status: response.data?.status as string | undefined,
+      };
+    },
+    onSuccess: ({ candidateId, recruitmentId, status }) => {
+      if (recruitment?.id === recruitmentId) {
+        setAssignedCandidateIds((current) => new Set(current).add(candidateId));
+      }
+      showSuccess(
+        status === "already_in_pipeline"
+          ? "Kandydat jest już w tej rekrutacji."
+          : "Kandydat przypisany do rekrutacji.",
+      );
+      queryClient.invalidateQueries({
+        queryKey: ["kanban", recruitmentId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["kanban", String(recruitmentId)],
+      });
+    },
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
+  });
+
   // Zmiana wejścia unieważnia POPRZEDNI błąd tak samo jak poprzednie wyniki:
-  // komunikat „nie udało się" wiszący nad świeżo wybranym klientem opisywałby
+  // komunikat „nie udało się" wiszący nad świeżo wybraną rekrutacją opisywałby
   // zapytanie, którego już nie ma.
   const clearResults = () => {
     setResponse(null);
@@ -190,11 +230,11 @@ export function TalentRadarWorkspace() {
   const hasProfile = championProfile !== null;
   const tooShort = text.trim().length < MIN_QUERY_LENGTH;
   const blocked = useMemo(() => {
-    if (!client) return "Wybierz klienta.";
+    if (!recruitment) return "Wybierz rekrutację.";
     if (!hasProfile && tooShort)
       return `Wgraj profil Championa ALBO wklej opis roli (min. ${MIN_QUERY_LENGTH} znaków).`;
     return null;
-  }, [client, tooShort, hasProfile]);
+  }, [recruitment, tooShort, hasProfile]);
 
   const onChampionFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0] ?? null;
@@ -235,7 +275,7 @@ export function TalentRadarWorkspace() {
       <PageHeader
         eyebrow="Sourcing"
         title="Talent Radar"
-        description="Wgraj profil Championa ALBO wklej treść requestu — jedno z dwóch. Przemielimy bazę kandydatów i pokażemy ranking, bez zakładania rekrutacji."
+        description="Wybierz rekrutację, a następnie wgraj profil Championa ALBO wklej treść requestu. Kandydatów z rankingu przypiszesz do niej jednym kliknięciem."
         density="compact"
       />
 
@@ -329,20 +369,17 @@ export function TalentRadarWorkspace() {
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="tr-client">
-              Klient <span className="text-destructive">*</span>
+            <Label htmlFor="tr-recruitment">
+              Rekrutacja <span className="text-destructive">*</span>
             </Label>
-            <TalentRadarClientPicker
-              value={client}
+            <TalentRadarRecruitmentPicker
+              value={recruitment}
               onChange={(picked) => {
-                setClient(picked);
-                // Wyniki są prawdziwe WYŁĄCZNIE dla klienta, dla którego
-                // policzono filtr dopuszczalności. Zostawienie ich po zmianie
-                // klienta pokazywałoby listę odsianą przez blacklistę, NDA i
-                // weto klienta A pod zdaniem „…wolno zaproponować TEMU
-                // klientowi", wskazującym już na klienta B — czyli fałszywe
-                // zapewnienie zgodności, dokładnie to, czemu obowiązkowy klient
-                // ma zapobiegać.
+                setRecruitment(picked);
+                setAssignedCandidateIds(new Set());
+                // Rekrutacja wyznacza jednocześnie klienta filtra i cel akcji.
+                // Po jej zmianie poprzednie wyniki oraz lokalne stany
+                // „Przypisano" nie mogą zostać pod nowym kontekstem.
                 clearResults();
               }}
             />
@@ -416,6 +453,21 @@ export function TalentRadarWorkspace() {
         error={search.isError ? search.error : null}
         onRetry={() => search.mutate()}
         canOpenProfile={canOpenProfile}
+        canAssign={canAssignCandidate && recruitment !== null}
+        targetRecruitmentTitle={recruitment?.title}
+        onAssign={(candidateId) => {
+          if (!recruitment) return;
+          assignCandidate.mutate({
+            candidateId,
+            recruitmentId: recruitment.id,
+          });
+        }}
+        assigningCandidateId={
+          assignCandidate.isPending
+            ? (assignCandidate.variables?.candidateId ?? null)
+            : null
+        }
+        assignedCandidateIds={assignedCandidateIds}
       />
     </div>
   );

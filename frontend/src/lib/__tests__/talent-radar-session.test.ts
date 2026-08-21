@@ -8,9 +8,14 @@ import {
   type TalentRadarSessionState,
 } from "@/lib/talent-radar-session";
 
-/** Pełny, realistyczny snapshot — z klientem, wynikami i championem. */
+/** Pełny, realistyczny snapshot — z rekrutacją, wynikami i championem. */
 const FULL_STATE: TalentRadarSessionState = {
-  client: { id: 7, name: "Acme Sp. z o.o." },
+  recruitment: {
+    id: 71,
+    title: "Senior Python Developer",
+    clientId: 7,
+    clientName: "Acme Sp. z o.o.",
+  },
   title: "Senior Python Developer",
   text: "Szukamy osoby z Pythonem, FastAPI i Postgresem — min. 5 lat.",
   budgetMax: "180",
@@ -76,7 +81,7 @@ describe("talent-radar-session", () => {
 
   it("round-trip pustego formularza (same nulle/defaulty)", () => {
     const empty: TalentRadarSessionState = {
-      client: null,
+      recruitment: null,
       title: "",
       text: "",
       budgetMax: "",
@@ -103,7 +108,13 @@ describe("talent-radar-session", () => {
   // starym buildzie tuż po deployu). Walidacja musi odrzucić, nie „naprawić".
   it.each([
     ["nie-obiekt", JSON.stringify("tekst")],
-    ["client bez id", JSON.stringify({ ...FULL_STATE, client: { name: "X" } })],
+    [
+      "rekrutacja bez clientId",
+      JSON.stringify({
+        ...FULL_STATE,
+        recruitment: { id: 71, title: "X", clientName: "Acme" },
+      }),
+    ],
     [
       "response.results nie jest tablicą",
       JSON.stringify({

@@ -116,7 +116,14 @@ export default function TalentRadarPreviewPage() {
       <h1 className="text-2xl font-semibold">Talent Radar — stany wyników</h1>
 
       <Case label="Wyniki">
-        <TalentRadarResults meta={META} results={RESULTS} pending={false} />
+        <TalentRadarResults
+          meta={META}
+          results={RESULTS}
+          pending={false}
+          canAssign
+          targetRecruitmentTitle="Senior Python Developer · Acme"
+          onAssign={() => undefined}
+        />
       </Case>
 
       <Case label="Degradacja retrievalu (NIE pusty stan)">

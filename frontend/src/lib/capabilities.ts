@@ -31,6 +31,7 @@ export interface CapabilityUser {
 export type Capability =
   // ── Akcje tworzenia ────────────────────────────────────────────────────────
   | "candidate.create"
+  | "candidate.assign_to_job"
   | "job.create"
   | "job.update"
   | "client.create"
@@ -103,6 +104,9 @@ const ALL_ROLES: readonly UserRole[] = [
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
   "candidate.create": RECRUITER_PLUS,
+  // POST /api/candidates/{id}/assign-to-job/{job_id} → CandidateWriteAccess
+  // (backend/app/api/recommendations.py) + osobna bramka membership dla joba.
+  "candidate.assign_to_job": RECRUITER_PLUS,
   // POST /api/jobs → TacPlus (backend/app/api/jobs.py)
   "job.create": TAC_PLUS,
   // PATCH /api/jobs/{id} → TacPlus (backend/app/api/jobs.py). Uwaga: TacPlus
