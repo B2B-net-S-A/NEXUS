@@ -22,33 +22,106 @@ Treść klauzul (PL+EN) trzymana w ``clause_override_content.py``.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import re
+import unicodedata
 
 Block = tuple[str, str]
 Op = tuple[str, object, tuple[Block, ...]]
 
 
+class ClauseOverrideError(RuntimeError):
+    """Operacja z rejestru klauzul nie znalazła swojej kotwicy w dokumencie.
+
+    Podnoszona zamiast cichego pominięcia: umowa bez wynegocjowanej klauzuli
+    (zakaz konkurencji, kary umowne, załącznik Klienta) jest gorsza niż nieudane
+    pobranie — pierwsze wychodzi do Partnera i wygląda na poprawne, drugie
+    zatrzymuje człowieka."""
+
+
 def _norm(name: str) -> str:
-    return re.sub(r"\s+", " ", (name or "").strip().lower())
+    # NFC PRZED lowercase: needle „rehabilitacji osób niepełnosprawnych" (jedyna
+    # droga trafienia kanonicznej nazwy prawnej PFRON — nie zawiera podciągu
+    # „pfron") ma znaki rozkładalne. Nazwa Klienta to wolny tekst — picker
+    # przyjmuje wpisaną/wklejoną wartość, a `Client.name` nadpisuje każdy sync
+    # Traffita — więc wejście bywa w NFD (wklejka z macOS, komórka arkusza),
+    # które wizualnie jest identyczne, a bajtowo nie dopasowuje się do niczego.
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", name or "").strip().lower())
+
+
+def _registry_key(ops_builder: object) -> str:
+    """Stabilny klucz wpisu rejestru (nazwa buildera bez prefiksu ``_ops_``).
+
+    Klucz jest ZAPISYWANY w `render_payload` przy generacji i steruje ponownym
+    pobraniem, więc musi przeżyć edycję listy needle'i — stąd nazwa funkcji,
+    a nie pozycja na liście (przestawienie wpisów zmieniłoby znaczenie
+    historycznych snapshotów)."""
+    name = getattr(ops_builder, "__name__", "") or ""
+    return name[len("_ops_") :] if name.startswith("_ops_") else name
+
+
+def resolve_override(
+    client_name: str | None, language: str
+) -> tuple[str | None, list[Op]]:
+    """(klucz wpisu rejestru, operacje) dla danego Klienta.
+
+    Klucz ``None`` = żaden wpis nie trafił. Klucz ``"none"`` = trafił wpis
+    świadomie pusty (BNP Paribas Cardif) — rozróżnienie jest istotne w audycie,
+    bo pierwszy przypadek zmieni się przy dodaniu needle'a, a drugi nie."""
+    if not client_name:
+        return (None, [])
+    from app.services.b2b_contract_generator.clause_override_content import (
+        CLIENT_OVERRIDES,
+    )
+
+    lang = "en" if (language or "pl").lower().startswith("en") else "pl"
+    n = _norm(client_name)
+    for needles, ops_builder in CLIENT_OVERRIDES:
+        if any(needle in n for needle in needles):
+            return (_registry_key(ops_builder), ops_builder(lang))
+    return (None, [])
+
+
+def overrides_for_key(key: str | None, language: str) -> list[Op]:
+    """Operacje wpisu rejestru o danym kluczu (snapshot zapisany przy generacji).
+
+    Nieznany klucz → ``[]``: wpis mógł zostać z rejestru usunięty, a wtedy
+    jedyną uczciwą odpowiedzią jest render bez modyfikacji (nie zgadujemy
+    po nazwie — od tego jest ta funkcja, żeby nazwy NIE rozstrzygać ponownie)."""
+    if not key:
+        return []
+    from app.services.b2b_contract_generator.clause_override_content import (
+        CLIENT_OVERRIDES,
+    )
+
+    lang = "en" if (language or "pl").lower().startswith("en") else "pl"
+    for _needles, ops_builder in CLIENT_OVERRIDES:
+        if _registry_key(ops_builder) == key:
+            return ops_builder(lang)
+    return []
+
+
+def ops_fingerprint(ops: list[Op]) -> str:
+    """Odcisk TREŚCI operacji — wykrywa edycję klauzul po wydaniu umowy.
+
+    Sam klucz rejestru przypina WPIS, nie jego treść; prawnik może zmienić
+    brzmienie klauzuli pod tym samym kluczem. Odcisk zapisany przy generacji
+    pozwala przy ponownym pobraniu powiedzieć „to już nie jest ten sam
+    dokument", zamiast wydać zmienioną umowę jako autorytatywną."""
+    h = hashlib.sha256()
+    for kind, target, blocks in ops:
+        h.update(f"{kind}\x1f{target}\x1e".encode())
+        for bkind, text in blocks:
+            h.update(f"{bkind}\x1f{text}\x1e".encode())
+    return h.hexdigest()[:16]
 
 
 def overrides_for_client(client_name: str | None, language: str) -> list[Op]:
     """Lista operacji modyfikujących umowę dla danego Klienta (pusta = brak).
 
     Dopasowanie po znormalizowanej nazwie Klienta; treść w języku umowy (PL/EN)."""
-    if not client_name:
-        return []
-    from app.services.b2b_contract_generator.clause_override_content import (
-        CLIENT_OVERRIDES,
-    )
-
-    is_en = (language or "pl").lower().startswith("en")
-    n = _norm(client_name)
-    for needles, ops_builder in CLIENT_OVERRIDES:
-        if any(needle in n for needle in needles):
-            return ops_builder("en" if is_en else "pl")
-    return []
+    return resolve_override(client_name, language)[1]
 
 
 def has_override(client_name: str | None) -> bool:
@@ -94,25 +167,47 @@ def _html_section_span(rendered: str, n: int) -> tuple[int, int] | None:
     return (m.start(), end)
 
 
-def apply_ops_html(rendered_html: str, ops: list[Op]) -> str:
+def _nth_table_end(rendered: str, idx: int) -> int:
+    """Pozycja ZA zamknięciem tabeli o indeksie ``idx`` (-1 gdy nie ma tylu).
+
+    Ramię DOCX honoruje `doc.tables[idx]`, więc podgląd HTML musi liczyć tabele
+    tak samo — wcześniej brał zawsze pierwsze `</table>` i przy operacji
+    wskazującej drugą tabelę pokazywał co innego niż wychodziło w pliku."""
+    pos = -1
+    for _ in range(idx + 1):
+        pos = rendered.find("</table>", pos + 1)
+        if pos == -1:
+            return -1
+    return pos + len("</table>")
+
+
+def apply_ops_html_counted(rendered_html: str, ops: list[Op]) -> tuple[str, int]:
+    """Jak ``apply_ops_html``, ale zwraca też liczbę WYKONANYCH operacji.
+
+    Bez licznika pominięta klauzula jest nie do odróżnienia od poprawnej umowy —
+    każda gałąź poniżej ma ciche wyjście, a funkcja nie rzuca wyjątkiem."""
     out = rendered_html
+    applied = 0
     for kind, target, blocks in ops:
         frag = _blocks_html(blocks)
         if kind == "replace_section":
             span = _html_section_span(out, int(target))  # type: ignore[arg-type]
             if span:
                 out = out[: span[0]] + frag + out[span[1] :]
+                applied += 1
         elif kind == "append_to_section":
             span = _html_section_span(out, int(target))  # type: ignore[arg-type]
             if span:
                 out = out[: span[1]] + frag + out[span[1] :]
+                applied += 1
         elif kind == "append_appendix":
             out = out.rstrip() + "\n" + frag
+            applied += 1
         elif kind == "after_table":
-            idx = out.find("</table>")
-            if idx != -1:
-                cut = idx + len("</table>")
+            cut = _nth_table_end(out, int(target))  # type: ignore[arg-type]
+            if cut != -1:
                 out = out[:cut] + "\n" + frag + out[cut:]
+                applied += 1
         elif kind == "after_sentence":
             anchor = str(target)
             pos = out.find(anchor)
@@ -121,10 +216,26 @@ def apply_ops_html(rendered_html: str, ops: list[Op]) -> str:
                 if close != -1:
                     cut = close + len("</p>")
                     out = out[:cut] + "\n" + frag + out[cut:]
-    return out
+                    applied += 1
+    return (out, applied)
+
+
+def apply_ops_html(rendered_html: str, ops: list[Op]) -> str:
+    return apply_ops_html_counted(rendered_html, ops)[0]
 
 
 # ── DOCX: aplikacja operacji na wyrenderowanym python-docx Document ──────────
+
+
+# Opcjonalna kropka po numerze — szablon EN zapisuje nagłówki jako „§ 1.".
+# Ramię HTML (`_html_section_span`) akceptuje ją od zawsze; bez tej samej
+# tolerancji w DOCX przetytułowanie nagłówka przez prawnika rozjeżdża podgląd
+# z plikiem, a operacja znika po cichu.
+_HEADING_ANY = r"§\s*\d+\s*A?\s*\.?"
+
+
+def _heading_pattern(n: int) -> str:
+    return rf"§\s*{n}\s*A?\s*\.?"
 
 
 def _ref_font(paragraph) -> tuple[object, object]:
@@ -140,7 +251,7 @@ def _doc_ref_styles(doc):
     head_p = body_p = None
     for p in doc.paragraphs:
         t = (p.text or "").strip()
-        if head_p is None and re.fullmatch(r"§\s*\d+\s*A?", t):
+        if head_p is None and re.fullmatch(_HEADING_ANY, t):
             head_p = p
             base_style = p.style
         elif body_p is None and len(t) > 80:
@@ -222,7 +333,7 @@ def _emit_after(ref_el, body_parent, blocks, styles, *, page_break_first=False):
 
 def _find_section_heading_el(doc, n: int):
     for p in doc.paragraphs:
-        if re.fullmatch(rf"§\s*{n}\s*A?", (p.text or "").strip()):
+        if re.fullmatch(_heading_pattern(n), (p.text or "").strip()):
             return p._p
     return None
 
@@ -237,7 +348,7 @@ def _next_heading_el(doc, start_el):
         if not seen:
             continue
         t = (p.text or "").strip()
-        if re.fullmatch(r"§\s*\d+\s*A?", t) or re.match(r"(?i)za[łl]ącznik\s*nr", t):
+        if re.fullmatch(_HEADING_ANY, t) or re.match(r"(?i)za[łl]ącznik\s*nr", t):
             return p._p
     return None
 

@@ -8,6 +8,7 @@ jedynym genuinnie nowym wyjściem (eksport na oryginalnym szablonie prawnym).
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from datetime import date, datetime, timezone
@@ -79,10 +80,14 @@ from app.schemas.b2b_contract_generator import (
 )
 from app.services.b2b_contract_automation import ensure_b2b_employment_draft
 from app.services.b2b_contract_generator.clause_overrides import (
-    apply_ops_html,
-    overrides_for_client,
+    ClauseOverrideError,
+    apply_ops_html_counted,
+    ops_fingerprint,
+    overrides_for_key,
+    resolve_override,
 )
 from app.services.b2b_contract_generator.docx_renderer import (
+    RESOLVE_BY_CLIENT_NAME,
     normalize_language,
     render_contract_docx,
     render_from_context,
@@ -98,9 +103,83 @@ from app.services.b2b_contract_generator.uop_check import (
     check_employment_hallmarks,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+# Klucz snapshotu rejestru klauzul w `render_payload`. Podkreślnik z przodu, bo
+# to metadane wydania dokumentu, a nie pole formularza — `B2BRenderRequest`
+# ignoruje nieznane klucze, więc odtworzenie payloadu go po prostu pomija.
+_CLAUSE_SNAPSHOT_FIELD = "_clause_override"
+
+
+def _clause_snapshot(key: str | None, ops: list, *, source: str = "generate") -> dict:
+    """Snapshot rozstrzygnięcia rejestru zapisywany przy WYDANIU dokumentu.
+
+    Bez niego ponowne pobranie rozstrzyga rejestr od nowa i wydaje inną umowę
+    niż podpisana — dwa commity w pięć tygodni po cichu zmieniły treść już
+    dostarczonych dokumentów (§4 BNP zniknął z umów Cardif, §10 z zakazem
+    konkurencji doszedł umowom e-Zdrowia), a wiersz rejestru nie niósł nic,
+    po czym dałoby się je wylistować."""
+    return {
+        "key": key,
+        # Odcisk TREŚCI: sam klucz przypina wpis, nie brzmienie klauzul.
+        "fingerprint": ops_fingerprint(ops),
+        "ops": len(ops),
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+        # Skąd wzięło się to rozstrzygnięcie: wydanie dokumentu czy późniejsza
+        # korekta nazwy Klienta. Bez tego nie da się odróżnić umowy wydanej
+        # z danym zestawem klauzul od takiej, której zestaw zmieniono po fakcie.
+        "source": source,
+    }
+
+
+async def _render_docx_or_500(
+    context: dict, lang: str, clause_override_key: str | None
+) -> bytes:
+    """Render DOCX; niekompletny zestaw klauzul → 500 zamiast wydanego pliku."""
+    try:
+        return await run_in_threadpool(
+            lambda: render_from_context(
+                context, language=lang, clause_override_key=clause_override_key
+            )
+        )
+    except ClauseOverrideError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+def _pinned_clause_key(row: B2BGeneratedContract, lang: str) -> str | None:
+    """Klucz rejestru do ponownego wydania dokumentu z wiersza logu.
+
+    Brak snapshotu (wiersze sprzed tej zmiany) → rozstrzygnięcie po nazwie, czyli
+    zachowanie dotychczasowe; nic lepszego dla nich nie istnieje, ale zostaje po
+    tym ślad w logu. Rozjazd odcisku = klauzule pod tym samym kluczem zmieniły
+    brzmienie po wydaniu umowy — ostrzegamy zamiast odmawiać, bo odmowa
+    zablokowałaby pobranie każdej historycznej umowy po pierwszej edycji
+    rejestru przez prawnika."""
+    snap = (row.render_payload or {}).get(_CLAUSE_SNAPSHOT_FIELD)
+    if not isinstance(snap, dict):
+        logger.info(
+            "b2b_clause_snapshot_missing generated_id=%s number=%s",
+            row.id,
+            row.contract_number,
+        )
+        return RESOLVE_BY_CLIENT_NAME
+    key = snap.get("key")
+    current = ops_fingerprint(overrides_for_key(key, lang))
+    if snap.get("fingerprint") and snap["fingerprint"] != current:
+        logger.warning(
+            "b2b_clause_registry_drift generated_id=%s number=%s key=%s "
+            "snapshot=%s current=%s",
+            row.id,
+            row.contract_number,
+            key,
+            snap["fingerprint"],
+            current,
+        )
+    return key
 
 
 def _ascii_filename(name: str) -> str:
@@ -1075,12 +1154,36 @@ async def render_standalone(
         except TemplateError as exc:
             raise HTTPException(status_code=422, detail=f"Render error: {exc}")
         # Per-klient modyfikacje umowy (§ 10, § 4 BNP, Załączniki CA/BIK…).
-        ops = overrides_for_client(payload.client_name, lang)
+        key, ops = resolve_override(payload.client_name, lang)
         if ops:
-            html = apply_ops_html(html, ops)
+            html, applied = apply_ops_html_counted(html, ops)
+            if applied != len(ops):
+                # Podgląd, z którego znikła klauzula, jest gorszy niż brak
+                # podglądu: rekruter akceptuje go jako obraz umowy, którą za
+                # chwilę wyda. logger.error → Sentry.
+                logger.error(
+                    "b2b_clause_override_incomplete surface=html lang=%s key=%s "
+                    "applied=%d expected=%d",
+                    lang,
+                    key,
+                    applied,
+                    len(ops),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Nie udało się wstawić wszystkich klauzul Klienta do "
+                        "podglądu umowy — szablon rozjechał się z rejestrem "
+                        "klauzul. Zgłoś to zanim wygenerujesz dokument."
+                    ),
+                )
         return B2BRenderHtmlResponse(html=html, contract_number=payload.contract_number)
 
     # format == docx → numer + log + plik
+    # Rozstrzygamy rejestr klauzul RAZ, PRZED zapisem wiersza: ta sama wartość
+    # trafia do snapshotu i do renderu, więc log rejestru nie może opisywać
+    # innego dokumentu niż wydany.
+    override_key, override_ops = resolve_override(payload.client_name, lang)
     default_year = (
         payload.signing_date.year
         if payload.signing_date
@@ -1140,7 +1243,12 @@ async def render_standalone(
                 legal_name=payload.partner_legal_name,
             ),
             # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
-            render_payload=payload.model_dump(mode="json"),
+            # Plus snapshot rejestru klauzul — bez niego re-render rozstrzyga
+            # rejestr od nowa i wydaje inną umowę niż podpisana.
+            render_payload={
+                **payload.model_dump(mode="json"),
+                _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
+            },
         )
     )
     try:
@@ -1159,7 +1267,7 @@ async def render_standalone(
         )
     context["b2b"]["contract_number"] = number
 
-    data = await run_in_threadpool(render_from_context, context, language=lang)
+    data = await _render_docx_or_500(context, lang, override_key)
     return _docx_response(data, number)
 
 
@@ -1404,10 +1512,16 @@ async def download_generated_contract(
 ):
     """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
 
-    Render jest deterministyczny z zapisanych pól formularza, więc dokument jest
-    treściowo tożsamy z pierwotnie pobranym (numer umowy bierzemy z wiersza logu,
-    nie z payloadu). Wiersze sprzed wdrożenia tej funkcji nie mają payloadu → 422
-    z prośbą o ponowne wygenerowanie."""
+    Render bierze pola formularza z `render_payload` ORAZ przypięty tam snapshot
+    rejestru klauzul, więc treść nie zmienia się przy kolejnych edycjach rejestru
+    (numer umowy bierzemy z wiersza logu, nie z payloadu).
+
+    UWAGA — to nie jest dowód tego, co strony podpisały. Wiersze wydane przed
+    wprowadzeniem snapshotu (`_clause_override`) rozstrzygają rejestr po nazwie
+    Klienta, czyli mogą wyjść z inną treścią niż wersja dostarczona; rozjazd
+    treści klauzul pod tym samym kluczem też jest tylko logowany, nie blokowany.
+    Autorytatywny jest podpisany dokument, nie ten plik. Wiersze bez payloadu →
+    422 z prośbą o ponowne wygenerowanie."""
     row = await db.get(B2BGeneratedContract, generated_id)
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
@@ -1430,7 +1544,7 @@ async def download_generated_contract(
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
 
-    data = await run_in_threadpool(render_from_context, context, language=lang)
+    data = await _render_docx_or_500(context, lang, _pinned_clause_key(row, lang))
     return _docx_response(data, row.contract_number)
 
 
@@ -1738,11 +1852,30 @@ async def update_generated_contract(
         old_client = row.client_name
         new_client = (payload.client_name or "").strip() or None
         row.client_name = new_client
-        # Zsynchronizuj zapisany payload → ponowny render DOCX i klauzule
-        # per-klient użyją już poprawionej nazwy. Reassign (nie mutacja
-        # in-place), by SQLAlchemy wykrył zmianę kolumny JSON.
+        # Zsynchronizuj zapisany payload → ponowny render DOCX użyje już
+        # poprawionej nazwy. Reassign (nie mutacja in-place), by SQLAlchemy
+        # wykrył zmianę kolumny JSON.
+        #
+        # Snapshot rejestru klauzul rozstrzygamy TU PONOWNIE — i tylko tu.
+        # Poza tą ścieżką jest przypięty (znalezisko: ponowne pobranie zmieniało
+        # treść już wydanych umów), ale korekta nazwy Klienta to jedyny moment,
+        # w którym zmienia się to, co dokument MIAŁ mówić: literówka
+        # („BNP Paribass") wyłączała §4 banku, a bez re-rozstrzygnięcia poprawka
+        # nazwy naprawiłaby nagłówek i zostawiła umowę bez klauzul. Bezpieczne,
+        # bo ta gałąź jest zablokowana 409 dla umów podpisanych obustronnie —
+        # żaden podpisany dokument nie zmienia tędy treści.
         if row.render_payload is not None:
-            row.render_payload = {**row.render_payload, "client_name": new_client}
+            patch_lang = normalize_language(row.render_payload.get("language"))
+            patch_key, patch_ops = resolve_override(new_client, patch_lang)
+            row.render_payload = {
+                **row.render_payload,
+                "client_name": new_client,
+                _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(
+                    patch_key, patch_ops, source="client_name_patch"
+                ),
+            }
+        else:
+            patch_key = None
         db.add(
             Activity(
                 entity_type="b2b_generated_contract",
@@ -1754,6 +1887,9 @@ async def update_generated_contract(
                     "field": "client_name",
                     "old": old_client,
                     "new": new_client,
+                    # Ślad audytowy: który wpis rejestru klauzul obowiązuje po
+                    # korekcie (``None`` = umowa bez modyfikacji per-klient).
+                    "clause_override": patch_key,
                 },
             )
         )
