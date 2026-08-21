@@ -305,6 +305,17 @@ async def reopen_contract(
     Returns True when a change happened. Reactivating an already-executed
     contract is not a fresh activation, so no signature check applies — the
     evidence already exists from when it was first executed.
+
+    UWAGA: ta reguła jest dziś zduplikowana inline w `app/api/contracts.py`
+    (bulk `/bulk-extend` ok. :1193 oraz `/amendments` ok. :2450). Obie kopie
+    przestawiają `status` wprost, więc omijają `assert_transition` i NIE
+    zapisują wiersza `Activity` `contract_reopened` — przejście najściślej
+    powiązane z przychodem (zakończony konsultant wracający na `active`) jest
+    jedynym bez śladu `from_status`/`to_status` w feedzie. Zmieniając regułę
+    (np. dopuszczając leczenie `suspended` albo wymóg sprawdzenia podpisu)
+    przemieć WSZYSTKIE trzy miejsca albo — lepiej — zwiń tamte dwie kopie do
+    wywołania tej funkcji. Nie myl jej z `reopen_contract_endpoint` w routerze:
+    mimo nazwy woła on `revert_contract` (→ `draft`), a nie tę operację.
     """
     previous = contract.status
     if previous not in (ContractStatus.ended, ContractStatus.ending):

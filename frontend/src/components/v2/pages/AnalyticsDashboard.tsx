@@ -1,6 +1,20 @@
 "use client";
 
 /**
+ * ⚠️ NIEOSIĄGALNE Z ŻADNEJ TRASY (stan na 2026-08-21) — NIE aktualizuj tego
+ * pliku „przy okazji" renamu ani przemiatającego refaktoru. `6ddbfd4c`
+ * (#1031, 2026-08-04) przestawił `app/dashboard/page.tsx` na `<RoleDashboard />`
+ * i nigdy nie zamontował tego komponentu z powrotem. Jedyne pozostałe
+ * odwołanie w repo to test importujący helper: `StatsBoundary.test.tsx:16`
+ * (`defaultViewFor`) — czyli plik kompiluje się i ma zielone testy wyłącznie
+ * dzięki testowi, a nie dzięki jakiemukolwiek użytkownikowi.
+ *
+ * DO USUNIĘCIA razem z blokiem `describe("defaultViewFor …")` w
+ * `components/v2/dashboard/__tests__/StatsBoundary.test.tsx` (:16 import,
+ * :97-114 asercje). Usunięcie samego komponentu bez tamtej zmiany wywala
+ * type-check, dlatego nie zrobiono tego w tej fali — obie zmiany muszą iść
+ * jednym commitem.
+ *
  * Analytics v1 — dashboard z widokami per rola (plan PR 5).
  *
  * Routing: /dashboard?view=operations|recruitment|delivery|executive&period=…

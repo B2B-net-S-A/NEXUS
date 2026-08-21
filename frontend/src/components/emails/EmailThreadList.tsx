@@ -1,5 +1,35 @@
 "use client";
 
+/**
+ * ⚠️ NIEOSIĄGALNE Z ŻADNEJ TRASY (stan na 2026-08-21) — NIE aktualizuj tego
+ * pliku „przy okazji" przemiatającego refaktoru, dopóki decyzja poniżej nie
+ * zapadnie. Ten komponent nie ma ani jednego importującego i jest jedynym
+ * importerem `EmailThreadView`, `EmailBulkActionBar` i `EmailCompose` —
+ * zamknięta wyspa czterech plików.
+ *
+ * Jak do tego doszło: `4925ac53` (#539, 2026-06-18) usunął zakładkę „Email"
+ * z profilu kandydata z uzasadnieniem „Email jest już dostępny w menu Więcej
+ * (przeniesiony w #538)". To nie był parytet: w menu Więcej wylądował
+ * kompozytor `mailto:` (`SendEmailV2`), a nie czytnik wątków. Poczta
+ * wychodząca leci więc przez Outlooka rekrutera i nigdy nie wraca do rekordu
+ * kandydata.
+ *
+ * Dlaczego to nie jest zwykły martwy kod: pętla syncu M365 DALEJ pracuje na
+ * prodzie (`/api/health` raportuje `m365: healthy` wyłącznie przy aktywnym
+ * połączeniu) i zapisuje `subject`/`body_html`/`body_text`/załączniki
+ * korespondencji kandydatów, których produkt nie ma jak pokazać. Siedem
+ * endpointów w `api/email_threads.py` nie ma wołających.
+ *
+ * Do rozstrzygnięcia (decyzja produktowa, oba kierunki są tanie — drogi jest
+ * tylko stan obecny):
+ *  • czytnik ma być → przywróć zakładkę `emails` w `CandidateDetailV2.tsx`
+ *    renderującą `<EmailThreadList candidateId=… />` (komponent i jego troje
+ *    dzieci są nietknięte i wciąż otypowane pod żywe `microsoft365Api`);
+ *  • czytnika nie ma być → usuń `src/components/emails/` + `lib/email-threading.ts`,
+ *    zdejmij siedem endpointów i wyłącz `M365_SYNC_LOOP_ENABLED`, żeby produkt
+ *    przestał przechowywać treści maili, których nie umie wyświetlić (RODO).
+ */
+
 import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {

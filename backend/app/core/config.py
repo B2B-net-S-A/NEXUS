@@ -22,9 +22,16 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://nexus:nexus@localhost:5432/nexus"
 
     # Qdrant (vector store for semantic search)
+    # UWAGA: NIE ma tu `QDRANT_API_KEY`. Żadna z 25 konstrukcji `QdrantClient()`
+    # w `app/` i `scripts/` nie przekazuje `api_key`, a `qdrant-client` nie
+    # podchwytuje go z env — gałka byłaby więc no-opem obiecującym operatorowi
+    # uwierzytelnione połączenie do vector store, którego nie ma. Zanim wróci
+    # tu jako pole, musi istnieć JEDNA fabryka klienta (kandydat:
+    # `embedding_service._get_qdrant_client`), przez którą przechodzą wszystkie
+    # miejsca — inaczej włączenie `service.api_key` po stronie Qdranta zwróci
+    # 401 na części ścieżek, a te łapią wyjątki i renderują puste dopasowania.
     QDRANT_HOST: str = "localhost"
     QDRANT_PORT: int = 6333
-    QDRANT_API_KEY: str = ""
     QDRANT_COLLECTION: str = "nexus_candidates"
 
     # Voyage AI (embeddings)
@@ -32,7 +39,11 @@ class Settings(BaseSettings):
     # voyage-3-large: MTEB 65.1 (#1, +9.74% over OpenAI v3-large). Matryoshka
     # learning keeps 1024-dim outputs compatible with existing Qdrant collection.
     VOYAGE_MODEL: str = "voyage-3-large"
-    EMBEDDING_DIMENSION: int = 1024
+    # Rozmiar wektora NIE jest tu konfigurowalny — jedynym źródłem prawdy jest
+    # `embedding_service.VECTOR_SIZE = 1024`, którym utworzono kolekcje Qdranta.
+    # Dawne pole `EMBEDDING_DIMENSION` nie było czytane nigdzie: operator, który
+    # by je zmienił, dostałby ciszę zamiast innych wektorów (a realna zmiana
+    # wymaga i tak re-embeddingu całej kolekcji — `scripts/reembed_collections.py`).
     # Voyage Rerank 2.5 — best balance accuracy/latency (~595ms p95).
     # Enabled by default — has graceful passthrough on API failure (rerank
     # service returns identity ordering, never breaks retrieval).
@@ -449,9 +460,15 @@ class Settings(BaseSettings):
     # oznaczył). 10 min grace period absorbuje opóźnienia.
     INTERVIEW_AUTO_COMPLETE_GRACE_MINUTES: int = 10
 
-    # ── Email (SMTP) — fallback kanał po T+45 dla post-interview alertów ─────
+    # ── Email (SMTP) ─────────────────────────────────────────────────────────
     # Default: OFF. Włącza się envem SMTP_ENABLED=true. Bez credsów mailer jest
     # no-op'em (log i return) — nie blokuje triggerów ani handlerów.
+    # Realni konsumenci: reset hasła, mail weryfikacyjny rejestracji, wzmianki
+    # (@mention) i fallback czatu. Nagłówek tej sekcji do 2026-08-21 obiecywał
+    # „fallback kanał po T+45 dla post-interview alertów" — taki kanał NIGDY
+    # nie został podpięty (wrapper w `services/email.py` nie miał ani jednego
+    # wywołania i został usunięty). Alerty post-interview są wyłącznie in-app;
+    # włączenie SMTP ich nie wyśle.
     SMTP_ENABLED: bool = False
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
