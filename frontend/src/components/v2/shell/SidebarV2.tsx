@@ -47,7 +47,6 @@ import { dashboardHref } from "@/lib/dashboard-presets";
 type BadgeCounts = {
   candidates?: number;
   jobs?: number;
-  pendingVerifications?: number;
   applicationSubmissions?: number;
 };
 
@@ -221,6 +220,15 @@ const NAV_SECTIONS: NavSection[] = [
       //    na prośbę usera ("wylacz z UI na razie"). Route
       //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji
       //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
+      //
+      //    UWAGA przy przywracaniu: slot `pendingVerifications` w
+      //    `BadgeCounts` został usunięty razem z fetchem, bo przez trzy
+      //    miesiące liczył licznik, którego nikt nie renderował — a robił to
+      //    zapytaniem admin-only (`GET /api/pipeline/pending-verifications`),
+      //    więc dla DL i HoR było to gwarantowane 403 co refetch. Przywracając
+      //    link, przywróć licznik jako zapytanie ZLICZAJĄCE (`?page_size=1` →
+      //    `total`), nie pełną listę, i zawęź bramkę do faktycznego
+      //    `AdminUser` z endpointu — inaczej wraca oba defekty naraz.
       /*
       {
         // DL Hub (PR #225/#229) — łączy widget weryfikacji + KPI + 3 taby
@@ -485,19 +493,11 @@ export function SidebarV2({
   const expanded = hovered || pinned || mobileOpen;
   const collapsed = !expanded;
 
-  const userRoleForBadge = user?.role;
-  const isApproverForBadge =
-    userRoleForBadge === "admin" ||
-    userRoleForBadge === "delivery_lead" ||
-    userRoleForBadge === "head_of_recruitment";
-
   const { data: stats } = useQuery({
-    queryKey: ["sidebar-badges-v2", isApproverForBadge],
-    // Wait until auth is resolved before firing. `isApproverForBadge` derives
-    // from `user.role`, which flips from `false` (user null) to its real value
-    // once the auth store hydrates — without this gate the query key changes
-    // mid-load and the badge counts (/candidates, /jobs) are fetched twice on
-    // every page load.
+    queryKey: ["sidebar-badges-v2"],
+    // Czekamy na rozstrzygnięcie auth, zanim strzelimy — bez tej bramki
+    // liczniki (/candidates, /jobs) lecą raz przed hydracją store'u i drugi
+    // raz po niej, na każdym wejściu na stronę.
     enabled: !!user,
     queryFn: async () => {
       const today = new Date();
@@ -509,14 +509,10 @@ export function SidebarV2({
         }),
         api.get("/api/jobs", { params: { page_size: 1, status: "published" } }),
       ];
-      // Indeksy nazwane zamiast pozycyjnych: `settled[isApproverForBadge ? 3 : 2]`
-      // wymagało ręcznego śledzenia, gdzie w tablicy wylądowało dane zapytanie,
-      // więc dołożenie czwartego licznika cicho przesunęłoby odczyt o jeden.
+      // Indeksy nazwane zamiast pozycyjnych: `settled[2]` wymagało ręcznego
+      // śledzenia, gdzie w tablicy wylądowało dane zapytanie, więc dołożenie
+      // kolejnego licznika cicho przesunęłoby odczyt o jeden.
       const slots: string[] = ["candidates", "jobs"];
-      if (isApproverForBadge) {
-        promises.push(api.get("/api/pipeline/pending-verifications"));
-        slots.push("pendingVerifications");
-      }
       // Zgłoszenia z publicznych aplikacji czekające na decyzję. Bez licznika
       // ekran kolejki istnieje, ale nikt na niego nie wchodzi — a zgłoszenie,
       // którego nikt nie widzi, jest tym samym co zgłoszenie utracone.
@@ -532,15 +528,7 @@ export function SidebarV2({
       ) as Record<string, (typeof settled)[number] | undefined>;
       const candidatesRes = bySlot.candidates!;
       const jobsRes = bySlot.jobs!;
-      const pendingRes = bySlot.pendingVerifications ?? null;
       const submissionsRes = bySlot.applicationSubmissions;
-
-      const pendingCount =
-        pendingRes && pendingRes.status === "fulfilled"
-          ? Array.isArray((pendingRes.value as { data?: unknown[] }).data)
-            ? (pendingRes.value as { data: unknown[] }).data.length
-            : 0
-          : 0;
 
       return {
         candidates:
@@ -553,7 +541,6 @@ export function SidebarV2({
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ??
               0)
             : 0,
-        pendingVerifications: pendingCount,
         applicationSubmissions:
           submissionsRes && submissionsRes.status === "fulfilled"
             ? ((submissionsRes.value as { data?: unknown[] }).data ?? []).length

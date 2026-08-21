@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
+import { visibleNavSections } from "@/components/v2/shell/SidebarV2";
 import {
   CAPABILITY_ROLES,
   hasAnyCapability,
@@ -492,5 +497,272 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
       expect(hasCapability(mkUser(role), "job.create")).toBe(contract);
       expect(hasCapability(mkUser(role), "client.create")).toBe(contract);
     }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// KONTRAKT MIĘDZY WARSTWAMI (F-67)
+//
+// Wiążąca reguła rolowa mieszka w Pythonie. Frontend powtarza ją w pięciu
+// miejscach (rejestr capability, middleware, sidebar, in-page `RequireRole`,
+// bramki w komponentach), a do tej pory KAŻDA kopia była weryfikowana wyłącznie
+// względem literału wpisanego przez tę samą osobę w tym samym PR — nic po
+// żadnej ze stron nie czytało drugiej. Jedynym detektorem rozjazdu był
+// użytkownik, który się na niego natknął, i to w obie strony: „link widoczny →
+// 403 po kliknięciu" (Talent Radar dla HoR, generator B2B dla finance) oraz
+// „backend otwarty → UI dalej to chowa" (piąta kopia listy ról, która przeżyła
+// #1212 i #1215).
+//
+// Poniższe testy CZYTAJĄ źródła backendu i porównują literały. Rozjazd przestaje
+// być niewidoczny: poszerzenie strażnika w Pythonie bez ruszenia rejestru (albo
+// odwrotnie) robi czerwono w CI, w zdaniu wskazującym capability i plik.
+//
+// Świadomie POZA zakresem: `middleware.ts` nie eksportuje `ROLE_ROUTES`, więc
+// jego lustro trzeba domknąć osobno — tam też zaczyna się od eksportu tablicy.
+// ───────────────────────────────────────────────────────────────────────────
+
+const BACKEND_FILES = {
+  deps: "backend/app/api/deps.py",
+  candidateAccess: "backend/app/api/candidate_access.py",
+  recruitmentAccess: "backend/app/api/recruitment_access.py",
+  clientAccess: "backend/app/services/client_access.py",
+  cortex: "backend/app/api/cortex.py",
+} as const;
+
+type BackendFile = keyof typeof BACKEND_FILES;
+type GuardRef = readonly [BackendFile, string];
+
+const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+
+/**
+ * Surowe przypisania z jednego modułu Pythona. Rozpoznaje trzy kształty, w
+ * których repo trzyma zbiory ról:
+ *   NAME: tuple[UserRole, ...] = (UserRole.a, …)   — katalogi *_ROLES
+ *   NAME: tuple[UserRole, ...] = OTHER_NAME        — alias (np. CANDIDATE_READ_ROLES)
+ *   NAME = Annotated[User, Depends(require_roles(UserRole.a, …))]        — deps.py
+ *   NAME = Annotated[User, Depends(require_candidate_roles(*OTHER_NAME))] — candidate_access.py
+ */
+function readBackendAssignments(file: BackendFile): Map<string, string> {
+  const source = readFileSync(join(REPO_ROOT, BACKEND_FILES[file]), "utf8");
+  const out = new Map<string, string>();
+  const patterns = [
+    /^([A-Z_][A-Za-z_0-9]*)(?:\s*:\s*tuple\[UserRole,\s*\.\.\.\])?\s*=\s*(\([\s\S]*?\)|[A-Za-z_][A-Za-z_0-9]*)\s*$/gm,
+    /^(\w+)\s*=\s*Annotated\[\s*User,\s*Depends\(\s*require_roles\(([\s\S]*?)\)\s*\),?\s*\]/gm,
+    /^(\w+)\s*=\s*Annotated\[\s*User,\s*Depends\(\s*require_candidate_roles\(\s*\*?([\s\S]*?)\)\s*\),?\s*\]/gm,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      out.set(match[1], match[2]);
+    }
+  }
+  return out;
+}
+
+const BACKEND_ASSIGNMENTS = new Map<BackendFile, Map<string, string>>(
+  (Object.keys(BACKEND_FILES) as BackendFile[]).map(
+    (file): [BackendFile, Map<string, string>] => [
+      file,
+      readBackendAssignments(file),
+    ],
+  ),
+);
+
+/** Zbiór ról stojący za nazwanym strażnikiem backendu. Rzuca, gdy symbol
+ *  zniknął albo został przemianowany — cichy brak byłby gorszy niż czerwony
+ *  test, bo zamieniłby kontrakt w zawsze-zielony no-op. */
+function backendRoles(file: BackendFile, symbol: string): UserRole[] {
+  const assignments = BACKEND_ASSIGNMENTS.get(file)!;
+  const seen = new Set<string>();
+  let name = symbol;
+  for (;;) {
+    const value = assignments.get(name);
+    if (value === undefined) {
+      throw new Error(
+        `Backend nie ma już symbolu ${name} w ${BACKEND_FILES[file]} ` +
+          `(startowałem od ${symbol}). Zaktualizuj CAPABILITY_BACKEND_MIRROR.`,
+      );
+    }
+    const roles = [...value.matchAll(/UserRole\.(\w+)/g)].map((m) => m[1]);
+    if (roles.length > 0) return roles as UserRole[];
+    const alias = value.trim().replace(/^\*/, "");
+    if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(alias) || seen.has(alias)) {
+      throw new Error(
+        `Nie umiem rozwinąć ${name} w ${BACKEND_FILES[file]} (wartość: ${value.trim()}).`,
+      );
+    }
+    seen.add(name);
+    name = alias;
+  }
+}
+
+const sortRoles = (roles: readonly UserRole[]) => [...new Set(roles)].sort();
+
+/**
+ * Capability → strażnik(-e) backendu, których jest lustrem. `guards` znaczy
+ * „ma być DOKŁADNIE sumą tych zbiorów" (nie podzbiorem — podzbiór przepuszcza
+ * drugi kierunek awarii: backend otwarty, a UI dalej chowa funkcję).
+ * `productDecision` = świadomy brak pojedynczego strażnika; wymuszony wpis
+ * sprawia, że nowa capability nie prześlizgnie się bez decyzji.
+ */
+const CAPABILITY_BACKEND_MIRROR: Record<
+  Capability,
+  { guards: readonly GuardRef[] } | { productDecision: string }
+> = {
+  "candidate.create": { guards: [["deps", "RecruiterPlus"]] },
+  "job.create": { guards: [["deps", "TacPlus"]] },
+  "job.update": { guards: [["deps", "TacPlus"]] },
+  "client.create": { guards: [["deps", "TacPlus"]] },
+  "client.update": { guards: [["deps", "TacPlus"]] },
+  "contract.create": { guards: [["deps", "TacPlus"]] },
+  // ClientAccess.can_edit_contacts = ADMIN_LIKE ∪ CLIENT_TEAM.
+  "contact.create": {
+    guards: [
+      ["clientAccess", "ADMIN_LIKE_ROLES"],
+      ["clientAccess", "CLIENT_TEAM_ROLES"],
+    ],
+  },
+  "calendar_event.create": {
+    guards: [["recruitmentAccess", "CALENDAR_WRITE_ROLES"]],
+  },
+  "invite_link.create": { guards: [["deps", "RecruiterPlus"]] },
+  "candidate.document.manage": {
+    guards: [["candidateAccess", "CandidateWriteAccess"]],
+  },
+  // Odczyt i zapis faktów mają dziś ten sam zbiór; wpis celuje w ZAPIS, bo to
+  // on decyduje o widoczności kontrolki. Gdy backend je rozdzieli, rozdziel
+  // też capability — test wtedy nie pomoże, bo porówna zapis z zapisem.
+  "candidate.profile_fact.manage": {
+    guards: [["candidateAccess", "CandidateProfileFactsWriteAccess"]],
+  },
+  "client.portfolio.manage": { guards: [["deps", "AdminUser"]] },
+  "dashboard.recruitment_stats.view": { guards: [["deps", "OperationalUser"]] },
+  "nav.candidates": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
+  "nav.talents": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
+  "nav.talent_radar": {
+    productDecision:
+      "Oba endpointy radaru stoją na CurrentUser (decyzja 19.08) — nie ma zbioru ról do porównania, bramką jest samo zalogowanie.",
+  },
+  "nav.sourcing": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
+  "nav.clients": { guards: [["deps", "OperationalUser"]] },
+  "nav.my_clients": {
+    productDecision:
+      "GET /api/my-clients stoi na CurrentUser i zawęża wynik w handlerze (DL widzi swoje, admin/HoR wszystko). Lista ról w UI to zawężenie UX, nie lustro strażnika.",
+  },
+  "nav.my_relationships": {
+    productDecision:
+      "GET /api/my-relationships stoi na CurrentUser i zawęża wynik w handlerze — jak /my-clients.",
+  },
+  "nav.contracts": { guards: [["deps", "TacPlus"]] },
+  "nav.cortex": { guards: [["cortex", "CortexUser"]] },
+  "nav.manager": { guards: [["deps", "DeliveryLeadPlus"]] },
+  "nav.finance": { guards: [["deps", "FinanceModuleUser"]] },
+};
+
+describe("kontrakt backend ↔ rejestr capability", () => {
+  it("każda capability ma zadeklarowane lustro w backendzie", () => {
+    // Nowa capability bez wpisu = nowa bramka bez ustalonego źródła prawdy.
+    expect(Object.keys(CAPABILITY_BACKEND_MIRROR).sort()).toEqual(
+      [...ALL_CAPABILITIES].sort(),
+    );
+  });
+
+  for (const capability of ALL_CAPABILITIES) {
+    const mirror = CAPABILITY_BACKEND_MIRROR[capability];
+    if (!("guards" in mirror)) continue;
+    const label = mirror.guards
+      .map(([file, symbol]) => `${file}.${symbol}`)
+      .join(" ∪ ");
+    it(`${capability} = ${label}`, () => {
+      const expected = sortRoles(
+        mirror.guards.flatMap(([file, symbol]) => backendRoles(file, symbol)),
+      );
+      expect(sortRoles(CAPABILITY_ROLES[capability])).toEqual(expected);
+    });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// KONTRAKT SIDEBAR ↔ REJESTR (F-67, lustro nr 3)
+//
+// `NAV_SECTIONS` trzyma własne, ręcznie pisane tablice `roles`. Dopóki nikt ich
+// nie porównywał z rejestrem, otwarcie powierzchni w backendzie i w rejestrze
+// zostawiało sidebar zamknięty — użytkownik nigdy nie widział linku do funkcji,
+// którą właśnie mu przyznano (to samo, co po #1212 przeżyło w in-page
+// `RequireRole`).
+// ───────────────────────────────────────────────────────────────────────────
+
+/** Role, dla których `visibleNavSections` pokazuje daną pozycję menu. */
+function rolesSeeingHref(href: string): UserRole[] {
+  return ALL_ROLES.filter((role) =>
+    visibleNavSections(
+      { role, roles: [role] },
+      // `true`, żeby kolejka telefonów w ogóle pojawiła się w inwentarzu —
+      // inaczej flaga wyłączona ukryłaby przed tym testem jej listę ról.
+      { contactQueueEnabled: true },
+    ).some((section) => section.items.some((item) => item.href === href)),
+  );
+}
+
+/** Pozycja sidebara → capability, której lista `roles` ma być lustrem. */
+const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
+  "/candidates": "nav.candidates",
+  "/talents": "nav.talents",
+  "/talent-radar": "nav.talent_radar",
+  "/sourcing/marketplace": "nav.sourcing",
+  "/clients": "nav.clients",
+  "/my-clients": "nav.my_clients",
+  "/my-relationships": "nav.my_relationships",
+  "/contracts": "nav.contracts",
+  "/cortex": "nav.cortex",
+  "/finance": "nav.finance",
+  // `nav.manager` (/manager) NIE ma dziś pozycji w sidebarze — „Panel Managera"
+  // jest zakomentowany od 2026-05-28. Bramkę pilnuje middleware.
+};
+
+/**
+ * Pozycje bramkowane rolami, które ŚWIADOMIE nie mają wpisu w rejestrze.
+ * Lista jest zamknięta: nowa ręczna tablica `roles` w sidebarze robi czerwono,
+ * dopóki ktoś nie zdecyduje, czy to capability, czy wyjątek — i nie zapisze tej
+ * decyzji tutaj.
+ */
+const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
+  // Kolejka telefonów jest semantyką WYKONAWCZĄ (lustro backendowego
+  // `ContactCaller`), nie wejściem nawigacyjnym do modułu — patrz komentarz
+  // przy tym wpisie w middleware.ts.
+  "/candidates/contact-queue",
+  // Zgłoszenia z publicznych aplikacji: backend bramkuje je przez
+  // CandidateWriteAccess + membership do oferty, więc sama lista ról nie
+  // wystarcza do decyzji o widoczności ekranu.
+  "/applications",
+];
+
+describe("kontrakt sidebar ↔ rejestr capability", () => {
+  for (const [href, capability] of Object.entries(SIDEBAR_HREF_CAPABILITY)) {
+    it(`${href} widoczne dokładnie dla ról z ${capability}`, () => {
+      expect(sortRoles(rolesSeeingHref(href))).toEqual(
+        sortRoles(CAPABILITY_ROLES[capability]),
+      );
+    });
+  }
+
+  it("żadna NOWA pozycja sidebara nie omija rejestru", () => {
+    const gated = new Set<string>();
+    for (const role of ALL_ROLES) {
+      for (const section of visibleNavSections(
+        { role, roles: [role] },
+        { contactQueueEnabled: true },
+      )) {
+        for (const item of section.items) {
+          if (rolesSeeingHref(item.href).length < ALL_ROLES.length) {
+            gated.add(item.href);
+          }
+        }
+      }
+    }
+    const unaccounted = [...gated]
+      .filter((href) => !(href in SIDEBAR_HREF_CAPABILITY))
+      .filter((href) => !SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY.includes(href))
+      .sort();
+    expect(unaccounted).toEqual([]);
   });
 });

@@ -22,6 +22,7 @@ import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import {
   priorityWorkApi,
   priorityWorkQueryKeys,
+  type PriorityWorkMode,
 } from "@/lib/priority-work-api"
 import { hasRole, useAuthStore } from "@/store/auth"
 
@@ -32,6 +33,30 @@ import {
   PriorityWorkLoading,
   RankBadge,
 } from "./PriorityWorkPrimitives"
+
+/**
+ * Opis pod „Brak aktywnego assignmentu". MUSI zależeć od trybu: zdanie
+ * o zakazie dodawania nowych kandydatów jest prawdziwe wyłącznie w trybie
+ * `enforce`. Przy `off` polityka nie istnieje w ogóle (`decide_priority_work_
+ * _access` zwraca allowed=True/mode_off, a `ensure_job_membership` pomija
+ * gałąź priorytetową), więc karta twierdziła coś, czemu sama zaprzeczała dwie
+ * linie wyżej w `ModeNotice` — a rekruter, który w to uwierzył, przestawał
+ * sourcować na żywej rekrutacji.
+ */
+function assignmentHint(
+  mode: PriorityWorkMode,
+  carryOverCount: number,
+): string {
+  if (mode === "off") {
+    return "Priority Work jest wyłączony — nic nie ogranicza pracy na tej rekrutacji."
+  }
+  if (carryOverCount === 0) {
+    return "Nowy sourcing nie został przydzielony w bieżącym planie."
+  }
+  return mode === "shadow"
+    ? "Można obsługiwać istniejących kandydatów; dodanie nowych jest wykrywane, ale nie blokowane."
+    : "Można obsługiwać istniejących kandydatów, ale nie dodawać nowych."
+}
 
 export function JobPriorityContext({ jobId }: { jobId: number }) {
   const user = useAuthStore((state) => state.user)
@@ -51,11 +76,31 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
     queryFn: () => priorityWorkApi.getJobContext(jobId),
     enabled: hydrated && canView && Number.isFinite(jobId),
     staleTime: 60_000,
+    // Globalne `retry: 1` (QueryProvider) podwajało tu odmowy: 403 z kontroli
+    // członkostwa nie zmieni się przy ponowieniu, więc każde wejście na stronę
+    // rekrutacji spoza własnego zespołu kosztowało dwa żądania zamiast jednego.
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response
+        ?.status
+      if (status !== undefined && status >= 400 && status < 500) return false
+      return failureCount < 1
+    },
   })
 
   if (!hydrated || !canView) return null
   if (query.isPending) return <PriorityWorkLoading rows={1} />
   if (query.isError) {
+    // 403 to NIE awaria — `get_job_priority_context` woła `ensure_job_membership`,
+    // więc rekruter/sourcer/TAC/DL oglądający rekrutację, do której zespołu nie
+    // należy, dostaje odmowę zamiast danych. Strona szczegółów rekrutacji jest
+    // dla nich otwarta (GET /api/jobs/{id} nakłada tylko scope DL), więc ta
+    // gałąź malowała czerwony `role="alert"` z przyciskiem „Spróbuj ponownie",
+    // który nie ma prawa się udać, na dole WIĘKSZOŚCI stron rekrutacji. Karta
+    // nie niesie tu żadnej informacji, do której użytkownik ma prawo — nie
+    // renderujemy niczego. `WidgetErrorBlock` zostaje dla 5xx i błędów sieci.
+    const status = (query.error as { response?: { status?: number } })?.response
+      ?.status
+    if (status === 403) return null
     return (
       <Card>
         <WidgetErrorBlock
@@ -150,11 +195,7 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
               <Alert
                 variant="info"
                 title="Brak aktywnego assignmentu"
-                description={
-                  data.carry_over_count > 0
-                    ? "Można obsługiwać istniejących kandydatów, ale nie dodawać nowych."
-                    : "Nowy sourcing nie został przydzielony w bieżącym planie."
-                }
+                description={assignmentHint(mode, data.carry_over_count)}
                 icon={ClipboardList}
               />
             )}

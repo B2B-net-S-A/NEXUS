@@ -251,7 +251,13 @@ function DemandForm({
   )
 }
 
-function DemandCard({ demand }: { demand: PriorityDemand }) {
+function DemandCard({
+  demand,
+  canFulfill,
+}: {
+  demand: PriorityDemand
+  canFulfill: boolean
+}) {
   const queryClient = useQueryClient()
   const { showError, showSuccess } = useToast()
   const status = STATUS_LABELS[demand.status] ?? {
@@ -341,15 +347,24 @@ function DemandCard({ demand }: { demand: PriorityDemand }) {
               <CirclePause className="h-3.5 w-3.5" />
               Wstrzymaj
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              loading={updateMutation.isPending}
-              onClick={() => updateMutation.mutate("fulfilled")}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Oznacz jako zrealizowane
-            </Button>
+            {/* `fulfilled` to werdykt Head of Recruitment —
+                `_DEMAND_STATUS_TRANSITIONS_DL` w priority_work_service.py nie ma
+                tego celu w ŻADNYM wpisie, więc czysty Delivery Lead dostawał tu
+                422 przy każdym kliknięciu, obok legalnego „Wstrzymaj". Panel
+                renderuje się dla DL, więc przycisk pokazujemy tylko osobie,
+                która trzyma też rolę HoR — czyli dokładnie tej, której backend
+                to przejście przyznaje. */}
+            {canFulfill ? (
+              <Button
+                variant="outline"
+                size="sm"
+                loading={updateMutation.isPending}
+                onClick={() => updateMutation.mutate("fulfilled")}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Oznacz jako zrealizowane
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -420,6 +435,7 @@ export function PriorityRequestsPanel({
   const user = useAuthStore((state) => state.user)
   const hydrated = useAuthStore((state) => state.hydrated)
   const isDeliveryLead = hasRole(user, "delivery_lead")
+  const isHeadOfRecruitment = hasRole(user, "head_of_recruitment")
   const [showForm, setShowForm] = useState(false)
 
   const currentQuery = useQuery({
@@ -543,7 +559,11 @@ export function PriorityRequestsPanel({
       ) : (
         <div className="space-y-3">
           {demands.map((demand) => (
-            <DemandCard key={demand.id} demand={demand} />
+            <DemandCard
+              key={demand.id}
+              demand={demand}
+              canFulfill={isHeadOfRecruitment}
+            />
           ))}
         </div>
       )}
