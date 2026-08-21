@@ -84,6 +84,19 @@ paths = [
   '''docs/ops/actionable-messages-setup\.md''',
   '''docs/m365-phase-7\.5-actionable-messages-completion-report\.md''',
 ]
+# Linki do opublikowanych artefaktów Claude'a (raporty audytowe linkowane
+# z docs/). UUID w ścieżce URL-a ma kształt tej reguły, ale jest identyfikatorem
+# publicznej strony, nie poświadczeniem.
+#
+# Po WARTOŚCI, nie po ścieżce — z tego samego powodu, który opisuje komentarz
+# przy ``hardcoded-db-password`` niżej. Dopisanie tu
+# ``docs/tech-debt-backlog\.json`` oślepiłoby skaner na 640 KB cytatów z kodu
+# produkcyjnego, czyli na plik, w którym przypadkowy sekret jest NAJBARDZIEJ
+# prawdopodobny. Ten wpis przepuszcza wyłącznie URL-e artefaktów.
+regexTarget = "line"
+regexes = [
+  '''claude\.ai/code/artifact/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
+]
 
 [[rules]]
 id = "hardcoded-db-password"
