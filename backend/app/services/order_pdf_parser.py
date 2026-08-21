@@ -57,6 +57,7 @@ _FIELD_LABELS_PL: dict[str, str] = {
     "end_date": "data zakończenia",
     "rate_client": "stawka (klient płaci)",
     "total_value": "wartość całkowita",
+    "md_total": "liczba MD",
 }
 
 
@@ -71,6 +72,12 @@ class OrderExtraction:
     rate_unit: Optional[str] = None  # "hour" | "day" | "month" | None
     total_value: Optional[Decimal] = None
     currency: Optional[str] = None
+    md_total: Optional[Decimal] = None
+    """Liczba MD (osobodni) objęta zamówieniem. Wielkość OPERACYJNA, nie
+    finansowa — nie podlega redakcji dla ról bez ``VIEW_FINANCE``, bo to
+    właśnie Delivery Lead ma ją wpisać do formularza (reguła z ``CLAUDE.md``:
+    „Liczby MD są operacyjne, nie finansowe")."""
+
     confidence: dict[str, float] = field(default_factory=dict)
     uncertain: bool = True
     uncertain_reasons: list[str] = field(default_factory=list)
@@ -196,7 +203,14 @@ def _assess_uncertainty(
         reasons.append("Nie znaleziono daty rozpoczęcia")
     # end_date=None może być świadomie open-ended → nie wymuszamy braku jako błędu.
 
-    for name in ("title", "start_date", "end_date", "rate_client", "total_value"):
+    for name in (
+        "title",
+        "start_date",
+        "end_date",
+        "rate_client",
+        "total_value",
+        "md_total",
+    ):
         val = getattr(result, name)
         conf = result.confidence.get(name)
         if val is not None and conf is not None and conf < _LOW_CONFIDENCE:
@@ -229,6 +243,7 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
         rate_unit=_clean_unit(data.get("rate_unit")),
         total_value=_normalize_amount(data.get("total_value")),
         currency=_clean_currency(data.get("currency")),
+        md_total=_normalize_amount(data.get("md_total")),
         confidence=conf,
         source=source,
     )
@@ -303,6 +318,15 @@ _AMOUNT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Liczba MD podana wprost. Jednostka MUSI stać po liczbie — sam kontekst
+# („zamówienie na 120") jest nieodróżnialny od numeru albo kwoty, a wpisanie
+# przypadkowej liczby do budżetu jest gorsze niż zostawienie pola pustym.
+_MD_COUNT_RE = re.compile(
+    r"(\d[\d\u00a0 ]*(?:[.,]\d{1,2})?)\s*"
+    r"(?:md\b|osobodni|osobodnia|osobodzie\u0144|man[- ]?days?|dni\s+roboczych)",
+    re.IGNORECASE,
+)
+
 
 def _extract_with_regex(text: str) -> OrderExtraction:
     result = OrderExtraction(source="regex", uncertain=True)
@@ -329,6 +353,10 @@ def _extract_with_regex(text: str) -> OrderExtraction:
     a = _AMOUNT_RE.search(text)
     if a:
         result.rate_client = _normalize_amount(a.group(1))
+
+    md = _MD_COUNT_RE.search(text)
+    if md:
+        result.md_total = _normalize_amount(md.group(1))
 
     result.uncertain_reasons = ["Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola"]
     return result

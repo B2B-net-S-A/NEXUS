@@ -1,10 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Download, ExternalLink, Loader2, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  ExternalLink,
+  FileSearch,
+  Loader2,
+} from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { FileDropZone } from "@/components/ds/FileDropZone";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { ClientOrderRead, ClientOrderUpdate } from "@/lib/api/dlPortal";
@@ -15,6 +22,7 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { downloadOrderDocument, openOrderDocument } from "@/lib/order-documents";
+import { extractionErrorMessage } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 /** Serwerowy limit z `client_orders.py` (MAX_UPLOAD_BYTES). */
@@ -53,7 +61,6 @@ export function EditOrderDialog({
   onSaved,
 }: EditOrderDialogProps) {
   const { showToast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const ezdrowie = isEzdrowieClient(clientId);
 
   const [title, setTitle] = useState(order.title);
@@ -71,6 +78,39 @@ export function EditOrderDialog({
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
 
+  // „Zczytaj dane z dokumentu" — ta sama funkcja co w przedłużeniu, ta sama
+  // implementacja odczytu (`lib/order-extraction.ts`). W TYM widoku odczyt
+  // NADPISUJE ręczne wpisy bez pytania — ticket żąda tego wprost, także dla
+  // pól „Start"/„Koniec". Pytanie „Tak/Nie" jest zarezerwowane dla widoku
+  // wielo-konsultantowego; ujednolicenie byłoby złamaniem jednego z ticketów.
+  const [extracting, setExtracting] = useState(false);
+  const [checkData, setCheckData] = useState(false);
+  const [checkReasons, setCheckReasons] = useState<string[]>([]);
+
+  async function handleExtract() {
+    if (!file || extracting) return;
+    setExtracting(true);
+    try {
+      const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
+      if (data.title) setTitle(data.title);
+      if (data.start_date) setStartDate(normalizeDateInput(data.start_date));
+      if (data.end_date) setEndDate(normalizeDateInput(data.end_date));
+      if (canManageFinance && data.rate_client != null) {
+        setRateRevenue(String(data.rate_client));
+      }
+      setCheckData(Boolean(data.uncertain));
+      setCheckReasons(data.uncertain_reasons ?? []);
+      showToast("Odczytano dane z dokumentu", "success");
+    } catch (err: unknown) {
+      showToast(
+        extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
+        "error",
+      );
+    } finally {
+      setExtracting(false);
+    }
+  }
+
   const docRef = {
     order_id: order.id,
     client_id: order.client_id,
@@ -79,22 +119,14 @@ export function EditOrderDialog({
   };
 
   function pickFile(picked: File | null) {
+    // Dodanie pliku NIE zmienia żadnego pola — odczyt jest osobną, świadomą
+    // akcją. Czyścimy tylko baner z poprzedniego odczytu. Walidację
+    // rozszerzenia i rozmiaru robi `FileDropZone`, ta sama dla wyboru z okna
+    // i dla przeciągnięcia.
     setFileError("");
-    if (!picked) {
-      setFile(null);
-      return;
-    }
-    if (!picked.name.toLowerCase().endsWith(".pdf")) {
-      setFileError("Dozwolone są wyłącznie pliki PDF.");
-      setFile(null);
-      return;
-    }
-    if (picked.size > MAX_UPLOAD_BYTES) {
-      setFileError("Plik przekracza 25 MB.");
-      setFile(null);
-      return;
-    }
     setFile(picked);
+    setCheckData(false);
+    setCheckReasons([]);
   }
 
   const mutation = useMutation({
@@ -120,7 +152,9 @@ export function EditOrderDialog({
     onSuccess: () => {
       showToast("Zamówienie zaktualizowane", "success");
       // Bez tego ponowny wybór TEGO SAMEGO pliku nie odpali zdarzenia change.
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      // Reset wybranego pliku po zapisie — `FileDropZone` sam czyści swój
+      // input, gdy `file` wraca na `null`.
+      setFile(null);
       onSaved();
     },
     onError: (err: unknown) => {
@@ -184,6 +218,30 @@ export function EditOrderDialog({
       }
     >
       <div className="space-y-4">
+        {/* Baner NAD tytułem — tak samo jak w przedłużeniu; to pierwsze, co
+            widać po odczycie, więc ostrzeżenie nie może być pod formularzem. */}
+        {checkData && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900"
+          >
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-orange-500"
+              aria-hidden
+            />
+            <div>
+              <p className="font-semibold">Sprawdź dane!</p>
+              {checkReasons.length > 0 && (
+                <ul className="mt-1 list-disc pl-4">
+                  {checkReasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+
         <label className="block">
           <span className="text-sm font-medium">Numer zamówienia</span>
           <input
@@ -318,33 +376,26 @@ export function EditOrderDialog({
             </div>
           )}
 
-          <label
-            htmlFor="order-po-input"
-            className="flex items-center gap-3 w-full cursor-pointer rounded-lg border-2 border-dashed border-border bg-muted/40 px-4 py-3 hover:bg-muted/60 transition-colors"
-          >
-            <Upload className="w-5 h-5 text-muted-foreground shrink-0" aria-hidden />
-            <div className="min-w-0">
-              <div className="text-sm font-medium">
-                {order.has_file ? "Zamień plik PDF" : "Dodaj plik PDF"}
-              </div>
-              <div className="text-xs text-muted-foreground truncate">
-                {file ? file.name : "Kliknij, aby wybrać. PDF, maks. 25 MB."}
-              </div>
-            </div>
-          </label>
-          <input
-            id="order-po-input"
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,application/pdf"
-            className="sr-only"
-            onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+          <FileDropZone
+            inputId="order-po-input"
+            file={file}
+            onPick={pickFile}
+            onError={setFileError}
+            error={fileError || null}
+            accept=".pdf"
+            maxBytes={MAX_UPLOAD_BYTES}
+            label={order.has_file ? "Zamień plik PDF" : "Dodaj plik PDF"}
+            hint="PDF · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
           />
-          {fileError && (
-            <p className="text-xs text-destructive" role="alert">
-              {fileError}
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={handleExtract}
+            disabled={!file || extracting}
+            className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            <FileSearch className="w-4 h-4" aria-hidden />
+            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+          </button>
         </div>
       </div>
     </AppModal>

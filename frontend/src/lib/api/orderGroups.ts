@@ -33,7 +33,17 @@ export interface OrderLineRead {
   md_manual_adjustment: number | null;
   predecessor_order_id: number | null;
   predecessor_consultant_name: string | null;
+  /** Zamówienie kosztowe: suma PEŁNYCH kwot faktur tej osoby.
+   *  `null` = linia nie jest na zamówieniu kosztowym; `0` = jest, ale nic
+   *  jeszcze nie zafakturowano (te dwa stany renderują się inaczej). */
+  invoiced_total: number | null;
+  /** Ile z faktur tej osoby nie zmieściło się w budżecie zamówienia. */
+  unsettled_total: number | null;
+  /** Ostatni zaimportowany miesiąc bez zejścia dla tej linii („2026-07"). */
+  missing_consumption_month: string | null;
 }
+
+export type OrderGroupStatus = "active" | "completed" | "exhausted";
 
 export interface OrderGroupRead {
   id: number;
@@ -43,6 +53,25 @@ export interface OrderGroupRead {
   end_date: string | null;
   notes: string | null;
   created_at: string;
+
+  status: OrderGroupStatus;
+  status_label: string;
+  closure_date: string | null;
+  closure_reason: string | null;
+
+  is_cost_based: boolean;
+  /** Trzy liczby, nie jedna: kwota / wykorzystano / pozostało. Ticket nazywa
+   *  „zużyciem" wartość, która maleje — czyli resztę; jedno pole podpisane
+   *  „zużycie", a pokazujące resztę, myli w rozmowie o pieniądzach. */
+  budget_amount: number | null;
+  budget_used: number | null;
+  budget_remaining: number | null;
+  budget_manual_adjustment: number | null;
+  predecessor_group_id: number | null;
+  /** Wyliczane serwerowo — front nie zna reguły „wyczerpane blokuje dodawanie",
+   *  a przycisk kończący się 409 czyta się jak „zapis nie działa". */
+  can_add_consultant: boolean;
+
   lines: OrderLineRead[];
   active_consultants: number;
   event_count: number;
@@ -65,12 +94,39 @@ export interface OrderGroupEvent {
   created_at: string;
 }
 
+/** Skąd pochodzi osoba na liście wyboru konsultanta. */
+export type ConsultantOptionSource = "client_recruitment" | "nexus_base";
+
+export interface ConsultantOption {
+  candidate_id: number;
+  /** `null` = osoba bez kontraktu u tego klienta; zapis linii go założy. */
+  contract_id: number | null;
+  full_name: string;
+  first_name: string;
+  last_name: string;
+  source: ConsultantOptionSource;
+  /** Etykieta z serwera — front jej NIE tłumaczy, żeby nie rozjechała się
+   *  z tekstem zapisywanym do historii zamówienia. */
+  source_label: string;
+  job_title: string | null;
+}
+
+export interface ConsultantOptionsResponse {
+  options: ConsultantOption[];
+  /** Wszyscy pasujący, także poza `limit` — służy do ostrzeżenia o przycięciu. */
+  total: number;
+}
+
 export interface OrderLineInput {
-  contract_id: number;
+  /** Dokładnie jedno z pól: kontrakt u tego klienta ALBO osoba z bazy Nexus. */
+  contract_id?: number | null;
+  candidate_id?: number | null;
   rate_cost: number;
   rate_revenue: number;
-  input_mode: OrderInputMode;
-  input_value: number;
+  /** Budżet MD. Pomijany na zamówieniu KOSZTOWYM — tam pula jest wspólna
+   *  i mieszka na zamówieniu, a nie przy osobie (backend odrzuca komplet). */
+  input_mode?: OrderInputMode | null;
+  input_value?: number | null;
   start_date: string;
   end_date?: string | null;
   job_id?: number | null;
@@ -81,6 +137,31 @@ export interface OrderGroupInput {
   start_date: string;
   end_date?: string | null;
   notes?: string | null;
+  is_cost_based?: boolean;
+  budget_amount?: number | null;
+  lines?: OrderLineInput[];
+}
+
+export interface OrderGroupPatch {
+  order_number?: string;
+  start_date?: string;
+  end_date?: string | null;
+  notes?: string | null;
+  budget_amount?: number | null;
+  budget_manual_adjustment?: number | null;
+}
+
+export interface OrderGroupCloseInput {
+  closure_date: string;
+  closure_reason?: string | null;
+}
+
+export interface OrderGroupExtendInput {
+  order_number: string;
+  start_date: string;
+  end_date?: string | null;
+  notes?: string | null;
+  budget_amount?: number | null;
   lines?: OrderLineInput[];
 }
 
@@ -104,6 +185,14 @@ export interface SwapConsultantInput {
 
 export type ImportRowStatus = "applied" | "needs_assignment" | "unmatched";
 
+/** Wynik dopasowania KOSZTOWEGO — niezależny od `status` (dopasowanie MD po
+ *  nazwisku). `null` = wiersz nie dotyczy zamówień kosztowych, co jest czym
+ *  innym niż „nie udało się dopasować". */
+export type ImportCostStatus =
+  | "applied"
+  | "unmatched_number"
+  | "unmatched_consultant";
+
 export interface ImportLineOption {
   order_id: number;
   order_number: string;
@@ -124,6 +213,11 @@ export interface ImportRow {
   matched: ImportLineOption | null;
   options: ImportLineOption[];
   resolved_at: string | null;
+  notes_raw: string | null;
+  order_number_hint: string | null;
+  invoice_amount: number | null;
+  cost_status: ImportCostStatus | null;
+  cost_status_label: string | null;
 }
 
 export interface ImportSummary {
@@ -134,6 +228,8 @@ export interface ImportSummary {
   rows_applied: number;
   rows_ambiguous: number;
   rows_unmatched: number;
+  rows_cost_applied: number;
+  rows_cost_unmatched: number;
   uploaded_by_user_id: number | null;
   created_at: string;
 }
@@ -151,14 +247,51 @@ export const orderGroupsApi = {
   create: (clientId: number, payload: OrderGroupInput) =>
     api.post<OrderGroupRead>(`/api/clients/${clientId}/order-groups`, payload),
 
-  update: (clientId: number, groupId: number, payload: Partial<OrderGroupInput>) =>
+  update: (clientId: number, groupId: number, payload: OrderGroupPatch) =>
     api.patch<OrderGroupRead>(
       `/api/clients/${clientId}/order-groups/${groupId}`,
       payload,
     ),
 
+  /** Kasuje zamówienie WRAZ z liniami. Linia z historią (plik PO, zużycie MD,
+   *  faktury) jest odpinana od zamówienia, nie kasowana — decyduje o tym
+   *  serwer, front nie musi znać tej reguły. */
   remove: (clientId: number, groupId: number) =>
     api.delete(`/api/clients/${clientId}/order-groups/${groupId}`),
+
+  removeLine: (clientId: number, groupId: number, lineId: number) =>
+    api.delete(
+      `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}`,
+    ),
+
+  close: (clientId: number, groupId: number, payload: OrderGroupCloseInput) =>
+    api.post<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/close`,
+      payload,
+    ),
+
+  reopen: (clientId: number, groupId: number) =>
+    api.post<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/reopen`,
+      {},
+    ),
+
+  extend: (clientId: number, groupId: number, payload: OrderGroupExtendInput) =>
+    api.post<OrderGroupRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/extend`,
+      payload,
+    ),
+
+  /** Kogo można dołożyć do zamówienia: osoby z kontraktem u tego klienta
+   *  ORAZ pozostali aktywni konsultanci z bazy — jedna lista, z etykietą
+   *  pochodzenia przy każdej pozycji. Filtrowanie po `q` robi SERWER, więc
+   *  ostrzeżenie o przycięciu (`total`) dotyczy wyniku wyszukiwania, a nie
+   *  przypadkowego okna pobranych wierszy. */
+  consultantOptions: (clientId: number, q: string, limit = 100) =>
+    api.get<ConsultantOptionsResponse>(
+      `/api/clients/${clientId}/order-groups/consultant-options`,
+      { params: { q, limit } },
+    ),
 
   addLine: (clientId: number, groupId: number, payload: OrderLineInput) =>
     api.post<OrderLineRead>(

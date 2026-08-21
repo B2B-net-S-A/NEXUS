@@ -43,19 +43,83 @@ def hybrid_pool_enabled() -> bool:
     return bool(getattr(settings, "HYBRID_POOL_ENABLED", False))
 
 
+def multi_query_enabled() -> bool:
+    return bool(getattr(settings, "MULTI_QUERY_RETRIEVAL_ENABLED", False))
+
+
+async def _multi_query_pool(
+    query_text: str,
+    variants: list[str],
+    *,
+    top_k: int,
+    raise_on_error: bool,
+) -> list[dict]:
+    """Unia pul z zapytania głównego i wariantów — członkostwo z unii,
+    podobieństwo z zapytania GŁÓWNEGO.
+
+    Ta sama zasada co przy hybrydzie (docstring modułu): kosinusy względem
+    różnych tekstów żyją na różnych skalach, a `similarity_map` konsumowana
+    przez warstwę semantyczną jest kalibrowana pod jedną. Kandydat dosypany
+    przez wariant dostaje więc kosinus policzony względem tekstu głównego —
+    dlatego flaga NIE wchodzi do `_SCORING_CACHE_INPUTS` (zmienia się tylko
+    to, KOGO oglądamy, nie jak liczymy).
+    """
+    primary = await _embedding.search_candidates_semantic(
+        query_text, top_k=top_k, raise_on_error=raise_on_error
+    )
+    pool_by_id: dict[int, float] = {
+        int(h["candidate_id"]): float(h["score"]) for h in primary
+    }
+
+    extra_ids: set[int] = set()
+    for variant in variants:
+        try:
+            hits = await _embedding.search_candidates_semantic(
+                variant, top_k=top_k, raise_on_error=False
+            )
+        except Exception:  # pragma: no cover — kontrakt raise_on_error=False
+            hits = []
+        for h in hits:
+            cid = int(h["candidate_id"])
+            if cid not in pool_by_id:
+                extra_ids.add(cid)
+
+    if extra_ids:
+        try:
+            cosine_by_id = await _embedding.similarity_for_candidate_ids(
+                query_text, sorted(extra_ids)
+            )
+        except Exception:
+            if raise_on_error:
+                raise
+            # Dosypka kosinusów padła — kandydaci z wariantów wchodzą z 0.0
+            # (semantyka „brak sygnału", nie wykluczenie), jak w hybrydzie.
+            logger.exception(
+                "[retrieval-pool] multi-query: kosinusy dla wariantów niedostępne"
+            )
+            cosine_by_id = {}
+        for cid in extra_ids:
+            pool_by_id[cid] = float(cosine_by_id.get(cid) or 0.0)
+
+    ranked = sorted(pool_by_id.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+    return [{"candidate_id": cid, "score": score} for cid, score in ranked]
+
+
 async def retrieve_candidate_pool(
     db: AsyncSession,
     query_text: str,
     *,
     top_k: int,
     raise_on_error: bool = False,
+    query_variants: list[str] | None = None,
+    bm25_query: str | None = None,
 ) -> list[dict]:
     """Zwróć pulę kandydatów w kształcie `[{candidate_id, score}]`.
 
-    Kontrakt zwrotu jest IDENTYCZNY z `search_candidates_semantic`, żeby cztery
-    miejsca wywołania (rekomendacje, Talent Radar, propozycje, eval) nie musiały
-    wiedzieć, która strategia jest pod spodem. `score` to zawsze kosinus — patrz
-    docstring modułu.
+    Kontrakt zwrotu jest IDENTYCZNY z `search_candidates_semantic`, żeby pięć
+    miejsc wywołania (rekomendacje, Talent Radar, propozycje, digest, eval) nie
+    musiało wiedzieć, która strategia jest pod spodem. `score` to zawsze
+    kosinus — patrz docstring modułu.
 
     `raise_on_error` obowiązuje na OBU ścieżkach. Konsumenci fasady (poza
     harnessem ewaluacyjnym) wołają z domyślnym `False` i liczą na łagodną
@@ -63,9 +127,32 @@ async def retrieve_candidate_pool(
     rekomendacjach. Flip flagi nie może tego kontraktu unieważnić.
 
     Flaga wyłączona ⇒ dosłownie dzisiejsza ścieżka, wywołanie za wywołanie.
+
+    `query_variants` (runda 2): dodatkowe sformułowania zapytania dla unii pul
+    przy `MULTI_QUERY_RETRIEVAL_ENABLED` — patrz `_multi_query_pool`. Ścieżka
+    hybrydowa je ignoruje, bo dokładne tokeny wnosi jej własna noga BM25 —
+    ale patrz akapit niżej: musi je najpierw DOSTAĆ.
+
+    `bm25_query` (C12): wejście dla nogi BM25, ZAWSZE różne od `query_text`.
+    `query_text` tej fasady jest dokumentem (wszystkich pięciu callerów buduje
+    go `_build_job_text`), a `websearch_to_tsquery` ANDuje leksemy — dokument
+    dawał więc ZERO trafień BM25 dla każdej oferty, przez cały czas istnienia
+    hybrydy. Poprzednia wersja tego docstringa twierdziła, że „hybryda ma
+    własną nogę BM25 na dokładne tokeny"; nie miała.
+
+    Brak `bm25_query` ⇒ przekazujemy "" ⇒ nogi BM25 się nie pyta. To
+    ŚWIADOMIE inna domyślna niż w `hybrid_candidates` (tam `None` znaczy „użyj
+    query", bo tam `query` bywa prawdziwym zapytaniem rekrutera).
     """
 
     if not hybrid_pool_enabled():
+        if multi_query_enabled() and query_variants:
+            return await _multi_query_pool(
+                query_text,
+                query_variants,
+                top_k=top_k,
+                raise_on_error=raise_on_error,
+            )
         return await _embedding.search_candidates_semantic(
             query_text, top_k=top_k, raise_on_error=raise_on_error
         )
@@ -74,7 +161,12 @@ async def retrieve_candidate_pool(
 
     try:
         hybrid = await hybrid_candidates(
-            db, query_text, pool=top_k, final_top_k=top_k, use_rerank=None
+            db,
+            query_text,
+            pool=top_k,
+            final_top_k=top_k,
+            use_rerank=None,
+            bm25_query=bm25_query or "",
         )
     except Exception:
         if raise_on_error:
@@ -90,6 +182,18 @@ async def retrieve_candidate_pool(
         return await _embedding.search_candidates_semantic(
             query_text, top_k=top_k, raise_on_error=False
         )
+    # Trzy stany nogi BM25 są rozróżnialne CELOWO — mają różne diagnozy:
+    # `bm25=n/d` w każdym wierszu = ktoś zapomniał `bm25_query` na callsicie
+    # (pula jedzie na samym wektorze, cicho); `bm25=0` w każdym wierszu =
+    # terminy są, ale nie trafiają — to już pytanie o taksonomię, nie o kod.
+    if hybrid.bm25_failed:
+        logger.error("[retrieval-pool] noga BM25 padła — pula wyłącznie z wektora")
+    logger.info(
+        "[retrieval-pool] hybryda: bm25=%s dense_degraded=%s pula=%s",
+        "n/d" if hybrid.bm25_hits is None else hybrid.bm25_hits,
+        hybrid.degraded,
+        len(hybrid.pairs),
+    )
     ids = [candidate_id for candidate_id, _ in hybrid.pairs]
     if hybrid.degraded:
         # Noga wektorowa padła — ranking oparł się na samym BM25. To nadal

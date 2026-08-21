@@ -29,6 +29,7 @@ import {
   StatsBoundary,
   type StatsBoundaryState,
 } from "@/components/v2/dashboard/StatsBoundary"
+import { DlAlertsSection } from "@/components/v2/dashboard/DlAlertsSection"
 import {
   getDashboardV2,
   type DashboardAlert,
@@ -465,6 +466,12 @@ export function DashboardV2Preset({
             <QueueList items={query.data.data.queue} />
             <AlertsList alerts={query.data.data.alerts} />
           </div>
+
+          {/* Sekcja „Powiadomienia" — TYLKO preset Delivery Leada. Dla
+              pozostałych byłaby pusta z definicji: wpisy powstają dla DL
+              przypisanych do klienta, a pusta sekcja na cudzym pulpicie czyta
+              się jak awaria, nie jak „to nie o tobie". */}
+          {preset === "delivery-lead" ? <DlAlertsSection /> : null}
 
           <Board preset={preset} response={query.data} />
         </div>

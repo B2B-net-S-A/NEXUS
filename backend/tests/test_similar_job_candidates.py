@@ -814,3 +814,227 @@ async def test_flags_default_false_without_target_client() -> None:
     )
     assert results[0].same_client is False
     assert results[0].rejected_by_same_client is False
+
+
+# ── Bramka dopuszczalności na endpoincie (2026-08-20) ────────────────────────
+#
+# `_rank_candidates_from_similar` odsiewa wyłącznie blacklistę GLOBALNĄ i nie ma
+# dostępu do `job`, więc aktywny konflikt z klientem TEJ oferty (blacklista
+# klienta, NDA, konkurent) oraz weto hiring managera przechodziły przez tę
+# sekcję na wylot. A to sekcja, która z definicji celuje w ludzi już
+# rozważanych u tego klienta — czyli w populację, w której takie blokady
+# siedzą najgęściej.
+#
+# Testy patchują `fetch_historical_candidates` (bo ranking wymaga Qdranta), ale
+# kandydaci i konflikty są PRAWDZIWYMI wierszami — bramka biegnie po realnym
+# `candidate_conflicts`, czyli po ścieżce, na której siedział defekt.
+
+
+def _hist_candidate(candidate_id: int) -> sjc.HistoricalCandidate:
+    now = datetime.now(timezone.utc)
+    return sjc.HistoricalCandidate(
+        candidate_id=candidate_id,
+        historical_score=1.0,
+        tier="A",
+        negative_signal=False,
+        sources=(
+            sjc.HistoricalSource(
+                job_id=999,
+                job_title="Poprzedni request",
+                stage=PipelineStage.cv_sent,
+                similarity=0.85,
+                months_ago=2.0,
+                moved_at=now,
+                stage_weight=0.5,
+                contribution=0.4,
+                client_id=None,
+            ),
+        ),
+    )
+
+
+async def _seed_job_with_candidates(*, blocked_count: int, total: int = 2):
+    """Klient + oferta + `total` kandydatów, z czego `blocked_count` z NDA."""
+    import uuid as _uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.candidate_conflict import CandidateConflict, ConflictType
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    unique = _uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"SimilarGate-{unique}")
+        db.add(cli)
+        await db.flush()
+        job = Job(
+            title=f"pytest-similar-gate-{unique}",
+            description="pytest sentinel",
+            status=JobStatus.draft,
+            client_id=cli.id,
+            hiring_manager_contact_id=None,
+        )
+        db.add(job)
+        cands = [
+            # Status `active`, NIE `blacklisted`: globalną blacklistę odsiewa już
+            # serwis, więc taki seed nie dowodziłby niczego o nowej bramce.
+            Candidate(
+                name=f"Hist{i}",
+                lastname=f"Kandydat{unique}",
+                email=f"hist-{i}-{unique}@example.com",
+                status=CandidateStatus.active,
+            )
+            for i in range(total)
+        ]
+        db.add_all(cands)
+        await db.flush()
+        for c in cands[:blocked_count]:
+            db.add(
+                CandidateConflict(
+                    candidate_id=c.id,
+                    client_id=cli.id,
+                    type=ConflictType.nda,
+                    reason="pytest — NDA u klienta oferty",
+                    active=True,
+                )
+            )
+        await db.commit()
+        return job.id, cli.id, [c.id for c in cands]
+
+
+async def _cleanup(job_id: int, client_id: int, cand_ids: list[int]) -> None:
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.candidate_conflict import CandidateConflict
+    from app.models.client import Client
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(CandidateConflict).where(CandidateConflict.client_id == client_id)
+        )
+        await db.execute(delete(Candidate).where(Candidate.id.in_(cand_ids)))
+        await db.execute(delete(Job).where(Job.id == job_id))
+        await db.execute(delete(Client).where(Client.id == client_id))
+        await db.commit()
+
+
+def _patched_fetch(ranked: list[sjc.HistoricalCandidate]):
+    refs = [sjc.SimilarJobRef(job_id=999, title="Poprzedni", similarity=0.9, tier="A")]
+    return AsyncMock(return_value=(ranked, refs, "primary"))
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_ineligible_candidate_from_history_is_not_returned(
+    app_client, app_auth_headers
+) -> None:
+    job_id, client_id, cand_ids = await _seed_job_with_candidates(blocked_count=1)
+    blocked_id, clean_id = cand_ids[0], cand_ids[1]
+    try:
+        with patch(
+            "app.api.recommendations.fetch_historical_candidates",
+            new=_patched_fetch([_hist_candidate(i) for i in cand_ids]),
+        ):
+            r = await app_client.get(
+                f"/api/jobs/{job_id}/candidates-from-similar",
+                headers=app_auth_headers,
+            )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        returned = [c["candidate_id"] for c in body["candidates"]]
+        assert blocked_id not in returned, (
+            "kandydat z aktywnym NDA u klienta tej oferty trafił do sekcji, "
+            "z której bulk-select przepina ludzi jednym kliknięciem"
+        )
+        assert clean_id in returned
+        assert body["meta"]["hidden_ineligible"] == 1
+    finally:
+        await _cleanup(job_id, client_id, cand_ids)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_meta_says_why_the_section_is_empty(app_client, app_auth_headers) -> None:
+    """Bez tego pusta sekcja i „nie ma historii" są nierozróżnialne.
+
+    Front nie miałby na czym oprzeć komunikatu, a rekruter zobaczyłby „brak
+    kandydatów w historii" tam, gdzie historia jest akurat najgęstsza.
+    """
+    job_id, client_id, cand_ids = await _seed_job_with_candidates(blocked_count=2)
+    try:
+        with patch(
+            "app.api.recommendations.fetch_historical_candidates",
+            new=_patched_fetch([_hist_candidate(i) for i in cand_ids]),
+        ):
+            r = await app_client.get(
+                f"/api/jobs/{job_id}/candidates-from-similar",
+                headers=app_auth_headers,
+            )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["candidates"] == []
+        assert body["meta"]["hidden_ineligible"] == 2
+        assert body["meta"]["reason_if_empty"] == "all_hidden_by_eligibility"
+    finally:
+        await _cleanup(job_id, client_id, cand_ids)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_vanished_candidate_is_not_counted_as_hidden(
+    app_client, app_auth_headers
+) -> None:
+    """Licznik liczy po ZHYDRATOWANYCH wierszach, nie po `cand_ids`.
+
+    Wiersz skasowany w międzyczasie nie jest „zablokowany dla tego klienta" —
+    liczenie go jako ukrytego byłoby kłamstwem w drugą stronę i zapaliłoby
+    we froncie komunikat o blokadzie tam, gdzie blokady nie ma.
+    """
+    job_id, client_id, cand_ids = await _seed_job_with_candidates(blocked_count=0)
+    ghost_id = max(cand_ids) + 10_000_000
+    try:
+        with patch(
+            "app.api.recommendations.fetch_historical_candidates",
+            new=_patched_fetch([_hist_candidate(ghost_id)]),
+        ):
+            r = await app_client.get(
+                f"/api/jobs/{job_id}/candidates-from-similar",
+                headers=app_auth_headers,
+            )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["candidates"] == []
+        assert body["meta"]["hidden_ineligible"] == 0
+        assert body["meta"]["reason_if_empty"] != "all_hidden_by_eligibility"
+    finally:
+        await _cleanup(job_id, client_id, cand_ids)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_no_similar_jobs_keeps_meta_default(app_client, app_auth_headers) -> None:
+    """Wczesny return (brak podobnych ofert) nie musi znać nowego pola.
+
+    Guard na addytywność kontraktu: default `0` sprawia, że dodanie licznika nie
+    wymaga dotykania wszystkich `return`-ów.
+    """
+    job_id, client_id, cand_ids = await _seed_job_with_candidates(blocked_count=0)
+    try:
+        with patch.object(
+            sjc, "search_similar_jobs_by_job_id", new=AsyncMock(return_value=[])
+        ):
+            r = await app_client.get(
+                f"/api/jobs/{job_id}/candidates-from-similar",
+                headers=app_auth_headers,
+            )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["tier_used"] == "empty"
+        assert body["meta"]["hidden_ineligible"] == 0
+        assert body["meta"]["reason_if_empty"] == "no_similar_jobs_found"
+    finally:
+        await _cleanup(job_id, client_id, cand_ids)

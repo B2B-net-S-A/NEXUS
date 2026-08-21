@@ -284,9 +284,10 @@ async def _reembed_candidates(
                 dict(
                     id=int(c.id),
                     vector=emb,
+                    # Bez "name" — parytet z embed_candidate (runda 2): nikt
+                    # nie czyta go z payloadu, a PII w indeksie to koszt RODO.
                     payload={
                         "candidate_id": int(c.id),
-                        "name": f"{c.name or ''} {c.lastname or ''}".strip(),
                         "competence_category": c.competence_category or "",
                     },
                 )
@@ -437,6 +438,15 @@ async def _reembed_jobs(
 def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--target", choices=["candidates", "jobs", "all"], default="all")
+    p.add_argument(
+        "--ensure-collection",
+        action="store_true",
+        help=(
+            "utwórz kolekcje z init_qdrant_collection() przed biegiem — "
+            "potrzebne przy budowie kolekcji side-by-side "
+            "(QDRANT_COLLECTION wskazuje nową, jeszcze nieistniejącą)"
+        ),
+    )
     p.add_argument("--commit", action="store_true", help="actually call Voyage + upsert Qdrant")
     p.add_argument("--dry-run", action="store_true", help="count only, no API calls")
     p.add_argument(
@@ -480,6 +490,11 @@ async def _main(args: argparse.Namespace) -> int:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    if args.ensure_collection:
+        from app.services.embedding_service import init_qdrant_collection
+
+        init_qdrant_collection()
 
     if args.prune_orphans:
         # Runs INSTEAD of embedding: deleting and writing are different risks,

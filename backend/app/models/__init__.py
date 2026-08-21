@@ -242,10 +242,12 @@ from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
 from app.models.md_consumption import (
+    ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     MdConsumptionImport,
     MdConsumptionImportRow,
 )
+from app.models.dl_alert import DlAlert
 from app.models.finance import (
     FinanceImportRun,
     FinanceImportRunStatus,
@@ -486,7 +488,9 @@ __all__ = [
     "ClientOrder",
     "ClientOrderGroup",
     "ClientOrderGroupEvent",
+    "ClientOrderInvoiceConsumption",
     "ClientOrderMdConsumption",
+    "DlAlert",
     "ClientOrderStatus",
     "MdConsumptionImport",
     "MdConsumptionImportRow",

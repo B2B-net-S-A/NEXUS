@@ -93,15 +93,23 @@ UNKNOWN_NEUTRAL_FRACTION: float = float(
 # Keep SKILLS_MAX at 30 (must=20, nice=10) so Phase 2 unit tests that assert
 # specific point sums remain green. We subtract the 10pt Champion budget from
 # semantic/salary/location instead.
-SEMANTIC_MAX = 35.0
-SKILLS_MAX = 30.0
-SKILLS_MUST_MAX = 20.0
-SKILLS_NICE_MAX = 10.0
-SALARY_MAX = 12.0
-LOCATION_MAX = 8.0
-AVAILABILITY_MAX = 5.0
+# 60/10/15/5/0 (+champion 10) od 18.08.2026 — LTR-lite: pełny simpleks 7315
+# wektorów na zrzucie warstw zbioru ROZŁĄCZNEGO (scripts/weight_search),
+# nominacja zwalidowana prawdziwym biegiem na zamrożonych 50: P@5 +2%,
+# R@20n +4%, MRR +6% vs 45/25/10/8/2. Dostępność 0 spójna z podwójnym NO-GO
+# tej warstwy (fallback −24%, konflikt −4% R@20n). Historia: 35/30/12/8/5
+# → 45/25/10/8/2 (17.08, siatka 7 profili) → obecne.
+SEMANTIC_MAX = 60.0
+SKILLS_MAX = 10.0
+# Pochodne z SKILLS_MAX (klasyczny podział 2:1), nie osobne literały — przy
+# strojeniu wag rozjeżdżały się z budżetem warstwy (zostały 20/10 przy 25).
+SKILLS_MUST_MAX = SKILLS_MAX * (2.0 / 3.0)
+SKILLS_NICE_MAX = SKILLS_MAX * (1.0 / 3.0)
+SALARY_MAX = 15.0
+LOCATION_MAX = 5.0
+AVAILABILITY_MAX = 0.0
 CHAMPION_FIT_MAX = 10.0
-# sum = 35 + 30 + 12 + 8 + 5 + 10 = 100
+# sum = 60 + 10 + 15 + 5 + 0 + 10 = 100
 
 
 @dataclass(frozen=True)
@@ -188,13 +196,24 @@ class WeightProfile:
 # 0150 did a mass invalidation); a third time was only a matter of when.
 _SCORING_CACHE_INPUTS: tuple[str, ...] = (
     "CHAMPION_MATCH_SIGNALS_ENABLED",
-    "CHAMPION_SIGNALS_V11_ENABLED",
+    "CHAMPION_SENIORITY_PENALTY_ENABLED",
+    "CHAMPION_AVAILABILITY_FALLBACK_ENABLED",
+    "CHAMPION_AVAILABILITY_CONFLICT_ENABLED",
+    # 4a: rozszerzenie taksonomii zmienia derived-must (regex z ALIAS_MAP),
+    # a więc warstwę skills każdego composite'u.
+    "SKILL_ALIAS_EXTENDED_ENABLED",
     "AI_SCORING_CONTRACT_V2",
     "VOYAGE_MODEL",
     "SEMANTIC_CALIBRATION_GAMMA",
     "SCORE_UNKNOWN_NEUTRAL_FRACTION",
     # Changes the embedding TEXT, hence the similarity, hence the score.
     "AI_TEXT_SCHEMA_V2",
+    # Runda 2: v3 zmienia tekst kandydata (pełne CV + notatki), a przełączenie
+    # kolekcji zmienia ŹRÓDŁO wektorów — oba przestawiają skalę podobieństwa
+    # semantycznego, więc flip musi unieważnić cache (ten sam mechanizm, który
+    # ratowały migracje 0143/0150).
+    "AI_TEXT_SCHEMA_V3",
+    "QDRANT_COLLECTION",
     # Changes how a no-signal layer contributes — i.e. the composite itself.
     "SCORE_RENORMALIZE_UNSCORED_LAYERS",
     # Fala 2: włączenie pasaży CV zmienia skalę podobieństwa semantycznego
@@ -230,6 +249,19 @@ def scoring_algorithm_version() -> str:
         )
         for key in _SCORING_CACHE_INPUTS
     }
+    # Wbudowane wagi DEFAULT wchodzą do digestu: zmiana stałych w kodzie
+    # (np. strojenie 4b 35/30/12/8/5 -> 45/25/10/8/2) zmienia score'y pod tym
+    # samym profile_id=0, więc bez tego wpisu stary cache mieszałby dwie skale.
+    # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
+    # `mark_stale_for_profile` (patrz docstring wyżej).
+    payload["default_weights"] = [
+        SEMANTIC_MAX,
+        SKILLS_MAX,
+        SALARY_MAX,
+        LOCATION_MAX,
+        AVAILABILITY_MAX,
+        CHAMPION_FIT_MAX,
+    ]
     # Round the floats: a 1e-16 difference in how a value was parsed must not
     # invalidate a hundred thousand cached scores.
     for k, v in payload.items():
@@ -918,6 +950,16 @@ def _champion_hourly_rate(job: Job) -> Optional[float]:
     return float(value) if 0 < float(value) < 2000 else None
 
 
+def get_champion_hourly_rate(job: Job) -> Optional[float]:
+    """Publiczny alias `_champion_hourly_rate` dla konsumentów spoza modułu.
+
+    `dealbreaker_filters` potrzebuje tej samej stawki co warstwa salary; import
+    prywatnej nazwy pękłby cicho przy refaktorze (ImportError w łańcuchu filtra,
+    nie przy starcie). Ten alias jest kontraktem publicznym.
+    """
+    return _champion_hourly_rate(job)
+
+
 def _notes_insights(candidate: Candidate) -> dict:
     extracted = getattr(candidate, "cv_extracted_data", None)
     if not isinstance(extracted, dict):
@@ -1100,8 +1142,16 @@ def _score_location(
     )
 
 
-def _v11_enabled() -> bool:
-    return bool(getattr(settings, "CHAMPION_SIGNALS_V11_ENABLED", False))
+def _seniority_penalty_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_SENIORITY_PENALTY_ENABLED", False))
+
+
+def _availability_conflict_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_AVAILABILITY_CONFLICT_ENABLED", False))
+
+
+def _availability_fallback_enabled() -> bool:
+    return bool(getattr(settings, "CHAMPION_AVAILABILITY_FALLBACK_ENABLED", False))
 
 
 # Kara mnożnikowa, nie punktowa: kompozyt ma dwa tryby (suma i renormalizacja
@@ -1113,13 +1163,21 @@ _SENIORITY_TOLERANCE_YEARS = 1
 _SENIORITY_PENALTY_PER_YEAR = 0.08
 _SENIORITY_PENALTY_CAP = 0.32
 
+# Dostępność v2: kara wyłącznie za TWARDĄ kolizję jawnych dat (kolumna albo
+# explicit available_from z notatek) ze startem Championa. Zero decay i zero
+# oceniania dat WYPROWADZANYCH z wypowiedzenia — to była przyczyna NO-GO
+# fallbacku (R@20n −24%): karał kandydatów bogatych w dane względem tych bez
+# żadnego sygnału. Grace 30 dni, bo starty projektów się przesuwają.
+_AVAILABILITY_CONFLICT_GRACE_DAYS = 30
+_AVAILABILITY_CONFLICT_PENALTY = 0.10
+
 
 def _champion_seniority_factor(
     candidate: Candidate, job: Job
 ) -> tuple[float, Optional[str]]:
     """(mnożnik totalu, powód) — 1.0/None gdy nie ma czego oceniać."""
 
-    if not _v11_enabled():
+    if not _seniority_penalty_enabled():
         return 1.0, None
     required = _champion_dict(job).get("seniority_min_years")
     if isinstance(required, bool) or not isinstance(required, (int, float)):
@@ -1174,6 +1232,49 @@ def _parse_champion_date(
         return None
 
 
+def _notes_explicit_available_date(
+    candidate: Candidate, *, today: Optional[date] = None
+) -> Optional[date]:
+    """WYŁĄCZNIE jawna data z notatek (available_from) — bez wyprowadzania
+    z wypowiedzenia. Osobny helper od `_notes_available_date`, bo kara za
+    kolizję (v2) nie może dziedziczyć derywacji, która pogrzebała fallback."""
+
+    availability = _notes_insights(candidate).get("availability")
+    if not isinstance(availability, dict):
+        return None
+    return _parse_champion_date(availability.get("available_from"), today=today)
+
+
+def _champion_availability_conflict_factor(
+    candidate: Candidate, job: Job, *, today: Optional[date] = None
+) -> tuple[float, Optional[str]]:
+    """(mnożnik totalu, powód) — kara wyłącznie za twardą kolizję jawnych dat.
+
+    Wymaga OBU stron jawnie: start z dokumentu Championa ORAZ data dostępności
+    kandydata z kolumny albo explicit z notatek. Brak którejkolwiek = 1.0
+    (warstwa dostępności zachowuje się jak dotąd). Kolizja = dostępny później
+    niż start + grace; pojedyncza stała kara, bez krzywej decay.
+    """
+
+    if not _availability_conflict_enabled():
+        return 1.0, None
+    start = _parse_champion_date(_champion_dict(job).get("start_date"), today=today)
+    if start is None:
+        return 1.0, None
+    available = getattr(candidate, "availability_date", None)
+    if available is None:
+        available = _notes_explicit_available_date(candidate, today=today)
+    if available is None:
+        return 1.0, None
+    late_days = (available - start).days
+    if late_days <= _AVAILABILITY_CONFLICT_GRACE_DAYS:
+        return 1.0, None
+    return 1.0 - _AVAILABILITY_CONFLICT_PENALTY, (
+        f"dostępność: {available.isoformat()} vs start {start.isoformat()} "
+        f"(+{late_days} dni, kara {_AVAILABILITY_CONFLICT_PENALTY:.0%})"
+    )
+
+
 def _notes_available_date(
     candidate: Candidate, *, today: Optional[date] = None
 ) -> Optional[date]:
@@ -1216,7 +1317,7 @@ def _score_availability(
     availability_date = candidate.availability_date
     reference_deadline = job.deadline
     source_note = ""
-    if _v11_enabled():
+    if _availability_fallback_enabled():
         # v1.1: 99% importowanych kandydatów nie ma availability_date, ale
         # 13,9k ma fakty notatkowe ("2 tygodnie wypowiedzenia", "od zaraz"),
         # a oferty z Championem mają datę startu. Fallback po OBU stronach —
@@ -1520,6 +1621,24 @@ async def score_candidate_job(
     seniority_factor, seniority_reason = _champion_seniority_factor(candidate, job)
     if seniority_factor < 1.0 and total > 0:
         total *= seniority_factor
+    # Kary MNOŻĄ SIĘ świadomie (seniority × dostępność): to niezależne ryzyka
+    # i kandydat z oboma jest gorszym zakładem niż z jednym — maks. łącznie
+    # 0.68 × 0.90 ≈ −39%. Werdykt o skali wydaje pomiar A/B, nie intuicja.
+    availability_factor, availability_reason = _champion_availability_conflict_factor(
+        candidate, job
+    )
+    if availability_factor < 1.0 and total > 0:
+        total *= availability_factor
+        # Ślad w logach jak przy karze seniority — bez niego dochodzenie
+        # regresu nie widzi, którzy kandydaci dostali cięcie.
+        logger.debug(
+            "availability_conflict_penalty",
+            extra={
+                "candidate_id": candidate.id,
+                "job_id": job.id,
+                "reason": availability_reason,
+            },
+        )
 
     latency_ms = round((_time.perf_counter() - t0) * 1000.0, 2)
     # Structured event for log aggregation (JSON formatter reshapes extras).

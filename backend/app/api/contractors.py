@@ -81,6 +81,7 @@ _CONTRACTOR_ALLOWED_ROLES = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 

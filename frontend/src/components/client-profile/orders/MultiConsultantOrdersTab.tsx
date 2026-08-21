@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
@@ -8,14 +8,23 @@ import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import {
   orderGroupsApi,
+  type OrderGroupExtendInput,
   type OrderGroupInput,
   type OrderGroupRead,
+  type OrderGroupStatus,
   type OrderLineRead,
   type SwapConsultantInput,
 } from "@/lib/api/orderGroups";
-import { canManageMultiConsultantOrders, useAuthStore } from "@/store/auth";
+import { countPl } from "@/lib/plural-pl";
+import {
+  canManageMultiConsultantOrders,
+  canManageOrderLifecycle,
+  useAuthStore,
+} from "@/store/auth";
 
 import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal";
+import { EndOrderGroupModal } from "./EndOrderGroupModal";
+import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { OrderGroupCard } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
@@ -37,8 +46,24 @@ function apiError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+type PillKey = "all" | OrderGroupStatus;
+
+const PILLS: Array<{ key: PillKey; label: string }> = [
+  { key: "all", label: "Wszystkie" },
+  { key: "active", label: "Aktywne" },
+  { key: "completed", label: "Zakończeni" },
+  { key: "exhausted", label: "Wyczerpane" },
+];
+
 interface Props {
   clientId: number;
+  /** Czy u tego klienta wolno zakładać zamówienia KOSZTOWE.
+   *
+   *  Flagę liczy SERWER (env `COST_ORDER_CLIENT_IDS`) i przekazuje ją profil
+   *  klienta, który i tak ma już pobrany rekord. Front nie trzyma kopii listy
+   *  klientów — byłaby nieaktualna od pierwszej zmiany w Coolify — ani nie
+   *  robi drugiego zapytania o ten sam obiekt. */
+  costOrdersEnabled?: boolean;
 }
 
 /**
@@ -47,12 +72,17 @@ interface Props {
  * `OrdersAndContractsTab` — wybór następuje w `app/clients/[id]/page.tsx`
  * na podstawie flagi z API, nie na podstawie kopii listy klientów we froncie.
  */
-export function MultiConsultantOrdersTab({ clientId }: Props) {
+export function MultiConsultantOrdersTab({
+  clientId,
+  costOrdersEnabled = false,
+}: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
   const canManage = canManageMultiConsultantOrders(user);
+  const canLifecycle = canManageOrderLifecycle(user);
 
+  const [pill, setPill] = useState<PillKey>("all");
   const [groupModal, setGroupModal] = useState<{ open: boolean; group: OrderGroupRead | null }>(
     { open: false, group: null },
   );
@@ -66,6 +96,14 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
     group: OrderGroupRead | null;
     line: OrderLineRead | null;
   }>({ open: false, group: null, line: null });
+  const [endModal, setEndModal] = useState<{ open: boolean; group: OrderGroupRead | null }>({
+    open: false,
+    group: null,
+  });
+  const [extendModal, setExtendModal] = useState<{
+    open: boolean;
+    group: OrderGroupRead | null;
+  }>({ open: false, group: null });
   const [formError, setFormError] = useState<string | null>(null);
 
   const query = useQuery({
@@ -81,7 +119,17 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
   const saveGroup = useMutation({
     mutationFn: async (values: OrderGroupInput) => {
       if (groupModal.group) {
-        return (await orderGroupsApi.update(clientId, groupModal.group.id, values)).data;
+        return (
+          await orderGroupsApi.update(clientId, groupModal.group.id, {
+            order_number: values.order_number,
+            start_date: values.start_date,
+            end_date: values.end_date,
+            notes: values.notes,
+            ...(values.budget_amount != null
+              ? { budget_amount: values.budget_amount }
+              : {}),
+          })
+        ).data;
       }
       return (await orderGroupsApi.create(clientId, values)).data;
     },
@@ -103,8 +151,10 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
           await orderGroupsApi.updateLine(clientId, group.id, lineModal.line.id, {
             rate_cost: values.rate_cost,
             rate_revenue: values.rate_revenue,
-            input_mode: values.input_mode,
-            input_value: values.input_value,
+            ...(values.input_mode ? { input_mode: values.input_mode } : {}),
+            ...(values.input_value != null
+              ? { input_value: values.input_value }
+              : {}),
             end_date: values.end_date,
           })
         ).data;
@@ -156,7 +206,84 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
     onError: (err) => setFormError(apiError(err, "Nie udało się zamienić kontraktora.")),
   });
 
-  const groups = query.data?.groups ?? [];
+  // ── Cykl życia ────────────────────────────────────────────────────────────
+
+  const removeLine = useMutation({
+    mutationFn: ({ groupId, lineId }: { groupId: number; lineId: number }) =>
+      orderGroupsApi.removeLine(clientId, groupId, lineId),
+    onSuccess: () => {
+      invalidate();
+      showToast("Usunięto konsultanta z zamówienia", "success");
+    },
+    onError: (err) =>
+      showToast(apiError(err, "Nie udało się usunąć konsultanta."), "error"),
+  });
+
+  const removeGroup = useMutation({
+    mutationFn: (groupId: number) => orderGroupsApi.remove(clientId, groupId),
+    onSuccess: () => {
+      invalidate();
+      showToast("Usunięto zamówienie", "success");
+    },
+    onError: (err) =>
+      showToast(apiError(err, "Nie udało się usunąć zamówienia."), "error"),
+  });
+
+  const closeGroup = useMutation({
+    mutationFn: (values: { closure_date: string; closure_reason: string | null }) => {
+      const group = endModal.group;
+      if (!group) throw new Error("Brak zamówienia");
+      return orderGroupsApi.close(clientId, group.id, values);
+    },
+    onSuccess: () => {
+      setEndModal({ open: false, group: null });
+      setFormError(null);
+      invalidate();
+      showToast("Zamówienie zakończone", "success");
+    },
+    onError: (err) => setFormError(apiError(err, "Nie udało się zakończyć zamówienia.")),
+  });
+
+  const reopenGroup = useMutation({
+    mutationFn: (groupId: number) => orderGroupsApi.reopen(clientId, groupId),
+    onSuccess: () => {
+      invalidate();
+      showToast("Zamówienie przywrócone", "success");
+    },
+    onError: (err) =>
+      showToast(apiError(err, "Nie udało się przywrócić zamówienia."), "error"),
+  });
+
+  const extendGroup = useMutation({
+    mutationFn: (values: OrderGroupExtendInput) => {
+      const group = extendModal.group;
+      if (!group) throw new Error("Brak zamówienia");
+      return orderGroupsApi.extend(clientId, group.id, values);
+    },
+    onSuccess: () => {
+      setExtendModal({ open: false, group: null });
+      setFormError(null);
+      invalidate();
+      showToast("Utworzono przedłużenie", "success");
+    },
+    onError: (err) => setFormError(apiError(err, "Nie udało się utworzyć przedłużenia.")),
+  });
+
+  const groups = useMemo(() => query.data?.groups ?? [], [query.data]);
+  const counts = useMemo(() => {
+    const byStatus: Record<PillKey, number> = {
+      all: groups.length,
+      active: 0,
+      completed: 0,
+      exhausted: 0,
+    };
+    for (const group of groups) byStatus[group.status] += 1;
+    return byStatus;
+  }, [groups]);
+  const visible = useMemo(
+    () => (pill === "all" ? groups : groups.filter((g) => g.status === pill)),
+    [groups, pill],
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -176,9 +303,19 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
               czyli tę samą nieprawdę co pusty stan pod spodem. */}
           {query.isSuccess ? (
             <p className="text-xs text-muted-foreground">
-              {query.data.total_groups}{" "}
-              {query.data.total_groups === 1 ? "zamówienie" : "zamówienia"} ·{" "}
-              {query.data.total_consultants} konsultantów
+              {countPl(
+                query.data.total_groups,
+                "zamówienie",
+                "zamówienia",
+                "zamówień",
+              )}{" "}
+              ·{" "}
+              {countPl(
+                query.data.total_consultants,
+                "konsultant",
+                "konsultanci",
+                "konsultantów",
+              )}
             </p>
           ) : null}
           {canManage ? (
@@ -196,6 +333,31 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
         </div>
       </header>
 
+      {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
+          będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
+          zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
+          żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
+      {query.isSuccess ? (
+        <div className="flex flex-wrap gap-2">
+          {PILLS.map((entry) => (
+            <button
+              key={entry.key}
+              type="button"
+              onClick={() => setPill(entry.key)}
+              aria-pressed={pill === entry.key}
+              className={
+                "rounded-full border px-3 py-1.5 text-sm transition-colors " +
+                (pill === entry.key
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:text-foreground")
+              }
+            >
+              {entry.label} ({counts[entry.key]})
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {query.isError ? (
         /* Awaria pobrania MUSI mieć własną gałąź — pusty stan czytałby się jak
            „klient nie ma zamówień", czyli jak utrata danych. */
@@ -212,19 +374,24 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
         <p className="py-10 text-center text-sm text-muted-foreground">
           Wczytywanie zamówień…
         </p>
-      ) : groups.length === 0 ? (
+      ) : visible.length === 0 ? (
         <EmptyState
-          title="Brak zamówień"
-          description="Ten klient nie ma jeszcze zamówień wielo-konsultantowych."
+          title={pill === "all" ? "Brak zamówień" : "Brak wyników dla tego filtra"}
+          description={
+            pill === "all"
+              ? "Ten klient nie ma jeszcze zamówień wielo-konsultantowych."
+              : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
+          }
         />
       ) : (
         <div className="flex flex-col gap-4">
-          {groups.map((group) => (
+          {visible.map((group) => (
             <OrderGroupCard
               key={group.id}
               clientId={clientId}
               group={group}
               canManage={canManage}
+              canManageLifecycle={canLifecycle}
               onAddConsultant={(g) => {
                 setFormError(null);
                 setLineModal({ open: true, group: g, line: null });
@@ -241,6 +408,37 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
                 setFormError(null);
                 setSwapModal({ open: true, group: g, line });
               }}
+              onDeleteLine={(g, line) => {
+                if (
+                  !window.confirm(
+                    `Czy na pewno chcesz usunąć konsultanta ${line.consultant_name} ` +
+                      `z zamówienia nr ${g.order_number}? Tej operacji nie można cofnąć.`,
+                  )
+                ) {
+                  return;
+                }
+                removeLine.mutate({ groupId: g.id, lineId: line.id });
+              }}
+              onDeleteGroup={(g) => {
+                if (
+                  !window.confirm(
+                    `Czy na pewno chcesz usunąć całe zamówienie nr ${g.order_number} ` +
+                      `wraz ze wszystkimi konsultantami? Tej operacji nie można cofnąć.`,
+                  )
+                ) {
+                  return;
+                }
+                removeGroup.mutate(g.id);
+              }}
+              onCloseGroup={(g) => {
+                setFormError(null);
+                setEndModal({ open: true, group: g });
+              }}
+              onReopenGroup={(g) => reopenGroup.mutate(g.id)}
+              onExtendGroup={(g) => {
+                setFormError(null);
+                setExtendModal({ open: true, group: g });
+              }}
             />
           ))}
         </div>
@@ -250,6 +448,8 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
         open={groupModal.open}
         onOpenChange={(open) => setGroupModal((s) => ({ ...s, open }))}
         group={groupModal.group}
+        clientId={clientId}
+        costOrdersEnabled={costOrdersEnabled}
         submitting={saveGroup.isPending}
         error={formError}
         onSubmit={(values) => saveGroup.mutate(values)}
@@ -278,6 +478,25 @@ export function MultiConsultantOrdersTab({ clientId }: Props) {
         submitting={swap.isPending}
         error={formError}
         onSubmit={(values) => swap.mutate(values)}
+      />
+
+      <EndOrderGroupModal
+        open={endModal.open}
+        onOpenChange={(open) => setEndModal((s) => ({ ...s, open }))}
+        group={endModal.group}
+        submitting={closeGroup.isPending}
+        error={formError}
+        onSubmit={(values) => closeGroup.mutate(values)}
+      />
+
+      <ExtendOrderGroupModal
+        open={extendModal.open}
+        onOpenChange={(open) => setExtendModal((s) => ({ ...s, open }))}
+        clientId={clientId}
+        group={extendModal.group}
+        submitting={extendGroup.isPending}
+        error={formError}
+        onSubmit={(values) => extendGroup.mutate(values)}
       />
     </div>
   );

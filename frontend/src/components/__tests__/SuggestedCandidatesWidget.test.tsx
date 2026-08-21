@@ -81,7 +81,7 @@ function candidateMatch(
   };
 }
 
-function renderWidget() {
+function renderWidget(props: { jobHasBudget?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, refetchOnWindowFocus: false },
@@ -89,9 +89,46 @@ function renderWidget() {
   });
   render(
     <QueryClientProvider client={queryClient}>
-      <SuggestedCandidatesWidget jobId={7} />
+      <SuggestedCandidatesWidget jobId={7} {...props} />
     </QueryClientProvider>,
   );
+}
+
+/** Gotowy snapshot; `extra` pozwala dołożyć (albo pominąć) `hidden`. */
+function readySnapshot(extra: Record<string, unknown> = {}) {
+  return {
+    data: {
+      id: 3,
+      job_id: 7,
+      status: "ready",
+      source: "create",
+      top_k: 20,
+      profile_id: 0,
+      created_at: "2026-08-19T00:00:00Z",
+      error_message: null,
+      degraded: false,
+      stale: false,
+      run_id: null,
+      candidates: [candidateMatch(70, BREAKDOWN)],
+      ...extra,
+    },
+  };
+}
+
+/** Odpowiedź żywego /recommendations z jawnym zestawem liczników ukrytych. */
+function liveResponse(
+  matches: CandidateMatch[],
+  hidden?: { over_budget: number; remote_only: number },
+) {
+  return {
+    data: {
+      job_id: 7,
+      job_title: "Backend Developer",
+      search_type: "hybrid",
+      matches,
+      meta: { mode: "dense", degraded: false, reason: null, hidden },
+    },
+  };
 }
 
 beforeEach(() => {
@@ -222,5 +259,96 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
 
     expect(selectMatchesForHistory([unscored, scored], normalMeta)).toEqual([scored]);
     expect(selectMatchesForHistory([scored], degradedMeta)).toEqual([]);
+  });
+});
+/**
+ * Trzy komunikaty, które kłamały: pusty wynik oskarżał filtry także wtedy, gdy
+ * nic nie ukryły, komunikaty „lokalizacji" pokazywały puste cudzysłowy przy
+ * trybie samych przełączników, a etykieta sufitu budżetu obiecywała filtr nad
+ * snapshotem sprzed migracji 0237, który nigdy przez ten filtr nie przeszedł.
+ */
+describe("SuggestedCandidatesWidget — przełączniki mówią prawdę", () => {
+  it("pusty wynik przy zerowych licznikach NIE oskarża filtrów wykluczających", async () => {
+    mocks.forJob.mockResolvedValue(
+      liveResponse([], { over_budget: 0, remote_only: 0 }),
+    );
+
+    renderWidget();
+    fireEvent.click(screen.getByTestId("switch-remote-only"));
+
+    const notice = await screen.findByTestId("switches-no-results");
+    expect(notice).toHaveTextContent("Nie znaleziono pasujących kandydatów");
+    expect(notice.textContent).not.toMatch(/ukryci przez włączone filtry/);
+    // Margines budżetu zniknął z UI wraz z #1207 (sufit jest twardy) —
+    // odesłanie do niego wysyłało rekrutera po nieistniejący suwak.
+    expect(notice.textContent).not.toMatch(/margines/i);
+  });
+
+  it("oskarża przełączniki dopiero wtedy, gdy liczniki mówią, że kogoś ukryły", async () => {
+    mocks.forJob.mockResolvedValue(
+      liveResponse([], { over_budget: 3, remote_only: 0 }),
+    );
+
+    renderWidget();
+    fireEvent.click(screen.getByTestId("switch-remote-only"));
+
+    const notice = await screen.findByTestId("switches-no-results");
+    expect(notice).toHaveTextContent("ukryci przez włączone filtry");
+    expect(notice.textContent).not.toMatch(/margines/i);
+  });
+
+  it("komunikat ładowania nie pokazuje pustych cudzysłowów bez filtra lokalizacji", async () => {
+    mocks.forJob.mockReturnValue(new Promise(() => {}));
+
+    renderWidget();
+    fireEvent.click(screen.getByTestId("switch-remote-only"));
+
+    const loading = await screen.findByTestId("filtered-loading");
+    expect(loading).toHaveTextContent("Szukam kandydatów");
+    expect(loading.textContent).not.toContain("„”");
+  });
+
+  it("błąd bez filtra lokalizacji nie odsyła do filtra i daje ponowienie", async () => {
+    mocks.forJob.mockRejectedValue(new Error("boom"));
+
+    renderWidget();
+    fireEvent.click(screen.getByTestId("switch-remote-only"));
+
+    const notice = await screen.findByTestId("filtered-error");
+    expect(notice.textContent).not.toMatch(/Zmień filtr/);
+    await waitFor(() => expect(mocks.forJob).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId("filtered-retry"));
+    await waitFor(() => expect(mocks.forJob).toHaveBeenCalledTimes(2));
+  });
+
+  it("nie obiecuje sufitu budżetu nad snapshotem sprzed 0237", async () => {
+    mocks.latest.mockResolvedValue(readySnapshot());
+
+    renderWidget();
+    await screen.findByText("Anna Nowak");
+
+    const button = screen.getByTestId("switch-over-budget");
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("Budżet oferty: ranking sprzed filtra");
+    expect(
+      screen.getByTestId("legacy-snapshot-budget-notice"),
+    ).toHaveTextContent("Odśwież propozycje");
+  });
+
+  it("snapshot po 0237 zachowuje etykietę działającego sufitu", async () => {
+    mocks.latest.mockResolvedValue(
+      readySnapshot({ hidden: { over_budget: 0, remote_only: 0 } }),
+    );
+
+    renderWidget();
+    await screen.findByText("Anna Nowak");
+
+    const button = screen.getByTestId("switch-over-budget");
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent("Poza budżetem: ukryci");
+    expect(
+      screen.queryByTestId("legacy-snapshot-budget-notice"),
+    ).not.toBeInTheDocument();
   });
 });

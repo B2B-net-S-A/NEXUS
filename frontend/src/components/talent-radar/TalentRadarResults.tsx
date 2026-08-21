@@ -21,7 +21,9 @@ import {
 } from "@/components/ds";
 import { Alert } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { encodeTalentRadarBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
+import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import type {
   TalentRadarMeta,
   TalentRadarResult,
@@ -65,13 +67,76 @@ export interface TalentRadarResultsProps {
   meta: TalentRadarMeta | null;
   results: TalentRadarResult[];
   pending: boolean;
+  /**
+   * Błąd zapytania — `null`, gdy nic nie padło.
+   *
+   * Bez tego workspace po awarii robił `setResponse(null)` i pokazywał błąd
+   * WYŁĄCZNIE w toaście, który po chwili znika. Zostawał ekran startowy
+   * „Zacznij od wklejenia requestu" — czyli komunikat, że rekruter jeszcze nic
+   * nie zrobił, w sytuacji, w której zrobił i to serwer nie odpowiedział.
+   */
+  error?: unknown;
+  /** Ponowienie wyszukiwania — pokazywane tylko przy awarii serwera. */
+  onRetry?: () => void;
+  /**
+   * Czy pokazać „Otwórz profil". Radar jest dostępny dla KAŻDEJ roli
+   * (decyzja 19.08), ale pełny profil kandydata pozostaje za bramkami
+   * modułu kandydatów — rola bez `nav.candidates` dostawałaby po kliknięciu
+   * przekierowanie/403, więc workspace przekazuje tu capability zamiast
+   * renderować martwy przycisk. Default `true`, żeby publiczny harness
+   * `/preview/talent-radar` (bez auth store) dalej pokrywał ten wariant.
+   */
+  canOpenProfile?: boolean;
 }
 
 export function TalentRadarResults({
   meta,
   results,
   pending,
+  error = null,
+  onRetry,
+  canOpenProfile = true,
 }: TalentRadarResultsProps) {
+  // Kolejność jak w kanonie widoków (`lib/view-state.ts`): awaria PRZED pustym
+  // i przed stanem startowym. 403 rozdzielone od 5xx, bo to dwa różne zdania:
+  // „nie wolno ci" kontra „nie udało się".
+  if (error) {
+    const state = resolveViewState({ isLoading: false, isError: true, error });
+    const forbidden = state === "forbidden";
+    return (
+      <Alert
+        variant="error"
+        icon={TriangleAlert}
+        title={
+          forbidden
+            ? "Brak uprawnień do tego wyszukiwania"
+            : "Wyszukiwanie nie doszło do skutku"
+        }
+        description={
+          <>
+            {forbidden
+              ? "Twoja rola nie ma dostępu do tego klienta. To nie znaczy, że nikt nie pasuje — znaczy, że nie wolno nam pokazać."
+              : httpStatusFromError(error) === undefined
+                ? "Nie udało się połączyć z serwerem. Sprawdź internet lub VPN i spróbuj ponownie."
+                : "Serwer nie odpowiedział na zapytanie. To nie znaczy, że nikt nie pasuje — znaczy, że nie wiemy."}
+            {!forbidden && onRetry ? (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="font-medium underline underline-offset-2"
+                >
+                  Spróbuj ponownie
+                </button>
+              </>
+            ) : null}
+          </>
+        }
+      />
+    );
+  }
+
   if (meta?.degraded) {
     return (
       <Alert
@@ -109,6 +174,30 @@ export function TalentRadarResults({
         zaproponować temu klientowi. Pokazujemy{" "}
         <strong>{meta.returned.toLocaleString("pl-PL")}</strong> najlepiej
         dopasowanych.
+        {(meta.hidden?.over_budget ?? 0) > 0 && (
+          <>
+            {" "}
+            <span
+              className="font-medium text-amber-700 dark:text-amber-400"
+              data-testid="tr-hidden-over-budget"
+            >
+              Ukryto {meta.hidden!.over_budget!.toLocaleString("pl-PL")} poza
+              budżetem.
+            </span>
+          </>
+        )}
+        {(meta.hidden?.remote_only ?? 0) > 0 && (
+          <>
+            {" "}
+            <span
+              className="font-medium text-amber-700 dark:text-amber-400"
+              data-testid="tr-hidden-remote-only"
+            >
+              Ukryto {meta.hidden!.remote_only!.toLocaleString("pl-PL")}{" "}
+              „wyłącznie zdalnych”.
+            </span>
+          </>
+        )}
       </p>
 
       {results.length > 0 ? (
@@ -121,19 +210,26 @@ export function TalentRadarResults({
               score={result.total}
               reasons={matchReasons(result)}
               actions={
-                // Celowo `Link` ze stylami `buttonVariants`, nie `<Button asChild>`:
-                // Button renderuje slot na spinner obok dziecka, więc Radix Slot
-                // dostaje dwoje dzieci i wywala się w runtime („Slot failed to
-                // slot onto its children"). Ten sam obchód i to samo uzasadnienie
-                // co w HelpMaterialsSection.tsx.
-                <Link
-                  href={`/candidates/${result.candidate_id}`}
-                  className={cn(
-                    buttonVariants({ variant: "outline", size: "sm" }),
-                  )}
-                >
-                  Otwórz profil
-                </Link>
+                canOpenProfile ? (
+                  // Celowo `Link` ze stylami `buttonVariants`, nie `<Button
+                  // asChild>`: Button renderuje slot na spinner obok dziecka,
+                  // więc Radix Slot dostaje dwoje dzieci i wywala się w
+                  // runtime („Slot failed to slot onto its children"). Ten sam
+                  // obchód co w HelpMaterialsSection.tsx.
+                  //
+                  // `from=talent-radar`: profil pokaże „Wróć do Talent Radaru"
+                  // zamiast „Wróć do kandydatów", a radar odtworzy wyszukiwanie
+                  // ze snapshotu (lib/talent-radar-session.ts) — bez tego powrót
+                  // kasował wyniki i formularz.
+                  <Link
+                    href={`/candidates/${result.candidate_id}?${encodeTalentRadarBackRef().toString()}`}
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                    )}
+                  >
+                    Otwórz profil
+                  </Link>
+                ) : undefined
               }
             />
           ))}

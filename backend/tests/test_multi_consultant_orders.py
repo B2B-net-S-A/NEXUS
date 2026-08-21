@@ -592,6 +592,96 @@ async def test_swap_gives_successor_the_planned_end_date(
     )
 
 
+async def test_line_stays_editable_after_a_swap(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Każda kolejna edycja linii po zamianie kontraktora musi dać 200.
+
+    Serializacja linii schodzi z poprzednika aż do kandydata
+    (`predecessor_consultant_name`). Płaski `selectinload(predecessor)`
+    ładował samego poprzednika i zostawiał tam leniwą relację, a w async
+    SQLAlchemy leniwe doczytanie leci `MissingGreenlet` → 500 bez nagłówków
+    CORS, czyli „Network Error" bez żadnej wskazówki. Wybuch następował już
+    PO `commit()`: stawka zapisywała się w bazie, operator widział błąd bez
+    treści i ponawiał — u BIK/Polkomtela/BNP codziennie.
+
+    Dowód MUSI iść przez prawdziwego Postgresa. Na podstawionej sesji leniwe
+    doczytanie nie ma jak wybuchnąć, więc test na mocku byłby zielony także
+    przed poprawką — czyli nie dowodziłby niczego.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert swap.status_code == 201, swap.text
+    successor_id = swap.json()["id"]
+
+    patch = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{successor_id}",
+        json={"rate_cost": 820},
+        headers=app_auth_headers,
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body["rate_cost"] == pytest.approx(820.0)
+    # Poprzednik ma się nie tylko doczytać, ale i przedstawić — pusta nazwa
+    # znaczyłaby, że łańcuch loaderów urwał się o jedno ogniwo za wcześnie.
+    assert body["predecessor_consultant_name"] == names[0]
+
+
+async def test_manual_adjustment_after_a_swap_survives_the_read(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Korekta MD na linii z poprzednikiem też musi się odczytać.
+
+    Ta ścieżka wraca przez `db.refresh(line)`, a nie przez świeże zapytanie —
+    gdyby odświeżenie gubiło loadery, `MissingGreenlet` wróciłby tędy mimo
+    poprawionego zapytania wejściowego.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert swap.status_code == 201, swap.text
+    successor_id = swap.json()["id"]
+
+    patch = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{successor_id}",
+        json={"md_remaining": 12},
+        headers=app_auth_headers,
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body["md_remaining"] == pytest.approx(12.0)
+    assert body["predecessor_consultant_name"] == names[0]
+
+
 # ── Import MD ───────────────────────────────────────────────────────────────
 
 
@@ -925,3 +1015,385 @@ async def test_legacy_single_consultant_orders_untouched(
     )
     assert grouped.status_code == 200, grouped.text
     assert grouped.json()["total_contractors"] >= 1
+
+
+# ── Picker konsultantów: dwa źródła w jednej liście ─────────────────────────
+
+
+async def _seed_person_with_contract(
+    *, client_id: int, first: str, last: str, status_value: str = "active"
+) -> tuple[int, int]:
+    """Kandydat + kontrakt o wskazanym statusie. Zwraca (candidate_id, contract_id)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus
+
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name=first,
+            lastname=last,
+            email=f"{uuid.uuid4().hex[:10]}@example.com",
+        )
+        db.add(cand)
+        await db.commit()
+        await db.refresh(cand)
+
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client_id,
+            status=ContractStatus(status_value),
+            start_date=_TODAY - timedelta(days=60),
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        return cand.id, contract.id
+
+
+async def _seed_bare_client() -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"OtherClient-{uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        return client.id
+
+
+async def _options(
+    app_client: AsyncClient, headers: dict, client_id: int, **params
+) -> dict:
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/consultant-options",
+        params=params,
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_options_merge_two_sources_and_label_each_row(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Jedna lista, dwa źródła, każdy wiersz z etykietą pochodzenia."""
+    surname = f"Zamowienie{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    ours, _ = await _seed_person_with_contract(
+        client_id=client_id, first="Barbara", last=surname
+    )
+    theirs, _ = await _seed_person_with_contract(
+        client_id=other_client, first="Adam", last=surname
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    by_id = {o["candidate_id"]: o for o in data["options"]}
+
+    assert by_id[ours]["source"] == "client_recruitment"
+    assert by_id[ours]["source_label"] == "Rekrutacja u klienta"
+    assert by_id[ours]["contract_id"] is not None
+    assert by_id[theirs]["source"] == "nexus_base"
+    assert by_id[theirs]["source_label"] == "Baza Nexus"
+    # Osoba bez kontraktu u tego klienta nie ma czego wskazać — kontrakt
+    # powstanie dopiero przy zapisie linii.
+    assert by_id[theirs]["contract_id"] is None
+    # Cała lista posortowana po imieniu, nie „najpierw źródło A".
+    assert [o["candidate_id"] for o in data["options"]] == [theirs, ours]
+    assert data["total"] == 2
+
+
+async def test_options_never_show_the_same_person_twice(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Osoba z kontraktem u tego klienta NIE dubluje się jako „Baza Nexus"."""
+    surname = f"Zamowienie{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id, first="Celina", last=surname
+    )
+    # Ta sama osoba pracuje równolegle u innego klienta — źródło B by ją
+    # zwróciło, gdyby dedup szedł po kontrakcie zamiast po osobie.
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Contract(
+                candidate_id=candidate_id,
+                client_id=other_client,
+                status=ContractStatus.active,
+                start_date=_TODAY - timedelta(days=10),
+            )
+        )
+        await db.commit()
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    rows = [o for o in data["options"] if o["candidate_id"] == candidate_id]
+    assert len(rows) == 1, f"osoba zdublowana w pickerze: {rows}"
+    assert rows[0]["source"] == "client_recruitment"
+
+
+async def test_options_skip_finished_consultants(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Baza Nexus to WYŁĄCZNIE aktywni; zakończony kontrakt nie wraca."""
+    surname = f"Zamowienie{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    ended, _ = await _seed_person_with_contract(
+        client_id=other_client, first="Damian", last=surname, status_value="ended"
+    )
+    ending, _ = await _seed_person_with_contract(
+        client_id=other_client, first="Ewa", last=surname, status_value="ending"
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    returned = {o["candidate_id"] for o in data["options"]}
+    assert ended not in returned
+    # `ending` = kontrakt < 30 dni do końca. To wciąż ktoś, kto pracuje, i
+    # najbardziej oczywisty kandydat na kolejne zamówienie.
+    assert ending in returned
+
+
+async def test_options_search_matches_full_name_not_single_word(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """„Imię Nazwisko" zawęża do jednej osoby, samo imię — do wszystkich imion."""
+    surname = f"Zamowienie{uuid.uuid4().hex[:6]}"
+    twin_surname = f"Inne{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    wanted, _ = await _seed_person_with_contract(
+        client_id=client_id, first="Filip", last=surname
+    )
+    namesake, _ = await _seed_person_with_contract(
+        client_id=other_client, first="Filip", last=twin_surname
+    )
+
+    both = await _options(app_client, app_auth_headers, client_id, q="Filip", limit=500)
+    ids = {o["candidate_id"] for o in both["options"]}
+    assert {wanted, namesake} <= ids
+
+    exact = await _options(
+        app_client, app_auth_headers, client_id, q=f"Filip {surname}"
+    )
+    assert [o["candidate_id"] for o in exact["options"]] == [wanted]
+    assert exact["total"] == 1
+
+
+async def test_options_search_ignores_diacritics(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """„Lukasz Zolw" znajduje „Łukasz Żółw" — baza nie ma `unaccent`."""
+    surname = f"Zolw{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id, first="Łukasz", last=f"Ż{surname}"
+    )
+
+    data = await _options(
+        app_client, app_auth_headers, client_id, q=f"Lukasz Z{surname}"
+    )
+    assert [o["candidate_id"] for o in data["options"]] == [candidate_id]
+
+
+async def test_options_report_how_many_were_cut(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Przycięta lista mówi, ilu jest naprawdę — ciche obcięcie czyta się jak komplet."""
+    surname = f"Zamowienie{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+
+    for first in ("Gustaw", "Halina", "Igor"):
+        await _seed_person_with_contract(client_id=client_id, first=first, last=surname)
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname, limit=2)
+    assert len(data["options"]) == 2
+    assert data["total"] == 3
+
+
+async def test_options_are_empty_for_client_outside_allowlist(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """GET u klienta spoza modelu = pusta lista, nie odmowa (403 renderuje się jak awaria)."""
+    client_id, _, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch)  # nikt nie jest objęty
+
+    data = await _options(app_client, app_auth_headers, client_id)
+    assert data == {"options": [], "total": 0}
+
+
+# ── Dodanie osoby z bazy Nexus do zamówienia ────────────────────────────────
+
+
+async def test_person_from_nexus_base_can_be_added_to_an_order(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Sedno ticketu: osoba bez rekrutacji u tego klienta wchodzi na zamówienie."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus
+    from sqlalchemy import select
+
+    surname = f"Zamowienie{uuid.uuid4().hex[:6]}"
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    outsider, _ = await _seed_person_with_contract(
+        client_id=other_client, first="Jolanta", last=surname
+    )
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json={
+            "candidate_id": outsider,
+            "rate_cost": 900,
+            "rate_revenue": 1100,
+            "input_mode": "md",
+            "input_value": 20,
+            "start_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    line = resp.json()
+    assert line["candidate_id"] == outsider
+    assert line["consultant_name"] == f"Jolanta {surname}"
+
+    # Linia MUSI wisieć na kontrakcie u TEGO klienta — na tym stoi skaner
+    # wygasania, sync terminacji i MRR. Kontrakt jest `draft`, bo aktywacja ma
+    # własny, walidowany cykl życia.
+    async with AsyncSessionLocal() as db:
+        contract = await db.scalar(
+            select(Contract).where(Contract.id == line["contract_id"])
+        )
+        assert contract.client_id == client_id
+        assert contract.candidate_id == outsider
+        assert contract.status == ContractStatus.draft
+
+    # Ta sama osoba jest już „u tego klienta", więc znika z bazy Nexus.
+    options = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in options["options"] if o["candidate_id"] == outsider)
+    assert row["source"] == "client_recruitment"
+
+    events = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/events",
+        headers=app_auth_headers,
+    )
+    added = [
+        e for e in events.json()["events"] if e["event_type"] == "dodanie_konsultanta"
+    ]
+    assert any(e["payload"].get("contract_created") for e in added), (
+        "historia zamówienia nie odnotowała, że kontrakt powstał przy dodaniu osoby"
+    )
+
+
+async def test_adding_by_candidate_id_reuses_an_existing_contract(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wskazanie osoby, która MA kontrakt u klienta, nie zakłada drugiego."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+    from sqlalchemy import func, select
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.scalar(select(Contract).where(Contract.id == contracts[0]))
+        candidate_id = existing.candidate_id
+
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json={
+            "candidate_id": candidate_id,
+            "rate_cost": 900,
+            "rate_revenue": 1100,
+            "input_mode": "md",
+            "input_value": 20,
+            "start_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["contract_id"] == contracts[0]
+
+    async with AsyncSessionLocal() as db:
+        total = await db.scalar(
+            select(func.count(Contract.id)).where(
+                Contract.client_id == client_id,
+                Contract.candidate_id == candidate_id,
+            )
+        )
+    assert total == 1, "powstał drugi, równoległy kontrakt u tego samego klienta"
+
+
+async def test_line_needs_exactly_one_person_reference(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ani zero, ani dwa wskazania osoby — inaczej jedno z pól ginie po cichu."""
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+
+    base = {
+        "rate_cost": 900,
+        "rate_revenue": 1100,
+        "input_mode": "md",
+        "input_value": 20,
+        "start_date": _TODAY.isoformat(),
+    }
+    for payload in ({}, {"contract_id": contracts[0], "candidate_id": 1}):
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/order-groups",
+            json={
+                "order_number": f"445-{uuid.uuid4().hex[:4]}",
+                "start_date": _TODAY.isoformat(),
+                "lines": [{**base, **payload}],
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 422, resp.text
+
+
+async def test_unknown_candidate_is_rejected(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json={
+            "candidate_id": 99_999_999,
+            "rate_cost": 900,
+            "rate_revenue": 1100,
+            "input_mode": "md",
+            "input_value": 20,
+            "start_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 400, resp.text

@@ -139,6 +139,7 @@ async def get_latest_proposal(
         error_message=snap.error_message,
         degraded=snap.degraded,
         stale=snap.stale,
+        hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=items,
     )
@@ -251,6 +252,7 @@ async def regenerate_proposals(
         error_message=snap.error_message,
         degraded=snap.degraded,
         stale=snap.stale,
+        hidden=snap.hidden,
         run_id=snap.run_id,
         candidates=[],
     )

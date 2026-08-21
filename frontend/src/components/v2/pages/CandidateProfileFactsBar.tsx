@@ -39,7 +39,7 @@ import {
   type CandidateProfileRate,
 } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useCapability } from "@/hooks/useCapability";
 import { formatCandidateLocation } from "./candidate-list-helpers";
 import { candidateQueryKeys } from "./candidate-query-keys";
 
@@ -875,16 +875,13 @@ function EditFactButton({
 export function CandidateProfileFactsBar({
   candidate,
 }: CandidateProfileFactsBarProps) {
-  const currentUser = useAuthStore((state) => state.user);
-  const canViewAndEditRate = hasRole(
-    currentUser,
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "tac",
-    "recruiter",
-    "sourcer",
-  );
+  // GET/PATCH /api/candidates/{id}/profile-rate stoi na
+  // CandidateProfileFacts{Read,Write}Access = _INTERNAL_OPERATIONAL_ROLES —
+  // czyli KAŻDA rola operacyjna, w tym HoR i sourcer (polityka faktów
+  // globalnych) oraz `finance` (tier recruitera od 19.08), którego ręczna
+  // lista tu gubiła. To NIE jest RECRUITMENT_RATE_EDIT_ROLES: tamten zbiór
+  // (bez HoR i sourcera) bramkuje stawkę w pipelinie, nie fakt globalny.
+  const canViewAndEditRate = useCapability("candidate.profile_fact.manage");
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);

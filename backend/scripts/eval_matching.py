@@ -45,6 +45,7 @@ import json
 import logging
 import math
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
@@ -73,9 +74,15 @@ from app.services.similar_job_candidates import (  # noqa: E402
     boost_points_for_sources,
     fetch_historical_boost_map,
 )
-from app.services.retrieval_pool import retrieve_candidate_pool
+from app.services.canonical_text import build_job_query_variants  # noqa: E402
+from app.services.hybrid_search import build_job_bm25_query  # noqa: E402
+from app.services.retrieval_pool import retrieve_candidate_pool  # noqa: E402
 
 logger = logging.getLogger("eval_matching")
+
+# Ustawiany z CLI (--dump-layers); _score_job_candidates dopisuje wiersze.
+_DUMP_HANDLE = None
+_DUMP_GT: dict[int, set[int]] = {}
 
 
 # ── Ground truth config ──────────────────────────────────────────────────────
@@ -99,6 +106,65 @@ STAGE_RELEVANCE: dict[PipelineStage, float] = {
 }
 
 POSITIVE_STAGES: frozenset[PipelineStage] = frozenset(STAGE_RELEVANCE.keys())
+
+_TITLE_STOPWORDS = frozenset(
+    {
+        "senior",
+        "junior",
+        "mid",
+        "regular",
+        "lead",
+        "principal",
+        "staff",
+        "specialist",
+        "specjalista",
+        "inzynier",
+        "engineer",
+        "developer",
+        "programista",
+        "konsultant",
+        "consultant",
+        "ds",
+        "the",
+        "and",
+        "for",
+        "with",
+        "expert",
+    }
+)
+
+
+def _title_tokens(text: str) -> set[str]:
+    return {
+        t
+        for t in re.split(r"[^0-9a-ząćęłńóśźż#+]+", (text or "").lower())
+        if len(t) >= 2 and t not in _TITLE_STOPWORDS
+    }
+
+
+def title_match_feature(job, candidate) -> float:
+    """Zgodność tytułu oferty z rolami z historii kandydata, 0..1.
+
+    Cecha do OFFLINE'OWEJ nominacji przez zrzut warstw (runda 2, punkt 4) —
+    nie jest warstwą scoringu. Jaccard po tokenach merytorycznych (stopwordy
+    seniority/szumu odpadają) między tytułem oferty a unią ról z `experience`.
+    Pokrycie ról na prodzie: 31% (zmierzone 18.08) — brak ról zwraca 0.0,
+    co simpleks zobaczy jako brak sygnału, nie karę.
+    """
+    job_tokens = _title_tokens(getattr(job, "title", "") or "")
+    if not job_tokens:
+        return 0.0
+    role_tokens: set[str] = set()
+    exp = getattr(candidate, "experience", None)
+    if isinstance(exp, list):
+        for e in exp[:8]:
+            if isinstance(e, dict):
+                role_tokens |= _title_tokens(str(e.get("role") or ""))
+    if not role_tokens:
+        return 0.0
+    inter = len(job_tokens & role_tokens)
+    union = len(job_tokens | role_tokens)
+    return round(inter / union, 4) if union else 0.0
 
 
 # ── Data classes ─────────────────────────────────────────────────────────────
@@ -140,14 +206,15 @@ class WeightProfile:
         return asdict(self)
 
 
-# Mirrors the live engine default (scoring_service: 35/30/12/8/5/10 = 100).
+# Mirrors the live engine default (scoring_service: 60/10/15/5/0/10 = 100,
+# LTR-lite 18.08.2026 — historia: 35/30/12/8/5 → 45/25/10/8/2 → obecne).
 DEFAULT_PROFILE = WeightProfile(
-    name="default_35_30_12_8_5_10",
-    semantic=35.0,
-    skills=30.0,
-    salary=12.0,
-    location=8.0,
-    availability=5.0,
+    name="default_60_10_15_5_0_10",
+    semantic=60.0,
+    skills=10.0,
+    salary=15.0,
+    location=5.0,
+    availability=0.0,
     champion_fit=10.0,
 )
 
@@ -449,7 +516,19 @@ async def _score_job_candidates(
     query_text = _build_job_text(job)
 
     try:
-        hits = await retrieve_candidate_pool(db, query_text, top_k=pool_cap)
+        hits = await retrieve_candidate_pool(
+            db,
+            query_text,
+            top_k=pool_cap,
+            query_variants=build_job_query_variants(job, query_text),
+            # Bez tego eval mierzy pulę BEZ nogi BM25 — czyli dokładnie ten stan,
+            # który naprawiamy. Pominięcie tego argumentu tutaj sprawiłoby, że
+            # przyrząd pomiarowy potwierdzi „hybryda nic nie dała" niezależnie od
+            # tego, czy naprawa zadziałała: to ta sama pomyłka, przez którą A/B
+            # z 18.08 zapisało metryki identyczne z baselinem i uzasadniło wniosek
+            # „sufit architektury".
+            bm25_query=build_job_bm25_query(job),
+        )
     except Exception as e:
         logger.warning("semantic search failed for job=%s: %s", job.id, e)
         hits = []
@@ -495,6 +574,44 @@ async def _score_job_candidates(
                 continue
             b.total += boost_points_for_sources(count)
         breakdowns.sort(key=lambda r: -r.total)
+
+    if _DUMP_HANDLE is not None:
+        gt = _DUMP_GT.get(job.id, set())
+        cand_by_id = {c.id: c for c in candidates}
+        for b in breakdowns:
+            _DUMP_HANDLE.write(
+                json.dumps(
+                    {
+                        "job_id": job.id,
+                        "candidate_id": b.candidate_id,
+                        "gt": b.candidate_id in gt,
+                        "total": round(b.total, 4),
+                        "layers": {
+                            name: {
+                                "points": round(layer.points, 4),
+                                "max": layer.max_points,
+                            }
+                            for name, layer in (
+                                ("semantic", b.semantic),
+                                ("skills", b.skills),
+                                ("salary", b.salary),
+                                ("location", b.location),
+                                ("availability", b.availability),
+                                ("champion_fit", b.champion_fit),
+                            )
+                        },
+                        "seniority_note": b.seniority_note,
+                        # Cechy kandydackie do nominacji offline (weight_search
+                        # --with-feature) — nie wchodza do score'u.
+                        "features": {
+                            "title_match": title_match_feature(
+                                job, cand_by_id.get(b.candidate_id)
+                            )
+                        },
+                    }
+                )
+                + "\n"
+            )
 
     return [b.candidate_id for b in breakdowns], pool_size, boost_map
 
@@ -854,6 +971,7 @@ def _render_markdown(
 
 
 async def _run(args: argparse.Namespace) -> int:
+    global _DUMP_HANDLE
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -864,6 +982,34 @@ async def _run(args: argparse.Namespace) -> int:
         profiles = list(ABLATION_PROFILES)
     else:
         profiles = [DEFAULT_PROFILE]
+    for i, spec in enumerate(args.weights or []):
+        parts = [float(x) for x in spec.split(",")]
+        if len(parts) != 6:
+            raise SystemExit(
+                f"--weights wymaga 6 wartości (semantic,skills,salary,location,"
+                f"availability,champion_fit), dostałem {len(parts)}: {spec!r}"
+            )
+        total = sum(parts)
+        if abs(total - 100.0) > 0.01:
+            raise SystemExit(f"--weights musi sumować się do 100, jest {total}: {spec!r}")
+        if parts[5] > 0 and not args.include_champion:
+            logger.warning(
+                "--weights champion_fit=%.1f zostanie wyzerowane przez leakage "
+                "guard (efektywny budżet %g); --include-champion, żeby zachować",
+                parts[5],
+                total - parts[5],
+            )
+        profiles.append(
+            WeightProfile(
+                name=f"custom_{i}_" + "_".join(f"{x:g}" for x in parts),
+                semantic=parts[0],
+                skills=parts[1],
+                salary=parts[2],
+                location=parts[3],
+                availability=parts[4],
+                champion_fit=parts[5],
+            )
+        )
 
     # AI-P0-01: close champion_fit label leakage unless explicitly opted in.
     if not args.include_champion:
@@ -898,6 +1044,14 @@ async def _run(args: argparse.Namespace) -> int:
             exclude_job_ids=excluded or None,
         )
 
+        if args.dump_layers:
+            _DUMP_HANDLE = open(  # noqa: SIM115 — zamykany w finally niżej
+                args.dump_layers, "w", encoding="utf-8"
+            )
+            _DUMP_GT.clear()
+            for job, gt_ids, _relevance in job_records:
+                _DUMP_GT[job.id] = set(gt_ids)
+
         if not job_records:
             logger.error(
                 "No jobs with ≥%s ground-truth candidates found. "
@@ -911,44 +1065,55 @@ async def _run(args: argparse.Namespace) -> int:
         )
 
         profile_results: list[ProfileEval] = []
-        for profile in profiles:
-            logger.info("-> profile %s", profile.name)
-            res = await evaluate_profile(
-                profile,
-                job_records,
-                db,
-                with_historical_boost=args.with_historical_boost,
-                pool_cap=args.pool,
-            )
-            profile_results.append(res)
+        try:
+            for profile in profiles:
+                logger.info("-> profile %s", profile.name)
+                res = await evaluate_profile(
+                    profile,
+                    job_records,
+                    db,
+                    with_historical_boost=args.with_historical_boost,
+                    pool_cap=args.pool,
+                )
+                profile_results.append(res)
 
-        # Ablation mode additionally runs the default profile WITH boost so the
-        # markdown table shows the direct delta vs. baseline.
-        if args.ablation and not args.with_historical_boost:
-            logger.info("-> profile default + historical_boost (delta run)")
-            delta_res = await evaluate_profile(
-                DEFAULT_PROFILE,
-                job_records,
-                db,
-                with_historical_boost=True,
-                pool_cap=args.pool,
-            )
-            # Rename for unambiguous output.
-            delta_res = ProfileEval(
-                profile=WeightProfile(
-                    name=f"{DEFAULT_PROFILE.name}+boost",
-                    semantic=DEFAULT_PROFILE.semantic,
-                    skills=DEFAULT_PROFILE.skills,
-                    salary=DEFAULT_PROFILE.salary,
-                    location=DEFAULT_PROFILE.location,
-                    availability=DEFAULT_PROFILE.availability,
-                    champion_fit=DEFAULT_PROFILE.champion_fit,
-                ),
-                per_job=delta_res.per_job,
-                with_boost=True,
-            )
-            profile_results.append(delta_res)
+            # Ablation mode additionally runs the default profile WITH boost
+            # so the markdown table shows the direct delta vs. baseline.
+            if args.ablation and not args.with_historical_boost:
+                logger.info("-> profile default + historical_boost (delta run)")
+                delta_res = await evaluate_profile(
+                    DEFAULT_PROFILE,
+                    job_records,
+                    db,
+                    with_historical_boost=True,
+                    pool_cap=args.pool,
+                )
+                # Rename for unambiguous output.
+                delta_res = ProfileEval(
+                    profile=WeightProfile(
+                        name=f"{DEFAULT_PROFILE.name}+boost",
+                        semantic=DEFAULT_PROFILE.semantic,
+                        skills=DEFAULT_PROFILE.skills,
+                        salary=DEFAULT_PROFILE.salary,
+                        location=DEFAULT_PROFILE.location,
+                        availability=DEFAULT_PROFILE.availability,
+                        champion_fit=DEFAULT_PROFILE.champion_fit,
+                    ),
+                    per_job=delta_res.per_job,
+                    with_boost=True,
+                )
+                profile_results.append(delta_res)
+        finally:
+            # 1185-review: handle zamykany ZAWSZE (wyjątek w ewaluacji nie może
+            # zostawić niedomkniętego bufora), _DUMP_GT resetowany razem z nim.
+            if _DUMP_HANDLE is not None:
+                _DUMP_HANDLE.close()
+                _DUMP_HANDLE = None
+                _DUMP_GT.clear()
+                logger.info("Layer dump written to %s", args.dump_layers)
 
+    # Zamknięcie zrzutu w finally powyżej byłoby poza zasięgiem `async with db`
+    # — dlatego finally obejmuje blok ewaluacji, a nie cały _run.
     generated_at = datetime.now(timezone.utc)
     voyage_configured = bool(os.environ.get("VOYAGE_API_KEY"))
     markdown = _render_markdown(
@@ -1119,6 +1284,28 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--ablation",
         action="store_true",
         help="Run every profile in ABLATION_PROFILES instead of just default.",
+    )
+    parser.add_argument(
+        "--dump-layers",
+        metavar="PATH",
+        help=(
+            "Zrzut per (oferta, kandydat): punkty/max każdej warstwy + total + "
+            "flaga GT (JSONL). Wsad do offline'owego przeszukiwania wag "
+            "(scripts/weight_search.py) — rekombinacja jest dokładna, więc "
+            "tysiące wektorów liczy się w sekundy bez ponownego scoringu."
+        ),
+    )
+    parser.add_argument(
+        "--weights",
+        action="append",
+        metavar="S,SK,SAL,LOC,AV,CH",
+        help=(
+            "Dodatkowy profil wag (6 liczb sumujących się do 100: semantic,"
+            "skills,salary,location,availability,champion_fit). Powtarzalne — "
+            "każde wystąpienie dodaje jedno ramię do TEGO SAMEGO biegu "
+            "(wspólny retrieval, porównanie czystych wag). Strojenie 4b: "
+            "trenuj na zbiorze ROZŁĄCZNYM z zamrożonym eval (--exclude-job-ids)."
+        ),
     )
     parser.add_argument(
         "--with-historical-boost",

@@ -38,6 +38,11 @@ function row(overrides: Partial<ImportRow> = {}): ImportRow {
     },
     options: [],
     resolved_at: null,
+    notes_raw: null,
+    order_number_hint: null,
+    invoice_amount: null,
+    cost_status: null,
+    cost_status_label: null,
     ...overrides,
   };
 }
@@ -50,7 +55,9 @@ function detail(rows: ImportRow[]): ImportDetail {
     rows_total: rows.length,
     rows_applied: rows.filter((r) => r.status === "applied").length,
     rows_ambiguous: rows.filter((r) => r.status === "needs_assignment").length,
-    rows_unmatched: rows.filter((r) => r.status === "unmatched").length,
+    rows_cost_applied: 0,
+  rows_cost_unmatched: 0,
+  rows_unmatched: rows.filter((r) => r.status === "unmatched").length,
     uploaded_by_user_id: 1,
     created_at: "2026-07-01T10:00:00Z",
     rows,

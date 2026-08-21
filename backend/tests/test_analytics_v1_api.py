@@ -496,7 +496,9 @@ async def test_finance_persona_has_org_wide_client_finance_without_dl_assignment
         operations_resp = await v1_client.get(
             f"/api/analytics/v1/clients/{client_id}/operations"
         )
-        assert operations_resp.status_code == 403
+        # Od 19.08 finance wchodzi w client-operations torem rol
+        # globalno-klienckich (ma VIEW_CLIENT_OPERATIONS; dawny bounce zdjety).
+        assert operations_resp.status_code == 200, operations_resp.text
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 

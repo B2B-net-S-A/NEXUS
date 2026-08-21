@@ -49,6 +49,10 @@ class ProposalSnapshotResponse(BaseModel):
     error_message: Optional[str] = None
     degraded: bool = False
     stale: bool = False
+    # Liczniki dealbreakerów z generacji ({"over_budget": N, "remote_only": M});
+    # None = snapshot sprzed 0237. UI renderuje z tego chip „ukryto N" —
+    # ukrywanie nigdy nie jest ciche.
+    hidden: Optional[dict[str, int]] = None
     run_id: Optional[str] = None
     candidates: List[ProposalCandidateItem] = []
 

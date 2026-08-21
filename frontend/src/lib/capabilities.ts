@@ -39,8 +39,13 @@ export type Capability =
   | "contact.create"
   | "calendar_event.create"
   | "invite_link.create"
+  // ── Teczka kandydata i fakty profilowe ─────────────────────────────────────
+  | "candidate.document.manage"
+  | "candidate.profile_fact.manage"
   // ── Kuratela portfela klientów ─────────────────────────────────────────────
   | "client.portfolio.manage"
+  // ── Imienne wyniki zespołu ─────────────────────────────────────────────────
+  | "dashboard.recruitment_stats.view"
   // ── Wejścia nawigacyjne ────────────────────────────────────────────────────
   | "nav.candidates"
   | "nav.talents"
@@ -62,6 +67,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "delivery_lead",
   "tac",
   "recruiter",
+  "finance",
   "sourcer",
 ];
 
@@ -71,11 +77,28 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "delivery_lead",
   "tac",
   "recruiter",
+  "finance",
   "sourcer",
 ];
 
 /** Odpowiednik backendowego `TacPlus`. */
 const TAC_PLUS: readonly UserRole[] = ["admin", "delivery_lead", "tac"];
+
+/**
+ * KAŻDA zalogowana rola — dla powierzchni otwartych z decyzji produktowej
+ * (Talent Radar, 19.08). Jawna lista zamiast pomijania bramki, żeby dodanie
+ * nowej roli do systemu wymagało świadomej decyzji także tutaj.
+ */
+const ALL_ROLES: readonly UserRole[] = [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+];
 
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
@@ -103,18 +126,41 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/invite-links → RecruiterPlus (backend/app/api/invite_links.py)
   "invite_link.create": RECRUITER_PLUS,
 
+  // POST /api/candidates/{id}/documents + PATCH .../documents/{doc_id} →
+  // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (candidate_access.py) —
+  // parytet z RecruiterPlus, BEZ head_of_recruitment. HoR CZYTA teczkę
+  // (CandidateDocumentAccess = CANDIDATE_DOCUMENT_ROLES, szerszy zbiór),
+  // ale upload / zmiana rodzaju / „główne CV" to dla niego 403.
+  "candidate.document.manage": RECRUITER_PLUS,
+  // GET/PUT /api/candidates/{id}/languages + GET/PATCH .../profile-rate →
+  // CandidateProfileFactsReadAccess i CandidateProfileFactsWriteAccess
+  // (candidate_access.py); OBA = _INTERNAL_OPERATIONAL_ROLES, stąd jeden wpis
+  // na odczyt i zapis. To NIE jest CANDIDATE_WRITE_ROLES ani
+  // RECRUITMENT_RATE_EDIT_ROLES (bramka stawki w pipelinie) — polityka
+  // produktowa faktów globalnych jawnie dopuszcza tu HoR i sourcera.
+  // Gdy backend rozdzieli odczyt od zapisu — rozdziel też ten wpis.
+  "candidate.profile_fact.manage": OPERATIONAL,
+
   // PATCH /api/clients/{id}/portfolio-scopes/{scope}/placement → AdminUser
   // (backend/app/api/client_directory.py). Przenoszenie klienta między
   // zakładkami portfela + daty umowy to kuratela katalogu — tylko admin.
   "client.portfolio.manage": ["admin"],
+
+  // GET /api/dashboard/v2/recruitment-stats → OperationalUser
+  // (backend/app/api/dashboard_v2.py). Payload imienny, per osoba. Uwaga:
+  // docstring tego endpointu wciąż twierdzi, że finance dostaje 403 — jest
+  // nieaktualny od 19.08, wiążący jest guard (`OperationalUser` zawiera
+  // `UserRole.finance`).
+  "dashboard.recruitment_stats.view": OPERATIONAL,
 
   // Nawigacja — odwzorowanie ROLE_ROUTES z `middleware.ts` oraz bramek
   // sidebara. Trzymane tutaj, żeby Command Palette nie utrzymywała drugiej,
   // rozjeżdżającej się kopii.
   "nav.candidates": OPERATIONAL,
   "nav.talents": OPERATIONAL,
-  // POST /api/talent-radar/search → require_candidate_write.
-  "nav.talent_radar": RECRUITER_PLUS,
+  // Radar dla KAŻDEJ roli (decyzja produktowa 19.08) — backend lustrzanie
+  // na CurrentUser, middleware bez wpisu (= brak zawężenia).
+  "nav.talent_radar": ALL_ROLES,
   "nav.sourcing": OPERATIONAL,
   "nav.clients": OPERATIONAL,
   "nav.my_clients": ["admin", "head_of_recruitment", "delivery_lead"],

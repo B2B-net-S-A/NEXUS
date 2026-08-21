@@ -38,6 +38,26 @@ rekrutacyjne to **rekrutacja**.
   oferty:" zostaje. Zmiana treści promptu zmienia zachowanie modelu i
   unieważnia cache oparty o hash promptu, bez zysku dla użytkownika.
 
+## Rola `finance` = pełny dostęp operacyjny (decyzja Artura 19.08)
+
+Historyczne, wielowarstwowe odcięcie roli `finance` od powierzchni
+kandydackich ZDJĘTE na wprost wyrażoną decyzję („finanse też mogą mieć pełny
+dostęp do wszystkiego"). **Reguła: finance = wszędzie tam, gdzie recruiter,
+plus własny moduł Finanse** — bez tierów zarządczych (TacPlus, stawki linii
+MD, powierzchnie admin-only) i bez semantyk wykonawców (kolejka telefonów,
+kokpit „Moja praca", ownership ofert). Zdjęte odcięcia: `candidate_access`
+(global search + `require_candidate_roles`), predykat notyfikacji
+(allowlista „finance-safe" nieużywana), analytics client-scope bounce,
+czaty/wzmianki (przez `user_can_access_candidate_domain`). Finance jest
+w `CANDIDATE_READ/WRITE_ROLES`, `RECRUITMENT_*` (tier recruitera),
+`RecruiterPlus`, `OperationalUser`, handoff i kontraktorach; FE lustrzanie
+(`OPERATIONAL`/`RECRUITER_PLUS`, middleware, sidebar). Macierz capability
+wylicza finance funkcją `financeExpected` (= recruiter ∪ `nav.finance`) —
+odstępstwo od reguły wymaga świadomej zmiany tej funkcji. Wyłączność KONTA
+finance (CHECK `ck_users_exclusive_finance_viewer_roles`) i bramka wejścia
+do modułu finansów pozostają bez zmian. Historyczne komentarze per-moduł
+o „konsekwentnym odcinaniu finance" opisują stan sprzed 19.08.
+
 ## Design system & UI — ZAWSZE przy pracy nad wyglądem
 
 Przy **każdej** pracy nad UI/UX/designem (nowy ekran, komponent, reskin, layout, login, landing) **ZAWSZE** korzystaj z dwóch kupionych bibliotek (konto `artur.twardowski@b2bnetwork.pl`, zalogowane w Chrome — używaj Chrome MCP):
@@ -168,6 +188,27 @@ Rejestr rozbity na trzy zakładki odpowiadające fazom życia umowy (migracja
 **„Umowy bez projektu"** (`suspended`) · **„Zakończone umowy"** (`closed`).
 Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
 
+- **Dostęp: KAŻDA rola (decyzja produktowa, 20.08 — mirror Talent Radar 19.08).**
+  Sidebar nigdy nie miał tu `roles` ("Generator Umów B2B — dostępny dla
+  wszystkich ról (sourcing tooling)"), ale backendowa `B2BGeneratorAccess`
+  (`require_b2b_generator_access` w `contract_access.py`) do 20.08 wpuszczała
+  tylko admin/HoR/TAC (+ DL ze scope'em) — dokładnie ten sam gap co przy
+  Talent Radar: link widoczny, klik = 403. Otwarte na finance/recruiter/sourcer/
+  legacy `user`. **Delivery Lead zostaje WYJĄTKIEM**, nietknięty: nadal wymaga
+  jawnego przypisania klienta (operuje na swoim portfelu, nie całej bazie).
+  Samo przepuszczenie roli przez bramkę NIE wystarczało — role bez żadnego
+  wiersza w `ClientTacAssignment`/`DeliveryLeadClientAssignment`
+  (`resolve_client_team_client_ids` zna tylko DL/TAC) dostawałyby trwale pustą
+  listę, więc `_generator_unscoped` w `b2b_contract_generator.py` (pełny,
+  nieoskopowany dostęp — pierwotnie tylko admin/HoR/TAC, „full-access TAC
+  tool") poszerzony w lockstep o te same role. `contract_templates.py` (render
+  dla DOWOLNEGO typu kontraktu, nie tylko B2B) stoi za osobną, węższą
+  `ContractLegalAccess` i tej decyzji NIE dotyczy — pozostaje admin/HoR/DL/TAC.
+  Węższe bramki wewnątrz generatora zostają nietknięte: edycja `client_name`
+  (autor albo admin), DELETE (autor albo admin), katalog 29 ról (`AdminUser`),
+  `confirm-fully-signed` (`TacPlus` + ścisły client-scope — audytowana,
+  jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
+  pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
 - **`suspended` powstał, bo bez niego rejestr kłamał.** Kontraktor kończy projekt
   u klienta, ale umowa B2B dalej obowiązuje — czeka na kolejne zlecenie. `active`
   twierdziłby, że ktoś pracuje; `closed`, że umowy nie ma. Ten status odpowiada na
@@ -489,11 +530,20 @@ oferty** — to przeszukanie bazy, nie krok pipeline'u. PR-y: #1115 (silnik),
   Lista rankingowa służy do decyzji KOGO otworzyć; kontakt jest za kliknięciem.
   Warstwa wynagrodzenia jest wygaszana (`status: "not_applicable"`), bo radar
   nie ma widełek i surowe zero czytałoby się jako „nie pasuje finansowo".
-- **Role**: `require_candidate_write` (admin, delivery_lead, tac, recruiter,
-  sourcer — **bez** head_of_recruitment). Ta sama piątka w czterech miejscach:
-  sidebar, paleta ⌘K, `CAPABILITY_ROLES` i `ROLE_ROUTES` w middleware. Bez wpisu
-  w middleware viewer wchodzi na stronę i dostaje 403 z API wyrenderowane jako
-  pusta lista.
+- **Role: KAŻDA zalogowana** (decyzja produktowa Artura 19.08 — poszła po
+  zrzucie 403 od Head of Recruitment; wcześniej `require_candidate_write` bez
+  HoR). PIĘĆ lustrzanych miejsc: backend oba endpointy na `CurrentUser`,
+  middleware BEZ wpisu `/talent-radar` (brak wpisu = brak zawężenia ról, sam
+  login wymagany), sidebar bez `roles`, `nav.talent_radar = ALL_ROLES` w
+  `CAPABILITY_ROLES` (paleta ⌘K czyta stamtąd) oraz SAM `page.tsx` BEZ
+  `RequireRole` — piąta kopia starej listy ról (in-page `RequireRole` z
+  fallbackiem „Brak uprawnień") przeżyła otwarcie #1212 i wyszła dopiero ze
+  zrzutu użytkownika, zdjęta w follow-upie. Test kontraktowy pilnuje, że
+  guard rolowy (`_check`) NIE wróci na trasy radaru cichym refaktorem.
+  **Granice, które ZOSTAJĄ**: wyniki niosą tożsamość węższą niż profil (bez
+  kontaktu i stawek), a „Otwórz profil" renderuje się tylko dla ról z
+  `nav.candidates` — po decyzji z 19.08 (finance = pełny dostęp operacyjny)
+  poza tą capability jest już wyłącznie viewer `user`.
 - **Pułapka przy dokładaniu endpointów**: moduł z `@limiter.limit` nie może mieć
   `from __future__ import annotations` (PEP 563 + slowapi #579 → body ląduje jako
   parametr Query). Pilnuje tego test czytający AST, nie treść pliku — docstring
@@ -646,6 +696,39 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   a same stawki renderują się jako „—" (znikająca kolumna czytałaby się jak brak danych, nie
   jak brak uprawnień). Import: `FinanceManageUser` (admin + Finanse) z wąską projekcją
   wierszy — bez identyfikatorów kandydatów i kontraktów.
+- **Picker konsultanta pokazuje DWA źródła w jednej liście** (`ConsultantPicker`,
+  `GET …/order-groups/consultant-options`): osoby z kontraktem u tego klienta
+  („Rekrutacja u klienta") i pozostałych aktywnych konsultantów z bazy
+  („Baza Nexus"). Wcześniej był tu `<select>` wyłącznie z kontraktami u klienta,
+  więc konsultanta kończącego projekt u jednego klienta nie dało się wpisać na
+  zamówienie u drugiego. Reguły, które trzymają tę listę uczciwą: dedup po
+  OSOBIE, nie po kontrakcie (kto jest w źródle A, nie pojawia się w B, a osoba
+  z dwoma żywymi kontraktami u tego klienta ma jeden wiersz — ten o najpóźniejszym
+  starcie); „aktywny" to `active` + **`ending`** (kontrakt < 30 dni do końca to
+  wciąż ktoś, kto pracuje, i najbardziej oczywisty kandydat na obsadę); sortowanie
+  i wyszukiwanie idą po kluczu bez diakrytyków **w Pythonie**, bo prod nie ma
+  `unaccent`; zapytanie jest AND-em po tokenach dopasowywanych PREFIKSEM, więc
+  „Jan Kowalski" zwraca jedną osobę, a nie wszystkich Janów i wszystkich
+  Kowalskich (równość byłaby pułapką — „Anna Kowal" w trakcie pisania nie
+  zwracałoby nic, a pustka czyta się jak „nie ma jej w bazie" i kończy duplikatem).
+  Odpowiedź niesie `total`, bo lista bez licznika przycięta limitem czyta się jako
+  komplet. **Nazwa klienta, u którego dana osoba pracuje teraz, NIE wychodzi** —
+  odbiorcą listy jest zespół jednego klienta. Harness wizualny (publiczny, same
+  mocki): `/preview/order-consultant-picker`.
+- **Osoba z bazy Nexus jedzie jako `candidate_id`, a serwer zakłada jej kontrakt
+  w statusie `draft`.** `client_orders.contract_id` jest NOT NULL i czyta go
+  kilkanaście ścieżek (skaner wygasania, sync terminacji, MRR), więc linia musi
+  wisieć na kontrakcie u TEGO klienta — zdjęcie NOT NULL jest wykluczone (patrz
+  wyżej). `draft`, nie `active`: aktywacja ma własny walidowany cykl życia
+  (`contract_lifecycle.activate_contract`), a formularz obsady o umowie nie pyta,
+  więc nie może wpychać ludzi do MRR i alertów wygasania. Kontrakt już istniejący
+  jest REUŻYWANY (zero drugich, równoległych kontraktów u tego samego klienta).
+  `OrderLineCreate` wymaga DOKŁADNIE JEDNEGO z pól `contract_id`/`candidate_id`:
+  przy dwóch trzeba by rozstrzygać, które wygrywa, a każde rozstrzygnięcie po
+  cichu wpisuje na zamówienie kogoś innego, niż widział operator. Fakt założenia
+  kontraktu ląduje w historii zamówienia (`payload.contract_created`).
+  **Zamiana kontraktora (`SwapConsultantModal`) świadomie ZOSTAJE przy starej,
+  wąskiej liście** — ticket dotyczył dodawania do zamówienia.
 - **Pułapka UI, którą złapał dopiero test w przeglądarce:** gałąź pustego stanu MUSI wisieć na
   `isSuccess`, nie na `!isLoading`. W przerwie między ponowieniami react-query ma
   `isLoading === false`, `isError === false` i puste `data`, więc warunek na `isLoading`
@@ -655,3 +738,146 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
   `SELECT id, name FROM clients WHERE name ILIKE '%BIK%' OR name ILIKE '%Polkomtel%' OR
   name ILIKE '%BNP%'`). Do tego czasu wszystko stoi bezczynnie i zakładka „Zamówienia"
   renderuje dotychczasowy widok jednoosobowy dla każdego klienta.
+
+## Cykl życia zamówienia, zamówienia kosztowe i powiadomienia Delivery Leada
+
+Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wierszu
+`client_order_groups`. Pełny opis: `docs/order-lifecycle-cost-and-dl-alerts-completion-report.md`.
+
+- **Zakładka „Zamówienia" renderuje DWA różne widoki i tickety dzielą się między nie
+  czysto.** `MultiConsultantOrdersTab` dla klientów z `MULTI_CONSULTANT_ORDER_CLIENT_IDS`
+  (BIK/Polkomtel/BNP), `OrdersAndContractsTab` dla wszystkich pozostałych
+  ([page.tsx:945](frontend/src/app/clients/[id]/page.tsx)). Zanim cokolwiek dodasz do
+  „zamówień", ustal, o którym widoku mowa — pole dołożone do złego jest **martwe**, bo
+  jego klienci tego ekranu nigdy nie widzą (dokładnie dlatego „Liczba MD" NIE trafiła do
+  `ExtendOrderDialog`).
+- **Cykl życia grupy jest STANEM, nie datą.** `status` ∈ `active | completed | exhausted`.
+  Data nie odróżnia zamówienia domkniętego świadomie od takiego, któremu minął termin,
+  a to dwie różne decyzje. `exhausted` dochodzi automatycznie przy zerowym budżecie
+  i **nie da się go cofnąć** przywróceniem (409) — tam problemem nie jest data, tylko
+  brak pieniędzy, więc właściwą akcją jest korekta kwoty albo nowe zamówienie.
+- **Zakończenie jest LUSTREM syncu terminacji kontraktu** ([contracts.py:2918](backend/app/api/contracts.py)):
+  data zapisuje się zawsze, ale `completed` dostają tylko linie, których dzień już
+  nadszedł. Bez tego zakończenie zaplanowane w przód wyłączałoby kogoś, kto dziś pracuje.
+- **Usunięcie nie kasuje linii z historią** — zdejmuje ją z grupy (`order_group_id=NULL`).
+  Twarde kasowanie tylko dla szkicu bez pliku PO, bez zużycia MD i bez faktur (ta sama
+  reguła co `DELETE /api/clients/{c}/orders/{o}`). Usunięcie **nie zapisuje zdarzenia**
+  i kasuje własny wpis `dodanie_konsultanta`, ale `zamiana_kontraktora` ZOSTAJE — mówi
+  o dwóch osobach naraz.
+  **Skutek praktyczny, o który łatwo się potknąć przy danych testowych:** skasowanie
+  grupy zostawia jej linie jako OSIEROCONE wiersze `client_orders` (już nie w żadnej
+  grupie, więc niewidoczne w zakładce), a `DELETE /orders/{id}` na linii innej niż szkic
+  tylko ją **anuluje** — nie kasuje. Pełne usunięcie idzie istniejącym API:
+  `PATCH {"status":"draft"}` → `DELETE` (`ClientOrderUpdate` przyjmuje `status`, a twarde
+  kasowanie obejmuje szkice). **Kolejność ma znaczenie** — najpierw linia-następca, potem
+  poprzednik, bo `predecessor_order_id` wskazuje wstecz.
+- **Przedłużenie to NOWA grupa** z `predecessor_group_id`, nie edycja poprzedniej:
+  poprzednia musi zostać taka, jaka była, bo na jej podstawie rozliczono już faktury.
+  Typ rozliczenia DZIEDZICZY się po poprzedniku.
+- **Zamówienie kosztowe (`is_cost_based`) — kwota mieszka na GRUPIE, nie na linii.**
+  To jedna pula dzielona przez kilku konsultantów; trzymanie jej per osoba wymagałoby
+  podziału z góry, czego nikt nie robi. Linia kosztowa ma obie stawki i **puste pola MD** —
+  dlatego 0233 rozluźnia `ck_client_orders_md_coherence`: budżet nadal wymaga dodatniej
+  stawki przychodowej, ale stawka bez budżetu jest legalna (do 0233 taka linia w ogóle
+  nie dawała się zapisać).
+- **Trzy liczby, nie jedna.** Ticket nazywa „zużyciem" wartość, która MALEJE — czyli
+  resztę. UI pokazuje `budget_amount` / `budget_used` / `budget_remaining` + pasek, bo
+  jedno pole podpisane „zużycie", a pokazujące resztę, myli w rozmowie o pieniądzach.
+- **Rozliczenie przelicza się od zera przy każdej zmianie** (`cost_orders.settle_group`),
+  po `(period_month, order_id)`. To jest mechanizm idempotencji importu razem z UNIQUE
+  `(order_id, period_month)`, a stała kolejność jest tym, co sprawia, że odpowiedź na
+  pytanie „której osobie zabrakło budżetu" nie zmienia się między odczytami.
+  `settled_amount`/`unsettled_amount` są ZAPISANE, nie liczone przy odczycie.
+- **Reszta nie schodzi poniżej zera**, a nadwyżka ląduje jako `unsettled_amount` na
+  konkretnej linii — „budżet przekroczony o X" bez wskazania osoby nie daje się rozliczyć
+  z klientem. `budget_manual_adjustment` jest osobną kolumną (jak `md_manual_adjustment`):
+  korekta nadpisująca resztę wprost przeżyłaby do najbliższego importu.
+- **Import kosztowy to DRUGA, niezależna ścieżka w „Import zużycia MD"** (`/finance?view=md`),
+  nie w „Wynikach miesięcznych" — tamten moduł świadomie nie przechowuje „Uwag" i ta
+  decyzja zostaje. Numer wybierany jest przez KONFRONTACJĘ z istniejącymi zamówieniami
+  (`extract_order_number_candidates`), nie heurystyką „najdłuższy ciąg cyfr": obok numeru
+  stoi często rok albo numer transzy. Wiersz wchodzi na tę ścieżkę tylko gdy ma **numer
+  i kwotę** — bez kwoty nie ma czego odjąć, więc czerwień byłaby fałszywym alarmem.
+  `cost_status` jest OSOBNĄ kolumną od `status`: jeden wiersz bywa MD-dopasowany po
+  nazwisku i kosztowo-niedopasowany po numerze.
+- **Parser MD wyklucza nagłówki stawkowe** (`_MD_ANTI_HEADERS`). Realny arkusz z Finansów
+  ma obok siebie „Średnia Stawka MD" i „Ilość MD"; bez tego wygrywała pierwsza z brzegu
+  i system odejmował 1000 „dni" zamiast 15 — błąd CICHY, bo liczba jest poprawna
+  arytmetycznie, tylko opisuje co innego.
+- **`dl_alerts` to OSOBNA tabela, nie `notifications`.** Tamta zna wyłącznie `is_read`:
+  nie wie kto i kiedy sprawę załatwił, więc nie ma czasu reakcji, czyli nie ma czego
+  wyeksportować. Ma też dobowy indeks dedupu, który tłumiłby powtórki, i fail-closed
+  filtr widoczności, przez który rola Finanse i tak by tych wpisów nie zobaczyła.
+- **Powtórka co 7 dni jest NOWYM wierszem**, nie aktualizacją — raport ma pokazywać, ile
+  tygodni sprawa czekała. Numer okna wchodzi w `dedupe_key`; okno liczy się od daty
+  PIERWSZEGO alertu tej sprawy, nie od poniedziałku (inaczej wszystkie alerty
+  zsynchronizowałyby się w jeden dzień). Powtórki ustają po `handled` **albo** gdy warunek
+  ustąpi. Wpisy nie są kasowane — log JEST raportem.
+- **Uprawnienia cyklu życia są SZERSZE niż uprawnienia do stawek i to jest świadome.**
+  `_ORDER_LIFECYCLE_ROLES` = admin + head_of_recruitment + delivery_lead (przypisany)
+  + finance; `_has_md_line_management_role` (stawki) zostaje przy admin + DL. Dwie
+  konsekwencje do zapamiętania: **HoR dostaje te akcje u WSZYSTKICH klientów** (przechodzi
+  guardy globalnie, bez przypisania), a **rola `finance` widzi tu nazwiska konsultantów**,
+  od czego repo konsekwentnie ją odcina. Test `test_rate_gate_did_not_leak_to_lifecycle_roles`
+  broni granicy przed „uproszczeniem" obu list do jednej.
+  **Uwaga:** `finance` nie ma dziś ŻADNEGO wejścia nawigacyjnego do modułu Klienci
+  (`nav.clients` = role operacyjne), więc w praktyce przyciski klikną admin, HoR
+  i przypisany DL. Otwarcie modułu dla Finansów to osobna zmiana RBAC.
+- **Kontraktor bez zamówienia w widoku jednoosobowym** ma teraz edytowalne numer, okres
+  i obie stawki; pierwszy zapis zakłada szkic `ClientOrder`. To była przyczyna zgłoszenia
+  „u Banku Pocztowego nie da się nic wpisać" — u Aliora pola działały wyłącznie dlatego,
+  że jego zamówienia zostały kiedyś zaimportowane. Różnica DANYCH, nie konfiguracji.
+- **Odczyt PDF ma DWIE polityki nadpisywania i nie wolno ich ujednolicać:** widok MD pyta
+  „Tak/Nie" przy rozbieżności z ręcznym wpisem, widok jednoosobowy nadpisuje po cichu.
+  Oba wymogi są w ticketach wprost. Wspólna warstwa: `lib/order-extraction.ts`.
+- **Zamiana kontraktora DZIAŁA na zamówieniu kosztowym i nie rusza puli.** Guard był
+  pisany wyłącznie pod tryb MD (`md_total is None` → 422), a linia kosztowa ma `md_total`
+  puste **z definicji** — więc przycisk renderował się aktywny i gwarantowanie kończył się
+  błędem „Linia nie ma budżetu MD do przeniesienia", czyli komunikatem o danych do
+  uzupełnienia w stanie, którego nie da się usunąć. W trybie kosztowym nie ma czego
+  przenosić: zmienia się osoba i jej stawki, a nowa linia dostaje **komplet NULL-i** w
+  polach MD (`ck_client_orders_md_coherence` dopuszcza tylko wszystko albo nic).
+  `settle_group` nie filtruje po statusie linii, więc domknięcie poprzednika **nie
+  odsłania wydanych już pieniędzy** — dlatego zamiana nie wymaga przeliczenia budżetu.
+  Przejście potwierdzone na produkcji end-to-end (Polkomtel, 2026-08-18, zamówienie
+  testowe usunięte po weryfikacji): nowa linia ma komplet NULL-i w polach MD, poprzednik
+  `completed` z datą zamiany, `budget_remaining` bez zmian, a wpis w historii brzmi
+  „Zamiana kontraktora … (zamówienie kosztowe): … Kwota zamówienia zostaje wspólna dla
+  całej grupy" — bez arytmetyki MD.
+- **Weryfikując te ekrany przeglądarką: akcje destrukcyjne wołają natywny `window.confirm`,
+  który ZAMRAŻA automatyzację.** `Input.dispatchMouseEvent` leci w timeout, screenshot
+  zwraca „Script injection timed out", klawiatura nie pomaga (dialog jest poza stroną),
+  a `navigate` co prawda odmraża kartę, ale **odrzuca** dialog, czyli akcja się nie
+  wykonuje. Usuwanie/zakończenie testuj przez API (`fetch` z Bearer w zalogowanej karcie);
+  przez interfejs weryfikuj to, co nie kończy się natywnym dialogiem.
+- **Centrum e-Zdrowia a „kontraktor bez zamówienia":** `POST /orders` wymaga tam części
+  umowy (`validate_project_part(..., require=True)`), a select renderował się wyłącznie
+  przy istniejącym `activeOrder` — u TEGO klienta objaw „nie da się nic wpisać" przeżywał
+  więc poprawkę T6, i to jako surowe 422. Teraz część umowy jest **polem, które zakłada
+  szkic**: renderuje się bez zamówienia, a próba zapisu czegokolwiek innego bez niej
+  odmawia po polsku, po stronie przeglądarki, zamiast lecieć po odpowiedź serwera.
+- **`?tab=` na profilu klienta jest LOAD-BEARING.** Trzy źródła powiadomień linkują wprost
+  do zakładki ze sprawą (`dl_alerts_scanner.py`, `dl_portal_expiry_scanner.py`,
+  `pipeline.py` — wszystkie `/clients/{id}?tab=zamowienia`), a strona trzymała `useState`
+  na stałe `"profil"` i parametru nie czytała. Kliknięcie powiadomienia lądowało na
+  Profilu i kazało odbiorcy szukać samodzielnie.
+  **Sam inicjalizator `useState` NIE wystarcza** — odpala się raz na cykl życia
+  komponentu, a użytkownik już na `/clients/1` klikający powiadomienie do
+  `/clients/1?tab=zamowienia` dostaje MIĘKKĄ nawigację App Routera: adres się zmienia,
+  komponent się nie odmontowuje, stan zostaje. Dla Delivery Leada siedzącego na profilu
+  klienta to scenariusz codzienny, nie brzegowy. Logika mieszka w
+  `frontend/src/lib/client-tab.ts` (`useClientTab`) właśnie po to, żeby dała się
+  przetestować bez montowania całego ciężkiego profilu — efekt zależy od WARTOŚCI
+  parametru, nie od tożsamości `searchParams`, więc ręczne kliknięcie w inną zakładkę
+  nie jest cofane przy najbliższym renderze.
+- **Aktywacja na prodzie: `COST_ORDER_CLIENT_IDS=15` (Polkomtel) USTAWIONE 2026-08-18.**
+  Nie panelem i nie po SSH (klucze martwe, hasła do panelu nie znamy) — workflow
+  **„Coolify set env"** (`.github/workflows/coolify-set-env.yml`, `workflow_dispatch`);
+  to jest droga do każdej przyszłej zmiany env na prodzie. Zweryfikowane na żywym API:
+  `cost_orders_enabled` = `true` u Polkomtela i `false` u BIK/BNP, mimo że wszyscy trzej
+  są wielo-konsultantowi. `DL_ALERTS_ENABLED` domyślnie `true` (wyłączenie kończy pętlę
+  skanera PRZED nią, nie budzi procesu co 24 h).
+  **Uwaga:** sama zmienna to połowa aktywacji — checkbox renderuje się dopiero, gdy
+  `GET /api/clients/{id}` zwraca `cost_orders_enabled`. To pole było zaplanowane,
+  udokumentowane i konsumowane przez front, a mimo to nigdy nie powstało (PR #1196);
+  wyszło z odpytania produkcji, nie z zielonych testów.

@@ -66,7 +66,7 @@ from app.services.scoring_service import (
     rank_jobs_for_candidate,
     resolve_active_profile,
 )
-from app.services.location_utils import location_matches, location_tokens
+from app.services.location_utils import location_tokens
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
@@ -80,6 +80,7 @@ from app.schemas.similar_job_candidates import (
     HistoricalSourceOut,
     SimilarJobOut,
 )
+from app.services.canonical_text import build_job_query_variants
 from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger(__name__)
@@ -184,6 +185,33 @@ async def recommend_candidates_for_job(
             "filter (legacy behaviour preserved)."
         ),
     ),
+    location_source: str = Query(
+        "all",
+        pattern="^(all|cv|notes)$",
+        description=(
+            "Źródło lokalizacji kandydata dla filtra `location`: 'cv' "
+            "(kolumny city/location), 'notes' (fakty z rozmów: "
+            "preferences.locations + kierunki relokacji), 'all' (unia)."
+        ),
+    ),
+    exclude_over_budget: bool = Query(
+        True,
+        description=(
+            "Dealbreaker (domyślnie WŁĄCZONY — decyzja produktowa 19.08): "
+            "znany budżet oferty (jawne pole lub stawka Championa) ukrywa "
+            "kandydatów, których ZNANA stawka PLN/h jest ściśle powyżej "
+            "niego. Nieznana stawka zawsze przechodzi; ustaw false, żeby "
+            "pokazać też przekraczających."
+        ),
+    ),
+    exclude_remote_only: bool = Query(
+        False,
+        description=(
+            "Dealbreaker: ukryj kandydatów z potwierdzonym w rozmowach "
+            "'wyłącznie zdalnie' (preferences.remote_only). Nieznana "
+            "preferencja zawsze przechodzi."
+        ),
+    ),
     current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
@@ -206,6 +234,9 @@ async def recommend_candidates_for_job(
         exclude_in_pipeline=exclude_in_pipeline,
         profile_id=profile_id,
         location=location,
+        location_source=location_source,
+        exclude_over_budget=exclude_over_budget,
+        exclude_remote_only=exclude_remote_only,
     )
 
 
@@ -243,6 +274,9 @@ async def _recommend_candidates_core(
     exclude_in_pipeline: bool = True,
     profile_id: Optional[int] = None,
     location: str | None = None,
+    location_source: str = "all",
+    exclude_over_budget: bool = True,
+    exclude_remote_only: bool = False,
 ) -> dict:
     """Application-service core of job→candidates recommendations.
 
@@ -295,7 +329,19 @@ async def _recommend_candidates_core(
     pool_size = settings.MATCH_POOL_SIZE
     if location_active:
         pool_size = max(pool_size, settings.RECOMMENDATION_LOCATION_POOL_SIZE)
-    hits = await retrieve_candidate_pool(db, query_text, top_k=pool_size)
+    # C12: noga BM25 hybrydy MUSI dostać terminy, nie `query_text`. Dokument
+    # w roli tsquery to koniunkcja setek leksemów, czyli zero trafień zawsze —
+    # i to zero jest niewidoczne, bo fuzja RRF z pustą listą zwraca czysty
+    # porządek wektora. Bez tego argumentu hybryda kosztuje, a nie wnosi.
+    from app.services.hybrid_search import build_job_bm25_query
+
+    hits = await retrieve_candidate_pool(
+        db,
+        query_text,
+        top_k=pool_size,
+        query_variants=build_job_query_variants(job, query_text),
+        bm25_query=build_job_bm25_query(job),
+    )
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
 
@@ -305,6 +351,12 @@ async def _recommend_candidates_core(
     # long after the provider recovers (M3-CACHE-01), so cache writes are
     # disabled for this request.
     semantic_degraded = not candidate_ids
+
+    # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
+    # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
+    from app.services.dealbreaker_filters import DealbreakerResult
+
+    dealbreakers = DealbreakerResult()
 
     def _meta() -> dict:
         # P0-A: tell the UI when the semantic leg fell back (Qdrant/Voyage down
@@ -317,6 +369,7 @@ async def _recommend_candidates_core(
             "mode": "degraded_semantic" if semantic_degraded else "dense",
             "degraded": semantic_degraded,
             "reason": "semantic_unavailable" if semantic_degraded else None,
+            "hidden": dealbreakers.hidden_meta(),
         }
 
     # Fallback when Qdrant is empty — widen to all active candidates (cap 200)
@@ -360,8 +413,17 @@ async def _recommend_candidates_core(
     # A candidate with no parseable location is excluded under an active filter
     # (standard search semantics, mirroring manual-search `location_cities`).
     if location_active:
+        from app.services.location_utils import (
+            candidate_location_tokens,
+            tokens_overlap,
+        )
+
         candidates = [
-            c for c in candidates if location_matches(requested_tokens, c.location)
+            c
+            for c in candidates
+            if tokens_overlap(
+                requested_tokens, candidate_location_tokens(c, location_source)
+            )
         ]
         if not candidates:
             return {
@@ -383,6 +445,24 @@ async def _recommend_candidates_core(
     candidates = await filter_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )
+
+    # Dealbreaker-switche: twardy sufit budżetu działa Z AUTOMATU (decyzja
+    # produktowa 19.08) — znany budżet oferty ukrywa znane stawki powyżej.
+    # Nieznany przechodzi; liczniki idą do meta.hidden, żeby ukrywanie nigdy
+    # nie było ciche (reguła „awaria ≠ pustka").
+    from app.services.dealbreaker_filters import (
+        apply_dealbreakers,
+        resolve_job_budget_hourly,
+    )
+
+    dealbreakers = apply_dealbreakers(
+        candidates,
+        exclude_over_budget=exclude_over_budget,
+        budget_hourly=(resolve_job_budget_hourly(job) if exclude_over_budget else None),
+        exclude_remote_only=exclude_remote_only,
+    )
+    candidates = dealbreakers.kept
+
     if not candidates:
         return {
             "job_id": job_id,
@@ -626,6 +706,8 @@ async def candidates_from_similar_jobs(
     if tier not in {"primary", "extended", "all"}:
         raise HTTPException(status_code=400, detail="tier must be primary|extended|all")
 
+    from datetime import datetime, timezone
+
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -668,6 +750,23 @@ async def candidates_from_similar_jobs(
     if cand_ids:
         cand_res = await db.execute(select(Candidate).where(Candidate.id.in_(cand_ids)))
         cand_rows = list(cand_res.scalars().all())
+
+    # P0-A: ta sekcja jest na przeciek SZCZEGÓLNIE narażona, nie mniej.
+    # „Kandydaci z podobnych projektów" z definicji celują w ludzi, którzy BYLI
+    # już rozważani u tego klienta — a to dokładnie ta populacja, w której
+    # siedzą aktywne blacklisty klienta, NDA i weta hiring managera. Serwis
+    # (`similar_job_candidates._rank_candidates_from_similar`) filtruje wyłącznie
+    # blacklistę GLOBALNĄ i nie ma dostępu do `job`; endpoint ma komplet wejść
+    # bramki, więc bramka stoi tutaj.
+    #
+    # Licznik liczy się po ZHYDRATOWANYCH wierszach, nie po `cand_ids`: kandydat,
+    # który zniknął z bazy w międzyczasie, nie jest „ukryty" — mówienie o nim
+    # „zablokowany dla tego klienta" byłoby nieprawdą w drugą stronę.
+    before_gate = len(cand_rows)
+    cand_rows = await filter_eligible_candidates(
+        db, job=job, candidates=cand_rows, now=datetime.now(timezone.utc)
+    )
+    hidden_ineligible = before_gate - len(cand_rows)
     cand_by_id = {c.id: c for c in cand_rows}
 
     def _availability_sort_key(c: HistoricalCandidateOut) -> tuple[int, float]:
@@ -717,6 +816,13 @@ async def candidates_from_similar_jobs(
 
     out_candidates.sort(key=_availability_sort_key)
 
+    # Pustka SKORELOWANA z przyczyną. Reguła z repo mówi, że „ukryto N" bez
+    # wskazania jest bezużyteczne — ale pustka bez wyjaśnienia jest gorsza,
+    # a tutaj przyczyna jest systematyczna, nie przypadkowa: sekcja będzie pusta
+    # dokładnie u tych klientów, u których historia jest najgęstsza.
+    if not out_candidates and hidden_ineligible:
+        reason_empty = "all_hidden_by_eligibility"
+
     return CandidatesFromSimilarOut(
         job_id=job_id,
         tier_used=tier_used,
@@ -735,6 +841,7 @@ async def candidates_from_similar_jobs(
             tier_b_count=tier_b_count,
             total_sources=total_sources,
             reason_if_empty=reason_empty,
+            hidden_ineligible=hidden_ineligible,
         ),
     )
 
@@ -1094,6 +1201,11 @@ async def recompute_scores(
         top_k=top_k,
         include_breakdown=False,
         exclude_in_pipeline=False,
+        # Grzałka cache, nie widok użytkownika: ma policzyć/odświeżyć score'y
+        # PEŁNEJ puli, także kandydatów powyżej budżetu — inaczej wyłączenie
+        # sufitu w UI trafia na zimny cache (review #1207). Wyników i tak nie
+        # zwracamy, więc default produktowy (ukrywaj) tu nie obowiązuje.
+        exclude_over_budget=False,
     )
 
     return {

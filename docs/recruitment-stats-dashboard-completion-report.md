@@ -66,10 +66,31 @@ niezależny od `?period=` presetu.
    cele 4/dzień z urlopami). Osobna decyzja.
 3. **Acceleration Path** (Junior→Senior→Expert) i **cel zespołowy** (Summer Race) —
    osobne decyzje produktowe.
-4. **Legacy `/api/kpis/team/panel`** zostaje (topbarowy `MyKpiWidget`/stare panele);
-   composite i legacy mają osobne cache (okno rozjazdu ≤120 s).
-5. Osierocone `DashboardV2.tsx` + fetchujące `MojeKpiPanel`/`TeamKpiPanel` — sprzątanie
-   po okrzepnięciu sekcji (opcjonalny PR 6).
+4. **Legacy `/api/kpis/*` zostaje po stronie backendu.** `/api/kpis/me/today` ma nadal
+   żywego konsumenta (topbarowy `MyKpiWidget`); `/api/kpis/me/panel` i
+   `/api/kpis/team/panel` po sprzątaniu z pkt. 5 nie mają już ŻADNEGO konsumenta we
+   froncie — endpointy zostają świadomie (mogą mieć konsumentów spoza repo), ale okno
+   rozjazdu ≤120 s między composite a legacy przestało być widoczne dla użytkownika,
+   bo nie ma już drugiego widoku karmionego z legacy.
+5. ~~Osierocone `DashboardV2.tsx` + fetchujące `MojeKpiPanel`/`TeamKpiPanel`~~ —
+   **zrobione 2026-08-20** (opcjonalny PR 6). Usunięte: `components/v2/pages/DashboardV2.tsx`,
+   `components/v2/kpi/MojeKpiPanel.tsx`, `components/v2/kpi/TeamKpiPanel.tsx`,
+   `components/v2/pages/dashboard/MyJobsWidget.tsx` (trzy ostatnie osierociłyby się razem
+   z pierwszym) + osierocony wrapper `postingsApi.stats` w `lib/api.ts`.
+   **Nie podpinaliśmy `DashboardV2` z powrotem**: `RoleDashboard` renderuje już następcę
+   każdej sekcji, więc remount dałby dwie tabele „KPI zespołu" obok siebie — jedną
+   z legacy `/api/kpis/team/panel`, drugą z composite `/api/dashboard/v2/recruitment-stats`,
+   z osobnymi cache. Dwie różne liczby pod tym samym nagłówkiem to pogorszenie, nie naprawa.
+   **Znika przy okazji to, czego żaden preset `RoleDashboard` nie renderuje** (nieosiągalne
+   z żadnej trasy od 2026-08-04, więc nikt tego dziś nie widzi — kasacja usuwa złudzenie,
+   że istnieje; wypisane, żeby dało się je świadomie odtworzyć):
+   (a) wiersz czterech kafli ogólnofirmowych (Kandydaci / Otwarte rekrutacje / Klienci /
+   Aktywne kontrakty z `/api/dashboard/stats`), (b) „Ostatnie zatrudnienia"
+   z `/api/activities/feed`, (c) pełny panel „Moje KPI" (target-vs-wykonanie
+   z `/api/kpis/me/panel`).
+   Efekt uboczny, który był celem sam w sobie: bramka rolowa w `TeamKpiPanel` była
+   listą inline zamiast wpisu w rejestrze capability **właśnie dlatego**, że jej jedyny
+   importer był sierotą. Panel znika, więc ten dług znika razem z nim.
 
 ## Weryfikacja
 
