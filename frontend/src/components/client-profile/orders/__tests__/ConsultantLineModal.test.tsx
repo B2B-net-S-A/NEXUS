@@ -33,6 +33,8 @@ const FROM_CLIENT: ConsultantOption = {
   source: "client_recruitment",
   source_label: "Rekrutacja u klienta",
   job_title: "Analityk danych",
+  suggested_rate_cost: 560,
+  has_different_client_contract_rates: false,
 };
 
 const FROM_BASE: ConsultantOption = {
@@ -44,6 +46,8 @@ const FROM_BASE: ConsultantOption = {
   source: "nexus_base",
   source_label: "Baza Nexus",
   job_title: null,
+  suggested_rate_cost: null,
+  has_different_client_contract_rates: false,
 };
 
 const GROUP: OrderGroupRead = {
@@ -104,7 +108,9 @@ function setupUser() {
 
 /** Wypełnia stawki i budżet — wszystko poza wyborem osoby. */
 async function fillRates(user: ReturnType<typeof setupUser>) {
-  await user.type(screen.getByRole("textbox", { name: /Stawka kosztowa/ }), "1000");
+  const cost = screen.getByRole("textbox", { name: /Stawka kosztowa/ });
+  await user.clear(cost);
+  await user.type(cost, "1000");
   await user.type(
     screen.getByRole("textbox", { name: /Stawka przychodowa/ }),
     "1200",
@@ -160,6 +166,69 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     const payload = onSubmit.mock.calls[0][0] as LineFormValues;
     expect(payload.contract_id).toBe(100);
     expect(payload.candidate_id).toBeUndefined();
+  });
+
+  it("wypełnia koszt stawką z aktywnego kontraktu bieżącego klienta", async () => {
+    const user = setupUser();
+    renderModal();
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+
+    expect(
+      screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
+    ).toHaveValue("560");
+  });
+
+  it("pozwala zmienić podpowiedzianą stawkę tylko dla tej linii", async () => {
+    const user = setupUser();
+    const onSubmit = renderModal();
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+    const cost = screen.getByRole("textbox", { name: /Stawka kosztowa/ });
+    await user.clear(cost);
+    await user.type(cost, "575");
+    await user.type(
+      screen.getByRole("textbox", { name: /Stawka przychodowa/ }),
+      "1200",
+    );
+    await user.type(screen.getByRole("textbox", { name: "Liczba MD" }), "50");
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(575);
+  });
+
+  it("ostrzega przy różnych stawkach kontraktów, zachowując aktywną jako domyślną", async () => {
+    const user = setupUser();
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: {
+        options: [
+          { ...FROM_CLIENT, has_different_client_contract_rates: true },
+        ],
+        total: 1,
+      },
+    } as never);
+    renderModal();
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /kontrakty z różnymi stawkami/i,
+    );
+    expect(
+      screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
+    ).toHaveValue("560");
+  });
+
+  it("bez kontraktu u klienta zostawia koszt pusty i nie pokazuje ostrzeżenia", async () => {
+    const user = setupUser();
+    renderModal();
+
+    await user.click(await screen.findByRole("button", { name: /Adam Zielinski/ }));
+
+    expect(
+      screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
+    ).toHaveValue("");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("wybór osoby bez kontraktu uprzedza, że powstanie szkic kontraktu", async () => {

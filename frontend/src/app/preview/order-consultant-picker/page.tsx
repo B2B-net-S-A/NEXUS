@@ -35,6 +35,8 @@ const FROM_CLIENT: ConsultantOption[] = [
     source: "client_recruitment",
     source_label: "Rekrutacja u klienta",
     job_title: "Analityk danych",
+    suggested_rate_cost: 560,
+    has_different_client_contract_rates: true,
   },
   {
     candidate_id: 4,
@@ -45,6 +47,8 @@ const FROM_CLIENT: ConsultantOption[] = [
     source: "client_recruitment",
     source_label: "Rekrutacja u klienta",
     job_title: "Inżynier DevOps",
+    suggested_rate_cost: 700,
+    has_different_client_contract_rates: false,
   },
 ];
 
@@ -58,6 +62,8 @@ const FROM_BASE: ConsultantOption[] = [
     source: "nexus_base",
     source_label: "Baza Nexus",
     job_title: null,
+    suggested_rate_cost: null,
+    has_different_client_contract_rates: false,
   },
   {
     candidate_id: 3,
@@ -68,6 +74,8 @@ const FROM_BASE: ConsultantOption[] = [
     source: "nexus_base",
     source_label: "Baza Nexus",
     job_title: null,
+    suggested_rate_cost: null,
+    has_different_client_contract_rates: false,
   },
 ];
 

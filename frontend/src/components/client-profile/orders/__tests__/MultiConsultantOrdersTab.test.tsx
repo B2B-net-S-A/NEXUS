@@ -234,6 +234,32 @@ describe("MultiConsultantOrdersTab", () => {
     ).toBeInTheDocument();
   });
 
+  it("numer zamówienia jest zwykłym, zaznaczalnym tekstem poza przyciskiem", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group()],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    const orderNumber = await screen.findByText("Zamówienie nr 445");
+    expect(orderNumber).toHaveClass("select-text");
+    expect(orderNumber.closest("button")).toBeNull();
+
+    const collapse = screen.getByRole("button", {
+      name: "Zwiń zamówienie nr 445",
+    });
+    await user.click(collapse);
+    expect(screen.queryByText("Jan Kowalski")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Rozwiń zamówienie nr 445" }),
+    ).toBeInTheDocument();
+  });
+
   it("awaria pobrania renderuje komunikat błędu, NIE pusty stan", async () => {
     // Regresja klasy „403/500 renderowane jako pustka" — pusty ekran czyta się
     // jak utrata danych i wysyła użytkownika szukać zamówień, których nie ma.

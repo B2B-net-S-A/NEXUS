@@ -116,6 +116,11 @@ export interface ConsultantOption {
    *  z tekstem zapisywanym do historii zamówienia. */
   source_label: string;
   job_title: string | null;
+  /** Podpowiedź wyłącznie z aktywnego kontraktu tej osoby u klienta
+   *  bieżącego zamówienia. Brak kontraktu/stawki = `null`. */
+  suggested_rate_cost: number | null;
+  /** Inne kontrakty tej osoby u TEGO klienta mają różne stawki kosztowe. */
+  has_different_client_contract_rates: boolean;
 }
 
 export interface ConsultantOptionsResponse {

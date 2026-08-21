@@ -367,6 +367,14 @@ class ConsultantOptionRead(BaseModel):
     a historią zamówienia, która zapisuje ten sam tekst do bazy."""
 
     job_title: Optional[str] = None
+    suggested_rate_cost: Optional[MoneyPLN] = None
+    """Podpowiedź z aktywnego/kończącego się kontraktu tej osoby u
+    bieżącego klienta. `null` dla osoby bez takiego kontraktu lub bez stawki."""
+
+    has_different_client_contract_rates: bool = False
+    """Czy inne nieanulowane kontrakty tej osoby u bieżącego klienta mają
+    inną stawkę. Pole nie ujawnia kwot historycznych — tylko każe operatorowi
+    zweryfikować podpowiedź przed zapisem."""
 
 
 class ConsultantOptionsResponse(BaseModel):

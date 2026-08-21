@@ -1021,7 +1021,13 @@ async def test_legacy_single_consultant_orders_untouched(
 
 
 async def _seed_person_with_contract(
-    *, client_id: int, first: str, last: str, status_value: str = "active"
+    *,
+    client_id: int,
+    first: str,
+    last: str,
+    status_value: str = "active",
+    rate_candidate: Decimal | None = None,
+    start_date: date | None = None,
 ) -> tuple[int, int]:
     """Kandydat + kontrakt o wskazanym statusie. Zwraca (candidate_id, contract_id)."""
     from app.core.database import AsyncSessionLocal
@@ -1042,7 +1048,8 @@ async def _seed_person_with_contract(
             candidate_id=cand.id,
             client_id=client_id,
             status=ContractStatus(status_value),
-            start_date=_TODAY - timedelta(days=60),
+            start_date=start_date or (_TODAY - timedelta(days=60)),
+            rate_candidate=rate_candidate,
         )
         db.add(contract)
         await db.commit()
@@ -1104,6 +1111,238 @@ async def test_options_merge_two_sources_and_label_each_row(
     # Cała lista posortowana po imieniu, nie „najpierw źródło A".
     assert [o["candidate_id"] for o in data["options"]] == [theirs, ours]
     assert data["total"] == 2
+
+
+async def test_options_prefill_active_client_rate_warns_on_history_and_order_edit_is_local(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Aktywny kontrakt TEGO klienta daje podpowiedź; historia tylko ostrzega.
+
+    Aktualna stawka pochodzi z harmonogramu, nie ze starego cache'a na
+    `contracts.rate_candidate`. Ręczna korekta formularza zapisuje się na
+    linii zamówienia i nie mutuje kontraktu ani jego harmonogramu.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus, RateUnit
+    from app.models.contract_candidate_rate import ContractCandidateRate
+
+    surname = f"Stawka{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Karolina",
+            lastname=surname,
+            email=f"rate-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add(candidate)
+        await db.flush()
+
+        active = Contract(
+            candidate_id=candidate.id,
+            client_id=client_id,
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=90),
+            # Celowo nieaktualny cache: resolver harmonogramu ma zwrócić 560.
+            rate_candidate=Decimal("999.000"),
+            rate_unit=RateUnit.daily,
+        )
+        ended = Contract(
+            candidate_id=candidate.id,
+            client_id=client_id,
+            status=ContractStatus.ended,
+            start_date=_TODAY - timedelta(days=400),
+            rate_candidate=Decimal("520.000"),
+            rate_unit=RateUnit.daily,
+        )
+        newer_draft = Contract(
+            candidate_id=candidate.id,
+            client_id=client_id,
+            status=ContractStatus.draft,
+            start_date=_TODAY - timedelta(days=1),
+            rate_candidate=Decimal("700.000"),
+            rate_unit=RateUnit.daily,
+        )
+        other = Contract(
+            candidate_id=candidate.id,
+            client_id=other_client,
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=20),
+            rate_candidate=Decimal("600.000"),
+            rate_unit=RateUnit.daily,
+        )
+        active.candidate_rate_schedule = [
+            ContractCandidateRate(
+                rate=Decimal("540.000"),
+                effective_from=_TODAY - timedelta(days=90),
+            ),
+            ContractCandidateRate(
+                rate=Decimal("560.000"),
+                effective_from=_TODAY - timedelta(days=10),
+            ),
+        ]
+        db.add_all([active, ended, newer_draft, other])
+        await db.commit()
+        await db.refresh(active)
+        active_id = active.id
+        candidate_id = candidate.id
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["contract_id"] == active_id
+    assert row["suggested_rate_cost"] == pytest.approx(560.0)
+    assert row["has_different_client_contract_rates"] is True
+
+    group = await _create_group(app_client, app_auth_headers, client_id, [])
+    added = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines",
+        json={
+            "contract_id": active_id,
+            "rate_cost": 575,
+            "rate_revenue": 900,
+            "input_mode": "md",
+            "input_value": 20,
+            "start_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["rate_cost"] == pytest.approx(575.0)
+
+    async with AsyncSessionLocal() as db:
+        stored = await db.scalar(
+            select(Contract)
+            .options(selectinload(Contract.candidate_rate_schedule))
+            .where(Contract.id == active_id)
+        )
+        assert stored.rate_candidate == Decimal("999.000")
+        assert stored.effective_candidate_rate(_TODAY) == Decimal("560.000")
+
+
+async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Inny klient jest ignorowany; równe stawki /MD nie ostrzegają.
+
+    Aktywne 19,25 w obcej walucie/h × 160 h × kurs 4 / 22 MD daje 560 zł/MD,
+    tyle samo co historyczna stawka dzienna. Test chroni przed skopiowaniem
+    surowej kwoty do pola /MD i przed fałszywym ostrzeżeniem dla równoważnych
+    jednostek/walut.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus, RateUnit
+    from app.models.fx_rate import FxRate
+
+    surname = f"Stawka{uuid.uuid4().hex[:6]}"
+    foreign_currency = f"X{uuid.uuid4().hex[:2].upper()}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    other_client = await _seed_bare_client()
+    _enable_for(monkeypatch, client_id)
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            FxRate(
+                effective_date=_TODAY,
+                currency=foreign_currency,
+                rate_to_pln=Decimal("4.0000"),
+                source="test",
+            )
+        )
+        candidate = Candidate(
+            name="Marek",
+            lastname=surname,
+            email=f"rate-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add(candidate)
+        await db.flush()
+        db.add_all(
+            [
+                Contract(
+                    candidate_id=candidate.id,
+                    client_id=client_id,
+                    status=ContractStatus.active,
+                    start_date=_TODAY - timedelta(days=30),
+                    rate_candidate=Decimal("19.250"),
+                    rate_unit=RateUnit.hourly,
+                    billing_hours_per_month=160,
+                    currency=foreign_currency,
+                ),
+                Contract(
+                    candidate_id=candidate.id,
+                    client_id=client_id,
+                    status=ContractStatus.ended,
+                    start_date=_TODAY - timedelta(days=300),
+                    rate_candidate=Decimal("560.000"),
+                    rate_unit=RateUnit.daily,
+                ),
+                Contract(
+                    candidate_id=candidate.id,
+                    client_id=other_client,
+                    status=ContractStatus.active,
+                    start_date=_TODAY - timedelta(days=5),
+                    rate_candidate=Decimal("600.000"),
+                    rate_unit=RateUnit.daily,
+                ),
+            ]
+        )
+        await db.commit()
+        candidate_id = candidate.id
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["suggested_rate_cost"] == pytest.approx(560.0)
+    assert row["has_different_client_contract_rates"] is False
+
+
+async def test_options_do_not_suggest_a_rate_from_a_draft_contract(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Osoba bez aktywnego kontraktu u klienta zachowuje puste pole kosztu."""
+    surname = f"Stawka{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, draft_id = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Natalia",
+        last=surname,
+        status_value="draft",
+        rate_candidate=Decimal("700.000"),
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["contract_id"] == draft_id
+    assert row["suggested_rate_cost"] is None
+    assert row["has_different_client_contract_rates"] is False
+
+
+async def test_options_redact_rate_suggestion_for_head_of_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wygodniejszy picker nie rozszerza dostępu HoR do stawek linii."""
+    surname = f"Stawka{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Olga",
+        last=surname,
+        rate_candidate=Decimal("560.000"),
+    )
+    _, email, password = await _seed_user("head_of_recruitment")
+    hor_headers = await _headers_for(app_client, email, password)
+
+    data = await _options(app_client, hor_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["suggested_rate_cost"] is None
+    assert row["has_different_client_contract_rates"] is False
 
 
 async def test_options_never_show_the_same_person_twice(
