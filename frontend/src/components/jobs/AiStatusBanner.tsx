@@ -9,9 +9,19 @@ interface AiStatusBannerProps {
   /** Current status from ``meta.ai_status`` of any AI-backed response. */
   status: AiStatus;
   /**
-   * Where the "wyszukaj manualnie" CTA should point. Defaults to the
-   * standalone /candidates/search page; the job-context tab passes
-   * ``?tab=manual-search`` on the current page.
+   * Dokąd ma prowadzić CTA „wyszukaj manualnie”. Bez tego propa CTA w ogóle
+   * się nie renderuje — i to jest domyślne zachowanie celowo.
+   *
+   * Wcześniej domyślną wartością było `/candidates/search`, co czyniło link
+   * autoreferencyjnym: banner ma dziś dokładnie jedno miejsce renderowania —
+   * `CandidateSearchView`, czyli sam widok wyszukiwania manualnego. Na stronie
+   * globalnej link był no-opem, a z zakładki „Wyszukiwanie manualne” oferty
+   * (`app/jobs/[id]/page.tsx` osadza ten sam widok) WYPROWADZAŁ z kontekstu —
+   * gubiąc `addToJob`, prefill filtrów z oferty i `exclude_in_job_id`. Banner
+   * zapala się wyłącznie podczas awarii AI, więc był to kosztowny fałszywy
+   * ratunek dokładnie wtedy, gdy fallback jest najbardziej potrzebny.
+   *
+   * Wołający, który stoi POZA powierzchnią manualną, podaje href jawnie.
    */
   manualSearchHref?: string;
   className?: string;
@@ -26,7 +36,7 @@ interface AiStatusBannerProps {
  */
 export function AiStatusBanner({
   status,
-  manualSearchHref = "/candidates/search",
+  manualSearchHref,
   className,
 }: AiStatusBannerProps) {
   if (status === "ok") return null;
@@ -44,12 +54,14 @@ export function AiStatusBanner({
         <div>
           <strong>AI matching niedostępny.</strong>{" "}
           Voyage AI / Qdrant ma problem — propozycje kandydatów mogą być puste.{" "}
-          <Link
-            href={manualSearchHref}
-            className="underline underline-offset-2 hover:text-rose-900 dark:hover:text-rose-100"
-          >
-            Wyszukaj kandydatów manualnie →
-          </Link>
+          {manualSearchHref && (
+            <Link
+              href={manualSearchHref}
+              className="underline underline-offset-2 hover:text-rose-900 dark:hover:text-rose-100"
+            >
+              Wyszukaj kandydatów manualnie →
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -67,12 +79,14 @@ export function AiStatusBanner({
       <div>
         <strong>AI matching wolny.</strong>{" "}
         Ostatnie zapytania trwały &gt; 5s — wyniki mogą być opóźnione.{" "}
-        <Link
-          href={manualSearchHref}
-          className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100"
-        >
-          Spróbuj manual search
-        </Link>
+        {manualSearchHref && (
+          <Link
+            href={manualSearchHref}
+            className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-100"
+          >
+            Spróbuj manual search
+          </Link>
+        )}
       </div>
     </div>
   );

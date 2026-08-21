@@ -122,34 +122,16 @@ def send_email(
         return False
 
 
-def send_post_interview_reminder(
-    to_email: str,
-    recipient_name: str,
-    candidate_id: int,
-    calendar_event_id: int,
-    side: str,
-    frontend_url_base: str,
-) -> bool:
-    """Wrapper z templatem dla post-interview T+45 reminderu."""
-    subject = f"Zadzwoń i zbierz feedback — kandydat #{candidate_id}"
-    side_label = "klienta" if side == "client_side" else "kandydata"
-    link = f"{frontend_url_base}/calendar?event={calendar_event_id}&action=feedback"
-
-    text_body = (
-        f"Cześć {recipient_name},\n\n"
-        f"Już 45 min od interview z kandydatem #{candidate_id}. "
-        f"Zadzwoń do {side_label} i zbierz feedback + pytania.\n\n"
-        f"Otwórz modal feedbacku:\n{link}\n\n"
-        "— Nexus ATS"
-    )
-    html_body = (
-        f"<p>Cześć {recipient_name},</p>"
-        f"<p>Już 45 min od interview z kandydatem <strong>#{candidate_id}</strong>. "
-        f"Zadzwoń do <strong>{side_label}</strong> i zbierz feedback + pytania.</p>"
-        f'<p><a href="{link}">Otwórz modal feedbacku</a></p>'
-        '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
-    )
-    return send_email(to_email, subject, text_body, html_body)
+# USUNIĘTE: `send_post_interview_reminder()` — rusztowanie kanału SMTP dla
+# alertów post-interview T+45, które nigdy nie zostało podpięte. Zero wywołań
+# w `app/`, `scripts/` i `tests/`; `check_post_interview_t45` w
+# `notification_triggers.py` emituje wyłącznie powiadomienie in-app. W dodatku
+# funkcja była NIEPODPINALNA bez przeróbki: żądała argumentu
+# `frontend_url_base`, a takiego ustawienia nie ma w `config.py` — reszta
+# mailerów buduje linki z `settings.PUBLIC_BASE_URL`. Jeśli kanał mailowy dla
+# T+45 ma powstać, pisze się go od nowa w konwencji `send_mention_email`
+# (PUBLIC_BASE_URL) i podpina w `check_post_interview_t45` pod strażą
+# `settings.SMTP_ENABLED` — martwy wrapper tylko udawał, że to już zrobiono.
 
 
 def send_mention_email(
