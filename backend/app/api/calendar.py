@@ -1050,18 +1050,35 @@ async def calendar_reminder_loop():
     Dedup is durable (`calendar_events.reminder_sent_at`) and the per-event send
     is atomic (`FOR UPDATE SKIP LOCKED`), so this is safe across restarts and
     multiple uvicorn workers — see `_dispatch_reminder`.
+
+    Okno jest ograniczone TYLKO od góry, i to jest istota poprawki. Wersja
+    dwustronna (`>= now+14min AND <= now+16min`) dawała każdemu wydarzeniu
+    ledwie 120-sekundowy przedział kwalifikowalności: tick musiał trafić w
+    `T ∈ [S-960s, S-840s]`. Każda przerwa między tickami dłuższa niż 2 minuty
+    gubiła BEZPOWROTNIE pasmo startów o szerokości `przerwa − 120s` — a przerwy
+    tej wielkości są tu rutyną, bo Coolify przebudowuje backend przy każdym
+    pushu na main, a `entrypoint.sh` robi alembica i siatkę DDL przed
+    `exec uvicorn` (deploy.yml mówi wprost o 4-6 min zimnego builda). Gdy start
+    zdarzenia spadł poniżej dolnej granicy, `reminder_sent_at` zostawało NULL
+    na zawsze i nikt się o rozmowie nie dowiadywał — bez błędu, bez fallbacku.
+    Dolna granica to teraz `now` (a nie `now+14min`), więc pierwszy tick po
+    restarcie dogania wszystko, co przespał. Duplikatów to nie tworzy:
+    at-most-once gwarantuje trwały stempel + `FOR UPDATE SKIP LOCKED`.
     """
     while True:
         try:
             now = datetime.now(timezone.utc)
-            window_start = now + timedelta(minutes=14)
             window_end = now + timedelta(minutes=16)
 
             async with AsyncSessionLocal() as db:
                 due_ids = (
                     await db.scalars(
                         select(CalendarEvent.id).where(
-                            CalendarEvent.start_time >= window_start,
+                            # Bez dolnej granicy `now+14min` — patrz docstring.
+                            # `> now` zostaje, żeby pętla nie budziła
+                            # przypomnień dla wydarzeń, które już się odbyły
+                            # (te trzeba by dopiero stemplować, a nie zgłaszać).
+                            CalendarEvent.start_time > now,
                             CalendarEvent.start_time <= window_end,
                             CalendarEvent.status == EventStatus.scheduled,
                             CalendarEvent.reminder_sent_at.is_(None),
@@ -1081,7 +1098,11 @@ async def calendar_reminder_loop():
 
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Calendar reminder loop error: {e}")
+        except Exception:  # noqa: BLE001
+            # `exception`, nie `warning`: Sentry ma `event_level=logging.ERROR`,
+            # więc trwale padający cykl na WARNING nie wygenerowałby żadnego
+            # zdarzenia — przypomnienia o rozmowach po prostu przestałyby
+            # przychodzić, bez śladu poza logiem kontenera.
+            logger.exception("Calendar reminder loop cycle error")
 
         await asyncio.sleep(60)

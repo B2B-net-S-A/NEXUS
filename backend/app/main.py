@@ -315,7 +315,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "Strict-Transport-Security",
                 "max-age=63072000; includeSubDomains; preload",
             )
-            # CSP for API responses — tight because we don't serve HTML here.
+            # CSP dla odpowiedzi API. Domyślka jest maksymalnie ciasna, ale
+            # przesłanka „nie serwujemy tu HTML-a" była NIEPRAWDZIWA i kosztowała
+            # puste `/docs` i `/redoc` (bundle z CDN-a i inline'owy bootstrap
+            # blokowane przez `default-src 'none'`, HTTP 200 i biała strona).
+            # Trasy dokumentacji są dziś wyłączone poza DEBUG-iem, ale HTML
+            # nadal wychodzi z widoków wydruku kontraktu i CV — te doklejają
+            # WŁASNY nagłówek `Content-Security-Policy` (`contracts.py`,
+            # `contract_templates.py`), a `setdefault` mu ustępuje. Każdy nowy
+            # endpoint HTML musi zrobić to samo, inaczej odziedziczy pustą stronę.
             response.headers.setdefault(
                 "Content-Security-Policy",
                 "default-src 'none'; frame-ancestors 'none';",
@@ -626,19 +634,62 @@ async def lifespan(app: FastAPI):
         "priority_work": asyncio.create_task(priority_work_loop()),
     }
 
+    # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
+    # Ten ułamek jest z założenia nierówny — 23 z 34 pętli kończą się celowo na
+    # własnym kill-switchu — więc `running: 21` zamiast 22 jest nieodróżnialne
+    # od zdrowego stanu i nikt tego nie umie zinterpretować. Callback loguje na
+    # ERROR w CHWILI śmierci, czyli wtedy, gdy Sentry (`event_level=ERROR`)
+    # jeszcze może zrobić z tego alert. Ma to też drugi skutek: silna referencja
+    # w rejestrze tłumi wbudowany log asyncio „Task exception was never
+    # retrieved", więc bez tego callbacku wyjątek nie pojawiłby się NIGDZIE.
+    def _log_task_death(name: str):
+        def _cb(task: "asyncio.Task") -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                logger.error(
+                    "background task %r died: %r — nic go nie restartuje "
+                    "do najbliższego deployu",
+                    name,
+                    exc,
+                    exc_info=exc,
+                )
+
+        return _cb
+
+    for _name, _task in app.state.background_tasks.items():
+        _task.add_done_callback(_log_task_death(_name))
+
     yield
 
     # Shutdown
     tasks = tuple(app.state.background_tasks.values())
     for t in tasks:
         t.cancel()
-    for t in tasks:
-        try:
-            await t
-        except asyncio.CancelledError:
-            pass
+    # `gather(..., return_exceptions=True)`, nie pętla `await t` łapiąca sam
+    # `CancelledError`: task, który padł na PRAWDZIWYM wyjątku, podnosił go tu
+    # ponownie i przerywał zamykanie — pozostałe taski nie były doczekane, a
+    # `engine.dispose()` nie leciało wcale.
+    await asyncio.gather(*tasks, return_exceptions=True)
     await engine.dispose()
 
+
+# Trzy trasy dokumentacji tylko poza produkcją. Na prodzie `/openapi.json`
+# oddawał anonimowemu wywołującemu kompletny inwentarz powierzchni ataku —
+# 747 ścieżek, 876 schematów i, co gorsza, listę operacji BEZ bloku `security`,
+# czyli gotowy spis endpointów bez tokena wraz z kształtem ich żądań. Ten host
+# jest gray-cloud (bez WAF-a Cloudflare), więc nie ma warstwy kompensacyjnej.
+#
+# `/docs` i `/redoc` i tak renderowały się PUSTO: `SecurityHeadersMiddleware`
+# wysyła `default-src 'none'`, co blokuje bundle Swaggera/ReDoc z CDN-a i ich
+# inline'owy bootstrap. Znikało więc to, czego nikt nie mógł użyć, a zostawało
+# to, co niosło całe ryzyko (surowy JSON, którego CSP nie dotyczy).
+#
+# Bezpieczne do usunięcia: żaden workflow, smoke test, uptime probe ani plik
+# rozszerzenia nie odwołuje się do tych URL-i. Testy budujące schemat wołają
+# METODĘ `app.openapi()`, która działa niezależnie od tego, czy trasa istnieje.
+_DOCS_ENABLED = settings.DEBUG
 
 app = FastAPI(
     title="Nexus ATS",
@@ -646,6 +697,9 @@ app = FastAPI(
     version="0.3.0",
     lifespan=lifespan,
     redirect_slashes=False,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
 
 # Rate limiter (attach first so it wraps everything)
@@ -1708,6 +1762,57 @@ async def api_health_check():
         logger.warning("[health] ai_features check failed: %s", exc)
         checks["ai_features"] = "unknown"
 
+    # FX — wiek cache'u kursów NBP. To JEDYNE miejsce, w którym „NBP milczy od
+    # dwóch miesięcy" jest w ogóle widoczne: `fetch_and_store_nbp_today` rzuca
+    # teraz przy awarii, ale zdarzenie Sentry ginie w szumie, a po stronie
+    # odczytu przeterminowany kurs dalej wycenia faktury w EUR/USD/GBP. Helper
+    # `fx_age_days` istniał od początku i nie miał ANI JEDNEGO wywołania.
+    # Informacyjny (nie przewraca `overall`) — brak kursów nie jest awarią
+    # aplikacji, tylko cichym fałszowaniem sum finansowych.
+    try:
+        from app.services.fx_service import (
+            HEALTH_CANARY_CURRENCY,
+            MAX_RATE_AGE_DAYS,
+            fx_age_days,
+        )
+
+        async with AsyncSessionLocal() as session:
+            age = await asyncio.wait_for(
+                fx_age_days(session, HEALTH_CANARY_CURRENCY), timeout=2.0
+            )
+        if age is None:
+            checks["fx"] = "unconfigured"  # cache pusty — nigdy nie pobrano
+        elif age > MAX_RATE_AGE_DAYS:
+            checks["fx"] = f"degraded: stale {age}d"
+        else:
+            checks["fx"] = "healthy"
+    except Exception as exc:
+        logger.warning("[health] fx check failed: %s", exc)
+        checks["fx"] = "unknown"
+
+    # Pętle w tle — liczba tych, które PADŁY. Świadomie nie „running/expected":
+    # ten ułamek jest z założenia nierówny (23 z 34 pętli kończą się celowo na
+    # własnym kill-switchu), więc jego spadek o jeden jest nieodróżnialny od
+    # zdrowego stanu. `crashed` przy zdrowej instalacji wynosi zero, więc każda
+    # wartość powyżej zera jest jednoznaczna. Informacyjny — martwa pętla nie
+    # jest powodem, żeby uptime-probe uznał backend za nieżywy.
+    try:
+        _bg = getattr(app.state, "background_tasks", None)
+        if not isinstance(_bg, dict):
+            checks["background_tasks"] = "unknown"
+        else:
+            crashed = [
+                name
+                for name, task in _bg.items()
+                if task.done() and not task.cancelled() and task.exception() is not None
+            ]
+            checks["background_tasks"] = (
+                "healthy" if not crashed else f"crashed: {','.join(sorted(crashed))}"
+            )
+    except Exception as exc:
+        logger.warning("[health] background_tasks check failed: %s", exc)
+        checks["background_tasks"] = "unknown"
+
     # Disk usage — informational only (never flips `overall` → no false outages).
     # `shutil.disk_usage("/")` inside the container reflects the host's backing
     # filesystem (overlay2 upperdir lives on the host disk), so this surfaces the
@@ -1887,6 +1992,11 @@ async def api_health_deep_check():
         RecruitmentPriorityState,
         RecruitmentPriorityUserMode,
     )
+    from app.models.note import Note
+    from app.models.notification import Notification
+    from app.models.candidate_document import CandidateDocument
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.models.user import User
     from app.models.recruitment_process import RecruitmentProcess
     from app.models.candidate_contact import (
         CandidateContactCase,
@@ -1931,6 +2041,20 @@ async def api_health_deep_check():
         ("candidates", Candidate),
         ("clients", Client),
         ("jobs", Job),
+        # Pięć najgorętszych tabel produktu, których ta bramka nie obejmowała
+        # do 2026-08-21 — czyli dokładnie te, na których rozjazd kolumny
+        # kosztuje najwięcej. `candidate_stages` czyta każdy ruch w pipelinie,
+        # każde renderowanie Kanbana i każdy lejek KPI, a kolumny dostawało
+        # jeszcze niedawno (0199, 0122, 0056); `notes` (0129), `candidate_documents`
+        # (0079, 0195), `users` (autoryzacja) i `notifications` są w tej samej
+        # sytuacji. Sonda `candidates` ich NIE pokrywa: `select(Candidate)`
+        # rozwiązuje wyłącznie kolumny `candidates`, a relacje są leniwe —
+        # to jest ten sam mechanizm, którym przeszedł incydent 0154.
+        ("candidate_stages", CandidateStage),
+        ("notes", Note),
+        ("candidate_documents", CandidateDocument),
+        ("users", User),
+        ("notifications", Notification),
         ("candidate_invite_links", CandidateInviteLink),
         ("recruitment_processes", RecruitmentProcess),
         ("recruitment_priority_plans", RecruitmentPriorityPlan),
