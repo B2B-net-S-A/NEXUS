@@ -4349,8 +4349,8 @@ _DATA_STATEMENTS = [
            'Zaproszenie na spotkanie przygotowujące (prep)',
            NULL,
            'Zaproszenie kalendarzowe wysyłane kandydatowi przed rozmową z klientem.',
-           'Przygotowanie do spotkania z (nazwa Klienta) – (imię i nazwisko kandydata)',
-           'Dzień dobry,\n\nZapraszam na spotkanie przygotowujące do rozmowy z (nazwa Klienta) na stanowisko (nazwa stanowiska), które odbędzie się (data interview).\n\nLink do opisu stanowiska: (link do pracuj / rocketjobs)\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam',
+           'Przygotowanie do interview z (nazwa Klienta) – (imię i nazwisko kandydata)',
+           'Dzień dobry (bądź per „Ty”),\n\nZapraszam na spotkanie przygotowujące do interview z (nazwa Klienta) na stanowisko (nazwa stanowiska).\nTermin spotkania przygotowującego: (data prepa)\n\nTermin interview z (nazwa klienta): (data interview)\nLink do opisu stanowiska: (link do pracuj / rocketjobs / JJIT)\n\nW razie pytań pozostaję do dyspozycji.\n\nPozdrawiam',
            FALSE, 35, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
