@@ -27,6 +27,8 @@ import api, { calendarApi, candidatesApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
 import { ConfirmButton } from "@/components/ConfirmDialog";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -172,15 +174,36 @@ export default function CalendarPage() {
   const fromDate = currentMonday.toISOString();
   const toDate = new Date(currentMonday.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: events = [], isLoading } = useQuery<CalendarEvent[]>({
+  const {
+    data: eventsData,
+    isPending,
+    isError,
+    error,
+    refetch,
+  } = useQuery<CalendarEvent[]>({
     queryKey: ["calendar-events", fromDate],
     queryFn: () =>
       calendarApi.listEvents({ from_date: fromDate, to_date: toDate }).then((r) => r.data),
   });
 
+  // Bez domyślnego `= []`: nieudane pobranie musi być odróżnialne od „wolny
+  // tydzień". Pusta siatka bez komunikatu to najdroższa cicha awaria w ATS —
+  // rekruter skanuje poniedziałek, widzi zero rozmów i odchodzi.
+  const events = eventsData ?? [];
+  // `isPending`, nie `isLoading` — przy globalnym `retry: 1` istnieje okno
+  // między próbami, w którym isLoading i isError są false, a data undefined;
+  // na `isLoading` migał tam pusty tydzień w drodze do stanu błędu.
+  const calendarState = resolveViewState({ isLoading: isPending, isError, error });
+  const calendarFailed =
+    calendarState === "forbidden" ||
+    calendarState === "not_found" ||
+    calendarState === "error";
+
   // Phase 5.4 — bulk overlap map for the visible week. One request flags every
   // event with the ids it conflicts with, so we don't have to fan out per-event.
-  const { data: conflictPairs } = useQuery<Record<string, number[]>>({
+  const { data: conflictPairs, isError: conflictsFailed } = useQuery<
+    Record<string, number[]>
+  >({
     queryKey: ["calendar-conflicts-summary", fromDate],
     queryFn: () =>
       calendarApi
@@ -229,6 +252,7 @@ export default function CalendarPage() {
       <CalendarSidebar
         today={today}
         events={events}
+        failed={calendarFailed}
         onCreateClick={() => { setPrefilledStart(""); setShowCreateModal(true); }}
       />
 
@@ -313,13 +337,38 @@ export default function CalendarPage() {
           })}
         </div>
 
+        {/* Mapa kolizji jest jedynym źródłem ostrzeżeń o podwójnej rezerwacji.
+            Gdy padnie, siatka renderuje się bez żadnego znacznika konfliktu —
+            czyli wygląda tak samo jak tydzień bez kolizji. Rekruter mógłby
+            zostać w ten sposób doprowadzony do umówienia zajętego slotu. */}
+        {!calendarFailed && conflictsFailed && (
+          <div
+            role="alert"
+            className="shrink-0 px-5 py-2 text-xs text-destructive border-b border-destructive/30 bg-destructive/10"
+          >
+            Nie udało się sprawdzić kolizji terminów — brak oznaczeń nie znaczy,
+            że ich nie ma. Zweryfikuj slot ręcznie przed umówieniem.
+          </div>
+        )}
+
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
+          {isPending ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               <div className="w-5 h-5 border-2 border-primary/30 border-t-transparent rounded-full animate-spin mr-2" />
               Ładowanie kalendarza...
             </div>
+          ) : calendarFailed ? (
+            <QueryStateNotice
+              state={calendarState as "forbidden" | "not_found" | "error"}
+              className="m-4"
+              description={
+                calendarState === "forbidden"
+                  ? "Twoja rola nie ma dostępu do kalendarza. Ten tydzień NIE jest pusty — nie planuj na podstawie tego widoku."
+                  : "Nie udało się wczytać kalendarza. Pusty tydzień poniżej nie znaczy, że nie masz spotkań — ponów próbę przed umówieniem czegokolwiek."
+              }
+              onRetry={() => void refetch()}
+            />
           ) : (
             <WeekGrid
               hours={HOURS}
@@ -509,10 +558,13 @@ function WeekGrid({
 function CalendarSidebar({
   today,
   events,
+  failed,
   onCreateClick,
 }: {
   today: Date;
   events: CalendarEvent[];
+  /** Pobranie wydarzeń padło — panel „Najbliższe" nie może po cichu zniknąć. */
+  failed: boolean;
   onCreateClick: () => void;
 }) {
   const upcomingEvents = events
@@ -542,7 +594,20 @@ function CalendarSidebar({
       </div>
 
       {/* Upcoming events */}
-      {upcomingEvents.length > 0 && (
+      {failed ? (
+        <div
+          role="alert"
+          className="bg-card dark:bg-muted border border-destructive/40 rounded-2xl p-4"
+        >
+          <div className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2">
+            Najbliższe
+          </div>
+          <p className="text-xs text-destructive">
+            Nie udało się wczytać wydarzeń — ta lista jest niekompletna, nie pusta.
+          </p>
+        </div>
+      ) : null}
+      {!failed && upcomingEvents.length > 0 && (
         <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-2xl p-4">
           <div className="text-xs font-bold text-muted-foreground dark:text-muted-foreground uppercase tracking-wide mb-3">
             Najbliższe

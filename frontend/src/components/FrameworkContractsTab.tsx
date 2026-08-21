@@ -14,6 +14,9 @@ import {
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import type {
   FrameworkContractRead,
   FrameworkContractStatus,
@@ -34,6 +37,18 @@ const STATUS_LABELS: Record<FrameworkContractStatus, string> = {
   superseded: "Zastąpiona",
 };
 
+/**
+ * Kosmetyczne lustro backendowego `DlAssignedOrAdmin` (api/deps.py): admin i HoR
+ * globalnie, Delivery Lead po przypisaniu do klienta. Front nie zna przypisań,
+ * więc DL widzi przyciski, a ostatecznym arbitrem zostaje backend — ale
+ * recruiter/sourcer/finance/TAC nie dostają już formularza, który gwarantowanie
+ * kończy się 403 po wypełnieniu i wgraniu pliku.
+ */
+function useCanEditLegalDocs(): boolean {
+  const user = useAuthStore((s) => s.user);
+  return hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
+}
+
 const STATUS_COLORS: Record<FrameworkContractStatus, string> = {
   draft: "bg-muted text-muted-foreground",
   pending_signature: "bg-yellow-100 text-yellow-800",
@@ -49,7 +64,9 @@ export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) 
   const [showCreate, setShowCreate] = useState(false);
   const [expandedFcId, setExpandedFcId] = useState<number | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const canEdit = useCanEditLegalDocs();
+
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["framework-contracts", clientId],
     queryFn: async () => {
       const res = await dlPortalApi.listFrameworkContracts(clientId);
@@ -72,23 +89,53 @@ export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) 
 
   const contracts = data?.items ?? [];
 
+  // Odczyt stoi za `can_view_legal_documents` (admin/HoR/DL/TAC + przypisanie),
+  // więc recruiter, sourcer, finance i nieprzypisany DL/TAC dostają tu 403.
+  // „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło im wtedy nieprawdę
+  // handlową — w body leasingu brak MSA znaczy „nie możemy obsadzić klienta" —
+  // i zapraszało do zduplikowania umowy, która już istnieje.
+  const viewState = resolveViewState({
+    isLoading,
+    isError,
+    error,
+    isEmpty: contracts.length === 0,
+  });
+  const failed =
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error";
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Umowy ramowe (MSA)</h3>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
-        >
-          <Plus className="w-4 h-4" />
-          Nowa umowa
-        </button>
+        {canEdit && !failed && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
+          >
+            <Plus className="w-4 h-4" />
+            Nowa umowa
+          </button>
+        )}
       </div>
 
-      {contracts.length === 0 ? (
+      {failed ? (
+        <QueryStateNotice
+          state={viewState as "forbidden" | "not_found" | "error"}
+          description={
+            viewState === "forbidden"
+              ? "Twoja rola nie ma dostępu do dokumentów prawnych tego klienta. Klient MOŻE mieć umowę ramową — nie zakładaj nowej MSA."
+              : undefined
+          }
+          onRetry={() => void refetch()}
+        />
+      ) : contracts.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-8 text-center text-muted-foreground">
           <FileText className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          Brak umów ramowych. Dodaj pierwszą MSA aby móc tworzyć zamówienia.
+          {canEdit
+            ? "Brak umów ramowych. Dodaj pierwszą MSA aby móc tworzyć zamówienia."
+            : "Brak umów ramowych dla tego klienta."}
         </div>
       ) : (
         <ul className="space-y-2">
@@ -137,6 +184,7 @@ function FrameworkContractRow({
   onDelete,
 }: FrameworkContractRowProps) {
   const { showToast } = useToast();
+  const canEdit = useCanEditLegalDocs();
   const expiringWarn =
     fc.days_to_expiry !== null && fc.days_to_expiry >= 0 && fc.days_to_expiry <= 30;
 
@@ -203,16 +251,18 @@ function FrameworkContractRow({
               )}
             </div>
           </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="text-muted-foreground hover:text-destructive p-1"
-            title="Usuń"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+          {canEdit && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="text-muted-foreground hover:text-destructive p-1"
+              title="Usuń"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
       {expanded && <AmendmentsSection clientId={clientId} fcId={fc.id} />}
@@ -228,9 +278,10 @@ interface AmendmentsSectionProps {
 function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const canEdit = useCanEditLegalDocs();
   const [showCreate, setShowCreate] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["amendments", clientId, fcId],
     queryFn: async () => {
       const res = await dlPortalApi.listAmendments(clientId, fcId);
@@ -246,24 +297,47 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
       queryClient.invalidateQueries({ queryKey: ["amendments", clientId, fcId] });
       queryClient.invalidateQueries({ queryKey: ["framework-contracts", clientId] });
     },
+    // Bez tego odrzucone usunięcie wyglądało jak brak reakcji przycisku.
+    onError: () => showToast("Nie udało się usunąć aneksu", "error"),
   });
 
   if (isLoading) return <div className="px-6 pb-4 text-xs text-muted-foreground">Ładowanie aneksów…</div>;
   const amendments: AmendmentRead[] = data ?? [];
 
+  // Ten sam kształt co lista umów: „Brak aneksów." nie może opisywać awarii —
+  // aneks zmienia warunki MSA, więc jego niewidoczność zmienia treść oferty.
+  const viewState = resolveViewState({ isLoading, isError, error });
+  const failed =
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error";
+
   return (
     <div className="bg-muted/30 px-6 py-4 border-t border-border">
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-sm font-medium">Aneksy</h4>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="text-xs text-violet-600 hover:text-violet-700 flex items-center gap-1"
-        >
-          <Plus className="w-3 h-3" />
-          Dodaj aneks
-        </button>
+        {canEdit && !failed && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="text-xs text-violet-600 hover:text-violet-700 flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" />
+            Dodaj aneks
+          </button>
+        )}
       </div>
-      {amendments.length === 0 ? (
+      {failed ? (
+        <QueryStateNotice
+          state={viewState as "forbidden" | "not_found" | "error"}
+          className="py-6"
+          description={
+            viewState === "forbidden"
+              ? "Twoja rola nie ma dostępu do aneksów tej umowy. Aneksy MOGĄ istnieć."
+              : "Nie udało się wczytać aneksów — ta umowa może mieć aneksy zmieniające jej warunki."
+          }
+          onRetry={() => void refetch()}
+        />
+      ) : amendments.length === 0 ? (
         <p className="text-xs text-muted-foreground italic">Brak aneksów.</p>
       ) : (
         <ul className="space-y-1.5">
@@ -283,14 +357,16 @@ function AmendmentsSection({ clientId, fcId }: AmendmentsSectionProps) {
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => {
-                  if (confirm(`Usunąć aneks "${a.name}"?`)) deleteMutation.mutate(a.id);
-                }}
-                className="text-muted-foreground hover:text-destructive p-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {canEdit && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Usunąć aneks "${a.name}"?`)) deleteMutation.mutate(a.id);
+                  }}
+                  className="text-muted-foreground hover:text-destructive p-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </li>
           ))}
         </ul>
