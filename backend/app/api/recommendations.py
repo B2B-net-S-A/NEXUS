@@ -67,7 +67,10 @@ from app.services.scoring_service import (
     resolve_active_profile,
 )
 from app.services.location_utils import location_tokens
-from app.services.match_score_cache import bulk_get_or_compute
+from app.services.match_score_cache import (
+    bulk_get_or_compute,
+    fresh_score_conditions,
+)
 from app.services.similar_job_candidates import (
     boost_points_for_sources,
     fetch_historical_boost_map,
@@ -601,10 +604,11 @@ async def pipeline_match_scores(
     # Which pipeline candidates already have a fresh cached score?
     cached_id_rows = await db.execute(
         select(CandidateJobMatchScore.candidate_id).where(
-            CandidateJobMatchScore.job_id == job_id,
-            CandidateJobMatchScore.candidate_id.in_(pipeline_ids),
-            CandidateJobMatchScore.profile_id == profile.id,
-            CandidateJobMatchScore.stale.is_(False),
+            *fresh_score_conditions(
+                job_id=job_id,
+                profile_id=profile.id,
+                candidate_ids=pipeline_ids,
+            )
         )
     )
     cached_ids = {cid for (cid,) in cached_id_rows.all()}
