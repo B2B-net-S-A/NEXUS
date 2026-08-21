@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { reportsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { formatPLN, KpiCard, LoadingSpinner } from "./_shared";
+import { formatPLN, KpiCard, LoadingSpinner, SectionError } from "./_shared";
 
 interface BoardData {
   recruitment: { placements_ytd: number; funnel_efficiency_avg: number };
@@ -31,13 +31,28 @@ interface BoardData {
 }
 
 export function BoardKPI() {
-  const { data, isLoading } = useQuery({
+  const query = useQuery({
     queryKey: ["insights-board"],
     queryFn: () => reportsApi.board().then((r) => r.data as BoardData),
   });
 
-  if (isLoading) return <LoadingSpinner />;
-  if (!data) return null;
+  // Kolejność jest kontraktem (audyt F-20): ładowanie → awaria → dane. Dawne
+  // `if (!data) return null` kasowało całą sekcję przy 403/500 — zarząd widział
+  // pusty ekran nie do odróżnienia od „zero placementów w tym roku".
+  // Warunek ładowania wisi na `isPending`, nie na `isLoading`: w przerwie
+  // między ponowieniami react-query ma `isLoading === false` przy pustych
+  // danych, więc na `isLoading` przelecielibyśmy do renderu bez `data`.
+  if (query.isPending) return <LoadingSpinner />;
+  if (query.isError) {
+    return (
+      <SectionError
+        label="Board KPI"
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+  const data = query.data;
 
   const marginPct =
     data.sales.revenue_ytd > 0

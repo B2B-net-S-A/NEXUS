@@ -59,6 +59,10 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
         sort: debouncedQuery ? "relevance" : "recent",
         page: 1,
         page_size: 25,
+        // Runda 2: bez tego pola szybkie dodawanie NIGDY nie dotykało wektorów
+        // (backendowy default to "boolean"). Bramka i tak wymaga q, więc
+        // przegląd bez frazy zostaje po staremu.
+        search_mode: "hybrid",
       }),
     enabled: open,
     staleTime: 30_000,

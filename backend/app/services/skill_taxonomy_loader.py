@@ -16,6 +16,7 @@ import logging
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.skill import Skill, SkillAlias
 from app.services.scoring_service import set_alias_map
@@ -50,7 +51,22 @@ async def refresh_alias_map() -> int:
     for canon in id_to_canon.values():
         mapping.setdefault(canon.lower(), canon.lower())
 
-    set_alias_map(mapping)
+    scoring_mapping = dict(mapping)
+    if settings.SKILL_ALIAS_EXTENDED_ENABLED:
+        # Eksperyment 4a: rozszerzone rodziny wchodzą WYŁĄCZNIE do mapy
+        # scoringu (baza wygrywa na kolizjach — setdefault). Taksonomia
+        # boldowania CV niżej dostaje mapę BEZ rozszerzenia — eksperyment
+        # rankingowy nie może zmieniać wyglądu generowanych CV.
+        from app.services.skill_taxonomy_extended import extended_alias_mapping
+
+        added = 0
+        for alias, canon in extended_alias_mapping().items():
+            if alias not in scoring_mapping:
+                scoring_mapping[alias] = canon
+                added += 1
+        logger.info("Extended alias families merged: +%d entries", added)
+
+    set_alias_map(scoring_mapping)
 
     # Technology taxonomy for CV bolding: canonicals whose category is a tech
     # bucket (excludes methodology / role_* so Agile/Scrum/roles never bold).
@@ -69,4 +85,4 @@ async def refresh_alias_map() -> int:
         len(tech_canonicals),
         len(id_to_canon),
     )
-    return len(mapping)
+    return len(scoring_mapping)

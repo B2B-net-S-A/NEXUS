@@ -42,12 +42,15 @@ function stateEmoji(state: KpiResult["state"]): string {
 }
 
 /**
- *"Moje KPI" — widget w TopbarV2 (wariant compact) lub sekcja w
- * DashboardV2 (wariant dashboard).
+ *"Moje KPI" — widget w TopbarV2 (wariant compact).
  *
  * - Role nieoperacyjne dostają pustą listę z backendu → widget zwraca null.
  * - Compact: 3 progress bary w linii + mini-popover na hover.
- * - Dashboard: pełny grid z tytułami i labelami.
+ * - Dashboard: pełny grid z tytułami i labelami. UWAGA: ten wariant nie ma
+ *   dziś ŻADNEGO wywołania w repo. Docstring wskazywał na `DashboardV2`, ale
+ *   tamten plik nigdy tego widgetu nie importował (i został usunięty jako
+ *   sierota 2026-08-20). Zanim go użyjesz, sprawdź, czy preset `RoleDashboard`
+ *   nie pokazuje już tych samych liczb.
  */
 export function MyKpiWidget({ variant ="compact", className }: Props) {
  const { data, isLoading, error } = useMyKpis();

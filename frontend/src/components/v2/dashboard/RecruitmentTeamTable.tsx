@@ -10,10 +10,12 @@ import type {
   RecruitmentTeamTableRow,
 } from "@/lib/dashboard-v2-api"
 
-// Prezentacyjna ekstrakcja tabeli z components/v2/kpi/TeamKpiPanel.tsx —
-// logika sortowania/filtrów 1:1, ale dane przychodzą propsem (composite
-// /api/dashboard/v2/recruitment-stats), a nie własnym fetchem. Wiersz
-// „Razem" liczy sumę WIDOCZNYCH wierszy (po filtrach), nie całego zespołu.
+// Prezentacyjna ekstrakcja tabeli z nieistniejącego już `components/v2/kpi/
+// TeamKpiPanel.tsx` (usunięty razem z osieroconym DashboardV2) — logika
+// sortowania/filtrów przeniesiona 1:1, ale dane przychodzą propsem (composite
+// /api/dashboard/v2/recruitment-stats), a nie własnym fetchem. To jedyna żywa
+// tabela „KPI zespołu"; drugi, legacy fetch z /api/kpis/team/panel zniknął.
+// Wiersz „Razem" liczy sumę WIDOCZNYCH wierszy (po filtrach), nie całego zespołu.
 
 // Lustro `_PRECISION_MIN_DENOM` z backendu (app/services/kpi_panel.py).
 const PRECISION_MIN_DENOM = 5

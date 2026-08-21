@@ -9,6 +9,9 @@
  */
 
 import { api } from "@/lib/api";
+// Sufit czasu dla endpointów LLM/scoringowych — jedna stała dla całej
+// aplikacji, nie kopia w każdym kliencie (kopie rozjeżdżają się cicho).
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 /** Warstwa punktowa scoringu — jedna z sześciu składowych wyniku. */
 export interface TalentRadarLayer {
@@ -16,9 +19,15 @@ export interface TalentRadarLayer {
   max: number | null;
   reason: string | null;
   /**
-   * Obecne tylko na warstwie wynagrodzenia. `not_applicable` znaczy, że radar
-   * nie ma widełek do porównania — inaczej niż zero punktów, które znaczyłoby
-   * „nie pasuje finansowo".
+   * Obecne tylko na warstwie wynagrodzenia — dwie różne rzeczy pod jedną
+   * nazwą, więc rozróżnienie jest istotne:
+   * `not_applicable` — nie było czego porównać (wklejony request bez stawki
+   * Championa albo kandydat bez stawki), więc warstwa nie weszła do wyniku;
+   * `redacted` — weszła i realnie przesunęła `total`, ale LICZB nie
+   * pokazujemy: są liniową funkcją stawki Championa, którą rekruter zna, więc
+   * odsłoniłyby oczekiwania kandydata co do złotówki (ta lista celowo ich nie
+   * niesie). Zero punktów znaczyłoby „nie pasuje finansowo" i nie jest tym
+   * samym co żadne z powyższych.
    */
   status?: string;
 }
@@ -67,6 +76,8 @@ export interface TalentRadarMeta {
    */
   degraded: boolean;
   reason: string | null;
+  /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
+  hidden?: { over_budget?: number; remote_only?: number };
 }
 
 export interface TalentRadarSearchResponse {
@@ -87,6 +98,43 @@ export interface TalentRadarSearchRequest {
   location?: string;
   top_k?: number;
   min_score?: number;
+  /**
+   * Dealbreaker-switche. Budżet PLN/h podaje rekruter wprost (radar nie ma
+   * oferty) — sama jego obecność działa jako twardy sufit, bez marginesu
+   * (decyzja produktowa 19.08). Nieznana stawka/preferencja PRZECHODZI.
+   */
+  budget_hourly_max?: number;
+  exclude_remote_only?: boolean;
+  /**
+   * Wymagania twarde/miękkie WPROST, prosto z `parse-champion`. Bez nich
+   * ranking wywodzi wymagania regexem z prozy, a plakietka „8 must · 5 nice"
+   * obiecuje wiedzę, której scoring nigdy nie dostał. Puste przy wklejonym
+   * tekście — wtedy działa dotychczasowy fallback.
+   */
+  must_skills?: string[];
+  nice_skills?: string[];
+}
+
+export interface ChampionParseSummary {
+  role_name: string | null;
+  must_count: number;
+  nice_count: number;
+  rate_value: number | null;
+  location: string | null;
+  work_mode: string | null;
+}
+
+export interface ChampionParseResponse {
+  champion_profile: Record<string, unknown>;
+  /**
+   * Wymagania z dokumentu. MUSZĄ zostać przekazane do `search` — profil
+   * (`champion_profile`) ich NIE niesie (`build_champion_dict` ich nie
+   * kopiuje), więc porzucenie tej odpowiedzi gubi je bezpowrotnie i to tutaj
+   * łańcuch od parsera do rankingu się urywał.
+   */
+  must_skills: string[];
+  nice_skills: string[];
+  summary: ChampionParseSummary;
 }
 
 export const talentRadarApi = {
@@ -94,6 +142,24 @@ export const talentRadarApi = {
     payload: TalentRadarSearchRequest,
   ): Promise<TalentRadarSearchResponse> =>
     api
-      .post<TalentRadarSearchResponse>("/api/talent-radar/search", payload)
+      .post<TalentRadarSearchResponse>("/api/talent-radar/search", payload, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
       .then((r) => r.data),
+  /** Plik profilu Championa (docx/pdf) → sparsowany profil + podsumowanie. */
+  parseChampion: (file: File): Promise<ChampionParseResponse> => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return api
+      .post<ChampionParseResponse>("/api/talent-radar/parse-champion", fd, {
+        // Instancja `api` ma domyślne Content-Type: application/json, które
+        // NIE jest podmieniane dla FormData — multipart jechał jako "json"
+        // i FastAPI odpowiadał 422 `file Field required` (złapane w Chrome
+        // na prodzie 19.08; curl działał, bo omija axiosa). Jawny nagłówek
+        // to wzorzec pozostałych uploadów w api.ts — axios dokłada boundary.
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
+      .then((r) => r.data);
+  },
 };

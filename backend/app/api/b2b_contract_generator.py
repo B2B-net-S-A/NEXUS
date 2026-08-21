@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from app.api.contract_access import (
+    B2B_GENERATOR_UNCONDITIONAL_ROLES,
     B2BGeneratorAccess,
     apply_contract_legal_client_scope,
     assert_contract_legal_client_access,
@@ -194,19 +195,30 @@ def _has_signature_role(user: User) -> bool:
 def _generator_unscoped(user: User) -> bool:
     """Roles that operate the generator without the client-team scope.
 
-    TAC is a full-access generator persona (business decision): it may draft,
-    render, list and download every B2B contract regardless of any
-    ``ClientTacAssignment`` graph. Admin/Head of Recruitment were already
-    unrestricted through the underlying resolvers, so listing them here is
-    behaviour-preserving. Delivery Lead is deliberately excluded — it keeps the
-    per-client assignment scope.
+    Every role is a full-access generator persona except Delivery Lead
+    (product decision, 20.08 — the generator is open to every role, see
+    ``require_b2b_generator_access``). TAC was the original full-access
+    persona (business decision): it may draft, render, list and download
+    every B2B contract regardless of any ``ClientTacAssignment`` graph.
+    Admin/Head of Recruitment were already unrestricted through the
+    underlying resolvers. Finance/recruiter/sourcer/the legacy `user` role
+    join them here for the same structural reason TAC needed this: none of
+    them have any row in ``ClientTacAssignment``/
+    ``DeliveryLeadClientAssignment`` to be scoped by, so leaving them off this
+    list would mean they pass ``require_b2b_generator_access`` and then hit a
+    permanently empty list/403 on every entity — auth without access, not a
+    real access decision. Delivery Lead is deliberately excluded — it keeps
+    the per-client assignment scope, unchanged by the 20.08 decision.
+
+    Reuses ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` from ``contract_access``
+    instead of its own copy of the role tuple (auto-review on #1216 flagged
+    the two-tuple duplication as a sync hazard: a role added to the entry
+    gate but not here would silently pass auth into a permanently empty
+    list). One tuple, two call sites — the entry gate and this scope check
+    can no longer drift apart.
     """
 
-    return user.has_any_role(
-        UserRole.admin,
-        UserRole.head_of_recruitment,
-        UserRole.tac,
-    )
+    return user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES)
 
 
 async def _assert_generator_client_access(

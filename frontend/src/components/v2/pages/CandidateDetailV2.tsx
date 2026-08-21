@@ -13,6 +13,7 @@ import {
   ArrowRight,
  Ban,
  Calendar,
+ CalendarPlus,
  CheckCircle2,
  ChevronDown,
  ChevronUp,
@@ -133,6 +134,7 @@ import type { CandidateRiskProfile } from"@/types/candidate-risk";
 import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
 import ScheduleInterviewModal from"@/components/calendar/ScheduleInterviewModal";
+import { PrepInviteModal } from"@/components/v2/modals/PrepInviteModal";
 import {
  CandidatePipelinesWidget,
  candidatePipelinesQueryKey,
@@ -153,6 +155,7 @@ import CandidateChatTab from"@/components/v2/pages/CandidateChatTab";
 import CallsTimeline from"@/components/calls/CallsTimeline";
 import { DopasowanieTab } from"@/components/v2/pages/DopasowanieTab";
 import { CandidateActivitySummaryCard } from"@/components/v2/pages/CandidateActivitySummaryCard";
+import { CandidateNotesInsightsCard } from"@/components/v2/pages/CandidateNotesInsightsCard";
 import { CandidateProfileFactsBar } from"@/components/v2/pages/CandidateProfileFactsBar";
 import { CandidateRecentRecruitmentsCard } from"@/components/v2/pages/CandidateRecentRecruitmentsCard";
 import { CandidateNav } from"@/components/v2/CandidateNav";
@@ -165,6 +168,7 @@ import {
  type CandidateFilters,
  decodeNavContext,
  decodeJobBackRef,
+ decodeTalentRadarBackRef,
  encodeNavContext,
 } from"@/lib/url-filters";
 import { candidateQueryKeys } from"@/components/v2/pages/candidate-query-keys";
@@ -310,6 +314,19 @@ export function CandidateDetailV2({
  if (embedded) return null; // embedded drawers carry their own nav
  if (!searchParamsForNav) return null;
  return decodeJobBackRef(new URLSearchParams(searchParamsForNav.toString()));
+ }, [embedded, searchParamsForNav]);
+
+ // ── "Came from Talent Radar" back-reference ────────────────────────────
+ // `?from=talent-radar` — profil otwarty z wyników radaru wraca na
+ // /talent-radar, nie na listę kandydatów; radar odtwarza wyszukiwanie ze
+ // snapshotu w sessionStorage (lib/talent-radar-session.ts). Wyklucza się
+ // z `from=job` z konstrukcji — `from` to jeden parametr.
+ const backToTalentRadar = React.useMemo(() => {
+ if (embedded) return false; // embedded drawers carry their own nav
+ if (!searchParamsForNav) return false;
+ return decodeTalentRadarBackRef(
+ new URLSearchParams(searchParamsForNav.toString()),
+ );
  }, [embedded, searchParamsForNav]);
  const openTabsList = useTabsStore((s) => s.tabs);
 const backJobTitle =
@@ -486,6 +503,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  const [cvOpen, setCvOpen] = useState(false);
  const [assignOpen, setAssignOpen] = useState(false);
  const [scheduleOpen, setScheduleOpen] = useState(false);
+ // Osobno od `scheduleOpen`: „Zaplanuj interview" wysyła zaproszenie przez
+ // Graph, a to daje rekruterowi SZKIC do własnego Outlooka (żeby dołożył CV).
+ const [prepInviteOpen, setPrepInviteOpen] = useState(false);
  const [contactOutcomeOpen, setContactOutcomeOpen] = useState(false);
  const [editOpen, setEditOpen] = useState(false);
  // Inline edycja tożsamości/kontaktu (imię, nazwisko, email, telefon) wprost
@@ -863,6 +883,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
  </span>
  </Link>
+ ) : backToTalentRadar ? (
+ <Link
+ href="/talent-radar"
+ className="inline-flex min-h-11 min-w-11 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-primary"
+ >
+ <ArrowLeft className="h-4 w-4" /> Wróć do Talent Radaru
+ </Link>
  ) : (
  <Link
  href="/candidates"
@@ -1138,6 +1165,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  >
  <Calendar className="h-4 w-4" />
  Zaplanuj interview
+ </DropdownMenuItem>
+ {/* Świadomie osobna pozycja od „Zaplanuj interview": tamta WYSYŁA przez
+ Graph, ta daje szkic do własnego Outlooka, żeby rekruter dołożył CV.
+ Bez emaila też ma sens — plik .ics adresuje się już w Outlooku. */}
+ <DropdownMenuItem
+ className="min-h-11"
+ title="Przygotuj zaproszenie prep do wysłania z własnego Outlooka (z CV)"
+ onSelect={() => openFromMenu(() => setPrepInviteOpen(true))}
+ >
+ <CalendarPlus className="h-4 w-4" />
+ Zaproszenie prep
  </DropdownMenuItem>
  <DropdownMenuItem
  className="min-h-11"
@@ -1520,6 +1558,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  candidateName={fullName}
  candidateEmail={candidate.email ?? null}
+ />
+ {/* `onToast` NIE jest opcjonalne w praktyce: bez niego nieudane kopiowanie
+ (brak HTTPS, odmowa uprawnień) byłoby na tym ekranie nieme, a ta sama
+ akcja w Pomoc → Materiały komunikat pokazuje. */}
+ <PrepInviteModal
+ open={prepInviteOpen}
+ onOpenChange={setPrepInviteOpen}
+ candidateName={fullName}
+ onToast={(message, type) =>
+ type === "error" ? showError(message) : showSuccess(message)
+ }
  />
  {/* Marketplace modal is parent-controlled so its overlay survives the
  "Więcej" dropdown unmounting (its trigger lives inside the menu). */}
@@ -2627,6 +2676,12 @@ function ProfilTab({
  ))}
  </div>
  )}
+
+ {/* 1.3 Fakty z notatek rekruterskich (AI, import 08.2026) — renderuje
+ się tylko gdy kandydat ma ekstrakcję (_notes_insights, ~14k osób). */}
+ <CandidateNotesInsightsCard
+ insights={candidate.cv_extracted_data?._notes_insights}
+ />
 
  {/* 1.5 Stawka do klienta — cena wysłania kandydata do klienta (per
  rekrutacja). Wyniesione z zakładki Rekrutacje, bo użytkownik nie

@@ -29,6 +29,7 @@ from app.models.proposal_snapshot import (
     STATUS_READY,
 )
 from app.models.recruitment_pipeline import CandidateStage
+from app.services.canonical_text import build_job_query_variants
 from app.services.retrieval_pool import retrieve_candidate_pool
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,18 @@ async def compute_proposal_for_job(
             # 1000). `top_k` still caps what comes back — it just no longer decides what
             # scoring is allowed to see.
             pool_size = settings.MATCH_POOL_SIZE
-            hits = await retrieve_candidate_pool(session, query_text, top_k=pool_size)
+            # C12: noga BM25 dostaje TERMINY, nie `query_text`. Dokument
+            # w roli tsquery ANDuje setki leksemów, czyli zwraca zero zawsze —
+            # cicho, bo fuzja RRF z pustą listą wygląda jak porządek wektora.
+            from app.services.hybrid_search import build_job_bm25_query
+
+            hits = await retrieve_candidate_pool(
+                session,
+                query_text,
+                top_k=pool_size,
+                query_variants=build_job_query_variants(job, query_text),
+                bm25_query=build_job_bm25_query(job),
+            )
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())
 
@@ -178,6 +190,17 @@ async def compute_proposal_for_job(
                 already = {cid for (cid,) in in_pipeline.all()}
                 candidate_ids = [cid for cid in candidate_ids if cid not in already]
 
+            # Post-0237 snapshot ZAWSZE niesie liczniki (choćby zerowe) —
+            # NULL zostaje jednoznacznym znacznikiem „sprzed 0237 /
+            # nieprzefiltrowany", także gdy retrieval zwrócił pustą pulę
+            # i dealbreakery nie miały na czym pracować (review #1207).
+            from app.services.dealbreaker_filters import (
+                DealbreakerResult,
+                apply_dealbreakers,
+                resolve_job_budget_hourly,
+            )
+
+            snap.hidden = DealbreakerResult().hidden_meta()
             breakdowns: list = []
             if candidate_ids:
                 cand_res = await session.execute(
@@ -200,6 +223,20 @@ async def compute_proposal_for_job(
                     candidates=candidates,
                     now=datetime.now(timezone.utc),
                 )
+
+                # Twardy sufit budżetu Z AUTOMATU (decyzja produktowa 19.08):
+                # snapshot jest DOMYŚLNYM widokiem rekrutera, więc znany budżet
+                # oferty musi ukrywać znane stawki powyżej także tutaj — nie
+                # tylko na żywej ścieżce /recommendations. Liczniki idą do
+                # `snap.hidden`, bo ukrywanie nigdy nie jest ciche; remote_only
+                # zostaje opt-in per wyszukiwanie (snapshot nie niesie tej
+                # deklaracji rekrutera).
+                dealbreakers = apply_dealbreakers(
+                    candidates,
+                    budget_hourly=resolve_job_budget_hourly(job),
+                )
+                candidates = dealbreakers.kept
+                snap.hidden = dealbreakers.hidden_meta()
 
                 if candidates:
                     breakdowns = await bulk_get_or_compute(

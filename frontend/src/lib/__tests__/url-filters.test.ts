@@ -3,8 +3,11 @@ import {
   CandidateFilters,
   DEFAULT_FILTERS,
   decodeFilters,
+  decodeJobBackRef,
+  decodeTalentRadarBackRef,
   encodeFilterCriteria,
   encodeFilters,
+  encodeTalentRadarBackRef,
   filtersEqual,
   filtersToApiCriteria,
   filtersToApiParams,
@@ -368,5 +371,23 @@ describe("url-filters", () => {
     const a: CandidateFilters = { ...DEFAULT_FILTERS, q: "x", poolIds: [1, 2] };
     const b: CandidateFilters = { ...DEFAULT_FILTERS, poolIds: [1, 2], q: "x" };
     expect(filtersEqual(a, b)).toBe(true);
+  });
+});
+
+describe("talent radar back-ref", () => {
+  it("round-trip: encode → decode", () => {
+    expect(encodeTalentRadarBackRef().toString()).toBe("from=talent-radar");
+    expect(decodeTalentRadarBackRef(encodeTalentRadarBackRef())).toBe(true);
+  });
+
+  it("brak/obcy `from` → false", () => {
+    expect(decodeTalentRadarBackRef(sp(""))).toBe(false);
+    expect(decodeTalentRadarBackRef(sp("from=job&jobId=5"))).toBe(false);
+  });
+
+  // `from` to JEDEN parametr — profil nie może pokazać dwóch linków powrotu.
+  it("wyklucza się z job back-ref w obie strony", () => {
+    expect(decodeJobBackRef(encodeTalentRadarBackRef())).toBeNull();
+    expect(decodeTalentRadarBackRef(sp("from=job&jobId=5"))).toBe(false);
   });
 });

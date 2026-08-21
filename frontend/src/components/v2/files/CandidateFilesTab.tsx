@@ -12,7 +12,7 @@ import { Download, Eye, Loader2, Upload } from "lucide-react";
 import api, { extractErrorMsg } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useCapability } from "@/hooks/useCapability";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import {
   FilePreviewModal,
@@ -27,15 +27,12 @@ import { OrderDocumentsSection } from "@/components/OrderDocumentsSection";
 export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  const { showError, showToast } = useToast();
  const queryClient = useQueryClient();
- const currentUser = useAuthStore((state) => state.user);
- const canEditDocuments = hasRole(
- currentUser,
- "admin",
- "delivery_lead",
- "tac",
- "recruiter",
- "sourcer",
- );
+ // POST /api/candidates/{id}/documents + PATCH .../documents/{doc_id} stoją na
+ // CandidateWriteAccess. Ręczna lista ról gubiła tu `finance` (tier recruitera
+ // od 19.08) — rejestr trzyma zbiór w jednym miejscu razem z nazwą guardu.
+ // HoR ZOSTAJE poza: teczkę czyta (szerszy CandidateDocumentAccess), ale
+ // upload dostałby 403.
+ const canEditDocuments = useCapability("candidate.document.manage");
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const [uploadKind, setUploadKind] =
  useState<CandidateDocument["document_kind"]>("other");

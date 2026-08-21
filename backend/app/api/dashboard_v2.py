@@ -127,9 +127,17 @@ async def recruitment_stats_dashboard(
     """Sekcja „Statystyki rekrutacji" — wspólna dla wszystkich presetów.
 
     Guard `OperationalUser` (nie capability): payload jest z natury imienny
-    (tabela per osoba, podia, wyścigi, LinkedIn), więc finance — persona z
-    zakazem danych osobowych — i legacy `user` dostają 403. Dane org-wide
-    dla każdego uprawnionego; default `period=month` (decyzja właściciela).
+    (tabela per osoba, podia, wyścigi, LinkedIn), więc legacy `user` dostaje 403.
+
+    UWAGA — finance PRZECHODZI. `OperationalUser` zawiera `UserRole.finance`
+    od 19.08 (pełny dostęp operacyjny, tier recruitera). Do 20.08 ten docstring
+    twierdził coś przeciwnego i to właśnie on kazał autorowi testu FE zapisać
+    bramkę węższą niż API — sekcja nie renderowała się finansom, choć endpoint
+    odpowiadał im 200. Jeśli kiedyś finance ma tu NIE wchodzić, właściwą zmianą
+    jest ZAWĘŻENIE TEGO GUARDU, nie bramka na froncie: front węższy niż API
+    odtwarza dokładnie ten rozjazd, tylko ciszej.
+
+    Dane org-wide dla każdego uprawnionego; default `period=month`.
     """
     return await build_recruitment_stats_dashboard(current_user, db, period)
 

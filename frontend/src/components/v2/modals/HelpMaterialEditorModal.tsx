@@ -50,31 +50,54 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-const materialSchema = z.object({
-  category: z
-    .string()
-    .trim()
-    .min(2, "Kategoria jest wymagana")
-    .max(120, "Kategoria za długa"),
-  title: z
-    .string()
-    .trim()
-    .min(3, "Tytuł jest za krótki")
-    .max(255, "Tytuł za długi"),
-  url: z
-    .string()
-    .trim()
-    .min(1, "Link jest wymagany")
-    .refine(isHttpUrl, HTTP_SCHEME_MESSAGE),
-  description: z.string().max(1000, "Opis za długi"),
-  is_editable_template: z.boolean(),
-  sort_order: z.coerce
-    .number()
-    .int("Kolejność musi być liczbą całkowitą")
-    .min(SORT_ORDER_MIN, SORT_ORDER_RANGE_MESSAGE)
-    .max(SORT_ORDER_MAX, SORT_ORDER_RANGE_MESSAGE),
-  is_published: z.boolean(),
-});
+/**
+ * Lustro CHECK-a `ck_help_materials_link_or_template` i walidatora w API.
+ *
+ * Bez tego admin nie mógłby w ogóle edytować zaseedowanego szablonu: pole
+ * „Link" było wymagane, a szablon zaproszenia go NIE MA — otwarcie edytora
+ * kończyło się błędem walidacji na polu, którego ta pozycja nie używa.
+ */
+const LINK_OR_TEMPLATE_MESSAGE =
+  "Podaj link do dokumentu albo treść szablonu — pozycja bez jednego i drugiego " +
+  "wyświetli się w Pomocy bez żadnej akcji";
+
+const materialSchema = z
+  .object({
+    category: z
+      .string()
+      .trim()
+      .min(2, "Kategoria jest wymagana")
+      .max(120, "Kategoria za długa"),
+    title: z
+      .string()
+      .trim()
+      .min(3, "Tytuł jest za krótki")
+      .max(255, "Tytuł za długi"),
+    // Pusty = „ta pozycja nie jest linkiem". Schemat http(s) sprawdzamy dopiero
+    // dla niepustej wartości, żeby szablon nie wywracał się na pustym polu.
+    url: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || isHttpUrl(v), HTTP_SCHEME_MESSAGE),
+    description: z.string().max(1000, "Opis za długi"),
+    template_subject: z.string().trim().max(255, "Temat szablonu za długi"),
+    template_body: z.string().max(10_000, "Treść szablonu za długa"),
+    is_editable_template: z.boolean(),
+    sort_order: z.coerce
+      .number()
+      .int("Kolejność musi być liczbą całkowitą")
+      .min(SORT_ORDER_MIN, SORT_ORDER_RANGE_MESSAGE)
+      .max(SORT_ORDER_MAX, SORT_ORDER_RANGE_MESSAGE),
+    is_published: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.url.trim() === "" && values.template_body.trim() === "") {
+      // Błąd przypięty do OBU pól — admin nie musi zgadywać, które uzupełnić.
+      for (const path of ["url", "template_body"] as const) {
+        ctx.addIssue({ code: "custom", path: [path], message: LINK_OR_TEMPLATE_MESSAGE });
+      }
+    }
+  });
 
 // zod 4: z.coerce.number() ma wejście `unknown`, więc typ pól formularza
 // (input) i typ po walidacji (output) muszą być rozróżnione w useForm.
@@ -96,6 +119,8 @@ function defaultsFor(material: HelpMaterial | null): MaterialFormData {
     title: material?.title ?? "",
     url: material?.url ?? "",
     description: material?.description ?? "",
+    template_subject: material?.template_subject ?? "",
+    template_body: material?.template_body ?? "",
     is_editable_template: material?.is_editable_template ?? false,
     sort_order: material?.sort_order ?? 0,
     is_published: material?.is_published ?? true,
@@ -143,11 +168,16 @@ export function HelpMaterialEditorModal({
 
   const mutation = useMutation({
     mutationFn: async (values: MaterialFormData) => {
+      // Puste pole to `null`, nie `""`: backend normalizuje jedno i drugie, ale
+      // `""` przechodziłby CHECK w bazie (kolumna jest wtedy NOT NULL) i dawał
+      // szablon bez treści — pozycję, która wygląda na sprawną, a nic nie robi.
       const payload: HelpMaterialCreateInput | HelpMaterialUpdateInput = {
         category: values.category.trim(),
         title: values.title.trim(),
-        url: values.url.trim(),
+        url: values.url.trim() || null,
         description: values.description.trim() || null,
+        template_subject: values.template_subject.trim() || null,
+        template_body: values.template_body.trim() || null,
         is_editable_template: values.is_editable_template,
         sort_order: values.sort_order ?? 0,
         is_published: values.is_published,
@@ -261,10 +291,80 @@ export function HelpMaterialEditorModal({
               ) : (
                 <p id="material-url-hint" className="text-xs text-muted-foreground mt-1">
                   Wklej link „Udostępnij" z SharePointa. Dokument zostaje w
-                  SharePoincie — NEXUS trzyma tylko odnośnik.
+                  SharePoincie — NEXUS trzyma tylko odnośnik. Zostaw puste, jeśli
+                  ta pozycja jest samym szablonem treści.
                 </p>
               )}
             </div>
+
+            {/* Sekcja szablonu. Ramka i nagłówek są po to, żeby admin widział,
+                że wypełnia DRUGI wariant pozycji, a nie kolejne opcjonalne pole
+                — ale wypełnienie OBU jest legalne (CHECK w bazie to OR, nie
+                XOR) i wiersz pokazuje wtedy i link, i akcje zaproszenia.
+                Wymagane jest co najmniej jedno z dwojga. */}
+            <fieldset className="rounded-lg border border-border p-3 space-y-3">
+              <legend className="px-1 text-sm font-medium text-foreground">
+                Szablon treści
+              </legend>
+              <p className="text-xs text-muted-foreground">
+                Dla pozycji, które nie są plikiem — np. zaproszenia
+                kalendarzowego. Rekruter dostanie z niej gotowy plik `.ics`
+                i pop-out w Outlook Web. Można wypełnić razem z linkiem — wiersz
+                pokaże wtedy obie akcje.
+              </p>
+
+              <div>
+                <label
+                  htmlFor="material-template-subject"
+                  className="block text-sm font-medium text-foreground mb-1.5"
+                >
+                  Temat
+                </label>
+                <Input
+                  id="material-template-subject"
+                  placeholder="Np. Przygotowanie do spotkania z (nazwa Klienta)"
+                  {...register("template_subject")}
+                  invalid={!!errors.template_subject}
+                />
+                {errors.template_subject && (
+                  <p className="text-xs text-primary mt-1">
+                    {errors.template_subject.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="material-template-body"
+                  className="block text-sm font-medium text-foreground mb-1.5"
+                >
+                  Treść
+                </label>
+                <Textarea
+                  id="material-template-body"
+                  rows={10}
+                  placeholder="Dzień dobry,&#10;&#10;Zapraszam na spotkanie…"
+                  className="font-mono text-xs"
+                  {...register("template_body")}
+                  invalid={!!errors.template_body}
+                  aria-describedby="material-template-body-hint"
+                />
+                {errors.template_body ? (
+                  <p className="text-xs text-primary mt-1">
+                    {errors.template_body.message}
+                  </p>
+                ) : (
+                  <p
+                    id="material-template-body-hint"
+                    className="text-xs text-muted-foreground mt-1"
+                  >
+                    Nawiasy — np. „(nazwa Klienta)" — zostają widoczne i
+                    uzupełnia je rekruter. Puste linie są zachowywane. Nie wpisuj
+                    tu uwag wewnętrznych: całą treść widzi kandydat.
+                  </p>
+                )}
+              </div>
+            </fieldset>
 
             <div>
               <label

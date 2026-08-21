@@ -76,6 +76,33 @@ TEST_EMAIL = "artur@b2bnet.pl"
 TEST_PASSWORD = "admin123"
 
 
+# ── e-Zdrowie: bramka po ID kolidowała z serialem klientów ───────────────────
+
+
+@pytest.fixture(autouse=True)
+def _detach_ezdrowie_client_gate(monkeypatch):
+    """Odsuń `EZDROWIE_CLIENT_ID` od zakresu, w który trafia `clients.id`.
+
+    Bramka „części umowy" jest po ID (115) — świadomie, bo Traffit nadpisuje
+    `Client.name`. W testach `clients.id` to zwykły serial, więc gdy któryś
+    seed trafi akurat na 115, klient testowy STAJE SIĘ e-Zdrowiem i endpointy
+    zaczynają wymagać części umowy. Objaw pojawia się w teście, który o
+    e-Zdrowiu nic nie wie (`test_dl_portal` → 422 „Wybierz część umowy"), i
+    zależy od tego, ile klientów utworzyły testy PRZED nim — czyli od podziału
+    plików na shardy. Dopisanie nowego pliku testowego wystarczy, żeby czerwień
+    przeskoczyła w zupełnie inne miejsce.
+
+    Wartość ujemna jest nieosiągalna dla seriala, więc żaden seed jej nie
+    trafi. Testy, które faktycznie badają e-Zdrowie, i tak ustawiają tę stałą
+    na swojego świeżego klienta (`test_ezdrowie_project_part.py`) — ta fikstura
+    im nie przeszkadza, bo ich `monkeypatch.setattr` wykonuje się później.
+
+    Naprawia KLASĘ, nie objaw: żaden test tworzący klientów nie może już
+    przypadkiem stać się e-Zdrowiem, niezależnie od kolejności plików.
+    """
+    monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", -1)
+
+
 # ── Global skill-taxonomy isolation ─────────────────────────────────────────
 
 

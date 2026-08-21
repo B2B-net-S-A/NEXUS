@@ -103,6 +103,21 @@ class Settings(BaseSettings):
     # collection (PR6). The active text-schema version string derives from it.
     AI_TEXT_SCHEMA_V2: bool = False
 
+    # Runda 2 (2026-08-18): v3 = v2 + pełne CV zawsze (cap 12k; v1 ucinał na
+    # 3000 znaków — 63% CV na prodzie jest dłuższych) + sekcja [NOTES] z faktów
+    # potwierdzonych w rozmowach (7,3k kandydatów). Dotyczy WYŁĄCZNIE tekstu
+    # kandydata; tekst oferty zostaje na dotychczasowym dispatcherze. Flip
+    # wymaga zbudowanej kolekcji side-by-side (reembed z QDRANT_COLLECTION
+    # wskazującym nową) i przełącza się RAZEM z QDRANT_COLLECTION — oba wpisy
+    # są w _SCORING_CACHE_INPUTS, więc flip unieważnia cache score'ów.
+    AI_TEXT_SCHEMA_V3: bool = False
+
+    # Runda 2: unia pul z kilku sformułowań zapytania (pełny tekst oferty +
+    # tytuł/seniority + lista skilli). Warianty decydują o CZŁONKOSTWIE puli;
+    # podobieństwo semantyczne liczone osobno względem tekstu głównego (wzorzec
+    # hybrydy) — dlatego flaga świadomie NIE wchodzi do _SCORING_CACHE_INPUTS.
+    MULTI_QUERY_RETRIEVAL_ENABLED: bool = False
+
     # ── AI unified retrieval orchestrator (plan PR8) ──────────────────────────
     # OFF by default. When ON (per surface, comma-separated list in
     # AI_UNIFIED_RETRIEVAL_SURFACES), a surface routes through the single
@@ -261,16 +276,40 @@ class Settings(BaseSettings):
     # z faktów notatkowych kandydata. Default OFF do czasu pomiaru na
     # zbiorze eval z rekrutacji posiadających Championów.
     CHAMPION_MATCH_SIGNALS_ENABLED: bool = False
-    # v1.1 (2026-08-15): seniority Championa jako mnożnikowa kara na total
-    # (tolerancja 1 rok, -8%%/rok niedoboru, cap -32%%) + dostępność kandydata
-    # wyprowadzana z faktów notatkowych vs data startu Championa. OSOBNA
-    # flaga, bo v1 jest już ON na prodzie — v1.1 musi mieć własny pomiar.
-    CHAMPION_SIGNALS_V11_ENABLED: bool = False
+    # v1.1 zmierzone 15.08 jako bundle: NO-GO (R@20n -21% — kara seniority
+    # wypycha kwalifikowanych z top-20, choć MRR +12% sugerował żywy składnik).
+    # Dekompozycja na dwie niezależne flagi, każda z własnym pomiarem:
+    CHAMPION_SENIORITY_PENALTY_ENABLED: bool = False
+    CHAMPION_AVAILABILITY_FALLBACK_ENABLED: bool = False
+    # Dostępność v2: kara mnożnikowa tylko za twardą kolizję jawnych dat
+    # (kolumna/explicit z notatek vs start Championa + 30 dni grace) — bez
+    # decay dla dat wyprowadzanych z wypowiedzenia (przyczyna NO-GO fallbacku).
+    CHAMPION_AVAILABILITY_CONFLICT_ENABLED: bool = False
+    # 4a: rozszerzone rodziny aliasów umiejętności (skill_taxonomy_extended)
+    # w mapie scoringu — górują na derived-must z Championa/JD dla terminów
+    # spoza bazowej taksonomii (git/jira/maven/servicenow…). Flip po pomiarze.
+    SKILL_ALIAS_EXTENDED_ENABLED: bool = False
     # Pula kandydatów przez hybrydę (BM25+dense+RRF, opcjonalnie rerank) zamiast
     # samych wektorów. Selekcja członkostwa; skala semantyczna bez zmian — patrz
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
     # nakładają i włączone razem są niemierzalne).
     HYBRID_POOL_ENABLED: bool = False
+    # Talent Radar: wymagania MUST/NICE podane WPROST (z `parse-champion`)
+    # zamiast wywodzonych regexem z prozy. Flip zmienia CZTERY rzeczy naraz,
+    # nie jedną warstwę punktową:
+    #   1. warstwę `skills` — `_score_skills` przestaje wywodzić must z prozy,
+    #      a `nice` po raz pierwszy bywa niepuste, więc przy renormalizacji
+    #      zmienia się MIANOWNIK dla każdego kandydata;
+    #   2. tekst embedowanego zapytania (`_build_job_text_v1`) — czyli wektor,
+    #      którym pytamy Qdranta;
+    #   3. wariant retrievalu „skills" (`build_job_query_variants`);
+    #   4. źródło terminów BM25 (`build_job_bm25_query` czyta `job.must_skills`
+    #      JAKO PIERWSZE, na Championa spada dopiero przy pustych) — działa
+    #      wyłącznie przy `HYBRID_POOL_ENABLED=true`.
+    # Punkty 2-4 zmieniają PULĘ, nie tylko kolejność — dlatego default OFF do
+    # czasu pomiaru evalem, z ustaloną (najlepiej wyłączoną) pozycją
+    # `HYBRID_POOL_ENABLED`, inaczej dwie dźwignie są nie do rozplątania.
+    TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
@@ -942,6 +981,50 @@ class Settings(BaseSettings):
     # resumable via an `after_id` cursor, full reconcile only — delta already
     # scopes itself to the rows it just touched.
     TRAFFIT_SYNC_ENRICH_NAMES_LIMIT: int = 500
+    # Sufit fazy candidates_cv_fields (parse pól skills/city/years dla
+    # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
+    # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
+    TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
+
+    # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
+    # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie
+    # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
+    # + honorowanie wierszy legacy) — patrz app/tasks/notes_insights_sync.py.
+    NOTES_INSIGHTS_SYNC_ENABLED: bool = False
+    # Jak często pętla sprawdza, czy bieg jest należny (clamp >=300 s w pętli);
+    # sam bieg jest najwyżej raz dziennie.
+    NOTES_INSIGHTS_SYNC_CHECK_INTERVAL_SECONDS: int = 1800
+    # Godzina UTC, od której dzienny bieg może ruszyć — PO nocnym Traffit
+    # syncu (02:00), żeby ekstrakcja widziała świeżo zaimportowane notatki.
+    NOTES_INSIGHTS_SYNC_HOUR_UTC: int = 4
+    # Sufit kandydatów na bieg (~$0,002/kandydata na Haiku). Ogranicza koszt
+    # pojedynczego dnia; zaległość zbiega w kolejnych dobach.
+    NOTES_INSIGHTS_SYNC_BATCH_LIMIT: int = 300
+
+    # ── Weekly eval guard (strażnik jakości matchingu) ──────────────────────
+    # Cotygodniowy pomiar harnessem na zamrożonych 50 ofertach + alert regresu
+    # >15% t/t (Sentry przez logger.error). Patrz app/tasks/weekly_eval.py.
+    WEEKLY_EVAL_ENABLED: bool = False
+    WEEKLY_EVAL_CHECK_INTERVAL_SECONDS: int = 3600
+    # Niedziela (0=pon … 6=niedz), po nocnych syncach.
+    WEEKLY_EVAL_WEEKDAY: int = 6
+    WEEKLY_EVAL_HOUR_UTC: int = 5
+    # Sufit czasu subprocesu harnessu (dzisiejsze biegi: ~12-15 min).
+    WEEKLY_EVAL_TIMEOUT_SECONDS: int = 3600
+
+    # ── Match digest (cotygodniowy push top dopasowań do rekruterów) ────────
+    # Adopcja rekomendacji wymaga PUSH, nie pull: digest wysyła in-app
+    # notyfikację z top świeżych dopasowań per opublikowana rekrutacja do jej
+    # rekrutera/TAC. Patrz app/tasks/match_digest.py.
+    MATCH_DIGEST_ENABLED: bool = False
+    MATCH_DIGEST_CHECK_INTERVAL_SECONDS: int = 3600
+    # Poniedziałek 06:00 UTC — początek tygodnia pracy.
+    MATCH_DIGEST_WEEKDAY: int = 0
+    MATCH_DIGEST_HOUR_UTC: int = 6
+    # Minimalny score dopasowania w digeście — digest 20-punktowych trafień
+    # to spam, który zabija zaufanie do funkcji.
+    MATCH_DIGEST_MIN_SCORE: float = 55.0
+    MATCH_DIGEST_TOP_N: int = 5
 
     # ── Global candidate contact queue ──────────────────────────────────────
     # All three gates are deliberately OFF by default.  The feature owns only
@@ -1048,6 +1131,34 @@ class Settings(BaseSettings):
     # Dodanie kolejnego klienta to zmiana tej zmiennej w Coolify, bez deployu.
     MULTI_CONSULTANT_ORDER_CLIENT_IDS: str = ""
 
+    # CSV z ``client_id`` klientów, u których zamówienie może być KOSZTOWE —
+    # z ustaloną z góry kwotą, z której schodzi się fakturami (Polkomtel).
+    #
+    # Świadomie OSOBNA lista od ``MULTI_CONSULTANT_ORDER_CLIENT_IDS``, mimo że
+    # dziś jest jej podzbiorem: BIK i BNP rozliczają się wyłącznie na MD, więc
+    # checkbox „Zamówienie kosztowe" w ich formularzu byłby zaproszeniem do
+    # założenia zamówienia, którego nikt nigdy nie rozliczy. Sklejenie obu list
+    # w jedną zabrałoby możliwość tego rozróżnienia.
+    #
+    # Pusto = funkcja nieaktywna dla WSZYSTKICH (fail-closed).
+    COST_ORDER_CLIENT_IDS: str = ""
+
+    # ── Powiadomienia Delivery Leada ────────────────────────────────────────
+    # Kill-switch całej sekcji: `false` → skaner kończy się przed pętlą, a
+    # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi
+    # dać się przeczytać nawet po wyłączeniu generowania nowych wpisów).
+    DL_ALERTS_ENABLED: bool = True
+    # Co ile godzin przemiata warunki. 24 h jak sąsiednie skanery — te alerty
+    # dotyczą spraw mierzonych w dniach, nie w minutach.
+    DL_ALERTS_INTERVAL_HOURS: float = 24.0
+    # Próg „mało MD na zamówieniu". JEDNAKOWY dla wszystkich klientów i
+    # zamówień — ticket wprost zabrania konfiguracji per klient, bo próg ma
+    # znaczyć to samo w każdym raporcie.
+    DL_ALERT_MD_THRESHOLD: float = 15.0
+    # Co ile dni ponawiać alert, którego przyczyna nie ustąpiła. Powtórka to
+    # NOWY wiersz, nie aktualizacja — patrz `app/services/dl_alerts.py`.
+    DL_ALERT_REPEAT_DAYS: int = 7
+
     @property
     def multi_consultant_order_client_ids(self) -> frozenset[int]:
         """Parse MULTI_CONSULTANT_ORDER_CLIENT_IDS CSV into a set of client ids.
@@ -1058,6 +1169,27 @@ class Settings(BaseSettings):
         reszty systemu).
         """
         raw = self.MULTI_CONSULTANT_ORDER_CLIENT_IDS
+        if not raw:
+            return frozenset()
+        ids: set[int] = set()
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                ids.add(int(chunk))
+            except ValueError:
+                continue
+        return frozenset(ids)
+
+    @property
+    def cost_order_client_ids(self) -> frozenset[int]:
+        """Parse COST_ORDER_CLIENT_IDS CSV into a set of client ids.
+
+        Ta sama tolerancja na literówki co przy liście wielo-konsultantowej:
+        nienumeryczny wpis jest pomijany, a nie wysadza startu backendu.
+        """
+        raw = self.COST_ORDER_CLIENT_IDS
         if not raw:
             return frozenset()
         ids: set[int] = set()

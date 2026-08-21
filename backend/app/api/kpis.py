@@ -228,8 +228,9 @@ _PERIOD_MAP = {
 
 # Widok zespołowy — pełny per-person breakdown dla KAŻDEJ roli operacyjnej.
 # Decyzja właściciela 2026-08-07 (sekcja „Statystyki rekrutacji" na /dashboard):
-# cały zespół widzi imienne wyniki wszystkich, jak w InfraReporterze. Finance
-# i legacy `user` pozostają odcięci (OperationalUser ich nie zawiera).
+# cały zespół widzi imienne wyniki wszystkich, jak w InfraReporterze. Od 19.08
+# OperationalUser obejmuje też finance (pełny dostęp operacyjny); odcięty
+# pozostaje wyłącznie legacy viewer `user`.
 TeamPanelViewer = OperationalUser
 
 

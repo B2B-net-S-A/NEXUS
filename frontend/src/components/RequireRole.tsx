@@ -14,16 +14,35 @@ import { UserRole, hasMinRole, hasRole, useAuthStore } from "@/store/auth"
  *   <RequireRole minRole="tac">                       — hierarchiczne >= tac
  *
  * Użyj `fallback` aby wyświetlić komunikat zamiast niczego (np. tooltip-like).
+ *
+ * „NIE WIEM JESZCZE" ≠ „NIE WOLNO". Przed `hydrate()` store ma `user === null`,
+ * bo tożsamość leży w localStorage i jest czytana dopiero po montażu (SSR nie ma
+ * do niej dostępu). W tym oknie NIE renderujemy `fallback`: dla wywołań
+ * z domyślnym `fallback={null}` było to niewidoczne, ale wystarczyło podać
+ * własny komunikat, żeby okno przed hydracją zaczęło TWIERDZIĆ, że użytkownik
+ * nie ma uprawnień. Admin wchodzący na `/finance` widział „Brak uprawnień"
+ * przez kilka sekund, zanim strona pokazała moduł — komunikat fałszywy i, co
+ * gorsza, wskazujący winnego („poproś administratora"), gdy adresatem był sam
+ * administrator. Dopóki nie wiemy, kim jest użytkownik, nie mówimy nic.
  */
 interface Props {
   children: ReactNode
   roles?: UserRole[]
   minRole?: UserRole
   fallback?: ReactNode
+  /** Co pokazać, dopóki tożsamość nie jest znana. Domyślnie nic. */
+  pending?: ReactNode
 }
 
-export function RequireRole({ children, roles, minRole, fallback = null }: Props) {
+export function RequireRole({
+  children,
+  roles,
+  minRole,
+  fallback = null,
+  pending = null,
+}: Props) {
   const user = useAuthStore((s) => s.user)
+  const hydrated = useAuthStore((s) => s.hydrated)
 
   // Dozwolona tylko JEDNA strategia na raz — oba na raz = programmer error.
   if (roles && minRole) {
@@ -33,6 +52,9 @@ export function RequireRole({ children, roles, minRole, fallback = null }: Props
       )
     }
   }
+
+  // Tożsamość nieznana — wstrzymujemy się od orzekania w którąkolwiek stronę.
+  if (!hydrated) return <>{pending}</>
 
   const allowed = roles
     ? hasRole(user, ...roles)

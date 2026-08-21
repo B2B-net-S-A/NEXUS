@@ -42,7 +42,9 @@ def _connection() -> SimpleNamespace:
     )
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+# Finance ma od 19.08 pelny dostep operacyjny (user_can_access_candidate_domain
+# przepuszcza) — jedyna nieuprawniona persona to wycofywany viewer `user`.
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_polling_tick_filters_ineligible_owner_before_execution(
     role: UserRole,
@@ -69,7 +71,7 @@ async def test_polling_tick_filters_ineligible_owner_before_execution(
     run_sync.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_sync_connection_refuses_owner_without_mutating_connection(
     role: UserRole,
@@ -93,7 +95,7 @@ async def test_sync_connection_refuses_owner_without_mutating_connection(
     graph_client.assert_not_called()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_sender_refuses_before_idempotency_or_graph(
     role: UserRole,
@@ -119,7 +121,7 @@ async def test_sender_refuses_before_idempotency_or_graph(
     graph_client.assert_not_called()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_graph_client_context_is_final_fail_closed_boundary(
     role: UserRole,
@@ -138,7 +140,7 @@ async def test_graph_client_context_is_final_fail_closed_boundary(
     client._client.aclose.assert_awaited_once()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_graph_client_rechecks_role_before_each_outbound_request(
     role: UserRole,
@@ -157,7 +159,7 @@ async def test_graph_client_rechecks_role_before_each_outbound_request(
     client._client.request.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_subscription_renewal_does_not_touch_graph_or_rows(
     role: UserRole,
@@ -194,7 +196,7 @@ async def test_subscription_renewal_does_not_touch_graph_or_rows(
     db.commit.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_recording_connection_lookup_stops_before_connection_query(
     role: UserRole,
@@ -209,7 +211,7 @@ async def test_recording_connection_lookup_stops_before_connection_query(
     db.execute.assert_not_awaited()
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
 async def test_rejection_worker_marks_ineligible_owner_skipped_without_retry(
     role: UserRole,

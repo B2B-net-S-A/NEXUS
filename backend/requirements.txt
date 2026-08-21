@@ -27,7 +27,7 @@ httpx==0.28.1
 # historical_jobs_retrieval.py, cc_classifier.py. Migracja na query_points —
 # osobny PR, razem z sondą `checks.qdrant` w /api/health.
 qdrant-client==1.12.1
-anthropic>=0.121.0,<1.0
+anthropic>=0.122.0,<1.0
 # pdfminer.six + pdfplumber to PARA SPRZĘŻONA — pdfplumber pinuje pdfminer.six
 # dokładnym `==`, więc obie linie muszą się ruszać razem. Mapowanie pinów:
 #   pdfplumber 0.11.4/0.11.5 -> 20231228 | 0.11.6 -> 20250327 | 0.11.7 -> 20250506

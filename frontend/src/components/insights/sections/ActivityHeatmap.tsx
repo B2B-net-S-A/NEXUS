@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { PERIOD_LABELS, type Period } from "./PeriodSelector";
+import { SectionError } from "./_shared";
 
 interface LeaderboardRow {
   user_id: number;
@@ -55,7 +57,7 @@ interface Props {
 }
 
 export function ActivityHeatmap({ period }: Props) {
-  const { data, isLoading } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ["insights-leaderboard", period],
     queryFn: () =>
       api
@@ -67,6 +69,15 @@ export function ActivityHeatmap({ period }: Props) {
 
   const rows = data?.leaderboard ?? [];
   const maxActions = rows.length > 0 ? Math.max(...rows.map((r) => r.total_actions), 1) : 1;
+  // „Brak danych dla wybranego okresu" to zdanie o zespole. Gdy leaderboard
+  // padnie, prawdą jest „nie wiemy" — i tego nie wolno mylić z zerem aktywności
+  // (audyt F-20). `isPending`, nie `isLoading` — patrz komentarz w BoardKPI.
+  const viewState = resolveViewState({
+    isLoading: isPending,
+    isError,
+    error,
+    isEmpty: rows.length === 0,
+  });
 
   return (
     <section className="space-y-4">
@@ -80,9 +91,15 @@ export function ActivityHeatmap({ period }: Props) {
           </span>
         </div>
 
-        {isLoading ? (
+        {viewState === "loading" ? (
           <div className="py-8 text-center text-muted-foreground">Ładowanie danych...</div>
-        ) : rows.length === 0 ? (
+        ) : isBlockingViewState(viewState) ? (
+          <SectionError
+            label="Aktywność zespołu"
+            error={error}
+            onRetry={() => void refetch()}
+          />
+        ) : viewState === "empty" ? (
           <div className="py-8 text-center text-muted-foreground">
             Brak danych dla wybranego okresu
           </div>

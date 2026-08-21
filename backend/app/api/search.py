@@ -303,6 +303,11 @@ async def advanced_candidate_search(
         # the first 4 pages at default page_size=50.
         from app.services.hybrid_search import hybrid_candidates  # noqa: PLC0415
 
+        # ŚWIADOMY brak `bm25_query` (C12): tutaj `q_text` NAPRAWDĘ jest
+        # zapytaniem rekrutera, więc koniunkcja 2-4 słów jest intencją,
+        # a `-junior` udokumentowanym wykluczeniem (patrz `_fts_clause`).
+        # Ścieżka OFERTOWA podaje terminy jawnie, bo tam „query" to dokument.
+        # Nie ujednolicać tych dwóch wejść — to nie jest ta sama rzecz.
         hybrid = await hybrid_candidates(
             db, q_text, pool=200, final_top_k=200, use_rerank=None
         )

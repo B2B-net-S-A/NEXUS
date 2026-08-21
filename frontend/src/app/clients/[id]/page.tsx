@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
+
+import { useClientTab, type ClientTab } from "@/lib/client-tab";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
@@ -696,18 +698,19 @@ function ContactsTab({ clientId }: { clientId: number }) {
 // Konsolidacja UX 2026-05-11: 12 tabów → 6. Pozostałe (Informacje, Materiały,
 // Cennik, Kontakty, Wiedza) wbudowane jako collapsibles w odpowiednich tabach.
 // Powiadomienia per-klient skasowane (globalny bell w topbarze wystarcza).
-type Tab =
-  | "profil"
-  | "projekty"
-  | "kontakty"
-  | "umowy-ramowe"
-  | "zamowienia"
-  | "analityka"
-  | "zespol";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
-  const [activeTab, setActiveTab] = useState<Tab>("profil");
+  // `?tab=` NIE jest ozdobnikiem — trzy źródła powiadomień linkują wprost do
+  // zakładki, w której jest sprawa do załatwienia: skaner alertów Delivery
+  // Leada (`dl_alerts_scanner.py`), skaner wygasania zamówień
+  // (`dl_portal_expiry_scanner.py`) i pipeline (`pipeline.py`). Wszystkie
+  // emitują `/clients/{id}?tab=zamowienia`, a strona czytała wyłącznie stan
+  // początkowy "profil", więc kliknięcie powiadomienia lądowało na Profilu
+  // i kazało odbiorcy szukać samodzielnie — czyli link obiecywał coś,
+  // czego nie robił.
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useClientTab(searchParams.get("tab"));
   const [showEdit, setShowEdit] = useState(false);
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
@@ -765,7 +768,7 @@ export default function ClientDetailPage() {
       </div>
     );
 
-  const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
+  const TABS: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
@@ -944,7 +947,10 @@ export default function ClientDetailPage() {
               klient dostaje niezmieniony widok jednoosobowy. */}
           {activeTab === "zamowienia" &&
             (client?.multi_consultant_orders_enabled ? (
-              <MultiConsultantOrdersTab clientId={Number(id)} />
+              <MultiConsultantOrdersTab
+                clientId={Number(id)}
+                costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
+              />
             ) : (
               <OrdersAndContractsTab clientId={Number(id)} />
             ))}

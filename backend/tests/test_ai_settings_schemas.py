@@ -48,6 +48,9 @@ class TestFeatureKeyEnum:
             # Fala 3 (0223): masowy backfill pól z CV — osobny kubełek,
             # żeby bieg na ~39 tys. CV nie wyczerpał limitu rekruterów.
             "cv_backfill",
+            # 0230: cykliczna ekstrakcja faktów z notatek (notes_insights_sync).
+            "notes_extraction",
+            "champion_profile_parse",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

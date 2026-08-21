@@ -90,13 +90,15 @@ async def test_every_operational_role_can_read_finance_and_viewer_cannot(
         UserRole.delivery_lead,
         UserRole.tac,
         UserRole.recruiter,
+        UserRole.finance,
         UserRole.sourcer,
     ):
         headers = await _headers(rs_client, role)
         resp = await rs_client.get(PATH, headers=headers)
         assert resp.status_code == 200, f"{role.value}: {resp.status_code}"
 
-    for role in (UserRole.finance, UserRole.user):
+    # Finance od 19.08 jest rola operacyjna — 403 zostaje dla viewera.
+    for role in (UserRole.user,):
         headers = await _headers(rs_client, role)
         resp = await rs_client.get(PATH, headers=headers)
         assert resp.status_code == 403, f"{role.value}: {resp.status_code}"

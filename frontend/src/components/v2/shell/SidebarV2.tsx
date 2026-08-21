@@ -9,10 +9,8 @@ import {
   Building2,
   FileText,
   FileSignature,
-  FileSpreadsheet,
   Star,
   Calendar,
-  BarChart3,
   Brain,
   GitBranch,
   Handshake,
@@ -93,6 +91,7 @@ const NAV_SECTIONS: NavSection[] = [
           "delivery_lead",
           "tac",
           "recruiter",
+          "finance",
           "sourcer",
         ],
       },
@@ -122,16 +121,18 @@ const NAV_SECTIONS: NavSection[] = [
           "delivery_lead",
           "tac",
           "recruiter",
+          "finance",
           "sourcer",
         ],
       },
       {
-        // Role lustrzane wobec `require_candidate_write` — bez head_of_recruitment.
-        // Ta sama piątka co `RECRUITER_PLUS` w lib/capabilities.ts.
+        // BEZ `roles`: radar i powiązane funkcje są dostępne dla KAŻDEJ
+        // zalogowanej roli (decyzja produktowa Artura 19.08). Lustrzane
+        // z backendem (CurrentUser), middleware (brak wpisu = brak
+        // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
         href: "/talent-radar",
         label: "Talent Radar",
         icon: Radar,
-        roles: ["admin", "delivery_lead", "tac", "recruiter", "sourcer"],
       },
       {
         href: "/sourcing/marketplace",
@@ -143,6 +144,7 @@ const NAV_SECTIONS: NavSection[] = [
           "delivery_lead",
           "tac",
           "recruiter",
+          "finance",
           "sourcer",
         ],
       },
@@ -157,6 +159,7 @@ const NAV_SECTIONS: NavSection[] = [
           "delivery_lead",
           "tac",
           "recruiter",
+          "finance",
           "sourcer",
         ],
       },
@@ -186,6 +189,7 @@ const NAV_SECTIONS: NavSection[] = [
           "delivery_lead",
           "tac",
           "recruiter",
+          "finance",
           "sourcer",
         ],
       },
@@ -286,9 +290,10 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   */
-  // Moduł „Finanse". Wpis MUSI istnieć także w FINANCE_NAV_SECTIONS niżej —
-  // użytkownik z rolą `finance` nigdy nie ogląda tego drzewa (patrz
-  // `isFinanceOnly`), a rola jest wyłączna, więc nikt nie widzi obu naraz.
+  // Moduł „Finanse". Jedna pozycja, bo `/finance` to jedna strona z trzema
+  // zakładkami (wyniki miesięczne · archiwum · import zużycia MD) — osobny
+  // link „Import MD" prowadziłby do tej samej trasy i otwierał ją na innej
+  // zakładce niż podpowiada etykieta.
   {
     title: "Finanse",
     icon: Wallet,
@@ -311,28 +316,31 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-const FINANCE_NAV_SECTIONS: NavSection[] = [
-  {
-    title: "Finanse",
-    icon: BarChart3,
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      // Jedna pozycja, bo `/finance` to jedna strona z trzema zakładkami
-      // (wyniki miesięczne · archiwum · import zużycia MD). Osobny link
-      // „Import MD" prowadziłby do tej samej trasy i otwierał ją na innej
-      // zakładce niż podpowiada etykieta.
-      { href: "/finance", label: "Finanse", icon: Wallet },
-    ],
-  },
-  {
-    title: "System",
-    icon: Settings,
-    items: [
-      { href: "/help", label: "Pomoc", icon: HelpCircle },
-      { href: "/settings", label: "Ustawienia", icon: Settings },
-    ],
-  },
-];
+/**
+ * Pozycje menu widoczne dla danego użytkownika — czysta funkcja, żeby dało się
+ * to udowodnić testem bez montowania sidebara (a więc bez mocków `next/
+ * navigation`, react-query, `api` i `useUiStore`).
+ *
+ * Zastępuje drugie, równoległe drzewo `FINANCE_NAV_SECTIONS`: rola `finance`
+ * dostawała cztery pozycje (Dashboard · Finanse · Pomoc · Ustawienia), mimo że
+ * KAŻDA lista `roles` w `NAV_SECTIONS` już ją wymienia — backend przepuszcza ją
+ * wszędzie tam, gdzie recruitera (decyzja 19.08), więc menu było jedyną
+ * warstwą, która ją odcinała. Własny moduł „Finanse" zostaje: wpis `/finance`
+ * ma `roles: ["admin", "finance"]`.
+ */
+export function visibleNavSections(
+  user: Parameters<typeof hasRole>[0],
+  opts: { contactQueueEnabled: boolean },
+): NavSection[] {
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter(
+      (item) =>
+        (!item.roles || hasRole(user, ...item.roles)) &&
+        (item.href !== "/candidates/contact-queue" || opts.contactQueueEnabled),
+    ),
+  })).filter((section) => section.items.length > 0);
+}
 
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
@@ -436,12 +444,13 @@ export function SidebarV2({
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
-  const isFinanceOnly = hasRole(user, "finance") && !hasRole(user, "admin");
-  const navSections = isFinanceOnly ? FINANCE_NAV_SECTIONS : NAV_SECTIONS;
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const canUseContactQueue = hasRole(user, "tac", "recruiter", "sourcer");
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
+  });
+  const navSections = visibleNavSections(user, {
+    contactQueueEnabled: contactFeature.enabled,
   });
 
   const [hovered, setHovered] = useState(false);
@@ -483,13 +492,13 @@ export function SidebarV2({
     userRoleForBadge === "head_of_recruitment";
 
   const { data: stats } = useQuery({
-    queryKey: ["sidebar-badges-v2", isApproverForBadge, isFinanceOnly],
+    queryKey: ["sidebar-badges-v2", isApproverForBadge],
     // Wait until auth is resolved before firing. `isApproverForBadge` derives
     // from `user.role`, which flips from `false` (user null) to its real value
     // once the auth store hydrates — without this gate the query key changes
     // mid-load and the badge counts (/candidates, /jobs) are fetched twice on
     // every page load.
-    enabled: !!user && !isFinanceOnly,
+    enabled: !!user,
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -651,13 +660,9 @@ export function SidebarV2({
         )}
       >
         {navSections.map((section) => {
-          const visibleItems = section.items.filter(
-            (item) =>
-              (!item.roles || hasRole(user, ...item.roles)) &&
-              (item.href !== "/candidates/contact-queue" ||
-                contactFeature.enabled),
-          );
-          if (visibleItems.length === 0) return null;
+          // Filtr ról i bramka kolejki telefonów siedzą w `visibleNavSections`
+          // (sekcje bez widocznych pozycji tu w ogóle nie docierają).
+          const visibleItems = section.items;
           return (
             <div key={section.title} className="mb-3">
               {(!collapsed || mobileOpen) && (

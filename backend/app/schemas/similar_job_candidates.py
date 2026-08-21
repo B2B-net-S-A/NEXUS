@@ -65,6 +65,24 @@ class HistoricalCandidatesMeta(BaseModel):
     tier_b_count: int
     total_sources: int
     reason_if_empty: Optional[str] = None
+    hidden_ineligible: int = 0
+    """Ilu kandydatów z historii wycięła bramka dopuszczalności.
+
+    Osobne pole, świadomie NIE kształt `{over_budget, remote_only}` znany
+    z `meta.hidden` w `/recommendations`: tam liczniki opisują DEALBREAKERY
+    (świadomie włączone przełączniki rekrutera), a tu wycina ZAWIERANIE —
+    blacklista klienta, NDA, konflikt konkurencyjny, weto hiring managera.
+    Inna decyzja, inne prawo do informacji, inny tekst w UI.
+
+    Liczba nie mówi KTO i mówić nie może (to byłby przeciek NDA). Mówi, że dane
+    ISTNIEJĄ i są zablokowane — czyli zamienia „nic tu nie ma" w „są, ale nie
+    dla tego klienta". Ta sekcja z definicji celuje w ludzi rozważanych już
+    u TEGO klienta, więc będzie pusta dokładnie tam, gdzie historia jest
+    najgrubsza; bez tej liczby pustka byłaby nie do odróżnienia od braku historii.
+
+    Default `0` trzyma kontrakt addytywnym: wczesny return przy braku podobnych
+    ofert nie wymaga zmiany, a starsi konsumenci nie pękają.
+    """
 
 
 class CandidatesFromSimilarOut(BaseModel):

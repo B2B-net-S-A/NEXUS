@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
@@ -185,6 +186,15 @@ class CalendarEventResponse(BaseModel):
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
+# Sufit odpowiedzi dla `GET /calendar/events`. Ta trasa nie ma paginacji i
+# nie miała ŻADNEGO limitu: dla admina i head_of_recruitment
+# `event_visibility_filter` zwraca `true()`, a `from_date`/`to_date` są
+# opcjonalne — więc pojedyncze wywołanie bez parametrów materializowało całą
+# tabelę wydarzeń. 500 to sufit, nie rozmiar strony; wołający, któremu on nie
+# wystarcza, ma zawęzić okno dat, a nie prosić o więcej.
+_EVENTS_MAX = 500
+
+
 @router.get("/calendar/events", response_model=List[CalendarEventResponse])
 async def list_events(
     current_user: RecruitmentReadAccess,
@@ -193,12 +203,29 @@ async def list_events(
     to_date: Optional[datetime] = Query(None),
     event_type: Optional[EventType] = Query(None),
     status: Optional[EventStatus] = Query(None),
+    upcoming: bool = Query(False),
+    start_from: Optional[datetime] = Query(None),
+    limit: int = Query(_EVENTS_MAX, ge=1, le=_EVENTS_MAX),
 ):
     """List calendar events the caller may see (owner / attendee / admin-HoR).
 
     Resource scoping (P1-CALENDAR-01): the SQL query is filtered to events the
     caller owns or attends before any row is read; admin/head_of_recruitment
     see all. A non-owner participant receives a redacted projection.
+
+    Powód zmiany to LIMIT i N+1: trasa jest publiczna, nie miała żadnego
+    sufitu, a dla konta widzącego wszystko robiła trzy zapytania na każde
+    wydarzenie w bazie.
+
+    ``upcoming``/``start_from`` to ŚWIADOME rozszerzenie kontraktu przy okazji:
+    FastAPI odrzuca nieznane parametry zapytania w MILCZENIU, więc wołający
+    proszący o „5 najbliższych" dostawał 5 NAJSTARSZYCH wydarzeń, bez śladu
+    błędu. Dziś nie boli to nikogo — jedyny nadawca tych parametrów
+    (`DashboardV2.tsx`) siedzi w komponencie, którego nikt nie importuje —
+    ale cicho ignorowany parametr jest pułapką zastawioną na następnego
+    wołającego, a nie brakiem funkcji. Domyślne wartości nie zmieniają
+    odpowiedzi dla wołających, którzy ich nie podają
+    (`app/calendar/page.tsx` filtruje tydzień przez `from_date`/`to_date`).
     """
     query = select(CalendarEvent).where(event_visibility_filter(current_user))
     conditions = []
@@ -210,9 +237,27 @@ async def list_events(
         conditions.append(CalendarEvent.event_type == event_type)
     if status:
         conditions.append(CalendarEvent.status == status)
+    if start_from:
+        conditions.append(CalendarEvent.start_time >= start_from)
+    elif upcoming:
+        # `upcoming` bez jawnego progu znaczy „od teraz" — bo inaczej nie
+        # znaczy nic i wołający dostaje początek historii pod nagłówkiem
+        # obiecującym przyszłość.
+        conditions.append(CalendarEvent.start_time >= datetime.now(timezone.utc))
     if conditions:
         query = query.where(and_(*conditions))
-    query = query.order_by(CalendarEvent.start_time)
+    # Rosnąco po `start_time` + limit: przy sortowaniu rosnącym ucięcie
+    # zabiera KONIEC okna, więc sufit musi być na tyle wysoki, żeby realne
+    # okno (tydzień w kalendarzu) się w nim mieściło.
+    query = query.order_by(CalendarEvent.start_time).limit(limit)
+    # Nazwy kandydata/rekrutacji/klienta jednym `IN`-em na całą stronę.
+    # Wcześniej leciały trzy SELECT-y na KAŻDE wydarzenie, a że limitu nie
+    # było, przy koncie widzącym wszystko to były tysiące round-tripów.
+    query = query.options(
+        selectinload(CalendarEvent.candidate),
+        selectinload(CalendarEvent.job),
+        selectinload(CalendarEvent.client),
+    )
 
     result = await db.execute(query)
     events = result.scalars().all()
@@ -220,29 +265,10 @@ async def list_events(
     # Enrich with names
     output = []
     for ev in events:
-        candidate_name = None
-        job_title = None
-        client_name = None
-
-        if ev.candidate_id:
-            cand_r = await db.execute(
-                select(Candidate).where(Candidate.id == ev.candidate_id)
-            )
-            cand = cand_r.scalar_one_or_none()
-            if cand:
-                candidate_name = f"{cand.name} {cand.lastname}"
-
-        if ev.job_id:
-            job_r = await db.execute(select(Job).where(Job.id == ev.job_id))
-            job = job_r.scalar_one_or_none()
-            if job:
-                job_title = job.title
-
-        if ev.client_id:
-            cli_r = await db.execute(select(Client).where(Client.id == ev.client_id))
-            cli = cli_r.scalar_one_or_none()
-            if cli:
-                client_name = cli.name
+        cand = ev.candidate
+        candidate_name = f"{cand.name} {cand.lastname}" if cand else None
+        job_title = ev.job.title if ev.job else None
+        client_name = ev.client.name if ev.client else None
 
         projected = project_event_fields(ev, current_user)
         output.append(

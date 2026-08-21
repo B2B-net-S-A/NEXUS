@@ -1762,6 +1762,7 @@ _HANDOFF_RECRUITER_ROLES = (
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
     UserRole.sourcer,
 )
 

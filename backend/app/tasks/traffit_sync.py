@@ -30,14 +30,15 @@ from datetime import datetime, timedelta, timezone
 from collections.abc import Sequence
 from typing import Any, Optional
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.candidate import Candidate
 from app.services.cortex import runs as cortex_runs
 from app.services.cortex.extractor_traffit import import_cortex_facts
 from app.services.traffit.client import TraffitClient, TraffitConfig
-from app.services.traffit.importer import TraffitImporter
+from app.services.traffit.importer import PhaseProgress, TraffitImporter
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +232,66 @@ async def _upsert_state(
     await db.commit()
 
 
+# ── Atrybucja błędów w fazach spoza importera ────────────────────────────────
+
+
+def _attributed_progress(
+    stats: dict[str, Any], *, phase: str, verb: str, entity: str, detail: str
+) -> PhaseProgress:
+    """``PhaseProgress`` użyty WYŁĄCZNIE jako akumulator atrybucji błędów.
+
+    Fazy `cortex` i `candidates_cv_fields` nie idą przez importera Traffita,
+    więc ich statystyki to zwykłe słowniki, a nie ``PhaseProgress``. Do
+    2026-08-20 ich adaptery nie wystawiały ``error_refs``/``attributed_errors``,
+    przez co `_blocking_errors` traktował KAŻDY błąd tych faz jako
+    nieprzypisany: watermark stał bezterminowo, a kwarantanna nie miała czego
+    zaparkować. Jeden trwale wywracający się wiersz mroził przez to GLOBALNY
+    znacznik ``__daily__`` — dokładnie ta awaria, którą kwarantanna miała
+    domykać.
+
+    Atrybucja NIE jest tu przepisana, tylko delegowana do
+    ``PhaseProgress.add_error``: ta metoda trzyma cztery sprzężone
+    niezmienniki (regex referencji, cap 500 z polityką „nadmiar jest
+    nieprzypisany", cap sampli na 20 oraz ``attributed_errors`` liczone osobno
+    od zbioru referencji). Przepisanie ich w dwóch adapterach to dokładnie ten
+    dryf, przed którym ostrzega komentarz „only one place parses it back"
+    w ``importer.py``.
+
+    Komunikat ma kształt ``"<czasownik> <encja> id=<ID>: <treść>"`` — ten sam
+    co 41 wywołań w importerze i co precedens ``enrich candidate_name id=…``.
+    ``entity`` CELOWO nie jest gołym „candidate": faza ``candidates`` kluczuje
+    referencje po ZEWNĘTRZNYM id Traffita, a tutaj są id Nexusa — wspólne słowo
+    scaliłoby dwie różne przestrzenie identyfikatorów w jeden wpis kwarantanny,
+    i to po cichu. ``detail`` idzie na KOŃCU i nie może nieść własnego
+    ``<słowo> id=``: ``re.search`` bierze PIERWSZE dopasowanie, więc repr
+    wyjątku ukradłby klucz wiersza (pełny wyjątek jest już w logu źródła).
+    """
+    progress = PhaseProgress(phase=phase)
+    error_ids = stats.get("error_ids") or []
+    for row_id in error_ids:
+        progress.add_error(f"{verb} {entity} id={row_id}: {detail}")
+    # Źródło o starym kształcie statystyk (bez ``error_ids``) degraduje się do
+    # stanu sprzed poprawki — błędy nieprzypisane, watermark stoi — zamiast
+    # wymuszać zmianę kontraktu wszystkich źródeł naraz.
+    leftover = int(stats.get("errors") or 0) - len(error_ids)
+    if leftover > 0:  # defensywnie: licznik ma zostać uczciwy
+        progress.errors += leftover
+    return progress
+
+
 # ── Cortex extraction phase ──────────────────────────────────────────────────
 
 
 class _CortexPhaseResult:
-    """Adapter stats ekstraktora Cortexa na kontrakt fazy (as_dict/errors/*_at)."""
+    """Adapter stats ekstraktora Cortexa na kontrakt fazy (as_dict/errors/*_at).
+
+    Projekcja domenowa zostaje (``inserted`` ← ``facts_upserted`` itd.), a
+    atrybucja błędów jest delegowana do ``_attributed_progress``. Świadomie NIE
+    zwracamy tu całego ``PhaseProgress.as_dict()``: ten emituje STAŁY zestaw
+    kluczy, więc `_summarize` zaczęłoby wypisywać na tym wierszu komplet zer
+    (``notes_promoted``, ``gone_upstream``, ``tombstoned``…), a zero, którego
+    nikt nie mierzył, czyta się w ``/sync/status`` jak zmierzone zero.
+    """
 
     def __init__(
         self, stats: dict[str, Any], started_at: datetime, finished_at: datetime
@@ -243,7 +299,14 @@ class _CortexPhaseResult:
         self._stats = stats
         self.started_at = started_at
         self.finished_at = finished_at
-        self.errors = int(stats.get("errors") or 0)
+        self._progress = _attributed_progress(
+            stats,
+            phase="cortex",
+            verb="extract",
+            entity="candidate_facts",
+            detail="cortex extraction failed",
+        )
+        self.errors = self._progress.errors
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -252,6 +315,9 @@ class _CortexPhaseResult:
             "skipped": self._stats.get("unmatched_tokens", 0),
             "errors": self.errors,
             "total_source": self._stats.get("total", 0),
+            "error_samples": self._progress.error_samples[:20],
+            "error_refs": sorted(self._progress.error_refs),
+            "attributed_errors": self._progress.attributed_errors,
             **({"note": self._stats["skipped"]} if "skipped" in self._stats else {}),
         }
 
@@ -267,6 +333,88 @@ async def _cortex_phase(since: Optional[datetime]) -> _CortexPhaseResult:
         await cortex_runs.reap_orphans(cortex_db)
         stats = await import_cortex_facts(cortex_db, since=since)
     return _CortexPhaseResult(stats, started, datetime.now(timezone.utc))
+
+
+class _CvFieldsPhaseResult:
+    """Adapter stats `backfill_cv_fields` na kontrakt fazy (as_dict/errors/*_at).
+
+    Atrybucja błędów jak w `_CortexPhaseResult` — patrz `_attributed_progress`.
+    """
+
+    def __init__(
+        self, stats: dict[str, Any], started_at: datetime, finished_at: datetime
+    ):
+        self._stats = stats
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self._progress = _attributed_progress(
+            stats,
+            phase="candidates_cv_fields",
+            verb="parse",
+            entity="candidate_cv_fields",
+            detail="cv field parse failed",
+        )
+        self.errors = self._progress.errors
+
+    def as_dict(self) -> dict[str, Any]:
+        out = {
+            "processed": self._stats.get("processed", 0),
+            "updated": self._stats.get("updated", 0),
+            "skipped": self._stats.get("skipped_no_result", 0),
+            "errors": self.errors,
+            "fields_filled": self._stats.get("fields_filled", {}),
+            "llm_calls": (self._stats.get("usage") or {}).get("calls", 0),
+            "error_samples": self._progress.error_samples[:20],
+            "error_refs": sorted(self._progress.error_refs),
+            "attributed_errors": self._progress.attributed_errors,
+        }
+        if self._stats.get("stopped_reason"):
+            out["stopped_reason"] = self._stats["stopped_reason"]
+        if "note" in self._stats:
+            out["note"] = self._stats["note"]
+        return out
+
+
+async def _cv_fields_phase(files_since: Optional[datetime]) -> _CvFieldsPhaseResult:
+    """Parse pól z CV (skills/city/years) dla kandydatów dotkniętych w tym biegu.
+
+    Domyka lukę świeżości po Fali 3: backfill był jednorazowy, a nowe/zmienione
+    CV z nocnego syncu nie dostawały pól strukturalnych, dopóki ktoś nie
+    odpalił biegu ręcznie. Delta-only ŚWIADOMIE: pełny reconcile nie ma tu
+    czego naprawiać — pozostałość scope'u po Fali 3 to wiersze, których parser
+    już nie uzupełni (sufit pokrycia), i nocne re-przemiatanie ich co tydzień
+    płaciłoby LLM za te same odmowy. FILL_EMPTY + scope filter w
+    `backfill_cv_fields` czynią fazę idempotentną; kwota `cv_backfill` + sufit
+    `TRAFFIT_SYNC_CV_FIELDS_LIMIT` ograniczają koszt pojedynczej nocy.
+    """
+    started = datetime.now(timezone.utc)
+    from app.services.cv_field_backfill import _scope_filter, backfill_cv_fields
+
+    if files_since is None:
+        stats: dict[str, Any] = {
+            "processed": 0,
+            "note": "full-scan pominięty celowo (delta-only faza)",
+        }
+        return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
+
+    async with AsyncSessionLocal() as db:
+        ids = (
+            (
+                await db.execute(
+                    select(Candidate.id)
+                    .where(Candidate.updated_at >= files_since, *_scope_filter())
+                    .order_by(Candidate.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        stats = await backfill_cv_fields(
+            db,
+            candidate_ids=list(ids),
+            limit=max(1, int(settings.TRAFFIT_SYNC_CV_FIELDS_LIMIT)),
+        )
+    return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
 
 
 class _ReconcilePhaseResult:
@@ -376,6 +524,7 @@ def _phase_plan(
             "candidates_enrich_names",
             lambda: importer.enrich_missing_names(since=files_since),
         ),
+        ("candidates_cv_fields", lambda: _cv_fields_phase(files_since)),
         ("pipelines", lambda: importer.import_pipelines(since=since)),
         (
             "candidate_activities",
@@ -405,6 +554,7 @@ PHASE_NAMES: tuple[str, ...] = (
     "candidates_cv",
     "candidate_files",
     "candidates_enrich_names",
+    "candidates_cv_fields",
     "pipelines",
     "candidate_activities",
     "candidate_sources",
@@ -503,6 +653,26 @@ def _next_quarantine(
     """
     prev = previous or {}
     return {ref: int(prev.get(ref, 0)) + 1 for ref in error_refs}
+
+
+def _parked_refs(quarantine: dict[str, Any], limit: int) -> list[str]:
+    """Które wiersze przekroczyły limit prób — odporne na śmieci w JSONB.
+
+    ``quarantine`` wraca z kolumny ``jsonb``, więc wartością bywa cokolwiek, co
+    kiedykolwiek tam zapisano. Nieczytelny wpis jest POMIJANY, a nie wysadza
+    całości: ta funkcja jest wołana m.in. z bloku ``except`` obsługującego
+    awarię fazy, gdzie wyjątek oznaczałby brak zapisu ``last_status="error"``,
+    a przy okazji utratę licznika prób dla WSZYSTKICH pozostałych wierszy.
+    """
+    parked: list[str] = []
+    for ref, attempts in quarantine.items():
+        try:
+            n = int(attempts)
+        except (TypeError, ValueError):
+            continue
+        if n >= limit:
+            parked.append(ref)
+    return sorted(parked)
 
 
 def _blocking_errors(
@@ -610,6 +780,12 @@ async def run_traffit_sync(
                     if selected is not None and name not in selected:
                         continue
                     executed += 1
+                    # Znacznik startu poza `try`: gałąź awaryjna też ma czym
+                    # ostemplować wiersz fazy. Bez tego `/sync/status` po
+                    # wywrotce pokazuje znaczniki z POPRZEDNIEGO, udanego biegu
+                    # (COALESCE zachowuje starą wartość), czyli twierdzi, że
+                    # faza ostatnio skończyła się wtedy, gdy naprawdę się udała.
+                    phase_started = datetime.now(timezone.utc)
                     try:
                         progress = await factory()
                         pd = progress.as_dict()
@@ -688,11 +864,65 @@ async def run_traffit_sync(
                             await db.rollback()
                         except Exception:  # noqa: BLE001
                             pass
+                        crash_stats: dict[str, Any] = {"error": repr(exc)[:500]}
+                        # Przenieś licznik kwarantanny przez awarię fazy.
+                        # `stats` jest podmieniane W CAŁOŚCI (COALESCE w
+                        # `_UPSERT_STATE` chroni wyłącznie przed NULL-em, a to
+                        # jest niepusty dict), więc do 2026-08-20 każda awaria
+                        # fazy ZEROWAŁA licznik prób. Skutek: w fazie, która
+                        # bywa wywracana, wiersz nie do zaimportowania NIGDY nie
+                        # dobijał do TRAFFIT_MAX_ROW_ATTEMPTS — kwarantanna była
+                        # martwa dokładnie tam, gdzie jest potrzebna, mimo że
+                        # cały mechanizm wyglądał na sprawny.
+                        #
+                        # Odczyt MUSI być PO rollbacku: przed nim sesja stoi
+                        # w zepsutej transakcji i SELECT rzuca
+                        # PendingRollbackError — wyjątek z obsługi wyjątku,
+                        # czyli faza nie zapisałaby nawet `last_status="error"`.
+                        #
+                        # Licznik przenosimy DOSŁOWNIE — bez inkrementu i bez
+                        # kasowania. Skasowanie = reset (naprawiany błąd).
+                        # Inkrement = karanie wierszy za awarię, która nie jest
+                        # ich: po N wywrotkach zdrowy wiersz zostałby
+                        # zaparkowany i cicho przestał blokować watermark.
+                        # Licznik znaczy „tyle KOLEJNYCH PRÓB IMPORTU tego
+                        # wiersza padło", a faza, która się wywróciła, nie
+                        # podjęła żadnej próby. Reguła „nieobecny ⇒ zapomnij"
+                        # z `_next_quarantine` kluczuje na DOWODZIE SUKCESU
+                        # (wiersz się zaimportował); wywrotka nie jest dowodem
+                        # niczego, więc ta reguła jej nie dotyczy.
+                        carried: Optional[dict[str, Any]] = None
+                        parked_now: list[str] = []
+                        try:
+                            prev_row = await _get_state(db, name)
+                            prev_crash_stats = (
+                                prev_row.stats if prev_row is not None else None
+                            ) or {}
+                            maybe = prev_crash_stats.get("quarantine")
+                            if isinstance(maybe, dict) and maybe:
+                                carried = maybe
+                                parked_now = _parked_refs(
+                                    maybe, settings.TRAFFIT_MAX_ROW_ATTEMPTS
+                                )
+                        except Exception:  # noqa: BLE001 — odczyt best-effort
+                            # Degradacja do stanu sprzed poprawki (tracimy
+                            # licznik), nie do braku zapisu statusu fazy.
+                            carried, parked_now = None, []
+                        if carried:
+                            crash_stats["quarantine"] = carried
+                            # `quarantined` WYLICZANE z `carried`, nie przenoszone
+                            # osobno — dwa lepkie klucze to druga okazja do
+                            # rozjazdu między listą a licznikiem, z którego ona
+                            # wynika.
+                            if parked_now:
+                                crash_stats["quarantined"] = parked_now
                         await _upsert_state(
                             db,
                             name,
+                            last_run_started_at=phase_started,
+                            last_run_finished_at=datetime.now(timezone.utc),
                             last_status="error",
-                            stats={"error": repr(exc)[:500]},
+                            stats=crash_stats,
                         )
 
                 # Bieg, który nie wykonał ŻADNEJ fazy, nie może zgłaszać sukcesu.

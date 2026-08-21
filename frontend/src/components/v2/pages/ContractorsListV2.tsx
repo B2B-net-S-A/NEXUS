@@ -18,6 +18,12 @@ import {
 } from"@/lib/api";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
 import {
+ httpStatusFromError,
+ isBlockingViewState,
+ resolveViewState,
+ type ViewState,
+} from"@/lib/view-state";
+import {
  canManageCandidateFinance,
  useAuthStore,
 } from"@/store/auth";
@@ -32,6 +38,7 @@ import {
  TableHeader,
  TableRow,
 } from"@/components/ui/table";
+import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 import { TerminateContractModal } from"@/components/client-profile/actions/TerminateContractModal";
 
@@ -92,7 +99,7 @@ export function ContractorsListV2() {
  const [terminating, setTerminating] = useState<ContractorListItem | null>(null);
  const queryClient = useQueryClient();
 
- const { data, isLoading } = useQuery({
+ const { data, isPending, isError, error, refetch } = useQuery({
  queryKey: ["contractors-v2", tab, page],
  queryFn: () =>
  contractorsApi
@@ -100,7 +107,7 @@ export function ContractorsListV2() {
  .then((r) => r.data),
  });
 
- const { data: stats } = useQuery({
+ const { data: stats, isError: statsFailed } = useQuery({
  queryKey: ["contractors-stats-v2"],
  queryFn: () => contractorsApi.stats().then((r) => r.data),
  staleTime: 60_000,
@@ -128,6 +135,19 @@ export function ContractorsListV2() {
  )
  .map(([, label]) => label);
  const visibleColumnCount = canManageFinance ? 8 : 6;
+
+ // 403 (stawki = uprawnienie finansowe) i 5xx NIE mogą renderować się jako
+ // „Brak aktywnych kontraktorów" — to zdanie o delivery, a nie o serwerze
+ // (audyt F-20). Pusty stan wisi na sukcesie: `isPending`, nie `isLoading`,
+ // bo w przerwie między ponowieniami `isLoading` jest już `false`, a `items`
+ // dalej puste.
+ const viewState = resolveViewState({
+ isLoading: isPending,
+ isError,
+ error,
+ isEmpty: items.length === 0,
+ });
+ const failed = isBlockingViewState(viewState);
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4 p-6">
@@ -189,8 +209,13 @@ export function ContractorsListV2() {
  )}
  >
  {TAB_LABELS[t]}
- <span className="ml-2 text-xs text-muted-foreground">
- {count}
+ <span
+ className="ml-2 text-xs text-muted-foreground"
+ title={statsFailed ? "Nie udało się pobrać liczników" : undefined}
+ >
+ {/* Licznik z padniętego zapytania to zero z inicjalizacji, nie pomiar —
+ „0 aktywnych" byłoby zmyśleniem o delivery. */}
+ {statsFailed ?"—" : count}
  </span>
  </button>
  );
@@ -215,7 +240,7 @@ export function ContractorsListV2() {
  </TableRow>
  </TableHeader>
  <TableBody>
- {isLoading ? (
+ {viewState === "loading" ? (
  <TableRow>
  <TableCell
  colSpan={visibleColumnCount}
@@ -224,7 +249,30 @@ export function ContractorsListV2() {
  Ładowanie…
  </TableCell>
  </TableRow>
- ) : items.length === 0 ? (
+ ) : failed ? (
+ <TableRow>
+ <TableCell colSpan={visibleColumnCount} className="p-0">
+ <QueryStateNotice
+ state={
+ viewState as Extract<
+ ViewState,
+ "forbidden" | "not_found" | "error"
+ >
+ }
+ className="border-0"
+ description={
+ viewState === "forbidden"
+ ?"Twoja rola nie ma dostępu do listy kontraktorów. Lista NIE jest pusta — poproś administratora o uprawnienia."
+ : viewState === "error" &&
+ httpStatusFromError(error) === undefined
+ ?"Nie udało się połączyć z serwerem. Sprawdź internet lub VPN i spróbuj ponownie."
+ : undefined
+ }
+ onRetry={viewState === "error" ? () => void refetch() : undefined}
+ />
+ </TableCell>
+ </TableRow>
+ ) : viewState === "empty" ? (
  <TableRow>
  <TableCell colSpan={visibleColumnCount} className="text-center py-10">
  <UserCog className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
@@ -365,14 +413,18 @@ export function ContractorsListV2() {
  </TableBody>
  </Table>
 
+ {/* Stopka milczy przy awarii — „0 wyników" pod komunikatem o błędzie
+ mówiłoby, że policzyliśmy i wyszło zero. */}
+ {!failed && (
  <div className="text-xs text-muted-foreground pt-2">
  {total} wynik{total === 1 ?"" : total < 5 ?"i" :"ów"} ·{""}
  {tab === "draft" && incompleteCount > 0 && (
  <>braki: {visibleFieldLabels.join(" /")}</>
  )}
  </div>
+ )}
 
- {!isLoading && total > pageSize && (
+ {viewState === "ready" && total > pageSize && (
  <div className="flex items-center justify-between text-sm">
  <span className="text-muted-foreground">
  Strona <strong className="text-foreground">{page}</strong> z {totalPages}

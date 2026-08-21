@@ -48,6 +48,7 @@ def test_global_profile_fact_writer_role_set_is_explicit_and_complete():
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.finance,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
