@@ -76,6 +76,7 @@ from app.api import admin_process_adoption
 from app.api import admin_engagement_inventory
 from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
+from app.api import admin_match_score_repair
 from app.api import admin_workflows
 from app.api import admin_recruitment_processes
 from app.api import ai_matching_diagnostics
@@ -873,6 +874,11 @@ app.include_router(
     admin_candidate_pii_orphans.router,
     prefix="/api/admin",
     tags=["admin-candidate-pii-orphans"],
+)
+app.include_router(
+    admin_match_score_repair.router,
+    prefix="/api/admin",
+    tags=["admin-match-score-repair"],
 )
 app.include_router(
     admin_workflows.router,
