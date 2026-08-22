@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -532,7 +531,12 @@ const BACKEND_FILES = {
 type BackendFile = keyof typeof BACKEND_FILES;
 type GuardRef = readonly [BackendFile, string];
 
-const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+// Katalog repo wyprowadzony z `process.cwd()`, nie z `import.meta.url`.
+// vitest.config.ts ustawia `environment: "jsdom"`, a pod jsdom `import.meta.url`
+// nie jest URL-em o schemacie `file:` — `fileURLToPath` rzuca wtedy
+// „The URL must be of scheme file" JESZCZE PRZED zebraniem testów, więc plik
+// wygląda na pusty zamiast czerwony. vitest startuje z cwd = `frontend/`.
+const REPO_ROOT = resolve(process.cwd(), "..");
 
 /**
  * Surowe przypisania z jednego modułu Pythona. Rozpoznaje trzy kształty, w

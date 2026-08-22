@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -27,7 +26,12 @@ import { describe, expect, it } from "vitest";
  * ProseMirror, czyli test mierzyłby własny koszt zamiast kosztu trasy.
  */
 
-const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+// Ścieżki testowe są względem `src/`, a ten plik leży w
+// `src/components/v2/pages/__tests__/` — cztery poziomy w górę, nie trzy.
+// Trzy dawały `src/components`, stąd `components/components/v2/...` w ENOENT.
+// Liczone z `process.cwd()` (vitest startuje w `frontend/`), bo pod jsdom
+// `import.meta.url` nie jest URL-em `file:` i `fileURLToPath` rzuca wyjątek.
+const SRC = path.resolve(process.cwd(), "src");
 
 /** Specyfikatory importu z poziomu modułu (poza ciałem `dynamic(() => …)`). */
 function staticSpecifiers(source: string): string[] {

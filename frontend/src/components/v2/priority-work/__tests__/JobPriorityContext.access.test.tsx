@@ -157,8 +157,15 @@ describe("JobPriorityContext — 403 to nie awaria", () => {
 
     renderContext()
 
+    // Dłuższy limit świadomie: `retry: false` z klienta testowego NIE obowiązuje,
+    // bo JobPriorityContext ustawia WŁASNY `retry` per zapytanie — dla 5xx ponawia
+    // raz (4xx nigdy, bo odmowa członkostwa nie zmieni się przy ponowieniu).
+    // Domyślny 1 s wygasał w trakcie backoffu ponowienia i test widział szkielet
+    // ładowania zamiast bloku błędu — czyli mierzył cierpliwość, nie zachowanie.
     expect(
-      await screen.findByText(/Nie udało się pobrać kontekstu Priority Work/),
+      await screen.findByText(/Nie udało się pobrać kontekstu Priority Work/, undefined, {
+        timeout: 5000,
+      }),
     ).toBeInTheDocument()
   })
 })
