@@ -133,22 +133,19 @@ class ContractCreate(BaseModel):
     # the framework rate over time; `framework_rate` is derived from it.
     framework_rate_schedule: Optional[list[ContractFrameworkRateInput]] = None
     contract_type: ContractType = ContractType.b2b
-    # UWAGA: ta wartość NIE jest honorowana. Kontrakt rodzi się szkicem —
-    # ``create_contract`` usuwa ``status`` z ładunku, bo dojście do ``active``
-    # prowadzi wyłącznie ``contract_lifecycle`` (komplet pól, ukończony podpis
-    # kwalifikowany, wiersz audytu), a ``ended`` musi jeszcze zsynchronizować
-    # zamówienia klienta. Pole zostaje wyłącznie po to, żeby ``{"status":
-    # "active"}`` z istniejących klientów (i z seedów testowych) nie zaczęło
-    # nagle wracać 422 — nie dlatego, że coś robi.
+    # Rejestr kontraktów per klient pozwala operatorowi jawnie wybrać stan
+    # importowanej / już istniejącej umowy i ten wybór jest HONOROWANY — ale
+    # jako PRZEJŚCIE, nie jako wartość wpisywana wprost do kolumny. Wiersz
+    # rodzi się szkicem, a ``create_contract`` przeprowadza go do wybranego
+    # stanu przez ``contract_lifecycle`` (patrz ``_apply_contract_status_change``).
     #
-    # DŁUG, którego nie da się domknąć w tym pliku: legacy strona
-    # ``/contracts/new`` wciąż renderuje listę rozwijaną statusu i wysyła
-    # wybór, który serwer wyrzuca bez słowa — operator wychodzi z formularza
-    # przekonany, że umowa jest aktywna, choć nie wchodzi ani do MRR, ani do
-    # liczników konsultantów. Rejestr umów (``ContractRegisterDialog``) ma to
-    # już zrobione poprawnie: przy tworzeniu pokazuje FAKT („Szkic — status
-    # ustawisz po utworzeniu"), a nie kontrolkę. Ten sam zabieg należy się
-    # tamtej stronie; wtedy pole można stąd usunąć.
+    # Praktyczna różnica, dla której warto było to pogodzić zamiast wybierać:
+    # ``active`` (i ``ending``, bo to ``active`` z bliskim końcem) wymaga
+    # kompletu pól z ``ACTIVATION_REQUIRED_FIELDS`` oraz ukończonego podpisu,
+    # gdy proces podpisu ruszył; ``ended`` domyka datę końca i synchronizuje
+    # zamówienia klienta. Ładunek, który tych warunków nie spełnia, dostaje
+    # 409 z listą braków — zamiast umowy wchodzącej do MRR z pustymi stawkami.
+    # Brak pola nadal oznacza bezpieczny ``draft``.
     status: ContractRegisterStatus = ContractStatus.draft
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None

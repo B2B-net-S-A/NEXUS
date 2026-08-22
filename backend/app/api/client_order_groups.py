@@ -45,6 +45,7 @@ from sqlalchemy.orm import selectinload
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import DlAssignedOrAdmin, require_roles
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -317,7 +318,21 @@ def _can_see_finance(user: User) -> bool:
 
 
 def _initial_group_status(start_date: date) -> str:
-    return GROUP_STATUS_SCHEDULED if start_date > date.today() else GROUP_STATUS_ACTIVE
+    """Status stemplowany przy zakładaniu grupy — tym samym dniem, którym
+    ocenia ją później materializator.
+
+    `business_today()`, nie `date.today()`: promocję `scheduled → active` robi
+    `order_group_lifecycle.materialize_scheduled_order_groups`, a ten liczy
+    granicę DNIEM BIZNESOWYM (Europe/Warsaw). Kontener chodzi w UTC, więc
+    między 22:00 UTC a północą (latem) obie funkcje datowały się różnymi
+    dobami: zamówienie zaczynające się „jutro" wg UTC — czyli DZIŚ wg firmy —
+    dostawało w odpowiedzi POST-a `scheduled`, po czym pierwszy odczyt listy
+    natychmiast przestawiał je na `active`. Ten sam rozjazd dwóch zegarów
+    w jednym module, który materializator ma usuwać.
+    """
+    return (
+        GROUP_STATUS_SCHEDULED if start_date > business_today() else GROUP_STATUS_ACTIVE
+    )
 
 
 def _group_family_root_id(
@@ -1698,7 +1713,12 @@ async def close_order_group(
             ),
         )
 
-    today = date.today()
+    # `business_today()`, nie `date.today()` — ten sam dzień graniczny, którym
+    # cykl życia grupy posługuje się wszędzie indziej (`_initial_group_status`,
+    # `materialize_scheduled_order_groups`). Kontener chodzi w UTC, więc między
+    # 22:00 UTC a północą zakończenie „z dniem dzisiejszym" wg firmy nie
+    # domykałoby linii, bo dla `date.today()` ta data leży jeszcze w przyszłości.
+    today = business_today()
     group.status = GROUP_STATUS_COMPLETED
     group.closure_date = payload.closure_date
     group.closure_reason = (payload.closure_reason or "").strip() or None
@@ -2165,8 +2185,11 @@ async def swap_consultant(
     # Domknięcie starej linii lustrzane wobec syncu terminacji kontraktu
     # (`contracts.py`): data zawsze, status `completed` dopiero gdy dzień
     # zamiany nadszedł. Zamiana zaplanowana na przyszłość nie może wyłączyć
-    # konsultanta, który jeszcze pracuje.
-    today = date.today()
+    # konsultanta, który jeszcze pracuje. Lustro jest pełne dopiero przy
+    # `business_today()`: `contracts.py` liczy tę granicę dniem biznesowym, więc
+    # `date.today()` rozjeżdżałby oba mechanizmy o dobę między 22:00 UTC
+    # a północą — zamiana „na dziś" zostawiałaby poprzednika jako `active`.
+    today = business_today()
     # Zapamiętane PRZED nadpisaniem — nowa linia dziedziczy planowany koniec
     # zaangażowania po poprzedniku. Odczyt po przypisaniu dałby zawsze
     # `payload.swap_date` i po cichu skróciłby pracę następcy do jednego dnia.

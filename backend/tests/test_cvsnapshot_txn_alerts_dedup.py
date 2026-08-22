@@ -18,11 +18,12 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 
 from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -155,7 +156,15 @@ async def test_contract_alerts_dedup_survives_racing_prefilter(monkeypatch) -> N
             candidate_id=cand.id,
             client_id=client.id,
             status=ContractStatus.active,
-            end_date=date.today() + timedelta(days=30),  # falls in the 30d window
+            # `business_today()`, nie `date.today()`: okno progu w
+            # `contract_alerts._contracts_at_threshold` to półotwarty przedział
+            # (target-1, target] liczony od DNIA BIZNESOWEGO (Europe/Warsaw), a
+            # kontener chodzi w UTC. Między 22:00 UTC a północą (latem) dzień
+            # biznesowy jest już JUTRO, więc data z `date.today()` wypada dokładnie
+            # na `window_start` i warunek `end_date > window_start` ją odrzuca —
+            # cykl nie tworzy alertu i test widzi 0 zamiast 1. Czerwień zależałaby
+            # więc od GODZINY biegu CI, nie od kodu.
+            end_date=business_today() + timedelta(days=30),  # falls in the 30d window
         )
         db.add(contract)
         await db.commit()

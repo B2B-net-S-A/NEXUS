@@ -270,10 +270,23 @@ async def test_contract_register_fields_round_trip(
     if not cands or not clients:
         return
     client_id = clients[0]["id"]
+    # `status: "active"` jest w tym ładunku od czerwca 2026, czyli z czasów,
+    # gdy ``ContractCreate`` statusu NIE przyjmował („Any `status` in the
+    # request body is ignored server-side") — było to martwe pole w teście
+    # o polach rejestru. Odkąd rejestr status honoruje, „Aktywny" znaczy
+    # przejście przez ``contract_lifecycle``, więc ładunek musi nieść komplet
+    # ``ACTIVATION_REQUIRED_FIELDS``: bez daty końca, stawek i trybu pracy
+    # umowa wchodziłaby do MRR z pustymi polami, na których stoi liczenie
+    # pieniędzy. Odmowę dla ładunku niekompletnego pilnuje
+    # ``test_create_contract_active_requires_complete_draft``.
     payload = {
         "candidate_id": cands[0]["id"],
         "client_id": client_id,
         "start_date": "2026-04-17",
+        "end_date": "2030-12-31",
+        "rate_candidate": 15000,
+        "rate_client": 20000,
+        "work_mode": "remote",
         "contract_type": "b2b",
         "status": "active",
         "project_code": "NDA-TEST-001",

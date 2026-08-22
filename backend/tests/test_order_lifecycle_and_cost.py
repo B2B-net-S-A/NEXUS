@@ -11,13 +11,24 @@ zmienną środowiskową: ``Settings`` czyta env raz przy starcie procesu.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
 
-_TODAY = date.today()
+from app.core.scheduling import business_today
+
+# `business_today()`, nie `date.today()`: cykl życia grupy zamówień jest
+# datowany DNIEM BIZNESOWYM (Europe/Warsaw) — tak liczy
+# `order_group_lifecycle.materialize_scheduled_order_groups`, wołany
+# idempotentnie przy KAŻDYM odczycie listy. Kontener chodzi w UTC, więc między
+# 22:00 UTC a północą (latem) „jutro" wg `date.today()` jest już DZISIAJ wg
+# firmy: zamówienie założone jako `scheduled` materializuje się na `active`
+# jeszcze zanim test zdąży sprawdzić zagnieżdżenie, i widzi dwie równorzędne
+# karty zamiast jednej. Czerwień zależałaby od GODZINY biegu CI, nie od kodu.
+# Ten sam wzorzec ma już `test_order_activation_gates_and_group_materializer`.
+_TODAY = business_today()
 
 
 # ── Seed ────────────────────────────────────────────────────────────────────

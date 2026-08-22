@@ -293,6 +293,41 @@ async def test_create_contract_honours_register_status_body(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("selected_status", ["active", "ending"])
+async def test_create_contract_active_requires_complete_draft(
+    app_client, app_auth_headers, selected_status
+) -> None:
+    """Rejestr wybiera status, ale nie omija bramek aktywacji.
+
+    ``active`` i ``ending`` są w ``REVENUE_BEARING_STATUSES``, więc wiersz
+    założony w jednym z nich od razu liczy się do MRR, do liczników
+    konsultantów i do skanera wygasania. Ładunek bez ``end_date``/stawek/trybu
+    pracy ma dostać 409 z listą braków — a nie cichy szkic podany jako sukces
+    ani aktywną umowę z pustymi polami, na których stoi liczenie pieniędzy.
+    """
+    cand_id, cli_id = await _seed_candidate_and_client()
+    resp = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": cand_id,
+            "client_id": cli_id,
+            "start_date": date.today().isoformat(),
+            "contract_type": "b2b",
+            "status": selected_status,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert set(detail["missing"]) == {
+        "end_date",
+        "rate_candidate",
+        "rate_client",
+        "work_mode",
+    }
+
+
+@pytest.mark.asyncio
 async def test_patch_contract_honours_register_status_body(
     app_client, app_auth_headers
 ) -> None:
