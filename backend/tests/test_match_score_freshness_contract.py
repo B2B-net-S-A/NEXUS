@@ -77,3 +77,39 @@ def test_no_hand_written_freshness_predicate_anywhere_in_app():
         "warunek świeżości cache napisany z ręki zamiast fresh_score_conditions(): "
         + ", ".join(offenders)
     )
+
+def test_freshness_rule_lives_in_exactly_one_function_of_the_cache_module():
+    """Reguła świeżości ma JEDNĄ implementację — także w Pythonie, nie tylko w SQL.
+
+    Test wyżej szuka atrybutu KLASY (``CandidateJobMatchScore.stale``) w zapytaniu.
+    Nie widział przez to czwartej kopii, która siedziała w ``get_cached_or_compute``
+    i sprawdzała świeżość na INSTANCJI, już po pobraniu wiersza:
+    ``not row.stale and row.scoring_algorithm_version == scoring_algorithm_version()``.
+    Była poprawna, ale to nie broni przed rozjazdem — #32 powstało z kopii, która
+    kiedyś też była poprawna. Złapał ją dopiero recenzent, nie ten plik.
+
+    Kryterium: obie połowy reguły (``stale`` ORAZ ``scoring_algorithm_version``)
+    wolno wymienić w jednej funkcji modułu — tej, która regułę definiuje.
+    """
+    src = (APP / _DEFINITION_SITE).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name == "fresh_score_conditions":
+            continue
+        names = {
+            n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)
+        } | {
+            n.id for n in ast.walk(node) if isinstance(n, ast.Name)
+        }
+        if "stale" in names and "scoring_algorithm_version" in names:
+            offenders.append(f"{node.name} (linia {node.lineno})")
+
+    assert not offenders, (
+        "reguła świeżości powielona w: "
+        + ", ".join(offenders)
+        + " — zbuduj zapytanie z fresh_score_conditions() zamiast sprawdzać "
+        "wiersz po pobraniu"
+    )
