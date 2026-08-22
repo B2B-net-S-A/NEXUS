@@ -304,18 +304,21 @@ async def get_cached_or_compute(
     display but must NOT be persisted as a fresh cache row — otherwise the wrong
     score outlives the outage. Cache READS stay allowed (prior good rows are OK).
     """
+    # Świeżość rozstrzyga ZAPYTANIE, nie kod po nim. Wersja z ręcznym warunkiem
+    # w Pythonie (``not row.stale and row.scoring_algorithm_version == …``) była
+    # czwartą kopią tej samej reguły — poprawną, ale kopią, a #32 powstało
+    # dokładnie z rozjechania się kopii. Strażnik jej nie widział, bo szukał
+    # atrybutu KLASY w zapytaniu, a ta sięgała po atrybut INSTANCJI.
     row = await db.scalar(
         select(CandidateJobMatchScore).where(
-            CandidateJobMatchScore.candidate_id == candidate.id,
-            CandidateJobMatchScore.job_id == job.id,
-            CandidateJobMatchScore.profile_id == profile.id,
+            *fresh_score_conditions(
+                job_id=job.id,
+                profile_id=profile.id,
+                candidate_ids=[candidate.id],
+            )
         )
     )
-    if (
-        row is not None
-        and not row.stale
-        and row.scoring_algorithm_version == scoring_algorithm_version()
-    ):
+    if row is not None:
         return _breakdown_from_row(row)
 
     # Fence the write-back against invalidations that land while we compute
