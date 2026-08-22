@@ -95,12 +95,33 @@ def test_the_parallel_quota_implementation_is_gone():
 # a path that actually paid. `async with ai_feature(...)` does both in one step.
 #
 # The entries below are pre-existing and each needs its own migration. The list
-# must only ever shrink.
+# must only ever shrink — z JEDNYM wyjątkiem opisanym niżej.
 _BARE_CHARGE_BASELINE = {
     "app/api/jobs.py",
     "app/api/client_orders.py",
     "app/services/cv_generator_b2b/requirement_map.py",
     "app/services/cv_generator_b2b/interactive_chat.py",
+    # Dopisane świadomie, nie żeby uciszyć strażnika: ta ścieżka jest INNEGO
+    # RODZAJU niż cztery powyższe i nie da się jej zmigrować do `ai_feature()`.
+    #
+    # Dwa powody, oba sprawdzone w kodzie:
+    #
+    # 1. Deklaracja by nie dożyła do wydatku. `ai_feature` ustawia contextvar
+    #    i KASUJE go w `finally` przy wyjściu z bloku, a Claude jest tu wołany
+    #    z `BackgroundTasks`, czyli PO odesłaniu 202 i zamknięciu handlera.
+    #    Bramka musi zostać w handlerze — odmowa w tle zostawiłaby wiersz
+    #    „failed" zamiast czytelnego 503 (patrz `_charge_cv_generation_quota`).
+    # 2. Szkoda opisana w nagłówku tej sekcji tu NIE ZACHODZI. `requirement_map`
+    #    i `interactive_chat` wołają `claude_client.call_claude`, więc realnie
+    #    trafiają w `_assert_declared` i logują się jako UNGATED. Generacja CV
+    #    idzie `standalone_service` → `ai_client.analyze_with_ai`, które buduje
+    #    `anthropic.Anthropic(...)` wprost (stąd wpis w `_RAW_CLIENT_BASELINE`)
+    #    — bramka na granicy dostawcy nigdy jej nie ogląda. Deklaracja byłaby
+    #    obietnicą pokrycia, którego nie ma.
+    #
+    # Migracja tego wpisu ma sens dopiero PO zdjęciu `ai_client.py` z
+    # `_RAW_CLIENT_BASELINE` — wtedy jednym ruchem wraca i deklaracja, i sens.
+    "app/api/cv_generator_b2b.py",
 }
 
 

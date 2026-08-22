@@ -4,9 +4,12 @@ Sprzeczność, która wcześniej przechodziła przez walidację i dopiero w bazi
 zamieniała się w liczby: kontrakt „kończący się" bez daty końca, czyli taki,
 który nigdy nie ustanie — a mimo to bez końca liczy się jako przychód.
 
-Statusu na ``ContractCreate`` te testy świadomie NIE pilnują odmową: handler
-i tak wymusza szkic, a wiele seedów testowych i legacy front wysyłają tam
-``active``. Zamiast tego pilnujemy stanów, które nigdy nie należą do rejestru.
+Statusu operacyjnego na ``ContractCreate`` te testy świadomie NIE pilnują
+odmową na poziomie schematu: wybór z rejestru jest honorowany, a bramki
+(komplet pól, dowód podpisu, sync zamówień) egzekwuje handler przez
+``contract_lifecycle`` — patrz ``test_create_contract_active_requires_complete_draft``
+w ``test_contract_lifecycle_invariant.py``. Tutaj pilnujemy stanów, które
+nigdy nie należą do rejestru, i sprzeczności nie do naprawienia później.
 """
 
 from datetime import date

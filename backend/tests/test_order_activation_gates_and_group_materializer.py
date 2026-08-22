@@ -358,3 +358,28 @@ async def test_boundary_defaults_to_the_business_day_not_the_container_clock(
     db2 = _FakeSession([later], [])
     assert await materialize_scheduled_order_groups(db2) == 0
     assert later.status == GROUP_STATUS_SCHEDULED
+
+
+def test_initial_status_uses_the_same_boundary_as_the_materializer(monkeypatch):
+    """Stempel przy zakładaniu grupy i promocja muszą czytać JEDEN zegar.
+
+    Materializator liczy granicę dniem biznesowym, a `_initial_group_status`
+    czytał `date.today()`. Między 22:00 UTC a północą (latem) zamówienie
+    zaczynające się „jutro" wg kontenera — czyli DZIŚ wg firmy — wracało
+    z POST-a jako `scheduled`, po czym pierwszy odczyt listy natychmiast
+    przestawiał je na `active`: dwa mechanizmy tego samego modułu datowały się
+    różnymi dobami. Podmieniamy helper, bo przez większość doby obie odpowiedzi
+    są identyczne i test oparty na realnym zegarze przespałby regres.
+    """
+    import app.api.client_order_groups as mod
+
+    monkeypatch.setattr(mod, "business_today", lambda: _TODAY)
+    assert mod._initial_group_status(_TODAY) == GROUP_STATUS_ACTIVE
+    assert mod._initial_group_status(_TODAY + timedelta(days=1)) == (
+        GROUP_STATUS_SCHEDULED
+    )
+
+    # Granica cofnięta o dobę (dokładnie to robi zegar UTC przed północą
+    # warszawską) — start „dziś" wg firmy przestaje być bieżący.
+    monkeypatch.setattr(mod, "business_today", lambda: _TODAY - timedelta(days=1))
+    assert mod._initial_group_status(_TODAY) == GROUP_STATUS_SCHEDULED

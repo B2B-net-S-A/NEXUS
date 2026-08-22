@@ -264,11 +264,11 @@ async def _apply_contract_status_change(
     *,
     actor_id: Optional[int],
 ) -> None:
-    """Jedyne wejście dla zapisu ``status`` z PATCH-a rejestru umów.
+    """Jedyne wejście dla zapisu ``status`` z rejestru umów — POST i PATCH.
 
-    Rejestr umów ma w dialogu edycji listę rozwijaną ze statusem i ta lista
-    MA działać — ticket jest słuszny. Czym innym jest jednak „zapisz wybraną
-    wartość do kolumny", a czym innym „wykonaj przejście stanu". Surowy
+    Rejestr umów ma listę rozwijaną ze statusem i ta lista MA działać — ticket
+    jest słuszny. Czym innym jest jednak „zapisz wybraną wartość do kolumny",
+    a czym innym „wykonaj przejście stanu". Surowy
     ``setattr(contract, "status", ...)`` omija ``contract_lifecycle`` w
     całości i daje cztery skutki, z których każdy jest cichy:
 
@@ -330,6 +330,23 @@ async def _apply_contract_status_change(
             actor_id=actor_id,
             reason="Zmiana statusu w rejestrze umów",
         )
+        return
+
+    if target == ContractStatus.ending:
+        # „Kończący się" to `active` z bliskim końcem, a nie odrębna gałąź
+        # cyklu życia. Status siedzi w `REVENUE_BEARING_STATUSES`, więc wpisany
+        # wprost omija DOKŁADNIE te same bramki co wpisany `active`: komplet
+        # pól, na których stoi liczenie pieniędzy, i dowód ukończonego podpisu.
+        # Maszyna stanów nie zna krawędzi `draft → ending` i to nie jest jej
+        # luka — umowa najpierw zaczyna obowiązywać, a dopiero potem się
+        # kończy. Dlatego szkic przechodzi przez `active` pełnym trybem, a
+        # potem domykamy krawędź `active → ending`, którą maszyna zna.
+        if contract.status not in (ContractStatus.active, ContractStatus.ending):
+            await _apply_contract_status_change(
+                db, contract, ContractStatus.active, actor_id=actor_id
+            )
+        assert_transition(contract.status, ContractStatus.ending)
+        contract.status = ContractStatus.ending
         return
 
     assert_transition(contract.status, target)
@@ -1221,14 +1238,16 @@ async def create_contract(
         await resolve_delivery_lead_client_ids(current_user, db),
     )
     payload = data.model_dump()
-    # Kontrakt RODZI SIĘ szkicem — to jest niezmiennik, nie domyślna wartość.
-    # `Contract(**payload)` zapisałby przysłany `status` wprost do kolumny, więc
-    # POST z `{"status": "active"}` zakładałby umowę od razu w przychodzie:
+    # Kontrakt RODZI SIĘ szkicem i dopiero potem PRZECHODZI do wybranego stanu.
+    # To nie jest odebranie rejestrowi listy rozwijanej — wybór operatora jest
+    # honorowany — tylko odmowa wpisania statusu wprost do kolumny.
+    # `Contract(**payload)` zapisałby go z pominięciem `contract_lifecycle`,
+    # więc POST z `{"status": "active"}` zakładałby umowę od razu w przychodzie:
     # bez `validate_ready_for_activation` (pola, na których stoi liczenie
-    # pieniędzy) i bez sprawdzenia podpisu. Dojście do `active` prowadzi
-    # `contract_lifecycle` — z rejestru przez PATCH, patrz
-    # `_apply_contract_status_change`.
-    payload.pop("status", None)
+    # pieniędzy), bez sprawdzenia rozpoczętego podpisu i bez wiersza audytu
+    # mówiącego, jak ten wiersz stał się aktywny. Samo przejście wykonujemy po
+    # `flush()` — wiersz musi mieć `id`, patrz niżej.
+    requested_status = payload.pop("status", None)
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     contract = Contract(**payload)
@@ -1256,10 +1275,6 @@ async def create_contract(
             )
             for step in framework_schedule_input
         ]
-    # Status przesłany jawnie przez rejestr jest źródłem prawdy. Poprzednia
-    # normalizacja nadpisywała każdy wybrany ``ending``/``ended`` na ``active``
-    # przy przyszłej albo pustej dacie końca, przez co formularz zapisywał inny
-    # stan niż pokazywał użytkownikowi. Brak pola nadal daje modelowy ``draft``.
     db.add(contract)
     await db.flush()
     if schedule_input:
@@ -1268,6 +1283,26 @@ async def create_contract(
     if framework_schedule_input:
         # Keep the cached framework_rate consistent with the current step.
         contract.framework_rate = contract.effective_framework_rate(date.today())
+    # Wybrany w rejestrze status ustawiamy DOPIERO TERAZ, tą samą funkcją co
+    # PATCH — jedna reguła, jedno miejsce. Kolejność jest nośna w obie strony:
+    # wiersz ma już `id` (audyt cyklu życia i wyszukanie podpisów go
+    # potrzebują), a `rate_candidate`/`framework_rate` są już wyprowadzone
+    # z harmonogramów, więc `validate_ready_for_activation` ocenia kontrakt,
+    # który naprawdę powstał, a nie surowy ładunek żądania.
+    #
+    # Skutek dla operatora: „Aktywny" wybrany dla umowy bez daty końca, stawek
+    # albo trybu pracy kończy się teraz 409 z listą brakujących pól, a nie
+    # cichym szkicem podanym jako sukces ani aktywną umową z pustymi polami
+    # w MRR. Odmowa jest wykonalna — wystarczy uzupełnić pola albo wybrać
+    # „Szkic"; `get_db` wycofuje wtedy całą transakcję, więc nie zostaje
+    # połowiczny wiersz.
+    if requested_status is not None:
+        await _apply_contract_status_change(
+            db,
+            contract,
+            ContractStatus(requested_status),
+            actor_id=current_user.id,
+        )
     db.add(
         Activity(
             entity_type="contract",
