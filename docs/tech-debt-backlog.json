@@ -20,7 +20,7 @@
    "P2": 57,
    "P3": 10
   },
-  "total": 161,
+  "total": 162,
   "last_updated": "2026-08-22"
  },
  "themes": [
@@ -3545,7 +3545,8 @@
    "fix_sketch": "Decyzja Artura: (a) tępo i bezpiecznie — UPDATE candidate_job_match_scores SET stale = true (przeliczenie jest leniwe, przy odczycie, więc koszt rozkłada się w czasie; ceną jest jednorazowy zimny start scoringu), albo (b) wąsko — unieważnić tylko wiersze, których warstwa semantyczna ma 0 punktów, a kandydat MA wektor w Qdrancie (wymaga zapytania krzyżowego do Qdranta). Wymaga dostępu do produkcyjnej bazy, którego nie mam.",
    "verifier_note": "",
    "commit": null,
-   "pr": null
+   "pr": null,
+   "note": "NARZĘDZIE GOTOWE (PR: fix/repair-poisoned-match-scores). Zostaje needs_operator, bo wykonanie na produkcji wymaga sesji admina, której nie mam. Predykat NIE opiera się na candidates.embedding_id — ta kolumna kłamie w obie strony (kwarantanna tożsamości kasuje wektor i kolumny nie czyści; reembed_collections pisze wektor i kolumny nie ustawia — 45 317 vs 47 921, ~2 604 kandydatów). Rozstrzyga sam Qdrant przez indexed_candidate_ids (retrieve, zero wywołań Voyage'a), a jego cisza (None) PRZERYWA bieg zamiast udawać zero. Uruchomienie: GET /api/admin/match-score-repair/preview, potem POST .../repair?dry_run=false."
   },
   {
    "id": 301,
@@ -4259,6 +4260,29 @@
    "commit": "e8bd2b0c4d00",
    "pr": null,
    "note": "W moich plikach `date.today()` na powierzchniach pieniężnych zastąpione przez `business_today()`: domyślne `on` w `_compute_monthly_margin`, `today` w `list_contractors_with_orders`, `_status_after_end_date_change` w `update_contract`, przypięcie daty końca i próg `completed` w `_sync_client_orders_to_contract_end`, oraz `_apply_candidate_rate`. || CZĘŚCIOWO — pozostałe miejsca wskazane w zgłoszeniu są POZA moją listą plików i muszą je domknąć inne grupy: `app/api/admin_clients_overview.py:179,316`, `app/api/my_clients.py:253,408,461` oraz `order_group_lifecycle`. `analytics/metrics.py` zgodnie z fix_sketchem zostawiam (tam `on` bywa datą historyczną z `Period`). Świadomie NIE ruszyłem `_days_to` (`client_orders.py:151`) — to licznik dni do końca, nie kwota; zmiana rozlałaby się na pola `days_to_*` w kilku odpowiedziach bez związku z tym zgłoszeniem."
+  },
+  {
+   "id": 401,
+   "status": "open",
+   "severity": "P2",
+   "effort": "S",
+   "bucket": "nie działa",
+   "area": "Backend · serwisy",
+   "category": "broken",
+   "verified": true,
+   "confidence": "high",
+   "themes": [],
+   "title": "candidates.embedding_id rozjeżdża się z Qdrantem w OBIE strony — dwie ścieżki piszą wektor bez kolumny albo kasują wektor bez czyszczenia kolumny",
+   "file": "backend/app/services/candidate_identity_quarantine.py",
+   "line": 364,
+   "impact": "Kolumna jest jedynym tanim, bazodanowym sygnałem 'kandydat ma wektor' i kłamie w obie strony. Kwarantanna tożsamości woła delete_candidate_embedding i NIE czyści embedding_id — kandydat ma kolumnę i nie ma wektora. Odwrotnie, scripts/reembed_collections.py upsertuje wektor i kolumny NIE ustawia; jego własny docstring mierzy rozjazd na produkcji: kolumna 45 317, Qdrant 47 921 punktów, czyli ~2 604 kandydatów ma wektor przy pustej kolumnie. Każdy przyszły kod, który uwierzy tej kolumnie, odziedziczy oba błędy.",
+   "failure_scenario": "Wykryte przy budowie narzędzia do #130: predykat oparty na tej kolumnie dawał NIESKOŃCZONĄ PĘTLĘ (kandydat po kwarantannie wracał do zbioru po każdym przeliczeniu — odtworzone: matched 1 -> 0 -> 1) ORAZ trwałe pomijanie ~2 604 kandydatów. Narzędzie #130 obeszło to, pytając Qdranta, ale sama rozbieżność zostaje.",
+   "evidence": "# candidate_identity_quarantine.py:364-366 — kasuje wektor, nie czyści kolumny\n# reembed_collections.py:156-160 — docstring mierzy rozjazd 45 317 vs 47 921",
+   "fix_sketch": "Dwie jednolinijkowe poprawki plus decyzja, czym ta kolumna ma być. (a) kwarantanna: wyczyść embedding_id razem z kasowaniem punktu; (b) reembed_collections: ustaw embedding_id po udanym upsercie (talent_radar_embedding_copier już to robi, linie 209-215). Alternatywnie — jeśli kolumna nie ma być autorytetem — udokumentuj to i dodaj strażnika zakazującego używania jej jako predykatu 'ma wektor'.",
+   "verifier_note": "Wykryte i potwierdzone WYKONANIEM na żywej bazie podczas adwersarialnej kontroli narzędzia do #130.",
+   "commit": null,
+   "pr": null,
+   "note": ""
   }
  ]
 }
