@@ -4382,13 +4382,15 @@
       "id": 408,
       "severity": "P2",
       "effort": "M",
-      "status": "open",
+      "status": "fixed",
       "title": "search_similar_jobs_by_job_id zwraca [] dla DWÓCH różnych stanów, a tier 4 to zasypuje",
       "impact": "Ta sama klasa co #403 — „nie wiem\" renderowane jako „nie ma\" — tylko o warstwę wyżej i po naprawie #403 wciąż otwarta. Funkcja zwraca pustą listę zarówno gdy Qdrant nie odpowiedział (retrieve rzucił), jak i gdy wektora realnie nie ma. Oba tiery podpowiedzi dostają tę samą pustkę, a suggest_questions_for_prep uruchamia tier 4 jako bezpiecznik („prep-kit musi mieć >= 1 pytanie\").",
       "failure_scenario": "Podczas awarii Qdranta rekruter dostaje wiarygodną, NIEPUSTĄ listę pytań zbudowaną wyłącznie z auto-generatora i NIE MA JAK zauważyć, że dwa najlepsze źródła milczały. Odtworzone wykonaniem podczas panelu: przy niedostępnym Qdrancie i przy realnie brakującym wektorze wynik jest NIEODRÓŻNIALNY.",
       "evidence": "Repro sędziego „poprawność\" w panelu #403: search_similar_jobs_by_job_id zwraca [] w obu stanach, NIEODROZNIALNE=True. #403 dodało rozdzielone komunikaty WARNING, więc różnica jest dziś WYŁĄCZNIE w logu, którego nikt nie czyta bez alertu.",
       "fix_sketch": "Albo Optional[list] (None = nie wiem), albo podniesienie wyjątku na gałęzi awarii — plus tier 4 nie może zasypywać tej różnicy. Uwaga: to zmienia kontrakt funkcji, więc wymaga przejrzenia wszystkich wołających. NIE robić przy okazji #403: tam zmiana była usuwaniem bramek, tu jest zmianą kontraktu zwrotu.",
-      "verifier_note": "Wyniesione z panelu projektowego #403 jako blocking_objection wobec zwycięskiej propozycji. Nazwane ŚWIADOMIE, żeby zielony strażnik AST nie przekonał nikogo, że klasa jest zamknięta."
+      "verifier_note": "Wyniesione z panelu projektowego #403 jako blocking_objection wobec zwycięskiej propozycji. Nazwane ŚWIADOMIE, żeby zielony strażnik AST nie przekonał nikogo, że klasa jest zamknięta.",
+      "pr": 1237,
+      "note": "Kontrakt rozdzielony na trzech poziomach: (1) search_similar_jobs_by_job_id -> Optional[list], None = 'nie wiem', [] = 'wiem, ze nie ma'; (2) oba tiery zwracaja (pytania, degraded) i sprawdzaja `is None` PRZED `not hits`; suggest_questions_for_prep zwraca PrepSuggestions — ksztalt wzorowany na RadarResult z Talent Radaru, gdzie ta zasada jest juz utrwalona; (3) PrepKitResponse dostaje degraded + degraded_reason (nowe pola opcjonalne), a GET /jobs/{id}/suggested-questions przechodzi z golej listy na koperte {items, meta} — w golej liscie nie bylo gdzie tej roznicy zapisac. Front pokazuje ostrzezenie przy liscie pytan, lustrzane wobec istniejacego wzorca w jobs/[id]/page.tsx:833 (ten sam degradedReason, role=status, tokeny warning-muted). similar_job_candidates zwraca 'degraded' zamiast 'empty' — zachowanie bez zmian, ale fakt zapisany. UWAGA na przyszlosc: pierwsza wersja testow MOCKOWALA search_similar_jobs_by_job_id, wiec sklejenie obu stanow z powrotem przechodzilo je na zielono — dowodzily tylko, ze tiery obsluguja None. Nosne sa dopiero testy wolajace prawdziwa implementacje z podmienionym KLIENTEM Qdranta."
     }
   ]
 }
