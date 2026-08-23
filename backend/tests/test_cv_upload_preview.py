@@ -67,7 +67,11 @@ def _patch_pipeline(
     async def _fake_embed(_text, **_kw):
         return embedding if embedding is not None else [0.1] * 1024
 
-    async def _fake_search(_q, top_k: int = 20):
+    async def _fake_search(_q, top_k: int = 20, **kwargs):
+        # `**kwargs` pochłania `raise_on_error=True`. Atrapa o WĘŻSZEJ
+        # sygnaturze niż prawdziwa funkcja zamienia zmianę kontraktu
+        # w TypeError zamiast w czerwoną asercję — komunikat mówi wtedy
+        # o atrapie, nie o kodzie.
         return hits if hits is not None else []
 
     monkeypatch.setattr(cv_text_extractor, "extract_text", _fake_extract)
@@ -75,9 +79,7 @@ def _patch_pipeline(
     monkeypatch.setattr(embedding_service, "generate_embedding", _fake_embed)
     monkeypatch.setattr(embedding_service, "search_jobs_semantic", _fake_search)
     # The endpoint module imports this at load time — patch the rebound name.
-    monkeypatch.setattr(
-        "app.api.cv_match_preview.search_jobs_semantic", _fake_search
-    )
+    monkeypatch.setattr("app.api.cv_match_preview.search_jobs_semantic", _fake_search)
     monkeypatch.setattr("app.api.cv_match_preview.parse_cv", _fake_parse)
     monkeypatch.setattr("app.api.cv_match_preview.extract_text", _fake_extract)
 
