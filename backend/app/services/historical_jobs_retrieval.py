@@ -242,7 +242,7 @@ def skill_frequency(
             "threshold": threshold,
         }
 
-    def _aggregate(bucket_name: str) -> Optional[list[dict[str, Any]]]:
+    def _aggregate(bucket_name: str) -> list[dict[str, Any]]:
         counts: Counter[str] = Counter()
         display_by_key: dict[str, str] = {}
         for match in matches:
@@ -325,12 +325,19 @@ def _extract_skill_name(item: Any) -> Optional[str]:
 
 def _qdrant_search(
     embedding: list[float], client_id: Optional[int], limit: int
-) -> list[dict[str, Any]]:
+) -> Optional[list[dict[str, Any]]]:
     """Synchronous Qdrant search with optional client_id filter.
 
-    Runs inside `asyncio.to_thread` from the async caller. Returns a list of
-    `{job_id, score, payload}` dicts in similarity-desc order. Swallows all
-    Qdrant errors and returns [] — retrieval must never block the caller.
+    Runs inside `asyncio.to_thread` from the async caller.
+
+    ``list`` — Qdrant odpowiedział; `{job_id, score, payload}` malejąco po
+    podobieństwie (pusta lista = odpowiedział i nic nie ma).
+    ``None`` — Qdrant NIE odpowiedział.
+
+    Do sierpnia 2026 awaria też zwracała `[]` („Swallows all Qdrant errors")
+    i wołający nie miał jak jej odróżnić od uczciwego zera. Skutek opisany
+    w `find_similar_historical_jobs`: kasowanie gotowej propozycji i zapis do
+    bazy twierdzenia o danych klienta w trakcie awarii infrastruktury.
     """
     try:
         from qdrant_client import QdrantClient
