@@ -2997,7 +2997,13 @@ export const matchHistoryApi = {
 // ── Historical candidates (Phase 14 — from similar past jobs) ──────────────
 
 export type HistoricalTier = "A" | "B";
-export type HistoricalTierUsed = "primary" | "extended" | "empty";
+// „degraded" to nie próg podobieństwa, tylko odpowiedź „nie wiem": wyszukiwanie
+// podobnych ofert nie odpowiedziało, więc pusta lista NIE znaczy braku historii.
+export type HistoricalTierUsed =
+  | "primary"
+  | "extended"
+  | "empty"
+  | "degraded";
 export type HistoricalAvailability = "available" | "busy" | "unknown";
 
 export interface HistoricalSource {
