@@ -46,18 +46,22 @@ def _patch_pipeline(monkeypatch, *, hits_for_query: list[dict] | None = None):
     async def _fake_embed(_text):
         return [0.1] * 1024
 
-    async def _fake_search(_q, top_k=20):
+    async def _fake_search(_q, top_k=20, **kwargs):
+        # `**kwargs` pochłania `raise_on_error=True`, którym endpoint odróżnia
+        # awarię providera od zdrowego zera trafień. Atrapa o WĘŻSZEJ sygnaturze
+        # niż prawdziwa funkcja zamienia zmianę kontraktu w TypeError zamiast
+        # w czerwoną asercję — a to mówi o atrapie, nie o kodzie.
         return hits_for_query or []
 
     monkeypatch.setattr(embedding_service, "generate_embedding", _fake_embed)
     monkeypatch.setattr(embedding_service, "search_jobs_semantic", _fake_search)
     # The endpoint module rebinds these at import time.
-    monkeypatch.setattr(
-        "app.api.recommendations.search_jobs_semantic", _fake_search
-    )
+    monkeypatch.setattr("app.api.recommendations.search_jobs_semantic", _fake_search)
 
 
-async def _cleanup(*, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]):
+async def _cleanup(
+    *, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]
+):
     """Raw-SQL cleanup that bypasses ORM cascade traversal (migration drift)."""
     async with AsyncSessionLocal() as db:
         if candidate_ids:
@@ -67,9 +71,7 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int], client_ids: 
         if job_ids:
             await db.execute(delete(Job).where(Job.id.in_(job_ids)))
         if candidate_ids:
-            await db.execute(
-                delete(Candidate).where(Candidate.id.in_(candidate_ids))
-            )
+            await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
         if client_ids:
             await db.execute(delete(Client).where(Client.id.in_(client_ids)))
         await db.commit()
@@ -192,7 +194,9 @@ async def test_seeking_contractors_includes_actively_looking(
     cid = await _seed_candidate_with_availability(
         availability=AvailabilityStatus.actively_looking, name="LookerA"
     )
-    job_id = await _seed_published_job(title="Senior Python Eng", skills=["Python", "FastAPI"])
+    job_id = await _seed_published_job(
+        title="Senior Python Eng", skills=["Python", "FastAPI"]
+    )
 
     try:
         _patch_pipeline(
@@ -312,6 +316,4 @@ async def test_seeking_contractors_location_filter_drops_jobs(
         assert j_warsaw in match_ids
         assert j_berlin not in match_ids, "location filter must drop Berlin"
     finally:
-        await _cleanup(
-            candidate_ids=[cid], job_ids=[j_warsaw, j_berlin], client_ids=[]
-        )
+        await _cleanup(candidate_ids=[cid], job_ids=[j_warsaw, j_berlin], client_ids=[])
