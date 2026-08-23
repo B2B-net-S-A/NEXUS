@@ -38,15 +38,45 @@ jobs:
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
         # 2026-07-16 (analytics plan PR 0): without E2E_USER_PASSWORD the auth
         # setup project SKIPS, e2e/.auth/state.json is never written, and every
-        # `chromium` spec dies on ENOENT loading storageState — nightly has been
-        # red on that for weeks. Until the E2E_USER_* secrets are provisioned
-        # (operator action — needs a dedicated prod E2E account), run only the
-        # public `preview-chromium` project so nightly stays green and honest.
+        # `chromium` spec dies on ENOENT loading storageState. Do czasu
+        # sprovisionowania E2E_USER_* (działanie operatorskie — potrzebne
+        # dedykowane prodowe konto E2E) chodzi wyłącznie publiczny projekt
+        # `preview-chromium`.
+        #
+        # WAŻNE: zielony bieg w tym trybie NIE znaczy „E2E przechodzi". Chodzi
+        # 1 z 12 plików spec. Pierwotny komentarz twierdził, że zawężenie
+        # zakresu utrzymuje nocny bieg „green and honest" — zielony przy
+        # kilkunastu procentach pokrycia nie jest uczciwy, tylko cichy, i jest
+        # dokładnie tą samą klasą co awaria udająca pustkę: sygnał, który
+        # wygląda na potwierdzenie, a niczego nie potwierdza. Dlatego bieg
+        # WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
+        # „zielone" dało się przeczytać razem z „ile z czego".
         run: |
+          total_specs=$(ls e2e/*.spec.ts 2>/dev/null | wc -l | tr -d " ")
+          total_cases=$(grep -ch "^[[:space:]]*test(" e2e/*.spec.ts 2>/dev/null | awk "{s+=\$1} END {print s+0}")
           if [ -z "$E2E_USER_PASSWORD" ]; then
-            echo "::warning::E2E_USER_PASSWORD secret not set — running only public (preview) specs. Provision E2E_USER_EMAIL/E2E_USER_PASSWORD repo secrets to enable the authenticated suite."
+            ran_specs=$(ls e2e/candidate-ux-preview.spec.ts 2>/dev/null | wc -l | tr -d " ")
+            ran_cases=$(grep -c "^[[:space:]]*test(" e2e/candidate-ux-preview.spec.ts 2>/dev/null || echo 0)
+            {
+              echo "### E2E — bieg CZĘŚCIOWY"
+              echo ""
+              echo "| | wykonane | wszystkie |"
+              echo "|---|---|---|"
+              echo "| pliki spec | $ran_specs | $total_specs |"
+              echo "| przypadki | $ran_cases | $total_cases |"
+              echo ""
+              echo "Brak sekretów \`E2E_USER_EMAIL\`/\`E2E_USER_PASSWORD\`, więc projekt"
+              echo "\`chromium\` (wszystkie przepływy po zalogowaniu) NIE został uruchomiony."
+              echo "**Zielony wynik tego biegu nie znaczy, że E2E przechodzi.**"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::E2E CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD, więc przepływy po zalogowaniu nie są weryfikowane. Zielony wynik NIE znaczy, że E2E przechodzi."
             npx playwright test --project=preview-chromium
           else
+            {
+              echo "### E2E — bieg PEŁNY"
+              echo ""
+              echo "Uruchomiono wszystkie $total_cases przypadki z $total_specs plików."
+            } >> "$GITHUB_STEP_SUMMARY"
             npm run test:e2e
           fi
       - name: Upload report on failure
