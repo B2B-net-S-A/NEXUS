@@ -1128,6 +1128,25 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
             # Sesja wołającego po padniętym commicie jest nieużywalna, więc
             # naprawa musi mieć własną. `WHERE embedding_id IS NULL` — nigdy
             # nie nadpisujemy cudzej wartości.
+            #
+            # `rollback()` PRZED naprawą i przed powrotem: bez niego sesja
+            # wołającego zostaje w stanie PendingRollbackError i pada NIE TYLKO
+            # ten krok, ale wszystko poniżej. W `compute_proposal_for_job`
+            # intencją `except` jest „leć dalej bez warstwy semantycznej" —
+            # a niecofnięta transakcja zabija także kolejne zapytania (odczyt
+            # profilu wag), więc całe liczenie propozycji przewraca się przez
+            # nieudany embedding. Po rollbacku SQLAlchemy wygasza wartość
+            # `job.embedding_id` w pamięci (nigdy nie została zatwierdzona),
+            # ale naprawa zapisała ją już WŁASNĄ sesją — więc `session.refresh`
+            # u wołającego wczyta wartość naprawioną.
+            try:
+                await db.rollback()
+            except Exception as rb_exc:  # noqa: BLE001
+                logger.warning(
+                    "[Embed] job %s: rollback po padniętym commicie też padł: %s",
+                    job_id,
+                    rb_exc,
+                )
             await _heal_job_embedding_id(job_id)
             return False
 
