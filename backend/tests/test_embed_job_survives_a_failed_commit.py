@@ -23,7 +23,6 @@ import pytest
 from sqlalchemy import text
 
 
-
 async def _seed_job() -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job, JobStatus
@@ -94,6 +93,64 @@ async def test_failed_commit_still_leaves_the_column_stamped(monkeypatch):
         "wektor jest w Qdrancie, a kolumna została pusta — oferta cicho "
         "przestaje generować propozycje i podpowiedzi, i nic tego nie ponowi"
     )
+
+
+@pytest.mark.asyncio
+async def test_caller_session_survives_the_failed_commit(monkeypatch):
+    """Po padniętym commicie sesja WOŁAJĄCEGO musi dalej działać.
+
+    Bez `rollback()` sesja zostaje w stanie PendingRollbackError i pada nie
+    tylko krok embeddingu, ale KAŻDE kolejne zapytanie. W
+    `compute_proposal_for_job` intencją `except` jest „leć dalej bez warstwy
+    semantycznej", a niecofnięta transakcja zabija też odczyt profilu wag —
+    czyli nieudany embedding przewraca CAŁE liczenie propozycji. To ta sama
+    klasa co samo #403: ścieżka awarii zatruwa to, co miało ją przeżyć.
+
+    Test robi dokładnie to, co robi wołający: po `embed_job` sięga tą samą
+    sesją po coś zupełnie niezwiązanego. Poprzednia wersja tego pliku tego NIE
+    robiła i dlatego brak rollbacku przeszedł.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.services import embedding_service as es
+
+    job_id = await _seed_job()
+
+    async def _fake_embedding(_text):
+        return [0.1] * 8
+
+    async def _noop():
+        return None
+
+    monkeypatch.setattr(es, "generate_embedding", _fake_embedding)
+    monkeypatch.setattr(es.asyncio, "to_thread", lambda fn, *a, **k: _noop())
+
+    async with AsyncSessionLocal() as db:
+        original_commit = db.commit
+
+        async def _boom():
+            # Transakcja musi paść NAPRAWDĘ, a nie tylko udawać. Podmiana samej
+            # metody `commit` na rzucającą nie brudzi sesji, więc
+            # PendingRollbackError nigdy nie powstaje i test przechodzi także
+            # bez `rollback()` — sprawdzałby atrapę zamiast mechanizmu (tak
+            # wyglądała pierwsza wersja tego testu i dlatego niczego nie
+            # trzymała). Nieudane zapytanie zostawia sesję w stanie
+            # „wymaga rollbacku", czyli dokładnie tym, co robi zerwane
+            # połączenie albo deadlock na produkcji.
+            await db.execute(text("SELECT * FROM tabela_ktora_nie_istnieje"))
+
+        db.commit = _boom  # type: ignore[method-assign]
+        await es.embed_job(job_id, db)
+        db.commit = original_commit  # type: ignore[method-assign]
+
+        # Wołający leci dalej — to MUSI zadziałać.
+        alive = await db.scalar(text("SELECT 1"))
+
+    assert alive == 1, (
+        "sesja wołającego jest martwa po nieudanym embedzie — wszystko poniżej "
+        "w liczeniu propozycji przewróci się przez krok, który miał być "
+        "best-effort"
+    )
+    await _read_and_drop(job_id)
 
 
 @pytest.mark.asyncio
