@@ -490,6 +490,13 @@ async def preview_poisoned_scores(
         "distinct_jobs": len({s.job_id for s in rows}),
         "scan_limit": scan_limit,
         "scan_truncated": scan.truncated,
+        # JEDNO pole zamiast reguły do złożenia z dwóch. Kryterium stopu brzmi
+        # „nie ma już czego naprawiać W CAŁEJ TABELI", a wynika z KONIUNKCJI
+        # (okno domknięte ORAZ kursor sięgnął końca). Operator czytający samo
+        # ``remaining``/``matched`` przerywał nad zatrutą resztą tabeli —
+        # udokumentowanie tej reguły nie wystarczyło, bo dokumentacja nie jest
+        # w odpowiedzi, a odpowiedź jest.
+        "done": len(rows) == 0 and scan.next_after_candidate_id is None,
         "after_candidate_id": after_candidate_id,
         # ``null`` = okno sięgnęło końca tabeli. Wartość = jeszcze nie koniec;
         # przepisz ją do `after_candidate_id` w kolejnym wywołaniu. Bez tego
@@ -581,6 +588,10 @@ async def repair_poisoned_scores(
             "would_update": min(matched, limit),
             "updated": 0,
             "remaining": matched,
+            # Patrz komentarz przy ``done`` w podglądzie: koniunkcja, nie
+            # ``remaining == 0``. Dry-run nic nie zapisuje, więc ``done`` mówi
+            # tu „nie byłoby czego naprawiać w całej tabeli".
+            "done": matched == 0 and scan.next_after_candidate_id is None,
             "limit": limit,
             "scan_limit": scan_limit,
             "scan_truncated": scan.truncated,
@@ -648,6 +659,9 @@ async def repair_poisoned_scores(
         "matched": matched,
         "updated": updated,
         "remaining": remaining,
+        # Jedyne uczciwe kryterium stopu: okno domknięte ORAZ kursor u końca
+        # tabeli. Dopóki ``done`` jest ``false``, wołaj dalej.
+        "done": remaining == 0 and scan.next_after_candidate_id is None,
         "limit": limit,
         "scan_limit": scan_limit,
         "scan_truncated": scan.truncated,

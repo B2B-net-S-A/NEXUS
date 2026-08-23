@@ -21,6 +21,10 @@ z tych trzech trzeba umieć wywołać na żądanie.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import ast
+
 import uuid
 from typing import Any, Optional
 
@@ -683,10 +687,25 @@ async def test_honest_zeros_do_not_pin_the_scan_window(
     Kolejność siewu jest tu istotna: ``candidate_id`` rośnie, a skan idzie po
     nim rosnąco, więc uczciwe zera lądują PRZED zatrutym wierszem.
     """
-    honest_a = await _seed(qdrant, indexed=False)
-    honest_b = await _seed(qdrant, indexed=False)
-    poisoned = await _seed(qdrant, indexed=True)
-    assert honest_a[0] < honest_b[0] < poisoned[0], "sieć testu nie odwzorowuje układu"
+    # Układ WYMUSZONY, nie założony. Wcześniej test siał „dwa uczciwe, potem
+    # zatruty" i asertował ``id_a < id_b < id_c`` — czyli opierał się na tym, że
+    # Postgres nada kolejnym INSERT-om rosnące id. Zwykle nada, ale nie obiecuje
+    # tego (cache sekwencji, równoległe sesje), a ten test bada skan idący PO
+    # id, więc złamane założenie zamieniałoby go w losowy fałszywy alarm.
+    #
+    # Teraz: wszystkie trzy siane jako NIEzaindeksowane, a rolę zatrutego
+    # dostaje ten, który faktycznie ma NAJWYŻSZE id — przez dopisanie go do
+    # kolekcji już po posiewie. Prefiks uczciwych zer jest wtedy pewny.
+    seeded = sorted(
+        [
+            await _seed(qdrant, indexed=False),
+            await _seed(qdrant, indexed=False),
+            await _seed(qdrant, indexed=False),
+        ],
+        key=lambda row: row[0],
+    )
+    honest_a, honest_b, poisoned = seeded
+    qdrant.known.add(poisoned[0])
 
     # Baza testowa jest współdzielona i niesie podejrzanych z innych testów —
     # startujemy kursorem tuż przed własnym posiewem, żeby sufit 2 mierzył
@@ -763,3 +782,100 @@ async def test_cursor_releases_a_candidate_split_by_the_ceiling(
     assert second["updated"] == 3, "wiersze zza sufitu przepadły"
     for row in split_rows:
         assert await _stale_of(*row) is True
+
+
+@pytest.mark.asyncio
+async def test_done_is_a_conjunction_not_an_empty_window(
+    app_client: AsyncClient, app_auth_headers: dict, qdrant: _QdrantStub
+) -> None:
+    """``done`` musi znaczyć „koniec TABELI", nie „koniec okna".
+
+    Reguła stopu była udokumentowana w docstringu i NIE wymuszona kształtem
+    odpowiedzi. Operator czytający ``remaining == 0`` przerywał nad zatrutą
+    resztą tabeli — bo przy obciętym skanie zero znaczy tylko tyle, że bieżące
+    okno jest domknięte. Dokumentacja nie jest w odpowiedzi; odpowiedź jest.
+    """
+    seeded = sorted(
+        [
+            await _seed(qdrant, indexed=False),
+            await _seed(qdrant, indexed=False),
+            await _seed(qdrant, indexed=False),
+        ],
+        key=lambda row: row[0],
+    )
+    honest_a, _honest_b, poisoned = seeded
+    qdrant.known.add(poisoned[0])
+
+    # Okno domknięte (uczciwe zera, nic do naprawy), ale kursor NIE u końca.
+    params = {**FULL, "scan_limit": 2, "after_candidate_id": honest_a[0] - 1}
+    first = (
+        await app_client.post(REPAIR, params=params, headers=app_auth_headers)
+    ).json()
+    assert first["remaining"] == 0, "w tym oknie faktycznie nie ma czego naprawiać"
+    assert first["next_after_candidate_id"] is not None, "kursor nie sięgnął końca"
+    assert first["done"] is False, (
+        "puste okno przy żywym kursorze NIE jest końcem pracy — to jest dokładnie "
+        "ta pułapka, dla której to pole powstało"
+    )
+
+    # Ten sam układ w podglądzie — oba endpointy muszą mówić to samo.
+    preview = (
+        await app_client.get(PREVIEW, params=params, headers=app_auth_headers)
+    ).json()
+    assert preview["done"] is False
+
+
+async def test_scan_is_reachable_only_from_the_two_route_handlers() -> None:
+    """``_scan`` podnosi ``HTTPException`` — wolno mu, dopóki wołają go TYLKO trasy.
+
+    Review zgłosiło to jako zapach warstwowy: helper zwracający ``_Scan``
+    rzuca wyjątkiem warstwy HTTP. W module ``app/api/`` wołanym wyłącznie przez
+    dwa handlery FastAPI to jest idiomatyczne i tłumaczenie wyjątku dodawałoby
+    warstwę dla wywołującego, który nie istnieje.
+
+    Problem zacząłby się przy pierwszym wywołaniu spoza trasy — z zadania w tle
+    albo z CLI — gdzie 503 nie ma kto zamienić na odpowiedź i poleci jako
+    surowy wyjątek. Ten test zamienia tamten komentarz w niezmiennik: gdy
+    pojawi się trzeci wywołujący, pada tutaj, a nie na produkcji.
+    """
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "api"
+        / "admin_match_score_repair.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    route_handlers = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(
+            isinstance(d, ast.Call)
+            and isinstance(d.func, ast.Attribute)
+            and d.func.attr in {"get", "post"}
+            for d in node.decorator_list
+        )
+    }
+    assert route_handlers, "nie wykryto ani jednej trasy — zmienił się kształt modułu"
+
+    callers: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(node):
+            if (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Name)
+                and inner.func.id == "_scan"
+            ):
+                callers.add(node.name)
+
+    assert callers, "nikt nie woła _scan — zmienił się kształt modułu"
+    outside = callers - route_handlers
+    assert not outside, (
+        "_scan wołany spoza trasy: "
+        + ", ".join(sorted(outside))
+        + " — tam nikt nie zamieni HTTPException(503) na odpowiedź. Albo dodaj "
+        "tłumaczenie wyjątku na granicy trasy, albo zwracaj wynik i decyduj u wywołującego."
+    )
