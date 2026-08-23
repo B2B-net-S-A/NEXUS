@@ -1211,7 +1211,7 @@ async def search_jobs_semantic(
 
 async def search_similar_jobs_by_job_id(
     job_id: int, top_k: int = 20, exclude_self: bool = True
-) -> list[dict]:
+) -> Optional[list[dict]]:
     """Find jobs semantically similar to *job_id* using its stored vector.
 
     Flow:
@@ -1219,12 +1219,22 @@ async def search_similar_jobs_by_job_id(
       2. Run vector search limit=top_k+1 (to drop self).
       3. Optionally exclude *job_id* itself from results.
 
-    Returns: `[{"job_id": int, "score": float, "payload": dict}]` sorted desc.
-    Empty list on any failure (Qdrant offline, job not embedded, collection
-    missing). Callers must handle empty gracefully.
+    Zwraca `[{"job_id": int, "score": float, "payload": dict}]` malejąco.
+
+    ``None`` znaczy "NIE WIEM" — Qdrant nie odpowiedział. ``[]`` znaczy "WIEM,
+    ŻE NIE MA" — Qdrant odpowiedział, a oferta nie ma wektora albo nie ma
+    podobnych. Do #408 oba stany zwracały tę samą pustą listę, więc podczas
+    awarii Qdranta oba tiery podpowiedzi milkły, tier 4 uruchamiał się jako
+    bezpiecznik ("prep-kit musi mieć >= 1 pytanie") i rekruter dostawał
+    wiarygodną, NIEPUSTĄ listę pytań bez żadnego sygnału, że dwa najlepsze
+    źródła nie odpowiedziały. To ta sama klasa co #403 — system nie wie,
+    a zachowuje się tak, jakby wiedział — tylko o warstwę wyżej.
+
+    Wołający MUSI rozróżniać `is None` od pustej listy. Sam `if not hits:`
+    skleja oba stany z powrotem.
     """
 
-    def _run() -> list[dict]:
+    def _run() -> Optional[list[dict]]:
         from qdrant_client import QdrantClient
 
         # Jawny sufit czasu. Bramka `if not job.embedding_id: return []`, którą
@@ -1248,13 +1258,15 @@ async def search_similar_jobs_by_job_id(
                 with_vectors=True,
             )
         except Exception as e:
-            # "Nie wiem" — Qdrant nie odpowiedział. Inna sytuacja niż "nie ma".
+            # "Nie wiem" — Qdrant nie odpowiedział. Inna sytuacja niż "nie ma",
+            # i to jest DOKŁADNIE ta różnica, którą ta funkcja zwracała jako tę
+            # samą pustą listę (#408). `None` niesie ją dalej.
             logger.warning(
                 "[Search] retrieve vector for job %s failed (Qdrant unreachable?): %s",
                 job_id,
                 e,
             )
-            return []
+            return None
 
         if not points:
             # "Nie ma" — Qdrant odpowiedział i wektora nie ma. To JEDYNE miejsce
@@ -1284,10 +1296,11 @@ async def search_similar_jobs_by_job_id(
                 with_payload=True,
             )
         except Exception as e:
+            # Też "nie wiem": wektor mamy, ale wyszukiwanie nie odpowiedziało.
             logger.error(
                 "[Search] similar-jobs search for job %s failed: %s", job_id, e
             )
-            return []
+            return None
 
         results: list[dict] = []
         for hit in hits:
@@ -1309,4 +1322,4 @@ async def search_similar_jobs_by_job_id(
         return await asyncio.to_thread(_run)
     except Exception as e:
         logger.error("[Search] search_similar_jobs_by_job_id error: %s", e)
-        return []
+        return None

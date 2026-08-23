@@ -571,9 +571,33 @@ async def rate_question(
 # ─── Suggestions ─────────────────────────────────────────────────────────────
 
 
+class SuggestedQuestionsMeta(BaseModel):
+    """Czy lista jest KOMPLETNA."""
+
+    returned: int
+    degraded: bool = False
+    reason: Optional[str] = None
+
+
+class SuggestedQuestionsOut(BaseModel):
+    """Koperta zamiast gołej listy — bo pusta lista i lista niepełna wyglądały tak samo.
+
+    Ten endpoint zwracał ``list[SuggestedQuestionOut]``. Gdy wyszukiwanie
+    podobnych rekrutacji nie odpowiadało, oba tiery milkły, tier 4 (auto-gen)
+    dolewał pytania jako bezpiecznik i odpowiedź wyglądała ZUPEŁNIE normalnie —
+    rekruter nie miał jak zauważyć, że dwa najlepsze źródła nie odpowiedziały.
+    Koperta z ``meta.degraded`` to ten sam kształt, co w Talent Radarze, gdzie
+    zasada „wynik zdegradowany nie może renderować się jak normalny" jest już
+    utrwalona. Patrz #408.
+    """
+
+    items: list[SuggestedQuestionOut]
+    meta: SuggestedQuestionsMeta
+
+
 @router.get(
     "/jobs/{job_id}/suggested-questions",
-    response_model=list[SuggestedQuestionOut],
+    response_model=SuggestedQuestionsOut,
 )
 async def get_suggested_questions(
     job_id: int,
@@ -581,7 +605,7 @@ async def get_suggested_questions(
     target_count: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[SuggestedQuestionOut]:
+) -> SuggestedQuestionsOut:
     """Zwraca pełny waterfall tier 1-4 z metadata (source_tier, cosine_score).
 
     Używany bezpośrednio przez UI "podpowiedzi pytań" oraz wewnętrznie przez
@@ -594,7 +618,10 @@ async def get_suggested_questions(
     suggestions = await suggest_questions_for_prep(
         db=db, job=job, target_count=target_count
     )
-    return [SuggestedQuestionOut(**s.to_dict()) for s in suggestions]
+    return SuggestedQuestionsOut(
+        items=[SuggestedQuestionOut(**s.to_dict()) for s in suggestions.questions],
+        meta=SuggestedQuestionsMeta(**suggestions.as_meta()),
+    )
 
 
 # ─── Job pinned list ─────────────────────────────────────────────────────────

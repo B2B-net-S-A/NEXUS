@@ -117,7 +117,9 @@ async def test_tier1_still_requires_competence_category(monkeypatch):
     job.id = 99
     job.competence_category_id = None
 
-    assert await qs._tier_same_cc_similar(_FakeDb(), job) == []
+    # Tier zwraca `(pytania, degraded)` od #408 — brak CC to NIE degradacja,
+    # tylko prawidłowa odpowiedź „nie ma czego szukać".
+    assert await qs._tier_same_cc_similar(_FakeDb(), job) == ([], False)
     assert calls == [], "brak CC musi ucinać PRZED Qdrantem"
 
 
@@ -133,17 +135,13 @@ async def test_missing_vector_is_logged_at_warning(monkeypatch, caplog):
             return []  # Qdrant ODPOWIEDZIAŁ: wektora nie ma.
 
     monkeypatch.setattr(es, "QdrantClient", _Client, raising=False)
-    monkeypatch.setattr(
-        "qdrant_client.QdrantClient", lambda *a, **kw: _Client()
-    )
+    monkeypatch.setattr("qdrant_client.QdrantClient", lambda *a, **kw: _Client())
 
     with caplog.at_level(logging.WARNING, logger=es.logger.name):
         hits = await es.search_similar_jobs_by_job_id(4242)
 
     assert hits == []
-    warnings = [
-        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
-    ]
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert any("has no vector" in m for m in warnings), (
         f"brak WARNING o braku wektora; rekordy={warnings}"
     )

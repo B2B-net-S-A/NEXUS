@@ -47,6 +47,13 @@ class PrepKitResponse(BaseModel):
     candidate_gaps: list[str]
     selling_points: list[str]
     recommended_strategy: str
+    # Czy lista pytań jest KOMPLETNA. Gdy wyszukiwanie podobnych rekrutacji nie
+    # odpowie, tier 4 (auto-gen) dolewa pytania jako bezpiecznik — więc kit
+    # wygląda normalnie i nie ma po awarii żadnego śladu. Nowe pola opcjonalne,
+    # więc stare frontendy nic nie tracą (ta sama zasada co
+    # `likely_questions_meta`). Patrz #408.
+    degraded: bool = False
+    degraded_reason: Optional[str] = None
 
 
 def _parse_list_content(content: str) -> list[str]:
@@ -206,7 +213,7 @@ async def generate_prep_kit(
     # 2. LIKELY QUESTIONS — 4-tier waterfall (pinned → legacy → similar jobs →
     # client knowledge → auto-gen). Dokumentacja: question_suggestions.py.
     suggestions = await suggest_questions_for_prep(db=db, job=job, target_count=10)
-    likely_questions_meta = [s.to_dict() for s in suggestions[:10]]
+    likely_questions_meta = [s.to_dict() for s in suggestions.questions[:10]]
     likely_questions = [s["text"] for s in likely_questions_meta]
 
     # 3. CANDIDATE STRENGTHS
@@ -386,6 +393,8 @@ async def generate_prep_kit(
         client_overview=client_overview,
         likely_questions=likely_questions,
         likely_questions_meta=likely_questions_meta,
+        degraded=suggestions.degraded,
+        degraded_reason=suggestions.reason,
         candidate_strengths=strengths,
         candidate_gaps=gaps,
         selling_points=selling_points,
