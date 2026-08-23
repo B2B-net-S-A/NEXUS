@@ -4329,6 +4329,54 @@
       "commit": null,
       "pr": null,
       "note": ""
+    },
+    {
+      "id": 404,
+      "severity": "P2",
+      "effort": "M",
+      "status": "open",
+      "title": "_calls_in: cztery rozjechane kopie strażnika AST — trzy CICHO fałszywie przepuszczają",
+      "impact": "Ta sama klasa co #401/_pick_parties, ale skutek jest gorszy: tam rozjechana kopia dawała czerwień, tu daje ZIELEŃ na zakazanym kodzie. Trzy kopie (test_cache_key_invalidation.py:89, test_retrieval_pool_and_batching.py:51, test_talent_radar_search.py:248) liczą wywołania wyłącznie przez ast.Name, więc wywołanie kwalifikowane (modul.funkcja(...)) jest dla nich niewidoczne. Czwarta (test_ai_matches_eligibility.py:23) jest naprawiona i widzi też ast.Attribute. Szerzej: 12 plików test_* dopasowuje wywołania samym ast.Name.",
+      "failure_scenario": "Udowodnione wykonaniem, oba kierunki. FAŁSZYWY PASS: wstawienie 'await match_score_cache.bulk_get_or_compute(db, job, candidates)' do talent_radar_search.search zostawia test_search_does_not_write_the_score_cache ZIELONY — asercja 'not in' przechodzi, bo stara kopia nie widzi wywołania atrybutowego. FAŁSZYWY ALARM: bezpieczny refaktor (gołe wywołanie -> kwalifikowane) wywala test_search_enforces_eligibility, choć filtr stoi na miejscu. Najtańszą naprawą czerwieni na bezpiecznym refaktorze jest osłabienie asercji — wtedy strażnik umiera w dniu, w którym nic nie było zepsute. UZBROJONE JUŻ DZIŚ: dla recommendations.py::recommend_candidates_for_job stara kopia zwraca zły wynik na NIEZMIENIONYM kodzie (filter_eligible_candidates siedzi w _recommend_candidates_core, nie w handlerze).",
+      "evidence": "Skan AST po wszystkich backend/tests/test_*.py z porównaniem ciał (ast.dump); po odsianiu konwencji nazewniczych została jedna grupa o kształcie _pick_parties. Kontrole: baseline 37 passed; refaktor goły->kwalifikowany -> 1 failed (tylko stara kopia), naprawiona kopia zielona; sabotaż z zakazanym wywołaniem -> stara kopia 'widzi?' False, naprawiona True.",
+      "fix_sketch": "Wyciągnąć do backend/tests/_ast_calls.py z semantyką kopii NAPRAWIONEJ (ast.Name ORAZ ast.Attribute, jeden skok w helpery modułu, next(..., None) + czytelny assert zamiast gołego next()). Trzy stare kopie zastąpić importem. UWAGA: naprawiona reguła zwraca NADZBIÓR nazw, więc asercje 'not in' mogą od razu sczerwienieć — to sygnał do sprawdzenia, nie do wyciszenia. Strażnika z #1235 sparametryzować listą nazw wspólnych helperów albo dodać bliźniaczy plik — inaczej następna kopia znów przejdzie.",
+      "verifier_note": "Wyniesione z adwersarialnej weryfikacji PR #1235; obalone jako regresja TAMTEGO commita, potwierdzone jako samodzielny defekt."
+    },
+    {
+      "id": 405,
+      "severity": "P2",
+      "effort": "S",
+      "status": "open",
+      "title": "GET /api/contracts stronicuje bez ORDER BY — rejestr gubi i dubluje umowy",
+      "impact": "list_contracts robi offset/limit bez zadnego order_by. Wszystkie sąsiednie listy mają sortowanie z unikalnym tie-breakerem (/api/jobs ma nawet komentarz 'id is the stable tiebreaker'); /api/contracts jest jedynym wyjątkiem. Dodatkowo /api/contractors sortuje po (status, start_date) bez unikalnego klucza — 76 grup remisowych w bazie harnessu, ta sama klasa w słabszej postaci.",
+      "failure_scenario": "Delivery/finance przewija rejestr (20/stronę, ~296 stron). Ktokolwiek w tym czasie zapisze JAKĄKOLWIEK umowę — Postgres tworzy nową wersję krotki i wiersz zmienia pozycję w skanie — czytelnik nie zobaczy jednej umowy na ŻADNEJ stronie, a inną zobaczy dwa razy.",
+      "evidence": "Odtworzone na żywej bazie: przed UPDATE page1=[73,233,...], page2=[375,48,826,...]; po semantycznie pustym 'UPDATE contracts SET project_name=project_name WHERE id=73' -> POMINIĘTE=[375], ZDUPLIKOWANE=[73]. Brak order_by potwierdzony grepem po list_contracts, apply_delivery_lead_client_scope i _apply_contract_list_filters. Wada istnieje od pierwszego importu repo (38bd32fa, 2026-04-15).",
+      "fix_sketch": "query.order_by(Contract.id.desc()) przed offset/limit i po policzeniu total (wzorem jobs.py); w /api/contractors dołożyć Contract.id.desc() jako ostatni klucz.",
+      "verifier_note": "Potwierdzone wykonaniem; świadomie NIE naprawiane w PR #1235, bo tamten commit nie dotyka app/."
+    },
+    {
+      "id": 406,
+      "severity": "P3",
+      "effort": "S",
+      "status": "open",
+      "title": "deploy.yml i coolify-queue-maintenance.yml wklejają sekrety Coolify wprost do ciała skryptu (siostry #402)",
+      "impact": "Po naprawie coolify-ops.yml w PR #1235 zostały dwa pliki z tym samym kształtem: deploy.yml (linie 213, 216, 255, 257 — mimo że TEN SAM plik ma już poprawne bloki env: w liniach 120-124 i 162-164) oraz coolify-queue-maintenance.yml (33, 35, 63, 65, 74, 76). Ten drugi chodzi z crona, więc jest uruchamiany częściej i oglądany rzadziej. Dodatkowo maintenance drukuje SUROWE ciało odpowiedzi Coolify do trwałego logu biegu (head -c 300 / head -c 500) — konstrukcja usunięta z coolify-ops.yml w #402; w tym samym pliku stoi komentarz ostrzegający, że pole 'logs' Coolify echuje materiał klucza deploy.",
+      "failure_scenario": "Rotacja tokena/URL na wartość z metaznakiem powłoki: GitHub renderuje ${{ }} PRZED uruchomieniem basha, więc wartość staje się częścią TEKSTU skryptu. Udowodnione wykonaniem: dla wartości 'abc$(id -u)def' wersja inline wypisała 'Bearer abc501def' (podstawienie WYKONANE), wersja przez env: — 'Bearer abc$(id -u)def' (wartość literalna). W wariancie łagodnym nagłówek jedzie zniekształcony, cancel cicho zwraca 401 i kolejka Coolify nigdy się nie odtyka.",
+      "evidence": "Enumeracja przez yaml.safe_load po .github/workflows/*.yml z rozróżnieniem ${{ secrets.X }} od ${{ secrets.X != '' }}; wykonanie z podstawieniem komendy w obu wariantach.",
+      "fix_sketch": "Przenieść COOLIFY_TOKEN/URL/APP_UUID do env: każdego kroku i odwoływać się przez \"$CO_TOKEN\"/\"$CO_URL\"/\"$APP_UUID\". W maintenance zamienić head -c na filtr .message z coolify-ops.yml (gsub znaków sterujących + przycięcie). Rozważyć, czy maintenance nie jest już w całości zdublowany przez coolify-ops action=list/cancel — wtedy taniej usunąć niż utrzymywać dwie kopie.",
+      "verifier_note": "Wyniesione z weryfikacji #1235: reguła 'naprawiony bliźniak obok zepsutego' domknięta w granicach jednego pliku, poza nim została."
+    },
+    {
+      "id": 407,
+      "severity": "P2",
+      "effort": "S",
+      "status": "open",
+      "title": "Renderer umów bez finalize — puste pole trafia do dokumentu jako literalne 'None' i zostaje UTRWALONE",
+      "impact": "_jinja_env w contract_templates.py ma undefined=StrictUndefined, ale nie ma finalize. StrictUndefined broni tylko przed literówką w nazwie zmiennej — wartość None Jinja renderuje jako napis 'None'. _contract_vars celowo zwraca None dla nieuzupełnionych pól. Klientów bez NIP-u jest 11505 z 11899.",
+      "failure_scenario": "Szablon z '{{ client.nip }}' daje w wydruku umowy 'NIP None'. GET /api/contracts/{id}/draft renderuje RAZ i ZAPISUJE wynik do draft_content_html, więc uzupełnienie NIP-u później NIE naprawia zapisanego szkicu — trzeba go ręcznie przerenderować. To dokument prawny.",
+      "evidence": "Wykonanie na żywym kontrakcie: GET /api/contracts/3/draft -> 200, content_html = '<p>Wykonawca: ... (NIP None)</p><p>Zamawiający: ... (NIP None)</p><p>Stawka: None PLN</p>'. Wariant z osieroconym kandydatem dokłada 'Wykonawca: None (NIP None)'.",
+      "fix_sketch": "finalize=lambda v: '' if v is None else v w _jinja_env (i w bliźniaczym środowisku user_email_templates.py, jeśli dzieli kształt kontekstu). Rozróżnienie 'pole puste' vs 'pole nieistniejące' zostaje przy StrictUndefined.",
+      "verifier_note": "Potwierdzone wykonaniem na żywej bazie podczas weryfikacji #1235."
     }
   ]
 }
