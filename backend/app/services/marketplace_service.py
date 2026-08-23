@@ -248,9 +248,12 @@ def _should_scan_job(job: Job) -> Optional[str]:
     nice = job.nice_skills or []
     if not must and not nice:
         return "no_skills"
-    if not job.embedding_id:
-        # Embedding pojawi się później (re-scan z sweepera go złapie).
-        return "no_embedding"
+    # ŚWIADOMIE nie ma tu bramki na `job.embedding_id`. Skan nie używa wektora
+    # oferty: warstwa semantyczna powstaje z `search_candidates_semantic(
+    # _build_job_text(job))`, czyli z embeddingu TEKSTU oferty jako zapytania do
+    # kolekcji KANDYDATÓW. Pusta kolumna (dryf po `embed_job`, gdzie upsert do
+    # Qdranta udaje się, a commit pada) wycinała tu poprawny skan bez błędu i bez
+    # ponowienia. Patrz #403.
     return None
 
 

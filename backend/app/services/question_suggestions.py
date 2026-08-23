@@ -211,11 +211,13 @@ async def _tier_same_cc_similar(
     job: Job,
 ) -> list[SuggestedQuestion]:
     """Tier 1: jobs z tym samym primary CC, cosine >= TIER_1_MIN_COSINE."""
-    if not job.competence_category_id or not job.embedding_id:
-        logger.debug(
-            "[prep-suggest] skip tier 1 (job %s): no CC or no embedding",
-            job.id,
-        )
+    # Bramka WYŁĄCZNIE na CC: filtr niżej to `Job.competence_category_id ==
+    # job.competence_category_id`, co przy None degeneruje do IS NULL i
+    # dopasowałoby oferty bez CC. Brak wektora rozstrzyga `search_similar_jobs_
+    # by_job_id` (retrieve po PK oferty) — bramka na `embedding_id` była drugim,
+    # słabszym predykatem przed lepszym. Patrz #403.
+    if not job.competence_category_id:
+        logger.debug("[prep-suggest] skip tier 1 (job %s): no CC", job.id)
         return []
 
     hits = await search_similar_jobs_by_job_id(
@@ -252,9 +254,7 @@ async def _tier_secondary_cc(
     job: Job,
 ) -> list[SuggestedQuestion]:
     """Tier 2: jobs overlapping po secondary CC, cosine >= TIER_2_MIN_COSINE."""
-    if not job.embedding_id:
-        return []
-
+    # Bez bramki na `embedding_id` — patrz komentarz w `_tier_same_cc_similar`.
     # Zbierz secondary CCs siebie
     self_secondary = await db.execute(
         select(JobSecondaryCc.competence_category_id).where(

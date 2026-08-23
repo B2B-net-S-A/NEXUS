@@ -4309,7 +4309,7 @@
     },
     {
       "id": 403,
-      "status": "open",
+      "status": "fixed",
       "severity": "P2",
       "effort": "S",
       "bucket": "ryzyko",
@@ -4327,8 +4327,8 @@
       "fix_sketch": "Strażnik z #401 świadomie NIE obejmuje ofert, bo dla nich nie ma odpowiednika indexed_candidate_ids — zakaz odczytu byłby zakazem bez alternatywy. Do zrobienia: albo dorobić 'indexed_job_ids' (retrieve po kolekcji ofert, ten sam wzorzec, zero kosztu), albo uczynić stempel niezawodnym na wszystkich ścieżkach zapisu i to udokumentować.",
       "verifier_note": "Wyniesione z adwersarialnej kontroli #401; scripts/reembed_collections.py naprawione dla ofert, ale pozostałe ścieżki nie.",
       "commit": null,
-      "pr": null,
-      "note": ""
+      "pr": 1236,
+      "note": "Rozstrzygnięcie po panelu projektowym (3 propozycje, 3 sędziów, każdy zarzut udowodniony wykonaniem): bramki ZDJĘTE, nie przepisane na wywołanie autorytetu. Powód: żadna z trzech nie używa wektora oferty — marketplace embeduje TEKST oferty jako zapytanie do kolekcji KANDYDATÓW, a oba tiery podpowiedzi mają prawdziwy autorytet linijkę niżej (retrieve po PK). Bramka chroniła przed niczym i wycinała poprawną pracę. Zdjęcie odsłoniło jednak PRZYPADKOWĄ tarczę czasową: search_similar_jobs_by_job_id budował QdrantClient BEZ timeout (domyślne ~5 s httpx) na SYNCHRONICZNEJ ścieżce żądania — dodany jawny sufit 2 s. Do tego atak na PRZYCZYNĘ dryfu: embed_job ma teraz wewnętrzny try wokół samego commit() i stempluje z WŁASNEJ sesji (sesja wołającego po padniętym commicie jest nieużywalna), wyłącznie po UDANYM upsercie — ostemplowanie oferty bez wektora wypchnęłoby ją na zawsze z jedynego zapytania naprawczego WHERE embedding_id IS NULL. job_has_vector zostaje jako miejsce, do którego ma pójść CZWARTY czytelnik kolumny; uczciwie: dziś ma jednego konsumenta (compute_proposals). Strażnik AST pilnuje, żeby bramka nie odrosła — jego pierwsza wersja była ŚLEPA na dominujący idiom repo (`j.embedding_id`; mutacja dawała 10 passed), przepisany na dopasowanie po nazwie atrybutu z wyłączeniem odczytów klasowych i argumentów job_has_vector. Pomiar: admin_index_coverage zwraca teraz `stamped` i `stamp_drift` — dotąd nikt nie umiał odpowiedzieć, jak duży jest dryf na produkcji."
     },
     {
       "id": 404,
@@ -4377,6 +4377,18 @@
       "evidence": "Wykonanie na żywym kontrakcie: GET /api/contracts/3/draft -> 200, content_html = '<p>Wykonawca: ... (NIP None)</p><p>Zamawiający: ... (NIP None)</p><p>Stawka: None PLN</p>'. Wariant z osieroconym kandydatem dokłada 'Wykonawca: None (NIP None)'.",
       "fix_sketch": "finalize=lambda v: '' if v is None else v w _jinja_env (i w bliźniaczym środowisku user_email_templates.py, jeśli dzieli kształt kontekstu). Rozróżnienie 'pole puste' vs 'pole nieistniejące' zostaje przy StrictUndefined.",
       "verifier_note": "Potwierdzone wykonaniem na żywej bazie podczas weryfikacji #1235."
+    },
+    {
+      "id": 408,
+      "severity": "P2",
+      "effort": "M",
+      "status": "open",
+      "title": "search_similar_jobs_by_job_id zwraca [] dla DWÓCH różnych stanów, a tier 4 to zasypuje",
+      "impact": "Ta sama klasa co #403 — „nie wiem\" renderowane jako „nie ma\" — tylko o warstwę wyżej i po naprawie #403 wciąż otwarta. Funkcja zwraca pustą listę zarówno gdy Qdrant nie odpowiedział (retrieve rzucił), jak i gdy wektora realnie nie ma. Oba tiery podpowiedzi dostają tę samą pustkę, a suggest_questions_for_prep uruchamia tier 4 jako bezpiecznik („prep-kit musi mieć >= 1 pytanie\").",
+      "failure_scenario": "Podczas awarii Qdranta rekruter dostaje wiarygodną, NIEPUSTĄ listę pytań zbudowaną wyłącznie z auto-generatora i NIE MA JAK zauważyć, że dwa najlepsze źródła milczały. Odtworzone wykonaniem podczas panelu: przy niedostępnym Qdrancie i przy realnie brakującym wektorze wynik jest NIEODRÓŻNIALNY.",
+      "evidence": "Repro sędziego „poprawność\" w panelu #403: search_similar_jobs_by_job_id zwraca [] w obu stanach, NIEODROZNIALNE=True. #403 dodało rozdzielone komunikaty WARNING, więc różnica jest dziś WYŁĄCZNIE w logu, którego nikt nie czyta bez alertu.",
+      "fix_sketch": "Albo Optional[list] (None = nie wiem), albo podniesienie wyjątku na gałęzi awarii — plus tier 4 nie może zasypywać tej różnicy. Uwaga: to zmienia kontrakt funkcji, więc wymaga przejrzenia wszystkich wołających. NIE robić przy okazji #403: tam zmiana była usuwaniem bramek, tu jest zmianą kontraktu zwrotu.",
+      "verifier_note": "Wyniesione z panelu projektowego #403 jako blocking_objection wobec zwycięskiej propozycji. Nazwane ŚWIADOMIE, żeby zielony strażnik AST nie przekonał nikogo, że klasa jest zamknięta."
     }
   ]
 }

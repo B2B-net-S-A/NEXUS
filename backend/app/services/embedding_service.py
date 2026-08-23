@@ -12,7 +12,7 @@ from typing import Optional
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import settings
 
@@ -832,6 +832,120 @@ async def indexed_candidate_ids(candidate_ids: list[int]) -> Optional[set[int]]:
         return None
 
 
+_JOB_VECTOR_CHECK_TIMEOUT_SECONDS = 2.0
+
+
+async def indexed_job_ids(job_ids: list[int]) -> Optional[set[int]]:
+    """Bliźniak ``indexed_candidate_ids`` na kolekcji OFERT.
+
+    Zwraca ``None`` — nie pusty zbiór — gdy Qdrant nie umie odpowiedzieć, żeby
+    awaria nie udawała „żadna z tych ofert nie jest zaindeksowana".
+    """
+    ids = [int(j) for j in job_ids]
+    if not ids:
+        return set()
+
+    def _retrieve() -> set[int]:
+        client = _get_qdrant_client()
+        if client is None:
+            raise RuntimeError("Qdrant client unavailable")
+        found: set[int] = set()
+        for start in range(0, len(ids), 256):
+            chunk = ids[start : start + 256]
+            points = client.retrieve(
+                collection_name=_jobs_collection(),
+                ids=chunk,
+                with_payload=False,
+                with_vectors=False,
+            )
+            found.update(int(p.id) for p in points)
+        return found
+
+    try:
+        return await _run_qdrant(_retrieve)
+    except Exception as e:
+        logger.error(f"[Search] indexed_job_ids error: {e}")
+        return None
+
+
+async def _heal_job_embedding_id(job_id: int) -> None:
+    """Dopisz znacznik ofercie, która MA wektor, a kolumnę ma pustą.
+
+    WŁASNA sesja, świadomie: wołający (sweeper marketplace, podpowiedzi pytań)
+    ma w ręku transakcję, której ta naprawa nie ma prawa zatwierdzić ani cofnąć.
+
+    ``WHERE embedding_id IS NULL`` — nigdy nie nadpisujemy istniejącej wartości.
+    Best-effort: autorytetem jest Qdrant, a nieudany stempel to tylko droższe
+    następne wywołanie, nie błędna odpowiedź.
+    """
+    try:
+        from app.core.database import AsyncSessionLocal
+        from app.models.job import Job
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.embedding_id.is_(None))
+                .values(embedding_id=str(job_id))
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[Embed] job %s ma wektor, ale nie udało się dopisać embedding_id: %s",
+            job_id,
+            exc,
+        )
+
+
+async def job_has_vector(job_id: int, embedding_id: Optional[str]) -> Optional[bool]:
+    """Czy oferta ma wektor w ``nexus_jobs``. ``None`` = „nie wiem".
+
+    JEDYNY dozwolony czytelnik ``jobs.embedding_id`` w warstwie ORM (pilnuje
+    tego ``tests/test_job_embedding_id_marker.py``).
+
+    UCZCIWIE o zasięgu: trzy bramki, które tę kolumnę czytały
+    (``marketplace_service``, oba tiery ``question_suggestions``), zostały
+    ZDJĘTE, a nie przepisane na to wywołanie — żadna z nich nie używa wektora
+    oferty, więc najlepszą odpowiedzią na „nie wiem" jest tam NIE ZADAWAĆ
+    pytania. Dziś konsument jest więc dokładnie jeden: ``compute_proposals``,
+    które musi wiedzieć, czy płacić Voyage'owi za embedding. Ta funkcja istnieje
+    po to, żeby czwarty czytelnik kolumny miał dokąd pójść zamiast kopiować
+    predykat po raz czwarty — a nie dlatego, że ma dziś trzech.
+
+    Kolumna zostaje TANIM ZAWĘŻENIEM: gdy jest niepusta, odpowiadamy bez ruchu
+    sieciowego. Kłamstwo „na TAK" (kolumna pełna, wektora brak) jest tu
+    nieszkodliwe — żaden z trzech wołających nie liczy niczego z wektora
+    oferty, a ``search_similar_jobs_by_job_id`` sam zwróci pustkę. Qdrant
+    rozstrzyga wyłącznie ścieżkę negatywną, bo tylko tam kolumna kłamie
+    kosztownie: ``embed_job`` upsertuje wektor PRZED commitem stempla, więc
+    padnięty commit zostawia wektor i pustą kolumnę — i oferta cicho przestaje
+    generować propozycje oraz podpowiedzi pytań, na zawsze.
+
+    Sufit czasu jest tu, nie w ``indexed_job_ids``: bramki lecą SEKWENCYJNIE po
+    ofertach, a domyślny timeout ``qdrant-client`` to ~5 s, więc wiszący Qdrant
+    zatrzymałby sweepera zamiast go zdegradować.
+    """
+    if embedding_id:
+        return True
+
+    try:
+        found = await asyncio.wait_for(
+            indexed_job_ids([job_id]),
+            timeout=_JOB_VECTOR_CHECK_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        logger.warning("[Embed] nie udało się sprawdzić wektora oferty %s", job_id)
+        return None
+
+    if found is None:
+        return None
+    if job_id not in found:
+        return False
+
+    await _heal_job_embedding_id(job_id)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Phase 2: Job embedding (reverse matching)
 # ---------------------------------------------------------------------------
@@ -995,8 +1109,27 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
 
         await asyncio.to_thread(_upsert)
 
+        # Od tego momentu wektor JEST w Qdrancie. Zapis do Postgresa nie jest
+        # z nim atomowy, więc padnięty commit zostawiał ofertę z wektorem
+        # i pustą kolumną — bez śladu, bez ponowienia. Własny `try` WOKÓŁ SAMEGO
+        # commita, bo zewnętrzny `except` łapie też przypadki SPRZED upsertu,
+        # a ostemplowanie oferty BEZ wektora wypycha ją na zawsze z jedynego
+        # zapytania naprawczego (`phase3.py`: WHERE embedding_id IS NULL).
         job.embedding_id = str(job_id)
-        await db.commit()
+        try:
+            await db.commit()
+        except Exception as commit_exc:  # noqa: BLE001
+            logger.warning(
+                "[Embed] job %s: wektor w Qdrancie, commit stempla padł (%s) — "
+                "stempluję z osobnej sesji",
+                job_id,
+                commit_exc,
+            )
+            # Sesja wołającego po padniętym commicie jest nieużywalna, więc
+            # naprawa musi mieć własną. `WHERE embedding_id IS NULL` — nigdy
+            # nie nadpisujemy cudzej wartości.
+            await _heal_job_embedding_id(job_id)
+            return False
 
         logger.info(f"[Embed] Job {job_id} embedded and stored in Qdrant.")
         return True
@@ -1075,7 +1208,19 @@ async def search_similar_jobs_by_job_id(
     def _run() -> list[dict]:
         from qdrant_client import QdrantClient
 
-        client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        # Jawny sufit czasu. Bramka `if not job.embedding_id: return []`, którą
+        # #403 zdjęło, była PRZYPADKOWĄ tarczą czasową: dla oferty z pustą
+        # kolumną kończyła wywołanie natychmiast, więc tu nigdy nie docierało.
+        # Bez niej oba tiery podpowiedzi wołają Qdranta dla KAŻDEJ takiej oferty
+        # na SYNCHRONICZNEJ ścieżce żądania (`GET /jobs/{id}/suggested-questions`,
+        # `generate_prep_kit`), a `qdrant-client` bez `timeout=` spada na
+        # domyślny ~5 s httpx — czyli przy brown-oucie Qdranta do ~10 s na
+        # żądanie. Degradacja ma być szybka, nie zawieszać użytkownika.
+        client = QdrantClient(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT,
+            timeout=_JOB_VECTOR_CHECK_TIMEOUT_SECONDS,
+        )
 
         try:
             points = client.retrieve(
@@ -1084,11 +1229,25 @@ async def search_similar_jobs_by_job_id(
                 with_vectors=True,
             )
         except Exception as e:
-            logger.debug("[Search] retrieve vector for job %s failed: %s", job_id, e)
+            # "Nie wiem" — Qdrant nie odpowiedział. Inna sytuacja niż "nie ma".
+            logger.warning(
+                "[Search] retrieve vector for job %s failed (Qdrant unreachable?): %s",
+                job_id,
+                e,
+            )
             return []
 
         if not points:
-            logger.debug("[Search] job %s has no vector in nexus_jobs", job_id)
+            # "Nie ma" — Qdrant odpowiedział i wektora nie ma. To JEDYNE miejsce
+            # w kodzie ofert, które wie to na pewno (retrieve po PK oferty).
+            # WARNING, nie DEBUG: root logger stoi na INFO, więc DEBUG był na
+            # prodzie niewidoczny i degradacja podpowiedzi milkła. Patrz #403.
+            logger.warning(
+                "[Search] job %s has no vector in %s — similar-jobs search "
+                "returns empty",
+                job_id,
+                _jobs_collection(),
+            )
             return []
 
         vector = getattr(points[0], "vector", None)

@@ -96,6 +96,14 @@ async def index_coverage(
         )
     ) or 0
     jobs_total = (await db.scalar(select(func.count(Job.id)))) or 0
+    # Ile ofert MA ostemplowaną kolumnę. Endpoint zestawiał dotąd wiersze
+    # Postgresa z `points_count` Qdranta i liczby wypełnionych kolumn NIE ZNAŁ,
+    # więc na pytanie „jak duży jest dryf znacznika na produkcji" nie dało się
+    # odpowiedzieć inaczej niż wejściem do bazy. Odczyt na KLASIE (wybór
+    # wierszy), nie predykat na instancji — patrz `test_job_embedding_id_marker`.
+    jobs_stamped = (
+        await db.scalar(select(func.count(Job.id)).where(Job.embedding_id.is_not(None)))
+    ) or 0
 
     # Nazwy kolekcji z konfiguracji, nie zahardkodowane — inaczej raport
     # pokazywałby 0 na środowisku z własnym prefiksem i wyglądałby jak awaria.
@@ -125,7 +133,18 @@ async def index_coverage(
             **_gap(candidates_total, candidate_points),
             "active": candidates_active,
         },
-        "jobs": _gap(jobs_total, job_points),
+        "jobs": {
+            **_gap(jobs_total, job_points),
+            # `stamped` to liczba ofert z niepustym `embedding_id`. Różnica
+            # `indexed - stamped` JEST dryfem znacznika: wektor istnieje,
+            # kolumna go nie odnotowała. Przed #403 taka oferta cicho przestawała
+            # generować propozycje i podpowiedzi pytań. Podajemy obie liczby
+            # osobno, bo mierzą różne rzeczy i sklejenie ich dałoby bzdurę.
+            "stamped": jobs_stamped,
+            "stamp_drift": (
+                max(0, job_points - jobs_stamped) if job_points is not None else None
+            ),
+        },
         "outbox": {
             "pending": outbox.get("pending", 0),
             "failed": outbox.get("failed", 0),

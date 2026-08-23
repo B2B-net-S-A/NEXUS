@@ -105,17 +105,28 @@ async def compute_proposal_for_job(
 
             # Make sure the job has a semantic embedding before we rank, so the
             # semantic layer isn't just zeros for a freshly-created job.
-            if not getattr(job, "embedding_id", None):
-                try:
+            #
+            # Pusta kolumna NIE znaczy "brak wektora": `embed_job` upsertuje do
+            # Qdranta PRZED commitem stempla, więc padnięty commit zostawia
+            # wektor i pustą kolumnę. Ślepe `embed_job` płaciło wtedy Voyage'owi
+            # za wektor, który już istnieje. `job_has_vector` odpowiada z kolumny
+            # (0 ms), a gdy ta mówi "nie ma" — pyta Qdranta i sam naprawia stempel.
+            try:
+                from app.services.embedding_service import job_has_vector
+
+                if await job_has_vector(job.id, job.embedding_id) is not True:
                     await embed_job(job_id, session)
+                    # `refresh` POD warunkiem: to dodatkowy SELECT, a przy pełnej
+                    # kolumnie nie ma czego odświeżać. Poza warunkiem płaciłby
+                    # go KAŻDY przebieg liczenia propozycji.
                     await session.refresh(job)
-                except Exception as e:  # pragma: no cover — best-effort
-                    logger.warning(
-                        "[Proposals] embed_job(%s) failed, continuing without "
-                        "semantic layer: %s",
-                        job_id,
-                        e,
-                    )
+            except Exception as e:  # pragma: no cover — best-effort
+                logger.warning(
+                    "[Proposals] embed_job(%s) failed, continuing without "
+                    "semantic layer: %s",
+                    job_id,
+                    e,
+                )
 
             profile: WeightProfile = DEFAULT_PROFILE
             if snap.profile_id and snap.profile_id > 0:
