@@ -13,6 +13,8 @@ pasting a real key while testing.
 
 from __future__ import annotations
 
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -303,3 +305,94 @@ def test_manifest_has_a_consumer() -> None:
         "that the run had no failures — a manifest missing a whole dataset is "
         "otherwise indistinguishable from a clean one."
     )
+
+
+def _run_sh(snippet: str) -> str:
+    """Odpal fragment powłoki w POSIX ``sh`` — tej samej, którą ma kontener.
+
+    ``bash`` NIE nadaje się do tej weryfikacji: dla ``$(( 08 ))`` zachowuje się
+    inaczej niż ``ash`` z Alpine, więc test pod bashem przechodziłby dla kodu,
+    który na produkcji wywala kontener.
+    """
+    out = subprocess.run(
+        ["sh", "-c", snippet], capture_output=True, text=True, timeout=30
+    )
+    assert out.returncode == 0, f"powłoka padła: {out.stderr.strip()}"
+    return out.stdout.strip()
+
+
+def _extract_num() -> str:
+    """Wytnij PRAWDZIWĄ definicję ``num()`` z backup.sh, nie jej kopię.
+
+    Test na przepisanej ręcznie kopii dowodziłby wyłącznie tego, że kopia
+    działa — a to jest dokładnie ta klasa błędu, którą ten plik ma wyłapywać.
+    """
+    src = (_REPO / "backup" / "backup.sh").read_text(encoding="utf-8")
+    m = re.search(r"^num\(\) \{.*?^\}", src, re.S | re.M)
+    assert m, "nie znaleziono definicji num() — zmienił się kształt backup.sh"
+    return m.group(0)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1024", "1024"),
+        ("0", "0"),
+        # Wiodące zera: bez ich zdjęcia wartość trafia do `$(( ))` jako
+        # niepoprawna ósemka i powłoka KOŃCZY się błędem składni.
+        ("08", "8"),
+        ("09", "9"),
+        # Jedno zdjęte zero nie wystarcza — `009` zostawało jako `09`.
+        ("009", "9"),
+        ("000", "0"),
+        # Nie-liczby mają dawać 0, żeby awaria odczytu nie zapisała się
+        # jako czysty artefakt (patrz komentarz przy num()).
+        ("", "0"),
+        ("abc", "0"),
+        ("0x10", "0"),
+        ("12abc", "0"),
+    ],
+)
+def test_num_normalises_leading_zeros_so_arithmetic_cannot_explode(
+    raw: str, expected: str
+) -> None:
+    body = _extract_num()
+    got = _run_sh(f'{body}\nnum "{raw}"')
+    assert got == expected, f"num({raw!r}) = {got!r}, oczekiwano {expected!r}"
+    # Dowód właściwy: wynik MUSI przejść przez arytmetykę bez wybuchu.
+    _run_sh(f'{body}\nv=$(num "{raw}"); : $(( v + 1 ))')
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("2", "2"),
+        ("08", "8"),
+        ("009", "9"),
+        ("00", "0"),
+        ("0", "0"),
+        ("23", "23"),
+        ("24", "2"),  # poza zakresem -> domyślna
+        ("02:00", "2"),  # nie-liczba -> domyślna
+        ("", "2"),
+    ],
+)
+def test_backup_hour_survives_every_value_a_human_may_type(
+    raw: str, expected: str
+) -> None:
+    """``BACKUP_HOUR_UTC=08`` ZABIJAŁ kontener — i to była cicha śmierć.
+
+    Błąd arytmetyki ósemkowej kończył ``loop.sh`` przed pierwszym ``sleep``,
+    ``restart: unless-stopped`` podnosił kontener, i tak w kółko. Kopia nie
+    powstawała NIGDY, a jedynym śladem był licznik restartów w ``docker ps``,
+    którego nikt nie ogląda. ``08`` to zupełnie naturalna rzecz do wpisania
+    w pole „godzina", więc to nie jest przypadek brzegowy.
+    """
+    src = (_REPO / "backup" / "loop.sh").read_text(encoding="utf-8")
+    m = re.search(
+        r'^HOUR="\$\{BACKUP_HOUR_UTC:-2\}".*?^fi$', src, re.S | re.M
+    )
+    assert m, "nie znaleziono normalizacji HOUR — zmienił się kształt loop.sh"
+    snippet = f'BACKUP_HOUR_UTC="{raw}"\n{m.group(0)}\necho "$HOUR"'
+    got = _run_sh(snippet + "\n: $(( HOUR * 3600 ))")
+    assert got.splitlines()[-1] == expected, f"HOUR({raw!r}) -> {got!r}"

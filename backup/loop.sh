@@ -28,7 +28,17 @@ set -o pipefail
 # ósemkami przy odczycie ZEGARA (`now_h`), ale nie strzegł się przy wartości,
 # którą naprawdę wpisuje człowiek.
 HOUR="${BACKUP_HOUR_UTC:-2}"
-HOUR="${HOUR#0}"; HOUR="${HOUR:-0}"
+# Zdejmujemy WSZYSTKIE wiodące zera, nie jedno: `${HOUR#0}` obsłużyłby `08`,
+# ale `009` zostawiłby jako `09` — nadal ósemkowo niepoprawne, czyli dokładnie
+# ten sam wybuch, tylko o jeden znak dalej. Pętla zatrzymuje się na ostatniej
+# cyfrze (`00` -> `0`, nie -> ``), bo pusta wartość poleciałaby dalej jako
+# „nie liczba" i cicho podmieniła godzinę na domyślną.
+while :; do
+    case "$HOUR" in
+        0?*) HOUR="${HOUR#0}" ;;
+        *) break ;;
+    esac
+done
 case "$HOUR" in
     ''|*[!0-9]*)
         echo "[backup-loop] BACKUP_HOUR_UTC='${BACKUP_HOUR_UTC:-}' nie jest liczbą — używam 2:00 UTC" >&2
