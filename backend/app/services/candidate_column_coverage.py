@@ -15,6 +15,9 @@ against it without anyone editing a line.
 
 Cached for a day: these numbers move on the scale of imports and backfills,
 and the prompt is rendered at most a few times per hour.
+
+One row here is not a measurement of the column itself but a lower-bound
+estimate of state held in another system — see ``_LOWER_BOUND_ONLY``.
 """
 
 from __future__ import annotations
@@ -36,6 +39,8 @@ _CACHE_TTL_SECONDS = 24 * 60 * 60
 # report 60% coverage for a column that can answer 0.5% of skill filters.
 _COLUMNS: tuple[tuple[str, str], ...] = (
     ("embedding_id", "embedding_id IS NOT NULL"),
+    # ↑ jedyna pozycja, która NIE jest pomiarem stanu kolumny "na wartość", tylko
+    # oszacowaniem stanu W INNYM SYSTEMIE — patrz `_LOWER_BOUND_ONLY` niżej.
     ("raw_cv_text", "raw_cv_text IS NOT NULL AND btrim(raw_cv_text) <> ''"),
     ("competence_category_id", "competence_category_id IS NOT NULL"),
     ("ai_summary", "ai_summary IS NOT NULL AND btrim(ai_summary) <> ''"),
@@ -53,6 +58,22 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
 )
 
 
+# Kolumny, których liczba jest DOLNĄ GRANICĄ, nie pomiarem.
+#
+# `candidates.embedding_id` to kopia identyfikatora zapisywana przez
+# `embed_candidate`, więc mierzy nie samą siebie, tylko obecność wektora
+# w Qdrancie — a Qdrant o tym zapisie nie wie. Wektor da się dołożyć i usunąć
+# poza ścieżkami, które tę kolumnę piszą (ręczny `delete`, przebudowa kolekcji,
+# odtworzenie ze starszej migawki), więc żadna liczba stąd nie jest twarda.
+# Jedynym autorytetem jest `embedding_service.indexed_candidate_ids` — pyta
+# Qdranta wprost i zwraca `None`, gdy nie umie odpowiedzieć.
+#
+# Bez tego znacznika 80,1% w prompcie czyta się jak zmierzony fakt i prowadzi do
+# wniosku "co piąty kandydat jest niewyszukiwalny" — czyli do backfillu, który
+# w większości przeliczyłby wektory już istniejące.
+_LOWER_BOUND_ONLY: frozenset[str] = frozenset({"embedding_id"})
+
+
 @dataclass(frozen=True)
 class ColumnCoverage:
     total: int
@@ -65,6 +86,11 @@ class ColumnCoverage:
         lines = [f"POKRYCIE DANYCH W BAZIE ({self.total} kandydatów, pomiar bieżący):"]
         for name, pct in sorted(self.pct.items(), key=lambda kv: -kv[1]):
             marker = "  ← filtr po tym polu prawie nic nie zwróci" if pct < 20 else ""
+            if not marker and name in _LOWER_BOUND_ONLY:
+                # Bez "←": ten znak niesie w bloku znaczenie "kolumna zbyt rzadka
+                # na filtr", a tu chodzi o coś innego — liczba jest niepewna,
+                # nie niska.
+                marker = "  (dolna granica, nie pomiar — kolumna nie jest autorytetem)"
             lines.append(f"  {name:24s} {pct:5.1f}%{marker}")
         lines.append(
             "Filtruj po kolumnach o WYSOKIM pokryciu. Sygnały z kolumn rzadkich "

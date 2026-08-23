@@ -20,7 +20,7 @@
    "P2": 57,
    "P3": 10
   },
-  "total": 163,
+  "total": 164,
   "last_updated": "2026-08-22"
  },
  "themes": [
@@ -4263,7 +4263,7 @@
   },
   {
    "id": 401,
-   "status": "open",
+   "status": "fixed",
    "severity": "P2",
    "effort": "S",
    "bucket": "nie działa",
@@ -4282,11 +4282,11 @@
    "verifier_note": "Wykryte i potwierdzone WYKONANIEM na żywej bazie podczas adwersarialnej kontroli narzędzia do #130.",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "Rozstrzygnięcie: A ORAZ B. Obie znane rozbieżności domknięte (kwarantanna zeruje kolumnę razem z kasowaniem punktu, bezwarunkowo — nieudane kasowanie ma trwały retry, a warunkowanie zostawiałoby 'TAK' akurat tam, gdzie system NIE WIE; skrypt masowego re-embedu stempluje wiersze, które wypchnął, dla kandydatów I dla ofert). Kolumna świadomie NIE awansowana na autorytet: wektor da się usunąć poza każdą kontrolowaną ścieżką, więc dołożony strażnik AST zakazujący ODCZYTU jako predykatu (zapis wolno), a liczba w candidate_column_coverage oznaczona jako DOLNA GRANICA, nie pomiar. Jedynym autorytetem zostaje embedding_service.indexed_candidate_ids. UWAGA: dla OFERT rozjazd był dotkliwszy niż dla kandydatów — marketplace_service i question_suggestions ZATRZYMUJĄ przetwarzanie na 'if not job.embedding_id', więc oferta zaindeksowana wyłącznie skryptem cicho nie generowała propozycji. NIE domyka historycznego długu w danych: ~2604 kandydatów z wektorem i pustą kolumną wymaga osobnego, taniego zadania 'zsynchronizuj znacznik z Qdrantem' (scroll id-ków + UPDATE, zero wywołań Voyage)."
   },
   {
    "id": 402,
-   "status": "open",
+   "status": "fixed",
    "severity": "P2",
    "effort": "S",
    "bucket": "ryzyko",
@@ -4303,6 +4303,29 @@
    "evidence": "curl -sS ... | jq 'if type==\"array\" then map(...) else . end'",
    "fix_sketch": "Dodaj -f do curla i obsłuż błąd jawnie zamiast drukować ciało. Zmiana nie jest darmowa — trzeba zdecydować, co ma się dziać przy błędzie — dlatego osobna pozycja, nie doklejka.",
    "verifier_note": "Zastane, wykryte przy adwersarialnej kontroli nowej akcji backup-status. Świadomie NIE naprawione w tamtym PR-ze (poza zakresem).",
+   "commit": null,
+   "pr": null,
+   "note": "action=list, cancel i cron-list przepisane na sprawdzanie kodu HTTP PRZED jakąkolwiek projekcją. Komunikat niesie metodę, ścieżkę i kod, nigdy ciała. Gałąź 'HTTP 200, ale zły kształt' też nic nie drukuje, a stderr jq idzie do /dev/null, bo jq w SWOICH komunikatach cytuje fragment wartości — tylnymi drzwiami wypuściłby to samo ciało. Job pada na czerwono zamiast kończyć zielenią z pustką: to narzędzie diagnostyczne, a zielony bieg z pustką czyta się jak 'nic nie stoi w kolejce', czyli odwrotnie niż stan faktyczny. Oba zapytania wykonywane mimo błędu pierwszego (akumulator rc) — padnięty /deployments nie może ukryć sprawnego statusu aplikacji."
+  },
+  {
+   "id": 403,
+   "status": "open",
+   "severity": "P2",
+   "effort": "S",
+   "bucket": "ryzyko",
+   "area": "Backend · serwisy",
+   "category": "broken",
+   "verified": true,
+   "confidence": "high",
+   "themes": [],
+   "title": "jobs.embedding_id ma tę samą wadę co candidates.embedding_id, ale dotkliwszą — trzy ścieżki ZATRZYMUJĄ na niej przetwarzanie",
+   "file": "backend/app/services/marketplace_service.py",
+   "line": 251,
+   "impact": "marketplace_service.py:251, question_suggestions.py:214 i :255 robią 'if not job.embedding_id: return' — czyli kolumna nie jest tam statystyką, tylko bramką. Oferta zaindeksowana ścieżką, która kolumny nie stempluje, cicho przestaje generować propozycje i podpowiedzi pytań. Dla kandydatów ten sam rozjazd psuł liczbę; dla ofert psuje FUNKCJĘ.",
+   "failure_scenario": "Oferta ma wektor w Qdrancie, ale pustą kolumnę -> marketplace i question_suggestions milkną bez błędu.",
+   "evidence": "if not job.embedding_id:\n    return",
+   "fix_sketch": "Strażnik z #401 świadomie NIE obejmuje ofert, bo dla nich nie ma odpowiednika indexed_candidate_ids — zakaz odczytu byłby zakazem bez alternatywy. Do zrobienia: albo dorobić 'indexed_job_ids' (retrieve po kolekcji ofert, ten sam wzorzec, zero kosztu), albo uczynić stempel niezawodnym na wszystkich ścieżkach zapisu i to udokumentować.",
+   "verifier_note": "Wyniesione z adwersarialnej kontroli #401; scripts/reembed_collections.py naprawione dla ofert, ale pozostałe ścieżki nie.",
    "commit": null,
    "pr": null,
    "note": ""

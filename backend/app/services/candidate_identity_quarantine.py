@@ -360,6 +360,18 @@ async def _clear_quarantined_cv_projection(
             status="pending",
         )
     )
+    # Kolumna `candidates.embedding_id` jest KOPIĄ identyfikatora — jej jedyną
+    # treścią jest "NULL czy nie", czyli predykat "ma wektor". Kasowanie punktu
+    # z Qdranta bez wyzerowania tej kolumny zostawiało ją twierdzącą "wektor
+    # jest" dla kandydata, któremu go właśnie odebraliśmy. Zerujemy BEZWARUNKOWO
+    # (przed próbą kasowania i niezależnie od jej wyniku): intencją kwarantanny
+    # jest brak wektora, a nieudane kasowanie ma trwały retry w outboksie wyżej.
+    # Zapis idzie w transakcji wołającego — razem z resztą czyszczenia, więc
+    # rollback cofa jedno i drugie.
+    #
+    # `embedding_id` NIE trafia do `cleared_fields`: ta lista raportuje, ile pól
+    # z danymi OSOBY wyczyściliśmy, a to jest znacznik indeksu, nie dana osobowa.
+    candidate.embedding_id = None
     try:
         from app.services.embedding_service import delete_candidate_embedding
 
