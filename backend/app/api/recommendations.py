@@ -731,16 +731,26 @@ async def candidates_from_similar_jobs(
     tier_b_count = sum(1 for r in similar_refs if r.tier == "B")
 
     if not similar_refs:
+        # `degraded` z `fetch_similar_jobs` znaczy „Qdrant nie odpowiedział",
+        # a nie „nie ma podobnych ofert" — i musi PRZEJŚĆ przez ten wczesny
+        # return, a nie zostać nadpisane na „empty". Degradacja z definicji
+        # daje pustą listę refów, więc to jedyne miejsce, którym może wyjść:
+        # nadpisanie zamykało ją tu na głucho i rekruter widział podczas awarii
+        # komunikat o BRAKU historii. Ta sama klasa co #408, odtworzona obok
+        # własnej naprawy.
+        degraded = tier_used == "degraded"
         return CandidatesFromSimilarOut(
             job_id=job_id,
-            tier_used="empty",
+            tier_used="degraded" if degraded else "empty",
             similar_jobs=[],
             candidates=[],
             meta=HistoricalCandidatesMeta(
                 tier_a_count=0,
                 tier_b_count=0,
                 total_sources=0,
-                reason_if_empty="no_similar_jobs_found",
+                reason_if_empty=(
+                    "similar_jobs_unavailable" if degraded else "no_similar_jobs_found"
+                ),
             ),
         )
 

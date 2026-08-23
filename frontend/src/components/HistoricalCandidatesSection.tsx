@@ -426,6 +426,14 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
   });
   const failed = isBlockingViewState(viewState);
 
+  // `tier_used === "degraded"` znaczy „wyszukiwanie podobnych ofert nie
+  // odpowiedziało" — czyli NIE WIEMY, czy historia jest pusta. Musi renderować
+  // się jak awaria, nie jak pusty stan: „Brak kandydatów w historii podobnych
+  // projektów" czyta się jako fakt o świecie i rekruter przestaje szukać
+  // dokładnie tam, gdzie system po prostu nie odpowiedział. Ta sama zasada, co
+  // przy `meta.degraded` w Talent Radarze.
+  const degraded = tierUsed === "degraded";
+
   // Bramka dopuszczalności (backend, `candidates_from_similar_jobs`) wycina
   // z tej sekcji jej NAJBOGATSZĄ populację: ludzi rozważanych już u TEGO
   // klienta, czyli dokładnie tych, u których siedzą aktywne blacklisty, NDA,
@@ -515,7 +523,9 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
             ? "ładowanie…"
             : failed
               ? "nie udało się pobrać"
-              : `${candidates.length} kandydatów z ${similarJobs.length} podobnych projektów${
+              : degraded
+                ? "nie udało się sprawdzić"
+                : `${candidates.length} kandydatów z ${similarJobs.length} podobnych projektów${
                   tierUsed === "extended" ? " (Tier A + B)" : ""
                 }`}
         </span>
@@ -541,6 +551,22 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
             viewState === "error" ? () => void query.refetch() : undefined
           }
         />
+      ) : degraded ? (
+        <div
+          role="status"
+          className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+        >
+          Wyszukiwanie podobnych rekrutacji nie odpowiedziało, więc{" "}
+          <strong className="font-medium">nie wiadomo</strong>, czy w historii są
+          kandydaci. To nie jest informacja o braku historii.{" "}
+          <button
+            type="button"
+            onClick={() => void query.refetch()}
+            className="underline underline-offset-2"
+          >
+            Ponów
+          </button>
+        </div>
       ) : viewState === "empty" ? (
         <p className="text-sm text-slate-500">
           {hiddenIneligible > 0

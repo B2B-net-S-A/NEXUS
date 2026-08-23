@@ -49,9 +49,16 @@ export default function PrepPage() {
  ]);
  setPrepKit(kitRes.data);
  setSuggestions(suggRes.data.items);
+ // Dwa źródła tej samej prawdy: koperta `/suggested-questions` i pola
+ // `degraded` w prep-kicie. Czytamy OBA — pole zwracane przez backend,
+ // którego nikt nie czyta, to kontrakt bez konsumenta, czyli dokładnie ta
+ // martwota, którą ten audyt tropi. Wystarczy, że JEDNO mówi „niepełne".
+ const degraded =
+ suggRes.data.meta.degraded || kitRes.data.degraded === true;
  setDegradedReason(
- suggRes.data.meta.degraded
+ degraded
  ? (suggRes.data.meta.reason ??
+ kitRes.data.degraded_reason ??
  "Wyszukiwanie podobnych rekrutacji nie odpowiedziało — lista może być niepełna.")
  : null,
  );
@@ -253,10 +260,16 @@ export default function PrepPage() {
  )}
  </section>
 
+ {/* CELOWO bez `print:hidden`. Ta strona ma przycisk „Drukuj" i układ pod
+ wydruk — kartka idzie na rozmowę. Ukrycie banera na wydruku kasowałoby
+ jedyny ślad, że pytania pochodzą z auto-generatora, bo dwa najlepsze
+ źródła milczały; zdegradowany wynik prezentowałby się wtedy jako
+ normalny dokładnie w artefakcie, na którym ktoś polega. Informacja
+ o niepełności to TREŚĆ, nie ozdoba — na wydruku traci tylko kolor. */}
  {degradedReason && (
  <div
  role="status"
- className="mt-4 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground print:hidden"
+ className="mt-4 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground print:border-black/40 print:bg-transparent print:text-black"
  >
  <strong className="font-medium">Lista może być niepełna.</strong>{" "}
  {degradedReason} Pozostałe pytania pochodzą z automatycznego

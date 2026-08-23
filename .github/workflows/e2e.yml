@@ -52,11 +52,25 @@ jobs:
         # WYPISUJE swoje własne pokrycie do podsumowania zadania — żeby
         # „zielone" dało się przeczytać razem z „ile z czego".
         run: |
-          total_specs=$(ls e2e/*.spec.ts 2>/dev/null | wc -l | tr -d " ")
-          total_cases=$(grep -ch "^[[:space:]]*test(" e2e/*.spec.ts 2>/dev/null | awk "{s+=\$1} END {print s+0}")
+          # Liczby bierzemy z narzędzia, które te testy URUCHAMIA, a nie z grepa
+          # po źródle. Pierwsza wersja tego kroku liczyła LINIE `test(` i przez to
+          # kłamała w trzech miejscach naraz: pętle w spec-ach rozwijają się na
+          # wiele przypadków (6 linii -> 13 testów), `test.fixme(` w ogóle nie
+          # miało linii z `test(`, a `auth.setup.ts` nie jest `*.spec.ts`. Raport
+          # pokazywał 6/46 tam, gdzie Playwright widzi 13/81 — czyli podsumowanie
+          # zbudowane po to, by „zielone" dało się przeczytać razem z „ile z
+          # czego", samo podawało złe „ile z czego".
+          count_tests() {
+            npx playwright test --list "$@" 2>/dev/null \
+              | sed -n 's/^Total: \([0-9]*\) tests* in \([0-9]*\) files*$/\1 \2/p' \
+              | tail -1
+          }
+          read -r total_cases total_specs <<< "$(count_tests)"
+          total_cases="${total_cases:-0}"; total_specs="${total_specs:-0}"
+
           if [ -z "$E2E_USER_PASSWORD" ]; then
-            ran_specs=$(ls e2e/candidate-ux-preview.spec.ts 2>/dev/null | wc -l | tr -d " ")
-            ran_cases=$(grep -c "^[[:space:]]*test(" e2e/candidate-ux-preview.spec.ts 2>/dev/null || echo 0)
+            read -r ran_cases ran_specs <<< "$(count_tests --project=preview-chromium)"
+            ran_cases="${ran_cases:-0}"; ran_specs="${ran_specs:-0}"
             {
               echo "### E2E — bieg CZĘŚCIOWY"
               echo ""
@@ -72,13 +86,27 @@ jobs:
             echo "::warning::E2E CZĘŚCIOWE — $ran_cases z $total_cases przypadków ($ran_specs z $total_specs plików). Brak E2E_USER_EMAIL/E2E_USER_PASSWORD, więc przepływy po zalogowaniu nie są weryfikowane. Zielony wynik NIE znaczy, że E2E przechodzi."
             npx playwright test --project=preview-chromium
           else
+            # Tu też TABELA, nie zapewnienie. Poprzednia wersja pisała
+            # „Uruchomiono wszystkie N przypadków" — nieprawda niezależnie od
+            # licznika, bo `test.fixme(` Playwright LISTUJE, ale nie wykonuje
+            # (dziś 27 sztuk w flow-stubs-todo.spec.ts). Zapewnienie o
+            # kompletności znikało dokładnie wtedy, gdy zaczynało być
+            # weryfikowalne — czyli po dodaniu sekretów.
+            parked=$(grep -rch "^[[:space:]]*test\.fixme(" e2e/*.spec.ts 2>/dev/null | awk "{s+=\$1} END {print s+0}")
             {
               echo "### E2E — bieg PEŁNY"
               echo ""
-              echo "Uruchomiono wszystkie $total_cases przypadki z $total_specs plików."
+              echo "| | liczba |"
+              echo "|---|---|"
+              echo "| przypadki wylistowane | $total_cases |"
+              echo "| w tym zaparkowane (\`test.fixme\`) | $parked |"
+              echo "| pliki spec | $total_specs |"
+              echo ""
+              echo "Zaparkowane przypadki są listowane, ale NIE wykonywane."
             } >> "$GITHUB_STEP_SUMMARY"
             npm run test:e2e
           fi
+
       - name: Upload report on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -15,7 +15,11 @@ from pydantic import BaseModel, Field
 
 
 TierLabel = Literal["A", "B"]
-TierUsed = Literal["primary", "extended", "empty"]
+# „degraded" to NIE jest czwarty próg podobieństwa, tylko odpowiedź „nie wiem":
+# wyszukiwanie podobnych ofert nie odpowiedziało, więc pusta lista NIE znaczy,
+# że kandydatów z podobnych projektów nie ma. Bez tej wartości stan awarii nie
+# miał jak wyjść z handlera i był nadpisywany na „empty" (#408 follow-up).
+TierUsed = Literal["primary", "extended", "empty", "degraded"]
 
 
 class SimilarJobOut(BaseModel):
