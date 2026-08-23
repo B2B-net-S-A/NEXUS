@@ -3674,7 +3674,16 @@ _DATA_STATEMENTS = [
            WHERE co.status <> 'void'::contractstatus
              AND lower(concat_ws(' ', cl.name, cl.display_name, cl.legal_name))
                    LIKE '%biuro informacji kredytowej%'
-             AND lower(trim(ca.name) || ' ' || trim(ca.lastname)) IN (
+             -- `normalize(..., NFC)` jak w migracji 0238. Bez tego
+             -- porównanie CAŁEGO napisu nie trafia w rekord zapisany
+             -- w NFD („ń" jako "n" + U+0301) — tak zgubiony został
+             -- kontrakt #571 (Robert Łuszczyński), doaktywowany osobną
+             -- rewizją 0239. To lustro jest WAŻNIEJSZE od samej migracji:
+             -- prod alembic bywa osierocony, więc na produkcji chodzi
+             -- właśnie ten SQL. Pudło jest CICHE — nie raportujemy, ilu
+             -- z dziewięciu ludzi trafiliśmy, więc częściowe trafienie
+             -- wygląda w logach jak pełne.
+             AND lower(normalize(trim(ca.name) || ' ' || trim(ca.lastname), NFC)) IN (
                    'aleksander wojdyła',
                    'daniel madejski',
                    'maciej koc',

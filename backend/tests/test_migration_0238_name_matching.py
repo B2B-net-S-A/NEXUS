@@ -19,10 +19,11 @@ Test pilnuje OBU połówek niezmiennika, bo każda z osobna jest bezużyteczna:
   rozłożonej nie zrówna się z żadnym znormalizowanym rekordem, czyli
   normalizacja kolumny cicho przestaje działać dla tej jednej osoby.
 
-Zakres: `entrypoint.sh` niesie LUSTRO tego samego SQL-a (prod alembic bywa
-osierocony) i nadal porównuje surowy napis — jego poprawka wykracza poza tę
-zmianę. Dlatego dla lustra sprawdzamy tylko to, co jest w nim dziś prawdą:
-że literały są w NFC.
+Zakres: `entrypoint.sh` niesie LUSTRO tego samego SQL-a i — ponieważ prod
+alembic bywa osierocony — to WŁAŚNIE ONO wykonuje się na produkcji. Do #315
+lustro porównywało surowy napis, choć migracja była już poprawiona: poprawka
+istniała dokładnie tam, gdzie nie działa. Od #315 obie ścieżki normalizują
+kolumnę i obie są tu sprawdzane.
 """
 
 from __future__ import annotations
@@ -70,14 +71,25 @@ def _name_literals(path: Path) -> list[str]:
     return _NAME_LITERAL.findall(body[start:end])
 
 
-def test_migration_normalizes_the_candidate_name_before_comparing():
-    sql = MIGRATION.read_text(encoding="utf-8")
+@pytest.mark.parametrize(
+    "source", (MIGRATION, ENTRYPOINT), ids=("migration", "entrypoint")
+)
+def test_name_is_normalized_before_comparing(source: Path):
+    """Kolumna musi być normalizowana w OBU ścieżkach, nie tylko w migracji.
+
+    Lustro w ``entrypoint.sh`` jest tu WAŻNIEJSZE od samej rewizji: prod
+    alembic bywa osierocony, więc na produkcji wykonuje się właśnie ono.
+    Do #315 lustro porównywało surowy napis, choć migracja była już
+    poprawiona — czyli poprawka istniała dokładnie tam, gdzie nie działa.
+    """
+    sql = source.read_text(encoding="utf-8")
 
     assert "lower(normalize(trim(ca.name) || ' ' || trim(ca.lastname), NFC))" in sql, (
-        "predykat 0238 wrócił do porównania surowego napisu — nazwiska w formie rozłożonej znów przepadną"
+        f"{source.name}: predykat wrócił do porównania surowego napisu — "
+        "nazwiska w formie rozłożonej znów przepadną, i to CICHO"
     )
     assert "lower(trim(ca.name) || ' ' || trim(ca.lastname)) IN (" not in sql, (
-        "w 0238 został stary, nieznormalizowany wariant porównania"
+        f"{source.name}: został stary, nieznormalizowany wariant porównania"
     )
 
 
