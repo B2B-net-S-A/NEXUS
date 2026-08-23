@@ -103,7 +103,32 @@ jobs:
       # Daily run at 02:00 UTC, plus room for a long CV sync and the retry
       # ladder in loop.sh before this is treated as "the backups have stopped".
       MAX_AGE_HOURS: ${{ vars.BACKUP_MAX_AGE_HOURS || '30' }}
+      # Obecność, nie wartość — do porównania „czy w ogóle jest".
+      HAS_S3_ACCESS: ${{ secrets.BACKUP_S3_ACCESS_KEY != '' }}
+      HAS_S3_SECRET: ${{ secrets.BACKUP_S3_SECRET_KEY != '' }}
     steps:
+      # Bramka włączona, a poświadczeń brak — to jedyna kombinacja, w której ten
+      # job nie ma czego czytać. Bez tego kroku `rclone` dostaje puste klucze
+      # i pada na uwierzytelnieniu B2, czyli komunikatem, który MYLI: wygląda
+      # jak awaria dostawcy, a jest brakiem konfiguracji. Diagnoza szłaby wtedy
+      # w stronę Backblaze zamiast w stronę `gh secret set`.
+      #
+      # `exit 1`, nie `exit 0`: job bramkowany na `BACKUP_MONITORING_ENABLED`
+      # został WŁĄCZONY świadomie, więc jego cisza znaczyłaby, że ktoś włączył
+      # monitoring kopii i dostał zielono, nie czytając ani jednego bajtu.
+      - name: Refuse to claim anything without credentials
+        if: env.HAS_S3_ACCESS != 'true' || env.HAS_S3_SECRET != 'true'
+        run: |
+          echo "::error::BACKUP_MONITORING_ENABLED=true, ale brakuje sekretów repo:"
+          [ "${HAS_S3_ACCESS}" = "true" ] || echo "::error::  BACKUP_S3_ACCESS_KEY"
+          [ "${HAS_S3_SECRET}" = "true" ] || echo "::error::  BACKUP_S3_SECRET_KEY"
+          echo "::error::Bez nich nie da się odczytać LATEST.json, więc ten job nie"
+          echo "::error::może orzec NIC o świeżości kopii — a milczące przejście"
+          echo "::error::twierdziłoby, że kopie są monitorowane."
+          echo "::error::Kroki: docs/runbook-backup-201.md, sekcja (d)."
+          echo "::error::Albo ustaw sekrety, albo cofnij BACKUP_MONITORING_ENABLED na false."
+          exit 1
+
       - name: Install rclone
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends rclone
 
