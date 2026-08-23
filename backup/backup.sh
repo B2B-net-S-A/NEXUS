@@ -163,10 +163,22 @@ FAILURES=0
 # ekranie. `set -e` tego nie łapie, bo błąd testu wewnątrz `if` jest z definicji
 # „obsłużony".
 num() { # value -> ta sama liczba całkowita, albo 0 gdy to nie jest liczba
+    # `[!0-9]` łapie wyłącznie NIE-cyfry, więc `08` przechodziło tędy bez zmian
+    # i wychodziło jako `"08"`. Dalej trafia do `$(( ))` przy porównaniach
+    # rozmiaru i do manifestu — a `08` nie jest poprawną ósemką, więc powłoka
+    # kończy się na błędzie składni zamiast policzyć. Zdejmujemy WSZYSTKIE
+    # wiodące zera, zostawiając ostatnią cyfrę (`000` -> `0`).
     case "${1:-}" in
-        ''|*[!0-9]*) echo 0 ;;
-        *) echo "$1" ;;
+        ''|*[!0-9]*) echo 0; return ;;
     esac
+    _n="$1"
+    while :; do
+        case "$_n" in
+            0?*) _n="${_n#0}" ;;
+            *) break ;;
+        esac
+    done
+    echo "$_n"
 }
 
 record() { # name status bytes detail [objects]
