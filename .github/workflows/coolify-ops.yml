@@ -72,22 +72,79 @@ jobs:
     steps:
       - name: List deployments + application status
         if: inputs.action == 'list'
+        # Sekrety przez `env:`, a nie `${{ }}` w ciele skryptu — ta sama zasada,
+        # co w krokach `cancel` i `backup-status` niżej.
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        # Nieudane zapytanie kończy ten krok NA CZERWONO — ale dopiero po
+        # wykonaniu obu zapytań. Trzy decyzje, każda przeciwko innemu sposobowi
+        # zmylenia operatora:
+        #
+        #   1. Czerwień zamiast dotychczasowego `|| echo "(request failed)"`.
+        #      To narzędzie diagnostyczne odpalane ręcznie, więc odpowiedź czyta
+        #      się z logu — ale bieg zakończony na zielono z pustym wynikiem
+        #      czyta się jak odpowiedź „w kolejce nic nie stoi" na pytanie „co
+        #      stoi w kolejce". Cicha pustka jest tu gorsza niż czerwień.
+        #   2. Oba zapytania mimo błędu pierwszego (stąd `rc`, a nie `exit 1`
+        #      w środku). Padnięta lista wdrożeń nie może ukryć statusu
+        #      aplikacji — to dwie niezależne informacje, a przy zapchanej
+        #      kolejce potrzebne są obie naraz.
+        #   3. Komunikat niesie metodę, ścieżkę i kod HTTP, a NIGDY ciała
+        #      odpowiedzi. Poprzednia wersja wołała `curl` bez `-f`, więc przy
+        #      4xx/5xx curl kończył się kodem 0 i podawał ciało błędu dalej,
+        #      a gałąź `else .` w filtrze jq drukowała je do logu w całości.
+        #      Dziś Coolify odpowiada tam `{"message":"Unauthenticated."}`,
+        #      czyli to higiena, nie wyciek — ale log biegu zostaje w historii
+        #      repo, a o jego zawartości decydowałoby zdalne API. Kod HTTP
+        #      odpowiada na to samo pytanie („dlaczego nie ma wyniku") i nie
+        #      zmienia się razem z formatem błędów Coolify.
         run: |
+          set -uo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          rc=0
+
+          # $1 = etykieta do komunikatu, $2 = ścieżka pod /api/v1, $3 = filtr jq.
+          # Filtr MUSI zwracać `empty` dla nieoczekiwanego kształtu: `jq -e` daje
+          # wtedy kod 4 (brak wyjścia) i wchodzimy w gałąź błędu, zamiast wypisać
+          # cokolwiek, co przyszło. Stderr jq idzie do /dev/null, bo jego własne
+          # komunikaty o błędzie potrafią zacytować fragment wartości — czyli to
+          # samo ciało, którego tu nie drukujemy.
+          query() {
+            local label="$1" path="$2" filter="$3" body code
+            body="$(mktemp)"
+            # BEZ `|| echo 000`: curl wypisuje `%{http_code}` także przy błędzie
+            # połączenia (wtedy `000`) i dopiero potem kończy się kodem != 0,
+            # więc fallback doklejał DRUGIE `000` i komunikat mówił o kodzie
+            # `000000`, którego nie ma — akurat w tym przypadku, na który
+            # powołuje się nawias "(000 = brak odpowiedzi)".
+            code="$(curl -sS -o "$body" -w '%{http_code}' "${auth[@]}" "$base$path")"
+            [ -n "$code" ] || code=000
+            if [ "$code" != "200" ]; then
+              echo "::error::${label}: GET /api/v1${path} zwróciło HTTP ${code} (000 = brak odpowiedzi). Ciała odpowiedzi nie drukujemy — sprawdź token i URL Coolify."
+              rc=1
+            elif ! jq -e "$filter" "$body" 2>/dev/null; then
+              echo "::error::${label}: HTTP 200, ale odpowiedź nie ma spodziewanego kształtu — nie drukuję jej. Sprawdź endpoint w panelu Coolify."
+              rc=1
+            fi
+            rm -f "$body"
+          }
+
           echo "=== Currently running/queued deployments (instance-wide) ==="
-          curl -sS \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
-            -H "Accept: application/json" \
-            "${{ secrets.COOLIFY_URL }}/api/v1/deployments" \
-            | jq 'if type == "array" then map({deployment_uuid, application_name, status, commit: (.commit // "" | .[0:10]), created_at, application_id}) else . end' \
-            || echo "(request failed)"
+          query "lista wdrożeń" "/deployments" \
+            'if type == "array"
+             then map({deployment_uuid, application_name, status, commit: (.commit // "" | .[0:10]), created_at, application_id})
+             else empty end'
           echo ""
           echo "=== Application status ==="
-          curl -sS \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
-            -H "Accept: application/json" \
-            "${{ secrets.COOLIFY_URL }}/api/v1/applications/${{ secrets.COOLIFY_APP_UUID }}" \
-            | jq '{name, uuid, status, last_online_at, git_branch, git_commit_sha}' \
-            || echo "(request failed)"
+          query "status aplikacji" "/applications/${APP_UUID}" \
+            'if type == "object" and has("uuid")
+             then {name, uuid, status, last_online_at, git_branch, git_commit_sha}
+             else empty end'
+
+          exit $rc
 
       - name: Cancel deployments
         if: inputs.action == 'cancel'
@@ -114,11 +171,25 @@ jobs:
           rc=0
           for uuid in $UUIDS; do
             echo "Cancelling deployment $uuid ..."
+            # `|| echo "000"` DOKLEJAŁO drugi kod: przy braku odpowiedzi curl
+            # wypisuje `000` przez `-w` I kończy się niezerowo, więc podstawienie
+            # dawało `000000` — komunikat o nieistniejącym kodzie HTTP dokładnie
+            # w sytuacji, w której odpowiedzi nie ma. Kod bierzemy z `-w`,
+            # a niepowodzenie samego curla zostawiamy `|| true`, żeby `set -e`
+            # nie ubiło pętli przed wypisaniem, co się stało.
             code=$(curl -sS -o /tmp/cancel_body -w "%{http_code}" -X POST \
               -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
               -H "Accept: application/json" \
-              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$uuid/cancel" || echo "000")
-            echo "HTTP $code — $(cat /tmp/cancel_body 2>/dev/null | head -c 500)"
+              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$uuid/cancel" || true)
+            code="${code:-000}"
+            # Ten sam kształt, co w kroku `list` wyżej: `curl` bez `-f` podaje
+            # ciało błędu dalej, a `head -c 500` wysypywało je do logu biegu.
+            # Zostaje WYŁĄCZNIE pole `.message` (albo `.error`) — jedno nazwane
+            # pole przeznaczone dla człowieka, przycięte i pozbawione znaków
+            # sterujących, żeby nowa linia w treści nie zaczęła w logu własnego
+            # polecenia `::error::`. Reszta ciała nie wychodzi. Ta sama
+            # konwencja, co przy tworzeniu zadania evalu w jobie `eval`.
+            echo "HTTP $code — $(jq -r '((.message // .error // "brak pola .message w odpowiedzi") | tostring | gsub("[[:cntrl:]]"; " ") | .[0:200])' /tmp/cancel_body 2>/dev/null || echo "odpowiedź nie jest JSON-em")"
             if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "204" ]; then
               echo "::warning::Cancel of $uuid returned HTTP $code"
               rc=1
@@ -147,14 +218,21 @@ jobs:
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
+          # `-f`: bez niego curl przy 4xx/5xx kończy się kodem 0 i podaje ciało
+          # błędu dalej — a gałąź „nieoczekiwana odpowiedź" niżej drukowała
+          # z niego 400 bajtów do logu biegu. Z `-f` stdout jest pusty, a na
+          # stderr ląduje linia `curl: (22) ... error: <kod>`, czyli dokładnie
+          # ta informacja, po którą przychodzi się do tego audytu.
           api() {
-            curl -sS -H "Authorization: Bearer $CO_TOKEN" -H "Accept: application/json" "$CO_URL/api/v1$1"
+            curl -fsS -H "Authorization: Bearer $CO_TOKEN" -H "Accept: application/json" "$CO_URL/api/v1$1"
           }
 
-          tasks=$(api "/applications/$APP_UUID/scheduled-tasks")
+          if ! tasks=$(api "/applications/$APP_UUID/scheduled-tasks"); then
+            echo "::error::GET /applications/{uuid}/scheduled-tasks nie powiodło się (kod HTTP w linii 'curl:' wyżej) — audytu nie ma z czego zrobić"
+            exit 1
+          fi
           if ! echo "$tasks" | jq -e 'type == "array"' >/dev/null 2>&1; then
-            echo "::error::Unexpected response from scheduled-tasks endpoint"
-            echo "$tasks" | head -c 400
+            echo "::error::endpoint scheduled-tasks odpowiedział 2xx, ale nie listą zadań — ciała nie drukuję"
             exit 1
           fi
 
@@ -188,12 +266,21 @@ jobs:
           for u in $(echo "$tasks" | jq -r '.[].uuid'); do
             name=$(echo "$tasks" | jq -r --arg u "$u" '.[] | select(.uuid == $u) | .name')
             echo "--- $name"
-            api "/applications/$APP_UUID/scheduled-tasks/$u/executions" \
+            # Odczyt i projekcja rozdzielone, bo po dodaniu `-f` nieudane
+            # zapytanie daje PUSTY stdout — a jq na pustym wejściu kończy się
+            # zerem i nie wypisuje nic. Bez tej gałęzi awaria wyglądałaby jak
+            # zadanie bez wykonań, czyli jak odpowiedź.
+            if ! execs=$(api "/applications/$APP_UUID/scheduled-tasks/$u/executions"); then
+              echo "  (nie udało się odczytać wykonań — kod HTTP w linii 'curl:' wyżej)"
+              continue
+            fi
+            echo "$execs" \
               | jq -r 'if type == "array" then
                          (if length == 0 then "  (never executed)"
                           else (.[0:3][] | "  \(.status)  \(.started_at // .created_at // "?")  \((.message // "")[0:140])")
                           end)
-                       else "  (no data)" end' 2>/dev/null || echo "  (request failed)"
+                       else "  (nieoczekiwany kształt odpowiedzi — ciała nie drukuję)" end' 2>/dev/null \
+              || echo "  (nie udało się odczytać wykonań)"
           done
 
       # ─── Czy kopia zapasowa w ogóle powstaje ─────────────────────────────

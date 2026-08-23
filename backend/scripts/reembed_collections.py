@@ -44,7 +44,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import String, cast, select, update  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.database import AsyncSessionLocal  # noqa: E402
@@ -77,6 +77,40 @@ async def _bulk_upsert_qdrant(collection: str, points: list[dict]) -> int:
 
     await asyncio.to_thread(_upsert)
     return len(points)
+
+
+async def _mark_embedded(model: "type[Candidate] | type[Job]", ids: list[int]) -> None:
+    """Set `embedding_id` on rows this script just pushed into Qdrant.
+
+    `embed_candidate` / `embed_job` write this column on every single-row embed
+    (as `str(id)` — the column is a copy of the identifier, so its only content
+    is "NULL or not", i.e. the predicate "has a vector"). This script upserted
+    without it, so a bulk re-embed left the column saying "no vector" for rows
+    that had one. Measured on prod 2026-08-07: column 45 317, Qdrant 47 921.
+
+    For jobs the gap is not merely cosmetic — `marketplace_service` and
+    `question_suggestions` bail out on `if not job.embedding_id`, so a job
+    embedded only by this script silently produced no proposals.
+
+    Best-effort: the vector is already in Qdrant, which is the authority. A
+    failed marker must not be reported as a failed embed.
+    """
+    if not ids:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(model)
+                .where(model.id.in_(ids))
+                .values(embedding_id=cast(model.id, String))
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "[reembed] vectors upserted but embedding_id not marked for %s ids: %s",
+            len(ids),
+            exc,
+        )
 
 
 async def _delete_qdrant_points(collection: str, ids: list[int]) -> int:
@@ -153,11 +187,15 @@ async def _qdrant_point_ids(collection: str) -> set[int]:
     Scrolls with vectors and payload switched off, so this pulls ids only —
     the whole candidate collection is ~48k integers, a few MB.
 
-    This, not ``candidates.embedding_id``, is the authority on what is indexed:
-    the column is written by ``embed_candidate`` but NOT by this script, and on
-    prod the two disagree by ~2.6k rows (column says 45 317, Qdrant holds
-    47 921). Trusting the column would re-embed thousands of candidates that
-    already have a vector — and miss orphaned points entirely.
+    This, not ``candidates.embedding_id``, is the authority on what is indexed.
+    ``_mark_embedded`` now keeps that column in step with what this script
+    upserts (it did not, hence the ~2.6k-row disagreement measured on prod
+    2026-08-07: column 45 317, Qdrant 47 921), but the column still cannot be
+    the authority here: a vector can disappear outside every write path this
+    codebase owns — a manual ``delete`` in Qdrant, a rebuilt or renamed
+    collection, a restore from an older snapshot. Trusting it would re-embed
+    thousands of candidates that already have a vector and miss orphaned points
+    entirely. The set difference is only meaningful against Qdrant itself.
     """
     from qdrant_client import QdrantClient  # noqa: PLC0415
 
@@ -295,6 +333,7 @@ async def _reembed_candidates(
 
         try:
             await _bulk_upsert_qdrant(_collection(), points)
+            await _mark_embedded(Candidate, [int(p["id"]) for p in points])
             succeeded += len(points)
         except Exception as e:  # noqa: BLE001
             logger.warning("[reembed candidates] qdrant upsert failed: %s", e)
@@ -410,6 +449,7 @@ async def _reembed_jobs(
 
         try:
             await _bulk_upsert_qdrant(_jobs_collection(), points)
+            await _mark_embedded(Job, [int(p["id"]) for p in points])
             succeeded += len(points)
         except Exception as e:  # noqa: BLE001
             logger.warning("[reembed jobs] qdrant upsert failed: %s", e)
