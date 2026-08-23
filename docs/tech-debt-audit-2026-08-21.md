@@ -4,6 +4,13 @@
 > **Pełne dane** (scenariusze awarii, dowody w kodzie, notatki weryfikatorów) i **stan realizacji**:
 > [`docs/tech-debt-backlog.json`](./tech-debt-backlog.json). To jest źródło prawdy — ten plik to czytelny przekrój.
 
+> **Ten dokument jest MIGAWKĄ pierwotnego audytu (128 znalezisk, 21.08).** Nie jest
+> aktualizowany, bo jego wartością jest zapis tego, co i jak wtedy znaleziono. Backlog urósł
+> od tamtej pory do **169 pozycji**: +31 z przeglądu PR-ów z codeksa (22.08) i +5 wyniesionych
+> z adwersarialnej weryfikacji własnych napraw (23.08, #404–#408).
+> **Stan na dziś, wraz z listą tego, co wymaga Twojej decyzji:**
+> [`tech-debt-program-final-2026-08-23.md`](./tech-debt-program-final-2026-08-23.md).
+
 ## Jak to policzono
 
 170 agentów, 40,5 mln tokenów, 6 700 wywołań narzędzi, 5,2 h. Fazy: rekonesans na żywej produkcji →
