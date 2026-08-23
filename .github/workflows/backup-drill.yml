@@ -309,3 +309,99 @@ jobs:
             echo "::error::A restore from this backup would produce candidates with unreadable CVs."
             exit 1
           fi
+
+  # ─── Alarm, gdy drill z harmonogramu padnie ──────────────────────────────
+  # Do dziś czerwony drill nie wołał NIKOGO. Cztery poniedziałki z rzędu (27.07,
+  # 03.08, 10.08, 17.08) skończyły się porażką i nikt tego nie zauważył — bo
+  # jedynym kanałem był kolor kafelka w zakładce Actions, do której nikt nie
+  # zagląda w poniedziałek o 4:00 UTC. To ta sama klasa ciszy, którą sam drill
+  # miał zlikwidować: mechanizm istnieje, działa i mówi prawdę, tylko do nikogo.
+  #
+  # Wzorzec 1:1 z `disk-alert.yml`: dedup po tytule (drugi tydzień porażki to
+  # KOMENTARZ w tym samym wątku, nie drugie issue — cztery osobne issues są tak
+  # samo niewidoczne jak zero), `issues: write` wyłącznie tutaj, treść mówiąca
+  # CZEGO BRAKUJE, nie „drill failed".
+  #
+  # Tylko `schedule`: przy `workflow_dispatch` operator siedzi nad logiem, więc
+  # issue byłoby hałasem. Ręczna próba diagnostyczna nie może zakładać alarmów.
+  alert:
+    name: Otwórz/odśwież issue po porażce drillu
+    needs: drill
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or refresh alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # SAMA OBECNOŚĆ, nigdy wartość — `!= ''` daje "true"/"false".
+          # To rozstrzyga, czy drill padł, bo NIE MIAŁ CZYM weryfikować
+          # (bramka nr 3 zamknięta), czy dlatego, że miał czym i coś nie
+          # zagrało. Dwie różne sprawy i dwie różne pierwsze czynności.
+          HAS_AGE_KEY: ${{ secrets.BACKUP_AGE_PRIVATE_KEY != '' }}
+          HAS_S3_ACCESS: ${{ secrets.BACKUP_S3_ACCESS_KEY != '' }}
+          HAS_S3_SECRET: ${{ secrets.BACKUP_S3_SECRET_KEY != '' }}
+          HAS_BUCKET: ${{ vars.BACKUP_S3_BUCKET != '' }}
+        run: |
+          set -euo pipefail
+          marker="NEXUS backup drill nie przechodzi"
+
+          # --body-file zamiast inline heredoca w `gh`: treść niesie backticki
+          # i wielokropki, więc nie przepuszczamy jej przez kolejny poziom
+          # interpretacji powłoki (ten sam wybór co w uptime-probe.yml).
+          {
+            echo "Cotygodniowy **restore drill** (\`.github/workflows/backup-drill.yml\`) zakończył się"
+            echo "niepowodzeniem. Ten workflow jest JEDYNĄ rzeczą w repozytorium, która faktycznie"
+            echo "pobiera archiwum off-site, odszyfrowuje je kluczem \`age\` i odtwarza bazę."
+            echo "Dopóki nie przechodzi, kopię off-site należy traktować jak **nieistniejącą** —"
+            echo "nie „prawdopodobnie działającą”."
+            echo
+            echo "Stawka: \`pg_dump\` zachowuje wyłącznie \`candidate_documents.storage_key\`, czyli"
+            echo "WSKAŹNIKI. Korpus ~136 tys. plików CV (~37 GB) nie istnieje nigdzie indziej."
+            echo
+            if [ "${HAS_AGE_KEY}" != "true" ] || [ "${HAS_S3_ACCESS}" != "true" ] \
+               || [ "${HAS_S3_SECRET}" != "true" ] || [ "${HAS_BUCKET}" != "true" ]; then
+              echo "### Przyczyna: drill nie ma czym weryfikować"
+              echo
+              echo "Brakuje poświadczeń, więc drill pada na pierwszym kroku — **to nie jest awaria kopii,"
+              echo "to brak konfiguracji weryfikacji**. Czego brakuje:"
+              echo
+              [ "${HAS_AGE_KEY}"   = "true" ] || echo "- sekret \`BACKUP_AGE_PRIVATE_KEY\` — prywatna połówka **dedykowanej** pary age (nigdy klucz główny)"
+              [ "${HAS_S3_ACCESS}" = "true" ] || echo "- sekret \`BACKUP_S3_ACCESS_KEY\` — klucz **read-only** do bucketa off-site"
+              [ "${HAS_S3_SECRET}" = "true" ] || echo "- sekret \`BACKUP_S3_SECRET_KEY\`"
+              [ "${HAS_BUCKET}"    = "true" ] || echo "- zmienna \`BACKUP_S3_BUCKET\` (oraz \`BACKUP_S3_ENDPOINT\`, \`BACKUP_S3_REGION\`)"
+              echo
+              echo "Dosłowne polecenia \`gh\` do ich założenia: **\`docs/runbook-backup-201.md\`**, sekcje (b)-(d)."
+              echo "Klucze zakłada właściciel — automat ich nie generuje i nie odczytuje."
+            else
+              echo "### Przyczyna: poświadczenia są, więc drill padł na treści"
+              echo
+              echo "Sekrety i zmienne są ustawione, czyli drill DOSZEDŁ dalej niż pierwszy krok."
+              echo "Sprawdź w logu, na czym stanął — kolejność kroków jest zarazem kolejnością diagnozy:"
+              echo
+              echo "1. **\`LATEST.json\`** nieświeży lub z \`failures != 0\` → backup przestał powstawać."
+              echo "   Zacznij od \`Coolify Ops\` → \`action=backup-status\` (odczyt trzech bramek)."
+              echo "2. **\`age -d\`** nie odszyfrowało → klucz drillowy nie jest odbiorcą tych archiwów."
+              echo "   Nowy odbiorca działa dopiero od NASTĘPNEGO backupu; wstecz nic się nie odszyfruje."
+              echo "3. **\`pg_restore\` / \`alembic\`** → archiwum dociera, ale jest niepełne lub niezgodne."
+              echo "4. **Spot-check korpusu CV** → baza odtwarza się, ale wskazuje na pliki,"
+              echo "   których w kopii off-site nie ma. To najcięższy wariant."
+            fi
+            echo
+            echo "Bieg: ${RUN_URL}"
+            echo
+            echo "_Auto-generated by \`.github/workflows/backup-drill.yml\`._"
+          } > /tmp/drill-issue.md
+
+          existing=$(gh issue list --repo "$REPO" --state open \
+            --search "$marker in:title" --json number --jq '.[0].number // empty' || echo "")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file /tmp/drill-issue.md
+          else
+            gh issue create --repo "$REPO" --title "🚨 ${marker}" --body-file /tmp/drill-issue.md
+          fi

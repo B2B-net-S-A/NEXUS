@@ -15,10 +15,12 @@ name: Coolify Ops
 #                                    + the application's own status.
 #   2. action=cancel, uuids="a b"  → POST /deployments/{uuid}/cancel for each.
 #   3. action=cron-list            → audyt zadań cyklicznych (read-only).
-#   4. action=eval-ab              → JEDNORAZOWY pomiar A/B matchingu na prodzie
+#   4. action=backup-status        → czy kopia zapasowa w ogóle powstaje
+#                                    (read-only; trzy bramki + werdykt).
+#   5. action=eval-ab              → JEDNORAZOWY pomiar A/B matchingu na prodzie
 #                                    (patrz job `eval` niżej — tam kryterium odczytu).
-#   5. action=eval-read            → odczyt wyników zadania evalu bez kasowania go.
-#   6. action=eval-stop            → skasowanie zadania evalu, gdyby sprzątanie
+#   6. action=eval-read            → odczyt wyników zadania evalu bez kasowania go.
+#   7. action=eval-stop            → skasowanie zadania evalu, gdyby sprzątanie
 #                                    nie doszło do skutku (zawór bezpieczeństwa).
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
@@ -30,7 +32,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, eval-ab, eval-read, eval-stop]
+        options: [list, cancel, cron-list, backup-status, eval-ab, eval-read, eval-stop]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
@@ -193,6 +195,241 @@ jobs:
                           end)
                        else "  (no data)" end' 2>/dev/null || echo "  (request failed)"
           done
+
+      # ─── Czy kopia zapasowa w ogóle powstaje ─────────────────────────────
+      # Odpowiedź na jedno pytanie, na które do dziś nie było gdzie zajrzeć:
+      # „czy backup jest produkowany". Bo kopii pilnują TRZY niezależne bramki,
+      # każda domyślnie zamknięta i każda cicha:
+      #
+      #   1. `BACKUP_ENABLED` ma w docker-compose.yml default `false`. Dopóki nie
+      #      zostanie flipnięte w vaultcie Coolify, backup.sh kończy się na
+      #      kill-switchu z kodem 0 — kontener jest „healthy", pętla tyka,
+      #      a kopia nie powstaje ANI RAZU. Sonda liveness tego nie widzi z
+      #      założenia (backup/healthcheck.sh: „says nothing about whether
+      #      backups are SUCCEEDING"), a monitoring świeżości LATEST.json jest
+      #      za bramką nr 3.
+      #   2. Konfiguracja S3/age w vaultcie. Brakuje choćby jednej pozycji →
+      #      backup.sh przerywa w `fail()`, loop.sh ponawia trzy razy i śpi do
+      #      jutra. Nic nie ląduje, nikt się nie dowiaduje.
+      #   3. Sekrety repo (`BACKUP_AGE_PRIVATE_KEY`, `BACKUP_S3_*`) i zmienna
+      #      `BACKUP_MONITORING_ENABLED`. Bez nich drill nie ma czym odszyfrować
+      #      archiwum, a godzinowy check świeżości jest POMIJANY (`if:` na jobie
+      #      w uptime-probe.yml).
+      #
+      # Krok jest READ-ONLY: wyłącznie GET-y, zero zapisów, zero deployu.
+      #
+      # ⚠️ Reguła drukowania: WARTOŚCI wychodzą wyłącznie z jawnej, zamkniętej
+      # allowlisty (`VALUE_KEYS`), reszta kluczy — najwyżej jako słowo
+      # „ustawiony"/„BRAK". Świadomie allowlista, a NIE filtr wykluczający:
+      # przy czarnej liście nowy sekret dopisany do compose'a wyciekłby do
+      # publicznego logu biegu wtedy, gdy ktoś zapomni go tam dopisać. Ta lista
+      # myli się w stronę milczenia — nowy klucz domyślnie jest cichy.
+      - name: Backup status (read-only)
+        if: inputs.action == 'backup-status'
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          # Bramka nr 3 mieszka po stronie GitHuba, nie Coolify. Czytana jako
+          # SAMA OBECNOŚĆ (`!= ''` daje "true"/"false") — wartość sekretu nie
+          # wchodzi tu nawet do zmiennej.
+          HAS_DRILL_AGE_KEY: ${{ secrets.BACKUP_AGE_PRIVATE_KEY != '' }}
+          HAS_DRILL_S3_ACCESS: ${{ secrets.BACKUP_S3_ACCESS_KEY != '' }}
+          HAS_DRILL_S3_SECRET: ${{ secrets.BACKUP_S3_SECRET_KEY != '' }}
+          VAR_MONITORING: ${{ vars.BACKUP_MONITORING_ENABLED }}
+          VAR_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
+          VAR_S3_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
+          VAR_S3_REGION: ${{ vars.BACKUP_S3_REGION }}
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+
+          # /tmp/envs.json niesie CAŁY vault, w tym SMTP_PASSWORD, SECRET_KEY
+          # i klucze Voyage. Nie jest drukowany w całości NIGDZIE — każde
+          # wyjście niżej przechodzi przez allowlistę albo przez test obecności
+          # zwracający słowo, nie wartość. Nie dopisuj tu `cat`/`jq .`.
+          # Kasowany bez względu na to, jak krok się skończy. Plik nie jest
+          # drukowany nigdzie, ale przez resztę joba leżałby na dysku runnera
+          # jako kompletny zrzut vaulta — a to jedyny artefakt tego kroku, który
+          # przy dopisaniu obok kolejnego kroku (albo `actions/upload-artifact`)
+          # zamienia bezpieczny odczyt w wyciek. Taniej go nie mieć.
+          trap 'rm -f /tmp/envs.json' EXIT
+          if ! curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/envs" -o /tmp/envs.json; then
+            echo "::error::nie udało się odczytać vaulta Coolify (GET /applications/{uuid}/envs)"
+            exit 1
+          fi
+          jq -e 'type == "array"' /tmp/envs.json > /dev/null 2>&1 || {
+            echo "::error::endpoint /envs zwrócił nieoczekiwany kształt — nie zgaduję, co znaczy"
+            exit 1
+          }
+
+          VALUE_KEYS='["BACKUP_ENABLED","BACKUP_HOUR_UTC","BACKUP_RETENTION_DAYS","BACKUP_S3_BUCKET","BACKUP_S3_ENDPOINT","BACKUP_S3_PREFIX"]'
+
+          env_value() {
+            jq -r --arg k "$1" '
+              map(select(.key == $k))
+              | if length == 0 then "" else (.[0].value // .[0].real_value // "") end
+            ' /tmp/envs.json
+          }
+          # Nazwa bucketa może teoretycznie nieść `|` albo backtick, a wynik idzie
+          # do tabeli Markdown w podsumowaniu biegu. Rozjechana tabela to nie
+          # kosmetyka — to werdykt, którego nie da się przeczytać.
+          # Znaki sterujące, a nie tylko `|` i backtick. NOWA LINIA w wartości jest
+          # groźniejsza niż rozjechana tabela: treść po niej zaczyna się w logu od
+          # kolumny 0, a runner traktuje `::coś::` na początku linii jako WŁASNE
+          # polecenie. Wartość `BACKUP_S3_PREFIX` wklejona z podłamaniem potrafiła
+          # więc dopisać do biegu fałszywe `::error::` albo `::add-mask::`.
+          # Uprawnienia do vaulta ma wprawdzie tylko operator, ale najczęstszy
+          # wariant nie jest atakiem — to zwykły `\n` z kopiuj-wklej, po którym
+          # werdykt przestaje się dać przeczytać. ESC leci z tego samego powodu
+          # (sekwencje ANSI). Podmiana na spację, nie usunięcie: sklejone słowa
+          # czytałyby się jak jedna, inna wartość.
+          md() { printf '%s' "${1:-}" | tr '\n\r\t' '   ' | tr -d '\000-\037' | tr -d '`|' ; }
+          present() { if [ -n "$(env_value "$1")" ]; then echo "ustawiony"; else echo "**BRAK**"; fi; }
+          yn() { if [ "${1:-false}" = "true" ]; then echo "ustawiony"; else echo "**BRAK**"; fi; }
+
+          enabled="$(env_value BACKUP_ENABLED)"
+
+          # Komplet, bez którego backup.sh przerywa w `fail()` przed pierwszym
+          # bajtem (patrz sekcja „Required configuration" tamże).
+          missing_core=""
+          for k in BACKUP_AGE_PUBLIC_KEY BACKUP_S3_BUCKET BACKUP_S3_ENDPOINT BACKUP_S3_ACCESS_KEY BACKUP_S3_SECRET_KEY; do
+            [ -n "$(env_value "$k")" ] || missing_core="${missing_core} ${k}"
+          done
+          # Bez tych trzech artefakt `cv_corpus` zapisuje się jako `error` —
+          # czyli korpus ~136 tys. CV nie jest kopiowany, cały bieg kończy się
+          # niepowodzeniem, a retencja stoi. Reszta artefaktów jednak powstaje,
+          # więc to inny stan niż „nie powstaje nic".
+          missing_cv=""
+          for k in OBJECT_STORAGE_ENDPOINT OBJECT_STORAGE_ACCESS_KEY OBJECT_STORAGE_SECRET_KEY; do
+            [ -n "$(env_value "$k")" ] || missing_cv="${missing_cv} ${k}"
+          done
+
+          app_status="$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID" 2>/dev/null \
+            | jq -r '"\(.status // "?")|\(.last_online_at // "?")"' 2>/dev/null || echo "?|?")"
+
+          R=/tmp/backup-status.md
+          {
+            echo "## Backup NEXUS — stan trzech bramek"
+            echo
+            echo "### 1. Vault Coolify — konfiguracja (wartości z allowlisty)"
+            echo
+            echo "| klucz | wartość |"
+            echo "| --- | --- |"
+            for k in $(printf '%s' "$VALUE_KEYS" | jq -r '.[]'); do
+              v="$(md "$(env_value "$k")")"
+              if [ -z "$v" ]; then
+                echo "| \`${k}\` | _brak w vaultcie → obowiązuje default z docker-compose.yml_ |"
+              else
+                echo "| \`${k}\` | \`${v}\` |"
+              fi
+            done
+            echo
+            echo "### 2. Vault Coolify — sekrety (WYŁĄCZNIE obecność)"
+            echo
+            echo "| klucz | stan |"
+            echo "| --- | --- |"
+            for k in BACKUP_AGE_PUBLIC_KEY BACKUP_S3_ACCESS_KEY BACKUP_S3_SECRET_KEY \
+                     BACKUP_S3_REGION BACKUP_S3_PROVIDER BACKUP_RUN_ON_START \
+                     OBJECT_STORAGE_ENDPOINT OBJECT_STORAGE_ACCESS_KEY OBJECT_STORAGE_SECRET_KEY \
+                     OBJECT_STORAGE_BUCKET OBJECT_STORAGE_REGION; do
+              echo "| \`${k}\` | $(present "$k") |"
+            done
+            # Wykrywanie kluczy, których ta lista jeszcze nie zna — też bez wartości.
+            others="$(jq -r --argjson allow "$VALUE_KEYS" '
+              map(select(.key | test("^(BACKUP_|OBJECT_STORAGE_)")))
+              | map(select(.key as $k | ($allow | index($k)) | not))
+              | map(select(.key | test("^(BACKUP_AGE_PUBLIC_KEY|BACKUP_S3_ACCESS_KEY|BACKUP_S3_SECRET_KEY|BACKUP_S3_REGION|BACKUP_S3_PROVIDER|BACKUP_RUN_ON_START|OBJECT_STORAGE_ENDPOINT|OBJECT_STORAGE_ACCESS_KEY|OBJECT_STORAGE_SECRET_KEY|OBJECT_STORAGE_BUCKET|OBJECT_STORAGE_REGION)$") | not))
+              | sort_by(.key) | .[]
+              | "| `\(.key | gsub("[^A-Za-z0-9_]"; ""))` | \(if ((.value // .real_value // "") | length) > 0 then "ustawiony" else "**BRAK**" end) _(spoza listy tego kroku)_ |"
+            ' /tmp/envs.json)"
+            [ -n "$others" ] && printf '%s\n' "$others"
+            echo
+            echo "### 3. Kontener"
+            echo
+            echo "Zagregowany status aplikacji w Coolify: \`$(md "${app_status%%|*}")\` (ostatnio online: \`$(md "${app_status##*|}")\`)."
+            echo
+            echo "Coolify raportuje JEDEN status na całą aplikację compose, więc nie rozstrzyga on"
+            echo "o samej usłudze \`backup\` — rozbicie per usługa jest tylko w panelu. Sonda"
+            echo "\`backup/healthcheck.sh\` i tak bada wyłącznie ŻYWOTNOŚĆ pętli, nigdy powodzenie"
+            echo "kopii; dowodem powodzenia jest \`LATEST.json\`, a tego czyta bramka nr 3."
+            echo
+            echo "### 4. GitHub — drill i monitoring (bramka nr 3)"
+            echo
+            echo "| pozycja | stan |"
+            echo "| --- | --- |"
+            echo "| sekret \`BACKUP_AGE_PRIVATE_KEY\` | $(yn "${HAS_DRILL_AGE_KEY:-false}") |"
+            echo "| sekret \`BACKUP_S3_ACCESS_KEY\` | $(yn "${HAS_DRILL_S3_ACCESS:-false}") |"
+            echo "| sekret \`BACKUP_S3_SECRET_KEY\` | $(yn "${HAS_DRILL_S3_SECRET:-false}") |"
+            echo "| zmienna \`BACKUP_MONITORING_ENABLED\` | \`$(md "${VAR_MONITORING:-<brak>}")\` |"
+            echo "| zmienna \`BACKUP_S3_BUCKET\` | \`$(md "${VAR_S3_BUCKET:-<brak>}")\` |"
+            echo "| zmienna \`BACKUP_S3_ENDPOINT\` | \`$(md "${VAR_S3_ENDPOINT:-<brak>}")\` |"
+            echo "| zmienna \`BACKUP_S3_REGION\` | \`$(md "${VAR_S3_REGION:-<brak>}")\` |"
+            echo
+          } > "$R"
+
+          fail=0
+          {
+            echo "### WERDYKT"
+            echo
+            if [ "$enabled" != "true" ]; then
+              fail=1
+              echo "**KOPIA NIE POWSTAJE.** \`BACKUP_ENABLED\` = \`$(md "${enabled:-<brak klucza w vaultcie>}")\`,"
+              echo "a \`backup/backup.sh\` kończy się na kill-switchu przy czymkolwiek innym niż \`true\`."
+              echo "Kontener wygląda przy tym na zdrowy, bo pętla harmonogramu żyje — po prostu co noc"
+              echo "nie robi nic. Nie powstał ani jeden bajt kopii off-site."
+            elif [ -n "$missing_core" ]; then
+              fail=1
+              echo "**KOPIA NIE POWSTAJE.** Kill-switch jest otwarty, ale w vaultcie brakuje:"
+              echo
+              for k in $missing_core; do echo "- \`${k}\`"; done
+              echo
+              echo "\`backup.sh\` przerywa na tym w \`fail()\` przed pierwszym bajtem, \`loop.sh\` ponawia"
+              echo "trzy razy i śpi do jutra. \`LATEST.json\` nie powstaje, więc monitoring świeżości"
+              echo "też nie ma czego przeczytać."
+            elif [ -n "$missing_cv" ]; then
+              fail=1
+              echo "**KOPIA POWSTAJE NIEPEŁNA — bez korpusu CV.** W vaultcie brakuje:"
+              echo
+              for k in $missing_cv; do echo "- \`${k}\`"; done
+              echo
+              echo "Artefakt \`cv_corpus\` zapisuje się jako \`error\`, cały bieg kończy się niepowodzeniem"
+              echo "i retencja stoi (to akurat zachowanie POPRAWNE). Praktyczny skutek: \`pg_dump\` zachowuje"
+              echo "tylko \`candidate_documents.storage_key\`, czyli WSKAŹNIKI — odtworzenie z takiej kopii"
+              echo "da bazę pełną martwych odnośników do ~136 tys. plików CV."
+            else
+              echo "**Konfiguracja po stronie Coolify jest kompletna** — kill-switch otwarty, komplet"
+              echo "kluczy S3/age i \`OBJECT_STORAGE_*\` obecny."
+              echo
+              echo "To NIE JEST dowód, że bajty wylądowały. Kompletna konfiguracja mówi tylko, że skrypt"
+              echo "ma z czym wystartować. Dowodem jest świeży \`LATEST.json\` (job \`backup-freshness\`"
+              echo "w \`uptime-probe.yml\`) i zielony \`backup-drill.yml\`."
+            fi
+            echo
+            if [ "${HAS_DRILL_AGE_KEY:-false}" != "true" ] || [ "${HAS_DRILL_S3_ACCESS:-false}" != "true" ] \
+               || [ "${HAS_DRILL_S3_SECRET:-false}" != "true" ]; then
+              echo "⚠️ **Drill nie ma czym weryfikować** — brakuje sekretów repo, więc \`backup-drill.yml\`"
+              echo "pada na pierwszym kroku. Dopóki drill nie przejdzie na zielono, kopię off-site należy"
+              echo "traktować jak NIEISTNIEJĄCĄ: nikt nigdy nie odszyfrował ani nie odtworzył archiwum."
+              echo
+            fi
+            if [ "${VAR_MONITORING:-}" != "true" ]; then
+              echo "⚠️ **Monitoring świeżości jest pominięty** — \`BACKUP_MONITORING_ENABLED\` ≠ \`true\`,"
+              echo "więc godzinowy job \`backup-freshness\` jest pomijany (skipped, nie failed). Zatrzymanie"
+              echo "się backupów nie ma dziś ŻADNEGO objawu."
+              echo
+            fi
+            echo "Kroki naprawcze, po kolei: \`docs/runbook-backup-201.md\`."
+          } >> "$R"
+
+          cat "$R"
+          cat "$R" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Kopia zapasowa NIE jest produkowana w komplecie — werdykt w podsumowaniu biegu i w docs/runbook-backup-201.md"
+            exit 1
+          fi
 
   # ─── A/B evalu matchingu na produkcji ────────────────────────────────────
   # Po naprawie martwej nogi BM25 (#1218) trzeba ZMIERZYĆ, czy hybryda cokolwiek

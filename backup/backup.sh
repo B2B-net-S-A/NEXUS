@@ -149,23 +149,49 @@ DEST="offsite:${BACKUP_S3_BUCKET}/${PREFIX}"
 RESULTS=""
 FAILURES=0
 
+# Normalizacja liczby — wszystko, co nie jest ciągiem cyfr, staje się 0.
+#
+# Nie jest to kosmetyka, tylko zatkanie ścieżki „awaria zapisuje się jako
+# sukces", czyli dokładnie tej klasy błędu, dla której powstał ten plik.
+# `remote_size`/`remote_count` potrafią zwrócić PUSTĄ linię (padnięty `rclone
+# size` w środku potoku, `jq` na pustym wejściu), a `[ "" -lt 1024 ]` to w
+# POSIX-owym `test` BŁĄD, nie fałsz: powłoka zwraca 2, więc gałąź `then` nie
+# zachodzi i sterowanie ląduje w `else` — a w `else` stoi `record ... ok`.
+# Nieudany odczyt rozmiaru zapisywał się więc jako czysty artefakt, odblokowywał
+# retencję i produkował manifest z `"bytes":,` — JSON-em nie do sparsowania, na
+# którym uptime-probe wywraca się DZIEŃ PÓŹNIEJ i z zupełnie inną przyczyną na
+# ekranie. `set -e` tego nie łapie, bo błąd testu wewnątrz `if` jest z definicji
+# „obsłużony".
+num() { # value -> ta sama liczba całkowita, albo 0 gdy to nie jest liczba
+    case "${1:-}" in
+        ''|*[!0-9]*) echo 0 ;;
+        *) echo "$1" ;;
+    esac
+}
+
 record() { # name status bytes detail [objects]
+    # Normalizacja także TUTAJ, nie tylko w `remote_*`: `record` jest jedynym
+    # miejscem, przez które liczby wchodzą do manifestu, więc to ono odpowiada
+    # za to, że manifest da się sparsować — niezależnie od tego, co poda
+    # przyszły wywołujący.
+    _bytes="$(num "$3")"
+    _objects="$(num "${5:-1}")"
     RESULTS="${RESULTS}$(printf '{"artefact":"%s","status":"%s","bytes":%s,"objects":%s,"detail":"%s"}' \
-        "$1" "$2" "$3" "${5:-1}" "$4"),"
+        "$1" "$2" "$_bytes" "$_objects" "$4"),"
     if [ "$2" != "ok" ]; then
         FAILURES=$((FAILURES + 1))
         echo "[backup] FAILED $1: $4" >&2
     else
-        echo "[backup] ok $1 (${3} bytes remote, ${5:-1} object(s))"
+        echo "[backup] ok $1 (${_bytes} bytes remote, ${_objects} object(s))"
     fi
 }
 
-remote_size() { # path -> bytes on stdout, 0 if absent
-    rclone size "$1" --json 2>/dev/null | jq -r '.bytes // 0' 2>/dev/null || echo 0
+remote_size() { # path -> bytes on stdout, 0 if absent or unreadable
+    num "$(rclone size "$1" --json 2>/dev/null | jq -r '.bytes // 0' 2>/dev/null || echo 0)"
 }
 
-remote_count() { # path -> object count on stdout, 0 if absent
-    rclone size "$1" --json 2>/dev/null | jq -r '.count // 0' 2>/dev/null || echo 0
+remote_count() { # path -> object count on stdout, 0 if absent or unreadable
+    num "$(rclone size "$1" --json 2>/dev/null | jq -r '.count // 0' 2>/dev/null || echo 0)"
 }
 
 # Every single-object artefact ends the same way: re-stat the remote object and
