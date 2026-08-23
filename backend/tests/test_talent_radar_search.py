@@ -245,20 +245,7 @@ def test_degraded_retrieval_is_reported_not_rendered_as_no_matches():
     )
 
 
-def _calls_in(module_rel: str, func_name: str) -> set[str]:
-    tree = ast.parse((BACKEND / module_rel).read_text(encoding="utf-8"))
-    target = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and n.name == func_name
-    )
-    return {
-        n.func.id
-        for n in ast.walk(target)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    }
-
+from tests._ast_calls import calls_in as _calls_in
 
 def test_search_enforces_eligibility():
     assert "filter_eligible_candidates" in _calls_in(

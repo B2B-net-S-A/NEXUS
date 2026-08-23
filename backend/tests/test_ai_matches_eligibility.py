@@ -20,56 +20,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 
 
-def _calls_in(module_rel: str, func_name: str) -> set[str]:
-    """Calls made by `func_name`, following one level into same-module helpers.
-
-    A route handler often delegates: `/recommendations` calls the filter inside
-    `_recommend_candidates_core`, not in the decorated function. Asserting only
-    on the handler's direct calls would report a containment gap that does not
-    exist — so resolve one hop through local helpers before deciding.
-    """
-    tree = ast.parse((BACKEND / module_rel).read_text(encoding="utf-8"))
-    by_name = {
-        n.name: n
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    target = by_name.get(func_name)
-    assert target is not None, f"{func_name} not found in {module_rel}"
-
-    def direct(node) -> set[str]:
-        """Names of functions called directly by `node`, in BOTH call forms.
-
-        `filter_eligible_candidates(...)` and the module-qualified
-        `pipeline_eligibility.filter_eligible_candidates(...)` must count the
-        same. Matching only the bare name (`ast.Name`) ties this guard to one
-        call SYNTAX rather than to the property it exists to protect.
-
-        The failure that buys is a false ALARM, not a false pass: the assertion
-        reads "the name appears among the calls", so an unrecognised call form
-        makes it fail while the filter is demonstrably still there. That is the
-        more corrosive direction. A guard that goes red on a safe refactor gets
-        "fixed" by whoever is mid-refactor — and the cheapest fix is to weaken
-        or delete the assertion. The guard then dies quietly on a day when
-        nothing was actually wrong, and is missing on the day something is.
-        """
-        names: set[str] = set()
-        for n in ast.walk(node):
-            if not isinstance(n, ast.Call):
-                continue
-            if isinstance(n.func, ast.Name):
-                names.add(n.func.id)
-            elif isinstance(n.func, ast.Attribute):
-                names.add(n.func.attr)
-        return names
-
-    calls = direct(target)
-    for name in list(calls):
-        helper = by_name.get(name)
-        if helper is not None and helper is not target:
-            calls |= direct(helper)
-    return calls
-
+from tests._ast_calls import calls_in as _calls_in
 
 def _endpoint_name(module_rel: str, path_fragment: str) -> str:
     """The handler decorated with a route containing `path_fragment`."""

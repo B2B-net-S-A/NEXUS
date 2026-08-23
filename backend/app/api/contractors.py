@@ -194,6 +194,11 @@ async def list_contractors(
             else_=2,
         ),
         Contract.start_date.desc(),
+        # Unikalny tie-breaker na końcu. Kubełek statusu i `start_date` NIE
+        # rozstrzygają remisów (w bazie harnessu 76 grup o identycznej parze),
+        # a stronicowanie bez rozstrzygnięcia gubi i dubluje wiersze dokładnie
+        # tak samo jak brak ORDER BY — tylko rzadziej, więc trudniej to złapać.
+        Contract.id.desc(),
     )
 
     total = (

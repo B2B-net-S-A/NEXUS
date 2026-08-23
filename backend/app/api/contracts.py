@@ -753,6 +753,20 @@ async def list_contracts(
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
     ).scalar()
+    # Deterministyczna kolejność PRZED offset/limit — bez niej stronicowanie
+    # gubi i dubluje umowy. Postgres bez ORDER BY zwraca wiersze w kolejności
+    # skanu, a UPDATE tworzy nową wersję krotki i przesuwa wiersz na koniec:
+    # czytelnik, który pobrał stronę 1 przed cudzym zapisem, a stronę 2 po nim,
+    # NIE zobaczy jednej umowy na żadnej stronie, a inną zobaczy dwa razy.
+    # Odtworzone na żywej bazie: po semantycznie pustym `UPDATE contracts SET
+    # project_name = project_name WHERE id = 73` z okna czytelnika wypadła
+    # umowa 375, a 73 pokazała się dwukrotnie.
+    #
+    # Po policzeniu `total`, wzorem `/api/jobs` — sortowanie nie ma po co
+    # trafiać do podzapytania COUNT. `id` jest unikalne, więc wystarcza samo
+    # za tie-breaker; lista nie ma parametru sortowania, a domyślną kolejnością
+    # jest najnowsze najpierw.
+    query = query.order_by(Contract.id.desc())
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
     # Latest order end_date per Contract for the "Zamówienie do" column.

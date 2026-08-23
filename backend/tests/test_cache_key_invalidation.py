@@ -86,25 +86,7 @@ async def test_mark_stale_for_profile_flips_only_that_profile() -> None:
     assert by_pid[pid_other] is False, "sibling profile wrongly invalidated"
 
 
-def _calls_in(module_rel: str, func_name: str) -> set[str]:
-    path = BACKEND / module_rel
-    text = path.read_text(encoding="utf-8")
-    tree = ast.parse(text)
-    target = next(
-        (
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == func_name
-        ),
-        None,
-    )
-    assert target is not None, f"{func_name} not found in {module_rel}"
-    return {
-        n.func.id
-        for n in ast.walk(target)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    }
-
+from tests._ast_calls import calls_in as _calls_in
 
 def test_update_and_delete_profile_invalidate_cache() -> None:
     for func in ("update_profile", "delete_profile"):
