@@ -70,17 +70,7 @@ def test_effective_to_is_advisory_and_does_not_gate_resolution():
 # ── API integration (in-process; no-op when no seed data) ────────────────────
 
 
-async def _pick_parties(app_client: AsyncClient, headers: dict):
-    """Borrow candidate_id + client_id from an existing contract, if any."""
-    items = (
-        (await app_client.get("/api/contracts?page_size=1", headers=headers))
-        .json()
-        .get("items", [])
-    )
-    if not items:
-        return None
-    return items[0]["candidate_id"], items[0]["client_id"]
-
+from tests._contract_parties import pick_parties as _pick_parties
 
 async def test_list_serializes_framework_schedule_field(
     app_client: AsyncClient, app_auth_headers: dict

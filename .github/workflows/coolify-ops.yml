@@ -155,8 +155,17 @@ jobs:
         # Waga jest niska (dispatch wymaga write do repo, a kto ma write, i tak
         # może zmienić ten plik), ale zostawianie tego obok nowych kroków `eval-*`,
         # które walidują swoje wejścia co do typu i zakresu, byłoby niespójne.
+        #
+        # Sekrety też idą przez `env:`, tak jak w kroku `list`. Interpolacja
+        # `${{ }}` wkleja WARTOŚĆ do tekstu skryptu, zanim powłoka go zobaczy,
+        # więc token żyje w wyrenderowanym poleceniu — a nie w zmiennej, którą
+        # runner potrafi zamaskować w logu. Ten krok był ostatnim w pliku, który
+        # tak robił; zostawianie go obok przepisanego `list` to dokładnie ten
+        # sam błąd, co naprawiony bliźniak `|| echo "000"` kilka linii niżej.
         env:
           UUIDS_RAW: ${{ inputs.deployment_uuids }}
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           UUIDS="$UUIDS_RAW"
           if [ -z "$UUIDS" ]; then
@@ -178,9 +187,9 @@ jobs:
             # a niepowodzenie samego curla zostawiamy `|| true`, żeby `set -e`
             # nie ubiło pętli przed wypisaniem, co się stało.
             code=$(curl -sS -o /tmp/cancel_body -w "%{http_code}" -X POST \
-              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -H "Authorization: Bearer $CO_TOKEN" \
               -H "Accept: application/json" \
-              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$uuid/cancel" || true)
+              "$CO_URL/api/v1/deployments/$uuid/cancel" || true)
             code="${code:-000}"
             # Ten sam kształt, co w kroku `list` wyżej: `curl` bez `-f` podaje
             # ciało błędu dalej, a `head -c 500` wysypywało je do logu biegu.
