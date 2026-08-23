@@ -4001,13 +4001,17 @@ _DATA_STATEMENTS = [
            SELECT id FROM clients
            WHERE display_name IS NULL
              AND hidden = false
-             AND lower(btrim(name)) = lower('Ministerstwo Sprawiedliwości')
+             -- `normalize(..., NFC)` jak przy korekcie BIK. „ś" (U+015B) w NFD
+             -- rozkłada się na „s" + U+0301, więc porównanie surowego napisu
+             -- nie trafia w rekord zapisany w tej formie — a wtedy wyróżnienie
+             -- klienta po prostu się nie zakłada, CICHO. Ta sama klasa co #315.
+             AND lower(normalize(btrim(name), NFC)) = lower(normalize('Ministerstwo Sprawiedliwości', NFC))
            ORDER BY id
            LIMIT 1
        )
        AND NOT EXISTS (
            SELECT 1 FROM clients
-           WHERE display_name = 'Ministerstwo Sprawiedliwości'
+           WHERE normalize(display_name, NFC) = normalize('Ministerstwo Sprawiedliwości', NFC)
              AND hidden = false
        )""",
     """INSERT INTO clients
@@ -4018,7 +4022,7 @@ _DATA_STATEMENTS = [
            'prospect', false, false, 'manual', now(), now()
        WHERE NOT EXISTS (
            SELECT 1 FROM clients
-           WHERE display_name = 'Ministerstwo Sprawiedliwości'
+           WHERE normalize(display_name, NFC) = normalize('Ministerstwo Sprawiedliwości', NFC)
              AND hidden = false
        )""",
     # ─────────────────────────────────────────────────────────────────────

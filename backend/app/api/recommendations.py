@@ -55,6 +55,7 @@ from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.recruitment_process_commands import open_process
 from app.models.match_score import CandidateJobMatchScore
 from app.services.embedding_service import (
+    SemanticSearchUnavailable,
     _build_job_text,
     embed_job,
     search_jobs_semantic,
@@ -380,6 +381,11 @@ async def _recommend_candidates_core(
         fallback = await db.execute(
             select(Candidate.id)
             .where(Candidate.status != CandidateStatus.blacklisted)
+            # Bez `ORDER BY` „pierwsze 200" to arbitralny wycinek, inny przy
+            # każdym wywołaniu — ten sam rekruter dwa razy z rzędu dostawał
+            # inną pulę i nie miał jak tego zauważyć. Malejąco po id: najnowsi
+            # kandydaci są najbardziej aktualni.
+            .order_by(Candidate.id.desc())
             .limit(settings.MATCH_POOL_SIZE)
         )
         candidate_ids = [c for (c,) in fallback.all()]
@@ -590,6 +596,11 @@ async def pipeline_match_scores(
         select(CandidateStage.candidate_id)
         .where(CandidateStage.job_id == job_id)
         .distinct()
+        # Sufit na 200 kandydatów decyduje, KTÓRE karty kanbana dostaną wynik.
+        # Bez `ORDER BY` ten wybór jest arbitralny i zmienia się między
+        # odświeżeniami — badge pojawia się i znika bez powodu widocznego
+        # dla użytkownika.
+        .order_by(CandidateStage.candidate_id.desc())
         .limit(PIPELINE_SCORE_CAP)
     )
     pipeline_ids = [cid for (cid,) in cid_rows.all()]
@@ -929,21 +940,44 @@ async def recommend_jobs_for_candidate(
     # Wide retrieval pool BEFORE the status filter — the jobs index holds all
     # statuses (mostly closed), so a narrow top-N can be 100% closed and starve
     # the published/draft intersection to zero (M3-JOB-01).
-    hits = await search_jobs_semantic(
-        query_text, top_k=max(top_k * 4, settings.JOB_SEMANTIC_POOL_SIZE)
-    )
+    # `raise_on_error=True` — bez tego awaria providera zwracała `[]`, czyli tę
+    # samą wartość co zdrowe zapytanie bez trafień, a fallback niżej dolewał
+    # 100 ARBITRALNYCH ofert (bez ORDER BY, z ~2857 opublikowanych). Były one
+    # scorowane z pustą mapą podobieństwa, więc traciły całą wagę semantyczną
+    # (60 ze 100 pkt) i wracały do rekrutera jako `matches` z HTTP 200. Ta sama
+    # para kandydat/oferta miała przy zdrowym Qdrancie 80.6 pkt, a przy awarii
+    # ~26 albo znikała z listy — a rekruter nie miał jak tego zauważyć.
+    semantic_unavailable = False
+    try:
+        hits = await search_jobs_semantic(
+            query_text,
+            top_k=max(top_k * 4, settings.JOB_SEMANTIC_POOL_SIZE),
+            raise_on_error=True,
+        )
+    except SemanticSearchUnavailable:
+        logger.warning(
+            "[recommendations] wyszukiwanie semantyczne niedostępne dla kandydata %s",
+            candidate_id,
+        )
+        semantic_unavailable = True
+        hits = []
     similarity_map = {h["job_id"]: h["score"] for h in hits}
     job_ids = list(similarity_map.keys())
 
-    # Fallback when Qdrant is empty/offline: all open jobs (draft + published).
-    if not job_ids:
+    # Fallback dolewa oferty TYLKO wtedy, gdy wyszukiwanie odpowiedziało i nic
+    # nie znalazło. Przy awarii lista losowych ofert podpisana „dopasowania"
+    # jest gorsza niż brak listy: rekruter przypisuje kandydata do oferty
+    # wybranej ze zbioru, który z dopasowaniem nie ma nic wspólnego.
+    if not job_ids and not semantic_unavailable:
         open_job_query = select(Job.id).where(Job.status.in_(_RECOMMENDABLE_STATUSES))
         open_job_query = apply_delivery_lead_client_scope(
             open_job_query,
             Job.client_id,
             delivery_lead_client_ids,
         )
-        open_jobs = await db.execute(open_job_query.limit(100))
+        # `ORDER BY` — bez niego „pierwsze 100" to arbitralny wycinek, inny
+        # przy każdym wywołaniu.
+        open_jobs = await db.execute(open_job_query.order_by(Job.id.desc()).limit(100))
         job_ids = [j for (j,) in open_jobs.all()]
 
     if not job_ids:
@@ -951,6 +985,13 @@ async def recommend_jobs_for_candidate(
             "candidate_id": candidate_id,
             "candidate_name": f"{candidate.name} {candidate.lastname}",
             "matches": [],
+            "meta": {
+                "mode": "semantic" if not semantic_unavailable else "unavailable",
+                "degraded": semantic_unavailable,
+                "reason": (
+                    "semantic_unavailable" if semantic_unavailable else "no_open_jobs"
+                ),
+            },
         }
 
     job_query = select(Job).where(Job.id.in_(job_ids))
@@ -1008,6 +1049,14 @@ async def recommend_jobs_for_candidate(
         "candidate_id": candidate_id,
         "candidate_name": f"{candidate.name} {candidate.lastname}",
         "matches": matches,
+        # Ten sam kształt, co w `GET /api/jobs/{id}/recommendations`
+        # (matching.py) — front (`SuggestedJobsWidget`) ma już gotowy slot na
+        # baner i czyta `recommendations.data?.meta`.
+        "meta": {
+            "mode": "unavailable" if semantic_unavailable else "semantic",
+            "degraded": semantic_unavailable,
+            "reason": "semantic_unavailable" if semantic_unavailable else None,
+        },
     }
 
 
@@ -1676,25 +1725,44 @@ async def seeking_contractors(
     )
 
     items: list[dict] = []
+    bulk_degraded = False
     for cand in candidates:
         # 2a. Personalized Qdrant search — narrow to a candidate-relevant pool.
         # Wide pool BEFORE the published-intersection (M3-JOB-01): the jobs
         # index holds all statuses (mostly closed), so a narrow top-N could be
         # 100% closed and the published intersection starved to zero.
         query_text = _candidate_query_text(cand)
-        hits = await search_jobs_semantic(
-            query_text, top_k=settings.JOB_SEMANTIC_POOL_SIZE
-        )
+        # Jak wyżej: awaria providera nie może udawać „nic nie znaleziono", bo
+        # fallback niżej dolewa 50 arbitralnych ofert scorowanych bez warstwy
+        # semantycznej. Tu dodatkowo idziemy w PĘTLI po kandydatach — jedna
+        # awaria zamieniłaby cały kokpit w listę losowych par.
+        try:
+            hits = await search_jobs_semantic(
+                query_text,
+                top_k=settings.JOB_SEMANTIC_POOL_SIZE,
+                raise_on_error=True,
+            )
+            cand_semantic_ok = True
+        except SemanticSearchUnavailable:
+            hits = []
+            cand_semantic_ok = False
+            bulk_degraded = True
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
 
         # Restrict scoring to (a) Qdrant hits ∩ open jobs OR (b) all open jobs
         # when Qdrant is empty/offline. Either way keep a small pool.
         if similarity_map:
             scoring_pool = [j for j in all_open_jobs if j.id in similarity_map]
-        else:
+        elif cand_semantic_ok:
             # Fallback: rank against the full open-jobs set, capped to keep
-            # response time predictable for the dashboard.
+            # response time predictable for the dashboard. Odpala się WYŁĄCZNIE
+            # wtedy, gdy wyszukiwanie odpowiedziało i nic nie znalazło.
             scoring_pool = all_open_jobs[:50]
+        else:
+            # Awaria wyszukiwania — żadnych propozycji dla tego kandydata.
+            # Pusty wiersz z flagą degradacji jest uczciwszy niż wiersz
+            # wypełniony losowymi ofertami.
+            scoring_pool = []
 
         # 2b. Apply user filters (incl. industry_blocklist via CandidateConflict)
         filtered, _stats = await apply_user_filters(
@@ -1759,4 +1827,11 @@ async def seeking_contractors(
         "returned": len(items),
         "truncated": total_available > len(items),
         "items": items,
+        # Jeśli dla CHOĆ JEDNEGO kandydata wyszukiwanie nie odpowiedziało,
+        # kokpit jest niepełny — i musi to powiedzieć. Bez tego pusty wiersz
+        # przy awarii czyta się jak „dla tej osoby nie ma nic sensownego".
+        "meta": {
+            "degraded": bulk_degraded,
+            "reason": "semantic_unavailable" if bulk_degraded else None,
+        },
     }

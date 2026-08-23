@@ -3396,7 +3396,12 @@ export interface CvUploadPreviewResponse {
     breakdown?: ScoreBreakdown | null;
     warning: string | null;
   }>;
-  search_type: "semantic" | "bm25" | "unavailable";
+  // Wartości faktycznie wysyłane przez backend. Do sierpnia 2026 unia
+  // deklarowała "bm25", którego nikt nie wysyła, i NIE zawierała
+  // "fallback", które leci z `cv_match_preview` — więc rozjazd nie
+  // wychodził na type-checku, a front i tak nie miał gałęzi dla stanu,
+  // który dostawał.
+  search_type: "semantic" | "fallback" | "unavailable";
   meta?: RecommendationMeta;
 }
 

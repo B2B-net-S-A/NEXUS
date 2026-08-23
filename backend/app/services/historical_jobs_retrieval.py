@@ -92,7 +92,7 @@ async def find_similar_historical_jobs(
     top_k: int = 5,
     cross_client: bool = False,
     exclude_job_id: Optional[int] = None,
-) -> list[HistoricalJobMatch]:
+) -> Optional[list[HistoricalJobMatch]]:
     """Find closed jobs with populated champion_profile most similar to the
     given title + description.
 
@@ -110,8 +110,22 @@ async def find_similar_historical_jobs(
             that is NOT yet closed — we don't want it matching itself).
 
     Returns:
-        List of HistoricalJobMatch, length 0..top_k, sorted by similarity desc.
-        Empty list on any infrastructure failure (logged at WARNING).
+        Lista HistoricalJobMatch (0..top_k, malejąco po podobieństwie) albo
+        ``None``.
+
+        ``None`` znaczy „NIE WIEM" — padł provider embeddingów albo Qdrant.
+        ``[]`` znaczy „WIEM, ŻE NIE MA" — wyszukiwanie odpowiedziało, a u tego
+        klienta nie ma domkniętych, podobnych rekrutacji z Championem.
+
+        Do sierpnia 2026 obie sytuacje zwracały pustą listę i wołający nie miał
+        jak ich odróżnić. Skutek był trwały: `generate_from_historical_jobs`
+        kasował gotową propozycję `pending` i zapisywał do bazy komunikat
+        „znaleziono 0, wymagane co najmniej 2" — pewne siebie twierdzenie
+        o danych klienta, podczas gdy leżała infrastruktura. Delivery Lead
+        czytał to jako fakt i przestawał próbować.
+
+        Wołający MUSI rozróżniać `is None` od pustej listy; samo `if not
+        matches:` skleja oba stany z powrotem.
     """
     query_text = _build_query_text(title=title, raw_description=raw_description)
     if not query_text:
@@ -122,13 +136,15 @@ async def find_similar_historical_jobs(
         logger.warning(
             "[historical] embedding unavailable (text_len=%d)", len(query_text)
         )
-        return []
+        return None
 
     qdrant_limit = max(top_k * QDRANT_OVERSAMPLE_FACTOR, top_k)
     filter_client_id = None if cross_client else client_id
     hits = await asyncio.to_thread(
         _qdrant_search, embedding, filter_client_id, qdrant_limit
     )
+    if hits is None:
+        return None
     if not hits:
         return []
 
@@ -226,7 +242,7 @@ def skill_frequency(
             "threshold": threshold,
         }
 
-    def _aggregate(bucket_name: str) -> list[dict[str, Any]]:
+    def _aggregate(bucket_name: str) -> Optional[list[dict[str, Any]]]:
         counts: Counter[str] = Counter()
         display_by_key: dict[str, str] = {}
         for match in matches:
@@ -347,5 +363,9 @@ def _qdrant_search(
             for hit in hits
         ]
     except Exception as exc:  # noqa: BLE001
+        # `None`, nie `[]`. Pusta lista znaczy „Qdrant odpowiedział i nic nie
+        # ma"; awaria to zupełnie inna informacja i sklejenie ich sprawiało, że
+        # wołający zapisywał do bazy twierdzenie o DANYCH KLIENTA w sytuacji,
+        # gdy przyczyną była infrastruktura.
         logger.warning("[historical] Qdrant search failed: %s", exc)
-        return []
+        return None

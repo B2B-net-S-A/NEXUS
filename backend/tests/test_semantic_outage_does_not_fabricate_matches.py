@@ -1,0 +1,118 @@
+"""Awaria wyszukiwania nie może produkować listy „dopasowań" z losowych ofert.
+
+Trzy powierzchnie miały ten sam kształt: `search_jobs_semantic` wołane BEZ
+`raise_on_error=True` połykało wyjątek i zwracało `[]` — tę samą wartość co
+zdrowe zapytanie bez trafień. Trzy linie niżej stał fallback, który dolewał
+arbitralne oferty (100 dla rekomendacji kandydata, 50 dla kokpitu i podglądu
+CV), scorowane z PUSTĄ mapą podobieństwa, czyli bez warstwy semantycznej
+wartej 60 ze 100 punktów.
+
+Rekruter dostawał HTTP 200 z wiarygodną, NIEPUSTĄ listą i przypisywał kandydata
+do oferty wybranej ze zbioru, który z dopasowaniem nie miał nic wspólnego.
+Ta sama para kandydat/oferta miała przy zdrowym Qdrancie 80.6 pkt, a przy
+awarii ~26 albo znikała z listy — bo jej oferty nie było w tych pierwszych 100.
+
+Testy czytają ŹRÓDŁO, bo odtworzenie wymagałoby wyłączenia Qdranta w środowisku,
+w którym inne testy go używają; a mockowanie `search_jobs_semantic` sprawdzałoby
+atrapę zamiast tego, czy fallback jest zabramkowany.
+"""
+
+import ast
+import pathlib
+
+import pytest
+
+BACKEND = pathlib.Path(__file__).resolve().parents[1]
+
+
+def _calls_with_raise_on_error(tree: ast.AST) -> list[bool]:
+    """Dla każdego wywołania `search_jobs_semantic` — czy ma raise_on_error."""
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = (
+            node.func.attr
+            if isinstance(node.func, ast.Attribute)
+            else getattr(node.func, "id", None)
+        )
+        if name != "search_jobs_semantic":
+            continue
+        out.append(any(k.arg == "raise_on_error" for k in node.keywords))
+    return out
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ("app/api/recommendations.py", "app/api/cv_match_preview.py"),
+)
+def test_every_semantic_search_can_report_its_own_failure(rel: str):
+    tree = ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
+    flags = _calls_with_raise_on_error(tree)
+    assert flags, f"{rel}: nie znaleziono wywołań — zmienił się kształt pliku"
+    assert all(flags), (
+        f"{rel}: {flags.count(False)} z {len(flags)} wywołań `search_jobs_semantic` "
+        "połyka awarię i zwraca [], czyli to samo co zdrowe zero trafień — "
+        "fallback niżej dolewa wtedy arbitralne oferty jako „dopasowania"
+    )
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ("app/api/recommendations.py", "app/api/cv_match_preview.py"),
+)
+def test_fallback_is_gated_on_the_search_having_answered(rel: str):
+    """Fallback wolno odpalić tylko po ODPOWIEDZI, nie po awarii."""
+    src = (BACKEND / rel).read_text(encoding="utf-8")
+    assert "semantic_unavailable" in src or "cand_semantic_ok" in src, (
+        f"{rel}: brak zmiennej odróżniającej awarię od pustego wyniku"
+    )
+    # każdy `.limit(` fallbacku ma nad sobą warunek o dostępności wyszukiwania
+    assert "not semantic_unavailable" in src or "elif cand_semantic_ok" in src, (
+        f"{rel}: fallback nie jest zabramkowany — przy awarii nadal dolewa "
+        "arbitralne oferty"
+    )
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ("app/api/recommendations.py", "app/api/cv_match_preview.py"),
+)
+def test_arbitrary_slice_is_ordered(rel: str):
+    """`limit()` bez `order_by` to inny wycinek przy każdym wywołaniu."""
+    src = (BACKEND / rel).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    unordered = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr == "limit"):
+            continue
+        # zejdź po łańcuchu w dół szukając order_by
+        chain, cur = [], node.func.value
+        while isinstance(cur, ast.Call) and isinstance(cur.func, ast.Attribute):
+            chain.append(cur.func.attr)
+            cur = cur.func.value
+        # `@limiter.limit("20/minute")` to rate limiter, nie zapytanie SQL —
+        # ta sama nazwa metody, zupełnie inne API. Dopasowywanie po samej
+        # nazwie atrybutu jest za szerokie (pierwsza wersja tego testu
+        # zgłaszała 11 dekoratorów jako brak `ORDER BY`).
+        base = cur.id if isinstance(cur, ast.Name) else getattr(cur, "attr", "")
+        if base == "limiter":
+            continue
+        if "order_by" not in chain:
+            unordered.append(node.lineno)
+    assert not unordered, (
+        f"{rel}: limit() bez order_by w liniach {unordered} - pierwsze N "
+        "to arbitralny wycinek, inny przy kazdym wywolaniu"
+    )
+
+
+def test_degraded_flag_reaches_the_response():
+    """Sama detekcja nic nie daje, jeśli nie wychodzi z endpointu."""
+    for rel in ("app/api/recommendations.py", "app/api/cv_match_preview.py"):
+        src = (BACKEND / rel).read_text(encoding="utf-8")
+        assert '"degraded"' in src, f"{rel}: flaga nie trafia do odpowiedzi"
+        assert '"semantic_unavailable"' in src, (
+            f"{rel}: brak rozróżnienia powodu — front nie odróżni awarii od zera"
+        )

@@ -80,8 +80,7 @@ def _make_match(
         closed_at=None,
         client_id=1,
         client_name="Nordea",
-        champion_profile=champion_profile
-        or {"project_context": {"about": "Test"}},
+        champion_profile=champion_profile or {"project_context": {"about": "Test"}},
         must_skills=must,
         nice_skills=nice or [],
         seniority=seniority,
@@ -256,13 +255,20 @@ def test_same_train_boost_reorders_close_similarities():
 
 
 @pytest.mark.asyncio
-async def test_find_similar_returns_empty_when_embedding_unavailable():
-    """If Voyage and Ollama both fail, retrieval must degrade to []."""
+async def test_find_similar_answers_unknown_when_embedding_unavailable():
+    """Padnięty provider embeddingów to „NIE WIEM", a nie „nie ma".
+
+    Zwracanie `[]` sprawiało, że wołający zapisywał do bazy komunikat
+    „znaleziono 0 historycznych rekrutacji" — twierdzenie o DANYCH KLIENTA
+    w sytuacji, gdy leżała infrastruktura.
+    """
     from sqlalchemy.ext.asyncio import AsyncSession
     from app.services import historical_jobs_retrieval
 
     with patch.object(
-        historical_jobs_retrieval, "generate_embedding", new=AsyncMock(return_value=None)
+        historical_jobs_retrieval,
+        "generate_embedding",
+        new=AsyncMock(return_value=None),
     ):
         result = await historical_jobs_retrieval.find_similar_historical_jobs(
             db=MagicMock(spec=AsyncSession),
@@ -271,7 +277,10 @@ async def test_find_similar_returns_empty_when_embedding_unavailable():
             raw_description="desc",
             top_k=5,
         )
-    assert result == []
+    assert result is None, (
+        f"otrzymano {result!r}; pusta lista jest NIEODRÓŻNIALNA od uczciwego "
+        "„u tego klienta nie ma podobnych domkniętych rekrutacji"
+    )
 
 
 # ── Async: generate_from_historical_jobs ────────────────────────────────────
@@ -379,8 +388,14 @@ async def test_generate_from_history_rejects_when_no_matches(
     """Cold-start case: no closed jobs at all → rejected with error_message."""
     job_id, _ = await _seed_client_and_job()
 
+    # Patchujemy nazwę w `champion_draft_service`, a NIE w module źródłowym:
+    # serwis importuje ją na poziomie modułu (`from ... import ...`), więc
+    # podmiana w źródle go nie dotyczy. Poprzednia wersja tego testu patchowała
+    # źródło i przechodziła z NIEWŁAŚCIWEGO powodu — prawdziwa funkcja i tak
+    # zwracała pustkę, bo w środowisku testowym nie ma providera embeddingów.
+    # Czyli test „zimnego startu" w rzeczywistości mierzył brak Voyage'a.
     with patch(
-        "app.services.historical_jobs_retrieval.find_similar_historical_jobs",
+        "app.services.champion_draft_service.find_similar_historical_jobs",
         new=AsyncMock(return_value=[]),
     ):
         resp = await app_client.post(
@@ -393,6 +408,61 @@ async def test_generate_from_history_rejects_when_no_matches(
     assert suggestion["status"] == "rejected"
     assert suggestion["source_type"] == "historical_jobs"
     assert "Za mało historycznych rekrutacji" in (suggestion["error_message"] or "")
+
+
+@pytest.mark.asyncio
+async def test_generate_from_history_does_not_lie_when_search_is_down(
+    app_client, app_auth_headers, _patch_anthropic
+):
+    """Awaria wyszukiwania: 503, ZERO zapisu, ZERO kasowania cudzej pracy.
+
+    Poprzednio ta ścieżka była nieodróżnialna od zimnego startu i miała dwa
+    trwałe skutki: `_supersede_previous_pending` przestemplowywało gotową do
+    przejrzenia propozycję na `superseded`, a do bazy trafiał wiersz `rejected`
+    z komunikatem „znaleziono 0, wymagane co najmniej 2" — czyli nieprawda
+    o danych klienta utrwalona w bazie.
+    """
+    from sqlalchemy import text as _sql_text
+
+    from app.core.database import AsyncSessionLocal
+
+    job_id, _ = await _seed_client_and_job()
+
+    async def _count_suggestions() -> int:
+        async with AsyncSessionLocal() as db:
+            return (
+                await db.scalar(
+                    _sql_text(
+                        "SELECT count(*) FROM champion_profile_suggestions "
+                        "WHERE job_id = :j"
+                    ),
+                    {"j": job_id},
+                )
+            ) or 0
+
+    before = await _count_suggestions()
+
+    with patch(
+        "app.services.champion_draft_service.find_similar_historical_jobs",
+        new=AsyncMock(return_value=None),
+    ):
+        resp = await app_client.post(
+            f"/api/jobs/{job_id}/champion-profile/generate-from-history",
+            headers=app_auth_headers,
+            json={"top_k": 5, "cross_client": False},
+        )
+
+    assert resp.status_code == 503, resp.text
+    detail = resp.json().get("detail", "")
+    assert "niedostępne" in detail, detail
+    assert "znaleziono" not in detail.lower(), (
+        "komunikat twierdzi coś o LICZBIE historycznych rekrutacji, choć "
+        "przyczyną jest awaria infrastruktury"
+    )
+    assert await _count_suggestions() == before, (
+        "awaria zapisała wiersz do bazy — utrwaliła twierdzenie o danych "
+        "klienta w sytuacji, w której system nic nie wie"
+    )
 
 
 @pytest.mark.asyncio
@@ -506,13 +576,16 @@ async def test_preview_historical_matches_saved_job(app_client, app_auth_headers
             seniority="senior",
         ),
     ]
-    with patch(
-        "app.api.jobs.find_similar_historical_jobs",
-        new=AsyncMock(return_value=fake_matches),
-        create=True,
-    ), patch(
-        "app.services.historical_jobs_retrieval.find_similar_historical_jobs",
-        new=AsyncMock(return_value=fake_matches),
+    with (
+        patch(
+            "app.api.jobs.find_similar_historical_jobs",
+            new=AsyncMock(return_value=fake_matches),
+            create=True,
+        ),
+        patch(
+            "app.services.historical_jobs_retrieval.find_similar_historical_jobs",
+            new=AsyncMock(return_value=fake_matches),
+        ),
     ):
         resp = await app_client.get(
             f"/api/jobs/{job_id}/champion-profile/historical-matches?top_k=5",
@@ -611,9 +684,7 @@ async def test_rate_rejects_pending_suggestion(
 
 
 @pytest.mark.asyncio
-async def test_preview_historical_matches_unsaved_role(
-    app_client, app_auth_headers
-):
+async def test_preview_historical_matches_unsaved_role(app_client, app_auth_headers):
     """POST preview without job_id — used by the new-role wizard."""
     # We need at least one client to reference.
     from app.core.database import AsyncSessionLocal

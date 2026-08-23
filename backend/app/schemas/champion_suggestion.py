@@ -84,6 +84,12 @@ class HistoricalMatchesResponse(BaseModel):
 
     matches: List[HistoricalMatchPreview]
     skill_frequency: dict[str, Any]
+    # Czy wyszukiwanie w ogóle ODPOWIEDZIAŁO. Bez tego pusta lista znaczyła
+    # naraz „u tego klienta nie ma podobnych domkniętych rekrutacji" i „Qdrant
+    # nie odpowiedział" — a Delivery Lead czytał to jako fakt o kliencie
+    # i przestawał próbować.
+    degraded: bool = False
+    degraded_reason: Optional[str] = None
 
 
 class LinkNoteJobPayload(BaseModel):

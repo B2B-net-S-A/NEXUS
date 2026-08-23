@@ -2636,14 +2636,22 @@ async def generate_champion_from_history(
         body.cross_client,
         delivery_lead_pairs,
     )
-    suggestion = await generate_from_historical_jobs(
-        db,
-        job_id=job_id,
-        raw_description=body.raw_description,
-        top_k=body.top_k,
-        cross_client=body.cross_client,
-        user_id=current_user.id,
-    )
+    from app.services.champion_draft_service import HistoricalSearchUnavailable
+
+    try:
+        suggestion = await generate_from_historical_jobs(
+            db,
+            job_id=job_id,
+            raw_description=body.raw_description,
+            top_k=body.top_k,
+            cross_client=body.cross_client,
+            user_id=current_user.id,
+        )
+    except HistoricalSearchUnavailable as exc:
+        # 503, nie 200 z odrzuceniem. Poprzednio awaria kończyła się wierszem
+        # „znaleziono 0, wymagane co najmniej 2" — nieprawdą o danych klienta,
+        # zapisaną do bazy, plus skasowaniem gotowej propozycji `pending`.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     out = ChampionProfileSuggestionOut.model_validate(suggestion)
     out.patches = patches_from_payload(suggestion.payload or {})
     return out
@@ -2690,6 +2698,20 @@ async def get_champion_historical_matches(
         cross_client=cross_client,
         exclude_job_id=job.id,
     )
+
+    # `None` = wyszukiwanie nie odpowiedziało. Pusta lista z HTTP 200 czytałaby
+    # się jako „u tego klienta nie ma podobnych domkniętych rekrutacji" — czyli
+    # twierdzenie o danych klienta zamiast informacji o awarii.
+    if matches is None:
+        return HistoricalMatchesResponse(
+            matches=[],
+            skill_frequency={},
+            degraded=True,
+            degraded_reason=(
+                "Wyszukiwanie podobnych rekrutacji jest chwilowo niedostępne — "
+                "to nie znaczy, że u tego klienta ich nie ma."
+            ),
+        )
 
     previews = [
         HistoricalMatchPreview(
@@ -2753,6 +2775,20 @@ async def preview_historical_matches_for_new_role(
         top_k=body.top_k,
         cross_client=body.cross_client,
     )
+
+    # `None` = wyszukiwanie nie odpowiedziało. Pusta lista z HTTP 200 czytałaby
+    # się jako „u tego klienta nie ma podobnych domkniętych rekrutacji" — czyli
+    # twierdzenie o danych klienta zamiast informacji o awarii.
+    if matches is None:
+        return HistoricalMatchesResponse(
+            matches=[],
+            skill_frequency={},
+            degraded=True,
+            degraded_reason=(
+                "Wyszukiwanie podobnych rekrutacji jest chwilowo niedostępne — "
+                "to nie znaczy, że u tego klienta ich nie ma."
+            ),
+        )
 
     previews = [
         HistoricalMatchPreview(
