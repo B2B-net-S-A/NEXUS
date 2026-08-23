@@ -1,6 +1,6 @@
 # Audyt długu technicznego — stan końcowy, 2026-08-23
 
-> Źródło prawdy: [`tech-debt-backlog.json`](tech-debt-backlog.json) (169 pozycji).
+> Źródło prawdy: [`tech-debt-backlog.json`](tech-debt-backlog.json) (175 pozycji).
 > Czytelny przekrój znalezisk: [`tech-debt-audit-2026-08-21.md`](tech-debt-audit-2026-08-21.md).
 > Procedura kopii off-site: [`runbook-backup-201.md`](runbook-backup-201.md).
 
@@ -8,12 +8,12 @@
 
 | status | ile | co to znaczy |
 |---|---|---|
-| **zrobione** | **153** | zmergowane, wdrożone, z testem i kontrolą negatywną |
+| **zrobione** | **158** | zmergowane, wdrożone, z testem i kontrolą negatywną |
 | czeka na Ciebie | 10 | sekrety, konta albo decyzja produktowa — nie da się tego zrobić za Ciebie |
 | nieaktualne | 4 | zastąpione innym znaleziskiem |
-| świadomie odrzucone | 2 | naprawa kosztowałaby więcej niż defekt |
+| świadomie odrzucone | 3 | naprawa kosztowałaby więcej niż defekt |
 
-PR-y: #1225–#1229 (fale 1–5), #1235 (#401/#402), #1236 (#403–#407), #1237 (#408, #212, #315).
+PR-y: #1225–#1229 (fale 1–5), #1235 (#401/#402), #1236 (#403–#407), #1237 (#408, #212, #315), #1239 (pięć regresji z tej pracy), #1240 (#409–#413).
 
 ## Co się okazało ważniejsze niż liczby
 
