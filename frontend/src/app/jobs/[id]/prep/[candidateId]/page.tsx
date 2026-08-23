@@ -29,6 +29,11 @@ export default function PrepPage() {
  const [state, setState] = useState<LoadState>("idle");
  const [prepKit, setPrepKit] = useState<PrepKitResponse | null>(null);
  const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([]);
+ // Czy lista pytań jest KOMPLETNA. Gdy wyszukiwanie podobnych rekrutacji nie
+ // odpowie, tier 4 (auto-generator) dolewa pytania jako bezpiecznik — bez tego
+ // sygnału ekran wygląda normalnie i rekruter nie ma jak zauważyć, że dwa
+ // najlepsze źródła milczały (#408).
+ const [degradedReason, setDegradedReason] = useState<string | null>(null);
  const [error, setError] = useState<string | null>(null);
 
  const load = async () => {
@@ -43,7 +48,13 @@ export default function PrepPage() {
  }),
  ]);
  setPrepKit(kitRes.data);
- setSuggestions(suggRes.data);
+ setSuggestions(suggRes.data.items);
+ setDegradedReason(
+ suggRes.data.meta.degraded
+ ? (suggRes.data.meta.reason ??
+ "Wyszukiwanie podobnych rekrutacji nie odpowiedziało — lista może być niepełna.")
+ : null,
+ );
  setState("ready");
  } catch (err) {
  const message =
@@ -241,6 +252,17 @@ export default function PrepPage() {
  </Card>
  )}
  </section>
+
+ {degradedReason && (
+ <div
+ role="status"
+ className="mt-4 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground print:hidden"
+ >
+ <strong className="font-medium">Lista może być niepełna.</strong>{" "}
+ {degradedReason} Pozostałe pytania pochodzą z automatycznego
+ generatora — warto odświeżyć za chwilę.
+ </div>
+ )}
 
  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-4 print:hidden">
  <Badge variant="neutral" size="sm">

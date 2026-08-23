@@ -209,8 +209,15 @@ async def _questions_for_jobs(
 async def _tier_same_cc_similar(
     db: AsyncSession,
     job: Job,
-) -> list[SuggestedQuestion]:
-    """Tier 1: jobs z tym samym primary CC, cosine >= TIER_1_MIN_COSINE."""
+) -> tuple[list[SuggestedQuestion], bool]:
+    """Tier 1: jobs z tym samym primary CC, cosine >= TIER_1_MIN_COSINE.
+
+    Zwraca ``(pytania, degraded)``. ``degraded=True`` znaczy „nie wiem" —
+    Qdrant nie odpowiedział, więc pusta lista NIE znaczy, że podobnych ofert
+    nie ma. Bez tej flagi tier 4 dolewał pytania z auto-generatora i rekruter
+    dostawał wiarygodny wynik, nie mając jak zauważyć, że dwa najlepsze źródła
+    milczały (#408).
+    """
     # Bramka WYŁĄCZNIE na CC: filtr niżej to `Job.competence_category_id ==
     # job.competence_category_id`, co przy None degeneruje do IS NULL i
     # dopasowałoby oferty bez CC. Brak wektora rozstrzyga `search_similar_jobs_
@@ -218,13 +225,22 @@ async def _tier_same_cc_similar(
     # słabszym predykatem przed lepszym. Patrz #403.
     if not job.competence_category_id:
         logger.debug("[prep-suggest] skip tier 1 (job %s): no CC", job.id)
-        return []
+        return [], False
 
     hits = await search_similar_jobs_by_job_id(
         job.id, top_k=SIMILAR_JOBS_SEARCH_TOP_K, exclude_self=True
     )
+    # `is None` PRZED `not hits`: samo `if not hits` sklejałoby z powrotem
+    # „nie wiem" z „wiem, że nie ma" — czyli defekt, który ta zmiana usuwa.
+    if hits is None:
+        logger.warning(
+            "[prep-suggest] tier 1 (job %s): Qdrant nie odpowiedział — wynik "
+            "jest NIEPEŁNY, nie pusty",
+            job.id,
+        )
+        return [], True
     if not hits:
-        return []
+        return [], False
 
     candidate_ids = [h["job_id"] for h in hits]
     scores = {h["job_id"]: h["score"] for h in hits}
@@ -244,16 +260,22 @@ async def _tier_same_cc_similar(
     ]
     filtered_scores = {jid: scores[jid] for jid in filtered_ids}
 
-    return await _questions_for_jobs(
-        db, filtered_ids, job.client_id, filtered_scores, "tier_1_same_cc"
+    return (
+        await _questions_for_jobs(
+            db, filtered_ids, job.client_id, filtered_scores, "tier_1_same_cc"
+        ),
+        False,
     )
 
 
 async def _tier_secondary_cc(
     db: AsyncSession,
     job: Job,
-) -> list[SuggestedQuestion]:
-    """Tier 2: jobs overlapping po secondary CC, cosine >= TIER_2_MIN_COSINE."""
+) -> tuple[list[SuggestedQuestion], bool]:
+    """Tier 2: jobs overlapping po secondary CC, cosine >= TIER_2_MIN_COSINE.
+
+    Zwraca ``(pytania, degraded)`` — patrz ``_tier_same_cc_similar``.
+    """
     # Bez bramki na `embedding_id` — patrz komentarz w `_tier_same_cc_similar`.
     # Zbierz secondary CCs siebie
     self_secondary = await db.execute(
@@ -268,13 +290,20 @@ async def _tier_secondary_cc(
     if job.competence_category_id:
         cc_pool.add(job.competence_category_id)
     if not cc_pool:
-        return []
+        return [], False
 
     hits = await search_similar_jobs_by_job_id(
         job.id, top_k=SIMILAR_JOBS_SEARCH_TOP_K, exclude_self=True
     )
+    if hits is None:
+        logger.warning(
+            "[prep-suggest] tier 2 (job %s): Qdrant nie odpowiedział — wynik "
+            "jest NIEPEŁNY, nie pusty",
+            job.id,
+        )
+        return [], True
     if not hits:
-        return []
+        return [], False
 
     candidate_ids = [h["job_id"] for h in hits]
     scores = {h["job_id"]: h["score"] for h in hits}
@@ -302,8 +331,11 @@ async def _tier_secondary_cc(
     ]
     filtered_scores = {jid: scores[jid] for jid in filtered_ids}
 
-    return await _questions_for_jobs(
-        db, filtered_ids, job.client_id, filtered_scores, "tier_2_secondary_cc"
+    return (
+        await _questions_for_jobs(
+            db, filtered_ids, job.client_id, filtered_scores, "tier_2_secondary_cc"
+        ),
+        False,
     )
 
 
@@ -407,16 +439,43 @@ def _normalize_dedup_key(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip().lower())
 
 
+@dataclass
+class PrepSuggestions:
+    """Pytania + informacja, czy wynik jest KOMPLETNY.
+
+    Kształt wzorowany na ``RadarResult`` z Talent Radaru, gdzie ta sama zasada
+    jest już utrwalona: wynik zdegradowany NIE MOŻE renderować się jak
+    normalny. Tutaj jest gorzej niż przy pustej liście — tier 4 (auto-gen)
+    uruchamia się jako bezpiecznik, więc rekruter dostaje pytania WYGLĄDAJĄCE
+    normalnie i nie ma jak zauważyć, że dwa najlepsze źródła milczały (#408).
+    """
+
+    questions: list[SuggestedQuestion]
+    degraded: bool = False
+    reason: Optional[str] = None
+
+    def as_meta(self) -> dict:
+        return {
+            "returned": len(self.questions),
+            "degraded": self.degraded,
+            "reason": self.reason,
+        }
+
+
 async def suggest_questions_for_prep(
     db: AsyncSession,
     job: Job,
     target_count: int = DEFAULT_TARGET_QUESTIONS,
-) -> list[SuggestedQuestion]:
-    """Główne wejście: zwraca listę pytań dla prep-kita joba.
+) -> PrepSuggestions:
+    """Główne wejście: pytania dla prep-kita joba + flaga kompletności.
 
     Waterfall: dolewamy źródła aż osiągniemy `target_count` unikalnych pytań.
     Dedupe po `_normalize_dedup_key(text)`. Tier 4 (auto-gen) uruchamia się
     zawsze jako *bezpiecznik* — prep-kit musi mieć ≥ 1 pytanie.
+
+    Ten bezpiecznik jest właśnie powodem, dla którego flaga ``degraded`` musi
+    dojechać do wołającego: bez niej awaria Qdranta wygląda dokładnie jak
+    oferta, dla której po prostu nie ma podobnych.
     """
     buckets: list[list[SuggestedQuestion]] = []
 
@@ -430,14 +489,18 @@ async def suggest_questions_for_prep(
         for q in bucket:
             current_unique.add(_normalize_dedup_key(q.text))
 
+    degraded = False
+
     if len(current_unique) < target_count:
-        tier1 = await _tier_same_cc_similar(db, job)
+        tier1, tier1_degraded = await _tier_same_cc_similar(db, job)
+        degraded = degraded or tier1_degraded
         buckets.append(tier1)
         for q in tier1:
             current_unique.add(_normalize_dedup_key(q.text))
 
     if len(current_unique) < target_count:
-        tier2 = await _tier_secondary_cc(db, job)
+        tier2, tier2_degraded = await _tier_secondary_cc(db, job)
+        degraded = degraded or tier2_degraded
         buckets.append(tier2)
         for q in tier2:
             current_unique.add(_normalize_dedup_key(q.text))
@@ -462,4 +525,23 @@ async def suggest_questions_for_prep(
             seen.add(key)
             merged.append(q)
 
-    return merged
+    if degraded:
+        # WARNING, nie DEBUG: to jest jedyny ślad po tym, że rekruter patrzy na
+        # niepełny wynik. Sam log nie wystarcza (nikt go nie czyta bez alertu),
+        # dlatego flaga jedzie też w odpowiedzi API.
+        logger.warning(
+            "[prep-suggest] job %s: wynik NIEPEŁNY — Qdrant nie odpowiedział, "
+            "a tier 4 dolał pytania z auto-generatora",
+            job.id,
+        )
+
+    return PrepSuggestions(
+        questions=merged,
+        degraded=degraded,
+        reason=(
+            "Wyszukiwanie podobnych rekrutacji nie odpowiedziało — lista może "
+            "być niepełna."
+            if degraded
+            else None
+        ),
+    )

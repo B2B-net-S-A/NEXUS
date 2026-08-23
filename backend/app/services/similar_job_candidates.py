@@ -148,7 +148,7 @@ class SimilarJobRef:
 
 async def fetch_similar_jobs(
     job_id: int, *, tier: Tier = "primary", top_k: int = SIMILAR_JOBS_TOP_K
-) -> tuple[list[SimilarJobRef], Literal["primary", "extended", "empty"]]:
+) -> tuple[list[SimilarJobRef], Literal["primary", "extended", "empty", "degraded"]]:
     """Return similar-job refs for the requested tier.
 
     When ``tier="primary"``, only >= 0.70 hits are returned.
@@ -162,11 +162,23 @@ async def fetch_similar_jobs(
     hits = await search_similar_jobs_by_job_id(
         job_id=job_id, top_k=top_k, exclude_self=True
     )
+    # `None` = Qdrant nie odpowiedział. Zwracamy "degraded", NIE "empty":
+    # boost historyczny liczony z pustki jest wtedy nieodróżnialny od boostu
+    # kandydata, który naprawdę nie ma historii u podobnych klientów — a to
+    # różnica w scoringu, której nikt nie zobaczy (#408). Zachowanie zostaje
+    # to samo (brak boostu), zmienia się to, że fakt jest ZAPISANY.
+    if hits is None:
+        logger.warning(
+            "[similar-jobs] job %s: Qdrant nie odpowiedział — boost historyczny "
+            "liczony jak przy braku podobnych ofert, wynik NIEPEŁNY",
+            job_id,
+        )
+        return [], "degraded"
     if not hits:
         return [], "empty"
 
     refs: list[SimilarJobRef] = []
-    tier_used: Literal["primary", "extended", "empty"] = "primary"
+    tier_used: Literal["primary", "extended", "empty", "degraded"] = "primary"
     for hit in hits:
         score = float(hit.get("score") or 0.0)
         if score < TIER_B_THRESHOLD:
@@ -204,7 +216,7 @@ async def fetch_historical_candidates(
 ) -> tuple[
     list[HistoricalCandidate],
     list[SimilarJobRef],
-    Literal["primary", "extended", "empty"],
+    Literal["primary", "extended", "empty", "degraded"],
 ]:
     """Rank candidates by their pipeline presence on similar historical jobs.
 

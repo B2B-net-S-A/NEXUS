@@ -821,6 +821,13 @@ export interface PrepKitResponse {
     skill_tags: string[];
     cosine_score: number | null;
   }>;
+  /**
+   * Czy lista pytań jest KOMPLETNA. Gdy wyszukiwanie podobnych rekrutacji nie
+   * odpowie, tier 4 (auto-generator) dolewa pytania jako bezpiecznik — kit
+   * wygląda wtedy normalnie i po awarii nie ma żadnego śladu. Patrz #408.
+   */
+  degraded?: boolean;
+  degraded_reason?: string | null;
   candidate_strengths: string[];
   candidate_gaps: string[];
   selling_points: string[];
@@ -4288,6 +4295,17 @@ export interface SuggestedQuestion {
   cosine_score: number | null;
 }
 
+export interface SuggestedQuestionsMeta {
+  returned: number;
+  degraded: boolean;
+  reason: string | null;
+}
+
+export interface SuggestedQuestionsEnvelope {
+  items: SuggestedQuestion[];
+  meta: SuggestedQuestionsMeta;
+}
+
 export interface CreateInterviewQuestionPayload {
   text: string;
   ideal_answer?: string | null;
@@ -4357,13 +4375,23 @@ export const interviewQuestionsApi = {
       { items },
     ),
 
+  /**
+   * Zwraca kopertę `{ items, meta }`, nie gołą listę.
+   *
+   * Do #408 endpoint oddawał `SuggestedQuestion[]`, przez co awaria
+   * wyszukiwania podobnych rekrutacji była NIEODRÓŻNIALNA od oferty, która po
+   * prostu nie ma podobnych: oba tiery milkły, tier 4 dolewał pytania
+   * z auto-generatora i odpowiedź wyglądała normalnie. `meta.degraded`
+   * niesie tę różnicę do UI.
+   */
   suggestedForJob: (
     jobId: number,
     params?: { candidate_id?: number; target_count?: number },
   ) =>
-    api.get<SuggestedQuestion[]>(`/api/jobs/${jobId}/suggested-questions`, {
-      params,
-    }),
+    api.get<SuggestedQuestionsEnvelope>(
+      `/api/jobs/${jobId}/suggested-questions`,
+      { params },
+    ),
 };
 
 // ── Job Chat ─────────────────────────────────────────────────────────────────

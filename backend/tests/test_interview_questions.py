@@ -152,9 +152,7 @@ async def _create_test_job(
         return job.id
 
 
-async def test_create_question_minimal(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_create_question_minimal(app_client: AsyncClient, app_auth_headers: dict):
     r = await app_client.post(
         "/api/interview-questions",
         json={"text": f"Testowe pytanie? {uuid.uuid4().hex[:6]}"},
@@ -189,9 +187,7 @@ async def test_create_question_dedup_returns_existing(
     assert r2.json()["id"] == id1
 
 
-async def test_create_and_pin_to_job(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_create_and_pin_to_job(app_client: AsyncClient, app_auth_headers: dict):
     job_id = await _create_test_job(app_client, app_auth_headers)
     r = await app_client.post(
         "/api/interview-questions",
@@ -319,8 +315,15 @@ async def test_suggested_questions_tier_4_when_no_data(
         )
     assert r.status_code == 200
     body = r.json()
-    assert len(body) >= 1
-    assert all(b["source_tier"] in ("tier_4_auto_generated",) for b in body)
+    # Koperta od #408: `items` + `meta.degraded`. Gołej listy już nie ma, bo
+    # nie dało się w niej odróżnić „nie ma podobnych" od „Qdrant nie odpowiedział".
+    items = body["items"]
+    assert len(items) >= 1
+    assert all(b["source_tier"] in ("tier_4_auto_generated",) for b in items)
+    assert body["meta"]["degraded"] is False, (
+        "Qdrant ODPOWIEDZIAŁ (mock zwrócił []), więc wynik jest kompletny — "
+        "flaga degraded byłaby fałszywym alarmem"
+    )
 
 
 async def test_prep_kit_backwards_compat_likely_questions_is_list_of_strings(
@@ -429,16 +432,14 @@ async def test_tenant_isolation_client_specific_question_not_leaked_cross_client
     # Mock: job_A jest "similar" do job_B (cosine 0.9)
     with patch(
         "app.services.question_suggestions.search_similar_jobs_by_job_id",
-        new=AsyncMock(
-            return_value=[{"job_id": job_a_id, "score": 0.9, "payload": {}}]
-        ),
+        new=AsyncMock(return_value=[{"job_id": job_a_id, "score": 0.9, "payload": {}}]),
     ):
         r = await app_client.get(
             f"/api/jobs/{job_b_id}/suggested-questions",
             headers=app_auth_headers,
         )
     assert r.status_code == 200
-    texts = [q["text"] for q in r.json()]
+    texts = [q["text"] for q in r.json()["items"]]
     assert iq_text not in texts, (
         "Cross-tenant leak: pytanie klienta A trafiło do prep-kita klienta B"
     )
@@ -513,9 +514,7 @@ async def test_tenant_isolation_global_question_flows_cross_client(
 
     with patch(
         "app.services.question_suggestions.search_similar_jobs_by_job_id",
-        new=AsyncMock(
-            return_value=[{"job_id": job_a_id, "score": 0.8, "payload": {}}]
-        ),
+        new=AsyncMock(return_value=[{"job_id": job_a_id, "score": 0.8, "payload": {}}]),
     ):
         r = await app_client.get(
             f"/api/jobs/{job_b_id}/suggested-questions?target_count=30",
@@ -526,4 +525,4 @@ async def test_tenant_isolation_global_question_flows_cross_client(
     # Tier 2 wymaga secondary CC / primary pool — też 0.
     # Dlatego globalne pytanie z innego klienta nie lądowało... OK, to bardziej
     # subtelne: potwierdzamy że system nie rzuca błędu + że auto-gen działa.
-    assert len(r.json()) >= 1
+    assert len(r.json()["items"]) >= 1
