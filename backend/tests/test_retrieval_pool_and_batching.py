@@ -48,24 +48,7 @@ def test_pool_size_does_not_depend_on_top_k():
         assert "settings.MATCH_POOL_SIZE" in src, f"{rel} does not read the pool knob"
 
 
-def _calls_in(module_rel: str, func_name: str) -> set[str]:
-    tree = ast.parse((BACKEND / module_rel).read_text(encoding="utf-8"))
-    target = next(
-        (
-            n
-            for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and n.name == func_name
-        ),
-        None,
-    )
-    assert target is not None, f"{func_name} not found in {module_rel}"
-    return {
-        n.func.id
-        for n in ast.walk(target)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    }
-
+from tests._ast_calls import calls_in as _calls_in
 
 def test_pool_scoring_builds_the_batched_context_once():
     """Without this, a cold pool of N costs 2N round-trips.

@@ -51,6 +51,14 @@ _jinja_env = SandboxedEnvironment(
     autoescape=select_autoescape(["html", "xml"]),
     trim_blocks=True,
     lstrip_blocks=True,
+    # Jinja renderuje `None` jako napis "None". `_candidate_ctx` i `_job_ctx`
+    # celowo zwracają `None` dla pól nieuzupełnionych (`full_name`,
+    # `client_name`, `phone`, `location`, `linkedin`, widełki), więc szablon
+    # z `{{ candidate.phone }}` wysyłał KANDYDATOWI maila z napisem "None".
+    # Ten sam defekt co w `contract_templates`, tylko z odbiorcą na zewnątrz.
+    # `finalize` zamienia wyłącznie `None` na pusty napis: `False` i `0` muszą
+    # przejść nietknięte, bo są prawidłowymi wartościami, a nie brakiem danych.
+    finalize=lambda v: "" if v is None else v,
 )
 
 

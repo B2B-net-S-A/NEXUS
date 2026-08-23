@@ -26,13 +26,23 @@ jobs:
     steps:
       - name: Inspect deployment queue
         id: inspect
+        # Sekrety przez `env:`, nie przez `${{ }}` w ciele skryptu. Interpolacja
+        # wkleja WARTOŚĆ do tekstu polecenia, zanim powłoka je zobaczy — więc
+        # wartość z metaznakiem powłoki zostaje wykonana zamiast przekazana
+        # (sprawdzone: `abc$(id -u)def` inline -> `Bearer abc501def`, przez
+        # `env:` -> literalne `abc$(id -u)def`). Ten workflow chodzi z crona,
+        # więc jest uruchamiany częściej i oglądany rzadziej niż deploy.
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
           echo "== GET /api/v1/deployments (currently running/queued) =="
           # NOTE: do NOT print the raw payload — each deployment's `logs` field
           # echoes build commands incl. the git deploy key material.
-          curl -sS -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+          curl -sS -H "Authorization: Bearer $CO_TOKEN" \
             -H "Accept: application/json" \
-            "${{ secrets.COOLIFY_URL }}/api/v1/deployments" > /tmp/deployments.json
+            "$CO_URL/api/v1/deployments" > /tmp/deployments.json
           echo "== parsed (logs stripped) =="
           python3 - <<'PY'
           import json
@@ -54,27 +64,47 @@ jobs:
 
       - name: Cancel stuck deployments
         if: ${{ inputs.mode == 'cancel' || inputs.mode == 'redeploy' }}
+        # Sekrety przez `env:`, nie przez `${{ }}` w ciele skryptu. Interpolacja
+        # wkleja WARTOŚĆ do tekstu polecenia, zanim powłoka je zobaczy — więc
+        # wartość z metaznakiem powłoki zostaje wykonana zamiast przekazana
+        # (sprawdzone: `abc$(id -u)def` inline -> `Bearer abc501def`, przez
+        # `env:` -> literalne `abc$(id -u)def`). Ten workflow chodzi z crona,
+        # więc jest uruchamiany częściej i oglądany rzadziej niż deploy.
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
           if [ ! -s /tmp/uuids.txt ]; then echo "nothing to cancel"; exit 0; fi
           while read -r uuid; do
             [ -z "$uuid" ] && continue
             echo "== cancel $uuid =="
             code=$(curl -sS -o /tmp/cancel_body -w '%{http_code}' -X POST \
-              -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+              -H "Authorization: Bearer $CO_TOKEN" \
               -H "Accept: application/json" \
-              "${{ secrets.COOLIFY_URL }}/api/v1/deployments/$uuid/cancel" || true)
-            echo "HTTP $code: $(cat /tmp/cancel_body | head -c 300)"
+              "$CO_URL/api/v1/deployments/$uuid/cancel" || true)
+            echo "HTTP $code — $(jq -r '((.message // .error // "brak pola .message w odpowiedzi") | tostring | gsub("[[:cntrl:]]"; " ") | .[0:200])' /tmp/cancel_body 2>/dev/null || echo "odpowiedź nie jest JSON-em")"
           done < /tmp/uuids.txt
 
       - name: Trigger fresh deploy (force)
         if: ${{ inputs.mode == 'redeploy' }}
+        # Sekrety przez `env:`, nie przez `${{ }}` w ciele skryptu. Interpolacja
+        # wkleja WARTOŚĆ do tekstu polecenia, zanim powłoka je zobaczy — więc
+        # wartość z metaznakiem powłoki zostaje wykonana zamiast przekazana
+        # (sprawdzone: `abc$(id -u)def` inline -> `Bearer abc501def`, przez
+        # `env:` -> literalne `abc$(id -u)def`). Ten workflow chodzi z crona,
+        # więc jest uruchamiany częściej i oglądany rzadziej niż deploy.
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
           sleep 10
           code=$(curl -sS -o /tmp/deploy_body -w '%{http_code}' -X GET \
-            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+            -H "Authorization: Bearer $CO_TOKEN" \
             -H "Accept: application/json" \
-            "${{ secrets.COOLIFY_URL }}/api/v1/deploy?uuid=${{ secrets.COOLIFY_APP_UUID }}&force=true" || true)
-          echo "HTTP $code: $(cat /tmp/deploy_body | head -c 500)"
+            "$CO_URL/api/v1/deploy?uuid=$CO_APP_UUID&force=true" || true)
+          echo "HTTP $code — $(jq -r '((.message // .error // "brak pola .message w odpowiedzi") | tostring | gsub("[[:cntrl:]]"; " ") | .[0:200])' /tmp/deploy_body 2>/dev/null || echo "odpowiedź nie jest JSON-em")"
           if [ "$code" != "200" ] && [ "$code" != "201" ]; then
             echo "::error::redeploy trigger failed (HTTP $code)"; exit 1
           fi

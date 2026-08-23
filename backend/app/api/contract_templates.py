@@ -68,6 +68,13 @@ _jinja_env = SandboxedEnvironment(
     undefined=StrictUndefined,
     trim_blocks=True,
     lstrip_blocks=True,
+    # `StrictUndefined` broni WYŁĄCZNIE przed literówką w nazwie zmiennej —
+    # wartość, która istnieje i jest `None`, Jinja renderuje jako napis "None".
+    # Kontekst celowo niesie `None` dla pól nieuzupełnionych, więc bez tego
+    # do dokumentu trafia "NIP None" (11 505 z 11 899 klientów nie ma NIP-u).
+    # `finalize` zamienia wyłącznie `None` na pusty napis: `False` i `0` muszą
+    # przejść nietknięte, bo są prawidłowymi wartościami, a nie brakiem danych.
+    finalize=lambda v: "" if v is None else v,
 )
 
 # Generator Umów B2B — filtr formatujący daty (PL/EN), współdzielony z renderem
