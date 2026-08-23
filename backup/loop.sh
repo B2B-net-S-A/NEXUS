@@ -12,7 +12,33 @@ set -eu
 # pipefail od razu daje poprawny status zamiast maskowania błędu ostatnim etapem.
 set -o pipefail
 
+# Godzina startu jest JEDYNĄ liczbą, którą operator wpisuje ręcznie do vaulta
+# Coolify — i trafia wprost do `$(( HOUR * 3600 ))` niżej. Dwie pułapki, obie
+# kończące się tak samo:
+#
+#   • `08`/`09` — w arytmetyce POSIX-owej wiodące zero znaczy ÓSEMKOWO, a te
+#     dwie wartości nie są poprawnymi liczbami ósemkowymi. `$(( 08 * 3600 ))`
+#     to błąd składni, na którym powłoka KOŃCZY się natychmiast.
+#   • cokolwiek nieliczbowego (`2:00`, `02:00 UTC`, spacja) — to samo.
+#
+# Skutek jest za każdym razem ten sam i przewrotnie cichy: kontener wstaje,
+# umiera przed pierwszym `sleep`, `restart: unless-stopped` podnosi go znowu,
+# i tak w kółko. Backup nie powstaje nigdy, a jedynym śladem jest licznik
+# restartów w `docker ps`, którego nikt nie ogląda. Kod niżej strzeże się przed
+# ósemkami przy odczycie ZEGARA (`now_h`), ale nie strzegł się przy wartości,
+# którą naprawdę wpisuje człowiek.
 HOUR="${BACKUP_HOUR_UTC:-2}"
+HOUR="${HOUR#0}"; HOUR="${HOUR:-0}"
+case "$HOUR" in
+    ''|*[!0-9]*)
+        echo "[backup-loop] BACKUP_HOUR_UTC='${BACKUP_HOUR_UTC:-}' nie jest liczbą — używam 2:00 UTC" >&2
+        HOUR=2
+        ;;
+esac
+if [ "$HOUR" -gt 23 ]; then
+    echo "[backup-loop] BACKUP_HOUR_UTC='${BACKUP_HOUR_UTC:-}' poza 0-23 — używam 2:00 UTC" >&2
+    HOUR=2
+fi
 RUN_ON_START="${BACKUP_RUN_ON_START:-false}"
 RETRIES="${BACKUP_RETRIES:-3}"
 RETRY_DELAY="${BACKUP_RETRY_DELAY_SECONDS:-900}"

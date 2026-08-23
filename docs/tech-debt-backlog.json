@@ -20,7 +20,7 @@
    "P2": 57,
    "P3": 10
   },
-  "total": 162,
+  "total": 163,
   "last_updated": "2026-08-22"
  },
  "themes": [
@@ -375,7 +375,7 @@
    "verifier_note": "",
    "commit": null,
    "pr": null,
-   "note": ""
+   "note": "STAN CZYTELNY I GŁOŚNY (PR: fix/backup-201-observability); WYKONANIE nadal po stronie właściciela — generowanie kluczy i ustawianie sekretów to poświadczenia produkcyjne. Ustalone ponad opis znaleziska: bramki są TRZY, nie jedna. (1) BACKUP_ENABLED ma default false w compose, więc kopia może w ogóle NIE POWSTAWAĆ — i nikt tego nie widział; nowa akcja `Coolify Ops -> backup-status` odpowiada na to pytanie read-only. (2) Sekrety drilla nie istnieją. (3) BACKUP_MONITORING_ENABLED=false. Dodatkowo: sukcesy drilla do 20.07 były FAŁSZYWĄ ZIELENIĄ — PR #924 zamienił go w drill faktycznie pobierający i odszyfrowujący artefakt, więc czerwień od 27.07 to pierwszy moment, gdy mówi prawdę. Runbook: docs/runbook-backup-201.md."
   },
   {
    "id": 4,
@@ -4280,6 +4280,29 @@
    "evidence": "# candidate_identity_quarantine.py:364-366 — kasuje wektor, nie czyści kolumny\n# reembed_collections.py:156-160 — docstring mierzy rozjazd 45 317 vs 47 921",
    "fix_sketch": "Dwie jednolinijkowe poprawki plus decyzja, czym ta kolumna ma być. (a) kwarantanna: wyczyść embedding_id razem z kasowaniem punktu; (b) reembed_collections: ustaw embedding_id po udanym upsercie (talent_radar_embedding_copier już to robi, linie 209-215). Alternatywnie — jeśli kolumna nie ma być autorytetem — udokumentuj to i dodaj strażnika zakazującego używania jej jako predykatu 'ma wektor'.",
    "verifier_note": "Wykryte i potwierdzone WYKONANIEM na żywej bazie podczas adwersarialnej kontroli narzędzia do #130.",
+   "commit": null,
+   "pr": null,
+   "note": ""
+  },
+  {
+   "id": 402,
+   "status": "open",
+   "severity": "P2",
+   "effort": "S",
+   "bucket": "ryzyko",
+   "area": "CI/CD",
+   "category": "security",
+   "verified": true,
+   "confidence": "high",
+   "themes": [],
+   "title": "action=list w coolify-ops.yml woła curl BEZ -f i drukuje całe ciało odpowiedzi gałęzią `else .`",
+   "file": ".github/workflows/coolify-ops.yml",
+   "line": 0,
+   "impact": "Przy błędzie API Coolify jq wchodzi w gałąź `else .` i wypisuje pełne ciało odpowiedzi do logu Actions. Dziś ciała błędów Coolify to {\"message\":\"Unauthenticated.\"}, więc to higiena, nie wyciek — ale konstrukcja 'drukuj cokolwiek przyszło' jest o jedną zmianę API od bycia wyciekiem.",
+   "failure_scenario": "Coolify zwraca błąd niosący kontekst (np. echo żądania albo fragment konfiguracji) — trafia w całości do logu.",
+   "evidence": "curl -sS ... | jq 'if type==\"array\" then map(...) else . end'",
+   "fix_sketch": "Dodaj -f do curla i obsłuż błąd jawnie zamiast drukować ciało. Zmiana nie jest darmowa — trzeba zdecydować, co ma się dziać przy błędzie — dlatego osobna pozycja, nie doklejka.",
+   "verifier_note": "Zastane, wykryte przy adwersarialnej kontroli nowej akcji backup-status. Świadomie NIE naprawione w tamtym PR-ze (poza zakresem).",
    "commit": null,
    "pr": null,
    "note": ""

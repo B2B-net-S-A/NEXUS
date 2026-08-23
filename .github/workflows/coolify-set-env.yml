@@ -43,6 +43,19 @@ jobs:
           REDEPLOY: ${{ inputs.redeploy }}
         run: |
           set -euo pipefail
+
+          # Zarejestruj wartość do maskowania ZANIM zrobi się cokolwiek innego.
+          # `inputs.value` NIE jest sekretem GitHuba, więc nic go tu nie chroni
+          # z automatu — a przez ten workflow przechodzą wartości sekretne
+          # (to jedyna droga zmiany env na prodzie). Krok dziś jej nie drukuje,
+          # ale jest o jedno `echo`/`set -x` od tego; maskowanie łapie ten błąd
+          # zawczasu. Linia po linii, bo `::add-mask::` obejmuje JEDNĄ linię —
+          # przy wartości wielolinijkowej zamaskowałby się sam pierwszy wiersz,
+          # a reszta poszłaby do logu otwartym tekstem.
+          while IFS= read -r _line; do
+            [ -n "$_line" ] && echo "::add-mask::${_line}"
+          done <<< "${VALUE}"
+
           base="${COOLIFY_URL%/}"
           auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
 
