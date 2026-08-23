@@ -116,3 +116,60 @@ def test_degraded_flag_reaches_the_response():
         assert '"semantic_unavailable"' in src, (
             f"{rel}: brak rozróżnienia powodu — front nie odróżni awarii od zera"
         )
+
+
+# ── Test WYKONANIOWY dla `seeking_contractors` ──────────────────────────────
+# Testy wyżej sprawdzają KSZTAŁT źródła i nie zobaczą zmiany nazwy flagi ani
+# rozluźnienia warunku fallbacku w tej jednej pętli. `seeking_contractors` ma
+# osobną logikę (iteruje po kandydatach i bramkuje `cand_semantic_ok`), więc
+# dostaje własny dowód przez wykonanie.
+
+
+@pytest.mark.asyncio
+async def test_seeking_contractors_reports_outage_instead_of_random_jobs(
+    app_client, app_auth_headers, monkeypatch
+):
+    from app.api import recommendations as rec
+    from app.services.embedding_service import SemanticSearchUnavailable
+
+    async def _down(*_a, **_kw):
+        raise SemanticSearchUnavailable("qdrant down")
+
+    monkeypatch.setattr(rec, "search_jobs_semantic", _down)
+
+    resp = await app_client.get(
+        "/api/recommendations/seeking-contractors?horizon_days=30",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    meta = body.get("meta")
+    assert meta is not None, "brak meta - awaria nie ma jak wyjsc z endpointu"
+    assert meta.get("degraded") is True, (
+        "kokpit nie mowi, ze jest niepelny - pusty wiersz przy awarii czyta "
+        "sie jak 'dla tej osoby nie ma nic sensownego'"
+    )
+    assert meta.get("reason") == "semantic_unavailable"
+
+    # I najwazniejsze: ZERO sfabrykowanych propozycji.
+    #
+    # UCZCIWIE o sile tej asercji: nosna jest czesc o `meta.degraded`
+    # (kontrola negatywna: usuniecie `bulk_degraded = True` ja zapala).
+    # Ponizsza petla jest SLABSZA - w bazie testowej zaden kandydat nie
+    # przekracza progu, wiec `top_matches` bywa puste takze po rozbramkowaniu
+    # fallbacku. Zostaje jako siatka na srodowisko z bogatszymi danymi; nie
+    # traktuj jej jako dowodu. Pusta lista `items` czyni ja calkiem
+    # bezprzedmiotowa, wiec wtedy jawnie pomijamy - test przechodzacy pusto
+    # jest gorszy niz jego brak, bo sprzedaje pewnosc, ktorej nie ma.
+    items = body.get("items", [])
+    if not items:
+        pytest.skip(
+            "brak kontraktorow w oknie 30 dni w tej bazie - nie ma na czym "
+            "sprawdzic, czy awaria fabrykuje dopasowania"
+        )
+    for item in items:
+        assert not item.get("top_matches"), (
+            "podczas awarii wrocily 'dopasowania' - to arbitralny wycinek ofert "
+            "scorowany bez warstwy semantycznej, nie dopasowanie"
+        )
