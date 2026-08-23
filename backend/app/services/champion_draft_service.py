@@ -76,6 +76,16 @@ from app.services.llm_prompts import (
 
 logger = logging.getLogger(__name__)
 
+
+class HistoricalSearchUnavailable(RuntimeError):
+    """Wyszukiwanie historyczne nie odpowiedziało — to NIE jest „brak danych".
+
+    Osobny typ, a nie gołe ``RuntimeError``, bo wołający musi umieć odróżnić
+    „nie wiem" od błędu logiki i pokazać użytkownikowi komunikat, który nie
+    twierdzi niczego o historii klienta.
+    """
+
+
 DEFAULT_MODEL = os.environ.get("CHAMPION_AI_MODEL", "claude-sonnet-5")
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("CHAMPION_AI_MAX_TRANSCRIPT_CHARS", "40000"))
 
@@ -659,6 +669,29 @@ async def generate_from_historical_jobs(
         cross_client=cross_client,
         exclude_job_id=job.id,
     )
+
+    # `None` = wyszukiwanie podobnych rekrutacji NIE ODPOWIEDZIAŁO. Wychodzimy
+    # PRZED `_supersede_previous_pending`, bo ta funkcja jest NIEODWRACALNA:
+    # przestemplowuje gotową do przejrzenia propozycję `pending` na
+    # `superseded`. Awaria infrastruktury nie może kasować cudzej pracy.
+    #
+    # Nie zapisujemy też wiersza `rejected`. Poprzednia wersja zapisywała
+    # „znaleziono 0, wymagane co najmniej 2" — pewne siebie twierdzenie
+    # o DANYCH KLIENTA w sytuacji, gdy leżał Qdrant albo provider embeddingów.
+    # Delivery Lead czytał to jako fakt („nie mamy u tego klienta domkniętych
+    # podobnych rekrutacji") i przestawał próbować. Lepiej nie odpowiedzieć nic
+    # i pozwolić spróbować ponownie, niż utrwalić nieprawdę.
+    if matches is None:
+        logger.warning(
+            "[champion-draft] job %s: wyszukiwanie historyczne niedostępne — "
+            "NIE kasuję oczekującej propozycji i NIE zapisuję odrzucenia",
+            job_id,
+        )
+        raise HistoricalSearchUnavailable(
+            "Wyszukiwanie podobnych rekrutacji jest chwilowo niedostępne. "
+            "Spróbuj ponownie za chwilę — to nie znaczy, że u tego klienta "
+            "nie ma podobnych, domkniętych rekrutacji."
+        )
 
     await _supersede_previous_pending(
         db, job_id=job_id, source_type=SuggestionSource.historical_jobs

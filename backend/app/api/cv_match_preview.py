@@ -48,6 +48,7 @@ from app.services.cv_parser import parse_cv
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.embedding_service import (
     _build_job_text,
+    SemanticSearchUnavailable,
     search_jobs_semantic,
 )
 from app.services.recommendation_filters import (
@@ -264,14 +265,32 @@ async def cv_upload_preview(
         # returns [] on embedding failure, so it is the single source of truth
         # here — the previous standalone `generate_embedding` probe wasted a
         # Voyage call and (worse) embedded the query as a document.
-        hits = await search_jobs_semantic(query_text, top_k=retrieval_k)
+        # `raise_on_error=True` — bez tego awaria providera dawała `[]`, czyli
+        # to samo co zdrowe zapytanie bez trafień, a fallback niżej dolewał
+        # 50 ARBITRALNYCH opublikowanych ofert (bez ORDER BY, z ~2857). Warstwa
+        # semantyczna w ich scoringu wynosi 0 z 60 punktów, a rekruter dostawał
+        # HTTP 200 z listą podpisaną „dopasowania".
+        semantic_unavailable = False
+        try:
+            hits = await search_jobs_semantic(
+                query_text, top_k=retrieval_k, raise_on_error=True
+            )
+        except SemanticSearchUnavailable:
+            logger.warning("[cv-match] wyszukiwanie semantyczne niedostępne")
+            semantic_unavailable = True
+            hits = []
         emb_ok = bool(hits)
         similarity_map: dict[int, float] = {h["job_id"]: h["score"] for h in hits}
         job_ids: list[int] = list(similarity_map.keys())
 
-        if not job_ids:
+        # Fallback tylko po ODPOWIEDZI wyszukiwania. Przy awarii losowa lista
+        # ofert podpisana „dopasowania" jest gorsza niż jej brak.
+        if not job_ids and not semantic_unavailable:
             fallback_rows = await db.execute(
-                select(Job.id).where(Job.status == JobStatus.published).limit(50)
+                select(Job.id)
+                .where(Job.status == JobStatus.published)
+                .order_by(Job.id.desc())
+                .limit(50)
             )
             job_ids = [j for (j,) in fallback_rows.all()]
 
@@ -279,7 +298,21 @@ async def cv_upload_preview(
             return {
                 "parsed_summary": _shape_parsed_summary(parsed),
                 "matches": [],
-                "search_type": "semantic" if emb_ok else "fallback",
+                "search_type": (
+                    "unavailable"
+                    if semantic_unavailable
+                    else ("semantic" if emb_ok else "fallback")
+                ),
+                # `meta` w kształcie z `matching.py` — `CVDropzoneMatch.tsx`
+                # przekazuje już `recommendationMeta={result.meta ?? null}`,
+                # więc slot na baner istnieje i był na stałe pusty.
+                "meta": {
+                    "mode": "unavailable" if semantic_unavailable else "semantic",
+                    "degraded": semantic_unavailable,
+                    "reason": (
+                        "semantic_unavailable" if semantic_unavailable else None
+                    ),
+                },
             }
 
         jobs_res = await db.execute(
@@ -346,7 +379,16 @@ async def cv_upload_preview(
         return {
             "parsed_summary": _shape_parsed_summary(parsed),
             "matches": matches,
-            "search_type": "semantic" if emb_ok else "fallback",
+            "search_type": (
+                "unavailable"
+                if semantic_unavailable
+                else ("semantic" if emb_ok else "fallback")
+            ),
+            "meta": {
+                "mode": "unavailable" if semantic_unavailable else "semantic",
+                "degraded": semantic_unavailable,
+                "reason": "semantic_unavailable" if semantic_unavailable else None,
+            },
         }
     finally:
         if tmp_path and os.path.exists(tmp_path):

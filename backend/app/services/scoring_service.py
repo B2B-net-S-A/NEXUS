@@ -1568,6 +1568,24 @@ def score_semantic(
     """
     max_pts = profile.semantic
     if semantic_similarity is None:
+        # UWAGA przy zmianie tego napisu: `None` dociera tu z DWÓCH powodów —
+        # kandydat naprawdę nie ma wektora ALBO wyszukiwanie/embedding nie
+        # odpowiedziało. Ta funkcja nie ma jak ich odróżnić, więc „brak
+        # embeddingu" twierdzi więcej, niż wiadomo, i przy awarii Qdranta
+        # wysyła diagnozę w stronę profilu kandydata (#414).
+        #
+        # Napis mimo to ZOSTAJE dosłowny, bo jest KLUCZEM, nie tylko tekstem:
+        # `admin_match_score_repair.NO_EMBEDDING_REASON` dopasowuje go w SQL
+        # (`breakdown->'semantic'->>'reason' = 'brak embeddingu'`), żeby znaleźć
+        # zatrute wiersze cache'u z #130. Zmiana samego napisu sprawiłaby, że
+        # narzędzie naprawcze przestaje je znajdować — CICHO, bo raportuje
+        # wtedy „0 do naprawy" zamiast błędu. Na produkcji takie wiersze
+        # istnieją DZIŚ (#130 nie zostało jeszcze uruchomione).
+        #
+        # Uczciwa naprawa #414 wymaga rozdzielenia przyczyny U ŹRÓDŁA (wołający
+        # wie, czy pytał Qdranta i dostał odpowiedź) oraz dopasowywania OBU
+        # napisów w narzędziu naprawczym przez czas życia historycznych wierszy
+        # — to osobna zmiana, nie poprawka tekstu.
         return LayerResult(points=0.0, max_points=max_pts, reason="brak embeddingu")
     sim = max(0.0, min(1.0, float(semantic_similarity)))
     gamma = SEMANTIC_CALIBRATION_GAMMA
