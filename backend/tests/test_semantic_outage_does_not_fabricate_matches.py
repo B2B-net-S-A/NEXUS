@@ -173,3 +173,69 @@ async def test_seeking_contractors_reports_outage_instead_of_random_jobs(
             "podczas awarii wrocily 'dopasowania' - to arbitralny wycinek ofert "
             "scorowany bez warstwy semantycznej, nie dopasowanie"
         )
+
+
+def test_no_fake_of_search_jobs_semantic_is_narrower_than_the_real_one():
+    """Atrapa musi przyjmowac to, co przyjmuje prawdziwa funkcja.
+
+    Atrapa o wezszej sygnaturze zamienia zmiane kontraktu w `TypeError`
+    zamiast w czerwona asercje - komunikat mowi wtedy o atrapie, nie o kodzie,
+    a diagnoza idzie w zla strone. Zdarzylo sie DWA razy przy tej samej
+    zmianie, w dwoch plikach, i za pierwszym razem naprawilem tylko ten plik,
+    ktory akurat swiecil na czerwono (policzylem faile zamiast KOPII).
+
+    Straznik liczy kopie, nie faile: przemiata wszystkie atrapy podstawiane
+    pod `search_jobs_semantic` i wymaga `**kwargs`.
+    """
+    import ast
+
+    offenders = []
+    for path in sorted((BACKEND / "tests").glob("test_*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+
+        targets: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fname = (
+                node.func.attr
+                if isinstance(node.func, ast.Attribute)
+                else getattr(node.func, "id", None)
+            )
+            if fname not in ("setattr", "patch"):
+                continue
+            args = node.args
+            mentions = any(
+                isinstance(a, ast.Constant) and "search_jobs_semantic" in str(a.value)
+                for a in args
+            )
+            if not mentions:
+                continue
+            for cand in list(args[-1:]) + [
+                kw.value for kw in node.keywords if kw.arg == "new"
+            ]:
+                name = (
+                    cand.id
+                    if isinstance(cand, ast.Name)
+                    else getattr(cand, "attr", None)
+                )
+                if name:
+                    targets.add(name)
+
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name in targets
+                and node.args.kwarg is None
+            ):
+                offenders.append(f"{path.name}:{node.lineno} {node.name}()")
+
+    assert not offenders, (
+        "atrapy o wezszej sygnaturze niz prawdziwa funkcja: "
+        + ", ".join(offenders)
+        + ". Dodaj **kwargs - inaczej kolejna zmiana kontraktu wybuchnie "
+        "TypeError-em wskazujacym na test zamiast na kod."
+    )
