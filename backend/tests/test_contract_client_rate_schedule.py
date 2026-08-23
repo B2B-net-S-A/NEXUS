@@ -99,17 +99,7 @@ def test_future_client_rate_change_keeps_old_rate_and_margin_today():
 # ── API integration (in-process; no-op when no seed data) ────────────────────
 
 
-async def _pick_parties(app_client: AsyncClient, headers: dict):
-    """Borrow candidate_id + client_id from an existing contract, if any."""
-    items = (
-        (await app_client.get("/api/contracts?page_size=1", headers=headers))
-        .json()
-        .get("items", [])
-    )
-    if not items:
-        return None
-    return items[0]["candidate_id"], items[0]["client_id"]
-
+from tests._contract_parties import pick_parties as _pick_parties
 
 async def test_future_rate_change_defers_client_rate(
     app_client: AsyncClient, app_auth_headers: dict

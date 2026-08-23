@@ -331,9 +331,14 @@ async def _reembed_candidates(
                 )
             )
 
+        # Identyfikatory wyliczone PRZED `try`. W środku ta lista byłaby objęta
+        # `except`, który raportuje wyłącznie „qdrant upsert failed” — więc błąd
+        # budowania punktów (np. brak klucza "id" po refaktorze) zostałby
+        # zaksięgowany jako awaria Qdranta i wysłał diagnozę w las.
+        point_ids = [int(p["id"]) for p in points]
         try:
             await _bulk_upsert_qdrant(_collection(), points)
-            await _mark_embedded(Candidate, [int(p["id"]) for p in points])
+            await _mark_embedded(Candidate, point_ids)
             succeeded += len(points)
         except Exception as e:  # noqa: BLE001
             logger.warning("[reembed candidates] qdrant upsert failed: %s", e)
@@ -447,9 +452,14 @@ async def _reembed_jobs(
                 payload["train_name"] = train_name
             points.append(dict(id=int(job.id), vector=emb, payload=payload))
 
+        # Identyfikatory wyliczone PRZED `try`. W środku ta lista byłaby objęta
+        # `except`, który raportuje wyłącznie „qdrant upsert failed” — więc błąd
+        # budowania punktów (np. brak klucza "id" po refaktorze) zostałby
+        # zaksięgowany jako awaria Qdranta i wysłał diagnozę w las.
+        point_ids = [int(p["id"]) for p in points]
         try:
             await _bulk_upsert_qdrant(_jobs_collection(), points)
-            await _mark_embedded(Job, [int(p["id"]) for p in points])
+            await _mark_embedded(Job, point_ids)
             succeeded += len(points)
         except Exception as e:  # noqa: BLE001
             logger.warning("[reembed jobs] qdrant upsert failed: %s", e)

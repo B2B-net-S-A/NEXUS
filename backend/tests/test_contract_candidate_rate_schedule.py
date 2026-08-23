@@ -113,33 +113,7 @@ def test_same_date_candidate_amendment_updates_margin():
 # ── API integration (in-process; no-op when no seed data) ────────────────────
 
 
-async def _pick_parties(app_client: AsyncClient, headers: dict):
-    """Pożycz `candidate_id` + `client_id` z istniejącej umowy, jeśli jakaś jest.
-
-    Umowa po USUNIĘTYM kandydacie ma `candidate_id IS NULL` — migracja 0225
-    zdejmuje FK przez `ON DELETE SET NULL`, żeby skasowanie osoby nie zabrało
-    ze sobą faktur i dokumentów podpisu. Taka sierota nie może być tutaj dawcą
-    stron: `POST /api/contracts` wymaga `candidate_id: int` i odpowiada 422
-    („Input should be a valid integer, input: null").
-
-    Lista `/api/contracts` nie ma `ORDER BY`, więc `items[0]` to po prostu
-    pierwszy wiersz zwrócony przez Postgresa — w świeżej bazie CI zwykle
-    NAJSTARSZY. Dokładnie taką sierotę zostawia po sobie
-    `test_candidate_delete.py`, a to, czy trafi on przed ten plik, zależy
-    wyłącznie od podziału na shardy (`CI_SHARD_*`): dopisanie dowolnego pliku
-    testowego przestawia round-robin i przenosi czerwień w inne miejsce.
-    Bierzemy więc pierwszą umowę z ŻYWYM kandydatem, a nie pierwszą z brzegu.
-    """
-    items = (
-        (await app_client.get("/api/contracts?page_size=100", headers=headers))
-        .json()
-        .get("items", [])
-    )
-    for item in items:
-        if item.get("candidate_id") is not None:
-            return item["candidate_id"], item["client_id"]
-    return None
-
+from tests._contract_parties import pick_parties as _pick_parties
 
 async def test_expiring_serializes_schedule_field(
     app_client: AsyncClient, app_auth_headers: dict
