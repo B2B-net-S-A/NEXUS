@@ -559,6 +559,9 @@ async def list_jobs(
     # operational roles already see this complete register; DLs now follow the
     # same read-only list contract while finance fields remain redacted.
     query = select(Job)
+    # Pary klient–TAC liczone RAZ dla całej strony (a nie per wiersz): to jedno
+    # zapytanie, a używamy ich tylko do oznaczenia, które wiersze da się otworzyć.
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
     priority_now = datetime.now(timezone.utc)
     priority_assignment_job_ids = (
         select(RecruitmentPriorityAssignment.job_id)
@@ -827,6 +830,18 @@ async def list_jobs(
         redact_job_for_viewer(d, current_user)
         _redact_delivery_lead_job_finance(d, current_user)
         _strip_champion_payload_from_list_row(d)
+        # Czy TEN wiersz da się otworzyć. Rejestr jest świadomie
+        # ogólnofirmowy (komentarz przy budowie zapytania wyżej), ale detal
+        # egzekwuje dokładny zakres klient–TAC, więc Delivery Lead bez
+        # przypisań klikał kolejne wiersze i za każdym razem dostawał 403.
+        # Komunikat 403 jest dobry, ale przychodzi PO kliknięciu — a dla DL
+        # bez przypisań to znaczy: dwadzieścia kliknięć, dwadzieścia ślepych
+        # zaułków. Flaga nie ujawnia niczego nowego: te wiersze i tak są na
+        # liście, zmienia się tylko to, że użytkownik wie o nich ZAWCZASU.
+        d["can_open"] = (
+            delivery_lead_pairs is None
+            or (j.client_id, j.tac_id) in delivery_lead_pairs
+        )
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}

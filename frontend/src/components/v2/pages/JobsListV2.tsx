@@ -796,8 +796,38 @@ export function JobsListV2() {
  Math.round((filledCount / Math.max(1, targetCount)) * 100)
  );
  return (
- <Link key={job.id} href={`/jobs/${job.id}`}>
- <Card variant="interactive" className="h-full flex flex-col">
+ // `can_open === false`: rejestr pokazuje tę rekrutację (jest
+ // ŚWIADOMIE ogólnofirmowy — patrz komentarz przy zapytaniu
+ // w `jobs.py`), ale detal egzekwuje dokładny zakres klient–TAC
+ // i zwróci 403. Komunikat po 403 jest dobry, tylko przychodzi
+ // ZA PÓŹNO: Delivery Lead bez przypisań klikał kolejne wiersze
+ // i za każdym razem trafiał w ścianę. Mówimy o tym ZAWCZASU.
+ //
+ // Wiersz zostaje WIDOCZNY i czytelny — flaga nic nie ujawnia,
+ // bo te rekrutacje i tak są na liście. Zmienia się tylko to, że
+ // nie udaje klikalnego. `pointer-events-none` + `tabIndex={-1}`
+ // odcinają myszkę i klawiaturę, `aria-disabled` mówi to samo
+ // czytnikowi ekranu.
+ <Link
+ key={job.id}
+ href={`/jobs/${job.id}`}
+ aria-disabled={job.can_open === false || undefined}
+ tabIndex={job.can_open === false ? -1 : undefined}
+ title={
+ job.can_open === false
+ ? "Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
+ : undefined
+ }
+ className={
+ job.can_open === false
+ ? "pointer-events-none opacity-60"
+ : undefined
+ }
+ >
+ <Card
+ variant={job.can_open === false ? "default" : "interactive"}
+ className="h-full flex flex-col"
+ >
  <div className="flex items-start justify-between gap-2 mb-2">
  <div className="flex-1 min-w-0">
  <h3 className="font-semibold text-foreground text-base truncate">
