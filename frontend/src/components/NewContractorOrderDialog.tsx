@@ -97,9 +97,12 @@ export function NewContractorOrderDialog({
     return () => clearTimeout(t);
   }, [candidateQuery]);
 
-  const { data: candidates = [], isFetching: candLoading } = useQuery<
-    CandidateSearchItem[]
-  >({
+  const {
+    data: candidates = [],
+    isFetching: candLoading,
+    isError: candError,
+    refetch: refetchCandidates,
+  } = useQuery<CandidateSearchItem[]>({
     queryKey: ["new-contractor-candidate-search", debouncedQuery],
     queryFn: async () => {
       if (debouncedQuery.length < 2) return [];
@@ -270,6 +273,26 @@ export function NewContractorOrderDialog({
                     <p className="text-xs text-muted-foreground text-center py-3">
                       Szukam…
                     </p>
+                  ) : candError ? (
+                    /* Awaria zapytania NIE może wyglądać jak „nie ma takiej
+                       osoby" — na tej ścieżce zakłada się kontrakt, więc pustka
+                       podpowiada, żeby założyć drugi rekord komuś, kto w bazie
+                       JEST. Realny przypadek: chwilowy rate limit przy imporcie
+                       Nordei ukrył kandydata, którego `/api/candidates` zwraca
+                       bez problemu. */
+                    <div
+                      role="alert"
+                      className="px-3 py-3 text-center text-xs text-destructive"
+                    >
+                      <p>Nie udało się wyszukać kandydatów.</p>
+                      <button
+                        type="button"
+                        onClick={() => refetchCandidates()}
+                        className="mt-1 underline hover:no-underline"
+                      >
+                        Ponów
+                      </button>
+                    </div>
                   ) : candidates.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-3">
                       Brak wyników dla „{debouncedQuery}".
