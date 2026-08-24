@@ -36,7 +36,7 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
@@ -110,6 +110,20 @@ async def materialize_group_for_activated_order(
     number = group_number_from_order(order)
     if number is None:
         return None
+
+    # Advisory lock per (klient, numer) na czas transakcji: dwa równoległe
+    # PATCHe kompletujące szkice z tym samym numerem widziałyby oba
+    # ``group is None`` i każdy założyłby własną grupę — numer jest celowo
+    # bez UNIQUE, więc baza by tego nie zatrzymała, a w rejestrze zostałaby
+    # pusta, aktywna grupa-dubel. Lock zwalnia się przy commit/rollback;
+    # drugi wątek po odblokowaniu widzi już grupę pierwszego.
+    await db.scalar(
+        select(
+            func.pg_advisory_xact_lock(
+                func.hashtextextended(f"order-group:{order.client_id}:{number}", 0)
+            )
+        )
+    )
 
     group = await db.scalar(
         select(ClientOrderGroup)
