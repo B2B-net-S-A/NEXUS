@@ -165,7 +165,7 @@ zamówienia nie zakłada — te importer dołożył.
 - **Picker kandydatów renderuje BŁĄD jak pustkę.** „Brak wyników dla …" pojawiło się
   dla osoby, którą `/api/candidates` zwraca bez problemu — to była chwilowa awaria
   zapytania, nie brak rekordu. Ta sama klasa defektu co `failure-must-not-render-as-empty`,
-  tyle że w `NewContractorOrderDialog`. Warto naprawić osobno.
+  tyle że w `NewContractorOrderDialog`. Naprawione osobno w [#1252](https://github.com/artur-t-96/Nexus/pull/1252).
 - **Nazwiska wpisuj bez diakrytyki** — wyszukiwarka i tak składa `ł`/`ę`, a wpisanie
   polskich znaków bywało zawodne.
 
@@ -190,5 +190,7 @@ zamówienia nie zakłada — te importer dołożył.
    −0,07/h na dwunastu kontraktach.
 3. **Duplikaty kandydatów** — Filip Jabłoński (3 rekordy), Kamil Kowalczyk (6).
    Dopóki istnieją, import będzie ich świadomie pomijał; ich wiersze nadal czekają.
-4. **`NewContractorOrderDialog` pokazuje awarię zapytania jako „Brak wyników"** —
-   mylące przy zakładaniu kontraktu komuś, kto w bazie jest.
+4. ~~**`NewContractorOrderDialog` pokazuje awarię zapytania jako „Brak wyników"**~~ —
+   naprawione w [#1252](https://github.com/artur-t-96/Nexus/pull/1252): osobna gałąź
+   `isError` z przyciskiem „Ponów". Pusty wynik dalej mówi „Brak wyników", czego
+   pilnuje test kontrolny.
