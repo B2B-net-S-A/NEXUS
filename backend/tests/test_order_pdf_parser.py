@@ -335,11 +335,20 @@ class TestBankPocztowyPolicy:
 
     def test_no_rate_in_document_leaves_rate_fields_untouched(self):
         result = m.OrderExtraction(
-            start_date="2026-01-01", end_date="2026-06-30", source="claude"
+            start_date="2026-01-01",
+            end_date="2026-06-30",
+            # LLM wywnioskował jednostkę mimo braku kwoty — polityka musi ją
+            # wyczyścić: u BP jednostka jest godzinowa PO przeliczeniu, więc
+            # „day" przy pustej stawce byłby sprzeczny z inwariantą.
+            rate_unit="day",
+            confidence={"rate_unit": 0.7},
+            source="claude",
         )
         enforced = m.apply_bank_pocztowy_order_policy(result, "Numer pisma: BP/8/26")
         assert enforced.rate_client is None
         assert enforced.rate_client_md is None
+        assert enforced.rate_unit is None
+        assert "rate_unit" not in enforced.confidence
         # Brak stawki nie jest na białej liście komunikatów — pole po prostu
         # zostaje puste do ręcznego uzupełnienia.
         assert enforced.uncertain_reasons == []
@@ -349,6 +358,12 @@ class TestBankPocztowyPolicy:
             "Wynagrodzenie: 1 600,00 * 1,23 * 20 MD"
         ) == Decimal("1600.00")
         assert m.bank_pocztowy_net_md_rate("1600 x 1.23 x 20") == Decimal("1600")
+        # Ekstraktory PDF potrafią oddać separator tysięcy jako NBSP (U+00A0)
+        # albo wąski NBSP (U+202F) — klasa znaków musi je łapać.
+        assert m.bank_pocztowy_net_md_rate(
+            "1\u00a0600,00 * 1,23 * 20"
+        ) == Decimal("1600.00")
+        assert m.bank_pocztowy_net_md_rate("1\u202f600 * 1,23") == Decimal("1600")
         assert m.bank_pocztowy_net_md_rate("stawka 1600 zł/MD netto") is None
 
 

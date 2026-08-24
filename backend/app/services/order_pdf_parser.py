@@ -427,8 +427,11 @@ _BP_ZAMOWIENIE_NR_RE = re.compile(
 )
 # Wzór z dokumentu BP: „<netto>*1,23*<liczba MD>”. Pierwszy czynnik to kwota
 # netto stawki MD; reszta (VAT, liczba MD) jest ignorowana z definicji.
+# Separatory tysięcy jawnie escape'owane (spacja + NBSP + wąski NBSP),
+# żeby klasa znaków nie wyglądała jak dwie zwykłe spacje (konwencja
+# lustrzana do ``_MD_COUNT_RE``).
 _BP_NET_FORMULA_RE = re.compile(
-    r"(\d[\d  ]*(?:[.,]\d{1,2})?)\s*[*x×]\s*1[.,]23\b",
+    r"(\d[\d\u00a0\u202f ]*(?:[.,]\d{1,2})?)\s*[*x×]\s*1[.,]23\b",
     re.IGNORECASE,
 )
 
@@ -507,6 +510,13 @@ def apply_bank_pocztowy_order_policy(
                 f"(poza zakresem {_BP_HOURLY_MIN}–{_BP_HOURLY_MAX} zł/h) — "
                 "możliwy błąd odczytu stawki z dokumentu."
             )
+    else:
+        # Bez stawki nie ma czego przeliczać, ale jednostka z odpowiedzi LLM
+        # nie może wisieć w wyniku: u BP jednostka jest z definicji godzinowa
+        # PO przeliczeniu, a „day" przy pustym polu stawki byłby sprzeczny
+        # z tą inwariantą (i mylący w metadanych odpowiedzi).
+        result.rate_unit = None
+        result.confidence.pop("rate_unit", None)
 
     # 3) Liczba MD ze wzoru — pomijana w całej logice (nie zasila formularza
     #    jednoosobowego, a wpisanie jej do budżetu byłoby zgadywaniem).
