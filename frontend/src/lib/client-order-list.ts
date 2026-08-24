@@ -10,6 +10,8 @@ import type {
 
 export type OrderSort =
   | "created_desc"
+  | "consultant_asc"
+  | "consultant_desc"
   | "md_asc"
   | "md_desc"
   | "cost_asc"
@@ -192,6 +194,63 @@ function compareCreated(
   );
 }
 
+/**
+ * Klucz nazwiska do sortowania; pusty, gdy nazwiska faktycznie nie ma.
+ *
+ * Serwer NIE wysyła tu pustego ciągu, tylko myślnik: `consultant_display_name`
+ * (`services/client_order_lines.py`) zwraca „—" dla linii bez kandydata, a linie
+ * sumaryczne zamówień kosztowych mają własną etykietę. Bez tego odsiania „—"
+ * wypada przed każdą literą i wiersz BEZ konsultanta otwiera listę „A→Z".
+ */
+function consultantSortKey(name: string | null | undefined): string {
+  const folded = foldText(name ?? "");
+  return /[\p{L}\p{N}]/u.test(folded) ? folded : "";
+}
+
+/**
+ * Porównanie dwóch nazwisk konsultantów, na kluczach już przepuszczonych przez
+ * `foldText`.
+ *
+ * Brak nazwiska sortuje się na KOŃCU w obu kierunkach — dokładnie tak, jak
+ * `compareNullable` traktuje brakujące kwoty. Gdyby pusty klucz zachowywał się
+ * jak zwykły ciąg, wiersz bez konsultanta otwierałby listę „A→Z", czyli miejsce,
+ * w którym użytkownik spodziewa się realnego „A".
+ */
+function compareConsultantKey(
+  left: string,
+  right: string,
+  direction: "asc" | "desc",
+): number {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  const result = left.localeCompare(right, "pl");
+  return direction === "asc" ? result : -result;
+}
+
+/**
+ * Alfabetycznie pierwszy konsultant grupy.
+ *
+ * Grupa zamówień ma N linii, więc sortowanie „po konsultancie" musi wybrać
+ * jedną z nich. Ten sam klucz obsługuje OBA kierunki — dla „Z→A" odwracamy
+ * porównanie, a nie wybór linii. Wybieranie ostatniego konsultanta przy „Z→A"
+ * dałoby listę, która nie jest odwrotnością „A→Z": grupa [Abacki, Zenon]
+ * stałaby wtedy na czele obu porządków.
+ */
+function groupConsultantKey(group: OrderGroupRead): string {
+  let best = "";
+  for (const line of group.lines) {
+    const key = consultantSortKey(line.consultant_name);
+    if (!key) continue;
+    if (!best || key.localeCompare(best, "pl") < 0) best = key;
+  }
+  return best;
+}
+
+function consultantDirection(sort: OrderSort): "asc" | "desc" {
+  return sort.endsWith("_asc") ? "asc" : "desc";
+}
+
 export function filterAndSortOrderGroups(
   groups: readonly OrderGroupRead[],
   query: string,
@@ -236,6 +295,15 @@ export function filterAndSortOrderGroups(
 
   return filtered.sort((left, right) => {
     if (filters.sort === "created_desc") return compareCreated(left, right);
+    if (filters.sort.startsWith("consultant_")) {
+      return (
+        compareConsultantKey(
+          groupConsultantKey(left),
+          groupConsultantKey(right),
+          consultantDirection(filters.sort),
+        ) || compareCreated(left, right)
+      );
+    }
     const leftMetrics = orderGroupMetrics(left);
     const rightMetrics = orderGroupMetrics(right);
     const direction = filters.sort.endsWith("_asc") ? "asc" : "desc";
@@ -346,6 +414,15 @@ export function filterAndSortContractors(
       return (
         (rightOrder?.created_at ?? "").localeCompare(
           leftOrder?.created_at ?? "",
+        ) || right.contract_id - left.contract_id
+      );
+    }
+    if (filters.sort.startsWith("consultant_")) {
+      return (
+        compareConsultantKey(
+          consultantSortKey(left.candidate_name),
+          consultantSortKey(right.candidate_name),
+          consultantDirection(filters.sort),
         ) || right.contract_id - left.contract_id
       );
     }

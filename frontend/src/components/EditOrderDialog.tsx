@@ -15,7 +15,11 @@ import { AppModal } from "@/components/ds/AppModal";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import type { ClientOrderRead, ClientOrderUpdate } from "@/lib/api/dlPortal";
+import type {
+  ClientOrderRead,
+  ClientOrderUpdate,
+  CreateDraftOrder,
+} from "@/lib/api/dlPortal";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   DATE_PATTERN,
@@ -31,7 +35,15 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 interface EditOrderDialogProps {
   clientId: number;
-  order: ClientOrderRead;
+  /**
+   * `null` = kontraktor nie ma jeszcze żadnego zamówienia. Formularz otwiera
+   * się wtedy pusty i zakłada szkic dopiero przy zapisie — anulowanie nie
+   * zostawia w bazie wiersza „(bez numeru)", który potem dopominałby się
+   * w pigułce „Draft".
+   */
+  order: ClientOrderRead | null;
+  /** Zakłada zamówienie, gdy `order === null`. Zwraca id nowego wiersza. */
+  onCreate?: CreateDraftOrder;
   /** Stawka kosztowa z powiązanego kontraktu (`ContractWithOrdersRead`). */
   rateCandidate: number | null;
   /** Serwer wylicza to per klient — patrz `can_manage_finance` w odpowiedzi. */
@@ -58,6 +70,7 @@ interface EditOrderDialogProps {
 export function EditOrderDialog({
   clientId,
   order,
+  onCreate,
   rateCandidate,
   canManageFinance,
   onClose,
@@ -67,21 +80,21 @@ export function EditOrderDialog({
   const { showToast } = useToast();
   const ezdrowie = isEzdrowieClient(clientId);
 
-  const [title, setTitle] = useState(order.title);
-  const [description, setDescription] = useState(order.description ?? "");
-  const [startDate, setStartDate] = useState(order.start_date ?? "");
-  const [endDate, setEndDate] = useState(order.end_date ?? "");
+  const [title, setTitle] = useState(order?.title ?? "");
+  const [description, setDescription] = useState(order?.description ?? "");
+  const [startDate, setStartDate] = useState(order?.start_date ?? "");
+  const [endDate, setEndDate] = useState(order?.end_date ?? "");
   const [rateCost, setRateCost] = useState(
     rateCandidate != null ? String(rateCandidate) : "",
   );
   const [rateRevenue, setRateRevenue] = useState(
-    order.rate_client != null ? String(order.rate_client) : "",
+    order?.rate_client != null ? String(order.rate_client) : "",
   );
-  const [projectPart, setProjectPart] = useState(order.project_part ?? "");
+  const [projectPart, setProjectPart] = useState(order?.project_part ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [busyFile, setBusyFile] = useState(false);
-  const [hasExistingFile, setHasExistingFile] = useState(order.has_file);
+  const [hasExistingFile, setHasExistingFile] = useState(order?.has_file ?? false);
 
   // „Zczytaj dane z dokumentu" — ta sama funkcja co w przedłużeniu, ta sama
   // implementacja odczytu (`lib/order-extraction.ts`). W TYM widoku odczyt
@@ -116,12 +129,16 @@ export function EditOrderDialog({
     }
   }
 
-  const docRef = {
-    order_id: order.id,
-    client_id: order.client_id,
-    filename: order.filename,
-    content_type: order.content_type,
-  };
+  // Podgląd/pobranie/usunięcie dotyczą pliku, który JUŻ leży na zamówieniu —
+  // w trybie tworzenia nie ma jeszcze czego wskazać.
+  const docRef = order
+    ? {
+        order_id: order.id,
+        client_id: order.client_id,
+        filename: order.filename,
+        content_type: order.content_type,
+      }
+    : null;
 
   function pickFile(picked: File | null) {
     // Dodanie pliku NIE zmienia żadnego pola — odczyt jest osobną, świadomą
@@ -149,10 +166,27 @@ export function EditOrderDialog({
         payload.rate_candidate = parseDecimalInput(rateCost);
         payload.rate_client = parseDecimalInput(rateRevenue);
       }
-      await dlPortalApi.updateOrder(clientId, order.id, payload);
-      if (file) {
-        await dlPortalApi.replaceOrderPo(clientId, order.id, file);
+      if (order) {
+        await dlPortalApi.updateOrder(clientId, order.id, payload);
+        if (file) {
+          await dlPortalApi.replaceOrderPo(clientId, order.id, file);
+        }
+        return;
       }
+      if (!onCreate) {
+        throw new Error(
+          "Nie da się założyć zamówienia dla tego kontraktora z tego widoku.",
+        );
+      }
+      // Tworzenie idzie JEDNYM żądaniem: `POST /orders` przyjmuje komplet pól
+      // razem z plikiem. Rozbicie na create + upload zostawiałoby przy błędzie
+      // drugiego kroku zamówienie bez PDF-a, o który formularz właśnie prosił.
+      // Numer i część umowy jadą osobno, bo POST nazywa je inaczej niż PATCH.
+      await onCreate(payload, {
+        title: payload.title,
+        projectPart: ezdrowie ? projectPart : undefined,
+        file,
+      });
     },
     onSuccess: () => {
       showToast("Zamówienie zaktualizowane", "success");
@@ -191,6 +225,7 @@ export function EditOrderDialog({
   }
 
   async function handleDeleteExistingFile() {
+    if (!order) return;
     if (
       !window.confirm("Czy na pewno chcesz usunąć plik PDF zamówienia?")
     ) {
@@ -360,9 +395,9 @@ export function EditOrderDialog({
         <div className="space-y-2">
           <span className="text-sm font-medium">PDF zamówienia</span>
 
-          {hasExistingFile && (
+          {hasExistingFile && docRef && (
             <div className="flex items-center gap-2 text-sm rounded-md border border-border bg-muted/40 px-3 py-2">
-              <span className="truncate flex-1">{order.filename}</span>
+              <span className="truncate flex-1">{docRef.filename}</span>
               <button
                 type="button"
                 title="Otwórz"

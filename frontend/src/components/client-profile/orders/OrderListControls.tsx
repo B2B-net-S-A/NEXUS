@@ -142,6 +142,8 @@ export function OrderListControls({
               className="mt-1 w-full rounded-md border border-border bg-background px-2 py-2 text-sm text-foreground"
             >
               <option value="created_desc">Data dodania — najnowsze</option>
+              <option value="consultant_asc">Konsultant — A→Z</option>
+              <option value="consultant_desc">Konsultant — Z→A</option>
               {showMdSort ? (
                 <>
                   <option value="md_asc">Łączna liczba MD — rosnąco</option>

@@ -205,6 +205,21 @@ export interface ClientOrderUpdate {
   project_part?: string | null;
 }
 
+/**
+ * Zakłada szkic zamówienia i od razu zapisuje wpisane wartości; zwraca id
+ * utworzonego wiersza.
+ *
+ * Kontraktor bez ani jednego `ClientOrder` nie ma czego PATCH-ować, więc
+ * „Uzupełnij zamówienie" musi mieć drogę tworzenia. Implementacja żyje w karcie
+ * kontraktora (zna `contract_id`, wybraną część umowy i szkic założony w tej
+ * sesji), a dialog dostaje ją gotową — dzięki temu obie ścieżki, inline
+ * i dialogowa, zakładają szkic dokładnie tak samo.
+ */
+export type CreateDraftOrder = (
+  patch: Partial<ClientOrderUpdate>,
+  opts?: { title?: string; projectPart?: string; file?: File | null },
+) => Promise<number>;
+
 export interface NewContractorOrderRequest {
   candidate_id: number;
   job_id?: number | null;

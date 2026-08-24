@@ -534,6 +534,70 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
     expect(screen.getByText(/Zakończeni \(1\)/)).toBeInTheDocument();
   });
 
+  it("zakończony kontrakt z wiszącym aktywnym zamówieniem NIE wchodzi do Aktywnych", async () => {
+    // Zamówienia domyka nocny skaner po dacie, więc kontrakt `ended` z wciąż
+    // aktywnym wierszem zamówienia to norma, nie wyjątek. Szeroka reguła
+    // „którekolwiek zamówienie aktywne" pokazywałaby go jednocześnie
+    // w „Aktywni" i „Zakończeni".
+    const endedContract = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 606,
+      contract_status: "ended",
+      candidate_name: "Zakonczony Kontrakt",
+      orders: [makeOrder({ id: 43, title: "Z-1", status: "active" })],
+    };
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [endedContract],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText(/Zakończeni \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Aktywni \(0\)/)).toBeInTheDocument();
+  });
+
+  it("kompletne zamówienie wychodzi z Draftu do Aktywnych mimo draftowego kontraktu", async () => {
+    // Regresja ticketu: pigułki liczyły WYŁĄCZNIE `contract_status`, a
+    // uzupełnianie zamówienia zmienia status ZAMÓWIENIA. Kontraktor
+    // z draftowym kontraktem i promowanym zamówieniem siedział w „Draft" na
+    // stałe i nie pojawiał się w „Aktywni" — czyli wpisanie czterech pól nie
+    // dawało widocznego skutku, mimo że backend zamówienie promował.
+    const draftContract = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 605,
+      contract_status: "draft",
+      candidate_name: "Szkicowy Kontrakt",
+      orders: [
+        makeOrder({
+          id: 42,
+          title: "K-1",
+          status: "active",
+          start_date: localISO(-1),
+          end_date: localISO(200),
+          rate_client: 180,
+        }),
+      ],
+    };
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [draftContract],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText(/Aktywni \(1\)/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Draft \(do uzupełnienia\) \(0\)/),
+    ).toBeInTheDocument();
+  });
+
   it("licznik draftów obejmuje kontraktora, którego zamówienie jest szkicem", async () => {
     const withDraft = {
       ...structuredClone(CONTRACTOR),
@@ -622,6 +686,146 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     expect((form as FormData).get("contract_id")).toBe("701");
   });
 
+  it("„Uzupełnij zamówienie” renderuje się mimo braku zamówienia", async () => {
+    // Regresja ticketu: przycisk wisiał na `activeOrder &&`, więc widzieli go
+    // wyłącznie klienci z zaimportowanymi zamówieniami. Reszta dostawała samo
+    // „Dodaj przedłużenie" i zgłaszała to jako funkcję włączoną wybranym
+    // klientom — a to była różnica DANYCH, nie konfiguracji.
+    renderTab();
+    expect(
+      await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Dodaj przedłużenie/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("anulowanie dialogu NIE zakłada szkicu", async () => {
+    // Szkic powstaje dopiero przy zapisie. Tworzenie go w chwili otwarcia
+    // zostawiałoby po każdym rozmyśleniu się wiersz „(bez numeru)", który
+    // potem dopominałby się w pigułce „Draft (do uzupełnienia)".
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
+    );
+    // Komunikat walidacji siedzi WEWNĄTRZ <label>, więc nazwa dostępna pola to
+    // „Numer zamówieniaNumer zamówienia jest wymagany." — kotwiczymy na początku.
+    await user.type(await screen.findByLabelText(/^Numer zamówienia/), "45767");
+    await user.click(screen.getByRole("button", { name: "Anuluj" }));
+
+    expect(dlPortalApi.createOrderExtension).not.toHaveBeenCalled();
+    expect(dlPortalApi.updateOrder).not.toHaveBeenCalled();
+  });
+
+  it("zapis z dialogu zakłada zamówienie JEDNYM żądaniem z kompletem pól", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
+    );
+    // Komunikat walidacji siedzi WEWNĄTRZ <label>, więc nazwa dostępna pola to
+    // „Numer zamówieniaNumer zamówienia jest wymagany." — kotwiczymy na początku.
+    await user.type(await screen.findByLabelText(/^Numer zamówienia/), "45767");
+    await user.type(screen.getByLabelText("Data od"), "2026-09-01");
+    await user.type(screen.getByLabelText("Data do"), "2027-02-28");
+    await user.type(screen.getByLabelText("Stawka kosztowa"), "120");
+    await user.type(screen.getByLabelText("Stawka przychodowa"), "180");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+    const [, form] = vi.mocked(dlPortalApi.createOrderExtension).mock.calls[0];
+    const sent = form as FormData;
+    expect(sent.get("title")).toBe("45767");
+    expect(sent.get("contract_id")).toBe("701");
+    expect(sent.get("start_date")).toBe("2026-09-01");
+    expect(sent.get("end_date")).toBe("2027-02-28");
+    expect(sent.get("rate_client")).toBe("180");
+    // Status zostaje `draft` — o promocji decyduje serwer
+    // (`_activate_complete_draft`), nie ten formularz.
+    expect(sent.get("order_status")).toBe("draft");
+    // Stawka KOSZTOWA mieszka na kontrakcie, więc leci osobnym PATCH-em.
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 4242, {
+        rate_candidate: 120,
+      }),
+    );
+  });
+
+  it("nieudany zapis nie zakłada DRUGIEGO zamówienia przy ponownym Zapisz", async () => {
+    // `onError` tylko toastuje — okienko zostaje otwarte i wciąż w trybie
+    // tworzenia (`editingOrder.order` to zamrożony snapshot ze stanu rodzica).
+    // Bez wspólnego guardu drugie kliknięcie „Zapisz" zakładało DRUGIE
+    // zamówienie na tym samym kontrakcie, a pierwsze zostawało sierotą
+    // w pigułce „Draft". Dopłata stawki kosztowej to normalna druga noga
+    // każdego zapisu z dialogu, więc ta ścieżka NIE jest wyścigiem.
+    const user = userEvent.setup();
+    vi.mocked(dlPortalApi.updateOrder).mockRejectedValueOnce(
+      new Error("boom"),
+    );
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
+    );
+    await user.type(await screen.findByLabelText(/^Numer zamówienia/), "45767");
+    await user.type(screen.getByLabelText("Stawka kosztowa"), "120");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+
+    // Druga próba — musi PATCH-ować szkic 4242, a nie tworzyć kolejny.
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(
+        7,
+        4242,
+        expect.objectContaining({ title: "45767" }),
+      ),
+    );
+    expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1);
+  });
+
+  it("dialog otwarty po edycji inline dopisuje do tego samego szkicu", async () => {
+    // Odświeżenie listy jest asynchroniczne, więc zaraz po pierwszym zapisie
+    // `activeOrder` wciąż jest `null`. Pamięć `draftOrderId` musi obowiązywać
+    // także ścieżkę dialogową — inaczej powstaje drugi szkic tego samego
+    // zamówienia.
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: /Edytuj: Numer zamówienia/i }),
+    );
+    await user.type(screen.getByLabelText("Numer zamówienia"), "45767");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Uzupełnij zamówienie" }),
+    );
+    // Numer jest wymagany przez `canSubmit`, a dialog otwiera się pusty.
+    await user.type(await screen.findByLabelText(/^Numer zamówienia/), "45767");
+    await user.type(screen.getByLabelText("Stawka przychodowa"), "180");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(
+        7,
+        4242,
+        expect.objectContaining({ rate_client: 180 }),
+      ),
+    );
+    expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1);
+  });
+
   it("stawka kosztowa zapisuje się przez świeżo utworzone zamówienie", async () => {
     const user = userEvent.setup();
     renderTab();
@@ -645,6 +849,55 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
   });
 });
 
+
+describe("OrdersAndContractsTab — promocja draftu z dialogu", () => {
+  it("zapis istniejącego zamówienia NIE wysyła statusu", async () => {
+    // Sprzężenie łatwe do zerwania: `_auto_activate_unless_status_explicit`
+    // po stronie serwera USTĘPUJE jawnemu `status` w ciele PATCH-a (bo
+    // `PATCH {"status":"draft"}` → `DELETE` to udokumentowana droga kasowania
+    // zamówienia). Gdyby ten formularz kiedykolwiek zaczął dosyłać status,
+    // promocja draft → aktywne umarłaby po cichu: pola byłyby uzupełnione,
+    // a wiersz zostałby w „Draft".
+    const draftOnly = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 808,
+      candidate_name: "Do Uzupelnienia",
+      orders: [
+        makeOrder({
+          id: 55,
+          title: "D-9",
+          status: "draft",
+          start_date: localISO(-2),
+          end_date: localISO(100),
+          rate_client: null,
+        }),
+      ],
+    };
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [draftOnly],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Uzupełnij zamówienie" }),
+    );
+    await user.type(screen.getByLabelText("Stawka przychodowa"), "180");
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledTimes(1),
+    );
+    const [, , payload] = vi.mocked(dlPortalApi.updateOrder).mock.calls[0];
+    expect(payload).not.toHaveProperty("status");
+    expect(payload).toMatchObject({ rate_client: 180 });
+  });
+});
 
 describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
   // `POST /orders` wymaga „części umowy" dla Centrum e-Zdrowia

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -37,6 +37,7 @@ import type {
   ClientOrderStatus,
   ClientOrderUpdate,
   ContractWithOrdersRead,
+  CreateDraftOrder,
 } from "@/lib/api/dlPortal";
 import {
   DATE_PATTERN,
@@ -99,8 +100,10 @@ export function OrdersAndContractsTab({
     useState<ContractWithOrdersRead | null>(null);
   const [newContractor, setNewContractor] = useState(false);
   const [editingOrder, setEditingOrder] = useState<{
-    order: ClientOrderRead;
+    /** `null` = kontraktor nie ma jeszcze żadnego zamówienia (tryb tworzenia). */
+    order: ClientOrderRead | null;
     rateCandidate: number | null;
+    createOrder: CreateDraftOrder;
   } | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -124,17 +127,38 @@ export function OrdersAndContractsTab({
     (c: ContractWithOrdersRead) => boolean
   > = useMemo(
     () => ({
+      // Pigułki liczyły WYŁĄCZNIE status kontraktu, a uzupełnianie zamówienia
+      // zmienia status ZAMÓWIENIA. Kontraktor z draftowym kontraktem i
+      // kompletnym, aktywnym zamówieniem siedział więc w „Draft" na stałe i
+      // nie pojawiał się w „Aktywni" — czyli uzupełnienie czterech pól nie
+      // dawało żadnego widocznego skutku, mimo że backend promował zamówienie
+      // (`_auto_activate_unless_status_explicit`).
+      // Zawężone do kontraktu SZKICOWEGO. Szersze „którekolwiek zamówienie jest
+      // aktywne" wciągało do „Aktywni" kontrakty ZAKOŃCZONE i unieważnione,
+      // którym został wiszący wiersz `active` (zamówienia domyka nocny skaner
+      // `dl_portal_expiry_scanner` po dacie, więc taki rozjazd to norma, nie
+      // wyjątek) — kontraktor pokazywałby się jednocześnie w „Aktywni"
+      // i „Zakończeni".
       active: (c) =>
-        c.contract_status === "active" || c.contract_status === "ending",
+        c.contract_status === "active" ||
+        c.contract_status === "ending" ||
+        (c.contract_status === "draft" &&
+          c.orders.some((o) => o.status === "active")),
       expiring_30d: (c) =>
         c.days_to_latest_end !== null &&
         c.days_to_latest_end >= 0 &&
         c.days_to_latest_end <= 30,
       ended: (c) =>
         c.contract_status === "ended" || c.contract_status === "completed",
+      // „Do uzupełnienia" = został jeszcze szkic zamówienia, albo kontrakt jest
+      // szkicem i nie ma nic aktywnego, co by go wyprzedzało. Świadomie NIE
+      // dodajemy tu kontraktora bez ani jednego zamówienia: to cała populacja
+      // z poprawki przycisku „Uzupełnij zamówienie", więc licznik urósłby o
+      // ludzi, których nikt tu wcześniej nie szukał.
       drafts: (c) =>
-        c.contract_status === "draft" ||
-        c.orders.some((o) => o.status === "draft"),
+        c.orders.some((o) => o.status === "draft") ||
+        (c.contract_status === "draft" &&
+          !c.orders.some((o) => o.status === "active")),
     }),
     [],
   );
@@ -318,10 +342,11 @@ export function OrdersAndContractsTab({
               searching={searching}
               onExtend={() => setExtendingContract(contractor)}
               onTerminate={() => setTerminatingContract(contractor)}
-              onEditOrder={(order) =>
+              onEditOrder={(order, createOrder) =>
                 setEditingOrder({
                   order,
                   rateCandidate: contractor.rate_candidate,
+                  createOrder,
                 })
               }
               onChange={refresh}
@@ -370,6 +395,7 @@ export function OrdersAndContractsTab({
           clientId={clientId}
           order={editingOrder.order}
           rateCandidate={editingOrder.rateCandidate}
+          onCreate={editingOrder.createOrder}
           canManageFinance={canManageFinance}
           onClose={() => setEditingOrder(null)}
           onSaved={() => {
@@ -384,21 +410,24 @@ export function OrdersAndContractsTab({
 }
 
 /** „Uzupełnij zamówienie" — dostępne dla każdego statusu i w każdym slocie
- *  karty. Ten sam formularz służy zarówno do domknięcia draftu, jak i korekty
- *  aktywnego / przyszłego / historycznego zamówienia. */
+ *  karty, RÓWNIEŻ gdy kontraktor nie ma jeszcze żadnego zamówienia.
+ *
+ *  Do 2026-08 przycisk wisiał na `activeOrder &&`, więc widzieli go wyłącznie
+ *  klienci z zaimportowanymi zamówieniami (Nordea, Alior). Reszta dostawała
+ *  samo „Dodaj przedłużenie" i zgłaszała to jako funkcję włączoną wybranym
+ *  klientom — a to była różnica DANYCH, dokładnie ta sama, którą wcześniej
+ *  naprawiono dla pól inline (patrz `saveOntoOrder`). */
 function CompleteOrderButton({
-  order,
-  onEditOrder,
+  onClick,
   compact,
 }: {
-  order: ClientOrderRead;
-  onEditOrder: (order: ClientOrderRead) => void;
+  onClick: () => void;
   compact?: boolean;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onEditOrder(order)}
+      onClick={onClick}
       className={
         compact
           ? "inline-flex items-center gap-1 text-xs text-violet-700 hover:underline"
@@ -769,7 +798,8 @@ interface ContractorCardProps {
   searching: boolean;
   onExtend: () => void;
   onTerminate: () => void;
-  onEditOrder: (order: ClientOrderRead) => void;
+  /** `order === null` → kontraktor nie ma jeszcze zamówienia (tryb tworzenia). */
+  onEditOrder: (order: ClientOrderRead | null, createOrder: CreateDraftOrder) => void;
   onChange: () => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
@@ -807,10 +837,18 @@ function ContractorCard({
   // czyli robi z rzadkiego wyścigu zwykłą kolejność klikania.
   const [draftOrderId, setDraftOrderId] = useState<number | null>(null);
 
+  // Ten sam fakt co `draftOrderId`, ale czytany REFEM, nie z domknięcia.
+  // Dialog dostaje `createDraftOrder` przez stan rodzica (`editingOrder`), więc
+  // trzyma JEDNĄ instancję przez całe swoje życie — domknięcie zamrożone
+  // w chwili otwarcia widziałoby `draftOrderId === null` nawet po tym, jak
+  // zapis właśnie założył szkic, i zakładało drugie zamówienie.
+  const knownOrderIdRef = useRef<number | null>(null);
+
   const { activeOrder, futureOrders, historyOrders } = useMemo(
     () => splitOrders(contractor.orders),
     [contractor.orders],
   );
+  knownOrderIdRef.current = activeOrder?.id ?? draftOrderId;
 
   /**
    * Zapis pola karty, gdy kontraktor NIE MA jeszcze żadnego zamówienia.
@@ -826,55 +864,111 @@ function ContractorCard({
    * zamówienia i od razu stosuje wpisaną wartość. Klient z zamówieniami nie
    * wchodzi w tę ścieżkę w ogóle.
    */
+  const createDraftOrder = useCallback<CreateDraftOrder>(
+    async (patch, opts) => {
+      // Szkic mógł już powstać: albo z edycji inline w tej samej karcie, albo
+      // z POPRZEDNIEGO, nieudanego zapisu tego samego dialogu (`onError` tylko
+      // toastuje — okienko zostaje otwarte i wciąż w trybie tworzenia, bo
+      // `editingOrder.order` to zamrożony snapshot ze stanu rodzica). Bez tego
+      // sprawdzenia drugie kliknięcie „Zapisz" zakładało DRUGIE zamówienie na
+      // tym samym kontrakcie — pierwsze zostawało sierotą w pigułce „Draft".
+      // Guard mieszkał dotąd wyłącznie w `saveOntoOrder`; ścieżka dialogowa
+      // omijała go, bo woła to wołanie wprost.
+      const existingId = knownOrderIdRef.current;
+      if (existingId !== null && existingId !== undefined) {
+        const merged: Partial<ClientOrderUpdate> = { ...patch };
+        // `title` i `project_part` bywają wyłącznie w `opts` (edycja inline
+        // części umowy woła `saveOntoOrder({}, {projectPart})` z PUSTYM patchem).
+        if (opts?.title?.trim()) merged.title = opts.title.trim();
+        if (ezdrowie && merged.project_part == null && opts?.projectPart) {
+          merged.project_part = opts.projectPart;
+        }
+        await dlPortalApi.updateOrder(clientId, existingId, merged);
+        if (opts?.file) {
+          await dlPortalApi.replaceOrderPo(clientId, existingId, opts.file);
+        }
+        return existingId;
+      }
+      // Centrum e-Zdrowia: bez części umowy `POST /orders` zwraca 422, a
+      // użytkownik zobaczyłby surowe „Request failed with status code 422".
+      // Odmawiamy tutaj, własnym zdaniem po polsku, wskazującym pole do
+      // uzupełnienia — inaczej ta ścieżka „nie da się nic wpisać" wracałaby
+      // u jednego klienta mimo poprawki.
+      const projectPart = opts?.projectPart ?? pendingPart;
+      if (ezdrowie && !projectPart) {
+        throw new Error(
+          "Najpierw wybierz część umowy — bez niej nie da się założyć zamówienia u Centrum e-Zdrowia.",
+        );
+      }
+      const form = new FormData();
+      form.append("contract_id", String(contractor.contract_id));
+      if (ezdrowie) form.append("project_part", projectPart);
+      // Numer bywa nieznany w chwili, gdy uzupełniany jest okres albo stawka.
+      // „(bez numeru)" jest uczciwe i widoczne — pusty tytuł odrzuca walidacja,
+      // a zmyślony numer wyglądałby jak dane z dokumentu klienta.
+      form.append("title", opts?.title?.trim() || "(bez numeru)");
+      // `draft`, nie `active`: zamówienie powstaje z jednego wpisanego pola, więc
+      // nie jest jeszcze kompletne — trafia do pigułki „Draft (do uzupełnienia)",
+      // czyli dokładnie tam, gdzie ma się dopominać o resztę. Komplet pól
+      // z dialogu i tak promuje je od razu — robi to `_activate_complete_draft`
+      // po stronie serwera, nie ten formularz.
+      form.append("order_status", "draft");
+      if (contractor.initial_job_id != null) {
+        form.append("job_id", String(contractor.initial_job_id));
+      }
+      if (patch.start_date) form.append("start_date", patch.start_date);
+      if (patch.end_date) form.append("end_date", patch.end_date);
+      if (patch.rate_client != null) {
+        form.append("rate_client", String(patch.rate_client));
+      }
+      if (patch.description) form.append("description", patch.description);
+      // `POST /orders` przyjmuje plik w tym samym żądaniu, więc tworzenie
+      // z dialogu (razem z PDF-em) to JEDEN request — nie create + upload,
+      // który przy błędzie drugiego kroku zostawiałby zamówienie bez pliku.
+      if (opts?.file) form.append("file", opts.file);
+      const created = await dlPortalApi.createOrderExtension(clientId, form);
+      // Ref PRZED stanem: ponowny „Zapisz" po nieudanej dopłacie stawki
+      // kosztowej leci, zanim React zdąży przerenderować kartę.
+      knownOrderIdRef.current = created.data.id;
+      setDraftOrderId(created.data.id);
+      // Stawka KOSZTOWA mieszka na kontrakcie, a `POST /orders` jej nie
+      // przyjmuje — dosyłamy ją PATCH-em na świeżo utworzone zamówienie, którego
+      // handler przepisuje ją na kontrakt.
+      if (patch.rate_candidate != null) {
+        await dlPortalApi.updateOrder(clientId, created.data.id, {
+          rate_candidate: patch.rate_candidate,
+        });
+      }
+      return created.data.id;
+    },
+    [
+      clientId,
+      contractor.contract_id,
+      contractor.initial_job_id,
+      ezdrowie,
+      pendingPart,
+    ],
+  );
+
+  /**
+   * Otwiera „Uzupełnij zamówienie" dla wskazanego slotu karty.
+   *
+   * Wiersze przyszłe i historyczne zawsze mają zamówienie, więc dostają to
+   * wołanie już zawężone do `(order) => void` — tylko slot aktualny potrafi
+   * podać `null`.
+   */
+  const openOrderDialog = useCallback(
+    (order: ClientOrderRead | null) => onEditOrder(order, createDraftOrder),
+    [onEditOrder, createDraftOrder],
+  );
+
+  // Jedno wejście dla obu ścieżek zapisu (inline i dialog) — guard „czy szkic
+  // już istnieje" siedzi w `createDraftOrder`, więc nie da się go ominąć.
   async function saveOntoOrder(
     patch: Partial<ClientOrderUpdate>,
     opts?: { title?: string; projectPart?: string },
   ) {
-    const existingId = activeOrder?.id ?? draftOrderId;
-    if (existingId !== null && existingId !== undefined) {
-      await dlPortalApi.updateOrder(clientId, existingId, patch);
-      return;
-    }
-    // Centrum e-Zdrowia: bez części umowy `POST /orders` zwraca 422, a
-    // użytkownik zobaczyłby surowe „Request failed with status code 422".
-    // Odmawiamy tutaj, własnym zdaniem po polsku, wskazującym pole do
-    // uzupełnienia — inaczej ta ścieżka „nie da się nic wpisać" wracałaby
-    // u jednego klienta mimo poprawki.
-    const projectPart = opts?.projectPart ?? pendingPart;
-    if (ezdrowie && !projectPart) {
-      throw new Error(
-        "Najpierw wybierz część umowy — bez niej nie da się założyć zamówienia u Centrum e-Zdrowia.",
-      );
-    }
-    const form = new FormData();
-    form.append("contract_id", String(contractor.contract_id));
-    if (ezdrowie) form.append("project_part", projectPart);
-    // Numer bywa nieznany w chwili, gdy uzupełniany jest okres albo stawka.
-    // „(bez numeru)" jest uczciwe i widoczne — pusty tytuł odrzuca walidacja,
-    // a zmyślony numer wyglądałby jak dane z dokumentu klienta.
-    form.append("title", opts?.title?.trim() || "(bez numeru)");
-    // `draft`, nie `active`: zamówienie powstaje z jednego wpisanego pola, więc
-    // nie jest jeszcze kompletne — trafia do pigułki „Draft (do uzupełnienia)",
-    // czyli dokładnie tam, gdzie ma się dopominać o resztę.
-    form.append("order_status", "draft");
-    if (contractor.initial_job_id != null) {
-      form.append("job_id", String(contractor.initial_job_id));
-    }
-    if (patch.start_date) form.append("start_date", patch.start_date);
-    if (patch.end_date) form.append("end_date", patch.end_date);
-    if (patch.rate_client != null) {
-      form.append("rate_client", String(patch.rate_client));
-    }
-    const created = await dlPortalApi.createOrderExtension(clientId, form);
-    setDraftOrderId(created.data.id);
-    // Stawka KOSZTOWA mieszka na kontrakcie, a `POST /orders` jej nie
-    // przyjmuje — dosyłamy ją PATCH-em na świeżo utworzone zamówienie, którego
-    // handler przepisuje ją na kontrakt.
-    if (patch.rate_candidate != null) {
-      await dlPortalApi.updateOrder(clientId, created.data.id, {
-        rate_candidate: patch.rate_candidate,
-      });
-    }
+    await createDraftOrder(patch, opts);
   }
 
   const expiringWarn =
@@ -1084,9 +1178,10 @@ function ContractorCard({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {activeOrder && (
-            <CompleteOrderButton order={activeOrder} onEditOrder={onEditOrder} />
-          )}
+          {/* Bez `activeOrder &&` — kontraktor bez zamówienia też musi mieć
+              czym je założyć; dialog otwiera się pusty, a POST leci dopiero
+              przy zapisie. */}
+          <CompleteOrderButton onClick={() => openOrderDialog(activeOrder)} />
           <button
             onClick={onExtend}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
@@ -1130,7 +1225,7 @@ function ContractorCard({
                   order={order}
                   candidateName={contractor.candidate_name}
                   clientId={clientId}
-                  onEditOrder={onEditOrder}
+                  onEditOrder={openOrderDialog}
                   onError={onError}
                   onSuccess={onSuccess}
                   onChange={onChange}
@@ -1167,7 +1262,7 @@ function ContractorCard({
                     clientId={clientId}
                     canManageFinance={canManageFinance}
                     rateUnit={contractor.rate_unit}
-                    onEditOrder={onEditOrder}
+                    onEditOrder={openOrderDialog}
                     onError={onError}
                     onSuccess={onSuccess}
                     onDeleted={onChange}
@@ -1245,7 +1340,7 @@ function FutureOrderRow({
             {fmtDate(order.start_date)} → {fmtDate(order.end_date) || "bezterminowo"}
           </div>
         )}
-        <CompleteOrderButton order={order} onEditOrder={onEditOrder} compact />
+        <CompleteOrderButton onClick={() => onEditOrder(order)} compact />
       </div>
       <button
         type="button"
@@ -1348,7 +1443,7 @@ function HistoryOrderRow({
               PDF
             </button>
           )}
-          <CompleteOrderButton order={order} onEditOrder={onEditOrder} compact />
+          <CompleteOrderButton onClick={() => onEditOrder(order)} compact />
         </div>
       </div>
       <button

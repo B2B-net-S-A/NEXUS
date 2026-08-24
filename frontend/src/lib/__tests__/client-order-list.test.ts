@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
   consultantMatchesQuery,
+  filterAndSortContractors,
   filterAndSortOrderGroups,
   flattenOrderGroupIds,
   sortOrderLinesByConsultant,
@@ -79,6 +81,32 @@ function group(
   };
 }
 
+function contractor(
+  contractId: number,
+  candidateName: string,
+  overrides: Partial<ContractWithOrdersRead> = {},
+): ContractWithOrdersRead {
+  return {
+    contract_id: contractId,
+    candidate_id: contractId,
+    candidate_name: candidateName,
+    contract_status: "active",
+    contract_start_date: "2026-01-01",
+    contract_end_date: "2026-12-31",
+    rate_candidate: 100,
+    rate_unit: "monthly",
+    initial_job_id: null,
+    initial_job_title: null,
+    latest_order_id: null,
+    latest_order_end_date: null,
+    latest_order_rate_client: null,
+    latest_order_monthly_margin: null,
+    days_to_latest_end: null,
+    orders: [],
+    ...overrides,
+  };
+}
+
 describe("client order list filters", () => {
   it("matches first and last name fragments in either order and without accents", () => {
     expect(consultantMatchesQuery("Łukasz Żółć", "zol luk")).toBe(true);
@@ -141,6 +169,82 @@ describe("client order list filters", () => {
     expect(
       sortOrderLinesByConsultant(cheaper.lines).map((item) => item.consultant_name),
     ).toEqual(["Adam Kowalski", "Zofia Nowak"]);
+  });
+
+  it("sorts groups by the alphabetically first consultant, Z→A being the exact reverse", () => {
+    const groups = [
+      group(2, "B", { lines: [line(3, "Beata Lis")] }),
+      group(3, "C", { lines: [line(4, "\u0141ukasz \u017b\u00f3\u0142\u0107")] }),
+      // Grupa wielo-konsultantowa jedzie po SWOIM pierwszym alfabetycznie
+      // nazwisku, nie po kolejności linii z serwera.
+      group(1, "A", { lines: [line(1, "Zofia Nowak"), line(2, "Adam Kowalski")] }),
+    ];
+    const asc = filterAndSortOrderGroups([...groups], "", {
+      ...DEFAULT_ORDER_LIST_FILTERS,
+      sort: "consultant_asc",
+    });
+    expect(asc.map((item) => item.id)).toEqual([1, 2, 3]);
+
+    const desc = filterAndSortOrderGroups([...groups], "", {
+      ...DEFAULT_ORDER_LIST_FILTERS,
+      sort: "consultant_desc",
+    });
+    // Odwrotność, a nie „grupa po ostatnim nazwisku" — inaczej grupa
+    // [Adam, Zofia] stałaby na czele OBU porządków.
+    expect(desc.map((item) => item.id)).toEqual([3, 2, 1]);
+  });
+
+  it("keeps a consultant-less order group last in both directions", () => {
+    const groups = [
+      group(9, "EMPTY", { lines: [] }),
+      group(1, "A", { lines: [line(1, "Adam Kowalski")] }),
+      group(2, "B", { lines: [line(2, "Zofia Nowak")] }),
+    ];
+    const ids = (sort: "consultant_asc" | "consultant_desc") =>
+      filterAndSortOrderGroups([...groups], "", {
+        ...DEFAULT_ORDER_LIST_FILTERS,
+        sort,
+      }).map((item) => item.id);
+    // Pusty klucz nigdy nie otwiera listy „A\u2192Z" — tam użytkownik spodziewa
+    // się realnego „A", nie wiersza bez konsultanta.
+    expect(ids("consultant_asc")).toEqual([1, 2, 9]);
+    expect(ids("consultant_desc")).toEqual([2, 1, 9]);
+  });
+
+  it("sorts contractors alphabetically with Polish folding", () => {
+    const contractors = [
+      contractor(3, "\u017banna Zaj\u0105c"),
+      contractor(1, "\u0141ukasz Domaga\u0142a"),
+      contractor(2, "Adam \u015awi\u0105tek"),
+      contractor(4, ""),
+    ];
+    const names = (sort: "consultant_asc" | "consultant_desc") =>
+      filterAndSortContractors([...contractors], "", {
+        ...DEFAULT_ORDER_LIST_FILTERS,
+        sort,
+      }).map((item) => item.contract_id);
+    // \u0141 sk\u0142ada si\u0119 do „l", \u015a do „s", \u017b do „z" \u2014 tak jak w wyszukiwarce
+    // (`foldText`), wi\u0119c kolejno\u015b\u0107 to Adam < \u0141ukasz < \u017banna.
+    expect(names("consultant_asc")).toEqual([2, 1, 3, 4]);
+    expect(names("consultant_desc")).toEqual([3, 1, 2, 4]);
+  });
+
+  it("traktuje serwerowy myślnik jak brak konsultanta, nie jak nazwisko", () => {
+    // `consultant_display_name` (backend) zwraca „—" dla linii bez kandydata.
+    // Myślnik wypada w kolacji PRZED każdą literą, więc bez odsiania wiersz bez
+    // konsultanta otwierałby listę „A→Z".
+    const groups = [
+      group(9, "DASH", { lines: [line(9, "—")] }),
+      group(1, "A", { lines: [line(1, "Adam Kowalski")] }),
+      group(2, "B", { lines: [line(2, "Zofia Nowak")] }),
+    ];
+    const ids = (sort: "consultant_asc" | "consultant_desc") =>
+      filterAndSortOrderGroups([...groups], "", {
+        ...DEFAULT_ORDER_LIST_FILTERS,
+        sort,
+      }).map((item) => item.id);
+    expect(ids("consultant_asc")).toEqual([1, 2, 9]);
+    expect(ids("consultant_desc")).toEqual([2, 1, 9]);
   });
 
   it("exports nested future orders in their visible order", () => {
