@@ -195,16 +195,27 @@ function compareCreated(
 }
 
 /**
- * Klucz nazwiska do sortowania; pusty, gdy nazwiska faktycznie nie ma.
+ * Klucz nazwiska do sortowania: same litery i cyfry, pusty gdy nazwiska nie ma.
  *
- * Serwer NIE wysyła tu pustego ciągu, tylko myślnik: `consultant_display_name`
- * (`services/client_order_lines.py`) zwraca „—" dla linii bez kandydata, a linie
- * sumaryczne zamówień kosztowych mają własną etykietę. Bez tego odsiania „—"
- * wypada przed każdą literą i wiersz BEZ konsultanta otwiera listę „A→Z".
+ * Interpunkcja LECI W CAŁOŚCI, bo do nazwisk w tej bazie potrafi się przykleić
+ * śmieć — produkcja Nordei ma „{ } Wojciech Łazowski", a wcześniej „[acive/
+ * Mariusz Szewczyk" (marker statusu wklejony w imię). `foldText` zdejmuje tylko
+ * wielkość liter i diakrytykę, więc `{` zostawało i wynosiło taki wiersz na
+ * SAM SZCZYT listy „A→Z" — czyli w miejsce, gdzie użytkownik szuka litery „A".
+ *
+ * To zrównuje nas z backendem: `normalize_person_name_part`
+ * (`services/candidate_identity_quarantine.py`) też sprowadza nazwisko do
+ * [a-z0-9] i dlatego dopasowanie importu takiego wiersza NIE gubi — rozjazd
+ * był wyłącznie po stronie sortowania.
+ *
+ * Przy okazji obsługuje sentynel serwera: `consultant_display_name` zwraca „—"
+ * dla linii bez kandydata, a myślnik wypada przed każdą literą.
  */
 function consultantSortKey(name: string | null | undefined): string {
-  const folded = foldText(name ?? "");
-  return /[\p{L}\p{N}]/u.test(folded) ? folded : "";
+  return foldText(name ?? "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**

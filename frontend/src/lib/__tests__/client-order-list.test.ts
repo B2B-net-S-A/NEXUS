@@ -247,6 +247,25 @@ describe("client order list filters", () => {
     expect(ids("consultant_desc")).toEqual([2, 1, 9]);
   });
 
+  it("nie daje się wynieść na szczyt A→Z śmieciowi przyklejonemu do nazwiska", () => {
+    // Realny wiersz z produkcji Nordei: „{ } Wojciech Łazowski". Backend keyuje
+    // nazwiska po [a-z0-9], więc import go dopasowuje bez problemu — rozjazd był
+    // wyłącznie w sortowaniu, gdzie `{` wypada przed każdą literą.
+    const groups = [
+      group(3, "C", { lines: [line(3, "{ } Wojciech Łazowski")] }),
+      group(1, "A", { lines: [line(1, "Adam Kowalski")] }),
+      group(2, "B", { lines: [line(2, "Zofia Nowak")] }),
+    ];
+    const ids = (sort: "consultant_asc" | "consultant_desc") =>
+      filterAndSortOrderGroups([...groups], "", {
+        ...DEFAULT_ORDER_LIST_FILTERS,
+        sort,
+      }).map((item) => item.id);
+    // Ł składa się do „l", więc Adam < Wojciech < Zofia.
+    expect(ids("consultant_asc")).toEqual([1, 3, 2]);
+    expect(ids("consultant_desc")).toEqual([2, 3, 1]);
+  });
+
   it("exports nested future orders in their visible order", () => {
     const future = group(2, "FUTURE");
     const current = group(1, "CURRENT", { future_orders: [future] });
