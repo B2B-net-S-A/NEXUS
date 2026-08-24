@@ -17,8 +17,12 @@ vi.mock("@/lib/api", async (importOriginal) => {
 import api from "@/lib/api";
 
 function renderDialog() {
+  // `retry: 1` LUSTRZANIE do produkcji (`QueryProvider`), nie `false`. Przy
+  // `retry: false` test przechodziłby, nie dotykając realnego opóźnienia:
+  // zanim `isError` stanie się `true`, leci jeszcze jedna próba z backoffem.
+  // Chcemy dowodu, że gałąź błędu pokazuje się przy ustawieniach produkcyjnych.
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: { queries: { retry: 1 }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -60,9 +64,13 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
       "Skrzypek",
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      /Nie udało się wyszukać kandydatów/i,
-    );
+    // Okno musi pokryć debounce (300 ms) ORAZ jedno ponowienie react-query
+    // (~1 s backoffu przy `retry: 1`). Domyślne 1000 ms `findBy*` tu nie
+    // wystarcza — i to jest realny koszt produkcyjny tej ścieżki, nie artefakt
+    // testu: użytkownik widzi „Szukam…" przez tę chwilę, zanim pojawi się błąd.
+    expect(
+      await screen.findByRole("alert", {}, { timeout: 5000 }),
+    ).toHaveTextContent(/Nie udało się wyszukać kandydatów/i);
     expect(screen.queryByText(/Brak wyników/i)).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Ponów" }),
