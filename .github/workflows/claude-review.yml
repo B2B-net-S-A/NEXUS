@@ -114,6 +114,11 @@ jobs:
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
+          # Sciezka fallbacku NIE jest zgadnieta ani odtworzona z zachowania: output
+          # `execution_file` jest ZADEKLAROWANY w action.yml na przypietym SHA 6b082c41,
+          # a sam plik potwierdzony w logu run 32704727564 linia "Log saved to
+          # /home/runner/work/_temp/claude-execution-output.json" — czyli dokladnie
+          # $RUNNER_TEMP. Po bumpie akcji zweryfikuj OBIE rzeczy.
           FILE="${EXECUTION_FILE:-${RUNNER_TEMP}/claude-execution-output.json}"
 
           emit() {  # $1=tytul annotacji, $2=tresc
@@ -127,7 +132,7 @@ jobs:
 
           if [ ! -f "$FILE" ]; then
             emit "nie wystartowała" \
-              "Akcja padła, zanim model wykonał cokolwiek (brak $FILE). Szukaj w uwierzytelnieniu (CLAUDE_CODE_OAUTH_TOKEN) albo w samym kroku akcji — nie w treści PR-a."
+              "Nie znalazłem pliku wyniku ($FILE). Zwykle znaczy to, że akcja padła, zanim model cokolwiek wykonał — szukaj w uwierzytelnieniu (CLAUDE_CODE_OAUTH_TOKEN) albo w samym kroku akcji, nie w treści PR-a. ALE jeśli akcja była niedawno bumpowana, NAJPIERW sprawdź w logu linię 'Log saved to': mogła zmienić ścieżkę, a wtedy ten werdykt jest mylny i recenzja mogła się odbyć."
             exit 0
           fi
 
