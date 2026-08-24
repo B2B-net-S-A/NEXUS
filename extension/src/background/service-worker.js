@@ -7,6 +7,7 @@
 import { MSG } from "../shared/messages.js";
 import {
   getAuth,
+  setAuth,
   clearAuth,
   getBackendUrl,
   setBackendUrl,
@@ -76,6 +77,10 @@ async function handleMessage(msg) {
       return handleGetAuthState();
     case MSG.LOGIN:
       return handleLogin(msg.email, msg.password);
+    case MSG.SSO_LOGIN:
+      return handleSsoLogin();
+    case MSG.SSO_TOKENS:
+      return handleSsoTokens(msg);
     case MSG.LOGOUT:
       return handleLogout();
     case MSG.GET_BACKEND_URL:
@@ -124,6 +129,37 @@ async function handleLogin(email, password) {
     await broadcastAuthChanged(true);
   }
   return result;
+}
+
+async function handleSsoLogin() {
+  // Otwieramy zwykla karte z logowaniem NEXUS-a. `?ext=1` to marker, ktory
+  // aplikacja przenosi do strony callbacku i dopiero TAM decyduje, czy oddac
+  // tokeny wtyczce. Bez markera SSO w przegladarce z zainstalowana wtyczka
+  // provisionowaloby ja po cichu przy KAZDYM logowaniu - a to inna rzecz niz
+  // "uzytkownik wlasnie kliknal Zaloguj we wtyczce".
+  const frontend = await getFrontendUrl();
+  const url = `${frontend}/login?ext=1`;
+  await chrome.tabs.create({ url });
+  return { ok: true, data: { opened: url } };
+}
+
+async function handleSsoTokens(msg) {
+  if (!msg?.access_token || !msg?.refresh_token) {
+    return { ok: false, error: "Niekompletna odpowiedz logowania" };
+  }
+  await setAuth({
+    access_token: msg.access_token,
+    refresh_token: msg.refresh_token,
+    email: msg.email || null,
+  });
+  // Te same powiadomienia co po logowaniu haslem - modal na LinkedInie i
+  // strona ustawien odswiezaja sie bez przeladowania.
+  try {
+    chrome.runtime.sendMessage({ type: MSG.AUTH_CHANGED, authed: true });
+  } catch {
+    // brak odbiorcy to nie blad
+  }
+  return { ok: true };
 }
 
 async function handleLogout() {

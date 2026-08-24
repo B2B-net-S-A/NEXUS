@@ -15,15 +15,21 @@ function send(payload) {
 async function refreshAccountView() {
   const accountView = document.getElementById("account-view");
   const loginForm = document.getElementById("login-form");
+  const ssoBlock = document.getElementById("sso-block");
   const emailEl = document.getElementById("account-email");
 
   const state = await send({ type: MSG.GET_AUTH_STATE });
   if (state.authed) {
     accountView.hidden = false;
     loginForm.hidden = true;
+    if (ssoBlock) ssoBlock.hidden = true;
     emailEl.textContent = state.email || "(brak email)";
   } else {
     accountView.hidden = true;
+    // Blok SSO widoczny ZAWSZE, gdy nie ma sesji — to jedyna sciezka dzialajaca
+    // na produkcji. Formularz hasla zostaje pod nim dla instalacji, ktore
+    // logowanie haslem maja wlaczone (np. lokalny backend).
+    if (ssoBlock) ssoBlock.hidden = false;
     loginForm.hidden = false;
   }
 }
@@ -35,6 +41,22 @@ async function refreshBackendView() {
 }
 
 function attachLogin() {
+  const ssoBtn = document.getElementById("btn-sso");
+  if (ssoBtn) {
+    ssoBtn.addEventListener("click", async () => {
+      const err = document.getElementById("sso-error");
+      if (err) err.hidden = true;
+      const resp = await send({ type: MSG.SSO_LOGIN });
+      if (!resp || !resp.ok) {
+        if (err) {
+          err.textContent =
+            (resp && resp.error) || "Nie udalo sie otworzyc logowania.";
+          err.hidden = false;
+        }
+      }
+    });
+  }
+
   const form = document.getElementById("login-form");
   const errorEl = document.getElementById("login-error");
   const btn = document.getElementById("btn-login");

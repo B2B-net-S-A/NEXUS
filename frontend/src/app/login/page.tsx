@@ -209,6 +209,18 @@ function LoginForm() {
     setSsoLoading(true);
     setError(null);
     try {
+      // `?ext=1` znaczy: logowanie zaczela WTYCZKA (przycisk w jej
+      // ustawieniach). Marker przezywa przekierowanie do Microsoftu i z
+      // powrotem, a strona callbacku dopiero na jego podstawie decyduje,
+      // czy oddac sesje wtyczce.
+      //
+      // Bez markera musialaby oddawac ja przy KAZDYM logowaniu SSO w
+      // przegladarce z zainstalowana wtyczka — czyli provisionowac ja po
+      // cichu komus, kto o to nie prosil. `sessionStorage`, nie `localStorage`:
+      // marker ma zyc tyle, co ta jedna proba logowania.
+      if (new URLSearchParams(window.location.search).get("ext") === "1") {
+        sessionStorage.setItem("nexus_ext_login", "1");
+      }
       const { data } = await api.get("/api/auth/microsoft/authorize");
       if (!data?.authorize_url) throw new Error("Brak authorize_url w odpowiedzi");
       window.location.href = data.authorize_url;

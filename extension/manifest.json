@@ -23,7 +23,9 @@
     "service_worker": "src/background/service-worker.js",
     "type": "module"
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://api.nexus.dynaminds.pl/*",
@@ -39,7 +41,19 @@
         "https://www.linkedin.com/talent/profile/*",
         "https://www.linkedin.com/talent/people/*"
       ],
-      "js": ["src/content/content-script.js"],
+      "js": [
+        "src/content/content-script.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://nexus.dynaminds.pl/login/microsoft/callback*",
+        "http://localhost/login/microsoft/callback*"
+      ],
+      "js": [
+        "src/content/sso-bridge.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -52,7 +66,9 @@
         "src/shared/messages.js",
         "icons/*"
       ],
-      "matches": ["https://www.linkedin.com/*"]
+      "matches": [
+        "https://www.linkedin.com/*"
+      ]
     }
   ]
 }
