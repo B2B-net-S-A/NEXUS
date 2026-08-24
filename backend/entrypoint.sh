@@ -193,6 +193,11 @@ _ENUM_STATEMENTS = [
     # na jobs + partial index. Safety-net: /api/jobs create/update oraz
     # /champion-profile/historical-matches czytają/piszą tę kolumnę; brak
     # kolumny => UndefinedColumnError przy INSERT/UPDATE jobs.
+    # Migracja 0241: stempel ostrzeżenia o zużyciu AI. Bez tych kolumn pętla
+    # `ai_spend_alerts` pada na UndefinedColumnError przy KAŻDYM przebiegu —
+    # a prod alembic bywa osierocony, więc lustro jest tu jedyną gwarancją.
+    "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS spend_alert_period DATE NULL",
+    "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS spend_alert_level INTEGER NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS train_name VARCHAR(128) NULL",
     "CREATE INDEX IF NOT EXISTS ix_jobs_train_name_partial "
     "ON jobs (client_id, train_name) WHERE train_name IS NOT NULL",

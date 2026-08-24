@@ -555,6 +555,7 @@ async def lifespan(app: FastAPI):
     from app.api.calendar import calendar_reminder_loop
     from app.tasks.match_history_ttl import match_history_ttl_loop
     from app.tasks.slack_sla_alerts import slack_sla_alerts_loop
+    from app.tasks.ai_spend_alerts import ai_spend_alerts_loop
     from app.tasks.contract_alerts import contract_alerts_loop
     from app.tasks.competition_autofreeze import competition_autofreeze_loop
     from app.tasks.cc_centroid_sync import cc_centroid_sync_loop
@@ -597,6 +598,7 @@ async def lifespan(app: FastAPI):
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
+        "ai_spend_alerts": asyncio.create_task(ai_spend_alerts_loop()),
         "contract_alerts": asyncio.create_task(contract_alerts_loop()),
         "fx_refresh": asyncio.create_task(fx_refresh_loop()),
         "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),

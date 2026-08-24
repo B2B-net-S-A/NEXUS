@@ -15,7 +15,7 @@ Why a single global config (no per-tenant): NEXUS is single-tenant
 """
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
@@ -180,6 +180,17 @@ class AIFeatureConfig(Base, TimestampMixin):
         default=0,
         doc="Monthly call cap. 0 = unlimited.",
     )
+
+    # Stempel ostatniego ostrzeżenia o zużyciu (migracja 0241). Trwały, bo prod
+    # restartuje się przy każdym pushu — zbiór w pamięci alertowałby od nowa po
+    # każdym deployu, a przy `--workers > 1` osobno w każdym procesie. Ten sam
+    # błąd naprawiono już w `slack_sla_alerts`.
+    #
+    # `spend_alert_level` to KROTNOŚĆ progu, przy której ostatnio ostrzegaliśmy
+    # (3, potem 6, 12...). Bez tego jednorazowy alert milczałby, gdy zużycie
+    # rośnie dalej — a to właśnie wtedy jest najciekawsze.
+    spend_alert_period: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    spend_alert_level: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     updated_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
