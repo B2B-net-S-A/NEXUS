@@ -29,7 +29,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -77,6 +77,19 @@ class OrderExtraction:
     finansowa — nie podlega redakcji dla ról bez ``VIEW_FINANCE``, bo to
     właśnie Delivery Lead ma ją wpisać do formularza (reguła z ``CLAUDE.md``:
     „Liczby MD są operacyjne, nie finansowe")."""
+
+    rate_client_md: Optional[Decimal] = None
+    """Oryginalna stawka za 1 MD z dokumentu (polityka Banku Pocztowego).
+    Gdy ustawiona, ``rate_client`` niesie już stawkę GODZINOWĄ po przeliczeniu
+    (MD ÷ 8, w górę do 2 miejsc) — front pokazuje obie wartości obok siebie.
+    Kwota FINANSOWA: podlega tej samej redakcji co ``rate_client``."""
+
+    title_needs_review: bool = False
+    """Klientowa polityka numeru zamówienia nie znalazła numeru w dokumencie —
+    front pokazuje przy polu numeru komunikat „Sprawdź numer zamówienia".
+    Flaga zamiast dopasowywania stringów w ``uncertain_reasons``, bo tamta
+    lista jest REDAGOWANA dla ról bez VIEW_FINANCE (a numer nie jest kwotą,
+    więc komunikat ma przeżyć redakcję)."""
 
     confidence: dict[str, float] = field(default_factory=dict)
     uncertain: bool = True
@@ -373,6 +386,160 @@ def enforce_nordea_order_number(
     if reason not in result.uncertain_reasons:
         result.uncertain_reasons.append(reason)
     result.uncertain = True
+    return result
+
+
+# ── Bank Pocztowy: hierarchia numeru + stawka netto za 1 MD → godzinowa ─────
+#
+# Dwa tickety, jedna polityka deterministyczna (stosowana PO odpowiedzi LLM,
+# jak reguła Nordei — model nie może wybrać atrakcyjniejszej interpretacji):
+#
+#  * numer zamówienia: pole „Numer pisma”, a dopiero gdy go brak — „Zamówienie
+#    nr”; bez obu pól numer zostaje PUSTY i front pokazuje przy polu
+#    „Sprawdź numer zamówienia” (``title_needs_review``);
+#  * stawka z dokumentu jest ZAWSZE kwotą netto za 1 MD (= 8 h) — to stała
+#    tego klienta, nie przedmiot niepewności. Mnożnik VAT „1,23” we wzorze
+#    (np. „1600*1,23*20”) jest ignorowany: gdy wzór występuje, netto bierzemy
+#    wprost z jego pierwszego czynnika, więc model nie może podstawić brutto
+#    ani iloczynu. Stawka godzinowa = netto ÷ 8, zaokrąglona W GÓRĘ do 2
+#    miejsc; zapisuje się wyłącznie godzinowa, oryginał MD zostaje w
+#    ``rate_client_md`` do pokazania obok;
+#  * liczba MD/dni ze wzoru (ostatni czynnik) jest POMIJANA — ani nie zasila
+#    ``md_total``, ani nie służy do wyliczania okresu (okres wyłącznie z dat
+#    „od–do” wskazanych wprost w dokumencie);
+#  * komunikaty niepewności są PRZEBUDOWYWANE do białej listy trzech
+#    uzasadnionych przypadków: brak numeru, brak dat „od–do”, stawka godzinowa
+#    poza widełkami 80–300 zł/h. Generyczne ostrzeżenia (VAT, jednostka,
+#    interpretacja liczby MD, niska ufność) są wycinane — ticket żąda, żeby
+#    standardowy odczyt BP nie generował szumu. Wyjątek ŚWIADOMY: przy
+#    fallbacku regexowym (AI wyłączone/padło) zostaje „Odczyt awaryjny…”,
+#    bo przemilczenie, że wszystkie pola są zgadywane, byłoby gorsze niż szum.
+
+_BP_NUMER_PISMA_RE = re.compile(
+    r"(?:Numer|Nr\.?)\s+pisma\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._/\-]*)",
+    re.IGNORECASE,
+)
+# „Zamówienie nr …” — tolerujemy zapis bez polskich znaków (ekstrakcja tekstu
+# z PDF potrafi zgubić diakrytyki) oraz wariant „numer”.
+_BP_ZAMOWIENIE_NR_RE = re.compile(
+    r"Zam[óo]wienie\s+(?:nr\.?|numer)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._/\-]*)",
+    re.IGNORECASE,
+)
+# Wzór z dokumentu BP: „<netto>*1,23*<liczba MD>”. Pierwszy czynnik to kwota
+# netto stawki MD; reszta (VAT, liczba MD) jest ignorowana z definicji.
+# Separatory tysięcy jawnie escape'owane (spacja + NBSP + wąski NBSP),
+# żeby klasa znaków nie wyglądała jak dwie zwykłe spacje (konwencja
+# lustrzana do ``_MD_COUNT_RE``).
+_BP_NET_FORMULA_RE = re.compile(
+    r"(\d[\d\u00a0\u202f ]*(?:[.,]\d{1,2})?)\s*[*x×]\s*1[.,]23\b",
+    re.IGNORECASE,
+)
+
+_BP_HOURS_PER_MD = Decimal(8)
+# Widełki sanity-check stawki godzinowej PO przeliczeniu (zł/h, włącznie).
+_BP_HOURLY_MIN = Decimal(80)
+_BP_HOURLY_MAX = Decimal(300)
+# Fallback regexowy oznacza się tym powodem — jedyny generyczny komunikat,
+# który polityka BP przepuszcza (patrz komentarz sekcji).
+_REGEX_FALLBACK_REASON_MARKER = "Odczyt awaryjny"
+
+
+def _bp_labelled_value(pattern: re.Pattern[str], text: str) -> Optional[str]:
+    """Pierwsza SENSOWNA wartość pola z etykietą BP (musi nieść cyfrę).
+
+    Guard na cyfrę łapie przypadek pustego pola, po którym ``\\s*`` przeskoczy
+    do następnej linii i częściowo dopasuje POCZĄTEK kolejnej etykiety —
+    numer zamówienia zawsze niesie cyfrę, etykieta nie. Iterujemy po
+    wystąpieniach, bo etykieta bywa powtórzona (nagłówek/stopka strony)
+    i dopiero któreś z kolei niesie wartość.
+    """
+    for m in pattern.finditer(text or ""):
+        value = m.group(1).strip().rstrip(".")
+        if value and any(ch.isdigit() for ch in value):
+            return value
+    return None
+
+
+def bank_pocztowy_order_number(text: str) -> Optional[str]:
+    """Numer wg hierarchii BP: „Numer pisma” przed „Zamówienie nr”."""
+    return _bp_labelled_value(_BP_NUMER_PISMA_RE, text) or _bp_labelled_value(
+        _BP_ZAMOWIENIE_NR_RE, text
+    )
+
+
+def bank_pocztowy_net_md_rate(text: str) -> Optional[Decimal]:
+    """Kwota netto stawki MD z wzoru „<netto>*1,23*<MD>”, gdy wzór występuje."""
+    m = _BP_NET_FORMULA_RE.search(text or "")
+    if not m:
+        return None
+    return _normalize_amount(m.group(1))
+
+
+def apply_bank_pocztowy_order_policy(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Nadpisz wynik parsera twardą polityką Banku Pocztowego (opis wyżej)."""
+
+    # 1) Numer zamówienia: „Numer pisma” → „Zamówienie nr” → puste + flaga.
+    number = bank_pocztowy_order_number(document_text)
+    if number:
+        result.title = number
+        result.confidence["title"] = 1.0
+    else:
+        result.title = None
+        result.confidence.pop("title", None)
+        result.title_needs_review = True
+
+    # 2) Stawka: netto za 1 MD → godzinowa (÷ 8, W GÓRĘ do 2 miejsc).
+    net_from_formula = bank_pocztowy_net_md_rate(document_text)
+    if net_from_formula is not None:
+        result.rate_client = net_from_formula
+        result.confidence["rate_client"] = 1.0
+    rate_warning: Optional[str] = None
+    if result.rate_client is not None:
+        md_rate = result.rate_client
+        hourly = (md_rate / _BP_HOURS_PER_MD).quantize(
+            Decimal("0.01"), rounding=ROUND_CEILING
+        )
+        result.rate_client_md = md_rate
+        result.rate_client = hourly
+        result.rate_unit = "hour"
+        if hourly < _BP_HOURLY_MIN or hourly > _BP_HOURLY_MAX:
+            rate_warning = (
+                f"Nietypowa stawka godzinowa po przeliczeniu: {hourly} zł/h "
+                f"(poza zakresem {_BP_HOURLY_MIN}–{_BP_HOURLY_MAX} zł/h) — "
+                "możliwy błąd odczytu stawki z dokumentu."
+            )
+    else:
+        # Bez stawki nie ma czego przeliczać, ale jednostka z odpowiedzi LLM
+        # nie może wisieć w wyniku: u BP jednostka jest z definicji godzinowa
+        # PO przeliczeniu, a „day" przy pustym polu stawki byłby sprzeczny
+        # z tą inwariantą (i mylący w metadanych odpowiedzi).
+        result.rate_unit = None
+        result.confidence.pop("rate_unit", None)
+
+    # 3) Liczba MD ze wzoru — pomijana w całej logice (nie zasila formularza
+    #    jednoosobowego, a wpisanie jej do budżetu byłoby zgadywaniem).
+    result.md_total = None
+    result.confidence.pop("md_total", None)
+
+    # 4) Komunikaty: wyłącznie biała lista (+ marker fallbacku regexowego).
+    reasons: list[str] = []
+    if result.source == "regex":
+        reasons.extend(
+            r for r in result.uncertain_reasons if _REGEX_FALLBACK_REASON_MARKER in r
+        )
+    if result.title is None:
+        reasons.append(
+            "Nie znaleziono pól „Numer pisma” ani „Zamówienie nr” — "
+            "sprawdź numer zamówienia"
+        )
+    if not result.start_date or not result.end_date:
+        reasons.append("Nie znaleziono dat okresu zamówienia (od–do)")
+    if rate_warning:
+        reasons.append(rate_warning)
+    result.uncertain_reasons = reasons
+    result.uncertain = bool(reasons)
     return result
 
 

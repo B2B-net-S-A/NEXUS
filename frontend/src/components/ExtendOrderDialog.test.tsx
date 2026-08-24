@@ -291,3 +291,143 @@ describe("ExtendOrderDialog — odczyt PDF (Zczytaj dane z dokumentu)", () => {
     expect(screen.queryByText(/Total value/)).not.toBeInTheDocument();
   });
 });
+
+// ── Bank Pocztowy: stawka MD → godzinowa + „Sprawdź numer zamówienia" ────────
+
+describe("ExtendOrderDialog — polityka Banku Pocztowego", () => {
+  beforeEach(() => {
+    createOrderExtension.mockReset();
+    createOrderExtension.mockResolvedValue({ data: {} } as never);
+    extractOrderPdf.mockReset();
+    act(() => {
+      useAuthStore.setState({ user: user("admin"), hydrated: true });
+    });
+  });
+
+  afterEach(() => {
+    act(() => {
+      useAuthStore.setState({ user: null, hydrated: true });
+    });
+  });
+
+  it("pokazuje OBA: oryginał MD z dokumentu i przeliczoną stawkę godzinową (edytowalną)", async () => {
+    extractOrderPdf.mockResolvedValue({
+      data: {
+        title: "BP/DIT/2026/0451",
+        start_date: "2026-09-01",
+        end_date: "2026-12-31",
+        // Backend (polityka BP) zwraca stawkę już przeliczoną na zł/h…
+        rate_client: 200,
+        rate_unit: "hour",
+        // …a oryginał za 1 MD jedzie obok do pokazania.
+        rate_client_md: 1600,
+        total_value: null,
+        currency: "PLN",
+        md_total: null,
+        uncertain: false,
+        uncertain_reasons: [],
+        fields_confidence: {},
+        title_needs_review: false,
+        source: "claude",
+      },
+    } as never);
+
+    renderDialog();
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    // Pole stawki dostało wartość godzinową, helper pokazuje oryginał MD.
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("200")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+
+    // Czysty odczyt BP → zero banera „Sprawdź dane!" (wymóg ticketu).
+    expect(screen.queryByText("Sprawdź dane!")).not.toBeInTheDocument();
+
+    // Przeliczona stawka jest zwykłym polem — użytkownik może ją poprawić
+    // przed zapisem (na wypadek błędu odczytu z PDF).
+    const rateInput = screen.getByDisplayValue("200");
+    fireEvent.change(rateInput, { target: { value: "210" } });
+    expect(screen.getByDisplayValue("210")).toBeInTheDocument();
+    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+  });
+
+  it("brak numeru w dokumencie → Sprawdź numer zamówienia przy polu, znika po wpisaniu", async () => {
+    extractOrderPdf.mockResolvedValue({
+      data: {
+        title: null,
+        start_date: "2026-09-01",
+        end_date: "2026-12-31",
+        rate_client: 200,
+        rate_unit: "hour",
+        rate_client_md: 1600,
+        total_value: null,
+        currency: null,
+        md_total: null,
+        uncertain: true,
+        uncertain_reasons: [
+          "Nie znaleziono pól „Numer pisma” ani „Zamówienie nr” — sprawdź numer zamówienia",
+        ],
+        fields_confidence: {},
+        title_needs_review: true,
+        source: "claude",
+      },
+    } as never);
+
+    renderDialog();
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    await waitFor(() =>
+      expect(screen.getByText("Sprawdź numer zamówienia")).toBeInTheDocument(),
+    );
+    // Pole numeru pozostało puste — polityka nie zgaduje.
+    expect(screen.getByLabelText(/Numer zamówienia/)).toHaveValue("");
+
+    // Ręczne wpisanie numeru unieważnia komunikat.
+    fireEvent.change(screen.getByLabelText(/Numer zamówienia/), {
+      target: { value: "BP/2026/77" },
+    });
+    expect(
+      screen.queryByText("Sprawdź numer zamówienia"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("nowy plik kasuje komunikat numeru i helper stawki z poprzedniego odczytu", async () => {
+    extractOrderPdf.mockResolvedValue({
+      data: {
+        title: null,
+        start_date: null,
+        end_date: null,
+        rate_client: 200,
+        rate_unit: "hour",
+        rate_client_md: 1600,
+        total_value: null,
+        currency: null,
+        md_total: null,
+        uncertain: true,
+        uncertain_reasons: ["Nie znaleziono dat okresu zamówienia (od–do)"],
+        fields_confidence: {},
+        title_needs_review: true,
+        source: "claude",
+      },
+    } as never);
+
+    renderDialog();
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    await waitFor(() =>
+      expect(screen.getByText("Sprawdź numer zamówienia")).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+
+    // Wybór innego pliku — stany odczytu wracają do zera (dotyczyły innego PDF).
+    addPdf("inne-zamowienie.pdf");
+    expect(
+      screen.queryByText("Sprawdź numer zamówienia"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Z dokumentu:/)).not.toBeInTheDocument();
+  });
+});

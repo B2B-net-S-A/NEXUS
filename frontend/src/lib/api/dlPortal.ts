@@ -154,6 +154,12 @@ export interface OrderExtractionResult {
   end_date: string | null;
   rate_client: number | null;
   rate_unit: string | null; // "hour" | "day" | "month"
+  /** Oryginalna stawka za 1 MD z dokumentu (polityka Banku Pocztowego) —
+   *  `rate_client` niesie wtedy stawkę GODZINOWĄ po przeliczeniu (MD ÷ 8,
+   *  w górę do 2 miejsc). Formularz pokazuje obie wartości obok siebie.
+   *  Kwota finansowa: redagowana jak `rate_client` dla ról bez uprawnień.
+   *  Opcjonalne — starszy backend pola nie wysyła. */
+  rate_client_md?: number | null;
   total_value: number | null;
   currency: string | null;
   /** Liczba MD z dokumentu. NIE podlega redakcji finansowej — MD są
@@ -162,6 +168,10 @@ export interface OrderExtractionResult {
   uncertain: boolean;
   uncertain_reasons: string[];
   fields_confidence: Record<string, number>;
+  /** Klientowa polityka numeru nie znalazła numeru w dokumencie — formularz
+   *  pokazuje przy polu numeru komunikat „Sprawdź numer zamówienia".
+   *  Opcjonalne — starszy backend pola nie wysyła. */
+  title_needs_review?: boolean;
   source: string; // "claude" | "regex" | "none"
 }
 

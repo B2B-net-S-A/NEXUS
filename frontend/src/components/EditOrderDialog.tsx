@@ -104,6 +104,12 @@ export function EditOrderDialog({
   const [extracting, setExtracting] = useState(false);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
+  // Polityka klientowa (Bank Pocztowy) nie znalazła numeru w dokumencie —
+  // komunikat „Sprawdź numer zamówienia" przy polu numeru, dopóki puste.
+  const [titleCheck, setTitleCheck] = useState(false);
+  // Oryginalna stawka za 1 MD z dokumentu (Bank Pocztowy) — pokazywana obok
+  // pola stawki; samo pole niesie już wartość przeliczoną na zł/h (MD ÷ 8).
+  const [rateMdOriginal, setRateMdOriginal] = useState<string | null>(null);
 
   async function handleExtract() {
     if (!file || extracting) return;
@@ -111,10 +117,16 @@ export function EditOrderDialog({
     try {
       const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
       if (data.title) setTitle(data.title);
+      setTitleCheck(Boolean(data.title_needs_review));
       if (data.start_date) setStartDate(normalizeDateInput(data.start_date));
       if (data.end_date) setEndDate(normalizeDateInput(data.end_date));
-      if (canManageFinance && data.rate_client != null) {
-        setRateRevenue(String(data.rate_client));
+      if (canManageFinance) {
+        if (data.rate_client != null) setRateRevenue(String(data.rate_client));
+        // Bank Pocztowy: pole stawki dostało wartość GODZINOWĄ; oryginał MD
+        // pokazujemy obok, żeby obie wartości były widoczne przed zapisem.
+        setRateMdOriginal(
+          data.rate_client_md != null ? String(data.rate_client_md) : null,
+        );
       }
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
@@ -149,6 +161,8 @@ export function EditOrderDialog({
     setFile(picked);
     setCheckData(false);
     setCheckReasons([]);
+    setTitleCheck(false);
+    setRateMdOriginal(null);
   }
 
   const mutation = useMutation({
@@ -237,6 +251,8 @@ export function EditOrderDialog({
       setFile(null);
       setCheckData(false);
       setCheckReasons([]);
+      setTitleCheck(false);
+      setRateMdOriginal(null);
       onChanged?.();
       showToast("Plik PDF zamówienia usunięty", "success");
     }, "Nie udało się usunąć pliku PDF zamówienia.");
@@ -307,10 +323,19 @@ export function EditOrderDialog({
             className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
             placeholder="np. ZAM/2026/014"
           />
-          {title.trim().length === 0 && (
+          {/* Po odczycie bez numeru (polityka klientowa, np. Bank Pocztowy)
+              komunikat z ticketu wypiera generyczne „wymagany" — oba naraz
+              mówiłyby to samo dwa razy. Znika po ręcznym wpisaniu numeru. */}
+          {titleCheck && title.trim().length === 0 ? (
             <span className="text-xs text-destructive">
-              Numer zamówienia jest wymagany.
+              Sprawdź numer zamówienia
             </span>
+          ) : (
+            title.trim().length === 0 && (
+              <span className="text-xs text-destructive">
+                Numer zamówienia jest wymagany.
+              </span>
+            )
           )}
         </label>
 
@@ -360,6 +385,15 @@ export function EditOrderDialog({
                 className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
                 placeholder="np. 18000"
               />
+              {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
+                  wyżej ma już przeliczoną stawkę godzinową (edytowalną),
+                  a oryginał z dokumentu zostaje widoczny obok. */}
+              {rateMdOriginal !== null && (
+                <span className="text-xs text-muted-foreground mt-0.5 block">
+                  Z dokumentu: {rateMdOriginal} zł/MD → przeliczono na stawkę
+                  godzinową (÷ 8, w górę do 2 miejsc)
+                </span>
+              )}
             </label>
           </div>
         )}

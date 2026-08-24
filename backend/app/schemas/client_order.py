@@ -162,6 +162,12 @@ class OrderExtractionResult(BaseModel):
     end_date: Optional[str] = None
     rate_client: Optional[Decimal] = None
     rate_unit: Optional[str] = None  # "hour" | "day" | "month"
+    rate_client_md: Optional[Decimal] = None
+    """Oryginalna stawka za 1 MD z dokumentu (polityka Banku Pocztowego) —
+    ``rate_client`` niesie wtedy stawkę GODZINOWĄ po przeliczeniu (MD ÷ 8,
+    w górę do 2 miejsc). Front pokazuje obie wartości obok siebie. Kwota
+    finansowa: redagowana dla ról bez VIEW_FINANCE tak samo jak stawka."""
+
     total_value: Optional[Decimal] = None
     currency: Optional[str] = None
     md_total: Optional[Decimal] = None
@@ -173,6 +179,12 @@ class OrderExtractionResult(BaseModel):
     uncertain: bool = True
     uncertain_reasons: list[str] = Field(default_factory=list)
     fields_confidence: dict[str, float] = Field(default_factory=dict)
+    title_needs_review: bool = False
+    """Klientowa polityka numeru nie znalazła numeru w dokumencie — front
+    pokazuje przy polu numeru komunikat „Sprawdź numer zamówienia". Osobna
+    flaga (nie string w ``uncertain_reasons``), bo lista powodów jest
+    redagowana dla ról bez VIEW_FINANCE, a numer kwotą nie jest."""
+
     source: str = "none"  # "claude" | "regex" | "none"
 
 
