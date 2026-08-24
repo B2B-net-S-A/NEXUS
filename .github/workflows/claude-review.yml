@@ -132,10 +132,24 @@ jobs:
           fi
 
           # Plik bywa tablicą zdarzeń stream-json albo pojedynczym obiektem wyniku.
-          RESULT="$(jq -c 'if type=="array" then (map(select(.type=="result")) | last // {}) else . end' "$FILE" 2>/dev/null || echo '{}')"
+          RESULT="$(jq -c 'if type=="array" then (map(select(.type=="result")) | last // empty) else . end' "$FILE" 2>/dev/null || true)"
+
+          # Plik pusty, uszkodzony albo bez zdarzenia `result` znaczy NIE WIEM — a nie
+          # "model przeszedl". Bez tej galezi krok orzekalby "padla poza modelem",
+          # czyli stawialby teze o stanie, o ktorym nie ma danych. To dokladnie ta klasa
+          # defektu, ktora ten krok ma wykrywac.
+          OK="$(printf '%s' "$RESULT" | jq -r 'if type=="object" and has("subtype") then "y" else "n" end' 2>/dev/null || echo n)"
+          if [ -z "$RESULT" ] || [ "$OK" != "y" ]; then
+            emit "nie do rozpoznania" \
+              "Plik wyniku ($FILE) jest pusty, uszkodzony albo nie zawiera zdarzenia \`result\` — NIE WIADOMO, czy model w ogóle wystartował. Czytaj log akcji i nie zakładaj, że recenzja się odbyła."
+            exit 0
+          fi
+
           IS_ERROR="$(printf '%s' "$RESULT" | jq -r '.is_error // false')"
           SUBTYPE="$(printf '%s' "$RESULT" | jq -r '.subtype // "unknown"')"
-          TURNS="$(printf '%s' "$RESULT" | jq -r '.num_turns // 0')"
+          # `tonumber? // 0 | floor` — zapis 1.0 rozjezdzalby porownanie calkowitoliczbowe
+          # nizej i awaria "zero tur" ladowalaby jako "recenzja czesciowa".
+          TURNS="$(printf '%s' "$RESULT" | jq -r '(.num_turns // 0) | tonumber? // 0 | floor')"
           COST="$(printf '%s' "$RESULT" | jq -r '.total_cost_usd // 0')"
 
           echo "subtype=$SUBTYPE is_error=$IS_ERROR num_turns=$TURNS cost_usd=$COST"
