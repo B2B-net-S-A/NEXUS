@@ -395,6 +395,66 @@ jobs:
           echo "::error::Smoke test failed after 20 attempts (5 min) — deployment finished server-side but the app never served the new SHA"
           exit 1
 
+      # Do 2026-08-24 CALY smoke test deployu pytal wylacznie `$APP_URL/api/health`,
+      # czyli BACKEND. Frontend — aplikacje, ktorej uzywaja ludzie — nie dotykal zaden
+      # krok wdrozenia; pytal go dopiero cron `uptime-probe.yml`, czyli po czasie i poza
+      # kontekstem deployu, ktory to zepsul.
+      #
+      # Incydent 10:00 UTC tego dnia (run 32714117954): kontener frontendu "Created" ->
+      # "Starting" -> "Error response from daemon: No such container". Backend, postgres
+      # i qdrant wstaly, /api/health zwracalo 200 healthy — a https://nexus.dynaminds.pl
+      # oddawalo uzytkownikom 503 "no available server". Deploy zaczerwienil sie WYLACZNIE
+      # dlatego, ze blad startu wyszedl w kroku "Wait for deployment" po stronie Coolify.
+      # Gdyby kontener wstal i wywrocil sie chwile pozniej albo zaczal serwowac bledy,
+      # smoke test przeszedlby na zielono przy lezacej aplikacji — bo nie mial czym tego
+      # zobaczyc.
+      #
+      # Osobna zmienna, NIE zmiana APP_URL: tamta zasila rowniez koalescencje burstow
+      # (porownanie SHA z /api/health w kroku "Skip if target already live"), wiec jej
+      # przestawienie na frontend zepsuloby pomijanie redundantnych rebuildow.
+      - name: Frontend osiągalny (aplikacja użytkownika)
+        env:
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+        run: |
+          # Brak zmiennej = blad, nie ciche pominiecie. Kontrola, ktora po cichu nie
+          # zachodzi, odtwarza dokladnie ten defekt, ktory ten krok ma zamykac.
+          # Lustro istniejacej konwencji: "::error::vars.APP_URL not set in repo settings".
+          if [ -z "$FRONTEND_URL" ]; then
+            echo "::error::vars.FRONTEND_URL nie jest ustawione — smoke test nie ma czego sprawdzic"
+            exit 1
+          fi
+          # `-L` jest LOAD-BEARING: `/` zwraca 307 -> `/login` dla niezalogowanych
+          # (middleware deny-by-default). Probe bez sledzenia przekierowan widzi 307
+          # i bierze je za awarie — w lipcu dalo to 24 falszywe alarmy pod rzad
+          # (patrz komentarz w uptime-probe.yml), a 24.08 powtorzyl ten sam blad
+          # obserwator pisany ad hoc podczas tego wlasnie incydentu.
+          #
+          # Kontener frontendu startuje PO backendzie (depends_on: service_healthy),
+          # wiec w chwili, gdy /api/health serwuje juz nowy SHA, frontend moze jeszcze
+          # wstawac. Stad wlasny budzet ponowien zamiast pojedynczego zapytania.
+          for i in $(seq 1 12); do
+            # Bez `read` z podstawieniem procesu: tamto konczy na EOF ze statusem 1
+            # i przy `set -e` ubija krok mimo poprawnej odpowiedzi (ta sama pulapka
+            # jest udokumentowana w uptime-probe.yml).
+            # `|| true`, NIE `|| echo "000 -"`: przy bledzie curl MIMO TO wypisuje `-w`
+            # (kod 000 + adres), wiec `echo` doklejalby drugi komplet i adres koncowy
+            # w diagnostyce wychodzil sklejony ("http://host/000 -"). Kod odpowiedzi byl
+            # wtedy poprawny przez przypadek — jako pierwszy token.
+            out=$(curl -sSL -o /dev/null -w '%{http_code} %{url_effective}' \
+                  --max-time 15 "$FRONTEND_URL" 2>/tmp/fe_err) || true
+            [ -z "$out" ] && out="000 -"
+            code=${out%% *}
+            final=${out#* }
+            if [ "$code" = "200" ]; then
+              echo "✅ Frontend: HTTP 200 (po przekierowaniach: $final)"
+              exit 0
+            fi
+            echo "Proba $i: HTTP $code (adres koncowy: $final) $(head -1 /tmp/fe_err 2>/dev/null), ponawiam za 15s..."
+            sleep 15
+          done
+          echo "::error::Frontend nie odpowiedzial 200 przez 3 minuty — backend moze byc zdrowy, a aplikacja uzytkownika lezec ($FRONTEND_URL)"
+          exit 1
+
       - name: Deep healthcheck (core modules not 503)
         env:
           APP_URL: ${{ vars.APP_URL }}
