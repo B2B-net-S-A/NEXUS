@@ -98,7 +98,7 @@ z arkuszem Finansów" skasowałoby Tomaszowi człon nazwiska.
 
 | Kogo | Ile wierszy | Powód |
 |---|---|---|
-| Zamówienie **274607** | 13 | Nikt z nich nie ma kontraktu u Nordei. Zamówienie **kończy się 31.08.2026** (7 dni od importu), a stawki kosztowej plik nie zawiera — założenie 13 kontraktów byłoby zgadywaniem kwot pod tydzień resztki |
+| Zamówienie **274607** | 13 | Nikt z nich nie miał kontraktu u Nordei. **Domknięte w drugim przebiegu** — patrz niżej |
 | Filip Jabłoński | 2 | **Trzy** rekordy kandydata (kontrakty 344/346/348) — trafienie w zły podmienia numer, okres i stawkę żywemu zamówieniu, bezpowrotnie |
 | Kamil Kowalczyk | (w 274607) | **Sześć** identycznych rekordów kandydata |
 
@@ -135,6 +135,40 @@ Piotr Dziubiński · Filip Jabłoński · Łukasz Grądzki · Igor Taras ·
 Jarosław Pastuszak · Sergey Karelin · Marcin Orecki · Mateusz Polanski ·
 Sebastian Nowak · Patryk Tatarek
 
+## Drugi przebieg: domknięcie 274607 (tego samego dnia)
+
+Zamówienie **nie było wygasłe** — kończy się 31.08.2026, czyli 7 dni po imporcie,
+więc dane wciąż miały wartość operacyjną. Decyzja właściciela: założyć kontrakty,
+przyjmując **stawkę kosztową = ramowa 56,47** (świadome założenie: plik nie niesie
+kosztowej, a ramowa jest baseline'em, nie tym, co płacimy — stąd marża −0,07/h).
+
+Założono **12 kontraktów** (579–590), wszystkie `hourly`, 160 h/mc, koszt 56,47,
+przychód 56,4, okres 2025-09-01 → 2026-08-31 (Burdalski i Błaszczak od 2025-09-18).
+**Kamil Kowalczyk pominięty** — sześć identycznych rekordów kandydata, a trafienie
+w zły przypisałoby pieniądze niewłaściwej osobie.
+
+Import wierszy 274607 (12 wierszy, `sha256 90284439…`): **12/12 dopasowanych**,
+7 zamówień utworzonych, 5 bez zmian, **12 harmonogramów stawki ramowej**,
+**0 zmian stawki kosztowej**, 0 niedopasowanych. Rozbicie 7/5 jest spójne
+z tym, jak powstały kontrakty: pięć pierwszych założono formularzem „Nowy
+kontraktor / zamówienie", który tworzy Contract **razem z Order**, więc import
+zastał je gotowe; siedem kolejnych powstało przez `POST /api/contracts`, który
+zamówienia nie zakłada — te importer dołożył.
+
+### Czego nauczyła ta część
+
+- **Formularz zakłada Contract + Order, API tylko Contract.** Stąd „7 utworzonych,
+  5 bez zmian" — nie rozjazd, tylko dwa różne źródła.
+- **`Return` w tym formularzu wysyła go od razu**, zanim zdąży się przestawić
+  „Jednostkę stawki". Pierwszy kontrakt (578) powstał przez to z 187/**mc** zamiast
+  187/h i wymagał poprawki. Jednostkę ustawiaj `form_input`-em, nigdy klawiszem.
+- **Picker kandydatów renderuje BŁĄD jak pustkę.** „Brak wyników dla …" pojawiło się
+  dla osoby, którą `/api/candidates` zwraca bez problemu — to była chwilowa awaria
+  zapytania, nie brak rekordu. Ta sama klasa defektu co `failure-must-not-render-as-empty`,
+  tyle że w `NewContractorOrderDialog`. Warto naprawić osobno.
+- **Nazwiska wpisuj bez diakrytyki** — wyszukiwarka i tak składa `ł`/`ę`, a wpisanie
+  polskich znaków bywało zawodne.
+
 ## Weryfikacja na produkcji
 
 - `/api/health` → `82cf9f2`, `healthy`.
@@ -151,7 +185,10 @@ Sebastian Nowak · Patryk Tatarek
 
 1. **`{ } Wojciech Łazowski`** (kontrakty 514, 533) — kod jest już odporny (#1250),
    ale sam wiersz nadal niesie klamry.
-2. **Zamówienie 274607** — 13 osób czeka na kontrakty; potrzebna stawka kosztowa
-   od Finansów. Po ich założeniu ponowny import domknie te wiersze bez zmian w kodzie.
+2. **Stawka kosztowa 56,47 na kontraktach 274607 to ZAŁOŻENIE**, nie liczba z pliku
+   (kolumna G to stawka ramowa). Do potwierdzenia z Finansami — dziś daje marżę
+   −0,07/h na dwunastu kontraktach.
 3. **Duplikaty kandydatów** — Filip Jabłoński (3 rekordy), Kamil Kowalczyk (6).
-   Dopóki istnieją, import będzie ich świadomie pomijał.
+   Dopóki istnieją, import będzie ich świadomie pomijał; ich wiersze nadal czekają.
+4. **`NewContractorOrderDialog` pokazuje awarię zapytania jako „Brak wyników"** —
+   mylące przy zakładaniu kontraktu komuś, kto w bazie jest.
