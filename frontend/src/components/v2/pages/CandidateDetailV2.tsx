@@ -85,6 +85,7 @@ import { Button } from"@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from"@/components/ui/card";
 import { Separator } from"@/components/ui/separator";
 import { TabsContent } from"@/components/ui/tabs";
+import EmailThreadList from"@/components/emails/EmailThreadList";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import {
  DropdownMenu,
@@ -1280,6 +1281,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  { value: "activity", label: "Aktywność", icon: MessageSquare },
  { value: "matching", label: "Dopasowanie", icon: Sparkles },
  { value: "documents", label: "Pliki i umowy", icon: Files },
+ // Przywrócone (#37). Commit 4925ac53 (PR #539) usunął tę zakładkę
+ // twierdząc, że "Email jest już dostępny w menu Więcej" — ale tym, co
+ // tam wylądowało, jest KOMPOZYTOR mailto, a nie czytnik wątków.
+ // Parytet, który tamten commit deklarował, nigdy nie był prawdą, więc
+ // 1473 linie czytnika i 7 żywych endpointów zostały osierocone,
+ // podczas gdy sync dalej zapisuje na prodzie treści maili kandydatów.
+ { value: "emails", label: "Maile", icon: Mail },
  ]}
  >
  <div className="border-b border-border px-4 py-3 md:hidden">
@@ -1478,6 +1486,16 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <SuggestedPoolsWidget candidateId={Number(id)} />
  </aside>
  </div>
+ </TabsContent>
+
+ <TabsContent value="emails" className="mt-0">
+ {candidate ? (
+ <EmailThreadList
+ candidateId={Number(id)}
+ candidateName={`${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim()}
+ candidateEmail={candidate.email ?? null}
+ />
+ ) : null}
  </TabsContent>
 
  <TabsContent value="documents" className="mt-0 space-y-4">
