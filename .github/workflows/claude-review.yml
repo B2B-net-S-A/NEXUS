@@ -26,6 +26,7 @@ jobs:
         with:
           fetch-depth: 1
       - uses: anthropics/claude-code-action@6b082c41935b4c8a3b8b0ef85ba4ba4d9eeb8975 # v1
+        id: claude
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -95,3 +96,70 @@ jobs:
             --model claude-sonnet-4-6
             --max-turns 80
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+      # Bez tego kroku czerwony `review` jest NIEROZRÓŻNIALNY od recenzji, która nic
+      # nie znalazla. `review` swiadomie NIE jest wymaganym checkiem (kill-switch
+      # CLAUDE_ENABLED znaczy, ze moze sie nie odpalic), wiec awaria niczego nie
+      # blokuje, a `track_progress: true` i tak dopisuje do PR-a komentarz z linkiem
+      # do joba — PR wyglada na zrecenzowany. To ta sama klasa defektu co #408:
+      # awaria nie moze udawac zera.
+      #
+      # Okno 2026-08-24 04:15-08:12 UTC: 10 przebiegow padlo, w tym PIEC PR-ow
+      # dependabota w ciagu 90 sekund (rozne diffy), a ta sama galaz
+      # fix/m365-attachment-savepoint padla o 08:07 i przeszla o 08:17 bez zadnej
+      # zmiany w repo. Rozpoznanie zajelo godzine czytania 969-linijkowego logu,
+      # w ktorym jedynym sladem bylo `is_error: true` przy `num_turns: 1`.
+      - name: Rozpoznaj, dlaczego recenzja padła
+        if: failure() && steps.claude.conclusion == 'failure'
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          FILE="${EXECUTION_FILE:-${RUNNER_TEMP}/claude-execution-output.json}"
+
+          emit() {  # $1=tytul annotacji, $2=tresc
+            echo "::error title=$1::$2"
+            {
+              echo "## Recenzja Claude: $1"
+              echo
+              echo "$2"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [ ! -f "$FILE" ]; then
+            emit "nie wystartowała" \
+              "Akcja padła, zanim model wykonał cokolwiek (brak $FILE). Szukaj w uwierzytelnieniu (CLAUDE_CODE_OAUTH_TOKEN) albo w samym kroku akcji — nie w treści PR-a."
+            exit 0
+          fi
+
+          # Plik bywa tablicą zdarzeń stream-json albo pojedynczym obiektem wyniku.
+          RESULT="$(jq -c 'if type=="array" then (map(select(.type=="result")) | last // {}) else . end' "$FILE" 2>/dev/null || echo '{}')"
+          IS_ERROR="$(printf '%s' "$RESULT" | jq -r '.is_error // false')"
+          SUBTYPE="$(printf '%s' "$RESULT" | jq -r '.subtype // "unknown"')"
+          TURNS="$(printf '%s' "$RESULT" | jq -r '.num_turns // 0')"
+          COST="$(printf '%s' "$RESULT" | jq -r '.total_cost_usd // 0')"
+
+          echo "subtype=$SUBTYPE is_error=$IS_ERROR num_turns=$TURNS cost_usd=$COST"
+          if [ "$SUBTYPE" = "error_max_turns" ]; then
+            emit "wyczerpała budżet tur" \
+              "Model zużył wszystkie $TURNS tur i nie zdążył opublikować werdyktu. To jest NASZE do naprawy: patrz komentarz przy \`--max-turns\` w tym pliku. Recenzja NIE jest kompletna, choć na PR-ze może wisieć komentarz."
+          elif [ "$IS_ERROR" = "true" ] && [ "$TURNS" -le 1 ]; then
+            emit "NIE ODBYŁA SIĘ" \
+              "Model nie wykonał ani jednej tury — żądanie zostało odrzucone, zanim recenzja się zaczęła. Przyczyna jest POZA tym repo (limit konta, niedostępność usługi). Sprawdź, czy w tym samym oknie padają niepowiązane PR-y: \`gh run list --repo ${{ github.repository }} --workflow claude-review.yml --limit 20\`. Jeśli tak — ustąpi samo, ponawianie pojedynczego przebiegu nic nie da. Jeśli pada tylko ten PR — szukaj w jego treści. UWAGA: komentarz Claude'a na PR-ze mimo to został dopisany i NIE oznacza, że recenzja się odbyła."
+          elif [ "$IS_ERROR" = "true" ]; then
+            emit "przerwała się w trakcie" \
+              "Model wykonał tur: $TURNS, i zakończył błędem (\`$SUBTYPE\`). Recenzja jest częściowa — traktuj PR jako NIEZRECENZOWANY."
+          else
+            emit "padła poza modelem" \
+              "Sam przebieg modelu zakończył się bez błędu (\`$SUBTYPE\`, $TURNS tur), więc job wywrócił się na kroku wokół niego — czytaj log akcji."
+          fi
+
+          {
+            echo "| pole | wartość |"
+            echo "|---|---|"
+            echo "| subtype | \`$SUBTYPE\` |"
+            echo "| is_error | \`$IS_ERROR\` |"
+            echo "| tury | \`$TURNS\` |"
+            echo "| koszt USD | \`$COST\` |"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0

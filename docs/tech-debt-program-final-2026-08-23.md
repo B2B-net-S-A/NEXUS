@@ -8,10 +8,20 @@
 
 | status | ile | co to znaczy |
 |---|---|---|
-| **zrobione** | **158** | zmergowane, wdrożone, z testem i kontrolą negatywną |
-| czeka na Ciebie | 10 | sekrety, konta albo decyzja produktowa — nie da się tego zrobić za Ciebie |
+| **zrobione** | **164** | zmergowane, wdrożone, z testem i kontrolą negatywną |
+| czeka na Ciebie | 5 | sekrety, konta albo decyzja produktowa — nie da się tego zrobić za Ciebie |
 | nieaktualne | 4 | zastąpione innym znaleziskiem |
 | świadomie odrzucone | 3 | naprawa kosztowałaby więcej niż defekt |
+
+> **Zaktualizowane 24.08.** Tabela pokazuje stan bieżący; źródłem prawdy jest
+> `docs/tech-debt-backlog.json`. Sekcje niżej to zapis rozumowania z 23.08 i
+> celowo ich nie przepisuję — pięć z dziesięciu wyliczonych tam pozycji
+> (#37, #96, #202, #101, #323) rozstrzygnąłeś w międzyczasie i zostały wdrożone.
+> Otwarte pozostają: **#201** (sekrety kopii off-site — najpilniejsze),
+> **#204** (`SENTRY_AUTH_TOKEN` + `SLACK_WEBHOOK_URL`), **#212** (konto E2E),
+> **#130** (uruchomienie naprawy na prodzie) i **#315** (jeden SELECT na prodzie).
+> Doszło i zostało zamknięte **#415** — czerwony `review` nie do odróżnienia od
+> recenzji, która nic nie znalazła.
 
 PR-y: #1225–#1229 (fale 1–5), #1235 (#401/#402), #1236 (#403–#407), #1237 (#408, #212, #315), #1239 (pięć regresji z tej pracy), #1240 (#409–#413).
 
