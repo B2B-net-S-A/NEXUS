@@ -432,6 +432,11 @@ jobs:
           # Kontener frontendu startuje PO backendzie (depends_on: service_healthy),
           # wiec w chwili, gdy /api/health serwuje juz nowy SHA, frontend moze jeszcze
           # wstawac. Stad wlasny budzet ponowien zamiast pojedynczego zapytania.
+          # Czas mierzony, NIE szacowany: przy `--max-time 15` + `sleep 15` jedna
+          # iteracja trwa od 15 s (szybka odpowiedz) do 30 s (timeout curla), wiec
+          # kazda liczba wpisana na sztywno klamie w polowie przypadkow — i to
+          # akurat w tych, ktore sie diagnozuje.
+          started=$SECONDS
           for i in $(seq 1 12); do
             # Bez `read` z podstawieniem procesu: tamto konczy na EOF ze statusem 1
             # i przy `set -e` ubija krok mimo poprawnej odpowiedzi (ta sama pulapka
@@ -452,7 +457,7 @@ jobs:
             echo "Proba $i: HTTP $code (adres koncowy: $final) $(head -1 /tmp/fe_err 2>/dev/null), ponawiam za 15s..."
             sleep 15
           done
-          echo "::error::Frontend nie odpowiedzial 200 przez 3 minuty — backend moze byc zdrowy, a aplikacja uzytkownika lezec ($FRONTEND_URL)"
+          echo "::error::Frontend nie odpowiedzial 200 po $i probach ($((SECONDS-started))s) — backend moze byc zdrowy, a aplikacja uzytkownika lezec ($FRONTEND_URL)"
           exit 1
 
       - name: Deep healthcheck (core modules not 503)
