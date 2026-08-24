@@ -69,6 +69,7 @@ from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fiel
 from app.services.ezdrowie import validate_project_part
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
+    apply_bank_pocztowy_order_policy,
     enforce_nordea_order_number,
     parse_order_document,
 )
@@ -168,15 +169,22 @@ def _attach_po_bytes(
 _NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV = "NORDEA_ORDER_NUMBER_CLIENT_IDS"
 
 
-def _nordea_order_number_client_ids() -> frozenset[int]:
-    """Lista klientów objętych polityką numeru zamówienia Nordei.
+# CSV z `client_id` klientów objętych polityką ekstrakcji Banku Pocztowego
+# (`apply_bank_pocztowy_order_policy`: hierarchia „Numer pisma"/„Zamówienie nr"
+# + stawka netto za 1 MD przeliczana na godzinową). Ta sama mechanika bramki
+# co wyżej — patrz `_is_nordea_order_number_client` po uzasadnienie ID-ków.
+_BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV = "BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS"
+
+
+def _client_ids_from_env(env_name: str) -> frozenset[int]:
+    """CSV `client_id` ze zmiennej środowiskowej bramki polityki ekstrakcji.
 
     Wpisy nienumeryczne są POMIJANE, nie wysadzają requestu: literówka w
     zmiennej środowiskowej ma wyłączyć politykę jednemu klientowi, a nie
     położyć odczyt PDF-a wszystkim.
     """
     ids: set[int] = set()
-    for chunk in os.environ.get(_NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV, "").split(","):
+    for chunk in os.environ.get(env_name, "").split(","):
         chunk = chunk.strip()
         if not chunk:
             continue
@@ -185,6 +193,11 @@ def _nordea_order_number_client_ids() -> frozenset[int]:
         except ValueError:
             continue
     return frozenset(ids)
+
+
+def _nordea_order_number_client_ids() -> frozenset[int]:
+    """Lista klientów objętych polityką numeru zamówienia Nordei."""
+    return _client_ids_from_env(_NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV)
 
 
 def _is_nordea_order_number_client(client_id: Optional[int]) -> bool:
@@ -207,6 +220,19 @@ def _is_nordea_order_number_client(client_id: Optional[int]) -> bool:
     if client_id is None:
         return False
     return client_id in _nordea_order_number_client_ids()
+
+
+def _is_bank_pocztowy_order_client(client_id: Optional[int]) -> bool:
+    """Czy u tego klienta ekstrakcja PDF podlega polityce Banku Pocztowego.
+
+    Dopasowanie po ID z env, nie po nazwie — te same powody co w
+    `_is_nordea_order_number_client` (nazwa nadpisywana importem z Traffita).
+    Pusta lista → `False` dla każdego klienta (fail-closed). Aktywacja na
+    prodzie = ustawienie `BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS` w Coolify.
+    """
+    if client_id is None:
+        return False
+    return client_id in _client_ids_from_env(_BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV)
 
 
 def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
@@ -437,7 +463,7 @@ _ORDER_FINANCE_FIELDS = ("rate_client", "total_value", "monthly_margin", "curren
 # Klucze pól finansowych w fields_confidence odczytu PDF — redagowane dla ról
 # bez VIEW_FINANCE (obecność klucza sama zdradza, że PO zawiera stawkę/wartość).
 _EXTRACTION_FINANCE_CONF_KEYS = frozenset(
-    {"rate_client", "total_value", "currency", "rate_unit"}
+    {"rate_client", "rate_client_md", "total_value", "currency", "rate_unit"}
 )
 _CONTRACTOR_FINANCE_FIELDS = (
     "rate_candidate",
@@ -1184,6 +1210,8 @@ async def extract_order_pdf(
     extraction = await parse_order_document(text)
     if _is_nordea_order_number_client(client_id):
         extraction = enforce_nordea_order_number(extraction, text)
+    if _is_bank_pocztowy_order_client(client_id):
+        extraction = apply_bank_pocztowy_order_policy(extraction, text)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
     # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
@@ -1221,6 +1249,8 @@ async def extract_order_pdf(
         end_date=extraction.end_date,
         rate_client=extraction.rate_client if show_finance else None,
         rate_unit=extraction.rate_unit if show_finance else None,
+        # Oryginalna stawka MD (polityka BP) to kwota — redagowana jak stawka.
+        rate_client_md=extraction.rate_client_md if show_finance else None,
         total_value=extraction.total_value if show_finance else None,
         currency=extraction.currency if show_finance else None,
         # Liczba MD jedzie NIEZREDAGOWANA — jest operacyjna, nie finansowa.
@@ -1228,6 +1258,8 @@ async def extract_order_pdf(
         uncertain=extraction.uncertain,
         uncertain_reasons=reasons,
         fields_confidence=confidence,
+        # Numer nie jest kwotą — flaga przeżywa redakcję finansową.
+        title_needs_review=extraction.title_needs_review,
         source=extraction.source,
     )
 

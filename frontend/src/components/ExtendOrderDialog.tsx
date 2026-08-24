@@ -82,6 +82,12 @@ export function ExtendOrderDialog({
   // Baner „Sprawdź dane!" — pokazywany gdy odczyt był niepewny (uncertain).
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
+  // Polityka klientowa (Bank Pocztowy) nie znalazła numeru w dokumencie —
+  // komunikat „Sprawdź numer zamówienia" przy polu numeru, dopóki puste.
+  const [titleCheck, setTitleCheck] = useState(false);
+  // Oryginalna stawka za 1 MD z dokumentu (Bank Pocztowy) — pokazywana obok
+  // pola stawki; samo pole niesie już wartość przeliczoną na zł/h (MD ÷ 8).
+  const [rateMdOriginal, setRateMdOriginal] = useState<string | null>(null);
 
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
@@ -90,12 +96,16 @@ export function ExtendOrderDialog({
    *  nie kasuje ręcznych wpisów dla pól nieodczytanych. Wszystkie edytowalne. */
   const applyExtraction = (d: OrderExtractionResult) => {
     if (d.title) setTitle(d.title);
+    setTitleCheck(Boolean(d.title_needs_review));
     if (d.start_date) setStartDate(normalizeDateInput(d.start_date));
     if (d.end_date) setEndDate(normalizeDateInput(d.end_date));
     if (canManageFinance) {
       // Kwoty finansowe tylko dla ról z manage_finance (backend i tak je redaguje).
       if (d.rate_client != null) setRateClient(String(d.rate_client));
       if (d.total_value != null) setTotalValue(String(d.total_value));
+      // Bank Pocztowy: pole wyżej dostało stawkę GODZINOWĄ; oryginał MD
+      // pokazujemy obok, żeby obie wartości były widoczne przed zapisem.
+      setRateMdOriginal(d.rate_client_md != null ? String(d.rate_client_md) : null);
     }
     // `md_total` z odczytu jest tu świadomie POMIJANE: ten formularz obsługuje
     // wyłącznie klientów rozliczanych jednoosobowo, u których zamówienie nie ma
@@ -203,6 +213,13 @@ export function ExtendOrderDialog({
             placeholder="np. 45767"
             className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
           />
+          {/* Polityka klientowa nie znalazła numeru — komunikat znika, gdy
+              użytkownik wpisze numer ręcznie (przestaje być aktualny). */}
+          {titleCheck && !title.trim() && (
+            <span className="text-xs text-destructive mt-0.5 block">
+              Sprawdź numer zamówienia
+            </span>
+          )}
         </label>
 
         <div className="grid grid-cols-2 gap-3">
@@ -256,6 +273,15 @@ export function ExtendOrderDialog({
                 className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
                 placeholder="np. 17000"
               />
+              {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
+                  wyżej ma już przeliczoną stawkę godzinową (edytowalną),
+                  a oryginał z dokumentu zostaje widoczny obok. */}
+              {rateMdOriginal !== null && (
+                <span className="text-xs text-muted-foreground mt-0.5 block">
+                  Z dokumentu: {rateMdOriginal} zł/MD → przeliczono na stawkę
+                  godzinową (÷ 8, w górę do 2 miejsc)
+                </span>
+              )}
               {contract.rate_candidate !== null && rateClientNum !== null && (
                 <span className="text-xs text-green-700 mt-0.5 block">
                   marża /mc: {rateClientNum - contract.rate_candidate}
@@ -321,6 +347,8 @@ export function ExtendOrderDialog({
               setFileError(null);
               setCheckData(false);
               setCheckReasons([]);
+              setTitleCheck(false);
+              setRateMdOriginal(null);
             }}
             onError={setFileError}
             error={fileError}
@@ -353,6 +381,8 @@ export function ExtendOrderDialog({
                     setFileError(null);
                     setCheckData(false);
                     setCheckReasons([]);
+                    setTitleCheck(false);
+                    setRateMdOriginal(null);
                   }
                 }}
                 className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"

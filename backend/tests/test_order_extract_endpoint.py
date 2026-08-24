@@ -212,6 +212,120 @@ async def test_nordea_endpoint_forces_call_off_agreement_number(
     assert response.json()["title"] == "COA-4500030222"
 
 
+async def test_bank_pocztowy_endpoint_converts_md_rate_and_forces_number(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Polityka BP na endpointcie: numer z „Numer pisma", stawka netto z wzoru
+    ÷ 8 (w górę), oryginał MD obok, zero szumu w komunikatach."""
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+
+    client_id = await _seed_client("Bank Pocztowy S.A.")
+    # Bramka po LIŚCIE ID w Coolify, nie po nazwie (nazwę nadpisuje Traffit).
+    monkeypatch.setenv(
+        "BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS", f"999999,{client_id}"
+    )
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        lambda path, filename: (
+            "Bank Pocztowy S.A.\n"
+            "Numer pisma: BP/DIT/2026/0451\n"
+            "Zamówienie nr 445/2026\n"
+            "Wynagrodzenie: 1600*1,23*20\n"
+        ),
+    )
+
+    async def _noisy_ai(text: str) -> OrderExtraction:
+        # Model wybrał brutto, jednostkę „day" i liczbę MD z wzoru — polityka
+        # ma to wszystko wyprostować bez komunikatów niepewności.
+        return OrderExtraction(
+            title="445/2026",
+            start_date="2026-09-01",
+            end_date="2026-12-31",
+            rate_client=Decimal("1968"),
+            rate_unit="day",
+            md_total=Decimal("20"),
+            confidence={"title": 0.7, "rate_client": 0.6},
+            uncertain=True,
+            uncertain_reasons=[
+                "Jednostka stawki (dzień) wywnioskowana z kontekstu",
+                "Cena 1600 jest kwotą netto przed VAT (mnożnik 1,23)",
+            ],
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _noisy_ai)
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("bp.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["title"] == "BP/DIT/2026/0451"
+    assert Decimal(str(data["rate_client"])) == Decimal("200.00")
+    assert Decimal(str(data["rate_client_md"])) == Decimal("1600")
+    assert data["rate_unit"] == "hour"
+    assert data["md_total"] is None
+    assert data["uncertain"] is False
+    assert data["uncertain_reasons"] == []
+    assert data["title_needs_review"] is False
+
+
+async def test_bank_pocztowy_missing_number_sets_review_flag_for_non_finance(
+    app_client: AsyncClient, monkeypatch
+):
+    """Brak numeru: flaga `title_needs_review` MUSI przeżyć redakcję finansową
+    (HoR nie widzi kwot, ale komunikat o numerze go dotyczy), a oryginalna
+    stawka MD (`rate_client_md`) MUSI być zredagowana jak każda kwota."""
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+
+    client_id = await _seed_client("Bank Pocztowy S.A.")
+    monkeypatch.setenv("BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS", str(client_id))
+    hor_headers = await _hor_headers(app_client)
+
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        # Ani „Numer pisma", ani „Zamówienie nr"; stawka bez wzoru VAT.
+        lambda path, filename: "Umowa ramowa 9/2024. Stawka: 1600 zł/MD netto.",
+    )
+
+    async def _fake_parse(text: str) -> OrderExtraction:
+        return OrderExtraction(
+            title="9/2024",
+            start_date="2026-09-01",
+            end_date="2026-12-31",
+            rate_client=Decimal("1600"),
+            rate_unit="day",
+            confidence={"title": 0.8, "rate_client": 0.9},
+            uncertain=False,
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _fake_parse)
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("bp.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=hor_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Polityka odrzuciła numer spoza hierarchii pól i podniosła flagę.
+    assert data["title"] is None
+    assert data["title_needs_review"] is True
+    # Kwoty (w tym oryginał MD) zredagowane dla roli bez VIEW_FINANCE.
+    assert data["rate_client"] is None
+    assert data["rate_client_md"] is None
+    assert "rate_client_md" not in data["fields_confidence"]
+    # Redakcja powodów nie gasi banera.
+    assert data["uncertain"] is True
+
+
 async def test_extract_rejects_bad_extension(
     app_client: AsyncClient, app_auth_headers: dict
 ):
