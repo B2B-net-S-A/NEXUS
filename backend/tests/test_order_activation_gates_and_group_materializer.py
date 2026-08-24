@@ -383,3 +383,446 @@ def test_initial_status_uses_the_same_boundary_as_the_materializer(monkeypatch):
     # warszawską) — start „dziś" wg firmy przestaje być bieżący.
     monkeypatch.setattr(mod, "business_today", lambda: _TODAY - timedelta(days=1))
     assert mod._initial_group_status(_TODAY) == GROUP_STATUS_SCHEDULED
+
+
+# ── 5. Ticket „Draft → Aktywne”: bezterminowy okres nie blokuje aktywacji ───
+
+
+def test_open_ended_period_activates_with_start_date_only():
+    """Komplet 4 pól + brak daty końcowej = aktywacja (Bogusiak / Contract 570).
+
+    Zamówienie bezterminowe to w body-leasingu stan docelowy, nie brak danych —
+    poprzednia bramka wymagała obu granic i więziła taki rekord w Draft na
+    stałe, bo daty końcowej z definicji nigdy nie będzie.
+    """
+    order = _complete_draft_order(_contract_with_future_progressive_rate())
+    order.end_date = None
+    assert _order_has_required_activation_data(order) is True
+    assert (
+        _auto_activate_unless_status_explicit(order, explicit_fields={"start_date"})
+        is True
+    )
+    assert order.status == ClientOrderStatus.active
+
+
+def test_open_ended_relaxation_does_not_loosen_the_other_requirements():
+    """Zdjęcie wymogu end_date nie może rozluźnić pozostałych czterech pól."""
+    contract = _contract_with_future_progressive_rate()
+
+    missing_start = _complete_draft_order(contract)
+    missing_start.end_date = None
+    missing_start.start_date = None
+    assert _order_has_required_activation_data(missing_start) is False
+
+    placeholder_title = _complete_draft_order(contract)
+    placeholder_title.end_date = None
+    placeholder_title.title = "(bez numeru)"
+    assert _order_has_required_activation_data(placeholder_title) is False
+
+    missing_revenue = _complete_draft_order(contract)
+    missing_revenue.end_date = None
+    missing_revenue.rate_client = None
+    assert _order_has_required_activation_data(missing_revenue) is False
+
+
+# ── 6. Polkomtel (klient kosztowy): hook zatrudnienia bez auto-zamówienia ───
+
+
+def test_cost_order_clients_skip_the_auto_order(monkeypatch):
+    from app.core.config import settings
+    from app.services.b2b_contract_automation import should_auto_create_order
+
+    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "15")
+    assert should_auto_create_order(15) is False
+    assert should_auto_create_order(12) is True
+    assert should_auto_create_order(None) is True
+
+    # Pusta lista = zachowanie sprzed zmiany: auto-szkic u każdego klienta.
+    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", "")
+    assert should_auto_create_order(15) is True
+
+
+# ── 7. „Liczba MD zamówienia” na szkicu klienta MD ──────────────────────────
+
+
+def _md_client(monkeypatch, *, multi: str = "12,18", cost: str = "15"):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", multi)
+    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", cost)
+
+
+def _standalone_draft(client_id: int) -> ClientOrder:
+    return ClientOrder(
+        client_id=client_id,
+        contract_id=1,
+        title="445/2026",
+        status=ClientOrderStatus.draft,
+        start_date=_TODAY,
+        rate_client=Decimal("1550.000"),
+    )
+
+
+def test_md_quantity_requires_an_md_client(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api.client_orders import _apply_md_order_quantity
+
+    _md_client(monkeypatch)
+    with pytest.raises(HTTPException) as excinfo:
+        _apply_md_order_quantity(_standalone_draft(99), Decimal("20"))
+    assert excinfo.value.status_code == 422
+
+    # Klient kosztowy (Polkomtel) — pole nie istnieje także od strony API.
+    with pytest.raises(HTTPException) as excinfo:
+        _apply_md_order_quantity(_standalone_draft(15), Decimal("20"))
+    assert excinfo.value.status_code == 422
+
+
+def test_md_quantity_needs_the_revenue_rate_first(monkeypatch):
+    """CHECK budżetu wymaga stawki > 0 — komunikat po polsku zamiast IntegrityError."""
+    from fastapi import HTTPException
+
+    from app.api.client_orders import _apply_md_order_quantity
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    order.rate_client = None
+    with pytest.raises(HTTPException) as excinfo:
+        _apply_md_order_quantity(order, Decimal("20"))
+    assert excinfo.value.status_code == 422
+    assert "stawkę przychodową" in excinfo.value.detail
+
+
+def test_md_quantity_sets_the_complete_budget_and_mirrors_the_rate(monkeypatch):
+    from app.api.client_orders import _apply_md_order_quantity
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    order.rate_client = Decimal("164.375")
+    _apply_md_order_quantity(order, Decimal("20"))
+    assert order.md_input_mode == "md"
+    assert order.md_input_value == Decimal("20")
+    assert order.md_total == Decimal("20")
+    # Lustro stawki jest kwantyzowane JAWNIE do skali kolumn linii (12,2).
+    assert order.md_rate_revenue == Decimal("164.38")
+
+
+def test_md_quantity_none_clears_the_whole_budget(monkeypatch):
+    """CHECK dopuszcza tylko komplet albo nic — czyszczenie musi być zupełne."""
+    from app.api.client_orders import _apply_md_order_quantity
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    _apply_md_order_quantity(order, Decimal("20"))
+    _apply_md_order_quantity(order, None)
+    assert order.md_total is None
+    assert order.md_remaining is None
+    assert order.md_input_mode is None
+    assert order.md_input_value is None
+    # Sama stawka bez budżetu jest legalna od 0233 — zostaje.
+    assert order.md_rate_revenue == Decimal("1550.00")
+
+
+def test_md_quantity_zero_is_rejected(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api.client_orders import _apply_md_order_quantity
+
+    _md_client(monkeypatch)
+    with pytest.raises(HTTPException) as excinfo:
+        _apply_md_order_quantity(_standalone_draft(12), Decimal("0"))
+    assert excinfo.value.status_code == 422
+
+
+# ── 8. Materializacja grupy dla aktywowanego szkicu ─────────────────────────
+
+
+from app.models.candidate import Candidate as _Candidate  # noqa: E402
+from app.services.order_group_materializer import (  # noqa: E402
+    group_number_from_order,
+    materialize_group_for_activated_order,
+    md_rate_from_order_rate,
+)
+
+
+class _DraftMaterializerSession:
+    """Sesja pod materializer szkicu: scalar routowany po encji zapytania.
+
+    Trzy zapytania: grupa (ClientOrderGroup), kandydat (Candidate) oraz suma
+    konsumpcji z ``recompute_remaining`` (kolumna funkcyjna, entity=None) —
+    dla świeżego szkicu zawsze zero.
+    """
+
+    def __init__(self, *, group=None, candidate=None):
+        self._group = group
+        self._candidate = candidate
+        self.added = []
+        self.flushes = 0
+
+    async def scalar(self, stmt):
+        entity = stmt.column_descriptions[0].get("entity")
+        if entity is ClientOrderGroup:
+            # Kontrakt zapytania: materializer dołącza WYŁĄCZNIE do grup
+            # aktywnych (WHERE status == active) — fake to emuluje, żeby test
+            # „scheduled ignorowane" ćwiczył realną gałąź tworzenia.
+            if self._group is not None and self._group.status == GROUP_STATUS_ACTIVE:
+                return self._group
+            return None
+        if entity is _Candidate:
+            return self._candidate
+        return 0
+
+    def add(self, obj):
+        self.added.append(obj)
+
+    async def flush(self):
+        self.flushes += 1
+        for obj in self.added:
+            if isinstance(obj, ClientOrderGroup) and getattr(obj, "id", None) is None:
+                obj.id = 777
+
+
+def _activated_standalone_order(client_id: int = 12) -> ClientOrder:
+    order = _standalone_draft(client_id)
+    order.status = ClientOrderStatus.active
+    order.end_date = None
+    return order
+
+
+@pytest.mark.asyncio
+async def test_materializer_creates_an_active_group_from_the_order_number(
+    monkeypatch,
+):
+    _md_client(monkeypatch)
+    db = _DraftMaterializerSession(
+        candidate=_Candidate(name="Jan", lastname="Kowalski")
+    )
+    order = _activated_standalone_order()
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=Decimal("1260.000")
+    )
+    assert group is not None
+    assert group.order_number == "445/2026"
+    # Semantyka Ticketu 1: komplet pól = Aktywne — także dla grupy, niezależnie
+    # od daty startu (inaczej świeżo uzupełnione zamówienie chowałoby się
+    # przed pigułką „Aktywne” jako scheduled).
+    assert group.status == GROUP_STATUS_ACTIVE
+    assert group.is_cost_based is False
+    assert order.order_group_id == 777
+    assert order.title == "Zamówienie 445/2026 — Jan Kowalski"
+    assert order.md_rate_revenue == Decimal("1550.00")
+    assert order.md_rate_cost == Decimal("1260.00")
+    events = [type(o).__name__ for o in db.added]
+    assert "ClientOrderGroupEvent" in events
+
+
+@pytest.mark.asyncio
+async def test_materializer_attaches_to_the_existing_open_group(monkeypatch):
+    """BIK prowadzi grupy wieloosobowe — ten sam numer dokleja linię, nie dubluje grupy."""
+    _md_client(monkeypatch)
+    existing = _group(55, status=GROUP_STATUS_ACTIVE, start=_TODAY)
+    existing.order_number = "445/2026"
+    db = _DraftMaterializerSession(
+        group=existing, candidate=_Candidate(name="Maciej", lastname="Koc")
+    )
+    order = _activated_standalone_order()
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=None
+    )
+    assert group is existing
+    assert order.order_group_id == 55
+    assert not any(isinstance(o, ClientOrderGroup) for o in db.added)
+
+
+@pytest.mark.asyncio
+async def test_materializer_skips_everything_out_of_scope(monkeypatch):
+    _md_client(monkeypatch)
+    db = _DraftMaterializerSession()
+
+    still_draft = _standalone_draft(12)
+    assert (
+        await materialize_group_for_activated_order(
+            db, still_draft, actor_id=7, candidate_rate=None
+        )
+        is None
+    )
+
+    cost_client = _activated_standalone_order(15)
+    assert (
+        await materialize_group_for_activated_order(
+            db, cost_client, actor_id=7, candidate_rate=None
+        )
+        is None
+    )
+
+    ordinary_client = _activated_standalone_order(99)
+    assert (
+        await materialize_group_for_activated_order(
+            db, ordinary_client, actor_id=7, candidate_rate=None
+        )
+        is None
+    )
+
+    already_grouped = _activated_standalone_order()
+    already_grouped.order_group_id = 3
+    assert (
+        await materialize_group_for_activated_order(
+            db, already_grouped, actor_id=7, candidate_rate=None
+        )
+        is None
+    )
+    assert db.added == []
+
+
+def test_group_number_comes_from_the_title_and_rejects_the_placeholder():
+    order = _standalone_draft(12)
+    assert group_number_from_order(order) == "445/2026"
+    order.title = "(bez numeru)"
+    assert group_number_from_order(order) is None
+    order.title = "  "
+    assert group_number_from_order(order) is None
+
+
+def test_md_rate_quantization_is_explicit_half_up():
+    assert md_rate_from_order_rate(Decimal("164.375")) == Decimal("164.38")
+    assert md_rate_from_order_rate(Decimal("1550.000")) == Decimal("1550.00")
+    assert md_rate_from_order_rate(None) is None
+
+
+def test_md_quantity_is_rejected_on_a_group_line(monkeypatch):
+    """Linia w grupie ma własny tor budżetu (update_line + historia zamówienia)."""
+    from fastapi import HTTPException
+
+    from app.api.client_orders import _apply_md_order_quantity
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    order.order_group_id = 10
+    with pytest.raises(HTTPException) as excinfo:
+        _apply_md_order_quantity(order, Decimal("20"))
+    assert excinfo.value.status_code == 422
+    assert "linia zamówienia grupowego" in excinfo.value.detail
+
+
+def test_rate_change_refreshes_the_md_rate_mirror(monkeypatch):
+    """Korekta stawki na szkicu z budżetem MD nie może zostawić starej kopii —
+    materializacja poniosłaby do linii stawkę sprzed korekty."""
+    from app.api.client_orders import (
+        _apply_md_order_quantity,
+        _refresh_md_rate_mirror,
+    )
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    _apply_md_order_quantity(order, Decimal("20"))
+    assert order.md_rate_revenue == Decimal("1550.00")
+
+    order.rate_client = Decimal("1600.000")
+    _refresh_md_rate_mirror(order, explicit_fields={"rate_client"})
+    assert order.md_rate_revenue == Decimal("1600.00")
+
+    # Bez budżetu — lustro nieobowiązkowe, nic się nie dzieje.
+    bare = _standalone_draft(12)
+    bare.rate_client = Decimal("1700.000")
+    _refresh_md_rate_mirror(bare, explicit_fields={"rate_client"})
+    assert bare.md_rate_revenue is None
+
+
+def test_clearing_the_rate_with_a_budget_present_is_a_422_not_integrity_error(
+    monkeypatch,
+):
+    from fastapi import HTTPException
+
+    from app.api.client_orders import (
+        _apply_md_order_quantity,
+        _refresh_md_rate_mirror,
+    )
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    _apply_md_order_quantity(order, Decimal("20"))
+    order.rate_client = None
+    with pytest.raises(HTTPException) as excinfo:
+        _refresh_md_rate_mirror(order, explicit_fields={"rate_client"})
+    assert excinfo.value.status_code == 422
+    assert "wyczyść ją" in excinfo.value.detail
+
+
+@pytest.mark.asyncio
+async def test_materializer_ignores_a_scheduled_group_and_creates_a_fresh_active_one(
+    monkeypatch,
+):
+    """Aktywna linia w grupie ``scheduled`` łamałaby kontrakt modułu
+    (add_line w scheduled tworzy linie draft), chowała zamówienie przed
+    pigułką „Aktywne" i przed alertem progu MD — zaplanowany dubel numeru
+    dostaje więc osobną, świeżą grupę aktywną."""
+    _md_client(monkeypatch)
+    scheduled = _group(66, status=GROUP_STATUS_SCHEDULED, start=_TODAY)
+    scheduled.order_number = "445/2026"
+    db = _DraftMaterializerSession(
+        group=scheduled, candidate=_Candidate(name="Jan", lastname="Kowalski")
+    )
+    order = _activated_standalone_order()
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=None
+    )
+    assert group is not scheduled
+    assert group is not None and group.status == GROUP_STATUS_ACTIVE
+    assert order.order_group_id == 777
+
+
+@pytest.mark.asyncio
+async def test_materializer_skips_the_revenue_mirror_for_a_zero_rate(monkeypatch):
+    """CHECK żąda md_rate_revenue > 0 także bez budżetu — zero zostaje poza
+    lustrem (linia dostanie alert „brak stawki przychodowej", nie 500)."""
+    _md_client(monkeypatch)
+    db = _DraftMaterializerSession(candidate=_Candidate(name="Jan", lastname="Nowak"))
+    order = _activated_standalone_order()
+    order.rate_client = Decimal("0")
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=None
+    )
+    assert group is not None
+    assert order.md_rate_revenue is None
+
+
+@pytest.mark.asyncio
+async def test_materializer_sanitizes_inverted_dates_on_the_new_group(monkeypatch):
+    """`ck_client_order_groups_dates` wymaga end >= start; zamówienie takiej
+    walidacji nie ma — grupa dostaje „bezterminowo" zamiast IntegrityError."""
+    _md_client(monkeypatch)
+    db = _DraftMaterializerSession(candidate=_Candidate(name="Jan", lastname="Nowak"))
+    order = _activated_standalone_order()
+    order.start_date = _TODAY
+    order.end_date = _TODAY - timedelta(days=30)
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=None
+    )
+    assert group is not None
+    assert group.end_date is None
+    # Daty ZAMÓWIENIA zostają nietknięte — są do poprawienia w wierszu.
+    assert order.end_date == _TODAY - timedelta(days=30)
+
+
+def test_md_quantity_and_mirror_reject_a_zero_rate(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api.client_orders import (
+        _apply_md_order_quantity,
+        _refresh_md_rate_mirror,
+    )
+
+    _md_client(monkeypatch)
+    order = _standalone_draft(12)
+    order.rate_client = Decimal("0")
+    with pytest.raises(HTTPException) as excinfo:
+        _apply_md_order_quantity(order, Decimal("20"))
+    assert excinfo.value.status_code == 422
+
+    budgeted = _standalone_draft(12)
+    _apply_md_order_quantity(budgeted, Decimal("20"))
+    budgeted.rate_client = Decimal("0")
+    with pytest.raises(HTTPException) as excinfo:
+        _refresh_md_rate_mirror(budgeted, explicit_fields={"rate_client"})
+    assert excinfo.value.status_code == 422

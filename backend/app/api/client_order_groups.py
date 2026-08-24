@@ -71,6 +71,7 @@ from app.models.user import User, UserRole
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
     ConsultantOptionsResponse,
+    OrderDraftRead,
     OrderGroupClose,
     OrderGroupCreate,
     OrderGroupExtend,
@@ -98,6 +99,7 @@ from app.services.client_access import deny, resolve_client_access
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.cost_orders import (
     assert_cost_order_client,
+    is_cost_order_client,
     quantize_money,
     settle_group,
 )
@@ -907,11 +909,87 @@ async def list_order_groups(
     groups = [
         reads_by_id[group.id] for group in models if group.id not in hidden_future_ids
     ]
+    draft_orders = await _list_draft_orders(db, client_id, with_finance=with_finance)
     return OrderGroupListResponse(
         groups=groups,
         total_groups=len(models),
         total_consultants=sum(read.active_consultants for read in reads_by_id.values()),
+        draft_orders=draft_orders,
+        total_draft_orders=len(draft_orders),
     )
+
+
+# Zakładka „Draft (do uzupełnienia)" pokazuje WYŁĄCZNIE szkice utworzone od
+# dnia wdrożenia. Decyzja ticketu (2026-08-24, req 7): istniejące szkice
+# BIK/BNP — nawet niekompletne — nie są retroaktywnie wciągane do nowej
+# zakładki; pozostają tam, gdzie były (czyli w alertach DL), do osobnej,
+# zaakceptowanej migracji. Stała w kodzie, nie w ENV: to data wdrożenia,
+# fakt historyczny, a nie pokrętło operacyjne.
+_DRAFT_ORDERS_TAB_SINCE = datetime(2026, 8, 24, tzinfo=timezone.utc)
+
+
+async def _list_draft_orders(
+    db: AsyncSession, client_id: int, *, with_finance: bool
+) -> list[OrderDraftRead]:
+    """Samodzielne szkice zamówień klienta MD — treść zakładki Draft.
+
+    Tylko klienci wielo-konsultantowi BEZ zamówień kosztowych: u kosztowych
+    (Polkomtel) hook zatrudnienia nie tworzy szkiców (`should_auto_create_order`)
+    i zakładka Draft się nie renderuje — pusta lista utrzymuje ten kontrakt
+    także na poziomie API. Szkic przypięty już do grupy (linia draft w grupie
+    ``scheduled``) ma swoją kartę w rejestrze grup i tu się nie liczy.
+    """
+    if is_cost_order_client(client_id):
+        return []
+    rows = (
+        (
+            await db.execute(
+                select(ClientOrder)
+                .options(
+                    selectinload(ClientOrder.contract).selectinload(Contract.candidate),
+                    # Efektywna stawka kosztowa czyta harmonogram — bez
+                    # eager-loadu byłby to MissingGreenlet (500 bez CORS).
+                    selectinload(ClientOrder.contract).selectinload(
+                        Contract.candidate_rate_schedule
+                    ),
+                )
+                .where(
+                    ClientOrder.client_id == client_id,
+                    ClientOrder.status == ClientOrderStatus.draft,
+                    ClientOrder.order_group_id.is_(None),
+                    ClientOrder.created_at >= _DRAFT_ORDERS_TAB_SINCE,
+                )
+                .order_by(ClientOrder.created_at.desc(), ClientOrder.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    today = business_today()
+    reads: list[OrderDraftRead] = []
+    for order in rows:
+        contract = order.contract
+        rate_cost = (
+            contract.effective_candidate_rate(today) if contract is not None else None
+        )
+        reads.append(
+            OrderDraftRead(
+                id=order.id,
+                contract_id=order.contract_id,
+                consultant_name=consultant_display_name(order),
+                title=order.title or "",
+                start_date=order.start_date,
+                end_date=order.end_date,
+                # Stawki jak w liniach: zerowane dla ról bez dostępu do kwot.
+                # Liczba MD jest operacyjna i zostaje widoczna (kontrakt md_total
+                # w OrderLineRead).
+                rate_cost=rate_cost if with_finance else None,
+                rate_revenue=order.rate_client if with_finance else None,
+                md_quantity=order.md_total,
+                created_at=order.created_at,
+            )
+        )
+    return reads
 
 
 def assert_group_is_reopenable(status: str) -> None:

@@ -213,25 +213,31 @@ async def test_complete_draft_auto_activates_and_remains_editable(
     ids = await _seed_order()
     url = f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}"
 
+    # Niekompletny szkic (brak stawki przychodowej) zostaje draftem.
     partial = await app_client.patch(
         url,
         headers=app_auth_headers,
         json={
             "start_date": _TODAY.isoformat(),
             "rate_candidate": 110,
-            "rate_client": 160,
         },
     )
     assert partial.status_code == 200, partial.text
-    assert partial.json()["status"] == "draft", "brak końca okresu aktywował draft"
+    assert partial.json()["status"] == "draft", "niekompletny szkic się aktywował"
 
+    # Komplet 4 pól BEZ daty końcowej = aktywacja. Zamówienie bezterminowe
+    # to stan docelowy, nie brak danych — poprzednia bramka wymagała obu
+    # granic okresu i więziła taki rekord w Draft na stałe (Bogusiak/570).
     completed = await app_client.patch(
         url,
         headers=app_auth_headers,
-        json={"end_date": (_TODAY + timedelta(days=90)).isoformat()},
+        json={"rate_client": 160},
     )
     assert completed.status_code == 200, completed.text
-    assert completed.json()["status"] == "active"
+    assert completed.json()["status"] == "active", (
+        "bezterminowy okres zablokował aktywację"
+    )
+    assert completed.json()["end_date"] is None
 
     edited = await app_client.patch(
         url,

@@ -138,7 +138,13 @@ async def test_gate_returns_empty_list_not_forbidden(
         f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"groups": [], "total_groups": 0, "total_consultants": 0}
+    assert resp.json() == {
+        "groups": [],
+        "total_groups": 0,
+        "total_consultants": 0,
+        "draft_orders": [],
+        "total_draft_orders": 0,
+    }
 
 
 # ── Uprawnienia: delivery prowadzi obsadę zamówienia ────────────────────────

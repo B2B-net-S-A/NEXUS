@@ -84,10 +84,33 @@ export interface OrderGroupRead {
   future_orders: OrderGroupRead[];
 }
 
+/** Samodzielny szkic zamówienia — zakładka „Draft (do uzupełnienia)".
+ *
+ *  Szkice z hooka zatrudnienia („Oznacz jako podpisane" / pipeline „hired")
+ *  nie mają jeszcze grupy; przy aktywacji (komplet 4 pól z Ticketu 1) backend
+ *  materializuje grupę o numerze z pola „numer zamówienia". */
+export interface OrderDraftRead {
+  id: number;
+  contract_id: number;
+  consultant_name: string;
+  title: string;
+  start_date: string | null;
+  end_date: string | null;
+  /** Zerowane dla ról bez uprawnień finansowych (jak w liniach). */
+  rate_cost: number | null;
+  rate_revenue: number | null;
+  /** Liczba MD jest operacyjna — widoczna także bez dostępu do stawek. */
+  md_quantity: number | null;
+  created_at: string | null;
+}
+
 export interface OrderGroupListResponse {
   groups: OrderGroupRead[];
   total_groups: number;
   total_consultants: number;
+  /** Tylko klienci MD (bez kosztowych) i tylko szkice od dnia wdrożenia. */
+  draft_orders?: OrderDraftRead[];
+  total_draft_orders?: number;
 }
 
 export interface OrderGroupEvent {

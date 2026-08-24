@@ -213,6 +213,11 @@ export interface ClientOrderUpdate {
   notes?: string | null;
   /** „Część umowy" e-Zdrowia — walidowana serwerowo (tylko client_id=115). */
   project_part?: string | null;
+  /** „Liczba MD zamówienia" — tylko klienci wielo-konsultantowi bez zamówień
+   *  kosztowych; opcjonalna (nie należy do 4 pól aktywacji). `null` z jawnym
+   *  kluczem czyści budżet MD szkicu. Walidacja serwerowa: wymaga wcześniej
+   *  uzupełnionej stawki przychodowej. */
+  md_quantity?: number | null;
 }
 
 /**

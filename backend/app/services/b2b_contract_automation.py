@@ -30,6 +30,8 @@ from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
+from app.services.cost_orders import is_cost_order_client
+from app.services.multi_consultant_orders import is_multi_consultant_client
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
 
@@ -348,6 +350,21 @@ def _seed_candidate_rate_schedule(
     ]
 
 
+def should_auto_create_order(client_id: int | None) -> bool:
+    """Czy hook zatrudnienia ma auto-tworzyć szkic zamówienia u tego klienta.
+
+    U klientów z ``COST_ORDER_CLIENT_IDS`` (Polkomtel) — NIE. Zamówienie bywa
+    tam kosztowe albo MD, a hook nie ma skąd znać typu: auto-szkic wpisywałby
+    na zamówienie coś, czego operator nie wybrał, i wisiał niewidzialny obok
+    rejestru grup. Decyzją ticketu (2026-08-24) „Oznacz jako podpisane"
+    tworzy tam wyłącznie kontrakt, a zamówienie — z jawnym wyborem typu —
+    dodaje Delivery Lead przez „Nowy kontraktor / zamówienie". Bramka wisi na
+    liście klientów kosztowych, nie na twardo wpisanym ID: to dokładnie
+    warunek „istnieją dwa typy zamówień", który czyni auto-szkic niejednoznacznym.
+    """
+    return not is_cost_order_client(client_id)
+
+
 async def _ensure_open_order(
     db: AsyncSession,
     *,
@@ -356,7 +373,12 @@ async def _ensure_open_order(
     job: Job,
     actor_id: int,
     source: str,
-) -> tuple[ClientOrder, bool]:
+) -> tuple[ClientOrder | None, bool]:
+    # Klient kosztowy: zero zamówienia z automatu — także zero dowiązywania
+    # istniejących linii grupowych (i zero 409 przy dwóch otwartych liniach
+    # tej samej osoby, co u Polkomtela jest legalne).
+    if not should_auto_create_order(job.client_id):
+        return None, False
     orders = list(
         (
             await db.execute(
@@ -406,11 +428,22 @@ async def _ensure_open_order(
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip()
     from_signed_confirmation = source == "signed_generated_contract"
+    # U klienta wielo-konsultantowego tytuł szkicu to przyszły NUMER GRUPY
+    # (materializacja przy aktywacji). Tytuł-imię przechodziłby bramkę
+    # aktywacji jako „numer" i zakładał grupę „Jan Kowalski — Java Developer";
+    # placeholder „(bez numeru)" jest przez bramkę odrzucany, więc szkic
+    # czeka w zakładce Draft, aż DL wpisze prawdziwy numer. Widok standardowy
+    # zostaje przy tytule-imieniu — tam tytuł jest etykietą karty, nie numerem.
+    title = (
+        "(bez numeru)"
+        if is_multi_consultant_client(job.client_id)
+        else f"{candidate_name} — {job.title}"
+    )
     order = ClientOrder(
         client_id=job.client_id,
         contract_id=contract.id,
         job_id=job.id,
-        title=f"{candidate_name} — {job.title}",
+        title=title,
         status=ClientOrderStatus.draft,
         start_date=contract.start_date,
         rate_client=contract.rate_client,
