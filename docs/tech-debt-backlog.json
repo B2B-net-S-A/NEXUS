@@ -4478,6 +4478,18 @@
       "fix_sketch": "Rozdzielić „nie wiem\" od „wiem, że nie ma\" na wejściu warstwy: przekazywać do `score_candidate_job`/`rank_jobs_for_candidate` jawną informację, czy retrieval semantyczny w ogóle odpowiedział (np. sentinel/flaga obok `similarity_map`), i zwracać wtedy `reason` mówiący o niedostępności wyszukiwania, a nie o embeddingu obiektu. Rozważyć też `scored=False` / oznaczenie warstwy jako niepoliczonej, żeby `total` na skali 0-100 nie udawał kompletnego wyniku, gdy zabrakło 60 z jego punktów — dziś wynik 26.2 z awarii jest wizualnie nieodróżnialny od uczciwego 26.2.",
       "verifier_note": "Wyniesione z adwersarialnej weryfikacji wdrożenia #408/#212/#315 (24.08). Potwierdzone wykonaniem przez osobnego agenta z instrukcją obalenia. NIE jest regresją tamtych zmian — to siostra tej samej klasy, istniejąca wcześniej.",
       "note": "ODRZUCONE ŚWIADOMIE: napis 'brak embeddingu' jest KLUCZEM narzędzia naprawczego #130 (admin_match_score_repair.NO_EMBEDDING_REASON dopasowuje go w SQL), a #130 nie zostało jeszcze uruchomione — na produkcji SĄ dziś wiersze z tym napisem. Zmiana samego tekstu sprawiłaby, że narzędzie przestaje je znajdować CICHO (raportuje '0 do naprawy' zamiast błędu). Uczciwa naprawa wymaga rozdzielenia przyczyny U ŹRÓDŁA i dopasowywania OBU napisów przez czas życia historycznych wierszy — to osobna zmiana, nie poprawka tekstu. Ostrzeżenie zostawione w kodzie."
+    },
+    {
+      "id": 415,
+      "severity": "P2",
+      "effort": "S",
+      "status": "needs_operator",
+      "title": "Claude review pada na KAZDYM PR-ze od 24.08 04:15 — check, ktory nie blokuje, przestal dawac wartosc po cichu",
+      "impact": "Job `review` konczy sie bledem na PIERWSZEJ turze (`num_turns: 1`, `is_error: true`, `Internal error: directory mismatch for directory .../tsconfig.json`) — czyli zanim przeczyta diff. Nie jest to jednorazowa awaria: pada na WSZYSTKICH galeziach (dependabot, claude/orders-*, fix/m365-*), ostatni sukces 2026-08-23 23:33. W tym oknie `claude-review.yml` sie nie zmienial, a akcja jest przypieta po SHA (6b082c41), wiec przyczyna jest poza repo.",
+      "failure_scenario": "`review` NIE jest required checkiem (celowo — ma kill-switch CLAUDE_ENABLED, wiec wymagany dawalby wieczna blokade). Skutek: pada na kazdym PR-ze, nikogo nie zatrzymuje i nikt tego nie zauwazy poza zerowym feedbackiem. Dokladnie klasa 'sygnal, ktory przestal dawac wartosc po cichu' — ta sama, co #204 (digest Sentry raportujacy sukces, nie robiac nic).",
+      "evidence": "gh run list --workflow 'Claude review' --limit 12: 5 kolejnych `failure` na roznych galeziach po 2026-08-24T04:15, poprzedzone `success` o 23:33 i 23:12.",
+      "fix_sketch": "Dzialanie operatorskie: sprawdzic, czy to znany problem `claude-code-action` (release notes / issues dla wersji przypietej SHA 6b082c41), i albo bumpnac akcje, albo zglosic. Do czasu naprawy warto rozwazyc dodanie do workflow kroku, ktory przy `is_error: true` i `num_turns <= 1` wypisze jawne ostrzezenie do GITHUB_STEP_SUMMARY — inaczej roznica miedzy 'recenzja nic nie znalazla' a 'recenzja sie nie odbyla' jest niewidoczna, a to ten sam defekt, co #408.",
+      "verifier_note": "Wykryte podczas merge'owania PR #1249; potwierdzone przegladem historii biegow workflow."
     }
   ]
 }
