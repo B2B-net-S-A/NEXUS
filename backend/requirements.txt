@@ -1,5 +1,5 @@
 fastapi==0.141.1
-uvicorn[standard]==0.52.3
+uvicorn[standard]==0.52.4
 # The `[asyncio]` extra is LOAD-BEARING from Python 3.13 onwards, do not drop it.
 # SQLAlchemy 2.0.36 declares its greenlet dependency as
 #   `greenlet!=0.4.17; python_version < "3.13" and (platform_machine == ...)`
@@ -66,14 +66,14 @@ python-docx==1.2.0
 # Generator Umów B2B — wypełnianie szablonu .docx placeholderami Jinja
 # (na bazie python-docx; zachowuje formatowanie prawne umowy).
 docxtpl==0.20.2
-python-dotenv==1.2.2
+python-dotenv==1.2.3
 python-multipart==0.0.32
 aiofiles==25.1.0
 jinja2==3.1.6
 psycopg2-binary==2.9.12
 openpyxl==3.1.5
-icalendar==7.2.2
-python-json-logger==4.1.0
+icalendar==7.3.0
+python-json-logger==4.2.0
 # Security & observability
 slowapi==0.1.10
 sentry-sdk[fastapi]==2.68.0
@@ -96,10 +96,10 @@ weasyprint==69.0
 pyhanko[etsi]==0.36.2
 
 # Hetzner Object Storage (S3-compatible) — CV blob migration (audit-2026-05-07 Faza 3).
-boto3==1.43.71
+boto3==1.43.77
 
 # Polski kalendarz świąt dla `app.core.scheduling.is_business_day`. Targety
 # Priority Work ("4 weryfikacje / dzień roboczy") i triggery notyfikacji nie mogą
 # liczyć 1 maja ani Bożego Ciała jako dnia pracy. Ruchome święta liczone z daty
 # Wielkanocy — dlatego biblioteka, nie własna tablica dat.
-holidays==0.102
+holidays==0.103
