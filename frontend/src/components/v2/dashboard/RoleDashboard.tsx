@@ -22,6 +22,10 @@ import { MyContactQueueWidget } from "@/components/candidate-contact/MyContactQu
 import { DashboardShell } from "./DashboardShell"
 import { DashboardV2Preset } from "./DashboardV2Preset"
 import { RecruitmentStatsSection } from "./RecruitmentStatsSection"
+import {
+  MyPriorityQueue,
+  TeamAllocationBoard,
+} from "@/components/v2/priority-work"
 
 const LEGACY_VIEW_PRESET: Partial<Record<string, DashboardPreset>> = {
   operations: "admin-ops",
@@ -86,16 +90,37 @@ function presetContent(
       <MyContactQueueWidget />
     ) : null
 
+  // Konsola Priority Work wróciła (#101, decyzja Artura 24.08). Cutover RBAC
+  // z #1031 odmontował te dwa boardy i nie zamontował ich nigdzie indziej —
+  // `grep` po `TeamAllocationBoard|MyPriorityQueue` poza ich własnym katalogiem
+  // nie zwracał NICZEGO. Utrzymywaliśmy 1743 linie routera, 1131 serwisu,
+  // 817 polityki, 9 tabel i pętlę w lifespanie dla funkcji bez jednego wejścia,
+  // a bezpieczny rollout (`off -> shadow -> enforce`) był nie tylko nieużywany,
+  // ale NIEWYKONALNY: przestawienie trybu na `enforce` bez opublikowanego planu
+  // zablokowałoby rekruterom otwieranie nowych par, bez UI do odblokowania.
+  //
+  // Oba komponenty bramkują się SAME (`if (!hydrated || !canManage) return null`,
+  // odpowiednio na `head_of_recruitment` i na rolach wykonawczych) i same
+  // renderują `ModeNotice` dla aktualnego `RECRUITMENT_PRIORITY_MODE`. Montaż
+  // jest więc fail-closed: przy trybie `off` nie pytają o nic poza statusem,
+  // a zapytania mają `enabled` związane z tą samą rolą.
+  const teamAllocation =
+    preset === "head-of-recruitment" ? <TeamAllocationBoard /> : null
+
+  const priorityQueue = preset === "my-work" ? <MyPriorityQueue /> : null
+
   // CompactGamification usunięty — pełny blok rywalizacji (hero ligi,
   // wyścigi, Hall of Fame) renderuje RecruitmentStatsSection pod każdym
   // presetem; skrót dublowałby requesty do /api/competitions.
-  if (!oversight && !myQueue) {
+  if (!oversight && !myQueue && !teamAllocation && !priorityQueue) {
     return <DashboardV2Preset preset={preset} period={period} />
   }
   return (
     <div className="space-y-6">
       {oversight}
       {myQueue}
+      {teamAllocation}
+      {priorityQueue}
       <DashboardV2Preset preset={preset} period={period} />
     </div>
   )

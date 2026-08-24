@@ -20,6 +20,7 @@ from typing import Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.models.candidate import Candidate
@@ -259,13 +260,43 @@ async def try_parse_cv(
 
     content = await asyncio.to_thread(abs_path.read_bytes)
     content_hash = attachment.sha256 or hashlib.sha256(content).hexdigest()
-    document = await db.scalar(
-        select(CandidateDocument).where(
-            CandidateDocument.candidate_id == candidate.id,
-            CandidateDocument.content_sha256 == content_hash,
-            CandidateDocument.source_deleted_at.is_(None),
+    external_id = (attachment.m365_attachment_id or "")[:100] or None
+
+    # Szukamy po TYM SAMYM kluczu, na którym stoi UNIQUE
+    # (`ux_candidate_documents_external_source_id` = external_source + external_id,
+    # migracja 0076). Poprzednia wersja szukała po `(candidate_id,
+    # content_sha256, source_deleted_at IS NULL)` — trzy warunki, z których
+    # ŻADEN nie występuje w indeksie. Skutkiem były 3 800 zdarzeń w Sentry
+    # (NEXUS-BE-2Y/2X) na dwóch drogach:
+    #
+    #   * dokument MIĘKKO USUNIĘTY (`source_deleted_at` ustawione) wypadał
+    #     z lookupu, ale nadal zajmował klucz w indeksie — więc każda kolejna
+    #     synchronizacja tego załącznika próbowała INSERT-a i trwale padała;
+    #   * ten sam załącznik dopasowany do INNEGO kandydata (rematch) też omijał
+    #     lookup, bo ten filtruje po `candidate_id`, a indeks jest globalny.
+    #
+    # Bez savepointu IntegrityError zatruwa CAŁĄ sesję, więc padał nie ten jeden
+    # załącznik, tylko cały dalszy przebieg synchronizacji.
+    document = None
+    if external_id is not None:
+        document = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.external_source == "m365",
+                CandidateDocument.external_id == external_id,
+            )
         )
-    )
+
+    if document is None:
+        # Dokumenty bez `external_id` (starsze wpisy, inne źródła) nie są objęte
+        # indeksem — dla nich zostaje dotychczasowe dopasowanie po treści.
+        document = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == candidate.id,
+                CandidateDocument.content_sha256 == content_hash,
+                CandidateDocument.source_deleted_at.is_(None),
+            )
+        )
+
     if document is None:
         document = CandidateDocument(
             candidate_id=candidate.id,
@@ -277,13 +308,42 @@ async def try_parse_cv(
             is_primary=False,
             uploaded_at=email_row.received_at or attachment.cv_parse_attempted_at,
             external_source="m365",
-            external_id=(attachment.m365_attachment_id or "")[:100] or None,
+            external_id=external_id,
             content_sha256=content_hash,
         )
-        db.add(document)
-        await db.flush()
+        try:
+            # SAVEPOINT — ten sam wzorzec, co przy `emails.m365_message_id`
+            # w `sync.py`. Nawet z poprawionym lookupem zostaje wyścig: dwa
+            # równoległe przebiegi widzą brak wiersza i oba wstawiają.
+            # Savepoint ogranicza szkodę do jednego załącznika zamiast ubijać
+            # sesję i cały przebieg.
+            async with db.begin_nested():
+                db.add(document)
+                await db.flush()
+        except IntegrityError:
+            logger.info(
+                "m365 attachment %s: dokument wstawiony równolegle — przechodzę na update",
+                attachment.id,
+            )
+            db.expunge(document)
+            document = await db.scalar(
+                select(CandidateDocument).where(
+                    CandidateDocument.external_source == "m365",
+                    CandidateDocument.external_id == external_id,
+                )
+            )
+            if document is None:
+                # Kolizja na innym kluczu niż nasz — nie zgadujemy, co to było.
+                attachment.parse_error = "document_insert_conflict"
+                return
+            document.document_kind = CandidateDocumentKind.cv
     else:
         document.document_kind = CandidateDocumentKind.cv
+        # Wskrzeszenie miękko usuniętego wpisu: skoro załącznik wrócił
+        # w synchronizacji, dokument znów jest aktualny.
+        document.source_deleted_at = None
+        document.candidate_id = candidate.id
+        document.content_sha256 = content_hash
 
     from app.services.candidate_identity_quarantine import record_detected_identity
 

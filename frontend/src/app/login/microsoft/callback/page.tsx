@@ -55,6 +55,37 @@ function CallbackBody() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         setAuth(me.data, accessToken);
+
+        // Most do wtyczki Chrome. Wtyczka miala JEDYNA sciezke logowania —
+        // email + haslo — a produkcja odrzuca ja od 19.07 (SSO-only), wiec
+        // rekruter po reinstalacji albo zmianie roli nie mial jak sie
+        // zalogowac. Backend mial komplet SSO; brakowalo wylacznie sposobu,
+        // zeby wtyczka odebrala wynik.
+        //
+        // Oddajemy sesje TYLKO gdy to wtyczka zaczela logowanie (marker
+        // ustawiony na /login?ext=1) — inaczej kazde logowanie SSU w
+        // przegladarce z zainstalowana wtyczka provisionowaloby ja po cichu.
+        // Marker jest jednorazowy: kasujemy go zaraz po uzyciu.
+        //
+        // `postMessage` na WLASNE `origin`, nie `externally_connectable`:
+        // tamto wymaga, zeby strona znala ID wtyczki, a jej manifest nie ma
+        // pola `key`, wiec ID jest niestabilne. Content script wtyczki chodzi
+        // wylacznie na TEJ sciezce i sprawdza `event.source === window`
+        // oraz `event.origin`.
+        if (sessionStorage.getItem("nexus_ext_login") === "1") {
+          sessionStorage.removeItem("nexus_ext_login");
+          window.postMessage(
+            {
+              source: "nexus-app",
+              type: "NEXUS_EXT_AUTH",
+              access_token: accessToken,
+              refresh_token: tokens?.refresh_token ?? null,
+              email: me.data?.email ?? null,
+            },
+            window.location.origin,
+          );
+        }
+
         router.replace(postLoginDestination(me.data));
       } catch (err: unknown) {
         // extractErrorMsg, nie surowe `e.message`: 429 z limitera (ciało
