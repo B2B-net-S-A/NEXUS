@@ -33,6 +33,7 @@ import {
 } from "@/store/auth";
 
 import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal";
+import { DraftOrdersSection } from "./DraftOrdersSection";
 import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { OrderGroupCard } from "./OrderGroupCard";
@@ -65,14 +66,45 @@ function apiError(err: unknown, fallback: string): string {
 type GroupSaveResult = { saved: OrderGroupRead; fileError: string | null };
 
 type MainOrderGroupStatus = Exclude<OrderGroupStatus, "scheduled">;
-type PillKey = "all" | MainOrderGroupStatus;
+type PillKey = "all" | MainOrderGroupStatus | "ending_30d" | "draft";
 
-const PILLS: Array<{ key: PillKey; label: string }> = [
+// Zestaw bazowy (Polkomtel — klient kosztowy — zostaje przy nim bez zmian,
+// wymóg ticketu). Klienci MD (BIK/BNP) dostają dodatkowo „Kończące się 30d"
+// i „Draft (do uzupełnienia)" — ten sam słownik pigułek co widok jednoosobowy.
+// „Wyczerpane" zostaje także u nich: budżety MD wyczerpują się właśnie tam,
+// a zdjęcie pigułki ukryłoby istniejące grupy w tym stanie.
+const BASE_PILLS: Array<{ key: PillKey; label: string }> = [
   { key: "all", label: "Wszystkie" },
   { key: "active", label: "Aktywne" },
   { key: "completed", label: "Zakończeni" },
   { key: "exhausted", label: "Wyczerpane" },
 ];
+
+const MD_CLIENT_PILLS: Array<{ key: PillKey; label: string }> = [
+  { key: "all", label: "Wszystkie" },
+  { key: "active", label: "Aktywne" },
+  { key: "ending_30d", label: "⚠️ Kończące się 30d" },
+  { key: "draft", label: "📝 Draft (do uzupełnienia)" },
+  { key: "completed", label: "Zakończeni" },
+  { key: "exhausted", label: "Wyczerpane" },
+];
+
+/** Dni do końca zamówienia liczone datami kalendarzowymi (bez stref). */
+function daysToEnd(end: string | null): number | null {
+  if (!end) return null;
+  const endDate = new Date(`${end.slice(0, 10)}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((endDate.getTime() - today.getTime()) / 86_400_000);
+}
+
+/** Aktywna grupa kończąca się w ciągu 30 dni — lustro `expiring_30d`
+ *  z widoku jednoosobowego (przedział [0, 30], bez już zakończonych). */
+function isEndingSoon(group: OrderGroupRead): boolean {
+  if (group.status !== "active") return false;
+  const days = daysToEnd(group.end_date);
+  return days !== null && days >= 0 && days <= 30;
+}
 
 interface Props {
   clientId: number;
@@ -359,21 +391,35 @@ export function MultiConsultantOrdersTab({
   });
 
   const groups = useMemo(() => query.data?.groups ?? [], [query.data]);
+  const draftOrders = useMemo(
+    () => query.data?.draft_orders ?? [],
+    [query.data],
+  );
+  const pills = costOrdersEnabled ? BASE_PILLS : MD_CLIENT_PILLS;
   const counts = useMemo(() => {
     const byStatus: Record<PillKey, number> = {
       all: groups.length,
       active: 0,
       completed: 0,
       exhausted: 0,
+      // „Kończące się" jest PODZBIOREM „Aktywne" — suma pigułek świadomie
+      // nie równa się „Wszystkie" (ta sama reguła co w widoku jednoosobowym).
+      ending_30d: groups.filter(isEndingSoon).length,
+      draft: draftOrders.length,
     };
     for (const group of groups) {
       if (group.status !== "scheduled") byStatus[group.status] += 1;
     }
     return byStatus;
-  }, [groups]);
+  }, [groups, draftOrders]);
   const visible = useMemo(() => {
+    if (pill === "draft") return [];
     const byPill =
-      pill === "all" ? groups : groups.filter((group) => group.status === pill);
+      pill === "all"
+        ? groups
+        : pill === "ending_30d"
+          ? groups.filter(isEndingSoon)
+          : groups.filter((group) => group.status === pill);
     return filterAndSortOrderGroups(byPill, search, filters);
   }, [groups, pill, search, filters]);
 
@@ -447,7 +493,7 @@ export function MultiConsultantOrdersTab({
           żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
       {query.isSuccess ? (
         <div className="flex flex-wrap gap-2">
-          {PILLS.map((entry) => (
+          {pills.map((entry) => (
             <button
               key={entry.key}
               type="button"
@@ -466,7 +512,10 @@ export function MultiConsultantOrdersTab({
         </div>
       ) : null}
 
-      {query.isSuccess ? (
+      {/* Wyszukiwarka/sortowanie/eksport operują na GRUPACH — w zakładce
+          szkiców ukryte, żeby nie obiecywać filtrowania, które ich nie
+          obejmuje (krótka kolejka do uzupełnienia, nie rejestr). */}
+      {query.isSuccess && pill !== "draft" ? (
         <OrderListControls
           search={search}
           onSearchChange={setSearch}
@@ -494,6 +543,27 @@ export function MultiConsultantOrdersTab({
         <p className="py-10 text-center text-sm text-muted-foreground">
           Wczytywanie zamówień…
         </p>
+      ) : pill === "draft" ? (
+        <DraftOrdersSection
+          clientId={clientId}
+          drafts={draftOrders}
+          canManage={canManage}
+          onError={(msg) => showToast(msg, "error")}
+          onSaved={({ activated, orderNumber }) => {
+            invalidate();
+            // Szkice żyją też w listingu jednoosobowym (`/orders`) — sekcja
+            // „Dokumenty zamówień" i alerty DL czytają ten sam wiersz.
+            queryClient.invalidateQueries({
+              queryKey: ["dl-orders-grouped", clientId],
+            });
+            showToast(
+              activated
+                ? `Zamówienie aktywowane i przypisane: ${orderNumber}`
+                : "Zapisano zmiany szkicu",
+              "success",
+            );
+          }}
+        />
       ) : visible.length === 0 ? (
         <EmptyState
           title={

@@ -78,7 +78,10 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckRequest,
     B2BUopCheckResponse,
 )
-from app.services.b2b_contract_automation import ensure_b2b_employment_draft
+from app.services.b2b_contract_automation import (
+    ensure_b2b_employment_draft,
+    should_auto_create_order,
+)
 from app.services.b2b_contract_generator.clause_overrides import (
     ClauseOverrideError,
     apply_ops_html_counted,
@@ -1702,7 +1705,11 @@ async def confirm_generated_contract_fully_signed(
             ensure_hired=True,
             audit_source_generated_id=row.id,
         )
-        if result.order is None:  # defensive; ensure_order=True guarantees it
+        # Klient kosztowy (Polkomtel): automatyzacja świadomie NIE tworzy
+        # zamówienia — hook nie zna jego typu (kosztowe vs MD), więc dodaje je
+        # ręcznie Delivery Lead. Dla pozostałych klientów brak zamówienia to
+        # nadal błąd wewnętrzny, nie stan do obsłużenia.
+        if result.order is None and should_auto_create_order(job.client_id):
             raise RuntimeError("employment automation returned no ClientOrder")
 
         row.signature_status = "signed_both"
@@ -1739,7 +1746,7 @@ async def confirm_generated_contract_fully_signed(
                     "job_id": job.id,
                     "client_id": job.client_id,
                     "contract_id": result.contract.id,
-                    "order_id": result.order.id,
+                    "order_id": result.order.id if result.order else None,
                     "source": "manual_confirmation",
                     "outcome": (
                         "created" if result.created_contract else "linked_existing"
@@ -1763,10 +1770,28 @@ async def confirm_generated_contract_fully_signed(
                 "duplikatu, a zatrudnienie zsynchronizowano."
             )
         )
+        if result.order is None:
+            # Wariant klienta kosztowego — komunikat MUSI powiedzieć, że brak
+            # zamówienia jest decyzją, nie awarią, i wskazać następny krok.
+            message = (
+                (
+                    "Utworzono szkic kontraktora i oznaczono kandydata jako "
+                    "zatrudnionego."
+                    if result.created_contract
+                    else (
+                        "Kontraktor już istniał — umowę powiązano bez "
+                        "tworzenia duplikatu, a zatrudnienie zsynchronizowano."
+                    )
+                )
+                + " Zamówienia nie utworzono automatycznie: u tego klienta typ "
+                "zamówienia (kosztowe albo MD) wybiera Delivery Lead, dodając "
+                "je ręcznie w zakładce Zamówienia („Nowy kontraktor / "
+                "zamówienie”)."
+            )
         return B2BConfirmFullySignedResponse(
             outcome=outcome,
             contract_id=result.contract.id,
-            order_id=result.order.id,
+            order_id=result.order.id if result.order else None,
             candidate_id=candidate_id,
             job_id=job.id,
             client_id=job.client_id,

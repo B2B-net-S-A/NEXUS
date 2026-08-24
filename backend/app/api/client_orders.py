@@ -65,8 +65,19 @@ from app.schemas.new_contractor_order import (
 from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
+from app.services.client_order_lines import recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
+from app.services.cost_orders import is_cost_order_client
 from app.services.ezdrowie import validate_project_part
+from app.services.multi_consultant_orders import (
+    INPUT_MODE_MD,
+    is_multi_consultant_client,
+    quantize_md,
+)
+from app.services.order_group_materializer import (
+    materialize_group_for_activated_order,
+    md_rate_from_order_rate,
+)
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
     apply_bank_pocztowy_order_policy,
@@ -267,9 +278,12 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
     """Czy draft ma komplet pól wskazanych przez formularz zamówienia.
 
     Numer zastępczy ``(bez numeru)`` powstaje po pierwszej edycji pojedynczego
-    pola i nie jest prawdziwym numerem. „Okres” oznacza obie granice; dzięki
-    temu częściowo uzupełniony rekord pozostaje w Draft zamiast przedwcześnie
-    trafiać do Aktywnych.
+    pola i nie jest prawdziwym numerem. „Okres” oznacza DATĘ POCZĄTKOWĄ:
+    zamówienie bezterminowe (``end_date IS NULL``) jest w body-leasingu
+    normalnym stanem docelowym, a nie brakiem danych — wymaganie tu obu granic
+    więziło kompletne zamówienia bezterminowe w Draft na stałe (Bogusiak /
+    Contract 570: numer, obie stawki i data startu wypełnione, a rekord nigdy
+    nie wychodził z Draftu, bo daty końcowej z definicji nie ma).
     """
 
     title = (order.title or "").strip()
@@ -277,7 +291,6 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
         title
         and title != "(bez numeru)"
         and order.start_date is not None
-        and order.end_date is not None
         and order.rate_client is not None
         and order.contract is not None
         and _activation_candidate_rate(order.contract) is not None
@@ -316,6 +329,124 @@ def _activate_complete_draft(order: ClientOrder) -> bool:
     if order.filled_at is None:
         order.filled_at = datetime.now(timezone.utc)
     return True
+
+
+async def _materialize_group_after_activation(
+    db: AsyncSession, order: ClientOrder, *, actor_id: Optional[int]
+) -> None:
+    """U klienta wielo-konsultantowego aktywowany szkic staje się linią grupy.
+
+    Wspólny krok wszystkich trzech ścieżek promujących draft (create, Flow B,
+    PATCH). Poza klientami z ``MULTI_CONSULTANT_ORDER_CLIENT_IDS`` (oraz dla
+    zamówień kosztowych — Polkomtel) serwis jest no-opem, więc wywołanie jest
+    bezwarunkowe. Efektywna stawka kosztowa idzie parametrem, bo reguła
+    „harmonogram jest prawdą" mieszka tutaj (``_activation_candidate_rate``),
+    a serwis nie importuje z warstwy API.
+    """
+    candidate_rate = (
+        _activation_candidate_rate(order.contract)
+        if order.contract is not None
+        else None
+    )
+    await materialize_group_for_activated_order(
+        db, order, actor_id=actor_id, candidate_rate=candidate_rate
+    )
+
+
+def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) -> None:
+    """„Liczba MD zamówienia” — opcjonalny budżet na szkicu klienta MD.
+
+    Pole z Ticketu 2: NIE należy do czterech pól wymaganych do aktywacji
+    (może zostać uzupełnione później), ale gdy jest podane, zasila
+    ``md_total``/``md_remaining`` — czyli licznik, od którego alert
+    ``ALERT_MD_BUDGET_LOW`` liczy „pozostało mniej niż próg”.
+
+    ``ck_client_orders_md_coherence`` wymaga kompletu: budżet bez stawki
+    przychodowej > 0 nie przejdzie bazy, więc stawka jest tu warunkiem
+    wstępnym, komunikowanym po polsku zamiast surowym IntegrityError.
+    ``None`` czyści komplet pól budżetu (CHECK dopuszcza tylko wszystko albo
+    nic); lustro ``md_rate_revenue`` zostaje — linia bez budżetu z samą stawką
+    jest legalna od migracji 0233.
+    """
+    if not is_multi_consultant_client(order.client_id) or is_cost_order_client(
+        order.client_id
+    ):
+        raise HTTPException(
+            422,
+            detail=(
+                "Liczba MD dotyczy wyłącznie zamówień klientów rozliczanych "
+                "w MD (lista wielo-konsultantowa, bez zamówień kosztowych)."
+            ),
+        )
+    if order.order_group_id is not None:
+        # Linia w grupie ma własny tor edycji budżetu (update_line: zdarzenia
+        # w historii zamówienia, przeliczenie kwoty). Tą drogą edytujemy
+        # WYŁĄCZNIE samodzielne szkice.
+        raise HTTPException(
+            422,
+            detail=(
+                "To jest linia zamówienia grupowego — budżet MD edytuj "
+                "w karcie zamówienia."
+            ),
+        )
+    if quantity is None:
+        order.md_total = None
+        order.md_remaining = None
+        order.md_input_mode = None
+        order.md_input_value = None
+        return
+    if order.rate_client is None or order.rate_client <= 0:
+        # CHECK budżetu wymaga stawki > 0 (jest dzielnikiem przy zamianie
+        # kontraktora) — zero odrzucamy tu, nie IntegrityError-em przy commit.
+        raise HTTPException(
+            422,
+            detail=(
+                "Najpierw uzupełnij stawkę przychodową (większą od zera) — "
+                "bez niej liczba MD nie przejdzie walidacji budżetu zamówienia."
+            ),
+        )
+    try:
+        qty = quantize_md(quantity)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    if qty <= 0:
+        raise HTTPException(
+            422,
+            detail=(
+                "Liczba MD musi być większa od zera — żeby usunąć budżet, wyczyść pole."
+            ),
+        )
+    order.md_rate_revenue = md_rate_from_order_rate(order.rate_client)
+    order.md_input_mode = INPUT_MODE_MD
+    order.md_input_value = qty
+    order.md_total = qty
+
+
+def _refresh_md_rate_mirror(order: ClientOrder, *, explicit_fields: set[str]) -> None:
+    """Lustro stawki na SAMODZIELNYM szkicu z budżetem MD.
+
+    ``md_rate_revenue`` jest kopią ``rate_client`` (wymóg CHECK budżetu), więc
+    korekta stawki przychodowej musi odświeżyć kopię — inaczej materializacja
+    poniosłaby do linii stawkę sprzed korekty i rozliczenie liczyłoby się
+    z innej kwoty, niż widzi operator. Wyczyszczenie stawki przy wpisanym
+    budżecie dostaje czytelne 422 zamiast IntegrityError
+    z ``ck_client_orders_md_coherence`` przy commicie. Linii w grupie nie
+    dotykamy — jej budżet prowadzi ``update_line``.
+    """
+    if "rate_client" not in explicit_fields:
+        return
+    if order.order_group_id is not None or order.md_total is None:
+        return
+    if order.rate_client is None or order.rate_client <= 0:
+        raise HTTPException(
+            422,
+            detail=(
+                "Zamówienie ma wpisaną liczbę MD — wyczyść ją, zanim usuniesz "
+                "lub wyzerujesz stawkę przychodową (budżet bez dodatniej "
+                "stawki nie przejdzie walidacji)."
+            ),
+        )
+    order.md_rate_revenue = md_rate_from_order_rate(order.rate_client)
 
 
 def _days_to(target: Optional[date]) -> Optional[int]:
@@ -1106,6 +1237,12 @@ async def create_order_extension(
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
     _activate_complete_draft(order)
+    # Materializacja obejmuje też tworzenie OD RAZU ze statusem active
+    # (domyślna wartość ``order_status`` tego formularza) — nie tylko drogę
+    # przez auto-aktywację draftu.
+    if order.status == ClientOrderStatus.active:
+        await db.flush()
+        await _materialize_group_after_activation(db, order, actor_id=user.id)
     db.add(
         Activity(
             entity_type="client",
@@ -1321,8 +1458,16 @@ async def update_order(
             )
         except ValueError as e:
             raise HTTPException(422, detail=str(e)) from None
+    # „Liczba MD zamówienia" nie jest kolumną — schodzi z pętli setattr i ma
+    # własną walidację. Stosowana PO zwykłych polach, żeby PATCH niosący
+    # stawkę przychodową i liczbę MD w jednym żądaniu widział już nową stawkę.
+    md_quantity = data.pop("md_quantity", None)
     for field, value in data.items():
         setattr(order, field, value)
+    if "md_quantity" in payload.model_fields_set:
+        _apply_md_order_quantity(order, md_quantity)
+        await recompute_remaining(db, order)
+    _refresh_md_rate_mirror(order, explicit_fields=payload.model_fields_set)
 
     auto_activated = _auto_activate_unless_status_explicit(
         order, explicit_fields=payload.model_fields_set
@@ -1338,6 +1483,15 @@ async def update_order(
         and "status" in data
     ):
         order.filled_at = datetime.now(timezone.utc)
+
+    # Materializacja po KAŻDEJ drodze do statusu active — także po jawnym
+    # ``PATCH {"status": "active"}``. Sama auto-aktywacja nie wystarcza:
+    # jawna aktywacja u klienta MD tworzyłaby aktywne zamówienie-widmo,
+    # niewidoczne ani w rejestrze grup, ani w zakładce Draft (status ≠ draft)
+    # — dokładnie klasa awarii z ticketu. Poza swoim zakresem (klient
+    # nie-MD, wiersz w grupie, tytuł-placeholder) serwis jest no-opem.
+    if order.status == ClientOrderStatus.active and order.order_group_id is None:
+        await _materialize_group_after_activation(db, order, actor_id=user.id)
 
     db.add(
         Activity(
@@ -1634,6 +1788,9 @@ async def create_contract_with_order(
     # powinien zaliczać zbędnego przystanku w zakładce Draft. Kontrakt zachowuje
     # własny, niezależny i bardziej rygorystyczny lifecycle podpisu.
     _activate_complete_draft(order)
+    if order.status == ClientOrderStatus.active:
+        await db.flush()
+        await _materialize_group_after_activation(db, order, actor_id=user.id)
 
     db.add(
         Activity(

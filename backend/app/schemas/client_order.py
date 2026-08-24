@@ -57,6 +57,11 @@ class ClientOrderUpdate(BaseModel):
     # „Część umowy" — tylko Centrum e-Zdrowia (walidacja w endpointach przez
     # app/services/ezdrowie.py; słownik cz1|cz2|cz4|cz5|cz6, cz.3 nie istnieje).
     project_part: Optional[str] = Field(None, max_length=8)
+    # „Liczba MD zamówienia" (Ticket 2) — tylko klienci wielo-konsultantowi
+    # bez zamówień kosztowych; walidacja w handlerze (_apply_md_order_quantity).
+    # Opcjonalna: nie należy do czterech pól wymaganych do aktywacji. NULL
+    # z jawnym kluczem czyści budżet MD szkicu.
+    md_quantity: Optional[Decimal] = Field(None, ge=0, max_digits=16, decimal_places=6)
 
 
 class ClientOrderRead(BaseModel):

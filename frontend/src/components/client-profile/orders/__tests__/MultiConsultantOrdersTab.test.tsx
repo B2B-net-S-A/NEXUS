@@ -51,7 +51,7 @@ vi.mock("@/lib/api/orderGroups", () => ({
 }));
 
 vi.mock("@/lib/api/dlPortal", () => ({
-  dlPortalApi: { listActiveContractsForExtension: vi.fn() },
+  dlPortalApi: { listActiveContractsForExtension: vi.fn(), updateOrder: vi.fn() },
 }));
 
 import { orderGroupsApi } from "@/lib/api/orderGroups";
@@ -118,14 +118,14 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   };
 }
 
-function renderTab() {
+function renderTab(props: { costOrdersEnabled?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <MultiConsultantOrdersTab clientId={7} />
+        <MultiConsultantOrdersTab clientId={7} {...props} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -700,5 +700,148 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(
       screen.queryByRole("button", { name: /Usuń konsultanta z zamówienia/i }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// ── Zakładka „Draft (do uzupełnienia)" (BIK/BNP) ────────────────────────────
+
+import { dlPortalApi } from "@/lib/api/dlPortal";
+import type { OrderDraftRead } from "@/lib/api/orderGroups";
+
+function draftOrder(overrides: Partial<OrderDraftRead> = {}): OrderDraftRead {
+  return {
+    id: 900,
+    contract_id: 100,
+    consultant_name: "Robert Łuszczyński",
+    title: "Robert Łuszczyński — Java Developer",
+    start_date: "2026-08-21",
+    end_date: null,
+    rate_cost: null,
+    rate_revenue: null,
+    md_quantity: null,
+    created_at: "2026-08-24T08:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("MultiConsultantOrdersTab — zakładka Draft (do uzupełnienia)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.role = "admin";
+    authState.capabilities = ["manage_finance"];
+  });
+
+  it("klient MD dostaje pigułki Draft i Kończące się; klient kosztowy zostaje przy starym zestawie", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group()],
+        total_groups: 1,
+        total_consultants: 1,
+        draft_orders: [draftOrder()],
+        total_draft_orders: 1,
+      },
+    } as never);
+
+    const first = renderTab();
+    expect(
+      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\) \(1\)/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Kończące się 30d/ }),
+    ).toBeInTheDocument();
+    first.unmount();
+
+    // Polkomtel (zamówienia kosztowe): wymóg ticketu — zakładki bez zmian.
+    renderTab({ costOrdersEnabled: true });
+    await screen.findByText(/Zamówienie nr 445/);
+    expect(
+      screen.queryByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Kończące się 30d/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uzupełnienie numeru w zakładce Draft zapisuje PATCH i toastuje aktywację", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [],
+        total_groups: 0,
+        total_consultants: 0,
+        draft_orders: [draftOrder()],
+        total_draft_orders: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.updateOrder).mockResolvedValue({
+      data: {
+        id: 900,
+        status: "active",
+        title: "Zamówienie 4500030999 — Robert Łuszczyński",
+      },
+    } as never);
+
+    renderTab();
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
+    );
+    expect(await screen.findByTestId("draft-order-900")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /Edytuj: numer zamówienia \(Robert Łuszczyński\)/,
+      }),
+    );
+    const input = screen.getByRole("textbox", {
+      name: /numer zamówienia \(Robert Łuszczyński\)/,
+    });
+    await user.clear(input);
+    await user.type(input, "4500030999{Enter}");
+
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 900, {
+        title: "4500030999",
+      }),
+    );
+    expect(
+      await screen.findByText(/Zamówienie aktywowane i przypisane/),
+    ).toBeInTheDocument();
+  });
+
+  it("liczba MD idzie osobnym polem md_quantity (opcjonalnym)", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [],
+        total_groups: 0,
+        total_consultants: 0,
+        draft_orders: [draftOrder({ rate_revenue: 1550 })],
+        total_draft_orders: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.updateOrder).mockResolvedValue({
+      data: { id: 900, status: "draft", title: "Robert Łuszczyński — Java Developer" },
+    } as never);
+
+    renderTab();
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: /Edytuj: liczba MD zamówienia \(Robert Łuszczyński\)/,
+      }),
+    );
+    const input = screen.getByRole("textbox", {
+      name: /liczba MD zamówienia \(Robert Łuszczyński\)/,
+    });
+    await user.type(input, "60{Enter}");
+
+    await waitFor(() =>
+      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 900, {
+        md_quantity: 60,
+      }),
+    );
+    expect(await screen.findByText(/Zapisano zmiany szkicu/)).toBeInTheDocument();
   });
 });

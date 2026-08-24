@@ -333,10 +333,42 @@ class OrderGroupRead(BaseModel):
     future_orders: list["OrderGroupRead"] = Field(default_factory=list)
 
 
+class OrderDraftRead(BaseModel):
+    """Samodzielny szkic zamówienia w zakładce „Draft (do uzupełnienia)”.
+
+    Szkice z hooka zatrudnienia („Oznacz jako podpisane” / pipeline „hired”)
+    nie mają jeszcze grupy — do materializacji dochodzi dopiero przy
+    aktywacji. Kształt celowo węższy niż ``OrderLineRead``: wiersz służy
+    wyłącznie uzupełnieniu czterech pól aktywacji plus opcjonalnej liczby MD.
+    """
+
+    id: int
+    contract_id: int
+    consultant_name: str = ""
+    title: str
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+    # Finansowe — zerowane dla ról bez dostępu do stawek (jak w liniach).
+    rate_cost: Optional[MoneyPLN] = None
+    """Efektywna stawka kosztowa umowy (harmonogram jest prawdą)."""
+    rate_revenue: Optional[MoneyPLN] = None
+    """``rate_client`` szkicu — do materializacji stawek linii MD."""
+
+    # Liczba MD jest operacyjna, nie finansowa (jak md_total w liniach).
+    md_quantity: Optional[MdValue] = None
+
+    created_at: Optional[datetime] = None
+
+
 class OrderGroupListResponse(BaseModel):
     groups: list[OrderGroupRead] = Field(default_factory=list)
     total_groups: int = 0
     total_consultants: int = 0
+    # Zakładka „Draft (do uzupełnienia)” — tylko klienci MD (bez kosztowych)
+    # i tylko szkice utworzone od dnia wdrożenia (ticket: bez retroakcji).
+    draft_orders: list[OrderDraftRead] = Field(default_factory=list)
+    total_draft_orders: int = 0
 
 
 class OrderGroupExportRequest(BaseModel):
