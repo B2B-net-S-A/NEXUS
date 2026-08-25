@@ -613,8 +613,13 @@ jobs:
   # Bez tego kanału WŁĄCZENIE dowolnej takiej polityki wymagało panelu Coolify.
   #
   # Ten sam mechanizm co eval (zadanie jednorazowe → odczyt wykonania → kasacja),
-  # ale nieporównanie tańszy: jeden SELECT, sekundy zamiast godzin. Wyjście
-  # skryptu to id/nazwa/NIP — bez kwot i bez osób.
+  # ale nieporównanie tańszy: kilka SELECT-ów, sekundy zamiast godzin.
+  #
+  # `--with-links` dokłada kontrakty i umowy B2B przypięte do znalezionych
+  # klientów — to materiał do rozstrzygnięcia pomyłki „dwa podobnie nazwane
+  # rekordy klienta", której nie widać z interfejsu. Wyjście niesie
+  # IDENTYFIKATORY, statusy i samo nazwisko konsultanta: log Actions ma pozwolić
+  # wskazać wiersz do poprawki, a nie odtworzyć kartotekę. Zero kwot.
   lookup:
     name: Client lookup (prod, read-only)
     if: ${{ inputs.action == 'client-lookup' }}
@@ -659,7 +664,7 @@ jobs:
             exit 1
           fi
 
-          CMD="cd /app && python -m scripts.list_clients --like ${needle} ; echo ${SENTINEL}"
+          CMD="cd /app && python -m scripts.list_clients --like ${needle} --with-links ; echo ${SENTINEL}"
           # Ten sam guard co przy evalu: nie wiemy, czy Coolify opakowuje komendę
           # w sh -c z apostrofami, czy w cudzysłów.
           case "$CMD" in
