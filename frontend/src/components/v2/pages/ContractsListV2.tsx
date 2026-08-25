@@ -195,11 +195,18 @@ export function ContractsListV2() {
  // `selectinload`) i przerzucało tabelę w stan ładowania.
  const debouncedSearch = useDebouncedValue(search, 300);
 
- const toggleId = (id: number) => {
+ // Zaznaczenie operuje na KOMPLECIE umów wiersza. Wiersz zgrupowany pokazuje
+ // N umów (N klientów) — checkbox, który wnosiłby tylko umowę główną, robiłby
+ // z „Zakończ"/„Przedłuż" cichą, częściową operację: użytkownik zaznacza
+ // OSOBĘ, a skutek dotyka połowy jej kontraktów (P1 z przeglądu 2026-08-25).
+ const toggleIds = (ids: number[]) => {
  setSelectedIds((prev) => {
  const next = new Set(prev);
- if (next.has(id)) next.delete(id);
+ const allSelected = ids.every((id) => next.has(id));
+ ids.forEach((id) => {
+ if (allSelected) next.delete(id);
  else next.add(id);
+ });
  return next;
  });
  };
@@ -314,7 +321,10 @@ export function ContractsListV2() {
  // set of currently-visible ids — never by count equality (which is fragile
  // against stale ids from a previous page/filter). Computed inline (page size
  // is small, and it's only read in render + handlers, never a dep array).
- const visibleIds = items.map((i) => i.id);
+ // Wiersz zgrupowany wnosi WSZYSTKIE swoje umowy (patrz `toggleIds`).
+ const visibleIds = items.flatMap((i) =>
+ i.group_members?.length ? i.group_members.map((m) => m.id) : [i.id],
+ );
  const allVisibleSelected =
  visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
@@ -566,13 +576,29 @@ export function ContractsListV2() {
  // pojedyncza umowa renderuje się dokładnie jak dotychczas.
  const members = c.group_members ?? [];
  const multi = members.length > 1;
+ // Checkbox wiersza = komplet umów osoby (patrz `toggleIds`).
+ const rowIds = members.length ? members.map((m) => m.id) : [c.id];
+ const rowSelected = rowIds.every((id) => selectedIds.has(id));
+ // „pracuje u N klientów" mówi o ŻYWYCH umowach i ODRĘBNYCH klientach —
+ // ended+active u tego samego klienta (powrót po przerwie) to nie jest
+ // praca u dwóch klientów naraz. Lustro `liveClientCount` z widoku
+ // szczegółów.
+ const liveClientCount = new Set(
+ members
+ .filter((m) => m.status === "active" || m.status === "ending")
+ .map((m) => m.client_id),
+ ).size;
  return (
- <TableRow key={c.id} interactive selected={selectedIds.has(c.id)}>
+ <TableRow key={c.id} interactive selected={rowSelected}>
  <TableCell onClick={(e) => e.stopPropagation()}>
  <Checkbox
- checked={selectedIds.has(c.id)}
- onCheckedChange={() => toggleId(c.id)}
- aria-label={`Zaznacz kontrakt ${c.id}`}
+ checked={rowSelected}
+ onCheckedChange={() => toggleIds(rowIds)}
+ aria-label={
+ multi
+ ? `Zaznacz wszystkie kontrakty: ${c.candidate_name ?? c.id}`
+ : `Zaznacz kontrakt ${c.id}`
+ }
  />
  </TableCell>
  <TableCell>
@@ -582,9 +608,9 @@ export function ContractsListV2() {
  >
  {c.candidate_name ?? `#${c.id}`}
  </Link>
- {multi && (
+ {liveClientCount > 1 && (
  <div className="text-xs text-muted-foreground">
- pracuje u {members.length} klientów
+ pracuje u {liveClientCount} klientów
  </div>
  )}
  </TableCell>
@@ -620,6 +646,16 @@ export function ContractsListV2() {
  <span className="text-foreground">
  {m.start_date ? formatDate(m.start_date) : "—"}
  {m.end_date ? ` → ${formatDate(m.end_date)}` : ""}
+ {m.latest_order_end_date &&
+ m.latest_order_end_date !== m.end_date && (
+ <span
+ className="text-warning-muted-foreground"
+ title="Aktualne zamówienie klienta kończy się tej daty"
+ >
+ {" "}
+ · zam. do {formatDate(m.latest_order_end_date)}
+ </span>
+ )}
  </span>
  ))
  ) : (

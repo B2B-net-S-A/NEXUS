@@ -1401,7 +1401,12 @@ async def _assert_no_duplicate_contract(
     email_norm = (candidate.email or "").strip().lower()
     identity_clauses = [Contract.candidate_id == candidate.id]
     if email_norm:
-        identity_clauses.append(func.lower(func.trim(Candidate.email)) == email_norm)
+        # btrim z jawną listą znaków: goły `trim()` w Postgresie tnie WYŁĄCZNIE
+        # spacje, a Pythonowy `.strip()` obok tnie też \t\n\r — e-mail
+        # z importu zakończony nową linią umykałby porównaniu.
+        identity_clauses.append(
+            func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+        )
     existing_id = await db.scalar(
         select(Contract.id)
         .join(Candidate, Candidate.id == Contract.candidate_id)
@@ -2625,13 +2630,39 @@ async def delete_contract(
     # RESTRICT, więc bez tego commit padałby IntegrityError → 500 (dokładnie
     # tak wyglądał zgłoszony bug „Usuń nie działa" dla umów z wygenerowanym
     # dokumentem). Wiersz w rejestrze „Wygenerowane umowy" zostaje nietknięty
-    # poza FK; wariant `signed_both` nigdy tu nie dociera (blokada wyżej).
+    # poza FK. Warunek na `signature_status` powtarza blokadę z
+    # `hard_delete_blocker` W SAMYM UPDATE — bez niego wyścig (potwierdzenie
+    # `signed_both` między checkiem a odpięciem) po cichu odpiąłby podpisaną
+    # umowę i FK RESTRICT przestałby być strażnikiem ostatniej szansy.
     from app.models.b2b_generated_contract import B2BGeneratedContract
 
     await db.execute(
         update(B2BGeneratedContract)
-        .where(B2BGeneratedContract.contract_id == contract_id)
+        .where(
+            B2BGeneratedContract.contract_id == contract_id,
+            B2BGeneratedContract.signature_status != "signed_both",
+        )
         .values(contract_id=None)
+    )
+
+    # Kasowana umowa może być linią w grupie zamówień (BIK/Polkomtel/BNP).
+    # Kaskada usunie linię i jej konsumpcje, ale `budget_remaining` /
+    # `settled_amount` grupy kosztowej to kolumny ZAPISANE, przeliczane
+    # wyłącznie przez `settle_group` — bez przeliczenia grupa pokazywałaby
+    # kwoty pomniejszone o skasowane faktury aż do najbliższego importu.
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.cost_orders import settle_group
+
+    affected_group_ids = set(
+        (
+            await db.scalars(
+                select(ClientOrder.order_group_id).where(
+                    ClientOrder.contract_id == contract_id,
+                    ClientOrder.order_group_id.is_not(None),
+                )
+            )
+        ).all()
     )
 
     db.add(
@@ -2648,6 +2679,19 @@ async def delete_contract(
         )
     )
     await db.delete(contract)
+    if affected_group_ids:
+        # Flush wykonuje DELETE + kaskady, żeby przeliczenie widziało stan
+        # bazy już BEZ linii kasowanej umowy.
+        await db.flush()
+        groups = (
+            await db.scalars(
+                select(ClientOrderGroup).where(
+                    ClientOrderGroup.id.in_(affected_group_ids)
+                )
+            )
+        ).all()
+        for group in groups:
+            await settle_group(db, group)
 
 
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────

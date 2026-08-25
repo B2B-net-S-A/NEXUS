@@ -97,30 +97,48 @@ async def _seed_contract(
         return contract.id
 
 
-async def _tac_headers(app_client: AsyncClient) -> dict[str, str]:
-    """Zaloguj świeżego TAC-a (rola bez VIEW_FINANCE) — do testu redakcji."""
+async def _role_headers(
+    app_client: AsyncClient,
+    role_value: str,
+    *,
+    assigned_client_id: int | None = None,
+) -> dict[str, str]:
+    """Zaloguj świeży rolowy login; DL dostaje opcjonalne przypisanie klienta."""
     from app.core.security import hash_password
+    from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
-    email = f"cons-tac-{uuid.uuid4().hex[:8]}@example.com"
+    email = f"cons-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
     password = f"P4ss_{uuid.uuid4().hex[:6]}!"
     async with AsyncSessionLocal() as db:
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name="Cons TAC",
-                role=UserRole.tac,
-                is_active=True,
-                profile_completed=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Cons {role_value}",
+            role=UserRole(role_value),
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if assigned_client_id is not None:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=assigned_client_id,
+                )
+            )
         await db.commit()
     resp = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
     )
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def _tac_headers(app_client: AsyncClient) -> dict[str, str]:
+    """Zaloguj świeżego TAC-a (rola bez VIEW_FINANCE) — do testu redakcji."""
+    return await _role_headers(app_client, "tac")
 
 
 # ── 1. Zgrupowana lista ──────────────────────────────────────────────────────
@@ -233,6 +251,46 @@ async def test_grouped_list_redacts_member_rates_for_non_finance(app_client):
         assert member["rate_candidate"] is None
         assert member["rate_client"] is None
         assert member["margin"] is None
+
+
+async def test_grouped_list_and_siblings_respect_delivery_lead_scope(app_client):
+    """DL przypisany do klienta A nie może przez konsolidację odczytać, że
+    konsultant pracuje też u klienta B: zgrupowany wiersz zawiera wyłącznie
+    umowy z portfela DL-a, a `related_contracts` nie wystawia chipa klienta
+    spoza scope'u."""
+    marker = f"Dls{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    client_a = await _seed_client(f"PortfelDL {marker}")
+    client_b = await _seed_client(f"ObcyKlient {marker}")
+    id_a = await _seed_contract(cand, client_a)
+    id_b = await _seed_contract(cand, client_b)
+
+    dl_headers = await _role_headers(
+        app_client, "delivery_lead", assigned_client_id=client_a
+    )
+
+    grouped = await app_client.get(
+        "/api/contracts",
+        params={"q": marker, "group_by_candidate": "true", "page_size": 50},
+        headers=dl_headers,
+    )
+    assert grouped.status_code == 200, grouped.text
+    body = grouped.json()
+    assert body["total"] == 1
+    [row] = body["items"]
+    assert [m["id"] for m in row["group_members"]] == [id_a]
+    assert all(
+        f"ObcyKlient {marker}" != (m["client_name"] or "")
+        for m in row["group_members"]
+    )
+
+    detail = await app_client.get(f"/api/contracts/{id_a}", headers=dl_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["related_contracts"] == []
+
+    # Kontrakt spoza portfela pozostaje niedostępny wprost.
+    outside = await app_client.get(f"/api/contracts/{id_b}", headers=dl_headers)
+    assert outside.status_code == 403, outside.text
 
 
 # ── 2. Zakładki per klient w szczegółach ─────────────────────────────────────
@@ -407,6 +465,92 @@ async def test_delete_contract_unlinks_generated_b2b_and_keeps_candidate(
         assert surviving is not None
         assert surviving.contract_id is None
         assert surviving.contract_number == f"B2B/TEST/{marker}"
+
+
+async def test_delete_contract_resettles_cost_order_group(
+    app_client, app_auth_headers
+):
+    """Kaskada DELETE usuwa linię grupy kosztowej i jej konsumpcje, a
+    `budget_remaining`/`settled_amount` są kolumnami ZAPISANYMI, przeliczanymi
+    wyłącznie przez `settle_group` — endpoint musi je przeliczyć, inaczej grupa
+    do najbliższego importu pokazuje kwoty pomniejszone o skasowane faktury."""
+    from decimal import Decimal
+
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroup
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+    from app.services.cost_orders import settle_group
+
+    marker = f"Dcg{uuid.uuid4().hex[:6]}"
+    cand_a = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cand_b = await _seed_candidate(
+        marker, email=f"{marker.lower()}-b@example.com", suffix="Drugi"
+    )
+    cli = await _seed_client(f"CostKlient {marker}")
+    cid_deleted = await _seed_contract(cand_a, cli)
+    cid_stays = await _seed_contract(cand_b, cli)
+
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=cli,
+            order_number=f"GRP/{marker}",
+            start_date=date.today() - timedelta(days=60),
+            is_cost_based=True,
+            budget_amount=Decimal("1000.00"),
+            # CHECK cost_coherence wymaga niepustej reszty przy insercie;
+            # settle_group niżej i tak przelicza ją od zera.
+            budget_remaining=Decimal("1000.00"),
+        )
+        db.add(group)
+        await db.flush()
+        line_deleted = ClientOrder(
+            client_id=cli,
+            contract_id=cid_deleted,
+            title=f"Linia kasowana {marker}",
+            order_group_id=group.id,
+        )
+        line_stays = ClientOrder(
+            client_id=cli,
+            contract_id=cid_stays,
+            title=f"Linia zostaje {marker}",
+            order_group_id=group.id,
+        )
+        db.add_all([line_deleted, line_stays])
+        await db.flush()
+        db.add_all(
+            [
+                ClientOrderInvoiceConsumption(
+                    order_id=line_deleted.id,
+                    period_month="2026-07",
+                    invoice_amount=Decimal("400.00"),
+                    source="import",
+                ),
+                ClientOrderInvoiceConsumption(
+                    order_id=line_stays.id,
+                    period_month="2026-07",
+                    invoice_amount=Decimal("300.00"),
+                    source="import",
+                ),
+            ]
+        )
+        # Sesje repo mają autoflush=False — bez jawnego flusha SELECT wewnątrz
+        # settle_group nie widziałby dopiero co dodanych konsumpcji.
+        await db.flush()
+        await settle_group(db, group)
+        await db.commit()
+        group_id = group.id
+        assert group.budget_remaining == Decimal("300.00")
+
+    resp = await app_client.delete(
+        f"/api/contracts/{cid_deleted}", headers=app_auth_headers
+    )
+    assert resp.status_code == 204, resp.text
+
+    async with AsyncSessionLocal() as db:
+        refreshed = await db.get(ClientOrderGroup, group_id)
+        assert refreshed is not None
+        # Faktury skasowanej linii (400) już nie obciążają puli: 1000 − 300.
+        assert refreshed.budget_remaining == Decimal("700.00")
 
 
 async def test_delete_contract_with_signed_both_generated_refused_in_polish(

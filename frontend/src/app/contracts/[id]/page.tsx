@@ -731,10 +731,18 @@ export default function ContractDetailPage() {
   // okres, stawki, marża, benchmark, dokumenty, aneksy — wszystko per klient,
   // bo to po prostu ta strona dla tamtego kontraktu).
   const relatedContracts = contract.related_contracts ?? [];
-  const liveClientCount =
-    (["active", "ending"].includes(contract.status) ? 1 : 0) +
-    relatedContracts.filter((r) => r.status === "active" || r.status === "ending")
-      .length;
+  // ODRĘBNI klienci z żywych umów — dwie żywe umowy u tego samego klienta
+  // (dane historyczne) to nadal praca u JEDNEGO klienta.
+  const liveClientCount = new Set(
+    [
+      ...(["active", "ending"].includes(contract.status)
+        ? [contract.client_id]
+        : []),
+      ...relatedContracts
+        .filter((r) => r.status === "active" || r.status === "ending")
+        .map((r) => r.client_id),
+    ],
+  ).size;
 
   return (
     <div className="space-y-6">
@@ -872,7 +880,7 @@ export default function ContractDetailPage() {
           if (!deleteMutation.isPending) setShowDeleteDialog(open);
         }}
         title="Usunąć kontrakt?"
-        description="Operacja jest nieodwracalna. Usunięty zostanie wyłącznie rekord kontraktu — kandydat pozostanie w module Kandydaci, a wygenerowane umowy B2B pozostaną w „Wygenerowane umowy”."
+        description="Operacja jest nieodwracalna. Usunięty zostanie kontrakt WRAZ z jego dokumentami, aneksami, fakturami, zamówieniami i harmonogramami stawek. Zostają: kandydat w module Kandydaci, wygenerowane umowy B2B w „Wygenerowane umowy” oraz notatki i rozmowy (odpięte od kontraktu)."
         footer={
           <div className="flex justify-end gap-2">
             <button

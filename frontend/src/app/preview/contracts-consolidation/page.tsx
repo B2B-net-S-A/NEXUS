@@ -13,6 +13,11 @@
  *
  * Auth: zustand store dostaje admina z view_finance — komponenty czytają rolę
  * z tego samego store'a co produkcja, więc kolumny finansowe się renderują.
+ *
+ * UWAGA: harness gwarantuje zero requestów przy ŁADOWANIU (wszystkie zapytania
+ * zasiane). Kliknięcie „Dodaj projekt" z wybranym klientem wykonałoby jednak
+ * prawdziwy POST /api/contracts (mutacja, nie query) i skończyło się 401 —
+ * dialog służy tu do oglądania WALIDACJI (zapis bez klienta), nie do zapisu.
  */
 
 import { useEffect, useState } from "react";

@@ -20,7 +20,7 @@
  *   status jest ograniczony do szkicu.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
@@ -115,6 +115,15 @@ export function AddProjectDialog({
   );
   const [banner, setBanner] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+
+  // Świeże otwarcie = czysty stan błędów; zeszłotygodniowy 409 nie ma prawa
+  // witać użytkownika przy ponownym otwarciu dialogu.
+  useEffect(() => {
+    if (open) {
+      setBanner("");
+      setFieldErrors({});
+    }
+  }, [open]);
 
   const clearField = (field: string) =>
     setFieldErrors((prev) => {
@@ -262,7 +271,12 @@ export function AddProjectDialog({
   return (
     <AppModal
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => {
+        // Nie zamykaj w trakcie zapisu — zamknięcie w połowie mutacji
+        // zostawiłoby użytkownika bez informacji o wyniku (lustro modala
+        // usuwania kontraktu).
+        if (!createMutation.isPending) onOpenChange(next);
+      }}
       title="Dodaj kolejny projekt"
       description={
         candidateName

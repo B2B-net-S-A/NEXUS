@@ -92,6 +92,10 @@ export function extractErrorMsg(error: unknown): string {
         data.detail &&
         typeof data.detail === "object" &&
         !Array.isArray(data.detail) &&
+        // Jawny match na message lifecycle'u — sam klucz `missing` mógłby
+        // w przyszłości znaczyć co innego w innym endpointzie.
+        (data.detail as { message?: unknown }).message ===
+          "Missing required fields" &&
         Array.isArray((data.detail as { missing?: unknown }).missing) &&
         (data.detail as { missing: unknown[] }).missing.length > 0
       ) {

@@ -138,6 +138,45 @@ pokazywał tylko jednego klienta.
   dialog „+ Dodaj kolejny projekt" z walidacją (baner + czerwone pola
   + opisy PL przy próbie zapisu bez klienta).
 
+## Runda adwersaryjna (standard przy pieniądzach/kontraktach)
+
+Niezależny przebieg adwersaryjny na diffie znalazł i wymusił poprawki:
+
+- **[P1] Akcje masowe na zgrupowanym wierszu** obejmowały tylko umowę główną —
+  checkbox „osoby" wnosił jedno id, a „Zakończ"/„Przedłuż" po cichu omijały
+  drugą umowę. Teraz zaznaczenie wiersza = KOMPLET umów osoby.
+- **[P2] Kwoty grupy zamówień po DELETE**: kaskada usuwała linię i jej
+  konsumpcje, ale `budget_remaining`/`settled_amount` (kolumny zapisane,
+  jedyny writer `settle_group`) zostawały przeterminowane do najbliższego
+  importu. Endpoint DELETE przelicza teraz dotknięte grupy po kasowaniu
+  (test: 1000 − 300 = 700 po zniknięciu linii z fakturami na 400).
+- **[P2] „pracuje u N klientów"** na liście liczyło wszystkie umowy grupy
+  (w tym `ended` i tego samego klienta dwa razy — powrót po przerwie).
+  Teraz: ŻYWE umowy × ODRĘBNI klienci, lustrzanie na liście i w szczegółach.
+- **[P2] Copy modala usuwania** twierdziło „wyłącznie rekord kontraktu" —
+  teraz uczciwie wymienia kaskadę (dokumenty, aneksy, faktury, zamówienia,
+  harmonogramy) i to, co zostaje.
+- **[P3] TOCTOU przy odpinaniu**: UPDATE odpinający umowy wygenerowane
+  powtarza warunek `signature_status != 'signed_both'` w samym zapytaniu —
+  wyścig z równoległym potwierdzeniem podpisu kończy się na FK RESTRICT,
+  nie cichym odpięciem dowodu.
+- **[P3] `trim()` w blokadzie duplikatu** tnie w Postgresie tylko spacje —
+  zamienione na `btrim(…, " \t\r\n")` (lustro Pythonowego `.strip()`).
+- **[P3] `extractErrorMsg`** dopasowuje teraz jawnie
+  `message === "Missing required fields"`, nie sam klucz `missing`.
+- **[P3] AddProjectDialog**: reset błędów przy ponownym otwarciu + blokada
+  zamknięcia w trakcie zapisu (lustro modala usuwania).
+- **[P3] Zgrupowany wiersz** pokazuje też „zam. do" per klient.
+- Nowe testy kontraktowe: scope DL w trybie grupowanym i w
+  `related_contracts` (DL nie odczyta przez konsolidację, że konsultant
+  pracuje też u klienta spoza portfela) + przeliczenie grupy kosztowej.
+
+Świadomie niepodjęte z raportu: eksport pozostaje płaski (dokumentowane),
+brak DB-unique na parę osoba+klient (guard per-endpoint; ścieżka
+`confirm-fully-signed` tworzy kontrakt własną, audytowaną drogą — nie ma jej
+w zakresie ticketu), harness preview może wykonać realny POST wyłącznie po
+ręcznym kliknięciu z wybranym klientem (udokumentowane w komentarzu).
+
 ## Znane ograniczenia / świadome decyzje
 
 - Widok operacyjny `/api/contractors` (roster) nadal jest per-umowa — ticket
