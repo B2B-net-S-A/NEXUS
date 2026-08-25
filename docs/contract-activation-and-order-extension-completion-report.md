@@ -252,6 +252,52 @@ dopasowań” jest tu poprawnym wynikiem (świeża baza, CI), nie błędem.
 
 ---
 
+## Recenzja i przebieg adwersarialny — trzy poprawki po fakcie
+
+Warto to zapisać, bo obie znalezione rzeczy mają **ten sam kształt**: reguła
+napisana dwa razy i za drugim razem inaczej. Migracja `0243` była w obu
+przypadkach tą poprawną kopią.
+
+**Z recenzji:** `client_order_end_date` nie było zerowane, gdy bezterminowe
+zamówienie czyniło bezterminowym kontrakt — guard `contract.end_date is not
+None` pomijał całą gałąź. Migracja robiła to poprawnie (`has_open_ended →
+NULL`), więc ścieżka runtime rozjeżdżała się z własną migracją.
+
+Uwaga do uzasadnienia, którą trzeba znać: kolumnę skanuje
+`contract_alerts._client_orders_ending`, **nie** `dl_portal_expiry_scanner`,
+a jego predykat wymaga `client_order_end_date >= today` — więc PRZESZŁA data
+z okna wypada i **żadnego fałszywego alertu nie wygeneruje**. To czyni rozjazd
+gorszym, nie lepszym: nic go nie zgłosi. Realna szkoda jest w UI — profil
+kontraktu renderuje tę wartość osobnym wierszem, więc obok „Okres: … –
+bezterminowo" stałaby data z przeszłości.
+
+**Z przebiegu adwersarialnego:** `sync_contract_to_live_order` przesuwało
+`end_date` NIEZALEŻNIE od statusu, a `create_order_extension` nie filtruje
+statusu przy wyszukaniu umowy. Osiągalne skutki: zamówienie dopięte do umowy
+`void` (soft-delete, `ALLOWED_TRANSITIONS[void]` = zbiór pusty) po cichu
+przesuwało jej datę końca; `draft` dostawał przesuniętą datę z pominięciem
+własnego cyklu życia; `active` dostawał rozciągnięty horyzont — zachowanie,
+którego przed tą zmianą nie było i o które nikt nie prosił. Funkcja jest teraz
+zawężona do `ended`/`ending`, czyli do tego samego zbioru co migracja.
+
+**Brakujący test na zgłoszony objaw:** poprawka kolejności w `PATCH` nie miała
+pokrycia, a to wariant 409, którego NIE tłumaczy zdjęcie `end_date` z bramki.
+
+### Jak te poprawki zweryfikowano
+
+Nie zielonym testem obok istniejącej poprawki — każda przez ODWRÓCENIE:
+
+* zdjęta bramka statusu → 3 testy padają, przywrócona → przechodzą;
+* przywrócona stara kolejność `PATCH` → test pada z
+  `{"message":"Missing required fields","missing":["rate_candidate"]}`, czyli
+  odtwarza zgłoszone 409 **co do treści**;
+* migracja `0243` puszczona na ZASEEDOWANYCH wierszach, nie tylko na pustej
+  bazie: kontrakt `ended` → audyt `from_status='ended'`, kontrakt `ending` →
+  `from_status='ending'`, a wiersz z bezterminowym zamówieniem wyszedł
+  z `end_date IS NULL` **i** `client_order_end_date IS NULL`.
+
+---
+
 ## Weryfikacja
 
 | Bramka | Wynik |
