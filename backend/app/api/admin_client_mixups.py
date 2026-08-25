@@ -287,15 +287,14 @@ async def client_mixups(
         g.job_id for g in generated if g.job_id
     }
     job_client_id: dict[int, int] = {}
-    if job_ids:
-        rows = await db.execute(
-            select(Job.id, Job.client_id).where(Job.id.in_(job_ids))
-        )
-        job_client_id = {jid: cid for jid, cid in rows.all()}
     job_title: dict[int, str] = {}
     if job_ids:
-        rows = await db.execute(select(Job.id, Job.title).where(Job.id.in_(job_ids)))
-        job_title = {jid: title for jid, title in rows.all()}
+        rows = await db.execute(
+            select(Job.id, Job.client_id, Job.title).where(Job.id.in_(job_ids))
+        )
+        for jid, cid, title in rows.all():
+            job_client_id[jid] = cid
+            job_title[jid] = title
     clients_by_id = {c.id: c for c in clients}
 
     families: list[MixupFamily] = []

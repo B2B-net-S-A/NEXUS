@@ -313,6 +313,20 @@ export function ConsultantLineModal({
 
   const submit = () => {
     if (!canSubmit) return;
+    // Wartości liczbowe wyprowadzone RAZ i sprawdzone, zamiast `as number`
+    // w ładunku. Rzutowanie ukrywało przed kompilatorem, że
+    // `parseDecimalInput` zwraca `number | null`, a `toMdRate(null, …)` też
+    // oddaje `null` — pusta stawka jechała wtedy do API jako
+    // `rate_cost: null`. W praktyce zasłaniał to `canSubmit`, ale bramka
+    // i ładunek to dwa różne miejsca: rozjazd między nimi byłby cichy.
+    const costMd = toMdRate(parseDecimalInput(rateCost) ?? Number.NaN, costUnit);
+    const revenueMd = toMdRate(
+      parseDecimalInput(rateRevenue) ?? Number.NaN,
+      revenueUnit,
+    );
+    const budgetValue = parseDecimalInput(inputValue);
+    if (costMd === null || revenueMd === null) return;
+    if (!costBased && budgetValue === null) return;
     onSubmit({
       // Edycja nie zmienia osoby, więc linia zostaje przy swoim kontrakcie.
       // Dodanie wysyła DOKŁADNIE JEDNO pole — dwa naraz serwer odrzuca, żeby
@@ -324,17 +338,11 @@ export function ConsultantLineModal({
           : { candidate_id: person?.candidate_id }),
       // ZAWSZE zł/MD — jednostka rozliczeniowa modułu. Przełącznik zmienia
       // tylko to, w czym operator wpisuje.
-      rate_cost: toMdRate(parseDecimalInput(rateCost) as number, costUnit) as number,
-      rate_revenue: toMdRate(
-        parseDecimalInput(rateRevenue) as number,
-        revenueUnit,
-      ) as number,
+      rate_cost: costMd,
+      rate_revenue: revenueMd,
       ...(costBased
         ? {}
-        : {
-            input_mode: inputMode,
-            input_value: parseDecimalInput(inputValue) as number,
-          }),
+        : { input_mode: inputMode, input_value: budgetValue as number }),
       start_date: startDate,
       end_date: endDate || null,
     });

@@ -27,7 +27,9 @@ from app.services.contract_lifecycle import order_period_covers
 pytestmark = pytest.mark.asyncio
 
 
-async def _seed_ended_contract(*, end_date: date) -> tuple[int, int]:
+async def _seed_ended_contract(
+    *, end_date: date, client_order_end_date: date | None = None
+) -> tuple[int, int]:
     """Kontraktor po zakończonym projekcie — wiersz z zakładki „Zakończeni”."""
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -45,6 +47,7 @@ async def _seed_ended_contract(*, end_date: date) -> tuple[int, int]:
             end_date=end_date,
             rate_candidate=15000,
             rate_client=20000,
+            client_order_end_date=client_order_end_date,
         )
         db.add(contract)
         await db.commit()
@@ -56,6 +59,13 @@ async def _contract_state(contract_id: int) -> tuple[ContractStatus, date | None
         contract = await db.get(Contract, contract_id)
         assert contract is not None
         return contract.status, contract.end_date
+
+
+async def _client_order_end(contract_id: int) -> date | None:
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract is not None
+        return contract.client_order_end_date
 
 
 async def _post_extension(
@@ -158,7 +168,8 @@ async def test_open_ended_running_extension_makes_the_contract_indefinite(
 ):
     today = date.today()
     client_id, contract_id = await _seed_ended_contract(
-        end_date=today - timedelta(days=10)
+        end_date=today - timedelta(days=10),
+        client_order_end_date=today - timedelta(days=10),
     )
 
     resp = await _post_extension(
@@ -174,6 +185,50 @@ async def test_open_ended_running_extension_makes_the_contract_indefinite(
     status, end_date = await _contract_state(contract_id)
     assert status == ContractStatus.active
     assert end_date is None
+    # „Koniec zamówienia u klienta" z PRZESZŁĄ datą na umowie bezterminowej
+    # przestał cokolwiek opisywać i generowałby fałszywe alerty wygasania
+    # (`dl_portal_expiry_scanner` skanuje tę kolumnę). Migracja 0243 zeruje ją
+    # dla wierszy historycznych — ścieżka runtime musi robić to samo, inaczej
+    # rozjazd między nimi jest cichy.
+    assert await _client_order_end(contract_id) is None
+
+
+async def test_running_extension_moves_the_tracked_client_order_end(
+    app_client, app_auth_headers
+):
+    """Śledzony „Koniec zamówienia u klienta" idzie za nowym horyzontem…"""
+    today = date.today()
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=today - timedelta(days=60),
+        client_order_end_date=today - timedelta(days=60),
+    )
+    new_end = today + timedelta(days=36)
+    resp = await _post_extension(
+        app_client, app_auth_headers, client_id, contract_id,
+        start=today - timedelta(days=25), end=new_end,
+    )
+    assert resp.status_code == 201, resp.text
+    assert await _client_order_end(contract_id) == new_end
+
+
+async def test_untracked_client_order_end_is_not_invented(
+    app_client, app_auth_headers
+):
+    """…ale NULL zostaje NULL-em — nie wymyślamy daty, której nikt nie śledził.
+
+    Lustro `_synced_client_order_end` (ta sama reguła co przy aneksie
+    i `/bulk-extend`).
+    """
+    today = date.today()
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=today - timedelta(days=60), client_order_end_date=None
+    )
+    resp = await _post_extension(
+        app_client, app_auth_headers, client_id, contract_id,
+        start=today - timedelta(days=25), end=today + timedelta(days=36),
+    )
+    assert resp.status_code == 201, resp.text
+    assert await _client_order_end(contract_id) is None
 
 
 async def test_draft_extension_is_not_evidence_of_running_work(

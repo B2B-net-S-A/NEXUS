@@ -69,6 +69,11 @@ BEGIN
 
     CREATE TEMP TABLE _revive_targets ON COMMIT DROP AS
     SELECT c.id AS contract_id,
+           -- Status SPRZED korekty — audyt ma nieść to, co naprawdę było.
+           -- WHERE łapie `ended` ORAZ `ending`, więc wpisany na sztywno
+           -- `from_status = 'ended'` kłamałby dla tych drugich, a wiersz
+           -- audytu istnieje właśnie po to, żeby dało się odtworzyć przejście.
+           c.status::text              AS previous_status,
            bool_or(o.end_date IS NULL) AS has_open_ended,
            max(o.end_date)             AS max_end
       FROM contracts AS c
@@ -79,7 +84,7 @@ BEGIN
        AND o.start_date IS NOT NULL
        AND o.start_date <= CURRENT_DATE
        AND (o.end_date IS NULL OR o.end_date >= CURRENT_DATE)
-     GROUP BY c.id;
+     GROUP BY c.id, c.status;
 
     UPDATE contracts AS c
        SET status = 'active',
@@ -111,7 +116,7 @@ BEGIN
            t.contract_id,
            'contract_reopened',
            jsonb_build_object(
-               'from_status', 'ended',
+               'from_status', t.previous_status,
                'to_status', 'active',
                'source', '0243_revive_contracts_with_live_orders'
            )

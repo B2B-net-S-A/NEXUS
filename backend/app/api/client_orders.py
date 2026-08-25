@@ -401,10 +401,19 @@ async def _sync_contract_after_order_extension(
         actor_id=actor_id,
         today=business_today(),
     )
-    if changed and contract.end_date != before_end and contract.end_date is not None:
-        contract.client_order_end_date = _synced_client_order_end(
-            contract.client_order_end_date, contract.end_date
-        )
+    if changed and contract.end_date != before_end:
+        if contract.end_date is None:
+            # Zamówienie bezterminowe uczyniło bezterminowym także kontrakt —
+            # „Koniec zamówienia u klienta" z przeszłą datą przestał opisywać
+            # cokolwiek i zacząłby generować fałszywe alerty wygasania
+            # (`dl_portal_expiry_scanner` skanuje tę kolumnę). Migracja 0243
+            # robi to samo dla wierszy historycznych (`has_open_ended → NULL`);
+            # rozjazd między ścieżką runtime a migracją byłby cichy.
+            contract.client_order_end_date = None
+        else:
+            contract.client_order_end_date = _synced_client_order_end(
+                contract.client_order_end_date, contract.end_date
+            )
     return changed
 
 
