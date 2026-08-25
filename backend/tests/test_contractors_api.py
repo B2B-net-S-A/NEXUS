@@ -59,9 +59,30 @@ def test_validate_partial_returns_only_missing():
         contract_type="b2b",
     )
     missing = validate_ready_for_activation(contract)
-    assert set(missing) == {"end_date", "rate_client", "work_mode"}
+    assert set(missing) == {"rate_client", "work_mode"}
     # Preserves canonical order — the UI depends on it for a stable checklist
     assert missing == [f for f in ACTIVATION_REQUIRED_FIELDS if f in missing]
+
+
+def test_open_ended_contract_is_ready_to_activate():
+    """Umowa BEZTERMINOWA jest kompletna — brak `end_date` to nie brak danych.
+
+    Ta asercja jest odwrotnością poprzedniego kontraktu i to jest zamierzone:
+    `end_date` w bramce dawało stan bez wyjścia (rejestr renderuje
+    „bezterminowo", `_status_after_end_date_change` leczy z niej `ended` na
+    `active`, a aktywować się nie dało żadną ścieżką — 409 przy każdym zapisie
+    na „Aktywny").
+    """
+    contract = _fake_contract(
+        start_date=date.today(),
+        end_date=None,
+        rate_candidate=15000,
+        rate_client=20000,
+        contract_type="b2b",
+        work_mode="remote",
+    )
+    assert validate_ready_for_activation(contract) == []
+    assert "end_date" not in ACTIVATION_REQUIRED_FIELDS
 
 
 # ── Integration: list + stats ───────────────────────────────────────────────

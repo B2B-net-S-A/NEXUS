@@ -881,3 +881,83 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   `GET /api/clients/{id}` zwraca `cost_orders_enabled`. To pole było zaplanowane,
   udokumentowane i konsumowane przez front, a mimo to nigdy nie powstało (PR #1196);
   wyszło z odpytania produkcji, nie z zielonych testów.
+
+## Aktywacja umowy: `end_date` NIE jest wymagane (umowa bezterminowa)
+
+`ACTIVATION_REQUIRED_FIELDS` (`contract_service.py`) to `start_date`,
+`rate_candidate`, `rate_client`, `contract_type`, `work_mode` — **bez daty
+zakończenia**. Umowa bezterminowa jest w body-leasingu normalnym stanem
+docelowym, a nie brakiem danych: rejestr renderuje ją jako „bezterminowo”,
+`_status_after_end_date_change` leczy z niej `ended`/`ending` na `active`,
+a `ending_soon_clause` jej nie łapie. Wymaganie daty w bramce dawało **stan
+bez wyjścia** — taka umowa nie wychodziła z Draftu żadną ścieżką (objaw: 409
+przy każdym zapisie na „Aktywny”). PR #1260 obszedł skutek w UI; ten PR usunął
+przyczynę. Lustro po stronie zamówień: `_order_has_required_activation_data`.
+
+- **Bramka rozpoznaje stawkę z HARMONOGRAMU**, nie tylko z kolumny cache’u
+  (`_has_activation_value` + `inspect(..., raiseerr=False)`, bo woła się ją
+  także na wierszach bez eager-loadowanych relacji — inaczej `MissingGreenlet`).
+- **W `PATCH /api/contracts/{id}` harmonogramy są wyprowadzane PRZED przejściem
+  stanu.** `POST` zawsze miał tę kolejność; `PATCH` ją odwracał, więc bramka
+  oglądała pustą kolumnę i odmawiała `missing: rate_candidate` dla stawki
+  przysłanej w tym samym żądaniu.
+- **„Kończący się” WYMAGA daty końca** (409 `ending_requires_end_date`) — bez
+  niej `_status_after_end_date_change` i nocny cron cofają status na `active`,
+  więc zapis zwracałby 200 i nie robił nic. Odmowa idzie PO pełnej liście
+  braków, żeby nie odsyłać operatora po kolejną odmowę.
+- FE ma trzy lustra tej bramki: `DraftCompletionModal`, walidacja „Nowy
+  kontrakt” i `extractErrorMsg` (`CONTRACT_FIELD_LABELS`).
+
+## Przedłużenie zamówienia wskrzesza zakończony kontrakt
+
+`POST /clients/{id}/orders` to TRZECIA ścieżka przedłużania współpracy i do
+sierpnia 2026 jedyna, która nie dotykała statusu kontraktu (aneks
+i `/bulk-extend` wołają `reopen_contract`). Skutek: przedłużenie dodane
+kontraktorowi z zakładki „Zakończeni” zostawiało go tam, bo pigułki czytają
+`contract_status` — i razem z pigułką milczały MRR, rejestr umów i skaner
+wygasania.
+
+Reguła żyje w `contract_lifecycle.sync_contract_to_live_order` i zależy
+WYŁĄCZNIE od dat, nie od zakładki: zamówienie obejmujące dziś (`start <= dziś`
+i `end IS NULL OR end >= dziś`) wskrzesza kontrakt, przyszłe nie zmienia nic,
+`draft`/`cancelled` nie liczą się wcale. **Data końca kontraktu rośnie razem
+ze statusem** — bez tego nocny `_promote_statuses` demotuje wskrzeszony
+kontrakt tej samej nocy i poprawka kasuje samą siebie. Historię leczy migracja
+`0243` (reguła ogólna, zero ID w SQL-u).
+
+## Polityki odczytu PDF per klient — jeden wzorzec, cztery bramki
+
+Każda polityka jest DETERMINISTYCZNA i stosowana PO odpowiedzi LLM (model
+wybiera interpretację, nie stosuje reguł), bramkowana CSV `client_id` z env,
+fail-closed:
+
+| Klient | Env | Reguła |
+|---|---|---|
+| Nordea | `NORDEA_ORDER_NUMBER_CLIENT_IDS` | numer tylko z „Call Off Agreement number” |
+| Bank Pocztowy | `BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS` | numer pisma; netto MD ÷ 8 (w górę) |
+| Credit Agricole | `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` | stawka tylko z „Wynagrodzenie za 1MD (8h)”, MD tylko z „Szacowana ilość MD” |
+| Erste Bank Polska | `ERSTE_GROSS_RATE_CLIENT_IDS` | brutto ÷ 1,23 → netto (half-up, 2 miejsca) |
+
+- **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
+  wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
+- **Credit Agricole odmawia zamiast zgadywać**, gdy obie etykiety stoją
+  w jednym wierszu (nagłówek tabeli): bez wyrównania kolumn „pierwsza liczba
+  za etykietą” trafia w liczbę porządkową. Zła stawka zapisana jako pewna jest
+  gorsza niż puste pole — wychodzi dopiero na fakturze.
+- **`total_value` NIE jest przeliczane** u Erste (ticket mówi o stawce).
+
+## Audyt pomylonych klientów — `GET /api/admin/client-mixups`
+
+Read-only raport (admin) rodzin klientów o wspólnym rdzeniu nazwy wraz z ich
+kontraktami i umowami B2B; przy każdym wierszu NIP obu stron, klient
+REKRUTACJI i flaga `job_client_mismatch`. Powstał po DWÓCH niezależnych
+zgłoszeniach tej samej pomyłki (BNP Paribas Cardif ↔ CARDIF - ASSURANCES…).
+
+- **Rodzinę wyznacza wspólny TOKEN nazwy, nie podciąg** — „BNP” jako podciąg
+  wciąga „BNP Paribas Bank Polska”, odrębnego prawdziwego klienta.
+- **Formy prawne odsiane** („SPÓŁKA AKCYJNA”, „ODDZIAŁ W POLSCE”), inaczej pół
+  bazy to jedna rodzina. **`ł` trzeba transliterować ręcznie** — NFKD go nie
+  rozkłada, więc „SPÓŁKA” tnie się na „spo” + „ka”.
+- **Zero mutacji.** Podobna nazwa bywa naprawdę innym klientem; rozstrzyga
+  człowiek. Uwaga: `ContractUpdate` NIE ma `client_id`, więc przepięcia
+  kontraktu na innego klienta nie da się dziś zrobić z interfejsu w ogóle.

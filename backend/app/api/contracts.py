@@ -344,9 +344,33 @@ async def _apply_contract_status_change(
         # luka — umowa najpierw zaczyna obowiązywać, a dopiero potem się
         # kończy. Dlatego szkic przechodzi przez `active` pełnym trybem, a
         # potem domykamy krawędź `active → ending`, którą maszyna zna.
+        #
         if contract.status not in (ContractStatus.active, ContractStatus.ending):
             await _apply_contract_status_change(
                 db, contract, ContractStatus.active, actor_id=actor_id
+            )
+        # Dopiero TERAZ, po pełnej bramce aktywacji: umowa BEZTERMINOWA nie
+        # może być „Kończąca się" — nie ma czego kończyć. Ta sama reguła stoi
+        # w `_status_after_end_date_change` („An indefinite contract can't be
+        # 'ending' either"), więc bez tej odmowy zapis wyglądałby na udany
+        # i sam się kasował przy najbliższym przeliczeniu.
+        #
+        # Kolejność jest nośna: ładunek, któremu brakuje i daty, i stawek, ma
+        # najpierw dostać PEŁNĄ listę braków. Odwrotna kolejność mówiłaby
+        # o dacie, a po jej wpisaniu odsyłała po następną odmowę.
+        # Świadomie TYLKO dla `ending` — `active` bez daty końca jest
+        # w body-leasingu stanem docelowym, nie brakiem danych.
+        if contract.end_date is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        "Status „Kończący się” wymaga daty zakończenia — "
+                        "umowa bezterminowa się nie kończy. Wpisz datę albo "
+                        "wybierz status „Aktywny”."
+                    ),
+                    "reason": "ending_requires_end_date",
+                },
             )
         assert_transition(contract.status, ContractStatus.ending)
         contract.status = ContractStatus.ending
@@ -1944,21 +1968,6 @@ async def update_contract(
     status_target = updates.pop("status", None)
     for k, v in updates.items():
         setattr(contract, k, v)
-    # Przejście stanu PO zapisaniu pozostałych pól, nie przed. Kolejność jest
-    # nośna w obie strony: `activate_contract` sprawdza komplet pól, więc musi
-    # widzieć wartości z TEGO żądania, a domknięcie umowy przypina `end_date`
-    # do dziś — pętla `setattr` odtworzyłaby potem przysłaną datę i zostawiła
-    # `ended` z datą w przyszłości, czyli status niezgodny z własną datą.
-    if status_sent and status_target is not None:
-        await _apply_contract_status_change(
-            db,
-            contract,
-            ContractStatus(status_target),
-            actor_id=current_user.id,
-        )
-        # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
-        # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
-        updates["status"] = contract.status.value
     if schedule_sent:
         contract.candidate_rate_schedule = [
             ContractCandidateRate(
@@ -1991,6 +2000,30 @@ async def update_contract(
         # setattr loop when present in this same PATCH).
         if contract.framework_rate_schedule:
             contract.framework_rate = contract.effective_framework_rate(date.today())
+    # Przejście stanu PO zapisaniu pozostałych pól ORAZ po wyprowadzeniu stawek
+    # z harmonogramów, nie przed. Kolejność jest nośna w obie strony:
+    # `activate_contract` sprawdza komplet pól, więc musi widzieć wartości
+    # z TEGO żądania, a domknięcie umowy przypina `end_date` do dziś — pętla
+    # `setattr` odtworzyłaby potem przysłaną datę i zostawiła `ended` z datą
+    # w przyszłości, czyli status niezgodny z własną datą.
+    #
+    # Harmonogram MUSI być przed przejściem z tego samego powodu, dla którego
+    # jest przed nim w POST (patrz `create_contract`): formularz rejestru
+    # wysyła stawkę kandydata ALBO jako `rate_candidate`, ALBO — gdy jest
+    # progresywna — wyłącznie jako `candidate_rate_schedule`. Przy starej
+    # kolejności bramka oglądała jeszcze pustą kolumnę cache'u i odmawiała
+    # aktywacji z „missing: rate_candidate", mimo że stawka przyszła w tym
+    # samym żądaniu — a linijkę niżej ta sama kolumna była już wypełniana.
+    if status_sent and status_target is not None:
+        await _apply_contract_status_change(
+            db,
+            contract,
+            ContractStatus(status_target),
+            actor_id=current_user.id,
+        )
+        # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
+        # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
+        updates["status"] = contract.status.value
     # Coherence guard: a PATCH that leaves the contract indefinite or with a
     # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
     # active so editing only the end date to "bezterminowo" heals a contract

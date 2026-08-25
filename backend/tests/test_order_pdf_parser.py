@@ -449,6 +449,150 @@ class TestNormalizeClaudeShape:
         assert "Kilku kandydatów na stawkę" in r.uncertain_reasons
 
 
+class TestCreditAgricolePolicy:
+    """Stawka WYŁĄCZNIE z „Wynagrodzenie za 1MD", liczba MD z „Szacowana ilość MD".
+
+    Zgłoszony objaw: parser wpisywał do stawki wartość z pola liczby MD.
+    Liczba jest arytmetycznie poprawna i przechodzi każdą walidację zakresu,
+    więc błąd wychodził dopiero na fakturze — dlatego polityka nie „poprawia"
+    wyboru modelu, tylko czyta obie wartości z ich własnych etykiet.
+    """
+
+    def _doc(self, rate: str = "1 040,00", md: str = "20") -> str:
+        return (
+            "Credit Agricole Bank Polska S.A.\n"
+            "Zamówienie nr CA/2026/0142\n"
+            f"Szacowana ilość MD: {md}\n"
+            f"Wynagrodzenie za 1MD (8h) (PLN netto): {rate}\n"
+        )
+
+    def _swapped(self) -> m.OrderExtraction:
+        """Wynik modelu z objawem z ticketu: w stawce siedzi liczba MD."""
+        return m.OrderExtraction(
+            title="CA/2026/0142",
+            rate_client=Decimal("20"),
+            rate_unit="day",
+            md_total=Decimal("20"),
+            uncertain=False,
+            source="claude",
+        )
+
+    def test_rate_comes_from_the_rate_label_not_from_md_count(self):
+        enforced = m.apply_credit_agricole_order_policy(self._swapped(), self._doc())
+        assert enforced.rate_client == Decimal("1040.00")
+        assert enforced.md_total == Decimal("20")
+        assert enforced.rate_unit == "day"
+
+    def test_label_digits_are_not_mistaken_for_the_value(self):
+        """„1MD" i „8h" w samej etykiecie nie mogą wygrać z wartością za nią."""
+        assert m.credit_agricole_md_rate(self._doc()) == Decimal("1040.00")
+
+    def test_value_on_the_next_line_is_found(self):
+        doc = (
+            "Szacowana ilość MD\n20\n"
+            "Wynagrodzenie za 1MD (8h) (PLN netto)\n1040,00\n"
+        )
+        assert m.credit_agricole_md_rate(doc) == Decimal("1040.00")
+        assert m.credit_agricole_md_count(doc) == Decimal("20")
+
+    def test_missing_diacritics_still_match(self):
+        doc = "Szacowana ilosc MD 20\nWynagrodzenie za 1 MD (8h) (PLN netto) 1040\n"
+        assert m.credit_agricole_md_rate(doc) == Decimal("1040")
+        assert m.credit_agricole_md_count(doc) == Decimal("20")
+
+    def test_table_header_layout_refuses_instead_of_guessing(self):
+        """Obie etykiety w jednym wierszu = nagłówek tabeli → nie zgadujemy.
+
+        Wartości leżą wtedy w kolumnach wiersza niżej, a ekstrakcja z PDF gubi
+        wyrównanie: „pierwsza liczba za etykietą" trafiłaby w liczbę porządkową.
+        To jest dokładnie ta pomyłka, którą ticket zgłasza.
+        """
+        doc = (
+            "Lp. Stanowisko Szacowana ilość MD Wynagrodzenie za 1MD (8h) (PLN netto)\n"
+            "1. Java Developer 20 1 040,00\n"
+        )
+        enforced = m.apply_credit_agricole_order_policy(self._swapped(), doc)
+        assert enforced.rate_client is None
+        assert enforced.rate_unit is None
+        assert enforced.uncertain is True
+        assert any("wpisz stawkę ręcznie" in r for r in enforced.uncertain_reasons)
+
+    def test_missing_rate_label_clears_the_model_guess(self):
+        enforced = m.apply_credit_agricole_order_policy(
+            self._swapped(), "Szacowana ilość MD: 20\nUwagi: brak\n"
+        )
+        assert enforced.rate_client is None
+        assert enforced.md_total == Decimal("20")
+        assert "rate_client" not in enforced.confidence
+
+    def test_identical_values_under_both_labels_refuse_the_rate(self):
+        """Ta sama liczba pod obiema etykietami = jedna z nich z cudzej kolumny."""
+        enforced = m.apply_credit_agricole_order_policy(
+            self._swapped(), self._doc(rate="20", md="20")
+        )
+        assert enforced.rate_client is None
+        assert enforced.md_total == Decimal("20")
+
+    def test_rate_outside_the_band_warns_but_keeps_the_value(self):
+        enforced = m.apply_credit_agricole_order_policy(
+            self._swapped(), self._doc(rate="12", md="20")
+        )
+        assert enforced.rate_client == Decimal("12")
+        assert any("Nietypowa stawka za 1 MD" in r for r in enforced.uncertain_reasons)
+
+    def test_clean_read_inside_the_band_stays_quiet(self):
+        enforced = m.apply_credit_agricole_order_policy(self._swapped(), self._doc())
+        assert enforced.uncertain is False
+        assert enforced.uncertain_reasons == []
+
+
+class TestErsteGrossToNetPolicy:
+    """Stawka w PDF Erste jest BRUTTO — zapisujemy netto (÷ 1,23)."""
+
+    def test_gross_is_divided_by_vat_and_rounded_to_two_places(self):
+        result = m.OrderExtraction(rate_client=Decimal("1230"), source="claude")
+        enforced = m.apply_erste_order_policy(result, "Erste Bank Polska S.A.")
+        assert enforced.rate_client == Decimal("1000.00")
+        # Oryginał brutto zostaje widoczny obok — operator konfrontuje z PDF-em.
+        assert enforced.rate_client_gross == Decimal("1230")
+
+    def test_rounding_is_half_up_to_two_places(self):
+        # 1000 / 1,23 = 813,00813… → 813,01
+        result = m.OrderExtraction(rate_client=Decimal("1000"), source="claude")
+        enforced = m.apply_erste_order_policy(result, "")
+        assert enforced.rate_client == Decimal("813.01")
+
+    def test_total_value_is_left_untouched(self):
+        """Ticket mówi o STAWCE — dzielenie wartości całkowitej byłoby zgadywaniem."""
+        result = m.OrderExtraction(
+            rate_client=Decimal("1230"),
+            total_value=Decimal("24600"),
+            source="claude",
+        )
+        enforced = m.apply_erste_order_policy(result, "")
+        assert enforced.total_value == Decimal("24600")
+
+    def test_no_rate_means_nothing_to_convert(self):
+        result = m.OrderExtraction(rate_client=None, source="claude")
+        enforced = m.apply_erste_order_policy(result, "")
+        assert enforced.rate_client is None
+        assert enforced.rate_client_gross is None
+
+    def test_conversion_is_idempotent_per_call_not_applied_twice(self):
+        """Dwa przebiegi tej samej polityki nie mogą dzielić dwa razy.
+
+        Router woła politykę raz, ale wartość musi być funkcją WEJŚCIA, a nie
+        liczby wywołań — inaczej powtórka odczytu cicho zaniża stawkę o 23%.
+        """
+        once = m.apply_erste_order_policy(
+            m.OrderExtraction(rate_client=Decimal("1230"), source="claude"), ""
+        )
+        twice = m.apply_erste_order_policy(
+            m.OrderExtraction(rate_client=Decimal("1230"), source="claude"), ""
+        )
+        assert once.rate_client == twice.rate_client == Decimal("1000.00")
+
+
 class TestParseOrderDocument:
     async def test_empty_document(self):
         r = await parse_order_document("   ")

@@ -55,13 +55,18 @@ function toFormState(c: ContractorListItem): FormState {
  };
 }
 
+/**
+ * Lustro `ACTIVATION_REQUIRED_FIELDS` (backend/app/services/contract_service.py).
+ * `end_date` świadomie POZA listą: umowa bezterminowa to normalny stan
+ * body-leasingu, a nie brak danych — wymaganie daty zamykało przycisk
+ * „Uzupełnij i aktywuj" na stałe dla kontraktów, których backend już aktywuje.
+ */
 function formDirtyOrValid(
  form: FormState,
  canManageFinance: boolean
 ): boolean {
  return Boolean(
  form.start_date &&
- form.end_date &&
  form.contract_type &&
  form.work_mode &&
  (!canManageFinance || (form.rate_candidate && form.rate_client))
@@ -69,11 +74,11 @@ function formDirtyOrValid(
 }
 
 /**
- * DraftCompletionModal — fills the 6 activation-required fields
- * (start_date, end_date, rate_candidate, rate_client, contract_type,
- * work_mode) then POSTs /activate. Two-step flow: PATCH first so values
- * persist even if activation fails for an unrelated reason, then
- * activate. A 409 from activate surfaces the missing-fields list
+ * DraftCompletionModal — fills the activation-required fields
+ * (start_date, rate_candidate, rate_client, contract_type, work_mode; the end
+ * date is optional — "bezterminowo") then POSTs /activate. Two-step flow:
+ * PATCH first so values persist even if activation fails for an unrelated
+ * reason, then activate. A 409 from activate surfaces the missing-fields list
  * returned by the server.
  */
 export function DraftCompletionModal({
@@ -103,7 +108,9 @@ export function DraftCompletionModal({
  mutationFn: async () => {
  const payload: Record<string, unknown> = {
  start_date: form.start_date,
- end_date: form.end_date,
+ // Pusty string to nie jest data — backend odrzuciłby go 422.
+ // `null` znaczy „bezterminowo" i tak też czyta go bramka aktywacji.
+ end_date: form.end_date || null,
  contract_type: form.contract_type,
  work_mode: form.work_mode,
  };
@@ -172,7 +179,7 @@ export function DraftCompletionModal({
  />
  </div>
  <div>
- <Label htmlFor="end_date">Data zakończenia *</Label>
+ <Label htmlFor="end_date">Data zakończenia</Label>
  <Input
  id="end_date"
  type="date"
@@ -181,6 +188,9 @@ export function DraftCompletionModal({
  setForm((f) => ({ ...f, end_date: e.target.value }))
  }
  />
+ <p className="mt-1 text-xs text-muted-foreground">
+ Puste = umowa bezterminowa.
+ </p>
  </div>
  {canManageFinance && (
  <>

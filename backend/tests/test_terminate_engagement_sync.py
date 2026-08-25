@@ -231,8 +231,13 @@ async def _seed_open_ended_draft() -> tuple[int, int, int]:
     Tak wygląda kontraktor założony przez „Nowy kontraktor/zamówienie"
     (`POST /clients/{id}/contract-with-order`): dialog nie zbiera typu umowy
     ani trybu pracy, więc kontrakt rodzi się `draft`, a `end_date` jest puste,
-    bo to body-leasing. `ACTIVATION_REQUIRED_FIELDS` wymaga `end_date`, więc
-    taki wiersz NIE MA jak wyjść z Draftu — a konsultant realnie pracuje.
+    bo to body-leasing — konsultant realnie pracuje.
+
+    Do sierpnia 2026 taki wiersz NIE MIAŁ jak wyjść z Draftu, bo
+    `ACTIVATION_REQUIRED_FIELDS` wymagało `end_date`. Data końca została
+    z bramki zdjęta, więc brakuje tu już tylko typu umowy i trybu pracy —
+    ale sam scenariusz (szkic z pracującym konsultantem) jest dalej realny
+    i to jego dotyczy ten test.
     """
     suffix = uuid.uuid4().hex[:8]
     today = date.today()

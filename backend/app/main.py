@@ -69,6 +69,7 @@ from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import hiring_managers_analytics as hiring_managers_api
+from app.api import admin_client_mixups
 from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
 from app.api import admin_pipeline_inventory
@@ -866,6 +867,11 @@ app.include_router(
     admin_schema_drift.router,
     prefix="/api/admin",
     tags=["admin-schema-drift"],
+)
+app.include_router(
+    admin_client_mixups.router,
+    prefix="/api/admin",
+    tags=["admin-client-mixups"],
 )
 app.include_router(
     admin_index_coverage.router,

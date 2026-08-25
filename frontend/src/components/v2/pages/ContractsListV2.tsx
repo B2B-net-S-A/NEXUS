@@ -22,6 +22,7 @@ import {
  CONTRACT_STATUS_VARIANT,
 } from"@/lib/contract-register";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
+import { TruncatedText } from"@/components/ds/TruncatedText";
 import { useCapability } from"@/hooks/useCapability";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -525,7 +526,7 @@ export function ContractsListV2() {
  />
  </TableHead>
  <TableHead>Kandydat</TableHead>
- <TableHead>Klient · Rekrutacja</TableHead>
+ <TableHead className="max-w-[240px]">Klient · Rekrutacja</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Typ</TableHead>
  {canSeeFinance && (
@@ -622,21 +623,21 @@ export function ContractsListV2() {
  href={`/contracts/${m.id}`}
  className="hover:text-primary"
  >
- {m.client_name ??"—"}
+ <TruncatedText>{m.client_name}</TruncatedText>
  </Link>
  {m.job_title && (
- <span className="ml-1 text-xs text-muted-foreground">
- · {m.job_title}
- </span>
+ <TruncatedText className="text-xs text-muted-foreground">
+ {m.job_title}
+ </TruncatedText>
  )}
  </div>
  ))
  ) : (
  <>
- <div className="text-sm">{c.client_name ??"—"}</div>
- <div className="text-xs text-muted-foreground truncate max-w-[200px]">
- {c.job_title ??"—"}
- </div>
+ <TruncatedText className="text-sm">{c.client_name}</TruncatedText>
+ <TruncatedText className="text-xs text-muted-foreground">
+ {c.job_title}
+ </TruncatedText>
  </>
  )}
  </TableCell>

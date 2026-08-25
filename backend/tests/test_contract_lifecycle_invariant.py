@@ -303,9 +303,12 @@ async def test_create_contract_active_requires_complete_draft(
 
     ``active`` i ``ending`` są w ``REVENUE_BEARING_STATUSES``, więc wiersz
     założony w jednym z nich od razu liczy się do MRR, do liczników
-    konsultantów i do skanera wygasania. Ładunek bez ``end_date``/stawek/trybu
-    pracy ma dostać 409 z listą braków — a nie cichy szkic podany jako sukces
-    ani aktywną umowę z pustymi polami, na których stoi liczenie pieniędzy.
+    konsultantów i do skanera wygasania. Ładunek bez stawek i trybu pracy ma
+    dostać 409 z listą braków — a nie cichy szkic podany jako sukces ani
+    aktywną umowę z pustymi polami, na których stoi liczenie pieniędzy.
+
+    ``end_date`` świadomie NIE jest na tej liście — patrz
+    ``test_create_contract_active_accepts_open_ended_period`` niżej.
     """
     cand_id, cli_id = await _seed_candidate_and_client()
     resp = await app_client.post(
@@ -322,11 +325,73 @@ async def test_create_contract_active_requires_complete_draft(
     assert resp.status_code == 409, resp.text
     detail = resp.json()["detail"]
     assert set(detail["missing"]) == {
-        "end_date",
         "rate_candidate",
         "rate_client",
         "work_mode",
     }
+
+
+@pytest.mark.asyncio
+async def test_create_contract_active_accepts_open_ended_period(
+    app_client, app_auth_headers
+) -> None:
+    """Umowa BEZTERMINOWA z kompletem pozostałych pól aktywuje się normalnie.
+
+    Zgłoszenie: „409 przy każdym zapisie ze statusem Aktywny, zapis działa
+    tylko dla Draftu". Data końca w bramce dawała stan bez wyjścia — rejestr
+    renderuje brak daty jako „bezterminowo", ``_status_after_end_date_change``
+    leczy z niej ``ended`` na ``active``, a aktywować się nie dało.
+    """
+    cand_id, cli_id = await _seed_candidate_and_client()
+    resp = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": cand_id,
+            "client_id": cli_id,
+            "start_date": date.today().isoformat(),
+            "end_date": None,
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+            "work_mode": "remote",
+            "status": "active",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["end_date"] is None
+    assert body["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_open_ended_contract_cannot_be_ending(
+    app_client, app_auth_headers
+) -> None:
+    """„Kończący się" bez daty końca to stan, który sam się kasuje.
+
+    ``_status_after_end_date_change`` (i dzienny cron) cofa taki wiersz na
+    ``active``, więc bez tej odmowy zapis zwracałby 200 i nie robił nic.
+    Odmowa mówi po polsku, co zrobić — i dotyczy WYŁĄCZNIE ``ending``.
+    """
+    cand_id, cli_id = await _seed_candidate_and_client()
+    resp = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": cand_id,
+            "client_id": cli_id,
+            "start_date": date.today().isoformat(),
+            "end_date": None,
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+            "work_mode": "remote",
+            "status": "ending",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["reason"] == "ending_requires_end_date"
 
 
 @pytest.mark.asyncio

@@ -1035,10 +1035,13 @@ describe("OrdersAndContractsTab — przycisk „Zakończ”", () => {
   }
 
   it("kontrakt SZKICOWY z aktywnym zamówieniem MA „Zakończ”", async () => {
-    // Realny przypadek Banku Pocztowego: kontrakt bezterminowy nie wychodzi
-    // z Draftu żadną istniejącą ścieżką (aktywacja wymaga `end_date`), więc
-    // bramka na `active` chowała jedyną drogę rozstania z pracującym
+    // Realny przypadek Banku Pocztowego: kontraktor pracuje, a kontrakt jest
+    // szkicem, bo dialog „Nowy kontraktor" nie zbiera typu umowy ani trybu
+    // pracy. Bramka na `active` chowała jedyną drogę rozstania z pracującym
     // konsultantem. Backendowy `terminate` bramki statusu nie ma.
+    //
+    // (Pierwotną przyczyną tego szkicu było wymaganie `end_date` w bramce
+    // aktywacji — zdjęte w sierpniu 2026; scenariusz zostaje realny bez niego.)
     mockContractor("draft");
     renderTab();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
