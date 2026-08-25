@@ -186,10 +186,10 @@ async def test_open_ended_running_extension_makes_the_contract_indefinite(
     assert status == ContractStatus.active
     assert end_date is None
     # „Koniec zamówienia u klienta" z PRZESZŁĄ datą na umowie bezterminowej
-    # przestał cokolwiek opisywać i generowałby fałszywe alerty wygasania
-    # (`dl_portal_expiry_scanner` skanuje tę kolumnę). Migracja 0243 zeruje ją
-    # dla wierszy historycznych — ścieżka runtime musi robić to samo, inaczej
-    # rozjazd między nimi jest cichy.
+    # przestał cokolwiek opisywać: profil kontraktu pokazałby go obok „Okres:
+    # … – bezterminowo". Alert `_client_orders_ending` tego NIE zgłosi
+    # (wymaga `>= today`), więc rozjazd byłby całkowicie niemy. Migracja 0243
+    # zeruje tę kolumnę dla wierszy historycznych — runtime musi robić to samo.
     assert await _client_order_end(contract_id) is None
 
 

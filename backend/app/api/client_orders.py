@@ -403,12 +403,21 @@ async def _sync_contract_after_order_extension(
     )
     if changed and contract.end_date != before_end:
         if contract.end_date is None:
-            # Zamówienie bezterminowe uczyniło bezterminowym także kontrakt —
-            # „Koniec zamówienia u klienta" z przeszłą datą przestał opisywać
-            # cokolwiek i zacząłby generować fałszywe alerty wygasania
-            # (`dl_portal_expiry_scanner` skanuje tę kolumnę). Migracja 0243
-            # robi to samo dla wierszy historycznych (`has_open_ended → NULL`);
-            # rozjazd między ścieżką runtime a migracją byłby cichy.
+            # Zamówienie bezterminowe uczyniło bezterminowym także kontrakt,
+            # więc „Koniec zamówienia u klienta" z PRZESZŁĄ datą przestał
+            # cokolwiek opisywać. Profil kontraktu renderuje tę wartość jako
+            # osobny wiersz („Koniec zamówienia u klienta"), więc obok „Okres:
+            # … – bezterminowo" stałaby data z przeszłości — dwa sprzeczne
+            # zdania o tej samej współpracy.
+            #
+            # Alert `_client_orders_ending` (contract_alerts) tego NIE
+            # wychwyci: jego predykat wymaga `client_order_end_date >= today`,
+            # więc przeszła data po prostu wypada z okna. To czyni rozjazd
+            # GORSZYM, nie lepszym — nic go nie zgłosi.
+            #
+            # Migracja 0243 zeruje tę kolumnę dla wierszy historycznych
+            # (`has_open_ended → NULL`); bez tej gałęzi ścieżka runtime
+            # rozjeżdżałaby się z własną migracją.
             contract.client_order_end_date = None
         else:
             contract.client_order_end_date = _synced_client_order_end(
