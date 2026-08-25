@@ -13,6 +13,8 @@ from types import SimpleNamespace
 import pytest
 from httpx import AsyncClient
 
+from app.models.contract import Contract, ContractType, ContractWorkMode
+from app.models.contract_candidate_rate import ContractCandidateRate
 from app.services.contract_service import (
     ACTIVATION_REQUIRED_FIELDS,
     ENDING_SOON_WINDOW_DAYS,
@@ -59,9 +61,112 @@ def test_validate_partial_returns_only_missing():
         contract_type="b2b",
     )
     missing = validate_ready_for_activation(contract)
-    assert set(missing) == {"end_date", "rate_client", "work_mode"}
+    assert set(missing) == {"rate_client", "work_mode"}
     # Preserves canonical order — the UI depends on it for a stable checklist
     assert missing == [f for f in ACTIVATION_REQUIRED_FIELDS if f in missing]
+
+
+def test_open_ended_contract_is_ready_to_activate():
+    """Umowa BEZTERMINOWA jest kompletna — brak `end_date` to nie brak danych.
+
+    Ta asercja jest odwrotnością poprzedniego kontraktu i to jest zamierzone:
+    `end_date` w bramce dawało stan bez wyjścia (rejestr renderuje
+    „bezterminowo", `_status_after_end_date_change` leczy z niej `ended` na
+    `active`, a aktywować się nie dało żadną ścieżką — 409 przy każdym zapisie
+    na „Aktywny").
+    """
+    contract = _fake_contract(
+        start_date=date.today(),
+        end_date=None,
+        rate_candidate=15000,
+        rate_client=20000,
+        contract_type="b2b",
+        work_mode="remote",
+    )
+    assert validate_ready_for_activation(contract) == []
+    assert "end_date" not in ACTIVATION_REQUIRED_FIELDS
+
+
+# ── Unit: bramka czyta HARMONOGRAM, nie tylko kolumnę cache'u ───────────────
+
+
+def test_rate_only_in_the_schedule_satisfies_the_gate():
+    """Stawka istniejąca WYŁĄCZNIE w harmonogramie przechodzi bramkę.
+
+    ``rate_candidate`` to kolumna CACHE'UJĄCA krok obowiązujący dziś; prawdziwą
+    stawką jest harmonogram. Wszystkie trzy ścieżki zapisu (POST, PATCH, aneks)
+    dziś tę kolumnę dopisują, więc to zabezpieczenie, nie ścieżka główna — ale
+    bez niego kontrakt ze stawką progresywną i pustą kolumną (import, legacy,
+    przyszła ścieżka zapisu, która zapomni o lustrze) byłby nieaktywowalny
+    z komunikatem „brakuje stawki", stojąc obok wypełnionego harmonogramu.
+    """
+    contract = Contract(
+        start_date=date.today(),
+        rate_candidate=None,
+        rate_client=20000,
+        contract_type=ContractType.b2b,
+        work_mode=ContractWorkMode.remote,
+    )
+    contract.candidate_rate_schedule = [
+        ContractCandidateRate(rate=15000, effective_from=date.today())
+    ]
+    assert validate_ready_for_activation(contract) == []
+
+
+def test_future_only_schedule_also_satisfies_the_gate():
+    """Harmonogram z samymi PRZYSZŁYMI krokami też jest stawką — celowo.
+
+    Bramka nie ma własnej definicji „stawki": deleguje do
+    ``effective_candidate_rate``, a ten przy samych przyszłych krokach zwraca
+    NAJBLIŻSZY nadchodzący („so a fresh contract still has a rate" —
+    ``_resolve_scheduled_rate``). Utrzymanie tej semantyki jest ważniejsze niż
+    intuicja „na dziś nie ma stawki": druga definicja w bramce znaczyłaby, że
+    kontrakt przechodzi walidację, a widoki liczą co innego — albo odwrotnie.
+
+    Ten test istnieje, bo napisałem go najpierw z odwrotną asercją i to KOD
+    miał rację. Zostaje jako zapis tej decyzji.
+    """
+    contract = Contract(
+        start_date=date.today(),
+        rate_candidate=None,
+        rate_client=20000,
+        contract_type=ContractType.b2b,
+        work_mode=ContractWorkMode.remote,
+    )
+    contract.candidate_rate_schedule = [
+        ContractCandidateRate(
+            rate=15000, effective_from=date.today() + timedelta(days=30)
+        )
+    ]
+    assert validate_ready_for_activation(contract) == []
+    assert contract.effective_candidate_rate(date.today()) == 15000
+
+
+def test_empty_schedule_falls_back_to_the_column():
+    """Pusty harmonogram → decyduje kolumna; brak obu → brak stawki."""
+    contract = Contract(
+        start_date=date.today(),
+        rate_candidate=None,
+        rate_client=20000,
+        contract_type=ContractType.b2b,
+        work_mode=ContractWorkMode.remote,
+    )
+    contract.candidate_rate_schedule = []
+    assert validate_ready_for_activation(contract) == ["rate_candidate"]
+
+
+def test_plain_attribute_bag_does_not_explode_on_inspect():
+    """Bramka bywa wołana na obiekcie NIE-ORM — ``inspect`` rzuciłby wtedy.
+
+    Stąd ``raiseerr=False``: brak stanu ORM znaczy „nie ma jak sprawdzić
+    harmonogramu", a nie „wywal request".
+    """
+    bag = _fake_contract(start_date=date.today(), contract_type="b2b")
+    assert validate_ready_for_activation(bag) == [
+        "rate_candidate",
+        "rate_client",
+        "work_mode",
+    ]
 
 
 # ── Integration: list + stats ───────────────────────────────────────────────

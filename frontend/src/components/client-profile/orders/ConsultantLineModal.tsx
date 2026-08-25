@@ -17,6 +17,12 @@ import type {
   OrderInputMode,
   OrderLineRead,
 } from "@/lib/api/orderGroups";
+import {
+  RATE_UNIT_LABELS,
+  convertRate,
+  toMdRate,
+  type RateUnit,
+} from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 
 import { ConsultantPicker } from "./ConsultantPicker";
@@ -61,6 +67,64 @@ interface Props {
   onAdjustRemaining?: (mdRemaining: number) => void;
 }
 
+/**
+ * Przełącznik jednostki przy polu stawki.
+ *
+ * Przeliczenie odpala się PRZY ZMIANIE jednostki, a nie przy zapisie: operator
+ * ma zobaczyć nową liczbę od razu i móc ją poprawić. Puste pole zostaje puste —
+ * przeliczanie niczego na zero wpisałoby wartość, której nikt nie podał.
+ */
+function RateUnitToggle({
+  id,
+  unit,
+  onUnitChange,
+  value,
+  onValueChange,
+}: {
+  id: string;
+  unit: RateUnit;
+  onUnitChange: (next: RateUnit) => void;
+  value: string;
+  onValueChange: (next: string) => void;
+}) {
+  const switchTo = (next: RateUnit) => {
+    if (next === unit) return;
+    const parsed = parseDecimalInput(value);
+    if (parsed !== null) {
+      const converted = convertRate(parsed, unit, next);
+      if (converted !== null) onValueChange(String(converted));
+    }
+    onUnitChange(next);
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label="Jednostka stawki"
+      className="mt-1 inline-flex rounded-md border border-border p-0.5"
+    >
+      {(["hour", "md"] as RateUnit[]).map((option) => (
+        <button
+          key={option}
+          id={`${id}-${option}`}
+          type="button"
+          aria-pressed={unit === option}
+          onClick={() => switchTo(option)}
+          className={
+            "rounded px-2 py-1 text-xs font-medium transition-colors " +
+            (unit === option
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground")
+          }
+        >
+          {RATE_UNIT_LABELS[option]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+
 export function ConsultantLineModal({
   open,
   onOpenChange,
@@ -77,6 +141,12 @@ export function ConsultantLineModal({
   const [person, setPerson] = useState<ConsultantOption | null>(null);
   const [rateCost, setRateCost] = useState("");
   const [rateRevenue, setRateRevenue] = useState("");
+  // Jednostka WPROWADZANIA, niezależna dla każdej stawki: kosztowa przychodzi
+  // zwykle z kontraktu (godzinowa), przychodowa z zamówienia klienta (MD).
+  // Wartość ZAPISYWANA jest zawsze w zł/MD (`toMdRate`) — przełącznik dotyczy
+  // wyłącznie tego, w czym operator wpisuje.
+  const [costUnit, setCostUnit] = useState<RateUnit>("md");
+  const [revenueUnit, setRevenueUnit] = useState<RateUnit>("md");
   const [inputMode, setInputMode] = useState<OrderInputMode>("md");
   const [inputValue, setInputValue] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -103,6 +173,10 @@ export function ConsultantLineModal({
     // wyłącznie z aktywnego kontraktu tej osoby u bieżącego klienta;
     // `null` (brak kontraktu albo brak zapisanej stawki) zostawia puste pole.
     // Dalsze wpisywanie jest zwykłą lokalną edycją linii zamówienia.
+    // Podpowiedź z kontraktu jest w zł/MD (tak ją liczy serwer), więc razem
+    // z wartością przestawiamy jednostkę — inaczej liczba wpadałaby pod
+    // etykietę „zł/h" i po zapisie zostałaby pomnożona przez 8.
+    setCostUnit("md");
     setRateCost(
       next?.suggested_rate_cost != null
         ? String(next.suggested_rate_cost)
@@ -115,6 +189,11 @@ export function ConsultantLineModal({
     setPerson(null);
     setRateCost(line?.rate_cost != null ? String(line.rate_cost) : "");
     setRateRevenue(line?.rate_revenue != null ? String(line.rate_revenue) : "");
+    // Wartości z API są w zł/MD, więc formularz otwiera się w tej jednostce —
+    // inaczej pierwszy render pokazywałby liczbę ośmiokrotnie za dużą pod
+    // etykietą „zł/h”.
+    setCostUnit("md");
+    setRevenueUnit("md");
     setInputMode(line?.input_mode ?? "md");
     setInputValue(line?.input_value != null ? String(line.input_value) : "");
     setStartDate(line?.start_date ?? group?.start_date ?? "");
@@ -138,7 +217,12 @@ export function ConsultantLineModal({
       const apply = () => {
         if (data.start_date) setStartDate(data.start_date.slice(0, 10));
         if (data.end_date) setEndDate(data.end_date.slice(0, 10));
-        if (data.rate_client != null) setRateRevenue(String(data.rate_client));
+        if (data.rate_client != null) {
+          // Odczyt z PDF wraca w zł/MD dla klientów MD (patrz polityki
+          // klientowe w `order_pdf_parser`) — wstawiamy razem z jednostką.
+          setRevenueUnit("md");
+          setRateRevenue(String(data.rate_client));
+        }
         if (!costBased && data.md_total != null) {
           setInputMode("md");
           setInputValue(String(data.md_total));
@@ -197,12 +281,27 @@ export function ConsultantLineModal({
   // kwotę, ZANIM zapisze. Bez tego tryb „kwota" jest zapisem w ciemno.
   const previewMd = useMemo(() => {
     const value = parseDecimalInput(inputValue);
-    const rate = parseDecimalInput(rateRevenue);
+    const revenue = parseDecimalInput(rateRevenue);
+    // Kwota zamówienia ÷ stawka za 1 MD. Dzielnikiem MUSI być stawka w zł/MD,
+    // a nie liczba wpisana w polu: przy jednostce „zł/h" dzielenie przez nią
+    // dałoby podgląd ośmiokrotnie za duży wobec tego, co zaraz się zapisze.
+    const rate = revenue === null ? null : toMdRate(revenue, revenueUnit);
     if (value === null) return null;
     if (inputMode === "md") return value;
     if (rate === null || rate <= 0) return null;
     return value / rate;
-  }, [inputValue, rateRevenue, inputMode]);
+  }, [inputValue, rateRevenue, revenueUnit, inputMode]);
+
+  // Kwota, która NAPRAWDĘ pójdzie do bazy — pokazywana pod polem, gdy operator
+  // wpisuje w zł/h. Bez tego przełącznik prosi o zaufanie zamiast pokazać wynik.
+  const rateCostAsMd = useMemo(() => {
+    const parsed = parseDecimalInput(rateCost);
+    return parsed === null ? null : toMdRate(parsed, costUnit);
+  }, [rateCost, costUnit]);
+  const rateRevenueAsMd = useMemo(() => {
+    const parsed = parseDecimalInput(rateRevenue);
+    return parsed === null ? null : toMdRate(parsed, revenueUnit);
+  }, [rateRevenue, revenueUnit]);
 
   const canSubmit =
     !submitting &&
@@ -214,6 +313,20 @@ export function ConsultantLineModal({
 
   const submit = () => {
     if (!canSubmit) return;
+    // Wartości liczbowe wyprowadzone RAZ i sprawdzone, zamiast `as number`
+    // w ładunku. Rzutowanie ukrywało przed kompilatorem, że
+    // `parseDecimalInput` zwraca `number | null`, a `toMdRate(null, …)` też
+    // oddaje `null` — pusta stawka jechała wtedy do API jako
+    // `rate_cost: null`. W praktyce zasłaniał to `canSubmit`, ale bramka
+    // i ładunek to dwa różne miejsca: rozjazd między nimi byłby cichy.
+    const costMd = toMdRate(parseDecimalInput(rateCost) ?? Number.NaN, costUnit);
+    const revenueMd = toMdRate(
+      parseDecimalInput(rateRevenue) ?? Number.NaN,
+      revenueUnit,
+    );
+    const budgetValue = parseDecimalInput(inputValue);
+    if (costMd === null || revenueMd === null) return;
+    if (!costBased && budgetValue === null) return;
     onSubmit({
       // Edycja nie zmienia osoby, więc linia zostaje przy swoim kontrakcie.
       // Dodanie wysyła DOKŁADNIE JEDNO pole — dwa naraz serwer odrzuca, żeby
@@ -223,14 +336,13 @@ export function ConsultantLineModal({
         : person?.contract_id != null
           ? { contract_id: person.contract_id }
           : { candidate_id: person?.candidate_id }),
-      rate_cost: parseDecimalInput(rateCost) as number,
-      rate_revenue: parseDecimalInput(rateRevenue) as number,
+      // ZAWSZE zł/MD — jednostka rozliczeniowa modułu. Przełącznik zmienia
+      // tylko to, w czym operator wpisuje.
+      rate_cost: costMd,
+      rate_revenue: revenueMd,
       ...(costBased
         ? {}
-        : {
-            input_mode: inputMode,
-            input_value: parseDecimalInput(inputValue) as number,
-          }),
+        : { input_mode: inputMode, input_value: budgetValue as number }),
       start_date: startDate,
       end_date: endDate || null,
     });
@@ -304,7 +416,7 @@ export function ConsultantLineModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="line-cost" className={labelClass}>
-              Stawka kosztowa (zł/MD) *
+              Stawka kosztowa *
             </label>
             <input
               id="line-cost"
@@ -312,8 +424,21 @@ export function ConsultantLineModal({
               value={rateCost}
               onChange={(e) => setRateCost(sanitizeDecimalInput(e.target.value))}
               className={inputClass}
-              placeholder="1000"
+              placeholder={costUnit === "hour" ? "125" : "1000"}
             />
+            <RateUnitToggle
+              id="line-cost-unit"
+              unit={costUnit}
+              onUnitChange={setCostUnit}
+              value={rateCost}
+              onValueChange={setRateCost}
+            />
+            {costUnit === "hour" ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Zapis w zł/MD:{" "}
+                {rateCostAsMd === null ? "—" : `${rateCostAsMd} zł`}
+              </p>
+            ) : null}
             {/* Obie flagi wracają z backendu NIEZALEŻNIE od siebie:
                 podpowiedź liczy się wyłącznie z kontraktu `active`/`ending`,
                 a ostrzeżenie porównuje WSZYSTKIE nieanulowane, także `ended`
@@ -349,7 +474,7 @@ export function ConsultantLineModal({
           </div>
           <div>
             <label htmlFor="line-revenue" className={labelClass}>
-              Stawka przychodowa (zł/MD) *
+              Stawka przychodowa *
             </label>
             <input
               id="line-revenue"
@@ -357,8 +482,21 @@ export function ConsultantLineModal({
               value={rateRevenue}
               onChange={(e) => setRateRevenue(sanitizeDecimalInput(e.target.value))}
               className={inputClass}
-              placeholder="1200"
+              placeholder={revenueUnit === "hour" ? "150" : "1200"}
             />
+            <RateUnitToggle
+              id="line-revenue-unit"
+              unit={revenueUnit}
+              onUnitChange={setRevenueUnit}
+              value={rateRevenue}
+              onValueChange={setRateRevenue}
+            />
+            {revenueUnit === "hour" ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Zapis w zł/MD:{" "}
+                {rateRevenueAsMd === null ? "—" : `${rateRevenueAsMd} zł`}
+              </p>
+            ) : null}
           </div>
         </div>
 

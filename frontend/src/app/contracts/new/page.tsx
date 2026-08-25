@@ -305,9 +305,10 @@ function NewContractForm() {
     // po polsku, zamiast odsyłać użytkownika po 409 z serwera.
     if (wantsLive) {
       const statusLabel = statusVal === "ending" ? "Kończący się" : "Aktywny";
-      if (!endDate) {
-        errors.end_date = `Status „${statusLabel}” wymaga daty zakończenia.`;
-      }
+      // Data zakończenia NIE jest wymagana — umowa bezterminowa jest w
+      // body-leasingu normalnym stanem docelowym (rejestr renderuje ją jako
+      // „bezterminowo"). Lustro `ACTIVATION_REQUIRED_FIELDS`, z którego
+      // `end_date` zostało zdjęte razem z tą poprawką.
       if (!workMode) {
         errors.work_mode = `Status „${statusLabel}” wymaga trybu pracy.`;
       }

@@ -38,6 +38,7 @@ import {
  TableHeader,
  TableRow,
 } from"@/components/ui/table";
+import { TruncatedText } from"@/components/ds/TruncatedText";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 import { TerminateContractModal } from"@/components/client-profile/actions/TerminateContractModal";
@@ -226,7 +227,7 @@ export function ContractorsListV2() {
  <TableHeader>
  <TableRow>
  <TableHead>Kandydat</TableHead>
- <TableHead>Klient · Rekrutacja</TableHead>
+ <TableHead className="max-w-[240px]">Klient · Rekrutacja</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Tryb</TableHead>
  {canManageFinance && (
@@ -307,16 +308,16 @@ export function ContractorsListV2() {
  {c.candidate.name} {c.candidate.lastname}
  </Link>
  {c.candidate.email && (
- <div className="text-xs text-muted-foreground">
+ <TruncatedText className="text-xs text-muted-foreground">
  {c.candidate.email}
- </div>
+ </TruncatedText>
  )}
  </TableCell>
  <TableCell>
- <div className="text-sm">{c.client_name ??"—"}</div>
- <div className="text-xs text-muted-foreground truncate max-w-[200px]">
- {c.job_title ??"—"}
- </div>
+ <TruncatedText className="text-sm">{c.client_name}</TruncatedText>
+ <TruncatedText className="text-xs text-muted-foreground">
+ {c.job_title}
+ </TruncatedText>
  </TableCell>
  <TableCell>
  <div className="flex items-center gap-1 text-xs text-foreground">

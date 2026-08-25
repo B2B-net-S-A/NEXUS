@@ -35,7 +35,9 @@ from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+from app.api.contracts import _synced_client_order_end
 from app.api.deps import DlAssignedOrAdmin, TacPlus
+from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
@@ -81,6 +83,8 @@ from app.services.order_group_materializer import (
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
     apply_bank_pocztowy_order_policy,
+    apply_credit_agricole_order_policy,
+    apply_erste_order_policy,
     enforce_nordea_order_number,
     parse_order_document,
 )
@@ -187,6 +191,21 @@ _NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV = "NORDEA_ORDER_NUMBER_CLIENT_IDS"
 _BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV = "BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS"
 
 
+# CSV z `client_id` klientów objętych polityką ekstrakcji Credit Agricole
+# (`apply_credit_agricole_order_policy`: stawka wyłącznie z pola
+# „Wynagrodzenie za 1MD (8h) (PLN netto)", liczba MD wyłącznie z „Szacowana
+# ilość MD"). Ta sama mechanika bramki co wyżej.
+_CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV = "CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS"
+
+
+# CSV z `client_id` klientów, u których stawka w dokumencie jest BRUTTO
+# i podlega przeliczeniu na netto (`apply_erste_order_policy`, ÷ 1,23).
+# Bramka po ID, nie po nazwie — „Erste Bank Polska S.A." to nazwa, którą
+# Traffit potrafi nadpisać, a rodzina rekordów tego samego banku bywa większa
+# niż jeden wiersz (ta sama lekcja co przy BNP).
+_ERSTE_GROSS_RATE_CLIENT_IDS_ENV = "ERSTE_GROSS_RATE_CLIENT_IDS"
+
+
 def _client_ids_from_env(env_name: str) -> frozenset[int]:
     """CSV `client_id` ze zmiennej środowiskowej bramki polityki ekstrakcji.
 
@@ -244,6 +263,28 @@ def _is_bank_pocztowy_order_client(client_id: Optional[int]) -> bool:
     if client_id is None:
         return False
     return client_id in _client_ids_from_env(_BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV)
+
+
+def _is_credit_agricole_order_client(client_id: Optional[int]) -> bool:
+    """Czy u tego klienta stawkę czytamy WYŁĄCZNIE z etykiety wynagrodzenia.
+
+    Bramka po ID z env, fail-closed — jak obie sąsiednie. Aktywacja na prodzie
+    = ustawienie `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` w Coolify.
+    """
+    if client_id is None:
+        return False
+    return client_id in _client_ids_from_env(_CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV)
+
+
+def _is_erste_gross_rate_client(client_id: Optional[int]) -> bool:
+    """Czy u tego klienta stawka w dokumencie jest brutto (→ ÷ 1,23).
+
+    Bramka po ID z env, fail-closed — jak sąsiednie. Aktywacja na prodzie
+    = ustawienie `ERSTE_GROSS_RATE_CLIENT_IDS` w Coolify.
+    """
+    if client_id is None:
+        return False
+    return client_id in _client_ids_from_env(_ERSTE_GROSS_RATE_CLIENT_IDS_ENV)
 
 
 def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
@@ -329,6 +370,60 @@ def _activate_complete_draft(order: ClientOrder) -> bool:
     if order.filled_at is None:
         order.filled_at = datetime.now(timezone.utc)
     return True
+
+
+async def _sync_contract_after_order_extension(
+    db: AsyncSession,
+    order: ClientOrder,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+) -> bool:
+    """Zamówienie, które JUŻ TRWA, wskrzesza zakończony kontrakt.
+
+    Cienki adapter na ``contract_lifecycle.sync_contract_to_live_order`` —
+    dokłada wyłącznie to, czego tamta warstwa nie zna: synchronizację
+    „Końca zamówienia u klienta" (ta sama reguła co przy aneksie
+    i ``/bulk-extend``, patrz ``_synced_client_order_end``).
+
+    Zamówienia ``draft``/``cancelled`` są POMIJANE: szkic nie jest
+    zobowiązaniem, a anulowane nie obowiązuje — żadne z nich nie jest dowodem,
+    że współpraca trwa.
+    """
+    if order.status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled):
+        return False
+    before_end = contract.end_date
+    changed = await sync_contract_to_live_order(
+        db,
+        contract,
+        order_start=order.start_date,
+        order_end=order.end_date,
+        actor_id=actor_id,
+        today=business_today(),
+    )
+    if changed and contract.end_date != before_end:
+        if contract.end_date is None:
+            # Zamówienie bezterminowe uczyniło bezterminowym także kontrakt,
+            # więc „Koniec zamówienia u klienta" z PRZESZŁĄ datą przestał
+            # cokolwiek opisywać. Profil kontraktu renderuje tę wartość jako
+            # osobny wiersz („Koniec zamówienia u klienta"), więc obok „Okres:
+            # … – bezterminowo" stałaby data z przeszłości — dwa sprzeczne
+            # zdania o tej samej współpracy.
+            #
+            # Alert `_client_orders_ending` (contract_alerts) tego NIE
+            # wychwyci: jego predykat wymaga `client_order_end_date >= today`,
+            # więc przeszła data po prostu wypada z okna. To czyni rozjazd
+            # GORSZYM, nie lepszym — nic go nie zgłosi.
+            #
+            # Migracja 0243 zeruje tę kolumnę dla wierszy historycznych
+            # (`has_open_ended → NULL`); bez tej gałęzi ścieżka runtime
+            # rozjeżdżałaby się z własną migracją.
+            contract.client_order_end_date = None
+        else:
+            contract.client_order_end_date = _synced_client_order_end(
+                contract.client_order_end_date, contract.end_date
+            )
+    return changed
 
 
 async def _materialize_group_after_activation(
@@ -1243,6 +1338,9 @@ async def create_order_extension(
     if order.status == ClientOrderStatus.active:
         await db.flush()
         await _materialize_group_after_activation(db, order, actor_id=user.id)
+    contract_revived = await _sync_contract_after_order_extension(
+        db, order, contract, actor_id=user.id
+    )
     db.add(
         Activity(
             entity_type="client",
@@ -1254,6 +1352,10 @@ async def create_order_extension(
                 "job_id": job_id,
                 "title": title,
                 "status": order.status.value,
+                # Ślad wskrzeszenia kontraktu przez przedłużenie — bez niego
+                # przejście `ended → active` widać tylko w osi czasu kontraktu,
+                # a przyczyna (dodane zamówienie) zostaje po drugiej stronie.
+                "contract_revived": contract_revived,
             },
         )
     )
@@ -1349,6 +1451,14 @@ async def extract_order_pdf(
         extraction = enforce_nordea_order_number(extraction, text)
     if _is_bank_pocztowy_order_client(client_id):
         extraction = apply_bank_pocztowy_order_policy(extraction, text)
+    if _is_credit_agricole_order_client(client_id):
+        extraction = apply_credit_agricole_order_policy(extraction, text)
+    # Erste jako OSTATNIA i to jest kolejność wymuszona: przelicza kwotę, którą
+    # ustawiły polityki wyżej. Odwrotna kolejność dzieliłaby przez 1,23 wartość,
+    # którą któraś z nich zaraz potem by nadpisała — czyli po cichu nie
+    # przeliczyłaby nic.
+    if _is_erste_gross_rate_client(client_id):
+        extraction = apply_erste_order_policy(extraction, text)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
     # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
@@ -1388,6 +1498,8 @@ async def extract_order_pdf(
         rate_unit=extraction.rate_unit if show_finance else None,
         # Oryginalna stawka MD (polityka BP) to kwota — redagowana jak stawka.
         rate_client_md=extraction.rate_client_md if show_finance else None,
+        # Oryginał brutto (polityka Erste) — również kwota, również redagowany.
+        rate_client_gross=extraction.rate_client_gross if show_finance else None,
         total_value=extraction.total_value if show_finance else None,
         currency=extraction.currency if show_finance else None,
         # Liczba MD jedzie NIEZREDAGOWANA — jest operacyjna, nie finansowa.

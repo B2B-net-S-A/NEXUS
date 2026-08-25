@@ -29,7 +29,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import ROUND_CEILING, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -83,6 +83,13 @@ class OrderExtraction:
     Gdy ustawiona, ``rate_client`` niesie już stawkę GODZINOWĄ po przeliczeniu
     (MD ÷ 8, w górę do 2 miejsc) — front pokazuje obie wartości obok siebie.
     Kwota FINANSOWA: podlega tej samej redakcji co ``rate_client``."""
+
+    rate_client_gross: Optional[Decimal] = None
+    """Oryginalna kwota BRUTTO z dokumentu (polityka Erste Bank Polska).
+    Gdy ustawiona, ``rate_client`` niesie już kwotę NETTO (÷ 1,23) — front
+    pokazuje obie wartości obok siebie, żeby operator mógł skonfrontować
+    zapisaną stawkę z tym, co widzi w PDF. Kwota FINANSOWA: podlega tej samej
+    redakcji co ``rate_client``."""
 
     title_needs_review: bool = False
     """Klientowa polityka numeru zamówienia nie znalazła numeru w dokumencie —
@@ -538,6 +545,211 @@ def apply_bank_pocztowy_order_policy(
         reasons.append("Nie znaleziono dat okresu zamówienia (od–do)")
     if rate_warning:
         reasons.append(rate_warning)
+    result.uncertain_reasons = reasons
+    result.uncertain = bool(reasons)
+    return result
+
+
+# ── Credit Agricole: stawka wyłącznie z pola „Wynagrodzenie za 1MD" ─────────
+#
+# Zgłoszenie: parser wpisywał do stawki wartość z „Szacowana ilość MD", czyli
+# LICZBĘ DNI zamiast kwoty. Te dwa pola stoją w dokumencie obok siebie, a sam
+# prompt tego nie rozstrzyga — instrukcja „do not confuse it with the rate
+# itself" już tam była i nie wystarczyła, bo model wybiera interpretację, a nie
+# stosuje regułę. Dlatego jak u Nordei i Banku Pocztowego: polityka
+# DETERMINISTYCZNA po odpowiedzi LLM, oparta na ETYKIETACH, nie na kolejności
+# liczb w tekście.
+#
+# Skutek błędu jest cichy: stawka 20 zł „za MD" (bo tyle było dni) jest liczbą
+# poprawną arytmetycznie i przechodzi każdą walidację zakresu — wychodzi
+# dopiero na fakturze. Dlatego brak etykiety stawki NIE zostawia wartości
+# zgadniętej przez model: czyścimy pole i mówimy o tym wprost. Pusta stawka do
+# uzupełnienia jest odwracalna, zła stawka zapisana jako pewna — nie.
+
+# Wartość pola stoi ZA pełną etykietą, a etykieta sama niesie cyfry („1MD",
+# „8h”, „23%”) — dlatego wypełniacz między etykietą a liczbą zjada nawiasy
+# w całości (`\([^)]*\)`), a nie znak po znaku. Bez tego pierwszą „liczbą po
+# etykiecie" byłaby jedynka z „1MD".
+_LABEL_FILLER = r"(?:\([^)]*\)|[^\S\n]|[:=\-–—.,]|\n|PLN|z\u0142|netto|brutto|VAT)*?"
+# Kwota/liczba: opcjonalne separatory tysięcy (spacja, NBSP, wąski NBSP, kropka)
+# + opcjonalna część dziesiętna. Normalizację zapisu robi `_normalize_amount`.
+_LABELLED_NUMBER = r"(\d[\d\u00a0\u202f .]*(?:[.,]\d{1,2})?)"
+
+
+def _labelled_amount(label_pattern: str, text: str) -> Optional[Decimal]:
+    """Pierwsza liczba stojąca ZA etykietą (etykieta może nieść własne cyfry).
+
+    Iterujemy po wystąpieniach, bo etykieta bywa powtórzona (nagłówek tabeli na
+    kolejnej stronie) i dopiero któreś z kolei niesie wartość.
+    """
+    pattern = re.compile(
+        label_pattern + _LABEL_FILLER + _LABELLED_NUMBER,
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(text or ""):
+        value = _normalize_amount(match.group(1))
+        if value is not None:
+            return value
+    return None
+
+
+# „Wynagrodzenie za 1MD (8h) (PLN netto)" — tolerujemy spację w „1 MD",
+# brak diakrytyków i dowolny ogon nawiasów (ekstrakcja PDF gubi znaki).
+_CA_MD_RATE_LABEL = r"Wynagrodzenie\s+za\s+1\s*MD"
+# „Szacowana ilość MD" — także „Szacowana ilosc MD" / „Szacunkowa liczba MD".
+_CA_MD_COUNT_LABEL = (
+    r"Szac(?:owana|unkowa)\s+(?:ilo[\u015b s]c|ilo\u015b\u0107|liczba)\s+MD"
+)
+
+
+# Widełki sanity-check stawki za 1 MD (PLN netto, włącznie). Liczba MD
+# omyłkowo wzięta za kwotę (objaw z ticketu) ląduje grubo poniżej dolnej
+# granicy, więc pas wychwytuje dokładnie ten błąd.
+_CA_MD_RATE_MIN = Decimal(200)
+_CA_MD_RATE_MAX = Decimal(5000)
+
+
+def _credit_agricole_labels_share_a_line(text: str) -> bool:
+    """Czy obie etykiety stoją w JEDNYM wierszu (nagłówek tabeli).
+
+    W takim układzie wartości leżą w wierszu NIŻEJ, w kolumnach, a ekstrakcja
+    tekstu z PDF gubi wyrównanie — „pierwsza liczba za etykietą” trafia wtedy
+    w liczbę porządkową albo w sąsiednią kolumnę. To jest dokładnie ta klasa
+    pomyłki, którą ticket zgłasza, więc tu NIE ZGADUJEMY: pola zostają puste
+    i operator wpisuje je ręcznie. Zła kwota zapisana jako pewna jest gorsza
+    niż puste pole — wychodzi dopiero na fakturze.
+    """
+    rate_re = re.compile(_CA_MD_RATE_LABEL, re.IGNORECASE)
+    count_re = re.compile(_CA_MD_COUNT_LABEL, re.IGNORECASE)
+    return any(
+        rate_re.search(line) and count_re.search(line)
+        for line in (text or "").splitlines()
+    )
+
+
+def credit_agricole_md_rate(text: str) -> Optional[Decimal]:
+    """Kwota z pola „Wynagrodzenie za 1MD (8h) (PLN netto)”."""
+    if _credit_agricole_labels_share_a_line(text):
+        return None
+    return _labelled_amount(_CA_MD_RATE_LABEL, text)
+
+
+def credit_agricole_md_count(text: str) -> Optional[Decimal]:
+    """Liczba z pola „Szacowana ilość MD”."""
+    if _credit_agricole_labels_share_a_line(text):
+        return None
+    return _labelled_amount(_CA_MD_COUNT_LABEL, text)
+
+
+def apply_credit_agricole_order_policy(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Stawka WYŁĄCZNIE z pola wynagrodzenia, liczba MD WYŁĄCZNIE z pola ilości.
+
+    Obie wartości są wyprowadzane niezależnie, każda ze swojej etykiety — więc
+    zamiana miejscami jest mechanicznie niemożliwa, nawet gdy model ją
+    zaproponuje.
+    """
+    md_rate = credit_agricole_md_rate(document_text)
+    md_count = credit_agricole_md_count(document_text)
+    # Powody dopisane PRZEZ TĘ POLITYKĘ zbieramy osobno od powodów modelu:
+    # tamte mówiły o jego interpretacji stawki i przestały opisywać wynik,
+    # te mówią o tym, co polityka właśnie zrobiła, więc muszą przeżyć filtr.
+    policy_reasons: list[str] = []
+
+    # Ta sama liczba pod obiema etykietami znaczy, że jedna z nich została
+    # odczytana z cudzej kolumny — nie ma jak rozstrzygnąć która, więc stawka
+    # (pole, na którym stoją pieniądze) idzie do ręcznego uzupełnienia.
+    if md_rate is not None and md_count is not None and md_rate == md_count:
+        md_rate = None
+
+    if md_rate is not None:
+        result.rate_client = md_rate
+        # Kwota jest za 1 MD (= 8 h roboczych) — „day" to jednostka MD
+        # w słowniku parsera (`_clean_unit`). Świadomie BEZ przeliczenia na
+        # godziny: to była osobna decyzja Banku Pocztowego, a ten ticket prosi
+        # wyłącznie o czytanie właściwego pola.
+        result.rate_unit = "day"
+        result.confidence["rate_client"] = 1.0
+        result.confidence["rate_unit"] = 1.0
+        if md_rate < _CA_MD_RATE_MIN or md_rate > _CA_MD_RATE_MAX:
+            policy_reasons.append(
+                f"Nietypowa stawka za 1 MD: {md_rate} zł (poza zakresem "
+                f"{_CA_MD_RATE_MIN}–{_CA_MD_RATE_MAX} zł/MD) — sprawdź, czy "
+                "nie została odczytana z niewłaściwej kolumny."
+            )
+    else:
+        # Nie zostawiamy stawki wybranej przez model — to jest dokładnie ten
+        # kanał, którym wchodziła liczba MD podana jako kwota.
+        result.rate_client = None
+        result.rate_unit = None
+        result.confidence.pop("rate_client", None)
+        result.confidence.pop("rate_unit", None)
+        policy_reasons.append(
+            "Nie znaleziono pola „Wynagrodzenie za 1MD (8h) (PLN netto)” — "
+            "wpisz stawkę ręcznie"
+        )
+
+    if md_count is not None:
+        result.md_total = md_count
+        result.confidence["md_total"] = 1.0
+
+    kept = [r for r in result.uncertain_reasons if "stawk" not in r.lower()]
+    result.uncertain_reasons = kept + policy_reasons
+    result.uncertain = bool(result.uncertain_reasons)
+    return result
+
+
+# ── Erste Bank Polska: stawka w dokumencie jest BRUTTO ──────────────────────
+#
+# Stała tego klienta, nie przedmiot niepewności: kwota wynagrodzenia za MD
+# w PDF jest brutto przy stałej stawce VAT 23%. Zamówienie w NEXUS-ie nosi
+# stawkę NETTO (tak liczy się marża i tak czytają ją wszystkie widoki), więc
+# konwersja musi się wydarzyć przy odczycie — inaczej różnica 23% wchodzi do
+# rozliczeń jako zysk, którego nie ma.
+_ERSTE_VAT_DIVISOR = Decimal("1.23")
+
+
+def erste_net_from_gross(gross: Decimal) -> Decimal:
+    """Brutto → netto przy stałym VAT 23%, zaokrąglone do 2 miejsc.
+
+    ``ROUND_HALF_UP``, a nie ``ROUND_CEILING`` jak przy dzieleniu MD ÷ 8
+    u Banku Pocztowego: tamto zaokrąglenie w górę było świadomą decyzją
+    handlową przy ROZBIJANIU stawki na godziny (nie chcemy zaniżyć stawki
+    godzinowej), a tu odwracamy dokładne działanie arytmetyczne — właściwe
+    jest zwykłe zaokrąglenie kwot pieniężnych.
+    """
+    return (gross / _ERSTE_VAT_DIVISOR).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+
+def apply_erste_order_policy(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Przelicz odczytaną stawkę brutto na netto (÷ 1,23) i zapisz netto.
+
+    ``document_text`` nie jest tu czytany — kwotę bierzemy z wyniku odczytu,
+    a nie z osobnej etykiety. Parametr zostaje w sygnaturze, żeby wszystkie
+    polityki klientowe wołało się w routerze jednakowo.
+
+    ``total_value`` zostaje BEZ ZMIAN i to jest świadome: ticket mówi
+    o stawce przychodowej, a wartość całkowita bywa w tych dokumentach podana
+    z własną adnotacją (netto/brutto) — ciche podzielenie jej przez 1,23
+    „przy okazji" byłoby zgadywaniem na kwocie, o którą nikt nie prosił.
+    """
+    if result.rate_client is None:
+        return result
+    gross = result.rate_client
+    result.rate_client_gross = gross
+    result.rate_client = erste_net_from_gross(gross)
+    reasons = [
+        reason
+        for reason in result.uncertain_reasons
+        # Ostrzeżenie „stawka może być w innej jednostce/VAT" przestało opisywać
+        # wynik — przeliczenie właśnie się wydarzyło i jest deterministyczne.
+        if "VAT" not in reason and "przeliczenie" not in reason
+    ]
     result.uncertain_reasons = reasons
     result.uncertain = bool(reasons)
     return result

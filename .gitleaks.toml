@@ -73,6 +73,21 @@ regexes = [
   # (``regexTarget`` domyślnie ``"secret"``, nie ``"line"`` jak w blokach
   # per-reguła niżej) — wpis z prefiksem ``token=`` nigdy by nie zadziałał.
   '''^abcdef123456$''',
+  # Identyfikator rewizji alembica użyty jako klucz markera jednorazowej
+  # korekty danych w ``app_settings`` (``WHERE key = '0243_revive_...'``).
+  # ``generic-api-key`` widzi tam przypisanie długiego ciągu do pola o nazwie
+  # `key` i liczy entropię — 0243 przeszło próg (3,99), a 0242 o tym samym
+  # kształcie nie. To loteria, więc kolejne migracje trafią w to losowo.
+  #
+  # Zakotwiczony kształt: cztery cyfry + snake_case ASCII, czyli dokładnie
+  # konwencja `revision` w tym repo. Prawdziwe poświadczenia mają inny kształt
+  # (mieszana wielkość liter, base64/hex, znaki spoza [a-z0-9_]), więc ten wpis
+  # nie oślepia skanera na nic, co mogłoby być sekretem.
+  #
+  # Po WARTOŚCI, nie po ścieżce — allowlistowanie ``backend/alembic/versions/``
+  # wyłączyłoby skaner na katalogu, w którym migracje danych operują na realnych
+  # tabelach i do którego najłatwiej wkleić DSN-a z produkcji.
+  '''^[0-9]{4}_[a-z0-9_]+$''',
 ]
 
 [[rules]]

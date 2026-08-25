@@ -25,7 +25,7 @@ FastAPI rig, and reused by the signing pipeline.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status as http_status
@@ -333,6 +333,93 @@ async def reopen_contract(
         )
     )
     return True
+
+
+def order_period_covers(
+    start: Optional[date], end: Optional[date], today: date
+) -> bool:
+    """Czy okres zamówienia OBEJMUJE dzień ``today``.
+
+    Brak daty końca = „bezterminowo", więc okres sięga w prawo bez granicy
+    (ta sama semantyka co ``ClientOrder.end_date IS NULL`` w zapytaniach).
+    Brak daty startu NIE jest traktowany jak „od zawsze": zamówienie bez daty
+    rozpoczęcia nie mówi, że już trwa, a to jest przesłanka wskrzeszenia
+    zakończonego kontraktu — zgadywanie tutaj wpuszczałoby ludzi z powrotem
+    do MRR na podstawie pustego pola.
+    """
+    if start is None or start > today:
+        return False
+    return end is None or end >= today
+
+
+async def sync_contract_to_live_order(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    order_start: Optional[date],
+    order_end: Optional[date],
+    actor_id: Optional[int],
+    today: Optional[date] = None,
+) -> bool:
+    """Dopasuj kontrakt do zamówienia, które WŁAŚNIE TRWA. Zwraca True przy zmianie.
+
+    Trzecia — i do tej pory jedyna pominięta — ścieżka przedłużania współpracy.
+    Aneks (``/amendments``) i ``/bulk-extend`` przesuwają ``end_date``
+    i wołają :func:`reopen_contract`; dodanie zamówienia pod istniejący
+    kontrakt nie robiło ani jednego, ani drugiego. Skutek zgłoszony przez
+    użytkownika: przedłużenie dodane do kontraktora z zakładki „Zakończeni”
+    zostawiało go w „Zakończonych”, mimo że okres nowego zamówienia obejmuje
+    dziś. Pigułka czyta ``contract_status``, więc dopóki kontrakt jest
+    ``ended``, żadna zmiana po stronie zamówień tego nie ruszy — a razem
+    z pigułką milczą MRR, rejestr umów i skaner wygasania.
+
+    Decyduje WYŁĄCZNIE porównanie dat z dniem dzisiejszym, nie to, z której
+    zakładki operator kliknął. Przedłużenie zaczynające się w przyszłości nie
+    zmienia więc niczego (ląduje w „Przyszłym zamówieniu”), a data końca
+    kontraktu rośnie razem ze statusem: bez tego nocny ``_promote_statuses``
+    zdemotowałby wskrzeszony kontrakt z powrotem do ``ended`` jeszcze tej nocy
+    i poprawka kasowałaby samą siebie.
+    """
+    # WYŁĄCZNIE kontrakt zakończony/kończący się. Trzy powody, każdy osobny:
+    #
+    #  * ``void`` jest TERMINALNY (soft-delete zachowujący dokumenty i hashe
+    #    podpisów, ``ALLOWED_TRANSITIONS[void] == frozenset()``), a zamówienie
+    #    da się dopiąć do dowolnego kontraktu klienta — ``create_order_extension``
+    #    nie filtruje statusu. Bez tej bramki dodanie zamówienia po cichu
+    #    przesuwałoby datę końca umowy UNIEWAŻNIONEJ;
+    #  * ``draft`` ma własny walidowany cykl życia (komplet pól + ewentualny
+    #    podpis) — wejście do przychodu tylnymi drzwiami przez zamówienie
+    #    omijałoby dokładnie te bramki;
+    #  * ``active``/``ending`` z dalszą datą końca niż zamówienie: przed tą
+    #    zmianą dodanie zamówienia NIE ruszało horyzontu kontraktu i nikt o to
+    #    nie prosił. Rozszerzanie tego przy okazji zmieniałoby zachowanie,
+    #    którego ticket nie dotyczy.
+    #
+    # ``ending`` zostaje w zbiorze, bo ``reopen_contract`` obsługuje je razem
+    # z ``ended`` i to jest ta sama sytuacja: współpraca miała się skończyć,
+    # a zamówienie mówi, że trwa.
+    if contract.status not in (ContractStatus.ended, ContractStatus.ending):
+        return False
+
+    if not order_period_covers(order_start, order_end, today or date.today()):
+        return False
+
+    changed = False
+    # Horyzont kontraktu musi sięgać co najmniej tak daleko jak zamówienie.
+    # Zamówienie bezterminowe czyni bezterminowym także kontrakt — to jest
+    # dosłownie to, co mówią dane, a od sierpnia 2026 taki kontrakt jest
+    # aktywowalny (`ACTIVATION_REQUIRED_FIELDS` bez `end_date`).
+    if order_end is None:
+        if contract.end_date is not None:
+            contract.end_date = None
+            changed = True
+    elif contract.end_date is not None and order_end > contract.end_date:
+        contract.end_date = order_end
+        changed = True
+
+    if await reopen_contract(db, contract, actor_id=actor_id):
+        changed = True
+    return changed
 
 
 async def void_contract(

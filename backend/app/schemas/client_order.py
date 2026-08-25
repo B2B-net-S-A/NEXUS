@@ -173,6 +173,12 @@ class OrderExtractionResult(BaseModel):
     w górę do 2 miejsc). Front pokazuje obie wartości obok siebie. Kwota
     finansowa: redagowana dla ról bez VIEW_FINANCE tak samo jak stawka."""
 
+    rate_client_gross: Optional[Decimal] = None
+    """Oryginalna kwota BRUTTO z dokumentu (polityka Erste Bank Polska) —
+    ``rate_client`` niesie wtedy kwotę NETTO po przeliczeniu (÷ 1,23, do 2
+    miejsc). Front pokazuje obie obok siebie, żeby dało się skonfrontować
+    zapisaną stawkę z PDF-em. Kwota finansowa: redagowana jak stawka."""
+
     total_value: Optional[Decimal] = None
     currency: Optional[str] = None
     md_total: Optional[Decimal] = None

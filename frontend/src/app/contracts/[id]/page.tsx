@@ -474,10 +474,13 @@ export default function ContractDetailPage() {
       setEditing(false);
       setError("");
     },
+    // `err.message` na AxiosError to „Request failed with status code 409" —
+    // kod HTTP zamiast powodu. Odmowa aktywacji NIESIE powód
+    // ({message: "Missing required fields", missing: [...]}), a użytkownik
+    // widział surowy status i nie miał z czego się domyślić, czego brakuje
+    // (zgłoszenie: zapis kontraktu ze statusem „Aktywny").
     onError: (err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Błąd podczas zapisu kontraktu";
-      setError(message);
+      setError(extractErrorMsg(err));
     },
   });
 

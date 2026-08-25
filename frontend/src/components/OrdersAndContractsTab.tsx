@@ -84,13 +84,18 @@ const TERMINAL_CONTRACT_STATUSES: ReadonlySet<string> = new Set([
 
 /**
  * Czy pokazać „Zakończ". Bramka stoi na stanach TERMINALNYCH, świadomie NIE na
- * `active` — kontrakt BEZTERMINOWY (profil body-leasingu, np. Bank Pocztowy)
- * nigdy z Draftu nie wychodzi: aktywacja wymaga `end_date`
- * (`ACTIVATION_REQUIRED_FIELDS`), a „Nowy kontraktor" zakłada szkic, bo dialog
- * nie zbiera typu umowy ani trybu pracy. Konsultant realnie pracuje, więc
- * jedyna droga rozstania — `POST /contracts/{id}/terminate`, który żadnej
- * bramki statusu nie ma, a `draft → ended` jest legalną krawędzią cyklu życia —
- * była zasłonięta przyciskiem, który się nie renderował.
+ * `active` — kontraktor bywa `draft`, bo „Nowy kontraktor" zakłada szkic
+ * (dialog nie zbiera typu umowy ani trybu pracy), a konsultant realnie
+ * pracuje. Jedyna droga rozstania — `POST /contracts/{id}/terminate`, który
+ * żadnej bramki statusu nie ma, a `draft → ended` jest legalną krawędzią
+ * cyklu życia — była zasłonięta przyciskiem, który się nie renderował.
+ *
+ * Uwaga historyczna: pierwotnym powodem tej bramki było to, że kontrakt
+ * BEZTERMINOWY (profil body-leasingu, np. Bank Pocztowy) NIGDY nie wychodził
+ * z Draftu, bo `ACTIVATION_REQUIRED_FIELDS` wymagało `end_date`. Tamta
+ * przyczyna została usunięta (data końca zniknęła z bramki aktywacji), ale
+ * reguła zostaje: szkic z pracującym konsultantem powstaje też innymi
+ * drogami, a „nie ma czego kończyć" to nadal wyłącznie stan terminalny.
  *
  * Reguła jest SZERSZA niż predykat pigułki „Aktywni" niżej i to jest zamierzone:
  * tamta odpowiada na pytanie „kto dziś pracuje", ta na „czy jest jeszcze co
