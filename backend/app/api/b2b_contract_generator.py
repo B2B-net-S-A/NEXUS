@@ -266,6 +266,63 @@ def _previous_project_note(
     )
 
 
+async def _reactivation_contract_id(
+    db: AsyncSession, *, current_contract_id: int, job: Job
+) -> int | None:
+    """Kontrakt NOWEGO projektu, na który ma wskazać reaktywowana umowa.
+
+    Projekt to OSOBNY wiersz ``Contract``, więc powrót z zawieszenia na inny
+    projekt musi przepiąć `contract_id` razem z `job_id`/`client_id`. Bez tego
+    link zostawał na kontrakcie poprzedniego projektu i psuł ochronę
+    w OBIE strony: stary projekt nie dawał się usunąć (chroniony podpisem,
+    który go już nie dotyczy), a nowy nie był chroniony wcale.
+
+    Osobę bierzemy z kontraktu aktualnie podpiętego — jest zawsze obecny
+    (reaktywacja bez niego kończy się 409) i to właśnie jego link przepinamy,
+    więc szukamy „innego kontraktu TEJ SAMEJ osoby". ``candidate_id`` bywa
+    ``NULL`` (SET NULL po usunięciu kandydata) — wtedy nie ma po czym szukać.
+
+    Kolejność: kontrakt wskazujący WPROST wybraną rekrutację, a dopiero potem
+    kontrakt u jej klienta bez przypisanego projektu (``Contract.job_id`` jest
+    na produkcji pusty niemal wszędzie, więc to jest ścieżka realna). Kontrakt
+    związany z INNĄ rekrutacją jest świadomie pomijany — przepięcie na cudzy
+    projekt tylko przesunęłoby ten sam defekt.
+
+    ``None`` znaczy „nie ma na co przepiąć" i zostawia link bez zmian.
+    **Nie tworzymy** tu kontraktu: ``ensure_b2b_employment_draft`` zakłada go
+    z pominięciem ``_assert_no_duplicate_contract``, więc reaktywacja mogłaby
+    po cichu zrobić drugi wiersz u tego samego klienta.
+    """
+    candidate_id = await db.scalar(
+        select(Contract.candidate_id).where(Contract.id == current_contract_id)
+    )
+    if candidate_id is None:
+        return None
+
+    live_contract = (
+        Contract.candidate_id == candidate_id,
+        Contract.status != ContractStatus.void,
+    )
+    by_job = await db.scalar(
+        select(Contract.id)
+        .where(*live_contract, Contract.job_id == job.id)
+        .order_by(Contract.id.desc())
+        .limit(1)
+    )
+    if by_job is not None:
+        return by_job
+    return await db.scalar(
+        select(Contract.id)
+        .where(
+            *live_contract,
+            Contract.client_id == job.client_id,
+            Contract.job_id.is_(None),
+        )
+        .order_by(Contract.id.desc())
+        .limit(1)
+    )
+
+
 def _has_signature_role(user: User) -> bool:
     return user.has_any_role(
         UserRole.admin,
@@ -2067,6 +2124,16 @@ async def update_generated_contract(
                     author_id=current_user.id,
                 )
             )
+            # Przepięcie DOPIERO PO notatce — i to jest kolejność wymuszona,
+            # nie kosmetyka: notatka o poprzednim projekcie musi trafić do
+            # kontraktu, którego dotyczy, czyli do STAREGO `contract_id`.
+            assert job is not None  # 422 wyżej dla reaktywacji bez projektu
+            assert row.contract_id is not None  # 409 wyżej dla braku kontraktu
+            new_contract_id = await _reactivation_contract_id(
+                db, current_contract_id=row.contract_id, job=job
+            )
+            if new_contract_id is not None:
+                row.contract_id = new_contract_id
 
         db.add(
             Activity(
@@ -2085,6 +2152,11 @@ async def update_generated_contract(
                         row.closure_date.isoformat() if row.closure_date else None
                     ),
                     "job_id": row.job_id if job is not None else None,
+                    # Ślad przepięcia linku do Kontraktów. Bez niego zmiana FK
+                    # przy reaktywacji jest niewidoczna — a to właśnie jej brak
+                    # zostawił na produkcji umowę „Bank Pocztowy" wskazującą
+                    # kontrakt zupełnie innego klienta.
+                    "contract_id": row.contract_id,
                 },
             )
         )

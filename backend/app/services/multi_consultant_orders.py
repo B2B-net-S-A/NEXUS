@@ -58,6 +58,11 @@ EVENT_ORDER_REOPENED = "przywrocenie"
 EVENT_BUDGET_EXHAUSTED = "wyczerpanie"
 EVENT_ORDER_EXTENDED = "przedluzenie"
 EVENT_INVOICE_IMPORT = "import_faktur"
+# Podział zużycia MD między zamówieniem bieżącym a jego następcą (migracja
+# 0242). Produkuje go `client_order_lines`, ale stała mieszka TUTAJ razem
+# z resztą — rozdzielony rejestr to dokładnie ten dryf, przez który wartość
+# trafia do bazy bez etykiety i renderuje się użytkownikowi surowym slugiem.
+EVENT_MD_TRANSFER = "transfer_md"
 EVENT_TYPES: tuple[str, ...] = (
     EVENT_ORDER_CREATED,
     EVENT_CONSULTANT_ADDED,
@@ -69,6 +74,7 @@ EVENT_TYPES: tuple[str, ...] = (
     EVENT_BUDGET_EXHAUSTED,
     EVENT_ORDER_EXTENDED,
     EVENT_INVOICE_IMPORT,
+    EVENT_MD_TRANSFER,
 )
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -82,6 +88,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     EVENT_BUDGET_EXHAUSTED: "Wyczerpanie budżetu",
     EVENT_ORDER_EXTENDED: "Przedłużenie",
     EVENT_INVOICE_IMPORT: "Import faktur",
+    EVENT_MD_TRANSFER: "Przejęcie zużycia MD",
 }
 
 

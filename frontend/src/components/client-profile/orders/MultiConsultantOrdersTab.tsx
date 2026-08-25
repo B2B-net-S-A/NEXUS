@@ -36,7 +36,7 @@ import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal"
 import { DraftOrdersSection } from "./DraftOrdersSection";
 import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
-import { OrderGroupCard } from "./OrderGroupCard";
+import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
 import { OrderListControls } from "./OrderListControls";
 import { SwapConsultantModal } from "./SwapConsultantModal";
@@ -161,6 +161,12 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead | null;
   }>({ open: false, group: null });
   const [formError, setFormError] = useState<string | null>(null);
+  // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
+  // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
+  // karty — tylko ona wie, że go zawiera, i tylko ona umie się rozwinąć.
+  const [focusRequest, setFocusRequest] = useState<OrderGroupFocusRequest | null>(
+    null,
+  );
 
   const query = useQuery({
     queryKey: ["client-order-groups", clientId],
@@ -638,6 +644,13 @@ export function MultiConsultantOrdersTab({
                 setFormError(null);
                 setExtendModal({ open: true, group: g });
               }}
+              focusRequest={focusRequest}
+              onFocusGroup={(groupId) =>
+                setFocusRequest((prev) => ({
+                  groupId,
+                  nonce: (prev?.nonce ?? 0) + 1,
+                }))
+              }
             />
           ))}
         </div>

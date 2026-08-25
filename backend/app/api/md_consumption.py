@@ -69,11 +69,11 @@ from app.services.client_order_lines import (
     LineMatch,
     active_cost_lines,
     active_md_lines,
+    apply_md_consumption,
     describe_import,
     match_by_name,
     month_bounds,
     record_event,
-    upsert_consumption,
 )
 from app.services.cost_orders import (
     describe_invoice_import,
@@ -236,33 +236,50 @@ async def _apply_to_line(
     db: AsyncSession,
     *,
     match_order: ClientOrder,
-    group_id: Optional[int],
+    group: Optional[ClientOrderGroup],
     period_month: str,
     md_reported,
     import_id: int,
     user_id: int,
 ) -> None:
-    _, previous, _ = await upsert_consumption(
+    """Zapisz MD na linii i dopisz jeden wpis do historii jej zamówienia.
+
+    Grupa, a nie samo ``group_id``: treść wpisu niesie numer zamówienia, a
+    podział nadwyżki na następcę potrzebuje numerów obu stron. Obie ścieżki
+    importu — wsadowa i ręczne rozstrzygnięcie — wołają tę funkcję, więc
+    podział nie zależy od tego, którą z nich operator akurat wybrał.
+    """
+    outcome = await apply_md_consumption(
         db,
         order=match_order,
+        group=group,
         period_month=period_month,
         md_reported=md_reported,
         import_id=import_id,
         user_id=user_id,
     )
-    if group_id:
+    if group is not None:
         record_event(
             db,
-            group_id=group_id,
+            group_id=group.id,
             order_id=match_order.id,
             event_type=EVENT_MD_IMPORT,
             description=describe_import(
-                match_order, period_month, md_reported, previous
+                match_order,
+                period_month,
+                outcome.applied,
+                outcome.previous,
+                order_number=group.order_number,
             ),
             payload={
+                # `md_reported` zostaje liczbą Z ARKUSZA, a `md_applied` mówi,
+                # ile z niej przyjęło TO zamówienie — po rozdzieleniu obie
+                # wartości są potrzebne do rozliczenia faktury za ten miesiąc.
                 "period_month": period_month,
                 "md_reported": str(md_reported),
-                "md_previous": str(previous),
+                "md_applied": str(outcome.applied),
+                "md_transferred": str(outcome.transferred),
+                "md_previous": str(outcome.previous),
                 "md_remaining": str(match_order.md_remaining),
                 "import_id": import_id,
             },
@@ -333,7 +350,7 @@ async def create_import(
     # w podsumowaniu oznaczone jako „Zaktualizowano", więc operator nie miał
     # żadnego sygnału.
     pending_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
-    md_orders: dict[int, tuple[ClientOrder, Optional[int]]] = {}
+    md_orders: dict[int, tuple[ClientOrder, ClientOrderGroup]] = {}
 
     for parsed_row in parsed.rows:
         matches = match_by_name(candidates, parsed_row.consultant_name)
@@ -352,7 +369,7 @@ async def create_import(
             row.status = IMPORT_ROW_APPLIED
             row.matched_order_id = match.order.id
             pending_md[match.order.id] += parsed_row.md_reported
-            md_orders[match.order.id] = (match.order, match.group.id)
+            md_orders[match.order.id] = (match.order, match.group)
         elif len(matches) > 1:
             row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
             row.candidate_order_ids = [m.order.id for m in matches]
@@ -369,11 +386,11 @@ async def create_import(
         db.add(row)
 
     for order_id, md_total in pending_md.items():
-        order_obj, group_id = md_orders[order_id]
+        order_obj, order_group = md_orders[order_id]
         await _apply_to_line(
             db,
             match_order=order_obj,
-            group_id=group_id,
+            group=order_group,
             period_month=period_month,
             md_reported=md_total,
             import_id=batch.id,
@@ -647,7 +664,7 @@ async def assign_row(
     await _apply_to_line(
         db,
         match_order=order,
-        group_id=order.order_group_id,
+        group=order.order_group,
         period_month=batch.period_month,
         md_reported=Decimal(str(already_applied or 0)) + row.md_reported,
         import_id=batch.id,

@@ -115,11 +115,19 @@ export interface OrderGroupListResponse {
 
 export interface OrderGroupEvent {
   id: number;
+  /** Slug z backendu. Celowo `string`, a nie unia: nieznany typ ma się
+   *  wyrenderować z ikoną domyślną, a nie wywalić bundla po stronie klienta. */
   event_type: string;
   event_label: string;
   description: string;
   order_id: number | null;
   payload: Record<string, unknown> | null;
+  /** Zamówienie powiązane wpisem `transfer_md`. Pola stoją OBOK `payload`,
+   *  bo `payload` jest redagowany do `null` rolom bez uprawnień finansowych —
+   *  a to właśnie one najczęściej oglądają tę zakładkę. Numer i id zbudowane
+   *  z payloadu znikałyby więc dokładnie tym, którym mają służyć. */
+  related_group_id: number | null;
+  related_order_number: string | null;
   created_by_user_id: number | null;
   created_at: string;
 }

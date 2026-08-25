@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/Toast";
 import {
   OrdersAndContractsTab,
+  canTerminateContractor,
   splitOrders,
 } from "@/components/OrdersAndContractsTab";
 import type { ClientOrderRead } from "@/lib/api/dlPortal";
@@ -996,5 +997,100 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
     renderTab(7);
     expect(await screen.findByText(/Ezdrowie Bezzamowien/)).toBeInTheDocument();
     expect(screen.queryByLabelText("Część umowy")).not.toBeInTheDocument();
+  });
+});
+
+// ── Przycisk „Zakończ" ───────────────────────────────────────────────────────
+
+describe("OrdersAndContractsTab — przycisk „Zakończ”", () => {
+  /** Kontraktor o zadanym statusie kontraktu, z jednym aktywnym zamówieniem. */
+  function withContractStatus(contract_status: string) {
+    return {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 600,
+      candidate_name: "Wojciech Sokolnicki",
+      contract_status,
+      orders: [
+        makeOrder({
+          id: 61,
+          title: "Z-600",
+          contract_id: 600,
+          contract_status,
+          status: "active",
+          start_date: localISO(-60),
+          end_date: null,
+        }),
+      ],
+    };
+  }
+
+  function mockContractor(contract_status: string) {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [withContractStatus(contract_status)],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+  }
+
+  it("kontrakt SZKICOWY z aktywnym zamówieniem MA „Zakończ”", async () => {
+    // Realny przypadek Banku Pocztowego: kontrakt bezterminowy nie wychodzi
+    // z Draftu żadną istniejącą ścieżką (aktywacja wymaga `end_date`), więc
+    // bramka na `active` chowała jedyną drogę rozstania z pracującym
+    // konsultantem. Backendowy `terminate` bramki statusu nie ma.
+    mockContractor("draft");
+    renderTab();
+    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    expect(
+      screen.getByRole("button", { name: /^Zakończ$/ }),
+    ).toBeInTheDocument();
+  });
+
+  it.each(["active", "ending", "ready_for_signature"])(
+    "kontrakt w stanie %s MA „Zakończ”",
+    async (status) => {
+      mockContractor(status);
+      renderTab();
+      await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+      expect(
+        screen.getByRole("button", { name: /^Zakończ$/ }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it.each(["ended", "void"])(
+    "kontrakt w stanie terminalnym %s NIE MA „Zakończ”",
+    async (status) => {
+      mockContractor(status);
+      renderTab();
+      await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+      expect(
+        screen.queryByRole("button", { name: /^Zakończ$/ }),
+      ).not.toBeInTheDocument();
+    },
+  );
+});
+
+describe("canTerminateContractor", () => {
+  it("przepuszcza wszystko poza `ended` i `void`", () => {
+    for (const status of [
+      "draft",
+      "ready_for_signature",
+      "active",
+      "ending",
+    ]) {
+      expect(canTerminateContractor(status)).toBe(true);
+    }
+    expect(canTerminateContractor("ended")).toBe(false);
+    expect(canTerminateContractor("void")).toBe(false);
+  });
+
+  it("brak statusu traktuje jak stan nieterminalny", () => {
+    // `contract_status` jest po stronie API nullowalne (`contract.status.value
+    // if contract else None`). Ukrycie przycisku przy braku danych zostawiłoby
+    // kontraktora bez jedynej drogi zakończenia — awaria odczytu nie może
+    // czytać się jak stan terminalny.
+    expect(canTerminateContractor(null)).toBe(true);
   });
 });

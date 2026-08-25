@@ -244,11 +244,15 @@ def _group(gid, *, status, start, end=None, predecessor=None):
     return group
 
 
-def _line(lid, gid, *, status, end=None):
+def _line(lid, gid, *, status, end=None, md_total=None, md_remaining=None):
     line = ClientOrder(
         client_id=1, contract_id=1, order_group_id=gid, title=f"L{lid}", status=status
     )
     line.end_date = end
+    # `md_total` jest dyskryminatorem „to jest linia MD" w całym module —
+    # bez niego rodzina zachowuje się czysto datowo.
+    line.md_total = md_total
+    line.md_remaining = md_remaining
     return line
 
 
@@ -325,6 +329,120 @@ async def test_materializer_is_idempotent_and_logs_the_closure_once():
     assert await materialize_scheduled_order_groups(db, today=start) == 0
     events = [obj for obj in db.added if getattr(obj, "event_type", None)]
     assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_md_family_waits_for_the_budget_not_the_start_date():
+    """Zamówienie MD kończy budżet, nie kalendarz.
+
+    Data startu kontynuacji jest warunkiem KONIECZNYM, ale nie wystarczającym.
+    Bez tej bramki następca przejmował zamówienie w dniu swojego startu, a
+    niewykorzystane dni poprzednika przepadały razem z nim w historii — nie
+    było ich już jak zafakturować. Dokładnie stan, z którego wziął się ticket.
+    """
+    start = _TODAY
+    previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
+    current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
+    lines = [
+        _line(
+            10,
+            1,
+            status=ClientOrderStatus.active,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("13.75"),
+        ),
+        _line(20, 2, status=ClientOrderStatus.draft, md_total=Decimal("22.24")),
+    ]
+    db = _FakeSession([previous, current], lines)
+
+    assert await materialize_scheduled_order_groups(db, today=start) == 0
+    assert previous.status == GROUP_STATUS_ACTIVE
+    assert current.status == GROUP_STATUS_SCHEDULED
+    assert lines[1].status == ClientOrderStatus.draft
+
+
+@pytest.mark.asyncio
+async def test_md_family_promotes_once_the_budget_is_gone():
+    """Wyczerpanie MD — i dopiero ono — przepuszcza kontynuację."""
+    start = _TODAY
+    previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
+    current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
+    lines = [
+        _line(
+            10,
+            1,
+            status=ClientOrderStatus.completed,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("0"),
+        ),
+        _line(20, 2, status=ClientOrderStatus.draft, md_total=Decimal("22.24")),
+    ]
+    db = _FakeSession([previous, current], lines)
+
+    assert await materialize_scheduled_order_groups(db, today=start) == 2
+    assert previous.status == GROUP_STATUS_COMPLETED
+    assert current.status == GROUP_STATUS_ACTIVE
+    assert lines[1].status == ClientOrderStatus.active
+
+
+@pytest.mark.asyncio
+async def test_a_predecessor_already_in_history_never_blocks_the_continuation():
+    """Bramka pyta wyłącznie o poprzednika ``active``.
+
+    Zamówienie zakończone ręcznie już oddało pole; wstrzymywanie kontynuacji
+    zostawiłoby rodzinę bez ani jednego bieżącego zamówienia — czyli klienta
+    bez zamówienia, choć konsultant pracuje.
+    """
+    start = _TODAY
+    previous = _group(
+        1, status=GROUP_STATUS_COMPLETED, start=start - timedelta(days=90)
+    )
+    current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
+    lines = [
+        _line(
+            10,
+            1,
+            status=ClientOrderStatus.completed,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("30"),
+        ),
+    ]
+    db = _FakeSession([previous, current], lines)
+
+    assert await materialize_scheduled_order_groups(db, today=start) == 1
+    assert current.status == GROUP_STATUS_ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_consultant_budget_does_not_block_the_continuation():
+    """Konsultant zdjęty z zamówienia nie wykorzysta już swoich MD.
+
+    Wliczanie jego budżetu trzymałoby kontynuację zablokowaną bezterminowo —
+    stan nie do odblokowania z interfejsu.
+    """
+    start = _TODAY
+    previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
+    current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
+    lines = [
+        _line(
+            10,
+            1,
+            status=ClientOrderStatus.cancelled,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("30"),
+        ),
+        _line(
+            11,
+            1,
+            status=ClientOrderStatus.completed,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("0"),
+        ),
+    ]
+    db = _FakeSession([previous, current], lines)
+
+    assert await materialize_scheduled_order_groups(db, today=start) == 2
+    assert current.status == GROUP_STATUS_ACTIVE
 
 
 @pytest.mark.asyncio

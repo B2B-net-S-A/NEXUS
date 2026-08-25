@@ -19,7 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from jinja2 import TemplateError
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -102,6 +102,7 @@ from app.services.contract_lifecycle import (
     move_to_ready_for_signature,
     reopen_contract,
     revert_contract,
+    signed_generated_link_filter,
     void_contract,
 )
 from app.services.contract_rates import effective_rate_fields
@@ -2583,9 +2584,11 @@ async def delete_contract(
     """Trwale usuń kontrakt z modułu Kontrakty — i TYLKO ten rekord.
 
     Kandydat zostaje w module Kandydaci (FK działa w drugą stronę), a
-    wygenerowane umowy B2B zostają w „Wygenerowane umowy" — niepodpisane są
-    odpinane (``contract_id`` → NULL, stan „umowa bez projektu") zamiast
-    blokować operację FK-iem RESTRICT. Pod-zasoby kontraktu (dokumenty,
+    wygenerowane umowy B2B zostają w „Wygenerowane umowy" — niepodpisane
+    (oraz podpisane, których ``client_id`` jawnie wskazuje INNEGO klienta niż
+    kasowany kontrakt, czyli link po rozjeździe) są odpinane (``contract_id``
+    → NULL, stan „umowa bez projektu") zamiast blokować operację FK-iem
+    RESTRICT. Pod-zasoby kontraktu (dokumenty,
     aneksy, harmonogramy, onboarding, sprzęt, faktury, zamówienia) idą FK
     CASCADE — to dane TEGO kontraktu, a przypadek użycia to wiersz dodany
     błędnie albo zdublowany. Notatki i rozmowy zostają odpięte (FK SET NULL).
@@ -2629,21 +2632,24 @@ async def delete_contract(
     if blocker is not None:
         _raise_delete_blocked(blocker)
 
-    # Odpięcie NIEPODPISANYCH wygenerowanych umów B2B PRZED kasowaniem: FK jest
-    # RESTRICT, więc bez tego commit padałby IntegrityError → 500 (dokładnie
-    # tak wyglądał zgłoszony bug „Usuń nie działa" dla umów z wygenerowanym
-    # dokumentem). Wiersz w rejestrze „Wygenerowane umowy" zostaje nietknięty
-    # poza FK. Warunek na `signature_status` powtarza blokadę z
-    # `hard_delete_blocker` W SAMYM UPDATE — bez niego wyścig (potwierdzenie
-    # `signed_both` między checkiem a odpięciem) po cichu odpiąłby podpisaną
-    # umowę i FK RESTRICT przestałby być strażnikiem ostatniej szansy.
+    # Odpięcie wygenerowanych umów B2B, które tego kontraktu NIE chronią, PRZED
+    # kasowaniem: FK jest RESTRICT, więc bez tego commit padałby IntegrityError
+    # → 500 (dokładnie tak wyglądał zgłoszony bug „Usuń nie działa" dla umów
+    # z wygenerowanym dokumentem). Wiersz w rejestrze „Wygenerowane umowy"
+    # zostaje nietknięty poza FK. Warunek jest DOPEŁNIENIEM tego samego
+    # predykatu, na którym stoi `hard_delete_blocker` — dwie różne reguły
+    # oznaczałyby, że przepuszczony blocker wywraca się niżej na FK albo trafia
+    # w TOCTOU-guard, który każdy pozostały link raportuje jako „signed".
+    # Powtórzenie go W SAMYM UPDATE domyka wyścig: potwierdzenie `signed_both`
+    # między checkiem a odpięciem po cichu odpięłoby podpisaną umowę i FK
+    # RESTRICT przestałby być strażnikiem ostatniej szansy.
     from app.models.b2b_generated_contract import B2BGeneratedContract
 
     await db.execute(
         update(B2BGeneratedContract)
         .where(
             B2BGeneratedContract.contract_id == contract_id,
-            B2BGeneratedContract.signature_status != "signed_both",
+            not_(signed_generated_link_filter(contract)),
         )
         .values(contract_id=None)
     )

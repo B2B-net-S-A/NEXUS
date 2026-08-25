@@ -252,3 +252,312 @@ async def test_manual_assignment_adds_to_the_row_already_applied(
     body = await _group(app_client, app_auth_headers, client_id, group["id"])
     line = next(line for line in body["lines"] if line["id"] == target)
     assert line["md_remaining"] == pytest.approx(30.0)
+
+
+# ── Podział zużycia między zamówieniem bieżącym a kontynuacją ───────────────
+#
+# Konsultant nie przestaje pracować w dniu, w którym kończy się budżet MD.
+# Raport przychodzi jedną liczbą za cały miesiąc, więc nadwyżka ponad budżet
+# należy do zamówienia-następcy — zostawiona na bieżącym pokazywałaby
+# przekroczenie na zamówieniu, które klient już zamknął, a nowe stałoby puste.
+
+
+async def _extend(
+    app_client: AsyncClient,
+    headers: dict,
+    client_id: int,
+    group_id: int,
+    *,
+    start,
+    lines: list[dict],
+) -> dict:
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group_id}/extend",
+        json={
+            "order_number": f"NEXT-{uuid.uuid4().hex[:4]}",
+            "start_date": start.isoformat(),
+            "lines": lines,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def _events(app_client: AsyncClient, headers: dict, client_id: int, gid: int):
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{gid}/events", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["events"]
+
+
+async def _line_of(app_client: AsyncClient, headers: dict, client_id: int, gid: int):
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=headers
+    )
+    assert listing.status_code == 200, listing.text
+    everything = []
+    for group in listing.json()["groups"]:
+        everything.append(group)
+        everything.extend(group.get("future_orders") or [])
+    group = next(g for g in everything if g["id"] == gid)
+    return group["lines"][0]
+
+
+async def test_md_beyond_the_budget_flows_onto_the_continuation(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """20 MD budżetu, 30 MD w raporcie → 20 tu, 10 na kontynuacji.
+
+    Kontynuacja startuje w PRZESZŁOŚCI i mimo to czekała: zamówienie MD kończy
+    budżet, nie kalendarz. Dopiero wyzerowanie budżetu przez ten import
+    przepuszcza ją przez materializator — dokładnie sekwencja ze zgłoszenia.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
+    )
+    successor_start = _TODAY - timedelta(days=5)
+    successor = await _extend(
+        app_client,
+        app_auth_headers,
+        client_id,
+        group["id"],
+        start=successor_start,
+        lines=[
+            dict(
+                _md_line(contracts[0], 50),
+                start_date=successor_start.isoformat(),
+            )
+        ],
+    )
+    assert successor["status"] == "scheduled", "kontynuacja ruszyła mimo budżetu MD"
+
+    finance = await _finance_headers(app_client)
+    detail = await _import(app_client, finance, _sheet([(names[0], 30)]))
+    assert detail["rows_applied"] == 1, detail
+
+    current_line = await _line_of(
+        app_client, app_auth_headers, client_id, group["id"]
+    )
+    next_line = await _line_of(
+        app_client, app_auth_headers, client_id, successor["id"]
+    )
+    assert current_line["md_remaining"] == pytest.approx(0.0)
+    assert current_line["is_active"] is False
+    assert next_line["md_remaining"] == pytest.approx(40.0)
+    assert next_line["is_active"] is True, "kontynuacja nie przejęła zamówienia"
+
+    ours = [
+        e
+        for e in await _events(app_client, app_auth_headers, client_id, group["id"])
+        if e["event_type"] == "transfer_md"
+    ]
+    theirs = [
+        e
+        for e in await _events(
+            app_client, app_auth_headers, client_id, successor["id"]
+        )
+        if e["event_type"] == "transfer_md"
+    ]
+    assert len(ours) == 1 and len(theirs) == 1, "podział ma ślad po OBU stronach"
+    assert successor["order_number"] in ours[0]["description"]
+    assert group["order_number"] in theirs[0]["description"]
+    # Odsyłacz jedzie POZA `payload`, bo ten znika rolom bez VIEW_FINANCE.
+    assert ours[0]["related_group_id"] == successor["id"]
+    assert ours[0]["related_order_number"] == successor["order_number"]
+    assert theirs[0]["related_group_id"] == group["id"]
+    assert theirs[0]["related_order_number"] == group["order_number"]
+    assert ours[0]["payload"]["md_transferred"] == "10.000000"
+
+
+async def test_reimporting_the_split_month_does_not_move_md_twice(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Podział musi być idempotentny tak samo jak sam ``md_remaining``.
+
+    Pojemność linii liczona Z UWZGLĘDNIENIEM bieżącego miesiąca widziałaby
+    własny, poprzedni zapis jako zużycie i przy każdym powtórzeniu importu
+    przesuwała na następcę kolejne MD.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
+    )
+    successor_start = _TODAY + timedelta(days=30)
+    successor = await _extend(
+        app_client,
+        app_auth_headers,
+        client_id,
+        group["id"],
+        start=successor_start,
+        lines=[
+            dict(
+                _md_line(contracts[0], 50),
+                start_date=successor_start.isoformat(),
+            )
+        ],
+    )
+    finance = await _finance_headers(app_client)
+    payload = _sheet([(names[0], 30)])
+
+    await _import(app_client, finance, payload)
+    await _import(app_client, finance, payload)
+
+    next_line = await _line_of(
+        app_client, app_auth_headers, client_id, successor["id"]
+    )
+    assert next_line["md_remaining"] == pytest.approx(40.0)
+
+
+async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Po podniesieniu budżetu nadwyżki nie ma — stary wiersz musi zejść do zera.
+
+    Zostawienie go policzyłoby te same MD na obu zamówieniach naraz, a linia
+    następcy nie ma jak tego pokazać: jej pozostałość po prostu byłaby zaniżona.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
+    )
+    successor_start = _TODAY + timedelta(days=30)
+    successor = await _extend(
+        app_client,
+        app_auth_headers,
+        client_id,
+        group["id"],
+        start=successor_start,
+        lines=[
+            dict(
+                _md_line(contracts[0], 50),
+                start_date=successor_start.isoformat(),
+            )
+        ],
+    )
+    finance = await _finance_headers(app_client)
+    payload = _sheet([(names[0], 30)])
+    await _import(app_client, finance, payload)
+    assert (
+        await _line_of(app_client, app_auth_headers, client_id, successor["id"])
+    )["md_remaining"] == pytest.approx(40.0)
+
+    raised = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}",
+        json={"input_mode": "md", "input_value": 50, "rate_revenue": 1200},
+        headers=app_auth_headers,
+    )
+    assert raised.status_code == 200, raised.text
+    await _import(app_client, finance, payload)
+
+    current_line = await _line_of(
+        app_client, app_auth_headers, client_id, group["id"]
+    )
+    next_line = await _line_of(
+        app_client, app_auth_headers, client_id, successor["id"]
+    )
+    assert current_line["md_remaining"] == pytest.approx(20.0)
+    assert next_line["md_remaining"] == pytest.approx(50.0)
+
+
+async def test_overflow_stays_put_when_there_is_no_continuation(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Następcy nie wymyślamy — przekroczenie zostaje widoczne na linii."""
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
+    )
+    finance = await _finance_headers(app_client)
+    await _import(app_client, finance, _sheet([(names[0], 30)]))
+
+    line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
+    assert line["md_remaining"] == pytest.approx(-10.0)
+    events = await _events(app_client, app_auth_headers, client_id, group["id"])
+    assert not [e for e in events if e["event_type"] == "transfer_md"]
+
+
+async def test_manual_assignment_splits_the_same_way_as_the_batch_import(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ręczne rozstrzygnięcie idzie tą samą ścieżką co import wsadowy.
+
+    Druga ścieżka jest łatwa do przeoczenia: gdyby ominęła podział, wynik
+    zależałby od tego, czy arkusz był jednoznaczny — czyli od danych, a nie
+    od reguły.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(2, same_name=True)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_md_line(contracts[0], 20), _md_line(contracts[1], 50)],
+    )
+    successor_start = _TODAY + timedelta(days=30)
+    successor = await _extend(
+        app_client,
+        app_auth_headers,
+        client_id,
+        group["id"],
+        start=successor_start,
+        lines=[
+            dict(
+                _md_line(contracts[0], 50),
+                start_date=successor_start.isoformat(),
+            )
+        ],
+    )
+    finance = await _finance_headers(app_client)
+    detail = await _import(app_client, finance, _sheet([(names[0], 30)]))
+    assert detail["rows_ambiguous"] == 1, detail
+
+    target = next(
+        line for line in group["lines"] if line["md_total"] == pytest.approx(20.0)
+    )
+    resp = await app_client.post(
+        f"/api/md-consumption/imports/{detail['id']}/rows/{detail['rows'][0]['id']}"
+        "/assign",
+        json={"order_id": target["id"]},
+        headers=finance,
+    )
+    assert resp.status_code == 200, resp.text
+
+    next_line = await _line_of(
+        app_client, app_auth_headers, client_id, successor["id"]
+    )
+    assert next_line["md_remaining"] == pytest.approx(40.0)
+
+
+async def test_import_entry_names_the_order_and_the_counter(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wpis „Import MD" musi powiedzieć, z KTÓREJ puli zeszły te MD.
+
+    Ten sam konsultant bywa obsadzony na kolejnych zamówieniach klienta, więc
+    sam miesiąc i liczba MD nie wystarczają do rozliczenia faktury.
+    """
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 50)]
+    )
+    finance = await _finance_headers(app_client)
+    await _import(app_client, finance, _sheet([(names[0], 20)]))
+
+    entry = next(
+        e
+        for e in await _events(app_client, app_auth_headers, client_id, group["id"])
+        if e["event_type"] == "import_md"
+    )
+    assert group["order_number"] in entry["description"]
+    assert "wykorzystano 20.00 / pozostało 30.00 MD" in entry["description"]
+    # Miesiąc słownie, nie „2026-07" — wpis czyta człowiek.
+    assert _PERIOD not in entry["description"]

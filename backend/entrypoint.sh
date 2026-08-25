@@ -4609,6 +4609,126 @@ _DATA_STATEMENTS = [
           AND render_payload IS NOT NULL
           AND jsonb_typeof(render_payload) = 'object'
           AND render_payload ->> 'start_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'""",
+    # ── 0242: trzy punktowe korekty (BIK: struktura + status linii MD; BP: ──
+    # przepięcie podpisanej umowy B2B na właściwy projekt).
+    #
+    # Lustro migracji `0242_order_md_transfer_and_bp_bik_backfill`. Prod ma
+    # `alembic_version` osierocony na 0152, więc sama migracja jest tam NO-OPEM
+    # — realnym mechanizmem wdrożenia jest ta lista.
+    #
+    # Różnica wobec migracji: tam „zero dopasowań" przerywa RAISE-em, tutaj
+    # NIE MOŻE. Wyjątek wywraca cały blok DO razem z markerem, a jedynym śladem
+    # jest jedna linijka „backfill data skip" w logu kontenera (`/api/health`
+    # zostaje zielony) — czyli głośna asercja zamieniłaby się w cichą pętlę
+    # powtarzaną przy każdym starcie. Zamiast tego każdy krok jest warunkowy
+    # i idempotentny, a marker zapisuje LICZBY, po których widać, co realnie
+    # zadziałało.
+    r"""DO $bp_bik_backfill$
+    DECLARE
+        scheduled_group_id INTEGER;
+        scheduled_line_rows BIGINT := 0;
+        reactivated_line_rows BIGINT := 0;
+        generated_rows BIGINT := 0;
+        md_line_id INTEGER;
+        target_contract_id INTEGER;
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM app_settings
+             WHERE key = '0242_bp_bik_order_and_contract_backfill'
+        ) THEN
+            RETURN;
+        END IF;
+
+        -- 1. Grupa 4500029903 (BIK) ma poprawnego poprzednika, ale status
+        --    `active`, więc renderuje się jako równorzędna karta zamiast
+        --    zagnieździć się pod 4500030067. Zagnieżdżenie wymaga `scheduled`.
+        SELECT g.id INTO scheduled_group_id
+          FROM client_order_groups AS g
+         WHERE g.client_id = 18
+           AND g.order_number = '4500029903'
+           AND g.status = 'active'
+           AND g.predecessor_group_id IS NOT NULL
+         ORDER BY g.id
+         LIMIT 1;
+
+        IF scheduled_group_id IS NOT NULL THEN
+            UPDATE client_order_groups
+               SET status = 'scheduled', updated_at = now()
+             WHERE id = scheduled_group_id;
+
+            UPDATE client_orders
+               SET status = 'draft'::clientorderstatus,
+                   filled_at = NULL,
+                   updated_at = now()
+             WHERE order_group_id = scheduled_group_id
+               AND status = 'active'::clientorderstatus;
+            GET DIAGNOSTICS scheduled_line_rows = ROW_COUNT;
+        END IF;
+
+        -- 2. Linia 4500030067 jest `completed` mimo NIEWYCZERPANYCH MD.
+        --    Po tej rewizji o zamknięciu linii MD decyduje wyłącznie budżet.
+        SELECT o.id INTO md_line_id
+          FROM client_orders AS o
+          JOIN client_order_groups AS g ON g.id = o.order_group_id
+         WHERE g.client_id = 18
+           AND g.order_number = '4500030067'
+           AND o.status = 'completed'::clientorderstatus
+           AND o.md_total IS NOT NULL
+           AND o.md_remaining > 0
+         ORDER BY o.id
+         LIMIT 1;
+
+        IF md_line_id IS NOT NULL THEN
+            UPDATE client_orders
+               SET status = 'active'::clientorderstatus, updated_at = now()
+             WHERE id = md_line_id;
+            GET DIAGNOSTICS reactivated_line_rows = ROW_COUNT;
+        END IF;
+
+        -- 3. Umowa 1476/2026 wskazuje projekt Energa, a dokument drukuje
+        --    stronę „Bank Pocztowy S.A.". Kontrakt docelowy potwierdzamy
+        --    kandydatem i klientem, nie samym id ze zrzutu produkcji.
+        SELECT c.id INTO target_contract_id
+          FROM contracts AS c
+         WHERE c.candidate_id = 154325
+           AND c.client_id = 16
+           AND c.status <> 'void'
+         ORDER BY c.id
+         LIMIT 1;
+
+        IF target_contract_id IS NOT NULL THEN
+            UPDATE b2b_generated_contracts
+               SET contract_id = target_contract_id,
+                   client_id = 16,
+                   job_id = (
+                       SELECT c.job_id FROM contracts AS c
+                        WHERE c.id = target_contract_id
+                   ),
+                   updated_at = now()
+             WHERE contract_number = '1476/2026'
+               AND candidate_id = 154325
+               AND signature_status = 'signed_both'
+               AND contract_id IS DISTINCT FROM target_contract_id;
+            GET DIAGNOSTICS generated_rows = ROW_COUNT;
+        END IF;
+
+        INSERT INTO app_settings (key, value)
+        VALUES (
+            '0242_bp_bik_order_and_contract_backfill',
+            jsonb_build_object(
+                'revision', '0242_order_md_transfer_and_bp_bik_backfill',
+                'completed_at', clock_timestamp(),
+                'source', 'entrypoint',
+                'scheduled_group_rows', CASE WHEN scheduled_group_id IS NULL THEN 0 ELSE 1 END,
+                'scheduled_line_rows', scheduled_line_rows,
+                'reactivated_line_rows', reactivated_line_rows,
+                'generated_contract_rows', generated_rows,
+                'rollback', 'manual_only'
+            )
+        )
+        ON CONFLICT (key) DO NOTHING;
+    END
+    $bp_bik_backfill$""",
 ]
 
 
@@ -4768,6 +4888,11 @@ _CONSTRAINT_STATEMENTS = [
     # tym, który migracja 0227 zapisała jako zamkniętą listę; poszerzenie MUSI
     # przejść przez DROP, inaczej prod odrzuci „zakonczenie" i zamknięcie
     # zamówienia wywali się w połowie transakcji.
+    #
+    # 0242 dokłada „transfer_md" — wpis o podziale MD między zamówieniem
+    # bieżącym a przyszłym. Bez tego pierwszy import z Finansów, który przeleje
+    # nadwyżkę na następcę, wywróci się IntegrityError-em w ŚRODKU transakcji
+    # importu, czyli zabierze ze sobą także poprawnie dopasowane wiersze.
     "ALTER TABLE client_order_group_events "
     "DROP CONSTRAINT IF EXISTS ck_client_order_group_events_type",
     """DO $$ BEGIN
@@ -4776,7 +4901,8 @@ _CONSTRAINT_STATEMENTS = [
             CHECK (event_type IN (
                 'utworzenie', 'dodanie_konsultanta', 'import_md',
                 'zamiana_kontraktora', 'edycja_reczna', 'zakonczenie',
-                'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur'
+                'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur',
+                'transfer_md'
             ));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE md_consumption_import_rows "

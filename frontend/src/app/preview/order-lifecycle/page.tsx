@@ -12,11 +12,18 @@
  * pustka i „wyczerpany budżet" nie wyglądają tak samo.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { OrderGroupCard } from "@/components/client-profile/orders/OrderGroupCard";
-import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
+import {
+  OrderGroupCard,
+  type OrderGroupFocusRequest,
+} from "@/components/client-profile/orders/OrderGroupCard";
+import type {
+  OrderGroupEvent,
+  OrderGroupRead,
+  OrderLineRead,
+} from "@/lib/api/orderGroups";
 
 function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
   return {
@@ -80,7 +87,30 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   };
 }
 
-const CASES: Array<{ title: string; why: string; group: OrderGroupRead }> = [
+function event(overrides: Partial<OrderGroupEvent> = {}): OrderGroupEvent {
+  return {
+    id: 1,
+    event_type: "utworzenie",
+    event_label: "Utworzenie",
+    description: "Zamówienie utworzone.",
+    order_id: null,
+    payload: null,
+    related_group_id: null,
+    related_order_number: null,
+    created_by_user_id: null,
+    created_at: "2026-03-01T10:00:00Z",
+    ...overrides,
+  };
+}
+
+/** `events` domyślnie puste — to też stan do obejrzenia (pusta historia nie
+ *  może wyglądać jak awaria pobrania). */
+const CASES: Array<{
+  title: string;
+  why: string;
+  group: OrderGroupRead;
+  events?: OrderGroupEvent[];
+}> = [
   {
     title: "Zamówienie MD — stan normalny",
     why: "Pasek MD wypełniony POZOSTAŁOŚCIĄ, komplet akcji cyklu życia.",
@@ -173,11 +203,88 @@ const CASES: Array<{ title: string; why: string; group: OrderGroupRead }> = [
       ],
     }),
   },
+  {
+    title: "Przeniesienie MD na zamówienie-następcę",
+    why:
+      "Historia niesie ikonę per typ wpisu, a numer zamówienia powiązanego jest " +
+      "klikalny — cel leży w „Przyszłych zamówieniach” tej samej karty. Wpis bez " +
+      "powiązania (ostatni) renderuje sam tekst, bez martwego przycisku.",
+    group: group({
+      id: 15,
+      order_number: "4500030067",
+      lines: [line({ id: 8, md_total: 50, md_remaining: 0 })],
+      active_consultants: 1,
+      event_count: 5,
+      future_orders: [
+        group({
+          id: 16,
+          order_number: "4500029903",
+          start_date: "2026-08-15",
+          end_date: null,
+          status: "scheduled",
+          status_label: "Zaplanowane",
+          lines: [
+            line({ id: 9, group_id: 16, status: "draft", md_total: 22, md_remaining: 22 }),
+          ],
+          active_consultants: 0,
+          event_count: 2,
+          future_orders: [],
+        }),
+      ],
+    }),
+    events: [
+      event({ id: 101, description: "Zamówienie utworzone przez import PDF." }),
+      event({
+        id: 102,
+        event_type: "dodanie_konsultanta",
+        event_label: "Dodanie konsultanta",
+        description: "Dodano konsultanta Jan Kowalski (50 MD).",
+        created_at: "2026-03-02T09:00:00Z",
+      }),
+      event({
+        id: 103,
+        event_type: "import_md",
+        event_label: "Import MD",
+        description:
+          "Za lipiec 2026 zużyto 20 MD z zamówienia nr 4500030067 — " +
+          "wykorzystano 45 / pozostało 5 MD.",
+        created_at: "2026-08-05T08:00:00Z",
+      }),
+      event({
+        id: 104,
+        event_type: "transfer_md",
+        event_label: "Przeniesienie MD",
+        description:
+          "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
+          "zamówieniu nr 4500029903",
+        related_group_id: 16,
+        related_order_number: "4500029903",
+        created_at: "2026-08-20T08:00:00Z",
+      }),
+      event({
+        id: 105,
+        event_type: "transfer_md",
+        event_label: "Przeniesienie MD",
+        description:
+          "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja na " +
+          "zamówieniu nr 4500029904",
+        related_group_id: null,
+        related_order_number: "4500029904",
+        created_at: "2026-08-20T08:05:00Z",
+      }),
+    ],
+  },
 ];
 
 function noop() {}
 
 export default function OrderLifecyclePreview() {
+  // Ta sama plątanina co w `MultiConsultantOrdersTab` — harness ma ćwiczyć
+  // PRODUKCYJNĄ ścieżkę przejścia, a nie jej uproszczoną atrapę.
+  const [focusRequest, setFocusRequest] = useState<OrderGroupFocusRequest | null>(
+    null,
+  );
+
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
       defaultOptions: {
@@ -195,10 +302,10 @@ export default function OrderLifecyclePreview() {
       },
     });
     // Historia jest lazy (`enabled: historyOpen`), więc bez zasiania jej
-    // rozwinięcie trafiłoby w sieć. Zasiewamy pustą — to też stan do obejrzenia.
+    // rozwinięcie trafiłoby w sieć.
     for (const item of CASES) {
       qc.setQueryData(["order-group-events", item.group.client_id, item.group.id], {
-        events: [],
+        events: item.events ?? [],
       });
     }
     return qc;
@@ -236,6 +343,13 @@ export default function OrderLifecyclePreview() {
               onCloseGroup={noop}
               onReopenGroup={noop}
               onExtendGroup={noop}
+              focusRequest={focusRequest}
+              onFocusGroup={(groupId) =>
+                setFocusRequest((prev) => ({
+                  groupId,
+                  nonce: (prev?.nonce ?? 0) + 1,
+                }))
+              }
             />
           </section>
         ))}

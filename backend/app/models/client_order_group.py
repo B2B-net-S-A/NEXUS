@@ -234,7 +234,8 @@ class ClientOrderGroupEvent(Base):
         CheckConstraint(
             "event_type IN ('utworzenie', 'dodanie_konsultanta', 'import_md', "
             "'zamiana_kontraktora', 'edycja_reczna', 'zakonczenie', "
-            "'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur')",
+            "'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur', "
+            "'transfer_md')",
             name="ck_client_order_group_events_type",
         ),
         Index("ix_client_order_group_events_group", "group_id"),

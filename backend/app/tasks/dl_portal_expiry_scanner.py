@@ -4,6 +4,7 @@ contracts i client orders.
 Lifecycle:
 1. ``ClientFrameworkContract``: status=active, expiry_date<today → status=expired
 2. ``ClientOrder``: status=active, end_date<today → status=completed
+   (POZA liniami MD — te kończy budżet, nie kalendarz; patrz ``_promote_statuses``)
 3. Dispatch notyfikacji expiry:
    - 30/14/7 dni przed ``ClientFrameworkContract.expiry_date`` (status=active)
    - 30/14/7 dni przed ``ClientOrder.end_date`` (status=active)
@@ -113,6 +114,15 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int, int]:
             ClientOrder.status == ClientOrderStatus.active,
             ClientOrder.end_date.is_not(None),
             ClientOrder.end_date < today,
+            # Zamówienie rozliczane w MD kończy BUDŻET, nie kalendarz. Data
+            # nadal opisuje okres obowiązywania i steruje alertami wygasania
+            # niżej, ale nie domyka linii: konsultant z niewykorzystanymi MD
+            # pracuje dalej, a zamknięty przez skaner wypadał z importu
+            # zużycia (`active_md_lines` pyta o linie aktywne), czyli MD
+            # przestawały się odejmować i budżet zamierał na ostatniej
+            # wartości. Statusem linii MD steruje wyłącznie
+            # `client_order_lines.sync_md_line_status`.
+            ClientOrder.md_total.is_(None),
         )
         .values(status=ClientOrderStatus.completed)
     )

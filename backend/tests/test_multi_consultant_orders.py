@@ -1826,6 +1826,29 @@ async def test_future_groups_are_nested_sorted_and_promoted_on_start_date(
     nearest = next(
         item for item in future if item["start_date"] == dates[0].isoformat()
     )
+    # Sama data startu NIE promuje kontynuacji w rodzinie MD: poprzednik ma
+    # jeszcze 50 MD, a zamówienie MD kończy budżet, nie kalendarz. Bez tej
+    # bramki niewykorzystane dni przepadały razem z zamówieniem spychanym do
+    # historii, a zafakturować ich już nie było jak.
+    async with AsyncSessionLocal() as db:
+        assert (
+            await materialize_scheduled_order_groups(
+                db, client_id=client_id, today=dates[0]
+            )
+            == 0
+        )
+        await db.commit()
+        held = await db.get(ClientOrderGroup, current["id"])
+        assert held is not None and held.status == GROUP_STATUS_ACTIVE
+
+    # Budżet wyzerowany → kontynuacja przejmuje zamówienie i domyka poprzednika.
+    async with AsyncSessionLocal() as db:
+        current_line = await db.scalar(
+            select(ClientOrder).where(ClientOrder.order_group_id == current["id"])
+        )
+        current_line.md_remaining = Decimal("0")
+        await db.commit()
+
     async with AsyncSessionLocal() as db:
         changed = await materialize_scheduled_order_groups(
             db, client_id=client_id, today=dates[0]

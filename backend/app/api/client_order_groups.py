@@ -94,6 +94,7 @@ from app.services.client_order_lines import (
     list_consultant_options,
     record_event,
     recompute_remaining,
+    sync_md_line_status,
 )
 from app.services.client_access import deny, resolve_client_access
 from app.services.candidate_identity_quarantine import normalize_person_name_part
@@ -109,6 +110,7 @@ from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ADDED,
     EVENT_CONSULTANT_SWAPPED,
     EVENT_MANUAL_EDIT,
+    EVENT_MD_TRANSFER,
     EVENT_ORDER_CLOSED,
     EVENT_ORDER_CREATED,
     EVENT_ORDER_EXTENDED,
@@ -142,6 +144,45 @@ Nagłówki arkusza są wspólne z eksportem legacy (``order_excel_export``), wi�
 nie da się kolumny przemianować na „kwota całego zamówienia" bez zmiany
 znaczenia tej samej kolumny w drugim eksporcie. Zamiast tego rozróżniamy
 wiersze: zbiorczy niesie kwotę grupy, wiersze osób — własne zużycie."""
+
+
+# Nazwy KOLUMN, którymi `update_order_group` opisuje własną edycję. Wpis
+# `edycja_reczna` zawierający wyłącznie takie nazwy jest zapisem technicznym —
+# mówi „zmieniono end_date", a nie co się stało z zamówieniem — i historia
+# zamówienia go nie pokazuje.
+#
+# Ukrywamy PRZY ODCZYCIE, nigdy przez zawężenie domeny CHECK-a ani przez
+# usunięcie etykiety: na produkcji istnieją wiersze obu typów, więc węższy
+# CHECK nie dałby się założyć (precedens 0226), a brak etykiety wyrenderowałby
+# historyczny wpis surowym slugiem. Wpisy `edycja_reczna` z etykietami
+# biznesowymi („stawka kosztowa", „budżet MD") ZOSTAJĄ widoczne — na tej samej
+# grupie istnieją oba kształty.
+_TECHNICAL_EDIT_FIELDS = frozenset(
+    {
+        "order_number",
+        "start_date",
+        "end_date",
+        "notes",
+        "budget_amount",
+        "budget_manual_adjustment",
+    }
+)
+
+
+def _is_technical_event(event_type: str, payload: Optional[dict]) -> bool:
+    """Czy ten wpis jest zapisem technicznym, którego historia nie pokazuje."""
+    if event_type == EVENT_ORDER_EXTENDED:
+        # „Zamówienie X przedłuża zamówienie Y" — ten fakt niesie już samo
+        # zagnieżdżenie kart, więc w dzienniku jest szumem.
+        return True
+    if event_type != EVENT_MANUAL_EDIT:
+        return False
+    changed = (payload or {}).get("changed")
+    if not isinstance(changed, list):
+        # Nieznany kształt zostaje widoczny: ukrywanie tego, czego nie umiemy
+        # rozpoznać, kasuje z raportu wpisy starsze od tej reguły.
+        return False
+    return set(changed) <= _TECHNICAL_EDIT_FIELDS
 
 
 # Pola pieniężne linii. Nazwy są WŁASNE, nie z `_ORDER_FINANCE_WRITE_FIELDS`
@@ -580,10 +621,22 @@ async def _group_to_read(
         )
     )
 
-    event_count = await db.scalar(
-        select(func.count(ClientOrderGroupEvent.id)).where(
+    # Licznik na przycisku MUSI przejść przez ten sam filtr co lista wpisów.
+    # `COUNT(*)` dawał „Historia zamówienia (6 wpisów)" nad listą dwóch
+    # pozycji, czyli komunikat czytający się jak utrata danych. Stąd odczyt
+    # dwóch kolumn zamiast agregatu — predykat jest w Pythonie, bo zależy od
+    # zawartości `payload`, a jedna definicja użyta w obu miejscach jest warta
+    # więcej niż zaoszczędzone wiersze (dziennik jednej grupy to kilkadziesiąt
+    # pozycji, nie tysiące).
+    event_rows = await db.execute(
+        select(ClientOrderGroupEvent.event_type, ClientOrderGroupEvent.payload).where(
             ClientOrderGroupEvent.group_id == group.id
         )
+    )
+    event_count = sum(
+        1
+        for event_type, payload in event_rows
+        if not _is_technical_event(event_type, payload)
     )
 
     budget_used: Optional[Decimal] = None
@@ -625,7 +678,7 @@ async def _group_to_read(
         in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED),
         lines=reads,
         active_consultants=sum(1 for r in reads if r.is_active),
-        event_count=int(event_count or 0),
+        event_count=event_count,
     )
 
 
@@ -1257,9 +1310,13 @@ async def list_group_events(
     with_finance = _can_see_finance(user)
     events: list[OrderGroupEventRead] = []
     for ev in result.scalars():
+        if _is_technical_event(ev.event_type, ev.payload):
+            continue
+        related_id, related_number = _related_order(group_id, ev)
         # `payload` niesie stawki (rozliczenie faktury w miesiącu zamiany),
         # więc dla ról bez VIEW_FINANCE znika w całości — opis po polsku
-        # zostaje, bo mówi KTO i KIEDY, a nie ZA ILE.
+        # zostaje, bo mówi KTO i KIEDY, a nie ZA ILE. Odsyłacz do drugiego
+        # zamówienia jedzie POZA tą redakcją (patrz `OrderGroupEventRead`).
         events.append(
             OrderGroupEventRead(
                 id=ev.id,
@@ -1270,9 +1327,37 @@ async def list_group_events(
                 payload=ev.payload if with_finance else None,
                 created_by_user_id=ev.created_by_user_id,
                 created_at=ev.created_at,
+                related_group_id=related_id,
+                related_order_number=related_number,
             )
         )
     return OrderGroupEventsResponse(events=events)
+
+
+def _related_order(
+    group_id: int, event: ClientOrderGroupEvent
+) -> tuple[Optional[int], Optional[str]]:
+    """Druga strona przejęcia zużycia MD — do klikalnego numeru w historii.
+
+    Ten sam ``payload`` jest zapisywany po obu stronach podziału, więc która
+    strona jest „drugą", rozstrzyga id oglądanej grupy. Wartości z bazy są
+    sprawdzane co do typu: dziennik przeżywa dane starsze od dzisiejszego
+    kształtu, a niedopasowany wpis ma nie mieć odsyłacza, a nie wywracać
+    odczyt całej historii.
+    """
+    if event.event_type != EVENT_MD_TRANSFER:
+        return None, None
+    payload = event.payload or {}
+    if payload.get("predecessor_group_id") == group_id:
+        other_id = payload.get("successor_group_id")
+        other_number = payload.get("successor_order_number")
+    else:
+        other_id = payload.get("predecessor_group_id")
+        other_number = payload.get("predecessor_order_number")
+    return (
+        other_id if isinstance(other_id, int) else None,
+        other_number if isinstance(other_number, str) else None,
+    )
 
 
 @router.get("/{client_id}/order-groups/{group_id}/file")
@@ -1569,6 +1654,15 @@ async def update_order_group(
                 or line.end_date == previous_end_date
             ):
                 line.end_date = group.end_date
+        # Przesunięcie daty końca zdejmuje z linii MD jedyny powód, dla którego
+        # mogła zostać kiedyś domknięta datą (skaner robił to do tej rewizji),
+        # więc stan trzeba przeliczyć od nowa — sam status linii schodzi już
+        # wyłącznie z budżetu. Tylko na zamówieniu AKTYWNYM: wskrzeszona linia
+        # w zamówieniu zakończonym dałaby kartę, której interfejs nie umie
+        # wytłumaczyć (nagłówek „zakończone", pod nim pracujący konsultant).
+        if group.status == GROUP_STATUS_ACTIVE:
+            for line in group_lines:
+                await sync_md_line_status(db, line)
 
     if data.keys() & budget_fields:
         # Zmiana kwoty MUSI przeliczyć rozliczenie od zera, a nie tylko
@@ -1866,6 +1960,18 @@ async def reopen_order_group(
     group.closed_at = None
     group.closed_by_user_id = None
 
+    # Przywrócenie musi objąć LINIE, nie tylko nagłówek. Do tej rewizji reopen
+    # cofał sam status grupy, a konsultantów zostawiał `completed` — zamówienie
+    # wracało do Aktywnych bez ani jednej osoby, więc import zużycia MD dalej go
+    # nie widział (`active_md_lines` pyta o linie aktywne) i budżet stał w
+    # miejscu. Wskrzeszamy wyłącznie linie z niewyczerpanym budżetem, których
+    # okres jeszcze trwa: zakończenie z datą w przeszłości było świadomą
+    # decyzją o okresie i reopen jej nie unieważnia (patrz `sync_md_line_status`).
+    lines_reopened = 0
+    for line in await lines_for_group(db, group.id):
+        if await sync_md_line_status(db, line):
+            lines_reopened += 1
+
     record_event(
         db,
         group_id=group.id,
@@ -1878,7 +1984,8 @@ async def reopen_order_group(
         payload={
             "previous_closure_date": (
                 previous_closure.isoformat() if previous_closure else None
-            )
+            ),
+            "lines_reopened": lines_reopened,
         },
         user_id=user.id,
     )
@@ -2158,6 +2265,10 @@ async def update_line(
         )
         changed.append("ręczna korekta MD")
 
+    # Przeliczenie budżetu domyka też status linii (`sync_md_line_status` siedzi
+    # w `recompute_remaining`): podniesienie budżetu albo ręczna korekta
+    # odsłaniają MD, więc konsultant musi wrócić na `active` — inaczej import
+    # zużycia przestaje go widzieć mimo dostępnych dni.
     await recompute_remaining(db, line)
     await db.flush()
 

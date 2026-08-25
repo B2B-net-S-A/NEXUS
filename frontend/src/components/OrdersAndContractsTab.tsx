@@ -76,6 +76,30 @@ const STATUS_COLORS: Record<ClientOrderStatus, string> = {
   cancelled: "bg-red-100 text-red-700",
 };
 
+/** Stany TERMINALNE kontraktu — jedyne, w których nie ma już czego kończyć. */
+const TERMINAL_CONTRACT_STATUSES: ReadonlySet<string> = new Set([
+  "ended",
+  "void",
+]);
+
+/**
+ * Czy pokazać „Zakończ". Bramka stoi na stanach TERMINALNYCH, świadomie NIE na
+ * `active` — kontrakt BEZTERMINOWY (profil body-leasingu, np. Bank Pocztowy)
+ * nigdy z Draftu nie wychodzi: aktywacja wymaga `end_date`
+ * (`ACTIVATION_REQUIRED_FIELDS`), a „Nowy kontraktor" zakłada szkic, bo dialog
+ * nie zbiera typu umowy ani trybu pracy. Konsultant realnie pracuje, więc
+ * jedyna droga rozstania — `POST /contracts/{id}/terminate`, który żadnej
+ * bramki statusu nie ma, a `draft → ended` jest legalną krawędzią cyklu życia —
+ * była zasłonięta przyciskiem, który się nie renderował.
+ *
+ * Reguła jest SZERSZA niż predykat pigułki „Aktywni" niżej i to jest zamierzone:
+ * tamta odpowiada na pytanie „kto dziś pracuje", ta na „czy jest jeszcze co
+ * kończyć". Obie mieszkają w tym pliku, żeby rozjazd między nimi był widoczny.
+ */
+export function canTerminateContractor(contractStatus: string | null): boolean {
+  return !TERMINAL_CONTRACT_STATUSES.has(contractStatus ?? "");
+}
+
 export function OrdersAndContractsTab({
   clientId,
   clientName = "",
@@ -929,10 +953,9 @@ function ContractorCard({
             <Plus className="w-4 h-4" />
             Dodaj przedłużenie
           </button>
-          {/* „Zakończ" (ticket #5 krok 3) — tylko dla żywych kontraktów;
-              zakończenie zamkniętego/draftowego nie ma sensu. */}
-          {(contractor.contract_status === "active" ||
-            contractor.contract_status === "ending") && (
+          {/* „Zakończ" (ticket #5 krok 3) — ukryte WYŁĄCZNIE w stanach
+              terminalnych; uzasadnienie przy `canTerminateContractor`. */}
+          {canTerminateContractor(contractor.contract_status) && (
             <button
               onClick={onTerminate}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
