@@ -2600,8 +2600,7 @@ async def delete_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
-    blocker = await hard_delete_blocker(db, contract)
-    if blocker is not None:
+    def _raise_delete_blocked(blocker: str) -> None:
         messages = {
             "completed_signature": (
                 "Kontrakt ma ukończony podpis kwalifikowany i nie może "
@@ -2626,6 +2625,10 @@ async def delete_contract(
             },
         )
 
+    blocker = await hard_delete_blocker(db, contract)
+    if blocker is not None:
+        _raise_delete_blocked(blocker)
+
     # Odpięcie NIEPODPISANYCH wygenerowanych umów B2B PRZED kasowaniem: FK jest
     # RESTRICT, więc bez tego commit padałby IntegrityError → 500 (dokładnie
     # tak wyglądał zgłoszony bug „Usuń nie działa" dla umów z wygenerowanym
@@ -2644,6 +2647,19 @@ async def delete_contract(
         )
         .values(contract_id=None)
     )
+
+    # Domknięcie wyścigu: jeśli między blockerem a odpięciem ktoś potwierdził
+    # `signed_both`, UPDATE celowo zostawił referencję — pozostały link oznacza
+    # świeżo podpisaną umowę. Oddaj tę samą czytelną odmowę 409, zamiast
+    # pozwolić DELETE-owi wywrócić się na FK RESTRICT nieobsłużonym 500
+    # (wątek recenzji PR #1259).
+    still_linked = await db.scalar(
+        select(B2BGeneratedContract.id)
+        .where(B2BGeneratedContract.contract_id == contract_id)
+        .limit(1)
+    )
+    if still_linked is not None:
+        _raise_delete_blocked("signed_generated_contract")
 
     # Kasowana umowa może być linią w grupie zamówień (BIK/Polkomtel/BNP).
     # Kaskada usunie linię i jej konsumpcje, ale `budget_remaining` /

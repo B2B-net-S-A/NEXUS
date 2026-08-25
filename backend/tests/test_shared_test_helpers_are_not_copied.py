@@ -26,7 +26,6 @@ strażnika napisanego wyłącznie pod ``_pick_parties``.
 """
 
 import ast
-import asyncio
 import pathlib
 
 import pytest
@@ -77,47 +76,35 @@ def test_no_test_file_defines_a_shared_helper(path: pathlib.Path) -> None:
 # ominęłoby ten test zamiast go zapalić.
 
 
-def test_pick_parties_skips_contracts_whose_candidate_was_deleted() -> None:
-    class _Resp:
-        @staticmethod
-        def json():
-            return {
-                "items": [
-                    {
-                        "candidate_id": None,
-                        "client_id": 7,
-                    },  # sierota po usuniętym kandydacie
-                    {"candidate_id": 42, "client_id": 9},
-                ]
-            }
-
-    class _Client:
-        def __init__(self):
-            self.url = None
-
-        async def get(self, url, headers=None):
-            self.url = url
-            return _Resp()
-
-    client = _Client()
-    assert asyncio.run(pick_parties(client, {})) == (42, 9)
-    assert "page_size=100" in client.url, (
-        "przy page_size=1 jedyny zwrócony wiersz może BYĆ sierotą — helper "
-        "oddałby None mimo pełnej bazy umów"
-    )
+# Reguła helpera zmieniła się 2026-08-25 (PR #1259, blokada duplikatu
+# kontraktora): dawca stron NIE MOŻE już żerować na istniejących umowach —
+# para z umową w żywym statusie jest z definicji bezużyteczna (POST → 409
+# duplicate_contractor). Dowodzimy więc nowej własności: każde wywołanie
+# seeduje świeżą, istniejącą w bazie parę, a dwa wywołania nigdy nie dzielą
+# stron. Testy są async na wspólnej pętli — `asyncio.run` w teście sync
+# tworzyłby DRUGĄ pętlę wokół współdzielonego engine'a (błędy puli połączeń).
 
 
-def test_pick_parties_returns_none_when_every_contract_is_orphaned() -> None:
-    class _Resp:
-        @staticmethod
-        def json():
-            return {"items": [{"candidate_id": None, "client_id": 7}]}
+@pytest.mark.asyncio
+async def test_pick_parties_seeds_a_fresh_usable_pair() -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
 
-    class _Client:
-        async def get(self, url, headers=None):
-            return _Resp()
+    candidate_id, client_id = await pick_parties(None, {})
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Candidate, candidate_id) is not None
+        assert await db.get(Client, client_id) is not None
 
-    assert asyncio.run(pick_parties(_Client(), {})) is None
+
+@pytest.mark.asyncio
+async def test_pick_parties_returns_distinct_pairs_per_call() -> None:
+    """Wspólna para między wołającymi wskrzesiłaby wędrującą czerwień:
+    pierwszy test zakłada umowę, drugi na tej samej parze dostaje 409."""
+    first = await pick_parties(None, {})
+    second = await pick_parties(None, {})
+    assert first[0] != second[0]
+    assert first[1] != second[1]
 
 
 def test_calls_in_counts_both_call_forms(tmp_path, monkeypatch) -> None:
