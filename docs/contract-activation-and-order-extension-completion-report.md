@@ -328,13 +328,97 @@ sesji UI. Ekrany zweryfikowane wyłącznie testami i typecheckiem.
 
 ---
 
+## Wykonane na produkcji (2026-08-25, po wdrożeniu kodu)
+
+Punkty, które pierwotnie zostawiłem właścicielowi produktu, zostały wykonane
+na jego wyraźną prośbę. Poniżej co i jak.
+
+### Brakujące narzędzie: podgląd klientów z produkcji
+
+Pięć polityk domenowych jest bramkowanych LISTĄ `client_id` w zmiennych
+środowiskowych, a numeru nie widać ani w repo, ani w interfejsie; SSH na tym
+serwerze nie działa. Włączenie którejkolwiek polityki wymagało panelu Coolify.
+
+Powstał `backend/scripts/list_clients.py` (sam SELECT, wildcardy `LIKE`
+escapowane) + akcja `client-lookup` w `coolify-ops` uruchamiająca go tym samym
+mechanizmem co `eval` (zadanie jednorazowe → odczyt → kasacja). Z `--with-links`
+dokłada kontrakty, umowy B2B i zamówienia — bez tego nie da się odpowiedzialnie
+przepiąć kontraktu na innego klienta.
+
+Wejście tekstowe do komendy na prodzie jest odstępstwem od zasady „operator
+wnosi liczbę albo wybór", więc allowlista jest twarda (`[a-z0-9.-]`, 1–40).
+**Dwie usterki tego guardu złapane przed użyciem:** `grep -qE` dopasowuje
+LINIAMI, więc wartość wieloliniowa z `; rm -rf /` w drugiej linii przechodziła
+(naprawione `case`, który obejmuje cały łańcuch); i spacja w allowliście
+rozbijała `--like credit agricole` na dwa argumenty (naprawione zawężeniem do
+jednego członu — cytowanie byłoby zgadywaniem, bo nie wiemy, jak Coolify
+opakowuje komendę).
+
+### Włączone bramki
+
+| Zmienna | Wartość | Uwaga |
+|---|---|---|
+| `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` | `116,5182,38342` | trzy rekordy banku; `72` (Assurances) pominięty — inna linia biznesowa, a polityka przy braku etykiet CZYŚCI stawkę |
+| `ERSTE_GROSS_RATE_CLIENT_IDS` | `103,38336` | oba rekordy tego samego banku (ex-Santander) |
+
+Potwierdzony jest **zapis** (`HTTP 201`) i restart — nie działanie. Weryfikacja
+funkcjonalna wymaga wgrania prawdziwego PDF jako zalogowany użytkownik. Bramki
+są fail-closed, więc najgorszy skutek błędnego ID to „polityka się nie odpala".
+
+### Awaria produkcji, którą sam spowodowałem — 28 minut
+
+Ustawiając drugą zmienną zaznaczyłem `redeploy=true`. Coolify przyjął trigger
+(`HTTP 200`), rozpoczął wdrożenie i kontener nie wrócił: `503 no available
+server` na API i froncie, ~18:05–18:33 UTC. Przywrócone ręcznym
+`gh workflow run Deploy`.
+
+**Restart nie był potrzebny.** Bramki `*_CLIENT_IDS` czyta `os.environ.get(...)`
+w handlerze przy każdym żądaniu — nowa wartość zadziałałaby od najbliższego
+zwykłego deployu. `redeploy=true` kupiło „natychmiast" za cenę okna bez
+aplikacji.
+
+Dlaczego to wraca (trzy wcześniejsze awarie tej instalacji w pamięci projektu):
+jeden kontener bez replik + deploy = pełny rebuild ze źródeł + brak
+automatycznego rollbacku. Nie ma taniego „przeładuj konfigurację": zmiana flagi
+kosztuje tyle samo ryzyka co wdrożenie kodu.
+
+Dwie rzeczy diagnostyczne, które kosztowały czas: panel Coolify z kodem **302
+jest ZDROWY** (przekierowanie na login), a akcja `list` w `coolify-ops` jest
+**zepsuta** (`/api/v1/deployments` → 302, `/applications/{uuid}` → 404), więc
+w kryzysie nie ma z niej pożytku — trzeba iść wprost `gh workflow run Deploy`.
+
+### Potwierdzenie T7 na żywych danych
+
+Kontrakt 479 (M. Matyszczuk, Erste) ma na produkcji status `active`,
+a zgłoszenie opisywało go jako siedzącego w „Zakończonych". Sąsiednie 477 i 478
+pozostały `ended`, więc nie jest to efekt hurtowy — migracja `0243` trafiła
+w przykład z ticketu.
+
+### Korekta danych CARDIF/BNP
+
+Migracja `0244`. Zakres zawężony decyzją właściciela produktu do samego
+przepięcia klienta — bez kasowania. Rzecz, która **zmienia treść pierwotnego
+zgłoszenia**: kontrakt 602 („do zostawienia") NIE jest pustym duplikatem — ma
+aktywne zamówienie „Projekt DHS POL0208", podczas gdy 551 („do usunięcia")
+niesie podpisaną umowę. To dwa różne projekty tej samej osoby.
+
+---
+
 ## Do zrobienia po wdrożeniu (wymaga produkcji)
 
-1. `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` i `ERSTE_GROSS_RATE_CLIENT_IDS`
-   w Coolify (workflow „Coolify set env”) — bez nich obie polityki stoją
-   bezczynnie (fail-closed).
-2. `GET /api/admin/client-mixups?q=cardif` → weryfikacja przez zespół
-   produktowy → korekty danych (Marek Cyran, Maciej Rogala).
-3. Listy dotkniętych zamówień Credit Agricole i Erste do korekty stawek.
-4. Decyzja produktowa: czy udostępnić przepięcie kontraktu na innego klienta
-   z interfejsu (dziś niemożliwe — `ContractUpdate` nie ma `client_id`).
+1. ~~Zmienne w Coolify~~ — **zrobione** (patrz wyżej).
+2. ~~Korekty danych Cyran/Rogala~~ — **w migracji 0244**, zakres zawężony do
+   przepięcia klienta decyzją właściciela produktu.
+3. **Umowa 1474/2026 wymaga decyzji prawnej**: po korekcie jej pola mówią
+   CARDIF, a wydrukowany dokument nadal „BNP Paribas Cardif”. `render_payload`
+   nie jest tykany — wystawienie dokumentu na nowo nie jest zmianą techniczną.
+4. **Listy dotkniętych zamówień Credit Agricole i Erste** do korekty stawek —
+   nadal niedostarczone. Teraz da się je zrobić: `client-lookup` pokazuje
+   zamówienia per klient, brakuje przejrzenia stawek.
+5. **Masowa korekta BNP↔CARDIF** — `GET /api/admin/client-mixups?q=cardif`
+   → weryfikacja zespołu. 0244 rusza WYŁĄCZNIE cztery wskazane wiersze.
+6. **Decyzja produktowa**: czy udostępnić przepięcie kontraktu na innego
+   klienta z interfejsu (dziś niemożliwe — `ContractUpdate` nie ma `client_id`,
+   więc każde takie zgłoszenie wymaga migracji i inżyniera).
+7. **Dług operacyjny**: akcja `list` w `coolify-ops` jest zepsuta i odebrała
+   wgląd w kolejkę wdrożeń dokładnie podczas awarii. Warto naprawić osobno.
