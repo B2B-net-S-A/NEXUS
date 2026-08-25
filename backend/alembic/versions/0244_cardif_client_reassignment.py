@@ -126,11 +126,41 @@ BEGIN
             '0244: kontrakt % wskazuje klienta spoza pary BNP/CARDIF — przerywam', stray;
     END LOOP;
 
-    UPDATE contracts SET client_id = dst_id
-     WHERE id IN (521, 551) AND client_id = src_id;
+    -- RETURNING do tabeli tymczasowej, NIE ponowny SELECT po UPDATE. Gdyby
+    -- ktorys kontrakt zostal recznie przepiety na dst_id przed ta migracja
+    -- (realne przy takich zgloszeniach), UPDATE by go pominal, a SELECT
+    -- „WHERE client_id = dst_id" i tak zapisalby dla niego wiersz audytu
+    -- „old=52 new=38335" — czyli przypisalby tej migracji zmiane, ktorej nie
+    -- zrobila. Audyt ma opisywac to, co sie NAPRAWDE wydarzylo.
+    CREATE TEMP TABLE _moved_contracts ON COMMIT DROP AS
+    WITH upd AS (
+        UPDATE contracts SET client_id = dst_id
+         WHERE id IN (521, 551) AND client_id = src_id
+        RETURNING id
+    )
+    SELECT id FROM upd;
     GET DIAGNOSTICS moved_contracts = ROW_COUNT;
 
     -- ── zamowienia tych kontraktow ─────────────────────────────────────────
+    -- Linia nalezaca do grupy wielo-konsultantowej ma wiezy po stronie
+    -- `client_order_groups`, ktorych ta migracja NIE rusza — przepiecie samego
+    -- zamowienia zrobiloby wtedy nowa niespojnosc zamiast usunac stara.
+    -- Na produkcji sprawdzone (2026-08-25): zamowienia 46 i 78 maja
+    -- `order_group_id IS NULL`. To sprawdzenie jest tu mimo to, bo miedzy
+    -- weryfikacja a wdrozeniem ktos moze dolaczyc linie do grupy — a wtedy
+    -- ZATRZYMANIE migracji jest wlasciwa odpowiedzia, mimo ze blokuje deploy.
+    -- Warunek jest waski: na swiezej bazie tych zamowien nie ma w ogole.
+    FOR stray IN
+        SELECT co.id FROM client_orders co
+         WHERE co.contract_id IN (521, 551)
+           AND co.client_id = src_id
+           AND co.order_group_id IS NOT NULL
+    LOOP
+        RAISE EXCEPTION
+            '0244: zamowienie % nalezy do grupy — przepiecie samej linii '
+            'zrobiloby niespojnosc z client_order_groups; przerywam', stray;
+    END LOOP;
+
     UPDATE client_orders SET client_id = dst_id
      WHERE contract_id IN (521, 551) AND client_id = src_id;
     GET DIAGNOSTICS moved_orders = ROW_COUNT;
@@ -146,11 +176,11 @@ BEGIN
     -- Audyt per kontrakt: bez niego zmiana przypisania klienta jest niewidoczna
     -- na osi czasu, a to ona odpowiada za client-scope, MRR i alerty DL.
     INSERT INTO activities (entity_type, entity_id, action, details)
-    SELECT 'contract', c.id, 'updated',
+    SELECT 'contract', m.id, 'updated',
            jsonb_build_object('field', 'client_id',
                               'old', src_id, 'new', dst_id,
                               'source', '0244_cardif_client_reassignment')
-      FROM contracts c WHERE c.id IN (521, 551) AND c.client_id = dst_id;
+      FROM _moved_contracts m;
 
     INSERT INTO app_settings (key, value)
     VALUES ('0244_cardif_client_reassignment',
