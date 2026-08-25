@@ -418,8 +418,15 @@ async def test_create_with_unknown_candidate_is_a_clean_404(
 
 
 async def _seed_generated(
-    marker: str, contract_id: int, candidate_id: int, *, signature_status: str
+    marker: str,
+    contract_id: int,
+    candidate_id: int,
+    *,
+    signature_status: str,
+    client_id: int | None = None,
 ) -> int:
+    """``client_id=None`` odwzorowuje wiersz historyczny (0196 bez backfillu)
+    i umowę standalone — obie NIE mówią, którego projektu dotyczy podpis."""
     async with AsyncSessionLocal() as db:
         generated = B2BGeneratedContract(
             year=2026,
@@ -429,6 +436,7 @@ async def _seed_generated(
             signature_status=signature_status,
             contract_id=contract_id,
             candidate_id=candidate_id,
+            client_id=client_id,
         )
         db.add(generated)
         await db.commit()
@@ -565,7 +573,14 @@ async def test_delete_contract_with_signed_both_generated_refused_in_polish(
     cli = await _seed_client(f"SignedKlient {marker}")
     cid = await _seed_contract(cand, cli, status=ContractStatus.active)
     generated_id = await _seed_generated(
-        marker, cid, cand, signature_status="signed_both"
+        marker,
+        cid,
+        cand,
+        signature_status="signed_both",
+        # JAWNIE bez klienta — wiersz historyczny/standalone. Taki podpis nie
+        # mówi, którego projektu dotyczy, więc MUSI blokować (fail-closed).
+        # Podstawienie tu `cli` skasowałoby pokrycie tej gałęzi.
+        client_id=None,
     )
 
     resp = await app_client.delete(
@@ -582,3 +597,68 @@ async def test_delete_contract_with_signed_both_generated_refused_in_polish(
         surviving = await db.get(B2BGeneratedContract, generated_id)
         assert surviving is not None
         assert surviving.contract_id == cid  # link audytowy nietknięty
+
+
+async def test_delete_contract_blocked_by_signed_generated_of_same_client(
+    app_client, app_auth_headers
+):
+    """Podpis wskazujący TEGO SAMEGO klienta co kontrakt nadal blokuje.
+
+    Poluzowanie blockera o „link jawnie rozjechany" ma zdjąć ochronę wyłącznie
+    z linków wskazujących INNEGO klienta — nie z prawidłowo podpisanych umów."""
+    marker = f"Dsc{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"SameKlient {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.active)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="signed_both", client_id=cli
+    )
+
+    resp = await app_client.delete(
+        f"/api/contracts/{cid}", headers=app_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "contract_has_signed_generated_contract"
+
+    async with AsyncSessionLocal() as db:
+        surviving = await db.get(B2BGeneratedContract, generated_id)
+        assert surviving is not None
+        assert surviving.contract_id == cid
+
+
+async def test_delete_contract_not_blocked_by_signature_of_another_project(
+    app_client, app_auth_headers
+):
+    """Podpis należący do INNEGO projektu nie chroni tego wiersza.
+
+    Produkcja: reaktywacja umowy z zawieszenia przepisywała `client_id` na nowy
+    projekt, zostawiając `contract_id` na kontrakcie poprzedniego — projekt
+    poprzedniego klienta stawał się nieusuwalny, choć nikt go nie podpisywał.
+    Sam blocker nie wystarcza: FK jest RESTRICT, więc odpinanie przed DELETE
+    musi iść DOKŁADNIE tym samym predykatem, inaczej operacja pada 500-tką albo
+    trafia w TOCTOU-guard raportujący każdy pozostały link jako „signed"."""
+    marker = f"Dxp{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli_stale = await _seed_client(f"StaryKlient {marker}")
+    cli_current = await _seed_client(f"NowyKlient {marker}")
+    cid = await _seed_contract(cand, cli_stale, status=ContractStatus.draft)
+    generated_id = await _seed_generated(
+        marker,
+        cid,
+        cand,
+        signature_status="signed_both",
+        client_id=cli_current,
+    )
+
+    resp = await app_client.delete(
+        f"/api/contracts/{cid}", headers=app_auth_headers
+    )
+    assert resp.status_code == 204, resp.text
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+        # Wiersz w rejestrze zostaje — kasujemy projekt, nie podpisaną umowę.
+        surviving = await db.get(B2BGeneratedContract, generated_id)
+        assert surviving is not None
+        assert surviving.contract_id is None
+        assert surviving.signature_status == "signed_both"

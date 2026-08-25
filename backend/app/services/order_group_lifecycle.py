@@ -3,12 +3,21 @@
 Future extensions are persisted as ``scheduled`` groups with draft lines. On
 their start date the newest due continuation becomes current, while the
 previous current group and any skipped due continuation move to history.
+
+Wyjątek — rodziny rozliczane w MD: tam data startu następcy jest warunkiem
+KONIECZNYM, ale nie wystarczającym. Zamówienie MD kończy budżet, nie
+kalendarz (ta sama reguła co w ``client_order_lines.sync_md_line_status``),
+więc dopóki poprzednik ma niewykorzystane MD, kontynuacja zostaje
+zaplanowana. Bez tego następca przejmował zamówienie w dniu swojego startu i
+niewykorzystane dni po prostu przepadały — a poprzednik trafiał do historii
+z dodatnią pozostałością, której nie dało się już zafakturować.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import select
@@ -36,6 +45,56 @@ def _family_root(group: ClientOrderGroup, by_id: dict[int, ClientOrderGroup]) ->
         seen.add(parent.id)
         current = parent
     return current.id
+
+
+async def _md_budget_left(db: AsyncSession, group_id: int) -> Optional[Decimal]:
+    """Suma pozostałych MD linii zamówienia. ``None`` = to nie jest zamówienie MD.
+
+    Linie ``cancelled`` są poza sumą: konsultant zdjęty z zamówienia nie
+    wykorzysta już swojego budżetu, a wliczanie go trzymałoby kontynuację
+    zablokowaną w nieskończoność.
+    """
+    lines = list(
+        (
+            await db.execute(
+                select(ClientOrder).where(ClientOrder.order_group_id == group_id)
+            )
+        ).scalars()
+    )
+    md_lines = [
+        line
+        for line in lines
+        if line.md_total is not None and line.status != ClientOrderStatus.cancelled
+    ]
+    if not md_lines:
+        return None
+    return sum(
+        (Decimal(str(line.md_remaining or 0)) for line in md_lines), Decimal("0")
+    )
+
+
+async def _predecessor_still_has_md(
+    db: AsyncSession,
+    group: ClientOrderGroup,
+    by_id: dict[int, ClientOrderGroup],
+) -> bool:
+    """Czy poprzednik tej kontynuacji wciąż ma budżet MD do wykorzystania.
+
+    Pytamy WYŁĄCZNIE o poprzednika w stanie ``active``: zamówienie zakończone
+    ręcznie albo wyczerpane już oddało pole, a wstrzymywanie kontynuacji
+    zostawiłoby rodzinę bez ani jednego bieżącego zamówienia.
+
+    Rodziny kosztowe i rodziny bez budżetu MD zachowują dotychczasowe,
+    czysto datowe zachowanie — tam pula mieszka na grupie i domyka ją
+    ``cost_orders.settle_group``, a nie ten materializator.
+    """
+    predecessor = by_id.get(group.predecessor_group_id)  # type: ignore[arg-type]
+    if predecessor is None or predecessor.status != GROUP_STATUS_ACTIVE:
+        return False
+    if predecessor.is_cost_based:
+        return False
+    left = await _md_budget_left(db, predecessor.id)
+    return left is not None and left > Decimal("0")
 
 
 async def materialize_scheduled_order_groups(
@@ -79,12 +138,16 @@ async def materialize_scheduled_order_groups(
     changed = 0
     now = datetime.now(timezone.utc)
     for family in families.values():
-        due = [
-            group
-            for group in family
-            if group.status == GROUP_STATUS_SCHEDULED
-            and group.start_date <= boundary_day
-        ]
+        due: list[ClientOrderGroup] = []
+        for group in family:
+            if (
+                group.status != GROUP_STATUS_SCHEDULED
+                or group.start_date > boundary_day
+            ):
+                continue
+            if await _predecessor_still_has_md(db, group, by_client[group.client_id]):
+                continue
+            due.append(group)
         if not due:
             continue
 

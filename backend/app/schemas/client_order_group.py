@@ -287,6 +287,17 @@ class OrderGroupEventRead(BaseModel):
     created_by_user_id: Optional[int] = None
     created_at: datetime
 
+    related_group_id: Optional[int] = None
+    related_order_number: Optional[str] = None
+    """Druga strona przejęcia zużycia MD — zamówienie, do którego prowadzi
+    odsyłacz we wpisie ``transfer_md``.
+
+    Pola stoją OSOBNO, a nie w ``payload``, bo ``payload`` znika w całości
+    rolom bez ``VIEW_FINANCE`` (niesie stawki). Odsyłacz zbudowany z payloadu
+    przestałby więc działać dokładnie tym rolom, które tę zakładkę widzą, a
+    stawek widzieć nie mają. Numer i identyfikator zamówienia nie są
+    informacją finansową."""
+
 
 class OrderGroupRead(BaseModel):
     model_config = {"from_attributes": True}

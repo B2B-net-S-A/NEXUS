@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status as http_status
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -369,6 +369,40 @@ async def void_contract(
     )
 
 
+def signed_generated_link_filter(contract: Contract) -> ColumnElement[bool]:
+    """Kryterium: podpisana umowa B2B, która NAPRAWDĘ chroni TEN kontrakt.
+
+    Zasada: „blokuj, chyba że **wiadomo na pewno**, że to inny projekt". Link
+    jest jawnie rozjechany dokładnie wtedy, gdy wygenerowana umowa wskazuje
+    swojego klienta i jest to **inny** klient niż klient kontraktu — wtedy jej
+    podpis dotyczy innego projektu i nie ma prawa blokować tego wiersza.
+    Produkcja pokazuje, skąd taki rozjazd się bierze: reaktywacja umowy
+    z zawieszenia przepisywała `client_id`/`client_name` na nowy projekt,
+    zostawiając `contract_id` na kontrakcie poprzedniego (patrz przepięcie
+    w ``update_generated_contract``) — stary projekt był chroniony cudzym
+    podpisem, a nowy nie był chroniony wcale.
+
+    ``client_id IS NULL`` MUSI chronić: umowy standalone dostają klienta
+    tylko przy powiązaniu z rekrutacją, a wiersze historyczne (0196 bez
+    backfillu) nie mają go wcale. Gołe porównanie kolumn dałoby dla nich FALSE
+    i zdjęłoby ochronę z prawidłowo podpisanych umów.
+
+    Zwraca kryterium do doklejenia obok warunku na ``contract_id`` — ta sama
+    funkcja opisuje blokadę (``hard_delete_blocker``) i jej dopełnienie
+    w odpinaniu przed DELETE (FK jest RESTRICT, więc rozjazd tych dwóch reguł
+    kończy się 500-tką zamiast czytelnej odmowy).
+    """
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    return and_(
+        B2BGeneratedContract.signature_status == "signed_both",
+        or_(
+            B2BGeneratedContract.client_id.is_(None),
+            B2BGeneratedContract.client_id == contract.client_id,
+        ),
+    )
+
+
 async def hard_delete_blocker(db: AsyncSession, contract: Contract) -> Optional[str]:
     """Powód blokady hard delete — ``None`` znaczy „wolno usunąć".
 
@@ -393,7 +427,13 @@ async def hard_delete_blocker(db: AsyncSession, contract: Contract) -> Optional[
       wiersz wygenerowany jest w tym stanie nieedytowalny i niekasowalny
       (patrz ``test_b2b_signature_automation``), więc auto-utworzony z niego
       kontrakt chronimy symetrycznie. FK RESTRICT jest strażnikiem ostatniej
-      szansy w bazie.
+      szansy w bazie. Link jawnie wskazujący INNEGO klienta niż kontrakt
+      ochrony nie daje — patrz ``signed_generated_link_filter``.
+
+    Zapytanie pyta wyłącznie po ``contract_id == contract.id``, więc jest już
+    per PROJEKT: projekt to osobny wiersz ``Contract``, a konsolidacja
+    kontraktorów po ``candidate_id`` jest tylko warstwą prezentacji i nie
+    zaciąga tu rodzeństwa.
 
     Zablokowany kontrakt można anulować (``void``) — dokumenty i dowody
     zostają.
@@ -409,7 +449,7 @@ async def hard_delete_blocker(db: AsyncSession, contract: Contract) -> Optional[
         select(B2BGeneratedContract.id)
         .where(
             B2BGeneratedContract.contract_id == contract.id,
-            B2BGeneratedContract.signature_status == "signed_both",
+            signed_generated_link_filter(contract),
         )
         .limit(1)
     )

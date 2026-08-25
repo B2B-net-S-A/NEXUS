@@ -1248,3 +1248,410 @@ async def test_swap_still_recalculates_md_on_a_normal_order(
         new = await db.get(ClientOrder, resp.json()["id"])
     assert new.md_total == Decimal("40.000000")
     assert new.md_remaining == Decimal("40.000000")
+
+
+# ── Status linii MD: budżet, nie kalendarz ──────────────────────────────────
+#
+# Testy skanera `dl_portal_expiry_scanner` mieszkają zwykle w
+# `test_dl_portal_scheduler.py`, ale ten plik jest w `--ignore` CI (i w
+# `_FAILING` kontraktu pokrycia) — test dopisany tam nie uruchomiłby się nigdy.
+# Domeną jest cykl życia zamówienia, więc regresja stoi tutaj, razem z resztą.
+
+
+async def test_scanner_closes_by_date_everything_except_md_lines(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Linia MD z niewykorzystanym budżetem przeżywa skaner; zwykła nie.
+
+    Zamówienie rozliczane w MD kończy budżet, nie kalendarz. Zamknięta po
+    dacie linia wypadała z importu zużycia (`active_md_lines` pyta o linie
+    aktywne), więc MD przestawały się odejmować, a budżet zamierał na
+    ostatniej wartości — przy zielonym statusie zamówienia.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.tasks.dl_portal_expiry_scanner import _promote_statuses
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    md_line_id = group["lines"][0]["id"]
+    # Dwa dni, nie jeden: skaner liczy granicę `date.today()` (UTC kontenera),
+    # a plik dniem biznesowym — wieczorem te dwie daty różnią się o dobę i
+    # „wczoraj" wg firmy byłoby jeszcze „dziś" wg skanera.
+    past = _TODAY - timedelta(days=2)
+
+    async with AsyncSessionLocal() as db:
+        md_line = await db.get(ClientOrder, md_line_id)
+        md_line.end_date = past
+        plain = ClientOrder(
+            client_id=client_id,
+            contract_id=contracts[1],
+            title="Zamówienie bez budżetu MD",
+            status=ClientOrderStatus.active,
+            start_date=_TODAY - timedelta(days=10),
+            end_date=past,
+        )
+        db.add(plain)
+        await db.commit()
+        plain_id = plain.id
+
+    async with AsyncSessionLocal() as db:
+        await _promote_statuses(db)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        survived = await db.get(ClientOrder, md_line_id)
+        closed = await db.get(ClientOrder, plain_id)
+    assert survived.status == ClientOrderStatus.active, (
+        "skaner domknął linię MD z niewykorzystanym budżetem"
+    )
+    assert closed.status == ClientOrderStatus.completed, (
+        "zamówienie bez budżetu MD nadal kończy się datą"
+    )
+
+
+async def test_line_closes_when_the_md_budget_runs_out(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zerowy budżet to jedyny wyzwalacz zamknięcia linii MD."""
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    line_id = group["lines"][0]["id"]
+
+    resp = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line_id}",
+        json={"md_remaining": 0},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_active"] is False
+
+
+async def test_line_reopens_when_the_md_budget_comes_back(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Korekta budżetu w górę musi wskrzesić konsultanta.
+
+    Lustro `settle_group`, które cofa `exhausted` na grupie. Bez tego linia
+    zostawałaby `completed` z dodatnią pozostałością — czyli poza importem
+    zużycia, mimo dostępnych dni.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    line_id = group["lines"][0]["id"]
+    url = f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line_id}"
+
+    zeroed = await app_client.patch(
+        url, json={"md_remaining": 0}, headers=app_auth_headers
+    )
+    assert zeroed.json()["is_active"] is False
+
+    resp = await app_client.patch(
+        url, json={"md_remaining": 12}, headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["is_active"] is True
+    assert body["md_remaining"] == pytest.approx(12.0)
+
+
+async def test_reopen_brings_back_consultants_with_budget_left(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Przywrócenie zamówienia musi objąć LINIE, nie tylko nagłówek.
+
+    Do tej rewizji reopen cofał sam status grupy — zamówienie wracało do
+    Aktywnych bez ani jednego konsultanta (dokładnie stan, z którego wziął się
+    ticket).
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    closed = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/close",
+        json={"closure_date": _TODAY.isoformat()},
+        headers=app_auth_headers,
+    )
+    assert closed.json()["lines"][0]["is_active"] is False
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/reopen",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["lines"][0]["is_active"] is True
+
+    events = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/events",
+        headers=app_auth_headers,
+    )
+    reopened = [
+        e for e in events.json()["events"] if e["event_type"] == "przywrocenie"
+    ]
+    assert reopened and reopened[0]["payload"]["lines_reopened"] == 1
+
+
+async def test_swapped_out_consultant_is_never_resurrected(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Poprzednik zamiany zostaje zamknięty mimo dodatnich MD.
+
+    Jego `md_remaining` nie topnieje przy zamianie — MD przechodzą na następcę
+    jako osobny budżet — a zamiana „na dziś" zostawia `end_date` równą dniu
+    dzisiejszemu, więc sam warunek okresu by go nie zatrzymał. Wskrzeszenie
+    postawiłoby na zamówieniu dwie osoby na jednym stanowisku.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    old_id = group["lines"][0]["id"]
+
+    swap = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old_id}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 800,
+            "rate_revenue": 950,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert swap.status_code == 201, swap.text
+
+    # Dowolna edycja poprzednika przechodzi przez przeliczenie budżetu, czyli
+    # przez tę samą synchronizację statusu.
+    resp = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old_id}",
+        json={"rate_cost": 900},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_active"] is False
+
+
+# ── Historia zamówienia: co jest raportem, a co zapisem technicznym ──────────
+
+
+async def _history(
+    app_client: AsyncClient, headers: dict, client_id: int, group_id: int
+) -> list[dict]:
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{group_id}/events", headers=headers
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["events"]
+
+
+async def _card(
+    app_client: AsyncClient, headers: dict, client_id: int, group_id: int
+) -> dict:
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=headers
+    )
+    assert listing.status_code == 200, listing.text
+    everything: list[dict] = []
+    for group in listing.json()["groups"]:
+        everything.append(group)
+        everything.extend(group.get("future_orders") or [])
+    return next(g for g in everything if g["id"] == group_id)
+
+
+async def test_technical_entries_are_hidden_from_history_and_from_its_counter(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Ukrywamy PRZY ODCZYCIE — i licznik musi iść tym samym filtrem.
+
+    `COUNT(*)` bez warunku dawał „Historia zamówienia (6 wpisów)" nad listą
+    dwóch pozycji, czyli komunikat czytający się jak utrata danych.
+    """
+    from sqlalchemy import func, select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroupEvent
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+
+    edited = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        json={"end_date": (_TODAY + timedelta(days=90)).isoformat()},
+        headers=app_auth_headers,
+    )
+    assert edited.status_code == 200, edited.text
+    extended = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
+        json={
+            "order_number": f"ext-{uuid.uuid4().hex[:4]}",
+            "start_date": (_TODAY + timedelta(days=120)).isoformat(),
+            "lines": [],
+        },
+        headers=app_auth_headers,
+    )
+    assert extended.status_code == 201, extended.text
+
+    events = await _history(app_client, app_auth_headers, client_id, group["id"])
+    kinds = {event["event_type"] for event in events}
+    assert "przedluzenie" not in kinds, "wpis techniczny został w historii"
+    assert not [
+        event
+        for event in events
+        if event["event_type"] == "edycja_reczna"
+        and set((event["payload"] or {}).get("changed") or []) <= {"end_date"}
+    ], "edycja opisana surową nazwą kolumny została w historii"
+
+    card = await _card(app_client, app_auth_headers, client_id, group["id"])
+    assert card["event_count"] == len(events)
+
+    # Non-vacuity: te wpisy NAPRAWDĘ są w bazie — filtr je ukrywa, a nie
+    # „nigdy nie powstały". Bez tej asercji test przechodziłby także wtedy,
+    # gdyby zdarzenia przestały być zapisywane.
+    async with AsyncSessionLocal() as db:
+        stored = await db.scalar(
+            select(func.count(ClientOrderGroupEvent.id)).where(
+                ClientOrderGroupEvent.group_id == group["id"]
+            )
+        )
+    assert stored > len(events), "filtr nie ukrył ani jednego wpisu technicznego"
+
+
+async def test_business_edits_stay_visible_in_the_history(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Filtr nie może zjeść edycji opisanych po ludzku.
+
+    Na produkcji oba kształty `edycja_reczna` istnieją na TEJ SAMEJ grupie —
+    ukrycie po samym typie zabrałoby zapis zmiany stawki, czyli fakt handlowy.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+
+    resp = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}",
+        json={"rate_cost": 1100},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+    events = await _history(app_client, app_auth_headers, client_id, group["id"])
+    business = [
+        event
+        for event in events
+        if event["event_type"] == "edycja_reczna"
+        and "stawka kosztowa" in (event["payload"] or {}).get("changed", [])
+    ]
+    assert len(business) == 1, "edycja stawki zniknęła razem z wpisami technicznymi"
+
+
+async def test_transfer_link_survives_the_payload_redaction(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Odsyłacz do drugiego zamówienia NIE może wisieć na `payload`.
+
+    `payload` niesie stawki, więc dla ról bez VIEW_FINANCE znika w całości —
+    numer zbudowany z niego przestałby działać dokładnie tym rolom, które tę
+    zakładkę widzą, a stawek widzieć nie mają.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.client_order_lines import EVENT_MD_TRANSFER, record_event
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    async with AsyncSessionLocal() as db:
+        other = ClientOrderGroup(
+            client_id=client_id,
+            order_number=f"NEXT-{uuid.uuid4().hex[:4]}",
+            start_date=_TODAY + timedelta(days=30),
+            status="scheduled",
+            predecessor_group_id=group["id"],
+        )
+        db.add(other)
+        await db.commit()
+        await db.refresh(other)
+        record_event(
+            db,
+            group_id=group["id"],
+            event_type=EVENT_MD_TRANSFER,
+            description="Zamówienie zakończone — budżet MD wyczerpany",
+            payload={
+                "md_transferred": "10.000000",
+                "period_month": "2026-07",
+                "predecessor_group_id": group["id"],
+                "successor_group_id": other.id,
+                "predecessor_order_number": group["order_number"],
+                "successor_order_number": other.order_number,
+            },
+        )
+        await db.commit()
+        successor_id, successor_number = other.id, other.order_number
+
+    _, email, password = await _seed_user("head_of_recruitment")
+    headers = await _headers_for(app_client, email, password)
+    events = await _history(app_client, headers, client_id, group["id"])
+    entry = next(e for e in events if e["event_type"] == EVENT_MD_TRANSFER)
+
+    assert entry["payload"] is None, "stawki wyciekły roli bez VIEW_FINANCE"
+    assert entry["related_group_id"] == successor_id
+    assert entry["related_order_number"] == successor_number
+    # Bez etykiety wpis wyrenderowałby się użytkownikowi surowym slugiem.
+    assert entry["event_label"] == "Przejęcie zużycia MD"
+
+
+async def test_cost_family_continuation_still_promotes_on_the_start_date(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Rodziny KOSZTOWE zostają przy zachowaniu czysto datowym.
+
+    Tam pula mieszka na grupie i domyka ją `settle_group`, a nie ten
+    materializator — bramka MD nie ma tam czego pytać.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        is_cost_based=True,
+        budget_amount=100000,
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/extend",
+        json={
+            "order_number": f"ext-{uuid.uuid4().hex[:4]}",
+            "start_date": _TODAY.isoformat(),
+            "budget_amount": 50000,
+            "lines": [],
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "active", "kontynuacja kosztowa nie ruszyła w dniu startu"
+
+    old = await _card(app_client, app_auth_headers, client_id, group["id"])
+    assert old["status"] == "completed"

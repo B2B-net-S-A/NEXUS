@@ -876,6 +876,43 @@ async def _seed_job(client_id: int, title: str) -> int:
         return job.id
 
 
+async def _seed_second_project(contract_id: int, client_name: str) -> tuple[int, int]:
+    """Drugi projekt TEJ SAMEJ osoby u innego klienta: ``(contract_id, client_id)``.
+
+    Projekt to OSOBNY wiersz ``Contract``, więc reaktywacja na nowy projekt ma
+    dokąd przepiąć link — bez tego wiersza sprawdzalibyśmy tylko, że nic się
+    nie stało."""
+    from datetime import date as _date
+
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    async with AsyncSessionLocal() as db:
+        candidate_id = await db.scalar(
+            select(Contract.candidate_id).where(Contract.id == contract_id)
+        )
+        client = Client(name=client_name)
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+
+        contract = Contract(
+            candidate_id=candidate_id,
+            client_id=client.id,
+            # Szkic, bo Flow B zakłada kontraktora bez `contract_type`/
+            # `work_mode` — tak wygląda nowy projekt w chwili reaktywacji.
+            status=ContractStatus.draft,
+            start_date=_date(2026, 8, 1),
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        return contract.id, client.id
+
+
 async def _link(generated_id: int, *, contract_id: int | None) -> None:
     from sqlalchemy import update
 
@@ -1024,6 +1061,113 @@ async def test_reactivation_assigns_project_and_writes_note(
     assert notes[0].content == (
         "Poprzedni projekt zakończony: 2026-08-01, powód: Brak budżetu u klienta"
     )
+
+
+async def test_reactivation_repoints_contract_to_the_new_project(
+    app_client, app_auth_headers
+):
+    """Reaktywacja przepina `contract_id` na kontrakt NOWEGO projektu.
+
+    Do 2026-08-25 zmieniały się tylko `job_id`/`client_id`/`client_name`, a link
+    do Kontraktów zostawał na poprzednim projekcie — produkcyjna umowa
+    „Bank Pocztowy S.A." wskazywała kontrakt Energi. Skutek szedł w obie
+    strony: stary projekt był nieusuwalny (chroniony cudzym podpisem), a nowy
+    nie był chroniony wcale.
+
+    Notatka o poprzednim projekcie MUSI przy tym zostać na STARYM kontrakcie —
+    to tam prowadzona jest historia, której dotyczy."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.note import Note
+
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    old_contract_id, _old_client_id = await _seed_linked_contract("Energa")
+    await _link(rid, contract_id=old_contract_id)
+    new_contract_id, new_client_id = await _seed_second_project(
+        old_contract_id, "Bank Pocztowy S.A."
+    )
+    job_id = await _seed_job(new_client_id, "Body-leasing w banku")
+
+    assert (await _suspend(app_client, app_auth_headers, rid)).status_code == 200
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": job_id},
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        linked = await db.scalar(
+            select(B2BGeneratedContract.contract_id).where(
+                B2BGeneratedContract.id == rid
+            )
+        )
+        note_contract_ids = list(
+            (
+                await db.scalars(
+                    select(Note.contract_id).where(
+                        Note.contract_id.in_([old_contract_id, new_contract_id])
+                    )
+                )
+            ).all()
+        )
+    assert linked == new_contract_id
+    assert note_contract_ids == [old_contract_id]
+
+
+async def test_reactivation_keeps_link_when_new_project_has_no_contract(
+    app_client, app_auth_headers
+):
+    """Brak kontraktu nowego projektu = link bez zmian, nie nowy kontrakt.
+
+    `ensure_b2b_employment_draft` zakłada kontrakt z pominięciem
+    `_assert_no_duplicate_contract`, więc „domyślenie" wiersza przy reaktywacji
+    mogłoby po cichu zrobić drugiego kontraktora u tego samego klienta."""
+    from sqlalchemy import func, select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.contract import Contract
+
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    old_contract_id, _old_client_id = await _seed_linked_contract("Energa")
+    await _link(rid, contract_id=old_contract_id)
+    # Klient docelowy nie ma kontraktu tej osoby — tylko rekrutację.
+    _other_contract_id, other_client_id = await _seed_linked_contract(
+        "Klient bez umowy"
+    )
+    job_id = await _seed_job(other_client_id, "Projekt bez kontraktora")
+
+    assert (await _suspend(app_client, app_auth_headers, rid)).status_code == 200
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "active", "job_id": job_id},
+    )
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        linked = await db.scalar(
+            select(B2BGeneratedContract.contract_id).where(
+                B2BGeneratedContract.id == rid
+            )
+        )
+        candidate_id = await db.scalar(
+            select(Contract.candidate_id).where(Contract.id == old_contract_id)
+        )
+        contracts_of_person = await db.scalar(
+            select(func.count())
+            .select_from(Contract)
+            .where(Contract.candidate_id == candidate_id)
+        )
+    assert linked == old_contract_id
+    assert contracts_of_person == 1
 
 
 async def test_reactivation_does_not_rewrite_signed_document(

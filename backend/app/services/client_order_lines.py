@@ -37,6 +37,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
@@ -53,6 +54,7 @@ from app.models.md_consumption import (
 from app.services.candidate_identity_quarantine import normalize_person_name_part
 from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
+    EVENT_MD_TRANSFER,
     format_md,
     is_multi_consultant_client,
     quantize_md,
@@ -61,6 +63,24 @@ from app.services.multi_consultant_orders import (
 ZERO = Decimal("0")
 STANDARD_WORKING_DAYS_PER_MONTH = Decimal("22")
 MONEY_SCALE = Decimal("0.01")
+
+# Nazwy miesięcy w MIANOWNIKU — wpis historii brzmi „Za lipiec 2026", a nie
+# „Za 2026-07". Forma mianownikowa jest poprawna po przyimku „za" dla każdego
+# z dwunastu miesięcy, więc nie potrzeba drugiej odmiany.
+_POLISH_MONTHS: tuple[str, ...] = (
+    "styczeń",
+    "luty",
+    "marzec",
+    "kwiecień",
+    "maj",
+    "czerwiec",
+    "lipiec",
+    "sierpień",
+    "wrzesień",
+    "październik",
+    "listopad",
+    "grudzień",
+)
 
 
 # ── Miesiąc raportu ─────────────────────────────────────────────────────────
@@ -76,6 +96,20 @@ def month_bounds(period_month: str) -> tuple[date, date]:
         raise ValueError("Miesiąc musi być w formacie RRRR-MM (np. 2026-07)") from exc
     last = date(year, month, calendar.monthrange(year, month)[1])
     return first, last
+
+
+def format_period_month(period_month: str) -> str:
+    """``'2026-07'`` → ``'lipiec 2026'`` na potrzeby wpisu w historii.
+
+    Śmieciowy kształt NIE wywraca zapisu — wraca surowa wartość. Ten tekst
+    jest opisem zdarzenia, a nie danymi: wywrócenie importu na formatowaniu
+    zabrałoby ze sobą także poprawnie rozliczone wiersze.
+    """
+    try:
+        year_s, month_s = period_month.split("-")
+        return f"{_POLISH_MONTHS[int(month_s) - 1]} {int(year_s)}"
+    except (ValueError, AttributeError, IndexError):
+        return period_month
 
 
 # ── Dopasowanie po imieniu i nazwisku ───────────────────────────────────────
@@ -603,12 +637,78 @@ async def consumed_md(db: AsyncSession, order_id: int) -> Decimal:
     return Decimal(str(total or 0))
 
 
+async def _has_successor_line(db: AsyncSession, order: ClientOrder) -> bool:
+    """Czy jakaś linia przejęła tę przy zamianie kontraktora."""
+    successor = await db.scalar(
+        select(ClientOrder.id)
+        .where(ClientOrder.predecessor_order_id == order.id)
+        .limit(1)
+    )
+    return successor is not None
+
+
+async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
+    """Dopasuj status linii MD do jej budżetu. Zwraca, czy status się zmienił.
+
+    Lustro ``cost_orders.settle_group``, tyle że na LINII: tam pula mieszka na
+    grupie i to grupa dostaje ``exhausted``, tutaj budżet jest per konsultant,
+    więc kończy się pojedyncza linia. Reguła jest ta sama i nadrzędna dla
+    całego modułu: **zamówienie MD kończy budżet, nie kalendarz**. Data opisuje
+    okres obowiązywania i steruje alertami wygasania, ale statusu nie zmienia
+    (patrz `dl_portal_expiry_scanner._promote_statuses`).
+
+    Wskrzeszenie linii z powrotem na ``active`` jest tu równie ważne jak jej
+    domknięcie: korekta budżetu albo cofnięcie omyłkowego zakończenia zostawiały
+    linię ``completed``, przez co import zużycia MD przestawał ją widzieć
+    (``active_md_lines`` pyta o linie aktywne) i budżet zamierał.
+
+    Trzy rzeczy, których ta funkcja CELOWO nie robi:
+
+    * **nie rusza linii ``draft``** — to linia w zamówieniu ``scheduled``,
+      a aktywna linia w zaplanowanej grupie łamie niezmiennik pilnowany
+      w ``_build_line``/``add_line``;
+    * **nie rusza linii ``cancelled`` ani ``paused``** — obie są decyzją
+      człowieka o wstrzymaniu, a nie skutkiem stanu budżetu;
+    * **nie wskrzesza linii świadomie zakończonej.** Linie domknięte datą,
+      terminacją kontraktu, ręcznym ``close_order_group`` albo zamianą
+      kontraktora niosą ``end_date`` z przeszłości — stąd warunek okresu.
+      Wyjątkiem jest zamiana „na dziś": ``end_date`` równa się wtedy
+      dzisiejszemu dniu i sam warunek daty by jej nie zatrzymał, a poprzednik
+      zachowuje swoje ``md_remaining`` (MD przechodzą na następcę jako osobny
+      budżet). Dlatego linia z następcą jest wykluczona wprost.
+    """
+    if order.md_total is None:
+        return False
+
+    remaining = Decimal(str(order.md_remaining or 0))
+
+    if order.status == ClientOrderStatus.active:
+        if remaining > ZERO:
+            return False
+        order.status = ClientOrderStatus.completed
+        return True
+
+    if order.status != ClientOrderStatus.completed or remaining <= ZERO:
+        return False
+    if order.end_date is not None and order.end_date < business_today():
+        return False
+    if await _has_successor_line(db, order):
+        return False
+    order.status = ClientOrderStatus.active
+    return True
+
+
 async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
     """Przelicz ``md_remaining`` od zera i zapisz na linii.
 
     Jedyny writer tego pola. Wartość może zejść do zera i poniżej —
     przekroczony budżet jest faktem handlowym, więc nie jest tu ścinany;
     sygnalizuje go interfejs kolorem.
+
+    Status linii schodzi z tej samej liczby, więc synchronizacja siedzi TUTAJ,
+    a nie u każdego z wołających: import zużycia, edycja budżetu, ręczna korekta
+    i materializacja szkicu przechodzą wszystkie przez tę funkcję, a rozsypanie
+    wywołań po nich gwarantowałoby, że pierwsza nowa ścieżka o nim zapomni.
     """
     if order.md_total is None:
         order.md_remaining = None
@@ -617,6 +717,7 @@ async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
     adjustment = Decimal(str(order.md_manual_adjustment or 0))
     remaining = quantize_md(Decimal(str(order.md_total)) - consumed + adjustment)
     order.md_remaining = remaining
+    await sync_md_line_status(db, order)
     return remaining
 
 
@@ -694,6 +795,267 @@ async def upsert_consumption(
     return row, previous, remaining
 
 
+# ── Podział zużycia między zamówieniem bieżącym a jego następcą ──────────────
+#
+# Konsultant nie przestaje pracować w dniu, w którym kończy się budżet MD jego
+# zamówienia. Miesięczny raport przychodzi jedną liczbą za cały miesiąc, więc
+# nadwyżka ponad pozostały budżet należy do zamówienia-następcy — i to na jego
+# linii musi zostać zapisana, inaczej faktura pokazuje przekroczenie na
+# zamówieniu, które klient już zamknął, a nowe stoi puste.
+
+
+@dataclass(frozen=True)
+class MdConsumptionOutcome:
+    """Wynik zapisu zużycia MD za miesiąc — z ewentualnym podziałem."""
+
+    #: MD zapisane wcześniej na linii bieżącej za ten sam miesiąc (do treści wpisu).
+    previous: Decimal
+    #: Ile z raportu zmieściło się w budżecie linii bieżącej.
+    applied: Decimal
+    #: Pozostałość linii bieżącej po zapisie.
+    remaining: Decimal
+    #: Ile przeszło na następcę. ``0`` = podziału nie było.
+    transferred: Decimal
+    successor_order: Optional[ClientOrder]
+    successor_group: Optional[ClientOrderGroup]
+
+
+async def successor_line_for(
+    db: AsyncSession, order: ClientOrder
+) -> tuple[Optional[ClientOrder], Optional[ClientOrderGroup]]:
+    """Linia TEGO SAMEGO konsultanta w zamówieniu-następcy.
+
+    Dopasowanie idzie po ``contract_id``, a gdy takiej linii nie ma — po
+    kandydacie: następca bywa zakładany na nowym kontrakcie tej samej osoby.
+
+    **Niejednoznaczność nie jest rozstrzygana zgadywaniem.** Gdy pod jeden
+    klucz podpada więcej niż jedna linia, funkcja zwraca pustkę i nadwyżka
+    zostaje na linii bieżącej jako przekroczenie budżetu — widoczne w
+    interfejsie i możliwe do poprawienia ręcznie. Wybór „pierwszej lepszej"
+    dopisałby MD nie tej osobie i wyszedłby dopiero na fakturze.
+    """
+    if order.order_group_id is None:
+        return None, None
+    successor = await db.scalar(
+        select(ClientOrderGroup)
+        .where(ClientOrderGroup.predecessor_group_id == order.order_group_id)
+        # Deterministycznie: kontynuacją jest ta zaczynająca się najwcześniej.
+        .order_by(ClientOrderGroup.start_date.asc(), ClientOrderGroup.id.asc())
+        .limit(1)
+    )
+    if successor is None:
+        return None, None
+
+    lines = list(
+        (
+            await db.scalars(
+                _line_query().where(ClientOrder.order_group_id == successor.id)
+            )
+        ).all()
+    )
+    open_lines = [
+        line
+        for line in lines
+        if line.md_total is not None and line.status != ClientOrderStatus.cancelled
+    ]
+    by_contract = [line for line in open_lines if line.contract_id == order.contract_id]
+    if len(by_contract) == 1:
+        return by_contract[0], successor
+    if by_contract:
+        return None, None
+
+    wanted = order.contract.candidate_id if order.contract else None
+    if wanted is None:
+        return None, None
+    by_candidate = [
+        line
+        for line in open_lines
+        if line.contract is not None and line.contract.candidate_id == wanted
+    ]
+    if len(by_candidate) == 1:
+        return by_candidate[0], successor
+    return None, None
+
+
+async def _capacity_outside_month(
+    db: AsyncSession, order: ClientOrder, period_month: str
+) -> Decimal:
+    """Ile MD linia może przyjąć za TEN miesiąc, licząc od zera.
+
+    Suma konsumpcji jest brana z pominięciem rozliczanego miesiąca —
+    inaczej powtórka importu widziałaby własny, poprzedni zapis jako zużycie
+    i przesunęła na następcę MD, które już raz przesunęła. Podział musi dać
+    ten sam wynik przy każdym powtórzeniu, tak samo jak sam ``md_remaining``.
+    """
+    other = await db.scalar(
+        select(func.coalesce(func.sum(ClientOrderMdConsumption.md_reported), 0)).where(
+            ClientOrderMdConsumption.order_id == order.id,
+            ClientOrderMdConsumption.period_month != period_month,
+        )
+    )
+    capacity = quantize_md(
+        Decimal(str(order.md_total))
+        - Decimal(str(other or 0))
+        + Decimal(str(order.md_manual_adjustment or 0))
+    )
+    # Budżet przekroczony wcześniejszymi miesiącami nie „oddaje" MD następcy —
+    # ujemna pojemność znaczy tylko tyle, że tu nie mieści się już nic.
+    return capacity if capacity > ZERO else ZERO
+
+
+async def apply_md_consumption(
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    group: Optional[ClientOrderGroup],
+    period_month: str,
+    md_reported: Decimal,
+    source: str = CONSUMPTION_SOURCE_IMPORT,
+    import_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+) -> MdConsumptionOutcome:
+    """Zapisz zużycie MD, dzieląc nadwyżkę na zamówienie-następcę.
+
+    Jedyne wejście importu do budżetu MD — obie ścieżki (wsadowa i ręczne
+    rozstrzygnięcie niejednoznacznego wiersza) idą tędy, żeby podział nie
+    zależał od tego, którą z nich operator akurat wybrał.
+
+    Bez następcy zachowanie jest dotychczasowe: całość ląduje na linii
+    bieżącej, a przekroczenie budżetu widać jako ujemną pozostałość. Następcy
+    nie wymyślamy — zamówienie, którego nie ma, nie przejmie zużycia.
+    """
+    value = quantize_md(md_reported)
+    successor_line, successor_group = await successor_line_for(db, order)
+
+    applied = value
+    overflow = ZERO
+    if successor_line is not None and order.md_total is not None:
+        capacity = await _capacity_outside_month(db, order, period_month)
+        if value > capacity:
+            applied = capacity
+            overflow = quantize_md(value - capacity)
+
+    _, previous, remaining = await upsert_consumption(
+        db,
+        order=order,
+        period_month=period_month,
+        md_reported=applied,
+        source=source,
+        import_id=import_id,
+        user_id=user_id,
+    )
+
+    if successor_line is not None:
+        # Zapis zerowy jest potrzebny, gdy podział już kiedyś nastąpił, a teraz
+        # nadwyżki nie ma (np. po podniesieniu budżetu linii bieżącej).
+        # Zostawienie starego wiersza policzyłoby te MD drugi raz — na obu
+        # zamówieniach naraz.
+        stale = await db.scalar(
+            select(ClientOrderMdConsumption.id).where(
+                ClientOrderMdConsumption.order_id == successor_line.id,
+                ClientOrderMdConsumption.period_month == period_month,
+            )
+        )
+        if overflow > ZERO or stale is not None:
+            await upsert_consumption(
+                db,
+                order=successor_line,
+                period_month=period_month,
+                md_reported=overflow,
+                source=source,
+                import_id=import_id,
+                user_id=user_id,
+            )
+
+    if overflow > ZERO and group is not None and successor_group is not None:
+        _record_md_transfer(
+            db,
+            group=group,
+            order=order,
+            successor_group=successor_group,
+            successor_order=successor_line,
+            period_month=period_month,
+            transferred=overflow,
+            user_id=user_id,
+        )
+        # Import lokalny: `order_group_lifecycle` importuje `record_event`
+        # z tego modułu, więc import na górze pliku byłby cyklem.
+        #
+        # Materializacja TUTAJ, a nie u wołających: dopiero ona przenosi
+        # następcę na `active`, a poprzednika do historii — bez niej oba wpisy
+        # w dzienniku mówiłyby o stanie, którego jeszcze nie ma. Bramka
+        # materializatora sama sprawdzi, czy CAŁE zamówienie jest wyczerpane;
+        # przy kilku konsultantach nie ruszy się, dopóki któryś ma budżet.
+        from app.services.order_group_lifecycle import (
+            materialize_scheduled_order_groups,
+        )
+
+        await materialize_scheduled_order_groups(db, client_id=order.client_id)
+
+    return MdConsumptionOutcome(
+        previous=previous,
+        applied=applied,
+        remaining=remaining,
+        transferred=overflow,
+        successor_order=successor_line,
+        successor_group=successor_group,
+    )
+
+
+def _record_md_transfer(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    order: ClientOrder,
+    successor_group: ClientOrderGroup,
+    successor_order: ClientOrder,
+    period_month: str,
+    transferred: Decimal,
+    user_id: Optional[int],
+) -> None:
+    """Wpis o podziale w historii OBU zamówień.
+
+    Dwa wpisy, nie jeden: karta zamówienia pokazuje wyłącznie własny dziennik,
+    więc pojedynczy wpis byłby niewidoczny po jednej ze stron — a to właśnie
+    tam ktoś szuka odpowiedzi „skąd te MD" albo „czemu to się skończyło".
+    ``payload`` jest wspólny i niesie obie strony, żeby front mógł zbudować
+    odsyłacz niezależnie od tego, którą kartę ma otwartą.
+    """
+    payload = {
+        "md_transferred": str(transferred),
+        "period_month": period_month,
+        "predecessor_group_id": group.id,
+        "successor_group_id": successor_group.id,
+        "predecessor_order_number": group.order_number,
+        "successor_order_number": successor_group.order_number,
+    }
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=order.id,
+        event_type=EVENT_MD_TRANSFER,
+        description=(
+            "Zamówienie zakończone — budżet MD wyczerpany, kontynuacja "
+            f"na zamówieniu nr {successor_group.order_number}"
+        ),
+        payload=dict(payload),
+        user_id=user_id,
+    )
+    record_event(
+        db,
+        group_id=successor_group.id,
+        order_id=successor_order.id,
+        event_type=EVENT_MD_TRANSFER,
+        description=(
+            "Zamówienie aktywowane — przejęcie zużycia z zamówienia nr "
+            f"{group.order_number} ({format_md(transferred)} MD za "
+            f"{format_period_month(period_month)})"
+        ),
+        payload=dict(payload),
+        user_id=user_id,
+    )
+
+
 # ── Historia ────────────────────────────────────────────────────────────────
 
 
@@ -727,16 +1089,41 @@ def consultant_display_name(order: ClientOrder) -> str:
 
 
 def describe_import(
-    order: ClientOrder, period_month: str, md_reported: Decimal, previous: Decimal
+    order: ClientOrder,
+    period_month: str,
+    md_reported: Decimal,
+    previous: Decimal,
+    *,
+    order_number: str,
 ) -> str:
+    """Wpis „Import MD" w historii zamówienia.
+
+    Numer zamówienia jest w treści, bo ten sam konsultant bywa obsadzony na
+    kolejnych zamówieniach tego klienta — bez numeru wpis nie odpowiada na
+    pytanie, z KTÓREJ puli zeszły te MD.
+
+    ``wykorzystano`` liczymy jako ``md_total − md_remaining``, czyli tak, by
+    razem z pozostałością sumowało się do budżetu widocznego na karcie. Ręczna
+    korekta (``md_manual_adjustment``) świadomie NIE wchodzi do tej różnicy —
+    licznik ma opisywać wykorzystanie budżetu, nie sumę arytmetyczną korekt.
+
+    ``md_reported`` to MD, które trafiły na TĘ linię — po ewentualnym podziale
+    z następcą, nie surowa liczba z arkusza. Inaczej wpis głosiłby zużycie,
+    którego to zamówienie nie przyjęło.
+    """
     who = consultant_display_name(order)
-    if previous and previous != md_reported:
-        return (
-            f"Import MD za {period_month}: {who} — {format_md(md_reported)} MD "
-            f"(nadpisano wcześniejsze {format_md(previous)} MD). "
-            f"Pozostało {format_md(order.md_remaining)} MD."
+    used = (
+        None
+        if order.md_total is None or order.md_remaining is None
+        else quantize_md(
+            Decimal(str(order.md_total)) - Decimal(str(order.md_remaining))
         )
+    )
+    context = who
+    if previous and previous != md_reported:
+        context = f"{who}, nadpisano wcześniejsze {format_md(previous)} MD"
     return (
-        f"Import MD za {period_month}: {who} — {format_md(md_reported)} MD. "
-        f"Pozostało {format_md(order.md_remaining)} MD."
+        f"Za {format_period_month(period_month)} zużyto {format_md(md_reported)} MD "
+        f"z zamówienia nr {order_number} ({context}) — wykorzystano "
+        f"{format_md(used)} / pozostało {format_md(order.md_remaining)} MD."
     )

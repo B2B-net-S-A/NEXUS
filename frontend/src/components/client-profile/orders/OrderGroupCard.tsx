@@ -1,27 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   CalendarPlus,
   ChevronDown,
   Clock3,
+  FilePlus2,
+  FileUp,
   History,
   Pencil,
   Plus,
+  ReceiptText,
   Repeat,
   RotateCcw,
   SquareCheckBig,
   Trash2,
+  UserPlus,
+  type LucideIcon,
 } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { orderGroupsApi, type OrderGroupRead, type OrderLineRead } from "@/lib/api/orderGroups";
+import {
+  orderGroupsApi,
+  type OrderGroupEvent,
+  type OrderGroupRead,
+  type OrderLineRead,
+} from "@/lib/api/orderGroups";
 import {
   consultantMatchesQuery,
+  flattenOrderGroupIds,
   sortOrderLinesByConsultant,
 } from "@/lib/client-order-list";
 import { countPl } from "@/lib/plural-pl";
@@ -50,6 +62,86 @@ const STATUS_BADGE: Record<string, string> = {
   completed: "bg-zinc-200 text-zinc-700",
   exhausted: "bg-destructive/15 text-destructive",
 };
+
+/** Kotwica do przewijania. Osobna od `order-group-{id}-content`, bo dostają ją
+ *  także zagnieżdżone przyszłe zamówienia — cel przejścia z historii bywa
+ *  wierszem pod inną kartą, nie kartą najwyższego poziomu. */
+export function orderGroupAnchorId(groupId: number): string {
+  return `order-group-anchor-${groupId}`;
+}
+
+/** Żądanie „pokaż zamówienie X" płynące z wpisu `transfer_md`.
+ *  `nonce` jest nośnikiem POWTÓRZENIA: samo id nie zmienia stanu, więc drugie
+ *  kliknięcie tego samego numeru (po odjechaniu wzrokiem) przepadałoby po cichu. */
+export interface OrderGroupFocusRequest {
+  groupId: number;
+  nonce: number;
+}
+
+/** Ikona wpisu historii lustrzy przycisk, który ten wpis produkuje — kolumna
+ *  ikon czyta się wtedy tak samo jak pasek akcji nad nią. `transfer_md` celowo
+ *  dostaje ikonę spoza tamtego zestawu: przeniesienie MD nie jest edycją
+ *  zamówienia, tylko ruchem MIĘDZY dwoma zamówieniami. */
+const EVENT_ICON: Record<string, LucideIcon> = {
+  utworzenie: FilePlus2,
+  dodanie_konsultanta: UserPlus,
+  zamiana_kontraktora: Repeat,
+  edycja_reczna: Pencil,
+  zakonczenie: SquareCheckBig,
+  przywrocenie: RotateCcw,
+  wyczerpanie: AlertTriangle,
+  przedluzenie: CalendarPlus,
+  import_md: FileUp,
+  import_faktur: ReceiptText,
+  transfer_md: ArrowLeftRight,
+};
+
+/** Treść wpisu historii z klikalnym numerem zamówienia powiązanego.
+ *
+ *  Bez tego przejścia czytelnik musiałby szukać drugiego zamówienia wzrokiem,
+ *  a przy przeniesieniu MD bywa ono zagnieżdżone pod zupełnie inną kartą.
+ *  Gdy `related_group_id` jest `null`, renderujemy SAM TEKST — przycisk bez
+ *  celu obiecuje nawigację, której nie wykona. */
+function EventDescription({
+  event,
+  onFocusGroup,
+}: {
+  event: OrderGroupEvent;
+  onFocusGroup: (groupId: number) => void;
+}) {
+  const groupId = event.related_group_id;
+  const number = event.related_order_number;
+  if (groupId == null || !number) return <>{event.description}</>;
+
+  const link = (
+    <button
+      type="button"
+      onClick={() => onFocusGroup(groupId)}
+      aria-label={`Pokaż zamówienie nr ${number}`}
+      className="font-semibold text-primary underline underline-offset-2 hover:no-underline"
+    >
+      {number}
+    </button>
+  );
+
+  const at = event.description.indexOf(number);
+  if (at < 0) {
+    // Numeru nie ma w treści (inny szablon opisu po stronie backendu) —
+    // doklejamy go obok, zamiast gubić przejście do powiązanego zamówienia.
+    return (
+      <>
+        {event.description} {link}
+      </>
+    );
+  }
+  return (
+    <>
+      {event.description.slice(0, at)}
+      {link}
+      {event.description.slice(at + number.length)}
+    </>
+  );
+}
 
 /** Pasek wykorzystania budżetu kwotowego. Wypełnienie pokazuje POZOSTAŁOŚĆ —
  *  ta sama konwencja co przy MD, żeby dwa paski obok siebie nie znaczyły
@@ -143,7 +235,7 @@ function FutureOrders({
       </p>
       <ul className="mt-2 divide-y divide-border rounded-lg border border-border bg-background">
         {orders.map((future) => (
-          <li key={future.id} className="p-3">
+          <li key={future.id} id={orderGroupAnchorId(future.id)} className="p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-foreground">
@@ -266,6 +358,11 @@ interface Props {
   onCloseGroup: (group: OrderGroupRead) => void;
   onReopenGroup: (group: OrderGroupRead) => void;
   onExtendGroup: (group: OrderGroupRead) => void;
+  /** Klik w numer zamówienia powiązanego wpisem `transfer_md`. Rozstrzygnięcie,
+   *  KTÓRA karta pokaże cel, należy do rodzica — tylko on widzi całą listę. */
+  onFocusGroup: (groupId: number) => void;
+  /** Ostatnie żądanie pokazania zamówienia — kierowane do wszystkich kart. */
+  focusRequest?: OrderGroupFocusRequest | null;
 }
 
 export function OrderGroupCard({
@@ -283,9 +380,35 @@ export function OrderGroupCard({
   onCloseGroup,
   onReopenGroup,
   onExtendGroup,
+  onFocusGroup,
+  focusRequest = null,
 }: Props) {
   const [expanded, setExpanded] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [pendingFocusId, setPendingFocusId] = useState<number | null>(null);
+  const servedFocusRef = useRef<number | null>(null);
+
+  // Żądanie adresuje tę kartę, gdy celem jest ona sama albo któreś z jej
+  // zagnieżdżonych przyszłych zamówień. Zagnieżdżone istnieją w DOM dopiero po
+  // rozwinięciu karty, więc samo `scrollIntoView` na zwiniętej nie miałoby do
+  // czego trafić — najpierw rozwijamy, przewijamy w efekcie obok.
+  useEffect(() => {
+    if (!focusRequest || servedFocusRef.current === focusRequest.nonce) return;
+    if (!flattenOrderGroupIds([group]).includes(focusRequest.groupId)) return;
+    // Zapamiętanie obsłużonego żądania — bez tego odświeżenie listy (nowa
+    // identyczność `group`) przewijałoby ekran drugi raz, długo po kliknięciu.
+    servedFocusRef.current = focusRequest.nonce;
+    setExpanded(true);
+    setPendingFocusId(focusRequest.groupId);
+  }, [focusRequest, group]);
+
+  useEffect(() => {
+    if (pendingFocusId == null || !expanded) return;
+    document
+      .getElementById(orderGroupAnchorId(pendingFocusId))
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setPendingFocusId(null);
+  }, [pendingFocusId, expanded]);
 
   const history = useQuery({
     queryKey: ["order-group-events", clientId, group.id],
@@ -298,7 +421,10 @@ export function OrderGroupCard({
   const isActive = group.status === "active";
 
   return (
-    <section className="rounded-xl border border-border bg-card">
+    <section
+      id={orderGroupAnchorId(group.id)}
+      className="rounded-xl border border-border bg-card"
+    >
       {/* Nagłówek karty — numer, okres, awatary konsultantów */}
       <div className="flex w-full items-center gap-4 px-5 py-4">
         <div className="min-w-0 flex-1">
@@ -649,17 +775,28 @@ export function OrderGroupCard({
                   <p className="text-xs text-muted-foreground">Brak wpisów w historii.</p>
                 ) : (
                   <ol className="flex flex-col gap-2">
-                    {history.data.events.map((ev) => (
-                      <li key={ev.id} className="flex gap-3 text-xs">
-                        <span className="w-28 shrink-0 tabular-nums text-muted-foreground">
-                          {formatDate(ev.created_at)}
-                        </span>
-                        <span className="w-36 shrink-0 font-medium text-foreground">
-                          {ev.event_label}
-                        </span>
-                        <span className="text-muted-foreground">{ev.description}</span>
-                      </li>
-                    ))}
+                    {history.data.events.map((ev) => {
+                      // Nieznany typ zdarzenia dostaje ikonę domyślną — nowy
+                      // slug z backendu ma wyrenderować wiersz, a nie pustkę.
+                      const EventIcon = EVENT_ICON[ev.event_type] ?? History;
+                      return (
+                        <li key={ev.id} className="flex gap-3 text-xs">
+                          <span className="w-28 shrink-0 tabular-nums text-muted-foreground">
+                            {formatDate(ev.created_at)}
+                          </span>
+                          <span className="flex w-36 shrink-0 items-center gap-1.5 font-medium text-foreground">
+                            <EventIcon
+                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                              aria-hidden="true"
+                            />
+                            {ev.event_label}
+                          </span>
+                          <span className="text-muted-foreground">
+                            <EventDescription event={ev} onFocusGroup={onFocusGroup} />
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ol>
                 )}
               </div>

@@ -223,3 +223,88 @@ async def test_future_dated_terminate_keeps_order_running_until_date(
             assert contract.end_date == when
     finally:
         await _cleanup(client_id, cand_id, contract_id)
+
+
+async def _seed_open_ended_draft() -> tuple[int, int, int]:
+    """Profil Banku Pocztowego: kontrakt BEZTERMINOWY, który został szkicem.
+
+    Tak wygląda kontraktor założony przez „Nowy kontraktor/zamówienie"
+    (`POST /clients/{id}/contract-with-order`): dialog nie zbiera typu umowy
+    ani trybu pracy, więc kontrakt rodzi się `draft`, a `end_date` jest puste,
+    bo to body-leasing. `ACTIVATION_REQUIRED_FIELDS` wymaga `end_date`, więc
+    taki wiersz NIE MA jak wyjść z Draftu — a konsultant realnie pracuje.
+    """
+    suffix = uuid.uuid4().hex[:8]
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"BP Draft Client {suffix}")
+        cand = Candidate(name=f"Draft {suffix}", lastname=f"Bezterminowy{suffix}")
+        db.add_all([client, cand])
+        await db.flush()
+        contract = Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            start_date=today - timedelta(days=15),
+            end_date=None,
+            rate_client=175,
+            rate_candidate=135,
+            status=ContractStatus.draft,
+        )
+        db.add(contract)
+        await db.flush()
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=contract.id,
+                title="231/2026/ZAM/B2B",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=15),
+                end_date=today + timedelta(days=36),
+            )
+        )
+        ids = (client.id, cand.id, contract.id)
+        await db.commit()
+        return ids
+
+
+async def test_terminating_an_open_ended_draft_is_accepted(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Bramka renderu „Zakończ" wpuszcza szkice — API musi je faktycznie przyjąć.
+
+    Do tej pory front chował przycisk dla `draft`, więc nikt nigdy nie wysłał
+    tego żądania i nic nie pilnowało, że `draft → ended` przechodzi. Gdyby
+    handler dorobił kiedyś bramkę statusu (albo `assert_transition`), przycisk
+    zostałby kosmetyką: widoczny, a każde kliknięcie kończyłoby się 422 — czyli
+    kontraktora Banku Pocztowego dalej nie dałoby się zakończyć, tylko z innym
+    komunikatem.
+    """
+    client_id, cand_id, contract_id = await _seed_open_ended_draft()
+    today = date.today()
+    try:
+        resp = await app_client.post(
+            f"/api/contracts/{contract_id}/terminate",
+            json={
+                "termination_reason": "project_ended",
+                "terminated_at": today.isoformat(),
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+        async with AsyncSessionLocal() as db:
+            contract = await db.scalar(
+                select(Contract).where(Contract.id == contract_id)
+            )
+            assert contract is not None
+            assert contract.status == ContractStatus.ended
+            # Bezterminowy kontrakt dostaje datę końca dopiero tutaj.
+            assert contract.end_date == today
+
+        # Zamówienie idzie za kontraktem — inaczej konsultant zniknąłby
+        # z Kontraktów, ale został w zakładce Zamówienia klienta.
+        orders = await _orders_by_title(client_id)
+        assert orders["231/2026/ZAM/B2B"].status == ClientOrderStatus.completed
+        assert orders["231/2026/ZAM/B2B"].end_date == today
+    finally:
+        await _cleanup(client_id, cand_id, contract_id)
