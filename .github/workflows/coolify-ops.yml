@@ -40,16 +40,23 @@ on:
         default: ""
       client_like:
         # Jedyne wejście TEKSTOWE trafiające do komendy na prodzie — i dlatego
-        # przepuszczone przez twardą allowlistę `^[a-z0-9][a-z0-9 .-]{0,39}$`
-        # w kroku niżej. Ten zestaw znaków NIE ZAWIERA żadnego metaznaku powłoki
+        # przepuszczone przez twardą allowlistę `[a-z0-9.-]`, 1-40 znaków,
+        # w kroku niżej. Ten zestaw NIE ZAWIERA żadnego metaznaku powłoki
         # (bez cudzysłowów, $, backticka, ;, |, &, nawiasów), więc nie da się
         # nim zmienić KSZTAŁTU komendy — można wyłącznie zawęzić `LIKE`
         # w zapytaniu, które i tak jest samym SELECT-em.
         #
+        # SPACJI też nie ma, i to nie z powodu bezpieczeństwa: `--like ${needle}`
+        # jest w komendzie NIECYTOWANE, więc „credit agricole" rozpadłoby się na
+        # dwa argumenty i argparse padłby z kodem 2. Cytowanie byłoby ryzykowne —
+        # nie wiemy, czy Coolify opakowuje komendę w `sh -c '…'` czy w cudzysłów
+        # (ten sam powód, dla którego eval unika apostrofów). Jeden człon nazwy
+        # w zupełności wystarcza: `agricole`, `erste`, `cardif`, `polkomtel`.
+        #
         # Zasada „operator wnosi liczbę albo wybór" (patrz komentarz przy
         # wejściach eval) zostaje utrzymana co do skutku: kanał daje dostęp do
         # JEDNEGO read-only skryptu, nie do kontenera.
-        description: "Fragment nazwy klienta (action=client-lookup), np. cardif"
+        description: "JEDEN człon nazwy klienta, bez spacji (action=client-lookup), np. agricole"
         required: false
         default: ""
       # Trzy wejścia niżej to JEDYNE, co operator wnosi do komendy uruchamianej
@@ -656,7 +663,7 @@ jobs:
           # odrzuca.) Guard na `'`/`$`/backtick niżej też by tego nie złapał.
           case "$needle" in
             "") echo "::error::client_like jest wymagane dla action=client-lookup"; exit 1;;
-            *[!a-z0-9\ .-]*) echo "::error::client_like dopuszcza wylacznie [a-z0-9 .-]"; exit 1;;
+            *[!a-z0-9.-]*) echo "::error::client_like dopuszcza wylacznie [a-z0-9.-] (BEZ spacji)"; exit 1;;
             [!a-z0-9]*) echo "::error::client_like musi zaczynac sie od litery albo cyfry"; exit 1;;
           esac
           if [ "${#needle}" -gt 40 ]; then
@@ -664,7 +671,11 @@ jobs:
             exit 1
           fi
 
-          CMD="cd /app && python -m scripts.list_clients --like ${needle} --with-links ; echo ${SENTINEL}"
+          # 2>&1 jest nośne: argparse i traceback piszą na STDERR, a sentinel
+          # leci po średniku, więc bez przekierowania nieudany skrypt oddałby
+          # wykonanie zawierające SAM sentinel — co czyta się jak „zero klientów",
+          # a nie jak awaria. Cisza nie może wyglądać jak wynik.
+          CMD="cd /app && python -m scripts.list_clients --like ${needle} --with-links 2>&1 ; echo ${SENTINEL}"
           # Ten sam guard co przy evalu: nie wiemy, czy Coolify opakowuje komendę
           # w sh -c z apostrofami, czy w cudzysłów.
           case "$CMD" in
