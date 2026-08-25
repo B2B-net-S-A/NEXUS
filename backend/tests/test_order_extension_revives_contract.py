@@ -28,7 +28,10 @@ pytestmark = pytest.mark.asyncio
 
 
 async def _seed_ended_contract(
-    *, end_date: date, client_order_end_date: date | None = None
+    *,
+    end_date: date,
+    client_order_end_date: date | None = None,
+    status: ContractStatus = ContractStatus.ended,
 ) -> tuple[int, int]:
     """Kontraktor po zakończonym projekcie — wiersz z zakładki „Zakończeni”."""
     suffix = uuid.uuid4().hex[:8]
@@ -42,7 +45,7 @@ async def _seed_ended_contract(
             client_id=client.id,
             contract_type=ContractType.b2b,
             work_mode=ContractWorkMode.remote,
-            status=ContractStatus.ended,
+            status=status,
             start_date=end_date - timedelta(days=365),
             end_date=end_date,
             rate_candidate=15000,
@@ -255,3 +258,75 @@ async def test_draft_extension_is_not_evidence_of_running_work(
     status, end_date = await _contract_state(contract_id)
     assert status == ContractStatus.ended
     assert end_date == previous_end
+
+
+async def test_void_contract_is_never_touched_by_an_order(
+    app_client, app_auth_headers
+):
+    """``void`` jest TERMINALNY — zamówienie nie przesuwa daty umowy unieważnionej.
+
+    ``create_order_extension`` nie filtruje statusu kontraktu, więc zamówienie
+    da się dopiąć także do soft-skasowanej umowy. Bez bramki wskrzeszenie po
+    cichu zmieniałoby jej `end_date` — a `ALLOWED_TRANSITIONS[void]` jest
+    pustym zbiorem właśnie dlatego, że z tego stanu nie ma wyjścia.
+    """
+    today = date.today()
+    previous_end = today - timedelta(days=60)
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=previous_end, status=ContractStatus.void
+    )
+
+    resp = await _post_extension(
+        app_client, app_auth_headers, client_id, contract_id,
+        start=today - timedelta(days=5), end=today + timedelta(days=90),
+    )
+    assert resp.status_code == 201, resp.text
+
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.void
+    assert end_date == previous_end
+
+
+async def test_draft_contract_is_not_activated_through_an_order(
+    app_client, app_auth_headers
+):
+    """Szkic ma WŁASNY walidowany cykl życia — nie wchodzi się w przychód bokiem."""
+    today = date.today()
+    previous_end = today - timedelta(days=60)
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=previous_end, status=ContractStatus.draft
+    )
+
+    resp = await _post_extension(
+        app_client, app_auth_headers, client_id, contract_id,
+        start=today - timedelta(days=5), end=today + timedelta(days=90),
+    )
+    assert resp.status_code == 201, resp.text
+
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.draft
+    assert end_date == previous_end
+
+
+async def test_active_contract_horizon_is_left_alone(app_client, app_auth_headers):
+    """Zamówienie NIE rozciąga horyzontu umowy, która i tak obowiązuje.
+
+    Przed tą zmianą dodanie zamówienia nie ruszało `end_date` aktywnej umowy
+    i nikt o to nie prosił — rozszerzenie tego „przy okazji" byłoby zmianą
+    zachowania poza zakresem ticketu.
+    """
+    today = date.today()
+    contract_end = today + timedelta(days=10)
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=contract_end, status=ContractStatus.active
+    )
+
+    resp = await _post_extension(
+        app_client, app_auth_headers, client_id, contract_id,
+        start=today, end=today + timedelta(days=180),
+    )
+    assert resp.status_code == 201, resp.text
+
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.active
+    assert end_date == contract_end

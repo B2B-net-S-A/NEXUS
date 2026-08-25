@@ -380,6 +380,27 @@ async def sync_contract_to_live_order(
     zdemotowałby wskrzeszony kontrakt z powrotem do ``ended`` jeszcze tej nocy
     i poprawka kasowałaby samą siebie.
     """
+    # WYŁĄCZNIE kontrakt zakończony/kończący się. Trzy powody, każdy osobny:
+    #
+    #  * ``void`` jest TERMINALNY (soft-delete zachowujący dokumenty i hashe
+    #    podpisów, ``ALLOWED_TRANSITIONS[void] == frozenset()``), a zamówienie
+    #    da się dopiąć do dowolnego kontraktu klienta — ``create_order_extension``
+    #    nie filtruje statusu. Bez tej bramki dodanie zamówienia po cichu
+    #    przesuwałoby datę końca umowy UNIEWAŻNIONEJ;
+    #  * ``draft`` ma własny walidowany cykl życia (komplet pól + ewentualny
+    #    podpis) — wejście do przychodu tylnymi drzwiami przez zamówienie
+    #    omijałoby dokładnie te bramki;
+    #  * ``active``/``ending`` z dalszą datą końca niż zamówienie: przed tą
+    #    zmianą dodanie zamówienia NIE ruszało horyzontu kontraktu i nikt o to
+    #    nie prosił. Rozszerzanie tego przy okazji zmieniałoby zachowanie,
+    #    którego ticket nie dotyczy.
+    #
+    # ``ending`` zostaje w zbiorze, bo ``reopen_contract`` obsługuje je razem
+    # z ``ended`` i to jest ta sama sytuacja: współpraca miała się skończyć,
+    # a zamówienie mówi, że trwa.
+    if contract.status not in (ContractStatus.ended, ContractStatus.ending):
+        return False
+
     if not order_period_covers(order_start, order_end, today or date.today()):
         return False
 
