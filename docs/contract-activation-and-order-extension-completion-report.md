@@ -302,20 +302,25 @@ Nie zielonym testem obok istniejącej poprawki — każda przez ODWRÓCENIE:
 
 | Bramka | Wynik |
 |---|---|
-| Backend, przebieg celowany-szeroki (33 pliki dotykające zmienionych modułów) | **515 passed, 4 skipped** |
-| Backend, nowe/zmienione pliki testów | 101 + 10 + 12 passed |
+| Backend, przebieg celowany-szeroki (33 pliki dotykające zmienionych modułów) | **521 passed, 4 skipped** |
+| Backend, trasy/OpenAPI/schema-inventory (nowy endpoint nie rusza baseline'ów) | 46 passed |
 | `alembic upgrade heads` (z 0243) | OK |
 | `import app.main` (cykle importów) | OK |
 | Frontend `tsc --noEmit` | **0 błędów** |
 | Frontend `next lint --max-warnings=300` | OK |
 | Frontend `vitest run` (pełny) | **181 plików / 1623 testy passed** |
 
-**Uwaga o jednym flaku:** pierwszy pełny przebieg frontu zgłosił 1 fail
-w `CandidateSearchViewSavedSearchReapproval` — `findByRole` timeout (2 s)
-pod obciążeniem równoległym. Test przechodzi w izolacji, przechodzi
-w powtórzonym pełnym przebiegu tego samego zestawu, i nie ma żadnego związku
-z modułem Kontrakty. Jest kruchy czasowo; dwa dołożone pliki testów podniosły
-obciążenie na tyle, żeby to ujawnić.
+**Uwaga o flaku lokalnego frontu (zmierzone trzy razy):** pełny przebieg
+potrafi zgłosić DOKŁADNIE JEDEN fail, za każdym razem INNY test i zawsze
+timeout — przebieg A `CandidateSearchViewSavedSearchReapproval` („Unable to
+find role=button" po 2 s), przebieg B pełna zieleń (181 plików / 1623 testy),
+przebieg C `TeamAllocationBoard` („Test timed out in 5000ms"). Oba padające
+przechodzą w izolacji (3/3 i 11/11) i żaden nie dotyka modułu Kontrakty.
+
+Baseline BEZ moich zmian: 179 plików / 1608 testów, w pełni zielono — czyli
+pojedynczy fail pojawia się z dołożonymi plikami, choć ich nie dotyczy
+(większe obciążenie równoległe). **Frontowe joby w CI przechodziły na każdym
+commicie tego PR-a**, więc problem jest lokalny, a nie w gałęzi.
 
 **Czego NIE zweryfikowano:** nic nie zostało sprawdzone na produkcji ani
 w przeglądarce — sesja nie ma dostępu do prodowej bazy ani do zalogowanej
