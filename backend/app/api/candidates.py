@@ -92,6 +92,7 @@ from app.schemas.candidate import (
     CandidateQuickViewSource,
     CandidateResponse,
     CandidateUpdate,
+    EmploymentEngagement,
     EmploymentInfo,
     EmploymentState,
     InviteSourceBrief,
@@ -660,6 +661,15 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             active_contracts,
             key=lambda c: c.end_date or date.max,
         )
+        # Konsolidacja wieloklientowa: osoba może mieć N aktywnych kontraktów
+        # u różnych klientów naraz. Pojedyncze pola niżej zostają (zgodność
+        # wsteczna — banery/konflikty czytają jednego klienta), a KOMPLET
+        # równoległych zatrudnień jedzie w `engagements` (chosen pierwszy,
+        # reszta wg malejącej daty końca; bezterminowe najpierw).
+        ordered = sorted(
+            active_contracts,
+            key=lambda c: (c is not chosen, -(c.end_date or date.max).toordinal()),
+        )
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
             client_id=chosen.client_id,
@@ -668,6 +678,15 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             job_id=chosen.job_id,
             contract_end_date=chosen.end_date,
             source="contract",
+            engagements=[
+                EmploymentEngagement(
+                    client_id=c.client_id,
+                    client_name=c.client.name if c.client else None,
+                    contract_id=c.id,
+                    contract_end_date=c.end_date,
+                )
+                for c in ordered
+            ],
         )
 
     active_conflicts = [

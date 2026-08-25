@@ -10,8 +10,10 @@ Locks the single guarded state machine (``app.services.contract_lifecycle``):
   ``active``), and emits no ``contract_signed`` side effect;
 * a QES lane with ``DSS_VALIDATION_URL`` unset — or a timed-out / INDETERMINATE
   DSS verdict — does NOT complete the document or advance the pipeline;
-* DELETE of an executed contract returns 409 and offers ``/void`` (soft-delete
-  preserving documents + signature evidence);
+* DELETE usuwa kontrakt w każdym statusie (decyzja 2026-08-25 — błędny/
+  zdublowany wpis musi dać się skasować); blokują wyłącznie PODPISANE dowody
+  (ukończony podpis kwalifikowany / umowa B2B ``signed_both``) → 409 + oferta
+  ``/void`` (kasowanie zniszczyłoby dowód);
 * the legitimate revert flow works via the audited ``/reopen`` transition.
 
 Unit tests exercise the lifecycle service directly; HTTP tests drive the real
@@ -421,17 +423,29 @@ async def test_delete_draft_allowed(app_client, app_auth_headers) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_executed_contract_409_then_void(
+async def test_delete_executed_contract_now_removes_row(
     app_client, app_auth_headers
 ) -> None:
+    """Decyzja 2026-08-25 (ticket „Usunięcie kontraktu nie działa"): błędnie
+    dodany/zdublowany kontrakt kasuje się niezależnie od statusu — dawne
+    blanket-409 dla nie-szkiców czytało się w UI jak „potwierdziłem i nic".
+    """
     cid = await _seed_contract(status=ContractStatus.active, complete=True)
 
-    # Hard delete of an executed contract is refused.
     resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
-    assert resp.status_code == 409, resp.text
-    assert "void_endpoint" in resp.json()["detail"]
+    assert resp.status_code == 204, resp.text
 
-    # Void (soft-delete) is the offered alternative and preserves the row.
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+
+
+@pytest.mark.asyncio
+async def test_void_remains_available_for_annulment(
+    app_client, app_auth_headers
+) -> None:
+    """Void (anulowanie z zachowaniem historii) zostaje osobną, żywą ścieżką."""
+    cid = await _seed_contract(status=ContractStatus.active, complete=True)
+
     void = await app_client.post(
         f"/api/contracts/{cid}/void",
         json={"reason": "pytest"},
@@ -456,6 +470,11 @@ async def test_delete_contract_with_completed_signature_409(
     await _seed_signature(cid, uid, SignatureStatus.completed)
     resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 409, resp.text
+    # Odmowa jest po polsku i wskazuje przyczynę + alternatywę (void).
+    detail = resp.json()["detail"]
+    assert detail["code"] == "contract_has_completed_signature"
+    assert "podpis" in detail["message"]
+    assert "void_endpoint" in detail
 
 
 @pytest.mark.asyncio

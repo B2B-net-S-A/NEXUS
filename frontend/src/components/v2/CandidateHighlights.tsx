@@ -28,6 +28,13 @@ export type AvailabilityStatus =
 
 export type CandidateStatus ="active" |"passive" |"blacklisted";
 
+export interface EmploymentEngagement {
+ client_id: number;
+ client_name?: string | null;
+ contract_id: number;
+ contract_end_date?: string | null;
+}
+
 export interface EmploymentInfo {
  state: EmploymentState;
  client_id?: number | null;
@@ -36,6 +43,12 @@ export interface EmploymentInfo {
  job_id?: number | null;
  contract_end_date?: string | null;
  source?:"contract" |"conflict" |"pipeline" |"none";
+ /**
+  * Konsolidacja wieloklientowa: WSZYSTKIE aktywne kontrakty (pierwszy = ten
+  * sam co pojedyncze pola wyżej). Osoba pracująca u 2 klientów naraz ma tu
+  * 2 wpisy — banner pokazuje wtedy komplet („Pracuje u: A, B").
+  */
+ engagements?: EmploymentEngagement[];
 }
 
 export interface HighlightableCandidate {
@@ -251,12 +264,29 @@ export function AtOurClientBanner({
  className?: string;
 }) {
  if (employment.state !== "employed_at_client") return null;
- const endText = employment.contract_end_date
+ // Wieloklientowość: osoba z N równoległymi kontraktami pokazuje KOMPLET
+ // klientów („Pracuje u: Bank Pocztowy, VeloBank"), nie tylko ten z najdłuższą
+ // umową — inaczej guardrail „nie wysyłaj profilu do złego klienta" milczał
+ // o połowie zatrudnień.
+ const engagements = employment.engagements ?? [];
+ const multi = engagements.length > 1;
+ const endText = multi
+ ? engagements
+ .map(
+ (e) =>
+ `${e.client_name ?? `Klient #${e.client_id}`}: ${
+ e.contract_end_date ? `do ${e.contract_end_date}` : "bezterminowo"
+ }`,
+ )
+ .join(" · ")
+ : employment.contract_end_date
  ? `Kontrakt do: ${employment.contract_end_date}`
  : employment.source === "pipeline"
  ?"Zatrudniony u klienta (etap „hired” w rekrutacji)"
  :"Ręcznie oznaczony jako zatrudniony u klienta";
- const clientLabel = employment.client_name ??"naszego klienta";
+ const clientLabel = multi
+ ? engagements.map((e) => e.client_name ?? `Klient #${e.client_id}`).join(", ")
+ : (employment.client_name ??"naszego klienta");
  return (
  <div
  role="alert"
@@ -268,7 +298,7 @@ export function AtOurClientBanner({
  <AlertTriangle className="h-5 w-5 mt-0.5 shrink-0" />
  <div className="flex-1 min-w-0">
  <p className="text-xs font-bold uppercase tracking-[0.12em]">
- Zatrudniony u: {clientLabel}
+ {multi ? "Pracuje u" : "Zatrudniony u"}: {clientLabel}
  </p>
  <p className="text-sm text-primary-foreground/90 mt-1">
  {endText} · Nie wysyłaj profilu bez konsultacji z delivery.

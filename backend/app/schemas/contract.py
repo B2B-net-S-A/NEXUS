@@ -255,6 +255,49 @@ class ContractUpdate(BaseModel):
         return self
 
 
+class ContractSiblingRef(BaseModel):
+    """Inny kontrakt TEJ SAMEJ osoby (zwykle u innego klienta).
+
+    Zasila przełącznik zakładek nazwanych po kliencie w szczegółach kontraktu
+    („pracuje u N klientów"). Celowo BEZ pól kwotowych — chip nawiguje do
+    pełnego widoku tamtego kontraktu, gdzie stawki podlegają zwykłej redakcji
+    VIEW_FINANCE; tu nie ma czego redagować.
+    """
+
+    id: int
+    client_id: int
+    client_name: Optional[str] = None
+    status: ContractStatus
+    contract_type: ContractType
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+
+
+class ContractGroupMember(BaseModel):
+    """Jedna umowa w ZGRUPOWANYM wierszu listy (jedna osoba × N klientów).
+
+    Lista z ``group_by_candidate=true`` zwraca jeden wiersz na osobę; kolumny
+    okresu, stawek i marży są rozbijane per klient z tych wpisów. Pola kwotowe
+    podlegają tej samej redakcji VIEW_FINANCE co wiersz główny
+    (``_redact_contract_finance`` czyści też członków grupy).
+    """
+
+    id: int
+    client_id: int
+    client_name: Optional[str] = None
+    status: ContractStatus
+    contract_type: ContractType
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    latest_order_end_date: Optional[date] = None
+    job_title: Optional[str] = None
+    rate_candidate: Optional[float] = None
+    rate_client: Optional[float] = None
+    margin: Optional[float] = None
+    rate_unit: Optional[RateUnit] = None
+    currency: Optional[str] = None
+
+
 class ContractResponse(BaseModel):
     id: int
     # NULL = umowa odpięta od usuniętego kandydata (migracja 0225). Rejestr umów
@@ -330,6 +373,12 @@ class ContractResponse(BaseModel):
     # od `Contract.end_date` (umowa B2B z konsultantem, zwykle dłuższa) vs
     # `latest_order_end_date` (PDF od klienta, zwykle krótszy horyzont 3-6mc).
     latest_order_end_date: Optional[date] = None
+    # Konsolidacja kontraktorów wieloklientowych: przy `group_by_candidate=true`
+    # lista zwraca jeden wiersz na OSOBĘ, a wszystkie jej umowy (spełniające
+    # aktywne filtry) lądują tutaj — także gdy jest tylko jedna, żeby FE nie
+    # musiał rozróżniać „wiersz stary" od „wiersz zgrupowany". W trybie płaskim
+    # (domyślnym) pole zostaje puste.
+    group_members: list[ContractGroupMember] = []
 
     model_config = {"from_attributes": True}
 
@@ -391,6 +440,10 @@ class ContractDetailResponse(ContractResponse):
     monthly_rate_candidate: Optional[float] = None
     monthly_rate_client: Optional[float] = None
     monthly_margin: Optional[float] = None
+    # Pozostałe kontrakty tej samej osoby (bez `void`), zawężone do klientów
+    # widocznych dla wołającego (scope Delivery Leada). FE renderuje z nich
+    # przełącznik zakładek nazwanych po kliencie („pracuje u N klientów").
+    related_contracts: list[ContractSiblingRef] = []
 
     model_config = {"from_attributes": True}
 

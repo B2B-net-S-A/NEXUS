@@ -369,25 +369,43 @@ async def void_contract(
     )
 
 
-async def can_hard_delete(db: AsyncSession, contract: Contract) -> bool:
-    """Only an unexecuted, unaudited ``draft`` may be hard-deleted.
+async def hard_delete_blocker(db: AsyncSession, contract: Contract) -> Optional[str]:
+    """Powód blokady hard delete — ``None`` znaczy „wolno usunąć".
 
-    Everything else (active/ending/ended/ready_for_signature/void, or any
-    contract that already has completed signature evidence or an audited manual
-    bilateral-signature confirmation) must be voided instead. This preserves
-    both cryptographic evidence and the generated-document employment history.
+    Decyzja 2026-08-25 (ticket „Usunięcie kontraktu nie działa mimo
+    potwierdzenia"): błędnie dodany albo zdublowany kontrakt musi dać się
+    skasować z modułu Kontrakty NIEZALEŻNIE OD STATUSU — dawna reguła „tylko
+    szkic" czytała się w UI jak „potwierdziłem i nic". Usuwany jest wyłącznie
+    wiersz kontraktu i jego pod-zasoby (FK CASCADE); kandydat zostaje, a
+    NIEPODPISANE wygenerowane umowy B2B zostają w rejestrze — endpoint DELETE
+    odpina je przed kasowaniem (``contract_id`` → NULL, stan „umowa bez
+    projektu"). Stara reguła miała tu zresztą dziurę: szkic z niepodpisaną
+    wygenerowaną umową przechodził guard i wywracał się dopiero na FK RESTRICT
+    przy commicie (nieobsłużony 500).
+
+    Blokują wyłącznie PODPISANE dowody — bo błędny duplikat nie bywa podpisany,
+    a podpisany kontrakt to zapis prawnie wykonanego zobowiązania:
+
+    * ``completed_signature`` — ukończony ``DocumentSignature``; FK jest
+      CASCADE, więc hard delete zniszczyłby kryptograficzny dowód podpisu.
+    * ``signed_generated_contract`` — umowa B2B potwierdzona jako podpisana
+      obustronnie (``signed_both``, audytowane ``confirm-fully-signed``);
+      wiersz wygenerowany jest w tym stanie nieedytowalny i niekasowalny
+      (patrz ``test_b2b_signature_automation``), więc auto-utworzony z niego
+      kontrakt chronimy symetrycznie. FK RESTRICT jest strażnikiem ostatniej
+      szansy w bazie.
+
+    Zablokowany kontrakt można anulować (``void``) — dokumenty i dowody
+    zostają.
     """
-    if contract.status != ContractStatus.draft:
-        return False
     if await _has_completed_signature(db, contract.id):
-        return False
+        return "completed_signature"
 
-    # Local import avoids coupling the lifecycle module's import graph to the
-    # generator while still treating its one-way audit link as hard-delete
-    # evidence. The FK is RESTRICT at the database layer as a final guard.
+    # Import lokalny — jak w innych miejscach tego modułu — żeby nie sprzęgać
+    # grafu importów lifecycle'u z generatorem B2B.
     from app.models.b2b_generated_contract import B2BGeneratedContract
 
-    generated_confirmation_id = await db.scalar(
+    signed_generated_id = await db.scalar(
         select(B2BGeneratedContract.id)
         .where(
             B2BGeneratedContract.contract_id == contract.id,
@@ -395,4 +413,6 @@ async def can_hard_delete(db: AsyncSession, contract: Contract) -> bool:
         )
         .limit(1)
     )
-    return generated_confirmation_id is None
+    if signed_generated_id is not None:
+        return "signed_generated_contract"
+    return None

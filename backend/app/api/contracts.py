@@ -19,7 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from jinja2 import TemplateError
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -63,8 +63,10 @@ from app.schemas.contract import (
     ContractDraftFinalizeResponse,
     ContractDraftResponse,
     ContractDraftUpdate,
+    ContractGroupMember,
     ContractList,
     ContractRateHistoryEntry,
+    ContractSiblingRef,
     ContractReopenRequest,
     ContractResponse,
     ContractTemplateBrief,
@@ -96,7 +98,7 @@ from app.services import storage_service
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
     assert_transition,
-    can_hard_delete,
+    hard_delete_blocker,
     move_to_ready_for_signature,
     reopen_contract,
     revert_contract,
@@ -636,7 +638,93 @@ def _redact_contract_finance(item):
     for field in _CONTRACT_FINANCE_LISTS:
         if hasattr(item, field):
             setattr(item, field, [])
+    # Zgrupowany wiersz (group_by_candidate) niesie stawki per klient w
+    # `group_members` — redakcja musi objąć też członków, inaczej rola bez
+    # VIEW_FINANCE odczytałaby ukryte kwoty z rozbicia per klient.
+    for member in getattr(item, "group_members", None) or []:
+        member.rate_candidate = None
+        member.rate_client = None
+        member.margin = None
+        member.rate_unit = None
+        member.currency = None
     return item
+
+
+# Kolejność członków w zgrupowanym wierszu i rodzeństwa w szczegółach: żywe
+# umowy przed papierowymi, w obrębie statusu najnowsza pierwsza. Dzięki temu
+# chip/oznaczenie pierwszego klienta wskazuje bieżące zatrudnienie.
+_GROUP_STATUS_RANK = {
+    ContractStatus.active: 0,
+    ContractStatus.ending: 1,
+    ContractStatus.ready_for_signature: 2,
+    ContractStatus.draft: 3,
+    ContractStatus.ended: 4,
+    ContractStatus.void: 5,
+}
+
+
+def _group_member_from_contract(
+    c: Contract, latest_order_dates: dict[int, date], today: date
+) -> ContractGroupMember:
+    """Jeden wpis rozbicia per klient — stawki z harmonogramów (jak wiersz listy)."""
+    eff = _effective_rate_fields(c, today)
+    return ContractGroupMember(
+        id=c.id,
+        client_id=c.client_id,
+        client_name=c.client.name if c.client else None,
+        status=c.status,
+        contract_type=c.contract_type,
+        start_date=c.start_date,
+        end_date=c.end_date,
+        latest_order_end_date=latest_order_dates.get(c.id),
+        job_title=c.job.title if c.job else None,
+        rate_candidate=eff["rate_candidate"],
+        rate_client=eff["rate_client"],
+        margin=eff["margin"],
+        rate_unit=c.rate_unit,
+        currency=c.currency,
+    )
+
+
+def _contract_list_item(
+    c: Contract, latest_order_dates: dict[int, date], today: date
+) -> ContractResponse:
+    """Jeden wiersz listy — wspólny dla trybu płaskiego i zgrupowanego.
+
+    Wymaga eager-loadu candidate/client/job + trzech harmonogramów stawek.
+    `group_members` jest wykluczone z iteracji po polach schematu: to pole
+    czysto odpowiedziowe (ORM go nie ma), a `getattr(..., None)` podłożyłby
+    None pod pole typu list i wywrócił walidację Pydantica.
+    """
+    return ContractResponse.model_validate(
+        {
+            **{
+                k: getattr(c, k, None)
+                for k in ContractResponse.model_fields.keys()
+                if k
+                not in (
+                    "candidate_name",
+                    "client_name",
+                    "job_title",
+                    "latest_order_end_date",
+                    "group_members",
+                )
+            },
+            "candidate_name": (
+                f"{c.candidate.name} {c.candidate.lastname}".strip()
+                if c.candidate
+                else None
+            ),
+            "client_name": c.client.name if c.client else None,
+            "job_title": c.job.title if c.job else None,
+            "latest_order_end_date": latest_order_dates.get(c.id),
+            "candidate_rate_schedule": _schedule_entries(c),
+            "client_rate_schedule": _client_schedule_entries(c),
+            "framework_rate_schedule": _framework_schedule_entries(c),
+            # Current candidate + client rates / margin derived from schedules.
+            **_effective_rate_fields(c, today),
+        }
+    )
 
 
 async def _ensure_delivery_lead_contract_visible(
@@ -706,6 +794,17 @@ async def list_contracts(
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+    group_by_candidate: bool = Query(
+        False,
+        description=(
+            "Konsolidacja kontraktorów wieloklientowych: jeden wiersz na OSOBĘ "
+            "(candidate_id), a wszystkie jej umowy spełniające filtry lądują w "
+            "`group_members`. `total` i stronicowanie liczą wtedy GRUPY, nie "
+            "umowy. Umowy odpięte od usuniętych kandydatów zostają osobnymi "
+            "wierszami. Widoki filtrowane po kandydacie/kliencie (historia, "
+            "rejestr klienta) używają trybu płaskiego."
+        ),
+    ),
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
@@ -718,21 +817,8 @@ async def list_contracts(
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
 
-    query = select(Contract).options(
-        selectinload(Contract.candidate),
-        selectinload(Contract.client),
-        selectinload(Contract.job),
-        selectinload(Contract.candidate_rate_schedule),
-        selectinload(Contract.client_rate_schedule),
-        selectinload(Contract.framework_rate_schedule),
-    )
-    query = apply_delivery_lead_client_scope(
-        query,
-        Contract.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
-    )
-    query = _apply_contract_list_filters(
-        query,
+    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    filter_kwargs = dict(
         q=q,
         status=status,
         client_id=client_id,
@@ -750,60 +836,107 @@ async def list_contracts(
         margin_min=margin_min,
         expiring_in_days=expiring_in_days,
     )
-    total = (
-        await db.execute(select(func.count()).select_from(query.subquery()))
-    ).scalar()
-    # Deterministyczna kolejność PRZED offset/limit — bez niej stronicowanie
-    # gubi i dubluje umowy. Postgres bez ORDER BY zwraca wiersze w kolejności
-    # skanu, a UPDATE tworzy nową wersję krotki i przesuwa wiersz na koniec:
-    # czytelnik, który pobrał stronę 1 przed cudzym zapisem, a stronę 2 po nim,
-    # NIE zobaczy jednej umowy na żadnej stronie, a inną zobaczy dwa razy.
-    # Odtworzone na żywej bazie: po semantycznie pustym `UPDATE contracts SET
-    # project_name = project_name WHERE id = 73` z okna czytelnika wypadła
-    # umowa 375, a 73 pokazała się dwukrotnie.
-    #
-    # Po policzeniu `total`, wzorem `/api/jobs` — sortowanie nie ma po co
-    # trafiać do podzapytania COUNT. `id` jest unikalne, więc wystarcza samo
-    # za tie-breaker; lista nie ma parametru sortowania, a domyślną kolejnością
-    # jest najnowsze najpierw.
-    query = query.order_by(Contract.id.desc())
-    result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
-    contracts = list(result.scalars().all())
-    # Latest order end_date per Contract for the "Zamówienie do" column.
-    latest_order_dates = await _latest_order_end_dates(db, [c.id for c in contracts])
 
-    _today = date.today()
-    items = [
-        ContractResponse.model_validate(
-            {
-                **{
-                    k: getattr(c, k, None)
-                    for k in ContractResponse.model_fields.keys()
-                    if k
-                    not in (
-                        "candidate_name",
-                        "client_name",
-                        "job_title",
-                        "latest_order_end_date",
-                    )
-                },
-                "candidate_name": (
-                    f"{c.candidate.name} {c.candidate.lastname}".strip()
-                    if c.candidate
-                    else None
-                ),
-                "client_name": c.client.name if c.client else None,
-                "job_title": c.job.title if c.job else None,
-                "latest_order_end_date": latest_order_dates.get(c.id),
-                "candidate_rate_schedule": _schedule_entries(c),
-                "client_rate_schedule": _client_schedule_entries(c),
-                "framework_rate_schedule": _framework_schedule_entries(c),
-                # Current candidate + client rates / margin derived from schedules.
-                **_effective_rate_fields(c, _today),
-            }
+    def _scoped_filtered(base_query):
+        """Scope DL + komplet filtrów — jedna reguła dla obu trybów listy."""
+        return _apply_contract_list_filters(
+            apply_delivery_lead_client_scope(
+                base_query, Contract.client_id, allowed_client_ids
+            ),
+            **filter_kwargs,
         )
-        for c in contracts
-    ]
+
+    load_options = (
+        selectinload(Contract.candidate),
+        selectinload(Contract.client),
+        selectinload(Contract.job),
+        selectinload(Contract.candidate_rate_schedule),
+        selectinload(Contract.client_rate_schedule),
+        selectinload(Contract.framework_rate_schedule),
+    )
+    _today = date.today()
+
+    if group_by_candidate:
+        # Jeden wiersz na osobę. Grupowanie i stronicowanie odbywają się PO
+        # STRONIE SERWERA — grupowanie strony wyników w FE rozdzielałoby osobę
+        # między strony (jej umowy powstały w różnym czasie, więc przy sortowaniu
+        # po id lądują na różnych stronach). Klucz: candidate_id; umowy odpięte
+        # od usuniętych kandydatów (candidate_id NULL) nie mają czego grupować,
+        # więc każda zostaje własnym wierszem pod ujemnym kluczem -id (ujemne
+        # wartości nie kolidują z dodatnimi id osób).
+        group_key = func.coalesce(Contract.candidate_id, -Contract.id)
+        key_query = _scoped_filtered(
+            select(
+                group_key.label("group_key"),
+                func.max(Contract.id).label("newest_id"),
+            ).select_from(Contract)
+        ).group_by(group_key)
+        total = (
+            await db.execute(select(func.count()).select_from(key_query.subquery()))
+        ).scalar()
+        # Kolejność grup = najnowsza umowa najpierw (lustro trybu płaskiego);
+        # max(id) jest unikalne między grupami, więc porządek jest deterministyczny.
+        key_rows = await db.execute(
+            key_query.order_by(func.max(Contract.id).desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        page_keys = [row.group_key for row in key_rows.all()]
+        contracts: list[Contract] = []
+        if page_keys:
+            rows_query = (
+                _scoped_filtered(select(Contract).options(*load_options))
+                .where(group_key.in_(page_keys))
+                .order_by(Contract.id.desc())
+            )
+            contracts = list((await db.execute(rows_query)).scalars().all())
+        latest_order_dates = await _latest_order_end_dates(
+            db, [c.id for c in contracts]
+        )
+        grouped: dict[int, list[Contract]] = {}
+        for c in contracts:
+            key = c.candidate_id if c.candidate_id is not None else -c.id
+            grouped.setdefault(key, []).append(c)
+        items = []
+        for key in page_keys:
+            members = grouped.get(key)
+            if not members:
+                continue
+            members.sort(key=lambda m: (_GROUP_STATUS_RANK.get(m.status, 9), -m.id))
+            primary = members[0]
+            item = _contract_list_item(primary, latest_order_dates, _today)
+            item.group_members = [
+                _group_member_from_contract(m, latest_order_dates, _today)
+                for m in members
+            ]
+            items.append(item)
+    else:
+        query = _scoped_filtered(select(Contract).options(*load_options))
+        total = (
+            await db.execute(select(func.count()).select_from(query.subquery()))
+        ).scalar()
+        # Deterministyczna kolejność PRZED offset/limit — bez niej stronicowanie
+        # gubi i dubluje umowy. Postgres bez ORDER BY zwraca wiersze w kolejności
+        # skanu, a UPDATE tworzy nową wersję krotki i przesuwa wiersz na koniec:
+        # czytelnik, który pobrał stronę 1 przed cudzym zapisem, a stronę 2 po nim,
+        # NIE zobaczy jednej umowy na żadnej stronie, a inną zobaczy dwa razy.
+        # Odtworzone na żywej bazie: po semantycznie pustym `UPDATE contracts SET
+        # project_name = project_name WHERE id = 73` z okna czytelnika wypadła
+        # umowa 375, a 73 pokazała się dwukrotnie.
+        #
+        # Po policzeniu `total`, wzorem `/api/jobs` — sortowanie nie ma po co
+        # trafiać do podzapytania COUNT. `id` jest unikalne, więc wystarcza samo
+        # za tie-breaker; lista nie ma parametru sortowania, a domyślną kolejnością
+        # jest najnowsze najpierw.
+        query = query.order_by(Contract.id.desc())
+        result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
+        contracts = list(result.scalars().all())
+        # Latest order end_date per Contract for the "Zamówienie do" column.
+        latest_order_dates = await _latest_order_end_dates(
+            db, [c.id for c in contracts]
+        )
+        items = [_contract_list_item(c, latest_order_dates, _today) for c in contracts]
+
     if not finance_ok:
         for item in items:
             _redact_contract_finance(item)
@@ -1242,6 +1375,64 @@ async def list_client_register_subcategories(
     return RegisterSubcategoriesResponse(subcategories=values)
 
 
+# Duplikat = ta sama osoba u tego samego klienta w ŻYWYM stanie. Po `ended` /
+# `void` wolno założyć nową umowę z tym samym klientem (powrót po przerwie).
+_DUPLICATE_GUARD_STATUSES = (
+    ContractStatus.draft,
+    ContractStatus.ready_for_signature,
+    ContractStatus.active,
+    ContractStatus.ending,
+)
+
+
+async def _assert_no_duplicate_contract(
+    db: AsyncSession, *, candidate: Candidate, client: Client
+) -> None:
+    """Blokada duplikatu kontraktora: ta sama OSOBA + ten sam klient.
+
+    Tożsamość osoby rozstrzyga ADRES E-MAIL (case/whitespace-insensitive), nie
+    imię i nazwisko — nazwisko myli w obie strony: dwie różne osoby o tym samym
+    nazwisku to nie duplikat, a literówka w nazwisku nie może duplikatu ukryć.
+    Kandydat bez e-maila jest porównywany wyłącznie po własnym `candidate_id`.
+
+    Umowa u INNEGO klienta duplikatem nie jest — to wieloklientowy feature
+    („+ Dodaj kolejny projekt"): jedna osoba legalnie pracuje u N klientów.
+    """
+    email_norm = (candidate.email or "").strip().lower()
+    identity_clauses = [Contract.candidate_id == candidate.id]
+    if email_norm:
+        # btrim z jawną listą znaków: goły `trim()` w Postgresie tnie WYŁĄCZNIE
+        # spacje, a Pythonowy `.strip()` obok tnie też \t\n\r — e-mail
+        # z importu zakończony nową linią umykałby porównaniu.
+        identity_clauses.append(
+            func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+        )
+    existing_id = await db.scalar(
+        select(Contract.id)
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .where(
+            Contract.client_id == client.id,
+            Contract.status.in_(_DUPLICATE_GUARD_STATUSES),
+            or_(*identity_clauses),
+        )
+        .limit(1)
+    )
+    if existing_id is None:
+        return
+    email_part = f" (e-mail: {candidate.email.strip()})" if email_norm else ""
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "duplicate_contractor",
+            "message": (
+                f"Kontrakt dla tego kontraktora u klienta "
+                f"„{client.name}” już istnieje{email_part}."
+            ),
+            "existing_contract_id": existing_id,
+        },
+    )
+
+
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
     data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
@@ -1251,6 +1442,27 @@ async def create_contract(
         data.client_id,
         await resolve_delivery_lead_client_ids(current_user, db),
     )
+    # Jawne 404 po polsku zamiast FK IntegrityError → 500 przy nieistniejącym
+    # id; przy okazji wiersze są potrzebne do komunikatu blokady duplikatu.
+    candidate = await db.get(Candidate, data.candidate_id)
+    if candidate is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "candidate_not_found",
+                "message": "Wybrany kandydat nie istnieje.",
+            },
+        )
+    client = await db.get(Client, data.client_id)
+    if client is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "client_not_found",
+                "message": "Wybrany klient nie istnieje.",
+            },
+        )
+    await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
     payload = data.model_dump()
     # Kontrakt RODZI SIĘ szkicem i dopiero potem PRZECHODZI do wybranego stanu.
     # To nie jest odebranie rejestrowi listy rozwijanej — wybór operatora jest
@@ -1494,7 +1706,11 @@ async def expiring_contracts(
         ContractResponse.model_validate(
             {
                 **{
-                    k: getattr(c, k, None) for k in ContractResponse.model_fields.keys()
+                    k: getattr(c, k, None)
+                    for k in ContractResponse.model_fields.keys()
+                    # Pole odpowiedziowe bez odpowiednika na ORM — `getattr`
+                    # podłożyłby None pod pole typu list (błąd walidacji).
+                    if k != "group_members"
                 },
                 "candidate_rate_schedule": _schedule_entries(c),
                 "client_rate_schedule": _client_schedule_entries(c),
@@ -1536,11 +1752,55 @@ async def get_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
+    detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
     if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
         _redact_contract_finance(detail)
     return detail
+
+
+async def _related_contracts_for(
+    db: AsyncSession, contract: Contract, current_user: User
+) -> list[ContractSiblingRef]:
+    """Pozostałe kontrakty tej samej osoby — zasilają zakładki per klient.
+
+    Bez `void` (anulowane nie są zakładką do przeglądania) i w obrębie scope'u
+    Delivery Leada: DL ograniczony do swojego portfela nie może odczytać z chipów,
+    u jakich INNYCH klientów pracuje konsultant. Kolejność: żywe przed
+    papierowymi, w obrębie statusu najnowsza pierwsza (jak `group_members`).
+    """
+    if contract.candidate_id is None:
+        return []
+    siblings_query = (
+        select(Contract, Client.name)
+        .join(Client, Client.id == Contract.client_id)
+        .where(
+            Contract.candidate_id == contract.candidate_id,
+            Contract.id != contract.id,
+            Contract.status != ContractStatus.void,
+        )
+    )
+    siblings_query = apply_delivery_lead_client_scope(
+        siblings_query,
+        Contract.client_id,
+        await resolve_delivery_lead_client_ids(current_user, db),
+    )
+    rows = (await db.execute(siblings_query)).all()
+    refs = [
+        ContractSiblingRef(
+            id=sib.id,
+            client_id=sib.client_id,
+            client_name=client_name,
+            status=sib.status,
+            contract_type=sib.contract_type,
+            start_date=sib.start_date,
+            end_date=sib.end_date,
+        )
+        for sib, client_name in rows
+    ]
+    refs.sort(key=lambda r: (_GROUP_STATUS_RANK.get(r.status, 9), -r.id))
+    return refs
 
 
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
@@ -2320,28 +2580,106 @@ async def void_contract_endpoint(
 async def delete_contract(
     contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
 ):
+    """Trwale usuń kontrakt z modułu Kontrakty — i TYLKO ten rekord.
+
+    Kandydat zostaje w module Kandydaci (FK działa w drugą stronę), a
+    wygenerowane umowy B2B zostają w „Wygenerowane umowy" — niepodpisane są
+    odpinane (``contract_id`` → NULL, stan „umowa bez projektu") zamiast
+    blokować operację FK-iem RESTRICT. Pod-zasoby kontraktu (dokumenty,
+    aneksy, harmonogramy, onboarding, sprzęt, faktury, zamówienia) idą FK
+    CASCADE — to dane TEGO kontraktu, a przypadek użycia to wiersz dodany
+    błędnie albo zdublowany. Notatki i rozmowy zostają odpięte (FK SET NULL).
+
+    Odmowa wyłącznie przy PODPISANYCH dowodach (podpis kwalifikowany albo
+    umowa B2B potwierdzona obustronnie) — patrz ``hard_delete_blocker``; taki
+    kontrakt można anulować (``/void``), co zachowuje dokumenty i dowody.
+    """
     result = await db.execute(select(Contract).where(Contract.id == contract_id))
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
-    # Only a non-executed `draft` with no completed signature may be hard-deleted.
-    # Everything else must be voided (soft-delete) so a DELETE can never cascade
-    # away signature evidence for an executed/active contract.
-    if not await can_hard_delete(db, contract):
+    def _raise_delete_blocked(blocker: str) -> None:
+        messages = {
+            "completed_signature": (
+                "Kontrakt ma ukończony podpis kwalifikowany i nie może "
+                "zostać usunięty — usunięcie zniszczyłoby dowód podpisu. "
+                "Zamiast tego anuluj kontrakt (void), co zachowa dokumenty "
+                "i dowody."
+            ),
+            "signed_generated_contract": (
+                "Kontrakt powstał z umowy B2B potwierdzonej jako podpisana "
+                "przez obie strony i nie może zostać usunięty. Zamiast tego "
+                "anuluj kontrakt (void) albo zamknij umowę w rejestrze "
+                "„Wygenerowane umowy”."
+            ),
+        }
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
-                "message": (
-                    "Contract is executed, has signature evidence, or is linked "
-                    "to an audited bilateral-signature confirmation and cannot "
-                    "be hard-deleted; void it instead to preserve its history."
-                ),
+                "code": f"contract_has_{blocker}",
+                "message": messages[blocker],
                 "status": contract.status.value,
                 "void_endpoint": f"/api/contracts/{contract_id}/void",
             },
         )
+
+    blocker = await hard_delete_blocker(db, contract)
+    if blocker is not None:
+        _raise_delete_blocked(blocker)
+
+    # Odpięcie NIEPODPISANYCH wygenerowanych umów B2B PRZED kasowaniem: FK jest
+    # RESTRICT, więc bez tego commit padałby IntegrityError → 500 (dokładnie
+    # tak wyglądał zgłoszony bug „Usuń nie działa" dla umów z wygenerowanym
+    # dokumentem). Wiersz w rejestrze „Wygenerowane umowy" zostaje nietknięty
+    # poza FK. Warunek na `signature_status` powtarza blokadę z
+    # `hard_delete_blocker` W SAMYM UPDATE — bez niego wyścig (potwierdzenie
+    # `signed_both` między checkiem a odpięciem) po cichu odpiąłby podpisaną
+    # umowę i FK RESTRICT przestałby być strażnikiem ostatniej szansy.
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    await db.execute(
+        update(B2BGeneratedContract)
+        .where(
+            B2BGeneratedContract.contract_id == contract_id,
+            B2BGeneratedContract.signature_status != "signed_both",
+        )
+        .values(contract_id=None)
+    )
+
+    # Domknięcie wyścigu: jeśli między blockerem a odpięciem ktoś potwierdził
+    # `signed_both`, UPDATE celowo zostawił referencję — pozostały link oznacza
+    # świeżo podpisaną umowę. Oddaj tę samą czytelną odmowę 409, zamiast
+    # pozwolić DELETE-owi wywrócić się na FK RESTRICT nieobsłużonym 500
+    # (wątek recenzji PR #1259).
+    still_linked = await db.scalar(
+        select(B2BGeneratedContract.id)
+        .where(B2BGeneratedContract.contract_id == contract_id)
+        .limit(1)
+    )
+    if still_linked is not None:
+        _raise_delete_blocked("signed_generated_contract")
+
+    # Kasowana umowa może być linią w grupie zamówień (BIK/Polkomtel/BNP).
+    # Kaskada usunie linię i jej konsumpcje, ale `budget_remaining` /
+    # `settled_amount` grupy kosztowej to kolumny ZAPISANE, przeliczane
+    # wyłącznie przez `settle_group` — bez przeliczenia grupa pokazywałaby
+    # kwoty pomniejszone o skasowane faktury aż do najbliższego importu.
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.cost_orders import settle_group
+
+    affected_group_ids = set(
+        (
+            await db.scalars(
+                select(ClientOrder.order_group_id).where(
+                    ClientOrder.contract_id == contract_id,
+                    ClientOrder.order_group_id.is_not(None),
+                )
+            )
+        ).all()
+    )
 
     db.add(
         Activity(
@@ -2349,9 +2687,27 @@ async def delete_contract(
             entity_id=contract_id,
             action="deleted",
             user_id=current_user.id,
+            details={
+                "status": contract.status.value,
+                "candidate_id": contract.candidate_id,
+                "client_id": contract.client_id,
+            },
         )
     )
     await db.delete(contract)
+    if affected_group_ids:
+        # Flush wykonuje DELETE + kaskady, żeby przeliczenie widziało stan
+        # bazy już BEZ linii kasowanej umowy.
+        await db.flush()
+        groups = (
+            await db.scalars(
+                select(ClientOrderGroup).where(
+                    ClientOrderGroup.id.in_(affected_group_ids)
+                )
+            )
+        ).all()
+        for group in groups:
+            await settle_group(db, group)
 
 
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────

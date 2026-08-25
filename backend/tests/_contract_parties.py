@@ -2,46 +2,48 @@
 
 Ten helper istniał w czterech kopiach naraz i to nie była kosmetyka: dwie z nich
 zostały naprawione, a dwie zostały z pierwotną, wadliwą regułą — więc czerwień
-nie znikała, tylko WĘDROWAŁA. Podział na shardy (`CI_SHARD_*`) jest
-round-robinem po plikach, a nie stałym przypisaniem, więc dopisanie DOWOLNEGO
-pliku testowego przestawia partycję i wystawia następną nienaprawioną kopię.
-Dokładnie tak wyszła kopia w ``test_contract_framework_rate_schedule.py`` — po
-dołożeniu testów niezwiązanych z umowami.
+nie znikała, tylko WĘDROWAŁA między shardami CI. Jedna kopia = jedna reguła.
 
-Reguła, której trzeba pilnować:
+Historia reguły:
 
-Umowa po USUNIĘTYM kandydacie ma ``candidate_id IS NULL`` — migracja 0225
-zdejmuje FK przez ``ON DELETE SET NULL``, żeby skasowanie osoby nie zabrało ze
-sobą faktur i dokumentów podpisu. Taka sierota nie może być dawcą stron:
-``POST /api/contracts`` wymaga ``candidate_id: int`` i odpowiada 422
-(„Input should be a valid integer, input: null").
+1. Pierwotnie helper ŻEROWAŁ na istniejących umowach (`GET /api/contracts` →
+   pierwsza z żywym kandydatem), omijając sieroty po migracji 0225
+   (``candidate_id IS NULL`` po skasowanym kandydacie → POST 422).
+2. Od 2026-08-25 (PR #1259, blokada duplikatu kontraktora) para z istniejącą
+   umową jest z definicji BEZUŻYTECZNA jako dawca: ``POST /api/contracts`` dla
+   tej samej osoby u tego samego klienta w żywym statusie odpowiada 409
+   ``duplicate_contractor``. Helper seeduje więc ŚWIEŻĄ parę wprost w bazie —
+   każdy wołający dostaje własną, więc testy nie kolidują ani ze sobą, ani
+   z regułą duplikatu, ani z sierotami.
 
-Lista ``/api/contracts`` nie ma ``ORDER BY``, więc ``items[0]`` to po prostu
-pierwszy wiersz zwrócony przez Postgresa — w świeżej bazie CI zwykle
-NAJSTARSZY. Taką sierotę zostawia po sobie ``test_candidate_delete.py``.
-Bierzemy więc pierwszą umowę z ŻYWYM kandydatem, a nie pierwszą z brzegu, i
-pytamy o całą stronę (``page_size=100``), bo przy ``page_size=1`` jedyny
-zwrócony wiersz może być właśnie sierotą i helper odda ``None`` mimo że w bazie
-stoi komplet użytecznych umów.
+Sygnatura zostaje (``app_client``, ``headers``) dla zgodności z wołającymi —
+argumenty nie są już używane, a ``None`` nie jest już nigdy zwracane (gałęzie
+skip u wołających pozostają martwym, nieszkodliwym kodem).
 """
 
-from httpx import AsyncClient
+import uuid
 
 __all__ = ["pick_parties"]
 
 
-async def pick_parties(app_client: AsyncClient, headers: dict):
-    """Zwróć ``(candidate_id, client_id)`` z pierwszej umowy z żywym kandydatem.
+async def pick_parties(app_client=None, headers=None):
+    """Zwróć ``(candidate_id, client_id)`` świeżo zseedowanej pary."""
+    del app_client, headers  # zgodność sygnatury — patrz docstring modułu
 
-    ``None``, gdy w bazie nie ma ANI JEDNEJ takiej umowy — wołający pomija
-    wtedy test, zamiast wysyłać żądanie, o którym z góry wiadomo, że da 422.
-    """
-    items = (
-        (await app_client.get("/api/contracts?page_size=100", headers=headers))
-        .json()
-        .get("items", [])
-    )
-    for item in items:
-        if item.get("candidate_id") is not None:
-            return item["candidate_id"], item["client_id"]
-    return None
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Party",
+            lastname=f"Donor{unique}",
+            email=f"party-{unique}@example.com",
+        )
+        cli = Client(name=f"Party Client {unique}")
+        db.add_all([cand, cli])
+        await db.commit()
+        await db.refresh(cand)
+        await db.refresh(cli)
+        return cand.id, cli.id

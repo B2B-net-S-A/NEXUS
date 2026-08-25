@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from"react";
+import { useEffect, useMemo, useState, type ReactNode } from"react";
 import Link from"next/link";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
@@ -56,8 +56,25 @@ import {
  useAuthStore,
 } from "@/store/auth";
 
+interface ContractGroupMemberRow {
+ id: number;
+ client_id: number;
+ client_name?: string | null;
+ job_title?: string | null;
+ start_date?: string | null;
+ end_date?: string | null;
+ latest_order_end_date?: string | null;
+ contract_type?: string;
+ rate_client?: number | null;
+ rate_candidate?: number | null;
+ margin?: number | null;
+ status?: string;
+ currency?: string | null;
+}
+
 interface ContractRow {
  id: number;
+ candidate_id?: number | null;
  candidate_name?: string;
  client_name?: string;
  job_title?: string;
@@ -70,6 +87,9 @@ interface ContractRow {
  margin?: number;
  status?: string;
  currency?: string;
+ // `group_by_candidate=true`: wszystkie umowy tej osoby (żywe najpierw).
+ // Wiersz z >1 członkiem renderuje kolumny okresu/stawek/marży per klient.
+ group_members?: ContractGroupMemberRow[];
 }
 
 type ContractStatusBadge = {
@@ -126,6 +146,32 @@ function expiringBannerText(n: number): string {
  return `${n} ${noun} ${verb} w ciągu 30 dni`;
 }
 
+// Lista grupuje po OSOBIE (group_by_candidate), więc licznik mówi o
+// kontraktorach, nie o umowach — osoba u dwóch klientów to jeden wiersz.
+function contractorsCountText(n: number): string {
+ const m10 = n % 10;
+ const m100 = n % 100;
+ const few = m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14);
+ const noun = n === 1 ?"kontraktor" : few ?"kontraktorzy" :"kontraktorów";
+ return `${n} ${noun} w systemie`;
+}
+
+// Wspólny rendering komórek rozbijanych per klient („Bank Pocztowy: 175,00 zł /
+// VeloBank: 162,50 zł"). Członkowie przychodzą z backendu w stałej kolejności
+// (żywe najpierw, potem najnowsza), więc wszystkie kolumny wiersza czytają się
+// linia-w-linię dla tego samego klienta.
+function memberLines(
+ members: ContractGroupMemberRow[],
+ render: (m: ContractGroupMemberRow) => ReactNode,
+) {
+ return members.map((m) => (
+ <div key={m.id} className="text-xs whitespace-nowrap">
+ <span className="text-muted-foreground">{m.client_name ?? "—"}: </span>
+ {render(m)}
+ </div>
+ ));
+}
+
 export function ContractsListV2() {
  const user = useAuthStore((state) => state.user);
  const canSeeFinance =
@@ -149,11 +195,18 @@ export function ContractsListV2() {
  // `selectinload`) i przerzucało tabelę w stan ładowania.
  const debouncedSearch = useDebouncedValue(search, 300);
 
- const toggleId = (id: number) => {
+ // Zaznaczenie operuje na KOMPLECIE umów wiersza. Wiersz zgrupowany pokazuje
+ // N umów (N klientów) — checkbox, który wnosiłby tylko umowę główną, robiłby
+ // z „Zakończ"/„Przedłuż" cichą, częściową operację: użytkownik zaznacza
+ // OSOBĘ, a skutek dotyka połowy jej kontraktów (P1 z przeglądu 2026-08-25).
+ const toggleIds = (ids: number[]) => {
  setSelectedIds((prev) => {
  const next = new Set(prev);
- if (next.has(id)) next.delete(id);
+ const allSelected = ids.every((id) => next.has(id));
+ ids.forEach((id) => {
+ if (allSelected) next.delete(id);
  else next.add(id);
+ });
  return next;
  });
  };
@@ -226,6 +279,10 @@ export function ContractsListV2() {
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
+ // Jeden wiersz na OSOBĘ (konsolidacja kontraktorów wieloklientowych).
+ // Grupuje SERWER — grupowanie strony wyników w FE rozdzielałoby osobę
+ // między strony paginacji.
+ group_by_candidate: true,
  page,
  },
  paramsSerializer: { indexes: null },
@@ -264,7 +321,10 @@ export function ContractsListV2() {
  // set of currently-visible ids — never by count equality (which is fragile
  // against stale ids from a previous page/filter). Computed inline (page size
  // is small, and it's only read in render + handlers, never a dep array).
- const visibleIds = items.map((i) => i.id);
+ // Wiersz zgrupowany wnosi WSZYSTKIE swoje umowy (patrz `toggleIds`).
+ const visibleIds = items.flatMap((i) =>
+ i.group_members?.length ? i.group_members.map((m) => m.id) : [i.id],
+ );
  const allVisibleSelected =
  visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
@@ -290,7 +350,7 @@ export function ContractsListV2() {
  ?"Ładowanie…"
  : failed
  ?"Nie udało się pobrać listy"
- : `${total} kontraktów w systemie`}
+ : contractorsCountText(total)}
  </p>
  </div>
  <div className="flex items-center gap-2">
@@ -470,7 +530,8 @@ export function ContractsListV2() {
  <TableHead>Typ</TableHead>
  {canSeeFinance && (
  <>
- <TableHead className="text-right">Stawka klient</TableHead>
+ <TableHead className="text-right">Stawka kosztowa</TableHead>
+ <TableHead className="text-right">Stawka przychodowa</TableHead>
  <TableHead className="text-right">Marża</TableHead>
  </>
  )}
@@ -480,13 +541,13 @@ export function ContractsListV2() {
  <TableBody>
  {viewState === "loading" ? (
  <TableRow>
- <TableCell colSpan={canSeeFinance ? 8 : 6} className="text-center py-10 text-muted-foreground">
+ <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 text-muted-foreground">
  Ładowanie…
  </TableCell>
  </TableRow>
  ) : failed ? (
  <TableRow>
- <TableCell colSpan={canSeeFinance ? 8 : 6} className="p-0">
+ <TableCell colSpan={canSeeFinance ? 9 : 6} className="p-0">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -501,7 +562,7 @@ export function ContractsListV2() {
  </TableRow>
  ) : viewState === "empty" ? (
  <TableRow>
- <TableCell colSpan={canSeeFinance ? 8 : 6} className="text-center py-10">
+ <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -509,13 +570,35 @@ export function ContractsListV2() {
  </TableCell>
  </TableRow>
  ) : (
- items.map((c) => (
- <TableRow key={c.id} interactive selected={selectedIds.has(c.id)}>
+ items.map((c) => {
+ // Wiersz zgrupowany: >1 umowy tej samej osoby (różni klienci).
+ // Kolumny okresu/stawek/marży rozbijają się wtedy per klient;
+ // pojedyncza umowa renderuje się dokładnie jak dotychczas.
+ const members = c.group_members ?? [];
+ const multi = members.length > 1;
+ // Checkbox wiersza = komplet umów osoby (patrz `toggleIds`).
+ const rowIds = members.length ? members.map((m) => m.id) : [c.id];
+ const rowSelected = rowIds.every((id) => selectedIds.has(id));
+ // „pracuje u N klientów" mówi o ŻYWYCH umowach i ODRĘBNYCH klientach —
+ // ended+active u tego samego klienta (powrót po przerwie) to nie jest
+ // praca u dwóch klientów naraz. Lustro `liveClientCount` z widoku
+ // szczegółów.
+ const liveClientCount = new Set(
+ members
+ .filter((m) => m.status === "active" || m.status === "ending")
+ .map((m) => m.client_id),
+ ).size;
+ return (
+ <TableRow key={c.id} interactive selected={rowSelected}>
  <TableCell onClick={(e) => e.stopPropagation()}>
  <Checkbox
- checked={selectedIds.has(c.id)}
- onCheckedChange={() => toggleId(c.id)}
- aria-label={`Zaznacz kontrakt ${c.id}`}
+ checked={rowSelected}
+ onCheckedChange={() => toggleIds(rowIds)}
+ aria-label={
+ multi
+ ? `Zaznacz wszystkie kontrakty: ${c.candidate_name ?? c.id}`
+ : `Zaznacz kontrakt ${c.id}`
+ }
  />
  </TableCell>
  <TableCell>
@@ -525,14 +608,58 @@ export function ContractsListV2() {
  >
  {c.candidate_name ?? `#${c.id}`}
  </Link>
+ {liveClientCount > 1 && (
+ <div className="text-xs text-muted-foreground">
+ pracuje u {liveClientCount} klientów
+ </div>
+ )}
  </TableCell>
  <TableCell>
+ {multi ? (
+ members.map((m) => (
+ <div key={m.id} className="text-sm">
+ <Link
+ href={`/contracts/${m.id}`}
+ className="hover:text-primary"
+ >
+ {m.client_name ??"—"}
+ </Link>
+ {m.job_title && (
+ <span className="ml-1 text-xs text-muted-foreground">
+ · {m.job_title}
+ </span>
+ )}
+ </div>
+ ))
+ ) : (
+ <>
  <div className="text-sm">{c.client_name ??"—"}</div>
  <div className="text-xs text-muted-foreground truncate max-w-[200px]">
  {c.job_title ??"—"}
  </div>
+ </>
+ )}
  </TableCell>
  <TableCell>
+ {multi ? (
+ memberLines(members, (m) => (
+ <span className="text-foreground">
+ {m.start_date ? formatDate(m.start_date) : "—"}
+ {m.end_date ? ` → ${formatDate(m.end_date)}` : ""}
+ {m.latest_order_end_date &&
+ m.latest_order_end_date !== m.end_date && (
+ <span
+ className="text-warning-muted-foreground"
+ title="Aktualne zamówienie klienta kończy się tej daty"
+ >
+ {" "}
+ · zam. do {formatDate(m.latest_order_end_date)}
+ </span>
+ )}
+ </span>
+ ))
+ ) : (
+ <>
  <div className="flex items-center gap-1 text-xs text-foreground">
  <Calendar className="h-3 w-3" />
  {c.start_date ? formatDate(c.start_date) : "—"}
@@ -547,24 +674,87 @@ export function ContractsListV2() {
  zamówienie do {formatDate(c.latest_order_end_date)}
  </div>
  )}
+ </>
+ )}
  </TableCell>
  <TableCell>
+ {multi ? (
+ <div className="flex flex-col items-start gap-0.5">
+ {members.map((m) => (
+ <Badge key={m.id} size="sm" variant="soft">
+ {m.contract_type ??"—"}
+ </Badge>
+ ))}
+ </div>
+ ) : (
  <Badge size="sm" variant="soft">
  {c.contract_type ??"—"}
  </Badge>
+ )}
  </TableCell>
  {canSeeFinance && (
  <>
  <TableCell className="text-right font-mono text-sm">
- {c.rate_client != null ? formatCurrency(c.rate_client, c.currency ??"PLN") : "—"}
+ {multi
+ ? memberLines(members, (m) =>
+ m.rate_candidate != null
+ ? formatCurrency(m.rate_candidate, m.currency ??"PLN")
+ :"—",
+ )
+ : c.rate_candidate != null
+ ? formatCurrency(c.rate_candidate, c.currency ??"PLN")
+ :"—"}
  </TableCell>
- <TableCell className={cn("text-right font-mono text-sm", marginColor(c.margin, c.rate_client))}>
+ <TableCell className="text-right font-mono text-sm">
+ {multi
+ ? memberLines(members, (m) =>
+ m.rate_client != null
+ ? formatCurrency(m.rate_client, m.currency ??"PLN")
+ :"—",
+ )
+ : c.rate_client != null
+ ? formatCurrency(c.rate_client, c.currency ??"PLN")
+ :"—"}
+ </TableCell>
+ <TableCell className="text-right font-mono text-sm">
+ {multi
+ ? memberLines(members, (m) => (
+ <span
+ className={marginColor(
+ m.margin ?? undefined,
+ m.rate_client ?? undefined,
+ )}
+ >
+ {m.margin != null
+ ? formatCurrency(m.margin, m.currency ??"PLN")
+ :"—"}
+ </span>
+ ))
+ : (
+ <span className={cn(marginColor(c.margin, c.rate_client))}>
  {c.margin != null ? formatCurrency(c.margin, c.currency || "PLN") :"—"}
+ </span>
+ )}
  </TableCell>
  </>
  )}
  <TableCell>
- {c.status ? (
+ {multi ? (
+ <div className="flex flex-col items-start gap-0.5">
+ {members.map((m) => (
+ <Badge
+ key={m.id}
+ size="sm"
+ variant={
+ (m.status && CONTRACT_STATUS_BADGE[m.status]?.variant) ||"neutral"
+ }
+ >
+ {(m.status && CONTRACT_STATUS_BADGE[m.status]?.label) ??
+ m.status ??"—"}
+ </Badge>
+ ))}
+ </div>
+ ) : c.status ? (
  <Badge
  size="sm"
  variant={CONTRACT_STATUS_BADGE[c.status]?.variant ??"neutral"}
@@ -576,7 +766,8 @@ export function ContractsListV2() {
  )}
  </TableCell>
  </TableRow>
- ))
+ );
+ })
  )}
  </TableBody>
  </Table>

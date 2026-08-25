@@ -4,8 +4,14 @@ import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { contractsApi } from "@/lib/api";
+import api, {
+  contractsApi,
+  extractErrorMsg,
+  type ContractSiblingRef,
+} from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
+import { AppModal } from "@/components/ds/AppModal";
+import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
@@ -119,6 +125,9 @@ interface ContractDetail {
   monthly_margin: number | null;
   created_at: string;
   updated_at: string;
+  // Pozostałe kontrakty tej samej osoby (konsolidacja wieloklientowa) —
+  // zasilają przełącznik zakładek nazwanych po kliencie.
+  related_contracts?: ContractSiblingRef[];
 }
 
 interface ActivityEntry {
@@ -472,11 +481,24 @@ export default function ContractDetailPage() {
     },
   });
 
+  // Usuwanie: modal potwierdzenia zamiast natywnego `window.confirm` (ten
+  // wzorzec jest w repo zbanowany — patrz ContractTerminationDialog) ORAZ
+  // jawna obsługa błędu. Wcześniej mutacja nie miała `onError`: odmowa 409 /
+  // 500 z backendu kończyła się ciszą — spinner gasł, kontrakt zostawał, a
+  // użytkownik widział „potwierdziłem i nic" (zgłoszony bug).
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
   const deleteMutation = useMutation({
     mutationFn: () => contractsApi.delete(id),
     onSuccess: () => {
+      // Lista używa klucza "contracts-v2"; stary "contracts" zostaje dla
+      // pozostałych konsumentów (profil kandydata itd.).
+      queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       router.push("/contracts");
+    },
+    onError: (err: unknown) => {
+      setDeleteError(extractErrorMsg(err));
     },
   });
 
@@ -643,10 +665,11 @@ export default function ContractDetailPage() {
   };
 
   const handleDelete = () => {
-    if (window.confirm("Czy na pewno usunąć ten kontrakt? Operacja jest nieodwracalna.")) {
-      deleteMutation.mutate();
-    }
+    setDeleteError("");
+    setShowDeleteDialog(true);
   };
+
+  const [showAddProject, setShowAddProject] = useState(false);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -703,6 +726,24 @@ export default function ContractDetailPage() {
       (tab.key !== "invoices" && tab.key !== "rateHistory"),
   );
 
+  // Konsolidacja wieloklientowa: pozostałe kontrakty tej samej osoby.
+  // Chipy = zakładki nazwane po kliencie (klik → pełny widok tamtej umowy:
+  // okres, stawki, marża, benchmark, dokumenty, aneksy — wszystko per klient,
+  // bo to po prostu ta strona dla tamtego kontraktu).
+  const relatedContracts = contract.related_contracts ?? [];
+  // ODRĘBNI klienci z żywych umów — dwie żywe umowy u tego samego klienta
+  // (dane historyczne) to nadal praca u JEDNEGO klienta.
+  const liveClientCount = new Set(
+    [
+      ...(["active", "ending"].includes(contract.status)
+        ? [contract.client_id]
+        : []),
+      ...relatedContracts
+        .filter((r) => r.status === "active" || r.status === "ending")
+        .map((r) => r.client_id),
+    ],
+  ).size;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -755,12 +796,25 @@ export default function ContractDetailPage() {
               `Klient #${contract.client_id}`
             )}
             {contract.job_title ? ` · ${contract.job_title}` : ""}
+            {liveClientCount > 1 && (
+              <span className="ml-2 text-xs font-medium text-primary">
+                pracuje u {liveClientCount} klientów
+              </span>
+            )}
           </p>
         </div>
 
         <RequireRole roles={["admin", "delivery_lead", "tac"]}>
           <div className="flex gap-2 flex-wrap">
             <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
+            {contract.candidate_id != null && (
+              <button
+                onClick={() => setShowAddProject(true)}
+                className="flex items-center gap-2 border border-primary/40 text-primary hover:bg-primary/10 px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <Plus className="w-4 h-4" /> Dodaj kolejny projekt
+              </button>
+            )}
             {!editing && (
               <button
                 onClick={handleStartEdit}
@@ -786,6 +840,102 @@ export default function ContractDetailPage() {
           </div>
         </RequireRole>
       </div>
+
+      {/* Zakładki per klient — widoczne tylko dla osoby wieloklientowej.
+          Nazwą zakładki jest KLIENT (bez generycznego „Projekt 1/2"); dane
+          finansowe i benchmark liczą się per kontrakt, więc per klient. */}
+      {relatedContracts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-2 rounded-lg bg-primary text-white px-3 py-1.5 text-sm font-medium">
+            <Building2 className="w-3.5 h-3.5" />
+            {contract.client_name ?? `Klient #${contract.client_id}`}
+          </span>
+          {relatedContracts.map((sibling) => (
+            <Link
+              key={sibling.id}
+              href={`/contracts/${sibling.id}`}
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary/50 hover:text-primary"
+              title={`${STATUS_LABELS[sibling.status] ?? sibling.status} · ${
+                sibling.start_date ? formatDate(sibling.start_date) : "—"
+              }${sibling.end_date ? ` – ${formatDate(sibling.end_date)}` : ""}`}
+            >
+              {sibling.client_name ?? `Klient #${sibling.client_id}`}
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                  STATUS_STYLES[sibling.status] ?? ""
+                }`}
+              >
+                {STATUS_LABELS[sibling.status] ?? sibling.status}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Potwierdzenie usunięcia — modal z jawnym stanem błędu (409/500 nie
+          może już kończyć się ciszą). */}
+      <AppModal
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          if (!deleteMutation.isPending) setShowDeleteDialog(open);
+        }}
+        title="Usunąć kontrakt?"
+        description="Operacja jest nieodwracalna. Usunięty zostanie kontrakt WRAZ z jego dokumentami, aneksami, fakturami, zamówieniami i harmonogramami stawek. Zostają: kandydat w module Kandydaci, wygenerowane umowy B2B w „Wygenerowane umowy” oraz notatki i rozmowy (odpięte od kontraktu)."
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={deleteMutation.isPending}
+              className="px-4 py-2 rounded-lg text-sm font-medium border border-border text-foreground hover:bg-muted"
+            >
+              Anuluj
+            </button>
+            <button
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Usuń kontrakt
+            </button>
+          </div>
+        }
+      >
+        {deleteError ? (
+          <div className="rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">
+            {deleteError}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Kontrakt #{contract.id}
+            {contract.candidate_name ? ` · ${contract.candidate_name}` : ""}
+            {contract.client_name ? ` · ${contract.client_name}` : ""}
+          </p>
+        )}
+      </AppModal>
+
+      {contract.candidate_id != null && (
+        <AddProjectDialog
+          open={showAddProject}
+          onOpenChange={setShowAddProject}
+          candidateId={contract.candidate_id}
+          candidateName={contract.candidate_name}
+          canManageFinance={canManageFinance}
+          baseContract={{
+            id: contract.id,
+            client_id: contract.client_id,
+            contract_type: contract.contract_type,
+            rate_unit: contract.rate_unit,
+            currency: contract.currency,
+            billing_hours_per_month: contract.billing_hours_per_month,
+            work_mode: contract.work_mode,
+          }}
+        />
+      )}
 
       {/* Tabs */}
       <div className="border-b border-border dark:border-border flex gap-1 overflow-x-auto">

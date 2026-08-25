@@ -41,6 +41,21 @@ export const api = axios.create({
  * which produces "Error: Request failed with status code 422" instead of
  * the actionable Pydantic validation message that the user needs.
  */
+// Polskie etykiety pól kontraktu — wspólne dla formularzy i dla tłumaczenia
+// backendowego 409 {message: "Missing required fields", missing: [...]}
+// (ACTIVATION_REQUIRED_FIELDS w backend/app/services/contract_service.py).
+export const CONTRACT_FIELD_LABELS: Record<string, string> = {
+  candidate_id: "Kandydat",
+  client_id: "Klient",
+  start_date: "Data rozpoczęcia",
+  end_date: "Data zakończenia",
+  rate_candidate: "Stawka kosztowa (kandydata)",
+  rate_client: "Stawka przychodowa (klienta)",
+  contract_type: "Typ kontraktu",
+  work_mode: "Tryb pracy",
+  rate_unit: "Jednostka stawki",
+};
+
 export function extractErrorMsg(error: unknown): string {
   if (error instanceof AxiosError && error.response) {
     // 429 = limit zapytań. slowapi odpowiada ciałem {"error": "Rate limit
@@ -68,6 +83,28 @@ export function extractErrorMsg(error: unknown): string {
       }
       // FastAPI HTTPException(detail="...") → string detail
       if (typeof data.detail === "string") return data.detail;
+      // Lifecycle kontraktu: 409 {message: "Missing required fields",
+      // missing: [...]}. Surowy `message` gubił LISTĘ pól — użytkownik widział
+      // goły angielski banner bez wskazania, czego brakuje (zgłoszenie:
+      // formularz „Nowy kontrakt", Jakub Jedynak / CARDIF). Tłumaczymy nazwy
+      // pól na etykiety z formularza.
+      if (
+        data.detail &&
+        typeof data.detail === "object" &&
+        !Array.isArray(data.detail) &&
+        // Jawny match na message lifecycle'u — sam klucz `missing` mógłby
+        // w przyszłości znaczyć co innego w innym endpointzie.
+        (data.detail as { message?: unknown }).message ===
+          "Missing required fields" &&
+        Array.isArray((data.detail as { missing?: unknown }).missing) &&
+        (data.detail as { missing: unknown[] }).missing.length > 0
+      ) {
+        const missing = (data.detail as { missing: string[] }).missing;
+        const labels = missing.map(
+          (field) => CONTRACT_FIELD_LABELS[field] ?? field,
+        );
+        return `Uzupełnij brakujące pola: ${labels.join(", ")}`;
+      }
       // Domenowe konflikty mogą zwracać ustrukturyzowany detail, np.
       // {message, contract_ids}. Użytkownik powinien zobaczyć komunikat, nie
       // "[object Object]" ani ogólny status HTTP.
@@ -1348,6 +1385,37 @@ export interface ContractDraftFinalizeResponse {
   status: "draft" | "active" | "ending" | "ended";
   document_id: number | null;
   document_filename: string | null;
+}
+
+// Konsolidacja kontraktorów wieloklientowych: jedna umowa w zgrupowanym
+// wierszu listy (`group_by_candidate=true`) — rozbicie okresu/stawek per
+// klient. Kwoty przychodzą zredagowane (null) dla ról bez VIEW_FINANCE.
+export interface ContractGroupMember {
+  id: number;
+  client_id: number;
+  client_name: string | null;
+  status: "draft" | "ready_for_signature" | "active" | "ending" | "ended" | "void";
+  contract_type: "b2b" | "uop" | "uzlecenie";
+  start_date: string | null;
+  end_date: string | null;
+  latest_order_end_date: string | null;
+  job_title: string | null;
+  rate_candidate: number | null;
+  rate_client: number | null;
+  margin: number | null;
+  rate_unit: "hourly" | "daily" | "monthly" | null;
+  currency: string | null;
+}
+
+// Inny kontrakt tej samej osoby (szczegóły kontraktu → zakładki per klient).
+export interface ContractSiblingRef {
+  id: number;
+  client_id: number;
+  client_name: string | null;
+  status: "draft" | "ready_for_signature" | "active" | "ending" | "ended" | "void";
+  contract_type: "b2b" | "uop" | "uzlecenie";
+  start_date: string | null;
+  end_date: string | null;
 }
 
 export const contractsApi = {

@@ -222,6 +222,7 @@ const PUBLIC_PATHS = [
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
   "/preview/dl-alerts",
+  "/preview/contracts-consolidation",
 ];
 
 function isPublicPath(pathname: string): boolean {

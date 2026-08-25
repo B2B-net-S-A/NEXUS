@@ -1932,7 +1932,10 @@ function UmowaTab({
  });
  }, [contracts]);
 
- const current = sorted.find(
+ // Konsolidacja wieloklientowa: `.filter`, nie `.find` — osoba z dwoma
+ // równoległymi umowami (dwóch klientów) pokazywała tu tylko jedną, a druga
+ // nie istniała NIGDZIE na profilu (nie była ended → nie trafiała do historii).
+ const currentContracts = sorted.filter(
  (c) => c.status === "active" || c.status === "ending",
  );
  const draft = sorted.find((c) => c.status === "draft");
@@ -1956,17 +1959,32 @@ function UmowaTab({
  </Card>
  )}
 
- {/* Aktualna umowa */}
+ {/* Aktualne umowy — jedna karta na klienta (wieloklientowość) */}
  <section>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Aktualna umowa
+ {currentContracts.length > 1
+ ? `Aktualne umowy (${currentContracts.length})`
+ :"Aktualna umowa"}
  </h3>
- {current ? (
+ {currentContracts.length > 1 && (
+ <p className="text-sm text-foreground mb-2">
+ <span className="font-medium">Pracuje u:</span>{""}
+ {currentContracts
+ .map((c) => c.client_name ?? `Klient #${c.client_id}`)
+ .join(", ")}
+ </p>
+ )}
+ {currentContracts.length > 0 ? (
+ <div className="space-y-3">
+ {currentContracts.map((c) => (
  <CurrentContractCard
- contract={current}
+ key={c.id}
+ contract={c}
  candidateName={candidateName}
  candidatePhone={candidatePhone}
  />
+ ))}
+ </div>
  ) : (
  <Card variant="default" size="md">
  <CardContent className="py-6 text-center text-sm text-muted-foreground">
