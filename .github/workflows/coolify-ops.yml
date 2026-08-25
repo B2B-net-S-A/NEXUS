@@ -32,10 +32,31 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, backup-status, eval-ab, eval-read, eval-stop]
+        options: [list, cancel, cron-list, backup-status, client-lookup, eval-ab, eval-read, eval-stop]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
+        required: false
+        default: ""
+      client_like:
+        # Jedyne wejście TEKSTOWE trafiające do komendy na prodzie — i dlatego
+        # przepuszczone przez twardą allowlistę `[a-z0-9.-]`, 1-40 znaków,
+        # w kroku niżej. Ten zestaw NIE ZAWIERA żadnego metaznaku powłoki
+        # (bez cudzysłowów, $, backticka, ;, |, &, nawiasów), więc nie da się
+        # nim zmienić KSZTAŁTU komendy — można wyłącznie zawęzić `LIKE`
+        # w zapytaniu, które i tak jest samym SELECT-em.
+        #
+        # SPACJI też nie ma, i to nie z powodu bezpieczeństwa: `--like ${needle}`
+        # jest w komendzie NIECYTOWANE, więc „credit agricole" rozpadłoby się na
+        # dwa argumenty i argparse padłby z kodem 2. Cytowanie byłoby ryzykowne —
+        # nie wiemy, czy Coolify opakowuje komendę w `sh -c '…'` czy w cudzysłów
+        # (ten sam powód, dla którego eval unika apostrofów). Jeden człon nazwy
+        # w zupełności wystarcza: `agricole`, `erste`, `cardif`, `polkomtel`.
+        #
+        # Zasada „operator wnosi liczbę albo wybór" (patrz komentarz przy
+        # wejściach eval) zostaje utrzymana co do skutku: kanał daje dostęp do
+        # JEDNEGO read-only skryptu, nie do kontenera.
+        description: "JEDEN człon nazwy klienta, bez spacji (action=client-lookup), np. agricole"
         required: false
         default: ""
       # Trzy wejścia niżej to JEDYNE, co operator wnosi do komendy uruchamianej
@@ -589,6 +610,149 @@ jobs:
   #   nie wiemy, czy Coolify opakowuje ją w `sh -c '…'` czy w cudzysłów, a
   #   podstawienie po złej stronie tego opakowania wykonałoby się na hoście, nie
   #   w kontenerze.
+  # ── client-lookup ────────────────────────────────────────────────────────
+  #
+  # Po co: kilka polityk domenowych jest bramkowanych LISTĄ `client_id` w env
+  # (MULTI_CONSULTANT_ORDER_CLIENT_IDS, COST_ORDER_CLIENT_IDS,
+  # BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS, CREDIT_AGRICOLE_..., ERSTE_...).
+  # Bramka po ID jest świadoma (Traffit nadpisuje `Client.name`), ale numeru nie
+  # widać ani w repo, ani w interfejsie — a SSH na tym serwerze nie działa.
+  # Bez tego kanału WŁĄCZENIE dowolnej takiej polityki wymagało panelu Coolify.
+  #
+  # Ten sam mechanizm co eval (zadanie jednorazowe → odczyt wykonania → kasacja),
+  # ale nieporównanie tańszy: kilka SELECT-ów, sekundy zamiast godzin.
+  #
+  # `--with-links` dokłada kontrakty i umowy B2B przypięte do znalezionych
+  # klientów — to materiał do rozstrzygnięcia pomyłki „dwa podobnie nazwane
+  # rekordy klienta", której nie widać z interfejsu. Wyjście niesie
+  # IDENTYFIKATORY, statusy i samo nazwisko konsultanta: log Actions ma pozwolić
+  # wskazać wiersz do poprawki, a nie odtworzyć kartotekę. Zero kwot.
+  lookup:
+    name: Client lookup (prod, read-only)
+    if: ${{ inputs.action == 'client-lookup' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: coolify-client-lookup
+      cancel-in-progress: false
+    env:
+      CO_URL: ${{ secrets.COOLIFY_URL }}
+      CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+      TASK_NAME: nexus-client-lookup-oneshot
+      SENTINEL: ===NEXUS-LOOKUP-END===
+      NEEDLE: ${{ inputs.client_like }}
+    steps:
+      - name: Lookup
+        id: lookup
+        run: |
+          set -euo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+
+          # ── allowlista wejścia ─────────────────────────────────────────────
+          # Odrzucamy, nie „czyścimy": ciche wycięcie znaku zmieniłoby zapytanie
+          # w coś, o co operator nie prosił, a on zobaczyłby wynik dla INNEGO
+          # filtra i uznał go za odpowiedź na swoje pytanie.
+          needle="$(printf %s "${NEEDLE:-}" | tr [:upper:] [:lower:])"
+          # `case`, NIE `grep -qE`. To nie kosmetyka: `grep` dopasowuje LINIAMI,
+          # więc wartość wieloliniowa przechodzi, gdy pasuje pierwsza linia —
+          # a nowa linia w komendzie powłoki jest separatorem poleceń. Wzorzec
+          # `case` obejmuje CAŁY łańcuch razem ze znakami nowej linii.
+          # (Sprawdzone: "cardif\n; rm -rf /" przechodziło przez grep, `case`
+          # odrzuca.) Guard na `'`/`$`/backtick niżej też by tego nie złapał.
+          case "$needle" in
+            "") echo "::error::client_like jest wymagane dla action=client-lookup"; exit 1;;
+            *[!a-z0-9.-]*) echo "::error::client_like dopuszcza wylacznie [a-z0-9.-] (BEZ spacji)"; exit 1;;
+            [!a-z0-9]*) echo "::error::client_like musi zaczynac sie od litery albo cyfry"; exit 1;;
+          esac
+          if [ "${#needle}" -gt 40 ]; then
+            echo "::error::client_like moze miec najwyzej 40 znakow"
+            exit 1
+          fi
+
+          # 2>&1 jest nośne: argparse i traceback piszą na STDERR, a sentinel
+          # leci po średniku, więc bez przekierowania nieudany skrypt oddałby
+          # wykonanie zawierające SAM sentinel — co czyta się jak „zero klientów",
+          # a nie jak awaria. Cisza nie może wyglądać jak wynik.
+          CMD="cd /app && python -m scripts.list_clients --like ${needle} --with-links 2>&1 ; echo ${SENTINEL}"
+          # Ten sam guard co przy evalu: nie wiemy, czy Coolify opakowuje komendę
+          # w sh -c z apostrofami, czy w cudzysłów.
+          case "$CMD" in
+            *"'"*|*'$'*|*'`'*) echo "::error::komenda zawiera znak zalezny od opakowania"; exit 1;;
+          esac
+          echo "=== komenda (read-only, bez sekretow) ==="
+          echo "$CMD"
+
+          # ── pozostałość po poprzednim biegu ────────────────────────────────
+          tasks=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks")
+          existing=$(echo "$tasks" | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          if [ -n "$existing" ]; then
+            echo "sprzatam pozostalosc po poprzednim biegu (uuid=$existing)"
+            curl -sS -o /dev/null -X DELETE "${auth[@]}" \
+              "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$existing" || true
+          fi
+
+          payload=$(jq -n --arg n "$TASK_NAME" --arg c "$CMD" --arg ct backend \
+            '{name:$n, command:$c, frequency:"* * * * *", container:$ct, enabled:true}')
+          code=$(curl -sS -o /tmp/create.json -w "%{http_code}" -X POST "${auth[@]}" \
+            -H "Content-Type: application/json" -d "$payload" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks" || echo 000)
+          echo "create HTTP $code"
+          if [ "$code" -ge 400 ] 2>/dev/null || [ "$code" = "000" ]; then
+            jq -r '.message // .error // "request failed"' /tmp/create.json 2>/dev/null || true
+            exit 1
+          fi
+          uuid=$(jq -r '(.uuid // .task.uuid // .data.uuid // "")' /tmp/create.json 2>/dev/null || echo "")
+          if [ -z "$uuid" ]; then
+            uuid=$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+              | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end')
+          fi
+          [ -n "$uuid" ] || { echo "::error::utworzono zadanie, ale nie znam jego uuid — skasuj recznie ($TASK_NAME)"; exit 1; }
+          echo "TASK_UUID=$uuid" >> "$GITHUB_ENV"
+
+          deadline=$(( $(date -u +%s) + 8 * 60 ))
+          msg=""
+          while [ "$(date -u +%s)" -lt "$deadline" ]; do
+            sleep 20
+            execs=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" || echo '[]')
+            msg=$(echo "$execs" | jq -r --arg s "$SENTINEL" \
+              'if type=="array" then (map(select((.message // "") | contains($s))) | .[0].message // "") else "" end' 2>/dev/null || echo "")
+            [ -n "$msg" ] && break
+            echo "$(date -u +%H:%M:%S) czekam… statusy: $(echo "$execs" | jq -r 'if type=="array" then ([.[].status] | join(",")) else "?" end' 2>/dev/null || echo '?')"
+          done
+          if [ -z "$msg" ]; then
+            echo "::error::brak wykonania z sentinelem w 8 minut"
+            exit 1
+          fi
+          echo ""
+          echo "$msg"
+
+      # Kasacja przy KAŻDYM wyniku — zostawiony cron chodziłby co minutę na
+      # produkcji. Ta sama reguła co przy evalu.
+      - name: Skasuj zadanie jednorazowe
+        if: ${{ always() && inputs.action == 'client-lookup' }}
+        env:
+          LOOKUP_OUTCOME: ${{ steps.lookup.outcome }}
+        run: |
+          set -uo pipefail
+          base="${CO_URL%/}"
+          auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
+          uuid="${TASK_UUID:-}"
+          if [ -z "$uuid" ]; then
+            uuid=$(curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks" \
+              | jq -r --arg n "$TASK_NAME" 'if type=="array" then (map(select(.name==$n)) | .[0].uuid // "") else "" end' 2>/dev/null || echo "")
+          fi
+          [ -n "$uuid" ] || { echo "brak zadania $TASK_NAME — nie ma czego kasowac"; exit 0; }
+          if [ "${LOOKUP_OUTCOME:-}" != "success" ]; then
+            echo "=== surowe wykonania przed skasowaniem (bieg '${LOOKUP_OUTCOME:-?}') ==="
+            curl -sS "${auth[@]}" "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid/executions" \
+              | jq -r 'if type=="array" then (.[] | "[" + (.status // "?") + "] " + ((.message // "") | .[0:1500])) else "brak wykonan" end' 2>/dev/null || true
+          fi
+          curl -sS -o /dev/null -X DELETE "${auth[@]}" \
+            "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
+          echo "zadanie $TASK_NAME skasowane"
+
   eval:
     name: Matching eval A/B (prod)
     if: ${{ startsWith(inputs.action, 'eval') }}
