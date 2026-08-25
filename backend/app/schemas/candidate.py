@@ -28,6 +28,21 @@ class EmploymentState(str, Enum):
     unknown = "unknown"
 
 
+class EmploymentEngagement(BaseModel):
+    """Jedno RÓWNOLEGŁE zatrudnienie z aktywnego kontraktu.
+
+    Konsolidacja kontraktorów wieloklientowych: osoba legalnie pracuje u N
+    klientów naraz, a pojedyncze pola `client_*` w `EmploymentInfo` niosą tylko
+    jedno z nich (najdłużej trwające). Profil renderuje z tej listy
+    „Pracuje u: A, B".
+    """
+
+    client_id: int
+    client_name: Optional[str] = None
+    contract_id: int
+    contract_end_date: Optional[date] = None
+
+
 class EmploymentInfo(BaseModel):
     """
     Employment snapshot rendered next to every candidate in the list/profile.
@@ -43,6 +58,10 @@ class EmploymentInfo(BaseModel):
     job_id: Optional[int] = None
     contract_end_date: Optional[date] = None
     source: Literal["contract", "conflict", "pipeline", "none"] = "none"
+    # WSZYSTKIE aktywne kontrakty (ta sama populacja co gałąź `contract` wyżej —
+    # celowo bez `ending`, żeby lista nigdy nie przeczyła pojedynczym polom).
+    # Pierwszy wpis = ten sam kontrakt co `client_id`/`contract_id`.
+    engagements: list[EmploymentEngagement] = []
 
 
 _VALID_SKILL_LEVELS = {"expert", "senior", "mid", "junior", None}

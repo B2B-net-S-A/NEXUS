@@ -13,7 +13,12 @@ import {
   Search,
   X,
 } from "lucide-react";
-import api, { contractsApi, extractErrorMsg } from "@/lib/api";
+import { AxiosError } from "axios";
+import api, {
+  contractsApi,
+  extractErrorMsg,
+  CONTRACT_FIELD_LABELS,
+} from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -113,11 +118,32 @@ function NewContractForm() {
     RateScheduleRow[]
   >([{ rate: "", effectiveFrom: "" }]);
   const [lineManager, setLineManager] = useState("");
+  // Tryb pracy — bez niego status „Aktywny" NIGDY nie przechodził walidacji
+  // aktywacji (ACTIVATION_REQUIRED_FIELDS zawiera work_mode, a formularz nie
+  // miał tego pola wcale — użytkownik nie miał jak spełnić wymagania).
+  const [workMode, setWorkMode] = useState("");
   // Zużycie zamówienia (ilość + jednostka RBH/MD) — klienci per-zamówienie.
   const [orderConsumption, setOrderConsumption] = useState("");
   const [orderConsumptionUnit, setOrderConsumptionUnit] = useState("rbh");
 
   const [error, setError] = useState("");
+  // Błędy per pole: klucz = nazwa pola z API (candidate_id, end_date, …).
+  // Pole z wpisem dostaje czerwone obramowanie + opis pod spodem; baner na
+  // górze mówi zbiorczo „Uzupełnij brakujące pola".
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const clearField = (field: string) =>
+    setFieldErrors((prev) => {
+      if (!(field in prev)) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+
+  const fieldError = (field: string) =>
+    fieldErrors[field] ? (
+      <p className="mt-1 text-xs text-destructive">{fieldErrors[field]}</p>
+    ) : null;
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const candidatesQuery = useQuery({
@@ -171,6 +197,10 @@ function NewContractForm() {
     [recruitmentsQuery.data, stageId],
   );
 
+  // Status „Aktywny"/„Kończący się" podnosi wymagalność pól aktywacyjnych —
+  // etykiety dostają gwiazdkę dynamicznie, walidacja w handleSubmit.
+  const wantsLive = statusVal === "active" || statusVal === "ending";
+
   // ── Submit ──────────────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: () => {
@@ -183,6 +213,7 @@ function NewContractForm() {
         end_date: endDate || null,
         contract_type: contractType,
         status: statusVal,
+        work_mode: workMode || null,
         line_manager: lineManager.trim() || null,
         order_consumption: orderConsumptionVal,
         order_consumption_unit: orderConsumptionVal !== null ? orderConsumptionUnit : null,
@@ -215,6 +246,39 @@ function NewContractForm() {
       router.push(id ? `/contracts/${id}` : "/contracts");
     },
     onError: (err: unknown) => {
+      // Ustrukturyzowane 409 z backendu mapujemy na KONKRETNE pola:
+      // - duplicate_contractor → komunikat pod polem kandydata (duplikat
+      //   rozpoznawany po e-mailu, nie po nazwisku),
+      // - {missing: [...]} z lifecycle'u → podświetlenie każdego brakującego
+      //   pola. To siatka bezpieczeństwa — walidacja lokalna w handleSubmit
+      //   powinna złapać braki wcześniej, po polsku i bez rundy do serwera.
+      if (err instanceof AxiosError && err.response) {
+        const detail = (err.response.data as { detail?: unknown })?.detail;
+        if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+          const d = detail as {
+            code?: string;
+            message?: string;
+            missing?: string[];
+          };
+          if (d.code === "duplicate_contractor" && d.message) {
+            setFieldErrors((prev) => ({ ...prev, candidate_id: d.message! }));
+            setError(d.message);
+            showError(d.message);
+            return;
+          }
+          if (Array.isArray(d.missing) && d.missing.length > 0) {
+            const next: Record<string, string> = {};
+            for (const field of d.missing) {
+              next[field] =
+                `Uzupełnij pole: ${CONTRACT_FIELD_LABELS[field] ?? field}`;
+            }
+            setFieldErrors((prev) => ({ ...prev, ...next }));
+            setError("Uzupełnij brakujące pola");
+            showError("Uzupełnij brakujące pola");
+            return;
+          }
+        }
+      }
       const msg = extractErrorMsg(err);
       setError(msg);
       showError(msg);
@@ -224,16 +288,44 @@ function NewContractForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    // Walidacja per pole — każde brakujące pole dostaje własny komunikat i
+    // czerwone obramowanie zamiast jednego generycznego banera.
+    const errors: Record<string, string> = {};
     if (!candidate) {
-      setError("Wybierz kandydata.");
-      return;
+      errors.candidate_id = "Wybierz kandydata — pole jest wymagane.";
     }
     if (!clientId) {
-      setError("Wybierz klienta.");
-      return;
+      errors.client_id = "Wybierz klienta — pole jest wymagane.";
     }
     if (!startDate) {
-      setError("Podaj datę rozpoczęcia.");
+      errors.start_date = "Podaj datę rozpoczęcia.";
+    }
+    // Status „Aktywny"/„Kończący się" wymaga kompletu pól aktywacyjnych
+    // (lustro ACTIVATION_REQUIRED_FIELDS z backendu) — odmawiamy od razu,
+    // po polsku, zamiast odsyłać użytkownika po 409 z serwera.
+    if (wantsLive) {
+      const statusLabel = statusVal === "ending" ? "Kończący się" : "Aktywny";
+      if (!endDate) {
+        errors.end_date = `Status „${statusLabel}” wymaga daty zakończenia.`;
+      }
+      if (!workMode) {
+        errors.work_mode = `Status „${statusLabel}” wymaga trybu pracy.`;
+      }
+      if (canManageFinance) {
+        if (!rateSchedule.some((r) => r.rate.trim() !== "")) {
+          errors.rate_candidate = `Status „${statusLabel}” wymaga stawki kosztowej (kandydata).`;
+        }
+        if (parseDecimalInput(rateClient) == null) {
+          errors.rate_client = `Status „${statusLabel}” wymaga stawki przychodowej (klienta).`;
+        }
+      } else {
+        errors.status =
+          "Aktywacja wymaga stawek, które może uzupełnić tylko administrator — zapisz kontrakt jako szkic.";
+      }
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setError("Uzupełnij brakujące pola");
       return;
     }
     if (canManageFinance) {
@@ -286,7 +378,10 @@ function NewContractForm() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      {/* noValidate: walidację prowadzi handleSubmit (polskie komunikaty per
+          pole) — natywne dymki przeglądarki mówiłyby w jej języku i tylko
+          o pierwszym polu. */}
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         {error && (
           <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-4 py-2 text-sm text-destructive">
             <AlertCircle className="h-4 w-4 shrink-0" /> {error}
@@ -315,7 +410,11 @@ function NewContractForm() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="w-full justify-between font-normal"
+                        className={cn(
+                          "w-full justify-between font-normal",
+                          fieldErrors.candidate_id &&
+                            "border-destructive focus-visible:ring-destructive",
+                        )}
                       >
                         <span className="flex items-center gap-2 truncate">
                           <Search className="h-4 w-4 shrink-0 opacity-60" />
@@ -350,6 +449,7 @@ function NewContractForm() {
                                 onSelect={() => {
                                   setCandidate(c);
                                   setStageId("");
+                                  clearField("candidate_id");
                                   setCandidateOpen(false);
                                 }}
                               >
@@ -391,6 +491,7 @@ function NewContractForm() {
                     </Button>
                   ) : null}
                 </div>
+                {fieldError("candidate_id")}
               </div>
 
               {/* Klient */}
@@ -404,7 +505,11 @@ function NewContractForm() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="w-full justify-between font-normal"
+                        className={cn(
+                          "w-full justify-between font-normal",
+                          fieldErrors.client_id &&
+                            "border-destructive focus-visible:ring-destructive",
+                        )}
                       >
                         <span className="flex items-center gap-2 truncate">
                           <Search className="h-4 w-4 shrink-0 opacity-60" />
@@ -438,6 +543,7 @@ function NewContractForm() {
                                 value={String(c.id)}
                                 onSelect={() => {
                                   setClientId(String(c.id));
+                                  clearField("client_id");
                                   setClientOpen(false);
                                 }}
                               >
@@ -469,6 +575,7 @@ function NewContractForm() {
                     </Button>
                   ) : null}
                 </div>
+                {fieldError("client_id")}
               </div>
             </div>
 
@@ -522,22 +629,50 @@ function NewContractForm() {
                 <Input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  required
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    clearField("start_date");
+                  }}
+                  className={cn(fieldErrors.start_date && "border-destructive")}
                 />
+                {fieldError("start_date")}
               </div>
               <div>
-                <Label className="mb-1.5 block">Data zakończenia</Label>
+                <Label className="mb-1.5 block">
+                  Data zakończenia{" "}
+                  {wantsLive ? (
+                    <span className="text-destructive">*</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      (opcjonalna dla szkicu)
+                    </span>
+                  )}
+                </Label>
                 <Input
                   type="date"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    clearField("end_date");
+                  }}
+                  className={cn(fieldErrors.end_date && "border-destructive")}
                 />
+                {fieldError("end_date")}
               </div>
               <div>
-                <Label className="mb-1.5 block">Typ kontraktu</Label>
-                <Select value={contractType} onValueChange={setContractType}>
-                  <SelectTrigger>
+                <Label className="mb-1.5 block">
+                  Typ kontraktu{wantsLive && <span className="text-destructive"> *</span>}
+                </Label>
+                <Select
+                  value={contractType}
+                  onValueChange={(v) => {
+                    setContractType(v);
+                    clearField("contract_type");
+                  }}
+                >
+                  <SelectTrigger
+                    className={cn(fieldErrors.contract_type && "border-destructive")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -546,20 +681,54 @@ function NewContractForm() {
                     <SelectItem value="uzlecenie">Zlecenie</SelectItem>
                   </SelectContent>
                 </Select>
+                {fieldError("contract_type")}
               </div>
               <div>
                 <Label className="mb-1.5 block">Status</Label>
-                <Select value={statusVal} onValueChange={setStatusVal}>
-                  <SelectTrigger>
+                <Select
+                  value={statusVal}
+                  onValueChange={(v) => {
+                    setStatusVal(v);
+                    clearField("status");
+                  }}
+                >
+                  <SelectTrigger
+                    className={cn(fieldErrors.status && "border-destructive")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="draft">Szkic</SelectItem>
                     <SelectItem value="active">Aktywny</SelectItem>
                     <SelectItem value="ending">Kończący się</SelectItem>
                     <SelectItem value="ended">Zakończony</SelectItem>
                   </SelectContent>
                 </Select>
+                {fieldError("status")}
+              </div>
+              <div>
+                <Label className="mb-1.5 block">
+                  Tryb pracy{wantsLive && <span className="text-destructive"> *</span>}
+                </Label>
+                <Select
+                  value={workMode}
+                  onValueChange={(v) => {
+                    setWorkMode(v);
+                    clearField("work_mode");
+                  }}
+                >
+                  <SelectTrigger
+                    className={cn(fieldErrors.work_mode && "border-destructive")}
+                  >
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="remote">Zdalnie</SelectItem>
+                    <SelectItem value="hybrid">Hybrydowo</SelectItem>
+                    <SelectItem value="onsite">Stacjonarnie</SelectItem>
+                  </SelectContent>
+                </Select>
+                {fieldError("work_mode")}
               </div>
             </div>
 
@@ -609,33 +778,48 @@ function NewContractForm() {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <Label className="mb-1.5 block">Stawka klienta</Label>
+                    <Label className="mb-1.5 block">
+                      Stawka przychodowa (klienta)
+                      {wantsLive && <span className="text-destructive"> *</span>}
+                    </Label>
                     <Input
                       type="text"
                       inputMode="decimal"
                       value={rateClient}
-                      onChange={(e) =>
-                        setRateClient(sanitizeDecimalInput(e.target.value))
-                      }
+                      onChange={(e) => {
+                        setRateClient(sanitizeDecimalInput(e.target.value));
+                        clearField("rate_client");
+                      }}
                       placeholder="np. 215,60"
+                      className={cn(fieldErrors.rate_client && "border-destructive")}
                     />
+                    {fieldError("rate_client")}
                   </div>
                 </div>
 
+                {/* Stawka z umowy ramowej — OPCJONALNA: nie blokuje zapisu
+                    w żadnym statusie (nie ma jej w ACTIVATION_REQUIRED_FIELDS). */}
                 <CandidateRateScheduleFields
                   rows={frameworkRateSchedule}
                   onChange={setFrameworkRateSchedule}
                   startDate={startDate}
-                  label="Stawka z umowy ramowej"
+                  label="Stawka z umowy ramowej (opcjonalna)"
                   hint="Możesz zaplanować zmianę stawki ramowej — system zastosuje aktualną od wskazanej daty."
                   addLabel="+ Dodaj etap stawki ramowej"
                 />
 
+                {/* Stawka progresywna kandydata — kolejne etapy OPCJONALNE;
+                    dla statusu „Aktywny" wymagany jest tylko pierwszy wpis
+                    stawki (kosztowej). */}
                 <CandidateRateScheduleFields
                   rows={rateSchedule}
-                  onChange={setRateSchedule}
+                  onChange={(rows) => {
+                    setRateSchedule(rows);
+                    clearField("rate_candidate");
+                  }}
                   startDate={startDate}
                 />
+                {fieldError("rate_candidate")}
               </>
             )}
 
