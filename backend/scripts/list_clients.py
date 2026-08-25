@@ -50,6 +50,7 @@ from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.b2b_generated_contract import B2BGeneratedContract  # noqa: E402
 from app.models.candidate import Candidate  # noqa: E402
 from app.models.client import Client  # noqa: E402
+from app.models.client_order import ClientOrder  # noqa: E402
 from app.models.contract import Contract  # noqa: E402
 
 # Znak ucieczki dla LIKE. Bez tego fragment „100%" albo „a_b" zachowuje się
@@ -140,6 +141,32 @@ async def print_links(client_ids: list[int]) -> None:
             print(
                 f"b2b={gid}\tnr={number}\tclient={client_id}\tprinted={cname}"
                 f"\tjob={job_id}\tcontract={contract_id}\tstatus={st}\tpartner={partner}"
+            )
+
+        # Zamówienia klienta. Bez nich nie da się ODPOWIEDZIALNIE przepiąć
+        # kontraktu na innego klienta: `client_orders` niesie WŁASNE
+        # `client_id`, więc zmiana samego kontraktu zostawia zamówienie
+        # wskazujące poprzedniego klienta — dokładnie te „osierocone powiązane
+        # rekordy", o których sprawdzenie prosi ticket.
+        rows = await db.execute(
+            select(
+                ClientOrder.id,
+                ClientOrder.client_id,
+                ClientOrder.contract_id,
+                ClientOrder.title,
+                ClientOrder.status,
+                ClientOrder.order_group_id,
+            )
+            .where(ClientOrder.client_id.in_(client_ids))
+            .order_by(ClientOrder.id)
+        )
+        orders = rows.all()
+        print(f"=== client orders on those clients: {len(orders)} ===")
+        for oid, client_id, contract_id, title, st, group_id in orders:
+            st = getattr(st, "value", st)
+            print(
+                f"order={oid}\tclient={client_id}\tcontract={contract_id}"
+                f"\tstatus={st}\tgroup={group_id}\ttitle={title}"
             )
 
 
