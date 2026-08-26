@@ -512,6 +512,11 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
             )
             audit = await build_contract_merge_plan(db, manifest, today=today)
             assert audit["global_blockers"] == []
+            assert all(
+                isinstance(fk["confdeltype"], str)
+                and fk["confdeltype"] in {"a", "r", "c", "n", "d"}
+                for fk in audit["schema"]["contract_foreign_keys"]
+            )
             assert audit["groups"][0]["survivor_id"] == survivor_id
             assert audit["groups"][0]["blockers"] == []
             # Apply intentionally requires SERIALIZABLE as its first SQL

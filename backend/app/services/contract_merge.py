@@ -874,7 +874,7 @@ async def _contract_fk_catalog(db: AsyncSession) -> list[dict[str, Any]]:
                        child.relname AS table_name,
                        att.attname AS column_name,
                        array_length(con.conkey, 1) AS column_count,
-                       con.confdeltype,
+                       con.confdeltype::text AS confdeltype,
                        (SELECT count(*)
                           FROM pg_index pi
                           CROSS JOIN LATERAL unnest(pi.indkey) AS key(attnum)
