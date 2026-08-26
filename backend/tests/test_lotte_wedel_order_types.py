@@ -38,10 +38,13 @@ async def _group_from_list(
 
 
 def test_lotte_wedel_is_an_explicit_hardcoded_client(monkeypatch: pytest.MonkeyPatch):
-    from app.services import cost_orders, multi_consultant_orders
+    from app.services import cost_orders, lotte_wedel_orders, multi_consultant_orders
     from app.services.cyfrowy_polsat_orders import CYFROWY_POLSAT_CLIENT_ID
     from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 
+    monkeypatch.setattr(
+        lotte_wedel_orders, "LOTTE_WEDEL_CLIENT_ID", LOTTE_WEDEL_CLIENT_ID
+    )
     monkeypatch.setattr(cost_orders, "cost_order_client_ids", frozenset)
     monkeypatch.setattr(
         multi_consultant_orders, "multi_consultant_client_ids", frozenset
