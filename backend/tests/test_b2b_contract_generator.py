@@ -839,6 +839,48 @@ async def _admin_user_id(app_client) -> int:
     return uid
 
 
+async def test_generated_contract_projection_uses_canonical_client_name(app_client):
+    import uuid
+
+    from app.api.b2b_contract_generator import _serialize_generated_contract
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+    from app.models.client import Client
+    from app.models.user import User
+
+    admin_id = await _admin_user_id(app_client)
+    marker = uuid.uuid4().hex[:8]
+    canonical_name = f"Canonical B2B Client {marker}"
+    seq = 100000 + (uuid.uuid4().int % 800000)
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        client = Client(
+            name=f"Raw B2B Client {marker}",
+            display_name=f"  {canonical_name}  ",
+        )
+        db.add(client)
+        await db.flush()
+        row = B2BGeneratedContract(
+            year=2026,
+            seq=seq,
+            contract_number=f"{seq}/2026",
+            partner_name="Jan Kowalski",
+            client_name=f"Signed snapshot {marker}",
+            client_id=client.id,
+            language="pl",
+            created_by=admin_id,
+            render_payload={"language": "pl"},
+        )
+        db.add(row)
+        await db.flush()
+
+        item = await _serialize_generated_contract(db, row, admin)
+
+    assert item.canonical_client_name == canonical_name
+    assert item.client_name == f"Signed snapshot {marker}"
+
+
 async def test_patch_generated_updates_client_name_and_payload(
     app_client, app_auth_headers
 ):

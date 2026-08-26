@@ -61,9 +61,9 @@ async def _seed_candidate(
         return cand.id
 
 
-async def _seed_client(name: str) -> int:
+async def _seed_client(name: str, *, display_name: str | None = None) -> int:
     async with AsyncSessionLocal() as db:
-        cli = Client(name=name)
+        cli = Client(name=name, display_name=display_name)
         db.add(cli)
         await db.commit()
         await db.refresh(cli)
@@ -150,8 +150,12 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     cand_solo = await _seed_candidate(
         marker, email=f"{marker.lower()}-solo@example.com", suffix="Solo"
     )
-    c1 = await _seed_client(f"Bank Pocztowy {marker}")
-    c2 = await _seed_client(f"VeloBank {marker}")
+    c1 = await _seed_client(
+        f"BP {marker}", display_name=f"Bank Pocztowy S.A. {marker}"
+    )
+    c2 = await _seed_client(
+        f"Velo {marker}", display_name=f"VeloBank S.A. {marker}"
+    )
     c3 = await _seed_client(f"Trzeci {marker}")
     id_a = await _seed_contract(cand_multi, c1, rate_client=175, rate_candidate=125)
     id_b = await _seed_contract(cand_multi, c2, rate_client=163, rate_candidate=120)
@@ -170,18 +174,22 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     assert set(rows) == {cand_multi, cand_solo}
 
     multi_row = rows[cand_multi]
+    assert multi_row["client_name"] in {
+        f"Bank Pocztowy S.A. {marker}",
+        f"VeloBank S.A. {marker}",
+    }
     members = multi_row["group_members"]
     assert {m["id"] for m in members} == {id_a, id_b}
     assert {m["client_name"] for m in members} == {
-        f"Bank Pocztowy {marker}",
-        f"VeloBank {marker}",
+        f"Bank Pocztowy S.A. {marker}",
+        f"VeloBank S.A. {marker}",
     }
     # Rozbicie stawek per klient (kosztowa = kandydata, przychodowa = klienta).
     by_client = {m["client_name"]: m for m in members}
-    assert by_client[f"Bank Pocztowy {marker}"]["rate_client"] == 175
-    assert by_client[f"Bank Pocztowy {marker}"]["rate_candidate"] == 125
-    assert by_client[f"Bank Pocztowy {marker}"]["margin"] == 50
-    assert by_client[f"VeloBank {marker}"]["rate_client"] == 163
+    assert by_client[f"Bank Pocztowy S.A. {marker}"]["rate_client"] == 175
+    assert by_client[f"Bank Pocztowy S.A. {marker}"]["rate_candidate"] == 125
+    assert by_client[f"Bank Pocztowy S.A. {marker}"]["margin"] == 50
+    assert by_client[f"VeloBank S.A. {marker}"]["rate_client"] == 163
 
     solo_row = rows[cand_solo]
     assert [m["id"] for m in solo_row["group_members"]] == [id_solo]
@@ -301,8 +309,12 @@ async def test_detail_lists_sibling_contracts_of_same_person(
 ):
     marker = f"Sib{uuid.uuid4().hex[:6]}"
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
-    c1 = await _seed_client(f"Pierwszy {marker}")
-    c2 = await _seed_client(f"Drugi {marker}")
+    c1 = await _seed_client(
+        f"Pierwszy {marker}", display_name=f"Pierwszy Klient S.A. {marker}"
+    )
+    c2 = await _seed_client(
+        f"Drugi {marker}", display_name=f"Drugi Klient S.A. {marker}"
+    )
     c3 = await _seed_client(f"Anulowany {marker}")
     id_a = await _seed_contract(cand, c1)
     id_b = await _seed_contract(cand, c2)
@@ -312,10 +324,11 @@ async def test_detail_lists_sibling_contracts_of_same_person(
         f"/api/contracts/{id_a}", headers=app_auth_headers
     )
     assert detail.status_code == 200, detail.text
+    assert detail.json()["client_name"] == f"Pierwszy Klient S.A. {marker}"
     related = detail.json()["related_contracts"]
     # Rodzeństwo = druga umowa tej osoby; `void` nie jest zakładką.
     assert [r["id"] for r in related] == [id_b]
-    assert related[0]["client_name"] == f"Drugi {marker}"
+    assert related[0]["client_name"] == f"Drugi Klient S.A. {marker}"
     assert related[0]["status"] == "active"
 
     # Symetria: z perspektywy drugiej umowy widać pierwszą.

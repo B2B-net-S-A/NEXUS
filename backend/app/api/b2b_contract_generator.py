@@ -105,6 +105,10 @@ from app.services.b2b_contract_generator.uop_check import (
     CVGeneratorAIError,
     check_employment_hallmarks,
 )
+from app.services.client_identity import (
+    client_display_name,
+    client_display_name_expression,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -512,7 +516,10 @@ async def _serialize_generated_contracts(
     clients: dict[int, str] = {}
     if client_ids:
         result = await db.execute(
-            select(Client.id, Client.name).where(Client.id.in_(client_ids))
+            select(
+                Client.id,
+                client_display_name_expression().label("client_name"),
+            ).where(Client.id.in_(client_ids))
         )
         clients = {cid: name for cid, name in result.all()}
 
@@ -1533,11 +1540,12 @@ async def generated_contract_status_history(
     clients: dict[int, str] = {}
     if client_ids:
         result = await db.execute(
-            select(Client.id, Client.display_name, Client.name).where(
-                Client.id.in_(client_ids)
-            )
+            select(
+                Client.id,
+                client_display_name_expression().label("client_name"),
+            ).where(Client.id.in_(client_ids))
         )
-        clients = {cid: (display or name) for cid, display, name in result.all()}
+        clients = {cid: name for cid, name in result.all()}
     users: dict[int, str] = {}
     if user_ids:
         result = await db.execute(
@@ -2077,7 +2085,7 @@ async def update_generated_contract(
             # obsłużony przypadek.
             client = await db.get(Client, job.client_id)
             if client is not None:
-                row.client_name = client.display_name or client.name
+                row.client_name = client_display_name(client)
             # `render_payload` NIE jest synchronizowany — w odróżnieniu od
             # korekty literówki w nazwie Klienta. Tam poprawiamy to, co miało
             # być w dokumencie; tutaj zmienia się fakt handlowy, a podpisany

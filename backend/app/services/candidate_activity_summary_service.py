@@ -51,6 +51,7 @@ from app.services.ai_quota import (
     get_master_enabled,
 )
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
+from app.services.client_identity import client_display_name_expression
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
 
 logger = logging.getLogger(__name__)
@@ -643,7 +644,11 @@ async def _submissions_section(
         return _source_section("submissions", [])
     rows = (
         await db.execute(
-            select(CandidateStage, Job.title, Client.name)
+            select(
+                CandidateStage,
+                Job.title,
+                client_display_name_expression().label("client_name"),
+            )
             .join(Job, Job.id == CandidateStage.job_id)
             .outerjoin(Client, Client.id == Job.client_id)
             .where(
@@ -851,7 +856,10 @@ async def _contracts_section(
         return _source_section("contracts", [])
     rows = (
         await db.execute(
-            select(Contract, Client.name)
+            select(
+                Contract,
+                client_display_name_expression().label("client_name"),
+            )
             .outerjoin(Client, Client.id == Contract.client_id)
             .where(
                 Contract.candidate_id == candidate_id,

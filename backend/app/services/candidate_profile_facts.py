@@ -25,6 +25,7 @@ from app.schemas.candidate_profile_facts import CandidateLanguageWrite
 from app.schemas.pipeline import STAGE_LABELS
 from app.services import candidate_audit
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
+from app.services.client_identity import client_display_name_expression
 
 
 class CandidateNotFoundError(LookupError):
@@ -424,7 +425,7 @@ def build_recent_recruitments_stmt(
             Job.id.label("job_id"),
             Job.title.label("job_title"),
             Client.id.label("client_id"),
-            Client.name.label("client_name"),
+            client_display_name_expression().label("client_name"),
             latest_stages.c.latest_stage_id,
             latest_stages.c.stage,
             last_activity_at,

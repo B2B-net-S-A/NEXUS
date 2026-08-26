@@ -126,13 +126,15 @@ def test_fold_finance_pln_excludes_missing_rate():
 # ── Seeding helpers (real Postgres) ──────────────────────────────────────────
 
 
-async def _seed_client_and_candidate(suffix: str) -> tuple[int, int]:
+async def _seed_client_and_candidate(
+    suffix: str, *, display_name: str | None = None
+) -> tuple[int, int]:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
 
     async with AsyncSessionLocal() as db:
-        c = Client(name=f"FXClient-{suffix}")
+        c = Client(name=f"FXClient-{suffix}", display_name=display_name)
         db.add(c)
         cand = Candidate(
             email=f"fx-{suffix}@example.com",
@@ -303,7 +305,11 @@ async def test_dso_totals_are_fx_converted_and_numeric(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     suffix = uuid.uuid4().hex[:6]
-    client_id, cand_id = await _seed_client_and_candidate(suffix)
+    canonical_name = f"Canonical DSO Client {suffix}"
+    client_id, cand_id = await _seed_client_and_candidate(
+        suffix,
+        display_name=f"  {canonical_name}  ",
+    )
     contract_id = await _seed_contract(
         client_id, cand_id, currency="PLN", rate_client=1000
     )
@@ -315,6 +321,7 @@ async def test_dso_totals_are_fx_converted_and_numeric(
     resp = await app_client.get("/api/invoices/dso", headers=app_auth_headers)
     assert resp.status_code == 200
     row = next(r for r in resp.json() if r["client_id"] == client_id)
+    assert row["client_name"] == canonical_name
 
     expected_total = 1000 + 500 * float(rate)  # PLN + AUD→PLN, NOT raw 1500
     assert abs(row["total_amount"] - expected_total) < 0.01

@@ -135,6 +135,7 @@ def test_recent_recruitments_sql_is_scoped_redacted_deterministic_and_capped():
     assert "greatest(" in sql
     assert "order by last_activity_at desc" in sql
     assert "latest_candidate_stages.latest_stage_id desc" in sql
+    assert "coalesce(nullif(btrim(clients.display_name), ''), clients.name)" in sql
 
 
 async def test_language_read_holds_key_share_lock_across_version_and_rows():
@@ -192,7 +193,11 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
         )
         candidate = Candidate(name="Recent", lastname=f"Candidate-{marker}")
         empty_candidate = Candidate(name="Empty", lastname=f"Candidate-{marker}")
-        client = Client(name=f"Recent Client {marker}")
+        canonical_client_name = f"Canonical Recent Client {marker}"
+        client = Client(
+            name=f"Recent Client {marker}",
+            display_name=f"  {canonical_client_name}  ",
+        )
         db.add_all([recruiter, admin, candidate, empty_candidate, client])
         await db.flush()
 
@@ -294,6 +299,7 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
         ]
         assert result[1]["latest_stage_id"] == reopened_stage.id
         assert result[1]["stage"] == PipelineStage.screening
+        assert {item["client_name"] for item in result} == {canonical_client_name}
         assert set(result[0]) == {
             "job_id",
             "job_title",

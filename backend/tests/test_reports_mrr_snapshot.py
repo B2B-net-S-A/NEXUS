@@ -17,13 +17,15 @@ import pytest
 from httpx import AsyncClient
 
 
-async def _seed_client_and_candidate(suffix: str) -> tuple[int, int]:
+async def _seed_client_and_candidate(
+    suffix: str, *, display_name: str | None = None
+) -> tuple[int, int]:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
 
     async with AsyncSessionLocal() as db:
-        c = Client(name=f"MRRClient-{suffix}")
+        c = Client(name=f"MRRClient-{suffix}", display_name=display_name)
         db.add(c)
         cand = Candidate(
             email=f"mrr-{suffix}@example.com",
@@ -158,3 +160,41 @@ async def test_mrr_includes_running_contract(
         f"Expected ≥1 active consultant after seeding contract {contract_id}; "
         f"got {body['active_consultants']}"
     )
+
+
+@pytest.mark.asyncio
+async def test_sales_contract_lists_use_canonical_client_display_name(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    suffix = uuid.uuid4().hex[:6]
+    canonical_name = f"Canonical Sales Client {suffix}"
+    client_id, cand_id = await _seed_client_and_candidate(
+        suffix,
+        display_name=f"  {canonical_name}  ",
+    )
+    today = date.today()
+    contract_id = await _seed_contract(
+        client_id,
+        cand_id,
+        start_date=today - timedelta(days=30),
+        end_date=today + timedelta(days=7),
+        rate_client=99_999_999,
+        rate_candidate=1,
+        rate_unit="monthly",
+    )
+
+    await _clear_cache()
+    resp = await app_client.get("/api/reports/sales", headers=app_auth_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    ending = next(
+        row
+        for row in body["ending_contracts_30days"]
+        if row["contract_id"] == contract_id
+    )
+    assert ending["client_name"] == canonical_name
+    top_client = next(
+        row for row in body["top_clients"] if row["client_id"] == client_id
+    )
+    assert top_client["client_name"] == canonical_name

@@ -36,6 +36,7 @@ from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.client_identity import client_display_name_expression
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 
 logger = logging.getLogger(__name__)
@@ -196,7 +197,7 @@ async def _scan_orders(db: AsyncSession) -> int:
                     select(
                         ClientOrder,
                         Candidate.name.label("candidate_name"),
-                        Client.name.label("client_name"),
+                        client_display_name_expression().label("client_name"),
                     )
                     .join(Contract, Contract.id == ClientOrder.contract_id)
                     .join(Candidate, Candidate.id == Contract.candidate_id)

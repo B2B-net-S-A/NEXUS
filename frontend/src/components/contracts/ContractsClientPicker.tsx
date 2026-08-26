@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Check, ChevronsUpDown, Users, X } from "lucide-react";
 import api from "@/lib/api";
@@ -38,6 +38,12 @@ export function ContractsClientPicker({ value, onChange }: Props) {
     () => filterClients(clientsQuery.data ?? [], query),
     [clientsQuery.data, query],
   );
+
+  useEffect(() => {
+    if (!value || !clientsQuery.data) return;
+    const canonical = clientsQuery.data.find((client) => client.id === value.id);
+    if (canonical && canonical.name !== value.name) onChange(canonical);
+  }, [clientsQuery.data, onChange, value]);
 
   return (
     <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">

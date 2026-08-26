@@ -104,7 +104,10 @@ def _in_memory_contract() -> Contract:
     _stub_relations(
         c,
         candidate=SimpleNamespace(name="Jan", lastname="Kowalski"),
-        client=SimpleNamespace(name="Nordea"),
+        client=SimpleNamespace(
+            name="Nordea",
+            display_name="  Nordea Bank Abp S.A. Oddział w Polsce  ",
+        ),
         job=SimpleNamespace(title="Senior Dev"),
         candidate_rate_schedule=[],
         client_rate_schedule=[],
@@ -120,7 +123,7 @@ def test_contract_export_row_shape_and_values():
     assert len(row) == len(_CONTRACT_EXPORT_COLUMNS)
     by = dict(zip(_CONTRACT_EXPORT_COLUMNS, row))
     assert by["Kandydat"] == "Jan Kowalski"
-    assert by["Klient"] == "Nordea"
+    assert by["Klient"] == "Nordea Bank Abp S.A. Oddział w Polsce"
     assert by["Stanowisko / Oferta"] == "Senior Dev"
     assert by["Typ"] == "B2B"
     assert by["Status"] == "Aktywny"
@@ -199,7 +202,7 @@ async def _seed_contract(
 ) -> tuple[int, int, int]:
     """Seed a contract (+ optional ClientOrder). Returns (contract, cand, client)."""
     from app.core.database import AsyncSessionLocal
-    from app.models.client_order import ClientOrder
+    from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.contract import Contract as C
 
     cand_id = await _seed_candidate_minimal()
@@ -230,6 +233,8 @@ async def _seed_contract(
                     client_id=client_id,
                     contract_id=c.id,
                     title="PO-2026",
+                    status=ClientOrderStatus.active,
+                    start_date=date.today() - timedelta(days=30),
                     end_date=order_end,
                 )
             )

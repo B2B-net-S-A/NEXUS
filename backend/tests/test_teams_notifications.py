@@ -18,6 +18,7 @@ patches on ``settings.TEAMS_NOTIFICATIONS_ENABLED``.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
@@ -614,6 +615,45 @@ async def test_notify_teams_fans_out_to_subscribed_channels(
     # excluded by the JSONB containment + partial index filter.
     assert attempted == 2
     assert sender.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_contract_signed_notification_uses_canonical_client_name(
+    monkeypatch,
+) -> None:
+    from app.core.config import settings
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus
+
+    monkeypatch.setattr(settings, "TEAMS_NOTIFICATIONS_ENABLED", True, raising=False)
+    token = uuid.uuid4().hex[:8]
+    canonical_name = f"Canonical Teams Client {token}"
+    async with AsyncSessionLocal() as db:
+        client = Client(
+            name=f"Raw Teams Client {token}",
+            display_name=f"  {canonical_name}  ",
+        )
+        candidate = Candidate(name="Teams", lastname=f"Candidate-{token}")
+        db.add_all([client, candidate])
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+        )
+        db.add(contract)
+        await db.commit()
+        contract_id = contract.id
+
+    notify = AsyncMock(return_value=1)
+    monkeypatch.setattr(teams_notifications, "notify_teams", notify)
+
+    sent = await teams_notifications.notify_contract_signed_by_id(contract_id)
+
+    assert sent == 1
+    payload = notify.await_args.args[1]
+    assert payload["client_name"] == canonical_name
 
 
 def test_notification_types_constant_exposes_expected_keys() -> None:

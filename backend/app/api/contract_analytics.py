@@ -27,6 +27,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
 from app.models.job import Job
+from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import get_rate_to_pln
 
 logger = logging.getLogger(__name__)
@@ -212,13 +213,14 @@ async def margin_by_client(
 ):
     rev_sql = _sql_monthly(Contract.rate_client)
     marg_sql = _sql_monthly(Contract.margin)
+    client_name = client_display_name_expression()
     # Group by (client, currency) and convert each subtotal to PLN before
     # folding per client — otherwise EUR + PLN would be added nominally
     # (M7-P0.11).
     res = await db.execute(
         select(
             Client.id,
-            Client.name,
+            client_name.label("client_name"),
             Contract.currency,
             func.count(Contract.id).label("active_contracts"),
             func.coalesce(func.sum(marg_sql), 0).label("margin"),
@@ -226,7 +228,7 @@ async def margin_by_client(
         )
         .join(Contract, Contract.client_id == Client.id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Client.id, Client.name, Contract.currency)
+        .group_by(Client.id, client_name, Contract.currency)
     )
     raw = res.all()
     rate_cache = await _resolve_rate_cache(db, (r.currency for r in raw))
@@ -237,7 +239,7 @@ async def margin_by_client(
         bucket = acc.setdefault(
             r.id,
             {
-                "name": r.name,
+                "name": r.client_name,
                 "active_contracts": 0,
                 "margin": Decimal("0"),
                 "revenue": Decimal("0"),
@@ -472,11 +474,12 @@ async def role_client_mix(
     under `Unknown`.
     """
     role_expr = func.coalesce(Job.title, Candidate.competence_category, "Unknown")
+    client_name = client_display_name_expression()
     res = await db.execute(
         select(
             role_expr.label("role"),
             Client.id.label("client_id"),
-            Client.name.label("client_name"),
+            client_name.label("client_name"),
             func.count(Contract.id).label("cnt"),
         )
         .select_from(Contract)
@@ -484,7 +487,7 @@ async def role_client_mix(
         .join(Client, Client.id == Contract.client_id)
         .outerjoin(Job, Job.id == Contract.job_id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(role_expr, Client.id, Client.name)
+        .group_by(role_expr, Client.id, client_name)
         .order_by(func.count(Contract.id).desc())
     )
     raw = res.all()
@@ -610,8 +613,9 @@ async def termination_analysis(
     window_start = date(window_start_year, window_start_month, 1)
 
     # All ended contracts in window.
+    client_name = client_display_name_expression()
     ended_q = (
-        select(Contract, Client.name.label("client_name"))
+        select(Contract, client_name.label("client_name"))
         .join(Client, Client.id == Contract.client_id)
         .where(
             Contract.status == ContractStatus.ended,

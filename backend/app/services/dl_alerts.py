@@ -40,6 +40,7 @@ from app.models.dl_alert import (
     DlAlert,
 )
 from app.models.team_structure import DeliveryLeadClientAssignment
+from app.services.client_identity import client_display_name_expression
 from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
 
 
@@ -205,7 +206,9 @@ async def emit_cost_order_exhausted(
     # SQLAlchemy to `MissingGreenlet` — czyli 500 w środku importu, po
     # zapisaniu części rozliczeń.
     client_name = (
-        await db.scalar(select(Client.name).where(Client.id == group.client_id))
+        await db.scalar(
+            select(client_display_name_expression()).where(Client.id == group.client_id)
+        )
     ) or "Klient"
     return await emit(
         db,

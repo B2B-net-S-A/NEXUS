@@ -40,6 +40,7 @@ from app.models.client import Client
 from app.models.contract import Contract
 from app.models.job import Job, JobStatus
 from app.models.user import User
+from app.services.client_identity import client_display_name_expression
 from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
     REVENUE_BEARING_STATUSES,
@@ -749,12 +750,13 @@ async def finance_clients(
         by_client.setdefault(c.client_id, []).append(c)
 
     client_names = {
-        r.id: r.name
+        r.id: r.client_name
         for r in (
             await db.execute(
-                select(Client.id, Client.name).where(
-                    Client.id.in_(list(by_client.keys()) or [0])
-                )
+                select(
+                    Client.id,
+                    client_display_name_expression().label("client_name"),
+                ).where(Client.id.in_(list(by_client.keys()) or [0]))
             )
         ).all()
     }

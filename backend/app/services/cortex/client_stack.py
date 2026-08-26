@@ -28,6 +28,7 @@ from app.models.cortex import CortexSkillFact
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.skill import Skill
+from app.services.client_identity import client_display_name_expression
 
 _ACTIVE_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
@@ -79,7 +80,7 @@ async def client_stack(
 ) -> dict:
     """Macierz klient × skill → liczba UNIKALNYCH osadzonych konsultantów."""
     placed = _placed_pairs()
-    client_name = func.coalesce(Client.display_name, Client.name)
+    client_name = client_display_name_expression()
 
     q = (
         select(
@@ -148,7 +149,7 @@ async def contract_successors(
     zapytania (skille osadzonego + dopasowani dostępni) — czytelne, nie N+1 problem.
     """
     cutoff = now + timedelta(days=days)
-    client_name = func.coalesce(Client.display_name, Client.name)
+    client_name = client_display_name_expression()
     ending = (
         await db.execute(
             select(
