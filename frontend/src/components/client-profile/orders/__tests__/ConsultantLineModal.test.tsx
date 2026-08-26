@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -16,6 +17,7 @@ import {
 import type {
   ConsultantOption,
   OrderGroupRead,
+  OrderLineRead,
 } from "@/lib/api/orderGroups";
 
 vi.mock("@/lib/api/orderGroups", () => ({
@@ -91,7 +93,42 @@ const GROUP: OrderGroupRead = {
   future_orders: [],
 };
 
-function renderModal(onSubmit = vi.fn(), group: OrderGroupRead = GROUP) {
+const LINE: OrderLineRead = {
+  id: 101,
+  group_id: GROUP.id,
+  contract_id: FROM_CLIENT.contract_id as number,
+  candidate_id: FROM_CLIENT.candidate_id,
+  consultant_name: FROM_CLIENT.full_name,
+  job_id: null,
+  job_title: null,
+  status: "active",
+  is_active: true,
+  start_date: GROUP.start_date,
+  end_date: null,
+  rate_cost: 560,
+  rate_revenue: 1200,
+  input_value: 50,
+  input_mode: "md",
+  md_total: 50,
+  md_remaining: 40,
+  md_manual_adjustment: 0,
+  predecessor_order_id: null,
+  predecessor_consultant_name: null,
+  invoiced_total: null,
+  unsettled_total: null,
+  missing_consumption_month: null,
+};
+
+interface RenderModalOptions {
+  line?: OrderLineRead | null;
+  onAdjustRemaining?: (mdRemaining: number) => void;
+}
+
+function renderModal(
+  onSubmit = vi.fn(),
+  group: OrderGroupRead = GROUP,
+  { line = null, onAdjustRemaining }: RenderModalOptions = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -102,9 +139,11 @@ function renderModal(onSubmit = vi.fn(), group: OrderGroupRead = GROUP) {
         onOpenChange={vi.fn()}
         clientId={7}
         group={group}
+        line={line}
         submitting={false}
         error={null}
         onSubmit={onSubmit}
+        onAdjustRemaining={onAdjustRemaining}
       />
     </QueryClientProvider>,
   );
@@ -477,44 +516,159 @@ function extraction(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function addPdf() {
+function addPdf(name = "zamowienie.pdf") {
   const input = screen.getByLabelText(/Dodaj PDF do zamówienia/i);
-  const file = new File(["x"], "zamowienie.pdf", { type: "application/pdf" });
+  const file = new File([name], name, { type: "application/pdf" });
   fireEvent.change(input, { target: { files: [file] } });
   return file;
 }
 
 describe("ConsultantLineModal — odczyt PDF", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
-      data: { options: [], total: 0 },
+      data: { options: [FROM_BASE, FROM_CLIENT], total: 2 },
     } as never);
   });
 
-  it("dodanie pliku NIE uruchamia odczytu — przycisk włącza się dopiero po pliku", async () => {
+  it("bez wybranej osoby plik nie aktywuje odczytu", async () => {
     renderModal();
     const button = screen.getByRole("button", {
       name: /Zczytaj dane z dokumentu/i,
     });
     expect(button).toBeDisabled();
     addPdf();
-    expect(button).toBeEnabled();
+    expect(button).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Najpierw wybierz konsultanta, którego dane mają zostać odczytane/i,
+      ),
+    ).toBeInTheDocument();
     expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
   });
 
-  it("odczyt wypełnia puste pola bez pytania (nie ma czego nadpisać)", async () => {
+  it.each([
+    {
+      first_name: "",
+      last_name: "Kowalska",
+      missing: "imię",
+      full_name: "Kowalska",
+    },
+    {
+      first_name: "Anna",
+      last_name: "",
+      missing: "nazwisko",
+      full_name: "Anna",
+    },
+  ])(
+    "nie aktywuje odczytu, gdy w profilu brakuje pola $missing",
+    async ({ first_name, last_name, missing, full_name }) => {
+      vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+        data: {
+          options: [
+            {
+              ...FROM_BASE,
+              first_name,
+              last_name,
+              full_name,
+            },
+          ],
+          total: 1,
+        },
+      } as never);
+      const user = setupUser();
+      renderModal();
+      await user.click(
+        await screen.findByRole("button", { name: new RegExp(full_name, "i") }),
+      );
+      addPdf();
+
+      expect(
+        screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+      ).toBeDisabled();
+      expect(
+        screen.getByText(
+          new RegExp(
+            `Uzupełnij ${missing} w profilu konsultanta, aby odczytać dane z dokumentu`,
+            "i",
+          ),
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/Najpierw wybierz konsultanta/i),
+      ).not.toBeInTheDocument();
+      expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
+    },
+  );
+
+  it("w edycji blokuje odczyt przy jednoznacznie niepełnej nazwie konsultanta", () => {
+    renderModal(vi.fn(), GROUP, {
+      line: { ...LINE, consultant_name: "Kowalska" },
+    });
+    addPdf();
+
+    expect(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Uzupełnij brakujące imię lub nazwisko w profilu konsultanta/i,
+      ),
+    ).toBeInTheDocument();
+    expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
+  });
+
+  it("w edycji mapuje autorytatywny błąd 422 niepełnego profilu", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { detail: "Kandydat nie ma imienia i nazwiska do dopasowania" },
+      },
+    } as never);
+    const user = setupUser();
+    // Wieloczłonowe nazwisko nie pozwala frontowi ustalić, czy osobne pola
+    // profilu są kompletne; rozstrzyga to endpoint na podstawie Candidate.
+    renderModal(vi.fn(), GROUP, {
+      line: { ...LINE, consultant_name: "Van der Berg" },
+    });
+    const file = addPdf();
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledWith(7, file, 5),
+    );
+    expect(
+      await screen.findByText(
+        /Uzupełnij brakujące imię lub nazwisko w profilu konsultanta/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Nie udało się odczytać danych z dokumentu/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("wysyła candidate_id wybranej osoby i wypełnia jej puste pola", async () => {
     // `start_date` zgodne z okresem zamówienia: modal prefilluje je z grupy,
     // więc inna data byłaby PRAWDZIWĄ rozbieżnością i słusznie otwierała
     // dialog — ten test sprawdza ścieżkę bez konfliktu.
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
       extraction({ start_date: "2026-03-01", end_date: null }) as never,
     );
+    const user = setupUser();
     renderModal();
-    addPdf();
-    await userEvent.click(
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    const file = addPdf();
+    await user.click(
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
 
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledWith(7, file, 5),
+    );
     await waitFor(() =>
       expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
     );
@@ -525,16 +679,516 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("przy edycji wysyła candidate_id istniejącej linii", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: LINE.rate_revenue,
+        md_total: LINE.input_value,
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal(vi.fn(), GROUP, { line: LINE });
+    const file = addPdf();
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledWith(7, file, 5),
+    );
+  });
+
+  it("zmiana osoby czyści nadal automatyczne revenue i MD oraz zmienia target", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf)
+      .mockResolvedValueOnce(
+        extraction({ start_date: GROUP.start_date, end_date: null }) as never,
+      )
+      .mockResolvedValueOnce(
+        extraction({
+          start_date: GROUP.start_date,
+          end_date: null,
+          rate_client: 1400,
+          md_total: 70,
+        }) as never,
+      );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    const file = addPdf();
+    const extractButton = screen.getByRole("button", {
+      name: /Zczytaj dane z dokumentu/i,
+    });
+
+    await user.click(extractButton);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+    );
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("60");
+
+    await user.click(screen.getByRole("button", { name: "Zmień" }));
+    await user.click(
+      await screen.findByRole("button", { name: /Adam Zielinski/ }),
+    );
+
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
+
+    await user.click(extractButton);
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenNthCalledWith(2, 7, file, 9),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1400"),
+    );
+  });
+
+  it("respektuje godzinową jednostkę PDF i zapisuje stawkę po konwersji do MD", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 150,
+        rate_unit: "hour",
+      }) as never,
+    );
+    const user = setupUser();
+    const onSubmit = renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf();
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    const revenueUnits = screen.getByRole("group", {
+      name: "Jednostka stawki przychodowej",
+    });
+    expect(
+      within(revenueUnits).getByRole("button", { name: "godzinowa (zł/h)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150");
+
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(1200);
+  });
+
+  it("pyta przed zmianą tej samej liczby z MD na stawkę godzinową", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 150,
+        rate_unit: "hour",
+        md_total: null,
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    await user.type(screen.getByLabelText(/Stawka przychodowa/i), "150");
+    addPdf();
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    const conflictDialog = await screen.findByRole("dialog", {
+      name: /Odczytane dane różnią się od wpisanych/i,
+    });
+    expect(conflictDialog).toHaveTextContent("Jednostka stawki przychodowej");
+    expect(conflictDialog).toHaveTextContent("MD 8h (zł/MD)");
+    expect(conflictDialog).toHaveTextContent("godzinowa (zł/h)");
+    await user.click(
+      within(conflictDialog).getByRole("button", {
+        name: /Nie — zostaw wpisane ręcznie/i,
+      }),
+    );
+    const revenueUnits = screen.getByRole("group", {
+      name: "Jednostka stawki przychodowej",
+    });
+    expect(
+      within(revenueUnits).getByRole("button", { name: "MD 8h (zł/MD)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("nowy PDF resetuje jednostkę poprzedniej stawki automatycznej", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 150,
+        rate_unit: "hour",
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("A-godzinowy.pdf");
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150"),
+    );
+
+    addPdf("B-nowy.pdf");
+
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
+    const revenueUnits = screen.getByRole("group", {
+      name: "Jednostka stawki przychodowej",
+    });
+    expect(
+      within(revenueUnits).getByRole("button", { name: "MD 8h (zł/MD)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("nowy PDF nie usuwa identycznych wartości istniejących przed odczytem", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 1300,
+        rate_unit: "day",
+        md_total: 60,
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    await user.type(screen.getByLabelText(/Stawka przychodowa/i), "1300");
+    await user.type(screen.getByRole("textbox", { name: "Liczba MD" }), "60");
+    addPdf("A-zgodny.pdf");
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await waitFor(() => expect(dlPortalApi.extractOrderPdf).toHaveBeenCalled());
+
+    addPdf("B-nowy.pdf");
+
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
+      "60",
+    );
+  });
+
+  it("ponowny odczyt zachowuje pochodzenie danych automatycznych", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({ start_date: GROUP.start_date }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("A-dwa-odczyty.pdf");
+    const extractButton = screen.getByRole("button", {
+      name: /Zczytaj dane z dokumentu/i,
+    });
+    await user.click(extractButton);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+    );
+
+    await user.click(extractButton);
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledTimes(2),
+    );
+    addPdf("B-nowy.pdf");
+
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
+    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
+      "",
+    );
+  });
+
+  it("ponowny niejednoznaczny odczyt usuwa wyłącznie poprzednie dane automatyczne", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf)
+      .mockResolvedValueOnce(
+        extraction({ start_date: GROUP.start_date }) as never,
+      )
+      .mockResolvedValueOnce(
+        extraction({
+          start_date: null,
+          end_date: null,
+          rate_client: null,
+          rate_unit: null,
+          md_total: null,
+          uncertain: true,
+          uncertain_reasons: ["Nie znaleziono jednoznacznej pozycji konsultanta"],
+        }) as never,
+      );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("ten-sam.pdf");
+    const extractButton = screen.getByRole("button", {
+      name: /Zczytaj dane z dokumentu/i,
+    });
+    await user.click(extractButton);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+    );
+
+    await user.click(extractButton);
+
+    expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
+    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
+      "",
+    );
+    expect(screen.getByLabelText(/Start/i)).toHaveValue(GROUP.start_date);
+  });
+
+  it("ręczna zmiana trybu budżetu chroni wartość przed czyszczeniem PDF", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({ start_date: GROUP.start_date, end_date: null }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("A-md.pdf");
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue(
+        "60",
+      ),
+    );
+
+    await user.click(screen.getByRole("radio", { name: /Kwota zamówienia/i }));
+    expect(screen.getByRole("textbox", { name: "Kwota zamówienia" })).toHaveValue(
+      "60",
+    );
+    addPdf("B-nowy.pdf");
+
+    expect(screen.getByRole("textbox", { name: "Kwota zamówienia" })).toHaveValue(
+      "60",
+    );
+  });
+
+  it("pyta przed zamianą ręcznej kwoty zamówienia na liczbę MD z PDF", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({ start_date: GROUP.start_date, end_date: null }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    await user.click(screen.getByRole("radio", { name: /Kwota zamówienia/i }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Kwota zamówienia" }),
+      "60",
+    );
+    addPdf("kwota-vs-md.pdf");
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    const conflictDialog = await screen.findByRole("dialog", {
+      name: /Odczytane dane różnią się od wpisanych/i,
+    });
+    expect(conflictDialog).toHaveTextContent("Budżet konsultanta");
+    expect(conflictDialog).toHaveTextContent("60 zł (kwota zamówienia)");
+    expect(conflictDialog).toHaveTextContent("60 MD (liczba MD)");
+    await user.click(
+      within(conflictDialog).getByRole("button", {
+        name: /Nie — zostaw wpisane ręcznie/i,
+      }),
+    );
+    expect(screen.getByRole("textbox", { name: "Kwota zamówienia" })).toHaveValue(
+      "60",
+    );
+  });
+
+  it("respektuje miesięczną jednostkę PDF i zapisuje stawkę po konwersji do MD", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 12000,
+        rate_unit: "month",
+      }) as never,
+    );
+    const user = setupUser();
+    const onSubmit = renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf();
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    const revenueUnits = screen.getByRole("group", {
+      name: "Jednostka stawki przychodowej",
+    });
+    expect(
+      within(revenueUnits).getByRole("button", { name: "miesięczna (zł/mc)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(
+      545.45,
+    );
+  });
+
+  it("nowy PDF czyści niezmienione dane automatyczne poprzedniego pliku", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf)
+      .mockResolvedValueOnce(
+        extraction({ start_date: GROUP.start_date }) as never,
+      )
+      .mockResolvedValueOnce(
+        extraction({
+          start_date: GROUP.start_date,
+          end_date: null,
+          rate_client: null,
+          rate_unit: null,
+          md_total: null,
+          uncertain: true,
+          uncertain_reasons: ["Nie znaleziono konsultanta"],
+        }) as never,
+      );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("A.pdf");
+    const button = screen.getByRole("button", {
+      name: /Zczytaj dane z dokumentu/i,
+    });
+    await user.click(button);
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("1300"),
+    );
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("60");
+    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
+      "2026-09-30",
+    );
+
+    addPdf("B.pdf");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
+    expect(screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i)).toHaveValue(
+      "",
+    );
+
+    await user.click(button);
+    expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
+  });
+
+  it("odrzuca spóźniony wynik poprzedniego pliku tej samej osoby", async () => {
+    let resolveFirst: ((value: ReturnType<typeof extraction>) => void) | undefined;
+    const firstResponse = new Promise<ReturnType<typeof extraction>>((resolve) => {
+      resolveFirst = resolve;
+    });
+    vi.mocked(dlPortalApi.extractOrderPdf).mockReturnValueOnce(
+      firstResponse as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("wolny-A.pdf");
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await waitFor(() => expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledOnce());
+
+    addPdf("aktualny-B.pdf");
+    await act(async () => {
+      resolveFirst?.(
+        extraction({ start_date: GROUP.start_date, end_date: null }),
+      );
+      await firstResponse;
+    });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue(""),
+    );
+    expect(screen.getByRole("textbox", { name: "Liczba MD" })).toHaveValue("");
+  });
+
+  it("porównuje odpowiedź z ręcznymi zmianami wykonanymi podczas requestu", async () => {
+    let resolveExtraction:
+      | ((value: ReturnType<typeof extraction>) => void)
+      | undefined;
+    const response = new Promise<ReturnType<typeof extraction>>((resolve) => {
+      resolveExtraction = resolve;
+    });
+    vi.mocked(dlPortalApi.extractOrderPdf).mockReturnValue(response as never);
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf("wolny.pdf");
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+    await waitFor(() => expect(dlPortalApi.extractOrderPdf).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText(/Stawka przychodowa/i), "1200");
+    await user.type(screen.getByRole("textbox", { name: "Liczba MD" }), "50");
+    fireEvent.change(
+      screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i),
+      { target: { value: "2026-10-31" } },
+    );
+    resolveExtraction?.(
+      extraction({ start_date: GROUP.start_date, end_date: "2026-09-30" }),
+    );
+
+    const conflictDialog = await screen.findByRole("dialog", {
+      name: /Odczytane dane różnią się od wpisanych/i,
+    });
+    expect(conflictDialog).toHaveTextContent("1200");
+    expect(conflictDialog).toHaveTextContent("1300");
+    expect(conflictDialog).toHaveTextContent("50");
+    expect(conflictDialog).toHaveTextContent("60");
+    expect(conflictDialog).toHaveTextContent("2026-10-31");
+    expect(conflictDialog).toHaveTextContent("2026-09-30");
+  });
+
   it("rozbieżność z ręcznym wpisem PYTA i nic nie zmienia przed odpowiedzią", async () => {
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
       extraction() as never,
     );
+    const user = setupUser();
     renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
 
     const revenue = screen.getByLabelText(/Stawka przychodowa/i);
-    await userEvent.type(revenue, "1200");
+    await user.type(revenue, "1200");
     addPdf();
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
 
@@ -544,7 +1198,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     // Nic nie zostało jeszcze nadpisane — to cała treść obietnicy dialogu.
     expect(revenue).toHaveValue("1200");
 
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: /Tak — zapisz dane z dokumentu/i }),
     );
     await waitFor(() => expect(revenue).toHaveValue("1300"));
@@ -554,15 +1208,19 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
       extraction() as never,
     );
+    const user = setupUser();
     renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
 
     const revenue = screen.getByLabelText(/Stawka przychodowa/i);
-    await userEvent.type(revenue, "1200");
+    await user.type(revenue, "1200");
     addPdf();
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: /Nie — zostaw wpisane ręcznie/i }),
     );
 
@@ -576,9 +1234,13 @@ describe("ConsultantLineModal — odczyt PDF", () => {
         uncertain_reasons: ["Nie znaleziono jednoznacznej daty końca"],
       }) as never,
     );
+    const user = setupUser();
     renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
     addPdf();
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
 
@@ -587,6 +1249,99 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       screen.getByText(/Nie znaleziono jednoznacznej daty końca/),
     ).toBeInTheDocument();
   });
+
+  it("brak jednoznacznej osoby nie nadpisuje ręcznej stawki ani MD", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        rate_client: null,
+        md_total: null,
+        uncertain: true,
+        uncertain_reasons: [
+          "Nie znaleziono jednoznacznej pozycji konsultanta",
+        ],
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    const revenue = screen.getByLabelText(/Stawka przychodowa/i);
+    const md = screen.getByRole("textbox", { name: "Liczba MD" });
+    await user.type(revenue, "1200");
+    await user.type(md, "50");
+    addPdf();
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    expect(await screen.findByText("Sprawdź dane!")).toBeInTheDocument();
+    expect(revenue).toHaveValue("1200");
+    expect(md).toHaveValue("50");
+  });
+
+  it("edycja standardowej linii zachowuje liczbę MD w payloadzie", async () => {
+    const user = setupUser();
+    const onSubmit = renderModal(vi.fn(), GROUP, { line: LINE });
+    const revenue = screen.getByLabelText(/Stawka przychodowa/i);
+    await user.clear(revenue);
+    await user.type(revenue, "1350");
+
+    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    const payload = onSubmit.mock.calls[0][0] as LineFormValues;
+    expect(payload.rate_revenue).toBe(1350);
+    expect(payload.input_mode).toBe("md");
+    expect(payload.input_value).toBe(50);
+  });
+
+  it.each([
+    ["kosztowej", { ...GROUP, is_cost_based: true }],
+    [
+      "ze wspólną pulą MD",
+      {
+        ...GROUP,
+        is_md_budget_based: true,
+        md_budget_total: 100,
+        md_budget_used: 20,
+        md_budget_remaining: 80,
+      },
+    ],
+  ])(
+    "edycja linii %s wysyła same stawki i koniec, bez budżetu osoby",
+    async (_label, group) => {
+      const user = setupUser();
+      const onSubmit = renderModal(vi.fn(), group, {
+        line: {
+          ...LINE,
+          input_mode: null,
+          input_value: null,
+          md_total: null,
+          md_remaining: null,
+        },
+      });
+      const cost = screen.getByLabelText(/Stawka kosztowa/i);
+      const revenue = screen.getByLabelText(/Stawka przychodowa/i);
+      await user.clear(cost);
+      await user.type(cost, "1100");
+      await user.clear(revenue);
+      await user.type(revenue, "1350");
+      fireEvent.change(
+        screen.getByLabelText(/Koniec \(puste = bezterminowo\)/i),
+        { target: { value: "2026-12-31" } },
+      );
+
+      await user.click(screen.getByRole("button", { name: "Zapisz" }));
+
+      const payload = onSubmit.mock.calls[0][0] as LineFormValues;
+      expect(payload.rate_cost).toBe(1100);
+      expect(payload.rate_revenue).toBe(1350);
+      expect(payload.end_date).toBe("2026-12-31");
+      expect(payload.input_mode).toBeUndefined();
+      expect(payload.input_value).toBeUndefined();
+    },
+  );
 
   it("zamówienie KOSZTOWE nie pyta o budżet MD przy konsultancie", async () => {
     renderModal(vi.fn(), { ...GROUP, is_cost_based: true });
@@ -612,6 +1367,47 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("textbox", { name: "Liczba MD" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("standardowa linia w edycji pokazuje korektę pozostałych MD", () => {
+    renderModal(vi.fn(), GROUP, {
+      line: LINE,
+      onAdjustRemaining: vi.fn(),
+    });
+
+    expect(screen.getByText("Korekta ręczna")).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: "Pozostałe MD" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["kosztowe", { ...GROUP, is_cost_based: true }],
+    [
+      "ze wspólną pulą MD",
+      {
+        ...GROUP,
+        is_md_budget_based: true,
+        md_budget_total: 100,
+        md_budget_used: 20,
+        md_budget_remaining: 80,
+      },
+    ],
+  ])("zamówienie %s ukrywa korektę pozostałych MD linii", (_label, group) => {
+    renderModal(vi.fn(), group, {
+      line: {
+        ...LINE,
+        input_value: null,
+        md_total: null,
+        md_remaining: null,
+      },
+      onAdjustRemaining: vi.fn(),
+    });
+
+    expect(screen.queryByText("Korekta ręczna")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Pozostałe MD" }),
     ).not.toBeInTheDocument();
   });
 });

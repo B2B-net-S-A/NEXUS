@@ -29,7 +29,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import inspect, select
+from sqlalchemy import and_, exists, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -68,7 +68,7 @@ from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
 from app.services.client_identity import client_display_name
-from app.services.client_order_lines import recompute_remaining
+from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.cost_orders import is_cost_order_client
 from app.services.ezdrowie import validate_project_part
@@ -86,6 +86,7 @@ from app.services.order_pdf_parser import (
     apply_bank_pocztowy_order_policy,
     apply_credit_agricole_order_policy,
     apply_erste_order_policy,
+    enforce_consultant_policy_safety,
     enforce_nordea_order_number,
     parse_order_document,
 )
@@ -1377,18 +1378,63 @@ async def extract_order_pdf(
     user: DlAssignedOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
+    candidate_id: Optional[int] = Form(None, gt=0),
 ):
     """„Zczytaj dane z dokumentu" — odczyt pól z PDF/DOCX zamówienia klienta.
 
     Świadoma akcja użytkownika, ODDZIELONA od zapisu: NIE tworzy Orderu ani nie
     zapisuje pliku — zwraca tylko odczytane pola do wstawienia w formularzu
-    (wszystkie edytowalne). Przy jakiejkolwiek niepewności ``uncertain=True`` →
-    front pokazuje baner „Sprawdź dane!". Kwoty zredagowane dla ról bez VIEW_FINANCE.
+    (wszystkie edytowalne). ``candidate_id`` jest rozwiązywany do kanonicznego
+    imienia i nazwiska po stronie serwera, a następnie wiąże stawkę i MD z
+    dokładnie jednym wierszem osoby w zamówieniu wieloosobowym; brak lub
+    niejednoznaczność zostawia oba pola puste. Przy jakiejkolwiek niepewności
+    ``uncertain=True`` → front pokazuje baner „Sprawdź dane!". Kwoty zredagowane
+    dla ról bez VIEW_FINANCE.
 
     Bramkowane: DL przypisany do klienta lub Admin (jak create), plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
     await _assert_client(db, client_id)
+
+    target_consultant: Optional[str] = None
+    target_given_names: Optional[str] = None
+    if candidate_id is not None:
+        # ``candidate_id`` pochodzi z workflow konsultantów. Bramkujemy go do
+        # dowolnej nieanulowanej (również historycznej) umowy osoby u bieżącego
+        # klienta ALBO żywej umowy w bazie Nexus. Bez tego sam liczbowy
+        # identyfikator pozwalałby przypisać do ekstrakcji osobę spoza zbioru
+        # konsultantów.
+        # EXISTS nie mnoży wierszy kandydata przy wielu kontraktach i zatrzymuje
+        # request przed odczytem pliku/quota AI.
+        eligible_contract = exists(
+            select(Contract.id).where(
+                Contract.candidate_id == Candidate.id,
+                or_(
+                    and_(
+                        Contract.client_id == client_id,
+                        Contract.status != ContractStatus.void,
+                    ),
+                    Contract.status.in_(LIVE_CONTRACT_STATUSES),
+                ),
+            )
+        )
+        candidate_identity = (
+            await db.execute(
+                select(Candidate.name, Candidate.lastname).where(
+                    Candidate.id == candidate_id,
+                    eligible_contract,
+                )
+            )
+        ).one_or_none()
+        if candidate_identity is None:
+            raise HTTPException(404, detail="Candidate not found")
+        target_given_names = (candidate_identity.name or "").strip()
+        target_lastname = (candidate_identity.lastname or "").strip()
+        if not target_given_names or not target_lastname:
+            raise HTTPException(
+                422, detail="Kandydat nie ma imienia i nazwiska do dopasowania"
+            )
+        target_consultant = f"{target_given_names} {target_lastname}"
 
     filename = file.filename or "zamowienie.pdf"
     ext = os.path.splitext(filename)[1].lower()
@@ -1447,7 +1493,15 @@ async def extract_order_pdf(
             },
         ) from exc
 
-    extraction = await parse_order_document(text)
+    if target_consultant:
+        extraction = await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+        )
+    else:
+        # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
+        extraction = await parse_order_document(text)
     if _is_nordea_order_number_client(client_id):
         extraction = enforce_nordea_order_number(extraction, text)
     if _is_bank_pocztowy_order_client(client_id):
@@ -1460,6 +1514,11 @@ async def extract_order_pdf(
     # przeliczyłaby nic.
     if _is_erste_gross_rate_client(client_id):
         extraction = apply_erste_order_policy(extraction, text)
+
+    # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
+    # ale nie mogą utworzyć stawki/MD bez dowodu z wiersza tej osoby.
+    if target_consultant:
+        extraction = enforce_consultant_policy_safety(extraction)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
     # _order_response_for_user). Redagujemy NIE TYLKO wartości pól, ale też
