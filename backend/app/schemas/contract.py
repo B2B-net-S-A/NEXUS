@@ -431,6 +431,15 @@ class ContractList(BaseModel):
     page_size: int
 
 
+class ContractEurPlnRate(BaseModel):
+    """NBP table A snapshot used for the EUR amounts on contract detail."""
+
+    rate: float
+    effective_date: date
+    source: str = "NBP"
+    table: str = "A"
+
+
 class ContractDetailResponse(ContractResponse):
     """Extended response for the contract detail page — includes denormalized names."""
 
@@ -440,6 +449,10 @@ class ContractDetailResponse(ContractResponse):
     monthly_rate_candidate: Optional[float] = None
     monthly_rate_client: Optional[float] = None
     monthly_margin: Optional[float] = None
+    # Present only for EUR contracts visible to a VIEW_FINANCE caller. The
+    # effective date belongs to NBP and can intentionally precede today on a
+    # weekend, holiday, or before the new table is published.
+    eur_pln_rate: Optional[ContractEurPlnRate] = None
     # Pozostałe kontrakty tej samej osoby (bez `void`), zawężone do klientów
     # widocznych dla wołającego (scope Delivery Leada). FE renderuje z nich
     # przełącznik zakładek nazwanych po kliencie („pracuje u N klientów").

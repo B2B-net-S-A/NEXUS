@@ -17,6 +17,10 @@ import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
+import {
+  FinancialRatesCard,
+  type EurPlnRate,
+} from "@/components/contracts/FinancialRatesCard";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBenchmarkCard";
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
@@ -101,6 +105,7 @@ interface ContractDetail {
   target_rate_min: number | null;
   target_rate_max: number | null;
   currency: string;
+  eur_pln_rate?: EurPlnRate | null;
   rate_unit: "hourly" | "daily" | "monthly";
   billing_hours_per_month: number;
   margin: number | null;
@@ -170,18 +175,6 @@ const TYPE_LABELS: Record<string, string> = {
   b2b: "B2B",
   uop: "Umowa o pracę",
   uzlecenie: "Zlecenie",
-};
-
-const RATE_UNIT_SUFFIX: Record<string, string> = {
-  monthly: "/mies.",
-  daily: "/dz.",
-  hourly: "/h",
-};
-
-const RATE_UNIT_LABELS: Record<string, string> = {
-  monthly: "Miesięcznie",
-  daily: "Dziennie",
-  hourly: "Godzinowo",
 };
 
 const WORK_MODE_LABELS: Record<string, string> = {
@@ -257,12 +250,6 @@ function GenerateDocumentButton({
       </select>
     </div>
   );
-}
-
-function monthlyMultiplier(rate_unit: string, billing_hours_per_month: number): number {
-  if (rate_unit === "daily") return 22;
-  if (rate_unit === "hourly") return billing_hours_per_month || 160;
-  return 1;
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -706,23 +693,6 @@ export default function ContractDetailPage() {
     );
   }
 
-  const marginPct =
-    contract.rate_client && contract.rate_client > 0 && contract.margin !== null
-      ? ((contract.margin / contract.rate_client) * 100).toFixed(1)
-      : null;
-
-  const unitSuffix = RATE_UNIT_SUFFIX[contract.rate_unit] ?? "";
-  const monthlyMult = monthlyMultiplier(contract.rate_unit, contract.billing_hours_per_month);
-  const monthlyMargin = contract.margin !== null ? contract.margin * monthlyMult : null;
-
-  // Ostrzeżenie o przekroczeniu stawki z umowy ramowej — tylko dla klienta Nordea
-  // (u innych klientów świeciłoby się wszędzie; sygnalizujemy wyłącznie dla Nordei).
-  const isNordeaClient = (contract.client_name ?? "").toLowerCase().includes("nordea");
-  const frameworkRateExceeded =
-    isNordeaClient &&
-    contract.framework_rate != null &&
-    contract.rate_client != null &&
-    contract.rate_client > contract.framework_rate;
   const visibleTabs = TABS.filter(
     (tab) =>
       canManageFinance ||
@@ -1896,150 +1866,7 @@ export default function ContractDetailPage() {
 
           {/* Right sidebar: rates & margin */}
           <div className="space-y-4">
-            {canManageFinance && (
-              <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-3">
-              <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground flex items-center gap-2">
-                <Banknote className="w-4 h-4" /> Stawki finansowe
-              </h2>
-              <div className="text-xs text-muted-foreground dark:text-muted-foreground flex items-center justify-between">
-                <span>Jednostka: {RATE_UNIT_LABELS[contract.rate_unit] ?? contract.rate_unit}</span>
-                {contract.rate_unit === "hourly" && (
-                  <span>{contract.billing_hours_per_month} h/mies.</span>
-                )}
-              </div>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground dark:text-muted-foreground">Klient</span>
-                  <span className="font-medium">
-                    {formatCurrency(contract.rate_client, contract.currency)}
-                    <span className="text-xs opacity-70">{unitSuffix}</span>
-                  </span>
-                </div>
-                {contract.client_rate_schedule.length > 1 &&
-                  (() => {
-                    const today = new Date().toISOString().slice(0, 10);
-                    const sorted = [...contract.client_rate_schedule].sort(
-                      (a, b) => a.effective_from.localeCompare(b.effective_from),
-                    );
-                    const past = sorted.filter((s) => s.effective_from <= today);
-                    const currentId = (past.length ? past[past.length - 1] : sorted[0]).id;
-                    return (
-                      <div className="pt-1 pl-2 border-l-2 border-border space-y-1">
-                        {sorted.map((s) => (
-                          <div
-                            key={s.id}
-                            className={`flex justify-between text-xs ${
-                              s.id === currentId
-                                ? "text-foreground font-medium"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            <span>
-                              od {formatDate(s.effective_from)}
-                              {s.id === currentId && (
-                                <span className="ml-1 opacity-70">(aktualna)</span>
-                              )}
-                            </span>
-                            <span>
-                              {formatCurrency(s.rate, contract.currency)}
-                              <span className="opacity-70">{unitSuffix}</span>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground dark:text-muted-foreground">Kandydat</span>
-                  <span className="font-medium">
-                    {formatCurrency(contract.rate_candidate, contract.currency)}
-                    <span className="text-xs opacity-70">{unitSuffix}</span>
-                  </span>
-                </div>
-                {contract.candidate_rate_schedule.length > 1 &&
-                  (() => {
-                    const today = new Date().toISOString().slice(0, 10);
-                    const sorted = [...contract.candidate_rate_schedule].sort(
-                      (a, b) => a.effective_from.localeCompare(b.effective_from),
-                    );
-                    const past = sorted.filter((s) => s.effective_from <= today);
-                    const currentId = (past.length ? past[past.length - 1] : sorted[0]).id;
-                    return (
-                      <div className="pt-1 pl-2 border-l-2 border-border space-y-1">
-                        {sorted.map((s) => (
-                          <div
-                            key={s.id}
-                            className={`flex justify-between text-xs ${
-                              s.id === currentId
-                                ? "text-foreground font-medium"
-                                : "text-muted-foreground"
-                            }`}
-                          >
-                            <span>
-                              od {formatDate(s.effective_from)}
-                              {s.id === currentId && (
-                                <span className="ml-1 opacity-70">(aktualna)</span>
-                              )}
-                            </span>
-                            <span>
-                              {formatCurrency(s.rate, contract.currency)}
-                              <span className="opacity-70">{unitSuffix}</span>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                <div className="flex justify-between pt-2 border-t border-border dark:border-border">
-                  <span className="text-muted-foreground dark:text-muted-foreground flex items-center gap-1">
-                    <TrendingUp className="w-3.5 h-3.5" /> Marża
-                  </span>
-                  <span
-                    className={`font-bold text-right ${
-                      (contract.margin ?? 0) > 0 ? "text-emerald-600" : "text-destructive"
-                    }`}
-                  >
-                    {formatCurrency(contract.margin, contract.currency)}
-                    <span className="text-xs opacity-70">{unitSuffix}</span>
-                    {marginPct && (
-                      <span className="ml-1 text-xs opacity-70">({marginPct}%)</span>
-                    )}
-                  </span>
-                </div>
-                {contract.rate_unit !== "monthly" && monthlyMargin !== null && (
-                  <div className="flex justify-between pt-1 text-xs text-muted-foreground dark:text-muted-foreground">
-                    <span>Marża miesięcznie (≈)</span>
-                    <span>{formatCurrency(monthlyMargin, contract.currency)}</span>
-                  </div>
-                )}
-                {contract.framework_rate != null && (
-                  <div
-                    className={
-                      frameworkRateExceeded
-                        ? "flex justify-between items-center gap-2 mt-2 rounded-lg bg-destructive/10 border border-destructive/20 px-2.5 py-2 text-xs text-destructive"
-                        : "flex justify-between pt-2 mt-1 border-t border-border dark:border-border text-xs text-muted-foreground dark:text-muted-foreground"
-                    }
-                    title={
-                      frameworkRateExceeded
-                        ? `Stawka klienta (${formatCurrency(contract.rate_client, contract.currency)}${unitSuffix}) przekracza stawkę z umowy ramowej`
-                        : undefined
-                    }
-                  >
-                    <span className="flex items-center gap-1.5">
-                      {frameworkRateExceeded && (
-                        <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                      )}
-                      Z umowy ramowej
-                    </span>
-                    <span className={frameworkRateExceeded ? "font-semibold whitespace-nowrap" : ""}>
-                      {formatCurrency(contract.framework_rate, contract.currency)}
-                      <span className="opacity-70">{unitSuffix}</span>
-                    </span>
-                  </div>
-                )}
-              </div>
-              </div>
-            )}
+            {canManageFinance && <FinancialRatesCard contract={contract} />}
 
             <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>

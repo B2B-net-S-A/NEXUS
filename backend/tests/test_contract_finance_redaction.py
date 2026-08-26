@@ -16,7 +16,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 _TODAY = date.today()
 
@@ -84,7 +84,7 @@ async def _seed_candidate_client() -> tuple[int, int]:
         return cand.id, client.id
 
 
-async def _seed_contract() -> int:
+async def _seed_contract(*, currency: str = "PLN") -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
@@ -110,6 +110,7 @@ async def _seed_contract() -> int:
             rate_candidate=Decimal("100.000"),
             rate_client=Decimal("150.000"),
             margin=Decimal("50.000"),
+            currency=currency,
         )
         db.add(contract)
         await db.commit()
@@ -130,8 +131,187 @@ async def test_admin_sees_rates_in_detail(
     assert body["margin"] is not None
 
 
+async def _seed_today_eur_rate() -> tuple[float, str]:
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.fx_rate import FxRate
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(FxRate).where(
+                FxRate.currency == "EUR", FxRate.effective_date == today
+            )
+        )
+        if row is None:
+            row = FxRate(
+                currency="EUR",
+                effective_date=today,
+                rate_to_pln=Decimal("4.280000"),
+                source="NBP",
+            )
+            db.add(row)
+        else:
+            row.rate_to_pln = Decimal("4.280000")
+            row.source = "NBP"
+        await db.commit()
+        await db.refresh(row)
+        return float(row.rate_to_pln), row.effective_date.isoformat()
+
+
+async def test_admin_eur_detail_exposes_persisted_nbp_rate_and_real_date(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    expected_rate, expected_date = await _seed_today_eur_rate()
+    cid = await _seed_contract(currency="EUR")
+
+    response = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+    assert response.status_code == 200, response.text
+    snapshot = response.json()["eur_pln_rate"]
+    assert snapshot == {
+        "rate": expected_rate,
+        "effective_date": expected_date,
+        "source": "NBP",
+        "table": "A",
+    }
+
+
+async def test_eur_detail_uses_latest_rate_not_newer_than_weekend(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.api import contracts as contracts_api
+    from app.core.database import AsyncSessionLocal
+    from app.models.fx_rate import FxRate
+
+    thursday = date(2091, 8, 23)
+    friday = date(2091, 8, 24)
+    sunday = date(2091, 8, 26)
+    future_monday = date(2091, 8, 27)
+    seeded = (
+        (thursday, Decimal("4.100000")),
+        (friday, Decimal("4.200000")),
+        (future_monday, Decimal("9.900000")),
+    )
+    seeded_dates = [effective_date for effective_date, _ in seeded]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(FxRate).where(
+                FxRate.currency == "EUR",
+                FxRate.effective_date.in_(seeded_dates),
+            )
+        )
+        for effective_date, rate in seeded:
+            db.add(
+                FxRate(
+                    currency="EUR",
+                    effective_date=effective_date,
+                    rate_to_pln=rate,
+                    source="NBP",
+                )
+            )
+        await db.commit()
+
+    try:
+        monkeypatch.setattr(contracts_api, "business_today", lambda: sunday)
+        cid = await _seed_contract(currency="EUR")
+
+        response = await app_client.get(
+            f"/api/contracts/{cid}", headers=app_auth_headers
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["eur_pln_rate"] == {
+            "rate": 4.2,
+            "effective_date": friday.isoformat(),
+            "source": "NBP",
+            "table": "A",
+        }
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FxRate).where(
+                    FxRate.currency == "EUR",
+                    FxRate.effective_date.in_(seeded_dates),
+                )
+            )
+            await db.commit()
+
+
+async def test_repeated_eur_detail_reads_cached_snapshot_without_http_or_writes(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+    from app.models.fx_rate import FxRate
+    from app.services import fx_service
+
+    _, effective_date_raw = await _seed_today_eur_rate()
+    effective_date = date.fromisoformat(effective_date_raw)
+    cid = await _seed_contract(currency="EUR")
+
+    async with AsyncSessionLocal() as db:
+        before_count = await db.scalar(select(func.count(FxRate.id)))
+        contract_before = await db.get(Contract, cid)
+        fx_before = await db.scalar(
+            select(FxRate).where(
+                FxRate.currency == "EUR",
+                FxRate.effective_date == effective_date,
+            )
+        )
+        assert contract_before is not None
+        assert fx_before is not None
+        contract_updated_at = contract_before.updated_at
+        fx_updated_at = fx_before.updated_at
+
+    class _UnexpectedHttpClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise AssertionError("contract GET must never call NBP")
+
+    monkeypatch.setattr(fx_service.httpx, "AsyncClient", _UnexpectedHttpClient)
+
+    first = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
+    second = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["eur_pln_rate"] == second.json()["eur_pln_rate"]
+
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(func.count(FxRate.id))) == before_count
+        contract_after = await db.get(Contract, cid)
+        fx_after = await db.scalar(
+            select(FxRate).where(
+                FxRate.currency == "EUR",
+                FxRate.effective_date == effective_date,
+            )
+        )
+        assert contract_after is not None
+        assert fx_after is not None
+        assert contract_after.updated_at == contract_updated_at
+        assert fx_after.updated_at == fx_updated_at
+
+
+async def test_pln_detail_has_no_nbp_conversion_and_does_not_resolve_fx(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.services import fx_service
+
+    async def _unexpected(*_args, **_kwargs):
+        raise AssertionError("PLN contract must not resolve an EUR rate")
+
+    monkeypatch.setattr(fx_service, "get_rate_snapshot_to_pln", _unexpected)
+    cid = await _seed_contract(currency="PLN")
+
+    response = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["eur_pln_rate"] is None
+
+
 async def test_tac_gets_redacted_detail(app_client: AsyncClient):
-    cid = await _seed_contract()
+    await _seed_today_eur_rate()
+    cid = await _seed_contract(currency="EUR")
     headers = await _headers_for(app_client, "tac")
     r = await app_client.get(f"/api/contracts/{cid}", headers=headers)
     assert r.status_code == 200, r.text
@@ -146,6 +326,7 @@ async def test_tac_gets_redacted_detail(app_client: AsyncClient):
     assert body["currency"] is None
     assert body["rate_unit"] is None
     assert body["billing_hours_per_month"] is None
+    assert body["eur_pln_rate"] is None
 
 
 async def test_delivery_lead_gets_redacted_detail(app_client: AsyncClient):
