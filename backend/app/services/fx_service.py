@@ -371,6 +371,18 @@ def _seconds_until_next_nbp_window(now: datetime) -> float:
     )
 
 
+def _should_refresh_nbp(now: datetime, latest: Optional[date]) -> bool:
+    """Whether this cycle should call NBP rather than use the durable cache."""
+
+    if latest is None:
+        return True
+    return (
+        is_business_day(now)
+        and now.time() >= NBP_TABLE_A_PUBLISH_START
+        and latest < now.date()
+    )
+
+
 async def fx_refresh_loop(
     retry_minutes: float = NBP_TABLE_A_RETRY_MINUTES,
 ) -> None:
@@ -388,19 +400,15 @@ async def fx_refresh_loop(
     logger.info("fx_refresh_loop: started retry=%.1f min", retry_minutes)
     # Initial delay to keep startup snappy.
     await asyncio.sleep(60)
-    first_cycle = True
     while True:
         delay = retry_seconds
         try:
             now = local_now()
             latest = await _latest_cached_effective_date(HEALTH_CANARY_CURRENCY)
-            local_time = now.time()
-            should_refresh = first_cycle or (
-                is_business_day(now)
-                and local_time >= NBP_TABLE_A_PUBLISH_START
-                and (latest is None or latest < now.date())
-            )
-            if should_refresh:
+            # Populate a brand-new cache on startup. Once any rate exists, a
+            # restart must not create a gratuitous NBP dependency (especially
+            # on weekends); normal Warsaw publication-window rules take over.
+            if _should_refresh_nbp(now, latest):
                 await fetch_and_store_nbp_today(strict=True)
                 latest = await _latest_cached_effective_date(HEALTH_CANARY_CURRENCY)
 
@@ -428,5 +436,4 @@ async def fx_refresh_loop(
                 and NBP_TABLE_A_PUBLISH_START <= now.time() <= NBP_TABLE_A_RETRY_UNTIL
             ):
                 delay = _seconds_until_next_nbp_window(now)
-        first_cycle = False
         await asyncio.sleep(delay)

@@ -7,11 +7,11 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pytest
-from sqlalchemy import UniqueConstraint
 
 from app.models.fx_rate import FxRate
 from app.services.fx_service import (
     _seconds_until_next_nbp_window,
+    _should_refresh_nbp,
     get_rate_snapshot_to_pln,
 )
 
@@ -39,11 +39,11 @@ class _Rate:
     source = "NBP"
 
 
-def test_fx_model_declares_unique_cache_key_for_create_all() -> None:
+def test_fx_model_declares_unique_cache_index_for_create_all() -> None:
     cache_keys = {
-        tuple(column.name for column in constraint.columns)
-        for constraint in FxRate.__table__.constraints
-        if isinstance(constraint, UniqueConstraint)
+        tuple(column.name for column in index.columns)
+        for index in FxRate.__table__.indexes
+        if index.unique
     }
 
     assert ("effective_date", "currency") in cache_keys
@@ -82,6 +82,24 @@ def test_refresh_scheduler_targets_today_before_the_publication_window() -> None
     now = datetime(2026, 8, 26, 8, 0, tzinfo=warsaw)
 
     assert _seconds_until_next_nbp_window(now) == 3.75 * 60 * 60
+
+
+def test_restart_uses_existing_weekend_cache_without_calling_nbp() -> None:
+    warsaw = ZoneInfo("Europe/Warsaw")
+    saturday = datetime(2026, 8, 29, 9, 0, tzinfo=warsaw)
+
+    assert _should_refresh_nbp(saturday, date(2026, 8, 28)) is False
+    assert _should_refresh_nbp(saturday, None) is True
+
+
+def test_refresh_is_due_after_publication_window_for_stale_business_day() -> None:
+    warsaw = ZoneInfo("Europe/Warsaw")
+    before_window = datetime(2026, 8, 26, 8, 0, tzinfo=warsaw)
+    after_window = datetime(2026, 8, 26, 12, 15, tzinfo=warsaw)
+    yesterday = date(2026, 8, 25)
+
+    assert _should_refresh_nbp(before_window, yesterday) is False
+    assert _should_refresh_nbp(after_window, yesterday) is True
 
 
 def test_refresh_scheduler_skips_weekend() -> None:
