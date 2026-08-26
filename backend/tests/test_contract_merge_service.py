@@ -506,6 +506,8 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
                 end_date=today + timedelta(days=60),
             )
             db.add_all([order, ContractAlertDedup(dedup_key=source_alert_key)])
+            await db.flush()
+            order_id = order.id
             await db.commit()
             manifest = ContractMergeManifest(
                 same_client_groups=((survivor_id, loser_id),)
@@ -542,8 +544,8 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
             assert kept.line_manager == "Manager carried from duplicate"
             assert kept.client_order_end_date == today + timedelta(days=60)
             assert await db.get(Contract, loser_id) is None
-            moved_order = await db.get(ClientOrder, order.id)
-            assert moved_order is not None and moved_order.contract_id == survivor.id
+            moved_order = await db.get(ClientOrder, order_id)
+            assert moved_order is not None and moved_order.contract_id == survivor_id
             activity = await db.scalar(
                 select(Activity).where(
                     Activity.entity_type == "contract",
