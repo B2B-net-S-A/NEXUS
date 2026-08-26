@@ -683,7 +683,7 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
 async def active_shared_md_lines(
     db: AsyncSession, period_month: str
 ) -> list[LineMatch]:
-    """Aktywne linie wspólnej puli MD Cyfrowego Polsatu w danym miesiącu.
+    """Aktywne linie wspólnej puli MD CP i Lotte Wedel w danym miesiącu.
 
     To osobna pula na grupie, więc jej linie celowo mają ``md_total IS NULL``
     i nie mogą przejść przez historyczny ``active_md_lines`` ani jego matcher
@@ -693,6 +693,7 @@ async def active_shared_md_lines(
     from app.services.cyfrowy_polsat_orders import (
         is_cyfrowy_polsat_order_types_client,
     )
+    from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 
     first, last = month_bounds(period_month)
     result = await db.execute(
@@ -710,7 +711,10 @@ async def active_shared_md_lines(
     matches: list[LineMatch] = []
     for order in result.scalars():
         group = order.order_group
-        if group is None or not is_cyfrowy_polsat_order_types_client(order.client_id):
+        if group is None or not (
+            is_cyfrowy_polsat_order_types_client(order.client_id)
+            or is_lotte_wedel_order_types_client(order.client_id)
+        ):
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (

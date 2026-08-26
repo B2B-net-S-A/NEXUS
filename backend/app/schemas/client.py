@@ -123,6 +123,17 @@ class ClientSafeResponse(BaseModel):
 
         return is_cyfrowy_polsat_order_types_client(self.id)
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def lotte_wedel_order_types_enabled(self) -> bool:
+        """Czy Lotte Wedel ma wybór standardowe / kosztowe / wspólna pula MD."""
+
+        from app.services.lotte_wedel_orders import (
+            is_lotte_wedel_order_types_client,
+        )
+
+        return is_lotte_wedel_order_types_client(self.id)
+
 
 class ClientResponse(ClientSafeResponse):
     """Pełna projekcja — admin/HoR/DL/TAC (dane prawne + notatki)."""
