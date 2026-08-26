@@ -7,6 +7,8 @@ niepewności. Bez klucza ANTHROPIC ``parse_order_document`` degraduje do regexu.
 
 from decimal import Decimal
 
+import pytest
+
 from app.services import order_pdf_parser as m
 from app.services.order_pdf_parser import parse_order_document
 
@@ -251,7 +253,9 @@ class TestBankPocztowyPolicy:
         )
         enforced = m.apply_bank_pocztowy_order_policy(result, "Numer pisma: BP/3/26")
         assert enforced.uncertain is True
-        assert any("Nietypowa stawka godzinowa" in r for r in enforced.uncertain_reasons)
+        assert any(
+            "Nietypowa stawka godzinowa" in r for r in enforced.uncertain_reasons
+        )
 
     def test_hourly_rate_above_band_warns(self):
         result = m.OrderExtraction(
@@ -262,7 +266,9 @@ class TestBankPocztowyPolicy:
         )
         enforced = m.apply_bank_pocztowy_order_policy(result, "Numer pisma: BP/4/26")
         assert enforced.uncertain is True
-        assert any("Nietypowa stawka godzinowa" in r for r in enforced.uncertain_reasons)
+        assert any(
+            "Nietypowa stawka godzinowa" in r for r in enforced.uncertain_reasons
+        )
 
     def test_missing_dates_produce_exact_message_and_keep_fields_empty(self):
         result = m.OrderExtraction(rate_client=Decimal("1600"), source="claude")
@@ -324,9 +330,7 @@ class TestBankPocztowyPolicy:
             start_date="2026-01-01",
             end_date="2026-06-30",
             uncertain=True,
-            uncertain_reasons=[
-                "Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola"
-            ],
+            uncertain_reasons=["Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola"],
             source="regex",
         )
         enforced = m.apply_bank_pocztowy_order_policy(result, "Numer pisma: BP/7/26")
@@ -360,9 +364,9 @@ class TestBankPocztowyPolicy:
         assert m.bank_pocztowy_net_md_rate("1600 x 1.23 x 20") == Decimal("1600")
         # Ekstraktory PDF potrafią oddać separator tysięcy jako NBSP (U+00A0)
         # albo wąski NBSP (U+202F) — klasa znaków musi je łapać.
-        assert m.bank_pocztowy_net_md_rate(
-            "1\u00a0600,00 * 1,23 * 20"
-        ) == Decimal("1600.00")
+        assert m.bank_pocztowy_net_md_rate("1\u00a0600,00 * 1,23 * 20") == Decimal(
+            "1600.00"
+        )
         assert m.bank_pocztowy_net_md_rate("1\u202f600 * 1,23") == Decimal("1600")
         assert m.bank_pocztowy_net_md_rate("stawka 1600 zł/MD netto") is None
 
@@ -448,6 +452,524 @@ class TestNormalizeClaudeShape:
         assert r.uncertain is True
         assert "Kilku kandydatów na stawkę" in r.uncertain_reasons
 
+    def test_consultant_rows_are_normalized_without_exposing_global_guess(self):
+        r = m._normalize(
+            {
+                "title": "PO-ROWS",
+                "start_date": "2026-09-01",
+                "rate_client": 999,
+                "consultant_rows": [
+                    {
+                        "consultant_name": "Prus-Rudzińska Natalia",
+                        "rate_client": "1 640,50 PLN",
+                        "rate_unit": "MD",
+                        "md_total": "42,5",
+                        "uncertain": False,
+                        "uncertain_reason": None,
+                    },
+                    {"consultant_name": "", "rate_client": 777},
+                    "niepoprawny wiersz",
+                ],
+            },
+            source="claude",
+        )
+
+        assert len(r.consultant_rows) == 1
+        row = r.consultant_rows[0]
+        assert row.consultant_name == "Prus-Rudzińska Natalia"
+        assert row.rate_client == Decimal("1640.50")
+        assert row.rate_unit == "day"
+        assert row.md_total == Decimal("42.5")
+        assert row.uncertain is False
+
+    def test_consultant_row_without_explicit_certainty_fails_safe(self):
+        r = m._normalize(
+            {
+                "consultant_rows": [
+                    {
+                        "consultant_name": "Natalia Prus-Rudzińska",
+                        "rate_client": 1640,
+                        "rate_unit": "day",
+                        "md_total": 20,
+                    }
+                ]
+            },
+            source="claude",
+        )
+
+        assert r.consultant_rows[0].uncertain is True
+
+    def test_consultant_row_reason_overrides_false_certainty_flag(self):
+        r = m._normalize(
+            {
+                "consultant_rows": [
+                    {
+                        "consultant_name": "Natalia Prus-Rudzińska",
+                        "rate_client": 1640,
+                        "rate_unit": "day",
+                        "md_total": 20,
+                        "uncertain": False,
+                        "uncertain_reason": "Stawka może dotyczyć sąsiedniej osoby",
+                    }
+                ]
+            },
+            source="claude",
+        )
+
+        assert r.consultant_rows[0].uncertain is True
+
+
+class TestConsultantRowMatching:
+    @pytest.mark.parametrize(
+        "written_name",
+        [
+            "PRUS-RUDZINSKA NATALIA",
+            "Natalia Prus Rudzinska",
+            "Natalia PrusRudzinska",
+        ],
+    )
+    def test_order_case_diacritics_and_hyphen_formats_match(self, written_name):
+        result = m.OrderExtraction(
+            rate_client=Decimal("999"),
+            md_total=Decimal("999"),
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name=written_name,
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("42"),
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client == Decimal("1640")
+        assert matched.rate_unit == "day"
+        assert matched.md_total == Decimal("42")
+
+    @pytest.mark.parametrize(
+        "written_name",
+        ["Natalia Prus-Rudzniska", "Natalia Purs-Rudzinska"],
+    )
+    def test_single_transposition_in_either_surname_component_is_tolerated(
+        self, written_name
+    ):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name=written_name,
+                    rate_client=Decimal("1700"),
+                    rate_unit="day",
+                    md_total=Decimal("15"),
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client == Decimal("1700")
+        assert matched.md_total == Decimal("15")
+
+    @pytest.mark.parametrize(
+        ("target", "different_person"),
+        [
+            ("Anna Kowalska", "Hanna Kowalska"),
+            ("Jan Kowalski", "Jan Kowalska"),
+            ("Jan Nowak", "Jan Nowik"),
+            ("Dariusz Wysocki", "Mariusz Wysocki"),
+            ("Maria Nowak", "Maira Nowak"),
+            ("Anna Maria Nowak", "Anna Maira Nowak"),
+        ],
+    )
+    def test_close_but_real_other_person_is_not_a_typo(self, target, different_person):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name=different_person,
+                    rate_client=Decimal("1700"),
+                    md_total=Decimal("15"),
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, target)
+
+        assert matched.rate_client is None
+        assert matched.md_total is None
+        assert matched.uncertain is True
+
+    def test_rate_and_md_come_only_from_the_matched_person_row(self):
+        result = m.OrderExtraction(
+            # Symulacja starego, losowego wyboru modelu z pierwszego wiersza.
+            rate_client=Decimal("910"),
+            md_total=Decimal("8"),
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Dariusz Wysocki",
+                    rate_client=Decimal("910"),
+                    rate_unit="hour",
+                    md_total=Decimal("8"),
+                    uncertain=False,
+                ),
+                m.ConsultantOrderRow(
+                    consultant_name="Prus-Rudzińska Natalia",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("37"),
+                    uncertain=False,
+                ),
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client == Decimal("1640")
+        assert matched.rate_unit == "day"
+        assert matched.md_total == Decimal("37")
+
+    def test_unrelated_person_never_matches_and_global_values_are_cleared(self):
+        result = m.OrderExtraction(
+            rate_client=Decimal("910"),
+            rate_unit="hour",
+            rate_client_md=Decimal("7280"),
+            rate_client_gross=Decimal("1119.30"),
+            md_total=Decimal("8"),
+            confidence={"rate_client": 0.99, "md_total": 0.99},
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Dariusz Wysocki",
+                    rate_client=Decimal("910"),
+                    md_total=Decimal("8"),
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client is None
+        assert matched.rate_unit is None
+        assert matched.rate_client_md is None
+        assert matched.rate_client_gross is None
+        assert matched.md_total is None
+        assert "rate_client" not in matched.confidence
+        assert "md_total" not in matched.confidence
+        assert matched.uncertain is True
+        assert any(
+            "Nie znaleziono jednoznacznej" in reason
+            for reason in matched.uncertain_reasons
+        )
+
+    @pytest.mark.parametrize(
+        ("policy", "document"),
+        [
+            (
+                m.apply_bank_pocztowy_order_policy,
+                "Numer pisma: BP/1/2026\nWynagrodzenie: 1600*1,23*20",
+            ),
+            (
+                m.apply_credit_agricole_order_policy,
+                "Szacowana ilość MD: 20\n"
+                "Wynagrodzenie za 1MD (8h) (PLN netto): 1040",
+            ),
+        ],
+    )
+    def test_target_policy_safety_stays_fail_closed_after_no_match(
+        self, policy, document
+    ):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Dariusz Wysocki",
+                    rate_client=Decimal("910"),
+                    rate_unit="day",
+                    md_total=Decimal("8"),
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+        no_match = m.apply_consultant_row_match(
+            result, "Natalia Prus-Rudzińska"
+        )
+        assert no_match.rate_client is None
+
+        policy_result = policy(no_match, document)
+        assert policy_result.rate_client is not None
+
+        protected = m.enforce_consultant_policy_safety(policy_result)
+        assert protected.rate_client is None
+        assert protected.rate_unit is None
+        assert protected.md_total is None
+        assert protected.uncertain is True
+
+    def test_target_policy_safety_keeps_erste_conversion_for_matched_row(self):
+        matched = m.apply_consultant_row_match(
+            m.OrderExtraction(
+                consultant_rows=[
+                    m.ConsultantOrderRow(
+                        consultant_name="Natalia Prus-Rudzińska",
+                        rate_client=Decimal("1230"),
+                        rate_unit="day",
+                        uncertain=False,
+                    )
+                ],
+                uncertain=False,
+            ),
+            "Natalia Prus-Rudzińska",
+        )
+
+        converted = m.apply_erste_order_policy(matched, "")
+        protected = m.enforce_consultant_policy_safety(converted)
+
+        assert protected.rate_client == Decimal("1000.00")
+        assert protected.rate_client_gross == Decimal("1230")
+
+    def test_target_policy_safety_keeps_credit_agricole_correction_for_matched_row(
+        self,
+    ):
+        matched = m.apply_consultant_row_match(
+            m.OrderExtraction(
+                consultant_rows=[
+                    m.ConsultantOrderRow(
+                        consultant_name="Natalia Prus-Rudzińska",
+                        rate_client=Decimal("20"),
+                        rate_unit="day",
+                        md_total=Decimal("20"),
+                        uncertain=False,
+                    )
+                ],
+                uncertain=False,
+            ),
+            "Natalia Prus-Rudzińska",
+        )
+        document = (
+            "Szacowana ilość MD: 20\n"
+            "Wynagrodzenie za 1MD (8h) (PLN netto): 1040"
+        )
+
+        corrected = m.apply_credit_agricole_order_policy(matched, document)
+        protected = m.enforce_consultant_policy_safety(corrected)
+
+        assert protected.rate_client == Decimal("1040")
+        assert protected.md_total == Decimal("20")
+
+    def test_two_possible_names_are_ambiguous_even_when_one_is_exact(self):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Natalia Prus-Rudzińska",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                ),
+                m.ConsultantOrderRow(
+                    consultant_name="Natalia Prus-Rudzniska",
+                    rate_client=Decimal("1700"),
+                    rate_unit="day",
+                    md_total=Decimal("25"),
+                    uncertain=False,
+                ),
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client is None
+        assert matched.md_total is None
+        assert matched.uncertain is True
+        assert any("więcej niż jedną" in reason for reason in matched.uncertain_reasons)
+
+    def test_identical_duplicate_rows_are_deduplicated(self):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Natalia Prus-Rudzińska",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                ),
+                m.ConsultantOrderRow(
+                    consultant_name="Prus Rudzinska Natalia",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                ),
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client == Decimal("1640")
+        assert matched.md_total == Decimal("20")
+
+    def test_conflicting_duplicate_rows_require_manual_review(self):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Natalia Prus-Rudzińska",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                ),
+                m.ConsultantOrderRow(
+                    consultant_name="Prus Rudzinska Natalia",
+                    rate_client=Decimal("1700"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                ),
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client is None
+        assert matched.md_total is None
+        assert matched.uncertain is True
+
+    def test_matched_row_marked_uncertain_never_applies_rate_or_md(self):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Natalia Prus-Rudzińska",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=True,
+                    uncertain_reason="Nie można przypisać kwoty do wiersza osoby",
+                )
+            ],
+            uncertain=True,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client is None
+        assert matched.rate_unit is None
+        assert matched.md_total is None
+        assert "Nie można przypisać kwoty" in " ".join(matched.uncertain_reasons)
+
+    def test_rate_without_unit_is_left_for_manual_entry(self):
+        result = m.OrderExtraction(
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Natalia Prus-Rudzińska",
+                    rate_client=Decimal("1640"),
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        matched = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
+
+        assert matched.rate_client is None
+        assert matched.rate_unit is None
+        assert matched.md_total == Decimal("20")
+        assert matched.uncertain is True
+        assert any("jednostki stawki" in reason for reason in matched.uncertain_reasons)
+
+
+class TestTargetedDocumentExcerpt:
+    def test_consultant_after_legacy_limit_is_included_with_header(self):
+        header = "Zamówienie PO-4500724684\nOkres od 2026-09-01 do 2026-12-31\n"
+        appendix = "".join(
+            f"Załącznik techniczny, wiersz {index}\n" for index in range(900)
+        )
+        target_row = "Prus-Rudzińska Natalia | 1640 PLN/MD | 37 MD\n"
+        document = header + appendix + target_row
+        assert document.index(target_row) > m._MAX_DOC_CHARS
+
+        excerpt, incomplete = m._document_text_for_prompt(
+            document, "Natalia Prus-Rudzińska"
+        )
+
+        assert incomplete is False
+        assert "PO-4500724684" in excerpt
+        assert target_row.strip() in excerpt
+
+    def test_no_plausible_target_keeps_safe_legacy_excerpt(self):
+        document = "Początek dokumentu\n" + ("Dariusz Wysocki | 910 PLN\n" * 1000)
+
+        excerpt, incomplete = m._document_text_for_prompt(
+            document, "Natalia Prus-Rudzińska"
+        )
+
+        assert incomplete is False
+        assert excerpt == document[: m._MAX_DOC_CHARS]
+
+    def test_name_split_across_three_lines_after_limit_is_included(self):
+        appendix = "".join(f"Załącznik {index}\n" for index in range(1500))
+        split_row = "Natalia\nPrus\nRudzińska | 1640 PLN/MD | 37 MD\n"
+        document = "PO-3-LINES\n" + appendix + split_row
+        assert document.index(split_row) > m._MAX_DOC_CHARS
+
+        excerpt, incomplete = m._document_text_for_prompt(
+            document, "Natalia Prus-Rudzińska"
+        )
+
+        assert incomplete is False
+        assert split_row.strip() in excerpt
+
+    def test_raw_document_presence_requires_exact_first_name_anchor(self):
+        assert m._document_mentions_consultant(
+            "Prus-Rudzniska Natalia | 1640 PLN/MD", "Natalia Prus-Rudzińska"
+        )
+        assert not m._document_mentions_consultant(
+            "Maira Nowak | 1700 PLN/MD", "Maria Nowak"
+        )
+        assert not m._document_mentions_consultant(
+            "Anna Maira Nowak | 1700 PLN/MD", "Anna Maria Nowak"
+        )
+
+    def test_raw_document_presence_never_combines_adjacent_people(self):
+        document = (
+            "Natalia Wysocka | 1500 PLN/MD | 20 MD\n"
+            "Anna Prus-Rudzińska | 1700 PLN/MD | 25 MD\n"
+        )
+
+        assert not m._document_mentions_consultant(
+            document, "Natalia Prus-Rudzińska", "Natalia"
+        )
+        assert not m._document_mentions_consultant(
+            "Prus Natalia\nRudzińska Natalia",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+        assert m._document_mentions_consultant(
+            "Natalia\nPrus\nRudzińska | 1640 PLN/MD",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+
 
 class TestCreditAgricolePolicy:
     """Stawka WYŁĄCZNIE z „Wynagrodzenie za 1MD", liczba MD z „Szacowana ilość MD".
@@ -488,10 +1010,7 @@ class TestCreditAgricolePolicy:
         assert m.credit_agricole_md_rate(self._doc()) == Decimal("1040.00")
 
     def test_value_on_the_next_line_is_found(self):
-        doc = (
-            "Szacowana ilość MD\n20\n"
-            "Wynagrodzenie za 1MD (8h) (PLN netto)\n1040,00\n"
-        )
+        doc = "Szacowana ilość MD\n20\nWynagrodzenie za 1MD (8h) (PLN netto)\n1040,00\n"
         assert m.credit_agricole_md_rate(doc) == Decimal("1040.00")
         assert m.credit_agricole_md_count(doc) == Decimal("20")
 
@@ -609,3 +1128,70 @@ class TestParseOrderDocument:
         assert r.start_date == "2026-03-01"
         assert r.end_date == "2026-08-31"
         assert r.uncertain is True
+
+    async def test_targeted_regex_fallback_never_uses_first_rate_or_md(
+        self, monkeypatch
+    ):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(m.settings, "ANTHROPIC_API_KEY", "", raising=False)
+
+        r = await parse_order_document(
+            "Dariusz Wysocki | stawka 910 PLN | 8 MD",
+            consultant_name="Natalia Prus-Rudzińska",
+        )
+
+        assert r.source == "regex"
+        assert r.rate_client is None
+        assert r.rate_unit is None
+        assert r.md_total is None
+        assert r.uncertain is True
+        assert any(
+            "Nie znaleziono jednoznacznej" in reason for reason in r.uncertain_reasons
+        )
+
+    async def test_target_absent_in_raw_text_rejects_hallucinated_claude_row(
+        self, monkeypatch
+    ):
+        async def fake_extract(
+            text: str,
+            *,
+            consultant_name: str | None = None,
+            consultant_given_names: str | None = None,
+        ):
+            assert consultant_name == "Natalia Prus-Rudzińska"
+            assert consultant_given_names is None
+            return m.OrderExtraction(
+                consultant_rows=[
+                    m.ConsultantOrderRow(
+                        consultant_name="Natalia Prus-Rudzińska",
+                        rate_client=Decimal("1640"),
+                        rate_unit="day",
+                        md_total=Decimal("37"),
+                        uncertain=False,
+                    )
+                ],
+                uncertain=False,
+                source="claude",
+            )
+
+        monkeypatch.setattr(m, "_extract_with_claude", fake_extract)
+
+        r = await parse_order_document(
+            "Dariusz Wysocki | 910 PLN/MD | 8 MD",
+            consultant_name="Natalia Prus-Rudzińska",
+        )
+
+        assert r.rate_client is None
+        assert r.md_total is None
+        assert r.uncertain is True
+
+    async def test_untargeted_regex_fallback_stays_backward_compatible(
+        self, monkeypatch
+    ):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setattr(m.settings, "ANTHROPIC_API_KEY", "", raising=False)
+
+        r = await parse_order_document("Stawka 910 PLN | 8 MD")
+
+        assert r.rate_client == Decimal("910")
+        assert r.md_total == Decimal("8")

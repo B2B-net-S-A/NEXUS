@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FileSearch } from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
@@ -40,7 +40,14 @@ const inputClass =
 const labelClass =
   "mb-1 block text-xs font-semibold text-muted-foreground";
 const COST_RATE_UNITS: readonly RateUnit[] = ["hour", "md", "month"];
-const REVENUE_RATE_UNITS: readonly RateUnit[] = ["hour", "md"];
+const REVENUE_RATE_UNITS: readonly RateUnit[] = ["hour", "md", "month"];
+
+function extractionRateUnit(value: string | null): RateUnit | null {
+  if (value === "hour") return "hour";
+  if (value === "day") return "md";
+  if (value === "month") return "month";
+  return null;
+}
 
 export interface LineFormValues {
   /** Dokładnie jedno z pól. `contract_id` — osoba ma już kontrakt u tego
@@ -55,6 +62,16 @@ export interface LineFormValues {
   input_value?: number | null;
   start_date: string;
   end_date: string | null;
+}
+
+interface AutoExtractedValues {
+  candidateId: number;
+  rateRevenue: string | null;
+  rateRevenueUnit: RateUnit | null;
+  inputValue: string | null;
+  inputMode: OrderInputMode | null;
+  startDate: string | null;
+  endDate: string | null;
 }
 
 interface Props {
@@ -179,8 +196,119 @@ export function ConsultantLineModal({
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
+  const [autoExtracted, setAutoExtracted] = useState<AutoExtractedValues | null>(
+    null,
+  );
+  // Odpowiedź sieciowa musi porównać się ze stanem z chwili ODPOWIEDZI, nie ze
+  // stanem zamkniętym w async handlerze przy starcie requestu. Użytkownik może
+  // w tym czasie poprawić pole ręcznie i taka zmiana wymaga dialogu konfliktu.
+  const extractionFormRef = useRef({
+    rateRevenue,
+    revenueUnit,
+    inputValue,
+    inputMode,
+    startDate,
+    endDate,
+    autoExtracted,
+  });
+  extractionFormRef.current = {
+    rateRevenue,
+    revenueUnit,
+    inputValue,
+    inputMode,
+    startDate,
+    endDate,
+    autoExtracted,
+  };
+
+  const targetCandidateId = line?.candidate_id ?? person?.candidate_id ?? null;
+  // Każda zmiana pliku, osoby, linii lub ponowne otwarcie unieważnia starszy
+  // request. Sam candidate_id nie wystarcza: dwa PDF-y mogą dotyczyć tej samej
+  // osoby, a wolniejsza odpowiedź starego pliku nie może wygrać wyścigu.
+  const extractionEpochRef = useRef(0);
+
+  const clearAutoExtractedValues = (includeDates: boolean) => {
+    if (!autoExtracted) return;
+    if (
+      autoExtracted.rateRevenue != null &&
+      autoExtracted.rateRevenueUnit != null &&
+      rateRevenue === autoExtracted.rateRevenue &&
+      revenueUnit === autoExtracted.rateRevenueUnit
+    ) {
+      setRateRevenue("");
+      setRevenueUnit("md");
+    }
+    if (
+      autoExtracted.inputValue != null &&
+      autoExtracted.inputMode != null &&
+      inputValue === autoExtracted.inputValue &&
+      inputMode === autoExtracted.inputMode
+    ) {
+      setInputValue("");
+    }
+    if (includeDates) {
+      if (
+        autoExtracted.startDate != null &&
+        startDate === autoExtracted.startDate
+      ) {
+        setStartDate(line?.start_date ?? group?.start_date ?? "");
+      }
+      if (
+        autoExtracted.endDate != null &&
+        endDate === autoExtracted.endDate
+      ) {
+        setEndDate(line?.end_date ?? "");
+      }
+      setAutoExtracted(null);
+      return;
+    }
+    // Daty dotyczą całego dokumentu, nie osoby. Zachowujemy informację o ich
+    // pochodzeniu, aby późniejsza zmiana PDF nadal potrafiła je wyczyścić.
+    setAutoExtracted(
+      autoExtracted.startDate != null || autoExtracted.endDate != null
+        ? {
+            ...autoExtracted,
+            rateRevenue: null,
+            rateRevenueUnit: null,
+            inputValue: null,
+            inputMode: null,
+          }
+        : null,
+    );
+  };
 
   const handlePersonChange = (next: ConsultantOption | null) => {
+    const nextCandidateId = next?.candidate_id ?? null;
+    if (nextCandidateId !== person?.candidate_id) {
+      // Stawka i MD są danymi OSOBY. Przy zmianie konsultanta nie przenosimy
+      // ani automatycznego, ani ręcznego wpisu poprzedniej osoby.
+      setRateRevenue("");
+      setRevenueUnit("md");
+      setInputValue("");
+      setInputMode("md");
+      const extractedDates =
+        autoExtracted &&
+        (autoExtracted.startDate != null || autoExtracted.endDate != null)
+          ? {
+              ...autoExtracted,
+              candidateId: nextCandidateId ?? autoExtracted.candidateId,
+              rateRevenue: null,
+              rateRevenueUnit: null,
+              inputValue: null,
+              inputMode: null,
+            }
+          : null;
+      setAutoExtracted(extractedDates);
+    }
+    extractionEpochRef.current += 1;
+    setExtracting(false);
+    // Konflikty i ostrzeżenia opisują poprzednią osobę; nie mogą przeżyć zmiany
+    // targetu i zostać potwierdzone dla nowego konsultanta.
+    setCheckData(false);
+    setCheckReasons([]);
+    setConflicts([]);
+    setPendingApply(null);
+    setExtractError(null);
     setPerson(next);
     // Każda zmiana osoby resetuje poprzednią wartość. Podpowiedź pochodzi
     // wyłącznie z aktywnego kontraktu tej osoby u bieżącego klienta;
@@ -218,6 +346,8 @@ export function ConsultantLineModal({
   };
 
   useEffect(() => {
+    extractionEpochRef.current += 1;
+    setExtracting(false);
     if (!open) return;
     setPerson(null);
     setRateCost(line?.rate_cost != null ? String(line.rate_cost) : "");
@@ -241,27 +371,143 @@ export function ConsultantLineModal({
     setCheckReasons([]);
     setConflicts([]);
     setPendingApply(null);
+    setAutoExtracted(null);
   }, [open, line, group]);
 
   async function handleExtract() {
-    if (!file || extracting) return;
+    const candidateId = targetCandidateId;
+    if (!file || extracting || candidateId == null) return;
+    const requestEpoch = extractionEpochRef.current + 1;
+    extractionEpochRef.current = requestEpoch;
     setExtracting(true);
     setExtractError(null);
     try {
-      const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
+      const { data } = await dlPortalApi.extractOrderPdf(
+        clientId,
+        file,
+        candidateId,
+      );
+      if (extractionEpochRef.current !== requestEpoch) return;
+      const extractedRateUnit = extractionRateUnit(data.rate_unit);
+      const invalidRateUnit =
+        data.rate_client != null && extractedRateUnit == null;
+      const extractedRate =
+        data.rate_client != null && extractedRateUnit != null
+          ? String(data.rate_client)
+          : null;
+      const extractedMd =
+        !costBased && !sharedMdBased && data.md_total != null
+          ? String(data.md_total)
+          : null;
+      const extractedStart = data.start_date
+        ? data.start_date.slice(0, 10)
+        : null;
+      const extractedEnd = data.end_date ? data.end_date.slice(0, 10) : null;
+      const currentForm = extractionFormRef.current;
       const apply = () => {
-        if (data.start_date) setStartDate(data.start_date.slice(0, 10));
-        if (data.end_date) setEndDate(data.end_date.slice(0, 10));
-        if (data.rate_client != null) {
-          // Odczyt z PDF wraca w zł/MD dla klientów MD (patrz polityki
-          // klientowe w `order_pdf_parser`) — wstawiamy razem z jednostką.
+        if (extractionEpochRef.current !== requestEpoch) return;
+        const previousAutoRateStillPresent =
+          currentForm.autoExtracted?.candidateId === candidateId &&
+          currentForm.autoExtracted.rateRevenue != null &&
+          currentForm.autoExtracted.rateRevenueUnit != null &&
+          currentForm.rateRevenue === currentForm.autoExtracted.rateRevenue &&
+          currentForm.revenueUnit ===
+            currentForm.autoExtracted.rateRevenueUnit;
+        const previousAutoMdStillPresent =
+          currentForm.autoExtracted?.candidateId === candidateId &&
+          currentForm.autoExtracted.inputValue != null &&
+          currentForm.autoExtracted.inputMode != null &&
+          currentForm.inputValue === currentForm.autoExtracted.inputValue &&
+          currentForm.inputMode === currentForm.autoExtracted.inputMode;
+        const previousAutoStartStillPresent =
+          currentForm.autoExtracted?.candidateId === candidateId &&
+          currentForm.autoExtracted.startDate != null &&
+          currentForm.startDate === currentForm.autoExtracted.startDate;
+        const previousAutoEndStillPresent =
+          currentForm.autoExtracted?.candidateId === candidateId &&
+          currentForm.autoExtracted.endDate != null &&
+          currentForm.endDate === currentForm.autoExtracted.endDate;
+        // Zapamiętujemy wyłącznie pola, które odczyt faktycznie zmienił. Gdy
+        // dokument powtórzył wartość istniejącą wcześniej, wybór kolejnego PDF
+        // nie może usunąć tej ręcznej/zapisanej wartości jako „automatycznej".
+        const changedRate =
+          extractedRate != null &&
+          (currentForm.rateRevenue !== extractedRate ||
+            currentForm.revenueUnit !== extractedRateUnit);
+        const changedMd =
+          extractedMd != null &&
+          (currentForm.inputMode !== "md" ||
+            currentForm.inputValue !== extractedMd);
+        const changedStart =
+          extractedStart != null && currentForm.startDate !== extractedStart;
+        const changedEnd =
+          extractedEnd != null && currentForm.endDate !== extractedEnd;
+        const sameAutoCandidate =
+          currentForm.autoExtracted?.candidateId === candidateId;
+        // Ponowny odczyt tego samego dokumentu nie może zgubić informacji, że
+        // wartości nadal pochodzą z PDF. Zachowujemy provenance tylko wtedy,
+        // gdy poprzedni auto-wynik, formularz i nowy wynik są identyczne.
+        const retainedRate =
+          sameAutoCandidate &&
+          extractedRate != null &&
+          extractedRateUnit != null &&
+          currentForm.autoExtracted?.rateRevenue === extractedRate &&
+          currentForm.autoExtracted.rateRevenueUnit === extractedRateUnit &&
+          currentForm.rateRevenue === extractedRate &&
+          currentForm.revenueUnit === extractedRateUnit;
+        const retainedMd =
+          sameAutoCandidate &&
+          extractedMd != null &&
+          currentForm.autoExtracted?.inputValue === extractedMd &&
+          currentForm.autoExtracted.inputMode === "md" &&
+          currentForm.inputValue === extractedMd &&
+          currentForm.inputMode === "md";
+        const retainedStart =
+          sameAutoCandidate &&
+          extractedStart != null &&
+          currentForm.autoExtracted?.startDate === extractedStart &&
+          currentForm.startDate === extractedStart;
+        const retainedEnd =
+          sameAutoCandidate &&
+          extractedEnd != null &&
+          currentForm.autoExtracted?.endDate === extractedEnd &&
+          currentForm.endDate === extractedEnd;
+        const trackedRate = changedRate || retainedRate;
+        const trackedMd = changedMd || retainedMd;
+        const trackedStart = changedStart || retainedStart;
+        const trackedEnd = changedEnd || retainedEnd;
+        if (extractedStart != null) setStartDate(extractedStart);
+        else if (previousAutoStartStillPresent) {
+          setStartDate(line?.start_date ?? group?.start_date ?? "");
+        }
+        if (extractedEnd != null) setEndDate(extractedEnd);
+        else if (previousAutoEndStillPresent) setEndDate(line?.end_date ?? "");
+        if (extractedRate != null) {
+          setRevenueUnit(extractedRateUnit as RateUnit);
+          setRateRevenue(extractedRate);
+        } else if (previousAutoRateStillPresent) {
+          setRateRevenue("");
           setRevenueUnit("md");
-          setRateRevenue(String(data.rate_client));
         }
-        if (!costBased && !sharedMdBased && data.md_total != null) {
+        if (extractedMd != null) {
           setInputMode("md");
-          setInputValue(String(data.md_total));
+          setInputValue(extractedMd);
+        } else if (previousAutoMdStillPresent) {
+          setInputValue("");
         }
+        setAutoExtracted(
+          trackedRate || trackedMd || trackedStart || trackedEnd
+            ? {
+                candidateId,
+                rateRevenue: trackedRate ? extractedRate : null,
+                rateRevenueUnit: trackedRate ? extractedRateUnit : null,
+                inputValue: trackedMd ? extractedMd : null,
+                inputMode: trackedMd ? "md" : null,
+                startDate: trackedStart ? extractedStart : null,
+                endDate: trackedEnd ? extractedEnd : null,
+              }
+            : null,
+        );
       };
       // Rozbieżność → PYTAMY (ticket §5). W widoku jednoosobowym odczyt
       // nadpisuje bez pytania — to dwa różne scenariusze, nie niespójność.
@@ -269,20 +515,32 @@ export function ConsultantLineModal({
         {
           key: "start_date",
           label: "Start",
-          current: startDate,
-          incoming: data.start_date ? data.start_date.slice(0, 10) : null,
+          current: currentForm.startDate,
+          incoming: extractedStart,
         },
         {
           key: "end_date",
           label: "Koniec",
-          current: endDate,
-          incoming: data.end_date ? data.end_date.slice(0, 10) : null,
+          current: currentForm.endDate,
+          incoming: extractedEnd,
         },
         {
           key: "rate_client",
           label: "Stawka przychodowa",
-          current: rateRevenue,
-          incoming: numberToField(data.rate_client) || null,
+          current: currentForm.rateRevenue,
+          incoming: extractedRate,
+        },
+        {
+          key: "rate_unit",
+          label: "Jednostka stawki przychodowej",
+          current:
+            currentForm.rateRevenue.trim() && extractedRate != null
+              ? rateUnitLabel(currentForm.revenueUnit, "PLN")
+              : "",
+          incoming:
+            extractedRate != null && extractedRateUnit != null
+              ? rateUnitLabel(extractedRateUnit, "PLN")
+              : null,
         },
         ...(costBased || sharedMdBased
           ? []
@@ -290,13 +548,34 @@ export function ConsultantLineModal({
               {
                 key: "md_total" as const,
                 label: "Liczba MD",
-                current: inputMode === "md" ? inputValue : "",
+                current:
+                  currentForm.inputMode === "md" ? currentForm.inputValue : "",
                 incoming: numberToField(data.md_total) || null,
               },
             ]),
       ]);
-      setCheckData(Boolean(data.uncertain));
-      setCheckReasons(data.uncertain_reasons ?? []);
+      if (
+        !costBased &&
+        !sharedMdBased &&
+        extractedMd != null &&
+        currentForm.inputValue.trim() &&
+        currentForm.inputMode !== "md"
+      ) {
+        found.push({
+          key: "md_input_mode",
+          label: "Budżet konsultanta",
+          current: `${currentForm.inputValue} zł (kwota zamówienia)`,
+          incoming: `${extractedMd} MD (liczba MD)`,
+        });
+      }
+      const reasons = [...(data.uncertain_reasons ?? [])];
+      if (invalidRateUnit) {
+        reasons.push(
+          "Nie znaleziono jednostki stawki przychodowej — wpisz ją ręcznie",
+        );
+      }
+      setCheckData(Boolean(data.uncertain) || invalidRateUnit);
+      setCheckReasons(reasons);
       if (found.length > 0) {
         setConflicts(found);
         setPendingApply(() => apply);
@@ -304,11 +583,16 @@ export function ConsultantLineModal({
         apply();
       }
     } catch (err: unknown) {
-      setExtractError(
-        extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
-      );
+      if (extractionEpochRef.current === requestEpoch) {
+        setExtractError(
+          extractionErrorMessage(
+            err,
+            "Nie udało się odczytać danych z dokumentu.",
+          ),
+        );
+      }
     } finally {
-      setExtracting(false);
+      if (extractionEpochRef.current === requestEpoch) setExtracting(false);
     }
   }
 
@@ -661,13 +945,18 @@ export function ConsultantLineModal({
             inputId="line-po"
             file={file}
             onPick={(picked) => {
-              // Dodanie pliku NIE zmienia żadnego pola — odczyt jest osobną,
-              // świadomą akcją użytkownika.
+              // Nowy plik unieważnia request i tylko wartości, które nadal są
+              // wynikiem poprzedniego PDF. Ręczne poprawki pozostają.
+              extractionEpochRef.current += 1;
+              setExtracting(false);
+              clearAutoExtractedValues(true);
               setFile(picked);
               setFileError(null);
               setExtractError(null);
               setCheckData(false);
               setCheckReasons([]);
+              setConflicts([]);
+              setPendingApply(null);
             }}
             onError={setFileError}
             error={fileError ?? extractError}
@@ -679,7 +968,7 @@ export function ConsultantLineModal({
           <button
             type="button"
             onClick={handleExtract}
-            disabled={!file || extracting}
+            disabled={!file || extracting || targetCandidateId == null}
             className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <FileSearch className="h-4 w-4" aria-hidden />
@@ -691,7 +980,7 @@ export function ConsultantLineModal({
           </p>
         </div>
 
-        {editing && onAdjustRemaining && !sharedMdBased ? (
+        {editing && onAdjustRemaining && !costBased && !sharedMdBased ? (
           <fieldset className="rounded-md border border-dashed border-border p-3">
             <legend className="px-1 text-xs font-semibold text-muted-foreground">
               Korekta ręczna

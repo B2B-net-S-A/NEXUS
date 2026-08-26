@@ -27,9 +27,11 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
+from itertools import permutations
 from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -44,9 +46,13 @@ logger = logging.getLogger(__name__)
 # z fallbackiem na typed setting.
 _MODEL = os.environ.get("ORDER_PARSER_MODEL", "") or settings.ORDER_PARSER_MODEL
 _MAX_TOKENS = 1200
-# Cap długości promptu — zamówienia bywają wielostronicowe (załączniki), a pola
-# zwykle są na 1-2 stronach; 16k znaków to bezpieczny sufit kosztu/latencji.
+_MAX_TARGETED_TOKENS = 2400
+# Zwykłe formularze zachowują dotychczasowy limit. Przy wskazanym konsultancie
+# dokładamy do niego wszystkie okna, w których deterministyczny matcher widzi
+# możliwy zapis tej osoby — dzięki temu pozycja z dalszej strony nie znika.
 _MAX_DOC_CHARS = 16000
+_MAX_TARGETED_DOC_CHARS = 64000
+_TARGET_CONTEXT_RADII = (1800, 900, 450, 180)
 # Poniżej tego progu ufności pole współtworzy „uncertain".
 _LOW_CONFIDENCE = 0.6
 
@@ -59,6 +65,18 @@ _FIELD_LABELS_PL: dict[str, str] = {
     "total_value": "wartość całkowita",
     "md_total": "liczba MD",
 }
+
+
+@dataclass
+class ConsultantOrderRow:
+    """Jedna pozycja konsultanta odczytana z tego samego wiersza/sekcji PDF."""
+
+    consultant_name: str
+    rate_client: Optional[Decimal] = None
+    rate_unit: Optional[str] = None
+    md_total: Optional[Decimal] = None
+    uncertain: bool = True
+    uncertain_reason: Optional[str] = None
 
 
 @dataclass
@@ -99,6 +117,16 @@ class OrderExtraction:
     więc komunikat ma przeżyć redakcję)."""
 
     confidence: dict[str, float] = field(default_factory=dict)
+    consultant_rows: list[ConsultantOrderRow] = field(default_factory=list)
+    """Pozycje osobowe z dokumentu. Nie wychodzą do API; serwer używa ich
+    wyłącznie do jednoznacznego wyboru stawki i MD wskazanego konsultanta."""
+
+    consultant_rate_matched: bool = False
+    consultant_md_matched: bool = False
+    """Wewnętrzne dowody, które pola pochodzą z jednoznacznego wiersza osoby.
+    Polityki klientowe mogą je przeliczyć, ale nie mogą utworzyć pola, którego
+    matcher nie powiązał wcześniej z konsultantem."""
+
     uncertain: bool = True
     uncertain_reasons: list[str] = field(default_factory=list)
     source: str = "none"  # "claude" | "regex" | "none"
@@ -255,6 +283,34 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 conf[str(k)] = max(0.0, min(1.0, float(v)))
 
+    consultant_rows: list[ConsultantOrderRow] = []
+    raw_rows = data.get("consultant_rows")
+    if isinstance(raw_rows, list):
+        for raw_row in raw_rows[:100]:
+            if not isinstance(raw_row, dict):
+                continue
+            consultant_name = _clean_str(raw_row.get("consultant_name"))
+            if not consultant_name:
+                continue
+            row_uncertain_reason = _clean_str(
+                raw_row.get("uncertain_reason"), max_len=200
+            )
+            consultant_rows.append(
+                ConsultantOrderRow(
+                    consultant_name=consultant_name,
+                    rate_client=_normalize_amount(raw_row.get("rate_client")),
+                    rate_unit=_clean_unit(raw_row.get("rate_unit")),
+                    md_total=_normalize_amount(raw_row.get("md_total")),
+                    # Pole jest wymagane przez prompt. Brak traktujemy fail-safe:
+                    # starsza/ucięta odpowiedź modelu nie może zapisać kwoty.
+                    uncertain=(
+                        raw_row.get("uncertain") is not False
+                        or row_uncertain_reason is not None
+                    ),
+                    uncertain_reason=row_uncertain_reason,
+                )
+            )
+
     result = OrderExtraction(
         title=_clean_str(data.get("title")),
         start_date=_normalize_date(data.get("start_date"), end=False),
@@ -265,6 +321,7 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
         currency=_clean_currency(data.get("currency")),
         md_total=_normalize_amount(data.get("md_total")),
         confidence=conf,
+        consultant_rows=consultant_rows,
         source=source,
     )
 
@@ -288,20 +345,313 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
 # ── Claude (prymarny) ───────────────────────────────────────────────────────
 
 
-async def _extract_with_claude(text: str) -> Optional[OrderExtraction]:
+def _search_name_tokens(value: str) -> list[str]:
+    """Tokeny pomocnicze do znalezienia nazwiska w pełnym tekście dokumentu."""
+
+    folded = unicodedata.normalize("NFKD", (value or "").casefold())
+    folded = folded.replace("ł", "l")
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    raw_words = re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", folded)
+    tokens: list[str] = []
+    for raw_word in raw_words:
+        parts = [part for part in raw_word.split("-") if part]
+        tokens.extend(parts)
+        if len(parts) > 1:
+            tokens.append("".join(parts))
+    return [token for token in tokens if token not in _NAME_TITLES]
+
+
+def _contains_exact_tokens(required: tuple[str, ...], available: list[str]) -> bool:
+    """Multiset containment: każdy wymagany człon musi wystąpić osobno."""
+
+    remaining = list(available)
+    for token in required:
+        try:
+            remaining.remove(token)
+        except ValueError:
+            return False
+    return True
+
+
+def _token_window_contains_consultant(
+    fragment: str,
+    consultant_name: str,
+    consultant_given_names: Optional[str] = None,
+) -> bool:
+    """Czy pojedynczy fragment zawiera sąsiadujące tokeny jednej osoby."""
+
+    for fragment_tokens in _name_token_variants(fragment):
+        for target_tokens in _name_token_variants(consultant_name):
+            width = len(target_tokens)
+            if width > 6 or len(fragment_tokens) < width:
+                continue
+            for start in range(len(fragment_tokens) - width + 1):
+                candidate = " ".join(fragment_tokens[start : start + width])
+                if (
+                    _name_match_score(
+                        consultant_name,
+                        candidate,
+                        consultant_given_names=consultant_given_names,
+                    )
+                    is not None
+                ):
+                    return True
+    return False
+
+
+_CROSS_LINE_NAME_CONTEXT = {
+    "brutto",
+    "day",
+    "dzien",
+    "dni",
+    "eur",
+    "godz",
+    "godzina",
+    "h",
+    "hour",
+    "md",
+    "miesiac",
+    "month",
+    "netto",
+    "pln",
+    "rate",
+    "stawka",
+    "usd",
+}
+
+
+def _line_looks_like_complete_person(
+    line: str,
+    consultant_name: str,
+    consultant_given_names: Optional[str],
+) -> bool:
+    """Czy jeden wiersz ma już imię oraz człon nazwiska targetu."""
+
+    # Jawny łącznik na końcu oznacza zawinięte, niedokończone nazwisko.
+    if re.search(r"-\s*$", line.strip()):
+        return False
+    given_variants = _given_name_token_variants(
+        consultant_name, consultant_given_names
+    )
+    for line_tokens in _name_token_variants(line):
+        for target_tokens in _name_token_variants(consultant_name):
+            for given_tokens in given_variants:
+                if not _contains_exact_tokens(given_tokens, list(line_tokens)):
+                    continue
+                surname_tokens = list(target_tokens)
+                try:
+                    for token in given_tokens:
+                        surname_tokens.remove(token)
+                except ValueError:
+                    continue
+                if any(
+                    _safe_token_distance(surname_token, line_token) is not None
+                    for surname_token in surname_tokens
+                    for line_token in line_tokens
+                    if line_token not in given_tokens
+                ):
+                    return True
+    return False
+
+
+def _cross_line_context_is_name_only(
+    fragment: str,
+    consultant_name: str,
+    consultant_given_names: Optional[str],
+) -> bool:
+    """W zapisie wielowierszowym nie może być członów drugiej osoby.
+
+    Dopuszczamy wyłącznie tokeny targetu, liczby i proste etykiety stawki. Pełny
+    wiersz z innym imieniem/nazwiskiem nie może więc skleić się z sąsiadem.
+    """
+
+    lines = [line for line in fragment.splitlines() if line.strip()]
+    if any(
+        _line_looks_like_complete_person(
+            line, consultant_name, consultant_given_names
+        )
+        for line in lines
+    ):
+        return False
+
+    target_variants = _name_token_variants(consultant_name)
+    for fragment_tokens in _name_token_variants(fragment):
+        relevant = [
+            token
+            for token in fragment_tokens
+            if not token.isdigit() and token not in _CROSS_LINE_NAME_CONTEXT
+        ]
+        if any(
+            all(
+                any(
+                    _safe_token_distance(target_token, token) is not None
+                    for target_token in target_tokens
+                )
+                for token in relevant
+            )
+            for target_tokens in target_variants
+        ):
+            return True
+    return False
+
+
+def _fragment_contains_consultant(
+    fragment: str,
+    consultant_name: str,
+    consultant_given_names: Optional[str] = None,
+) -> bool:
+    """Nazwa w jednym wierszu albo bezpiecznie rozbita na maks. trzy wiersze."""
+
+    lines = [line for line in fragment.splitlines() if line.strip()]
+    if any(
+        _token_window_contains_consultant(
+            line, consultant_name, consultant_given_names
+        )
+        for line in lines
+    ):
+        return True
+
+    for start in range(len(lines)):
+        for width in (2, 3):
+            span = lines[start : start + width]
+            if len(span) != width:
+                continue
+            joined = "\n".join(span)
+            if _cross_line_context_is_name_only(
+                joined, consultant_name, consultant_given_names
+            ) and _token_window_contains_consultant(
+                joined, consultant_name, consultant_given_names
+            ):
+                return True
+    return False
+
+
+def _document_mentions_consultant(
+    text: str,
+    consultant_name: str,
+    consultant_given_names: Optional[str] = None,
+) -> bool:
+    """Deterministyczny dowód, że wskazana osoba rzeczywiście występuje w PDF."""
+
+    lines = text.splitlines(keepends=True)
+    return any(
+        _fragment_contains_consultant(
+            "".join(lines[index : index + 4]),
+            consultant_name,
+            consultant_given_names,
+        )
+        for index in range(len(lines))
+    )
+
+
+def _merge_text_ranges(
+    ranges: list[tuple[int, int]], *, text_length: int
+) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        start = max(0, start)
+        end = min(text_length, end)
+        if start >= end:
+            continue
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _join_text_ranges(text: str, ranges: list[tuple[int, int]]) -> str:
+    return "\n\n[… pominięty fragment dokumentu …]\n\n".join(
+        text[start:end].strip() for start, end in ranges if text[start:end].strip()
+    )
+
+
+def _document_text_for_prompt(
+    text: str,
+    consultant_name: Optional[str],
+    consultant_given_names: Optional[str] = None,
+) -> tuple[str, bool]:
+    """Zwykły cap albo nagłówek + wszystkie okna możliwej osoby.
+
+    Druga wartość mówi, że nawet minimalne okna nie zmieściły się w limicie.
+    W takim przypadku wynik osobowy jest później celowo odrzucany do ręcznej
+    weryfikacji zamiast wyboru na podstawie niepełnego dokumentu.
+    """
+
+    if not consultant_name or len(text) <= _MAX_DOC_CHARS:
+        return text[:_MAX_DOC_CHARS], False
+
+    lines = text.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+
+    hit_ranges: list[tuple[int, int]] = []
+    for index in range(len(lines)):
+        # Nazwa złożona może zostać rozbita przez ekstraktor PDF nawet na trzy
+        # wiersze; czwarty często niesie stawkę/MD tej samej pozycji.
+        fragment = "".join(lines[index : index + 4])
+        if _fragment_contains_consultant(
+            fragment, consultant_name, consultant_given_names
+        ):
+            hit_ranges.append((offsets[index], offsets[min(index + 4, len(lines))]))
+
+    # Brak nawet tolerancyjnego śladu oznacza bezpieczny wynik bez wiersza:
+    # model widzi dotychczasowy początek dokumentu, a matcher wyczyści kwotę/MD.
+    if not hit_ranges:
+        return text[:_MAX_DOC_CHARS], False
+
+    for radius in _TARGET_CONTEXT_RADII:
+        ranges = [(0, _MAX_DOC_CHARS)] + [
+            (start - radius, end + radius) for start, end in hit_ranges
+        ]
+        merged = _merge_text_ranges(ranges, text_length=len(text))
+        excerpt = _join_text_ranges(text, merged)
+        if len(excerpt) <= _MAX_TARGETED_DOC_CHARS:
+            return excerpt, False
+
+    # Zachowaj przynajmniej pełne wiersze wszystkich trafień. Jeżeli nawet one
+    # przekraczają limit, oznacz kontekst jako niepełny — żadna stawka nie może
+    # wtedy zostać przypisana automatycznie.
+    core_ranges = _merge_text_ranges(
+        [(0, _MAX_DOC_CHARS), *hit_ranges], text_length=len(text)
+    )
+    excerpt = _join_text_ranges(text, core_ranges)
+    return excerpt[:_MAX_TARGETED_DOC_CHARS], len(excerpt) > _MAX_TARGETED_DOC_CHARS
+
+
+async def _extract_with_claude(
+    text: str,
+    *,
+    consultant_name: Optional[str] = None,
+    consultant_given_names: Optional[str] = None,
+) -> Optional[OrderExtraction]:
     # Typed field w Settings — dostęp wprost (getattr z defaultem cicho
     # re-enable'owałby kill-switch, gdyby pole zniknęło z config.py).
     api_key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
     if not api_key or not settings.ORDER_EXTRACTION_ENABLED:
         return None
 
-    prompt = ORDER_EXTRACTION.render(document_text=text[:_MAX_DOC_CHARS])
+    # W trybie targetowanym przeglądamy cały wielostronicowy tekst. To CPU-bound
+    # fuzzy scan, więc podobnie jak ekstrakcja pliku nie może blokować event loopu.
+    document_text, target_context_incomplete = await run_in_threadpool(
+        _document_text_for_prompt, text, consultant_name, consultant_given_names
+    )
+    target_for_prompt = (
+        json.dumps(consultant_name, ensure_ascii=False)
+        if consultant_name
+        else "(not provided)"
+    )
+    prompt = ORDER_EXTRACTION.render(
+        document_text=document_text,
+        target_consultant=target_for_prompt,
+    )
     try:
         message = await run_in_threadpool(
             call_claude,
             messages=[{"role": "user", "content": prompt}],
             model=_MODEL,
-            max_tokens=_MAX_TOKENS,
+            max_tokens=_MAX_TARGETED_TOKENS if consultant_name else _MAX_TOKENS,
             api_key=api_key,
             # Claude 5 robi adaptive thinking (effort=high) domyślnie; thinking
             # tokeny liczą się do max_tokens i ucięłyby JSON — wyłączamy.
@@ -322,7 +672,16 @@ async def _extract_with_claude(text: str) -> Optional[OrderExtraction]:
         return None
     if not isinstance(data, dict):
         return None
-    return _normalize(data, source="claude")
+    result = _normalize(data, source="claude")
+    if target_context_incomplete:
+        # Nie wybieramy osoby z niepełnego zbioru potencjalnych trafień.
+        result.consultant_rows = []
+        result.uncertain = True
+        result.uncertain_reasons.append(
+            "Dokument zawiera zbyt wiele możliwych pozycji konsultanta — "
+            "stawka i liczba MD wymagają ręcznej weryfikacji"
+        )
+    return result
 
 
 # ── Regex fallback (best-effort, zawsze niepewny) ───────────────────────────
@@ -789,10 +1148,308 @@ def _extract_with_regex(text: str) -> OrderExtraction:
     return result
 
 
+# ── Dopasowanie konkretnego konsultanta ────────────────────────────────────
+
+_NAME_TITLES = {
+    "dr",
+    "inz",
+    "mgr",
+    "mr",
+    "mrs",
+    "ms",
+    "pan",
+    "pani",
+}
+
+
+def _name_token_variants(
+    value: str, *, min_tokens: int = 2
+) -> set[tuple[str, ...]]:
+    """Warianty tokenów nazwiska: myślnik jako separator albo bez znaku.
+
+    Dzięki temu ``Prus-Rudzińska Natalia``, ``Natalia Prus Rudzińska`` oraz
+    OCR-owe ``Natalia PrusRudzinska`` trafiają do tej samej przestrzeni, bez
+    utraty granic pozostałych członów imienia i nazwiska.
+    """
+
+    folded = unicodedata.normalize("NFKD", (value or "").casefold())
+    folded = folded.replace("ł", "l")
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    folded = re.sub(r"[^a-z0-9\-\s]", " ", folded)
+    words = [word.strip("-") for word in folded.split() if word.strip("-")]
+    if not words:
+        return set()
+
+    split_tokens = [
+        part
+        for word in words
+        for part in word.split("-")
+        if part and part not in _NAME_TITLES
+    ]
+    joined_tokens = [
+        word.replace("-", "")
+        for word in words
+        if word.replace("-", "") not in _NAME_TITLES
+    ]
+    variants = {tuple(split_tokens), tuple(joined_tokens)}
+    return {variant for variant in variants if len(variant) >= min_tokens}
+
+
+def _given_name_token_variants(
+    target: str, consultant_given_names: Optional[str]
+) -> set[tuple[str, ...]]:
+    """Dokładne człony imienia/imion, oddzielone od nazwiska w bazie.
+
+    Produkcyjny endpoint przekazuje pole ``Candidate.name`` osobno. Domyślna
+    heurystyka istnieje wyłącznie dla wewnętrznych/starszych wywołań i zakłada
+    kanoniczny zapis „imię [drugie imię] nazwisko".
+    """
+
+    source = (consultant_given_names or "").strip()
+    if not source:
+        words = (target or "").split()
+        source = " ".join(words[:-1]) if len(words) >= 2 else ""
+    return _name_token_variants(source, min_tokens=1)
+
+
+def _safe_token_distance(expected: str, actual: str) -> Optional[int]:
+    """Dokładny token albo jedna wewnętrzna zamiana sąsiednich znaków.
+
+    Substytucja/wstawienie/usunięcie może tworzyć inne realne nazwisko
+    (``Nowak``/``Nowik``), więc trafia do ręcznej weryfikacji. Transpozycja
+    typu ``Rudzinska``/``Rudzniska`` zachowuje dokładnie ten sam zestaw liter
+    i jest znacznie mniej kolizyjną, typową literówką/OCR.
+    """
+
+    if expected == actual:
+        return 0
+    if len(expected) < 5 or len(expected) != len(actual):
+        return None
+    differences = [
+        index
+        for index, (left_char, right_char) in enumerate(zip(expected, actual))
+        if left_char != right_char
+    ]
+    if len(differences) != 2 or differences[1] != differences[0] + 1:
+        return None
+    first, second = differences
+    if first == 0 or second == len(expected) - 1:
+        return None
+    if expected[first] == actual[second] and expected[second] == actual[first]:
+        return 1
+    return None
+
+
+def _name_match_score(
+    target: str,
+    candidate: str,
+    *,
+    consultant_given_names: Optional[str] = None,
+) -> Optional[float]:
+    """Najniższy bezpieczny koszt dopasowania; ``None`` = inna osoba.
+
+    Każdy człon musi znaleźć odpowiednik, wszystkie imiona muszą być identyczne,
+    a w całym nazwisku dopuszczamy najwyżej jedną literówkę. Sama zgodność
+    imienia nie wystarczy więc do dopasowania zupełnie innego nazwiska.
+    """
+
+    given_name_variants = _given_name_token_variants(
+        target, consultant_given_names
+    )
+    if not given_name_variants:
+        return None
+
+    best: Optional[float] = None
+    for target_tokens in _name_token_variants(target):
+        for candidate_tokens in _name_token_variants(candidate):
+            if len(target_tokens) != len(candidate_tokens) or len(target_tokens) > 6:
+                continue
+            if not any(
+                _contains_exact_tokens(given_tokens, list(candidate_tokens))
+                for given_tokens in given_name_variants
+            ):
+                continue
+            for ordered in permutations(candidate_tokens):
+                distances = [
+                    _safe_token_distance(expected, actual)
+                    for expected, actual in zip(target_tokens, ordered)
+                ]
+                if any(distance is None for distance in distances):
+                    continue
+                numeric_distances = [
+                    distance for distance in distances if distance is not None
+                ]
+                if not any(distance == 0 for distance in numeric_distances):
+                    continue
+                if sum(numeric_distances) > 1:
+                    continue
+                score = sum(
+                    distance / max(len(expected), len(actual))
+                    for expected, actual, distance in zip(
+                        target_tokens, ordered, numeric_distances
+                    )
+                )
+                if best is None or score < best:
+                    best = score
+    return best
+
+
+def _names_exactly_equivalent(left: str, right: str) -> bool:
+    """Równość po kolejności/diakrytykach/myślniku, ale nigdy po literówce."""
+
+    return any(
+        sorted(left_tokens) == sorted(right_tokens)
+        for left_tokens in _name_token_variants(left)
+        for right_tokens in _name_token_variants(right)
+    )
+
+
+def apply_consultant_row_match(
+    result: OrderExtraction,
+    consultant_name: str,
+    *,
+    consultant_given_names: Optional[str] = None,
+) -> OrderExtraction:
+    """Wybierz dokładnie jeden wiersz tej osoby albo wyczyść stawkę i MD.
+
+    Nie korzystamy z top-levelowej stawki wybranej przez model ani z pierwszej
+    kwoty regexowego fallbacku. Bez jednoznacznej pozycji automatyczny zapis
+    finansowy jest zabroniony i formularz dostaje jawny stan ręcznej kontroli.
+    """
+
+    target = (consultant_name or "").strip()
+    result.consultant_rate_matched = False
+    result.consultant_md_matched = False
+    matches: list[tuple[float, ConsultantOrderRow]] = []
+    unique_rows: list[ConsultantOrderRow] = []
+    for row in result.consultant_rows:
+        if any(
+            _names_exactly_equivalent(row.consultant_name, existing.consultant_name)
+            and row.rate_client == existing.rate_client
+            and row.rate_unit == existing.rate_unit
+            and row.md_total == existing.md_total
+            and row.uncertain == existing.uncertain
+            for existing in unique_rows
+        ):
+            continue
+        unique_rows.append(row)
+        score = _name_match_score(
+            target,
+            row.consultant_name,
+            consultant_given_names=consultant_given_names,
+        )
+        if score is not None:
+            matches.append((score, row))
+
+    # Zawsze usuń globalny/losowy wybór przed rozstrzygnięciem konkretnej osoby.
+    result.rate_client = None
+    result.rate_unit = None
+    result.rate_client_md = None
+    result.rate_client_gross = None
+    result.md_total = None
+    for key in (
+        "rate_client",
+        "rate_unit",
+        "rate_client_md",
+        "rate_client_gross",
+        "md_total",
+    ):
+        result.confidence.pop(key, None)
+
+    if len(matches) == 1:
+        row = matches[0][1]
+        result.md_total = row.md_total
+        if row.uncertain:
+            result.uncertain = True
+            reason = row.uncertain_reason or (
+                f"Nie można jednoznacznie powiązać stawki i liczby MD z pozycją "
+                f"konsultanta „{target}” — wpisz je ręcznie"
+            )
+            if reason not in result.uncertain_reasons:
+                result.uncertain_reasons.append(reason)
+            # Nawet MD zostaje puste: flaga mówi, że cały wiersz/sekcja nie jest
+            # jednoznacznie związany z osobą.
+            result.md_total = None
+            return result
+        result.consultant_md_matched = row.md_total is not None
+        if row.rate_client is not None and row.rate_unit is None:
+            result.uncertain = True
+            result.uncertain_reasons.append(
+                f"W pozycji konsultanta „{target}” nie znaleziono jednostki stawki — "
+                "wpisz stawkę przychodową ręcznie"
+            )
+            return result
+        result.rate_client = row.rate_client
+        result.rate_unit = row.rate_unit
+        result.consultant_rate_matched = (
+            row.rate_client is not None and row.rate_unit is not None
+        )
+        if row.rate_client is None:
+            result.rate_unit = None
+            result.uncertain = True
+            result.uncertain_reasons.append(
+                f"W pozycji konsultanta „{target}” nie znaleziono stawki przychodowej — wpisz ją ręcznie"
+            )
+        return result
+
+    result.uncertain = True
+    if len(matches) > 1:
+        reason = (
+            f"Znaleziono więcej niż jedną pozycję pasującą do konsultanta „{target}” — "
+            "stawka i liczba MD wymagają ręcznej weryfikacji"
+        )
+    else:
+        reason = (
+            f"Nie znaleziono jednoznacznej pozycji konsultanta „{target}” — "
+            "stawka i liczba MD wymagają ręcznej weryfikacji"
+        )
+    if reason not in result.uncertain_reasons:
+        result.uncertain_reasons.append(reason)
+    return result
+
+
+def enforce_consultant_policy_safety(result: OrderExtraction) -> OrderExtraction:
+    """Po politykach zachowaj tylko pola mające dowód z wiersza konsultanta.
+
+    Poprawne przeliczenie (np. brutto→netto Erste) zostaje zachowane, bo matcher
+    potwierdził wejściową stawkę. Po no-match żadna polityka nie może natomiast
+    odtworzyć stawki ani MD z globalnej etykiety dokumentu.
+    """
+
+    if not result.consultant_rate_matched:
+        result.rate_client = None
+        result.rate_unit = None
+        result.rate_client_md = None
+        result.rate_client_gross = None
+        for key in (
+            "rate_client",
+            "rate_unit",
+            "rate_client_md",
+            "rate_client_gross",
+        ):
+            result.confidence.pop(key, None)
+        result.uncertain = True
+        reason = (
+            "Stawka przychodowa nie pochodzi z jednoznacznego wiersza "
+            "konsultanta — wpisz ją ręcznie"
+        )
+        if reason not in result.uncertain_reasons:
+            result.uncertain_reasons.append(reason)
+    if not result.consultant_md_matched:
+        result.md_total = None
+        result.confidence.pop("md_total", None)
+    return result
+
+
 # ── Publiczne API ───────────────────────────────────────────────────────────
 
 
-async def parse_order_document(text: str) -> OrderExtraction:
+async def parse_order_document(
+    text: str,
+    *,
+    consultant_name: Optional[str] = None,
+    consultant_given_names: Optional[str] = None,
+) -> OrderExtraction:
     """Odczytaj pola zamówienia z tekstu dokumentu. Nigdy nie rzuca."""
     text = (text or "").strip()
     if not text:
@@ -800,7 +1457,28 @@ async def parse_order_document(text: str) -> OrderExtraction:
             uncertain=True, uncertain_reasons=["Pusty dokument"], source="none"
         )
 
-    result = await _extract_with_claude(text)
-    if result is not None:
-        return result
-    return _extract_with_regex(text)
+    result = await _extract_with_claude(
+        text,
+        consultant_name=consultant_name,
+        consultant_given_names=consultant_given_names,
+    )
+    if result is None:
+        result = _extract_with_regex(text)
+    if consultant_name:
+        # Model dostaje nazwę w prompcie, więc jego własna lista wierszy nie jest
+        # dowodem obecności osoby. Gdy pełny tekst nie zawiera nawet bezpiecznego
+        # wariantu nazwy, odrzucamy ewentualnie zahalucynowany wiersz fail-closed.
+        target_present = await run_in_threadpool(
+            _document_mentions_consultant,
+            text,
+            consultant_name,
+            consultant_given_names,
+        )
+        if not target_present:
+            result.consultant_rows = []
+        result = apply_consultant_row_match(
+            result,
+            consultant_name,
+            consultant_given_names=consultant_given_names,
+        )
+    return result

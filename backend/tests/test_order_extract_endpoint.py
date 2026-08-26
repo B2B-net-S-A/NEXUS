@@ -16,6 +16,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
+import pytest
 
 _TODAY = date(2026, 8, 5)
 
@@ -30,6 +31,22 @@ async def _seed_client(name: str | None = None) -> int:
         await db.commit()
         await db.refresh(client)
         return client.id
+
+
+async def _seed_candidate(name: str, lastname: str) -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name=name,
+            lastname=lastname,
+            email=f"pdf-target-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add(candidate)
+        await db.commit()
+        await db.refresh(candidate)
+        return candidate.id
 
 
 async def _dl_headers(app_client: AsyncClient, client_id: int) -> dict[str, str]:
@@ -167,6 +184,101 @@ async def test_extract_order_pdf_admin_sees_finance(
     assert Decimal(str(data["total_value"])) == Decimal("102000")
     assert data["uncertain"] is True
     assert data["uncertain_reasons"]
+
+
+@pytest.mark.parametrize(
+    "client_name",
+    ["Polkomtel Sp. z o.o.", "Cyfrowy Polsat S.A.", "BIK S.A."],
+)
+async def test_targeted_extract_resolves_canonical_candidate_for_each_client(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    client_name: str,
+):
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
+
+    client_id = await _seed_client(client_name)
+    candidate_id = await _seed_candidate("Natalia", "Prus-Rudzińska")
+    received: dict[str, str | None] = {}
+    monkeypatch.setattr(co, "extract_text", lambda path, filename: "treść PDF")
+
+    async def _fake_parse(
+        text: str,
+        *,
+        consultant_name: str | None = None,
+        consultant_given_names: str | None = None,
+    ) -> OrderExtraction:
+        received["text"] = text
+        received["consultant_name"] = consultant_name
+        received["consultant_given_names"] = consultant_given_names
+        return OrderExtraction(
+            title="PO-MULTI",
+            start_date="2026-09-01",
+            rate_client=Decimal("1640"),
+            rate_unit="day",
+            md_total=Decimal("37"),
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Prus-Rudzińska Natalia",
+                    rate_client=Decimal("1640"),
+                    rate_unit="day",
+                    md_total=Decimal("37"),
+                    uncertain=False,
+                )
+            ],
+            consultant_rate_matched=True,
+            consultant_md_matched=True,
+            uncertain=False,
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _fake_parse)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        data={"candidate_id": str(candidate_id)},
+        files={"file": ("multi.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert received == {
+        "text": "treść PDF",
+        "consultant_name": "Natalia Prus-Rudzińska",
+        "consultant_given_names": "Natalia",
+    }
+    data = response.json()
+    assert Decimal(str(data["rate_client"])) == Decimal("1640")
+    assert Decimal(str(data["md_total"])) == Decimal("37")
+    # Wewnętrzna lista innych osób i ich stawek nie wychodzi z API.
+    assert "consultant_rows" not in data
+
+
+async def test_targeted_extract_rejects_unknown_candidate_before_parsing(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("BIK S.A.")
+    parsed = False
+
+    async def _must_not_parse(*args, **kwargs):
+        nonlocal parsed
+        parsed = True
+        raise AssertionError("parser must not run for an unknown candidate")
+
+    monkeypatch.setattr(co, "parse_order_document", _must_not_parse)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        data={"candidate_id": "2147483647"},
+        files={"file": ("multi.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Candidate not found"
+    assert parsed is False
 
 
 async def test_nordea_endpoint_forces_call_off_agreement_number(

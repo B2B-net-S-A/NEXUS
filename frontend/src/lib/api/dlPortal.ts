@@ -415,9 +415,18 @@ export const dlPortalApi = {
    * Orderu ani nie zapisuje pliku — zwraca odczytane pola do wstawienia w
    * formularzu (wszystkie edytowalne). `uncertain` => baner "Sprawdź dane!".
    */
-  extractOrderPdf: (clientId: number, file: File) => {
+  extractOrderPdf: (
+    clientId: number,
+    file: File,
+    candidateId?: number | null
+  ) => {
     const fd = new FormData();
     fd.append("file", file);
+    if (candidateId != null) {
+      // Widok wielo-konsultantowy wskazuje konkretną osobę. Backend pobiera po
+      // ID kanoniczne imię i nazwisko, więc nie ufamy wolnemu tekstowi z UI.
+      fd.append("candidate_id", String(candidateId));
+    }
     return api.post<OrderExtractionResult>(
       `/api/clients/${clientId}/orders/extract`,
       fd,

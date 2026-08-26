@@ -1087,6 +1087,54 @@ async def test_cost_flag_is_independent_of_the_md_flag(
 # wymiany osoby na zamówieniu kosztowym.
 
 
+async def test_cost_line_rates_and_end_date_can_be_edited_without_changing_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Stawki osoby nie są wejściem wspólnego budżetu kosztowego."""
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        is_cost_based=True,
+        budget_amount=50000,
+    )
+    before_budget = (group["budget_amount"], group["budget_remaining"])
+    assert before_budget == pytest.approx((50000, 50000))
+
+    end_date = _TODAY + timedelta(days=30)
+    updated = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}",
+        json={
+            "rate_cost": 1100,
+            "rate_revenue": 1350,
+            "end_date": end_date.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    line = updated.json()
+    assert line["rate_cost"] == pytest.approx(1100)
+    assert line["rate_revenue"] == pytest.approx(1350)
+    assert line["end_date"] == end_date.isoformat()
+    assert line["md_total"] is None
+
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    refreshed = next(
+        item for item in listing.json()["groups"] if item["id"] == group["id"]
+    )
+    assert (
+        refreshed["budget_amount"],
+        refreshed["budget_remaining"],
+    ) == pytest.approx(before_budget)
+
+
 async def test_swap_works_on_a_cost_order_without_md_budget(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

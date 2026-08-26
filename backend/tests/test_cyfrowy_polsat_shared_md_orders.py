@@ -355,18 +355,38 @@ async def test_shared_md_extend_line_update_and_swap_keep_budget_on_group(
         app_client, app_auth_headers, first_contract, total=40
     )
     old_line = created["lines"][0]
+    before_budget = (
+        created["md_budget_total"],
+        created["md_budget_used"],
+        created["md_budget_remaining"],
+    )
+    assert before_budget == pytest.approx((40, 0, 40))
 
     updated = await app_client.patch(
         (
             f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups/"
             f"{created['id']}/lines/{old_line['id']}"
         ),
-        json={"rate_revenue": 1300},
+        json={"rate_cost": 1050, "rate_revenue": 1300},
         headers=app_auth_headers,
     )
     assert updated.status_code == 200, updated.text
+    assert updated.json()["rate_cost"] == pytest.approx(1050)
     assert updated.json()["rate_revenue"] == pytest.approx(1300)
     assert updated.json()["md_total"] is None
+
+    listing = await app_client.get(
+        f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups",
+        headers=app_auth_headers,
+    )
+    refreshed = next(
+        item for item in listing.json()["groups"] if item["id"] == created["id"]
+    )
+    assert (
+        refreshed["md_budget_total"],
+        refreshed["md_budget_used"],
+        refreshed["md_budget_remaining"],
+    ) == pytest.approx(before_budget)
 
     swapped = await app_client.post(
         (

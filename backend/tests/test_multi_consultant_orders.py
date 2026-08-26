@@ -423,6 +423,57 @@ async def test_two_consultants_share_one_order(
     assert {line["md_total"] for line in group["lines"]} == {50.0, 63.0}
 
 
+async def test_md_line_rate_edit_preserves_the_consultant_md_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """W trybie MD zmiana stawek nie zmienia wpisanej liczby osobodni."""
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_line_payload(contracts[0], input_mode="md", input_value=50)],
+    )
+    line = group["lines"][0]
+
+    updated = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line['id']}",
+        json={"rate_cost": 1100, "rate_revenue": 1350},
+        headers=app_auth_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["rate_cost"] == pytest.approx(1100)
+    assert body["rate_revenue"] == pytest.approx(1350)
+    assert body["input_mode"] == "md"
+    assert body["input_value"] == pytest.approx(50)
+    assert body["md_total"] == pytest.approx(line["md_total"])
+    assert body["md_remaining"] == pytest.approx(line["md_remaining"])
+
+
+async def test_standard_line_rate_edit_without_budget_value_still_returns_422(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wyjątek dla wspólnych pul nie może wyłączyć walidacji per osoba."""
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+
+    updated = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}",
+        json={"rate_revenue": 1350, "input_value": None},
+        headers=app_auth_headers,
+    )
+    assert updated.status_code == 422, updated.text
+    assert updated.json()["detail"] == (
+        "Do przeliczenia budżetu potrzebna jest stawka i wartość"
+    )
+
+
 async def test_line_rejects_zero_revenue_rate(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

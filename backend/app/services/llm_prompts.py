@@ -195,10 +195,11 @@ CV_ENRICHMENT_BULK = PromptTemplate(
 
 ORDER_EXTRACTION = PromptTemplate(
     name="order_extraction",
-    # v2 (0233): doszedł `md_total`. Bump JEST konieczny — cache wyników
+    # v3: osobne wiersze konsultantów + opcjonalna osoba docelowa. Bump JEST
+    # konieczny — cache wyników
     # promptu jest kluczowany wersją, więc bez niego zamówienia czytane po
-    # wdrożeniu wracałyby ze starego cache'u BEZ nowego pola.
-    version=2,
+    # wdrożeniu wracałyby ze starego cache'u BEZ wierszy osobowych.
+    version=3,
     expected_format="json",
     system_prompt=(
         "You extract structured fields from a client purchase order / call-off / "
@@ -206,11 +207,13 @@ ORDER_EXTRACTION = PromptTemplate(
         "may be Polish or English and the data may sit anywhere — header, a table, "
         "or free-text body. Search the WHOLE document, not one fixed line. Formats "
         "vary by client, so recognise unusual notations. Never invent a value: when "
-        "a field is absent or ambiguous, return null and lower its confidence. When "
-        "several candidates match a field and you cannot decide, pick the most "
-        "likely one but flag uncertainty."
+        "a field is absent or ambiguous, return null and lower its confidence. Never "
+        "pick one person's rate for another person. When several candidates match a "
+        "field and you cannot decide, return null and flag uncertainty."
     ),
     template=(
+        "TARGET CONSULTANT (may be '(not provided)'):\n"
+        "{target_consultant}\n\n"
         "From the order document below, produce a JSON object with these fields:\n"
         '  "title": the order identifier — order number, "numer zamówienia", '
         '"Call Off Agreement number", PO number or a similar document reference, '
@@ -231,6 +234,18 @@ ORDER_EXTRACTION = PromptTemplate(
         "the order, as a plain number. Only when the document states the COUNT "
         "directly — do NOT derive it by dividing the total value by the rate, and "
         "do not confuse it with the rate itself. null if absent.\n"
+        '  "consultant_rows": when TARGET CONSULTANT is provided, a JSON list of '
+        "EVERY consultant/person row or clearly separated consultant section in "
+        "the provided document excerpts; otherwise an empty list. Each item has exactly: "
+        '{{"consultant_name": string, "rate_client": number|null, '
+        '"rate_unit": "hour"|"day"|"month"|null, "md_total": number|null, '
+        '"uncertain": boolean, "uncertain_reason": string|null}}. '
+        "Copy consultant_name as written. Keep rate_client and md_total ONLY from "
+        "that same row/section; never combine a name with values from an adjacent "
+        "person. Set uncertain=true whenever the name-to-values binding is not "
+        "explicit and unambiguous; in that case keep rate_client, rate_unit and "
+        "md_total null and explain why in uncertain_reason. Do not include table "
+        "headers without a person's name. Repeated identical rows may be returned once.\n"
         '  "currency": ISO 4217 code ("PLN"|"EUR"|"USD") if present, else null.\n'
         '  "_confidence": object mapping each field above to a float 0.0-1.0 — 0.95+ '
         "when explicit and unambiguous, 0.6-0.85 when inferred from context, "
@@ -239,6 +254,14 @@ ORDER_EXTRACTION = PromptTemplate(
         "several plausible candidates, or looked atypical/incomplete.\n"
         '  "uncertain_reasons": list of short Polish strings naming what is unsure '
         '(e.g. "Nie znaleziono jednoznacznej daty końca"). Empty list if fully confident.\n\n'
+        "TARGET RULE: when TARGET CONSULTANT is provided, set the top-level "
+        "rate_client, rate_unit and md_total to null. The server will select one "
+        "consultant_rows item using strict name matching. Listing several distinct "
+        "consultants is normal and does not itself make the result uncertain. The "
+        "three deliberately null top-level fields also do not count as missing in "
+        "this mode. If a "
+        "person's row/section cannot be separated from another person's values, keep "
+        "that row's financial/MD fields null and explain the ambiguity.\n\n"
         "PERIOD NOTATION: some clients write the period in the body, e.g. BNP uses "
         '"mc 06-2026_12-2026" meaning months 06/2026 through 12/2026 — output '
         'start_date "2026-06" and end_date "2026-12". Recognise such MM-YYYY ranges '
