@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, Integer, Numeric, String
+from sqlalchemy import Date, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -12,6 +12,13 @@ from app.models.base import TimestampMixin
 
 class FxRate(Base, TimestampMixin):
     __tablename__ = "fx_rates"
+    __table_args__ = (
+        UniqueConstraint(
+            "effective_date",
+            "currency",
+            name="uq_fx_rates_date_currency",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     effective_date: Mapped[date] = mapped_column(Date, nullable=False)

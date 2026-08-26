@@ -60,6 +60,7 @@ from app.schemas.contract import (
     ContractFrameworkRateEntry,
     ContractCreate,
     ContractDetailResponse,
+    ContractEurPlnRate,
     ContractDraftFinalizeResponse,
     ContractDraftResponse,
     ContractDraftUpdate,
@@ -598,6 +599,7 @@ _CONTRACT_FINANCE_SCALARS = (
     "monthly_rate_candidate",
     "monthly_rate_client",
     "monthly_margin",
+    "eur_pln_rate",
     "currency",
     "rate_unit",
     "billing_hours_per_month",
@@ -1780,7 +1782,21 @@ async def get_contract(
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    can_view_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
+    if can_view_finance and (contract.currency or "").upper() == "EUR":
+        from app.services.fx_service import get_rate_snapshot_to_pln
+
+        snapshot = await get_rate_snapshot_to_pln(db, "EUR", business_today())
+        if snapshot is not None and snapshot.source.upper() == "NBP":
+            detail.eur_pln_rate = ContractEurPlnRate(
+                rate=float(snapshot.rate_to_pln),
+                effective_date=snapshot.effective_date,
+                source=snapshot.source,
+                table="A",
+            )
+    if not can_view_finance:
         _redact_contract_finance(detail)
     return detail
 
