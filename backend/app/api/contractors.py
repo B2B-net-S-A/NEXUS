@@ -42,6 +42,7 @@ from app.services.contract_service import (
     live_not_ending_clause,
     validate_ready_for_activation,
 )
+from app.services.client_identity import client_display_name
 
 router = APIRouter()
 
@@ -113,7 +114,7 @@ def _to_item(contract: Contract) -> ContractorListItem:
         contract_id=contract.id,
         candidate=candidate_ref,
         client_id=contract.client_id,
-        client_name=contract.client.name if contract.client else None,
+        client_name=client_display_name(contract.client) if contract.client else None,
         job_title=contract.job.title if contract.job else None,
         status=contract.status,
         start_date=contract.start_date,

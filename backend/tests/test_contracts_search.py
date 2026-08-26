@@ -18,7 +18,11 @@ from httpx import AsyncClient
 
 
 async def _seed_searchable_contract(
-    *, lastname: str, client_name: str, job_title: str
+    *,
+    lastname: str,
+    client_name: str,
+    job_title: str,
+    client_display_name: str | None = None,
 ) -> tuple[int, int, int, int]:
     """Seed candidate + client + job + contract with the given searchable text.
 
@@ -36,7 +40,7 @@ async def _seed_searchable_contract(
             lastname=lastname,
             email=f"csearch-{uuid.uuid4().hex[:8]}@example.com",
         )
-        client = Client(name=client_name)
+        client = Client(name=client_name, display_name=client_display_name)
         db.add_all([cand, client])
         await db.flush()
 
@@ -153,6 +157,44 @@ async def test_search_matches_full_name_client_and_job_title(
         )
         assert r_job.status_code == 200, r_job.text
         assert row[0] in {i["id"] for i in r_job.json()["items"]}
+    finally:
+        await _cleanup([row])
+
+
+@pytest.mark.asyncio
+async def test_search_and_list_use_canonical_client_display_name(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    token = uuid.uuid4().hex[:6]
+    raw_name = f"NDB-{token}"
+    display_name = f"Nordea Bank Abp S.A. Oddział w Polsce {token}"
+    row = await _seed_searchable_contract(
+        lastname=f"Canonical{token}",
+        client_name=raw_name,
+        client_display_name=f"  {display_name}  ",
+        job_title=f"Canonical Engineer {token}",
+    )
+    try:
+        # The full name configured in the Clients module is the projected label
+        # and is independently searchable.
+        canonical = await app_client.get(
+            "/api/contracts",
+            params={"q": display_name, "page_size": 100},
+            headers=app_auth_headers,
+        )
+        assert canonical.status_code == 200, canonical.text
+        [item] = [i for i in canonical.json()["items"] if i["id"] == row[0]]
+        assert item["client_name"] == display_name
+
+        # Keep the source name as a search alias so existing bookmarks/search
+        # habits do not stop finding a client after its display name is filled.
+        legacy_alias = await app_client.get(
+            "/api/contracts",
+            params={"q": raw_name, "page_size": 100},
+            headers=app_auth_headers,
+        )
+        assert legacy_alias.status_code == 200, legacy_alias.text
+        assert row[0] in {i["id"] for i in legacy_alias.json()["items"]}
     finally:
         await _cleanup([row])
 

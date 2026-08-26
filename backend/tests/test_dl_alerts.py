@@ -55,12 +55,15 @@ async def _headers_for(app_client: AsyncClient, email: str, password: str) -> di
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-async def _seed_client() -> int:
+async def _seed_client(*, display_name: str | None = None) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.client import Client
 
     async with AsyncSessionLocal() as db:
-        client = Client(name=f"AlertClient-{uuid.uuid4().hex[:6]}")
+        client = Client(
+            name=f"AlertClient-{uuid.uuid4().hex[:6]}",
+            display_name=display_name,
+        )
         db.add(client)
         await db.commit()
         await db.refresh(client)
@@ -263,7 +266,8 @@ async def _make_alert(user_id: int, client_id: int, entity: str = "order:9") -> 
 
 
 async def test_dl_sees_only_own_alerts(app_client: AsyncClient):
-    client_id = await _seed_client()
+    canonical_name = f"Canonical Alert Client {uuid.uuid4().hex[:6]}"
+    client_id = await _seed_client(display_name=f"  {canonical_name}  ")
     mine_id, mine_email, mine_pass = await _seed_user("delivery_lead", client_id)
     other_id, _, _ = await _seed_user("delivery_lead", client_id)
     await _make_alert(mine_id, client_id, "order:100")
@@ -275,6 +279,7 @@ async def test_dl_sees_only_own_alerts(app_client: AsyncClient):
     body = resp.json()
     assert body["total_new"] == 1
     assert all(a["recipient_user_id"] == mine_id for a in body["alerts"])
+    assert {a["client_name"] for a in body["alerts"]} == {canonical_name}
 
 
 async def test_marking_handled_keeps_the_row_and_stamps_reaction(

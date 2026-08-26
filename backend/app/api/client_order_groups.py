@@ -86,6 +86,7 @@ from app.schemas.client_order_group import (
     OrderLineSwapRequest,
     OrderLineUpdate,
 )
+from app.services.client_identity import client_display_name
 from app.services.client_order_lines import (
     CLIENT_CONTRACT_STATUSES,
     _line_query,
@@ -1213,7 +1214,7 @@ async def export_order_groups(
     content = await run_in_threadpool(
         build_orders_workbook, rows, include_model_columns=True
     )
-    filename = orders_export_filename(client.display_name or client.name)
+    filename = orders_export_filename(client_display_name(client))
     return Response(
         content=content,
         media_type=(

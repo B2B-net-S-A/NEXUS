@@ -44,6 +44,7 @@ from app.models.dl_alert import (
     DlAlert,
 )
 from app.models.user import User, UserRole
+from app.services.client_identity import client_display_name
 from app.schemas.dl_alert import DlAlertListResponse, DlAlertRead
 from app.services.dl_alerts import format_reaction, reaction_seconds
 
@@ -94,7 +95,7 @@ def _to_read(alert: DlAlert) -> DlAlertRead:
         status=alert.status,
         status_label=DL_ALERT_STATUS_LABELS.get(alert.status, alert.status),
         client_id=alert.client_id,
-        client_name=alert.client.name if alert.client else "—",
+        client_name=client_display_name(alert.client) if alert.client else "—",
         order_group_id=alert.order_group_id,
         order_id=alert.order_id,
         title=alert.title,

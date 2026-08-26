@@ -24,6 +24,7 @@ from app.models.client import Client
 from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
+from app.services.client_identity import client_display_name_expression
 
 router = APIRouter()
 
@@ -118,7 +119,7 @@ async def hiring_managers_kpi(
                     Contact.name,
                     Contact.position,
                     Contact.client_id,
-                    Client.name.label("client_name"),
+                    client_display_name_expression().label("client_name"),
                 )
                 .join(Client, Client.id == Contact.client_id)
                 .where(Contact.id.in_(contact_ids))

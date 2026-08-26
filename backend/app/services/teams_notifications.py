@@ -45,6 +45,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.teams_channel import TeamsNotificationChannel
+from app.services.client_identity import client_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -661,7 +662,9 @@ async def notify_contract_signed_by_id(
             else f"#{contract.candidate_id}"
         )
         client_name = (
-            contract.client.name if isinstance(contract.client, Client) else None
+            client_display_name(contract.client)
+            if isinstance(contract.client, Client)
+            else None
         )
         role = contract.job.title if isinstance(contract.job, Job) else None
         payload = contract_payload(

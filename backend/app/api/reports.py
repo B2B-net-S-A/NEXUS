@@ -29,6 +29,7 @@ from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import rates_to_pln
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
@@ -395,6 +396,7 @@ async def report_sales(
         return cached
 
     today = date.today()
+    client_name = client_display_name_expression()
 
     # MRR snapshot — only contracts that are *running today* (already started
     # and not yet ended). status=active alone isn't enough: it leaks future
@@ -431,7 +433,7 @@ async def report_sales(
     # Contracts ending in 30 days
     cutoff = today + timedelta(days=30)
     ending_q = (
-        select(Contract, Client.name.label("client_name"))
+        select(Contract, client_name.label("client_name"))
         .join(Client, Contract.client_id == Client.id)
         .where(
             Contract.end_date.isnot(None),
@@ -499,7 +501,7 @@ async def report_sales(
     top_clients_q = (
         select(
             Client.id,
-            Client.name,
+            client_name.label("client_name"),
             Contract.currency,
             func.count(Contract.id).label("contracts_count"),
             func.sum(_sql_monthly(Contract.rate_client)).label("revenue"),
@@ -507,7 +509,7 @@ async def report_sales(
         )
         .join(Contract, Client.id == Contract.client_id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Client.id, Client.name, Contract.currency)
+        .group_by(Client.id, client_name, Contract.currency)
     )
     top_clients_rows = (await db.execute(top_clients_q)).all()
     tc_currencies = {(r.currency or "PLN").upper() for r in top_clients_rows}
@@ -518,7 +520,7 @@ async def report_sales(
         acc = tc_acc.setdefault(
             r.id,
             {
-                "client_name": r.name,
+                "client_name": r.client_name,
                 "contracts_count": 0,
                 "revenue": Decimal("0"),
                 "margin": Decimal("0"),

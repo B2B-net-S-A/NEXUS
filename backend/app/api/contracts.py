@@ -107,6 +107,10 @@ from app.services.contract_lifecycle import (
 )
 from app.services.contract_rates import effective_rate_fields
 from app.services.contract_service import validate_ready_for_activation
+from app.services.client_identity import (
+    client_display_name,
+    client_display_name_expression,
+)
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
 from app.api.financial_access import (
@@ -446,7 +450,9 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
             if contract.candidate
             else None
         ),
-        "client_name": contract.client.name if contract.client else None,
+        "client_name": client_display_name(contract.client)
+        if contract.client
+        else None,
         "job_title": contract.job.title if contract.job else None,
     }
     # Derive current candidate + client rates / margin from the schedules.
@@ -495,6 +501,9 @@ def _apply_contract_list_filters(
                     Candidate.name.ilike(pattern),
                     Candidate.lastname.ilike(pattern),
                     func.concat(Candidate.name, " ", Candidate.lastname).ilike(pattern),
+                    client_display_name_expression().ilike(pattern),
+                    # Preserve the legacy/source name as a search alias when a
+                    # full NEXUS display name is configured.
                     Client.name.ilike(pattern),
                     Job.title.ilike(pattern),
                 )
@@ -563,23 +572,30 @@ def _apply_contract_list_filters(
 
 async def _latest_order_end_dates(
     db: AsyncSession, contract_ids: list[int]
-) -> dict[int, date]:
-    """Latest ``ClientOrder.end_date`` per contract, in a single grouped query.
+) -> dict[int, Optional[date]]:
+    """Current ``ClientOrder.end_date`` per contract, in one grouped query.
 
     Powers the "Zamówienie do" column on the list + export (one Contract has N
-    orders over time — the current order is the one ending latest). Avoids N+1.
+    orders over time). Only an active order whose period includes the business
+    date is current. If more than one such order overlaps for a contract, fail
+    closed and omit that contract rather than choosing an arbitrary end date.
+    Avoids N+1.
     """
-    from app.models.client_order import ClientOrder
+    from app.models.client_order import ClientOrder, ClientOrderStatus
 
     if not contract_ids:
         return {}
+    today = business_today()
     rows = await db.execute(
         select(ClientOrder.contract_id, func.max(ClientOrder.end_date))
         .where(
             ClientOrder.contract_id.in_(contract_ids),
-            ClientOrder.end_date.is_not(None),
+            ClientOrder.status == ClientOrderStatus.active,
+            ClientOrder.start_date <= today,
+            or_(ClientOrder.end_date.is_(None), ClientOrder.end_date >= today),
         )
         .group_by(ClientOrder.contract_id)
+        .having(func.count(ClientOrder.id) == 1)
     )
     return {row[0]: row[1] for row in rows.all()}
 
@@ -696,7 +712,7 @@ def _group_member_from_contract(
     return ContractGroupMember(
         id=c.id,
         client_id=c.client_id,
-        client_name=c.client.name if c.client else None,
+        client_name=client_display_name(c.client) if c.client else None,
         status=c.status,
         contract_type=c.contract_type,
         start_date=c.start_date,
@@ -740,7 +756,7 @@ def _contract_list_item(
                 if c.candidate
                 else None
             ),
-            "client_name": c.client.name if c.client else None,
+            "client_name": client_display_name(c.client) if c.client else None,
             "job_title": c.job.title if c.job else None,
             "latest_order_end_date": latest_order_dates.get(c.id),
             "candidate_rate_schedule": _schedule_entries(c),
@@ -1059,7 +1075,7 @@ def _contract_export_row(
     return [
         c.id,
         f"{c.candidate.name} {c.candidate.lastname}".strip() if c.candidate else "",
-        c.client.name if c.client else "",
+        client_display_name(c.client) if c.client else "",
         c.job.title if c.job else "",
         _enum_label(c.contract_type, _CONTRACT_TYPE_LABELS),
         _enum_label(c.status, _CONTRACT_STATUS_LABELS),
@@ -1451,7 +1467,7 @@ async def _assert_no_duplicate_contract(
             "code": "duplicate_contractor",
             "message": (
                 f"Kontrakt dla tego kontraktora u klienta "
-                f"„{client.name}” już istnieje{email_part}."
+                f"„{client_display_name(client)}” już istnieje{email_part}."
             ),
             "existing_contract_id": existing_id,
         },
@@ -1798,7 +1814,7 @@ async def _related_contracts_for(
     if contract.candidate_id is None:
         return []
     siblings_query = (
-        select(Contract, Client.name)
+        select(Contract, client_display_name_expression().label("client_name"))
         .join(Client, Client.id == Contract.client_id)
         .where(
             Contract.candidate_id == contract.candidate_id,

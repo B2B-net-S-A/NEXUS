@@ -43,7 +43,9 @@ async def _seed_candidate(*, name_suffix: str = "") -> int:
         return c.id
 
 
-async def _seed_job(*, client_name: str | None = None) -> tuple[int, int, str]:
+async def _seed_job(
+    *, client_name: str | None = None, client_display_name: str | None = None
+) -> tuple[int, int, str]:
     """Create a Client + Job. Returns (job_id, client_id, client_name)."""
     from app.core.database import AsyncSessionLocal
     from app.models.client import Client
@@ -51,7 +53,7 @@ async def _seed_job(*, client_name: str | None = None) -> tuple[int, int, str]:
 
     name = client_name or f"EmpClient-{uuid.uuid4().hex[:6]}"
     async with AsyncSessionLocal() as db:
-        cli = Client(name=name)
+        cli = Client(name=name, display_name=client_display_name)
         db.add(cli)
         await db.commit()
         await db.refresh(cli)
@@ -63,7 +65,7 @@ async def _seed_job(*, client_name: str | None = None) -> tuple[int, int, str]:
         db.add(j)
         await db.commit()
         await db.refresh(j)
-        return j.id, cli.id, name
+        return j.id, cli.id, (client_display_name or "").strip() or name
 
 
 async def _seed_stage(
@@ -151,7 +153,11 @@ async def test_at_client_includes_currently_hired(
     """A candidate whose latest stage is `hired` appears in `employment=at_client`
     and carries `employment.state=employed_at_client`, `source=pipeline`, and the
     client name — even with NO Contract row (the Traffit reality)."""
-    job_id, client_id, client_name = await _seed_job()
+    display_name = f"Employment Client S.A. {uuid.uuid4().hex[:6]}"
+    job_id, client_id, client_name = await _seed_job(
+        client_name=f"EmpShort-{uuid.uuid4().hex[:6]}",
+        client_display_name=f"  {display_name}  ",
+    )
     hired = await _seed_candidate(name_suffix="-H")
     await _seed_stage(hired, job_id, "hired")
     try:
@@ -254,14 +260,18 @@ async def test_available_excludes_currently_hired(
 
 
 @pytest.mark.asyncio
-async def test_at_client_active_contract_still_matches(
-    app_client: AsyncClient, app_auth_headers: dict
+@pytest.mark.parametrize("contract_status", ["active", "ending"])
+async def test_at_client_live_contract_still_matches(
+    app_client: AsyncClient, app_auth_headers: dict, contract_status: str
 ):
-    """Backward-compat: an active Contract (no pipeline stage) still matches
-    at_client with `source=contract`."""
-    job_id, client_id, _ = await _seed_job()
+    """Both live lifecycle statuses match with ``source=contract``."""
+    display_name = f"Contract Client S.A. {uuid.uuid4().hex[:6]}"
+    job_id, client_id, canonical_name = await _seed_job(
+        client_name=f"ContractShort-{uuid.uuid4().hex[:6]}",
+        client_display_name=f"  {display_name}  ",
+    )
     with_contract = await _seed_candidate(name_suffix="-C")
-    await _seed_contract(with_contract, client_id, status="active")
+    await _seed_contract(with_contract, client_id, status=contract_status)
     try:
         r = await app_client.get(
             "/api/candidates?employment=at_client&page_size=100",
@@ -272,6 +282,7 @@ async def test_at_client_active_contract_still_matches(
         assert match is not None
         assert match["employment"]["state"] == "employed_at_client"
         assert match["employment"]["source"] == "contract"
+        assert match["employment"]["client_name"] == canonical_name
     finally:
         await _cleanup(
             candidate_ids=[with_contract], job_ids=[job_id], client_ids=[client_id]

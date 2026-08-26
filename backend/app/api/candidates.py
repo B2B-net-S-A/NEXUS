@@ -157,6 +157,10 @@ from app.services.candidate_monthly_rate_retirement import (
     RETIRED_MONTHLY_FILTER_KEYS,
     reject_retired_candidate_rate,
 )
+from app.services.client_identity import (
+    client_display_name,
+    client_display_name_expression,
+)
 from app.services.candidate_profile_rate import (
     canonical_profile_rate_amount,
     canonical_profile_rate_currency_clause,
@@ -401,7 +405,7 @@ def _at_client_predicate():
     """
     Derived SQL predicate: candidate is currently employed at one of our
     clients. True when ANY of:
-      • an active Contract, OR
+      • a live Contract (``active`` or date-driven ``ending``), OR
       • an active `current_employment` conflict, OR
       • a recruitment whose LATEST stage is `hired`.
 
@@ -421,7 +425,9 @@ def _at_client_predicate():
         .where(
             and_(
                 Contract.candidate_id == Candidate.id,
-                Contract.status == ContractStatus.active,
+                Contract.status.in_(
+                    (ContractStatus.active, ContractStatus.ending)
+                ),
             )
         )
         .exists()
@@ -644,7 +650,8 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
 def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     """
     Compute EmploymentInfo from eager-loaded `contracts` + `conflicts` +
-    `pipeline_stages`. Preference order: active Contract (source of truth) →
+    `pipeline_stages`. Preference order: live Contract (``active`` or
+    date-driven ``ending``; source of truth) →
     active current_employment conflict (manual flag) → currently hired
     (latest pipeline stage == `hired`) → on_bench (has history, incl. past
     placements) → external (never engaged).
@@ -654,7 +661,9 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     raises MissingGreenlet in async.
     """
     active_contracts = [
-        c for c in (candidate.contracts or []) if c.status == ContractStatus.active
+        c
+        for c in (candidate.contracts or [])
+        if c.status in (ContractStatus.active, ContractStatus.ending)
     ]
     if active_contracts:
         chosen = max(
@@ -673,7 +682,7 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
             client_id=chosen.client_id,
-            client_name=chosen.client.name if chosen.client else None,
+            client_name=client_display_name(chosen.client) if chosen.client else None,
             contract_id=chosen.id,
             job_id=chosen.job_id,
             contract_end_date=chosen.end_date,
@@ -681,7 +690,7 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
             engagements=[
                 EmploymentEngagement(
                     client_id=c.client_id,
-                    client_name=c.client.name if c.client else None,
+                    client_name=client_display_name(c.client) if c.client else None,
                     contract_id=c.id,
                     contract_end_date=c.end_date,
                 )
@@ -699,7 +708,7 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
             client_id=chosen.client_id,
-            client_name=chosen.client.name if chosen.client else None,
+            client_name=client_display_name(chosen.client) if chosen.client else None,
             contract_end_date=None,
             source="conflict",
         )
@@ -738,7 +747,7 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
         return EmploymentInfo(
             state=EmploymentState.employed_at_client,
             client_id=client.id if client else None,
-            client_name=client.name if client else None,
+            client_name=client_display_name(client) if client else None,
             contract_id=linked_contract.id if linked_contract else None,
             job_id=chosen.job_id,
             contract_end_date=None,
@@ -1729,7 +1738,7 @@ async def list_candidates(
                 latest_per_pair.c.job_id,
                 latest_per_pair.c.stage,
                 Job.title,
-                Client.name.label("client_name"),
+                client_display_name_expression().label("client_name"),
                 latest_per_pair.c.moved_at,
                 mover.name.label("moved_by_name"),
             )
@@ -3000,7 +3009,7 @@ async def get_candidate_quick_view(
             select(
                 latest_per_job,
                 Job.title.label("job_title"),
-                Client.name.label("client_name"),
+                client_display_name_expression().label("client_name"),
                 mover.name.label("moved_by_name"),
                 PipelineStageDef.name.label("stage_def_name"),
                 PipelineStageDef.is_terminal.label("stage_def_terminal"),
@@ -3457,7 +3466,7 @@ async def get_candidate_history(
     from app.models.client import Client
 
     contracts_result = await db.execute(
-        select(Contract, Client.name.label("client_name"))
+        select(Contract, client_display_name_expression().label("client_name"))
         .join(Client, Contract.client_id == Client.id)
         .where(Contract.candidate_id == candidate_id)
         .where(job_scope_clause(current_user, Contract.job_id))

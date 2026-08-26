@@ -37,6 +37,7 @@ from app.models.dl_alert import (
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
 )
+from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import consultant_display_name
 from app.services.dl_alerts import dl_user_ids_for_client, emit
 
@@ -53,7 +54,10 @@ async def _client_names(db: AsyncSession, client_ids: set[int]) -> dict[int, str
     if not client_ids:
         return {}
     rows = await db.execute(
-        select(Client.id, Client.name).where(Client.id.in_(client_ids))
+        select(
+            Client.id,
+            client_display_name_expression().label("client_name"),
+        ).where(Client.id.in_(client_ids))
     )
     return {cid: name for cid, name in rows}
 

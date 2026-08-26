@@ -22,6 +22,10 @@ name: Coolify Ops
 #   6. action=eval-read            → odczyt wyników zadania evalu bez kasowania go.
 #   7. action=eval-stop            → skasowanie zadania evalu, gdyby sprzątanie
 #                                    nie doszło do skutku (zawór bezpieczeństwa).
+#   8. action=contract-merge-audit → read-only plan scalania kontraktów; do
+#                                    artefaktu trafia raport bez nazw i kwot.
+#   9. action=contract-merge-apply → zastosowanie DOKŁADNIE zatwierdzonego planu;
+#                                    wymaga fingerprintu i jawnego potwierdzenia.
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
 # timestamps) — no env values or secrets.
@@ -32,7 +36,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, backup-status, client-lookup, eval-ab, eval-read, eval-stop]
+        options: [list, cancel, cron-list, backup-status, client-lookup, contract-merge-audit, contract-merge-apply, eval-ab, eval-read, eval-stop]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
@@ -77,6 +81,23 @@ on:
         description: "Wielkość puli retrievalu (100-5000). Baseline 18.08 mierzony przy 2000."
         required: false
         default: "2000"
+      contract_merge_fingerprint:
+        description: "Dokładny 64-znakowy fingerprint z artefaktu audytu (wymagany tylko dla contract-merge-apply)"
+        required: false
+        default: ""
+      contract_merge_candidate_rate_sources:
+        description: "Decyzje stawek kosztowych: group=source,... (wyłącznie ID; tylko contract-merge-apply)"
+        required: false
+        default: ""
+      contract_merge_client_rate_sources:
+        description: "Decyzje stawek przychodowych: group=source,... (wyłącznie ID; tylko contract-merge-apply)"
+        required: false
+        default: ""
+      contract_merge_confirm:
+        description: "Bezpiecznik operacji fizycznego usunięcia duplikatów (tylko contract-merge-apply)"
+        type: choice
+        options: ["NO", "APPLY"]
+        default: "NO"
 
 permissions:
   contents: read
@@ -87,7 +108,7 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ !startsWith(inputs.action, 'eval') }}
+    if: ${{ !startsWith(inputs.action, 'eval') && !startsWith(inputs.action, 'contract-merge-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -752,6 +773,54 @@ jobs:
           curl -sS -o /dev/null -X DELETE "${auth[@]}" \
             "$base/api/v1/applications/$APP_UUID/scheduled-tasks/$uuid" || true
           echo "zadanie $TASK_NAME skasowane"
+
+  # Audyt jest read-only. Apply ma trzy niezależne bezpieczniki: fingerprint
+  # identyczny z audytem, jawne APPLY w dispatchu i repo secret ustawiony na
+  # hash akceptacji obejmujący plan ORAZ wszystkie decyzje źródeł stawek.
+  # Do Actions wychodzi tylko zredagowany raport: ID, kody, liczniki i hash;
+  # pełny raport z nazwami/stawkami pozostaje w /tmp kontenera i jest kasowany.
+  contract_merge:
+    name: Contract merge (${{ inputs.action == 'contract-merge-apply' && 'APPLY' || 'audit' }})
+    if: ${{ startsWith(inputs.action, 'contract-merge-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: coolify-contract-merge
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Uruchom audyt albo zatwierdzony plan
+        # Production credentials and the one-shot approval hash are visible
+        # only to our shell step, never to checkout or artifact actions.
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          TASK_NAME: nexus-contract-merge-oneshot
+          SENTINEL: ===NEXUS-CONTRACT-MERGE-END===
+          PAYLOAD_BEGIN: ===NEXUS-CONTRACT-MERGE-PAYLOAD-BEGIN===
+          PAYLOAD_END: ===NEXUS-CONTRACT-MERGE-PAYLOAD-END===
+          MODE: ${{ inputs.action == 'contract-merge-apply' && 'apply' || 'audit' }}
+          PLAN_FINGERPRINT: ${{ inputs.contract_merge_fingerprint }}
+          CANDIDATE_RATE_SOURCES: ${{ inputs.contract_merge_candidate_rate_sources }}
+          CLIENT_RATE_SOURCES: ${{ inputs.contract_merge_client_rate_sources }}
+          APPLY_CONFIRMATION: ${{ inputs.contract_merge_confirm }}
+          APPLY_UNLOCK: ${{ inputs.action == 'contract-merge-apply' && secrets.CONTRACT_MERGE_APPLY_UNLOCK || '' }}
+          OPS_RUN_ID: ${{ github.run_id }}
+          OPS_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash .github/scripts/contract-merge-ops.sh
+
+      # Artefakt dziedziczy widoczność repozytorium i szybko wygasa. Skrypt
+      # tworzy go z zamkniętej allowlisty; nie zawiera nazw ani kwot.
+      - name: Zachowaj zredagowany raport
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: contract-merge-${{ inputs.action }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/contract-merge/
+          if-no-files-found: error
+          retention-days: 7
 
   eval:
     name: Matching eval A/B (prod)

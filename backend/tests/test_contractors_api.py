@@ -13,7 +13,10 @@ from types import SimpleNamespace
 import pytest
 from httpx import AsyncClient
 
-from app.models.contract import Contract, ContractType, ContractWorkMode
+from app.api.contractors import _to_item
+from app.models.candidate import Candidate
+from app.models.client import Client
+from app.models.contract import Contract, ContractStatus, ContractType, ContractWorkMode
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.services.contract_service import (
     ACTIVATION_REQUIRED_FIELDS,
@@ -167,6 +170,29 @@ def test_plain_attribute_bag_does_not_explode_on_inspect():
         "rate_client",
         "work_mode",
     ]
+
+
+def test_contractor_item_uses_canonical_client_display_name():
+    contract = Contract(
+        id=901,
+        candidate_id=902,
+        client_id=903,
+        status=ContractStatus.active,
+        contract_type=ContractType.b2b,
+    )
+    contract.__dict__.update(
+        candidate=Candidate(id=902, name="Jan", lastname="Kowalski"),
+        client=Client(
+            id=903,
+            name="NDB",
+            display_name="  Nordea Bank Abp S.A. Oddział w Polsce  ",
+        ),
+        job=None,
+    )
+
+    item = _to_item(contract)
+
+    assert item.client_name == "Nordea Bank Abp S.A. Oddział w Polsce"
 
 
 # ── Integration: list + stats ───────────────────────────────────────────────

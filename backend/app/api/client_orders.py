@@ -67,6 +67,7 @@ from app.schemas.new_contractor_order import (
 from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
+from app.services.client_identity import client_display_name
 from app.services.client_order_lines import recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.cost_orders import is_cost_order_client
@@ -1130,7 +1131,7 @@ async def export_client_orders(
     content = await run_in_threadpool(
         build_orders_workbook, rows, include_model_columns=False
     )
-    filename = orders_export_filename(client.display_name or client.name)
+    filename = orders_export_filename(client_display_name(client))
     return Response(
         content=content,
         media_type=(

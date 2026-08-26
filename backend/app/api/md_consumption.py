@@ -65,6 +65,7 @@ from app.schemas.md_consumption import (
     ImportSummary,
     LineOption,
 )
+from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
     active_cost_lines,
@@ -117,7 +118,10 @@ async def _client_names(db: AsyncSession, client_ids: set[int]) -> dict[int, str
     if not client_ids:
         return {}
     rows = await db.execute(
-        select(Client.id, Client.name).where(Client.id.in_(client_ids))
+        select(
+            Client.id,
+            client_display_name_expression().label("client_name"),
+        ).where(Client.id.in_(client_ids))
     )
     return {cid: name for cid, name in rows}
 

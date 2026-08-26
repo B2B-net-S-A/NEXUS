@@ -862,6 +862,20 @@ async def test_every_job_linked_source_query_is_scoped_before_rendering():
         assert f"{scoped_column} IS NULL" not in sql
 
 
+@pytest.mark.parametrize(
+    "builder",
+    (cas._submissions_section, cas._contracts_section),
+)
+async def test_candidate_history_uses_canonical_client_display_name(builder):
+    db = _QueryDB()
+
+    await builder(db, 42, (10, 20))  # type: ignore[arg-type]
+
+    sql = _sql(db.statements[0]).lower()
+    assert "coalesce(nullif(btrim(clients.display_name)," in sql
+    assert "), clients.name) as client_name" in sql
+
+
 async def test_visibility_job_discovery_applies_effective_membership_scope():
     db = _QueryDB()
     visible = await cas._visible_candidate_job_ids(

@@ -18,6 +18,7 @@ from app.core.database import get_db
 from app.models.client import Client
 from app.models.contract import Contract
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
+from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import rates_to_pln
 
 logger = logging.getLogger(__name__)
@@ -160,13 +161,14 @@ async def dso_by_client(
     with today's report rate before folding into the per-client total.
     """
     today = date.today()
+    client_name = client_display_name_expression()
 
     # Totals per client × currency (client-facing invoices).
     total_rows = (
         await db.execute(
             select(
                 Client.id,
-                Client.name,
+                client_name.label("client_name"),
                 Invoice.currency,
                 func.count(Invoice.id).label("cnt"),
                 func.coalesce(func.sum(Invoice.amount), 0).label("total"),
@@ -174,7 +176,7 @@ async def dso_by_client(
             .join(Contract, Contract.client_id == Client.id)
             .join(Invoice, Invoice.contract_id == Contract.id)
             .where(Invoice.direction == InvoiceDirection.to_client)
-            .group_by(Client.id, Client.name, Invoice.currency)
+            .group_by(Client.id, client_name, Invoice.currency)
         )
     ).all()
 
@@ -208,7 +210,7 @@ async def dso_by_client(
         bucket = acc.setdefault(
             r.id,
             {
-                "client_name": r.name,
+                "client_name": r.client_name,
                 "invoices": 0,
                 "total": Decimal("0"),
                 "paid": Decimal("0"),
