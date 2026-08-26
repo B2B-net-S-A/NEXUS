@@ -1541,8 +1541,8 @@ async def create_contract(
     # z harmonogramów, więc `validate_ready_for_activation` ocenia kontrakt,
     # który naprawdę powstał, a nie surowy ładunek żądania.
     #
-    # Skutek dla operatora: „Aktywny" wybrany dla umowy bez daty końca, stawek
-    # albo trybu pracy kończy się teraz 409 z listą brakujących pól, a nie
+    # Skutek dla operatora: „Aktywny" wybrany dla umowy bez daty rozpoczęcia,
+    # stawek albo trybu pracy kończy się teraz 409 z listą brakujących pól, a nie
     # cichym szkicem podanym jako sukces ani aktywną umową z pustymi polami
     # w MRR. Odmowa jest wykonalna — wystarczy uzupełnić pola albo wybrać
     # „Szkic"; `get_db` wycofuje wtedy całą transakcję, więc nie zostaje
