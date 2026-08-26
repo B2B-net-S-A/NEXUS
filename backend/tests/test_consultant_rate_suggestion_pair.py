@@ -42,7 +42,15 @@ def test_returning_consultant_warns_without_suggesting() -> None:
     i szkicowa różnią się, więc ostrzeżenie MUSI się zapalić. To jest ta
     para, której poprzedni jeden komunikat nie umiał opisać.
     """
-    suggested, has_different, current_id = _rate_suggestion(
+    (
+        suggested,
+        raw_suggested,
+        unit,
+        currency,
+        rate_to_pln,
+        has_different,
+        current_id,
+    ) = _rate_suggestion(
         [
             _contract(
                 contract_id=1,
@@ -62,13 +70,25 @@ def test_returning_consultant_warns_without_suggesting() -> None:
     )
 
     assert suggested is None
+    assert raw_suggested is None
+    assert unit is None
+    assert currency is None
+    assert rate_to_pln is None
     assert has_different is True
     assert current_id is None
 
 
 def test_two_drafts_with_different_rates_warn_without_suggesting() -> None:
     """Drugi wariant tej samej pary — dwa szkice, zero kontraktów żywych."""
-    suggested, has_different, current_id = _rate_suggestion(
+    (
+        suggested,
+        raw_suggested,
+        unit,
+        currency,
+        rate_to_pln,
+        has_different,
+        current_id,
+    ) = _rate_suggestion(
         [
             _contract(
                 contract_id=3,
@@ -88,13 +108,25 @@ def test_two_drafts_with_different_rates_warn_without_suggesting() -> None:
     )
 
     assert suggested is None
+    assert raw_suggested is None
+    assert unit is None
+    assert currency is None
+    assert rate_to_pln is None
     assert has_different is True
     assert current_id is None
 
 
 def test_live_contract_still_supplies_the_suggestion() -> None:
     """Kontrola dodatnia: przy żywym kontrakcie podpowiedź nadal istnieje."""
-    suggested, has_different, current_id = _rate_suggestion(
+    (
+        suggested,
+        raw_suggested,
+        unit,
+        currency,
+        rate_to_pln,
+        has_different,
+        current_id,
+    ) = _rate_suggestion(
         [
             _contract(
                 contract_id=5,
@@ -113,6 +145,43 @@ def test_live_contract_still_supplies_the_suggestion() -> None:
         currency_rates=_PLN,
     )
 
-    assert suggested == Decimal("700.000000")
+    assert suggested == Decimal("700.00")
+    assert raw_suggested == Decimal("700.000")
+    assert unit == RateUnit.daily
+    assert currency == "PLN"
+    assert rate_to_pln == Decimal("1")
     assert has_different is True
     assert current_id == 6
+
+
+def test_hourly_suggestion_uses_eight_hour_md_not_monthly_billing_hours() -> None:
+    """60 PLN/h przy 160 h/mies. daje 480 PLN/MD i surowe 60 PLN/h."""
+    contract = Contract(
+        id=7,
+        candidate_id=1,
+        client_id=1,
+        status=ContractStatus.active,
+        start_date=_TODAY - timedelta(days=30),
+        rate_candidate=Decimal("60.000"),
+        rate_unit=RateUnit.hourly,
+        billing_hours_per_month=160,
+        currency="PLN",
+    )
+
+    (
+        suggested,
+        raw_suggested,
+        unit,
+        currency,
+        rate_to_pln,
+        has_different,
+        current_id,
+    ) = _rate_suggestion([contract], on=_TODAY, currency_rates=_PLN)
+
+    assert suggested == Decimal("480.00")
+    assert raw_suggested == Decimal("60.000")
+    assert unit == RateUnit.hourly
+    assert currency == "PLN"
+    assert rate_to_pln == Decimal("1")
+    assert has_different is False
+    assert current_id == 7

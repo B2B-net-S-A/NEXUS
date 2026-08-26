@@ -147,9 +147,18 @@ export interface ConsultantOption {
    *  z tekstem zapisywanym do historii zamówienia. */
   source_label: string;
   job_title: string | null;
-  /** Podpowiedź wyłącznie z aktywnego kontraktu tej osoby u klienta
-   *  bieżącego zamówienia. Brak kontraktu/stawki = `null`. */
+  /** Legacy: kanoniczna podpowiedź w PLN/MD. Semantyka pozostaje niezmienna,
+   *  żeby starszy frontend był bezpieczny podczas wdrożenia mieszanego. */
   suggested_rate_cost: number | null;
+  /** Surowa efektywna stawka z kontraktu. Nowy frontend wybiera ją tylko, gdy
+   *  pole faktycznie istnieje; w przeciwnym razie używa legacy PLN/MD wyżej. */
+  suggested_contract_rate_cost?: number | null;
+  /** Jednostka i waluta surowej podpowiedzi. */
+  suggested_rate_cost_unit?: "hourly" | "daily" | "monthly" | null;
+  suggested_rate_cost_currency?: string | null;
+  /** Kurs jednej jednostki waluty kontraktu do PLN, używany dopiero przy
+   *  zapisie kanonicznej stawki linii w PLN/MD. */
+  suggested_rate_cost_rate_to_pln?: number | null;
   /** Inne kontrakty tej osoby u TEGO klienta mają różne stawki kosztowe. */
   has_different_client_contract_rates: boolean;
 }

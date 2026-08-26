@@ -1033,12 +1033,15 @@ async def _seed_person_with_contract(
     last: str,
     status_value: str = "active",
     rate_candidate: Decimal | None = None,
+    rate_unit: str = "monthly",
+    billing_hours_per_month: int = 160,
+    currency: str = "PLN",
     start_date: date | None = None,
 ) -> tuple[int, int]:
     """Kandydat + kontrakt o wskazanym statusie. Zwraca (candidate_id, contract_id)."""
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
-    from app.models.contract import Contract, ContractStatus
+    from app.models.contract import Contract, ContractStatus, RateUnit
 
     async with AsyncSessionLocal() as db:
         cand = Candidate(
@@ -1056,6 +1059,9 @@ async def _seed_person_with_contract(
             status=ContractStatus(status_value),
             start_date=start_date or (_TODAY - timedelta(days=60)),
             rate_candidate=rate_candidate,
+            rate_unit=RateUnit(rate_unit),
+            billing_hours_per_month=billing_hours_per_month,
+            currency=currency,
         )
         db.add(contract)
         await db.commit()
@@ -1117,6 +1123,98 @@ async def test_options_merge_two_sources_and_label_each_row(
     # Cała lista posortowana po imieniu, nie „najpierw źródło A".
     assert [o["candidate_id"] for o in data["options"]] == [theirs, ours]
     assert data["total"] == 2
+
+
+async def test_options_expose_katarzyna_hourly_rate_one_to_one(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """60 PLN/h wraca jako 60 PLN/h, niezależnie od 160 h/mies. kontraktu.
+
+    Stary łańcuch robił ``60 * 160 / 22 / 8 = 54,55``. Nowe pole surowe
+    niesie wartość źródłową, a pole zgodności nadal bezpieczne PLN/MD.
+    """
+    surname = f"Maszewska{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Katarzyna",
+        last=surname,
+        rate_candidate=Decimal("60.000"),
+        rate_unit="hourly",
+        billing_hours_per_month=160,
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    # Pole legacy pozostaje bezpieczne dla starego frontendu (PLN/MD).
+    assert row["suggested_rate_cost"] == 480.0
+    assert row["suggested_contract_rate_cost"] == 60.0
+    assert row["suggested_rate_cost_unit"] == "hourly"
+    assert row["suggested_rate_cost_currency"] == "PLN"
+    assert row["suggested_rate_cost_rate_to_pln"] == 1.0
+
+
+@pytest.mark.parametrize(
+    ("rate_unit", "raw_rate", "expected_per_md"),
+    [
+        pytest.param("daily", Decimal("560.125"), 560.13, id="daily"),
+        pytest.param("monthly", Decimal("13200.125"), 600.01, id="monthly"),
+    ],
+)
+async def test_options_preserve_raw_daily_and_monthly_rate_with_three_decimals(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    rate_unit: str,
+    raw_rate: Decimal,
+    expected_per_md: float,
+):
+    """Jednostka nie zmienia wartości pola, a serializer nie obcina 3. miejsca."""
+    surname = f"RawRate{rate_unit}{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Anna",
+        last=surname,
+        rate_candidate=raw_rate,
+        rate_unit=rate_unit,
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["suggested_rate_cost"] == expected_per_md
+    assert row["suggested_contract_rate_cost"] == float(raw_rate)
+    assert row["suggested_rate_cost_unit"] == rate_unit
+    assert row["suggested_rate_cost_currency"] == "PLN"
+    assert row["suggested_rate_cost_rate_to_pln"] == 1.0
+
+
+async def test_options_hide_foreign_rate_when_fx_is_missing(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Brak FX nie może zamienić surowej waluty obcej w rzekome PLN 1:1."""
+    surname = f"MissingFx{uuid.uuid4().hex[:6]}"
+    currency = f"X{uuid.uuid4().hex[:2].upper()}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Ewa",
+        last=surname,
+        rate_candidate=Decimal("100.125"),
+        rate_unit="hourly",
+        currency=currency,
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["suggested_rate_cost"] is None
+    assert row["suggested_contract_rate_cost"] is None
+    assert row["suggested_rate_cost_unit"] is None
+    assert row["suggested_rate_cost_currency"] is None
+    assert row["suggested_rate_cost_rate_to_pln"] is None
 
 
 async def test_options_prefill_active_client_rate_warns_on_history_and_order_edit_is_local(
@@ -1203,6 +1301,10 @@ async def test_options_prefill_active_client_rate_warns_on_history_and_order_edi
     row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
     assert row["contract_id"] == active_id
     assert row["suggested_rate_cost"] == pytest.approx(560.0)
+    assert row["suggested_contract_rate_cost"] == pytest.approx(560.0)
+    assert row["suggested_rate_cost_unit"] == "daily"
+    assert row["suggested_rate_cost_currency"] == "PLN"
+    assert row["suggested_rate_cost_rate_to_pln"] == pytest.approx(1.0)
     assert row["has_different_client_contract_rates"] is True
 
     group = await _create_group(app_client, app_auth_headers, client_id, [])
@@ -1236,10 +1338,9 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
 ):
     """Inny klient jest ignorowany; równe stawki /MD nie ostrzegają.
 
-    Aktywne 19,25 w obcej walucie/h × 160 h × kurs 4 / 22 MD daje 560 zł/MD,
-    tyle samo co historyczna stawka dzienna. Test chroni przed skopiowaniem
-    surowej kwoty do pola /MD i przed fałszywym ostrzeżeniem dla równoważnych
-    jednostek/walut.
+    Aktywne 19,25 w obcej walucie/h × 8 h × kurs 4 daje 616 zł/MD,
+    tyle samo co historyczna stawka dzienna. Surowa podpowiedź nadal ma wynosić
+    19,25; normalizacja pola zgodności służy też porównaniu historii.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -1285,7 +1386,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
                     client_id=client_id,
                     status=ContractStatus.ended,
                     start_date=_TODAY - timedelta(days=300),
-                    rate_candidate=Decimal("560.000"),
+                    rate_candidate=Decimal("616.000"),
                     rate_unit=RateUnit.daily,
                 ),
                 Contract(
@@ -1303,7 +1404,51 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
 
     data = await _options(app_client, app_auth_headers, client_id, q=surname)
     row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
-    assert row["suggested_rate_cost"] == pytest.approx(560.0)
+    assert row["suggested_rate_cost"] == pytest.approx(616.0)
+    assert row["suggested_contract_rate_cost"] == pytest.approx(19.25)
+    assert row["suggested_rate_cost_unit"] == "hourly"
+    assert row["suggested_rate_cost_currency"] == foreign_currency
+    assert row["suggested_rate_cost_rate_to_pln"] == pytest.approx(4.0)
+    assert row["has_different_client_contract_rates"] is False
+
+
+async def test_options_compare_historical_rates_at_line_storage_precision(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Różnica poniżej grosza nie ostrzega, jeśli zapis linii jest identyczny."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus, RateUnit
+
+    surname = f"RatePrecision{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Piotr",
+        last=surname,
+        rate_candidate=Decimal("100.005"),
+        rate_unit="daily",
+    )
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Contract(
+                candidate_id=candidate_id,
+                client_id=client_id,
+                status=ContractStatus.ended,
+                start_date=_TODAY - timedelta(days=300),
+                rate_candidate=Decimal("100.006"),
+                rate_unit=RateUnit.daily,
+            )
+        )
+        await db.commit()
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["suggested_rate_cost"] == 100.01
+    assert row["suggested_contract_rate_cost"] == 100.005
+    assert row["suggested_rate_cost_unit"] == "daily"
+    # Obie wartości zapisują się jako 100,01 w Numeric(12,2).
     assert row["has_different_client_contract_rates"] is False
 
 
@@ -1326,6 +1471,10 @@ async def test_options_do_not_suggest_a_rate_from_a_draft_contract(
     row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
     assert row["contract_id"] == draft_id
     assert row["suggested_rate_cost"] is None
+    assert row["suggested_contract_rate_cost"] is None
+    assert row["suggested_rate_cost_unit"] is None
+    assert row["suggested_rate_cost_currency"] is None
+    assert row["suggested_rate_cost_rate_to_pln"] is None
     assert row["has_different_client_contract_rates"] is False
 
 
@@ -1348,6 +1497,10 @@ async def test_options_redact_rate_suggestion_for_head_of_recruitment(
     data = await _options(app_client, hor_headers, client_id, q=surname)
     row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
     assert row["suggested_rate_cost"] is None
+    assert row["suggested_contract_rate_cost"] is None
+    assert row["suggested_rate_cost_unit"] is None
+    assert row["suggested_rate_cost_currency"] is None
+    assert row["suggested_rate_cost_rate_to_pln"] is None
     assert row["has_different_client_contract_rates"] is False
 
 

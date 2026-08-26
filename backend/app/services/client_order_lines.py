@@ -29,7 +29,7 @@ from __future__ import annotations
 import calendar
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Iterable, Optional
 
 from sqlalchemy import func, select
@@ -45,7 +45,7 @@ from app.models.client_order_group import (
     ClientOrderGroup,
     ClientOrderGroupEvent,
 )
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.job import Job
 from app.models.md_consumption import (
     CONSUMPTION_SOURCE_IMPORT,
@@ -61,6 +61,7 @@ from app.services.multi_consultant_orders import (
 )
 
 ZERO = Decimal("0")
+HOURS_PER_MD = Decimal("8")
 STANDARD_WORKING_DAYS_PER_MONTH = Decimal("22")
 MONEY_SCALE = Decimal("0.01")
 
@@ -194,6 +195,14 @@ class ConsultantOption:
     #: TEJ osoby u TEGO klienta. To tylko podpowiedź dla nowej linii
     #: zamówienia — jej późniejsza edycja nie zapisuje nic na kontrakcie.
     suggested_rate_cost: Optional[Decimal]
+    #: Surowa efektywna stawka kontraktu. Osobne pole zachowuje kompatybilność:
+    #: starszy frontend nadal czyta ``suggested_rate_cost`` jako PLN/MD.
+    suggested_contract_rate_cost: Optional[Decimal]
+    #: Jednostka, waluta i kurs należą do SUROWEJ stawki kontraktu. Bez nich
+    #: frontend nie umiałby bezpiecznie przeliczyć jej do kanonicznego PLN/MD.
+    suggested_rate_cost_unit: Optional[RateUnit]
+    suggested_rate_cost_currency: Optional[str]
+    suggested_rate_cost_rate_to_pln: Optional[Decimal]
     #: Co najmniej dwa nieanulowane kontrakty tej osoby u klienta mają różne
     #: efektywne stawki kosztowe. Front pokazuje wtedy ostrzeżenie zamiast
     #: udawać, że podpowiedź jest jedyną możliwą wartością.
@@ -213,6 +222,10 @@ def _option(
     source: str,
     job_title: Optional[str] = None,
     suggested_rate_cost: Optional[Decimal] = None,
+    suggested_contract_rate_cost: Optional[Decimal] = None,
+    suggested_rate_cost_unit: Optional[RateUnit] = None,
+    suggested_rate_cost_currency: Optional[str] = None,
+    suggested_rate_cost_rate_to_pln: Optional[Decimal] = None,
     has_different_client_contract_rates: bool = False,
 ) -> ConsultantOption:
     first = (name or "").strip()
@@ -228,6 +241,10 @@ def _option(
         source=source,
         job_title=job_title,
         suggested_rate_cost=suggested_rate_cost,
+        suggested_contract_rate_cost=suggested_contract_rate_cost,
+        suggested_rate_cost_unit=suggested_rate_cost_unit,
+        suggested_rate_cost_currency=suggested_rate_cost_currency,
+        suggested_rate_cost_rate_to_pln=suggested_rate_cost_rate_to_pln,
         has_different_client_contract_rates=has_different_client_contract_rates,
     )
 
@@ -242,8 +259,16 @@ def _rate_suggestion(
     *,
     on: date,
     currency_rates: dict[str, Optional[Decimal]],
-) -> tuple[Optional[Decimal], bool, Optional[int]]:
-    """Podpowiedź kosztu /MD z bieżącego kontraktu + sygnał rozbieżności.
+) -> tuple[
+    Optional[Decimal],
+    Optional[Decimal],
+    Optional[RateUnit],
+    Optional[str],
+    Optional[Decimal],
+    bool,
+    Optional[int],
+]:
+    """Podpowiedź PLN/MD i surowa stawka kontraktu + metadane/rozbieżność.
 
     `active` i `ending` są biznesowo żywe (cron przenosi kontrakt do
     `ending` już 30 dni przed końcem), więc oba kwalifikują się do
@@ -251,41 +276,71 @@ def _rate_suggestion(
     z cache'owanej kolumny `contracts.rate_candidate`, która może być
     nieaktualna po wejściu w życie zaplanowanego aneksu.
 
-    Kontrakt przechowuje stawkę godzinową, dzienną albo miesięczną, a linia
-    zamówienia zawsze zł/MD. Dlatego każdą stawkę normalizujemy najpierw do
-    miesięcznej wartości tym samym mechanizmem co marża kontraktu, a potem do
-    standardowego miesiąca 22 MD. Kwoty w obcych walutach przeliczamy po
-    zapisanym kursie na PLN; przy braku kursu nie podpowiadamy wartości. W
-    przeciwnym razie np. 100 EUR/h trafiłoby do formularza jako 100 zł/MD.
+    ``suggested_rate_cost`` zachowuje swój historyczny kontrakt: kanoniczne
+    PLN/MD, żeby starszy frontend nie zapisał surowych 60 PLN/h jako 60 PLN/MD.
+    Osobne ``suggested_contract_rate_cost`` niesie dokładnie efektywną stawkę
+    z kontraktu w jej jednostce i walucie. Brak kursu waluty obcej zachowuje
+    dotychczasową bezpieczną odmowę podpowiedzi; nigdy nie udajemy kursu 1:1.
 
     Ostrzeżenie porównuje wszystkie nieanulowane kontrakty tej osoby u TEGO
-    klienta, także historyczne, już po tej samej normalizacji. Brak stawki nie
-    jest inną stawką; dwa kontrakty z tą samą wartością /MD nie generują
-    ostrzeżenia.
+    klienta, także historyczne, po tej samej kanonicznej wartości co pole
+    zgodności: godzina × 8, dzień × 1, miesiąc ÷ 22, na końcu FX. Ta
+    normalizacja nigdy nie zmienia osobnego pola surowego.
+    ``billing_hours_per_month`` nie opisuje długości MD i nie może uczestniczyć
+    w tym przeliczeniu. Brak stawki/kursu nie jest inną stawką.
     """
 
-    def rate_per_md(contract: Contract) -> Optional[Decimal]:
-        rate = contract.effective_candidate_rate(on)
-        monthly = contract.monthly_rate(rate)
+    def rate_per_md_pln(contract: Contract) -> Optional[Decimal]:
+        raw_rate = contract.effective_candidate_rate(on)
         currency = (contract.currency or "PLN").upper()
         rate_to_pln = currency_rates.get(currency)
-        if monthly is None or rate_to_pln is None:
+        if raw_rate is None or rate_to_pln is None:
             return None
-        return (monthly * rate_to_pln / STANDARD_WORKING_DAYS_PER_MONTH).quantize(
-            MONEY_SCALE
-        )
+
+        rate = Decimal(str(raw_rate))
+        unit = RateUnit(contract.rate_unit)
+        if unit == RateUnit.hourly:
+            rate_per_md = rate * HOURS_PER_MD
+        elif unit == RateUnit.daily:
+            rate_per_md = rate
+        else:  # RateUnit.monthly
+            rate_per_md = rate / STANDARD_WORKING_DAYS_PER_MONTH
+        # Linia zapisuje Numeric(12,2), więc pole zgodności i ostrzeżenie
+        # operują dokładnie na wartościach, które mogą się różnić po zapisie.
+        return (rate_per_md * rate_to_pln).quantize(MONEY_SCALE, rounding=ROUND_HALF_UP)
 
     live = [c for c in contracts if c.status in LIVE_CONTRACT_STATUSES]
     current = max(live, key=_contract_recency_key) if live else None
-    suggested = rate_per_md(current) if current is not None else None
+    suggested_per_md_pln = rate_per_md_pln(current) if current is not None else None
+    suggested_contract_rate: Optional[Decimal] = None
+    suggested_unit: Optional[RateUnit] = None
+    suggested_currency: Optional[str] = None
+    suggested_rate_to_pln: Optional[Decimal] = None
+    if current is not None:
+        current_rate = current.effective_candidate_rate(on)
+        current_currency = (current.currency or "PLN").upper()
+        current_rate_to_pln = currency_rates.get(current_currency)
+        if current_rate is not None and suggested_per_md_pln is not None:
+            suggested_contract_rate = Decimal(str(current_rate))
+            suggested_unit = RateUnit(current.rate_unit)
+            suggested_currency = current_currency
+            suggested_rate_to_pln = current_rate_to_pln
 
     distinct_rates = {
         rate.normalize()
         for contract in contracts
         if contract.status != ContractStatus.void
-        and (rate := rate_per_md(contract)) is not None
+        and (rate := rate_per_md_pln(contract)) is not None
     }
-    return suggested, len(distinct_rates) > 1, current.id if current else None
+    return (
+        suggested_per_md_pln,
+        suggested_contract_rate,
+        suggested_unit,
+        suggested_currency,
+        suggested_rate_to_pln,
+        len(distinct_rates) > 1,
+        current.id if current else None,
+    )
 
 
 def _sort_key(option: ConsultantOption) -> tuple[str, str, int]:
@@ -430,9 +485,15 @@ async def list_consultant_options(
 
     for candidate_id, rows in rows_by_candidate.items():
         contracts = contracts_by_candidate.get(candidate_id, [])
-        suggested_rate, has_different_rates, current_contract_id = _rate_suggestion(
-            contracts, on=today, currency_rates=currency_rates
-        )
+        (
+            suggested_rate,
+            suggested_contract_rate,
+            suggested_rate_unit,
+            suggested_rate_currency,
+            suggested_rate_to_pln,
+            has_different_rates,
+            current_contract_id,
+        ) = _rate_suggestion(contracts, on=today, currency_rates=currency_rates)
 
         # Aktywny/kończący się kontrakt wygrywa z nowszym szkicem. Dopiero
         # gdy nie ma żywego kontraktu, wybieramy najnowszy draft — zachowuje to
@@ -452,6 +513,10 @@ async def list_consultant_options(
                 source=SOURCE_CLIENT_RECRUITMENT,
                 job_title=job_title,
                 suggested_rate_cost=suggested_rate,
+                suggested_contract_rate_cost=suggested_contract_rate,
+                suggested_rate_cost_unit=suggested_rate_unit,
+                suggested_rate_cost_currency=suggested_rate_currency,
+                suggested_rate_cost_rate_to_pln=suggested_rate_to_pln,
                 has_different_client_contract_rates=has_different_rates,
             )
         )

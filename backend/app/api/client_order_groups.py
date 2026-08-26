@@ -1274,6 +1274,20 @@ async def list_consultant_options_for_client(
                 suggested_rate_cost=(
                     o.suggested_rate_cost if include_rate_suggestions else None
                 ),
+                suggested_contract_rate_cost=(
+                    o.suggested_contract_rate_cost if include_rate_suggestions else None
+                ),
+                suggested_rate_cost_unit=(
+                    o.suggested_rate_cost_unit if include_rate_suggestions else None
+                ),
+                suggested_rate_cost_currency=(
+                    o.suggested_rate_cost_currency if include_rate_suggestions else None
+                ),
+                suggested_rate_cost_rate_to_pln=(
+                    o.suggested_rate_cost_rate_to_pln
+                    if include_rate_suggestions
+                    else None
+                ),
                 has_different_client_contract_rates=(
                     o.has_different_client_contract_rates
                     if include_rate_suggestions
