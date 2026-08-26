@@ -27,11 +27,12 @@ FastAPI rig, and reused by the signing pipeline.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import HTTPException, status as http_status
-from sqlalchemy import ColumnElement, and_, or_, select
+from sqlalchemy import ColumnElement, and_, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -39,6 +40,55 @@ from app.models.activity import Activity
 from app.models.contract import Contract, ContractStatus, ContractType
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services.contract_service import validate_ready_for_activation
+
+
+HardDeleteBlocker = Literal["completed_signature", "signed_generated_contract"]
+
+
+@dataclass(frozen=True)
+class HardDeleteResult:
+    """Structural outcome of a guarded hard delete.
+
+    The helper never commits. Batch operations such as the one-off duplicate
+    merge can therefore use the exact same deletion semantics inside their own
+    larger transaction and include these non-sensitive counts in their audit.
+    """
+
+    contract_id: int
+    detached_generated_contracts: int
+    settled_order_group_ids: tuple[int, ...]
+
+
+class ContractHardDeleteBlocked(HTTPException):
+    """Stable 409 raised when deleting a contract would destroy signed proof."""
+
+    _MESSAGES: dict[HardDeleteBlocker, str] = {
+        "completed_signature": (
+            "Kontrakt ma ukończony podpis kwalifikowany i nie może "
+            "zostać usunięty — usunięcie zniszczyłoby dowód podpisu. "
+            "Zamiast tego anuluj kontrakt (void), co zachowa dokumenty "
+            "i dowody."
+        ),
+        "signed_generated_contract": (
+            "Kontrakt powstał z umowy B2B potwierdzonej jako podpisana "
+            "przez obie strony i nie może zostać usunięty. Zamiast tego "
+            "anuluj kontrakt (void) albo zamknij umowę w rejestrze "
+            "„Wygenerowane umowy”."
+        ),
+    }
+
+    def __init__(self, contract: Contract, reason: HardDeleteBlocker) -> None:
+        self.reason = reason
+        super().__init__(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail={
+                "code": f"contract_has_{reason}",
+                "message": self._MESSAGES[reason],
+                "status": contract.status.value,
+                "void_endpoint": f"/api/contracts/{contract.id}/void",
+            },
+        )
+
 
 # ── State machine ────────────────────────────────────────────────────────────
 #
@@ -501,7 +551,9 @@ def signed_generated_link_filter(contract: Contract) -> ColumnElement[bool]:
     )
 
 
-async def hard_delete_blocker(db: AsyncSession, contract: Contract) -> Optional[str]:
+async def hard_delete_blocker(
+    db: AsyncSession, contract: Contract
+) -> Optional[HardDeleteBlocker]:
     """Powód blokady hard delete — ``None`` znaczy „wolno usunąć".
 
     Decyzja 2026-08-25 (ticket „Usunięcie kontraktu nie działa mimo
@@ -554,3 +606,170 @@ async def hard_delete_blocker(db: AsyncSession, contract: Contract) -> Optional[
     if signed_generated_id is not None:
         return "signed_generated_contract"
     return None
+
+
+async def hard_delete_contract(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+) -> HardDeleteResult:
+    """Physically delete one contract without destroying signed evidence.
+
+    This is the shared implementation behind the HTTP DELETE endpoint and
+    trusted batch maintenance. The caller owns the surrounding transaction;
+    this helper flushes so FK cascades/SET NULL and cost-order resettlement are
+    complete before it returns, but it deliberately never commits.
+
+    Project-owned children follow their declared FK policy (CASCADE or
+    SET NULL). Generated B2B rows that do not legally protect this project are
+    detached and preserved in their register. Completed qualified signatures
+    and a ``signed_both`` B2B that belongs to this client remain hard blockers.
+    Polymorphic Activity/Notification history is not rewritten.
+    """
+    # Lock the FK parent before looking at any deletion blocker. PostgreSQL FK
+    # inserts acquire KEY SHARE on the parent, which conflicts with this
+    # UPDATE lock: a new signature/generated agreement therefore either
+    # commits before this statement (and is included in the child locks below)
+    # or waits until the delete transaction ends and then fails its FK check.
+    # ``populate_existing`` is intentional because callers may have loaded the
+    # object before a concurrent client/status update; blocker predicates must
+    # use the values protected by this lock, not a stale identity-map snapshot.
+    contract_id = int(contract.id)
+    locked_contract = await db.scalar(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked_contract is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail="Contract not found",
+        )
+    contract = locked_contract
+
+    # Existing children can change status without touching their FK, so the
+    # parent lock alone is insufficient. Lock every row in a stable order
+    # before evaluating ``completed`` / ``signed_both``. Writers that started
+    # first finish before the blocker is evaluated; later writers wait until
+    # the hard-delete transaction commits or rolls back.
+    (
+        await db.scalars(
+            select(DocumentSignature.id)
+            .where(DocumentSignature.contract_id == contract_id)
+            .order_by(DocumentSignature.id)
+            .with_for_update()
+        )
+    ).all()
+
+    # Local imports keep the lifecycle module's import graph independent from
+    # the generated-contract and cost-order feature modules.
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    (
+        await db.scalars(
+            select(B2BGeneratedContract.id)
+            .where(B2BGeneratedContract.contract_id == contract_id)
+            .order_by(B2BGeneratedContract.id)
+            .with_for_update()
+        )
+    ).all()
+
+    blocker = await hard_delete_blocker(db, contract)
+    if blocker is not None:
+        raise ContractHardDeleteBlocked(contract, blocker)
+
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroup
+    from app.services.cost_orders import settle_group
+
+    # ``order_group_id`` is mutable without touching the contract parent.  Lock
+    # every affected line before taking the group snapshot, otherwise a
+    # concurrent detach/reassignment can make us settle the old group while the
+    # cascade removes a line from the new one.  The stable ID order matches the
+    # batch merge's child-lock discipline.
+    order_rows = (
+        await db.execute(
+            select(ClientOrder.id, ClientOrder.order_group_id)
+            .where(ClientOrder.contract_id == contract_id)
+            .order_by(ClientOrder.id)
+            .with_for_update()
+        )
+    ).all()
+    affected_group_ids = tuple(
+        sorted(
+            {
+                int(row.order_group_id)
+                for row in order_rows
+                if row.order_group_id is not None
+            }
+        )
+    )
+
+    detached = await db.execute(
+        update(B2BGeneratedContract)
+        .where(
+            B2BGeneratedContract.contract_id == contract_id,
+            not_(signed_generated_link_filter(contract)),
+        )
+        .values(contract_id=None)
+    )
+
+    # Same last-chance guard as the endpoint historically used: a row left
+    # linked after the complementary UPDATE is protective signed evidence (or
+    # became protective concurrently), so FK RESTRICT must not be bypassed.
+    still_linked = await db.scalar(
+        select(B2BGeneratedContract.id)
+        .where(B2BGeneratedContract.contract_id == contract_id)
+        .limit(1)
+    )
+    if still_linked is not None:
+        raise ContractHardDeleteBlocked(contract, "signed_generated_contract")
+
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="deleted",
+            user_id=actor_id,
+            details={
+                "status": contract.status.value,
+                "candidate_id": contract.candidate_id,
+                "client_id": contract.client_id,
+            },
+        )
+    )
+    await db.delete(contract)
+    # Force DELETE + FK actions before settlement and before returning to a
+    # batch caller. This also surfaces an unexpected RESTRICT in this helper's
+    # transaction rather than at an unrelated later commit.
+    await db.flush()
+
+    # Cost settlement writes stored totals on the group.  Take these locks only
+    # after the cascade has finished: invoice import acquires consumption-row
+    # locks before settling, so group-before-cascade would invert that order and
+    # create a deadlock.  Stable group-ID order serializes the recomputation;
+    # ``settle_group`` repeats the lock as the central invariant for every
+    # caller and refreshes state after any wait.
+    locked_groups = (
+        (
+            await db.scalars(
+                select(ClientOrderGroup)
+                .where(ClientOrderGroup.id.in_(affected_group_ids))
+                .order_by(ClientOrderGroup.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+        if affected_group_ids
+        else []
+    )
+    for group in locked_groups:
+        await settle_group(db, group)
+
+    return HardDeleteResult(
+        contract_id=contract_id,
+        detached_generated_contracts=int(detached.rowcount or 0),
+        settled_order_group_ids=affected_group_ids,
+    )

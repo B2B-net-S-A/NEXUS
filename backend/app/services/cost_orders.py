@@ -88,6 +88,34 @@ def assert_cost_order_client(client_id: int | None) -> None:
 # ── Rozliczenie ─────────────────────────────────────────────────────────────
 
 
+async def lock_group_for_settlement(
+    db: AsyncSession,
+    group: ClientOrderGroup,
+    *,
+    flush_local_changes: bool,
+) -> ClientOrderGroup:
+    """Serialize group settlement and refresh state after any lock wait.
+
+    A manual budget edit mutates the ORM object before recalculation. Flushing
+    only that object first preserves the caller's explicit changes and acquires
+    the same row lock; ``populate_existing`` can then safely refresh everything
+    else. Read-only callers lock first and refresh without an early flush.
+    """
+    if flush_local_changes:
+        await db.flush([group])
+    locked_group = await db.scalar(
+        select(ClientOrderGroup)
+        .where(ClientOrderGroup.id == group.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked_group is None:
+        raise RuntimeError(
+            f"lock_group_for_settlement: brak grupy po blokadzie (id={group.id})"
+        )
+    return locked_group
+
+
 async def invoiced_total(db: AsyncSession, order_id: int) -> Decimal:
     """Suma zafakturowana na linii — pole „Zafakturowano" przy konsultancie.
 
@@ -118,7 +146,16 @@ async def settle_group(db: AsyncSession, group: ClientOrderGroup) -> Decimal:
     status, gdy korekta kwoty znów odsłoni budżet. Bez tego cofnięcia podniesienie
     kwoty zamówienia zostawiałoby je w „Wyczerpanych" z dodatnią resztą, czyli
     w stanie, którego interfejs nie umie wytłumaczyć.
+
+    Wszystkie ścieżki przeliczenia serializują się na wierszu grupy *przed*
+    odczytem konsumpcji. W przeciwnym razie importer, który policzył na stanie
+    sprzed równoległego usunięcia linii, mógłby po jego commicie nadpisać
+    poprawne ``budget_remaining`` starym wynikiem. Wąski flush zachowuje lokalną
+    korektę kwoty wykonaną przez endpoint edycji, a ``populate_existing`` po
+    ewentualnym oczekiwaniu odświeża wszystkie pozostałe pola.
     """
+    group = await lock_group_for_settlement(db, group, flush_local_changes=True)
+
     if not group.is_cost_based or group.budget_amount is None:
         group.budget_remaining = None
         return ZERO
@@ -133,6 +170,7 @@ async def settle_group(db: AsyncSession, group: ClientOrderGroup) -> Decimal:
                 ClientOrderInvoiceConsumption.period_month.asc(),
                 ClientOrderInvoiceConsumption.order_id.asc(),
             )
+            .execution_options(populate_existing=True)
         )
     ).all()
 

@@ -78,6 +78,7 @@ from app.services.client_order_lines import (
 )
 from app.services.cost_orders import (
     describe_invoice_import,
+    lock_group_for_settlement,
     quantize_money,
     settle_group,
     upsert_invoice,
@@ -412,10 +413,10 @@ async def create_import(
         )
 
     await db.flush()
-    for group in touched_groups.values():
+    for group_id in sorted(touched_groups):
         await _settle_and_record(
             db,
-            group=group,
+            group=touched_groups[group_id],
             period_month=period_month,
             import_id=batch.id,
             user_id=user.id,
@@ -494,6 +495,7 @@ async def _settle_and_record(
     Jeden wpis na zamówienie, a nie na wiersz: historia ma odpowiadać na
     pytanie „co zrobił import z tym zamówieniem", a nie odtwarzać arkusz.
     """
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
     before = group.budget_remaining
     was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
     remaining = await settle_group(db, group)

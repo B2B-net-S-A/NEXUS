@@ -93,6 +93,23 @@ on:
         description: "Decyzje stawek przychodowych: group=source,... (wyłącznie ID; tylko contract-merge-apply)"
         required: false
         default: ""
+      contract_merge_framework_rate_sources:
+        description: "Decyzje stawek ramowych: group=source,... (wyłącznie ID; tylko contract-merge-apply)"
+        required: false
+        default: ""
+      contract_merge_rate_metadata_sources:
+        description: "Decyzje jednostki/waluty/godzin: group=source,... (wyłącznie ID; tylko contract-merge-apply)"
+        required: false
+        default: ""
+      contract_merge_field_sources:
+        description: "Decyzje pól: group.field=source,... (nazwy z allowlisty i ID; tylko contract-merge-apply)"
+        required: false
+        default: ""
+      contract_merge_allow_rate_empty_metadata:
+        description: "Zezwól ignorować sprzeczne metadata wyłącznie rekordów bez żadnych stawek (tylko contract-merge-apply)"
+        type: choice
+        options: ["NO", "ALLOW"]
+        default: "NO"
       contract_merge_confirm:
         description: "Bezpiecznik operacji fizycznego usunięcia duplikatów (tylko contract-merge-apply)"
         type: choice
@@ -805,6 +822,10 @@ jobs:
           PLAN_FINGERPRINT: ${{ inputs.contract_merge_fingerprint }}
           CANDIDATE_RATE_SOURCES: ${{ inputs.contract_merge_candidate_rate_sources }}
           CLIENT_RATE_SOURCES: ${{ inputs.contract_merge_client_rate_sources }}
+          FRAMEWORK_RATE_SOURCES: ${{ inputs.contract_merge_framework_rate_sources }}
+          RATE_METADATA_SOURCES: ${{ inputs.contract_merge_rate_metadata_sources }}
+          FIELD_SOURCES: ${{ inputs.contract_merge_field_sources }}
+          ALLOW_RATE_EMPTY_METADATA: ${{ inputs.contract_merge_allow_rate_empty_metadata }}
           APPLY_CONFIRMATION: ${{ inputs.contract_merge_confirm }}
           APPLY_UNLOCK: ${{ inputs.action == 'contract-merge-apply' && secrets.CONTRACT_MERGE_APPLY_UNLOCK || '' }}
           OPS_RUN_ID: ${{ github.run_id }}

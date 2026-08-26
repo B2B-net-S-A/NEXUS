@@ -124,6 +124,9 @@ def _value(row: Any, field: str) -> Any:
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+_FIELD_SOURCE_RE = re.compile(
+    r"^(?P<group>[1-9][0-9]*)\.(?P<field>[a-z_][a-z0-9_]*)=(?P<source>[1-9][0-9]*)$"
+)
 
 # Every *real* FK to contracts that the application owns today.  Audit reads
 # the live PostgreSQL catalog and blocks when a future table is not in this
@@ -195,6 +198,15 @@ _CONTRACT_RATE_CACHE_FIELDS = {
     "billing_hours_per_month",
     "margin",
 }
+_FINANCIAL_METADATA_FIELDS = (
+    "rate_unit",
+    "currency",
+    "billing_hours_per_month",
+)
+_FIELD_DECISION_FIELDS = frozenset(_MERGEABLE_FIELDS) - {"start_date", "end_date"}
+_HISTORICAL_REFERENCE_KEYS = frozenset(
+    {"activities", "notifications", "notification_link_refs", "alert_dedup"}
+)
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
 _CONTRACT_DERIVED_FIELDS = {"client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
@@ -215,6 +227,30 @@ _STATUS_RANK = {
     "ended": 2,
     "void": 1,
 }
+
+_DECISION_RESOLVABLE_BLOCKERS = frozenset(
+    {
+        "candidate_rate_current_value_conflict",
+        "candidate_rate_schedule_conflict",
+        "client_rate_current_value_conflict",
+        "client_rate_schedule_conflict",
+        "framework_rate_current_value_conflict",
+        "framework_rate_schedule_conflict",
+        "financial_metadata_conflict",
+        "contract_field_conflicts",
+    }
+)
+
+
+def _resolvable_merge_blocker_codes(
+    allow_rate_empty_metadata: bool,
+) -> frozenset[str]:
+    if allow_rate_empty_metadata:
+        return _DECISION_RESOLVABLE_BLOCKERS | {
+            "rate_empty_financial_metadata_conflict"
+        }
+    return _DECISION_RESOLVABLE_BLOCKERS
+
 
 _V1_EXPECTED_COUNTS = {
     "duplicate_candidate_groups": 74,
@@ -431,6 +467,29 @@ def parse_rate_source_map(value: str | None) -> dict[int, int]:
     return result
 
 
+def parse_field_source_map(value: str | None) -> dict[tuple[int, str], int]:
+    """Parse ``group.field=source`` decisions through a closed field allowlist."""
+    if value is None or not value.strip():
+        return {}
+    result: dict[tuple[int, str], int] = {}
+    for chunk in value.split(","):
+        match = _FIELD_SOURCE_RE.fullmatch(chunk)
+        if match is None:
+            raise ContractMergeError(
+                "field sources must use group.field=source comma syntax"
+            )
+        field = match.group("field")
+        if field not in _FIELD_DECISION_FIELDS:
+            raise ContractMergeError(f"field source is not allowed for {field}")
+        key = (int(match.group("group")), field)
+        if key in result:
+            raise ContractMergeError(
+                f"duplicate field decision for group {key[0]} field {field}"
+            )
+        result[key] = int(match.group("source"))
+    return result
+
+
 def _is_empty(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
 
@@ -469,10 +528,16 @@ def approval_fingerprint(
     plan_sha256: str,
     candidate_rate_sources: Mapping[int, int] | None = None,
     client_rate_sources: Mapping[int, int] | None = None,
+    framework_rate_sources: Mapping[int, int] | None = None,
+    rate_metadata_sources: Mapping[int, int] | None = None,
+    allow_rate_empty_metadata: bool = False,
+    field_sources: Mapping[tuple[int, str], int] | None = None,
 ) -> str:
     """Bind a human approval to the exact plan *and* normalized decisions."""
     if not _SHA256_RE.fullmatch(plan_sha256):
         raise ContractMergeError("approval requires a valid plan fingerprint")
+    if not isinstance(allow_rate_empty_metadata, bool):
+        raise ContractMergeError("rate-empty metadata approval must be boolean")
 
     def normalized(value: Mapping[int, int] | None) -> list[list[int]]:
         result: list[list[int]] = []
@@ -482,13 +547,51 @@ def approval_fingerprint(
             result.append([group, source])
         return sorted(result)
 
+    normalized_fields: list[list[Any]] = []
+    for raw_key, raw_source in (field_sources or {}).items():
+        if not isinstance(raw_key, tuple) or len(raw_key) != 2:
+            raise ContractMergeError("field decision key must be (group, field)")
+        raw_group, raw_field = raw_key
+        group = _positive_int(raw_group, "field decision group")
+        field = str(raw_field)
+        if field not in _FIELD_DECISION_FIELDS:
+            raise ContractMergeError(f"field source is not allowed for {field}")
+        source = _positive_int(raw_source, "field decision source")
+        normalized_fields.append([group, field, source])
+    normalized_fields.sort(key=lambda item: (item[0], item[1], item[2]))
+
     payload = {
         "plan_fingerprint": plan_sha256,
         "candidate_rate_sources": normalized(candidate_rate_sources),
         "client_rate_sources": normalized(client_rate_sources),
+        "framework_rate_sources": normalized(framework_rate_sources),
+        "rate_metadata_sources": normalized(rate_metadata_sources),
+        "allow_rate_empty_metadata": allow_rate_empty_metadata,
+        "field_sources": normalized_fields,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _redacted_positive_ids(value: Any, label: str) -> list[int]:
+    if not isinstance(value, (list, tuple)):
+        raise ContractMergeError(f"{label} must be an ID list")
+    return [_positive_int(item, label) for item in value]
+
+
+def _redacted_id_map(
+    value: Any, allowed_keys: frozenset[str], label: str
+) -> dict[str, list[int]]:
+    if not isinstance(value, Mapping):
+        raise ContractMergeError(f"{label} must be an ID map")
+    unexpected = sorted(set(str(key) for key in value) - allowed_keys)
+    if unexpected:
+        raise ContractMergeError(f"{label} contains unexpected keys: {unexpected}")
+    return {
+        key: _redacted_positive_ids(value.get(key, []), f"{label}.{key}")
+        for key in sorted(allowed_keys)
+        if value.get(key)
+    }
 
 
 def redact_contract_merge_report(report: Mapping[str, Any]) -> dict[str, Any]:
@@ -542,10 +645,95 @@ def redact_contract_merge_report(report: Mapping[str, Any]) -> dict[str, Any]:
             "blocker_codes": blocker_codes,
             "field_conflicts": field_conflicts,
             "rate_conflicts": {
-                "candidate": bool(group.get("candidate_rates", {}).get("conflict")),
-                "client": bool(group.get("client_rates", {}).get("conflict")),
+                kind: {
+                    "current_value": bool(
+                        group.get(f"{kind}_rates", {}).get("current_value_conflict")
+                    ),
+                    "schedule": bool(
+                        group.get(f"{kind}_rates", {}).get("schedule_conflict")
+                    ),
+                    "schedule_scopes": list(
+                        group.get(f"{kind}_rates", {}).get(
+                            "schedule_conflict_scopes", []
+                        )
+                    ),
+                }
+                for kind in ("candidate", "client", "framework")
+            },
+            "financial_metadata_conflict": bool(
+                group.get("financial_metadata_plan", {}).get("conflict")
+            ),
+            "financial_metadata_conflict_fields": list(
+                group.get("financial_metadata_plan", {}).get("conflict_fields", [])
+            ),
+            "financial_metadata_rate_bearing_contract_ids": list(
+                group.get("financial_metadata_plan", {}).get(
+                    "rate_bearing_contract_ids", []
+                )
+            ),
+            "rate_empty_metadata_conflict": bool(
+                group.get("financial_metadata_plan", {}).get(
+                    "rate_empty_metadata_conflict"
+                )
+            ),
+            "rate_empty_metadata_conflict_fields": list(
+                group.get("financial_metadata_plan", {}).get(
+                    "rate_empty_metadata_conflict_fields", []
+                )
+            ),
+            "rate_empty_metadata_contract_ids": list(
+                group.get("financial_metadata_plan", {}).get(
+                    "rate_empty_contract_ids", []
+                )
+            ),
+            "same_day_schedule_conflicts": {
+                kind: bool(group.get("same_day_schedule_conflicts", {}).get(kind, []))
+                for kind in ("candidate", "client", "framework")
+            },
+            "notification_repoint": {
+                "retained_historical_ids": _redacted_positive_ids(
+                    group.get("notification_repoint_plan", {}).get(
+                        "retained_historical_notification_ids", []
+                    ),
+                    "notification_repoint.retained_historical_ids",
+                ),
+                "retained_historical_count": len(
+                    group.get("notification_repoint_plan", {}).get(
+                        "retained_historical_notification_ids", []
+                    )
+                ),
             },
         }
+        if group.get("operation") == "explicit_delete_wrong_project":
+            hard_delete = group.get("hard_delete_plan", {})
+            child_ids = _redacted_id_map(
+                hard_delete.get("child_row_ids", {}),
+                frozenset(table for table, _ in _KNOWN_CONTRACT_FKS),
+                "hard_delete.child_row_ids",
+            )
+            historical_ids = _redacted_id_map(
+                hard_delete.get("historical_row_ids", {}),
+                _HISTORICAL_REFERENCE_KEYS,
+                "hard_delete.historical_row_ids",
+            )
+            item["hard_delete"] = {
+                "child_row_ids": child_ids,
+                "child_row_counts": {
+                    key: len(values) for key, values in child_ids.items()
+                },
+                "historical_row_ids": historical_ids,
+                "historical_row_counts": {
+                    key: len(values) for key, values in historical_ids.items()
+                },
+                "protective_completed_signature_ids": _redacted_positive_ids(
+                    hard_delete.get("protective_completed_signature_ids", []),
+                    "hard_delete.protective_completed_signature_ids",
+                ),
+                "protective_signed_generated_contract_ids": _redacted_positive_ids(
+                    hard_delete.get("protective_signed_generated_contract_ids", []),
+                    "hard_delete.protective_signed_generated_contract_ids",
+                ),
+            }
         if group.get("survivor_id") is not None:
             item["survivor_id"] = group.get("survivor_id")
         groups.append(item)
@@ -576,6 +764,22 @@ def redact_contract_merge_report(report: Mapping[str, Any]) -> dict[str, Any]:
                 "client_rate_source_contract_id": item.get("rate_decisions", {}).get(
                     "client_rate_source_contract_id"
                 ),
+                "framework_rate_source_contract_id": item.get("rate_decisions", {}).get(
+                    "framework_rate_source_contract_id"
+                ),
+                "rate_metadata_source_contract_id": item.get("rate_decisions", {}).get(
+                    "rate_metadata_source_contract_id"
+                ),
+                "allow_rate_empty_metadata": bool(
+                    item.get("rate_decisions", {}).get(
+                        "allow_rate_empty_metadata", False
+                    )
+                ),
+                "field_source_contract_ids": {
+                    str(field): _positive_int(source, "applied field source")
+                    for field, source in item.get("field_decisions", {}).items()
+                },
+                "hard_delete_counts": _stable(item.get("hard_delete_counts", {})),
             }
             for item in report.get("applied", [])
         ]
@@ -705,34 +909,9 @@ def _date_value(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _metadata_key(snapshot: Mapping[str, Any]) -> tuple[Any, Any, Any]:
-    return (
-        snapshot.get("rate_unit"),
-        snapshot.get("currency"),
-        snapshot.get("billing_hours_per_month"),
-    )
-
-
 def _rate_value_key(snapshot: Mapping[str, Any]) -> Decimal | None:
     value = snapshot.get("rate")
     return Decimal(str(value)) if value is not None else None
-
-
-def _rate_plan(snapshots: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    filled = [dict(item) for item in snapshots if _rate_value_key(item) is not None]
-    distinct_rates = {_rate_value_key(item) for item in filled}
-    distinct_metadata = {_metadata_key(item) for item in snapshots}
-    return {
-        "snapshots": [_stable(item) for item in snapshots],
-        "conflict": len(distinct_rates) > 1 or len(distinct_metadata) > 1,
-        "metadata_conflict": len(distinct_metadata) > 1,
-        "available_source_contract_ids": sorted(
-            int(item["contract_id"]) for item in filled
-        ),
-        "single_source_contract_id": int(filled[0]["contract_id"])
-        if filled and len(distinct_rates) <= 1 and len(distinct_metadata) <= 1
-        else None,
-    }
 
 
 def _rate_timeline_plan(
@@ -772,14 +951,25 @@ def _rate_timeline_plan(
                     "contract_ids": sorted(trajectories),
                 }
             )
-    distinct_metadata = {_metadata_key(item) for item in snapshots_at_today}
+    current_values = {_rate_value_key(item) for item in snapshots_at_today}
+    current_values.discard(None)
+    current_value_conflict = len(current_values) > 1
+    schedule_divergence = [
+        item for item in divergence if _date_value(item["effective_from"]) != today
+    ]
+    schedule_conflict_scopes = sorted(
+        {
+            "past" if _date_value(item["effective_from"]) < today else "future"
+            for item in schedule_divergence
+        }
+    )
     filled_sources = sorted(
         contract_id
         for contract_id, trajectory in trajectories.items()
         if any(_rate_value_key(item) is not None for item in trajectory)
     )
-    conflict = bool(divergence) or len(distinct_metadata) > 1
-    available = filled_sources or sorted(trajectories)
+    schedule_conflict = bool(schedule_divergence)
+    conflict = current_value_conflict or schedule_conflict
     return {
         "snapshots": [_stable(item) for item in snapshots_at_today],
         "boundaries": [item.isoformat() for item in boundaries],
@@ -788,12 +978,122 @@ def _rate_timeline_plan(
             for contract_id, trajectory in sorted(trajectories.items())
         },
         "timeline_divergence": divergence,
-        "metadata_conflict": len(distinct_metadata) > 1,
+        "schedule_divergence": schedule_divergence,
+        "current_value_conflict": current_value_conflict,
+        "schedule_conflict": schedule_conflict,
+        "schedule_conflict_scopes": schedule_conflict_scopes,
         "conflict": conflict,
-        "available_source_contract_ids": available,
-        "single_source_contract_id": available[0]
-        if available and not conflict
+        "available_source_contract_ids": filled_sources,
+        "single_source_contract_id": filled_sources[0]
+        if filled_sources and not conflict
         else None,
+    }
+
+
+def _financial_metadata_plan(
+    contracts: Sequence[Mapping[str, Any]],
+    rate_plans: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Resolve shared rate metadata only from contracts carrying rate data.
+
+    ``rate_unit``, ``currency`` and ``billing_hours_per_month`` interpret all
+    three financial rate kinds.  Metadata on a duplicate with no candidate,
+    client or framework rate at any schedule boundary cannot safely interpret
+    a copied value, so it is excluded from the rate-bearing resolution.  Its
+    disagreement is still recorded as a separate blocker that requires an
+    explicit bulk ALLOW at apply time. Missing metadata on a rate-bearing
+    record is coalesced; two different non-empty values are never guessed.
+    """
+    rate_bearing_ids = sorted(
+        {
+            int(contract_id)
+            for plan in rate_plans
+            for contract_id in plan.get("available_source_contract_ids", [])
+        }
+    )
+    by_id = {int(contract["id"]): contract for contract in contracts}
+    all_snapshots = [
+        {
+            "contract_id": contract_id,
+            **{
+                field: _stable(by_id[contract_id].get(field))
+                for field in _FINANCIAL_METADATA_FIELDS
+            },
+        }
+        for contract_id in sorted(by_id)
+    ]
+    snapshots = [
+        item for item in all_snapshots if int(item["contract_id"]) in rate_bearing_ids
+    ]
+
+    def distinct_metadata(
+        items: Sequence[Mapping[str, Any]], field: str
+    ) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        for snapshot in items:
+            value = snapshot.get(field)
+            if _is_empty(value):
+                continue
+            key = json.dumps(
+                _stable(value),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            values[key] = value
+        return values
+
+    distinct = {
+        field: distinct_metadata(snapshots, field)
+        for field in _FINANCIAL_METADATA_FIELDS
+    }
+    raw_distinct = {
+        field: distinct_metadata(all_snapshots, field)
+        for field in _FINANCIAL_METADATA_FIELDS
+    }
+
+    conflict_fields = sorted(
+        field for field, values in distinct.items() if len(values) > 1
+    )
+    rate_empty_metadata_conflict_fields = sorted(
+        field
+        for field in _FINANCIAL_METADATA_FIELDS
+        if len(distinct[field]) <= 1 and len(raw_distinct[field]) > 1
+    )
+    # Preserve additive ticket semantics: a single non-empty value is safe to
+    # coalesce even when it exists only on a rate-empty duplicate.  When raw
+    # values disagree solely because of rate-empty records, keep only the
+    # unambiguous rate-bearing value; apply may use it only after the explicit
+    # bulk ALLOW has made that blocker resolvable.
+    resolved_metadata = {
+        field: (
+            next(iter(raw_distinct[field].values()))
+            if len(raw_distinct[field]) == 1
+            else next(iter(distinct[field].values()))
+            if len(distinct[field]) == 1
+            else None
+        )
+        for field in _FINANCIAL_METADATA_FIELDS
+    }
+    available_sources = [
+        int(snapshot["contract_id"])
+        for snapshot in snapshots
+        if all(not _is_empty(snapshot.get(field)) for field in conflict_fields)
+    ]
+    return {
+        "snapshots": snapshots,
+        "all_snapshots": all_snapshots,
+        "rate_bearing_contract_ids": rate_bearing_ids,
+        "rate_empty_contract_ids": sorted(set(by_id) - set(rate_bearing_ids)),
+        "conflict": bool(conflict_fields),
+        "conflict_fields": conflict_fields,
+        "rate_empty_metadata_conflict": bool(rate_empty_metadata_conflict_fields),
+        "rate_empty_metadata_conflict_fields": rate_empty_metadata_conflict_fields,
+        "available_source_contract_ids": available_sources,
+        "single_source_contract_id": rate_bearing_ids[0]
+        if len(rate_bearing_ids) == 1
+        else None,
+        "resolved_metadata": resolved_metadata,
     }
 
 
@@ -1248,16 +1548,23 @@ async def _names(db: AsyncSession, ids: Sequence[int]) -> dict[int, dict[str, An
     }
 
 
-async def _notification_collisions(
+async def _notification_repoint_plan(
     db: AsyncSession, loser_ids: Sequence[int], survivor_id: int
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
+    """Plan a lossless projection through the daily notification unique index.
+
+    One row per projected unique key remains attached to the live survivor. Any
+    additional loser rows keep their historical soft reference; their clickable
+    links are still rewritten during apply. No notification is deleted or
+    stripped of its original entity provenance.
+    """
     rows = (
         (
             await db.execute(
                 text(
                     """
                 WITH projected AS (
-                    SELECT user_id, notification_type,
+                    SELECT id, user_id, notification_type, related_entity_id,
                            date_trunc('day', created_at AT TIME ZONE 'Europe/Warsaw')::date AS local_day,
                            CASE
                                WHEN related_entity_type = 'contract'
@@ -1272,7 +1579,9 @@ async def _notification_collisions(
                        OR related_entity_id = :survivor
                 )
                 SELECT user_id, notification_type::text AS notification_type,
-                       local_day, count(*) AS count
+                       local_day, count(*) AS count,
+                       array_agg(id ORDER BY id) FILTER (WHERE is_moved) AS moved_ids,
+                       array_agg(id ORDER BY id) FILTER (WHERE NOT is_moved) AS existing_ids
                 FROM projected
                 GROUP BY user_id, notification_type, local_day, projected_entity_id
                 HAVING count(*) > 1 AND bool_or(is_moved)
@@ -1285,7 +1594,75 @@ async def _notification_collisions(
         .mappings()
         .all()
     )
-    return [_stable(dict(row)) for row in rows]
+    collisions: list[dict[str, Any]] = []
+    retained: list[int] = []
+    canonical_repointed: list[int] = []
+    for raw in rows:
+        moved_ids = sorted(int(value) for value in (raw.get("moved_ids") or []))
+        existing_ids = sorted(int(value) for value in (raw.get("existing_ids") or []))
+        if existing_ids:
+            retained.extend(moved_ids)
+            canonical_id = existing_ids[0]
+        else:
+            if not moved_ids:  # pragma: no cover - SQL HAVING proves this
+                raise ContractMergeError("notification collision has no moved row")
+            canonical_id = moved_ids[0]
+            canonical_repointed.append(canonical_id)
+            retained.extend(moved_ids[1:])
+        collisions.append(
+            {
+                "notification_ids": sorted(moved_ids + existing_ids),
+                "canonical_notification_id": canonical_id,
+                "retained_historical_notification_ids": (
+                    moved_ids if existing_ids else moved_ids[1:]
+                ),
+            }
+        )
+    return {
+        "collisions": collisions,
+        "canonical_repointed_notification_ids": sorted(canonical_repointed),
+        "retained_historical_notification_ids": sorted(set(retained)),
+    }
+
+
+async def _hard_delete_protective_evidence(
+    db: AsyncSession, contract_id: int, client_id: int
+) -> dict[str, list[int]]:
+    completed = [
+        int(value)
+        for value in (
+            await db.execute(
+                text(
+                    "SELECT id FROM document_signatures "
+                    "WHERE contract_id = :contract_id AND status = 'completed' "
+                    "ORDER BY id"
+                ),
+                {"contract_id": contract_id},
+            )
+        )
+        .scalars()
+        .all()
+    ]
+    signed_generated = [
+        int(value)
+        for value in (
+            await db.execute(
+                text(
+                    "SELECT id FROM b2b_generated_contracts "
+                    "WHERE contract_id = :contract_id "
+                    "AND signature_status = 'signed_both' "
+                    "AND (client_id IS NULL OR client_id = :client_id) ORDER BY id"
+                ),
+                {"contract_id": contract_id, "client_id": client_id},
+            )
+        )
+        .scalars()
+        .all()
+    ]
+    return {
+        "protective_completed_signature_ids": completed,
+        "protective_signed_generated_contract_ids": signed_generated,
+    }
 
 
 async def _document_collisions(
@@ -1581,11 +1958,6 @@ async def build_contract_merge_plan(
                     ],
                 }
             )
-        elif order_resolution.order is None and any(
-            _enum_text(row.get("status")) in {"active", "ending"} for row in rows
-        ):
-            blockers.append({"code": "live_contract_has_no_current_order"})
-
         survivor_id = choose_survivor(rows, evidence) if rows else min(group_ids)
         field_updates, field_conflicts = (
             merge_field_plan(rows, survivor_id) if rows else ({}, [])
@@ -1597,10 +1969,13 @@ async def build_contract_merge_plan(
                     "fields": sorted(item["field"] for item in field_conflicts),
                 }
             )
-        if order_resolution.order is not None:
-            field_updates["client_order_end_date"] = order_resolution.order.get(
-                "end_date"
-            )
+        # This is a derived cache of the one *current* ClientOrder. Zero current
+        # orders is a valid empty projection and must clear stale contract data.
+        field_updates["client_order_end_date"] = (
+            order_resolution.order.get("end_date")
+            if order_resolution.order is not None
+            else None
+        )
 
         cand_rows = [
             row for row in candidate_schedule if int(row["contract_id"]) in group_ids
@@ -1610,42 +1985,77 @@ async def build_contract_merge_plan(
         ]
         candidate_rates = _rate_timeline_plan(rows, cand_rows, "candidate", boundary)
         client_rates = _rate_timeline_plan(rows, cli_rows, "client", boundary)
-        if candidate_rates["conflict"]:
+        if candidate_rates["current_value_conflict"]:
             blockers.append(
-                {"code": "candidate_rate_conflict", "requires_decision": True}
+                {
+                    "code": "candidate_rate_current_value_conflict",
+                    "requires_decision": True,
+                }
             )
-        if client_rates["conflict"]:
-            blockers.append({"code": "client_rate_conflict", "requires_decision": True})
+        if candidate_rates["schedule_conflict"]:
+            blockers.append(
+                {
+                    "code": "candidate_rate_schedule_conflict",
+                    "requires_decision": True,
+                }
+            )
+        if client_rates["current_value_conflict"]:
+            blockers.append(
+                {
+                    "code": "client_rate_current_value_conflict",
+                    "requires_decision": True,
+                }
+            )
+        if client_rates["schedule_conflict"]:
+            blockers.append(
+                {
+                    "code": "client_rate_schedule_conflict",
+                    "requires_decision": True,
+                }
+            )
         candidate_schedule_conflicts = _same_day_schedule_conflicts(cand_rows)
-        if candidate_schedule_conflicts:
-            blockers.append(
-                {
-                    "code": "candidate_rate_schedule_same_day_conflict",
-                    "items": candidate_schedule_conflicts,
-                }
-            )
         client_schedule_conflicts = _same_day_schedule_conflicts(cli_rows)
-        if client_schedule_conflicts:
-            blockers.append(
-                {
-                    "code": "client_rate_schedule_same_day_conflict",
-                    "items": client_schedule_conflicts,
-                }
-            )
         framework_rows = [
             row for row in framework_schedule if int(row["contract_id"]) in group_ids
         ]
         framework_rates = _rate_timeline_plan(
             rows, framework_rows, "framework", boundary
         )
-        if framework_rates["conflict"]:
-            blockers.append({"code": "framework_rate_conflict"})
-        framework_schedule_conflicts = _same_day_schedule_conflicts(framework_rows)
-        if framework_schedule_conflicts:
+        if framework_rates["current_value_conflict"]:
             blockers.append(
                 {
-                    "code": "framework_rate_schedule_same_day_conflict",
-                    "items": framework_schedule_conflicts,
+                    "code": "framework_rate_current_value_conflict",
+                    "requires_decision": True,
+                }
+            )
+        if framework_rates["schedule_conflict"]:
+            blockers.append(
+                {
+                    "code": "framework_rate_schedule_conflict",
+                    "requires_decision": True,
+                }
+            )
+        framework_schedule_conflicts = _same_day_schedule_conflicts(framework_rows)
+        financial_metadata_plan = _financial_metadata_plan(
+            rows, (candidate_rates, client_rates, framework_rates)
+        )
+        if financial_metadata_plan["conflict"]:
+            blockers.append(
+                {
+                    "code": "financial_metadata_conflict",
+                    "requires_decision": True,
+                    "fields": financial_metadata_plan["conflict_fields"],
+                }
+            )
+        if financial_metadata_plan["rate_empty_metadata_conflict"]:
+            blockers.append(
+                {
+                    "code": "rate_empty_financial_metadata_conflict",
+                    "requires_bulk_allow": True,
+                    "fields": financial_metadata_plan[
+                        "rate_empty_metadata_conflict_fields"
+                    ],
+                    "contract_ids": financial_metadata_plan["rate_empty_contract_ids"],
                 }
             )
 
@@ -1662,15 +2072,11 @@ async def build_contract_merge_plan(
             blockers.append(
                 {"code": "contract_document_unique_collision", "items": doc_collisions}
             )
-        notif_collisions = await _notification_collisions(
+        notification_repoint_plan = await _notification_repoint_plan(
             db,
             [cid for cid in group_ids if cid != survivor_id],
             survivor_id,
         )
-        if notif_collisions:
-            blockers.append(
-                {"code": "notification_unique_collision", "items": notif_collisions}
-            )
         group_key = min(group_ids)
         groups.append(
             {
@@ -1688,6 +2094,13 @@ async def build_contract_merge_plan(
                 "candidate_rates": candidate_rates,
                 "client_rates": client_rates,
                 "framework_rates": framework_rates,
+                "financial_metadata_plan": financial_metadata_plan,
+                "same_day_schedule_conflicts": {
+                    "candidate": candidate_schedule_conflicts,
+                    "client": client_schedule_conflicts,
+                    "framework": framework_schedule_conflicts,
+                },
+                "notification_repoint_plan": notification_repoint_plan,
                 "rate_schedules": {
                     "candidate": [_stable(row) for row in cand_rows],
                     "client": [_stable(row) for row in cli_rows],
@@ -1710,6 +2123,7 @@ async def build_contract_merge_plan(
     for group_ids in manifest.different_client_noop_groups:
         rows = [contracts[cid] for cid in group_ids if cid in contracts]
         blockers: list[dict[str, Any]] = []
+        observations: list[dict[str, Any]] = []
         missing = sorted(set(group_ids) - contracts.keys())
         if missing:
             blockers.append({"code": "missing_contracts", "contract_ids": missing})
@@ -1782,7 +2196,9 @@ async def build_contract_merge_plan(
                 )
             )
             if not ended_orders:
-                blockers.append({"code": "noop_ended_contract_has_no_eligible_order"})
+                observations.append(
+                    {"code": "noop_ended_contract_has_no_eligible_order"}
+                )
             else:
                 latest_end = _date_value(ended_orders[-1]["end_date"])
                 latest = [
@@ -1838,7 +2254,7 @@ async def build_contract_merge_plan(
                     }
                 )
             elif live_resolution.order is None:
-                blockers.append({"code": "noop_live_contract_has_no_current_order"})
+                observations.append({"code": "noop_live_contract_has_no_current_order"})
             else:
                 periods["live"] = {
                     "contract_id": int(live["id"]),
@@ -1881,6 +2297,7 @@ async def build_contract_merge_plan(
                 "polymorphic_row_ids": {
                     str(cid): polymorphic_inventory.get(cid, {}) for cid in group_ids
                 },
+                "observations": observations,
                 "blockers": blockers,
             }
         )
@@ -1951,6 +2368,43 @@ async def build_contract_merge_plan(
         )
         if historical_blocker:
             blockers.append(historical_blocker)
+        protective_evidence = {
+            "protective_completed_signature_ids": [],
+            "protective_signed_generated_contract_ids": [],
+        }
+        if pair.delete_id in contracts:
+            protective_evidence = await _hard_delete_protective_evidence(
+                db,
+                pair.delete_id,
+                int(contracts[pair.delete_id]["client_id"]),
+            )
+        if protective_evidence["protective_completed_signature_ids"]:
+            blockers.append(
+                {
+                    "code": "explicit_delete_has_completed_signature",
+                    "signature_ids": protective_evidence[
+                        "protective_completed_signature_ids"
+                    ],
+                }
+            )
+        if protective_evidence["protective_signed_generated_contract_ids"]:
+            blockers.append(
+                {
+                    "code": "explicit_delete_has_signed_generated_contract",
+                    "generated_contract_ids": protective_evidence[
+                        "protective_signed_generated_contract_ids"
+                    ],
+                }
+            )
+        delete_history = polymorphic_inventory.get(pair.delete_id, {})
+        hard_delete_plan = {
+            "child_row_ids": child_inventory.get(pair.delete_id, {}),
+            "historical_row_ids": {
+                key: list(delete_history.get(key, []))
+                for key in sorted(_HISTORICAL_REFERENCE_KEYS)
+            },
+            **protective_evidence,
+        }
         groups.append(
             {
                 "operation": "explicit_delete_wrong_project",
@@ -1974,6 +2428,7 @@ async def build_contract_merge_plan(
                 "polymorphic_row_ids": {
                     str(cid): polymorphic_inventory.get(cid, {}) for cid in pair_ids
                 },
+                "hard_delete_plan": hard_delete_plan,
                 "blockers": blockers,
             }
         )
@@ -2022,7 +2477,38 @@ async def build_contract_merge_plan(
                 and (
                     group["candidate_rates"]["conflict"]
                     or group["client_rates"]["conflict"]
+                    or group["framework_rates"]["conflict"]
                 )
+            ),
+            "current_rate_conflict_groups": sum(
+                1
+                for group in groups
+                if group["operation"] == "merge_same_client"
+                and any(
+                    group[f"{kind}_rates"]["current_value_conflict"]
+                    for kind in ("candidate", "client", "framework")
+                )
+            ),
+            "schedule_rate_conflict_groups": sum(
+                1
+                for group in groups
+                if group["operation"] == "merge_same_client"
+                and any(
+                    group[f"{kind}_rates"]["schedule_conflict"]
+                    for kind in ("candidate", "client", "framework")
+                )
+            ),
+            "financial_metadata_conflict_groups": sum(
+                1
+                for group in groups
+                if group["operation"] == "merge_same_client"
+                and group["financial_metadata_plan"]["conflict"]
+            ),
+            "rate_empty_metadata_conflict_groups": sum(
+                1
+                for group in groups
+                if group["operation"] == "merge_same_client"
+                and group["financial_metadata_plan"]["rate_empty_metadata_conflict"]
             ),
         },
         "global_blockers": global_blockers,
@@ -2052,6 +2538,117 @@ def _validate_decision(
     if source not in rate_plan["available_source_contract_ids"]:
         raise ContractMergeError(f"invalid {kind} rate source {source} for group {key}")
     return source
+
+
+def _validate_financial_metadata_decision(
+    group: Mapping[str, Any], decisions: Mapping[int, int]
+) -> tuple[int | None, dict[str, Any]]:
+    plan = group["financial_metadata_plan"]
+    key = int(group["group_key"])
+    source: int | None = None
+    if plan["conflict"]:
+        if key not in decisions:
+            raise ContractMergeError(
+                f"missing financial metadata decision for group {key}"
+            )
+        source = int(decisions[key])
+    elif key in decisions:
+        source = int(decisions[key])
+    else:
+        source = plan["single_source_contract_id"]
+
+    if source is not None and source not in plan["available_source_contract_ids"]:
+        raise ContractMergeError(
+            f"invalid financial metadata source {source} for group {key}"
+        )
+
+    resolved = dict(plan["resolved_metadata"])
+    if source is not None:
+        snapshot = next(
+            (item for item in plan["snapshots"] if int(item["contract_id"]) == source),
+            None,
+        )
+        if snapshot is None:
+            raise ContractMergeError(
+                f"financial metadata source {source} has no rate data in group {key}"
+            )
+        for field in plan["conflict_fields"]:
+            value = snapshot.get(field)
+            if _is_empty(value):
+                raise ContractMergeError(
+                    f"financial metadata source {source} misses {field} in group {key}"
+                )
+            resolved[field] = value
+    return source, resolved
+
+
+def _assert_rate_sources_match_metadata(
+    group: Mapping[str, Any],
+    rate_sources: Mapping[str, int | None],
+    resolved_metadata: Mapping[str, Any],
+) -> None:
+    plan = group["financial_metadata_plan"]
+    snapshots = {int(item["contract_id"]): item for item in plan.get("snapshots", [])}
+    for kind, source in rate_sources.items():
+        if source is None:
+            continue
+        snapshot = snapshots.get(source)
+        if snapshot is None:
+            raise ContractMergeError(
+                f"{kind} rate source {source} has no financial metadata in group "
+                f"{group['group_key']}"
+            )
+        for field in _FINANCIAL_METADATA_FIELDS:
+            source_value = snapshot.get(field)
+            resolved_value = resolved_metadata.get(field)
+            if (
+                not _is_empty(source_value)
+                and not _is_empty(resolved_value)
+                and source_value != resolved_value
+            ):
+                raise ContractMergeError(
+                    f"{kind} rate source {source} disagrees with selected {field} "
+                    f"in group {group['group_key']}"
+                )
+
+
+def _resolve_field_decisions(
+    group: Mapping[str, Any],
+    decisions: Mapping[tuple[int, str], int],
+) -> tuple[dict[str, int], dict[str, Any]]:
+    """Resolve every non-date scalar conflict from a locked source contract."""
+    group_key = int(group["group_key"])
+    rows = {int(row["id"]): row for row in group.get("contract_rows", [])}
+    survivor_id = int(group["survivor_id"])
+    survivor = rows[survivor_id]
+    sources: dict[str, int] = {}
+    updates: dict[str, Any] = {}
+    for conflict in group.get("field_conflicts", []):
+        field = str(conflict["field"])
+        key = (group_key, field)
+        if key not in decisions:
+            raise ContractMergeError(
+                f"missing field decision for group {group_key} field {field}"
+            )
+        source = int(decisions[key])
+        valid_sources = {
+            int(contract_id)
+            for item in conflict.get("values", [])
+            for contract_id in item.get("contract_ids", [])
+        }
+        if source not in valid_sources or source not in rows:
+            raise ContractMergeError(
+                f"invalid field source {source} for group {group_key} field {field}"
+            )
+        value = rows[source].get(field)
+        if _is_empty(value):  # pragma: no cover - plan construction excludes this
+            raise ContractMergeError(
+                f"field source {source} is empty for group {group_key} field {field}"
+            )
+        sources[field] = source
+        if _stable(survivor.get(field)) != _stable(value):
+            updates[field] = value
+    return sources, updates
 
 
 async def _update_contract_fields(
@@ -2130,7 +2727,10 @@ async def _reparent_fks(
 
 
 async def _repoint_polymorphic(
-    db: AsyncSession, loser_ids: Sequence[int], survivor_id: int
+    db: AsyncSession,
+    loser_ids: Sequence[int],
+    survivor_id: int,
+    notification_plan: Mapping[str, Any],
 ) -> dict[str, int]:
     activity = await db.execute(
         text(
@@ -2138,13 +2738,25 @@ async def _repoint_polymorphic(
         ),
         {"survivor": survivor_id, "losers": list(loser_ids)},
     )
+    retained_ids = [
+        _positive_int(value, "retained notification ID")
+        for value in notification_plan.get("retained_historical_notification_ids", [])
+    ]
+    retained_clause = ""
+    params: dict[str, Any] = {
+        "survivor": survivor_id,
+        "losers": list(loser_ids),
+    }
+    if retained_ids:
+        retained_clause = " AND NOT (id = ANY(:retained_ids))"
+        params["retained_ids"] = retained_ids
     notifications = await db.execute(
         text(
             "UPDATE notifications SET related_entity_id = :survivor "
             "WHERE related_entity_type = 'contract' "
-            "AND related_entity_id = ANY(:losers)"
+            f"AND related_entity_id = ANY(:losers){retained_clause}"
         ),
-        {"survivor": survivor_id, "losers": list(loser_ids)},
+        params,
     )
     link_rows = (
         (
@@ -2184,6 +2796,7 @@ async def _repoint_polymorphic(
     return {
         "activities": int(activity.rowcount or 0),
         "notifications": int(notifications.rowcount or 0),
+        "notifications_retained_historical": len(retained_ids),
         "notification_links": link_count,
     }
 
@@ -2237,6 +2850,7 @@ async def _alias_alert_dedup(
 def _snapshot_for_source(
     group: Mapping[str, Any],
     decisions: Mapping[str, Any],
+    field_decisions: Mapping[str, int],
     moved: Mapping[str, int],
     changed_fields: Iterable[str],
 ) -> dict[str, Any]:
@@ -2251,6 +2865,13 @@ def _snapshot_for_source(
         "source_id_decisions": {
             key: int(value) if value is not None else None
             for key, value in sorted(decisions.items())
+            if key.endswith("_source_contract_id")
+        },
+        "allow_rate_empty_metadata": bool(
+            decisions.get("allow_rate_empty_metadata", False)
+        ),
+        "field_source_contract_ids": {
+            field: int(source) for field, source in sorted(field_decisions.items())
         },
         "reparented_rows": dict(moved),
     }
@@ -2299,18 +2920,6 @@ async def _assert_no_fk_rows(
         raise ContractMergeError(f"FK rows remain before DELETE: {leftovers}")
 
 
-def _selected_snapshot(
-    rate_plan: Mapping[str, Any], source_id: int | None
-) -> Mapping[str, Any] | None:
-    snapshots = [dict(item) for item in rate_plan.get("snapshots", [])]
-    if source_id is not None:
-        return next(
-            (item for item in snapshots if int(item["contract_id"]) == source_id),
-            None,
-        )
-    return snapshots[0] if snapshots else None
-
-
 def _selected_trajectory(
     rate_plan: Mapping[str, Any], source_id: int | None
 ) -> list[dict[str, Any]]:
@@ -2354,6 +2963,124 @@ async def _assert_rate_trajectory(
             raise ContractMergeError(
                 f"{kind} resolution trajectory postcondition failed for {survivor_id}"
             )
+
+
+async def _assert_original_rate_rows_preserved(
+    db: AsyncSession, group: Mapping[str, Any], survivor_id: int
+) -> None:
+    for kind, table in (
+        ("candidate", "contract_candidate_rates"),
+        ("client", "contract_client_rates"),
+        ("framework", "contract_framework_rates"),
+    ):
+        expected_ids = sorted(
+            int(row["id"]) for row in group.get("rate_schedules", {}).get(kind, [])
+        )
+        if not expected_ids:
+            continue
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        f"SELECT id, contract_id FROM {table} "
+                        "WHERE id = ANY(:ids) ORDER BY id"
+                    ),
+                    {"ids": expected_ids},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        actual_ids = [int(row["id"]) for row in rows]
+        if actual_ids != expected_ids or any(
+            int(row["contract_id"]) != survivor_id for row in rows
+        ):
+            raise ContractMergeError(
+                f"{kind} source schedule rows were not preserved on {survivor_id}"
+            )
+
+
+async def _assert_notification_repoint_postconditions(
+    db: AsyncSession,
+    group: Mapping[str, Any],
+    loser_ids: Sequence[int],
+    survivor_id: int,
+) -> None:
+    inventory = group.get("polymorphic_row_ids", {})
+    original_contract_by_notification: dict[int, int] = {}
+    for raw_contract_id, values in inventory.items():
+        contract_id = int(raw_contract_id)
+        for notification_id in values.get("notifications", []):
+            original_contract_by_notification[int(notification_id)] = contract_id
+    retained = {
+        int(value)
+        for value in group.get("notification_repoint_plan", {}).get(
+            "retained_historical_notification_ids", []
+        )
+    }
+    expected_ids = sorted(original_contract_by_notification)
+    if expected_ids:
+        rows = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id, related_entity_type, related_entity_id "
+                        "FROM notifications WHERE id = ANY(:ids) ORDER BY id"
+                    ),
+                    {"ids": expected_ids},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if [int(row["id"]) for row in rows] != expected_ids:
+            raise ContractMergeError("notification row disappeared during merge")
+        for row in rows:
+            notification_id = int(row["id"])
+            original_id = original_contract_by_notification[notification_id]
+            expected_entity_id = (
+                original_id
+                if notification_id in retained
+                else (survivor_id if original_id in set(loser_ids) else original_id)
+            )
+            if (
+                row["related_entity_type"] != "contract"
+                or int(row["related_entity_id"]) != expected_entity_id
+            ):
+                raise ContractMergeError(
+                    f"notification {notification_id} lost its planned entity reference"
+                )
+
+    link_ids = sorted(
+        {
+            int(notification_id)
+            for raw_contract_id, values in inventory.items()
+            if int(raw_contract_id) in set(loser_ids)
+            for notification_id in values.get("notification_link_refs", [])
+        }
+    )
+    if link_ids:
+        links = (
+            (
+                await db.execute(
+                    text(
+                        "SELECT id, link FROM notifications "
+                        "WHERE id = ANY(:ids) ORDER BY id"
+                    ),
+                    {"ids": link_ids},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        if [int(row["id"]) for row in links] != link_ids:
+            raise ContractMergeError("notification link row disappeared during merge")
+        if any(
+            _link_mentions_contract(str(row["link"]), int(loser_id))
+            for row in links
+            for loser_id in loser_ids
+        ):
+            raise ContractMergeError("notification link still references a loser")
 
 
 async def _assert_contract_postconditions(
@@ -2419,6 +3146,10 @@ async def apply_contract_merge_plan(
     expected_approval_fingerprint: str,
     candidate_rate_sources: Mapping[int, int] | None = None,
     client_rate_sources: Mapping[int, int] | None = None,
+    framework_rate_sources: Mapping[int, int] | None = None,
+    rate_metadata_sources: Mapping[int, int] | None = None,
+    allow_rate_empty_metadata: bool = False,
+    field_sources: Mapping[tuple[int, str], int] | None = None,
     today: date | None = None,
 ) -> dict[str, Any]:
     """Lock, re-audit, merge, and physically delete duplicates atomically."""
@@ -2430,6 +3161,8 @@ async def apply_contract_merge_plan(
         raise ContractMergeError(
             "apply requires a 64-character lowercase approval fingerprint"
         )
+    if not isinstance(allow_rate_empty_metadata, bool):
+        raise ContractMergeError("rate-empty metadata approval must be boolean")
     candidate_decisions = {
         _positive_int(group, "candidate rate decision group"): _positive_int(
             source, "candidate rate decision source"
@@ -2442,8 +3175,41 @@ async def apply_contract_merge_plan(
         )
         for group, source in (client_rate_sources or {}).items()
     }
+    framework_decisions = {
+        _positive_int(group, "framework rate decision group"): _positive_int(
+            source, "framework rate decision source"
+        )
+        for group, source in (framework_rate_sources or {}).items()
+    }
+    metadata_decisions = {
+        _positive_int(group, "rate metadata decision group"): _positive_int(
+            source, "rate metadata decision source"
+        )
+        for group, source in (rate_metadata_sources or {}).items()
+    }
+    field_decisions: dict[tuple[int, str], int] = {}
+    for raw_key, raw_source in (field_sources or {}).items():
+        if not isinstance(raw_key, tuple) or len(raw_key) != 2:
+            raise ContractMergeError("field decision key must be (group, field)")
+        raw_group, raw_field = raw_key
+        group = _positive_int(raw_group, "field decision group")
+        field = str(raw_field)
+        if field not in _FIELD_DECISION_FIELDS:
+            raise ContractMergeError(f"field source is not allowed for {field}")
+        key = (group, field)
+        if key in field_decisions:
+            raise ContractMergeError(
+                f"duplicate field decision for group {group} field {field}"
+            )
+        field_decisions[key] = _positive_int(raw_source, "field decision source")
     calculated_approval = approval_fingerprint(
-        expected_fingerprint, candidate_decisions, client_decisions
+        expected_fingerprint,
+        candidate_rate_sources=candidate_decisions,
+        client_rate_sources=client_decisions,
+        framework_rate_sources=framework_decisions,
+        rate_metadata_sources=metadata_decisions,
+        allow_rate_empty_metadata=allow_rate_empty_metadata,
+        field_sources=field_decisions,
     )
     if calculated_approval != expected_approval_fingerprint:
         raise ContractMergeError("approval fingerprint does not match rate decisions")
@@ -2478,10 +3244,29 @@ async def apply_contract_merge_plan(
         for group in plan["groups"]
         if group["operation"] == "merge_same_client"
     }
-    extra = (set(candidate_decisions) | set(client_decisions)) - valid_keys
+    extra = (
+        set(candidate_decisions)
+        | set(client_decisions)
+        | set(framework_decisions)
+        | set(metadata_decisions)
+    ) - valid_keys
     if extra:
         raise ContractMergeError(
             f"rate decisions reference unknown groups: {sorted(extra)}"
+        )
+    valid_field_keys = {
+        (int(group["group_key"]), str(conflict["field"]))
+        for group in plan["groups"]
+        if group["operation"] == "merge_same_client"
+        for conflict in group.get("field_conflicts", [])
+    }
+    missing_field_decisions = valid_field_keys - set(field_decisions)
+    extra_field_decisions = set(field_decisions) - valid_field_keys
+    if missing_field_decisions or extra_field_decisions:
+        raise ContractMergeError(
+            "field decisions do not exactly match conflicts: "
+            f"missing={sorted(missing_field_decisions)}, "
+            f"extra={sorted(extra_field_decisions)}"
         )
 
     # Resolve and validate *every* group before the first UPDATE.  Locks are
@@ -2489,11 +3274,12 @@ async def apply_contract_merge_plan(
     # data mutation and the caller rolls it back.
     prepared: list[dict[str, Any]] = []
     sequential_groups_verified = 0
+    resolvable_blockers = _resolvable_merge_blocker_codes(allow_rate_empty_metadata)
     for group in plan["groups"]:
         blockers = [
             item
             for item in group["blockers"]
-            if item["code"] not in {"candidate_rate_conflict", "client_rate_conflict"}
+            if item["code"] not in resolvable_blockers
         ]
         if blockers:
             raise ContractMergeError(
@@ -2513,6 +3299,7 @@ async def apply_contract_merge_plan(
                     "survivor_id": survivor_id,
                     "loser_ids": loser_ids,
                     "decisions": decisions,
+                    "field_decisions": {},
                     "safe_updates": {},
                     "financial_values": {},
                     "resolution_trajectories": {},
@@ -2523,27 +3310,28 @@ async def apply_contract_merge_plan(
 
         candidate_source = _validate_decision(group, "candidate", candidate_decisions)
         client_source = _validate_decision(group, "client", client_decisions)
-        framework_source = group["framework_rates"]["single_source_contract_id"]
+        framework_source = _validate_decision(group, "framework", framework_decisions)
+        metadata_source, resolved_metadata = _validate_financial_metadata_decision(
+            group, metadata_decisions
+        )
+        rate_sources = {
+            "candidate": candidate_source,
+            "client": client_source,
+            "framework": framework_source,
+        }
+        _assert_rate_sources_match_metadata(group, rate_sources, resolved_metadata)
         decisions = {
             "candidate_rate_source_contract_id": candidate_source,
             "client_rate_source_contract_id": client_source,
             "framework_rate_source_contract_id": framework_source,
+            "rate_metadata_source_contract_id": metadata_source,
+            "allow_rate_empty_metadata": allow_rate_empty_metadata,
         }
-        chosen_candidate = _selected_snapshot(
-            group["candidate_rates"], candidate_source
-        )
-        chosen_client = _selected_snapshot(group["client_rates"], client_source)
-        metadata = [
-            item for item in (chosen_candidate, chosen_client) if item is not None
-        ]
-        if len(metadata) == 2 and _metadata_key(metadata[0]) != _metadata_key(
-            metadata[1]
-        ):
-            raise ContractMergeError(
-                f"candidate/client rate metadata disagree in group {group['group_key']}"
-            )
-        selected_meta = metadata[0] if metadata else None
         safe_updates = dict(group["field_updates"])
+        resolved_field_sources, field_updates = _resolve_field_decisions(
+            group, field_decisions
+        )
+        safe_updates.update(field_updates)
 
         trajectories = {
             "candidate": _selected_trajectory(
@@ -2565,12 +3353,13 @@ async def apply_contract_merge_plan(
                 current = _trajectory_rate_on(trajectory, boundary)
                 if current is not None:
                     financial_values[field] = _database_value(field, current)
-        if selected_meta:
-            financial_values.update(
-                rate_unit=selected_meta["rate_unit"],
-                currency=selected_meta["currency"],
-                billing_hours_per_month=selected_meta["billing_hours_per_month"],
-            )
+        financial_values.update(
+            {
+                field: value
+                for field, value in resolved_metadata.items()
+                if not _is_empty(value)
+            }
+        )
         changed_fields = sorted(set(safe_updates) | set(financial_values))
         if {"rate_candidate", "rate_client"}.intersection(financial_values):
             changed_fields.append("margin")
@@ -2580,6 +3369,7 @@ async def apply_contract_merge_plan(
                 "survivor_id": survivor_id,
                 "loser_ids": loser_ids,
                 "decisions": decisions,
+                "field_decisions": resolved_field_sources,
                 "safe_updates": safe_updates,
                 "financial_values": financial_values,
                 "resolution_trajectories": trajectories,
@@ -2597,7 +3387,26 @@ async def apply_contract_merge_plan(
             # Preserve historical polymorphic Activity/Notification references;
             # moving them to a different client would rewrite history.
             moved: dict[str, int] = {}
+            if len(loser_ids) != 1:  # pragma: no cover - manifest enforces one
+                raise ContractMergeError("explicit delete must target one contract")
+            from app.models.contract import Contract
+            from app.services.contract_lifecycle import hard_delete_contract
+
+            delete_contract = await db.get(Contract, loser_ids[0])
+            if delete_contract is None:
+                raise ContractMergeError("explicit delete contract disappeared")
+            hard_delete_result = await hard_delete_contract(
+                db, delete_contract, actor_id=None
+            )
+            hard_delete_counts = {
+                "contracts": 1,
+                "detached_generated_contracts": (
+                    hard_delete_result.detached_generated_contracts
+                ),
+                "settled_order_groups": len(hard_delete_result.settled_order_group_ids),
+            }
         else:
+            hard_delete_counts = {}
             await _update_contract_fields(db, survivor_id, item["safe_updates"])
             financial_values = item["financial_values"]
             if financial_values:
@@ -2620,7 +3429,14 @@ async def apply_contract_merge_plan(
                     },
                 )
             moved = await _reparent_fks(db, catalog, loser_ids, survivor_id)
-            moved.update(await _repoint_polymorphic(db, loser_ids, survivor_id))
+            moved.update(
+                await _repoint_polymorphic(
+                    db,
+                    loser_ids,
+                    survivor_id,
+                    group["notification_repoint_plan"],
+                )
+            )
             moved["contract_alert_dedup_aliases"] = await _alias_alert_dedup(
                 db, loser_ids, survivor_id
             )
@@ -2632,20 +3448,32 @@ async def apply_contract_merge_plan(
                 trajectory = item["resolution_trajectories"][kind]
                 await _insert_resolution_rates(db, table, survivor_id, trajectory)
                 await _assert_rate_trajectory(db, survivor_id, kind, trajectory)
-
-        # Every true FK must be gone/reparented before physical deletion.  This
-        # catches both a coding omission and a concurrent child insert (parent
-        # contracts are row-locked, so normal writers cannot race silently).
-        await _assert_no_fk_rows(db, catalog, loser_ids)
-        deleted = await db.execute(
-            text("DELETE FROM contracts WHERE id = ANY(:ids)"), {"ids": loser_ids}
-        )
-        if int(deleted.rowcount or 0) != len(loser_ids):
-            raise ContractMergeError(
-                f"DELETE count mismatch in group {group['group_key']}"
+            await _assert_original_rate_rows_preserved(db, group, survivor_id)
+            await _assert_notification_repoint_postconditions(
+                db, group, loser_ids, survivor_id
             )
 
-        details = _snapshot_for_source(group, decisions, moved, item["changed_fields"])
+        if group["operation"] != "explicit_delete_wrong_project":
+            # Every true FK must be gone/reparented before physical deletion.
+            await _assert_no_fk_rows(db, catalog, loser_ids)
+            deleted = await db.execute(
+                text("DELETE FROM contracts WHERE id = ANY(:ids)"),
+                {"ids": loser_ids},
+            )
+            if int(deleted.rowcount or 0) != len(loser_ids):
+                raise ContractMergeError(
+                    f"DELETE count mismatch in group {group['group_key']}"
+                )
+
+        details = _snapshot_for_source(
+            group,
+            decisions,
+            item["field_decisions"],
+            moved,
+            item["changed_fields"],
+        )
+        if hard_delete_counts:
+            details["hard_delete_counts"] = hard_delete_counts
         await db.execute(
             text(
                 "INSERT INTO activities "
@@ -2672,6 +3500,8 @@ async def apply_contract_merge_plan(
                 "deleted_ids": loser_ids,
                 "reparented": moved,
                 "rate_decisions": decisions,
+                "field_decisions": item["field_decisions"],
+                "hard_delete_counts": hard_delete_counts,
             }
         )
 

@@ -102,6 +102,7 @@ from app.services.candidate_identity_quarantine import normalize_person_name_par
 from app.services.cost_orders import (
     assert_cost_order_client,
     is_cost_order_client,
+    lock_group_for_settlement,
     quantize_money,
     settle_group,
 )
@@ -1634,6 +1635,18 @@ async def update_order_group(
             422,
             detail="Kwotę zamówienia można zmieniać tylko na zamówieniu kosztowym",
         )
+    if data.keys() & budget_fields:
+        # Lock before applying the operator's budget edit so the later
+        # before/after event and exhausted alert use one serialized state.
+        # Lines come first to match contract hard-delete's child -> group lock
+        # order; a combined period/budget PATCH updates those lines later.
+        await db.execute(
+            select(ClientOrder.id)
+            .where(ClientOrder.order_group_id == group.id)
+            .order_by(ClientOrder.id)
+            .with_for_update()
+        )
+        group = await lock_group_for_settlement(db, group, flush_local_changes=False)
     # Jawny `null` przechodzi walidację schematu (pole jest Optional), ale na
     # zamówieniu kosztowym narusza CHECK spójności — czyli IntegrityError i 500
     # zamiast czytelnej odmowy.
