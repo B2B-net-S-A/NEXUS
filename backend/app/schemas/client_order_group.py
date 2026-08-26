@@ -142,23 +142,34 @@ class OrderGroupCreate(BaseModel):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     is_cost_based: bool = False
+    is_md_budget_based: bool = False
     budget_amount: Optional[MoneyPLN] = Field(
         None, gt=0, max_digits=16, decimal_places=2
     )
     """Kwota całego zamówienia. Wymagana przy ``is_cost_based``; zero i wartości
     ujemne odrzucone na wejściu, bo budżet, z którego nic nie da się zdjąć, nie
     jest budżetem — a pusta pula od razu oznaczyłaby zamówienie jako wyczerpane."""
+    md_budget_total: Optional[MdValue] = Field(
+        None, gt=0, max_digits=16, decimal_places=6
+    )
+    """Wspólna liczba MD całego zamówienia; tylko nowy wariant Cyfrowego Polsatu."""
 
     lines: list[OrderLineCreate] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _cost_budget_coherence(self) -> "OrderGroupCreate":
+    def _group_budget_coherence(self) -> "OrderGroupCreate":
+        if self.is_cost_based and self.is_md_budget_based:
+            raise ValueError("Zamówienie nie może być jednocześnie kosztowe i na MD")
         if self.is_cost_based and self.budget_amount is None:
             raise ValueError("Zamówienie kosztowe wymaga kwoty zamówienia")
         if not self.is_cost_based and self.budget_amount is not None:
             raise ValueError(
                 "Kwotę zamówienia można podać tylko dla zamówienia kosztowego"
             )
+        if self.is_md_budget_based and self.md_budget_total is None:
+            raise ValueError("Zamówienie na MD wymaga wspólnego budżetu w MD")
+        if not self.is_md_budget_based and self.md_budget_total is not None:
+            raise ValueError("Wspólny budżet MD można podać tylko dla zamówienia na MD")
         return self
 
 
@@ -179,6 +190,13 @@ class OrderGroupUpdate(BaseModel):
     )
     """Ręczna korekta puli, trzymana OSOBNO od kwoty — dokładnie tak jak
     ``md_manual_adjustment`` przy liniach MD."""
+
+    md_budget_total: Optional[MdValue] = Field(
+        None, gt=0, max_digits=16, decimal_places=6
+    )
+    md_budget_manual_adjustment: Optional[MdValue] = Field(
+        None, max_digits=16, decimal_places=6
+    )
 
 
 class OrderGroupClose(BaseModel):
@@ -202,6 +220,9 @@ class OrderGroupExtend(BaseModel):
     notes: Optional[str] = None
     budget_amount: Optional[MoneyPLN] = Field(
         None, gt=0, max_digits=16, decimal_places=2
+    )
+    md_budget_total: Optional[MdValue] = Field(
+        None, gt=0, max_digits=16, decimal_places=6
     )
     lines: list[OrderLineCreate] = Field(default_factory=list)
 
@@ -336,6 +357,11 @@ class OrderGroupRead(BaseModel):
     pomyłką dokładnie w rozmowie o pieniądzach, więc front dostaje komplet."""
 
     budget_manual_adjustment: Optional[MoneyPLN] = None
+    is_md_budget_based: bool = False
+    md_budget_total: Optional[MdValue] = None
+    md_budget_used: Optional[MdValue] = None
+    md_budget_remaining: Optional[MdValue] = None
+    md_budget_manual_adjustment: Optional[MdValue] = None
     predecessor_group_id: Optional[int] = None
     filename: Optional[str] = None
     has_file: bool = False

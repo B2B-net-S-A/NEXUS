@@ -33,6 +33,9 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 
 from app.core.config import settings
+from app.services.cyfrowy_polsat_orders import (
+    is_cyfrowy_polsat_order_types_client,
+)
 
 # Skala przechowywania MD i kwot pochodnych. Musi zgadzać się ze scale kolumn
 # Numeric(16, 6) w migracji — rozjazd oznaczałby, że baza dokłada własne,
@@ -100,12 +103,16 @@ def multi_consultant_client_ids() -> frozenset[int]:
 def is_multi_consultant_client(client_id: int | None) -> bool:
     """Czy ten klient renderuje widok wielo-konsultantowy.
 
-    Pusta lista → ``False`` dla każdego klienta (fail-closed): dopóki zmienna
-    nie jest ustawiona, nic w zachowaniu systemu się nie zmienia.
+    Lista z ENV zachowuje dotychczasową konfigurację. Cyfrowy Polsat jest
+    osobnym, zahardkodowanym wyjątkiem ticketu i pozostaje włączony także przy
+    pustej liście.
     """
     if client_id is None:
         return False
-    return client_id in multi_consultant_client_ids()
+    return (
+        client_id in multi_consultant_client_ids()
+        or is_cyfrowy_polsat_order_types_client(client_id)
+    )
 
 
 def assert_multi_consultant_client(client_id: int | None) -> None:

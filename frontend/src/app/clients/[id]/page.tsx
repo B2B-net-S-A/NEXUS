@@ -983,16 +983,19 @@ export default function ClientDetailPage() {
             </div>
           )}
 
-          {/* Widok wielo-konsultantowy tylko dla klientów rozliczanych w T&M na
-              MD (BIK / Polkomtel / BNP). Flagę wylicza BACKEND z listy
-              MULTI_CONSULTANT_ORDER_CLIENT_IDS — front nie trzyma kopii tej
-              listy, bo zmienia się ona w Coolify bez deployu. Każdy inny
-              klient dostaje niezmieniony widok jednoosobowy. */}
+          {/* Typ rejestru wylicza backend: dotychczasowi klienci korzystają z
+              capability wielo-konsultantowej, a hardcoded Cyfrowy Polsat z
+              wariantu mieszanego standardowe / kosztowe / MD. Front nie
+              duplikuje ani listy z ENV, ani identyfikatora klienta. */}
           {activeTab === "zamowienia" &&
-            (client?.multi_consultant_orders_enabled ? (
+            (client?.multi_consultant_orders_enabled ||
+            client?.cyfrowy_polsat_order_types_enabled ? (
               <MultiConsultantOrdersTab
                 clientId={Number(id)}
                 costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
+                mixedOrderTypesEnabled={Boolean(
+                  client?.cyfrowy_polsat_order_types_enabled,
+                )}
               />
             ) : (
               <OrdersAndContractsTab

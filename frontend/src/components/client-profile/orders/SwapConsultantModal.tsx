@@ -68,9 +68,10 @@ export function SwapConsultantModal({
   // grupy i rozlicza się fakturami. Przeliczenia MD tu po prostu nie ma, więc
   // kafelek nie może obiecywać liczby, która nigdy nie powstanie.
   const costBased = group?.is_cost_based === true;
+  const sharedMdBased = group?.is_md_budget_based === true;
 
   const preview = useMemo(() => {
-    if (costBased) return null;
+    if (costBased || sharedMdBased) return null;
     const oldRemaining = line?.md_remaining ?? null;
     const oldRate = line?.rate_revenue ?? null;
     const newRate = parseDecimalInput(rateRevenue);
@@ -79,7 +80,7 @@ export function SwapConsultantModal({
     }
     const valuePln = oldRemaining * oldRate;
     return { valuePln, mdNew: valuePln / newRate };
-  }, [costBased, line, rateRevenue]);
+  }, [costBased, sharedMdBased, line, rateRevenue]);
 
   const canSubmit =
     !submitting &&
@@ -143,7 +144,7 @@ export function SwapConsultantModal({
             {/* „pozostało — MD" przy zamówieniu kosztowym opisywało pole,
                 którego linia nigdy nie miała — czytało się jak zerowy budżet,
                 a nie jak jego brak. */}
-            {costBased ? null : (
+            {costBased || sharedMdBased ? null : (
               <>, pozostało {formatMd(line?.md_remaining ?? null)} MD</>
             )}
           </p>
@@ -222,13 +223,22 @@ export function SwapConsultantModal({
 
         <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-3 text-sm">
           <p className="mb-1 flex items-center gap-2 font-medium text-foreground">
-            {costBased ? "Zamówienie kosztowe" : "Przeliczenie MD"}{" "}
+            {costBased
+              ? "Zamówienie kosztowe"
+              : sharedMdBased
+                ? "Zamówienie na MD"
+                : "Przeliczenie MD"}{" "}
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
           </p>
           {costBased ? (
             <p className="text-muted-foreground">
               Kwota zamówienia jest wspólna dla całej grupy i nie dzieli się na
               konsultantów — zamiana zmienia osobę i jej stawki, nie budżet.
+            </p>
+          ) : sharedMdBased ? (
+            <p className="text-muted-foreground">
+              Pula MD jest wspólna dla całego zamówienia — zamiana zmienia
+              osobę i jej stawki, ale nie przelicza budżetu MD.
             </p>
           ) : preview === null ? (
             <p className="text-muted-foreground">
@@ -244,6 +254,8 @@ export function SwapConsultantModal({
           <p className="mt-2 text-xs text-muted-foreground">
             {costBased
               ? "Zamiana działa od dnia zamiany w przód. Faktury sprzed tej daty zostają rozliczone stawką poprzednika."
+              : sharedMdBased
+                ? "Zamiana działa od dnia zamiany w przód. Wspólna pula MD zamówienia pozostaje bez zmian."
               : "Zamiana działa od dnia zamiany w przód. MD zaraportowane wcześniej zostają rozliczone stawką poprzednika."}
           </p>
         </div>

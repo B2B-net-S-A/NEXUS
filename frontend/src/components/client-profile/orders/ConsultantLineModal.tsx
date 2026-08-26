@@ -169,6 +169,7 @@ export function ConsultantLineModal({
   // własnego budżetu MD. Wymuszanie go zmuszałoby operatora do wymyślenia
   // liczby, której nikt nigdy nie rozliczy.
   const costBased = Boolean(group?.is_cost_based);
+  const sharedMdBased = Boolean(group?.is_md_budget_based);
 
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -257,7 +258,7 @@ export function ConsultantLineModal({
           setRevenueUnit("md");
           setRateRevenue(String(data.rate_client));
         }
-        if (!costBased && data.md_total != null) {
+        if (!costBased && !sharedMdBased && data.md_total != null) {
           setInputMode("md");
           setInputValue(String(data.md_total));
         }
@@ -283,7 +284,7 @@ export function ConsultantLineModal({
           current: rateRevenue,
           incoming: numberToField(data.rate_client) || null,
         },
-        ...(costBased
+        ...(costBased || sharedMdBased
           ? []
           : [
               {
@@ -347,7 +348,7 @@ export function ConsultantLineModal({
     (editing || person !== null) &&
     parseDecimalInput(rateCost) !== null &&
     (parseDecimalInput(rateRevenue) ?? 0) > 0 &&
-    (costBased || parseDecimalInput(inputValue) !== null) &&
+    (costBased || sharedMdBased || parseDecimalInput(inputValue) !== null) &&
     startDate !== "";
 
   const submit = () => {
@@ -369,7 +370,7 @@ export function ConsultantLineModal({
     );
     const budgetValue = parseDecimalInput(inputValue);
     if (costMd === null || revenueMd === null) return;
-    if (!costBased && budgetValue === null) return;
+    if (!costBased && !sharedMdBased && budgetValue === null) return;
     onSubmit({
       // Edycja nie zmienia osoby, więc linia zostaje przy swoim kontrakcie.
       // Dodanie wysyła DOKŁADNIE JEDNO pole — dwa naraz serwer odrzuca, żeby
@@ -383,7 +384,7 @@ export function ConsultantLineModal({
       // tylko to, w czym operator wpisuje.
       rate_cost: costMd,
       rate_revenue: revenueMd,
-      ...(costBased
+      ...(costBased || sharedMdBased
         ? {}
         : { input_mode: inputMode, input_value: budgetValue as number }),
       start_date: startDate,
@@ -561,13 +562,13 @@ export function ConsultantLineModal({
           </div>
         </div>
 
-        {costBased ? (
-          /* Zamówienie kosztowe ma JEDNĄ pulę na całe zamówienie, więc pole
-             budżetu przy osobie mówiłoby o czymś, czego ta linia nie ma. */
+        {costBased || sharedMdBased ? (
+          /* Wspólna pula mieszka na grupie, więc linia nie może dostać
+             drugiego, niezależnego budżetu. */
           <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            To zamówienie jest rozliczane kwotą wspólną dla wszystkich
-            konsultantów — budżet MD przy osobie nie występuje. Faktury schodzą
-            z kwoty zamówienia przy imporcie z Finansów.
+            {costBased
+              ? "To zamówienie jest rozliczane kwotą wspólną dla wszystkich konsultantów — budżet MD przy osobie nie występuje. Faktury schodzą z kwoty zamówienia przy imporcie z Finansów."
+              : "To zamówienie ma wspólną pulę MD dla wszystkich konsultantów — osobny budżet MD przy osobie nie występuje."}
           </p>
         ) : (
         <fieldset className="rounded-md border border-border p-3">
@@ -690,7 +691,7 @@ export function ConsultantLineModal({
           </p>
         </div>
 
-        {editing && onAdjustRemaining ? (
+        {editing && onAdjustRemaining && !sharedMdBased ? (
           <fieldset className="rounded-md border border-dashed border-border p-3">
             <legend className="px-1 text-xs font-semibold text-muted-foreground">
               Korekta ręczna

@@ -85,14 +85,16 @@ async def _predecessor_still_has_md(
     zostawiłoby rodzinę bez ani jednego bieżącego zamówienia.
 
     Rodziny kosztowe i rodziny bez budżetu MD zachowują dotychczasowe,
-    czysto datowe zachowanie — tam pula mieszka na grupie i domyka ją
-    ``cost_orders.settle_group``, a nie ten materializator.
+    czysto datowe zachowanie. Wspólna pula MD także mieszka na grupie, ale —
+    tak jak wariant per linia — blokuje następcę do wyczerpania.
     """
     predecessor = by_id.get(group.predecessor_group_id)  # type: ignore[arg-type]
     if predecessor is None or predecessor.status != GROUP_STATUS_ACTIVE:
         return False
     if predecessor.is_cost_based:
         return False
+    if predecessor.is_md_budget_based:
+        return Decimal(str(predecessor.md_budget_remaining or 0)) > Decimal("0")
     left = await _md_budget_left(db, predecessor.id)
     return left is not None and left > Decimal("0")
 

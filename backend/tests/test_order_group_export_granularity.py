@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 from app.api.client_order_groups import (
     COST_GROUP_TOTAL_LABEL,
+    MD_GROUP_TOTAL_LABEL,
     assert_group_is_reopenable,
     export_rows_for_group,
 )
@@ -121,6 +122,26 @@ def test_md_order_keeps_the_budget_per_consultant():
     assert [row.consultant_name for row in rows] == ["Anna Kowalska", "Jan Nowak"]
     assert [row.allocation for row in rows] == [Decimal("50"), Decimal("20")]
     assert [row.consumption for row in rows] == [Decimal("20"), Decimal("5")]
+
+
+def test_shared_md_order_amount_and_usage_appear_once_for_the_group():
+    group = _group(
+        is_md_budget_based=True,
+        md_budget_total=Decimal("80"),
+        md_budget_used=Decimal("35"),
+        md_budget_remaining=Decimal("45"),
+        lines=[_line("Anna Kowalska"), _line("Jan Nowak")],
+    )
+
+    rows = export_rows_for_group(group)
+
+    assert len(rows) == 3
+    total_row, *consultants = rows
+    assert total_row.consultant_name == MD_GROUP_TOTAL_LABEL
+    assert total_row.allocation == Decimal("80")
+    assert total_row.consumption == Decimal("35")
+    assert [row.allocation for row in consultants] == [None, None]
+    assert [row.consumption for row in consultants] == [None, None]
 
 
 def test_cost_order_without_consultants_still_carries_the_amount():

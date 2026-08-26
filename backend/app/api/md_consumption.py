@@ -3,9 +3,11 @@
 Operator z Finansów wgrywa miesięczny raport (konsultant → zaraportowane MD),
 a system odejmuje MD od budżetów aktywnych linii zamówień.
 
-**Dopasowanie idzie WYŁĄCZNIE po imieniu i nazwisku**, bo arkusz nie zawiera
-numeru zamówienia. Stąd trzy możliwe wyniki wiersza i tylko jeden z nich jest
-automatyczny:
+Historyczne zamówienia MD są dopasowywane wyłącznie po imieniu i nazwisku.
+Wspólna pula MD Cyfrowego Polsatu oraz zamówienia kosztowe wymagają dodatkowo
+numeru zamówienia wyciągniętego z kolumny „Uwagi" — numer nie jest zgadywany
+ani wybierany jako „pierwszy pasujący". Dla ścieżki historycznej zostają trzy
+możliwe wyniki wiersza i tylko jeden z nich jest automatyczny:
 
 * dokładnie jedna aktywna linia → ``Zaktualizowano``,
 * zero linii → ``Brak aktywnego zamówienia`` (wiersz zostaje, nie przerywa
@@ -70,6 +72,7 @@ from app.services.client_order_lines import (
     LineMatch,
     active_cost_lines,
     active_md_lines,
+    active_shared_md_lines,
     apply_md_consumption,
     describe_import,
     match_by_name,
@@ -93,6 +96,12 @@ from app.services.multi_consultant_orders import (
     EVENT_BUDGET_EXHAUSTED,
     EVENT_INVOICE_IMPORT,
     EVENT_MD_IMPORT,
+    format_md,
+    quantize_md,
+)
+from app.services.shared_md_orders import (
+    shared_md_used_total,
+    upsert_shared_md_consumption,
 )
 
 router = APIRouter()
@@ -304,7 +313,7 @@ async def create_import(
     file: UploadFile = File(...),
     period_month: str = Form(...),
 ):
-    """Wgraj miesięczny raport MD i zastosuj go do aktywnych linii."""
+    """Wgraj raport MD i zastosuj go do aktywnych linii lub wspólnych pul."""
     try:
         month_bounds(period_month)
     except ValueError as exc:
@@ -329,6 +338,7 @@ async def create_import(
         raise HTTPException(422, detail=str(exc)) from exc
 
     candidates = await active_md_lines(db, period_month)
+    shared_md_candidates = await active_shared_md_lines(db, period_month)
     cost_candidates = await active_cost_lines(db, period_month)
 
     batch = MdConsumptionImport(
@@ -356,9 +366,10 @@ async def create_import(
     # żadnego sygnału.
     pending_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     md_orders: dict[int, tuple[ClientOrder, ClientOrderGroup]] = {}
+    pending_shared_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
+    shared_md_groups: dict[int, ClientOrderGroup] = {}
 
     for parsed_row in parsed.rows:
-        matches = match_by_name(candidates, parsed_row.consultant_name)
         row = MdConsumptionImportRow(
             import_id=batch.id,
             row_number=parsed_row.row_number,
@@ -369,25 +380,43 @@ async def create_import(
             order_number_hint=parsed_row.order_number_hint,
             invoice_amount=parsed_row.invoice_amount,
         )
-        if len(matches) == 1:
-            match = matches[0]
-            row.status = IMPORT_ROW_APPLIED
-            row.matched_order_id = match.order.id
-            pending_md[match.order.id] += parsed_row.md_reported
-            md_orders[match.order.id] = (match.order, match.group)
-        elif len(matches) > 1:
-            row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
-            row.candidate_order_ids = [m.order.id for m in matches]
 
-        # ── Ścieżka kosztowa: NIEZALEŻNA od dopasowania MD po nazwisku ──
-        _match_cost_row(
+        # Parser dochodzi tutaj wyłącznie po znalezieniu jawnie rozpoznanej
+        # kolumny MD. Wspólna pula nie próbuje wyliczać dni z faktury, godzin
+        # ani innej kolumny zastępczej, dopóki Finanse nie ustalą formatu.
+        consultant_in_shared_md = _match_shared_md_row(
             row,
             parsed_row=parsed_row,
-            cost_candidates=cost_candidates,
-            pending_invoices=pending_invoices,
-            invoice_orders=invoice_orders,
-            touched_groups=touched_groups,
+            shared_md_candidates=shared_md_candidates,
+            pending_shared_md=pending_shared_md,
+            shared_md_groups=shared_md_groups,
         )
+        if not consultant_in_shared_md:
+            matches = match_by_name(candidates, parsed_row.consultant_name)
+            if len(matches) == 1:
+                match = matches[0]
+                row.status = IMPORT_ROW_APPLIED
+                row.matched_order_id = match.order.id
+                pending_md[match.order.id] += parsed_row.md_reported
+                md_orders[match.order.id] = (match.order, match.group)
+            elif len(matches) > 1:
+                row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
+                row.candidate_order_ids = [m.order.id for m in matches]
+
+        # ── Ścieżka kosztowa: NIEZALEŻNA od dopasowania MD po nazwisku ──
+        # Prawidłowo dopasowany numer wspólnej puli MD nie może jednocześnie
+        # zgłaszać „brak zamówienia kosztowego o tym numerze". Typy grup są
+        # rozłączne, więc taki wiersz kończy routing na ścieżce shared-MD.
+        shared_md_applied = consultant_in_shared_md and row.status == IMPORT_ROW_APPLIED
+        if not shared_md_applied:
+            _match_cost_row(
+                row,
+                parsed_row=parsed_row,
+                cost_candidates=cost_candidates,
+                pending_invoices=pending_invoices,
+                invoice_orders=invoice_orders,
+                touched_groups=touched_groups,
+            )
         db.add(row)
 
     for order_id, md_total in pending_md.items():
@@ -396,6 +425,16 @@ async def create_import(
             db,
             match_order=order_obj,
             group=order_group,
+            period_month=period_month,
+            md_reported=md_total,
+            import_id=batch.id,
+            user_id=user.id,
+        )
+
+    for group_id, md_total in pending_shared_md.items():
+        await _settle_shared_md_and_record(
+            db,
+            group=shared_md_groups[group_id],
             period_month=period_month,
             md_reported=md_total,
             import_id=batch.id,
@@ -430,6 +469,43 @@ async def create_import(
     return await _detail(db, batch, parsed_sheet=parsed)
 
 
+def _match_shared_md_row(
+    row: MdConsumptionImportRow,
+    *,
+    parsed_row,
+    shared_md_candidates: list[LineMatch],
+    pending_shared_md: dict[int, Decimal],
+    shared_md_groups: dict[int, ClientOrderGroup],
+) -> bool:
+    """Dopasuj wspólną pulę MD po konsultancie ORAZ numerze zamówienia.
+
+    Zwraca ``True``, gdy konsultant ma aktywną linię shared-MD — także jeśli
+    numer jest pusty lub niejednoznaczny. To rozróżnienie jest kluczowe:
+    nierozpoznanego wiersza wspólnej puli nie wolno przepuścić do starego
+    matchera po samym nazwisku, bo mógłby zdjąć MD z innego klienta.
+    """
+    named = match_by_name(shared_md_candidates, parsed_row.consultant_name)
+    if not named:
+        return False
+
+    hints = extract_order_number_candidates(parsed_row.notes_raw)
+    numbered = [match for match in named if match.group.order_number.strip() in hints]
+    if len(numbered) != 1:
+        # Status pozostaje `unmatched`; ręczne przypisanie historycznej linii
+        # zapisuje budżet per konsultant, więc nie jest bezpieczną ścieżką dla
+        # wspólnej puli. Zero lub wiele trafień oznacza brak zapisu.
+        return True
+
+    match = numbered[0]
+    row.status = IMPORT_ROW_APPLIED
+    row.matched_order_id = match.order.id
+    row.matched_group_id = match.group.id
+    row.order_number_hint = match.group.order_number.strip()
+    pending_shared_md[match.group.id] += parsed_row.md_reported
+    shared_md_groups[match.group.id] = match.group
+    return True
+
+
 def _match_cost_row(
     row: MdConsumptionImportRow,
     *,
@@ -456,18 +532,20 @@ def _match_cost_row(
     if not hints or amount is None or quantize_money(amount) <= Decimal("0"):
         return
 
-    by_number = {m.group.order_number.strip(): m.group for m in cost_candidates}
-    matched_number = next((h for h in hints if h in by_number), None)
-    if matched_number is None:
+    # Numer zamówienia nie jest globalnie unikalny (ani w bazie, ani między
+    # klientami), więc nie wolno zwijać kandydatów do słownika po samym
+    # numerze. Najpierw konfrontujemy WSZYSTKIE numery z uwag, potem nazwisko,
+    # i akceptujemy wyłącznie dokładnie jedną linię. Dzięki temu dwa zamówienia
+    # „445" u Polkomtela i Cyfrowego Polsatu nie nadpisują się zależnie od
+    # kolejności wyniku zapytania.
+    numbered = [
+        match for match in cost_candidates if match.group.order_number.strip() in hints
+    ]
+    if not numbered:
         row.cost_status = COST_ROW_UNMATCHED_NUMBER
         return
 
-    group = by_number[matched_number]
-    row.matched_group_id = group.id
-    row.order_number_hint = matched_number
-
-    lines = [m for m in cost_candidates if m.group.id == group.id]
-    named = match_by_name(lines, parsed_row.consultant_name)
+    named = match_by_name(numbered, parsed_row.consultant_name)
     if len(named) != 1:
         # Zero trafień albo niejednoznaczność — w obu przypadkach system NIE
         # zgaduje. Kwota trafiłaby wtedy na cudzą linię, a „Zafakturowano"
@@ -475,11 +553,85 @@ def _match_cost_row(
         row.cost_status = COST_ROW_UNMATCHED_CONSULTANT
         return
 
-    order = named[0].order
+    match = named[0]
+    group = match.group
+    order = match.order
+    row.matched_group_id = group.id
+    row.order_number_hint = group.order_number.strip()
     row.cost_status = COST_ROW_APPLIED
     pending_invoices[order.id] += quantize_money(amount)
     invoice_orders[order.id] = order
     touched_groups[group.id] = group
+
+
+async def _settle_shared_md_and_record(
+    db: AsyncSession,
+    *,
+    group: ClientOrderGroup,
+    period_month: str,
+    md_reported: Decimal,
+    import_id: int,
+    user_id: int,
+) -> None:
+    """Nadpisz miesiąc wspólnej puli, przelicz ją i zapisz historię."""
+    before = group.md_budget_remaining
+    was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
+    _, remaining = await upsert_shared_md_consumption(
+        db,
+        group=group,
+        period_month=period_month,
+        md_reported=md_reported,
+        user_id=user_id,
+    )
+    used = await shared_md_used_total(db, group.id)
+    available = quantize_md(
+        (group.md_budget_total or Decimal("0"))
+        + (group.md_budget_manual_adjustment or Decimal("0"))
+    )
+    if available < Decimal("0"):
+        available = Decimal("0")
+    over_budget = quantize_md(max(Decimal("0"), used - available))
+    warning = (
+        f" Raport przekracza dostępny budżet o {format_md(over_budget)} MD."
+        if over_budget > Decimal("0")
+        else ""
+    )
+
+    record_event(
+        db,
+        group_id=group.id,
+        order_id=None,
+        event_type=EVENT_MD_IMPORT,
+        description=(
+            f"Import MD za {period_month}: wspólna pula zamówienia "
+            f"{group.order_number} pomniejszona o {format_md(md_reported)} MD."
+            f"{warning}"
+        ),
+        payload={
+            "period_month": period_month,
+            "md_reported": str(quantize_md(md_reported)),
+            "md_used_total": str(used),
+            "md_over_budget": str(over_budget),
+            "md_budget_remaining_before": str(before) if before is not None else None,
+            "md_budget_remaining_after": str(remaining),
+            "import_id": import_id,
+        },
+        user_id=user_id,
+    )
+    if not was_exhausted and group.status == GROUP_STATUS_EXHAUSTED:
+        record_event(
+            db,
+            group_id=group.id,
+            order_id=None,
+            event_type=EVENT_BUDGET_EXHAUSTED,
+            description=(
+                f"Budżet MD zamówienia {group.order_number} został wyczerpany "
+                f"(import za {period_month}). Zamówienie przeniesione "
+                "do zakończonych."
+            ),
+            payload={"period_month": period_month, "import_id": import_id},
+            user_id=user_id,
+        )
 
 
 async def _settle_and_record(

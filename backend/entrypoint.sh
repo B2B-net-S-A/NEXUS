@@ -3251,6 +3251,35 @@ _COLUMN_STATEMENTS = [
             REFERENCES client_order_groups(id) ON DELETE SET NULL;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END $$""",
+    # 0245: wspólna pula MD Cyfrowego Polsatu. Addytywne pola domyślnie
+    # wyłączone nie zmieniają istniejącego wariantu MD per konsultant.
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "is_md_budget_based BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "md_budget_total NUMERIC(16, 6) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "md_budget_remaining NUMERIC(16, 6) NULL",
+    "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
+    "md_budget_manual_adjustment NUMERIC(16, 6) NOT NULL DEFAULT 0",
+    """CREATE TABLE IF NOT EXISTS client_order_group_md_consumptions (
+        id SERIAL PRIMARY KEY,
+        group_id INTEGER NOT NULL
+            REFERENCES client_order_groups(id) ON DELETE CASCADE,
+        period_month VARCHAR(7) NOT NULL,
+        md_reported NUMERIC(16, 6) NOT NULL,
+        source VARCHAR(16) NOT NULL,
+        created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_group_md_consumptions_period
+            CHECK (period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+        CONSTRAINT ck_group_md_consumptions_source
+            CHECK (source IN ('import', 'manual')),
+        CONSTRAINT ck_group_md_consumptions_nonnegative
+            CHECK (md_reported >= 0)
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_group_md_consumptions_group_month "
+    "ON client_order_group_md_consumptions (group_id, period_month)",
     # 0233: rozliczenie fakturami. Lustro client_order_md_consumptions —
     # UNIQUE na (order_id, period_month) jest tu KLUCZEM IDEMPOTENCJI, więc
     # tworzone razem z tabelą, nie w _INDEX_STATEMENTS (tabela bez niego przez
@@ -4878,6 +4907,92 @@ _CONSTRAINT_STATEMENTS = [
                 )
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0245 — koszt i wspólna pula MD są rozłącznymi typami, a pola MD są
+    # kompletne albo nieobecne. DROP+ADD naprawia także starszy, węższy CHECK.
+    "ALTER TABLE client_order_groups "
+    "DROP CONSTRAINT IF EXISTS ck_client_order_groups_settlement_exclusive",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_settlement_exclusive
+            CHECK (NOT (is_cost_based = TRUE AND is_md_budget_based = TRUE))
+            NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_groups "
+    "DROP CONSTRAINT IF EXISTS ck_client_order_groups_md_budget_coherence",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_md_budget_coherence
+            CHECK (
+                (
+                    is_md_budget_based = FALSE
+                    AND md_budget_total IS NULL
+                    AND md_budget_remaining IS NULL
+                    AND md_budget_manual_adjustment = 0
+                )
+                OR (
+                    is_md_budget_based = TRUE
+                    AND md_budget_total IS NOT NULL
+                    AND md_budget_total > 0
+                    AND md_budget_remaining IS NOT NULL
+                    AND md_budget_remaining >= 0
+                )
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_group_md_consumptions "
+    "DROP CONSTRAINT IF EXISTS ck_group_md_consumptions_period",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_group_md_consumptions
+            ADD CONSTRAINT ck_group_md_consumptions_period
+            CHECK (period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$') NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_group_md_consumptions "
+    "DROP CONSTRAINT IF EXISTS ck_group_md_consumptions_source",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_group_md_consumptions
+            ADD CONSTRAINT ck_group_md_consumptions_source
+            CHECK (source IN ('import', 'manual')) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE client_order_group_md_consumptions "
+    "DROP CONSTRAINT IF EXISTS ck_group_md_consumptions_nonnegative",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_group_md_consumptions
+            ADD CONSTRAINT ck_group_md_consumptions_nonnegative
+            CHECK (md_reported >= 0) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint c
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.contype = 'f'
+              AND c.conrelid = 'client_order_group_md_consumptions'::regclass
+              AND c.confrelid = 'client_order_groups'::regclass
+              AND a.attname = 'group_id'
+        ) THEN
+            ALTER TABLE client_order_group_md_consumptions
+                ADD CONSTRAINT fk_group_md_consumptions_group
+                FOREIGN KEY (group_id) REFERENCES client_order_groups(id)
+                ON DELETE CASCADE NOT VALID;
+        END IF;
+    END $$""",
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint c
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.contype = 'f'
+              AND c.conrelid = 'client_order_group_md_consumptions'::regclass
+              AND c.confrelid = 'users'::regclass
+              AND a.attname = 'created_by_user_id'
+        ) THEN
+            ALTER TABLE client_order_group_md_consumptions
+                ADD CONSTRAINT fk_group_md_consumptions_created_by
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+                ON DELETE SET NULL NOT VALID;
+        END IF;
+    END $$""",
     "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_closure",
     """DO $$ BEGIN
         ALTER TABLE client_order_groups

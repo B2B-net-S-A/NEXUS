@@ -1975,6 +1975,7 @@ async def api_health_deep_check():
     from app.models.client_order_group import (
         ClientOrderGroup,
         ClientOrderGroupEvent,
+        ClientOrderGroupMdConsumption,
     )
     from app.models.md_consumption import (
         ClientOrderInvoiceConsumption,
@@ -2044,6 +2045,7 @@ async def api_health_deep_check():
         # z incydentu Cortexa.
         ("client_order_groups", ClientOrderGroup),
         ("client_order_group_events", ClientOrderGroupEvent),
+        ("client_order_group_md_consumptions", ClientOrderGroupMdConsumption),
         ("client_order_md_consumptions", ClientOrderMdConsumption),
         ("md_consumption_imports", MdConsumptionImport),
         ("md_consumption_import_rows", MdConsumptionImportRow),

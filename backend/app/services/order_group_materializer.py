@@ -45,7 +45,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
 from app.models.contract import Contract
 from app.services.client_order_lines import record_event, recompute_remaining
-from app.services.cost_orders import is_cost_order_client
+from app.services.cost_orders import skips_standard_order_group_materialization
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ADDED,
     format_md,
@@ -105,7 +105,7 @@ async def materialize_group_for_activated_order(
         return None
     if not is_multi_consultant_client(order.client_id):
         return None
-    if is_cost_order_client(order.client_id):
+    if skips_standard_order_group_materialization(order.client_id):
         return None
     number = group_number_from_order(order)
     if number is None:

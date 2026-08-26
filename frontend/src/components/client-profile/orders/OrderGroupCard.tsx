@@ -201,6 +201,50 @@ function BudgetBar({ group }: { group: OrderGroupRead }) {
   );
 }
 
+/** Wspólna pula MD Cyfrowego Polsatu. Pozostałość jest prezentowana z
+ *  podłogą 0 — przekroczenie nie może zamienić limitu w liczbę ujemną. */
+function SharedMdBudgetBar({ group }: { group: OrderGroupRead }) {
+  const total = group.md_budget_total ?? 0;
+  const used = Math.max(0, group.md_budget_used ?? 0);
+  const remaining = Math.max(0, group.md_budget_remaining ?? 0);
+  const pct = total > 0 ? Math.max(0, Math.min(100, (remaining / total) * 100)) : 0;
+  const depleted = total > 0 && remaining <= 0;
+  const low = !depleted && pct <= 15;
+
+  return (
+    <div className="min-w-[14rem]">
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        aria-label="Pozostałe MD zamówienia"
+        className="h-2 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={cn(
+            "h-full rounded-full transition-all",
+            depleted ? "bg-destructive" : low ? "bg-amber-500" : "bg-primary",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Budżet {formatMd(total)} MD · wykorzystano {formatMd(used)} MD ·
+        pozostało{" "}
+        <span
+          className={cn(
+            "font-semibold",
+            depleted ? "text-destructive" : "text-foreground",
+          )}
+        >
+          {formatMd(remaining)} MD
+        </span>
+      </p>
+    </div>
+  );
+}
+
 interface FutureOrdersProps {
   orders: OrderGroupRead[];
   searchQuery: string;
@@ -286,6 +330,12 @@ function FutureOrders({
               ) : null}
             </div>
 
+            {future.is_md_budget_based ? (
+              <div className="mt-2">
+                <SharedMdBudgetBar group={future} />
+              </div>
+            ) : null}
+
             {future.lines.length === 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
                 Brak przypisanych konsultantów.
@@ -316,8 +366,12 @@ function FutureOrders({
                         : `${formatPLN(line.rate_revenue)}/MD`}
                     </span>
                     <span className="text-muted-foreground">
-                      <span className="block text-[10px] uppercase tracking-wide">liczba MD</span>
-                      {formatMd(line.md_total)}
+                      <span className="block text-[10px] uppercase tracking-wide">
+                        {future.is_md_budget_based ? "budżet MD" : "liczba MD"}
+                      </span>
+                      {future.is_md_budget_based
+                        ? "wspólna pula"
+                        : formatMd(line.md_total)}
                     </span>
                     {canManage ? (
                       <button
@@ -450,6 +504,11 @@ export function OrderGroupCard({
                 kosztowe
               </span>
             ) : null}
+            {group.is_md_budget_based ? (
+              <span className="rounded bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                na MD
+              </span>
+            ) : null}
           </p>
           <p className="text-xs text-muted-foreground">
             {periodLabel(group)}
@@ -512,6 +571,28 @@ export function OrderGroupCard({
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                   Budżet wyczerpany — zamówienie nie przyjmuje nowych
                   konsultantów. Zorganizuj nowe zamówienie albo skoryguj kwotę.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {group.is_md_budget_based ? (
+            <div className="mb-4">
+              <SharedMdBudgetBar group={group} />
+              {group.status === "exhausted" ||
+              (group.md_budget_total != null &&
+                (group.md_budget_remaining ?? 0) <= 0) ? (
+                <p
+                  role="status"
+                  className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive"
+                >
+                  <AlertTriangle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    aria-hidden
+                  />
+                  Budżet MD wyczerpany — pozostało 0 MD i zamówienie nie
+                  przyjmuje nowych konsultantów. Zorganizuj nowe zamówienie
+                  albo skoryguj pulę.
                 </p>
               ) : null}
             </div>
@@ -602,6 +683,15 @@ export function OrderGroupCard({
                         {line.invoiced_total == null || line.invoiced_total === 0
                           ? "—"
                           : formatPLN(line.invoiced_total)}
+                      </p>
+                    </div>
+                  ) : group.is_md_budget_based ? (
+                    <div className="ml-auto min-w-[8rem] text-right">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Budżet MD
+                      </p>
+                      <p className="text-sm font-medium text-foreground">
+                        Wspólna pula
                       </p>
                     </div>
                   ) : (

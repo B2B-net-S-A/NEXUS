@@ -40,6 +40,9 @@ from app.models.md_consumption import (
     CONSUMPTION_SOURCE_IMPORT,
     ClientOrderInvoiceConsumption,
 )
+from app.services.cyfrowy_polsat_orders import (
+    is_cyfrowy_polsat_order_types_client,
+)
 
 # Kwoty w złotych — dwa miejsca po przecinku. W odróżnieniu od MD (sześć
 # miejsc, bo `kwota / stawka` bywa ułamkiem nieskończonym) tutaj wartości
@@ -61,13 +64,49 @@ def cost_order_client_ids() -> frozenset[int]:
 def is_cost_order_client(client_id: int | None) -> bool:
     """Czy u tego klienta wolno założyć zamówienie kosztowe.
 
-    Pusta lista → ``False`` dla każdego klienta (fail-closed): dopóki zmienna
-    nie jest ustawiona w Coolify, checkbox nie renderuje się nigdzie, a API
-    odrzuca próbę założenia takiego zamówienia.
+    Lista z ENV nadal steruje dotychczasowymi klientami (w produkcji:
+    Polkomtel). Cyfrowy Polsat jest świadomie zahardkodowany osobnym
+    predykatem ticketu, więc pozostaje włączony także przy pustym ENV.
     """
     if client_id is None:
         return False
+    return client_id in cost_order_client_ids() or is_cyfrowy_polsat_order_types_client(
+        client_id
+    )
+
+
+def skips_standard_order_automation(client_id: int | None) -> bool:
+    """Czy niejednoznaczny typ zamówienia wyłącza automatyczny standardowy szkic.
+
+    Historyczna polityka dotyczy klientów wpisanych do starej listy kosztowej
+    (na produkcji: Polkomtel). Cyfrowy Polsat ma dodatkowo jawny wariant
+    *standardowy*, więc sama capability kosztowa nie może wyłączyć mu tej
+    ścieżki ani ukryć istniejących szkiców.
+    """
+
+    if client_id is None or is_cyfrowy_polsat_order_types_client(client_id):
+        return False
     return client_id in cost_order_client_ids()
+
+
+def skips_standard_order_group_materialization(client_id: int | None) -> bool:
+    """Czy aktywne zamówienie standardowe ma pozostać w legacy rejestrze."""
+
+    if client_id is None:
+        return False
+    return client_id in cost_order_client_ids() or is_cyfrowy_polsat_order_types_client(
+        client_id
+    )
+
+
+def hides_standard_drafts_from_order_group_registry(client_id: int | None) -> bool:
+    """Czy szkice standardowe pokazuje legacy widok, a nie rejestr grup."""
+
+    if client_id is None:
+        return False
+    return client_id in cost_order_client_ids() or is_cyfrowy_polsat_order_types_client(
+        client_id
+    )
 
 
 def assert_cost_order_client(client_id: int | None) -> None:

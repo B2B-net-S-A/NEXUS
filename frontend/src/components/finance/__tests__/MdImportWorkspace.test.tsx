@@ -87,6 +87,14 @@ describe("MdImportWorkspace", () => {
     } as never);
   });
 
+  it("wyjaśnia dopasowanie wspólnej puli MD po numerze z Uwag", async () => {
+    renderWorkspace();
+
+    expect(
+      await screen.findByText(/numer zamówienia z kolumny.*Uwagi/i),
+    ).toBeInTheDocument();
+  });
+
   it("wiersz niejednoznaczny czeka na wybór i NIE jest zastosowany sam", async () => {
     const ambiguous = row({
       status: "needs_assignment",
