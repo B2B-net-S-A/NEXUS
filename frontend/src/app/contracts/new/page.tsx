@@ -243,7 +243,9 @@ function NewContractForm() {
     onSuccess: (res) => {
       showSuccess("Kontrakt utworzony");
       const id = (res?.data as { id?: number } | undefined)?.id;
-      router.push(id ? `/contracts/${id}` : "/contracts");
+      // Zastępujemy wpis formularza w historii: po zapisie „Wstecz” ma wrócić
+      // do listy kontraktów, z której użytkownik otworzył /contracts/new.
+      router.replace(id ? `/contracts/${id}` : "/contracts");
     },
     onError: (err: unknown) => {
       // Ustrukturyzowane 409 z backendu mapujemy na KONKRETNE pola:
