@@ -430,9 +430,7 @@ def _line_looks_like_complete_person(
     # Jawny łącznik na końcu oznacza zawinięte, niedokończone nazwisko.
     if re.search(r"-\s*$", line.strip()):
         return False
-    given_variants = _given_name_token_variants(
-        consultant_name, consultant_given_names
-    )
+    given_variants = _given_name_token_variants(consultant_name, consultant_given_names)
     for line_tokens in _name_token_variants(line):
         for target_tokens in _name_token_variants(consultant_name):
             for given_tokens in given_variants:
@@ -467,9 +465,7 @@ def _cross_line_context_is_name_only(
 
     lines = [line for line in fragment.splitlines() if line.strip()]
     if any(
-        _line_looks_like_complete_person(
-            line, consultant_name, consultant_given_names
-        )
+        _line_looks_like_complete_person(line, consultant_name, consultant_given_names)
         for line in lines
     ):
         return False
@@ -504,9 +500,7 @@ def _fragment_contains_consultant(
 
     lines = [line for line in fragment.splitlines() if line.strip()]
     if any(
-        _token_window_contains_consultant(
-            line, consultant_name, consultant_given_names
-        )
+        _token_window_contains_consultant(line, consultant_name, consultant_given_names)
         for line in lines
     ):
         return True
@@ -1162,9 +1156,7 @@ _NAME_TITLES = {
 }
 
 
-def _name_token_variants(
-    value: str, *, min_tokens: int = 2
-) -> set[tuple[str, ...]]:
+def _name_token_variants(value: str, *, min_tokens: int = 2) -> set[tuple[str, ...]]:
     """Warianty tokenów nazwiska: myślnik jako separator albo bez znaku.
 
     Dzięki temu ``Prus-Rudzińska Natalia``, ``Natalia Prus Rudzińska`` oraz
@@ -1253,9 +1245,7 @@ def _name_match_score(
     imienia nie wystarczy więc do dopasowania zupełnie innego nazwiska.
     """
 
-    given_name_variants = _given_name_token_variants(
-        target, consultant_given_names
-    )
+    given_name_variants = _given_name_token_variants(target, consultant_given_names)
     if not given_name_variants:
         return None
 
