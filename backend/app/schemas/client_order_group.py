@@ -4,8 +4,8 @@ Liczby MD i stawki jadą na drut jako **JSON number**, nie string. Goły
 ``Decimal`` w Pydantic v2 serializuje się do stringa, a front liczy z nich
 procent wypełnienia paska zużycia — ``"15" / "50"`` w JS nie jest błędem,
 tylko cichym ``NaN``. Ten sam problem rozwiązano wcześniej w
-``app/api/invoices.py`` (``MoneyPLN``); tutaj potrzebne są dwie skale, więc
-serializery są dwa.
+``app/api/invoices.py`` (``MoneyPLN``); tutaj potrzebne są osobne skale dla
+MD, pieniędzy linii, surowej stawki kontraktu i kursu FX.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.models.contract import RateUnit
 from app.services.multi_consultant_orders import (
     INPUT_MODES,
     MD_DISPLAY_SCALE,
@@ -37,6 +38,10 @@ def _money_out(value: Decimal) -> float:
     return float(Decimal(value).quantize(MD_DISPLAY_SCALE))
 
 
+def _contract_rate_out(value: Decimal) -> float:
+    return float(Decimal(value).quantize(Decimal("0.001")))
+
+
 # Pełna precyzja wewnątrz, JSON number na drucie. Zaokrąglenie do 2 miejsc
 # robi wyłącznie warstwa prezentacji — patrz docstring
 # ``app/services/multi_consultant_orders``.
@@ -46,6 +51,13 @@ MdValue = Annotated[
 MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
+# Stawki kontraktu są Numeric(12,3), więc podpowiedź nie może przechodzić
+# przez MoneyPLN (2 miejsca). JSON number zachowuje pełną skalę źródła.
+ContractRateValue = Annotated[
+    Decimal, PlainSerializer(_contract_rate_out, return_type=float, when_used="json")
+]
+# Kurs FX jest Numeric(14,6); skala MdValue jest identyczna i nie obcina danych.
+FxRateValue = MdValue
 
 
 # ── Wejście ─────────────────────────────────────────────────────────────────
@@ -411,8 +423,17 @@ class ConsultantOptionRead(BaseModel):
 
     job_title: Optional[str] = None
     suggested_rate_cost: Optional[MoneyPLN] = None
-    """Podpowiedź z aktywnego/kończącego się kontraktu tej osoby u
-    bieżącego klienta. `null` dla osoby bez takiego kontraktu lub bez stawki."""
+    """Kanoniczna podpowiedź PLN/MD dla kompatybilności starszego frontendu."""
+
+    suggested_contract_rate_cost: Optional[ContractRateValue] = None
+    """Surowa efektywna stawka z aktywnego/kończącego się kontraktu tej osoby
+    u bieżącego klienta. Zachowuje 3 miejsca po przecinku."""
+
+    suggested_rate_cost_unit: Optional[RateUnit] = None
+    suggested_rate_cost_currency: Optional[str] = None
+    suggested_rate_cost_rate_to_pln: Optional[FxRateValue] = None
+    """Metadane surowej podpowiedzi potrzebne do zapisu w PLN/MD. Wszystkie
+    pola są `null`, gdy nie ma żywego kontraktu/stawki albo brakuje kursu FX."""
 
     has_different_client_contract_rates: bool = False
     """Czy inne nieanulowane kontrakty tej osoby u bieżącego klienta mają

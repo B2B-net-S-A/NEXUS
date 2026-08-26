@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -111,6 +117,10 @@ async function fillRates(user: ReturnType<typeof setupUser>) {
   const cost = screen.getByRole("textbox", { name: /Stawka kosztowa/ });
   await user.clear(cost);
   await user.type(cost, "1000");
+  await fillRevenueAndBudget(user);
+}
+
+async function fillRevenueAndBudget(user: ReturnType<typeof setupUser>) {
   await user.type(
     screen.getByRole("textbox", { name: /Stawka przychodowa/ }),
     "1200",
@@ -177,6 +187,131 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     expect(
       screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
     ).toHaveValue("560");
+  });
+
+  it("pokazuje godzinową stawkę kontraktu 60 bez normalizacji 160/22 i zapisuje 480 PLN/MD", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: {
+        options: [
+          {
+            ...FROM_CLIENT,
+            full_name: "Katarzyna Maszewska",
+            first_name: "Katarzyna",
+            last_name: "Maszewska",
+            // Legacy pozostaje kanoniczne PLN/MD dla starego frontendu.
+            suggested_rate_cost: 480,
+            suggested_contract_rate_cost: 60,
+            suggested_rate_cost_unit: "hourly",
+            suggested_rate_cost_currency: "PLN",
+            suggested_rate_cost_rate_to_pln: 1,
+          },
+        ],
+        total: 1,
+      },
+    } as never);
+    renderModal(onSubmit);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Katarzyna Maszewska/ }),
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
+    ).toHaveValue("60");
+    const costUnits = screen.getByRole("group", {
+      name: "Jednostka stawki kosztowej",
+    });
+    expect(
+      within(costUnits).getByRole("button", { name: "godzinowa (zł/h)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Zapis w PLN\/MD: 480 zł/)).toBeInTheDocument();
+
+    await fillRevenueAndBudget(user);
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(480);
+  });
+
+  it("pokazuje miesięczną stawkę kontraktu 1:1 i dopiero przy zapisie dzieli ją przez 22 MD", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: {
+        options: [
+          {
+            ...FROM_CLIENT,
+            suggested_rate_cost: 46.59,
+            suggested_contract_rate_cost: 1024.87,
+            suggested_rate_cost_unit: "monthly",
+            suggested_rate_cost_currency: "PLN",
+            suggested_rate_cost_rate_to_pln: 1,
+          },
+        ],
+        total: 1,
+      },
+    } as never);
+    renderModal(onSubmit);
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+
+    expect(
+      screen.getByRole("textbox", { name: /Stawka kosztowa/ }),
+    ).toHaveValue("1024.87");
+    const costUnits = screen.getByRole("group", {
+      name: "Jednostka stawki kosztowej",
+    });
+    expect(
+      within(costUnits).getByRole("button", { name: "miesięczna (zł/mc)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Zapis w PLN\/MD: 46\.59 zł/)).toBeInTheDocument();
+
+    await fillRevenueAndBudget(user);
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(46.59);
+  });
+
+  it("pokazuje walutę kontraktu i stosuje przekazany kurs dopiero do zapisu PLN/MD", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+      data: {
+        options: [
+          {
+            ...FROM_CLIENT,
+            suggested_rate_cost: 3400,
+            suggested_contract_rate_cost: 100,
+            suggested_rate_cost_unit: "hourly",
+            suggested_rate_cost_currency: "EUR",
+            suggested_rate_cost_rate_to_pln: 4.25,
+          },
+        ],
+        total: 1,
+      },
+    } as never);
+    renderModal(onSubmit);
+
+    await user.click(await screen.findByRole("button", { name: /Barbara Nowak/ }));
+
+    expect(
+      screen.getByRole("textbox", { name: "Stawka kosztowa (EUR) *" }),
+    ).toHaveValue("100");
+    const costUnits = screen.getByRole("group", {
+      name: "Jednostka stawki kosztowej",
+    });
+    expect(
+      within(costUnits).getByRole("button", { name: "godzinowa (EUR/h)" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByText(/Zapis w PLN\/MD: 3400 zł \(kurs EUR→PLN: 4\.25\)/),
+    ).toBeInTheDocument();
+
+    await fillRevenueAndBudget(user);
+    await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
+
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(3400);
   });
 
   it("pozwala zmienić podpowiedzianą stawkę tylko dla tej linii", async () => {

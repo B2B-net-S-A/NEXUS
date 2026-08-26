@@ -18,9 +18,11 @@ import type {
   OrderLineRead,
 } from "@/lib/api/orderGroups";
 import {
-  RATE_UNIT_LABELS,
+  contractRateUnitToInputUnit,
   convertRate,
+  rateUnitLabel,
   toMdRate,
+  toPlnMdRate,
   type RateUnit,
 } from "@/lib/rate-unit";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
@@ -37,6 +39,8 @@ const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
 const labelClass =
   "mb-1 block text-xs font-semibold text-muted-foreground";
+const COST_RATE_UNITS: readonly RateUnit[] = ["hour", "md", "month"];
+const REVENUE_RATE_UNITS: readonly RateUnit[] = ["hour", "md"];
 
 export interface LineFormValues {
   /** Dokładnie jedno z pól. `contract_id` — osoba ma już kontrakt u tego
@@ -80,12 +84,18 @@ function RateUnitToggle({
   onUnitChange,
   value,
   onValueChange,
+  units,
+  currency,
+  ariaLabel,
 }: {
   id: string;
   unit: RateUnit;
   onUnitChange: (next: RateUnit) => void;
   value: string;
   onValueChange: (next: string) => void;
+  units: readonly RateUnit[];
+  currency: string;
+  ariaLabel: string;
 }) {
   const switchTo = (next: RateUnit) => {
     if (next === unit) return;
@@ -100,10 +110,10 @@ function RateUnitToggle({
   return (
     <div
       role="group"
-      aria-label="Jednostka stawki"
-      className="mt-1 inline-flex rounded-md border border-border p-0.5"
+      aria-label={ariaLabel}
+      className="mt-1 inline-flex max-w-full flex-wrap rounded-md border border-border p-0.5"
     >
-      {(["hour", "md"] as RateUnit[]).map((option) => (
+      {units.map((option) => (
         <button
           key={option}
           id={`${id}-${option}`}
@@ -117,7 +127,7 @@ function RateUnitToggle({
               : "text-muted-foreground hover:text-foreground")
           }
         >
-          {RATE_UNIT_LABELS[option]}
+          {rateUnitLabel(option, currency)}
         </button>
       ))}
     </div>
@@ -143,9 +153,11 @@ export function ConsultantLineModal({
   const [rateRevenue, setRateRevenue] = useState("");
   // Jednostka WPROWADZANIA, niezależna dla każdej stawki: kosztowa przychodzi
   // zwykle z kontraktu (godzinowa), przychodowa z zamówienia klienta (MD).
-  // Wartość ZAPISYWANA jest zawsze w zł/MD (`toMdRate`) — przełącznik dotyczy
-  // wyłącznie tego, w czym operator wpisuje.
+  // Wartość ZAPISYWANA jest zawsze w PLN/MD — przełącznik i waluta dotyczą
+  // wyłącznie tego, co operator widzi i wpisuje.
   const [costUnit, setCostUnit] = useState<RateUnit>("md");
+  const [costCurrency, setCostCurrency] = useState("PLN");
+  const [costRateToPln, setCostRateToPln] = useState(1);
   const [revenueUnit, setRevenueUnit] = useState<RateUnit>("md");
   const [inputMode, setInputMode] = useState<OrderInputMode>("md");
   const [inputValue, setInputValue] = useState("");
@@ -173,14 +185,34 @@ export function ConsultantLineModal({
     // wyłącznie z aktywnego kontraktu tej osoby u bieżącego klienta;
     // `null` (brak kontraktu albo brak zapisanej stawki) zostawia puste pole.
     // Dalsze wpisywanie jest zwykłą lokalną edycją linii zamówienia.
-    // Podpowiedź z kontraktu jest w zł/MD (tak ją liczy serwer), więc razem
-    // z wartością przestawiamy jednostkę — inaczej liczba wpadałaby pod
-    // etykietę „zł/h" i po zapisie zostałaby pomnożona przez 8.
-    setCostUnit("md");
+    // Nowy payload niesie SUROWĄ wartość kontraktu w osobnym polu. Legacy
+    // `suggested_rate_cost` MUSI pozostać PLN/MD, bo starszy frontend zapisuje
+    // je bez metadanych. Nowe pole wybieramy tylko, gdy rzeczywiście istnieje.
+    const hasRawSuggestion = next?.suggested_contract_rate_cost != null;
+    setCostUnit(
+      hasRawSuggestion
+        ? contractRateUnitToInputUnit(next?.suggested_rate_cost_unit)
+        : "md",
+    );
+    setCostCurrency(
+      hasRawSuggestion
+        ? next?.suggested_rate_cost_currency?.trim().toUpperCase() || "PLN"
+        : "PLN",
+    );
+    const rateToPln = hasRawSuggestion
+      ? next?.suggested_rate_cost_rate_to_pln
+      : 1;
+    setCostRateToPln(
+      typeof rateToPln === "number" && Number.isFinite(rateToPln) && rateToPln > 0
+        ? rateToPln
+        : 1,
+    );
     setRateCost(
-      next?.suggested_rate_cost != null
-        ? String(next.suggested_rate_cost)
-        : "",
+      hasRawSuggestion
+        ? String(next.suggested_contract_rate_cost)
+        : next?.suggested_rate_cost != null
+          ? String(next.suggested_rate_cost)
+          : "",
     );
   };
 
@@ -193,6 +225,8 @@ export function ConsultantLineModal({
     // inaczej pierwszy render pokazywałby liczbę ośmiokrotnie za dużą pod
     // etykietą „zł/h”.
     setCostUnit("md");
+    setCostCurrency("PLN");
+    setCostRateToPln(1);
     setRevenueUnit("md");
     setInputMode(line?.input_mode ?? "md");
     setInputValue(line?.input_value != null ? String(line.input_value) : "");
@@ -292,12 +326,17 @@ export function ConsultantLineModal({
     return value / rate;
   }, [inputValue, rateRevenue, revenueUnit, inputMode]);
 
-  // Kwota, która NAPRAWDĘ pójdzie do bazy — pokazywana pod polem, gdy operator
-  // wpisuje w zł/h. Bez tego przełącznik prosi o zaufanie zamiast pokazać wynik.
-  const rateCostAsMd = useMemo(() => {
+  // Kwota, która NAPRAWDĘ pójdzie do bazy — pokazywana przy każdej konwersji
+  // jednostki lub waluty. Bez tego formularz prosiłby o zaufanie zamiast
+  // pokazać wynik finansowy przed zapisem.
+  const rateCostAsPlnMd = useMemo(() => {
     const parsed = parseDecimalInput(rateCost);
-    return parsed === null ? null : toMdRate(parsed, costUnit);
-  }, [rateCost, costUnit]);
+    return parsed === null
+      ? null
+      : toPlnMdRate(parsed, costUnit, costRateToPln);
+  }, [rateCost, costUnit, costRateToPln]);
+  const costNeedsConversion =
+    costUnit !== "md" || costCurrency !== "PLN" || costRateToPln !== 1;
   const rateRevenueAsMd = useMemo(() => {
     const parsed = parseDecimalInput(rateRevenue);
     return parsed === null ? null : toMdRate(parsed, revenueUnit);
@@ -319,7 +358,11 @@ export function ConsultantLineModal({
     // oddaje `null` — pusta stawka jechała wtedy do API jako
     // `rate_cost: null`. W praktyce zasłaniał to `canSubmit`, ale bramka
     // i ładunek to dwa różne miejsca: rozjazd między nimi byłby cichy.
-    const costMd = toMdRate(parseDecimalInput(rateCost) ?? Number.NaN, costUnit);
+    const costMd = toPlnMdRate(
+      parseDecimalInput(rateCost) ?? Number.NaN,
+      costUnit,
+      costRateToPln,
+    );
     const revenueMd = toMdRate(
       parseDecimalInput(rateRevenue) ?? Number.NaN,
       revenueUnit,
@@ -416,7 +459,9 @@ export function ConsultantLineModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label htmlFor="line-cost" className={labelClass}>
-              Stawka kosztowa *
+              {costCurrency === "PLN"
+                ? "Stawka kosztowa *"
+                : `Stawka kosztowa (${costCurrency}) *`}
             </label>
             <input
               id="line-cost"
@@ -424,7 +469,13 @@ export function ConsultantLineModal({
               value={rateCost}
               onChange={(e) => setRateCost(sanitizeDecimalInput(e.target.value))}
               className={inputClass}
-              placeholder={costUnit === "hour" ? "125" : "1000"}
+              placeholder={
+                costUnit === "hour"
+                  ? "125"
+                  : costUnit === "month"
+                    ? "10000"
+                    : "1000"
+              }
             />
             <RateUnitToggle
               id="line-cost-unit"
@@ -432,11 +483,17 @@ export function ConsultantLineModal({
               onUnitChange={setCostUnit}
               value={rateCost}
               onValueChange={setRateCost}
+              units={COST_RATE_UNITS}
+              currency={costCurrency}
+              ariaLabel="Jednostka stawki kosztowej"
             />
-            {costUnit === "hour" ? (
+            {costNeedsConversion ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Zapis w zł/MD:{" "}
-                {rateCostAsMd === null ? "—" : `${rateCostAsMd} zł`}
+                Zapis w PLN/MD:{" "}
+                {rateCostAsPlnMd === null ? "—" : `${rateCostAsPlnMd} zł`}
+                {costCurrency !== "PLN"
+                  ? ` (kurs ${costCurrency}→PLN: ${costRateToPln})`
+                  : null}
               </p>
             ) : null}
             {/* Obie flagi wracają z backendu NIEZALEŻNIE od siebie:
@@ -456,7 +513,8 @@ export function ConsultantLineModal({
                   className="mt-0.5 h-3.5 w-3.5 shrink-0"
                   aria-hidden="true"
                 />
-                {person.suggested_rate_cost != null ? (
+                {person.suggested_contract_rate_cost != null ||
+                person.suggested_rate_cost != null ? (
                   <>
                     Uwaga: ten konsultant ma u klienta kontrakty z różnymi
                     stawkami. Wstawiono stawkę z aktywnego kontraktu —
@@ -490,6 +548,9 @@ export function ConsultantLineModal({
               onUnitChange={setRevenueUnit}
               value={rateRevenue}
               onValueChange={setRateRevenue}
+              units={REVENUE_RATE_UNITS}
+              currency="PLN"
+              ariaLabel="Jednostka stawki przychodowej"
             />
             {revenueUnit === "hour" ? (
               <p className="mt-1 text-xs text-muted-foreground">
