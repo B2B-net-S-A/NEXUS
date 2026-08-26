@@ -339,7 +339,7 @@ async def test_lotte_profile_and_group_api_require_one_special_type(
         headers=app_auth_headers,
     )
     assert both.status_code == 422, both.text
-    assert "Lotte Wedel" in both.text
+    assert "jednocześnie kosztowe i na MD" in both.text
 
 
 @pytest.mark.asyncio
