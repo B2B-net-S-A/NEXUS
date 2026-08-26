@@ -51,9 +51,7 @@ pytestmark = pytest.mark.asyncio
 # ── Seed helpers ─────────────────────────────────────────────────────────────
 
 
-async def _seed_candidate(
-    marker: str, *, email: str | None, suffix: str = ""
-) -> int:
+async def _seed_candidate(marker: str, *, email: str | None, suffix: str = "") -> int:
     async with AsyncSessionLocal() as db:
         cand = Candidate(
             name="Multi",
@@ -164,12 +162,8 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     cand_solo = await _seed_candidate(
         marker, email=f"{marker.lower()}-solo@example.com", suffix="Solo"
     )
-    c1 = await _seed_client(
-        f"BP {marker}", display_name=f"Bank Pocztowy S.A. {marker}"
-    )
-    c2 = await _seed_client(
-        f"Velo {marker}", display_name=f"VeloBank S.A. {marker}"
-    )
+    c1 = await _seed_client(f"BP {marker}", display_name=f"Bank Pocztowy S.A. {marker}")
+    c2 = await _seed_client(f"Velo {marker}", display_name=f"VeloBank S.A. {marker}")
     c3 = await _seed_client(f"Trzeci {marker}")
     id_a = await _seed_contract(cand_multi, c1, rate_client=175, rate_candidate=125)
     id_b = await _seed_contract(cand_multi, c2, rate_client=163, rate_candidate=120)
@@ -219,9 +213,7 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     assert all(row["group_members"] == [] for row in flat.json()["items"])
 
 
-async def test_grouped_list_respects_filters_within_group(
-    app_client, app_auth_headers
-):
+async def test_grouped_list_respects_filters_within_group(app_client, app_auth_headers):
     """Filtr statusu zawęża też CZŁONKÓW grupy — wiersz pod nagłówkiem
     „aktywne" nie może przemycać zakończonej umowy w rozbiciu per klient."""
     marker = f"Grf{uuid.uuid4().hex[:6]}"
@@ -302,8 +294,7 @@ async def test_grouped_list_and_siblings_respect_delivery_lead_scope(app_client)
     [row] = body["items"]
     assert [m["id"] for m in row["group_members"]] == [id_a]
     assert all(
-        f"ObcyKlient {marker}" != (m["client_name"] or "")
-        for m in row["group_members"]
+        f"ObcyKlient {marker}" != (m["client_name"] or "") for m in row["group_members"]
     )
 
     detail = await app_client.get(f"/api/contracts/{id_a}", headers=dl_headers)
@@ -334,9 +325,7 @@ async def test_detail_lists_sibling_contracts_of_same_person(
     id_b = await _seed_contract(cand, c2)
     await _seed_contract(cand, c3, status=ContractStatus.void)
 
-    detail = await app_client.get(
-        f"/api/contracts/{id_a}", headers=app_auth_headers
-    )
+    detail = await app_client.get(f"/api/contracts/{id_a}", headers=app_auth_headers)
     assert detail.status_code == 200, detail.text
     assert detail.json()["client_name"] == f"Pierwszy Klient S.A. {marker}"
     related = detail.json()["related_contracts"]
@@ -346,9 +335,7 @@ async def test_detail_lists_sibling_contracts_of_same_person(
     assert related[0]["status"] == "active"
 
     # Symetria: z perspektywy drugiej umowy widać pierwszą.
-    detail_b = await app_client.get(
-        f"/api/contracts/{id_b}", headers=app_auth_headers
-    )
+    detail_b = await app_client.get(f"/api/contracts/{id_b}", headers=app_auth_headers)
     assert [r["id"] for r in detail_b.json()["related_contracts"]] == [id_a]
 
 
@@ -365,9 +352,7 @@ async def _post_contract(app_client, headers, candidate_id, client_id, **extra):
     return await app_client.post("/api/contracts", json=payload, headers=headers)
 
 
-async def test_duplicate_same_person_same_client_blocked(
-    app_client, app_auth_headers
-):
+async def test_duplicate_same_person_same_client_blocked(app_client, app_auth_headers):
     marker = f"Dup{uuid.uuid4().hex[:6]}"
     email = f"{marker.lower()}@example.com"
     cand = await _seed_candidate(marker, email=email)
@@ -735,6 +720,363 @@ async def _seed_generated(
         return generated.id
 
 
+async def test_shared_hard_delete_service_applies_fk_policies_and_audits():
+    """Batch callers get the same detach/CASCADE/SET NULL/audit contract.
+
+    This calls the lifecycle helper directly, so moving logic back into the
+    HTTP endpoint cannot silently make one-off maintenance less safe.
+    """
+    from decimal import Decimal
+
+    from sqlalchemy import select
+
+    from app.models.activity import Activity
+    from app.models.contract_candidate_rate import ContractCandidateRate
+    from app.models.note import Note
+    from app.services.contract_lifecycle import hard_delete_contract
+
+    marker = f"Dsvc{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"DeleteService {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.ended)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="unsigned", client_id=cli
+    )
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, cid)
+        assert contract is not None
+        rate = ContractCandidateRate(
+            contract_id=cid,
+            rate=Decimal("125.000"),
+            effective_from=date.today(),
+        )
+        note = Note(content=f"History {marker}", contract_id=cid, candidate_id=cand)
+        db.add_all([rate, note])
+        await db.flush()
+        rate_id = rate.id
+        note_id = note.id
+
+        outcome = await hard_delete_contract(db, contract, actor_id=None)
+        assert outcome.contract_id == cid
+        assert outcome.detached_generated_contracts == 1
+        assert outcome.settled_order_group_ids == ()
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+        # Project-owned schedule follows CASCADE.
+        assert await db.get(ContractCandidateRate, rate_id) is None
+        # Cross-module history follows SET NULL.
+        surviving_note = await db.get(Note, note_id)
+        assert surviving_note is not None
+        assert surviving_note.contract_id is None
+        # The generated agreement remains in its register, detached.
+        generated = await db.get(B2BGeneratedContract, generated_id)
+        assert generated is not None
+        assert generated.contract_id is None
+        audit = await db.scalar(
+            select(Activity)
+            .where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == cid,
+                Activity.action == "deleted",
+            )
+            .order_by(Activity.id.desc())
+        )
+        assert audit is not None
+        assert audit.details == {
+            "status": "ended",
+            "candidate_id": cand,
+            "client_id": cli,
+        }
+
+
+async def test_shared_hard_delete_service_keeps_protective_signed_b2b():
+    """The batch helper must fail before detaching a same-client signature."""
+    from app.services.contract_lifecycle import (
+        ContractHardDeleteBlocked,
+        hard_delete_contract,
+    )
+
+    marker = f"Dsvcs{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"DeleteSigned {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.draft)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="signed_both", client_id=cli
+    )
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, cid)
+        assert contract is not None
+        with pytest.raises(ContractHardDeleteBlocked) as caught:
+            await hard_delete_contract(db, contract, actor_id=None)
+        assert caught.value.reason == "signed_generated_contract"
+        assert caught.value.status_code == 409
+        assert caught.value.detail["code"] == "contract_has_signed_generated_contract"
+        await db.rollback()
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is not None
+        generated = await db.get(B2BGeneratedContract, generated_id)
+        assert generated is not None
+        assert generated.contract_id == cid
+
+
+async def test_shared_hard_delete_parent_lock_serializes_new_fk_children(
+    monkeypatch,
+):
+    """A new child cannot appear after blockers have been evaluated.
+
+    PostgreSQL checks a new FK with KEY SHARE on the parent.  The shared
+    helper must already hold FOR UPDATE on that parent, so the insert waits;
+    once the delete commits, the waiting insert fails instead of creating a
+    signature/agreement in the guard-to-DELETE race window.
+    """
+    import asyncio
+
+    from sqlalchemy import select, text
+    from sqlalchemy.exc import IntegrityError
+
+    import app.services.contract_lifecycle as lifecycle
+
+    marker = f"Dlock{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"DeleteLock {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.draft)
+
+    locks_held = asyncio.Event()
+    release_delete = asyncio.Event()
+    original_blocker = lifecycle.hard_delete_blocker
+
+    async def paused_blocker(db, contract):
+        # ``hard_delete_contract`` calls the blocker only after locking the
+        # parent and both child tables. Hold it here so the second transaction
+        # can prove that a new FK insert is waiting on the parent lock.
+        locks_held.set()
+        await release_delete.wait()
+        return await original_blocker(db, contract)
+
+    monkeypatch.setattr(lifecycle, "hard_delete_blocker", paused_blocker)
+
+    async def delete_in_first_transaction():
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, cid)
+            assert contract is not None
+            outcome = await lifecycle.hard_delete_contract(db, contract, actor_id=None)
+            await db.commit()
+            return outcome
+
+    insert_pid = asyncio.get_running_loop().create_future()
+
+    async def insert_in_second_transaction() -> str:
+        async with AsyncSessionLocal() as db:
+            pid = await db.scalar(text("SELECT pg_backend_pid()"))
+            insert_pid.set_result(int(pid))
+            db.add(
+                B2BGeneratedContract(
+                    year=2026,
+                    seq=int(uuid.uuid4().hex[:6], 16),
+                    contract_number=f"B2B/LOCK/{marker}",
+                    partner_name=f"Lock {marker}",
+                    signature_status="unsigned",
+                    contract_id=cid,
+                    candidate_id=cand,
+                    client_id=cli,
+                )
+            )
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                return "fk_rejected"
+            await db.commit()
+            return "inserted"
+
+    delete_task = asyncio.create_task(delete_in_first_transaction())
+    insert_task = None
+    try:
+        await asyncio.wait_for(locks_held.wait(), timeout=5)
+        insert_task = asyncio.create_task(insert_in_second_transaction())
+        pid = await asyncio.wait_for(insert_pid, timeout=5)
+
+        # Use PostgreSQL's lock graph rather than a timing-only assertion. If
+        # FOR UPDATE is removed from the helper, the insert commits and this
+        # condition is never observed.
+        blocked = False
+        deadline = asyncio.get_running_loop().time() + 5
+        async with AsyncSessionLocal() as observer:
+            while asyncio.get_running_loop().time() < deadline:
+                blocker_count = await observer.scalar(
+                    text("SELECT cardinality(pg_blocking_pids(:pid))"),
+                    {"pid": pid},
+                )
+                if int(blocker_count or 0) > 0:
+                    blocked = True
+                    break
+                if insert_task.done():
+                    break
+                await asyncio.sleep(0.02)
+        assert blocked, "new FK child did not wait on the locked contract parent"
+
+        release_delete.set()
+        outcome = await asyncio.wait_for(delete_task, timeout=5)
+        assert outcome.contract_id == cid
+        assert await asyncio.wait_for(insert_task, timeout=5) == "fk_rejected"
+    finally:
+        release_delete.set()
+        tasks = [delete_task]
+        if insert_task is not None:
+            tasks.append(insert_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+        inserted = await db.scalar(
+            select(B2BGeneratedContract.id).where(
+                B2BGeneratedContract.contract_number == f"B2B/LOCK/{marker}"
+            )
+        )
+        assert inserted is None
+
+
+async def test_hard_delete_serializes_stale_cost_group_settlement(monkeypatch):
+    """A stale settlement waits for delete and recomputes from fresh rows.
+
+    This exercises PostgreSQL's real lock graph. The second session loads the
+    group before hard-delete removes its only line, then calls ``settle_group``
+    while delete holds the group row. It must wait and refresh rather than
+    overwriting the post-delete budget with a result from the old line set.
+    """
+    import asyncio
+    from decimal import Decimal
+
+    from sqlalchemy import text
+
+    import app.services.contract_lifecycle as lifecycle
+    import app.services.cost_orders as cost_orders
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroup
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+
+    marker = f"Dsettle{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"DeleteSettle {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.draft)
+
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=cli,
+            order_number=f"LOCK/{marker}",
+            start_date=date.today() - timedelta(days=30),
+            is_cost_based=True,
+            budget_amount=Decimal("1000.00"),
+            budget_remaining=Decimal("1000.00"),
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=cli,
+            contract_id=cid,
+            title=f"Locked line {marker}",
+            order_group_id=group.id,
+        )
+        db.add(line)
+        await db.flush()
+        db.add(
+            ClientOrderInvoiceConsumption(
+                order_id=line.id,
+                period_month="2026-08",
+                invoice_amount=Decimal("400.00"),
+                source="import",
+            )
+        )
+        await db.flush()
+        assert await cost_orders.settle_group(db, group) == Decimal("600.00")
+        await db.commit()
+        group_id = group.id
+
+    delete_holds_group = asyncio.Event()
+    release_delete = asyncio.Event()
+    start_stale_settlement = asyncio.Event()
+    stale_loaded = asyncio.Event()
+    stale_pid = asyncio.get_running_loop().create_future()
+    original_settle = cost_orders.settle_group
+
+    async def paused_delete_settle(db, group):
+        # hard_delete_contract locks the affected group immediately before this
+        # call. Pausing here exposes that lock to the competing session.
+        delete_holds_group.set()
+        await release_delete.wait()
+        return await original_settle(db, group)
+
+    monkeypatch.setattr(cost_orders, "settle_group", paused_delete_settle)
+
+    async def delete_in_first_transaction():
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, cid)
+            assert contract is not None
+            outcome = await lifecycle.hard_delete_contract(db, contract, actor_id=None)
+            await db.commit()
+            return outcome
+
+    async def settle_stale_group_in_second_transaction():
+        async with AsyncSessionLocal() as db:
+            stale_group = await db.get(ClientOrderGroup, group_id)
+            assert stale_group is not None
+            pid = await db.scalar(text("SELECT pg_backend_pid()"))
+            stale_pid.set_result(int(pid))
+            stale_loaded.set()
+            await start_stale_settlement.wait()
+            remaining = await original_settle(db, stale_group)
+            await db.commit()
+            return remaining
+
+    stale_task = asyncio.create_task(settle_stale_group_in_second_transaction())
+    delete_task = None
+    try:
+        await asyncio.wait_for(stale_loaded.wait(), timeout=5)
+        delete_task = asyncio.create_task(delete_in_first_transaction())
+        await asyncio.wait_for(delete_holds_group.wait(), timeout=5)
+        start_stale_settlement.set()
+        pid = await asyncio.wait_for(stale_pid, timeout=5)
+
+        blocked = False
+        deadline = asyncio.get_running_loop().time() + 5
+        async with AsyncSessionLocal() as observer:
+            while asyncio.get_running_loop().time() < deadline:
+                blocker_count = await observer.scalar(
+                    text("SELECT cardinality(pg_blocking_pids(:pid))"),
+                    {"pid": pid},
+                )
+                if int(blocker_count or 0) > 0:
+                    blocked = True
+                    break
+                if stale_task.done():
+                    break
+                await asyncio.sleep(0.02)
+        assert blocked, "stale settlement did not wait on the locked order group"
+
+        release_delete.set()
+        outcome = await asyncio.wait_for(delete_task, timeout=5)
+        assert outcome.settled_order_group_ids == (group_id,)
+        assert await asyncio.wait_for(stale_task, timeout=5) == Decimal("1000.00")
+    finally:
+        release_delete.set()
+        start_stale_settlement.set()
+        tasks = [stale_task]
+        if delete_task is not None:
+            tasks.append(delete_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+        refreshed = await db.get(ClientOrderGroup, group_id)
+        assert refreshed is not None
+        assert refreshed.budget_remaining == Decimal("1000.00")
+
+
 async def test_delete_contract_unlinks_generated_b2b_and_keeps_candidate(
     app_client, app_auth_headers
 ):
@@ -745,13 +1087,9 @@ async def test_delete_contract_unlinks_generated_b2b_and_keeps_candidate(
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
     cli = await _seed_client(f"DelKlient {marker}")
     cid = await _seed_contract(cand, cli, status=ContractStatus.ended)
-    generated_id = await _seed_generated(
-        marker, cid, cand, signature_status="unsigned"
-    )
+    generated_id = await _seed_generated(marker, cid, cand, signature_status="unsigned")
 
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 204, resp.text
 
     async with AsyncSessionLocal() as db:
@@ -766,9 +1104,7 @@ async def test_delete_contract_unlinks_generated_b2b_and_keeps_candidate(
         assert surviving.contract_number == f"B2B/TEST/{marker}"
 
 
-async def test_delete_contract_resettles_cost_order_group(
-    app_client, app_auth_headers
-):
+async def test_delete_contract_resettles_cost_order_group(app_client, app_auth_headers):
     """Kaskada DELETE usuwa linię grupy kosztowej i jej konsumpcje, a
     `budget_remaining`/`settled_amount` są kolumnami ZAPISANYMI, przeliczanymi
     wyłącznie przez `settle_group` — endpoint musi je przeliczyć, inaczej grupa
@@ -874,9 +1210,7 @@ async def test_delete_contract_with_signed_both_generated_refused_in_polish(
         client_id=None,
     )
 
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 409, resp.text
     detail = resp.json()["detail"]
     assert detail["code"] == "contract_has_signed_generated_contract"
@@ -905,9 +1239,7 @@ async def test_delete_contract_blocked_by_signed_generated_of_same_client(
         marker, cid, cand, signature_status="signed_both", client_id=cli
     )
 
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["code"] == "contract_has_signed_generated_contract"
 
@@ -941,9 +1273,7 @@ async def test_delete_contract_not_blocked_by_signature_of_another_project(
         client_id=cli_current,
     )
 
-    resp = await app_client.delete(
-        f"/api/contracts/{cid}", headers=app_auth_headers
-    )
+    resp = await app_client.delete(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert resp.status_code == 204, resp.text
 
     async with AsyncSessionLocal() as db:

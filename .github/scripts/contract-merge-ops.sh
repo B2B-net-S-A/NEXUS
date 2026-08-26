@@ -69,13 +69,78 @@ validate_rate_sources() {
   IFS="$old_ifs"
 }
 
+validate_field_sources() {
+  local label="$1" value="$2" pair lhs group field source seen="," old_ifs
+  [ -z "$value" ] && return 0
+  if [ "${#value}" -gt 4000 ]; then
+    echo "::error::$label is too long"
+    return 1
+  fi
+  case "$value" in
+    *[!0-9a-z_=.,]*|,*|*,|*,,*)
+      echo "::error::$label must use group.field=source,... with safe characters"
+      return 1
+      ;;
+  esac
+  old_ifs="$IFS"
+  IFS=,
+  for pair in $value; do
+    case "$pair" in
+      *=*=*|=*|*=)
+        echo "::error::$label contains an invalid field decision"
+        IFS="$old_ifs"
+        return 1
+        ;;
+    esac
+    lhs="${pair%%=*}"
+    source="${pair#*=}"
+    case "$lhs" in
+      *.*.*|.*|*.)
+        echo "::error::$label contains an invalid group.field key"
+        IFS="$old_ifs"
+        return 1
+        ;;
+      *.*) ;;
+      *)
+        echo "::error::$label requires a group.field key"
+        IFS="$old_ifs"
+        return 1
+        ;;
+    esac
+    group="${lhs%%.*}"
+    field="${lhs#*.}"
+    case "$group:$source" in
+      *[!0-9:]*)
+        echo "::error::$label contains a non-numeric ID"
+        IFS="$old_ifs"
+        return 1
+        ;;
+    esac
+    if [ -z "$group" ] || [ -z "$field" ] || [ "$group" -eq 0 ] || [ "$source" -eq 0 ]; then
+      echo "::error::$label requires positive IDs and a field"
+      IFS="$old_ifs"
+      return 1
+    fi
+    case "$seen" in
+      *",$group.$field,"*)
+        echo "::error::$label repeats group.field $group.$field"
+        IFS="$old_ifs"
+        return 1
+        ;;
+    esac
+    seen="${seen}${group}.${field},"
+  done
+  IFS="$old_ifs"
+}
+
 for required in CO_URL CO_TOKEN APP_UUID MODE TASK_NAME SENTINEL PAYLOAD_BEGIN PAYLOAD_END OPS_RUN_ID OPS_RUN_ATTEMPT RUNNER_TEMP; do
   require_env "$required"
 done
 
 case "$MODE" in
   audit)
-    if [ -n "${PLAN_FINGERPRINT:-}${CANDIDATE_RATE_SOURCES:-}${CLIENT_RATE_SOURCES:-}" ] \
+    if [ -n "${PLAN_FINGERPRINT:-}${CANDIDATE_RATE_SOURCES:-}${CLIENT_RATE_SOURCES:-}${FRAMEWORK_RATE_SOURCES:-}${RATE_METADATA_SOURCES:-}${FIELD_SOURCES:-}" ] \
+      || [ "${ALLOW_RATE_EMPTY_METADATA:-NO}" != "NO" ] \
       || [ "${APPLY_CONFIRMATION:-NO}" != "NO" ]; then
       echo "::error::audit does not accept an apply fingerprint, rate decisions or confirmation"
       exit 1
@@ -97,8 +162,9 @@ case "$MODE" in
       exit 1
     }
     # This secret is the approval fingerprint calculated from the audited plan
-    # *and* both normalized rate-source maps.  The backend recomputes it before
-    # touching data, so changing a rate choice invalidates the one-shot unlock.
+    # *and* all normalized rate/metadata source maps plus the rate-empty ALLOW.
+    # The backend recomputes it before touching data, so changing any choice
+    # invalidates the one-shot unlock.
     case "${APPLY_UNLOCK:-}" in
       ""|*[!0-9a-f]*)
         echo "::error::apply is locked; configure the approved lowercase hexadecimal unlock"
@@ -109,6 +175,13 @@ case "$MODE" in
       echo "::error::apply unlock must contain exactly 64 characters"
       exit 1
     }
+    case "${ALLOW_RATE_EMPTY_METADATA:-NO}" in
+      NO|ALLOW) ;;
+      *)
+        echo "::error::contract_merge_allow_rate_empty_metadata must be NO or ALLOW"
+        exit 1
+        ;;
+    esac
     ;;
   *)
     echo "::error::unsupported contract merge mode"
@@ -118,6 +191,9 @@ esac
 
 validate_rate_sources contract_merge_candidate_rate_sources "${CANDIDATE_RATE_SOURCES:-}"
 validate_rate_sources contract_merge_client_rate_sources "${CLIENT_RATE_SOURCES:-}"
+validate_rate_sources contract_merge_framework_rate_sources "${FRAMEWORK_RATE_SOURCES:-}"
+validate_rate_sources contract_merge_rate_metadata_sources "${RATE_METADATA_SOURCES:-}"
+validate_field_sources contract_merge_field_sources "${FIELD_SOURCES:-}"
 
 base="${CO_URL%/}"
 auth=(-H "Authorization: Bearer ${CO_TOKEN}" -H "Accept: application/json")
@@ -170,6 +246,10 @@ cli_args=""
 [ "$MODE" = "apply" ] && cli_args="$cli_args --approval-fingerprint $APPLY_UNLOCK"
 [ -n "${CANDIDATE_RATE_SOURCES:-}" ] && cli_args="$cli_args --candidate-rate-sources $CANDIDATE_RATE_SOURCES"
 [ -n "${CLIENT_RATE_SOURCES:-}" ] && cli_args="$cli_args --client-rate-sources $CLIENT_RATE_SOURCES"
+[ -n "${FRAMEWORK_RATE_SOURCES:-}" ] && cli_args="$cli_args --framework-rate-sources $FRAMEWORK_RATE_SOURCES"
+[ -n "${RATE_METADATA_SOURCES:-}" ] && cli_args="$cli_args --rate-metadata-sources $RATE_METADATA_SOURCES"
+[ -n "${FIELD_SOURCES:-}" ] && cli_args="$cli_args --field-sources $FIELD_SOURCES"
+[ "${ALLOW_RATE_EMPTY_METADATA:-NO}" = "ALLOW" ] && cli_args="$cli_args --allow-rate-empty-metadata ALLOW"
 
 once_dir="/tmp/nexus-contract-merge-once-${OPS_RUN_ID}-${OPS_RUN_ATTEMPT}"
 # A cron tick that arrives while the first invocation is still running must be
@@ -281,12 +361,12 @@ def allowed_blocker_code:
   . as $value | ([
     "active_order_missing_start_date",
     "candidate_identity_mismatch",
-    "candidate_rate_conflict",
-    "candidate_rate_schedule_same_day_conflict",
+    "candidate_rate_current_value_conflict",
+    "candidate_rate_schedule_conflict",
     "client_identity_mismatch",
     "client_order_client_mismatch",
-    "client_rate_conflict",
-    "client_rate_schedule_same_day_conflict",
+    "client_rate_current_value_conflict",
+    "client_rate_schedule_conflict",
     "contract_document_unique_collision",
     "contract_field_conflicts",
     "contract_lifecycle_metadata_present",
@@ -295,24 +375,24 @@ def allowed_blocker_code:
     "explicit_delete_client_snapshot_drift",
     "explicit_delete_clients_not_distinct",
     "explicit_delete_has_children",
+    "explicit_delete_has_completed_signature",
     "explicit_delete_has_historical_references",
+    "explicit_delete_has_signed_generated_contract",
     "explicit_delete_status_snapshot_drift",
     "explicit_keep_client_snapshot_drift",
     "explicit_keep_status_snapshot_drift",
-    "framework_rate_conflict",
-    "framework_rate_schedule_same_day_conflict",
-    "live_contract_has_no_current_order",
+    "financial_metadata_conflict",
+    "framework_rate_current_value_conflict",
+    "framework_rate_schedule_conflict",
     "missing_contracts",
     "missing_expected_contract_foreign_keys",
     "multiple_b2b_contract_details",
     "noop_clients_not_distinct",
-    "noop_ended_contract_has_no_eligible_order",
     "noop_ended_order_period_ambiguous",
-    "noop_live_contract_has_no_current_order",
     "noop_not_sequential_status_pattern",
     "noop_periods_overlap_or_are_incomplete",
-    "notification_unique_collision",
     "overlapping_current_orders",
+    "rate_empty_financial_metadata_conflict",
     "unclassified_contract_columns",
     "unknown_contract_foreign_keys",
     "unscoped_duplicate_contract",
@@ -345,6 +425,52 @@ def safe_operation:
   then . else error("contract merge report contains an invalid operation") end;
 def safe_bool:
   if type=="boolean" then . else false end;
+def safe_rate_scopes:
+  if type!="array" then []
+  elif all(.[]; .=="past" or .=="future") then .
+  else error("contract merge report contains an invalid schedule-conflict scope") end;
+def safe_financial_metadata_fields:
+  if type!="array" then []
+  elif all(.[]; .=="rate_unit" or .=="currency" or .=="billing_hours_per_month") then .
+  else error("contract merge report contains an invalid financial metadata field") end;
+def safe_field_id_object:
+  if type!="object" then {}
+  elif all(to_entries[]; (.key | allowed_field) and ((.value | id_or_null) != null)) then .
+  else error("contract merge report contains an invalid field-source map") end;
+def allowed_child_key:
+  . as $value | ([
+    "b2b_contract_details", "b2b_generated_contracts", "calls",
+    "client_orders", "contract_amendments", "contract_candidate_rates",
+    "contract_client_rates", "contract_documents", "contract_equipment",
+    "contract_framework_rates", "contract_onboarding_items",
+    "document_signatures", "invoices", "notes"
+  ] | index($value)) != null;
+def allowed_history_key:
+  . as $value | ([
+    "activities", "notifications", "notification_link_refs", "alert_dedup"
+  ] | index($value)) != null;
+def safe_child_id_object:
+  if type!="object" then {}
+  elif all(to_entries[]; (.key | allowed_child_key) and (.value | type=="array") and all(.value[]; (id_or_null != null))) then .
+  else error("contract merge report contains an invalid child ID map") end;
+def safe_history_id_object:
+  if type!="object" then {}
+  elif all(to_entries[]; (.key | allowed_history_key) and (.value | type=="array") and all(.value[]; (id_or_null != null))) then .
+  else error("contract merge report contains an invalid history ID map") end;
+def safe_child_count_object:
+  if type!="object" then {}
+  elif all(to_entries[]; (.key | allowed_child_key) and (.value | type=="number" and . >= 0 and floor == .)) then .
+  else error("contract merge report contains an invalid child count map") end;
+def safe_history_count_object:
+  if type!="object" then {}
+  elif all(to_entries[]; (.key | allowed_history_key) and (.value | type=="number" and . >= 0 and floor == .)) then .
+  else error("contract merge report contains an invalid history count map") end;
+def allowed_hard_delete_count_key:
+  . as $value | (["contracts", "detached_generated_contracts", "settled_order_groups"] | index($value)) != null;
+def safe_hard_delete_counts:
+  if type!="object" then {}
+  elif all(to_entries[]; (.key | allowed_hard_delete_count_key) and (.value | type=="number" and . >= 0 and floor == .)) then .
+  else error("contract merge report contains an invalid hard-delete counter") end;
 def allowed_reparent_key:
   . as $value | ([
     "activities", "b2b_contract_details", "b2b_generated_contracts",
@@ -352,7 +478,7 @@ def allowed_reparent_key:
     "contract_candidate_rates", "contract_client_rates",
     "contract_alert_dedup_aliases", "contract_documents", "contract_equipment", "contract_framework_rates",
     "contract_onboarding_items", "document_signatures", "invoices", "notes",
-    "notification_links", "notifications"
+    "notification_links", "notifications", "notifications_retained_historical"
   ] | index($value)) != null;
 def safe_counts_object:
   if type!="object" then {}
@@ -360,7 +486,7 @@ def safe_counts_object:
   then .
   else error("contract merge report contains a non-allowlisted reparent counter") end;
 {
-  schema_version: 1,
+  schema_version: 2,
   mode,
   ok,
   fingerprint,
@@ -372,6 +498,10 @@ def safe_counts_object:
     same_client_group_count: ((.summary.same_client_groups // 0) | safe_count),
     explicit_delete_count: ((.summary.explicit_deletes // 0) | safe_count),
     rate_conflict_group_count: ((.summary.rate_conflict_groups // 0) | safe_count),
+    current_rate_conflict_group_count: ((.summary.current_rate_conflict_groups // 0) | safe_count),
+    schedule_rate_conflict_group_count: ((.summary.schedule_rate_conflict_groups // 0) | safe_count),
+    financial_metadata_conflict_group_count: ((.summary.financial_metadata_conflict_groups // 0) | safe_count),
+    rate_empty_metadata_conflict_group_count: ((.summary.rate_empty_metadata_conflict_groups // 0) | safe_count),
     applied_group_count: ((.summary.groups_applied // 0) | safe_count)
   },
   groups: [(.groups // [])[] | {
@@ -383,8 +513,44 @@ def safe_counts_object:
     blocker_codes: ((.blocker_codes // []) | safe_codes),
     field_conflicts: ((.field_conflicts // []) | safe_fields),
     rate_conflicts: {
-      candidate: ((.rate_conflicts.candidate // false) | safe_bool),
-      client: ((.rate_conflicts.client // false) | safe_bool)
+      candidate: {
+        current_value: ((.rate_conflicts.candidate.current_value // false) | safe_bool),
+        schedule: ((.rate_conflicts.candidate.schedule // false) | safe_bool),
+        schedule_scopes: ((.rate_conflicts.candidate.schedule_scopes // []) | safe_rate_scopes)
+      },
+      client: {
+        current_value: ((.rate_conflicts.client.current_value // false) | safe_bool),
+        schedule: ((.rate_conflicts.client.schedule // false) | safe_bool),
+        schedule_scopes: ((.rate_conflicts.client.schedule_scopes // []) | safe_rate_scopes)
+      },
+      framework: {
+        current_value: ((.rate_conflicts.framework.current_value // false) | safe_bool),
+        schedule: ((.rate_conflicts.framework.schedule // false) | safe_bool),
+        schedule_scopes: ((.rate_conflicts.framework.schedule_scopes // []) | safe_rate_scopes)
+      }
+    },
+    financial_metadata_conflict: ((.financial_metadata_conflict // false) | safe_bool),
+    financial_metadata_conflict_fields: ((.financial_metadata_conflict_fields // []) | safe_financial_metadata_fields),
+    financial_metadata_rate_bearing_contract_ids: ((.financial_metadata_rate_bearing_contract_ids // []) | ids),
+    rate_empty_metadata_conflict: ((.rate_empty_metadata_conflict // false) | safe_bool),
+    rate_empty_metadata_conflict_fields: ((.rate_empty_metadata_conflict_fields // []) | safe_financial_metadata_fields),
+    rate_empty_metadata_contract_ids: ((.rate_empty_metadata_contract_ids // []) | ids),
+    same_day_schedule_conflicts: {
+      candidate: ((.same_day_schedule_conflicts.candidate // false) | safe_bool),
+      client: ((.same_day_schedule_conflicts.client // false) | safe_bool),
+      framework: ((.same_day_schedule_conflicts.framework // false) | safe_bool)
+    },
+    notification_repoint: {
+      retained_historical_ids: ((.notification_repoint.retained_historical_ids // []) | ids),
+      retained_historical_count: ((.notification_repoint.retained_historical_count // 0) | safe_count)
+    },
+    hard_delete: {
+      child_row_ids: ((.hard_delete.child_row_ids // {}) | safe_child_id_object),
+      child_row_counts: ((.hard_delete.child_row_counts // {}) | safe_child_count_object),
+      historical_row_ids: ((.hard_delete.historical_row_ids // {}) | safe_history_id_object),
+      historical_row_counts: ((.hard_delete.historical_row_counts // {}) | safe_history_count_object),
+      protective_completed_signature_ids: ((.hard_delete.protective_completed_signature_ids // []) | ids),
+      protective_signed_generated_contract_ids: ((.hard_delete.protective_signed_generated_contract_ids // []) | ids)
     },
     source_rate_snapshot_matches: (if (.source_rate_snapshot_matches | type)=="boolean" then .source_rate_snapshot_matches else null end)
   }],
@@ -402,7 +568,12 @@ def safe_counts_object:
     deleted_ids: ((.deleted_ids // []) | ids),
     reparented_counts: ((.reparented_counts // {}) | safe_counts_object),
     candidate_rate_source_contract_id: ((.candidate_rate_source_contract_id // null) | id_or_null),
-    client_rate_source_contract_id: ((.client_rate_source_contract_id // null) | id_or_null)
+    client_rate_source_contract_id: ((.client_rate_source_contract_id // null) | id_or_null),
+    framework_rate_source_contract_id: ((.framework_rate_source_contract_id // null) | id_or_null),
+    rate_metadata_source_contract_id: ((.rate_metadata_source_contract_id // null) | id_or_null),
+    allow_rate_empty_metadata: ((.allow_rate_empty_metadata // false) | safe_bool),
+    field_source_contract_ids: ((.field_source_contract_ids // {}) | safe_field_id_object),
+    hard_delete_counts: ((.hard_delete_counts // {}) | safe_hard_delete_counts)
   }],
   # Exception class names are not needed operationally and a regex is not a
   # semantic privacy boundary (a person-like PascalCase string would pass).

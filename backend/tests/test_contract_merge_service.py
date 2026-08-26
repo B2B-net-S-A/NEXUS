@@ -13,17 +13,23 @@ import pytest
 from app.services.contract_merge import (
     ContractMergeManifest,
     ContractMergeError,
-    _rate_plan,
+    _assert_rate_sources_match_metadata,
+    _financial_metadata_plan,
     _rate_snapshot,
     _rate_timeline_plan,
     _explicit_historical_reference_blocker,
     _replace_contract_link,
+    _resolve_field_decisions,
+    _resolvable_merge_blocker_codes,
     _same_day_schedule_conflicts,
     _snapshot_for_source,
+    _validate_decision,
+    _validate_financial_metadata_decision,
     approval_fingerprint,
     choose_survivor,
     load_contract_merge_manifest,
     merge_field_plan,
+    parse_field_source_map,
     parse_rate_source_map,
     plan_fingerprint,
     redact_contract_merge_report,
@@ -138,7 +144,7 @@ def test_field_merge_resolves_period_bounds_but_not_other_nonempty_conflicts():
     assert [item["field"] for item in conflicts] == ["line_manager"]
 
 
-def test_effective_rate_uses_latest_schedule_step_and_compares_metadata():
+def test_effective_rate_uses_latest_schedule_step():
     contract = {
         "id": 7,
         "rate_candidate": Decimal("900"),
@@ -169,9 +175,6 @@ def test_effective_rate_uses_latest_schedule_step_and_compares_metadata():
     snapshot = _rate_snapshot(contract, schedule, "candidate", date(2026, 8, 26))
     assert snapshot["rate"] == "120"
     assert snapshot["schedule_id"] == 2
-
-    same_number_different_unit = dict(snapshot, contract_id=8, rate_unit="monthly")
-    assert _rate_plan([snapshot, same_number_different_unit])["conflict"] is True
 
     same_day = _same_day_schedule_conflicts(
         [
@@ -227,45 +230,230 @@ def test_effective_rate_future_only_uses_earliest_future_and_highest_id_tie():
     assert snapshot["schedule_id"] == 6
 
 
-def test_timeline_detects_future_divergence_and_metadata_even_for_null_rate():
+def test_timeline_separates_current_value_from_schedule_conflict():
     contracts = [
         {
             "id": 1,
-            "rate_candidate": None,
+            "rate_candidate": Decimal("100"),
             "rate_unit": "hourly",
             "currency": "PLN",
             "billing_hours_per_month": 160,
         },
         {
             "id": 2,
-            "rate_candidate": None,
-            "rate_unit": "monthly",
+            "rate_candidate": Decimal("100"),
+            "rate_unit": "hourly",
             "currency": "PLN",
             "billing_hours_per_month": 160,
         },
     ]
-    plan = _rate_timeline_plan(contracts, [], "candidate", date(2026, 8, 26))
-    assert plan["conflict"] is True
-    assert plan["metadata_conflict"] is True
-
-    contracts[1]["rate_unit"] = "hourly"
     schedule = [
         {
             "id": 10,
             "contract_id": 1,
-            "effective_from": date(2027, 1, 1),
+            "effective_from": date(2026, 1, 1),
             "rate": Decimal("100"),
         },
         {
             "id": 11,
             "contract_id": 2,
+            "effective_from": date(2026, 1, 1),
+            "rate": Decimal("100"),
+        },
+        {
+            "id": 12,
+            "contract_id": 1,
             "effective_from": date(2027, 1, 1),
-            "rate": Decimal("110"),
+            "rate": Decimal("120"),
+        },
+        {
+            "id": 13,
+            "contract_id": 2,
+            "effective_from": date(2027, 1, 1),
+            "rate": Decimal("130"),
         },
     ]
     plan = _rate_timeline_plan(contracts, schedule, "candidate", date(2026, 8, 26))
+
+    assert plan["current_value_conflict"] is False
+    assert plan["schedule_conflict"] is True
+    assert plan["schedule_conflict_scopes"] == ["future"]
     assert plan["conflict"] is True
-    assert plan["timeline_divergence"]
+    assert plan["schedule_divergence"]
+
+
+def test_timeline_current_cache_conflict_is_not_a_schedule_conflict():
+    contracts = [
+        {
+            "id": 1,
+            "rate_candidate": Decimal("100"),
+            "rate_unit": "hourly",
+            "currency": "PLN",
+            "billing_hours_per_month": 160,
+        },
+        {
+            "id": 2,
+            "rate_candidate": Decimal("110"),
+            "rate_unit": "hourly",
+            "currency": "PLN",
+            "billing_hours_per_month": 160,
+        },
+    ]
+
+    plan = _rate_timeline_plan(contracts, [], "candidate", date(2026, 8, 26))
+
+    assert plan["current_value_conflict"] is True
+    assert plan["schedule_conflict"] is False
+    assert plan["schedule_conflict_scopes"] == []
+    assert plan["conflict"] is True
+
+
+def test_financial_metadata_separates_rate_empty_conflict_and_coalesces_safe_values():
+    today = date(2026, 8, 26)
+    contracts = [
+        {
+            "id": 1,
+            "rate_candidate": Decimal("100"),
+            "rate_client": Decimal("150"),
+            "framework_rate": Decimal("160"),
+            "rate_unit": "hourly",
+            "currency": None,
+            "billing_hours_per_month": 160,
+        },
+        {
+            "id": 2,
+            "rate_candidate": None,
+            "rate_client": None,
+            "framework_rate": None,
+            "rate_unit": "monthly",
+            "currency": "PLN",
+            "billing_hours_per_month": 160,
+        },
+    ]
+    plans = [
+        _rate_timeline_plan(contracts, [], kind, today)
+        for kind in ("candidate", "client", "framework")
+    ]
+
+    metadata = _financial_metadata_plan(contracts, plans)
+
+    assert all(plan["conflict"] is False for plan in plans)
+    assert metadata["conflict"] is False
+    assert metadata["rate_empty_metadata_conflict"] is True
+    assert metadata["rate_empty_metadata_conflict_fields"] == ["rate_unit"]
+    assert metadata["rate_bearing_contract_ids"] == [1]
+    assert metadata["rate_empty_contract_ids"] == [2]
+    assert metadata["single_source_contract_id"] == 1
+    assert metadata["resolved_metadata"] == {
+        "rate_unit": "hourly",
+        "currency": "PLN",
+        "billing_hours_per_month": 160,
+    }
+
+
+def test_financial_metadata_reports_only_different_nonempty_rate_bearing_values():
+    today = date(2026, 8, 26)
+    contracts = [
+        {
+            "id": 1,
+            "rate_candidate": Decimal("100"),
+            "rate_client": None,
+            "framework_rate": None,
+            "rate_unit": "hourly",
+            "currency": None,
+            "billing_hours_per_month": 160,
+        },
+        {
+            "id": 2,
+            "rate_candidate": Decimal("100"),
+            "rate_client": None,
+            "framework_rate": None,
+            "rate_unit": "monthly",
+            "currency": "PLN",
+            "billing_hours_per_month": 160,
+        },
+    ]
+    plans = [
+        _rate_timeline_plan(contracts, [], kind, today)
+        for kind in ("candidate", "client", "framework")
+    ]
+
+    metadata = _financial_metadata_plan(contracts, plans)
+
+    assert all(plan["conflict"] is False for plan in plans)
+    assert metadata["conflict"] is True
+    assert metadata["rate_empty_metadata_conflict"] is False
+    assert metadata["conflict_fields"] == ["rate_unit"]
+    assert metadata["available_source_contract_ids"] == [1, 2]
+    assert metadata["resolved_metadata"] == {
+        "rate_unit": None,
+        "currency": "PLN",
+        "billing_hours_per_month": 160,
+    }
+
+
+def test_framework_and_metadata_decisions_are_explicit_and_compatible():
+    group = {
+        "group_key": 1,
+        "framework_rates": {
+            "conflict": True,
+            "available_source_contract_ids": [1, 2],
+            "single_source_contract_id": None,
+        },
+        "financial_metadata_plan": {
+            "conflict": True,
+            "conflict_fields": ["rate_unit"],
+            "available_source_contract_ids": [1, 2],
+            "single_source_contract_id": None,
+            "resolved_metadata": {
+                "rate_unit": None,
+                "currency": "PLN",
+                "billing_hours_per_month": 160,
+            },
+            "snapshots": [
+                {
+                    "contract_id": 1,
+                    "rate_unit": "hourly",
+                    "currency": "PLN",
+                    "billing_hours_per_month": 160,
+                },
+                {
+                    "contract_id": 2,
+                    "rate_unit": "monthly",
+                    "currency": "PLN",
+                    "billing_hours_per_month": 160,
+                },
+            ],
+        },
+    }
+
+    with pytest.raises(ContractMergeError, match="missing framework rate decision"):
+        _validate_decision(group, "framework", {})
+    assert _validate_decision(group, "framework", {1: 2}) == 2
+
+    with pytest.raises(ContractMergeError, match="metadata decision"):
+        _validate_financial_metadata_decision(group, {})
+    source, resolved = _validate_financial_metadata_decision(group, {1: 2})
+    assert source == 2
+    assert resolved["rate_unit"] == "monthly"
+    _assert_rate_sources_match_metadata(
+        group,
+        {"framework": 2},
+        resolved,
+    )
+    with pytest.raises(ContractMergeError, match="disagrees with selected rate_unit"):
+        _assert_rate_sources_match_metadata(
+            group,
+            {"candidate": 1, "framework": 2},
+            resolved,
+        )
+
+
+def test_rate_empty_metadata_blocker_requires_explicit_bulk_allow():
+    blocker = "rate_empty_financial_metadata_conflict"
+
+    assert blocker not in _resolvable_merge_blocker_codes(False)
+    assert blocker in _resolvable_merge_blocker_codes(True)
 
 
 def test_manifest_rejects_overlap_and_rate_parser_is_allowlisted(tmp_path):
@@ -285,6 +473,43 @@ def test_manifest_rejects_overlap_and_rate_parser_is_allowlisted(tmp_path):
     assert parse_rate_source_map("344=348,349=349") == {344: 348, 349: 349}
     with pytest.raises(ContractMergeError):
         parse_rate_source_map("344=$(bad)")
+
+    assert parse_field_source_map("31.line_manager=31,344.project_name=346") == {
+        (31, "line_manager"): 31,
+        (344, "project_name"): 346,
+    }
+    with pytest.raises(ContractMergeError):
+        parse_field_source_map("31.line_manager=$(bad)")
+    with pytest.raises(ContractMergeError, match="not allowed"):
+        parse_field_source_map("31.start_date=31")
+
+
+def test_field_decisions_are_exact_and_copy_only_the_selected_source():
+    group = {
+        "group_key": 31,
+        "survivor_id": 31,
+        "contract_rows": [
+            {"id": 31, "line_manager": "Manager A"},
+            {"id": 194, "line_manager": "Manager B"},
+        ],
+        "field_conflicts": [
+            {
+                "field": "line_manager",
+                "values": [
+                    {"contract_ids": [31], "value": "Manager A"},
+                    {"contract_ids": [194], "value": "Manager B"},
+                ],
+            }
+        ],
+    }
+
+    sources, updates = _resolve_field_decisions(group, {(31, "line_manager"): 194})
+    assert sources == {"line_manager": 194}
+    assert updates == {"line_manager": "Manager B"}
+    with pytest.raises(ContractMergeError, match="missing field decision"):
+        _resolve_field_decisions(group, {})
+    with pytest.raises(ContractMergeError, match="invalid field source"):
+        _resolve_field_decisions(group, {(31, "line_manager"): 999})
 
 
 def test_checked_in_manifest_matches_all_ticket_cardinalities():
@@ -334,11 +559,37 @@ def test_fingerprint_is_stable_across_presentation_fields_but_not_plan_data():
 
 def test_approval_fingerprint_binds_normalized_rate_decisions():
     plan_hash = "a" * 64
-    assert approval_fingerprint(plan_hash, {2: 20, 1: 10}, {3: 30}) == (
-        approval_fingerprint(plan_hash, {1: 10, 2: 20}, {3: 30})
+    assert approval_fingerprint(
+        plan_hash,
+        candidate_rate_sources={2: 20, 1: 10},
+        client_rate_sources={3: 30},
+        framework_rate_sources={4: 40},
+        rate_metadata_sources={5: 50},
+    ) == (
+        approval_fingerprint(
+            plan_hash,
+            candidate_rate_sources={1: 10, 2: 20},
+            client_rate_sources={3: 30},
+            framework_rate_sources={4: 40},
+            rate_metadata_sources={5: 50},
+        )
     )
     assert approval_fingerprint(plan_hash, {1: 10}, {}) != approval_fingerprint(
         plan_hash, {1: 11}, {}
+    )
+    baseline = approval_fingerprint(plan_hash)
+    assert baseline != approval_fingerprint(plan_hash, framework_rate_sources={4: 40})
+    assert baseline != approval_fingerprint(plan_hash, rate_metadata_sources={5: 50})
+    assert baseline != approval_fingerprint(plan_hash, allow_rate_empty_metadata=True)
+    assert baseline != approval_fingerprint(
+        plan_hash, field_sources={(31, "line_manager"): 194}
+    )
+    assert approval_fingerprint(
+        plan_hash,
+        field_sources={(344, "project_name"): 346, (31, "line_manager"): 194},
+    ) == approval_fingerprint(
+        plan_hash,
+        field_sources={(31, "line_manager"): 194, (344, "project_name"): 346},
     )
 
 
@@ -354,7 +605,11 @@ def test_activity_snapshot_is_a_minimal_value_free_allowlist():
     }
     snapshot = _snapshot_for_source(
         group,
-        {"candidate_rate_source_contract_id": 1},
+        {
+            "candidate_rate_source_contract_id": 1,
+            "allow_rate_empty_metadata": True,
+        },
+        {"line_manager": 2},
         {"client_orders": 1},
         ["draft_content_html", "rate_candidate"],
     )
@@ -362,6 +617,9 @@ def test_activity_snapshot_is_a_minimal_value_free_allowlist():
     assert "secret" not in encoded
     assert "999" not in encoded
     assert snapshot["changed_fields"] == ["draft_content_html", "rate_candidate"]
+    assert snapshot["source_id_decisions"] == {"candidate_rate_source_contract_id": 1}
+    assert snapshot["allow_rate_empty_metadata"] is True
+    assert snapshot["field_source_contract_ids"] == {"line_manager": 2}
 
 
 def test_notification_contract_links_are_exact_and_explicit_refs_block_delete():
@@ -413,10 +671,35 @@ def test_redacted_report_contains_no_names_rates_or_field_values():
                 ],
                 "candidate_rates": {
                     "conflict": True,
+                    "current_value_conflict": True,
+                    "schedule_conflict": True,
+                    "schedule_conflict_scopes": ["future"],
                     "snapshots": [{"rate": "123.45"}],
                 },
                 "client_rates": {"conflict": False, "snapshots": []},
-                "blockers": [{"code": "candidate_rate_conflict", "values": ["123.45"]}],
+                "framework_rates": {
+                    "conflict": True,
+                    "current_value_conflict": True,
+                    "schedule_conflict": False,
+                    "snapshots": [{"rate": "987.65"}],
+                },
+                "financial_metadata_plan": {
+                    "conflict": True,
+                    "conflict_fields": ["rate_unit"],
+                    "rate_bearing_contract_ids": [1, 2],
+                    "rate_empty_metadata_conflict": True,
+                    "rate_empty_metadata_conflict_fields": ["currency"],
+                    "rate_empty_contract_ids": [3],
+                    "snapshots": [{"contract_id": 1, "rate_unit": "secret-unit"}],
+                },
+                "blockers": [
+                    {
+                        "code": "candidate_rate_current_value_conflict",
+                        "values": ["123.45"],
+                    },
+                    {"code": "financial_metadata_conflict"},
+                    {"code": "rate_empty_financial_metadata_conflict"},
+                ],
             }
         ],
     }
@@ -427,7 +710,75 @@ def test_redacted_report_contains_no_names_rates_or_field_values():
     assert "123.45" not in encoded
     assert "Secret Boss" not in encoded
     assert "line_manager" in encoded
-    assert "candidate_rate_conflict" in encoded
+    assert "987.65" not in encoded
+    assert "secret-unit" not in encoded
+    assert "candidate_rate_current_value_conflict" in encoded
+    assert "financial_metadata_conflict" in encoded
+    redacted = redact_contract_merge_report(full)["groups"][0]
+    assert redacted["rate_conflicts"]["candidate"] == {
+        "current_value": True,
+        "schedule": True,
+        "schedule_scopes": ["future"],
+    }
+    assert redacted["rate_conflicts"]["framework"]["current_value"] is True
+    assert redacted["financial_metadata_conflict_fields"] == ["rate_unit"]
+    assert redacted["rate_empty_metadata_conflict"] is True
+    assert redacted["rate_empty_metadata_conflict_fields"] == ["currency"]
+    assert redacted["rate_empty_metadata_contract_ids"] == [3]
+
+
+def test_redacted_explicit_delete_exposes_only_exact_allowlisted_dependency_ids():
+    full = {
+        "mode": "audit",
+        "ok": True,
+        "fingerprint": "a" * 64,
+        "summary": {"groups": 1},
+        "groups": [
+            {
+                "operation": "explicit_delete_wrong_project",
+                "group_key": 341,
+                "contract_ids": [341, 563],
+                "survivor_id": 341,
+                "delete_ids": [563],
+                "field_conflicts": [],
+                "blockers": [{"code": "explicit_delete_has_children"}],
+                "hard_delete_plan": {
+                    "child_row_ids": {
+                        "b2b_generated_contracts": [48],
+                        "client_orders": [90],
+                    },
+                    "historical_row_ids": {
+                        "activities": [700],
+                        "notifications": [701],
+                        "notification_link_refs": [701],
+                        "alert_dedup": [702],
+                    },
+                    "protective_completed_signature_ids": [],
+                    "protective_signed_generated_contract_ids": [],
+                },
+            }
+        ],
+    }
+
+    hard_delete = redact_contract_merge_report(full)["groups"][0]["hard_delete"]
+    assert hard_delete["child_row_ids"] == {
+        "b2b_generated_contracts": [48],
+        "client_orders": [90],
+    }
+    assert hard_delete["child_row_counts"] == {
+        "b2b_generated_contracts": 1,
+        "client_orders": 1,
+    }
+    assert hard_delete["historical_row_counts"] == {
+        "activities": 1,
+        "alert_dedup": 1,
+        "notification_link_refs": 1,
+        "notifications": 1,
+    }
+
+    full["groups"][0]["hard_delete_plan"]["child_row_ids"]["unknown"] = [999]
+    with pytest.raises(ContractMergeError, match="unexpected keys"):
+        redact_contract_merge_report(full)
 
 
 @pytest.mark.asyncio
@@ -597,4 +948,239 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
                 await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
             if client_id is not None:
                 await db.execute(delete(Client).where(Client.id == client_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_apply_handles_no_current_order_notification_collision_and_noop_history():
+    """Postgres proof for nonblocking audit paths and lossless notifications."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import delete, select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.activity import Activity
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus, RateUnit
+    from app.models.notification import Notification, NotificationType
+    from app.models.user import User, UserRole
+    from app.services.contract_merge import (
+        apply_contract_merge_plan,
+        build_contract_merge_plan,
+    )
+
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    contract_ids: list[int] = []
+    candidate_ids: list[int] = []
+    client_ids: list[int] = []
+    notification_ids: list[int] = []
+    user_id: int | None = None
+    survivor_id = loser_id = ended_id = live_id = None
+    survivor_notification_id = loser_notification_id = None
+    async with AsyncSessionLocal() as db:
+        try:
+            merge_candidate = Candidate(
+                name="Merge",
+                lastname=f"NoOrder-{suffix}",
+                email=f"merge-no-order-{suffix}@example.com",
+            )
+            history_candidate = Candidate(
+                name="History",
+                lastname=f"Noop-{suffix}",
+                email=f"merge-noop-{suffix}@example.com",
+            )
+            merge_client = Client(name=f"Merge No Order {suffix}")
+            old_client = Client(name=f"History Old {suffix}")
+            new_client = Client(name=f"History New {suffix}")
+            user = User(
+                email=f"merge-notification-{suffix}@example.com",
+                name="Merge Notification Proof",
+                role=UserRole.recruiter,
+                roles=[UserRole.recruiter.value],
+                is_active=True,
+            )
+            db.add_all(
+                [
+                    merge_candidate,
+                    history_candidate,
+                    merge_client,
+                    old_client,
+                    new_client,
+                    user,
+                ]
+            )
+            await db.flush()
+            candidate_ids = [merge_candidate.id, history_candidate.id]
+            client_ids = [merge_client.id, old_client.id, new_client.id]
+            user_id = user.id
+
+            survivor = Contract(
+                candidate_id=merge_candidate.id,
+                client_id=merge_client.id,
+                status=ContractStatus.active,
+                start_date=today - timedelta(days=90),
+                client_order_end_date=today + timedelta(days=10),
+                rate_candidate=Decimal("100.000"),
+                rate_client=Decimal("150.000"),
+                rate_unit=RateUnit.hourly,
+                billing_hours_per_month=160,
+                currency="PLN",
+            )
+            loser = Contract(
+                candidate_id=merge_candidate.id,
+                client_id=merge_client.id,
+                status=ContractStatus.draft,
+                start_date=today - timedelta(days=90),
+                rate_candidate=Decimal("100.000"),
+                rate_client=Decimal("150.000"),
+                rate_unit=RateUnit.hourly,
+                billing_hours_per_month=160,
+                currency="PLN",
+            )
+            ended = Contract(
+                candidate_id=history_candidate.id,
+                client_id=old_client.id,
+                status=ContractStatus.ended,
+                start_date=today - timedelta(days=180),
+                end_date=today - timedelta(days=31),
+            )
+            live = Contract(
+                candidate_id=history_candidate.id,
+                client_id=new_client.id,
+                status=ContractStatus.active,
+                start_date=today - timedelta(days=30),
+            )
+            db.add_all([survivor, loser, ended, live])
+            await db.flush()
+            survivor_id, loser_id = survivor.id, loser.id
+            ended_id, live_id = ended.id, live.id
+            contract_ids = [survivor_id, loser_id, ended_id, live_id]
+
+            created_at = datetime.now(timezone.utc)
+            survivor_notification = Notification(
+                user_id=user.id,
+                title="Survivor notification",
+                message="First history row",
+                link=f"/contracts/{survivor_id}",
+                notification_type=NotificationType.contract_ending_90d,
+                related_entity_type="contract",
+                related_entity_id=survivor_id,
+                is_read=True,
+                created_at=created_at,
+            )
+            loser_notification = Notification(
+                user_id=user.id,
+                title="Loser notification",
+                message="Second history row",
+                link=f"/contracts/{loser_id}",
+                notification_type=NotificationType.contract_ending_90d,
+                related_entity_type="contract",
+                related_entity_id=loser_id,
+                is_read=False,
+                created_at=created_at,
+            )
+            db.add_all([survivor_notification, loser_notification])
+            await db.flush()
+            survivor_notification_id = survivor_notification.id
+            loser_notification_id = loser_notification.id
+            notification_ids = [survivor_notification_id, loser_notification_id]
+            await db.commit()
+
+            manifest = ContractMergeManifest(
+                same_client_groups=((survivor_id, loser_id),),
+                different_client_noop_groups=((ended_id, live_id),),
+            )
+            audit = await build_contract_merge_plan(db, manifest, today=today)
+            merge_group = next(
+                group
+                for group in audit["groups"]
+                if group["operation"] == "merge_same_client"
+            )
+            noop_group = next(
+                group
+                for group in audit["groups"]
+                if group["operation"] == "sequential_history_noop"
+            )
+            assert merge_group["blockers"] == []
+            assert merge_group["field_updates"]["client_order_end_date"] is None
+            assert merge_group["notification_repoint_plan"][
+                "retained_historical_notification_ids"
+            ] == [loser_notification_id]
+            assert noop_group["blockers"] == []
+            assert {item["code"] for item in noop_group["observations"]} == {
+                "noop_ended_contract_has_no_eligible_order",
+                "noop_live_contract_has_no_current_order",
+            }
+            await db.rollback()
+
+            applied = await apply_contract_merge_plan(
+                db,
+                manifest,
+                expected_fingerprint=audit["fingerprint"],
+                expected_approval_fingerprint=approval_fingerprint(
+                    audit["fingerprint"]
+                ),
+                today=today,
+            )
+            await db.commit()
+            db.expunge_all()
+
+            kept = await db.get(Contract, survivor_id)
+            assert kept is not None and kept.client_order_end_date is None
+            assert await db.get(Contract, loser_id) is None
+            assert await db.get(Contract, ended_id) is not None
+            assert await db.get(Contract, live_id) is not None
+            assert applied["summary"]["sequential_groups_verified_unchanged"] == 1
+            merge_result = next(
+                item
+                for item in applied["applied"]
+                if item["operation"] == "merge_same_client"
+            )
+            assert merge_result["reparented"]["notifications_retained_historical"] == 1
+
+            notifications = (
+                (
+                    await db.execute(
+                        select(Notification)
+                        .where(Notification.id.in_(notification_ids))
+                        .order_by(Notification.id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(notifications) == 2
+            by_id = {item.id: item for item in notifications}
+            assert by_id[survivor_notification_id].related_entity_id == survivor_id
+            assert by_id[loser_notification_id].related_entity_id == loser_id
+            assert by_id[survivor_notification_id].title == "Survivor notification"
+            assert by_id[loser_notification_id].title == "Loser notification"
+            assert by_id[loser_notification_id].link == f"/contracts/{survivor_id}"
+        finally:
+            await db.rollback()
+            if notification_ids:
+                await db.execute(
+                    delete(Notification).where(Notification.id.in_(notification_ids))
+                )
+            if survivor_id is not None:
+                await db.execute(
+                    delete(Activity).where(
+                        Activity.external_source == "contract_merge_2026_08",
+                        Activity.entity_id == survivor_id,
+                    )
+                )
+            if contract_ids:
+                await db.execute(delete(Contract).where(Contract.id.in_(contract_ids)))
+            if candidate_ids:
+                await db.execute(
+                    delete(Candidate).where(Candidate.id.in_(candidate_ids))
+                )
+            if client_ids:
+                await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+            if user_id is not None:
+                await db.execute(delete(User).where(User.id == user_id))
             await db.commit()

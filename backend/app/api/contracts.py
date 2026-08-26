@@ -19,7 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from jinja2 import TemplateError
-from sqlalchemy import func, not_, or_, select, update
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -100,11 +100,10 @@ from app.services import storage_service
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
     assert_transition,
-    hard_delete_blocker,
+    hard_delete_contract,
     move_to_ready_for_signature,
     reopen_contract,
     revert_contract,
-    signed_generated_link_filter,
     void_contract,
 )
 from app.services.client_identity import (
@@ -2842,117 +2841,7 @@ async def delete_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
-    def _raise_delete_blocked(blocker: str) -> None:
-        messages = {
-            "completed_signature": (
-                "Kontrakt ma ukończony podpis kwalifikowany i nie może "
-                "zostać usunięty — usunięcie zniszczyłoby dowód podpisu. "
-                "Zamiast tego anuluj kontrakt (void), co zachowa dokumenty "
-                "i dowody."
-            ),
-            "signed_generated_contract": (
-                "Kontrakt powstał z umowy B2B potwierdzonej jako podpisana "
-                "przez obie strony i nie może zostać usunięty. Zamiast tego "
-                "anuluj kontrakt (void) albo zamknij umowę w rejestrze "
-                "„Wygenerowane umowy”."
-            ),
-        }
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": f"contract_has_{blocker}",
-                "message": messages[blocker],
-                "status": contract.status.value,
-                "void_endpoint": f"/api/contracts/{contract_id}/void",
-            },
-        )
-
-    blocker = await hard_delete_blocker(db, contract)
-    if blocker is not None:
-        _raise_delete_blocked(blocker)
-
-    # Odpięcie wygenerowanych umów B2B, które tego kontraktu NIE chronią, PRZED
-    # kasowaniem: FK jest RESTRICT, więc bez tego commit padałby IntegrityError
-    # → 500 (dokładnie tak wyglądał zgłoszony bug „Usuń nie działa" dla umów
-    # z wygenerowanym dokumentem). Wiersz w rejestrze „Wygenerowane umowy"
-    # zostaje nietknięty poza FK. Warunek jest DOPEŁNIENIEM tego samego
-    # predykatu, na którym stoi `hard_delete_blocker` — dwie różne reguły
-    # oznaczałyby, że przepuszczony blocker wywraca się niżej na FK albo trafia
-    # w TOCTOU-guard, który każdy pozostały link raportuje jako „signed".
-    # Powtórzenie go W SAMYM UPDATE domyka wyścig: potwierdzenie `signed_both`
-    # między checkiem a odpięciem po cichu odpięłoby podpisaną umowę i FK
-    # RESTRICT przestałby być strażnikiem ostatniej szansy.
-    from app.models.b2b_generated_contract import B2BGeneratedContract
-
-    await db.execute(
-        update(B2BGeneratedContract)
-        .where(
-            B2BGeneratedContract.contract_id == contract_id,
-            not_(signed_generated_link_filter(contract)),
-        )
-        .values(contract_id=None)
-    )
-
-    # Domknięcie wyścigu: jeśli między blockerem a odpięciem ktoś potwierdził
-    # `signed_both`, UPDATE celowo zostawił referencję — pozostały link oznacza
-    # świeżo podpisaną umowę. Oddaj tę samą czytelną odmowę 409, zamiast
-    # pozwolić DELETE-owi wywrócić się na FK RESTRICT nieobsłużonym 500
-    # (wątek recenzji PR #1259).
-    still_linked = await db.scalar(
-        select(B2BGeneratedContract.id)
-        .where(B2BGeneratedContract.contract_id == contract_id)
-        .limit(1)
-    )
-    if still_linked is not None:
-        _raise_delete_blocked("signed_generated_contract")
-
-    # Kasowana umowa może być linią w grupie zamówień (BIK/Polkomtel/BNP).
-    # Kaskada usunie linię i jej konsumpcje, ale `budget_remaining` /
-    # `settled_amount` grupy kosztowej to kolumny ZAPISANE, przeliczane
-    # wyłącznie przez `settle_group` — bez przeliczenia grupa pokazywałaby
-    # kwoty pomniejszone o skasowane faktury aż do najbliższego importu.
-    from app.models.client_order import ClientOrder
-    from app.models.client_order_group import ClientOrderGroup
-    from app.services.cost_orders import settle_group
-
-    affected_group_ids = set(
-        (
-            await db.scalars(
-                select(ClientOrder.order_group_id).where(
-                    ClientOrder.contract_id == contract_id,
-                    ClientOrder.order_group_id.is_not(None),
-                )
-            )
-        ).all()
-    )
-
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=contract_id,
-            action="deleted",
-            user_id=current_user.id,
-            details={
-                "status": contract.status.value,
-                "candidate_id": contract.candidate_id,
-                "client_id": contract.client_id,
-            },
-        )
-    )
-    await db.delete(contract)
-    if affected_group_ids:
-        # Flush wykonuje DELETE + kaskady, żeby przeliczenie widziało stan
-        # bazy już BEZ linii kasowanej umowy.
-        await db.flush()
-        groups = (
-            await db.scalars(
-                select(ClientOrderGroup).where(
-                    ClientOrderGroup.id.in_(affected_group_ids)
-                )
-            )
-        ).all()
-        for group in groups:
-            await settle_group(db, group)
+    await hard_delete_contract(db, contract, actor_id=current_user.id)
 
 
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────

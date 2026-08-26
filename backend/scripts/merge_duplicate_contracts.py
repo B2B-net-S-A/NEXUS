@@ -23,6 +23,7 @@ from app.services.contract_merge import (  # noqa: E402
     apply_contract_merge_plan,
     build_contract_merge_plan,
     load_contract_merge_manifest,
+    parse_field_source_map,
     parse_rate_source_map,
     redact_contract_merge_report,
 )
@@ -40,6 +41,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--approval-fingerprint")
     parser.add_argument("--candidate-rate-sources", default="")
     parser.add_argument("--client-rate-sources", default="")
+    parser.add_argument("--framework-rate-sources", default="")
+    parser.add_argument("--rate-metadata-sources", default="")
+    parser.add_argument("--field-sources", default="")
+    parser.add_argument(
+        "--allow-rate-empty-metadata", choices=("NO", "ALLOW"), default="NO"
+    )
     return parser
 
 
@@ -65,7 +72,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     raise ContractMergeError(
                         "--approval-fingerprint is valid only in apply mode"
                     )
-                if args.candidate_rate_sources or args.client_rate_sources:
+                if (
+                    args.candidate_rate_sources
+                    or args.client_rate_sources
+                    or args.framework_rate_sources
+                    or args.rate_metadata_sources
+                    or args.field_sources
+                    or args.allow_rate_empty_metadata != "NO"
+                ):
                     raise ContractMergeError(
                         "rate decisions are valid only in apply mode"
                     )
@@ -88,6 +102,12 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     args.candidate_rate_sources
                 ),
                 client_rate_sources=parse_rate_source_map(args.client_rate_sources),
+                framework_rate_sources=parse_rate_source_map(
+                    args.framework_rate_sources
+                ),
+                rate_metadata_sources=parse_rate_source_map(args.rate_metadata_sources),
+                allow_rate_empty_metadata=(args.allow_rate_empty_metadata == "ALLOW"),
+                field_sources=parse_field_source_map(args.field_sources),
             )
             await db.commit()
             return report
