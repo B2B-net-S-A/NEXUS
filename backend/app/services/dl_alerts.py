@@ -207,9 +207,7 @@ async def emit_cost_order_exhausted(
     # zapisaniu części rozliczeń.
     client_name = (
         await db.scalar(
-            select(client_display_name_expression()).where(
-                Client.id == group.client_id
-            )
+            select(client_display_name_expression()).where(Client.id == group.client_id)
         )
     ) or "Klient"
     return await emit(

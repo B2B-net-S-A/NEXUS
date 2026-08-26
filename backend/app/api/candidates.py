@@ -425,9 +425,7 @@ def _at_client_predicate():
         .where(
             and_(
                 Contract.candidate_id == Candidate.id,
-                Contract.status.in_(
-                    (ContractStatus.active, ContractStatus.ending)
-                ),
+                Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
             )
         )
         .exists()
