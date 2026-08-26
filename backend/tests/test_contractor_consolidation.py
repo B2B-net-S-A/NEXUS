@@ -22,16 +22,20 @@ Wszystkie seedy niosą unikalny marker w nazwisku, więc asercje list idą przez
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date, timedelta
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import (
     Contract,
     ContractStatus,
@@ -39,6 +43,7 @@ from app.models.contract import (
     ContractWorkMode,
     RateUnit,
 )
+from app.models.job import Job
 
 pytestmark = pytest.mark.asyncio
 
@@ -68,6 +73,15 @@ async def _seed_client(name: str, *, display_name: str | None = None) -> int:
         await db.commit()
         await db.refresh(cli)
         return cli.id
+
+
+async def _seed_job(client_id: int, marker: str) -> int:
+    async with AsyncSessionLocal() as db:
+        job = Job(title=f"Rekrutacja {marker}", client_id=client_id)
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        return job.id
 
 
 async def _seed_contract(
@@ -403,6 +417,270 @@ async def test_second_client_is_not_a_duplicate(app_client, app_auth_headers):
     assert first.status_code == 201, first.text
     second = await _post_contract(app_client, app_auth_headers, cand, cli_b)
     assert second.status_code == 201, second.text
+
+
+async def test_add_project_active_creates_linked_draft_order_without_signature(
+    app_client, app_auth_headers, monkeypatch
+):
+    """„Dodaj kolejny projekt” is one transaction: active Contract + draft Order."""
+
+    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
+    marker = f"Ord{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli_a = await _seed_client(f"Pierwszy {marker}")
+    cli_b = await _seed_client(f"Kolejny {marker}")
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, cand)
+        assert candidate is not None
+        candidate.name = "?"
+        candidate.lastname = "?"
+        await db.commit()
+    source_contract_id = await _seed_contract(cand, cli_a)
+
+    response = await _post_contract(
+        app_client,
+        app_auth_headers,
+        cand,
+        cli_b,
+        status="active",
+        contract_type="b2b",
+        work_mode="remote",
+        rate_candidate=125,
+        rate_client=175,
+        source_contract_id=source_contract_id,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "active"
+    assert isinstance(response.json()["draft_order_id"], int)
+    contract_id = response.json()["id"]
+    async with AsyncSessionLocal() as db:
+        orders = list(
+            (
+                await db.scalars(
+                    select(ClientOrder).where(
+                        ClientOrder.contract_id == contract_id,
+                        ClientOrder.client_id == cli_b,
+                    )
+                )
+            ).all()
+        )
+    assert len(orders) == 1
+    [order] = orders
+    assert response.json()["draft_order_id"] == order.id
+    assert order.status == ClientOrderStatus.draft
+    assert order.filled_at is None
+    assert order.title == "(bez numeru)"
+    assert order.job_id is None  # rekrutacja w dialogu jest opcjonalna
+    assert f"kandydata id={cand}" in (order.notes or "")
+    assert "? ?" not in (order.notes or "")
+
+
+async def test_add_project_does_not_create_invisible_draft_for_cost_order_client(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Cost-order clients need an explicit order type, so no orphan draft."""
+
+    marker = f"Cst{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli_a = await _seed_client(f"Pierwszy {marker}")
+    cli_b = await _seed_client(f"Kosztowy {marker}")
+    source_contract_id = await _seed_contract(cand, cli_a)
+    monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", str(cli_b))
+
+    response = await _post_contract(
+        app_client,
+        app_auth_headers,
+        cand,
+        cli_b,
+        status="active",
+        contract_type="b2b",
+        work_mode="remote",
+        rate_candidate=125,
+        rate_client=175,
+        source_contract_id=source_contract_id,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "active"
+    assert response.json()["draft_order_id"] is None
+    async with AsyncSessionLocal() as db:
+        order_id = await db.scalar(
+            select(ClientOrder.id).where(
+                ClientOrder.contract_id == response.json()["id"]
+            )
+        )
+    assert order_id is None
+
+
+async def test_add_project_rejects_recruitment_from_another_client(
+    app_client, app_auth_headers
+):
+    marker = f"Job{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli_a = await _seed_client(f"Pierwszy {marker}")
+    cli_b = await _seed_client(f"Kolejny {marker}")
+    source_contract_id = await _seed_contract(cand, cli_a)
+    wrong_job_id = await _seed_job(cli_a, marker)
+
+    response = await _post_contract(
+        app_client,
+        app_auth_headers,
+        cand,
+        cli_b,
+        job_id=wrong_job_id,
+        source_contract_id=source_contract_id,
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "job_client_mismatch"
+    async with AsyncSessionLocal() as db:
+        created_id = await db.scalar(
+            select(Contract.id).where(
+                Contract.candidate_id == cand,
+                Contract.client_id == cli_b,
+            )
+        )
+    assert created_id is None
+
+
+async def test_add_project_rejects_terminal_status_before_creating_order(
+    app_client, app_auth_headers
+):
+    marker = f"Sts{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli_a = await _seed_client(f"Pierwszy {marker}")
+    cli_b = await _seed_client(f"Kolejny {marker}")
+    source_contract_id = await _seed_contract(cand, cli_a)
+
+    response = await _post_contract(
+        app_client,
+        app_auth_headers,
+        cand,
+        cli_b,
+        status="ended",
+        source_contract_id=source_contract_id,
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"]["code"] == "add_project_status_invalid"
+    async with AsyncSessionLocal() as db:
+        created_id = await db.scalar(
+            select(Contract.id).where(
+                Contract.candidate_id == cand,
+                Contract.client_id == cli_b,
+            )
+        )
+    assert created_id is None
+
+
+async def test_concurrent_add_project_creates_one_contract_and_one_order(
+    app_client, app_auth_headers
+):
+    marker = f"Rac{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli_a = await _seed_client(f"Pierwszy {marker}")
+    cli_b = await _seed_client(f"Kolejny {marker}")
+    source_contract_id = await _seed_contract(cand, cli_a)
+    payload = {
+        "status": "active",
+        "contract_type": "b2b",
+        "work_mode": "remote",
+        "rate_candidate": 125,
+        "rate_client": 175,
+        "source_contract_id": source_contract_id,
+    }
+
+    first, second = await asyncio.gather(
+        _post_contract(app_client, app_auth_headers, cand, cli_b, **payload),
+        _post_contract(app_client, app_auth_headers, cand, cli_b, **payload),
+    )
+
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    conflict = first if first.status_code == 409 else second
+    assert conflict.json()["detail"]["code"] == "duplicate_contractor"
+    async with AsyncSessionLocal() as db:
+        contracts = list(
+            (
+                await db.scalars(
+                    select(Contract).where(
+                        Contract.candidate_id == cand,
+                        Contract.client_id == cli_b,
+                    )
+                )
+            ).all()
+        )
+        orders = list(
+            (
+                await db.scalars(
+                    select(ClientOrder).where(ClientOrder.client_id == cli_b)
+                )
+            ).all()
+        )
+    assert len(contracts) == 1
+    assert len(orders) == 1
+    assert orders[0].contract_id == contracts[0].id
+    assert orders[0].status == ClientOrderStatus.draft
+
+
+async def test_concurrent_add_project_serializes_duplicate_candidate_records(
+    app_client, app_auth_headers
+):
+    """The e-mail identity lock also covers two imported Candidate rows."""
+
+    marker = f"EmR{uuid.uuid4().hex[:6]}"
+    shared_email = f"{marker.lower()}@example.com"
+    cand_a = await _seed_candidate(marker, email=shared_email)
+    cand_b = await _seed_candidate(
+        marker, email=f"  {shared_email.upper()}\n", suffix="Import"
+    )
+    source_client_a = await _seed_client(f"Pierwszy A {marker}")
+    source_client_b = await _seed_client(f"Pierwszy B {marker}")
+    target_client = await _seed_client(f"Kolejny {marker}")
+    source_contract_a = await _seed_contract(cand_a, source_client_a)
+    source_contract_b = await _seed_contract(cand_b, source_client_b)
+
+    first, second = await asyncio.gather(
+        _post_contract(
+            app_client,
+            app_auth_headers,
+            cand_a,
+            target_client,
+            source_contract_id=source_contract_a,
+        ),
+        _post_contract(
+            app_client,
+            app_auth_headers,
+            cand_b,
+            target_client,
+            source_contract_id=source_contract_b,
+        ),
+    )
+
+    assert sorted([first.status_code, second.status_code]) == [201, 409]
+    conflict = first if first.status_code == 409 else second
+    assert conflict.json()["detail"]["code"] == "duplicate_contractor"
+    async with AsyncSessionLocal() as db:
+        contracts = list(
+            (
+                await db.scalars(
+                    select(Contract).where(
+                        Contract.client_id == target_client,
+                        Contract.candidate_id.in_([cand_a, cand_b]),
+                    )
+                )
+            ).all()
+        )
+        orders = list(
+            (
+                await db.scalars(
+                    select(ClientOrder).where(ClientOrder.client_id == target_client)
+                )
+            ).all()
+        )
+    assert len(contracts) == 1
+    assert len(orders) == 1
+    assert orders[0].contract_id == contracts[0].id
 
 
 async def test_return_after_ended_contract_is_not_a_duplicate(

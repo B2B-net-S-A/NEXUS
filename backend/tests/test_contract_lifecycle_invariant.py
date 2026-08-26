@@ -4,8 +4,10 @@ Locks the single guarded state machine (``app.services.contract_lifecycle``):
 
 * guarded lifecycle routes still require verified completion when a signature
   is required (a completed ``DocumentSignature``);
-* the client contract register can write its four operational statuses, while
-  ``ready_for_signature``/``void`` stay exclusive to guarded lifecycle routes;
+* manual contract creation can write its four operational statuses while
+  deliberately ignoring the in-app signature state because it also records
+  offline agreements; later PATCH/activate calls keep the guarded policy, and
+  ``ready_for_signature``/``void`` stay exclusive to lifecycle routes;
 * finalizing an unsigned HTML draft ends at ``ready_for_signature`` (never
   ``active``), and emits no ``contract_signed`` side effect;
 * a QES lane with ``DSS_VALIDATION_URL`` unset — or a timed-out / INDETERMINATE
@@ -204,6 +206,72 @@ async def test_activate_manual_path_when_signing_disabled(monkeypatch) -> None:
         await lifecycle.activate_contract(db, contract, actor_id=uid)
         await db.commit()
         assert contract.status == ContractStatus.active
+
+
+@pytest.mark.asyncio
+async def test_create_active_in_manual_register_never_queries_signature_state(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    """Manual POST accepts an offline agreement even with signing enabled."""
+
+    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
+
+    async def unexpected_signature_lookup(*_args, **_kwargs):
+        raise AssertionError("manual contract create queried DocumentSignature")
+
+    monkeypatch.setattr(lifecycle, "_has_any_signature", unexpected_signature_lookup)
+    cand_id, cli_id = await _seed_candidate_and_client()
+    response = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": cand_id,
+            "client_id": cli_id,
+            "start_date": date.today().isoformat(),
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+            "work_mode": "remote",
+            "status": "active",
+        },
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_patch_active_keeps_guarded_signature_policy(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    """Only the two create flows bypass signing; PATCH cannot bypass QES."""
+
+    cand_id, cli_id = await _seed_candidate_and_client()
+    created = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": cand_id,
+            "client_id": cli_id,
+            "start_date": date.today().isoformat(),
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+            "work_mode": "remote",
+            "status": "draft",
+        },
+        headers=app_auth_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
+    response = await app_client.patch(
+        f"/api/contracts/{created.json()['id']}",
+        json={"status": "active"},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["reason"] == "signature_required"
 
 
 @pytest.mark.asyncio

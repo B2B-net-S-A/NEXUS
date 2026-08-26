@@ -141,12 +141,19 @@ class ContractCreate(BaseModel):
     #
     # Praktyczna różnica, dla której warto było to pogodzić zamiast wybierać:
     # ``active`` (i ``ending``, bo to ``active`` z bliskim końcem) wymaga
-    # kompletu pól z ``ACTIVATION_REQUIRED_FIELDS`` oraz ukończonego podpisu,
-    # gdy proces podpisu ruszył; ``ended`` domyka datę końca i synchronizuje
-    # zamówienia klienta. Ładunek, który tych warunków nie spełnia, dostaje
-    # 409 z listą braków — zamiast umowy wchodzącej do MRR z pustymi stawkami.
+    # kompletu pól z ``ACTIVATION_REQUIRED_FIELDS``. Rejestr jest ręcznym
+    # zapisem także umów/aneksów podpisanych offline, więc nie sprawdza szyny
+    # podpisu kwalifikowanego; formalne endpointy podpisu zachowują tę bramkę.
+    # ``ended`` domyka datę końca i synchronizuje zamówienia klienta. Ładunek,
+    # który tych warunków nie spełnia, dostaje 409 z listą braków — zamiast
+    # umowy wchodzącej do MRR z pustymi stawkami.
     # Brak pola nadal oznacza bezpieczny ``draft``.
     status: ContractRegisterStatus = ContractStatus.draft
+    # Jawne źródło „Dodaj kolejny projekt”. Backend sprawdza, że wskazany
+    # kontrakt należy do tej samej osoby u innego klienta; zwykły formularz
+    # pozostawia pole puste, a kontrakt + szkic zamówienia powstają atomowo.
+    # Klient kosztowy jest wyjątkiem: wybór MD/kosztowe musi być jawny.
+    source_contract_id: Optional[int] = None
     documents: Optional[Any] = None
     client_pm_name: Optional[str] = None
     client_pm_email: Optional[str] = None
@@ -300,6 +307,10 @@ class ContractGroupMember(BaseModel):
 
 class ContractResponse(BaseModel):
     id: int
+    # Ustawiane wyłącznie w odpowiedzi POST z ``source_contract_id``.
+    # Klienci kosztowi zostają przy jawnym wyborze typu zamówienia, więc tam
+    # pole pozostaje puste i frontend nie obiecuje niewidocznego auto-szkicu.
+    draft_order_id: Optional[int] = None
     # NULL = umowa odpięta od usuniętego kandydata (migracja 0225). Rejestr umów
     # MUSI takie wiersze pokazywać — na umowie wiszą faktury i podpisy, których
     # retencja nie zależy od obecności osoby w bazie rekrutacyjnej. Gdyby to

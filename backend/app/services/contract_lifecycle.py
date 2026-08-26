@@ -10,9 +10,11 @@ side-effectful status change goes through one of the guarded operations below;
 no route sets ``status = active`` directly. The rules:
 
 * :data:`ALLOWED_TRANSITIONS` — the only legal (from → to) edges.
-* :func:`activate_contract` — the ONLY path to ``active``. It requires the draft
-  to be complete AND, when a signature is required, a *completed* qualified
-  ``DocumentSignature`` to exist. No signed evidence ⇒ HTTP 409.
+* :func:`activate_contract` — the ONLY path to ``active``. It always requires
+  the draft to be complete and, for guarded signing flows, a *completed*
+  qualified ``DocumentSignature``. Manual contract creation explicitly
+  disables only that signature gate because it also records offline agreements;
+  later status changes keep the guarded default.
 * :func:`move_to_ready_for_signature` — a finalized (but unsigned) draft lands
   here, never at ``active``.
 * :func:`revert_contract` — the audited replacement for the old free
@@ -187,15 +189,20 @@ def _audit(
 
 
 async def activate_contract(
-    db: AsyncSession, contract: Contract, *, actor_id: Optional[int]
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+    enforce_signature_gate: bool = True,
 ) -> None:
     """The ONLY path to ``active``. Adds the audit row; the caller commits.
 
-    Enforces, in order: a legal transition, a complete draft, and — when a
-    signature is required — verified signed evidence (a ``completed``
-    ``DocumentSignature``). Any failure raises HTTP 409 and leaves state
-    unchanged. Downstream side effects (``contract_signed`` notification) MUST be
-    emitted by the caller only AFTER the activation commit.
+    Enforces, in order: a legal transition, a complete draft, and — when
+    ``enforce_signature_gate`` is true and a signature is required — verified
+    signed evidence (a ``completed`` ``DocumentSignature``). Any failure raises
+    HTTP 409 and leaves state unchanged. Downstream side effects
+    (``contract_signed`` notification) MUST be emitted by the caller only AFTER
+    the activation commit.
     """
     previous = contract.status
     assert_transition(previous, ContractStatus.active)
@@ -207,19 +214,23 @@ async def activate_contract(
             detail={"message": "Missing required fields", "missing": missing},
         )
 
-    has_sig = await _has_any_signature(db, contract.id)
-    if signature_required(contract, has_signatures=has_sig):
-        if not await _has_completed_signature(db, contract.id):
-            raise HTTPException(
-                status_code=http_status.HTTP_409_CONFLICT,
-                detail={
-                    "message": (
-                        "Contract requires a completed qualified signature "
-                        "before it can be activated"
-                    ),
-                    "reason": "signature_required",
-                },
-            )
+    # The manual register stores contracts backed by offline agreements and
+    # amendments, so its caller opts out before either signature lookup runs.
+    # Guarded signing endpoints keep the default and therefore the hard gate.
+    if enforce_signature_gate:
+        has_sig = await _has_any_signature(db, contract.id)
+        if signature_required(contract, has_signatures=has_sig):
+            if not await _has_completed_signature(db, contract.id):
+                raise HTTPException(
+                    status_code=http_status.HTTP_409_CONFLICT,
+                    detail={
+                        "message": (
+                            "Contract requires a completed qualified signature "
+                            "before it can be activated"
+                        ),
+                        "reason": "signature_required",
+                    },
+                )
 
     contract.status = ContractStatus.active
     db.add(
