@@ -2110,7 +2110,7 @@ function CurrentContractCard({
  </div>
  <div className="text-xs text-muted-foreground">
  {formatDate(contract.start_date)} —{""}
- {contract.end_date ? formatDate(contract.end_date) : "open-ended"}
+ {contract.end_date ? formatDate(contract.end_date) : "bezterminowo"}
  </div>
  </div>
  <div className="flex gap-2 items-center">

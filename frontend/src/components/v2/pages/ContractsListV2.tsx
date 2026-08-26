@@ -646,7 +646,7 @@ export function ContractsListV2() {
  memberLines(members, (m) => (
  <span className="text-foreground">
  {m.start_date ? formatDate(m.start_date) : "—"}
- {m.end_date ? ` → ${formatDate(m.end_date)}` : ""}
+ {m.end_date ? ` → ${formatDate(m.end_date)}` : " → bezterminowo"}
  {m.latest_order_end_date &&
  m.latest_order_end_date !== m.end_date && (
  <span
@@ -665,11 +665,9 @@ export function ContractsListV2() {
  <Calendar className="h-3 w-3" />
  {c.start_date ? formatDate(c.start_date) : "—"}
  </div>
- {c.end_date && (
  <div className="text-xs text-muted-foreground">
- → {formatDate(c.end_date)}
+ {c.end_date ? `→ ${formatDate(c.end_date)}` : "→ bezterminowo"}
  </div>
- )}
  {c.latest_order_end_date && c.latest_order_end_date !== c.end_date && (
  <div className="mt-0.5 text-xs text-warning-muted-foreground" title="Aktualne zamówienie klienta kończy się tej daty">
  zamówienie do {formatDate(c.latest_order_end_date)}

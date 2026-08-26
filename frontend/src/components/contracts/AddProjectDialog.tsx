@@ -10,9 +10,10 @@
  * - Klient jest WYMAGANY (walidacja blokuje zapis, czerwone pole + opis).
  * - Rekrutacja opcjonalna — z listy rekrutacji WYBRANEGO KLIENTA (nowy projekt
  *   u nowego klienta zwykle nie ma jeszcze rekrutacji kandydata).
- * - Status „Aktywny" wymaga kompletu pól aktywacyjnych (daty, stawki, tryb
- *   pracy) — walidujemy lokalnie tym samym zestawem co backend
- *   (ACTIVATION_REQUIRED_FIELDS), a 409 z listą `missing` mapujemy na pola.
+ * - Status „Aktywny" wymaga kompletu pól aktywacyjnych (daty rozpoczęcia,
+ *   stawek, trybu pracy) — walidujemy lokalnie tym samym zestawem co backend
+ *   (ACTIVATION_REQUIRED_FIELDS). Data zakończenia jest opcjonalna: brak oznacza
+ *   projekt bezterminowy. 409 z listą `missing` mapujemy na pola.
  * - Duplikat (ta sama osoba u tego samego klienta, po e-mailu) → komunikat
  *   z backendu pod polem klienta.
  * - Pola stawek renderują się tylko dla ról z dostępem finansowym (jak
@@ -241,10 +242,8 @@ export function AddProjectDialog({
     }
     if (statusVal === "active") {
       // Lustro ACTIVATION_REQUIRED_FIELDS — lepiej odmówić tu, po polsku,
-      // niż odsyłać użytkownika po 409 z serwera.
-      if (!endDate) {
-        errors.end_date = "Status „Aktywny” wymaga daty zakończenia.";
-      }
+      // niż odsyłać użytkownika po 409 z serwera. `end_date` celowo nie jest
+      // bramką: NULL to poprawny, aktywny projekt bezterminowy.
       if (!workMode) {
         errors.work_mode = "Status „Aktywny” wymaga trybu pracy.";
       }
