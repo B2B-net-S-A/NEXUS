@@ -134,6 +134,7 @@ from app.services.order_group_lifecycle import materialize_scheduled_order_group
 from app.services.shared_md_orders import (
     settle_shared_md_group,
     shared_md_used_total,
+    shared_md_used_totals,
 )
 from app.services.order_excel_export import (
     OrderExportRow,
@@ -549,7 +550,11 @@ def _line_to_read(
 
 
 async def _group_to_read(
-    db: AsyncSession, group: ClientOrderGroup, *, with_finance: bool
+    db: AsyncSession,
+    group: ClientOrderGroup,
+    *,
+    with_finance: bool,
+    precomputed_md_budget_used: Optional[Decimal] = None,
 ) -> OrderGroupRead:
     lines = await lines_for_group(db, group.id)
     job_titles: dict[int, str] = {}
@@ -662,7 +667,11 @@ async def _group_to_read(
 
     md_budget_used: Optional[Decimal] = None
     if group.is_md_budget_based:
-        md_budget_used = await shared_md_used_total(db, group.id)
+        md_budget_used = (
+            quantize_md(precomputed_md_budget_used)
+            if precomputed_md_budget_used is not None
+            else await shared_md_used_total(db, group.id)
+        )
 
     return OrderGroupRead(
         id=group.id,
@@ -953,8 +962,18 @@ async def list_order_groups(
     )
     with_finance = _can_see_finance(user)
     models = list(result.scalars())
+    shared_md_used_by_group = await shared_md_used_totals(
+        db, (group.id for group in models if group.is_md_budget_based)
+    )
     reads_by_id = {
-        group.id: await _group_to_read(db, group, with_finance=with_finance)
+        group.id: await _group_to_read(
+            db,
+            group,
+            with_finance=with_finance,
+            precomputed_md_budget_used=(
+                shared_md_used_by_group[group.id] if group.is_md_budget_based else None
+            ),
+        )
         for group in models
     }
 
@@ -1264,10 +1283,20 @@ async def export_order_groups(
         # Same response for an absent ID and an ID belonging to another client.
         raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
 
+    shared_md_used_by_group = await shared_md_used_totals(
+        db, (group.id for group in models if group.is_md_budget_based)
+    )
     rows: list[OrderExportRow] = []
     for group_id in requested:
         group = await _group_to_read(
-            db, by_id[group_id], with_finance=_can_see_finance(user)
+            db,
+            by_id[group_id],
+            with_finance=_can_see_finance(user),
+            precomputed_md_budget_used=(
+                shared_md_used_by_group[group_id]
+                if by_id[group_id].is_md_budget_based
+                else None
+            ),
         )
         rows.extend(export_rows_for_group(group))
 

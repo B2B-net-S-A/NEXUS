@@ -178,6 +178,27 @@ async def test_shared_md_continuation_waits_for_the_group_budget():
 
 
 @pytest.mark.asyncio
+async def test_shared_md_used_totals_batches_groups_and_fills_zero():
+    from app.services.shared_md_orders import shared_md_used_totals
+
+    class FakeDb:
+        def __init__(self):
+            self.execute_calls = 0
+
+        async def execute(self, _statement):
+            self.execute_calls += 1
+            return [(41, Decimal("3.250000"))]
+
+    db = FakeDb()
+    totals = await shared_md_used_totals(db, (41, 42, 41))
+
+    assert db.execute_calls == 1
+    assert totals == {41: Decimal("3.250000"), 42: Decimal("0.000000")}
+    assert await shared_md_used_totals(db, ()) == {}
+    assert db.execute_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_client_api_exposes_all_cyfrowy_polsat_order_capabilities(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -225,8 +246,9 @@ async def test_cyfrowy_polsat_group_requires_exactly_cost_or_shared_md(
 
 @pytest.mark.asyncio
 async def test_shared_md_settlement_floors_exhausts_blocks_and_reopens(
-    app_client: AsyncClient, app_auth_headers: dict
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
+    from app.api import client_order_groups
     from app.core.database import AsyncSessionLocal
     from app.models.client_order_group import ClientOrderGroup
     from app.services.shared_md_orders import upsert_shared_md_consumption
@@ -254,10 +276,19 @@ async def test_shared_md_settlement_floors_exhausts_blocks_and_reopens(
         )
         await db.commit()
 
-    listing = await app_client.get(
-        f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups",
-        headers=app_auth_headers,
-    )
+    async def fail_on_per_group_total(*_args, **_kwargs):
+        pytest.fail("lista grup nie może odpytywać o wykorzystanie MD per grupa")
+
+    # Lista używa jednego agregatu dla wszystkich grup. Pojedynczy odczyt
+    # pozostaje fallbackiem dla endpointów zwracających tylko jedną grupę.
+    with monkeypatch.context() as context:
+        context.setattr(
+            client_order_groups, "shared_md_used_total", fail_on_per_group_total
+        )
+        listing = await app_client.get(
+            f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups",
+            headers=app_auth_headers,
+        )
     body = next(g for g in listing.json()["groups"] if g["id"] == created["id"])
     assert body["md_budget_used"] == pytest.approx(13)
     assert body["md_budget_remaining"] == pytest.approx(0)

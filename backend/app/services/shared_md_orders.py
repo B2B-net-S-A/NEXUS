@@ -8,6 +8,7 @@ czemu ponowny zapis tego samego miesiąca nie odejmuje MD drugi raz.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import Optional
 
@@ -31,12 +32,29 @@ _PERIOD_MONTH_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
 async def shared_md_used_total(db: AsyncSession, group_id: int) -> Decimal:
     """Pełna narastająca suma wykorzystanych MD, także ponad limit."""
 
-    value = await db.scalar(
+    return (await shared_md_used_totals(db, (group_id,)))[group_id]
+
+
+async def shared_md_used_totals(
+    db: AsyncSession, group_ids: Iterable[int]
+) -> dict[int, Decimal]:
+    """Narastające wykorzystanie wielu grup w jednym zapytaniu agregującym."""
+
+    ids = tuple(dict.fromkeys(group_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
         select(
-            func.coalesce(func.sum(ClientOrderGroupMdConsumption.md_reported), 0)
-        ).where(ClientOrderGroupMdConsumption.group_id == group_id)
+            ClientOrderGroupMdConsumption.group_id,
+            func.coalesce(func.sum(ClientOrderGroupMdConsumption.md_reported), 0),
+        )
+        .where(ClientOrderGroupMdConsumption.group_id.in_(ids))
+        .group_by(ClientOrderGroupMdConsumption.group_id)
     )
-    return quantize_md(value or 0)
+    totals = {group_id: ZERO for group_id in ids}
+    for group_id, value in rows:
+        totals[group_id] = quantize_md(value or 0)
+    return totals
 
 
 async def settle_shared_md_group(db: AsyncSession, group: ClientOrderGroup) -> Decimal:
