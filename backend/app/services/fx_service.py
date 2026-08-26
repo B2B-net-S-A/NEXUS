@@ -11,15 +11,18 @@ listed, we return the most recent known rate (falling back to 1.0 for PLN).
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import is_business_day, local_now
 from app.models.fx_rate import FxRate
 
 logger = logging.getLogger(__name__)
@@ -38,6 +41,30 @@ MAX_RATE_AGE_DAYS = 7
 # transakcji, więc wiek dowolnej pozycji opisuje wiek całego cache'u; EUR jest
 # w tabeli A od zawsze, więc nie zniknie z niej przy zmianie koszyka.
 HEALTH_CANARY_CURRENCY = "EUR"
+
+# NBP declares table A between 11:45 and 12:15 on Polish business days. Start
+# at the opening of that window and retry for delayed publications/network
+# hiccups; once today's effective date is persisted, sleep until the next
+# business-day window. This avoids the old 24-hour schedule being anchored to
+# an arbitrary container start time (e.g. 08:00 forever serving yesterday).
+NBP_TABLE_A_PUBLISH_START = time(11, 45)
+NBP_TABLE_A_RETRY_UNTIL = time(16, 30)
+NBP_TABLE_A_RETRY_MINUTES = 15.0
+
+
+@dataclass(frozen=True)
+class FxRateSnapshot:
+    """Persisted FX value together with the date published by its source.
+
+    Contract UI must show the real NBP ``effectiveDate``. Returning just a
+    multiplier would tempt callers to label Friday's rate with Sunday's date,
+    which is precisely the fallback case the product needs to make explicit.
+    """
+
+    currency: str
+    rate_to_pln: Decimal
+    effective_date: date
+    source: str
 
 
 class NbpFetchError(RuntimeError):
@@ -94,30 +121,35 @@ async def _fetch_and_store_nbp_today() -> int:
     if not effective_date_str:
         raise NbpFetchError("NBP payload without effectiveDate")
     effective_date = date.fromisoformat(effective_date_str)
+    rows_to_insert = []
+    for r in rates:
+        code = r.get("code")
+        mid = r.get("mid")
+        if not code or mid is None:
+            continue
+        rows_to_insert.append(
+            {
+                "effective_date": effective_date,
+                "currency": code,
+                "rate_to_pln": Decimal(str(mid)),
+                "source": "NBP",
+            }
+        )
     inserted = 0
     async with AsyncSessionLocal() as db:
-        for r in rates:
-            code = r.get("code")
-            mid = r.get("mid")
-            if not code or mid is None:
-                continue
-            existing = await db.scalar(
-                select(FxRate).where(
-                    FxRate.effective_date == effective_date,
-                    FxRate.currency == code,
+        if rows_to_insert:
+            # Admin refresh and the background loop can overlap. The database
+            # unique index is the arbiter; SELECT-then-INSERT raced and could
+            # turn an otherwise successful refresh into an IntegrityError.
+            stmt = (
+                pg_insert(FxRate)
+                .values(rows_to_insert)
+                .on_conflict_do_nothing(
+                    index_elements=[FxRate.effective_date, FxRate.currency]
                 )
+                .returning(FxRate.id)
             )
-            if existing is not None:
-                continue
-            db.add(
-                FxRate(
-                    effective_date=effective_date,
-                    currency=code,
-                    rate_to_pln=Decimal(str(mid)),
-                    source="NBP",
-                )
-            )
-            inserted += 1
+            inserted = len((await db.execute(stmt)).scalars().all())
         await db.commit()
     logger.info("NBP fetch: stored %d new rates for %s", inserted, effective_date)
     return inserted
@@ -186,6 +218,40 @@ async def get_rate_to_pln(
             target,
         )
     return row.rate_to_pln, True
+
+
+async def get_rate_snapshot_to_pln(
+    db: AsyncSession, currency: str, on: Optional[date] = None
+) -> Optional[FxRateSnapshot]:
+    """Return the newest persisted rate not newer than ``on``.
+
+    Unlike :func:`get_rate_to_pln`, absence stays ``None``. A contract detail
+    may omit a conversion while the cache is temporarily empty, but it must
+    never present a fabricated 1:1 EUR/PLN conversion. The shared ``fx_rates``
+    table is the durable per-publication cache for every contract, so opening
+    multiple EUR contracts never repeats an NBP request.
+    """
+
+    cur = (currency or "").upper()
+    if not cur or cur == "PLN":
+        return None
+    target = on or date.today()
+    row = (
+        await db.execute(
+            select(FxRate)
+            .where(FxRate.currency == cur, FxRate.effective_date <= target)
+            .order_by(FxRate.effective_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return FxRateSnapshot(
+        currency=row.currency,
+        rate_to_pln=row.rate_to_pln,
+        effective_date=row.effective_date,
+        source=row.source,
+    )
 
 
 async def convert_to_pln_detail(
@@ -271,8 +337,56 @@ async def fx_age_days(db: AsyncSession, currency: str) -> Optional[int]:
 _ = timedelta  # silence unused-import warning if tests add variations later
 
 
-async def fx_refresh_loop(interval_hours: float = 24.0) -> None:
-    """Long-running task — fetch NBP table A once a day.
+async def _latest_cached_effective_date(currency: str) -> Optional[date]:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(FxRate.effective_date)
+            .where(FxRate.currency == currency.upper())
+            .order_by(FxRate.effective_date.desc())
+            .limit(1)
+        )
+
+
+def _seconds_until_next_nbp_window(now: datetime) -> float:
+    """Seconds until 11:45 on the next Polish business day."""
+
+    candidate = now.replace(
+        hour=NBP_TABLE_A_PUBLISH_START.hour,
+        minute=NBP_TABLE_A_PUBLISH_START.minute,
+        second=0,
+        microsecond=0,
+    )
+    if candidate <= now:
+        candidate += timedelta(days=1)
+    while not is_business_day(candidate):
+        candidate += timedelta(days=1)
+    # Subtract instants in UTC. Python intentionally uses wall-clock arithmetic
+    # for two datetimes carrying the same ZoneInfo, which would miss the one-hour
+    # DST jump on a weekend and wake the refresh loop an hour late.
+    return max(
+        60.0,
+        (
+            candidate.astimezone(timezone.utc) - now.astimezone(timezone.utc)
+        ).total_seconds(),
+    )
+
+
+def _should_refresh_nbp(now: datetime, latest: Optional[date]) -> bool:
+    """Whether this cycle should call NBP rather than use the durable cache."""
+
+    if latest is None:
+        return True
+    return (
+        is_business_day(now)
+        and now.time() >= NBP_TABLE_A_PUBLISH_START
+        and latest < now.date()
+    )
+
+
+async def fx_refresh_loop(
+    retry_minutes: float = NBP_TABLE_A_RETRY_MINUTES,
+) -> None:
+    """Keep NBP table A current according to its Warsaw publication window.
 
     Awaria pobrania jest teraz WIDOCZNA: `fetch_and_store_nbp_today` rzuca
     :class:`NbpFetchError`, a ta gałąź loguje na poziomie ERROR, więc Sentry
@@ -282,12 +396,44 @@ async def fx_refresh_loop(interval_hours: float = 24.0) -> None:
     """
     import asyncio
 
-    logger.info("fx_refresh_loop: started interval=%.1f h", interval_hours)
+    retry_seconds = max(60.0, retry_minutes * 60)
+    logger.info("fx_refresh_loop: started retry=%.1f min", retry_minutes)
     # Initial delay to keep startup snappy.
     await asyncio.sleep(60)
     while True:
+        delay = retry_seconds
         try:
-            await fetch_and_store_nbp_today(strict=True)
+            now = local_now()
+            latest = await _latest_cached_effective_date(HEALTH_CANARY_CURRENCY)
+            # Populate a brand-new cache on startup. Once any rate exists, a
+            # restart must not create a gratuitous NBP dependency (especially
+            # on weekends); normal Warsaw publication-window rules take over.
+            if _should_refresh_nbp(now, latest):
+                await fetch_and_store_nbp_today(strict=True)
+                latest = await _latest_cached_effective_date(HEALTH_CANARY_CURRENCY)
+
+            now = local_now()
+            local_time = now.time()
+            waiting_for_today = latest is None or latest < now.date()
+            if (
+                is_business_day(now)
+                and waiting_for_today
+                and NBP_TABLE_A_PUBLISH_START <= local_time <= NBP_TABLE_A_RETRY_UNTIL
+            ):
+                delay = retry_seconds
+                logger.info(
+                    "fx_refresh_loop: latest=%s, retrying in %.1f min",
+                    latest,
+                    retry_minutes,
+                )
+            else:
+                delay = _seconds_until_next_nbp_window(now)
         except Exception:  # noqa: BLE001
             logger.exception("fx_refresh_loop: cycle error")
-        await asyncio.sleep(interval_hours * 3600)
+            now = local_now()
+            if not (
+                is_business_day(now)
+                and NBP_TABLE_A_PUBLISH_START <= now.time() <= NBP_TABLE_A_RETRY_UNTIL
+            ):
+                delay = _seconds_until_next_nbp_window(now)
+        await asyncio.sleep(delay)
