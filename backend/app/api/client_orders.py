@@ -29,7 +29,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import inspect, select
+from sqlalchemy import and_, exists, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -68,7 +68,7 @@ from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.client_access import deny, resolve_client_access
 from app.services.client_identity import client_display_name
-from app.services.client_order_lines import recompute_remaining
+from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.cost_orders import is_cost_order_client
 from app.services.ezdrowie import validate_project_part
@@ -1399,10 +1399,30 @@ async def extract_order_pdf(
     target_consultant: Optional[str] = None
     target_given_names: Optional[str] = None
     if candidate_id is not None:
+        # ``candidate_id`` pochodzi z workflow konsultantów. Bramkujemy go do
+        # dowolnej nieanulowanej (również historycznej) umowy osoby u bieżącego
+        # klienta ALBO żywej umowy w bazie Nexus. Bez tego sam liczbowy
+        # identyfikator pozwalałby przypisać do ekstrakcji osobę spoza zbioru
+        # konsultantów.
+        # EXISTS nie mnoży wierszy kandydata przy wielu kontraktach i zatrzymuje
+        # request przed odczytem pliku/quota AI.
+        eligible_contract = exists(
+            select(Contract.id).where(
+                Contract.candidate_id == Candidate.id,
+                or_(
+                    and_(
+                        Contract.client_id == client_id,
+                        Contract.status != ContractStatus.void,
+                    ),
+                    Contract.status.in_(LIVE_CONTRACT_STATUSES),
+                ),
+            )
+        )
         candidate_identity = (
             await db.execute(
                 select(Candidate.name, Candidate.lastname).where(
-                    Candidate.id == candidate_id
+                    Candidate.id == candidate_id,
+                    eligible_contract,
                 )
             )
         ).one_or_none()

@@ -539,7 +539,114 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect(button).toBeDisabled();
     addPdf();
     expect(button).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Najpierw wybierz konsultanta, którego dane mają zostać odczytane/i,
+      ),
+    ).toBeInTheDocument();
     expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      first_name: "",
+      last_name: "Kowalska",
+      missing: "imię",
+      full_name: "Kowalska",
+    },
+    {
+      first_name: "Anna",
+      last_name: "",
+      missing: "nazwisko",
+      full_name: "Anna",
+    },
+  ])(
+    "nie aktywuje odczytu, gdy w profilu brakuje pola $missing",
+    async ({ first_name, last_name, missing, full_name }) => {
+      vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
+        data: {
+          options: [
+            {
+              ...FROM_BASE,
+              first_name,
+              last_name,
+              full_name,
+            },
+          ],
+          total: 1,
+        },
+      } as never);
+      const user = setupUser();
+      renderModal();
+      await user.click(
+        await screen.findByRole("button", { name: new RegExp(full_name, "i") }),
+      );
+      addPdf();
+
+      expect(
+        screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+      ).toBeDisabled();
+      expect(
+        screen.getByText(
+          new RegExp(
+            `Uzupełnij ${missing} w profilu konsultanta, aby odczytać dane z dokumentu`,
+            "i",
+          ),
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/Najpierw wybierz konsultanta/i),
+      ).not.toBeInTheDocument();
+      expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
+    },
+  );
+
+  it("w edycji blokuje odczyt przy jednoznacznie niepełnej nazwie konsultanta", () => {
+    renderModal(vi.fn(), GROUP, {
+      line: { ...LINE, consultant_name: "Kowalska" },
+    });
+    addPdf();
+
+    expect(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(
+        /Uzupełnij brakujące imię lub nazwisko w profilu konsultanta/i,
+      ),
+    ).toBeInTheDocument();
+    expect(dlPortalApi.extractOrderPdf).not.toHaveBeenCalled();
+  });
+
+  it("w edycji mapuje autorytatywny błąd 422 niepełnego profilu", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockRejectedValueOnce({
+      response: {
+        status: 422,
+        data: { detail: "Kandydat nie ma imienia i nazwiska do dopasowania" },
+      },
+    } as never);
+    const user = setupUser();
+    // Wieloczłonowe nazwisko nie pozwala frontowi ustalić, czy osobne pola
+    // profilu są kompletne; rozstrzyga to endpoint na podstawie Candidate.
+    renderModal(vi.fn(), GROUP, {
+      line: { ...LINE, consultant_name: "Van der Berg" },
+    });
+    const file = addPdf();
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    await waitFor(() =>
+      expect(dlPortalApi.extractOrderPdf).toHaveBeenCalledWith(7, file, 5),
+    );
+    expect(
+      await screen.findByText(
+        /Uzupełnij brakujące imię lub nazwisko w profilu konsultanta/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Nie udało się odczytać danych z dokumentu/i),
+    ).not.toBeInTheDocument();
   });
 
   it("wysyła candidate_id wybranej osoby i wypełnia jej puste pola", async () => {

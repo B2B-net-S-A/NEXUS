@@ -33,9 +33,16 @@ async def _seed_client(name: str | None = None) -> int:
         return client.id
 
 
-async def _seed_candidate(name: str, lastname: str) -> int:
+async def _seed_candidate(
+    name: str,
+    lastname: str,
+    *,
+    contract_client_id: int | None = None,
+    contract_status: str = "active",
+) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
+    from app.models.contract import Contract, ContractStatus
 
     async with AsyncSessionLocal() as db:
         candidate = Candidate(
@@ -44,6 +51,17 @@ async def _seed_candidate(name: str, lastname: str) -> int:
             email=f"pdf-target-{uuid.uuid4().hex[:8]}@example.com",
         )
         db.add(candidate)
+        await db.flush()
+        if contract_client_id is not None:
+            db.add(
+                Contract(
+                    candidate_id=candidate.id,
+                    client_id=contract_client_id,
+                    status=ContractStatus(contract_status),
+                    start_date=_TODAY - timedelta(days=30),
+                    end_date=_TODAY + timedelta(days=30),
+                )
+            )
         await db.commit()
         await db.refresh(candidate)
         return candidate.id
@@ -200,7 +218,14 @@ async def test_targeted_extract_resolves_canonical_candidate_for_each_client(
     from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 
     client_id = await _seed_client(client_name)
-    candidate_id = await _seed_candidate("Natalia", "Prus-Rudzińska")
+    # Historyczny kontrakt u bieżącego klienta nadal kwalifikuje osobę do
+    # pickera i ekstrakcji, mimo że nie jest już aktywny.
+    candidate_id = await _seed_candidate(
+        "Natalia",
+        "Prus-Rudzińska",
+        contract_client_id=client_id,
+        contract_status="ended",
+    )
     received: dict[str, str | None] = {}
     monkeypatch.setattr(co, "extract_text", lambda path, filename: "treść PDF")
 
@@ -253,6 +278,106 @@ async def test_targeted_extract_resolves_canonical_candidate_for_each_client(
     assert Decimal(str(data["md_total"])) == Decimal("37")
     # Wewnętrzna lista innych osób i ich stawek nie wychodzi z API.
     assert "consultant_rows" not in data
+
+
+@pytest.mark.parametrize("contract_status", ["active", "ending"])
+async def test_targeted_extract_accepts_live_candidate_from_another_client(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    contract_status: str,
+):
+    from app.api import client_orders as co
+    from app.services.order_pdf_parser import OrderExtraction
+
+    requested_client_id = await _seed_client("Polkomtel Sp. z o.o.")
+    other_client_id = await _seed_client("Inny klient")
+    candidate_id = await _seed_candidate(
+        "Anna",
+        "Kowalska",
+        contract_client_id=other_client_id,
+        contract_status=contract_status,
+    )
+    received: dict[str, str | None] = {}
+    monkeypatch.setattr(co, "extract_text", lambda path, filename: "treść PDF")
+
+    async def _fake_parse(
+        text: str,
+        *,
+        consultant_name: str | None = None,
+        consultant_given_names: str | None = None,
+    ) -> OrderExtraction:
+        received["consultant_name"] = consultant_name
+        received["consultant_given_names"] = consultant_given_names
+        return OrderExtraction(
+            title="PO-LIVE",
+            start_date="2026-09-01",
+            uncertain=False,
+            source="claude",
+        )
+
+    monkeypatch.setattr(co, "parse_order_document", _fake_parse)
+    response = await app_client.post(
+        f"/api/clients/{requested_client_id}/orders/extract",
+        data={"candidate_id": str(candidate_id)},
+        files={"file": ("multi.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert received == {
+        "consultant_name": "Anna Kowalska",
+        "consultant_given_names": "Anna",
+    }
+
+
+@pytest.mark.parametrize(
+    ("contract_status", "case_label"),
+    [(None, "bez kontraktu"), ("void", "anulowany kontrakt")],
+)
+async def test_targeted_extract_rejects_candidate_without_eligible_contract(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    contract_status: str | None,
+    case_label: str,
+):
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("BIK S.A.")
+    candidate_id = await _seed_candidate(
+        "Osoba",
+        "BezKontraktu",
+        contract_client_id=client_id if contract_status else None,
+        contract_status=contract_status or "active",
+    )
+    called = {"extract": False, "quota": False, "parse": False}
+
+    def _must_not_extract(*args, **kwargs):
+        called["extract"] = True
+        raise AssertionError(f"file extraction must not run: {case_label}")
+
+    async def _must_not_count_quota(*args, **kwargs):
+        called["quota"] = True
+        raise AssertionError(f"quota must not run: {case_label}")
+
+    async def _must_not_parse(*args, **kwargs):
+        called["parse"] = True
+        raise AssertionError(f"parser must not run: {case_label}")
+
+    monkeypatch.setattr(co, "extract_text", _must_not_extract)
+    monkeypatch.setattr(co, "check_and_increment", _must_not_count_quota)
+    monkeypatch.setattr(co, "parse_order_document", _must_not_parse)
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        data={"candidate_id": str(candidate_id)},
+        files={"file": ("multi.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Candidate not found"
+    assert called == {"extract": False, "quota": False, "parse": False}
 
 
 async def test_targeted_extract_rejects_unknown_candidate_before_parsing(

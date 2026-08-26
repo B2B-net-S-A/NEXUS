@@ -28,10 +28,10 @@ import logging
 import os
 import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
-from itertools import permutations
 from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
@@ -401,6 +401,8 @@ def _token_window_contains_consultant(
 
 _CROSS_LINE_NAME_CONTEXT = {
     "brutto",
+    "consultant",
+    "consultantname",
     "day",
     "dzien",
     "dni",
@@ -409,6 +411,8 @@ _CROSS_LINE_NAME_CONTEXT = {
     "godzina",
     "h",
     "hour",
+    "konsultant",
+    "konsultantka",
     "md",
     "miesiac",
     "month",
@@ -417,6 +421,10 @@ _CROSS_LINE_NAME_CONTEXT = {
     "rate",
     "stawka",
     "usd",
+    "zl",
+    "zlotego",
+    "zloty",
+    "zlotych",
 }
 
 
@@ -425,30 +433,57 @@ def _line_looks_like_complete_person(
     consultant_name: str,
     consultant_given_names: Optional[str],
 ) -> bool:
-    """Czy jeden wiersz ma już imię oraz człon nazwiska targetu."""
+    """Czy jeden wiersz zawiera już pełne imię i nazwisko targetu."""
 
     # Jawny łącznik na końcu oznacza zawinięte, niedokończone nazwisko.
     if re.search(r"-\s*$", line.strip()):
         return False
-    given_variants = _given_name_token_variants(consultant_name, consultant_given_names)
-    for line_tokens in _name_token_variants(line):
-        for target_tokens in _name_token_variants(consultant_name):
-            for given_tokens in given_variants:
-                if not _contains_exact_tokens(given_tokens, list(line_tokens)):
-                    continue
-                surname_tokens = list(target_tokens)
-                try:
-                    for token in given_tokens:
-                        surname_tokens.remove(token)
-                except ValueError:
-                    continue
-                if any(
-                    _safe_token_distance(surname_token, line_token) is not None
-                    for surname_token in surname_tokens
-                    for line_token in line_tokens
-                    if line_token not in given_tokens
-                ):
-                    return True
+    return _token_window_contains_consultant(
+        line, consultant_name, consultant_given_names
+    )
+
+
+def _ordered_name_layout_matches(
+    target_tokens: tuple[str, ...],
+    candidate_tokens: tuple[str, ...],
+    given_tokens: tuple[str, ...],
+) -> bool:
+    """Cross-line dopuszcza tylko układ ``imiona nazwisko`` lub odwrotny.
+
+    Kolejność członów wewnątrz imion i nazwiska pozostaje stała. Zapobiega to
+    sklejaniu naprzemiennych kolumn dwóch osób, ale nadal obsługuje zmianę
+    kolejności całych grup oraz jedną bezpieczną literówkę w nazwisku.
+    """
+
+    if len(target_tokens) != len(candidate_tokens):
+        return False
+    if not _contains_exact_tokens(given_tokens, list(candidate_tokens)):
+        return False
+
+    surname_tokens = list(target_tokens)
+    try:
+        for token in given_tokens:
+            surname_tokens.remove(token)
+    except ValueError:
+        return False
+
+    layouts = {
+        given_tokens + tuple(surname_tokens),
+        tuple(surname_tokens) + given_tokens,
+    }
+    for layout in layouts:
+        distances = [
+            _safe_token_distance(expected, actual)
+            for expected, actual in zip(layout, candidate_tokens)
+        ]
+        if any(distance is None for distance in distances):
+            continue
+        numeric_distances = [distance for distance in distances if distance is not None]
+        if (
+            any(distance == 0 for distance in numeric_distances)
+            and sum(numeric_distances) <= 1
+        ):
+            return True
     return False
 
 
@@ -471,24 +506,55 @@ def _cross_line_context_is_name_only(
         return False
 
     target_variants = _name_token_variants(consultant_name)
+    given_variants = _given_name_token_variants(consultant_name, consultant_given_names)
     for fragment_tokens in _name_token_variants(fragment):
-        relevant = [
+        relevant = tuple(
             token
             for token in fragment_tokens
             if not token.isdigit() and token not in _CROSS_LINE_NAME_CONTEXT
-        ]
+        )
         if any(
-            all(
-                any(
-                    _safe_token_distance(target_token, token) is not None
-                    for target_token in target_tokens
-                )
-                for token in relevant
-            )
+            _ordered_name_layout_matches(target_tokens, relevant, given_tokens)
             for target_tokens in target_variants
+            for given_tokens in given_variants
         ):
             return True
     return False
+
+
+def _cross_line_span_is_ambiguous(lines: list[str], *, start: int, width: int) -> bool:
+    """Odrzuć nierozstrzygalny układ trzech pojedynczych wierszy.
+
+    ``Prus / Rudzińska / Natalia / Anna`` może oznaczać zarówno target w
+    pierwszych trzech liniach, jak i dwie osoby zapisane kolumnami: Prus Natalia
+    oraz Rudzińska Anna. Trzy nagie, jednotokenowe linie wymagają więc dowodu
+    strukturalnego: sąsiedniego wiersza z etykietą/stawką. Brak sąsiada albo
+    kolejny pojedynczy token pozostaje stanem do ręcznej weryfikacji.
+    """
+
+    if width != 3:
+        return False
+    span = lines[start : start + width]
+    if not all(len(_search_name_tokens(line)) == 1 for line in span):
+        return False
+
+    neighbors = []
+    if start > 0:
+        neighbors.append(lines[start - 1])
+    if start + width < len(lines):
+        neighbors.append(lines[start + width])
+    for neighbor in neighbors:
+        tokens = _search_name_tokens(neighbor)
+        # Sama liczba/jednostka nie wystarcza, jeśli ten sam wiersz zawiera
+        # też nieznany token osoby (np. ``Anna | 1600 PLN/MD``). Wtedy nadal
+        # możemy patrzeć na układ kolumnowy dwóch konsultantów i musimy
+        # odmówić automatycznego dopasowania.
+        if not tokens or any(
+            not (token.isdigit() or token in _CROSS_LINE_NAME_CONTEXT)
+            for token in tokens
+        ):
+            return True
+    return not neighbors
 
 
 def _fragment_contains_consultant(
@@ -509,6 +575,8 @@ def _fragment_contains_consultant(
         for width in (2, 3):
             span = lines[start : start + width]
             if len(span) != width:
+                continue
+            if _cross_line_span_is_ambiguous(lines, start=start, width=width):
                 continue
             joined = "\n".join(span)
             if _cross_line_context_is_name_only(
@@ -1232,6 +1300,39 @@ def _safe_token_distance(expected: str, actual: str) -> Optional[int]:
     return None
 
 
+def _name_token_multiset_score(
+    target_tokens: tuple[str, ...], candidate_tokens: tuple[str, ...]
+) -> Optional[float]:
+    """Koszt równoważny permutacjom, bez silniowej liczby porównań.
+
+    Pełna zgodność multizbiorów kosztuje zero. Przy literówce po odjęciu
+    wspólnych tokenów musi zostać dokładnie jedna para, a jej jedyną dozwoloną
+    różnicą jest bezpieczna wewnętrzna transpozycja. Wymagamy też co najmniej
+    jednego dokładnego tokenu, tak jak w dotychczasowym matcherze.
+    """
+
+    target_counts = Counter(target_tokens)
+    candidate_counts = Counter(candidate_tokens)
+    common_counts = target_counts & candidate_counts
+    exact_matches = sum(common_counts.values())
+
+    if exact_matches == len(target_tokens):
+        return 0.0
+    if exact_matches == 0:
+        return None
+
+    remaining_target = list((target_counts - common_counts).elements())
+    remaining_candidate = list((candidate_counts - common_counts).elements())
+    if len(remaining_target) != 1 or len(remaining_candidate) != 1:
+        return None
+
+    expected = remaining_target[0]
+    actual = remaining_candidate[0]
+    if _safe_token_distance(expected, actual) != 1:
+        return None
+    return 1 / max(len(expected), len(actual))
+
+
 def _name_match_score(
     target: str,
     candidate: str,
@@ -1259,28 +1360,9 @@ def _name_match_score(
                 for given_tokens in given_name_variants
             ):
                 continue
-            for ordered in permutations(candidate_tokens):
-                distances = [
-                    _safe_token_distance(expected, actual)
-                    for expected, actual in zip(target_tokens, ordered)
-                ]
-                if any(distance is None for distance in distances):
-                    continue
-                numeric_distances = [
-                    distance for distance in distances if distance is not None
-                ]
-                if not any(distance == 0 for distance in numeric_distances):
-                    continue
-                if sum(numeric_distances) > 1:
-                    continue
-                score = sum(
-                    distance / max(len(expected), len(actual))
-                    for expected, actual, distance in zip(
-                        target_tokens, ordered, numeric_distances
-                    )
-                )
-                if best is None or score < best:
-                    best = score
+            score = _name_token_multiset_score(target_tokens, candidate_tokens)
+            if score is not None and (best is None or score < best):
+                best = score
     return best
 
 

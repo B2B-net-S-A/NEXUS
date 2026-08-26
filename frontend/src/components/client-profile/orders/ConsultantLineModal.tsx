@@ -34,6 +34,10 @@ import { formatMd } from "./MdBudgetBar";
 /** Ten sam limit i te same rozszerzenia co na endpointach zamówień. */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const ACCEPT = ".pdf,.docx,.doc";
+const INCOMPLETE_PROFILE_NAME_DETAIL =
+  "Kandydat nie ma imienia i nazwiska do dopasowania";
+const INCOMPLETE_PROFILE_NAME_MESSAGE =
+  "Uzupełnij brakujące imię lub nazwisko w profilu konsultanta, aby odczytać dane z dokumentu.";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
@@ -47,6 +51,18 @@ function extractionRateUnit(value: string | null): RateUnit | null {
   if (value === "day") return "md";
   if (value === "month") return "month";
   return null;
+}
+
+function isIncompleteProfileNameError(err: unknown): boolean {
+  const response = (
+    err as {
+      response?: { status?: number; data?: { detail?: unknown } };
+    }
+  )?.response;
+  return (
+    response?.status === 422 &&
+    response.data?.detail === INCOMPLETE_PROFILE_NAME_DETAIL
+  );
 }
 
 export interface LineFormValues {
@@ -222,6 +238,31 @@ export function ConsultantLineModal({
   };
 
   const targetCandidateId = line?.candidate_id ?? person?.candidate_id ?? null;
+  const missingProfileName = person
+    ? !person.first_name?.trim() && !person.last_name?.trim()
+      ? "imię i nazwisko"
+      : !person.first_name?.trim()
+        ? "imię"
+        : !person.last_name?.trim()
+          ? "nazwisko"
+          : null
+    : null;
+  // W edycji picker nie istnieje, więc nie mamy osobnych pól imienia i
+  // nazwiska. Jedno puste/jednoelementowe `consultant_name` jednoznacznie
+  // oznacza niekompletny profil. Wieloczłonowych nazwisk nie zgadujemy — ich
+  // autorytatywną walidację zwróci backend i mapujemy ją niżej z 422.
+  const editProfileNameIncomplete = Boolean(
+    line &&
+      line.consultant_name
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length < 2,
+  );
+  const profileNameMessage = missingProfileName
+    ? `Uzupełnij ${missingProfileName} w profilu konsultanta, aby odczytać dane z dokumentu.`
+    : editProfileNameIncomplete
+      ? INCOMPLETE_PROFILE_NAME_MESSAGE
+      : null;
   // Każda zmiana pliku, osoby, linii lub ponowne otwarcie unieważnia starszy
   // request. Sam candidate_id nie wystarcza: dwa PDF-y mogą dotyczyć tej samej
   // osoby, a wolniejsza odpowiedź starego pliku nie może wygrać wyścigu.
@@ -376,7 +417,7 @@ export function ConsultantLineModal({
 
   async function handleExtract() {
     const candidateId = targetCandidateId;
-    if (!file || extracting || candidateId == null) return;
+    if (!file || extracting || candidateId == null || profileNameMessage) return;
     const requestEpoch = extractionEpochRef.current + 1;
     extractionEpochRef.current = requestEpoch;
     setExtracting(true);
@@ -585,10 +626,12 @@ export function ConsultantLineModal({
     } catch (err: unknown) {
       if (extractionEpochRef.current === requestEpoch) {
         setExtractError(
-          extractionErrorMessage(
-            err,
-            "Nie udało się odczytać danych z dokumentu.",
-          ),
+          isIncompleteProfileNameError(err)
+            ? INCOMPLETE_PROFILE_NAME_MESSAGE
+            : extractionErrorMessage(
+                err,
+                "Nie udało się odczytać danych z dokumentu.",
+              ),
         );
       }
     } finally {
@@ -968,12 +1011,26 @@ export function ConsultantLineModal({
           <button
             type="button"
             onClick={handleExtract}
-            disabled={!file || extracting || targetCandidateId == null}
+            disabled={
+              !file ||
+              extracting ||
+              targetCandidateId == null ||
+              profileNameMessage !== null
+            }
             className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <FileSearch className="h-4 w-4" aria-hidden />
             {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
           </button>
+          {targetCandidateId == null ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Najpierw wybierz konsultanta, którego dane mają zostać odczytane.
+            </p>
+          ) : profileNameMessage ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {profileNameMessage}
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-muted-foreground">
             Odczytuje datę zamówienia, liczbę MD i stawkę przychodową. Przy
             rozbieżności z danymi wpisanymi ręcznie zapyta o potwierdzenie.

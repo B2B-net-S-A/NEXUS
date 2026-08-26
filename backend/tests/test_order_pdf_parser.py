@@ -520,6 +520,33 @@ class TestNormalizeClaudeShape:
 
 
 class TestConsultantRowMatching:
+    def test_six_token_name_matches_in_reverse_order(self):
+        score = m._name_match_score(
+            "Anna Maria Del Toro Garcia Kowalska",
+            "Kowalska Garcia Toro Del Maria Anna",
+            consultant_given_names="Anna Maria",
+        )
+
+        assert score == 0
+
+    def test_six_token_name_allows_one_internal_transposition(self):
+        score = m._name_match_score(
+            "Anna Maria Del Toro Garcia Kowalska",
+            "Kowaslka Garcia Toro Del Maria Anna",
+            consultant_given_names="Anna Maria",
+        )
+
+        assert score == pytest.approx(1 / len("kowalska"))
+
+    def test_six_token_name_rejects_two_transposed_pairs(self):
+        score = m._name_match_score(
+            "Anna Maria Del Toro Garcia Kowalska",
+            "Kowaslka Gacria Toro Del Maria Anna",
+            consultant_given_names="Anna Maria",
+        )
+
+        assert score is None
+
     @pytest.mark.parametrize(
         "written_name",
         [
@@ -966,6 +993,49 @@ class TestTargetedDocumentExcerpt:
         )
         assert m._document_mentions_consultant(
             "Natalia\nPrus\nRudzińska | 1640 PLN/MD",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+
+    def test_cross_line_name_rejects_interleaved_duplicate_given_names(self):
+        assert not m._document_mentions_consultant(
+            "Prus\nNatalia\nRudzińska\nNatalia",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+
+    def test_cross_line_name_rejects_ambiguous_column_major_people(self):
+        assert not m._document_mentions_consultant(
+            "Prus\nRudzińska\nNatalia\nAnna",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+
+    def test_cross_line_name_rejects_other_person_even_with_rate_context(self):
+        assert not m._document_mentions_consultant(
+            "Prus\nRudzińska\nNatalia\nAnna | 1600 PLN/MD",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+
+    def test_cross_line_name_allows_compound_surname_without_retained_hyphen(self):
+        assert m._document_mentions_consultant(
+            "Natalia Prus\nRudzińska",
+            "Natalia Prus-Rudzińska",
+            "Natalia",
+        )
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            "Natalia\nPrus\nRudzińska | 1640 zł/MD",
+            "Natalia\nPrus\nRudzińska\nStawka: 1640 zł/MD",
+            "Konsultant: Natalia\nPrus-Rudzińska",
+        ],
+    )
+    def test_cross_line_name_accepts_structurally_anchored_wraps(self, document):
+        assert m._document_mentions_consultant(
+            document,
             "Natalia Prus-Rudzińska",
             "Natalia",
         )
