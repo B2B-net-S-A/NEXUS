@@ -57,6 +57,7 @@ import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
+import { hasMixedOrderTypes } from "@/lib/client-order-capabilities";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -783,6 +784,8 @@ export default function ClientDetailPage() {
 
   useCanonicalClientRedirect(id, client?.id);
 
+  const mixedOrderTypesEnabled = hasMixedOrderTypes(client);
+
   useEffect(() => {
     if (client && Number(id) === client.id) {
       openTab("client", Number(id), client.name);
@@ -984,18 +987,16 @@ export default function ClientDetailPage() {
           )}
 
           {/* Typ rejestru wylicza backend: dotychczasowi klienci korzystają z
-              capability wielo-konsultantowej, a hardcoded Cyfrowy Polsat z
-              wariantu mieszanego standardowe / kosztowe / MD. Front nie
-              duplikuje ani listy z ENV, ani identyfikatora klienta. */}
+              capability wielo-konsultantowej, a hardcoded Cyfrowy Polsat oraz
+              Lotte Wedel z wariantu mieszanego standardowe / kosztowe / MD.
+              Front nie duplikuje listy z ENV ani identyfikatorów klientów. */}
           {activeTab === "zamowienia" &&
             (client?.multi_consultant_orders_enabled ||
-            client?.cyfrowy_polsat_order_types_enabled ? (
+            mixedOrderTypesEnabled ? (
               <MultiConsultantOrdersTab
                 clientId={Number(id)}
                 costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
-                mixedOrderTypesEnabled={Boolean(
-                  client?.cyfrowy_polsat_order_types_enabled,
-                )}
+                mixedOrderTypesEnabled={mixedOrderTypesEnabled}
               />
             ) : (
               <OrdersAndContractsTab

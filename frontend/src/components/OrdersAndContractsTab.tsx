@@ -56,7 +56,7 @@ import { useAuthStore } from "@/store/auth";
 interface OrdersAndContractsTabProps {
   clientId: number;
   clientName?: string;
-  /** Tryb osadzony (Cyfrowy Polsat): tworzeniem steruje wspólny selektor typu. */
+  /** Tryb osadzony (CP/Lotte): tworzeniem steruje wspólny selektor typu. */
   hideCreateButton?: boolean;
 }
 

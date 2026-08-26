@@ -43,6 +43,7 @@ from app.models.md_consumption import (
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
+from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 
 # Kwoty w złotych — dwa miejsca po przecinku. W odróżnieniu od MD (sześć
 # miejsc, bo `kwota / stawka` bywa ułamkiem nieskończonym) tutaj wartości
@@ -65,13 +66,16 @@ def is_cost_order_client(client_id: int | None) -> bool:
     """Czy u tego klienta wolno założyć zamówienie kosztowe.
 
     Lista z ENV nadal steruje dotychczasowymi klientami (w produkcji:
-    Polkomtel). Cyfrowy Polsat jest świadomie zahardkodowany osobnym
-    predykatem ticketu, więc pozostaje włączony także przy pustym ENV.
+    Polkomtel). Cyfrowy Polsat i Lotte Wedel są świadomie zahardkodowane
+    osobnymi predykatami swoich ticketów, więc pozostają włączone także przy
+    pustym ENV.
     """
     if client_id is None:
         return False
-    return client_id in cost_order_client_ids() or is_cyfrowy_polsat_order_types_client(
-        client_id
+    return (
+        client_id in cost_order_client_ids()
+        or is_cyfrowy_polsat_order_types_client(client_id)
+        or is_lotte_wedel_order_types_client(client_id)
     )
 
 
@@ -79,12 +83,16 @@ def skips_standard_order_automation(client_id: int | None) -> bool:
     """Czy niejednoznaczny typ zamówienia wyłącza automatyczny standardowy szkic.
 
     Historyczna polityka dotyczy klientów wpisanych do starej listy kosztowej
-    (na produkcji: Polkomtel). Cyfrowy Polsat ma dodatkowo jawny wariant
-    *standardowy*, więc sama capability kosztowa nie może wyłączyć mu tej
-    ścieżki ani ukryć istniejących szkiców.
+    (na produkcji: Polkomtel). Cyfrowy Polsat i Lotte Wedel mają dodatkowo
+    jawny wariant *standardowy*, więc sama capability kosztowa nie może
+    wyłączyć im tej ścieżki ani ukryć istniejących szkiców.
     """
 
-    if client_id is None or is_cyfrowy_polsat_order_types_client(client_id):
+    if (
+        client_id is None
+        or is_cyfrowy_polsat_order_types_client(client_id)
+        or is_lotte_wedel_order_types_client(client_id)
+    ):
         return False
     return client_id in cost_order_client_ids()
 
@@ -94,8 +102,10 @@ def skips_standard_order_group_materialization(client_id: int | None) -> bool:
 
     if client_id is None:
         return False
-    return client_id in cost_order_client_ids() or is_cyfrowy_polsat_order_types_client(
-        client_id
+    return (
+        client_id in cost_order_client_ids()
+        or is_cyfrowy_polsat_order_types_client(client_id)
+        or is_lotte_wedel_order_types_client(client_id)
     )
 
 
@@ -104,8 +114,10 @@ def hides_standard_drafts_from_order_group_registry(client_id: int | None) -> bo
 
     if client_id is None:
         return False
-    return client_id in cost_order_client_ids() or is_cyfrowy_polsat_order_types_client(
-        client_id
+    return (
+        client_id in cost_order_client_ids()
+        or is_cyfrowy_polsat_order_types_client(client_id)
+        or is_lotte_wedel_order_types_client(client_id)
     )
 
 

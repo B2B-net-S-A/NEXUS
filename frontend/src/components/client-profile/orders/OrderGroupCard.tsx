@@ -201,7 +201,7 @@ function BudgetBar({ group }: { group: OrderGroupRead }) {
   );
 }
 
-/** Wspólna pula MD Cyfrowego Polsatu. Pozostałość jest prezentowana z
+/** Wspólna pula MD Cyfrowego Polsatu/Lotte Wedel. Pozostałość jest prezentowana z
  *  podłogą 0 — przekroczenie nie może zamienić limitu w liczbę ujemną. */
 function SharedMdBudgetBar({ group }: { group: OrderGroupRead }) {
   const total = group.md_budget_total ?? 0;

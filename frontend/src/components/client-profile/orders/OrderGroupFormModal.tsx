@@ -43,7 +43,7 @@ interface Props {
   clientId: number;
   /** Czy u tego klienta wolno zakładać zamówienia kosztowe (flaga z serwera). */
   costOrdersEnabled: boolean;
-  /** Ustalony typ w mieszanym flow Cyfrowego Polsatu. `null` zachowuje
+  /** Ustalony typ w mieszanym flow CP/Lotte Wedel. `null` zachowuje
    *  dotychczasowy checkbox Polkomtela. */
   forcedOrderType?: "cost" | "md" | null;
   submitting: boolean;

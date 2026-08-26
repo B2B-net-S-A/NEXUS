@@ -1,4 +1,4 @@
-"""Wspólna pula MD całego zamówienia Cyfrowego Polsatu.
+"""Wspólna pula MD całego zamówienia Cyfrowego Polsatu i Lotte Wedel.
 
 To nie jest istniejący wariant MD per konsultant. Tutaj miesięczna konsumpcja
 jest agregowana na grupie, a pozostałość jest zawsze przeliczana od zera, dzięki
@@ -22,6 +22,7 @@ from app.models.client_order_group import (
     ClientOrderGroup,
     ClientOrderGroupMdConsumption,
 )
+from app.services.cost_orders import lock_group_for_settlement
 from app.services.multi_consultant_orders import quantize_md
 
 
@@ -64,7 +65,13 @@ async def settle_shared_md_group(db: AsyncSession, group: ClientOrderGroup) -> D
     więc przekroczenie nie znika informacyjnie. Ręcznie zakończonego zamówienia
     import/korekta nie otwiera; wyłącznie status ``exhausted`` może wrócić do
     ``active`` po zwiększeniu puli.
+
+    Tak jak rozliczenie kosztowe, każda ścieżka serializuje się na wierszu
+    grupy przed odczytem konsumpcji. Dzięki temu równoległy import i ręczna
+    korekta budżetu nie zapiszą pozostałości policzonej ze starego stanu.
     """
+
+    group = await lock_group_for_settlement(db, group, flush_local_changes=True)
 
     if not group.is_md_budget_based or group.md_budget_total is None:
         group.md_budget_remaining = None
@@ -109,6 +116,11 @@ async def upsert_shared_md_consumption(
     value = quantize_md(md_reported)
     if value < ZERO:
         raise ValueError("Wykorzystanie MD nie może być ujemne")
+
+    # Wszyscy writerzy zachowują kolejność grupa → konsumpcja. Bez tego
+    # bezpośredni caller mógłby zablokować wiersz miesiąca i czekać na grupę,
+    # podczas gdy równoległy import trzyma grupę i czeka na ten sam miesiąc.
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
 
     stmt = (
         pg_insert(ClientOrderGroupMdConsumption)
