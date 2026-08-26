@@ -114,6 +114,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
                 status: "active",
                 contract_type: "b2b",
                 start_date: "2026-01-01",
+                end_date: "2026-09-30",
                 rate_candidate: 100,
                 rate_client: 140,
                 margin: 40,
@@ -177,6 +178,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(screen.getByText("Bank Pocztowy")).toBeInTheDocument();
     expect(screen.getByText("VeloBank")).toBeInTheDocument();
     expect(screen.getByText(/pracuje u 2 klientów/i)).toBeInTheDocument();
+    expect(screen.getByText("Paweł Małek").closest("tr")).toHaveTextContent(
+      /VeloBank:.*bezterminowo/i,
+    );
 
     // Rozbicie stawek per klient: prefiks z nazwą klienta w komórkach kwotowych
     // (memberLines renderuje „Bank Pocztowy: " i „VeloBank: " per linia w
