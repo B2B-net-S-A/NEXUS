@@ -425,7 +425,7 @@ describe("MultiConsultantOrdersTab", () => {
   });
 });
 
-describe("MultiConsultantOrdersTab — Cyfrowy Polsat", () => {
+describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authState.role = "admin";

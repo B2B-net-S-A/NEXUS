@@ -1,11 +1,9 @@
-// Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP / Cyfrowy Polsat)
+// Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP / CP / Lotte Wedel)
 // + import zużycia MD.
 //
-// Lista klientów objętych tym modelem NIE jest tu duplikowana. W odróżnieniu od
-// `lib/ezdrowie.ts` (jedno zaszyte ID po obu stronach) ta lista jest zmienną
-// środowiskową backendu, więc kopia w bundlu byłaby nieaktualna od pierwszej
-// zmiany w Coolify. Front czyta wyliczoną flagę `multi_consultant_orders_enabled`
-// z odpowiedzi `GET /api/clients/{id}`.
+// Lista klientów objętych tym modelem NIE jest tu duplikowana. Backend liczy
+// capability z konfiguracji oraz jawnych predykatów klientowych; front czyta
+// gotowe flagi z odpowiedzi `GET /api/clients/{id}`.
 
 import { api } from "@/lib/api";
 
@@ -61,7 +59,7 @@ export interface OrderGroupRead {
   closure_reason: string | null;
 
   is_cost_based: boolean;
-  /** Wspólna pula MD na poziomie zamówienia (wyłącznie Cyfrowy Polsat).
+  /** Wspólna pula MD na poziomie zamówienia (Cyfrowy Polsat / Lotte Wedel).
    *  Dotychczasowe zamówienia MD BIK/Polkomtela/BNP nadal mają budżet per linia. */
   is_md_budget_based: boolean;
   /** Trzy liczby, nie jedna: kwota / wykorzystano / pozostało. Ticket nazywa

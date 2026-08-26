@@ -91,7 +91,7 @@ const MD_CLIENT_PILLS: Array<{ key: PillKey; label: string }> = [
   { key: "exhausted", label: "Wyczerpane" },
 ];
 
-// Cyfrowy Polsat pokazuje szkice/standardowe zamówienia w osadzonym legacy
+// Cyfrowy Polsat i Lotte Wedel pokazują standardowe zamówienia w legacy
 // rejestrze. Powtarzanie tu pustej pigułki Draft sugerowałoby, że część
 // standardowych zamówień zniknęła; grupy kosztowe/MD zachowują natomiast
 // przydatny filtr kończących się zamówień.
@@ -120,13 +120,12 @@ interface Props {
   clientId: number;
   /** Czy u tego klienta wolno zakładać zamówienia KOSZTOWE.
    *
-   *  Flagę liczy SERWER (env `COST_ORDER_CLIENT_IDS`) i przekazuje ją profil
-   *  klienta, który i tak ma już pobrany rekord. Front nie trzyma kopii listy
-   *  klientów — byłaby nieaktualna od pierwszej zmiany w Coolify — ani nie
-   *  robi drugiego zapytania o ten sam obiekt. */
+   *  Flagę liczy SERWER (konfiguracja lub jawny predykat klienta) i przekazuje
+   *  ją profil klienta, który i tak ma już pobrany rekord. Front nie trzyma
+   *  kopii listy klientów ani nie robi drugiego zapytania o ten sam obiekt. */
   costOrdersEnabled?: boolean;
-  /** Cyfrowy Polsat: obok grup kosztowych/MD zachowuje legacy zamówienia
-   *  standardowe i dostaje jedno, wspólne wejście tworzenia. */
+  /** CP/Lotte Wedel: obok grup kosztowych/MD zachowują legacy zamówienia
+   *  standardowe i dostają jedno, wspólne wejście tworzenia. */
   mixedOrderTypesEnabled?: boolean;
 }
 
@@ -225,7 +224,7 @@ function OrderTypePickerModal({
 
 /**
  * Zakładka „Zamówienia" dla klientów rozliczanych w T&M na MD
- * (BIK / Polkomtel / BNP) oraz dla mieszanego rejestru Cyfrowego Polsatu.
+ * (BIK / Polkomtel / BNP) oraz dla mieszanego rejestru CP/Lotte Wedel.
  * Pozostali klienci renderują niezmieniony `OrdersAndContractsTab` — wybór
  * następuje w `app/clients/[id]/page.tsx` na podstawie flagi z API, nie na
  * podstawie kopii listy klientów we froncie.

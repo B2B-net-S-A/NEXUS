@@ -110,6 +110,7 @@ from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
 from app.services.dl_alerts import emit_cost_order_exhausted
+from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import (
     EVENT_BUDGET_EXHAUSTED,
     EVENT_CONSULTANT_ADDED,
@@ -1637,6 +1638,18 @@ async def create_order_group(
                     "kosztowe albo na MD"
                 ),
             )
+    elif is_lotte_wedel_order_types_client(client_id):
+        # Standardowe zamówienie Lotte Wedel, tak samo jak CP, powstaje
+        # w legacy `/orders`. Grupa reprezentuje dokładnie jeden z dwóch
+        # specjalnych wariantów i nigdy nie miesza budżetu PLN z pulą MD.
+        if payload.is_cost_based == payload.is_md_budget_based:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Dla Lotte Wedel wybierz dokładnie jeden typ grupy: "
+                    "kosztowe albo na MD"
+                ),
+            )
     elif payload.is_md_budget_based:
         raise HTTPException(
             422,
@@ -1757,8 +1770,8 @@ async def update_order_group(
             422,
             detail="Wspólny budżet MD można zmieniać tylko na zamówieniu na MD",
         )
-    if data.keys() & cost_budget_fields:
-        # Lock before applying the operator's budget edit so the later
+    if data.keys() & (cost_budget_fields | md_budget_fields):
+        # Lock before applying the operator's PLN/MD budget edit so the later
         # before/after event and exhausted alert use one serialized state.
         # Lines come first to match contract hard-delete's child -> group lock
         # order; a combined period/budget PATCH updates those lines later.

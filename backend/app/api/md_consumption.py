@@ -4,7 +4,8 @@ Operator z Finansów wgrywa miesięczny raport (konsultant → zaraportowane MD)
 a system odejmuje MD od budżetów aktywnych linii zamówień.
 
 Historyczne zamówienia MD są dopasowywane wyłącznie po imieniu i nazwisku.
-Wspólna pula MD Cyfrowego Polsatu oraz zamówienia kosztowe wymagają dodatkowo
+Wspólna pula MD Cyfrowego Polsatu/Lotte Wedel oraz zamówienia kosztowe wymagają
+dodatkowo
 numeru zamówienia wyciągniętego z kolumny „Uwagi" — numer nie jest zgadywany
 ani wybierany jako „pierwszy pasujący". Dla ścieżki historycznej zostają trzy
 możliwe wyniki wiersza i tylko jeden z nich jest automatyczny:
@@ -431,12 +432,14 @@ async def create_import(
             user_id=user.id,
         )
 
-    for group_id, md_total in pending_shared_md.items():
+    # Stała kolejność blokad grup — dwa równoległe raporty obejmujące te same
+    # zamówienia w innej kolejności wierszy nie mogą zakleszczyć transakcji.
+    for group_id in sorted(pending_shared_md):
         await _settle_shared_md_and_record(
             db,
             group=shared_md_groups[group_id],
             period_month=period_month,
-            md_reported=md_total,
+            md_reported=pending_shared_md[group_id],
             import_id=batch.id,
             user_id=user.id,
         )
@@ -536,7 +539,7 @@ def _match_cost_row(
     # klientami), więc nie wolno zwijać kandydatów do słownika po samym
     # numerze. Najpierw konfrontujemy WSZYSTKIE numery z uwag, potem nazwisko,
     # i akceptujemy wyłącznie dokładnie jedną linię. Dzięki temu dwa zamówienia
-    # „445" u Polkomtela i Cyfrowego Polsatu nie nadpisują się zależnie od
+    # „445" u Polkomtela, Cyfrowego Polsatu i Lotte Wedel nie nadpisują się zależnie od
     # kolejności wyniku zapytania.
     numbered = [
         match for match in cost_candidates if match.group.order_number.strip() in hints
@@ -574,6 +577,11 @@ async def _settle_shared_md_and_record(
     user_id: int,
 ) -> None:
     """Nadpisz miesiąc wspólnej puli, przelicz ją i zapisz historię."""
+    # Lock before capturing ``before`` and before the monthly upsert. Two
+    # concurrent imports must produce two truthful, serialized transitions,
+    # while a budget PATCH must not overwrite a result computed from a newer
+    # consumption row.
+    group = await lock_group_for_settlement(db, group, flush_local_changes=False)
     before = group.md_budget_remaining
     was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
     _, remaining = await upsert_shared_md_consumption(

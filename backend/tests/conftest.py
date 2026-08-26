@@ -103,6 +103,21 @@ def _detach_ezdrowie_client_gate(monkeypatch):
     monkeypatch.setattr("app.services.ezdrowie.EZDROWIE_CLIENT_ID", -1)
 
 
+# ── Lotte Wedel: bramka po ID koliduje z serialem klientów ──────────────────
+
+
+@pytest.fixture(autouse=True)
+def _detach_lotte_wedel_client_gate(monkeypatch):
+    """Nie pozwól, by 155. testowy klient przypadkiem dostał polityki Lotte.
+
+    Baza jest współdzielona przez testy w shardzie, a ``clients.id`` rośnie
+    między nimi. Testy Lotte ustawiają stałą na własnego świeżego klienta już
+    po tej autouse fixture; pozostałe dostają nieosiągalne ID.
+    """
+
+    monkeypatch.setattr("app.services.lotte_wedel_orders.LOTTE_WEDEL_CLIENT_ID", -2)
+
+
 # ── Global skill-taxonomy isolation ─────────────────────────────────────────
 
 
