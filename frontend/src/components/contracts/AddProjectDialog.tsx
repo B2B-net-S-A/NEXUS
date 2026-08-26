@@ -3,8 +3,11 @@
 /**
  * „+ Dodaj kolejny projekt" — druga (trzecia…) umowa TEJ SAMEJ osoby u innego
  * klienta, z widoku istniejącego kontraktu. Po zapisie kontrakt staje się
- * wieloklientowy: lista grupuje wiersze po osobie, a szczegóły dostają
- * zakładki nazwane po kliencie.
+ * wieloklientowy, a backend atomowo zakłada powiązane zamówienie „Szkic” do
+ * uzupełnienia. Wyjątek: klient z dwoma typami zamówień wymaga jawnego wyboru
+ * typu w swojej zakładce, bo automatyczny szkic byłby niewidoczny. Lista
+ * kontraktów grupuje wiersze po osobie, a szczegóły dostają zakładki nazwane
+ * po kliencie.
  *
  * Reguły:
  * - Klient jest WYMAGANY (walidacja blokuje zapis, czerwone pole + opis).
@@ -177,6 +180,9 @@ export function AddProjectDialog({
         contract_type: contractType,
         work_mode: workMode || null,
         status: statusVal,
+        // Backend creates the linked draft in the same transaction. This
+        // explicit marker keeps ordinary manual contract creation unchanged.
+        source_contract_id: baseContract.id,
       };
       if (canManageFinance) {
         Object.assign(payload, {
@@ -190,12 +196,36 @@ export function AddProjectDialog({
       return contractsApi.create(payload);
     },
     onSuccess: (res) => {
-      showSuccess("Dodano kolejny projekt — kontrakt jest teraz wieloklientowy");
+      const result = res?.data as
+        | { id?: number; client_id?: number; draft_order_id?: number | null }
+        | undefined;
+      showSuccess(
+        result?.draft_order_id
+          ? "Dodano kolejny projekt i utworzono szkic zamówienia"
+          : "Dodano kolejny projekt — zamówienie dodaj w zakładce klienta i wybierz typ rozliczenia",
+      );
+      const savedClientId = result?.client_id ?? Number(clientId);
       // Odśwież wszystkie powierzchnie, które właśnie stały się wieloklientowe.
       queryClient.invalidateQueries({ queryKey: ["contract", baseContract.id] });
       queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      const newId = (res?.data as { id?: number } | undefined)?.id;
+      queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["candidate-contracts"] });
+      queryClient.invalidateQueries({
+        queryKey: ["client-profile", savedClientId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["client-register", savedClientId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["clients-directory"] });
+      queryClient.invalidateQueries({
+        queryKey: ["dl-orders-grouped", savedClientId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["client-order-groups", savedClientId],
+      });
+      const newId = result?.id;
       onOpenChange(false);
       if (newId) router.push(`/contracts/${newId}`);
     },
@@ -279,8 +309,8 @@ export function AddProjectDialog({
       title="Dodaj kolejny projekt"
       description={
         candidateName
-          ? `Nowa umowa dla: ${candidateName}. Po zapisie pojawi się osobna zakładka nazwana po kliencie.`
-          : "Nowa umowa tej samej osoby u kolejnego klienta."
+          ? `Nowy projekt dla: ${candidateName}. Po zapisie pojawi się osobna zakładka nazwana po kliencie.`
+          : "Nowy projekt tej samej osoby u kolejnego klienta."
       }
       size="lg"
       footer={
@@ -288,6 +318,7 @@ export function AddProjectDialog({
           <Button
             type="button"
             variant="ghost"
+            disabled={createMutation.isPending}
             onClick={() => onOpenChange(false)}
           >
             Anuluj

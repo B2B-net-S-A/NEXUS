@@ -31,6 +31,7 @@ from app.models.activity import Activity
 from app.models.call import Call
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import (
     Contract,
     ContractStatus,
@@ -106,12 +107,13 @@ from app.services.contract_lifecycle import (
     signed_generated_link_filter,
     void_contract,
 )
-from app.services.contract_rates import effective_rate_fields
-from app.services.contract_service import validate_ready_for_activation
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
 )
+from app.services.contract_rates import effective_rate_fields
+from app.services.contract_service import validate_ready_for_activation
+from app.services.cost_orders import is_cost_order_client
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
 from app.api.financial_access import (
@@ -271,6 +273,7 @@ async def _apply_contract_status_change(
     target: ContractStatus,
     *,
     actor_id: Optional[int],
+    enforce_signature_gate: bool = True,
 ) -> None:
     """Jedyne wejście dla zapisu ``status`` z rejestru umów — POST i PATCH.
 
@@ -285,8 +288,6 @@ async def _apply_contract_status_change(
         wskrzeszał go do MRR, liczników konsultantów i alertów DL;
       * ``active`` bez ``validate_ready_for_activation`` — umowa wchodzi do
         liczenia pieniędzy z pustymi polami, na których to liczenie stoi;
-      * ``active`` mimo rozpoczętego, niedokończonego procesu podpisu —
-        ``activate_contract`` odmawia tego z 409 ``signature_required``;
       * ``ended`` bez koherencji ``end_date`` i bez syncu ``ClientOrder`` —
         operacyjnie najgorsze, bo zamówienia klienta zostają otwarte, a skaner
         wygasania alarmuje o zakończonej współpracy.
@@ -313,10 +314,16 @@ async def _apply_contract_status_change(
             # zapisuje `contract_reopened` z `from_status`/`to_status`.
             await reopen_contract(db, contract, actor_id=actor_id)
         else:
-            # draft / ready_for_signature → pełne bramki: legalne przejście,
-            # komplet pól, a przy rozpoczętym podpisie — ukończony
-            # `DocumentSignature`. Każda odmowa to 409, stan bez zmian.
-            await lifecycle_activate_contract(db, contract, actor_id=actor_id)
+            # POST ręcznego rejestru obejmuje także umowy i aneksy podpisane
+            # offline, więc jego caller jawnie wyłącza tylko tę bramkę. PATCH,
+            # formalny endpoint /activate oraz szyna podpisu zachowują domyślną
+            # ochronę przed obejściem rozpoczętego procesu podpisu.
+            await lifecycle_activate_contract(
+                db,
+                contract,
+                actor_id=actor_id,
+                enforce_signature_gate=enforce_signature_gate,
+            )
         return
 
     if target == ContractStatus.draft:
@@ -352,7 +359,11 @@ async def _apply_contract_status_change(
         #
         if contract.status not in (ContractStatus.active, ContractStatus.ending):
             await _apply_contract_status_change(
-                db, contract, ContractStatus.active, actor_id=actor_id
+                db,
+                contract,
+                ContractStatus.active,
+                actor_id=actor_id,
+                enforce_signature_gate=enforce_signature_gate,
             )
         # Dopiero TERAZ, po pełnej bramce aktywacji: umowa BEZTERMINOWA nie
         # może być „Kończąca się" — nie ma czego kończyć. Ta sama reguła stoi
@@ -1428,6 +1439,41 @@ _DUPLICATE_GUARD_STATUSES = (
 )
 
 
+async def _lock_candidate_identity(
+    db: AsyncSession, candidate_id: int
+) -> Optional[Candidate]:
+    """Lock every Candidate row that the duplicate guard treats as one person.
+
+    Candidate imports can leave two records with the same e-mail. Locking only
+    the submitted id would let concurrent requests for those two records both
+    pass the e-mail-based duplicate check. The initial read discovers the
+    normalized identity; the second query acquires all matching row locks in a
+    stable id order, so every create for that identity is serialized.
+    """
+
+    snapshot = await db.get(Candidate, candidate_id)
+    if snapshot is None:
+        return None
+    email_norm = (snapshot.email or "").strip().lower()
+    identity_clauses = [Candidate.id == candidate_id]
+    if email_norm:
+        identity_clauses.append(
+            func.lower(func.btrim(Candidate.email, " \t\r\n")) == email_norm
+        )
+    locked = list(
+        (
+            await db.scalars(
+                select(Candidate)
+                .where(or_(*identity_clauses))
+                .order_by(Candidate.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).all()
+    )
+    return next((row for row in locked if row.id == candidate_id), None)
+
+
 async def _assert_no_duplicate_contract(
     db: AsyncSession, *, candidate: Candidate, client: Client
 ) -> None:
@@ -1476,6 +1522,64 @@ async def _assert_no_duplicate_contract(
     )
 
 
+async def _create_manual_project_order_draft(
+    db: AsyncSession,
+    *,
+    contract: Contract,
+    candidate: Candidate,
+    source_contract_id: int,
+    actor_id: int,
+) -> ClientOrder:
+    """Atomically add the fill-in draft required by „Dodaj kolejny projekt”."""
+
+    candidate_name_parts = [
+        part
+        for part in (candidate.name, candidate.lastname)
+        if part and part.strip() and part.strip() != "?"
+    ]
+    candidate_name = " ".join(part.strip() for part in candidate_name_parts)
+    if not candidate_name:
+        candidate_name = f"kandydata id={candidate.id}"
+    order = ClientOrder(
+        client_id=contract.client_id,
+        contract_id=contract.id,
+        job_id=contract.job_id,
+        # Placeholder is intentionally rejected by order activation, so even a
+        # fully priced active contract leaves this order in the Draft section
+        # until Delivery fills in the real client order number.
+        title="(bez numeru)",
+        status=ClientOrderStatus.draft,
+        filled_at=None,
+        start_date=contract.start_date,
+        end_date=contract.end_date,
+        rate_client=contract.rate_client,
+        currency=contract.currency,
+        created_by_user_id=actor_id,
+        notes=(
+            "Auto-utworzone przy dodaniu kolejnego projektu dla "
+            f"{candidate_name}. Uzupełnij numer, dane zamówienia i dokument PDF."
+        ),
+    )
+    db.add(order)
+    await db.flush()
+    db.add(
+        Activity(
+            entity_type="client_order",
+            entity_id=order.id,
+            action="auto_drafted_from_manual_project",
+            user_id=actor_id,
+            details={
+                "contract_id": contract.id,
+                "candidate_id": candidate.id,
+                "client_id": contract.client_id,
+                "job_id": contract.job_id,
+                "source_contract_id": source_contract_id,
+            },
+        )
+    )
+    return order
+
+
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
     data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
@@ -1487,7 +1591,10 @@ async def create_contract(
     )
     # Jawne 404 po polsku zamiast FK IntegrityError → 500 przy nieistniejącym
     # id; przy okazji wiersze są potrzebne do komunikatu blokady duplikatu.
-    candidate = await db.get(Candidate, data.candidate_id)
+    # Serialize contract creation for the complete e-mail identity, including
+    # duplicate Candidate records left by imports. Otherwise two fast requests
+    # can both pass the read-before-write guard and create duplicate projects.
+    candidate = await _lock_candidate_identity(db, data.candidate_id)
     if candidate is None:
         raise HTTPException(
             status_code=404,
@@ -1505,6 +1612,59 @@ async def create_contract(
                 "message": "Wybrany klient nie istnieje.",
             },
         )
+    if data.job_id is not None:
+        job = await db.get(Job, data.job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "job_not_found",
+                    "message": "Wybrana rekrutacja nie istnieje.",
+                },
+            )
+        if job.client_id != client.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "job_client_mismatch",
+                    "message": "Wybrana rekrutacja należy do innego klienta.",
+                },
+            )
+    if data.source_contract_id is not None:
+        source_contract = await db.get(Contract, data.source_contract_id)
+        if source_contract is None or source_contract.status == ContractStatus.void:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "source_contract_not_found",
+                    "message": "Kontrakt źródłowy kolejnego projektu nie istnieje.",
+                },
+            )
+        await _ensure_delivery_lead_contract_visible(source_contract, current_user, db)
+        if source_contract.candidate_id != candidate.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "source_contract_candidate_mismatch",
+                    "message": "Kontrakt źródłowy należy do innego kandydata.",
+                },
+            )
+        if source_contract.client_id == client.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "source_contract_client_mismatch",
+                    "message": "Kolejny projekt musi dotyczyć innego klienta.",
+                },
+            )
+        if data.status not in (ContractStatus.draft, ContractStatus.active):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "add_project_status_invalid",
+                    "message": ("Kolejny projekt można dodać jako Szkic albo Aktywny."),
+                },
+            )
     await _assert_no_duplicate_contract(db, candidate=candidate, client=client)
     payload = data.model_dump()
     # Kontrakt RODZI SIĘ szkicem i dopiero potem PRZECHODZI do wybranego stanu.
@@ -1517,6 +1677,7 @@ async def create_contract(
     # mówiącego, jak ten wiersz stał się aktywny. Samo przejście wykonujemy po
     # `flush()` — wiersz musi mieć `id`, patrz niżej.
     requested_status = payload.pop("status", None)
+    source_contract_id = payload.pop("source_contract_id", None)
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
     contract = Contract(**payload)
@@ -1571,6 +1732,18 @@ async def create_contract(
             contract,
             ContractStatus(requested_status),
             actor_id=current_user.id,
+            # POST /contracts is the two manual flows from this ticket. It
+            # records agreements that may live outside the signing module.
+            enforce_signature_gate=False,
+        )
+    draft_order: Optional[ClientOrder] = None
+    if source_contract_id is not None and not is_cost_order_client(contract.client_id):
+        draft_order = await _create_manual_project_order_draft(
+            db,
+            contract=contract,
+            candidate=candidate,
+            source_contract_id=source_contract_id,
+            actor_id=current_user.id,
         )
     db.add(
         Activity(
@@ -1595,6 +1768,7 @@ async def create_contract(
         )
     )
     detail = _to_detail(result.scalar_one())
+    detail.draft_order_id = draft_order.id if draft_order is not None else None
     from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 
     # Operacyjny create bez pól finansowych nie grantuje ich odczytu; odpowiedź

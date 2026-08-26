@@ -139,7 +139,9 @@ beforeEach(() => {
     }
     return Promise.reject(new Error(`Nieoczekiwany GET: ${url}`));
   });
-  mocks.create.mockResolvedValue({ data: { id: 77 } });
+  mocks.create.mockResolvedValue({
+    data: { id: 77, client_id: 2, draft_order_id: 88 },
+  });
 });
 
 describe("AddProjectDialog", () => {
@@ -163,11 +165,15 @@ describe("AddProjectDialog", () => {
         rate_client: 175,
         work_mode: "remote",
         status: "active",
+        source_contract_id: 10,
       }),
     );
     expect(
       screen.queryByText("Status „Aktywny” wymaga daty zakończenia."),
     ).not.toBeInTheDocument();
+    expect(mocks.showSuccess).toHaveBeenCalledWith(
+      "Dodano kolejny projekt i utworzono szkic zamówienia",
+    );
   });
 
   it("nadal blokuje zapis bez wymaganej daty rozpoczęcia", async () => {
@@ -184,5 +190,23 @@ describe("AddProjectDialog", () => {
     expect(
       screen.getByText("Podaj datę rozpoczęcia nowego projektu."),
     ).toBeInTheDocument();
+  });
+
+  it("dla klienta kosztowego kieruje do jawnego wyboru typu zamówienia", async () => {
+    mocks.create.mockResolvedValueOnce({
+      data: { id: 77, client_id: 2, draft_order_id: null },
+    });
+    const user = userEvent.setup({ delay: null });
+    renderDialog();
+
+    await selectClient(user);
+    await user.type(screen.getByPlaceholderText("np. 125,00"), "125,00");
+    await user.type(screen.getByPlaceholderText("np. 175,00"), "175,00");
+    await user.click(screen.getByRole("button", { name: "Dodaj projekt" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.showSuccess).toHaveBeenCalledWith(
+      "Dodano kolejny projekt — zamówienie dodaj w zakładce klienta i wybierz typ rozliczenia",
+    );
   });
 });
