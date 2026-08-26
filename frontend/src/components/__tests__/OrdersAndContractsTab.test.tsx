@@ -156,14 +156,17 @@ const CONTRACTOR_2 = {
   ],
 };
 
-function renderTab(clientId = 7) {
+function renderTab(clientId = 7, hideCreateButton = false) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <OrdersAndContractsTab clientId={clientId} />
+        <OrdersAndContractsTab
+          clientId={clientId}
+          hideCreateButton={hideCreateButton}
+        />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -240,6 +243,17 @@ describe("splitOrders", () => {
 // ── Card rendering ────────────────────────────────────────────────────────────
 
 describe("OrdersAndContractsTab card", () => {
+  it("w trybie osadzonym ukrywa własne wejście tworzenia", async () => {
+    renderTab(7, true);
+
+    expect(
+      await screen.findByRole("heading", { name: /Tomasz Sadowski/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the consultant name with the contract id and recruitment origin", async () => {
     renderTab();
     expect(

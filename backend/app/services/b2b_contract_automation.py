@@ -30,7 +30,7 @@ from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
-from app.services.cost_orders import is_cost_order_client
+from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
@@ -353,16 +353,13 @@ def _seed_candidate_rate_schedule(
 def should_auto_create_order(client_id: int | None) -> bool:
     """Czy hook zatrudnienia ma auto-tworzyć szkic zamówienia u tego klienta.
 
-    U klientów z ``COST_ORDER_CLIENT_IDS`` (Polkomtel) — NIE. Zamówienie bywa
-    tam kosztowe albo MD, a hook nie ma skąd znać typu: auto-szkic wpisywałby
-    na zamówienie coś, czego operator nie wybrał, i wisiał niewidzialny obok
-    rejestru grup. Decyzją ticketu (2026-08-24) „Oznacz jako podpisane"
-    tworzy tam wyłącznie kontrakt, a zamówienie — z jawnym wyborem typu —
-    dodaje Delivery Lead przez „Nowy kontraktor / zamówienie". Bramka wisi na
-    liście klientów kosztowych, nie na twardo wpisanym ID: to dokładnie
-    warunek „istnieją dwa typy zamówień", który czyni auto-szkic niejednoznacznym.
+    U historycznych klientów z ``COST_ORDER_CLIENT_IDS`` (Polkomtel) — NIE.
+    Zamówienie bywa tam kosztowe albo MD, a hook nie ma skąd znać typu.
+    Cyfrowy Polsat jest jawnym wyjątkiem: standardowy typ nadal korzysta z
+    legacy auto-szkicu, natomiast jego specjalne grupy kosztowe/MD operator
+    zakłada osobno. Dlatego bramka polityki jest węższa od capability kosztowej.
     """
-    return not is_cost_order_client(client_id)
+    return not skips_standard_order_automation(client_id)
 
 
 async def _ensure_open_order(

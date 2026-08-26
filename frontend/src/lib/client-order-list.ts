@@ -123,8 +123,9 @@ function average(values: Array<number | null>): number | null {
 
 export function orderGroupMetrics(group: OrderGroupRead): OrderGroupMetrics {
   const mdLines = group.lines.filter((line) => line.md_total !== null);
-  const totalMd =
-    mdLines.length > 0
+  const totalMd = group.is_md_budget_based
+    ? group.md_budget_total
+    : mdLines.length > 0
       ? mdLines.reduce((sum, line) => sum + (line.md_total ?? 0), 0)
       : null;
   let budgetUsage: number | null = null;
@@ -134,6 +135,12 @@ export function orderGroupMetrics(group: OrderGroupRead): OrderGroupMetrics {
     group.budget_amount > 0
   ) {
     budgetUsage = (group.budget_used ?? 0) / group.budget_amount;
+  } else if (
+    group.is_md_budget_based &&
+    group.md_budget_total !== null &&
+    group.md_budget_total > 0
+  ) {
+    budgetUsage = (group.md_budget_used ?? 0) / group.md_budget_total;
   } else if (totalMd !== null && totalMd > 0) {
     const used = mdLines.reduce(
       (sum, line) =>

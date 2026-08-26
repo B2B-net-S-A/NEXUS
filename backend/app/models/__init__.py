@@ -240,7 +240,11 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+from app.models.client_order_group import (
+    ClientOrderGroup,
+    ClientOrderGroupEvent,
+    ClientOrderGroupMdConsumption,
+)
 from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
@@ -488,6 +492,7 @@ __all__ = [
     "ClientOrder",
     "ClientOrderGroup",
     "ClientOrderGroupEvent",
+    "ClientOrderGroupMdConsumption",
     "ClientOrderInvoiceConsumption",
     "ClientOrderMdConsumption",
     "DlAlert",

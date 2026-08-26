@@ -42,9 +42,9 @@ function apiError(err: unknown, fallback: string): string {
 /**
  * Import miesięcznego raportu MD z Finansów.
  *
- * Arkusz nie zawiera numeru zamówienia, więc dopasowanie idzie po imieniu
- * i nazwisku. Wiersz z więcej niż jednym trafieniem NIE jest zgadywany —
- * czeka tutaj na ręczne wskazanie zamówienia.
+ * Historyczne budżety MD są dopasowywane po imieniu i nazwisku. Zamówienia
+ * kosztowe oraz wspólne pule MD wymagają dodatkowo numeru zamówienia
+ * wyciągniętego z kolumny „Uwagi". Wiersz niejednoznaczny NIE jest zgadywany.
  */
 export function MdImportWorkspace() {
   const queryClient = useQueryClient();
@@ -102,9 +102,11 @@ export function MdImportWorkspace() {
       <section className="rounded-xl border border-border bg-card p-5">
         <h2 className="text-sm font-semibold text-foreground">Import zużycia MD</h2>
         <p className="mt-1 text-xs text-muted-foreground">
-          Wgraj miesięczny raport (XLSX) z kolumnami konsultanta i liczby MD. Nagłówki
-          rozpoznawane są automatycznie — m.in. „Konsultant" / „Imię i nazwisko" oraz
-          „MD" / „Osobodni".
+          Wgraj miesięczny raport (XLSX) z kolumnami konsultanta i liczby MD.
+          Nagłówki rozpoznawane są automatycznie — m.in. „Konsultant" / „Imię
+          i nazwisko" oraz „MD" / „Osobodni". Dla zamówień kosztowych i
+          wspólnej puli MD system dopasowuje również numer zamówienia z kolumny
+          „Uwagi".
         </p>
 
         <div className="mt-4 flex flex-wrap items-end gap-3">

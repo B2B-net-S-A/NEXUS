@@ -86,6 +86,24 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_cost_coherence",
         ),
         CheckConstraint(
+            "NOT (is_cost_based = TRUE AND is_md_budget_based = TRUE)",
+            name="ck_client_order_groups_settlement_exclusive",
+        ),
+        # Wspólna pula MD jest kompletna albo nie istnieje. Dotychczasowe
+        # zamówienia MD mają budżety na liniach i pozostają w trzecim stanie:
+        # oba booleany FALSE, wszystkie pola wspólnej puli NULL/0.
+        CheckConstraint(
+            "("
+            "is_md_budget_based = FALSE AND md_budget_total IS NULL "
+            "AND md_budget_remaining IS NULL AND md_budget_manual_adjustment = 0"
+            ") OR ("
+            "is_md_budget_based = TRUE AND md_budget_total IS NOT NULL "
+            "AND md_budget_total > 0 AND md_budget_remaining IS NOT NULL "
+            "AND md_budget_remaining >= 0"
+            ")",
+            name="ck_client_order_groups_md_budget_coherence",
+        ),
+        CheckConstraint(
             "status <> 'completed' OR closure_date IS NOT NULL",
             name="ck_client_order_groups_closure",
         ),
@@ -118,9 +136,9 @@ class ClientOrderGroup(Base, TimestampMixin):
     Stan jest PRZECHOWYWANY, a nie wyliczany z dat — data nie odróżnia
     zamówienia domkniętego świadomie („konsultant odchodzi") od takiego,
     któremu po prostu minął termin, a te dwie sytuacje prowadzą do różnych
-    działań. ``exhausted`` dochodzi automatycznie, gdy budżet kosztowy zejdzie
-    do zera; różni się od ``completed`` tym, że nie da się go cofnąć zwykłym
-    przywróceniem (trzeba skorygować kwotę)."""
+    działań. ``exhausted`` dochodzi automatycznie, gdy budżet kosztowy albo
+    wspólna pula MD zejdzie do zera; różni się od ``completed`` tym, że nie da
+    się go cofnąć zwykłym przywróceniem (trzeba skorygować budżet)."""
 
     closure_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     closure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -162,6 +180,28 @@ class ClientOrderGroup(Base, TimestampMixin):
     powodu co ``ClientOrder.md_manual_adjustment``: korekta nadpisująca
     ``budget_remaining`` wprost przeżyłaby do najbliższego importu, który
     przelicza resztę od ``budget_amount`` i skasowałby ją po cichu."""
+
+    is_md_budget_based: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    """Wspólna pula MD całego zamówienia Cyfrowego Polsatu.
+
+    To osobny wariant od istniejących zamówień MD, gdzie budżet mieszka na
+    każdej linii konsultanta. Rozdzielenie chroni zachowanie BIK/BNP/Polkomtela.
+    """
+
+    md_budget_total: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 6), nullable=True
+    )
+    md_budget_remaining: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(16, 6), nullable=True
+    )
+    """Pozostała wspólna pula; przeliczana od zera i nigdy ujemna."""
+
+    md_budget_manual_adjustment: Mapped[Decimal] = mapped_column(
+        Numeric(16, 6), nullable=False, server_default="0"
+    )
+    """Jawna korekta wspólnej puli, niezależna od miesięcznej konsumpcji."""
 
     predecessor_group_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("client_order_groups.id", ondelete="SET NULL"), nullable=True
@@ -210,12 +250,59 @@ class ClientOrderGroup(Base, TimestampMixin):
         passive_deletes=True,
         order_by="ClientOrderGroupEvent.created_at.desc()",
     )
+    md_consumptions = relationship(
+        "ClientOrderGroupMdConsumption",
+        back_populates="group",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="ClientOrderGroupMdConsumption.period_month.asc()",
+    )
 
     def __repr__(self) -> str:
         return (
             f"<ClientOrderGroup id={self.id} client={self.client_id} "
             f"number={self.order_number!r}>"
         )
+
+
+class ClientOrderGroupMdConsumption(Base, TimestampMixin):
+    """Miesięczne zużycie wspólnej puli MD jednego zamówienia."""
+
+    __tablename__ = "client_order_group_md_consumptions"
+    __table_args__ = (
+        CheckConstraint(
+            "period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'",
+            name="ck_group_md_consumptions_period",
+        ),
+        CheckConstraint(
+            "source IN ('import', 'manual')",
+            name="ck_group_md_consumptions_source",
+        ),
+        CheckConstraint(
+            "md_reported >= 0",
+            name="ck_group_md_consumptions_nonnegative",
+        ),
+        Index(
+            "ux_group_md_consumptions_group_month",
+            "group_id",
+            "period_month",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("client_order_groups.id", ondelete="CASCADE"), nullable=False
+    )
+    period_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    md_reported: Mapped[Decimal] = mapped_column(Numeric(16, 6), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    group = relationship("ClientOrderGroup", back_populates="md_consumptions")
+    author = relationship("User", foreign_keys=[created_by_user_id])
 
 
 class ClientOrderGroupEvent(Base):

@@ -69,10 +69,15 @@ const GROUP: OrderGroupRead = {
   closure_date: null,
   closure_reason: null,
   is_cost_based: false,
+  is_md_budget_based: false,
   budget_amount: null,
   budget_used: null,
   budget_remaining: null,
   budget_manual_adjustment: null,
+  md_budget_total: null,
+  md_budget_used: null,
+  md_budget_remaining: null,
+  md_budget_manual_adjustment: null,
   predecessor_group_id: null,
   filename: null,
   has_file: false,
@@ -587,6 +592,23 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     renderModal(vi.fn(), { ...GROUP, is_cost_based: true });
     expect(
       screen.getByText(/rozliczane kwotą wspólną dla wszystkich konsultantów/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Liczba MD" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("wspólna pula MD nie tworzy osobnego budżetu przy konsultancie", async () => {
+    renderModal(vi.fn(), {
+      ...GROUP,
+      is_md_budget_based: true,
+      md_budget_total: 100,
+      md_budget_used: 20,
+      md_budget_remaining: 80,
+    });
+
+    expect(
+      screen.getByText(/wspólną pulę MD dla wszystkich konsultantów/i),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("textbox", { name: "Liczba MD" }),

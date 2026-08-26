@@ -56,6 +56,8 @@ import { useAuthStore } from "@/store/auth";
 interface OrdersAndContractsTabProps {
   clientId: number;
   clientName?: string;
+  /** Tryb osadzony (Cyfrowy Polsat): tworzeniem steruje wspólny selektor typu. */
+  hideCreateButton?: boolean;
 }
 
 type Filter = "all" | "active" | "expiring_30d" | "ended" | "drafts";
@@ -108,6 +110,7 @@ export function canTerminateContractor(contractStatus: string | null): boolean {
 export function OrdersAndContractsTab({
   clientId,
   clientName = "",
+  hideCreateButton = false,
 }: OrdersAndContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -295,13 +298,15 @@ export function OrdersAndContractsTab({
             Zakończeni ({counts.ended})
           </FilterPill>
         </div>
-        <button
-          onClick={() => setNewContractor(true)}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
-        >
-          <UserPlus className="w-4 h-4" />
-          Nowy kontraktor / zamówienie
-        </button>
+        {!hideCreateButton ? (
+          <button
+            onClick={() => setNewContractor(true)}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
+          >
+            <UserPlus className="w-4 h-4" />
+            Nowy kontraktor / zamówienie
+          </button>
+        ) : null}
       </div>
 
       <OrderListControls

@@ -112,6 +112,17 @@ class ClientSafeResponse(BaseModel):
 
         return is_cost_order_client(self.id)
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def cyfrowy_polsat_order_types_enabled(self) -> bool:
+        """Czy klient ma wybór standardowe / kosztowe / wspólna pula MD."""
+
+        from app.services.cyfrowy_polsat_orders import (
+            is_cyfrowy_polsat_order_types_client,
+        )
+
+        return is_cyfrowy_polsat_order_types_client(self.id)
+
 
 class ClientResponse(ClientSafeResponse):
     """Pełna projekcja — admin/HoR/DL/TAC (dane prawne + notatki)."""

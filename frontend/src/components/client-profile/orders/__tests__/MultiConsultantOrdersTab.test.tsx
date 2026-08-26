@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -54,6 +54,37 @@ vi.mock("@/lib/api/dlPortal", () => ({
   dlPortalApi: { listActiveContractsForExtension: vi.fn(), updateOrder: vi.fn() },
 }));
 
+vi.mock("@/components/OrdersAndContractsTab", () => ({
+  OrdersAndContractsTab: ({
+    hideCreateButton,
+  }: {
+    hideCreateButton?: boolean;
+  }) => (
+    <div data-testid="standard-orders-list">
+      {hideCreateButton ? "wspólne tworzenie" : "własne tworzenie"}
+    </div>
+  ),
+}));
+
+vi.mock("@/components/NewContractorOrderDialog", () => ({
+  NewContractorOrderDialog: ({
+    onClose,
+    onCreated,
+  }: {
+    onClose: () => void;
+    onCreated: () => void;
+  }) => (
+    <div role="dialog" aria-label="Nowe zamówienie standardowe">
+      <button type="button" onClick={onClose}>
+        Zamknij standardowe
+      </button>
+      <button type="button" onClick={onCreated}>
+        Utwórz standardowe
+      </button>
+    </div>
+  ),
+}));
+
 import { orderGroupsApi } from "@/lib/api/orderGroups";
 
 function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
@@ -99,10 +130,15 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
     closure_date: null,
     closure_reason: null,
     is_cost_based: false,
+    is_md_budget_based: false,
     budget_amount: null,
     budget_used: null,
     budget_remaining: null,
     budget_manual_adjustment: null,
+    md_budget_total: null,
+    md_budget_used: null,
+    md_budget_remaining: null,
+    md_budget_manual_adjustment: null,
     predecessor_group_id: null,
     filename: null,
     has_file: false,
@@ -118,7 +154,12 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
   };
 }
 
-function renderTab(props: { costOrdersEnabled?: boolean } = {}) {
+function renderTab(
+  props: {
+    costOrdersEnabled?: boolean;
+    mixedOrderTypesEnabled?: boolean;
+  } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -381,6 +422,213 @@ describe("MultiConsultantOrdersTab", () => {
     // Kolor ostrzegawczy siedzi na opakowaniu obu liczb (pozostało / całość).
     expect(value.parentElement?.className).toMatch(/destructive/);
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+  });
+});
+
+describe("MultiConsultantOrdersTab — Cyfrowy Polsat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.role = "admin";
+    authState.capabilities = ["manage_finance"];
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [], total_groups: 0, total_consultants: 0 },
+    } as never);
+  });
+
+  it("ma jedno wejście tworzenia i trzy wzajemnie wykluczające się typy", async () => {
+    const user = userEvent.setup();
+    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+
+    expect(await screen.findByTestId("standard-orders-list")).toHaveTextContent(
+      "wspólne tworzenie",
+    );
+    expect(
+      screen.queryByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
+    ).not.toBeInTheDocument();
+    const createButtons = screen.getAllByRole("button", {
+      name: "Nowe zamówienie",
+    });
+    expect(createButtons).toHaveLength(1);
+    await user.click(createButtons[0]);
+
+    const standard = screen.getByRole("radio", { name: /^Standardowe/ });
+    const cost = screen.getByRole("radio", { name: /^Zamówienie kosztowe/ });
+    const md = screen.getByRole("radio", { name: /^Zamówienie na MD/ });
+    expect(standard).toBeChecked();
+    expect(cost).not.toBeChecked();
+    expect(md).not.toBeChecked();
+
+    await user.click(cost);
+    expect(standard).not.toBeChecked();
+    expect(cost).toBeChecked();
+    expect(md).not.toBeChecked();
+
+    await user.click(md);
+    expect(standard).not.toBeChecked();
+    expect(cost).not.toBeChecked();
+    expect(md).toBeChecked();
+  });
+
+  it("standardowe otwiera istniejący dialog legacy", async () => {
+    const user = userEvent.setup();
+    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Dalej" }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Nowe zamówienie standardowe" }),
+    ).toBeInTheDocument();
+  });
+
+  it("zamówienie na MD wysyła wspólny budżet bez typu kosztowego", async () => {
+    vi.mocked(orderGroupsApi.create).mockResolvedValue({
+      data: group({
+        id: 77,
+        order_number: "CP-MD-1",
+        is_md_budget_based: true,
+        md_budget_total: 120.5,
+        md_budget_used: 0,
+        md_budget_remaining: 120.5,
+        lines: [],
+        active_consultants: 0,
+      }),
+    } as never);
+    const user = userEvent.setup();
+    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+    await user.click(screen.getByRole("radio", { name: /^Zamówienie na MD/ }));
+    await user.click(screen.getByRole("button", { name: "Dalej" }));
+
+    expect(screen.getByText("Zamówienie na MD")).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /kosztowe/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Automatyczne pomniejszanie działa/),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-MD-1");
+    await user.type(screen.getByLabelText(/Budżet w MD/), "120,5");
+    fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
+      target: { value: "2026-09-01" },
+    });
+    await user.click(screen.getByRole("button", { name: "Utwórz zamówienie" }));
+
+    await waitFor(() =>
+      expect(orderGroupsApi.create).toHaveBeenCalledWith(7, {
+        order_number: "CP-MD-1",
+        start_date: "2026-09-01",
+        end_date: null,
+        notes: null,
+        is_cost_based: false,
+        is_md_budget_based: true,
+        md_budget_total: 120.5,
+      }),
+    );
+  });
+
+  it("zamówienie kosztowe pozostaje rozliczane wyłącznie w PLN", async () => {
+    vi.mocked(orderGroupsApi.create).mockResolvedValue({
+      data: group({
+        id: 78,
+        order_number: "CP-COST-1",
+        is_cost_based: true,
+        budget_amount: 50000,
+        budget_used: 0,
+        budget_remaining: 50000,
+        lines: [],
+        active_consultants: 0,
+      }),
+    } as never);
+    const user = userEvent.setup();
+    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+    await user.click(screen.getByRole("radio", { name: /^Zamówienie kosztowe/ }));
+    await user.click(screen.getByRole("button", { name: "Dalej" }));
+
+    expect(screen.getByLabelText(/Kwota zamówienia/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-COST-1");
+    await user.type(screen.getByLabelText(/Kwota zamówienia/), "50000");
+    fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
+      target: { value: "2026-09-01" },
+    });
+    await user.click(screen.getByRole("button", { name: "Utwórz zamówienie" }));
+
+    await waitFor(() =>
+      expect(orderGroupsApi.create).toHaveBeenCalledWith(7, {
+        order_number: "CP-COST-1",
+        start_date: "2026-09-01",
+        end_date: null,
+        notes: null,
+        is_cost_based: true,
+        is_md_budget_based: false,
+        budget_amount: 50000,
+      }),
+    );
+  });
+
+  it("pokazuje wspólną pulę MD z zerem i blokadą po wyczerpaniu", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            status: "exhausted",
+            status_label: "Wyczerpane",
+            is_md_budget_based: true,
+            md_budget_total: 100,
+            md_budget_used: 105,
+            md_budget_remaining: -5,
+            can_add_consultant: false,
+            lines: [
+              line({
+                input_mode: null,
+                input_value: null,
+                md_total: null,
+                md_remaining: null,
+              }),
+            ],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+
+    expect(await screen.findByText("na MD")).toBeInTheDocument();
+    const budget = screen.getByText(/Budżet 100 MD/);
+    expect(budget).toHaveTextContent(/wykorzystano 105 MD/);
+    expect(budget).toHaveTextContent(/pozostało 0 MD/);
+    expect(screen.getByText("Wspólna pula")).toBeInTheDocument();
+    expect(screen.queryByText(/-5/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Budżet MD wyczerpany/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Dodaj konsultanta do zamówienia/ }),
+    ).toBeDisabled();
+  });
+
+  it("Polkomtel zachowuje dotychczasowy checkbox bez selektora trzech typów", async () => {
+    const user = userEvent.setup();
+    renderTab({ costOrdersEnabled: true });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+
+    expect(
+      screen.getByRole("checkbox", { name: "Zamówienie kosztowe" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^Standardowe/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /^Zamówienie na MD/ })).not.toBeInTheDocument();
   });
 });
 

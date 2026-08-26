@@ -62,10 +62,15 @@ function group(
     closure_date: null,
     closure_reason: null,
     is_cost_based: false,
+    is_md_budget_based: false,
     budget_amount: null,
     budget_used: null,
     budget_remaining: null,
     budget_manual_adjustment: null,
+    md_budget_total: null,
+    md_budget_used: null,
+    md_budget_remaining: null,
+    md_budget_manual_adjustment: null,
     predecessor_group_id: null,
     filename: null,
     has_file: false,
@@ -147,6 +152,46 @@ describe("client order list filters", () => {
       "2026-08-21",
     );
     expect(result.map((item) => item.id)).toEqual([1]);
+  });
+
+  it("filtr 80% korzysta ze wspólnego budżetu MD grupy, nie z linii", () => {
+    const near = group(1, "CP-MD-NEAR", {
+      is_md_budget_based: true,
+      md_budget_total: 100,
+      md_budget_used: 80,
+      md_budget_remaining: 20,
+      lines: [
+        line(1, "A B", {
+          input_mode: null,
+          input_value: null,
+          md_total: null,
+          md_remaining: null,
+        }),
+      ],
+    });
+    const below = group(2, "CP-MD-BELOW", {
+      is_md_budget_based: true,
+      md_budget_total: 100,
+      md_budget_used: 79,
+      md_budget_remaining: 21,
+      lines: [
+        line(2, "C D", {
+          input_mode: null,
+          input_value: null,
+          md_total: null,
+          md_remaining: null,
+        }),
+      ],
+    });
+
+    expect(
+      filterAndSortOrderGroups(
+        [below, near],
+        "",
+        { ...DEFAULT_ORDER_LIST_FILTERS, nearBudget: true },
+        "2026-08-21",
+      ).map((item) => item.id),
+    ).toEqual([1]);
   });
 
   it("sorts groups by average consultant rate and lines alphabetically", () => {

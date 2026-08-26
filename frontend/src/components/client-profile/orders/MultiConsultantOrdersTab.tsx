@@ -4,7 +4,9 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 
-import { EmptyState, QueryStateNotice } from "@/components/ds";
+import { AppModal, EmptyState, QueryStateNotice } from "@/components/ds";
+import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
+import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
 import { useToast } from "@/components/Toast";
 import {
   orderGroupsApi,
@@ -89,6 +91,14 @@ const MD_CLIENT_PILLS: Array<{ key: PillKey; label: string }> = [
   { key: "exhausted", label: "Wyczerpane" },
 ];
 
+// Cyfrowy Polsat pokazuje szkice/standardowe zamówienia w osadzonym legacy
+// rejestrze. Powtarzanie tu pustej pigułki Draft sugerowałoby, że część
+// standardowych zamówień zniknęła; grupy kosztowe/MD zachowują natomiast
+// przydatny filtr kończących się zamówień.
+const MIXED_GROUP_PILLS = MD_CLIENT_PILLS.filter(
+  (entry) => entry.key !== "draft",
+);
+
 /** Dni do końca zamówienia liczone datami kalendarzowymi (bez stref). */
 function daysToEnd(end: string | null): number | null {
   if (!end) return null;
@@ -115,17 +125,115 @@ interface Props {
    *  klientów — byłaby nieaktualna od pierwszej zmiany w Coolify — ani nie
    *  robi drugiego zapytania o ten sam obiekt. */
   costOrdersEnabled?: boolean;
+  /** Cyfrowy Polsat: obok grup kosztowych/MD zachowuje legacy zamówienia
+   *  standardowe i dostaje jedno, wspólne wejście tworzenia. */
+  mixedOrderTypesEnabled?: boolean;
+}
+
+type NewOrderType = "standard" | "cost" | "md";
+type GroupCreateType = Exclude<NewOrderType, "standard">;
+
+function OrderTypePickerModal({
+  open,
+  value,
+  onChange,
+  onOpenChange,
+  onContinue,
+}: {
+  open: boolean;
+  value: NewOrderType;
+  onChange: (value: NewOrderType) => void;
+  onOpenChange: (open: boolean) => void;
+  onContinue: () => void;
+}) {
+  const choices: Array<{
+    value: NewOrderType;
+    label: string;
+    description: string;
+  }> = [
+    {
+      value: "standard",
+      label: "Standardowe",
+      description: "Jedno zamówienie przypisane do jednego kontraktora.",
+    },
+    {
+      value: "cost",
+      label: "Zamówienie kosztowe",
+      description: "Wspólny budżet w PLN pomniejszany fakturami.",
+    },
+    {
+      value: "md",
+      label: "Zamówienie na MD",
+      description: "Wspólny budżet wyrażony w liczbie MD.",
+    },
+  ];
+
+  return (
+    <AppModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Wybierz typ zamówienia"
+      description="Dla jednego zamówienia możesz wybrać tylko jeden sposób rozliczenia."
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted"
+          >
+            Anuluj
+          </button>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
+          >
+            Dalej
+          </button>
+        </>
+      }
+    >
+      <fieldset className="space-y-2">
+        <legend className="sr-only">Typ zamówienia</legend>
+        {choices.map((choice) => (
+          <label
+            key={choice.value}
+            className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3 hover:bg-muted/40"
+          >
+            <input
+              type="radio"
+              name="new-order-type"
+              value={choice.value}
+              checked={value === choice.value}
+              onChange={() => onChange(choice.value)}
+              className="mt-0.5 h-4 w-4"
+            />
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                {choice.label}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {choice.description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+    </AppModal>
+  );
 }
 
 /**
  * Zakładka „Zamówienia" dla klientów rozliczanych w T&M na MD
- * (BIK / Polkomtel / BNP). Pozostali klienci renderują niezmieniony
- * `OrdersAndContractsTab` — wybór następuje w `app/clients/[id]/page.tsx`
- * na podstawie flagi z API, nie na podstawie kopii listy klientów we froncie.
+ * (BIK / Polkomtel / BNP) oraz dla mieszanego rejestru Cyfrowego Polsatu.
+ * Pozostali klienci renderują niezmieniony `OrdersAndContractsTab` — wybór
+ * następuje w `app/clients/[id]/page.tsx` na podstawie flagi z API, nie na
+ * podstawie kopii listy klientów we froncie.
  */
 export function MultiConsultantOrdersTab({
   clientId,
   costOrdersEnabled = false,
+  mixedOrderTypesEnabled = false,
 }: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -139,6 +247,12 @@ export function MultiConsultantOrdersTab({
     ...DEFAULT_ORDER_LIST_FILTERS,
   });
   const [exporting, setExporting] = useState(false);
+  const [orderTypeModalOpen, setOrderTypeModalOpen] = useState(false);
+  const [newOrderType, setNewOrderType] = useState<NewOrderType>("standard");
+  const [standardOrderModalOpen, setStandardOrderModalOpen] = useState(false);
+  const [groupCreateType, setGroupCreateType] = useState<GroupCreateType | null>(
+    null,
+  );
   const [groupModal, setGroupModal] = useState<{ open: boolean; group: OrderGroupRead | null }>(
     { open: false, group: null },
   );
@@ -243,6 +357,9 @@ export function MultiConsultantOrdersTab({
             ...(values.budget_amount != null
               ? { budget_amount: values.budget_amount }
               : {}),
+            ...(values.md_budget_total != null
+              ? { md_budget_total: values.md_budget_total }
+              : {}),
           })
         ).data;
       } else {
@@ -252,6 +369,7 @@ export function MultiConsultantOrdersTab({
     },
     onSuccess: (result) => {
       setGroupModal({ open: false, group: null });
+      setGroupCreateType(null);
       setFormError(null);
       invalidate();
       announceSaved(result, "Zapisano zamówienie");
@@ -401,7 +519,11 @@ export function MultiConsultantOrdersTab({
     () => query.data?.draft_orders ?? [],
     [query.data],
   );
-  const pills = costOrdersEnabled ? BASE_PILLS : MD_CLIENT_PILLS;
+  const pills = mixedOrderTypesEnabled
+    ? MIXED_GROUP_PILLS
+    : costOrdersEnabled
+      ? BASE_PILLS
+      : MD_CLIENT_PILLS;
   const counts = useMemo(() => {
     const byStatus: Record<PillKey, number> = {
       all: groups.length,
@@ -453,8 +575,9 @@ export function MultiConsultantOrdersTab({
             Zamówienia klienta
           </h2>
           <p className="text-xs text-muted-foreground">
-            Jedno zamówienie może obejmować wielu konsultantów, każdego z własnym
-            budżetem MD.
+            {mixedOrderTypesEnabled
+              ? "Zamówienia standardowe, kosztowe i rozliczane wspólną pulą MD."
+              : "Jedno zamówienie może obejmować wielu konsultantów, każdego z własnym budżetem MD."}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -463,6 +586,7 @@ export function MultiConsultantOrdersTab({
               czyli tę samą nieprawdę co pusty stan pod spodem. */}
           {query.isSuccess ? (
             <p className="text-xs text-muted-foreground">
+              {mixedOrderTypesEnabled ? "Grupy kosztowe/MD: " : ""}
               {countPl(
                 query.data.total_groups,
                 "zamówienie",
@@ -483,7 +607,13 @@ export function MultiConsultantOrdersTab({
               type="button"
               onClick={() => {
                 setFormError(null);
-                setGroupModal({ open: true, group: null });
+                if (mixedOrderTypesEnabled) {
+                  setNewOrderType("standard");
+                  setOrderTypeModalOpen(true);
+                } else {
+                  setGroupCreateType(null);
+                  setGroupModal({ open: true, group: null });
+                }
               }}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground"
             >
@@ -492,6 +622,27 @@ export function MultiConsultantOrdersTab({
           ) : null}
         </div>
       </header>
+
+      {mixedOrderTypesEnabled ? (
+        <section
+          aria-labelledby="standard-orders-heading"
+          className="rounded-xl border border-border bg-card p-4"
+        >
+          <h3
+            id="standard-orders-heading"
+            className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground"
+          >
+            Zamówienia standardowe
+          </h3>
+          <OrdersAndContractsTab clientId={clientId} hideCreateButton />
+        </section>
+      ) : null}
+
+      {mixedOrderTypesEnabled ? (
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
+          Zamówienia kosztowe i na MD
+        </h3>
+      ) : null}
 
       {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
           będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
@@ -576,14 +727,18 @@ export function MultiConsultantOrdersTab({
             search.trim()
               ? "Nie znaleziono zamówienia pasującego do wyszukiwania"
               : pill === "all"
-                ? "Brak zamówień"
+                ? mixedOrderTypesEnabled
+                  ? "Brak zamówień kosztowych i na MD"
+                  : "Brak zamówień"
                 : "Brak wyników dla tego filtra"
           }
           description={
             search.trim()
               ? "Zmień wyszukiwaną frazę albo wyczyść aktywne filtry."
               : pill === "all"
-              ? "Ten klient nie ma jeszcze zamówień wielo-konsultantowych."
+              ? mixedOrderTypesEnabled
+                ? "Zamówienia standardowe pozostają w rejestrze powyżej."
+                : "Ten klient nie ma jeszcze zamówień wielo-konsultantowych."
               : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
           }
         />
@@ -662,6 +817,15 @@ export function MultiConsultantOrdersTab({
         group={groupModal.group}
         clientId={clientId}
         costOrdersEnabled={costOrdersEnabled}
+        forcedOrderType={
+          mixedOrderTypesEnabled
+            ? groupModal.group
+              ? groupModal.group.is_md_budget_based
+                ? "md"
+                : "cost"
+              : groupCreateType
+            : null
+        }
         submitting={saveGroup.isPending}
         error={formError}
         onSubmit={(values, file) => saveGroup.mutate({ values, file })}
@@ -673,6 +837,36 @@ export function MultiConsultantOrdersTab({
           showToast("Plik PDF zamówienia usunięty", "success");
         }}
       />
+
+      <OrderTypePickerModal
+        open={orderTypeModalOpen}
+        value={newOrderType}
+        onChange={setNewOrderType}
+        onOpenChange={setOrderTypeModalOpen}
+        onContinue={() => {
+          setOrderTypeModalOpen(false);
+          setFormError(null);
+          if (newOrderType === "standard") {
+            setStandardOrderModalOpen(true);
+            return;
+          }
+          setGroupCreateType(newOrderType);
+          setGroupModal({ open: true, group: null });
+        }}
+      />
+
+      {standardOrderModalOpen ? (
+        <NewContractorOrderDialog
+          clientId={clientId}
+          onClose={() => setStandardOrderModalOpen(false)}
+          onCreated={() => {
+            setStandardOrderModalOpen(false);
+            queryClient.invalidateQueries({
+              queryKey: ["dl-orders-grouped", clientId],
+            });
+          }}
+        />
+      ) : null}
 
       <ConsultantLineModal
         open={lineModal.open}

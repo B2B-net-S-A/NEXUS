@@ -1,4 +1,5 @@
-// Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD.
+// Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP / Cyfrowy Polsat)
+// + import zużycia MD.
 //
 // Lista klientów objętych tym modelem NIE jest tu duplikowana. W odróżnieniu od
 // `lib/ezdrowie.ts` (jedno zaszyte ID po obu stronach) ta lista jest zmienną
@@ -60,6 +61,9 @@ export interface OrderGroupRead {
   closure_reason: string | null;
 
   is_cost_based: boolean;
+  /** Wspólna pula MD na poziomie zamówienia (wyłącznie Cyfrowy Polsat).
+   *  Dotychczasowe zamówienia MD BIK/Polkomtela/BNP nadal mają budżet per linia. */
+  is_md_budget_based: boolean;
   /** Trzy liczby, nie jedna: kwota / wykorzystano / pozostało. Ticket nazywa
    *  „zużyciem" wartość, która maleje — czyli resztę; jedno pole podpisane
    *  „zużycie", a pokazujące resztę, myli w rozmowie o pieniądzach. */
@@ -67,6 +71,10 @@ export interface OrderGroupRead {
   budget_used: number | null;
   budget_remaining: number | null;
   budget_manual_adjustment: number | null;
+  md_budget_total: number | null;
+  md_budget_used: number | null;
+  md_budget_remaining: number | null;
+  md_budget_manual_adjustment: number | null;
   predecessor_group_id: number | null;
   filename: string | null;
   has_file: boolean;
@@ -175,8 +183,9 @@ export interface OrderLineInput {
   candidate_id?: number | null;
   rate_cost: number;
   rate_revenue: number;
-  /** Budżet MD. Pomijany na zamówieniu KOSZTOWYM — tam pula jest wspólna
-   *  i mieszka na zamówieniu, a nie przy osobie (backend odrzuca komplet). */
+  /** Budżet MD per linia. Pomijany na zamówieniu KOSZTOWYM i na wspólnej
+   *  puli MD — w obu wariantach budżet mieszka na grupie, a backend odrzuca
+   *  konkurencyjny budżet przy osobie. */
   input_mode?: OrderInputMode | null;
   input_value?: number | null;
   start_date: string;
@@ -190,7 +199,9 @@ export interface OrderGroupInput {
   end_date?: string | null;
   notes?: string | null;
   is_cost_based?: boolean;
+  is_md_budget_based?: boolean;
   budget_amount?: number | null;
+  md_budget_total?: number | null;
   lines?: OrderLineInput[];
 }
 
@@ -201,6 +212,8 @@ export interface OrderGroupPatch {
   notes?: string | null;
   budget_amount?: number | null;
   budget_manual_adjustment?: number | null;
+  md_budget_total?: number | null;
+  md_budget_manual_adjustment?: number | null;
 }
 
 export interface OrderGroupCloseInput {
@@ -214,6 +227,7 @@ export interface OrderGroupExtendInput {
   end_date?: string | null;
   notes?: string | null;
   budget_amount?: number | null;
+  md_budget_total?: number | null;
   lines?: OrderLineInput[];
 }
 

@@ -78,12 +78,14 @@ export function ExtendOrderGroupModal({
   onSubmit,
 }: Props) {
   const costBased = Boolean(group?.is_cost_based);
+  const sharedMdBased = Boolean(group?.is_md_budget_based);
 
   const [orderNumber, setOrderNumber] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [notes, setNotes] = useState("");
   const [budgetAmount, setBudgetAmount] = useState("");
+  const [mdBudgetTotal, setMdBudgetTotal] = useState("");
   const [lines, setLines] = useState<CarryLine[]>([]);
 
   const [file, setFile] = useState<File | null>(null);
@@ -102,6 +104,7 @@ export function ExtendOrderGroupModal({
     setEndDate("");
     setNotes("");
     setBudgetAmount("");
+    setMdBudgetTotal("");
     setLines(
       (group?.lines ?? [])
         .filter((line) => line.is_active)
@@ -137,7 +140,9 @@ export function ExtendOrderGroupModal({
         if (costBased && data.total_value != null) {
           setBudgetAmount(String(data.total_value));
         }
-        if (!costBased && data.md_total != null) {
+        if (sharedMdBased && data.md_total != null) {
+          setMdBudgetTotal(String(data.md_total));
+        } else if (!costBased && data.md_total != null) {
           // Liczba MD z dokumentu dotyczy CAŁEGO zamówienia; przy jednej
           // przenoszonej osobie jest jej budżetem, przy kilku operator dzieli
           // ją sam — dlatego wpisujemy ją tylko wtedy, gdy nie ma czego dzielić.
@@ -177,6 +182,16 @@ export function ExtendOrderGroupModal({
               },
             ]
           : []),
+        ...(sharedMdBased
+          ? [
+              {
+                key: "md_total" as const,
+                label: "Budżet w MD",
+                current: mdBudgetTotal,
+                incoming: numberToField(data.md_total) || null,
+              },
+            ]
+          : []),
       ]);
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
@@ -200,13 +215,14 @@ export function ExtendOrderGroupModal({
     (line) =>
       parseDecimalInput(line.rateCost) !== null &&
       (parseDecimalInput(line.rateRevenue) ?? 0) > 0 &&
-      (costBased || parseDecimalInput(line.mdTotal) !== null),
+      (costBased || sharedMdBased || parseDecimalInput(line.mdTotal) !== null),
   );
   const canSubmit =
     !submitting &&
     orderNumber.trim() !== "" &&
     startDate !== "" &&
     (!costBased || budgetAmount.trim() !== "") &&
+    (!sharedMdBased || (parseDecimalInput(mdBudgetTotal) ?? 0) > 0) &&
     linesValid;
 
   function buildLines(): OrderLineInput[] {
@@ -214,7 +230,7 @@ export function ExtendOrderGroupModal({
       contract_id: line.contractId,
       rate_cost: parseDecimalInput(line.rateCost) as number,
       rate_revenue: parseDecimalInput(line.rateRevenue) as number,
-      ...(costBased
+      ...(costBased || sharedMdBased
         ? {}
         : {
             input_mode: "md" as const,
@@ -256,6 +272,9 @@ export function ExtendOrderGroupModal({
                 notes: notes.trim() || null,
                 ...(costBased
                   ? { budget_amount: Number(budgetAmount.replace(",", ".")) }
+                  : {}),
+                ...(sharedMdBased
+                  ? { md_budget_total: parseDecimalInput(mdBudgetTotal) }
                   : {}),
                 lines: buildLines(),
               }, file)
@@ -355,6 +374,27 @@ export function ExtendOrderGroupModal({
           </div>
         ) : null}
 
+        {sharedMdBased ? (
+          <div>
+            <label htmlFor="extend-md-budget" className={labelClass}>
+              Budżet w MD *
+            </label>
+            <input
+              id="extend-md-budget"
+              inputMode="decimal"
+              value={mdBudgetTotal}
+              onChange={(e) =>
+                setMdBudgetTotal(sanitizeDecimalInput(e.target.value))
+              }
+              className={inputClass}
+              placeholder="100"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Nowa wspólna pula MD dla całego przedłużenia.
+            </p>
+          </div>
+        ) : null}
+
         <fieldset className="rounded-md border border-border p-3">
           <legend className="px-1 text-xs font-semibold text-muted-foreground">
             Konsultanci do przeniesienia
@@ -429,7 +469,7 @@ export function ExtendOrderGroupModal({
                       className={inputClass}
                     />
                   </div>
-                  {!costBased ? (
+                  {!costBased && !sharedMdBased ? (
                     <div className="w-24">
                       <span className={labelClass}>Liczba MD</span>
                       <input

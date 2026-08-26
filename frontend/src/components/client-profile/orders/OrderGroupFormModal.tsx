@@ -17,6 +17,7 @@ import {
   openAuthenticatedFile,
 } from "@/lib/authenticated-files";
 import type { OrderGroupInput, OrderGroupRead } from "@/lib/api/orderGroups";
+import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   extractionErrorMessage,
   findConflicts,
@@ -42,6 +43,9 @@ interface Props {
   clientId: number;
   /** Czy u tego klienta wolno zakładać zamówienia kosztowe (flaga z serwera). */
   costOrdersEnabled: boolean;
+  /** Ustalony typ w mieszanym flow Cyfrowego Polsatu. `null` zachowuje
+   *  dotychczasowy checkbox Polkomtela. */
+  forcedOrderType?: "cost" | "md" | null;
   submitting: boolean;
   error: string | null;
   onSubmit: (values: OrderGroupInput, file: File | null) => void;
@@ -54,6 +58,7 @@ export function OrderGroupFormModal({
   group,
   clientId,
   costOrdersEnabled,
+  forcedOrderType = null,
   submitting,
   error,
   onSubmit,
@@ -66,6 +71,8 @@ export function OrderGroupFormModal({
   const [notes, setNotes] = useState("");
   const [isCostBased, setIsCostBased] = useState(false);
   const [budgetAmount, setBudgetAmount] = useState("");
+  const [isMdBudgetBased, setIsMdBudgetBased] = useState(false);
+  const [mdBudgetTotal, setMdBudgetTotal] = useState("");
 
   const [file, setFile] = useState<File | null>(null);
   const [hasExistingFile, setHasExistingFile] = useState(false);
@@ -84,8 +91,16 @@ export function OrderGroupFormModal({
     setStartDate(group?.start_date ?? "");
     setEndDate(group?.end_date ?? "");
     setNotes(group?.notes ?? "");
-    setIsCostBased(group?.is_cost_based ?? false);
+    setIsCostBased(
+      forcedOrderType === "cost" ||
+        (forcedOrderType !== "md" && (group?.is_cost_based ?? false)),
+    );
+    setIsMdBudgetBased(
+      forcedOrderType === "md" ||
+        (forcedOrderType !== "cost" && (group?.is_md_budget_based ?? false)),
+    );
     setBudgetAmount(numberToField(group?.budget_amount));
+    setMdBudgetTotal(numberToField(group?.md_budget_total));
     setFile(null);
     setHasExistingFile(Boolean(group?.has_file));
     setFileError(null);
@@ -94,7 +109,7 @@ export function OrderGroupFormModal({
     setCheckReasons([]);
     setConflicts([]);
     setPendingApply(null);
-  }, [open, group]);
+  }, [open, group, forcedOrderType]);
 
   async function handleExtract() {
     if (!file || extracting) return;
@@ -108,6 +123,9 @@ export function OrderGroupFormModal({
         if (data.end_date) setEndDate(data.end_date.slice(0, 10));
         if (isCostBased && data.total_value != null) {
           setBudgetAmount(String(data.total_value));
+        }
+        if (isMdBudgetBased && data.md_total != null) {
+          setMdBudgetTotal(String(data.md_total));
         }
       };
       const found = findConflicts([
@@ -139,6 +157,16 @@ export function OrderGroupFormModal({
               },
             ]
           : []),
+        ...(isMdBudgetBased
+          ? [
+              {
+                key: "md_total" as const,
+                label: "Budżet w MD",
+                current: mdBudgetTotal,
+                incoming: numberToField(data.md_total) || null,
+              },
+            ]
+          : []),
       ]);
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
@@ -158,7 +186,9 @@ export function OrderGroupFormModal({
     }
   }
 
-  const budgetMissing = isCostBased && budgetAmount.trim() === "";
+  const budgetMissing =
+    (isCostBased && budgetAmount.trim() === "") ||
+    (isMdBudgetBased && (parseDecimalInput(mdBudgetTotal) ?? 0) <= 0);
   const canSubmit =
     !submitting && orderNumber.trim() !== "" && startDate !== "" && !budgetMissing;
 
@@ -209,12 +239,21 @@ export function OrderGroupFormModal({
                 // Typ rozliczenia jest wybierany PRZY ZAKŁADANIU i nie zmienia
                 // się później: zamówienie z rozliczonymi fakturami, które
                 // nagle staje się MD-owe, zostawia kwoty bez puli, z której
-                // zeszły. Przy edycji wysyłamy więc tylko kwotę.
+                // zeszły. Przy edycji wysyłamy więc tylko budżet właściwego
+                // typu, bez flag zmieniających sposób rozliczenia.
                 ...(editing
                   ? {}
-                  : { is_cost_based: isCostBased }),
+                  : {
+                      is_cost_based: isCostBased,
+                      ...(forcedOrderType
+                        ? { is_md_budget_based: isMdBudgetBased }
+                        : {}),
+                    }),
                 ...(isCostBased
                   ? { budget_amount: Number(budgetAmount.replace(",", ".")) }
+                  : {}),
+                ...(isMdBudgetBased
+                  ? { md_budget_total: parseDecimalInput(mdBudgetTotal) }
                   : {}),
               }, file)
             }
@@ -270,23 +309,33 @@ export function OrderGroupFormModal({
           />
         </div>
 
-        {costOrdersEnabled ? (
+        {costOrdersEnabled || forcedOrderType ? (
           <div className="rounded-md border border-border bg-muted/30 p-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
-                checked={isCostBased}
-                disabled={editing}
-                onChange={(e) => {
-                  setIsCostBased(e.target.checked);
-                  if (!e.target.checked) setBudgetAmount("");
-                }}
-                className="h-4 w-4 rounded border-border"
-              />
-              Zamówienie kosztowe
-            </label>
+            {forcedOrderType ? (
+              <p className="text-sm font-medium text-foreground">
+                {forcedOrderType === "cost"
+                  ? "Zamówienie kosztowe"
+                  : "Zamówienie na MD"}
+              </p>
+            ) : (
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={isCostBased}
+                  disabled={editing}
+                  onChange={(e) => {
+                    setIsCostBased(e.target.checked);
+                    if (!e.target.checked) setBudgetAmount("");
+                  }}
+                  className="h-4 w-4 rounded border-border"
+                />
+                Zamówienie kosztowe
+              </label>
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
-              {editing
+              {forcedOrderType === "md"
+                ? "Wspólna pula MD dla całego zamówienia, bez dzielenia budżetu na konsultantów."
+                : editing
                 ? "Typu rozliczenia nie zmienia się po założeniu zamówienia."
                 : "Rozliczane ustaloną kwotą, z której schodzą faktury — zamiast liczby MD per konsultant."}
             </p>
@@ -307,6 +356,29 @@ export function OrderGroupFormModal({
                 <p className="mt-1 text-xs text-muted-foreground">
                   Wartość wyjściowa na cały czas trwania zamówienia. Zużycie
                   i pozostałość przelicza import faktur.
+                </p>
+              </div>
+            ) : null}
+
+            {isMdBudgetBased ? (
+              <div className="mt-3">
+                <label htmlFor="group-md-budget" className={labelClass}>
+                  Budżet w MD *
+                </label>
+                <input
+                  id="group-md-budget"
+                  inputMode="decimal"
+                  value={mdBudgetTotal}
+                  onChange={(e) =>
+                    setMdBudgetTotal(sanitizeDecimalInput(e.target.value))
+                  }
+                  className={inputClass}
+                  placeholder="100"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Automatyczne pomniejszanie działa dla obecnie rozpoznawanego
+                  formatu MD z raportu Finansów. Finalny szczegółowy raport
+                  godzin/MD może wymagać dostosowania mapowania.
                 </p>
               </div>
             ) : null}

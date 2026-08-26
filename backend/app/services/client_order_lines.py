@@ -680,6 +680,48 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
     return matches
 
 
+async def active_shared_md_lines(
+    db: AsyncSession, period_month: str
+) -> list[LineMatch]:
+    """Aktywne linie wspólnej puli MD Cyfrowego Polsatu w danym miesiącu.
+
+    To osobna pula na grupie, więc jej linie celowo mają ``md_total IS NULL``
+    i nie mogą przejść przez historyczny ``active_md_lines`` ani jego matcher
+    po samym nazwisku. Raport dla wspólnej puli wymaga jednocześnie konsultanta
+    i numeru zamówienia z kolumny „Uwagi".
+    """
+    from app.services.cyfrowy_polsat_orders import (
+        is_cyfrowy_polsat_order_types_client,
+    )
+
+    first, last = month_bounds(period_month)
+    result = await db.execute(
+        _line_query()
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrderGroup.is_md_budget_based.is_(True),
+            ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+            ClientOrder.status == ClientOrderStatus.active,
+            (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
+            (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or not is_cyfrowy_polsat_order_types_client(order.client_id):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
 def match_by_name(
     candidates: Iterable[LineMatch], reported_name: str
 ) -> list[LineMatch]:
