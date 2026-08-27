@@ -104,9 +104,8 @@ async def materialize_group_for_activated_order(
         return None
     if order.order_group_id is not None:
         return None
-    explicit_type = (
-        OrderType(order.order_type) if order.order_type is not None else None
-    )
+    raw_order_type = getattr(order, "order_type", None)
+    explicit_type = OrderType(raw_order_type) if raw_order_type is not None else None
     if explicit_type == OrderType.periodic:
         return None
     if explicit_type is None:
