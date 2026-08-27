@@ -24,6 +24,7 @@ class OverviewRow(BaseModel):
     monthly_margin_total: Optional[WholePLN] = None
     active_orders_count: int = 0
     active_consultants: int = 0
+    active_contracts: int = 0
     framework_status: Optional[str] = None
     framework_expiry_date: Optional[date] = None
 
@@ -43,3 +44,4 @@ class DlKpiRow(BaseModel):
     monthly_margin_total: Optional[WholePLN] = None
     active_orders_count: int = 0
     active_consultants: int = 0
+    active_contracts: int = 0

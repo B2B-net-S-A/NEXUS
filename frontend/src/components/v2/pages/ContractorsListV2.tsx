@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from"react";
+import { useEffect, useMemo, useRef, useState } from"react";
 import Link from"next/link";
 import { useSearchParams } from"next/navigation";
 import { useQuery, useQueryClient } from"@tanstack/react-query";
@@ -42,6 +42,14 @@ import { TruncatedText } from"@/components/ds/TruncatedText";
 import { QueryStateNotice } from"@/components/ds/QueryStateNotice";
 import { DraftCompletionModal } from"@/components/v2/modals/DraftCompletionModal";
 import { TerminateContractModal } from"@/components/client-profile/actions/TerminateContractModal";
+import {
+ buildContractDetailHref,
+ buildContractorsListUrl,
+ parseContractorsListState,
+ rememberContractsListScroll,
+ restoreContractsListScroll,
+ takeContractsListScroll,
+} from "@/lib/contracts-list-navigation";
 
 type Tab = Exclude<ContractorStatus, "ready_for_signature">;
 
@@ -73,25 +81,45 @@ export function ContractorsListV2() {
  const user = useAuthStore((state) => state.user);
  const canManageFinance = canManageCandidateFinance(user);
  const searchParams = useSearchParams();
- const initialTab = (searchParams.get("tab") as Tab) ||"active";
- const [tab, setTab] = useState<Tab>(
- ["draft","active","ending"].includes(initialTab) ? initialTab : "active"
+ const navigationSearch = searchParams.toString();
+ const [initialListState] = useState(() => {
+ const parsed = parseContractorsListState(navigationSearch);
+ return {
+ ...parsed,
+ returnTarget: buildContractorsListUrl(parsed.state),
+ };
+ });
+ const [tab, setTab] = useState<Tab>(initialListState.state.tab);
+ const [page, setPage] = useState(initialListState.state.page);
+ const ownNavigationUrl = useRef<string | null>(null);
+ const restoredScroll = useRef(false);
+ const returnTarget = useMemo(
+ () => buildContractorsListUrl({ tab, page }),
+ [tab, page],
  );
- const [page, setPage] = useState(1);
+
+ useEffect(() => {
+ const current = `${window.location.pathname}${window.location.search}`;
+ if (current !== returnTarget) {
+ ownNavigationUrl.current = returnTarget;
+ window.history.replaceState(window.history.state, "", returnTarget);
+ }
+ }, [returnTarget]);
+
+ useEffect(() => {
+ const currentUrl = `/contracts${navigationSearch ? `?${navigationSearch}` : ""}`;
+ if (ownNavigationUrl.current === currentUrl) {
+ ownNavigationUrl.current = null;
+ return;
+ }
+ const next = parseContractorsListState(navigationSearch).state;
+ setTab(next.tab);
+ setPage(next.page);
+ }, [navigationSearch]);
+
  const selectTab = (next: Tab) => {
  setTab(next);
  setPage(1);
- // Persist the active tab in the URL (preserving ?view=operations from the
- // /contracts shell) so the operations mode is deep-linkable and survives a
- // reload. Read once on mount via searchParams below; written via the History
- // API to avoid a Next router navigation.
- const params = new URLSearchParams(window.location.search);
- params.set("tab", next);
- window.history.replaceState(
- null,
- "",
- `${window.location.pathname}?${params.toString()}`
- );
  };
  const [draftToComplete, setDraftToComplete] =
  useState<ContractorListItem | null>(null);
@@ -128,6 +156,7 @@ export function ContractorsListV2() {
  const draftCount = stats?.draft ?? 0;
  const incompleteCount = stats?.drafts_incomplete ?? 0;
  const activeCount = stats?.active ?? 0;
+ const activeContractsCount = stats?.active_contracts ?? 0;
  const endingCount = stats?.ending ?? 0;
  const visibleFieldLabels = Object.entries(FIELD_LABELS)
  .filter(
@@ -149,6 +178,20 @@ export function ContractorsListV2() {
  isEmpty: items.length === 0,
  });
  const failed = isBlockingViewState(viewState);
+
+ useEffect(() => {
+ if (
+ restoredScroll.current ||
+ !initialListState.explicit ||
+ viewState === "loading"
+ ) {
+ return;
+ }
+ restoredScroll.current = true;
+ const y = takeContractsListScroll(initialListState.returnTarget);
+ if (y == null) return;
+ window.setTimeout(() => restoreContractsListScroll(y), 0);
+ }, [initialListState, viewState]);
 
  return (
  <div className="max-w-[1400px] mx-auto space-y-4 p-6">
@@ -216,7 +259,11 @@ export function ContractorsListV2() {
  >
  {/* Licznik z padniętego zapytania to zero z inicjalizacji, nie pomiar —
  „0 aktywnych" byłoby zmyśleniem o delivery. */}
- {statsFailed ?"—" : count}
+ {statsFailed
+ ?"—"
+ : t === "active"
+ ?`${activeCount} osób / ${activeContractsCount} umów`
+ : count}
  </span>
  </button>
  );
@@ -390,7 +437,8 @@ export function ContractorsListV2() {
  </Button>
  ) : null}
  <Link
- href={`/contracts/${c.contract_id}?from=contractors`}
+ href={buildContractDetailHref(c.contract_id, returnTarget, "contractors")}
+ onClick={() => rememberContractsListScroll(returnTarget)}
  className={buttonVariants({ size: "sm", variant: "ghost" })}
  >
  <FileText className="h-3.5 w-3.5" /> Szczegóły

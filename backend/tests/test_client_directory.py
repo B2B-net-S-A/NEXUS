@@ -155,6 +155,15 @@ async def _seed_directory() -> dict[str, object]:
                 start_date=today,
                 end_date=today,
             ),
+            # Candidate deletion detaches rather than deleting the contract.
+            # Keep this in the raw contract count without inventing a person.
+            Contract(
+                candidate_id=None,
+                client_id=zulu.id,
+                status=ContractStatus.active,
+                start_date=today - timedelta(days=1),
+                end_date=None,
+            ),
             Contract(
                 candidate_id=candidate_future.id,
                 client_id=zulu.id,
@@ -337,6 +346,7 @@ async def test_directory_counts_scopes_sorts_and_counts_consultants(
             "B scope",
         ]
         assert {item["active_consultants_count"] for item in items[1:]} == {2}
+        assert {item["active_contracts_count"] for item in items[1:]} == {4}
         assert items[1]["client_status"] == "prospect"
         assert items[2]["effective_date"] is not None
         assert items[2]["expiry_date"] is None
@@ -771,7 +781,7 @@ async def test_directory_export_xlsx_mirrors_list_and_includes_legal(
 
         header, records = _read_sheet(response.content)
         # Admin (legal-privileged) sees the base + legal columns.
-        assert header[:9] == [
+        assert header[:10] == [
             "ID klienta",
             "Klient",
             "Zakres",
@@ -779,10 +789,11 @@ async def test_directory_export_xlsx_mirrors_list_and_includes_legal(
             "Branża",
             "Status klienta",
             "Aktywni konsultanci",
+            "Aktywne kontrakty",
             "Start umowy ramowej",
             "Koniec umowy ramowej",
         ]
-        assert header[9:] == ["Nazwa prawna", "NIP", "REGON"]
+        assert header[10:] == ["Nazwa prawna", "NIP", "REGON"]
 
         # "Export what I see": same three active scopes the list returns.
         assert len(records) == 3
@@ -806,6 +817,7 @@ async def test_directory_export_xlsx_mirrors_list_and_includes_legal(
         assert b_scope["Koniec umowy ramowej"] == "Bezterminowa"
         assert b_scope["Start umowy ramowej"]  # non-empty ISO date
         assert b_scope["Aktywni konsultanci"] == 2
+        assert b_scope["Aktywne kontrakty"] == 4
     finally:
         await _cleanup_directory(seed)
 
@@ -856,6 +868,7 @@ async def test_directory_export_hides_legal_columns_for_non_privileged_role(
             "Branża",
             "Status klienta",
             "Aktywni konsultanci",
+            "Aktywne kontrakty",
             "Start umowy ramowej",
             "Koniec umowy ramowej",
         ]

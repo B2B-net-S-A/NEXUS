@@ -63,6 +63,7 @@ class ClientDashboardResponse(BaseModel):
 
     # Konsultanci
     active_consultants: int = 0
+    active_contracts: int = 0
     completed_consultants: int = 0
 
     # Order velocity

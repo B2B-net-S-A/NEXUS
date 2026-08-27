@@ -41,7 +41,7 @@ export function DLRevenueLeaderboard() {
               <th className="text-right px-3 py-2 font-medium">Active</th>
               <th className="text-right px-3 py-2 font-medium">Marża/mc</th>
               <th className="text-right px-3 py-2 font-medium">Active orders</th>
-              <th className="text-right px-3 py-2 font-medium">Konsultanci</th>
+              <th className="text-right px-3 py-2 font-medium">Konsultanci / kontrakty</th>
             </tr>
           </thead>
           <tbody>
@@ -82,7 +82,9 @@ export function DLRevenueLeaderboard() {
                     {r.monthly_margin_total !== null ? r.monthly_margin_total : "—"}
                   </td>
                   <td className="px-3 py-2 text-right">{r.active_orders_count}</td>
-                  <td className="px-3 py-2 text-right">{r.active_consultants}</td>
+                  <td className="px-3 py-2 text-right">
+                    {r.active_consultants} / {r.active_contracts}
+                  </td>
                 </tr>
               ))
             )}

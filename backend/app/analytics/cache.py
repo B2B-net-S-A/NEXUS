@@ -25,7 +25,7 @@ from app.core.cache import cache_get, cache_set
 
 # Wersja definicji metryk — bump przy KAŻDEJ zmianie semantyki metryk
 # unieważnia cały cache analytics (klucz zawiera wersję).
-METRIC_VERSION = "2026-07-16.1"
+METRIC_VERSION = "2026-08-27.1"
 
 _PREFIX = "analytics:v1"
 

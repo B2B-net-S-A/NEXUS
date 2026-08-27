@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 import { ContractorsListV2 } from "@/components/v2/pages/ContractorsListV2";
 import {
@@ -26,10 +27,9 @@ type ViewMode = "operations" | "register";
  *
  * The former /contractors route now redirects here with ?view=operations.
  *
- * Workspace state lives in the URL via the History API
- * (?view=&client=&clientName=) so deep-links + back/forward work. We read it
- * after mount and avoid useSearchParams to skip the Next 15 streaming-SSR
- * Suspense boundary (same reason as the mounted gate below).
+ * Workspace state lives in the URL via the History API, so deep-links and
+ * back/forward work. The reactive search-param reader sits inside an explicit
+ * Suspense boundary required by Next's streaming renderer.
  */
 
 const OPERATIONS_ROLES = [
@@ -40,20 +40,75 @@ const OPERATIONS_ROLES = [
 ] as const;
 
 export default function ContractsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 text-sm text-muted-foreground">
+          Ładowanie kontraktów…
+        </div>
+      }
+    >
+      <ContractsPageWithNavigationState />
+    </Suspense>
+  );
+}
+
+function ContractsPageWithNavigationState() {
+  const searchParams = useSearchParams();
+  return <ContractsWorkspace navigationSearch={searchParams.toString()} />;
+}
+
+function selectionFromSearch(search: string): {
+  view: ViewMode;
+  client: ClientRef | null;
+} {
+  const params = new URLSearchParams(search);
+  if (params.get("view") === "operations") {
+    return { view: "operations", client: null };
+  }
+  const clientId = Number(params.get("client"));
+  return {
+    view: "register",
+    client:
+      Number.isInteger(clientId) && clientId > 0
+        ? {
+            id: clientId,
+            name: params.get("clientName") ?? `#${clientId}`,
+          }
+        : null,
+  };
+}
+
+function ContractsWorkspace({
+  navigationSearch,
+}: {
+  navigationSearch: string;
+}) {
+  const initialSelection = selectionFromSearch(navigationSearch);
   const [mounted, setMounted] = useState(false);
-  const [view, setView] = useState<ViewMode>("register");
-  const [client, setClient] = useState<ClientRef | null>(null);
+  const [view, setView] = useState<ViewMode>(initialSelection.view);
+  const [client, setClient] = useState<ClientRef | null>(
+    initialSelection.client,
+  );
+  const [appliedNavigationSearch, setAppliedNavigationSearch] =
+    useState(navigationSearch);
   const { user } = useAuthStore();
   const canSeeOperations = hasRole(user, ...OPERATIONS_ROLES);
 
   useEffect(() => {
     setMounted(true);
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("view") === "operations") setView("operations");
-    const id = params.get("client");
-    const name = params.get("clientName");
-    if (id) setClient({ id: Number(id), name: name ?? `#${id}` });
   }, []);
+
+  // Next can retain this page instance for same-route sidebar navigation.
+  // Reconcile the workspace selection during render so an external queryless
+  // `/contracts` immediately unmounts the old client/operations view before a
+  // child can canonicalise its stale URL back into history.
+  if (appliedNavigationSearch !== navigationSearch) {
+    const nextSelection = selectionFromSearch(navigationSearch);
+    setAppliedNavigationSearch(navigationSearch);
+    setView(nextSelection.view);
+    setClient(nextSelection.client);
+  }
 
   // Guard: a non-operational role that deep-links ?view=operations falls back
   // to the register (and the backend would 403 the roster fetch anyway).
@@ -61,24 +116,34 @@ export default function ContractsPage() {
 
   const changeView = (next: ViewMode) => {
     setView(next);
-    const params = new URLSearchParams(window.location.search);
     if (next === "operations") {
-      params.set("view", "operations");
       // Client scope is a register-only concept.
-      params.delete("client");
-      params.delete("clientName");
       setClient(null);
-    } else {
-      params.delete("view");
     }
-    const qs = params.toString();
-    window.history.replaceState(null, "", `/contracts${qs ? `?${qs}` : ""}`);
+    // A mode switch is a fresh entry into the target view. Build the URL from
+    // scratch so global `page`/filters, operations tab/page and client-register
+    // filters can never be interpreted by another view.
+    const target =
+      next === "operations"
+        ? "/contracts?view=operations&tab=active"
+        : "/contracts";
+    window.history.replaceState(
+      window.history.state,
+      "",
+      target,
+    );
   };
 
   const handleClientChange = (next: ClientRef | null) => {
     setClient(next);
     const params = new URLSearchParams(window.location.search);
     if (next) {
+      if (client?.id !== next.id) {
+        // Podkategorie należą do konkretnego klienta; nie wolno przenosić ich
+        // do kolejnego rejestru. Pozostałe filtry są klient-niezależne.
+        params.delete("register_subcategory");
+        params.delete("register_page");
+      }
       params.set("client", String(next.id));
       params.set("clientName", next.name);
     } else {
@@ -86,7 +151,11 @@ export default function ContractsPage() {
       params.delete("clientName");
     }
     const qs = params.toString();
-    window.history.replaceState(null, "", `/contracts${qs ? `?${qs}` : ""}`);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/contracts${qs ? `?${qs}` : ""}`,
+    );
   };
 
   if (!mounted) {
@@ -126,9 +195,29 @@ export default function ContractsPage() {
         <>
           <ContractsClientPicker value={client} onChange={handleClientChange} />
           {client ? (
-            <ClientContractRegister clientId={client.id} clientName={client.name} />
+            <Suspense
+              fallback={
+                <div className="p-8 text-sm text-muted-foreground">
+                  Ładowanie rejestru klienta…
+                </div>
+              }
+            >
+              <ClientContractRegister
+                clientId={client.id}
+                clientName={client.name}
+                navigationSearch={navigationSearch}
+              />
+            </Suspense>
           ) : (
-            <ContractsListV2 />
+            <Suspense
+              fallback={
+                <div className="p-8 text-sm text-muted-foreground">
+                  Ładowanie kontraktów…
+                </div>
+              }
+            >
+              <ContractsListV2 navigationSearch={navigationSearch} />
+            </Suspense>
           )}
         </>
       )}

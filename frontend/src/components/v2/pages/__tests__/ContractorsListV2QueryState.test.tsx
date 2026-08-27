@@ -13,10 +13,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   stats: vi.fn(),
+  search: "view=operations&tab=active",
 }));
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams("tab=active"),
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
 vi.mock("next/link", () => ({
@@ -43,12 +44,22 @@ vi.mock("@/components/v2/modals/DraftCompletionModal", () => ({
 }));
 
 import { ContractorsListV2 } from "@/components/v2/pages/ContractorsListV2";
+import {
+  buildContractorsListUrl,
+  rememberContractsListScroll,
+} from "@/lib/contracts-list-navigation";
 
 const EMPTY_LIST = {
   data: { items: [], total: 0, page: 1, page_size: 50 },
 };
 const OK_STATS = {
-  data: { draft: 3, drafts_incomplete: 0, active: 7, ending: 2 },
+  data: {
+    draft: 3,
+    drafts_incomplete: 0,
+    active: 7,
+    active_contracts: 9,
+    ending: 2,
+  },
 };
 
 function httpError(status: number) {
@@ -71,6 +82,9 @@ function renderList() {
 describe("ContractorsListV2 — stany zapytania", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.search = "view=operations&tab=active";
+    window.history.replaceState({}, "", `/contracts?${mocks.search}`);
+    window.sessionStorage.clear();
     mocks.stats.mockResolvedValue(OK_STATS);
   });
 
@@ -142,6 +156,67 @@ describe("ContractorsListV2 — stany zapytania", () => {
     renderList();
 
     const active = await screen.findByRole("tab", { name: /Aktywni/ });
-    await waitFor(() => expect(active).toHaveTextContent("7"));
+    await waitFor(() => expect(active).toHaveTextContent("7 osób / 9 umów"));
+  });
+
+  it("odtwarza zakładkę, stronę, returnTo i scroll widoku operacyjnego", async () => {
+    const returnTarget = buildContractorsListUrl({ tab: "ending", page: 3 });
+    mocks.search = returnTarget.split("?")[1] ?? "";
+    window.history.replaceState({}, "", returnTarget);
+    const main = document.createElement("main");
+    main.id = "main";
+    main.scrollTop = 520;
+    document.body.appendChild(main);
+    rememberContractsListScroll(returnTarget);
+    main.scrollTop = 0;
+    mocks.list.mockResolvedValue({
+      data: {
+        items: [
+          {
+            contract_id: 91,
+            candidate: {
+              id: 7,
+              name: "Jan",
+              lastname: "Kowalski",
+              email: "jan@example.com",
+            },
+            client_id: 3,
+            client_name: "Nordea",
+            job_title: "Cloud Engineer",
+            status: "ending",
+            start_date: "2026-01-01",
+            end_date: "2026-09-01",
+            rate_candidate: 100,
+            rate_client: 150,
+            rate_unit: "hourly",
+            currency: "PLN",
+            margin: 50,
+            contract_type: "b2b",
+            work_mode: null,
+            missing_fields: [],
+          },
+        ],
+        total: 101,
+        page: 3,
+        page_size: 50,
+      },
+    });
+
+    renderList();
+
+    const details = await screen.findByRole("link", { name: /Szczegóły/ });
+    await waitFor(() => {
+      expect(mocks.list).toHaveBeenCalledWith({
+        status: "ending",
+        page: 3,
+        page_size: 50,
+      });
+      expect(main.scrollTop).toBe(520);
+    });
+    expect(details.getAttribute("href")).toContain("from=contractors");
+    expect(details.getAttribute("href")).toContain(
+      `returnTo=${encodeURIComponent(returnTarget)}`,
+    );
+    main.remove();
   });
 });

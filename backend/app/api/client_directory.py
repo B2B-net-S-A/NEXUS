@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AdminUser, OperationalUser
 from app.core.database import get_db
 from app.models.activity import Activity
+from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_directory import (
     ClientAlias,
@@ -43,6 +44,7 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.contractor_identity import contractor_identity_sql_expression
 
 router = APIRouter()
 
@@ -73,11 +75,25 @@ def _visible_client_filters() -> tuple:
 def _active_consultants_subquery(as_of: date):
     """Client-wide date-effective consultant count, deduplicated by person."""
 
+    identity_key = contractor_identity_sql_expression(
+        Candidate.name,
+        Candidate.lastname,
+        Candidate.email,
+        Candidate.id,
+    )
+
     return (
         select(
             Contract.client_id.label("client_id"),
-            func.count(distinct(Contract.candidate_id)).label("active_consultants"),
+            func.count(distinct(identity_key))
+            .filter(Candidate.id.is_not(None))
+            .label("active_consultants"),
+            func.count(Contract.id).label("active_contracts"),
         )
+        # A deleted candidate is detached from its contracts.  Such a row is
+        # still an active contract and must remain in ``active_contracts``;
+        # the aggregate FILTER keeps it out of the people headcount.
+        .outerjoin(Candidate, Contract.candidate_id == Candidate.id)
         .where(
             Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
             Contract.start_date.is_not(None),
@@ -146,6 +162,9 @@ def _directory_rows_statement(
             Client.status.label("client_status"),
             func.coalesce(active_consultants.c.active_consultants, 0).label(
                 "active_consultants_count"
+            ),
+            func.coalesce(active_consultants.c.active_contracts, 0).label(
+                "active_contracts_count"
             ),
         )
         .select_from(ClientPortfolioScope)
@@ -271,6 +290,7 @@ async def list_client_directory(
             scope_label=row.scope_label,
             industry=row.industry,
             active_consultants_count=int(row.active_consultants_count or 0),
+            active_contracts_count=int(row.active_contracts_count or 0),
             effective_date=row.effective_date,
             expiry_date=row.expiry_date,
             category=row.category,
@@ -330,6 +350,7 @@ _DIRECTORY_EXPORT_BASE_COLUMNS = [
     "Branża",
     "Status klienta",
     "Aktywni konsultanci",
+    "Aktywne kontrakty",
     "Start umowy ramowej",
     "Koniec umowy ramowej",
 ]
@@ -383,6 +404,7 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
         row.industry or "",
         _directory_enum_label(row.client_status, _CLIENT_STATUS_LABELS),
         int(row.active_consultants_count or 0),
+        int(row.active_contracts_count or 0),
         row.effective_date.isoformat() if row.effective_date else "",
         _directory_contract_end_cell(row),
     ]

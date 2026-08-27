@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Annotated, Any, Optional
 
-from pydantic import AfterValidator, BaseModel, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 from app.models.contract import (
     ContractStatus,
@@ -141,9 +141,8 @@ class ContractCreate(BaseModel):
     #
     # Praktyczna różnica, dla której warto było to pogodzić zamiast wybierać:
     # ``active`` (i ``ending``, bo to ``active`` z bliskim końcem) wymaga
-    # kompletu pól z ``ACTIVATION_REQUIRED_FIELDS``. Rejestr jest ręcznym
-    # zapisem także umów/aneksów podpisanych offline, więc nie sprawdza szyny
-    # podpisu kwalifikowanego; formalne endpointy podpisu zachowują tę bramkę.
+    # kompletu pól z ``ACTIVATION_REQUIRED_FIELDS``. Aktywność kontraktu jest
+    # stanem operacyjnym i nie zależy od obecności ani stanu podpisu.
     # ``ended`` domyka datę końca i synchronizuje zamówienia klienta. Ładunek,
     # który tych warunków nie spełnia, dostaje 409 z listą braków — zamiast
     # umowy wchodzącej do MRR z pustymi stawkami.
@@ -437,7 +436,11 @@ class ContractTimelineItem(BaseModel):
 
 class ContractList(BaseModel):
     items: list[ContractResponse]
+    # ``total`` remains the row/group count used for pagination.  These two
+    # fields expose business people and raw contracts without conflating them.
     total: int
+    contractors_total: int
+    contracts_total: int
     page: int
     page_size: int
 
@@ -533,6 +536,17 @@ class ContractVoidRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class ContractSignedDeleteRequest(BaseModel):
+    """Second-factor text for deleting a contract linked to signed B2B proof.
+
+    The service accepts only the exact contractor full name or contract number;
+    the bounded raw field also prevents an accidental oversized audit/API
+    payload. The confirmation itself is deliberately not persisted.
+    """
+
+    confirmation: str = Field(min_length=1, max_length=255)
+
+
 # ── Editable draft (migracja 0058) ───────────────────────────────────────
 
 
@@ -625,6 +639,7 @@ class ContractorStats(BaseModel):
     draft: int = 0
     drafts_incomplete: int = 0
     active: int = 0
+    active_contracts: int = 0
     ending: int = 0
 
 

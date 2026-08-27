@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -24,6 +24,11 @@ import {
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBenchmarkCard";
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
+import {
+  SignedContractDeleteConfirmation,
+  signedDeleteActionFromError,
+  type SignedDeleteRequirement,
+} from "@/components/contracts/SignedContractDeleteConfirmation";
 import { CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
@@ -36,8 +41,14 @@ import { celebrate } from "@/lib/celebrate";
 import { getAccessToken } from "@/lib/session";
 import {
   canManageCandidateFinance,
+  hasRole,
   useAuthStore,
 } from "@/store/auth";
+import {
+  buildContractDetailHref,
+  parseContractsReturnContext,
+  type ContractsReturnContext,
+} from "@/lib/contracts-list-navigation";
 import {
   ArrowLeft,
   Pencil,
@@ -409,7 +420,21 @@ export default function ContractDetailPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const canManageFinance = canManageCandidateFinance(user);
+  const isAdmin = hasRole(user, "admin");
   const id = Number(params.id);
+
+  // A profile can be opened from many places (candidate, any contracts view,
+  // a copied deep-link). Only module links carry a validated return target.
+  // Everything else falls back to a fresh queryless `/contracts`, which
+  // intentionally starts with Active.
+  const [returnContext, setReturnContext] = useState<ContractsReturnContext>({
+    fromContracts: false,
+    hasReturnTarget: false,
+    returnTarget: "/contracts",
+  });
+  useEffect(() => {
+    setReturnContext(parseContractsReturnContext(window.location.search));
+  }, []);
 
   const [activeTab, setActiveTab] = useState<TabKey>("details");
   const [editing, setEditing] = useState(false);
@@ -478,17 +503,46 @@ export default function ContractDetailPage() {
   // użytkownik widział „potwierdziłem i nic" (zgłoszony bug).
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [signedDeleteRequirement, setSignedDeleteRequirement] =
+    useState<SignedDeleteRequirement | null>(null);
+  const [showSignedDeleteDialog, setShowSignedDeleteDialog] = useState(false);
+  const [signedDeleteError, setSignedDeleteError] = useState("");
+
+  const finishDelete = () => {
+    // Lista używa klucza "contracts-v2"; stary "contracts" zostaje dla
+    // pozostałych konsumentów (profil kandydata itd.).
+    queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts"] });
+    router.push(returnContext.returnTarget);
+  };
+
   const deleteMutation = useMutation({
     mutationFn: () => contractsApi.delete(id),
-    onSuccess: () => {
-      // Lista używa klucza "contracts-v2"; stary "contracts" zostaje dla
-      // pozostałych konsumentów (profil kandydata itd.).
-      queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      router.push("/contracts");
-    },
+    onSuccess: finishDelete,
     onError: (err: unknown) => {
+      const action = signedDeleteActionFromError(err, isAdmin);
+      if (action?.kind === "confirm") {
+        setSignedDeleteRequirement(action.requirement);
+        setShowDeleteDialog(false);
+        setSignedDeleteError("");
+        setShowSignedDeleteDialog(true);
+        return;
+      }
+      if (action?.kind === "admin_required") {
+        setDeleteError(
+          "Usunięcie kontraktu z podpisaną umową jest dostępne wyłącznie dla administratora.",
+        );
+        return;
+      }
       setDeleteError(extractErrorMsg(err));
+    },
+  });
+  const forceDeleteMutation = useMutation({
+    mutationFn: (confirmation: string) =>
+      contractsApi.forceDeleteSigned(id, confirmation),
+    onSuccess: finishDelete,
+    onError: (err: unknown) => {
+      setSignedDeleteError(extractErrorMsg(err));
     },
   });
 
@@ -656,6 +710,8 @@ export default function ContractDetailPage() {
 
   const handleDelete = () => {
     setDeleteError("");
+    setSignedDeleteError("");
+    setSignedDeleteRequirement(null);
     setShowDeleteDialog(true);
   };
 
@@ -683,7 +739,7 @@ export default function ContractDetailPage() {
     return (
       <div className="p-6">
         <Link
-          href="/contracts"
+          href={returnContext.returnTarget}
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground dark:text-muted-foreground"
         >
           <ArrowLeft className="w-4 h-4" /> Wróć do listy
@@ -723,7 +779,7 @@ export default function ContractDetailPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
           <Link
-            href="/contracts"
+            href={returnContext.returnTarget}
             className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-muted-foreground"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
@@ -826,7 +882,14 @@ export default function ContractDetailPage() {
           {relatedContracts.map((sibling) => (
             <Link
               key={sibling.id}
-              href={`/contracts/${sibling.id}`}
+              href={
+                returnContext.hasReturnTarget
+                  ? buildContractDetailHref(
+                      sibling.id,
+                      returnContext.returnTarget,
+                    )
+                  : `/contracts/${sibling.id}`
+              }
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:border-primary/50 hover:text-primary"
               title={`${STATUS_LABELS[sibling.status] ?? sibling.status} · ${
                 sibling.start_date ? formatDate(sibling.start_date) : "—"
@@ -890,6 +953,24 @@ export default function ContractDetailPage() {
           </p>
         )}
       </AppModal>
+
+      <SignedContractDeleteConfirmation
+        open={showSignedDeleteDialog}
+        onOpenChange={(open) => {
+          setShowSignedDeleteDialog(open);
+          if (!open) {
+            setSignedDeleteError("");
+            setSignedDeleteRequirement(null);
+          }
+        }}
+        contractId={contract.id}
+        contractorName={
+          signedDeleteRequirement?.contractorName ?? contract.candidate_name
+        }
+        isPending={forceDeleteMutation.isPending}
+        error={signedDeleteError}
+        onConfirm={(confirmation) => forceDeleteMutation.mutate(confirmation)}
+      />
 
       {contract.candidate_id != null && (
         <AddProjectDialog
@@ -1778,7 +1859,7 @@ export default function ContractDetailPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
-                          Tryb pracy
+                          Tryb pracy (opcjonalnie)
                         </label>
                         <select
                           value={form.work_mode}

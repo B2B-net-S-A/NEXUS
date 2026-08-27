@@ -19,15 +19,16 @@ vi.mock("@/lib/api", () => ({
   requestHistoryApi: {},
 }));
 
-function renderList() {
+function renderList(navigationSearch?: string) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
-  return render(
+  const result = render(
     <QueryClientProvider client={qc}>
-      <ContractsListV2 />
+      <ContractsListV2 navigationSearch={navigationSearch} />
     </QueryClientProvider>,
   );
+  return { ...result, queryClient: qc };
 }
 
 const groupedMember = (over: Record<string, unknown>) => ({
@@ -54,6 +55,8 @@ const groupedMember = (over: Record<string, unknown>) => ({
  */
 describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/contracts");
+    window.sessionStorage.clear();
     useAuthStore.setState({
       user: {
         id: 1,
@@ -132,6 +135,8 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
               },
             ],
             total: 2,
+            contractors_total: 2,
+            contracts_total: 3,
             page: 1,
             page_size: 20,
           },
@@ -155,8 +160,54 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     );
     const call = getMock.mock.calls.find((c) => c[0] === "/api/contracts");
     expect(call?.[1]).toMatchObject({
-      params: expect.objectContaining({ group_by_candidate: true }),
+      params: expect.objectContaining({
+        group_by_candidate: true,
+        status: ["active"],
+      }),
     });
+    expect(window.location.search).toBe("?status=active");
+  });
+
+  it("koduje pełny return target w linkach do profilu", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/contracts?status=draft&contract_type=b2b&page=2",
+    );
+    renderList();
+
+    const link = await screen.findByRole("link", { name: "Paweł Małek" });
+    expect(link.getAttribute("href")).toContain(
+      "returnTo=%2Fcontracts%3Fstatus%3Ddraft%26contract_type%3Db2b%26page%3D2",
+    );
+  });
+
+  it("resetuje filtr do Aktywnego przy ponownym wejściu queryless bez remountu", async () => {
+    window.history.replaceState({}, "", "/contracts?status=draft");
+    const view = renderList("status=draft");
+    await waitFor(() =>
+      expect(
+        getMock.mock.calls.some(
+          (call) => call[0] === "/api/contracts" && call[1]?.params?.status?.[0] === "draft",
+        ),
+      ).toBe(true),
+    );
+
+    window.history.replaceState({}, "", "/contracts");
+    view.rerender(
+      <QueryClientProvider client={view.queryClient}>
+        <ContractsListV2 navigationSearch="" />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        getMock.mock.calls.some(
+          (call) => call[0] === "/api/contracts" && call[1]?.params?.status?.[0] === "active",
+        ),
+      ).toBe(true),
+    );
+    expect(window.location.search).toBe("?status=active");
   });
 
   it("nagłówki: Stawka kosztowa + Stawka przychodowa, bez dawnej Stawka klient", async () => {
@@ -171,8 +222,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     renderList();
     await screen.findByText("Paweł Małek");
 
-    // Licznik mówi o kontraktorach (grupach), nie o umowach.
-    expect(screen.getByText(/2 kontraktorzy w systemie/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 kontraktorów \/ 3 aktywne kontrakty/i),
+    ).toBeInTheDocument();
 
     // Obaj klienci w kolumnie „Klient" + adnotacja o wieloklientowości.
     expect(screen.getByText("Bank Pocztowy")).toBeInTheDocument();
@@ -191,5 +243,12 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     // Osoba jednoklientowa renderuje się po staremu (bez prefiksów).
     expect(screen.getByText("Jan Solo")).toBeInTheDocument();
     expect(screen.queryByText(/Trzeci Klient:/)).not.toBeInTheDocument();
+  });
+
+  it("dla statusu innego niż aktywny używa neutralnych nazw liczników", async () => {
+    renderList("status=draft");
+
+    expect(await screen.findByText(/2 osoby \/ 3 kontrakty/i)).toBeInTheDocument();
+    expect(screen.queryByText(/aktywne kontrakty/i)).not.toBeInTheDocument();
   });
 });

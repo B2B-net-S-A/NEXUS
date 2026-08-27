@@ -66,6 +66,7 @@ async def test_profile_returns_expected_shape(
     for key in (
         "open_jobs",
         "active_consultants",
+        "active_contracts",
         "total_placements",
         "active_mrr",
         "ltv",
@@ -80,8 +81,10 @@ async def test_profile_returns_expected_shape(
     # Summary counters must match list lengths (the endpoint doesn't paginate
     # within a single call — it's cheaper than reconciling in UI).
     assert summary["open_jobs"] == len(body["open_jobs"])
-    assert summary["active_consultants"] == len(body["active_consultants"])
-    assert summary["total_placements"] == summary["active_consultants"] + len(
+    assert summary["active_consultants"] <= summary["active_contracts"]
+    # Detached contracts have no candidate row to render, but remain contracts.
+    assert summary["active_contracts"] >= len(body["active_consultants"])
+    assert summary["total_placements"] == len(body["active_consultants"]) + len(
         body["historical"]["placements"]
     )
 

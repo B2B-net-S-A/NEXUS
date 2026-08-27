@@ -91,6 +91,7 @@ describe("powiązania kandydata i kontraktora", () => {
       data: {
         draft: 1,
         drafts_incomplete: 0,
+        active_contracts: 1,
         active: 0,
         ending: 0,
       },
@@ -124,7 +125,7 @@ describe("powiązania kandydata i kontraktora", () => {
     expect(screen.getByText("Do aktywacji")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Szczegóły/ })).toHaveAttribute(
       "href",
-      "/contracts/91?from=contractors",
+      "/contracts/91?from=contractors&returnTo=%2Fcontracts%3Fview%3Doperations%26tab%3Ddraft",
     );
     expect(mocks.list).toHaveBeenCalledWith({
       status: "draft",

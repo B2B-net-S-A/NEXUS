@@ -303,6 +303,7 @@ export interface ClientDashboardResponse {
   monthly_margin_total?: number | null;
   monthly_margin_pct?: number | null;
   active_consultants: number;
+  active_contracts: number;
   completed_consultants: number;
   avg_days_to_fill: number | null;
   framework_contracts_count: number;
@@ -322,6 +323,7 @@ export interface OverviewRow {
   monthly_margin_total: number | null;
   active_orders_count: number;
   active_consultants: number;
+  active_contracts: number;
   framework_status: string | null;
   framework_expiry_date: string | null;
 }
@@ -337,6 +339,7 @@ export interface DlKpiRow {
   monthly_margin_total: number | null;
   active_orders_count: number;
   active_consultants: number;
+  active_contracts: number;
 }
 
 // ── API helpers ─────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from"react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from"react";
 import Link from"next/link";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
@@ -50,6 +50,14 @@ import {
  type ContractStatusValue,
  type ContractTypeValue,
 } from"@/lib/filter-options";
+import {
+ buildContractDetailHref,
+ buildContractsListUrl,
+ parseContractsListState,
+ rememberContractsListScroll,
+ restoreContractsListScroll,
+ takeContractsListScroll,
+} from "@/lib/contracts-list-navigation";
 import { getAccessToken } from "@/lib/session";
 import {
  hasAnalyticsCapability,
@@ -147,14 +155,35 @@ function expiringBannerText(n: number): string {
  return `${n} ${noun} ${verb} w ciągu 30 dni`;
 }
 
-// Lista grupuje po OSOBIE (group_by_candidate), więc licznik mówi o
-// kontraktorach, nie o umowach — osoba u dwóch klientów to jeden wiersz.
-function contractorsCountText(n: number): string {
- const m10 = n % 10;
- const m100 = n % 100;
- const few = m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14);
- const noun = n === 1 ?"kontraktor" : few ?"kontraktorzy" :"kontraktorów";
- return `${n} ${noun} w systemie`;
+function contractorsCountText(
+ contractors: number,
+ contracts: number,
+ activeOnly: boolean,
+): string {
+ const peopleFew =
+ contractors % 10 >= 2 &&
+ contractors % 10 <= 4 &&
+ !(contractors % 100 >= 12 && contractors % 100 <= 14);
+ const contractsFew =
+ contracts % 10 >= 2 &&
+ contracts % 10 <= 4 &&
+ !(contracts % 100 >= 12 && contracts % 100 <= 14);
+
+ if (activeOnly) {
+ const contractorNoun = contractors === 1 ? "kontraktor" : "kontraktorów";
+ const contractNoun =
+ contracts === 1
+ ? "aktywny kontrakt"
+ : contractsFew
+ ? "aktywne kontrakty"
+ : "aktywnych kontraktów";
+ return `${contractors} ${contractorNoun} / ${contracts} ${contractNoun}`;
+ }
+
+ const personNoun = contractors === 1 ? "osoba" : peopleFew ? "osoby" : "osób";
+ const contractNoun =
+ contracts === 1 ? "kontrakt" : contractsFew ? "kontrakty" : "kontraktów";
+ return `${contractors} ${personNoun} / ${contracts} ${contractNoun}`;
 }
 
 // Wspólny rendering komórek rozbijanych per klient („Bank Pocztowy: 175,00 zł /
@@ -173,23 +202,91 @@ function memberLines(
  ));
 }
 
-export function ContractsListV2() {
+interface ContractsListV2Props {
+ /** Reactive search string from the App Router; omitted in isolated embeds/tests. */
+ navigationSearch?: string;
+}
+
+export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
  const canSeeFinance =
  hasRole(user, "admin") || hasAnalyticsCapability(user, "view_finance");
  const canSeeContractAnalytics = hasRole(user, "admin");
- const [search, setSearch] = useState("");
- const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
- const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>([]);
+ // Queryless `/contracts` is a fresh module entry (Active by default). Every
+ // in-module change is encoded back into the URL, including an explicit
+ // `status=all`, so a return from details can never be confused with a new
+ // opening from the sidebar.
+ const [initialListState] = useState(() => {
+ const search = typeof window === "undefined" ? "" : window.location.search;
+ const parsed = parseContractsListState(search);
+ return {
+ ...parsed,
+ returnTarget: buildContractsListUrl(parsed.state),
+ };
+ });
+ const [search, setSearch] = useState(initialListState.state.search);
+ const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>(
+ initialListState.state.statusFilter,
+ );
+ const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>(
+ initialListState.state.typeFilter,
+ );
  // Date-based "ending within 30 days" quick filter, driven by the banner's
  // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
  // so it always matches the date-based /api/contracts/expiring banner.
- const [endingSoon, setEndingSoon] = useState(false);
- const [page, setPage] = useState(1);
+ const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ const [page, setPage] = useState(initialListState.state.page);
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
  const [toast, setToast] = useState<string | null>(null);
  const [exporting, setExporting] = useState(false);
  const queryClient = useQueryClient();
+ const restoredScroll = useRef(false);
+ const ownNavigationUrl = useRef<string | null>(null);
+
+ const returnTarget = useMemo(
+ () =>
+ buildContractsListUrl(
+ { search, statusFilter, typeFilter, endingSoon, page },
+ ),
+ [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ page,
+ ],
+ );
+
+ // Keep the current list entry self-contained. `replaceState` deliberately
+ // preserves Next's history payload; replacing it with `null` breaks App
+ // Router back/forward bookkeeping.
+ useEffect(() => {
+ if (typeof window === "undefined") return;
+ const current = `${window.location.pathname}${window.location.search}`;
+ if (current !== returnTarget) {
+ ownNavigationUrl.current = returnTarget;
+ window.history.replaceState(window.history.state, "", returnTarget);
+ }
+ }, [returnTarget]);
+
+ // App Router can keep this component mounted when a user clicks the sidebar
+ // link from `/contracts?status=draft` to queryless `/contracts`. Treat that
+ // as a genuinely fresh entry, while ignoring the URL updates emitted by the
+ // controls above. This also makes same-route back/forward restore URL state.
+ useEffect(() => {
+ if (navigationSearch === undefined) return;
+ const currentUrl = `/contracts${navigationSearch ? `?${navigationSearch}` : ""}`;
+ if (ownNavigationUrl.current === currentUrl) {
+ ownNavigationUrl.current = null;
+ return;
+ }
+ const next = parseContractsListState(navigationSearch).state;
+ setSearch(next.search);
+ setStatusFilter(next.statusFilter);
+ setTypeFilter(next.typeFilter);
+ setEndingSoon(next.endingSoon);
+ setPage(next.page);
+ }, [navigationSearch]);
 
  // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
  // naciśnięcie klawisza wysyłało request (a zapytanie listy robi sześć
@@ -302,8 +399,11 @@ export function ContractsListV2() {
 
  const items: ContractRow[] = data?.items ?? [];
  const total = data?.total ?? 0;
+ const contractorsTotal = data?.contractors_total ?? total;
+ const contractsTotal = data?.contracts_total ?? total;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+ const activeOnly = statusFilter.length === 1 && statusFilter[0] === "active";
 
  // 403 (stawki = TacPlus na backendzie) i 5xx NIE mogą renderować się jako
  // „Brak kontraktów spełniających kryteria" (audyt F-20).
@@ -317,6 +417,23 @@ export function ContractsListV2() {
  viewState === "forbidden" ||
  viewState === "not_found" ||
  viewState === "error";
+
+ // The scroll snapshot is one-shot and only consumed for an explicit return
+ // URL. A fresh `/contracts` entry must start at the top even if the previous
+ // session happened to use the default Active filter too.
+ useEffect(() => {
+ if (
+ restoredScroll.current ||
+ !initialListState.explicit ||
+ viewState === "loading"
+ ) {
+ return;
+ }
+ restoredScroll.current = true;
+ const y = takeContractsListScroll(initialListState.returnTarget);
+ if (y == null) return;
+ window.setTimeout(() => restoreContractsListScroll(y), 0);
+ }, [initialListState, viewState]);
 
  // "All selected" is derived by comparing the SET of selected ids against the
  // set of currently-visible ids — never by count equality (which is fragile
@@ -351,7 +468,7 @@ export function ContractsListV2() {
  ?"Ładowanie…"
  : failed
  ?"Nie udało się pobrać listy"
- : contractorsCountText(total)}
+ : contractorsCountText(contractorsTotal, contractsTotal, activeOnly)}
  </p>
  </div>
  <div className="flex items-center gap-2">
@@ -604,7 +721,8 @@ export function ContractsListV2() {
  </TableCell>
  <TableCell>
  <Link
- href={`/contracts/${c.id}`}
+ href={buildContractDetailHref(c.id, returnTarget)}
+ onClick={() => rememberContractsListScroll(returnTarget)}
  className="font-medium text-foreground hover:text-primary"
  >
  {c.candidate_name ?? `#${c.id}`}
@@ -620,7 +738,8 @@ export function ContractsListV2() {
  members.map((m) => (
  <div key={m.id} className="text-sm">
  <Link
- href={`/contracts/${m.id}`}
+ href={buildContractDetailHref(m.id, returnTarget)}
+ onClick={() => rememberContractsListScroll(returnTarget)}
  className="hover:text-primary"
  >
  <TruncatedText>{m.client_name}</TruncatedText>

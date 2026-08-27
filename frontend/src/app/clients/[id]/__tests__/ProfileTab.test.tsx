@@ -52,6 +52,7 @@ const PROFILE: ClientProfileResponse = {
   summary: {
     open_jobs: 7,
     active_consultants: 3,
+    active_contracts: 4,
     total_placements: 12,
     active_mrr: 45000,
     ltv: 900000,

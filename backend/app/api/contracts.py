@@ -19,7 +19,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from jinja2 import TemplateError
-from sqlalchemy import func, or_, select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -69,6 +69,7 @@ from app.schemas.contract import (
     ContractList,
     ContractRateHistoryEntry,
     ContractSiblingRef,
+    ContractSignedDeleteRequest,
     ContractReopenRequest,
     ContractResponse,
     ContractTemplateBrief,
@@ -111,6 +112,7 @@ from app.services.client_identity import (
     client_display_name_expression,
 )
 from app.services.contract_rates import effective_rate_fields
+from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import validate_ready_for_activation
 from app.services.cost_orders import is_cost_order_client
 from app.services.order_types import suggested_order_type
@@ -273,7 +275,6 @@ async def _apply_contract_status_change(
     target: ContractStatus,
     *,
     actor_id: Optional[int],
-    enforce_signature_gate: bool = True,
 ) -> None:
     """Jedyne wejście dla zapisu ``status`` z rejestru umów — POST i PATCH.
 
@@ -314,16 +315,10 @@ async def _apply_contract_status_change(
             # zapisuje `contract_reopened` z `from_status`/`to_status`.
             await reopen_contract(db, contract, actor_id=actor_id)
         else:
-            # POST ręcznego rejestru obejmuje także umowy i aneksy podpisane
-            # offline, więc jego caller jawnie wyłącza tylko tę bramkę. PATCH,
-            # formalny endpoint /activate oraz szyna podpisu zachowują domyślną
-            # ochronę przed obejściem rozpoczętego procesu podpisu.
-            await lifecycle_activate_contract(
-                db,
-                contract,
-                actor_id=actor_id,
-                enforce_signature_gate=enforce_signature_gate,
-            )
+            # Aktywność jest stanem operacyjnym rejestru, niezależnym od
+            # dostępności i weryfikowalności zewnętrznego podpisu. Jedyna
+            # wspólna bramka to komplet danych potrzebnych raportowaniu.
+            await lifecycle_activate_contract(db, contract, actor_id=actor_id)
         return
 
     if target == ContractStatus.draft:
@@ -350,8 +345,8 @@ async def _apply_contract_status_change(
     if target == ContractStatus.ending:
         # „Kończący się" to `active` z bliskim końcem, a nie odrębna gałąź
         # cyklu życia. Status siedzi w `REVENUE_BEARING_STATUSES`, więc wpisany
-        # wprost omija DOKŁADNIE te same bramki co wpisany `active`: komplet
-        # pól, na których stoi liczenie pieniędzy, i dowód ukończonego podpisu.
+        # wprost omija DOKŁADNIE tę samą bramkę co wpisany `active`: komplet
+        # pól, na których stoi liczenie pieniędzy.
         # Maszyna stanów nie zna krawędzi `draft → ending` i to nie jest jej
         # luka — umowa najpierw zaczyna obowiązywać, a dopiero potem się
         # kończy. Dlatego szkic przechodzi przez `active` pełnym trybem, a
@@ -363,7 +358,6 @@ async def _apply_contract_status_change(
                 contract,
                 ContractStatus.active,
                 actor_id=actor_id,
-                enforce_signature_gate=enforce_signature_gate,
             )
         # Dopiero TERAZ, po pełnej bramce aktywacji: umowa BEZTERMINOWA nie
         # może być „Kończąca się" — nie ma czego kończyć. Ta sama reguła stoi
@@ -910,6 +904,37 @@ async def list_contracts(
     )
     _today = date.today()
 
+    # Headline metadata is independent from row grouping/pagination.  Build it
+    # from the exact same scoped+filtered contract set, then apply the shared
+    # business identity key after the filter.  ``total`` below deliberately
+    # remains the number of candidate-id groups used by pagination.
+    filtered_contracts = _scoped_filtered(
+        select(
+            Contract.id.label("contract_id"),
+            Contract.candidate_id.label("candidate_id"),
+        ).select_from(Contract)
+    ).subquery()
+    identity_key = contractor_identity_sql_expression(
+        Candidate.name,
+        Candidate.lastname,
+        Candidate.email,
+        Candidate.id,
+    )
+    totals_row = (
+        await db.execute(
+            select(
+                func.count(distinct(identity_key))
+                .filter(Candidate.id.is_not(None))
+                .label("contractors_total"),
+                func.count(filtered_contracts.c.contract_id).label("contracts_total"),
+            )
+            .select_from(filtered_contracts)
+            .outerjoin(Candidate, Candidate.id == filtered_contracts.c.candidate_id)
+        )
+    ).one()
+    contractors_total = int(totals_row.contractors_total or 0)
+    contracts_total = int(totals_row.contracts_total or 0)
+
     if group_by_candidate:
         # Jeden wiersz na osobę. Grupowanie i stronicowanie odbywają się PO
         # STRONIE SERWERA — grupowanie strony wyników w FE rozdzielałoby osobę
@@ -966,9 +991,7 @@ async def list_contracts(
             items.append(item)
     else:
         query = _scoped_filtered(select(Contract).options(*load_options))
-        total = (
-            await db.execute(select(func.count()).select_from(query.subquery()))
-        ).scalar()
+        total = contracts_total
         # Deterministyczna kolejność PRZED offset/limit — bez niej stronicowanie
         # gubi i dubluje umowy. Postgres bez ORDER BY zwraca wiersze w kolejności
         # skanu, a UPDATE tworzy nową wersję krotki i przesuwa wiersz na koniec:
@@ -994,7 +1017,14 @@ async def list_contracts(
     if not finance_ok:
         for item in items:
             _redact_contract_finance(item)
-    return ContractList(items=items, total=total, page=page, page_size=page_size)
+    return ContractList(
+        items=items,
+        total=total,
+        contractors_total=contractors_total,
+        contracts_total=contracts_total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 # ── Export (CSV / XLSX) ───────────────────────────────────────────────────────
@@ -1734,9 +1764,6 @@ async def create_contract(
             contract,
             ContractStatus(requested_status),
             actor_id=current_user.id,
-            # POST /contracts is the two manual flows from this ticket. It
-            # records agreements that may live outside the signing module.
-            enforce_signature_gate=False,
         )
     draft_order: Optional[ClientOrder] = None
     if source_contract_id is not None and not is_cost_order_client(contract.client_id):
@@ -2344,9 +2371,8 @@ async def activate_contract(
             detail=f"Contract is already {contract.status.value}, cannot activate",
         )
 
-    # Single guarded path to `active`. Enforces field completeness AND, when a
-    # signature is required, a completed qualified signature — raises 409
-    # otherwise (missing fields / missing signed evidence). Deliberately no
+    # Single guarded path to `active`. Enforces operational field completeness,
+    # independently of any agreement/signature state. Deliberately no
     # Notification row: the auto-draft hook in pipeline.py already fired a
     # `contract_activated` notification when the candidate moved to `hired`
     # (the per-day dedup index would collide). The lifecycle service writes the
@@ -2835,8 +2861,11 @@ async def delete_contract(
     błędnie albo zdublowany. Notatki i rozmowy zostają odpięte (FK SET NULL).
 
     Odmowa wyłącznie przy PODPISANYCH dowodach (podpis kwalifikowany albo
-    umowa B2B potwierdzona obustronnie) — patrz ``hard_delete_blocker``; taki
-    kontrakt można anulować (``/void``), co zachowuje dokumenty i dowody.
+    umowa B2B potwierdzona obustronnie) — patrz ``hard_delete_blocker``.
+    Ukończony podpis kwalifikowany pozostaje bezwzględną blokadą, bo jego FK
+    skasowałby dowód. Podpisaną wygenerowaną B2B może wyjątkowo usunąć Admin
+    przez drugi, jawnie potwierdzany endpoint; zwykły DELETE nigdy tego nie
+    obchodzi.
     """
     result = await db.execute(select(Contract).where(Contract.id == contract_id))
     contract = result.scalar_one_or_none()
@@ -2845,6 +2874,37 @@ async def delete_contract(
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     await hard_delete_contract(db, contract, actor_id=current_user.id)
+
+
+@router.post(
+    "/{contract_id}/force-delete-signed",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def force_delete_signed_contract(
+    contract_id: int,
+    data: ContractSignedDeleteRequest,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only break-glass delete for a contract protected by signed B2B.
+
+    The shared service re-locks the contract and all signature/agreement rows,
+    re-evaluates the blocker, and validates the exact contractor full name or
+    contract number (``563`` / ``#563``). The signed generated agreement is
+    detached and remains in its register; completed qualified signatures are
+    intentionally not overridable because deleting the contract would cascade
+    away their proof.
+    """
+    contract = await db.get(Contract, contract_id)
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+
+    await hard_delete_contract(
+        db,
+        contract,
+        actor_id=current_user.id,
+        force_signed_confirmation=data.confirmation,
+    )
 
 
 # ── Documents (Phase 9 A4) ────────────────────────────────────────────────────

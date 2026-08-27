@@ -9,6 +9,7 @@ interface SalesData {
   total_revenue: number;
   total_margin: number;
   active_consultants: number;
+  active_contracts: number;
   new_contracts_this_month: number;
   mrr_trend: Array<{
     month: string;
@@ -16,6 +17,7 @@ interface SalesData {
     revenue: number;
     margin: number;
     consultants: number;
+    active_contracts: number;
   }>;
   ending_contracts_30days: Array<{
     contract_id: number;
@@ -48,7 +50,7 @@ export function SalesOverview() {
   const mrrValues = (data.mrr_trend || []).map((t) => t.revenue);
 
   const structureDonut = [
-    { label: "Aktywni konsultanci", value: data.active_consultants, color: "#22c55e" },
+    { label: "Aktywne kontrakty", value: data.active_contracts, color: "#22c55e" },
     { label: "Kończące się (30d)", value: data.ending_contracts_30days.length, color: "#f97316" },
     { label: "Nowe (ten miesiąc)", value: data.new_contracts_this_month, color: "#3b82f6" },
   ];
@@ -69,7 +71,13 @@ export function SalesOverview() {
           icon={TrendingUp}
           color="blue"
         />
-        <KpiCard label="Aktywni konsultanci" value={data.active_consultants} icon={Users} color="purple" />
+        <KpiCard
+          label="Aktywni konsultanci"
+          value={data.active_consultants}
+          sub={`${data.active_contracts} aktywnych kontraktów`}
+          icon={Users}
+          color="purple"
+        />
         <KpiCard
           label="Nowe kontrakty"
           value={data.new_contracts_this_month}

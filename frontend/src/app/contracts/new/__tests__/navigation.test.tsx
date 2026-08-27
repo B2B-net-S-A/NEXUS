@@ -149,6 +149,9 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
     await fillRequiredFieldsAndSubmit();
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({ work_mode: null }),
+    );
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/contracts/77"));
     expect(mocks.replace).toHaveBeenCalledTimes(1);
     expect(mocks.push).not.toHaveBeenCalled();

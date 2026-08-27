@@ -37,6 +37,7 @@ from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.contractor_identity import summarize_active_contracts
 from app.schemas.money import to_whole_pln
 from app.schemas.client_profile import (
     ActiveConsultantItem,
@@ -659,10 +660,12 @@ async def get_client_profile(
     avg_ttf = (sum(fill_days) / len(fill_days)) if fill_days else None
 
     total_placements = len(active_consultants) + len(placements)
+    active_headcount = summarize_active_contracts(active_contracts)
 
     summary = ClientProfileSummary(
         open_jobs=len(open_jobs),
-        active_consultants=len(active_consultants),
+        active_consultants=active_headcount.contractors,
+        active_contracts=active_headcount.active_contracts,
         total_placements=total_placements,
         active_mrr=int(active_mrr),
         ltv=int(ltv),

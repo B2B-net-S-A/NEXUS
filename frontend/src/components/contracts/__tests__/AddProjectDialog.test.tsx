@@ -97,7 +97,10 @@ vi.mock("@/components/ui/command", () => ({
 
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 
-function renderDialog({ canManageFinance = true } = {}) {
+function renderDialog({
+  canManageFinance = true,
+  baseWorkMode = "remote" as string | null,
+} = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -116,7 +119,7 @@ function renderDialog({ canManageFinance = true } = {}) {
           rate_unit: "monthly",
           currency: "PLN",
           billing_hours_per_month: 160,
-          work_mode: "remote",
+          work_mode: baseWorkMode,
         }}
         canManageFinance={canManageFinance}
       />
@@ -190,6 +193,26 @@ describe("AddProjectDialog", () => {
     expect(
       screen.getByText("Podaj datę rozpoczęcia nowego projektu."),
     ).toBeInTheDocument();
+  });
+
+  it("pozwala zapisać aktywny projekt bez trybu pracy", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderDialog({ baseWorkMode: null });
+
+    await selectClient(user);
+    await user.type(screen.getByPlaceholderText("np. 125,00"), "125,00");
+    await user.type(screen.getByPlaceholderText("np. 175,00"), "175,00");
+    await user.click(screen.getByRole("button", { name: "Dodaj projekt" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "active",
+        work_mode: null,
+      }),
+    );
+    expect(screen.getByText("Tryb pracy (opcjonalnie)")).toBeInTheDocument();
+    expect(screen.queryByText(/wymaga trybu pracy/i)).not.toBeInTheDocument();
   });
 
   it("dla klienta kosztowego kieruje do jawnego wyboru typu zamówienia", async () => {

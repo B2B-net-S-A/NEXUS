@@ -51,11 +51,18 @@ pytestmark = pytest.mark.asyncio
 # ── Seed helpers ─────────────────────────────────────────────────────────────
 
 
-async def _seed_candidate(marker: str, *, email: str | None, suffix: str = "") -> int:
+async def _seed_candidate(
+    marker: str,
+    *,
+    email: str | None,
+    suffix: str = "",
+    first_name: str = "Multi",
+    last_name: str | None = None,
+) -> int:
     async with AsyncSessionLocal() as db:
         cand = Candidate(
-            name="Multi",
-            lastname=f"{marker}{suffix}",
+            name=first_name,
+            lastname=last_name if last_name is not None else f"{marker}{suffix}",
             email=email,
         )
         db.add(cand)
@@ -178,6 +185,8 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     body = grouped.json()
     # Dwie OSOBY, nie trzy umowy.
     assert body["total"] == 2
+    assert body["contractors_total"] == 2
+    assert body["contracts_total"] == 3
     rows = {row["candidate_id"]: row for row in body["items"]}
     assert set(rows) == {cand_multi, cand_solo}
 
@@ -210,7 +219,128 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     )
     assert flat.status_code == 200, flat.text
     assert flat.json()["total"] == 3
+    assert flat.json()["contractors_total"] == 2
+    assert flat.json()["contracts_total"] == 3
     assert all(row["group_members"] == [] for row in flat.json()["items"])
+
+
+async def test_list_metadata_deduplicates_duplicate_piotr_profiles(
+    app_client, app_auth_headers
+):
+    marker = f"CntPiotr{uuid.uuid4().hex[:6]}"
+    piotr_a = await _seed_candidate(
+        marker,
+        email=f"first-{marker.lower()}@example.com",
+        first_name=" Piotr ",
+        last_name="Klimczak",
+    )
+    piotr_b = await _seed_candidate(
+        marker,
+        email=f"second-{marker.lower()}@example.com",
+        # Exercises the SQL identity path's special-character transliteration
+        # (the Python helper uses the same Piøtr -> piotr rule).
+        first_name="PIØTR",
+        last_name="Klim-czak",
+    )
+    client_a = await _seed_client(f"A {marker}")
+    client_b = await _seed_client(f"B {marker}")
+    await _seed_contract(piotr_a, client_a)
+    await _seed_contract(piotr_b, client_b)
+
+    response = await app_client.get(
+        "/api/contracts",
+        params={
+            "q": marker,
+            "status": "active",
+            "group_by_candidate": "true",
+            "page_size": 50,
+        },
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Pagination still has two candidate-id groups, while the headline applies
+    # the business identity key across both profiles.
+    assert body["total"] == 2
+    assert body["contractors_total"] == 1
+    assert body["contracts_total"] == 2
+
+
+async def test_list_metadata_keeps_two_filip_jablonski_emails_separate(
+    app_client, app_auth_headers
+):
+    marker = f"CntFilip{uuid.uuid4().hex[:6]}"
+    filip_a = await _seed_candidate(
+        marker,
+        email=f"first-{marker.lower()}@example.com",
+        first_name="Filip",
+        last_name="Jabłoński",
+    )
+    filip_b = await _seed_candidate(
+        marker,
+        email=f"second-{marker.lower()}@example.com",
+        first_name=" FILIP ",
+        last_name="JABLONSKI",
+    )
+    client_a = await _seed_client(f"A {marker}")
+    client_b = await _seed_client(f"B {marker}")
+    await _seed_contract(filip_a, client_a)
+    await _seed_contract(filip_b, client_b)
+
+    response = await app_client.get(
+        "/api/contracts",
+        params={
+            "q": marker,
+            "status": "active",
+            "group_by_candidate": "true",
+            "page_size": 50,
+        },
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 2
+    assert body["contractors_total"] == 2
+    assert body["contracts_total"] == 2
+
+
+async def test_list_metadata_deduplicates_non_latin_names(app_client, app_auth_headers):
+    marker = f"CntUnicode{uuid.uuid4().hex[:6]}"
+    candidate_a = await _seed_candidate(
+        marker,
+        email=f"first-{marker.lower()}@example.com",
+        first_name="Олена",
+        last_name="Коваль",
+    )
+    candidate_b = await _seed_candidate(
+        marker,
+        email=f"second-{marker.lower()}@example.com",
+        first_name=" ОЛЕНА ",
+        last_name="КОВАЛЬ",
+    )
+    client_a = await _seed_client(f"A {marker}")
+    client_b = await _seed_client(f"B {marker}")
+    await _seed_contract(candidate_a, client_a)
+    await _seed_contract(candidate_b, client_b)
+
+    response = await app_client.get(
+        "/api/contracts",
+        params={
+            "q": marker,
+            "status": "active",
+            "group_by_candidate": "true",
+            "page_size": 50,
+        },
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 2
+    assert body["contractors_total"] == 1
+    assert body["contracts_total"] == 2
 
 
 async def test_grouped_list_respects_filters_within_group(app_client, app_auth_headers):
@@ -1216,12 +1346,162 @@ async def test_delete_contract_with_signed_both_generated_refused_in_polish(
     assert detail["code"] == "contract_has_signed_generated_contract"
     assert "podpisana" in detail["message"]
     assert "void_endpoint" in detail
+    assert detail["requires_admin_confirmation"] is True
+    assert detail["admin_only"] is True
+    assert detail["force_delete_endpoint"] == (
+        f"/api/contracts/{cid}/force-delete-signed"
+    )
+    assert detail["confirmation_options"] == ["contractor_name", "contract_id"]
 
     async with AsyncSessionLocal() as db:
         assert await db.get(Contract, cid) is not None
         surviving = await db.get(B2BGeneratedContract, generated_id)
         assert surviving is not None
         assert surviving.contract_id == cid  # link audytowy nietknięty
+
+
+async def test_force_delete_signed_requires_admin_and_exact_confirmation(
+    app_client, app_auth_headers
+):
+    """Break-glass B2B delete is admin-only and rejects every fuzzy mismatch."""
+    marker = f"Fsd{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"ForceSigned {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.active)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="signed_both", client_id=cli
+    )
+
+    tac_headers = await _tac_headers(app_client)
+    denied = await app_client.post(
+        f"/api/contracts/{cid}/force-delete-signed",
+        json={"confirmation": f"Multi {marker}"},
+        headers=tac_headers,
+    )
+    assert denied.status_code == 403, denied.text
+
+    mismatch = await app_client.post(
+        f"/api/contracts/{cid}/force-delete-signed",
+        # No typo tolerance for an irreversible operation.
+        json={"confirmation": f"Multi {marker}x"},
+        headers=app_auth_headers,
+    )
+    assert mismatch.status_code == 422, mismatch.text
+    assert mismatch.json()["detail"]["code"] == ("signed_delete_confirmation_mismatch")
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is not None
+        generated = await db.get(B2BGeneratedContract, generated_id)
+        assert generated is not None
+        assert generated.contract_id == cid
+
+
+async def test_admin_force_delete_signed_by_name_preserves_register_and_audits(
+    app_client, app_auth_headers
+):
+    """Exact name confirmation detaches signed B2B and leaves durable audit."""
+    from app.models.activity import Activity
+
+    marker = f"Fsn{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"ForceName {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.active)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="signed_both", client_id=cli
+    )
+
+    response = await app_client.post(
+        f"/api/contracts/{cid}/force-delete-signed",
+        # Leading/trailing whitespace + case are normalised; spelling and
+        # diacritics are not fuzzed.
+        json={"confirmation": f"  multi {marker.upper()}  "},
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 204, response.text
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+        assert await db.get(Candidate, cand) is not None
+        generated = await db.get(B2BGeneratedContract, generated_id)
+        assert generated is not None
+        assert generated.contract_id is None
+        assert generated.signature_status == "signed_both"
+
+        audit = await db.scalar(
+            select(Activity)
+            .where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == cid,
+                Activity.action == "force_deleted_signed",
+            )
+            .order_by(Activity.id.desc())
+        )
+        assert audit is not None
+        assert audit.user_id is not None
+        assert audit.created_at is not None
+        assert audit.details == {
+            "status": "active",
+            "candidate_id": cand,
+            "client_id": cli,
+            "contract_id": cid,
+            "forced_despite_signed": True,
+            "blocker": "signed_generated_contract",
+            "confirmation_method": "contractor_name",
+        }
+
+
+@pytest.mark.parametrize("prefix", ["", "#"])
+async def test_admin_force_delete_signed_accepts_exact_contract_number(
+    app_client, app_auth_headers, prefix
+):
+    marker = f"Fsi{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"ForceId {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.active)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="signed_both", client_id=cli
+    )
+
+    response = await app_client.post(
+        f"/api/contracts/{cid}/force-delete-signed",
+        json={"confirmation": f"  {prefix}{cid}  "},
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 204, response.text
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is None
+        generated = await db.get(B2BGeneratedContract, generated_id)
+        assert generated is not None
+        assert generated.contract_id is None
+
+
+async def test_force_delete_signed_is_not_a_second_generic_delete(
+    app_client, app_auth_headers
+):
+    marker = f"Fsu{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    cli = await _seed_client(f"ForceUnsigned {marker}")
+    cid = await _seed_contract(cand, cli, status=ContractStatus.draft)
+    generated_id = await _seed_generated(
+        marker, cid, cand, signature_status="unsigned", client_id=cli
+    )
+
+    response = await app_client.post(
+        f"/api/contracts/{cid}/force-delete-signed",
+        json={"confirmation": str(cid)},
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == (
+        "contract_not_protected_by_signed_generated_contract"
+    )
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is not None
+        generated = await db.get(B2BGeneratedContract, generated_id)
+        assert generated is not None
+        assert generated.contract_id == cid
 
 
 async def test_delete_contract_blocked_by_signed_generated_of_same_client(

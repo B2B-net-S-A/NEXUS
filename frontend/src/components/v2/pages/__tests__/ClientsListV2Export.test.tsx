@@ -45,6 +45,7 @@ const BASE_RESPONSE: ClientDirectoryResponse = {
       scope_label: "Bankowość",
       industry: "Banking & Finance",
       active_consultants_count: 4,
+      active_contracts_count: 5,
       effective_date: "2026-02-01",
       expiry_date: null,
       category: "active",

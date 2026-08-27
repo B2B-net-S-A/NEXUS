@@ -41,7 +41,7 @@ interface FormState {
  rate_candidate: string;
  rate_client: string;
  contract_type: "b2b" |"uop" |"uzlecenie";
- work_mode: "remote" |"hybrid" |"onsite";
+ work_mode: "" |"remote" |"hybrid" |"onsite";
 }
 
 function toFormState(c: ContractorListItem): FormState {
@@ -51,7 +51,7 @@ function toFormState(c: ContractorListItem): FormState {
  rate_candidate: c.rate_candidate != null ? String(c.rate_candidate) : "",
  rate_client: c.rate_client != null ? String(c.rate_client) : "",
  contract_type: c.contract_type ??"b2b",
- work_mode: c.work_mode ??"remote",
+ work_mode: c.work_mode ??"",
  };
 }
 
@@ -68,15 +68,14 @@ function formDirtyOrValid(
  return Boolean(
  form.start_date &&
  form.contract_type &&
- form.work_mode &&
  (!canManageFinance || (form.rate_candidate && form.rate_client))
  );
 }
 
 /**
  * DraftCompletionModal — fills the activation-required fields
- * (start_date, rate_candidate, rate_client, contract_type, work_mode; the end
- * date is optional — "bezterminowo") then POSTs /activate. Two-step flow:
+ * (start_date, rate_candidate, rate_client, contract_type; work mode and the
+ * end date are optional) then POSTs /activate. Two-step flow:
  * PATCH first so values persist even if activation fails for an unrelated
  * reason, then activate. A 409 from activate surfaces the missing-fields list
  * returned by the server.
@@ -112,7 +111,7 @@ export function DraftCompletionModal({
  // `null` znaczy „bezterminowo" i tak też czyta go bramka aktywacji.
  end_date: form.end_date || null,
  contract_type: form.contract_type,
- work_mode: form.work_mode,
+ work_mode: form.work_mode || null,
  };
  if (canManageFinance) {
  payload.rate_candidate = Number(form.rate_candidate);
@@ -244,13 +243,13 @@ export function DraftCompletionModal({
  </Select>
  </div>
  <div>
- <Label htmlFor="work_mode">Tryb pracy *</Label>
+ <Label htmlFor="work_mode">Tryb pracy (opcjonalnie)</Label>
  <Select
  value={form.work_mode}
  onValueChange={(v) =>
  setForm((f) => ({
  ...f,
- work_mode: v as FormState["work_mode"],
+ work_mode: v === "none" ? "" : (v as FormState["work_mode"]),
  }))
  }
  >
@@ -258,6 +257,7 @@ export function DraftCompletionModal({
  <SelectValue placeholder="Wybierz tryb" />
  </SelectTrigger>
  <SelectContent>
+ <SelectItem value="none">Nie określono</SelectItem>
  <SelectItem value="remote">Zdalnie</SelectItem>
  <SelectItem value="hybrid">Hybryda</SelectItem>
  <SelectItem value="onsite">Biuro</SelectItem>

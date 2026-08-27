@@ -39,6 +39,7 @@ interface MarginRow {
 interface UtilizationData {
   total_candidates: number;
   candidates_active: number;
+  active_contracts: number;
   candidates_on_bench: number;
   utilization_pct: number;
   avg_bench_days: number | null;
@@ -390,7 +391,7 @@ export default function ContractAnalyticsPage() {
             value={util ? `${util.utilization_pct}%` : "—"}
             sub={
               util
-                ? `${util.candidates_active}/${util.total_candidates} kandydatów aktywnych`
+                ? `${util.candidates_active} kontraktorów / ${util.active_contracts} aktywnych kontraktów`
                 : utilQ.isError
                   ? "Nie udało się pobrać utylizacji"
                   : undefined
@@ -402,7 +403,7 @@ export default function ContractAnalyticsPage() {
             value={util?.avg_bench_days !== null && util?.avg_bench_days !== undefined ? `${util.avg_bench_days}` : "—"}
             sub={
               util
-                ? `${util.candidates_on_bench} kandydatów bez kontraktu`
+                ? `${util.candidates_on_bench} osób bez kontraktu`
                 : utilQ.isError
                   ? "Nie udało się pobrać danych bench"
                   : undefined
@@ -498,7 +499,12 @@ function RoleClientMixCard() {
     <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
       <div className="flex items-center gap-2 mb-3">
         <Target className="w-4 h-4" />
-        <h3 className="font-semibold">Rola × Klient ({data.total_active} aktywnych)</h3>
+        <h3 className="font-semibold">
+          Rola × Klient ({data.total_active}{" "}
+          {data.total_active === 1 ? "kontraktor" : "kontraktorów"} /{" "}
+          {data.total_active_contracts}{" "}
+          {data.total_active_contracts === 1 ? "kontrakt" : "kontraktów"})
+        </h3>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs">
@@ -515,10 +521,9 @@ function RoleClientMixCard() {
           </thead>
           <tbody>
             {data.roles.map((role) => {
-              const rowSum = data.clients.reduce(
-                (acc, c) => acc + (matrix[role]?.[c.id] ?? 0),
-                0,
-              );
+              // One person may be visible in several client cells. Σ is the
+              // distinct person total for the role, not the sum of engagements.
+              const rowSum = data.role_totals[role] ?? 0;
               return (
                 <tr
                   key={role}

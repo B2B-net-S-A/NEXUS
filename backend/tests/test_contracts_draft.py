@@ -236,9 +236,7 @@ async def test_get_draft_no_default_template_returns_empty(
     assert body["template_id"] is None
     assert body["rendered_from_default"] is False
     # FE has at least one uzlecenie template available to choose from
-    assert any(
-        t["contract_type"] == "uzlecenie" for t in body["available_templates"]
-    )
+    assert any(t["contract_type"] == "uzlecenie" for t in body["available_templates"])
 
 
 # ── PATCH /draft ────────────────────────────────────────────────────────────
@@ -367,7 +365,8 @@ async def test_finalize_draft_validates_required_fields(
     cand_id = await _seed_candidate()
     cli_id = await _seed_client()
     await _seed_template()
-    # Intentionally skip rate_client / work_mode — should trigger 409.
+    # Intentionally skip rate_client — should trigger 409. ``work_mode`` is
+    # optional and must not appear in the missing-fields response.
     contract_id = await _seed_draft_contract(cand_id, cli_id)
 
     # Initialize draft body so we hit field validation, not the empty-body guard.
@@ -384,3 +383,4 @@ async def test_finalize_draft_validates_required_fields(
     detail = resp.json()["detail"]
     assert "missing" in detail
     assert "rate_client" in detail["missing"]
+    assert "work_mode" not in detail["missing"]

@@ -16,7 +16,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, func, select
+from sqlalchemy import case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, PlainSerializer
 
@@ -29,6 +29,11 @@ from app.models.contract import Contract, ContractStatus, ContractTerminationRea
 from app.models.job import Job
 from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import get_rate_to_pln
+from app.services.contractor_identity import (
+    candidate_identity_key,
+    contractor_identity_sql_expression,
+    unique_contractor_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +110,7 @@ class MarginByClient(BaseModel):
 class UtilizationStats(BaseModel):
     total_candidates: int
     candidates_active: int
+    active_contracts: int
     candidates_on_bench: int
     utilization_pct: float
     avg_bench_days: Optional[float]
@@ -277,37 +283,67 @@ async def utilization(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    total_candidates = (
-        await db.execute(select(func.count(Candidate.id)))
+    active_rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Candidate.email,
+            )
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(Contract.status == ContractStatus.active)
+        )
+    ).all()
+    active_keys = unique_contractor_keys(active_rows)
+    candidates_active = len(active_keys)
+    active_contracts = (
+        await db.execute(
+            select(func.count(Contract.id)).where(
+                Contract.status == ContractStatus.active
+            )
+        )
     ).scalar() or 0
 
-    active_res = await db.execute(
-        select(func.count(func.distinct(Contract.candidate_id))).where(
-            Contract.status == ContractStatus.active
-        )
-    )
-    candidates_active = active_res.scalar() or 0
-    candidates_on_bench = max(0, total_candidates - candidates_active)
-
-    # Avg bench days — count days since each bench candidate's last contract end.
+    # Count the whole candidate population by the same person identity used by
+    # the numerator.  Bench gaps are likewise folded per identity: duplicate
+    # profiles contribute only their most recent contract end once.
     today = date.today()
     bench_days_res = await db.execute(
-        select(Candidate.id, func.max(Contract.end_date).label("last_end"))
+        select(
+            Candidate.id,
+            Candidate.name,
+            Candidate.lastname,
+            Candidate.email,
+            func.max(Contract.end_date).label("last_end"),
+        )
         .outerjoin(Contract, Contract.candidate_id == Candidate.id)
-        .group_by(Candidate.id)
-    )
-    bench_gaps: list[int] = []
-    active_candidate_ids_res = await db.execute(
-        select(func.distinct(Contract.candidate_id)).where(
-            Contract.status == ContractStatus.active
+        .group_by(
+            Candidate.id,
+            Candidate.name,
+            Candidate.lastname,
+            Candidate.email,
         )
     )
-    active_ids = {row[0] for row in active_candidate_ids_res.all() if row[0]}
-    for cid, last_end in bench_days_res.all():
-        if cid in active_ids:
+    all_candidate_rows = bench_days_res.all()
+    all_keys = unique_contractor_keys(all_candidate_rows)
+    total_candidates = len(all_keys)
+    bench_keys = all_keys - active_keys
+    candidates_on_bench = len(bench_keys)
+    bench_last_end: dict[tuple, date] = {}
+    for row in all_candidate_rows:
+        identity_key = candidate_identity_key(row)
+        if identity_key not in bench_keys:
             continue
+        last_end = row.last_end
         if last_end is None:
             continue  # candidate never had a contract — skip
+        previous = bench_last_end.get(identity_key)
+        if previous is None or last_end > previous:
+            bench_last_end[identity_key] = last_end
+
+    bench_gaps: list[int] = []
+    for last_end in bench_last_end.values():
         gap = (today - last_end).days
         if gap > 0:
             bench_gaps.append(gap)
@@ -321,6 +357,7 @@ async def utilization(
     return UtilizationStats(
         total_candidates=total_candidates,
         candidates_active=candidates_active,
+        active_contracts=active_contracts,
         candidates_on_bench=candidates_on_bench,
         utilization_pct=utilization_pct,
         avg_bench_days=avg_bench,
@@ -457,6 +494,11 @@ class RoleClientCell(BaseModel):
 
 class RoleClientMix(BaseModel):
     total_active: int
+    # Raw active contract rows, including detached contracts.  The person
+    # buckets below intentionally require a Candidate identity and therefore
+    # are not a partition of this cross-unit metric.
+    total_active_contracts: int
+    role_totals: dict[str, int]
     rows: List[RoleClientCell]
     roles: List[str]
     clients: List[dict]  # [{id, name}]
@@ -467,20 +509,44 @@ async def role_client_mix(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Count active contracts bucketed by role × client.
+    """Count unique active people bucketed by role × client.
 
     Role is `job.title` when a job is linked; otherwise we fall back to
     `candidate.competence_category`. Contracts without either are grouped
-    under `Unknown`.
+    under `Unknown`. A person may appear in multiple cells, but the global
+    person total is deduplicated across the whole active population.
+    ``total_active_contracts`` remains a separate raw-contract metric and also
+    includes detached rows that cannot appear in a person bucket.
     """
     role_expr = func.coalesce(Job.title, Candidate.competence_category, "Unknown")
     client_name = client_display_name_expression()
+    identity_key = contractor_identity_sql_expression(
+        Candidate.name,
+        Candidate.lastname,
+        Candidate.email,
+        Candidate.id,
+    )
+    totals = (
+        await db.execute(
+            select(
+                func.count(distinct(identity_key))
+                .filter(Candidate.id.is_not(None))
+                .label("contractors"),
+                func.count(Contract.id).label("contracts"),
+            )
+            .select_from(Contract)
+            .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+            .where(Contract.status == ContractStatus.active)
+        )
+    ).one()
+    total_active = int(totals.contractors or 0)
+    total_active_contracts = int(totals.contracts or 0)
     res = await db.execute(
         select(
             role_expr.label("role"),
             Client.id.label("client_id"),
             client_name.label("client_name"),
-            func.count(Contract.id).label("cnt"),
+            func.count(distinct(identity_key)).label("cnt"),
         )
         .select_from(Contract)
         .join(Candidate, Candidate.id == Contract.candidate_id)
@@ -488,10 +554,21 @@ async def role_client_mix(
         .outerjoin(Job, Job.id == Contract.job_id)
         .where(Contract.status == ContractStatus.active)
         .group_by(role_expr, Client.id, client_name)
-        .order_by(func.count(Contract.id).desc())
+        .order_by(func.count(distinct(identity_key)).desc())
     )
     raw = res.all()
-    total_active = sum(r.cnt for r in raw)
+    role_totals_res = await db.execute(
+        select(
+            role_expr.label("role"),
+            func.count(distinct(identity_key)).label("cnt"),
+        )
+        .select_from(Contract)
+        .join(Candidate, Candidate.id == Contract.candidate_id)
+        .outerjoin(Job, Job.id == Contract.job_id)
+        .where(Contract.status == ContractStatus.active)
+        .group_by(role_expr)
+    )
+    role_totals = {row.role: int(row.cnt) for row in role_totals_res.all()}
     rows = [
         RoleClientCell(
             role=r.role,
@@ -510,7 +587,12 @@ async def role_client_mix(
         clients_seen.setdefault(r.client_id, r.client_name)
     clients = [{"id": cid, "name": name} for cid, name in clients_seen.items()]
     return RoleClientMix(
-        total_active=total_active, rows=rows, roles=roles, clients=clients
+        total_active=total_active,
+        total_active_contracts=total_active_contracts,
+        role_totals=role_totals,
+        rows=rows,
+        roles=roles,
+        clients=clients,
     )
 
 
@@ -542,17 +624,34 @@ async def location_distribution(
         True, description="If true, only count candidates with an active contract"
     ),
 ):
-    """Bucket consultants by hub_city and region for heat-map visualization."""
-    base_q = select(Candidate.id, Candidate.hub_city, Candidate.region)
+    """Bucket unique consultants by hub_city and region.
+
+    When duplicate Candidate profiles share one business identity, the profile
+    with the lowest candidate id is the deterministic source of location data.
+    """
+    base_q = select(
+        Candidate.id,
+        Candidate.name,
+        Candidate.lastname,
+        Candidate.email,
+        Candidate.hub_city,
+        Candidate.region,
+    )
     if active_only:
         base_q = base_q.join(Contract, Contract.candidate_id == Candidate.id).where(
             Contract.status == ContractStatus.active
         )
-    rows = (await db.execute(base_q.distinct())).all()
-    total = len(rows)
+    rows = sorted((await db.execute(base_q.distinct())).all(), key=lambda row: row.id)
+    profiles_by_identity = {}
+    for row in rows:
+        profiles_by_identity.setdefault(candidate_identity_key(row), row)
+    selected_profiles = list(profiles_by_identity.values())
+    total = len(selected_profiles)
     hub_map: dict[Optional[str], int] = {}
     region_map: dict[Optional[str], int] = {}
-    for _, hub, region in rows:
+    for row in selected_profiles:
+        hub = row.hub_city
+        region = row.region
         hub_map[hub] = hub_map.get(hub, 0) + 1
         region_map[region] = region_map.get(region, 0) + 1
 

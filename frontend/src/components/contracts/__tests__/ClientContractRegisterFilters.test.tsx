@@ -4,6 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ClientContractRegister } from "@/components/contracts/ClientContractRegister";
 import { useAuthStore } from "@/store/auth";
+import {
+  buildClientContractRegisterUrl,
+  rememberContractsListScroll,
+} from "@/lib/contracts-list-navigation";
 
 const getMock = vi.fn();
 vi.mock("@/lib/api", () => ({
@@ -20,14 +24,19 @@ vi.mock("@/components/contracts/ContractRegisterDialog", () => ({
 vi.mock("@/lib/session", () => ({ getAccessToken: () => "tok" }));
 
 const CLIENT_ID = 42;
+const NativeURL = URL;
 
-function renderRegister() {
+function renderRegister(navigationSearch?: string) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
-      <ClientContractRegister clientId={CLIENT_ID} clientName="Nordea Bank" />
+      <ClientContractRegister
+        clientId={CLIENT_ID}
+        clientName="Nordea Bank"
+        navigationSearch={navigationSearch}
+      />
     </QueryClientProvider>,
   );
 }
@@ -40,6 +49,8 @@ describe("ClientContractRegister — filtry (Okres) + eksport", () => {
   const fetchMock = vi.fn();
 
   beforeEach(() => {
+    window.history.replaceState({}, "", "/contracts");
+    window.sessionStorage.clear();
     useAuthStore.setState({
       user: {
         id: 1,
@@ -69,11 +80,11 @@ describe("ClientContractRegister — filtry (Okres) + eksport", () => {
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ ok: true, blob: async () => new Blob(["x"]) });
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("URL", {
-      ...URL,
-      createObjectURL: vi.fn(() => "blob:stub"),
-      revokeObjectURL: vi.fn(),
-    });
+    class TestURL extends NativeURL {
+      static createObjectURL = vi.fn(() => "blob:stub");
+      static revokeObjectURL = vi.fn();
+    }
+    vi.stubGlobal("URL", TestURL);
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
   });
 
@@ -115,6 +126,80 @@ describe("ClientContractRegister — filtry (Okres) + eksport", () => {
         (withPeriod![1] as { params: Record<string, unknown> }).params,
       ).toMatchObject({ client_id: CLIENT_ID });
     });
+  });
+
+  it("odtwarza filtry, stronę, link powrotny i scroll rejestru klienta", async () => {
+    const state = {
+      search: "Kowalski",
+      statusFilter: ["draft"] as const,
+      periodFrom: "2026-01-01",
+      periodTo: "2026-12-31",
+      subcategoryFilter: ["Backend"],
+      page: 3,
+    };
+    const returnTarget = buildClientContractRegisterUrl(
+      CLIENT_ID,
+      "Nordea Bank",
+      { ...state, statusFilter: [...state.statusFilter] },
+    );
+    const navigationSearch = returnTarget.split("?")[1] ?? "";
+    window.history.replaceState({}, "", returnTarget);
+    const main = document.createElement("main");
+    main.id = "main";
+    main.scrollTop = 680;
+    document.body.appendChild(main);
+    rememberContractsListScroll(returnTarget);
+    main.scrollTop = 0;
+
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/contracts/register/subcategories") {
+        return Promise.resolve({ data: { subcategories: ["Backend"] } });
+      }
+      return Promise.resolve({
+        data: {
+          items: [
+            {
+              id: 563,
+              candidate_id: 77,
+              candidate_name: "Jan Kowalski",
+              project_code: "NOR-563",
+              project_name: "Cloud",
+              start_date: "2026-01-01",
+              end_date: null,
+              engagement_model: "time_based",
+              prolongation_status: "unknown",
+              status: "draft",
+            },
+          ],
+          total: 101,
+          page: 3,
+          page_size: 50,
+        },
+      });
+    });
+
+    renderRegister(navigationSearch);
+
+    const link = await screen.findByRole("link", { name: "Jan Kowalski" });
+    await waitFor(() => {
+      const restored = getMock.mock.calls.find((call) => {
+        const params = call[1]?.params;
+        return (
+          call[0] === "/api/contracts" &&
+          params?.page === 3 &&
+          params?.q === "Kowalski" &&
+          params?.status?.[0] === "draft" &&
+          params?.subcategory?.[0] === "Backend"
+        );
+      });
+      expect(restored).toBeTruthy();
+      expect(main.scrollTop).toBe(680);
+    });
+    expect(link.getAttribute("href")).toContain("from=client-register");
+    expect(link.getAttribute("href")).toContain(
+      `returnTo=${encodeURIComponent(returnTarget)}`,
+    );
+    main.remove();
   });
 
   it("eksport uderza w /register/export z client_id i aktualnymi filtrami", async () => {

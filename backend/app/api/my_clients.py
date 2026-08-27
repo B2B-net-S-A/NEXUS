@@ -15,6 +15,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
 from app.api.deps import CurrentUser, require_dl_assigned_or_admin
@@ -42,6 +43,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
+from app.services.contractor_identity import summarize_active_contracts
 
 router = APIRouter()
 
@@ -378,12 +380,16 @@ async def client_dashboard(
 
     # Same split for contracts: status counts are operational, while margin
     # calculation loads full financial rows only for VIEW_FINANCE.
-    contract_statuses = list(
+    count_contracts = list(
         (
             await db.execute(
-                select(Contract.status).where(Contract.client_id == client_id)
+                select(Contract)
+                .where(Contract.client_id == client_id)
+                .options(selectinload(Contract.candidate))
             )
-        ).scalars()
+        )
+        .scalars()
+        .all()
     )
     monthly_margin_total: Decimal | int = 0
     has_margin = False
@@ -417,10 +423,14 @@ async def client_dashboard(
         margin_pct = round(float(monthly_margin_total) / float(active_rev) * 100, 2)
 
     # Konsultanci active vs completed (na podstawie kontraktów linkowanych do orderów)
-    active_consultants = sum(
-        1 for st in contract_statuses if st in _LIVE_CONTRACT_STATUSES
+    active_headcount = summarize_active_contracts(
+        contract
+        for contract in count_contracts
+        if contract.status in _LIVE_CONTRACT_STATUSES
     )
-    completed_consultants = contract_statuses.count(ContractStatus.ended)
+    completed_consultants = sum(
+        1 for contract in count_contracts if contract.status == ContractStatus.ended
+    )
 
     # Order velocity — średnio dni od `created_at` do gdy
     # `linked_contracts == positions_count` dla zakończonych zamówień.
@@ -528,7 +538,8 @@ async def client_dashboard(
             monthly_margin_total if finance_ok and has_margin else None
         ),
         monthly_margin_pct=margin_pct if finance_ok else None,
-        active_consultants=active_consultants,
+        active_consultants=active_headcount.contractors,
+        active_contracts=active_headcount.active_contracts,
         completed_consultants=completed_consultants,
         avg_days_to_fill=avg_days_to_fill,
         framework_contracts_count=fc_count,

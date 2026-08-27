@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import (
     AnalyticsCapability,
@@ -19,6 +20,7 @@ from app.models.contract import Contract, ContractStatus
 from app.models.user import User, UserRole
 from app.services.access_scope import apply_activity_feed_scope
 from app.services.dashboard_metrics import compute_kpi_snapshot
+from app.services.contractor_identity import summarize_active_contracts
 
 router = APIRouter()
 
@@ -63,19 +65,27 @@ async def get_kpis(
     include_ranking = user_has_capability(
         current_user, AnalyticsCapability.VIEW_RECRUITMENT_RANKING
     )
-    cache_key = f"dashboard:kpis:{'ranking' if include_ranking else 'aggregates'}"
+    cache_key = (
+        "dashboard:kpis:v2-contractor-headcount:"
+        f"{'ranking' if include_ranking else 'aggregates'}"
+    )
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
     # ATS stats
-    contracts_active = (
-        await db.execute(
-            select(func.count(Contract.id)).where(
-                Contract.status == ContractStatus.active
+    active_contract_rows = list(
+        (
+            await db.execute(
+                select(Contract)
+                .where(Contract.status == ContractStatus.active)
+                .options(selectinload(Contract.candidate))
             )
         )
-    ).scalar()
+        .scalars()
+        .all()
+    )
+    active_headcount = summarize_active_contracts(active_contract_rows)
 
     first_of_month = date.today().replace(day=1)
     # PR 4: pierwsze osiągnięcia `hired` (kanoniczny view) zamiast liczenia
@@ -138,7 +148,8 @@ async def get_kpis(
 
     result_data = {
         "ats": {
-            "active_consultants": contracts_active,
+            "active_consultants": active_headcount.contractors,
+            "active_contracts": active_headcount.active_contracts,
             "placements_this_month": placements_this_month,
             "candidates_added_this_month": candidates_added_this_month,
             "top_recruiters": top_recruiters,

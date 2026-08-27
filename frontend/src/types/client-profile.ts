@@ -44,6 +44,7 @@ export interface CandidateBrief {
 export interface ClientProfileSummary {
   open_jobs: number;
   active_consultants: number;
+  active_contracts: number;
   total_placements: number;
   /** null = brak uprawnień finansowych (backend redaguje; formatPLN → "—") */
   active_mrr: number | null;
