@@ -290,6 +290,8 @@ def test_flow_b_admin_keeps_rate_defaults_and_computed_margin_shape():
         "rate_client": Decimal("18000"),
         "rate_candidate": Decimal("14000"),
         "currency": "PLN",
+        "rate_client_currency": "PLN",
+        "rate_candidate_currency": "PLN",
         "rate_unit": RateUnit.monthly,
         "billing_hours_per_month": 160,
     }

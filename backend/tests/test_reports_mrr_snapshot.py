@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 
 async def _seed_client_and_candidate(
@@ -79,6 +81,32 @@ async def _clear_cache():
     from app.core.cache import cache_invalidate
 
     await cache_invalidate("reports:")
+
+
+async def _ensure_fx_rate(currency: str, effective_date: date) -> None:
+    """Keep report fixtures complete without colliding with shared shard data."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.fx_rate import FxRate
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.scalar(
+            select(FxRate.id)
+            .where(
+                FxRate.currency == currency,
+                FxRate.effective_date <= effective_date,
+            )
+            .limit(1)
+        )
+        if existing is None:
+            db.add(
+                FxRate(
+                    effective_date=effective_date,
+                    currency=currency,
+                    rate_to_pln=Decimal("4.000000"),
+                    source="TEST",
+                )
+            )
+            await db.commit()
 
 
 @pytest.mark.asyncio
@@ -193,6 +221,7 @@ async def test_sales_contract_lists_use_canonical_client_display_name(
         rate_client_currency="EUR",
         rate_candidate_currency="PLN",
     )
+    await _ensure_fx_rate("EUR", today)
 
     await _clear_cache()
     resp = await app_client.get("/api/reports/sales", headers=app_auth_headers)

@@ -113,8 +113,8 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
         f"/api/my-clients/{client_id}/dashboard", headers=app_auth_headers
     )
     assert dashboard.status_code == 200, dashboard.text
-    assert dashboard.json()["total_revenue_all_time"] == 4000
-    assert dashboard.json()["active_revenue"] == 4000
+    assert Decimal(str(dashboard.json()["total_revenue_all_time"])) == Decimal("4000")
+    assert Decimal(str(dashboard.json()["active_revenue"])) == Decimal("4000")
     assert dashboard.json()["monthly_margin_total"] == 1500
     # Denominator is the PLN value of the foreign order (1000 × 4), not the
     # nominal 1000. Mixing PLN margin with nominal revenue would yield 150%.
@@ -125,8 +125,8 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
     my_client_row = next(
         item for item in my_clients.json() if item["client_id"] == client_id
     )
-    assert my_client_row["total_revenue_all_time"] == 4000
-    assert my_client_row["active_revenue"] == 4000
+    assert Decimal(str(my_client_row["total_revenue_all_time"])) == Decimal("4000")
+    assert Decimal(str(my_client_row["active_revenue"])) == Decimal("4000")
 
     overview = await app_client.get(
         "/api/admin/clients-overview", headers=app_auth_headers
@@ -136,8 +136,8 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
         item for item in overview.json() if item["client_id"] == client_id
     )
     assert overview_row["monthly_margin_total"] == 1500
-    assert overview_row["total_revenue_all_time"] == 4000
-    assert overview_row["active_revenue"] == 4000
+    assert Decimal(str(overview_row["total_revenue_all_time"])) == Decimal("4000")
+    assert Decimal(str(overview_row["active_revenue"])) == Decimal("4000")
 
 
 async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
