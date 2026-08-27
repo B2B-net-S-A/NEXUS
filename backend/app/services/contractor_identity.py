@@ -121,8 +121,11 @@ def contractor_identity_sql_expression(
 
     Postgres ``translate`` + ``replace`` mirror the supported Latin
     transliteration without relying on ICU or the optional ``unaccent``
-    extension. This is the database-side path used where counts participate in
-    directory sorting/pagination.
+    extension. Remaining Unicode letters are preserved when the database uses
+    a Unicode-aware ``LC_CTYPE``/collation (the production requirement); a
+    ``C``/``POSIX`` locale only guarantees ASCII character classes. This is the
+    database-side path used where counts participate in directory
+    sorting/pagination.
     """
 
     def _name_part(column):
@@ -134,8 +137,9 @@ def contractor_identity_sql_expression(
         )
         for source, replacement in _SQL_MULTI_CHAR_TRANSLITERATION:
             folded = func.replace(folded, source, replacement)
-        # POSIX ``alnum`` follows the database locale and, unlike ``a-z``,
-        # preserves Unicode alphabets (for example Олена Коваль).
+        # POSIX ``alnum`` follows the database locale.  With the required
+        # Unicode-aware locale it preserves alphabets such as Cyrillic; a
+        # C/POSIX locale only guarantees ASCII classification.
         normalized = func.regexp_replace(folded, "[^[:alnum:]]+", "", "g")
         return case((raw.in_(_NAME_PLACEHOLDERS), ""), else_=normalized)
 
@@ -148,7 +152,9 @@ def contractor_identity_sql_expression(
             normalized_email != "",
             func.concat("name_email:filip:jablonski:", normalized_email),
         ),
-        else_=func.concat("name_email_missing:filip:jablonski:", candidate_id),
+        else_=func.concat(
+            "name_email_missing:filip:jablonski:", cast(candidate_id, String)
+        ),
     )
     return case(
         (func.length(first) == 0, fallback),

@@ -494,6 +494,9 @@ class RoleClientCell(BaseModel):
 
 class RoleClientMix(BaseModel):
     total_active: int
+    # Raw active contract rows, including detached contracts.  The person
+    # buckets below intentionally require a Candidate identity and therefore
+    # are not a partition of this cross-unit metric.
     total_active_contracts: int
     role_totals: dict[str, int]
     rows: List[RoleClientCell]
@@ -512,6 +515,8 @@ async def role_client_mix(
     `candidate.competence_category`. Contracts without either are grouped
     under `Unknown`. A person may appear in multiple cells, but the global
     person total is deduplicated across the whole active population.
+    ``total_active_contracts`` remains a separate raw-contract metric and also
+    includes detached rows that cannot appear in a person bucket.
     """
     role_expr = func.coalesce(Job.title, Candidate.competence_category, "Unknown")
     client_name = client_display_name_expression()

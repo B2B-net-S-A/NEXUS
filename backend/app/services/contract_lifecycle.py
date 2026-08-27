@@ -777,9 +777,12 @@ async def hard_delete_contract(
         update(B2BGeneratedContract).where(detach_filter).values(contract_id=None)
     )
 
-    # Same last-chance guard as the endpoint historically used: a row left
-    # linked after the complementary UPDATE is protective signed evidence (or
-    # became protective concurrently), so FK RESTRICT must not be bypassed.
+    # Same last-chance guard as the endpoint historically used.  On the forced
+    # path this is an explicit postcondition for the unconditional detach; on
+    # the regular path it also protects any signed row excluded by the filter.
+    # Either way, a remaining link is protective evidence and FK RESTRICT must
+    # not be bypassed.  Keeping the domain error here also avoids exposing a
+    # lower-level FK failure if this UPDATE is narrowed in the future.
     still_linked = await db.scalar(
         select(B2BGeneratedContract.id)
         .where(B2BGeneratedContract.contract_id == contract_id)
