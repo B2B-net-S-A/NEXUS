@@ -128,6 +128,78 @@ describe("ContractAnalyticsPage — kafle pieniężne", () => {
 });
 
 describe("ContractAnalyticsPage — degradacja kursów FX", () => {
+  it("oznacza zdegradowane wiersze i nie sumuje ich jak kompletnych kwot", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-by-client")) {
+        return Promise.resolve({
+          data: [
+            {
+              client_id: 1,
+              client_name: "Klient kompletny",
+              active_contracts: 1,
+              total_monthly_margin: 100,
+              total_monthly_revenue: 500,
+              margin_pct: 20,
+              fx_missing: false,
+            },
+            {
+              client_id: 2,
+              client_name: "Klient bez kursu",
+              active_contracts: 1,
+              // Backend zwraca sumę dostępnych nóg, ale nie jest to pełna
+              // kwota. UI ma ją ukryć, a nie dodać do kafli sumarycznych.
+              total_monthly_margin: 999,
+              total_monthly_revenue: 4999,
+              margin_pct: 20,
+              fx_missing: true,
+            },
+          ],
+        });
+      }
+      if (url.includes("margin-by-contractor")) {
+        return Promise.resolve({ data: [] });
+      }
+      if (url.includes("utilization")) {
+        return Promise.resolve({
+          data: {
+            total_candidates: 2,
+            candidates_active: 2,
+            active_contracts: 2,
+            candidates_on_bench: 0,
+            utilization_pct: 100,
+            avg_bench_days: null,
+          },
+        });
+      }
+      return Promise.resolve({ data: { horizon_months: 12, months: [] } });
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/Dane finansowe są niepełne/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Miesięczna marża").parentElement).toHaveTextContent(
+      "—Niepełne dane — brak kursu FX",
+    );
+    expect(
+      screen.getByText("Miesięczny przychód").parentElement,
+    ).toHaveTextContent("—Niepełne dane — brak kursu FX");
+
+    const degradedRow = screen
+      .getByRole("link", { name: "Klient bez kursu" })
+      .closest("tr");
+    expect(degradedRow).not.toBeNull();
+    expect(degradedRow).toHaveTextContent("Brak kursu FX");
+    expect(
+      within(degradedRow as HTMLTableRowElement)
+        .getAllByRole("cell")
+        .slice(-3)
+        .map((cell) => cell.textContent),
+    ).toEqual(["—", "—", "—"]);
+    expect(degradedRow).not.toHaveTextContent("4999");
+  });
+
   it("fx_warnings z backendu jest widoczne nad wykresem prognozy", async () => {
     const warning =
       "Brak kursu NBP dla walut: EUR — kwoty w tych walutach POMINIĘTE w prognozie";

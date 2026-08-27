@@ -16,7 +16,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -41,6 +41,8 @@ from app.services.contractor_identity import (
     count_unique_contractors,
     summarize_active_contracts,
 )
+from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
+from app.services.order_revenue import order_revenue_rows_to_pln
 
 router = APIRouter()
 
@@ -55,6 +57,54 @@ router = APIRouter()
 # niesie kwotę z ostatniego ZAPISU kontraktu, więc krok progresywny albo aneks
 # z datą, która już nadeszła, pokazywały tu marżę pierwszego okresu.
 _LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+
+
+async def _margin_lookup_pln(
+    db: AsyncSession,
+    contracts: list[Contract],
+    on: date,
+) -> tuple[dict[int, Decimal], set[int]]:
+    """Aggregate per-client margin after converting both rate legs to PLN.
+
+    The returned set contains clients for which at least one priced contract
+    needs an unavailable FX rate. Callers keep their margin ``None`` rather
+    than silently exposing a partial sum.
+    """
+
+    currencies = {
+        currency
+        for contract in contracts
+        for currency in (
+            contract.resolved_rate_client_currency,
+            contract.resolved_rate_candidate_currency,
+        )
+    }
+    fx_rates = await rates_to_pln(db, currencies, on)
+    totals: dict[int, Decimal] = {}
+    incomplete: set[int] = set()
+    for contract in contracts:
+        fields = effective_rate_fields(contract, on)
+        raw_client = fields["monthly_rate_client"]
+        raw_candidate = fields["monthly_rate_candidate"]
+        if raw_client is None or raw_candidate is None:
+            continue
+        client_fx = fx_rates.get(contract.resolved_rate_client_currency)
+        candidate_fx = fx_rates.get(contract.resolved_rate_candidate_currency)
+        client_pln, client_complete = amount_to_pln_with_rate(raw_client, client_fx)
+        candidate_pln, candidate_complete = amount_to_pln_with_rate(
+            raw_candidate, candidate_fx
+        )
+        if not client_complete or not candidate_complete:
+            incomplete.add(contract.client_id)
+            continue
+        assert client_pln is not None and candidate_pln is not None
+        margin_pln = client_pln - candidate_pln
+        totals[contract.client_id] = (
+            totals.get(contract.client_id, Decimal("0")) + margin_pln
+        )
+    for client_id in incomplete:
+        totals.pop(client_id, None)
+    return totals, incomplete
 
 
 @router.get("", response_model=list[OverviewRow])
@@ -86,26 +136,30 @@ async def clients_overview(
                 select(
                     ClientOrder.client_id,
                     ClientOrder.status,
+                    ClientOrder.currency,
                     func.coalesce(func.sum(ClientOrder.total_value), 0).label(
                         "sum_val"
                     ),
                     func.count().label("cnt"),
                 )
                 .where(ClientOrder.status != ClientOrderStatus.cancelled)
-                .group_by(ClientOrder.client_id, ClientOrder.status)
+                .group_by(
+                    ClientOrder.client_id,
+                    ClientOrder.status,
+                    ClientOrder.currency,
+                )
             )
         )
     )
-    rev_lookup: dict[int, dict] = {}
+    rev_lookup, rev_incomplete = await order_revenue_rows_to_pln(
+        db, rev_rows, date.today()
+    )
+    active_order_counts: dict[int, int] = {}
     for r in rev_rows:
-        slot = rev_lookup.setdefault(
-            r.client_id, {"total": Decimal(0), "active": Decimal(0), "active_count": 0}
-        )
-        v = Decimal(r.sum_val) if r.sum_val is not None else Decimal(0)
-        slot["total"] += v
         if r.status == ClientOrderStatus.active:
-            slot["active"] += v
-            slot["active_count"] = r.cnt
+            active_order_counts[r.client_id] = active_order_counts.get(
+                r.client_id, 0
+            ) + int(r.cnt or 0)
 
     # Head DL = klient ma assignment z is_head=True. Jeśli admin nie
     # zaznaczył nikogo jako Head (data quality issue — większość klientów
@@ -179,7 +233,6 @@ async def clients_overview(
             )
         ).scalars()
     )
-    margin_lookup: dict[int, Decimal] = {}
     contractor_candidates: dict[int, list] = {}
     active_contracts_lookup: dict[int, int] = {}
     today = date.today()
@@ -189,16 +242,12 @@ async def clients_overview(
         )
         if r.candidate is not None:
             contractor_candidates.setdefault(r.client_id, []).append(r.candidate)
-        monthly = effective_rate_fields(r, today)["monthly_margin"]
-        if monthly is None:
-            continue
-        margin_lookup[r.client_id] = (
-            margin_lookup.get(r.client_id, Decimal(0)) + monthly
-        )
+    margin_lookup, _ = await _margin_lookup_pln(db, margin_rows, today)
 
     items: list[OverviewRow] = []
     for c, effective in client_rows:
-        rev = rev_lookup.get(c.id, {"total": None, "active": None, "active_count": 0})
+        rev = rev_lookup.get(c.id, {"total": None, "active": None})
+        revenue_complete = c.id not in rev_incomplete
         head = head_dl_lookup.get(c.id)
         fc = fc_lookup.get(c.id)
         items.append(
@@ -208,10 +257,12 @@ async def clients_overview(
                 industry=getattr(c, "industry", None),
                 head_dl_id=head[0] if head else None,
                 head_dl_name=head[1] if head else None,
-                total_revenue_all_time=rev["total"] or None,
-                active_revenue=rev["active"] or None,
+                total_revenue_all_time=(rev["total"] or None)
+                if revenue_complete
+                else None,
+                active_revenue=(rev["active"] or None) if revenue_complete else None,
                 monthly_margin_total=margin_lookup.get(c.id),
-                active_orders_count=rev["active_count"],
+                active_orders_count=active_order_counts.get(c.id, 0),
                 active_consultants=count_unique_contractors(
                     contractor_candidates.get(c.id, [])
                 ),
@@ -270,6 +321,36 @@ async def kpi_by_dl(
     if not dl_clients:
         return []
 
+    all_client_ids = {
+        client_id for slot in dl_clients.values() for client_id in slot["client_ids"]
+    }
+    dl_revenue_rows = list(
+        await db.execute(
+            select(
+                ClientOrder.client_id,
+                ClientOrder.status,
+                ClientOrder.currency,
+                func.coalesce(func.sum(ClientOrder.total_value), 0).label("sum_val"),
+                func.count().label("cnt"),
+            )
+            .where(ClientOrder.client_id.in_(all_client_ids))
+            .group_by(
+                ClientOrder.client_id,
+                ClientOrder.status,
+                ClientOrder.currency,
+            )
+        )
+    )
+    dl_revenue_lookup, dl_revenue_incomplete = await order_revenue_rows_to_pln(
+        db, dl_revenue_rows, date.today()
+    )
+    active_orders_by_client: dict[int, int] = {}
+    for row in dl_revenue_rows:
+        if row.status == ClientOrderStatus.active:
+            active_orders_by_client[row.client_id] = active_orders_by_client.get(
+                row.client_id, 0
+            ) + int(row.cnt or 0)
+
     # Per-DL agregaty: revenue, active orders, marża
     items: list[DlKpiRow] = []
     for dl_id, slot in dl_clients.items():
@@ -277,37 +358,26 @@ async def kpi_by_dl(
         if not client_ids:
             continue
 
-        rev = (
-            await db.execute(
-                select(
-                    func.coalesce(func.sum(ClientOrder.total_value), 0).label("total"),
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (
-                                    ClientOrder.status == ClientOrderStatus.active,
-                                    ClientOrder.total_value,
-                                ),
-                                else_=0,
-                            )
-                        ),
-                        0,
-                    ).label("active"),
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (ClientOrder.status == ClientOrderStatus.active, 1),
-                                else_=0,
-                            )
-                        ),
-                        0,
-                    ).label("active_orders_cnt"),
-                ).where(
-                    ClientOrder.client_id.in_(client_ids),
-                    ClientOrder.status != ClientOrderStatus.cancelled,
-                )
-            )
-        ).one()
+        revenue_complete = not any(
+            client_id in dl_revenue_incomplete for client_id in client_ids
+        )
+        revenue_total = sum(
+            (
+                dl_revenue_lookup.get(client_id, {}).get("total", Decimal("0"))
+                for client_id in client_ids
+            ),
+            start=Decimal("0"),
+        )
+        active_revenue = sum(
+            (
+                dl_revenue_lookup.get(client_id, {}).get("active", Decimal("0"))
+                for client_id in client_ids
+            ),
+            start=Decimal("0"),
+        )
+        active_orders_count = sum(
+            active_orders_by_client.get(client_id, 0) for client_id in client_ids
+        )
 
         # Refactor 2026-05-11: Contract.client_id daje wszystkich kontraktorów
         # tego DL (bez join'a do Order).
@@ -324,15 +394,12 @@ async def kpi_by_dl(
             ).scalars()
         )
         active_headcount = summarize_active_contracts(margin_rows_dl)
-        margin_total: Decimal | int = 0
-        has_margin = False
         today = date.today()
-        for r in margin_rows_dl:
-            monthly = effective_rate_fields(r, today)["monthly_margin"]
-            if monthly is None:
-                continue
-            margin_total += monthly
-            has_margin = True
+        margin_lookup_dl, incomplete_margin_clients = await _margin_lookup_pln(
+            db, margin_rows_dl, today
+        )
+        margin_total = sum(margin_lookup_dl.values(), start=Decimal("0"))
+        has_margin = bool(margin_lookup_dl) and not incomplete_margin_clients
 
         items.append(
             DlKpiRow(
@@ -341,10 +408,10 @@ async def kpi_by_dl(
                 dl_email=slot["email"],
                 managed_clients_count=len(client_ids),
                 head_clients_count=slot["head_count"],
-                total_revenue=Decimal(rev.total) if rev.total else None,
-                active_revenue=Decimal(rev.active) if rev.active else None,
+                total_revenue=(revenue_total or None) if revenue_complete else None,
+                active_revenue=(active_revenue or None) if revenue_complete else None,
                 monthly_margin_total=margin_total if has_margin else None,
-                active_orders_count=int(rev.active_orders_cnt or 0),
+                active_orders_count=active_orders_count,
                 active_consultants=active_headcount.contractors,
                 active_contracts=active_headcount.active_contracts,
             )

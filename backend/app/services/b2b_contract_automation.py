@@ -166,9 +166,9 @@ def _assert_compatible_terms(
     currency = (_payload_value(payload, "currency") or "").strip().upper()
     if (
         not skeletal_pipeline_draft
-        and contract.currency
+        and contract.resolved_rate_candidate_currency
         and currency
-        and contract.currency.upper() != currency
+        and contract.resolved_rate_candidate_currency != currency
     ):
         conflicts.append("waluta")
 
@@ -275,9 +275,13 @@ def _fill_contract_terms(
         contract.rate_candidate = _payload_value(payload, "rate_candidate")
     payload_currency = _payload_value(payload, "currency")
     if replace_skeletal_defaults and payload_currency:
-        contract.currency = payload_currency
-    elif not contract.currency:
-        contract.currency = _payload_value(payload, "currency") or "PLN"
+        contract.rate_candidate_currency = payload_currency
+    elif not contract.rate_candidate_currency and payload_currency:
+        contract.rate_candidate_currency = payload_currency
+    if not contract.currency:
+        # Legacy fallback for a pre-0248 skeletal record. ``currency`` stays
+        # the client/revenue alias once that side is populated.
+        contract.currency = payload_currency or "PLN"
     contract.rate_unit = RateUnit.hourly
 
 
@@ -449,7 +453,7 @@ async def _ensure_open_order(
         status=ClientOrderStatus.draft,
         start_date=contract.start_date,
         rate_client=contract.rate_client,
-        currency=contract.currency,
+        currency=contract.resolved_rate_client_currency,
         created_by_user_id=actor_id,
         notes=(
             (

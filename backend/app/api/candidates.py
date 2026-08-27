@@ -3485,7 +3485,9 @@ async def get_candidate_history(
                 "status": contract.status.value,
                 "rate_candidate": contract.rate_candidate,
                 "rate_client": contract.rate_client,
-                "currency": contract.currency,
+                "currency": contract.resolved_rate_client_currency,
+                "rate_client_currency": contract.resolved_rate_client_currency,
+                "rate_candidate_currency": contract.resolved_rate_candidate_currency,
             }
         )
 

@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Mapping, Optional
 
 import httpx
 from sqlalchemy import select
@@ -75,6 +75,28 @@ class NbpFetchError(RuntimeError):
     `except` pętli była nieosiągalna, a system nie umiał odróżnić „NBP nie
     opublikował nic nowego" od „NBP jest nieosiągalny od miesiąca".
     """
+
+
+def amount_to_pln_with_rate(
+    amount: Decimal | int | float | None,
+    rate_to_pln: Optional[Decimal],
+) -> tuple[Optional[Decimal], bool]:
+    """Apply an already resolved PLN rate without inventing missing FX.
+
+    ``complete`` is false only when a *non-zero* amount needs an unavailable
+    rate. Zero is currency-independent, so ``0 USD`` remains a complete
+    ``0 PLN`` even when no USD quote exists. ``None`` means no priced leg and
+    is likewise not an FX-quality failure.
+    """
+
+    if amount is None:
+        return None, True
+    value = amount if isinstance(amount, Decimal) else Decimal(str(amount))
+    if value == 0:
+        return Decimal("0"), True
+    if rate_to_pln is None:
+        return None, False
+    return value * rate_to_pln, True
 
 
 async def fetch_and_store_nbp_today(*, strict: bool = False) -> int:
@@ -263,10 +285,11 @@ async def convert_to_pln_detail(
     because no FX rate is cached for ``currency`` — callers summing across
     currencies use it to flag a degraded (``fx_missing``) result.
     """
-    if amount is None:
+    value = amount if isinstance(amount, Decimal) else Decimal(str(amount))
+    if value == 0:
         return Decimal("0"), True
     rate, found = await get_rate_to_pln(db, currency, on)
-    return Decimal(amount) * rate, found
+    return value * rate, found
 
 
 async def convert_to_pln(
@@ -315,6 +338,71 @@ async def rates_to_pln(
         ).scalar_one_or_none()
         out[code] = Decimal(row) if row is not None else None
     return out
+
+
+async def rates_to_pln_by_date(
+    db: AsyncSession,
+    currencies_by_date: Mapping[date, set[str]],
+) -> dict[date, dict[str, Optional[Decimal]]]:
+    """Resolve many historical date/currency snapshots with one DB query.
+
+    Each result uses the latest cached rate whose effective date is not later
+    than that boundary, matching :func:`rates_to_pln`. This avoids an N×M
+    query pattern on archive views with many distinct contract end dates.
+    """
+
+    if not currencies_by_date:
+        return {}
+    normalized = {
+        boundary: {(raw or "PLN").upper() for raw in currencies}
+        for boundary, currencies in currencies_by_date.items()
+    }
+    foreign = {
+        currency
+        for currencies in normalized.values()
+        for currency in currencies
+        if currency != "PLN"
+    }
+    history: dict[str, list[tuple[date, Decimal]]] = {
+        currency: [] for currency in foreign
+    }
+    if foreign:
+        rows = (
+            await db.execute(
+                select(
+                    FxRate.currency,
+                    FxRate.effective_date,
+                    FxRate.rate_to_pln,
+                )
+                .where(
+                    FxRate.currency.in_(foreign),
+                    FxRate.effective_date <= max(normalized),
+                )
+                .order_by(FxRate.currency, FxRate.effective_date)
+            )
+        ).all()
+        for row in rows:
+            history.setdefault(row.currency, []).append(
+                (row.effective_date, Decimal(row.rate_to_pln))
+            )
+
+    resolved: dict[date, dict[str, Optional[Decimal]]] = {}
+    for boundary, currencies in normalized.items():
+        snapshot: dict[str, Optional[Decimal]] = {}
+        for currency in currencies:
+            if currency == "PLN":
+                snapshot[currency] = Decimal("1")
+                continue
+            snapshot[currency] = next(
+                (
+                    rate
+                    for effective_date, rate in reversed(history.get(currency, []))
+                    if effective_date <= boundary
+                ),
+                None,
+            )
+        resolved[boundary] = snapshot
+    return resolved
 
 
 async def fx_age_days(db: AsyncSession, currency: str) -> Optional[int]:

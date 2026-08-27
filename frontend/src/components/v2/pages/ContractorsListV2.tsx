@@ -345,6 +345,10 @@ export function ContractorsListV2() {
  isDraft &&
  !canManageFinance &&
  c.missing_fields.some((field) => FINANCE_COMPLETION_FIELDS.has(field));
+ const revenueCurrency = c.rate_client_currency ?? c.currency ?? "PLN";
+ const costCurrency = c.rate_candidate_currency ?? c.currency ?? "PLN";
+ const hasComparableCurrencies =
+ revenueCurrency.toUpperCase() === costCurrency.toUpperCase();
  return (
  <TableRow key={c.contract_id} interactive>
  <TableCell>
@@ -384,12 +388,12 @@ export function ContractorsListV2() {
  <>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null
- ? `${formatCurrency(c.rate_client, c.currency ?? "PLN")}${rateUnitLabel(c.rate_unit)}`
+ ? `${formatCurrency(c.rate_client, revenueCurrency)}${rateUnitLabel(c.rate_unit)}`
  :"—"}
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
- {c.margin != null
- ? formatCurrency(c.margin, c.currency ?? "PLN") : "—"}
+ {c.margin != null && hasComparableCurrencies
+ ? formatCurrency(c.margin, revenueCurrency) : "—"}
  </TableCell>
  </>
  )}

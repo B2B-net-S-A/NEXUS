@@ -102,7 +102,8 @@ function NewContractForm() {
   const [endDate, setEndDate] = useState("");
   const [contractType, setContractType] = useState("b2b");
   const [statusVal, setStatusVal] = useState("draft");
-  const [currency, setCurrency] = useState("PLN");
+  const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
   const [rateUnit, setRateUnit] = useState("monthly");
   const [billingHours, setBillingHours] = useState("160");
   // Effective-dated candidate-rate schedule. First row = stawka od startu
@@ -156,9 +157,13 @@ function NewContractForm() {
   });
 
   const clientsQuery = useQuery({
-    queryKey: ["clients-lookup-new-contract"],
+    queryKey: ["clients-lookup-new-contract", "contract-eligible"],
     queryFn: async () =>
-      (await api.get<ClientOption[]>("/api/clients-lookup")).data,
+      (
+        await api.get<ClientOption[]>("/api/clients-lookup", {
+          params: { contract_eligible: true },
+        })
+      ).data,
   });
 
   const recruitmentsQuery = useQuery({
@@ -225,7 +230,8 @@ function NewContractForm() {
           startDate,
         );
         Object.assign(payload, {
-          currency,
+          rate_client_currency: rateClientCurrency,
+          rate_candidate_currency: rateCandidateCurrency,
           rate_unit: rateUnit,
           billing_hours_per_month: Number(billingHours) || 160,
           rate_candidate: schedule.length === 0 ? null : undefined,
@@ -580,24 +586,38 @@ function NewContractForm() {
             {/* Rekrutacja (opcjonalna, daje job_id) */}
             <div>
               <Label className="mb-1.5 block">Rekrutacja (opcjonalnie)</Label>
-              <Select value={stageId} onValueChange={setStageId} disabled={!candidate}>
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      candidate
-                        ? "Wybierz rekrutację kandydata…"
-                        : "Najpierw wybierz kandydata"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {(recruitmentsQuery.data ?? []).map((r) => (
-                    <SelectItem key={r.stage_id} value={String(r.stage_id)}>
-                      {r.job_title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select value={stageId} onValueChange={setStageId} disabled={!candidate}>
+                  <SelectTrigger aria-label="Rekrutacja">
+                    <SelectValue
+                      placeholder={
+                        candidate
+                          ? "Wybierz rekrutację kandydata…"
+                          : "Najpierw wybierz kandydata"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(recruitmentsQuery.data ?? []).map((r) => (
+                      <SelectItem key={r.stage_id} value={String(r.stage_id)}>
+                        {r.job_title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {stageId ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    title="Wyczyść rekrutację"
+                    aria-label="Wyczyść rekrutację"
+                    onClick={() => setStageId("")}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
             </div>
 
             {/* Line Manager — osoba po stronie klienta, pod którą raportuje kontraktor */}
@@ -731,7 +751,7 @@ function NewContractForm() {
 
             {canManageFinance && (
               <>
-                <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <Label className="mb-1.5 block">Jednostka stawki</Label>
                     <Select value={rateUnit} onValueChange={setRateUnit}>
@@ -746,9 +766,33 @@ function NewContractForm() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="mb-1.5 block">Waluta</Label>
-                    <Select value={currency} onValueChange={setCurrency}>
-                      <SelectTrigger>
+                    <Label className="mb-1.5 block">
+                      Waluta stawki przychodowej (klienta)
+                    </Label>
+                    <Select
+                      value={rateClientCurrency}
+                      onValueChange={setRateClientCurrency}
+                    >
+                      <SelectTrigger aria-label="Waluta stawki przychodowej (klienta)">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PLN">PLN</SelectItem>
+                        <SelectItem value="EUR">EUR</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="GBP">GBP</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block">
+                      Waluta stawki kosztowej (kandydata / umowy ramowej)
+                    </Label>
+                    <Select
+                      value={rateCandidateCurrency}
+                      onValueChange={setRateCandidateCurrency}
+                    >
+                      <SelectTrigger aria-label="Waluta stawki kosztowej (kandydata / umowy ramowej)">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

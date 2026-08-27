@@ -35,13 +35,27 @@ class _FakeContract:
         billing_hours_per_month: int = 160,
         currency: str = "PLN",
         rate_client=None,
+        rate_candidate=None,
         margin=None,
+        rate_client_currency: str | None = None,
+        rate_candidate_currency: str | None = None,
     ):
         self.rate_unit = rate_unit
         self.billing_hours_per_month = billing_hours_per_month
         self.currency = currency
         self.rate_client = rate_client
+        self.rate_candidate = (
+            rate_candidate
+            if rate_candidate is not None
+            else (
+                rate_client - margin
+                if rate_client is not None and margin is not None
+                else None
+            )
+        )
         self.margin = margin
+        self.rate_client_currency = rate_client_currency
+        self.rate_candidate_currency = rate_candidate_currency
 
 
 # ── Finding 3: _monthly keeps Decimal precision (no int truncation) ──────────
@@ -121,6 +135,26 @@ def test_fold_finance_pln_excludes_missing_rate():
 
     assert revenue == Decimal("1000")  # EUR excluded, not added at 1:1
     assert missing == {"EUR"}
+
+
+def test_fold_finance_pln_converts_revenue_and_cost_independently():
+    from app.api.reports import _fold_finance_pln
+    from app.models.contract import RateUnit
+
+    contract = _FakeContract(
+        rate_unit=RateUnit.monthly,
+        rate_client=Decimal("1000"),
+        rate_candidate=Decimal("2500"),
+        rate_client_currency="EUR",
+        rate_candidate_currency="PLN",
+    )
+    rates = {"PLN": Decimal("1"), "EUR": Decimal("4")}
+
+    revenue, margin, missing = _fold_finance_pln([contract], rates)
+
+    assert revenue == Decimal("4000")
+    assert margin == Decimal("1500")
+    assert missing == set()
 
 
 # ── Seeding helpers (real Postgres) ──────────────────────────────────────────

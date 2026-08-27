@@ -40,6 +40,8 @@ interface FormState {
  end_date: string;
  rate_candidate: string;
  rate_client: string;
+ rate_candidate_currency: string;
+ rate_client_currency: string;
  contract_type: "b2b" |"uop" |"uzlecenie";
  work_mode: "" |"remote" |"hybrid" |"onsite";
 }
@@ -50,6 +52,9 @@ function toFormState(c: ContractorListItem): FormState {
  end_date: c.end_date ??"",
  rate_candidate: c.rate_candidate != null ? String(c.rate_candidate) : "",
  rate_client: c.rate_client != null ? String(c.rate_client) : "",
+ rate_candidate_currency:
+ c.rate_candidate_currency ?? c.currency ?? "PLN",
+ rate_client_currency: c.rate_client_currency ?? c.currency ?? "PLN",
  contract_type: c.contract_type ??"b2b",
  work_mode: c.work_mode ??"",
  };
@@ -68,7 +73,11 @@ function formDirtyOrValid(
  return Boolean(
  form.start_date &&
  form.contract_type &&
- (!canManageFinance || (form.rate_candidate && form.rate_client))
+ (!canManageFinance ||
+ (form.rate_candidate &&
+ form.rate_client &&
+ form.rate_candidate_currency &&
+ form.rate_client_currency))
  );
 }
 
@@ -116,6 +125,8 @@ export function DraftCompletionModal({
  if (canManageFinance) {
  payload.rate_candidate = Number(form.rate_candidate);
  payload.rate_client = Number(form.rate_client);
+ payload.rate_candidate_currency = form.rate_candidate_currency;
+ payload.rate_client_currency = form.rate_client_currency;
  }
  await contractsApi.update(contractor.contract_id, payload);
  if (needsAdminFinance) return;
@@ -142,8 +153,14 @@ export function DraftCompletionModal({
  },
  });
 
+ const currenciesMatch =
+ form.rate_candidate_currency.toUpperCase() ===
+ form.rate_client_currency.toUpperCase();
  const margin =
- canManageFinance && form.rate_candidate && form.rate_client
+ canManageFinance &&
+ currenciesMatch &&
+ form.rate_candidate &&
+ form.rate_client
  ? Number(form.rate_client) - Number(form.rate_candidate)
  : null;
  const canSubmit =
@@ -194,7 +211,7 @@ export function DraftCompletionModal({
  {canManageFinance && (
  <>
  <div>
- <Label htmlFor="rate_candidate">Stawka kandydat (PLN) *</Label>
+ <Label htmlFor="rate_candidate">Stawka kosztowa (kandydata) *</Label>
  <Input
  id="rate_candidate"
  type="number"
@@ -207,7 +224,34 @@ export function DraftCompletionModal({
  />
  </div>
  <div>
- <Label htmlFor="rate_client">Stawka klient (PLN) *</Label>
+ <Label htmlFor="rate_candidate_currency">
+ Waluta stawki kosztowej (kandydata) *
+ </Label>
+ <Select
+ value={form.rate_candidate_currency}
+ onValueChange={(value) =>
+ setForm((current) => ({
+ ...current,
+ rate_candidate_currency: value,
+ }))
+ }
+ >
+ <SelectTrigger
+ id="rate_candidate_currency"
+ aria-label="Waluta stawki kosztowej (kandydata)"
+ >
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="PLN">PLN</SelectItem>
+ <SelectItem value="EUR">EUR</SelectItem>
+ <SelectItem value="USD">USD</SelectItem>
+ <SelectItem value="GBP">GBP</SelectItem>
+ </SelectContent>
+ </Select>
+ </div>
+ <div>
+ <Label htmlFor="rate_client">Stawka przychodowa (klienta) *</Label>
  <Input
  id="rate_client"
  type="number"
@@ -218,6 +262,33 @@ export function DraftCompletionModal({
  setForm((f) => ({ ...f, rate_client: e.target.value }))
  }
  />
+ </div>
+ <div>
+ <Label htmlFor="rate_client_currency">
+ Waluta stawki przychodowej (klienta) *
+ </Label>
+ <Select
+ value={form.rate_client_currency}
+ onValueChange={(value) =>
+ setForm((current) => ({
+ ...current,
+ rate_client_currency: value,
+ }))
+ }
+ >
+ <SelectTrigger
+ id="rate_client_currency"
+ aria-label="Waluta stawki przychodowej (klienta)"
+ >
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ <SelectItem value="PLN">PLN</SelectItem>
+ <SelectItem value="EUR">EUR</SelectItem>
+ <SelectItem value="USD">USD</SelectItem>
+ <SelectItem value="GBP">GBP</SelectItem>
+ </SelectContent>
+ </Select>
  </div>
  </>
  )}
@@ -270,7 +341,7 @@ export function DraftCompletionModal({
  <div className="mt-4 p-3 rounded-md bg-[hsl(var(--bg-subtle))] text-sm">
  <span className="text-muted-foreground">Marża: </span>
  <span className="font-mono font-semibold text-foreground">
- {margin.toLocaleString("pl-PL")} PLN
+ {margin.toLocaleString("pl-PL")} {form.rate_client_currency}
  </span>
  </div>
  )}

@@ -1380,6 +1380,72 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_min INTEGER",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS target_rate_max INTEGER",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS client_order_end_date DATE",
+    # 0248: osobne waluty przychodu i kosztu. Nullable zostają dla legacy
+    # read fallbacku; trigger niżej synchronizuje zapisy starej wersji appki.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "rate_client_currency VARCHAR(3) NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "rate_candidate_currency VARCHAR(3) NULL",
+    """CREATE OR REPLACE FUNCTION sync_contract_rate_currencies_from_legacy()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+        normalized_currency VARCHAR(3) := COALESCE(
+            NULLIF(UPPER(BTRIM(NEW.currency)), ''),
+            'PLN'
+        );
+    BEGIN
+        IF TG_OP = 'INSERT' THEN
+            NEW.rate_client_currency := COALESCE(
+                NEW.rate_client_currency,
+                normalized_currency
+            );
+            NEW.rate_candidate_currency := COALESCE(
+                NEW.rate_candidate_currency,
+                normalized_currency
+            );
+        ELSIF NEW.currency IS DISTINCT FROM OLD.currency
+           AND NEW.rate_client_currency IS NOT DISTINCT FROM OLD.rate_client_currency
+           AND NEW.rate_candidate_currency IS NOT DISTINCT FROM OLD.rate_candidate_currency
+        THEN
+            NEW.rate_client_currency := normalized_currency;
+            NEW.rate_candidate_currency := normalized_currency;
+        END IF;
+        IF COALESCE(
+               NULLIF(UPPER(BTRIM(NEW.rate_client_currency)), ''),
+               normalized_currency
+           ) IS DISTINCT FROM COALESCE(
+               NULLIF(UPPER(BTRIM(NEW.rate_candidate_currency)), ''),
+               normalized_currency
+           )
+        THEN
+            NEW.margin := NULL;
+        END IF;
+        RETURN NEW;
+    END;
+    $$""",
+    # Nie rób DROP+CREATE w dwóch best-effort transakcjach: lock timeout między
+    # nimi zostawiłby rolling deploy bez ochrony legacy writerów. Funkcja jest
+    # już CREATE OR REPLACE; trigger tworzymy atomowo tylko, gdy go brak.
+    """DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_trigger
+            WHERE tgname = 'trg_contract_rate_currencies_legacy_sync'
+              AND tgrelid = 'contracts'::regclass
+              AND NOT tgisinternal
+        ) THEN
+            CREATE TRIGGER trg_contract_rate_currencies_legacy_sync
+            BEFORE INSERT OR UPDATE OF
+                margin, currency, rate_client_currency, rate_candidate_currency
+            ON contracts
+            FOR EACH ROW
+            EXECUTE FUNCTION sync_contract_rate_currencies_from_legacy();
+        END IF;
+    END
+    $$""",
     # candidates engagement flags (migration 0037_contracts_expansion)
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS is_ambassador BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS wants_to_verify_candidates BOOLEAN NOT NULL DEFAULT FALSE",
@@ -3635,6 +3701,22 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    # 0248: stare kontrakty miały jedną walutę dla obu stawek. Nie
+    # nadpisujemy już uzupełnionej strony, więc safety-net jest idempotentny
+    # także po utworzeniu kontraktu mieszanego.
+    """UPDATE contracts
+       SET rate_client_currency = COALESCE(
+               rate_client_currency,
+               NULLIF(UPPER(BTRIM(currency)), ''),
+               'PLN'
+           ),
+           rate_candidate_currency = COALESCE(
+               rate_candidate_currency,
+               NULLIF(UPPER(BTRIM(currency)), ''),
+               'PLN'
+           )
+       WHERE rate_client_currency IS NULL
+          OR rate_candidate_currency IS NULL""",
     # 0204: seed zarezerwowanego feature'a AI `candidate_summary` (widoczność
     # + licznik w Ustawieniach → AI). Idempotentny: WHERE NOT EXISTS.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "

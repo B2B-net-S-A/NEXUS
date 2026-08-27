@@ -166,6 +166,8 @@ describe("AddProjectDialog", () => {
         end_date: null,
         rate_candidate: 125,
         rate_client: 175,
+        rate_client_currency: "PLN",
+        rate_candidate_currency: "PLN",
         work_mode: "remote",
         status: "active",
         source_contract_id: 10,
@@ -177,6 +179,10 @@ describe("AddProjectDialog", () => {
     expect(mocks.showSuccess).toHaveBeenCalledWith(
       "Dodano kolejny projekt i utworzono szkic zamówienia",
     );
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/clients-lookup", {
+      params: { contract_eligible: true },
+    });
+    expect(mocks.create.mock.calls[0]?.[0]).not.toHaveProperty("currency");
   });
 
   it("nadal blokuje zapis bez wymaganej daty rozpoczęcia", async () => {

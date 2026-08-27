@@ -14,7 +14,8 @@ from app.schemas.money import WholePLN
 class MyClientRow(BaseModel):
     """Pojedynczy wpis na liście "Moi klienci".
 
-    Pola revenue są ``None`` bez ``VIEW_FINANCE`` (w szczególności dla DL/HoR).
+    Pola revenue są znormalizowane do PLN i ``None`` bez ``VIEW_FINANCE``
+    (w szczególności dla DL/HoR) albo przy brakującym kursie FX.
     """
 
     client_id: int
@@ -45,7 +46,8 @@ class ExpiringAlert(BaseModel):
 class ClientDashboardResponse(BaseModel):
     """GET `/api/my-clients/{client_id}/dashboard` — analityka klienta.
 
-    Revenue/margin są ``None`` bez ``VIEW_FINANCE`` i router pomija je w JSON.
+    Revenue/margin są w PLN. Bez ``VIEW_FINANCE`` lub kompletnego FX mają
+    wartość ``None`` i router pomija je w JSON.
     """
 
     client_id: int

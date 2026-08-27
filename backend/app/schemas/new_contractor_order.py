@@ -56,7 +56,11 @@ class NewContractorOrderRequest(BaseModel):
     billing_hours_per_month: Optional[int] = Field(None, ge=1)
     """Dla rate_unit=hourly; Admin defaultuje do 160."""
 
+    # Legacy alias = waluta przychodowa klienta. Gdy nowe pola są nieobecne,
+    # zachowujemy dawną semantykę jednej waluty dla obu stawek.
     currency: Optional[str] = Field(None, max_length=3)
+    rate_client_currency: Optional[str] = Field(None, max_length=3)
+    rate_candidate_currency: Optional[str] = Field(None, max_length=3)
 
     total_value: Optional[float] = None
     """Total value pierwszego Orderu (rate_client × długość okresu) — opcjonalne."""

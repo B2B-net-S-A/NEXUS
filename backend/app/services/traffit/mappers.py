@@ -82,11 +82,44 @@ def strip_employment_marker(value: str) -> str:
 # required for bind parameter".
 # „akcept" dołącza do rodziny po ustaleniu z Arturem, że znaczy „zaakceptowany
 # przez klienta". Odmiany polskie (`akceptacja`, `akceptowany`) łapie sufiks.
-_STATUS_MARKER_WORD = r"(black\s*-?\s*list|active|akcept[a-ząćęłńóśźż]*)"
+_STATUS_MARKER_LETTER = r"A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ"
+_STATUS_MARKER_WORD = (
+    r"(?<![" + _STATUS_MARKER_LETTER + r"])"
+    # Dłuższe warianty muszą wyprzedzać ``active`` / ``aktywny``. Dodatkowe
+    # granice literowe blokują częściowe dopasowanie ``active]`` wewnątrz
+    # ``[inactive]`` oraz nazwiska w rodzaju ``Inactivewicz``.
+    r"(black\s*-?\s*list|nieaktywny|inactive|aktywny|passive|active|"
+    r"zatrunion(ego|ej|ych|ymi|[yaieą])?|akcept[a-ząćęłńóśźż]*)"
+    r"(?![" + _STATUS_MARKER_LETTER + r"])"
+)
 _STATUS_MARKER_RE = re.compile(
     r"[[(/]\s*" + _STATUS_MARKER_WORD + r"\s*[])/]?"
     r"|"
     r"[[(/]?\s*" + _STATUS_MARKER_WORD + r"\s*[])/]",
+    re.IGNORECASE,
+)
+
+# Część rekordów ma ten sam szum BEZ nawiasu: ``"ACTIVE Jan"`` albo
+# ``"Kowalski passive"``. Tu nie wolno użyć zwykłego ``replace`` ani luźnego
+# wyszukiwania substringu — ``Activision`` i ``Inactivewicz`` są prawdziwym
+# tekstem, nie markerami. Dlatego rozpoznajemy wyłącznie zamknięty token na
+# POCZĄTKU albo KOŃCU pola, z wymaganym separatorem od reszty wartości.
+#
+# ``zatrunion*`` to zaobserwowana literówka rodziny ``zatrudnion*``. Poprawna
+# forma nadal idzie przez starszy `_EMPLOYMENT_MARKER_RE` (którego zachowanie
+# jest objęte osobnymi regresjami); literówkę celowo obejmujemy tylko nową,
+# konserwatywną regułą krawędziową.
+_BARE_EDGE_MARKER_WORD = (
+    r"(active|aktywny|inactive|nieaktywny|passive|"
+    r"zatrunion(ego|ej|ych|ymi|[yaieą])?)"
+)
+_BARE_EDGE_SEPARATOR = r"(\s+|\s*[-–,;/]+\s*)"
+_BARE_EDGE_PREFIX_RE = re.compile(
+    r"^\s*(?P<marker>" + _BARE_EDGE_MARKER_WORD + r")" + _BARE_EDGE_SEPARATOR,
+    re.IGNORECASE,
+)
+_BARE_EDGE_SUFFIX_RE = re.compile(
+    _BARE_EDGE_SEPARATOR + r"(?P<marker>" + _BARE_EDGE_MARKER_WORD + r")\s*$",
     re.IGNORECASE,
 )
 
@@ -104,6 +137,55 @@ _BLACKLIST_WORD_RE = re.compile(
 )
 
 
+def _normalize_name_marker_spacing(value: str) -> str:
+    """Zwiń odstępy i osierocone separatory po zdjęciu markera."""
+    return re.sub(r"\s{2,}", " ", value).strip(" -–,;/")
+
+
+def _has_real_name_text(value: str) -> bool:
+    """Marker zdejmujemy tylko, gdy zostaje co najmniej jedna litera."""
+    return any(char.isalpha() for char in value)
+
+
+def _strip_bare_edge_markers(value: str) -> tuple[str, list[str]]:
+    """Zdejmij pełne, bare markery wyłącznie z krawędzi pola.
+
+    Zwraca też dokładne tokeny potrzebne do prowieniencji. Pętla obsługuje
+    kilka sąsiadujących markerów (``"ACTIVE PASSIVE Jan"``), ale każdy krok
+    jest akceptowany dopiero wtedy, gdy po czyszczeniu nadal zostaje realny
+    tekst. Dzięki temu pojedyncze ``"Active"`` pozostaje nietknięte.
+    """
+    if not value:
+        return value, []
+
+    cleaned = value
+    found: list[str] = []
+    while True:
+        prefix = _BARE_EDGE_PREFIX_RE.search(cleaned)
+        if prefix is not None:
+            candidate = _normalize_name_marker_spacing(
+                _BARE_EDGE_PREFIX_RE.sub(" ", cleaned, count=1)
+            )
+            if _has_real_name_text(candidate):
+                found.append(prefix.group("marker"))
+                cleaned = candidate
+                continue
+
+        suffix = _BARE_EDGE_SUFFIX_RE.search(cleaned)
+        if suffix is not None:
+            candidate = _normalize_name_marker_spacing(
+                _BARE_EDGE_SUFFIX_RE.sub(" ", cleaned, count=1)
+            )
+            if _has_real_name_text(candidate):
+                found.append(suffix.group("marker"))
+                cleaned = candidate
+                continue
+
+        break
+
+    return cleaned, found
+
+
 def strip_status_marker(value: str) -> str:
     """Zdejmij z imienia/nazwiska marker statusu wklejony w Traffit.
 
@@ -117,15 +199,26 @@ def strip_status_marker(value: str) -> str:
     """
     if not value:
         return value
+    cleaned = value
     low = value.lower()
     # Tani zwód przed uruchomieniem wyrażenia. MUSI wymieniać KAŻDE słowo
     # z `_STATUS_MARKER_WORD` — pominięte tutaj nie zostanie zdjęte, mimo że
     # wzorzec je zna (tak „akcept" przeszedł bokiem przy pierwszym podejściu).
-    if not any(word in low for word in ("black", "active", "akcept")):
-        return value
-    cleaned = _STATUS_MARKER_RE.sub(" ", value)
-    cleaned = re.sub(r"\s{2,}", " ", cleaned)
-    return cleaned.strip(" -–,;/")
+    if any(
+        word in low
+        for word in (
+            "black",
+            "active",
+            "aktywny",
+            "passive",
+            "zatrunion",
+            "akcept",
+        )
+    ):
+        cleaned = _STATUS_MARKER_RE.sub(" ", cleaned)
+        cleaned = _normalize_name_marker_spacing(cleaned)
+    cleaned, _ = _strip_bare_edge_markers(cleaned)
+    return cleaned
 
 
 def extract_markers(value: Optional[str]) -> list[str]:
@@ -139,6 +232,15 @@ def extract_markers(value: Optional[str]) -> list[str]:
         return []
     found = [m.group(0).strip() for m in _EMPLOYMENT_MARKER_RE.finditer(value)]
     found += [m.group(0).strip() for m in _STATUS_MARKER_RE.finditer(value)]
+    # Najpierw zdejmij starsze rodziny z kopii tekstu. Inaczej w
+    # ``"[zatrudniony] ACTIVE Jan"`` poprawny marker na początku zasłaniałby
+    # bare ``ACTIVE`` przed krawędziowym parserem i prowieniencja byłaby
+    # niekompletna, mimo że mapper usunie oba.
+    edge_source = _EMPLOYMENT_MARKER_RE.sub(" ", value)
+    edge_source = _STATUS_MARKER_RE.sub(" ", edge_source)
+    edge_source = _normalize_name_marker_spacing(edge_source)
+    _, bare_found = _strip_bare_edge_markers(edge_source)
+    found += bare_found
     return [f for f in found if f]
 
 

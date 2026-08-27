@@ -784,7 +784,10 @@ async def test_confirm_reuses_pipeline_placeholder_and_replaces_only_its_default
         assert contract.start_date == date(2026, 8, 1)
         assert contract.rate_candidate == Decimal("150.500")
         assert contract.rate_unit == RateUnit.hourly
-        assert contract.currency == "EUR"
+        # The signed B2B document defines the candidate/cost currency only.
+        # Legacy ``currency`` remains the client/revenue alias.
+        assert contract.currency == "PLN"
+        assert contract.rate_candidate_currency == "EUR"
 
 
 @pytest.mark.asyncio
@@ -1369,7 +1372,8 @@ async def test_generate_without_id_reuses_and_updates_only_the_existing_draft(
         assert contract.status == ContractStatus.draft
         assert contract.start_date == date(2026, 8, 1)
         assert contract.rate_candidate == Decimal("150.500")
-        assert contract.currency == "PLN"
+        assert contract.currency == "EUR"
+        assert contract.rate_candidate_currency == "PLN"
         assert contract.draft_content_html == "<p>loaded B2B detail</p>"
 
 

@@ -3,7 +3,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Award, DollarSign, FileText, TrendingUp, Users } from "lucide-react";
 import { reportsApi } from "@/lib/api";
+import { formatCurrency } from "@/lib/utils";
 import { formatPLN, KpiCard, HorizontalBar, DonutChart, LoadingSpinner } from "./_shared";
+
+const RATE_UNIT_SUFFIX = {
+  hourly: "/h",
+  daily: "/dzień",
+  monthly: "/mies.",
+} as const;
 
 interface SalesData {
   total_revenue: number;
@@ -23,7 +30,9 @@ interface SalesData {
     contract_id: number;
     client_name: string;
     end_date: string;
-    rate_client: number;
+    rate_client: number | null;
+    rate_client_currency: string;
+    rate_unit: keyof typeof RATE_UNIT_SUFFIX;
   }>;
   top_clients: Array<{
     client_id: number;
@@ -32,6 +41,8 @@ interface SalesData {
     revenue: number;
     margin: number;
   }>;
+  finance_quality?: "complete" | "unavailable";
+  finance_warnings?: string[];
 }
 
 export function SalesOverview() {
@@ -45,7 +56,14 @@ export function SalesOverview() {
     return <div className="text-sm text-destructive py-4">Błąd ładowania danych sales.</div>;
   if (!data) return null;
 
-  const marginPct = data.total_revenue > 0 ? Math.round((data.total_margin / data.total_revenue) * 100) : 0;
+  const financeUnavailable = data.finance_quality === "unavailable";
+  const financeWarnings = data.finance_warnings ?? [];
+  const marginPct =
+    financeUnavailable
+      ? null
+      : data.total_revenue > 0
+        ? Math.round((data.total_margin / data.total_revenue) * 100)
+        : 0;
   const maxRevenue = Math.max(...data.top_clients.map((c) => c.revenue), 1);
   const mrrValues = (data.mrr_trend || []).map((t) => t.revenue);
 
@@ -62,12 +80,34 @@ export function SalesOverview() {
         Sprzedaż — przegląd
       </h2>
 
+      {financeUnavailable &&
+        (financeWarnings.length > 0
+          ? financeWarnings.map((warning) => (
+              <div
+                key={warning}
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{warning}</span>
+              </div>
+            ))
+          : (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Dane finansowe są niepełne.</span>
+              </div>
+            ))}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard label="Przychód MRR" value={formatPLN(data.total_revenue)} icon={DollarSign} color="green" trend="up" />
         <KpiCard
           label="Marża MRR"
           value={formatPLN(data.total_margin)}
-          sub={`${marginPct}% marży`}
+          sub={marginPct === null ? "Marża % niedostępna" : `${marginPct}% marży`}
           icon={TrendingUp}
           color="blue"
         />
@@ -167,7 +207,9 @@ export function SalesOverview() {
                 <div className="flex items-center gap-4">
                   <span className="text-muted-foreground">{c.end_date}</span>
                   <span className="font-semibold text-foreground">
-                    {c.rate_client ? formatPLN(c.rate_client) : "—"}/h
+                    {c.rate_client != null
+                      ? `${formatCurrency(c.rate_client, c.rate_client_currency)}${RATE_UNIT_SUFFIX[c.rate_unit]}`
+                      : "—"}
                   </span>
                 </div>
               </div>

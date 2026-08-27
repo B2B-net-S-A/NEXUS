@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   getDocuments: vi.fn(),
   deleteContract: vi.fn(),
   forceDeleteSigned: vi.fn(),
+  updateContract: vi.fn(),
+  canManageFinance: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -46,7 +48,7 @@ vi.mock("@/store/auth", () => ({
     _user: unknown,
     ...roles: string[]
   ) => roles.includes(mocks.role),
-  canManageCandidateFinance: () => false,
+  canManageCandidateFinance: () => mocks.canManageFinance,
 }));
 
 vi.mock("@/components/RequireRole", () => ({
@@ -91,7 +93,7 @@ vi.mock("@/lib/api", () => ({
     documents: (...args: unknown[]) => mocks.getDocuments(...args),
     activities: vi.fn(),
     rateHistory: vi.fn(),
-    update: vi.fn(),
+    update: (...args: unknown[]) => mocks.updateContract(...args),
     delete: (...args: unknown[]) => mocks.deleteContract(...args),
     forceDeleteSigned: (...args: unknown[]) =>
       mocks.forceDeleteSigned(...args),
@@ -157,6 +159,8 @@ const contract = {
   target_rate_min: null,
   target_rate_max: null,
   currency: "PLN",
+  rate_client_currency: "EUR",
+  rate_candidate_currency: "PLN",
   eur_pln_rate: null,
   rate_unit: "daily",
   billing_hours_per_month: 160,
@@ -232,6 +236,7 @@ async function requestDelete() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = "admin";
+  mocks.canManageFinance = false;
   window.history.replaceState(
     {},
     "",
@@ -242,6 +247,41 @@ beforeEach(() => {
   mocks.getDocuments.mockResolvedValue({ data: [] });
   mocks.deleteContract.mockRejectedValue(signedContractConflict);
   mocks.forceDeleteSigned.mockResolvedValue({ data: null });
+  mocks.updateContract.mockResolvedValue({ data: contract });
+});
+
+describe("ContractDetailPage — edycja walut stawek", () => {
+  it("prefilluje i zapisuje niezależną walutę klienta oraz kandydata", async () => {
+    mocks.canManageFinance = true;
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    await user.click(screen.getByRole("button", { name: /Edytuj/ }));
+
+    const clientCurrency = screen.getByRole("combobox", {
+      name: "Waluta stawki przychodowej (klienta)",
+    });
+    const candidateCurrency = screen.getByRole("combobox", {
+      name: "Waluta stawki kosztowej (kandydata / umowy ramowej)",
+    });
+    expect(clientCurrency).toHaveValue("EUR");
+    expect(candidateCurrency).toHaveValue("PLN");
+
+    await user.selectOptions(clientCurrency, "GBP");
+    await user.selectOptions(candidateCurrency, "EUR");
+    await user.click(screen.getByRole("button", { name: /Zapisz/ }));
+
+    await waitFor(() => expect(mocks.updateContract).toHaveBeenCalledTimes(1));
+    expect(mocks.updateContract).toHaveBeenCalledWith(
+      563,
+      expect.objectContaining({
+        rate_client_currency: "GBP",
+        rate_candidate_currency: "EUR",
+      }),
+    );
+    expect(mocks.updateContract.mock.calls[0]?.[1]).not.toHaveProperty("currency");
+  });
 });
 
 describe("ContractDetailPage — wymuszone usunięcie podpisanego kontraktu", () => {

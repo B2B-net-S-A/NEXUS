@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 
 async def _seed_client_and_candidate(
@@ -48,6 +50,8 @@ async def _seed_contract(
     rate_client: int = 1000,
     rate_candidate: int = 800,
     rate_unit: str = "daily",
+    rate_client_currency: str = "PLN",
+    rate_candidate_currency: str = "PLN",
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus
@@ -62,6 +66,9 @@ async def _seed_contract(
             rate_client=rate_client,
             rate_candidate=rate_candidate,
             rate_unit=rate_unit,
+            currency=rate_client_currency,
+            rate_client_currency=rate_client_currency,
+            rate_candidate_currency=rate_candidate_currency,
             billing_hours_per_month=160,
         )
         db.add(c)
@@ -74,6 +81,32 @@ async def _clear_cache():
     from app.core.cache import cache_invalidate
 
     await cache_invalidate("reports:")
+
+
+async def _ensure_fx_rate(currency: str, effective_date: date) -> None:
+    """Keep report fixtures complete without colliding with shared shard data."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.fx_rate import FxRate
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.scalar(
+            select(FxRate.id)
+            .where(
+                FxRate.currency == currency,
+                FxRate.effective_date <= effective_date,
+            )
+            .limit(1)
+        )
+        if existing is None:
+            db.add(
+                FxRate(
+                    effective_date=effective_date,
+                    currency=currency,
+                    rate_to_pln=Decimal("4.000000"),
+                    source="TEST",
+                )
+            )
+            await db.commit()
 
 
 @pytest.mark.asyncio
@@ -184,8 +217,11 @@ async def test_sales_contract_lists_use_canonical_client_display_name(
         end_date=today + timedelta(days=7),
         rate_client=99_999_999,
         rate_candidate=1,
-        rate_unit="monthly",
+        rate_unit="daily",
+        rate_client_currency="EUR",
+        rate_candidate_currency="PLN",
     )
+    await _ensure_fx_rate("EUR", today)
 
     await _clear_cache()
     resp = await app_client.get("/api/reports/sales", headers=app_auth_headers)
@@ -198,6 +234,9 @@ async def test_sales_contract_lists_use_canonical_client_display_name(
         if row["contract_id"] == contract_id
     )
     assert ending["client_name"] == canonical_name
+    assert ending["rate_client"] == 99_999_999
+    assert ending["rate_client_currency"] == "EUR"
+    assert ending["rate_unit"] == "daily"
     top_client = next(
         row for row in body["top_clients"] if row["client_id"] == client_id
     )

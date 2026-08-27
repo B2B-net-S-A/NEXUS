@@ -96,17 +96,17 @@ function KpiGrid({
       {showFinance ? (
         <>
           <KpiCard
-            label="Revenue lifetime"
+            label="Revenue lifetime (PLN)"
             value={fmtMoney(data.total_revenue_all_time)}
             icon={<TrendingUp className="w-4 h-4 text-success-muted-foreground" />}
           />
           <KpiCard
-            label="Active revenue"
+            label="Active revenue (PLN)"
             value={fmtMoney(data.active_revenue)}
             sublabel={`${data.active_orders_count} zamówień`}
           />
           <KpiCard
-            label="Marża/mc (gross)"
+            label="Marża/mc (PLN, gross)"
             value={
               data.monthly_margin_total != null
                 ? `${data.monthly_margin_total}`

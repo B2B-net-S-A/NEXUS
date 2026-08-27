@@ -37,9 +37,9 @@ export function DLRevenueLeaderboard() {
               <th className="text-left px-3 py-2 font-medium">Delivery Lead</th>
               <th className="text-right px-3 py-2 font-medium">Klienci</th>
               <th className="text-right px-3 py-2 font-medium">Head clients</th>
-              <th className="text-right px-3 py-2 font-medium">Revenue lifetime</th>
-              <th className="text-right px-3 py-2 font-medium">Active</th>
-              <th className="text-right px-3 py-2 font-medium">Marża/mc</th>
+              <th className="text-right px-3 py-2 font-medium">Revenue lifetime (PLN)</th>
+              <th className="text-right px-3 py-2 font-medium">Active (PLN)</th>
+              <th className="text-right px-3 py-2 font-medium">Marża/mc (PLN)</th>
               <th className="text-right px-3 py-2 font-medium">Active orders</th>
               <th className="text-right px-3 py-2 font-medium">Konsultanci / kontrakty</th>
             </tr>

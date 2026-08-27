@@ -1088,6 +1088,8 @@ async def _seed_person_with_contract(
     rate_unit: str = "monthly",
     billing_hours_per_month: int = 160,
     currency: str = "PLN",
+    rate_client_currency: str | None = None,
+    rate_candidate_currency: str | None = None,
     start_date: date | None = None,
 ) -> tuple[int, int]:
     """Kandydat + kontrakt o wskazanym statusie. Zwraca (candidate_id, contract_id)."""
@@ -1114,6 +1116,8 @@ async def _seed_person_with_contract(
             rate_unit=RateUnit(rate_unit),
             billing_hours_per_month=billing_hours_per_month,
             currency=currency,
+            rate_client_currency=rate_client_currency,
+            rate_candidate_currency=rate_candidate_currency,
         )
         db.add(contract)
         await db.commit()
@@ -1203,6 +1207,30 @@ async def test_options_expose_katarzyna_hourly_rate_one_to_one(
     assert row["suggested_rate_cost"] == 480.0
     assert row["suggested_contract_rate_cost"] == 60.0
     assert row["suggested_rate_cost_unit"] == "hourly"
+    assert row["suggested_rate_cost_currency"] == "PLN"
+    assert row["suggested_rate_cost_rate_to_pln"] == 1.0
+
+
+async def test_options_label_candidate_cost_with_its_own_currency(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    surname = f"SplitCurrency{uuid.uuid4().hex[:6]}"
+    client_id, _, _ = await _seed_client_with_contracts(0)
+    _enable_for(monkeypatch, client_id)
+    candidate_id, _ = await _seed_person_with_contract(
+        client_id=client_id,
+        first="Marta",
+        last=surname,
+        rate_candidate=Decimal("300.000"),
+        rate_unit="daily",
+        currency="EUR",
+        rate_client_currency="EUR",
+        rate_candidate_currency="PLN",
+    )
+
+    data = await _options(app_client, app_auth_headers, client_id, q=surname)
+    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
+    assert row["suggested_contract_rate_cost"] == 300.0
     assert row["suggested_rate_cost_currency"] == "PLN"
     assert row["suggested_rate_cost_rate_to_pln"] == 1.0
 

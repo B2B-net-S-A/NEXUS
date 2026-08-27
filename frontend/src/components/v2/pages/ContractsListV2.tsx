@@ -79,6 +79,8 @@ interface ContractGroupMemberRow {
  margin?: number | null;
  status?: string;
  currency?: string | null;
+ rate_client_currency?: string | null;
+ rate_candidate_currency?: string | null;
 }
 
 interface ContractRow {
@@ -96,6 +98,8 @@ interface ContractRow {
  margin?: number;
  status?: string;
  currency?: string;
+ rate_client_currency?: string | null;
+ rate_candidate_currency?: string | null;
  // `group_by_candidate=true`: wszystkie umowy tej osoby (żywe najpierw).
  // Wiersz z >1 członkiem renderuje kolumny okresu/stawek/marży per klient.
  group_members?: ContractGroupMemberRow[];
@@ -142,6 +146,24 @@ function marginColor(margin: number | undefined, rateClient: number | undefined)
  if (pct < 15) return"text-destructive font-bold";
  if (pct < 25) return"text-warning-muted-foreground font-semibold";
  return"text-success-muted-foreground font-semibold";
+}
+
+type RateCurrencyRow = {
+ currency?: string | null;
+ rate_client_currency?: string | null;
+ rate_candidate_currency?: string | null;
+};
+
+function clientCurrency(row: RateCurrencyRow): string {
+ return row.rate_client_currency ?? row.currency ?? "PLN";
+}
+
+function candidateCurrency(row: RateCurrencyRow): string {
+ return row.rate_candidate_currency ?? row.currency ?? "PLN";
+}
+
+function hasComparableRateCurrencies(row: RateCurrencyRow): boolean {
+ return clientCurrency(row).toUpperCase() === candidateCurrency(row).toUpperCase();
 }
 
 // Polish plural for "kontrakt" + matching verb (1 / 2–4 / 0,5+ forms), so the
@@ -816,22 +838,22 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  {multi
  ? memberLines(members, (m) =>
  m.rate_candidate != null
- ? formatCurrency(m.rate_candidate, m.currency ??"PLN")
+ ? formatCurrency(m.rate_candidate, candidateCurrency(m))
  :"—",
  )
  : c.rate_candidate != null
- ? formatCurrency(c.rate_candidate, c.currency ??"PLN")
+ ? formatCurrency(c.rate_candidate, candidateCurrency(c))
  :"—"}
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
  {multi
  ? memberLines(members, (m) =>
  m.rate_client != null
- ? formatCurrency(m.rate_client, m.currency ??"PLN")
+ ? formatCurrency(m.rate_client, clientCurrency(m))
  :"—",
  )
  : c.rate_client != null
- ? formatCurrency(c.rate_client, c.currency ??"PLN")
+ ? formatCurrency(c.rate_client, clientCurrency(c))
  :"—"}
  </TableCell>
  <TableCell className="text-right font-mono text-sm">
@@ -839,18 +861,27 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ? memberLines(members, (m) => (
  <span
  className={marginColor(
- m.margin ?? undefined,
+ hasComparableRateCurrencies(m) ? m.margin ?? undefined : undefined,
  m.rate_client ?? undefined,
  )}
  >
- {m.margin != null
- ? formatCurrency(m.margin, m.currency ??"PLN")
+ {m.margin != null && hasComparableRateCurrencies(m)
+ ? formatCurrency(m.margin, clientCurrency(m))
  :"—"}
  </span>
  ))
  : (
- <span className={cn(marginColor(c.margin, c.rate_client))}>
- {c.margin != null ? formatCurrency(c.margin, c.currency || "PLN") :"—"}
+ <span
+ className={cn(
+ marginColor(
+ hasComparableRateCurrencies(c) ? c.margin : undefined,
+ c.rate_client,
+ ),
+ )}
+ >
+ {c.margin != null && hasComparableRateCurrencies(c)
+ ? formatCurrency(c.margin, clientCurrency(c))
+ :"—"}
  </span>
  )}
  </TableCell>

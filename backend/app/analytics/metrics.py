@@ -52,6 +52,7 @@ from app.services.contractor_identity import (
     summarize_active_contracts,
     unique_contractor_keys,
 )
+from app.services.fx_service import amount_to_pln_with_rate
 
 # Stage'y milestone'ów w kolejności lejka.
 FUNNEL_STAGES = ["verified", "cv_sent", "interview", "client_interview", "hired"]
@@ -533,7 +534,14 @@ async def _sum_finance(
     kwota NIE wchodzi do sumy i suma NIE udaje kompletnej.
     """
     on = on or date.today()
-    currencies = {(c.currency or "PLN").upper() for c in contracts}
+    currencies = {
+        currency
+        for c in contracts
+        for currency in (
+            (c.rate_client_currency or c.currency or "PLN").upper(),
+            (c.rate_candidate_currency or c.currency or "PLN").upper(),
+        )
+    }
     rates = await _fx_rates_to_pln(db, currencies, on)
 
     mrr = Decimal("0")
@@ -541,11 +549,10 @@ async def _sum_finance(
     missing: dict[str, int] = {}
     warnings: list[str] = []
     for c in contracts:
-        cur = (c.currency or "PLN").upper()
-        rate = rates.get(cur)
-        if rate is None:
-            missing[cur] = missing.get(cur, 0) + 1
-            continue
+        client_currency = (c.rate_client_currency or c.currency or "PLN").upper()
+        candidate_currency = (c.rate_candidate_currency or c.currency or "PLN").upper()
+        client_fx = rates.get(client_currency)
+        candidate_fx = rates.get(candidate_currency)
         # Stawka MUSI być rozstrzygnięta na dzień ``on``, nie odczytana
         # z kolumny ``contracts.rate_*``. Kolumna to cache zapisywany przy
         # ZAPISIE kontraktu: krok harmonogramu, którego data już nadeszła,
@@ -553,10 +560,28 @@ async def _sum_finance(
         # DZISIEJSZĄ stawką, więc lipcowa podwyżka retroaktywnie podnosiła
         # styczeń i płaski biznes wyglądał na rosnący.
         eff = effective_rate_fields(c, on)
-        if eff["monthly_rate_client"] is not None:
-            mrr += Decimal(eff["monthly_rate_client"]) * rate
-        if eff["monthly_margin"] is not None:
-            margin += Decimal(eff["monthly_margin"]) * rate
+        monthly_client = eff["monthly_rate_client"]
+        monthly_candidate = eff["monthly_rate_candidate"]
+        if monthly_client is not None:
+            client_pln, client_complete = amount_to_pln_with_rate(
+                monthly_client, client_fx
+            )
+            if not client_complete:
+                missing[client_currency] = missing.get(client_currency, 0) + 1
+            else:
+                assert client_pln is not None
+                mrr += client_pln
+                if monthly_candidate is not None:
+                    candidate_pln, candidate_complete = amount_to_pln_with_rate(
+                        monthly_candidate, candidate_fx
+                    )
+                    if not candidate_complete:
+                        missing[candidate_currency] = (
+                            missing.get(candidate_currency, 0) + 1
+                        )
+                    else:
+                        assert candidate_pln is not None
+                        margin += client_pln - candidate_pln
 
     flag: QualityFlag = "complete"
     if missing:

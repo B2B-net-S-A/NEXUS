@@ -401,6 +401,125 @@ async def _apply_contract_status_change(
     contract.status = target
 
 
+def _normalize_contract_currency(value: object, field: str) -> str:
+    """Canonical three-letter currency code used by contract write endpoints."""
+
+    normalized = str(value or "").strip().upper()
+    if len(normalized) != 3 or not normalized.isascii() or not normalized.isalpha():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "invalid_contract_currency",
+                "field": field,
+                "message": "Waluta musi być trzyliterowym kodem (np. PLN, EUR).",
+            },
+        )
+    return normalized
+
+
+def _raise_currency_conflict(fields: list[str]) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "code": "contract_currency_conflict",
+            "fields": fields,
+            "message": (
+                "Legacy currency jest aliasem waluty stawki klienta i musi być "
+                "zgodne z rate_client_currency."
+            ),
+        },
+    )
+
+
+def _prepare_create_rate_currencies(payload: dict, supplied_fields: set[str]) -> None:
+    """Resolve legacy/new create payload into two real columns + client alias."""
+
+    legacy = _normalize_contract_currency(payload.pop("currency", "PLN"), "currency")
+    raw_client = payload.pop("rate_client_currency", None)
+    raw_candidate = payload.pop("rate_candidate_currency", None)
+    client = (
+        _normalize_contract_currency(raw_client, "rate_client_currency")
+        if "rate_client_currency" in supplied_fields
+        else legacy
+    )
+    candidate = (
+        _normalize_contract_currency(raw_candidate, "rate_candidate_currency")
+        if "rate_candidate_currency" in supplied_fields
+        else legacy
+    )
+    if "currency" in supplied_fields:
+        conflicts = []
+        if "rate_client_currency" in supplied_fields and client != legacy:
+            conflicts.append("rate_client_currency")
+        if conflicts:
+            _raise_currency_conflict(conflicts)
+    payload["rate_client_currency"] = client
+    payload["rate_candidate_currency"] = candidate
+    # Compatibility alias always follows the revenue/client side.
+    payload["currency"] = client
+
+
+def _prepare_update_rate_currencies(
+    contract: Contract,
+    updates: dict,
+    supplied_fields: set[str],
+) -> None:
+    """Apply PATCH precedence without coupling independently supplied fields."""
+
+    legacy_sent = "currency" in supplied_fields
+    client_sent = "rate_client_currency" in supplied_fields
+    candidate_sent = "rate_candidate_currency" in supplied_fields
+    if not (legacy_sent or client_sent or candidate_sent):
+        return
+
+    legacy = (
+        _normalize_contract_currency(updates.get("currency"), "currency")
+        if legacy_sent
+        else None
+    )
+    client = (
+        _normalize_contract_currency(
+            updates.get("rate_client_currency"), "rate_client_currency"
+        )
+        if client_sent
+        else None
+    )
+    candidate = (
+        _normalize_contract_currency(
+            updates.get("rate_candidate_currency"), "rate_candidate_currency"
+        )
+        if candidate_sent
+        else None
+    )
+
+    if legacy_sent:
+        conflicts = []
+        if client_sent and client != legacy:
+            conflicts.append("rate_client_currency")
+        if conflicts:
+            _raise_currency_conflict(conflicts)
+        updates["currency"] = legacy
+        updates["rate_client_currency"] = legacy
+        if candidate_sent:
+            updates["rate_candidate_currency"] = candidate
+        elif not client_sent:
+            if legacy != contract.resolved_rate_client_currency:
+                # A real legacy-only currency change retains the historical
+                # shared-currency intent. An unchanged value can also come
+                # from a stale browser tab that still round-trips ``currency``
+                # on every edit; it must not erase an explicit mixed cost leg.
+                updates["rate_candidate_currency"] = legacy
+        return
+
+    updates.pop("currency", None)
+    if client_sent:
+        updates["rate_client_currency"] = client
+        # Legacy readers see the revenue/client currency.
+        updates["currency"] = client
+    if candidate_sent:
+        updates["rate_candidate_currency"] = candidate
+
+
 def _to_detail(contract: Contract) -> ContractDetailResponse:
     """Serialize a Contract (with eager-loaded relations) to the detail schema."""
     data = {
@@ -419,7 +538,9 @@ def _to_detail(contract: Contract) -> ContractDetailResponse:
         "framework_rate": contract.framework_rate,
         "target_rate_min": contract.target_rate_min,
         "target_rate_max": contract.target_rate_max,
-        "currency": contract.currency,
+        "currency": contract.resolved_rate_client_currency,
+        "rate_client_currency": contract.resolved_rate_client_currency,
+        "rate_candidate_currency": contract.resolved_rate_candidate_currency,
         "rate_unit": contract.rate_unit,
         "billing_hours_per_month": contract.billing_hours_per_month,
         "margin": contract.margin,
@@ -622,6 +743,8 @@ _CONTRACT_FINANCE_SCALARS = (
     "monthly_margin",
     "eur_pln_rate",
     "currency",
+    "rate_client_currency",
+    "rate_candidate_currency",
     "rate_unit",
     "billing_hours_per_month",
 )
@@ -646,6 +769,8 @@ _CONTRACT_FINANCE_WRITE_FIELDS = frozenset(
         "target_rate_max",
         "margin",
         "currency",
+        "rate_client_currency",
+        "rate_candidate_currency",
         "rate_unit",
         "billing_hours_per_month",
         "new_rate_candidate",
@@ -695,6 +820,8 @@ def _redact_contract_finance(item):
         member.margin = None
         member.rate_unit = None
         member.currency = None
+        member.rate_client_currency = None
+        member.rate_candidate_currency = None
     return item
 
 
@@ -730,7 +857,9 @@ def _group_member_from_contract(
         rate_client=eff["rate_client"],
         margin=eff["margin"],
         rate_unit=c.rate_unit,
-        currency=c.currency,
+        currency=eff["currency"],
+        rate_client_currency=eff["rate_client_currency"],
+        rate_candidate_currency=eff["rate_candidate_currency"],
     )
 
 
@@ -1070,10 +1199,11 @@ _CONTRACT_EXPORT_COLUMNS = [
     "Koniec zamówienia u klienta",
     "Najnowsze zamówienie do",
     "Stawka kandydata",
+    "Waluta stawki kandydata",
     "Stawka klienta",
+    "Waluta stawki klienta",
     "Marża",
     "Jednostka stawki",
-    "Waluta",
     "Stawka mies. kandydata",
     "Stawka mies. klienta",
     "Marża mies.",
@@ -1127,10 +1257,11 @@ def _contract_export_row(
         _date_cell(c.client_order_end_date),
         _date_cell(latest_order_end),
         _num_cell(eff["rate_candidate"]),
+        eff["rate_candidate_currency"],
         _num_cell(eff["rate_client"]),
+        eff["rate_client_currency"],
         _num_cell(eff["margin"]),
         _enum_label(c.rate_unit, _RATE_UNIT_LABELS),
-        c.currency or "",
         _num_cell(eff["monthly_rate_candidate"]),
         _num_cell(eff["monthly_rate_client"]),
         _num_cell(eff["monthly_margin"]),
@@ -1585,7 +1716,7 @@ async def _create_manual_project_order_draft(
         start_date=contract.start_date,
         end_date=contract.end_date,
         rate_client=contract.rate_client,
-        currency=contract.currency,
+        currency=contract.resolved_rate_client_currency,
         created_by_user_id=actor_id,
         notes=(
             "Auto-utworzone przy dodaniu kolejnego projektu dla "
@@ -1712,6 +1843,7 @@ async def create_contract(
     source_contract_id = payload.pop("source_contract_id", None)
     schedule_input = payload.pop("candidate_rate_schedule", None) or []
     framework_schedule_input = payload.pop("framework_rate_schedule", None) or []
+    _prepare_create_rate_currencies(payload, set(data.model_fields_set))
     contract = Contract(**payload)
     if schedule_input:
         # Schedule drives the candidate rate over time; persist each step.
@@ -2004,7 +2136,11 @@ async def get_contract(
     can_view_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
-    if can_view_finance and (contract.currency or "").upper() == "EUR":
+    contract_currencies = {
+        contract.resolved_rate_client_currency,
+        contract.resolved_rate_candidate_currency,
+    }
+    if can_view_finance and "EUR" in contract_currencies:
         from app.services.fx_service import get_rate_snapshot_to_pln
 
         snapshot = await get_rate_snapshot_to_pln(db, "EUR", business_today())
@@ -2185,6 +2321,7 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     updates = data.model_dump(exclude_unset=True)
+    _prepare_update_rate_currencies(contract, updates, set(data.model_fields_set))
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
     # scalar column — pull it out of the setattr loop and replace it explicitly.
     # Presence of the key (even as []) is the intent to REPLACE; absence leaves
@@ -3867,6 +4004,14 @@ async def contract_benchmark(
                 Contract.id != contract_id,
                 Contract.status == ContractStatus.active,
                 Contract.rate_client.isnot(None),
+                func.upper(
+                    func.coalesce(
+                        Contract.rate_client_currency,
+                        Contract.currency,
+                        "PLN",
+                    )
+                )
+                == contract.resolved_rate_client_currency,
                 or_(Job.title == role, Candidate.competence_category == role),
             )
         )
@@ -3896,7 +4041,7 @@ async def contract_benchmark(
             select(RateBenchmark)
             .where(
                 RateBenchmark.role.ilike(role),
-                RateBenchmark.currency == contract.currency,
+                RateBenchmark.currency == contract.resolved_rate_client_currency,
             )
             .order_by(RateBenchmark.source_date.desc())
             .limit(1)
@@ -3938,5 +4083,5 @@ async def contract_benchmark(
         market_source=market_source,
         market_source_date=market_source_date,
         role_used=role,
-        currency=contract.currency,
+        currency=contract.resolved_rate_client_currency,
     )

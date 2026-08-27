@@ -28,7 +28,7 @@ from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
 from app.models.job import Job
 from app.services.client_identity import client_display_name_expression
-from app.services.fx_service import get_rate_to_pln
+from app.services.fx_service import amount_to_pln_with_rate, get_rate_to_pln
 from app.services.contractor_identity import (
     candidate_identity_key,
     contractor_identity_sql_expression,
@@ -66,6 +66,16 @@ def _sql_monthly(col):
     )
 
 
+def _client_currency(contract: Contract) -> str:
+    """Currency of revenue, with a rollout-safe fallback for legacy rows."""
+    return (contract.rate_client_currency or contract.currency or "PLN").upper()
+
+
+def _candidate_currency(contract: Contract) -> str:
+    """Currency of candidate cost, with a rollout-safe fallback for legacy rows."""
+    return (contract.rate_candidate_currency or contract.currency or "PLN").upper()
+
+
 async def _resolve_rate_cache(db, currencies) -> dict[str, tuple[Decimal, bool]]:
     """Resolve today's PLN multiplier once per distinct currency.
 
@@ -92,8 +102,8 @@ class MarginByContractor(BaseModel):
     total_monthly_margin: MoneyPLN
     total_monthly_revenue: MoneyPLN
     margin_pct: Optional[float]
-    # True when at least one contributing currency had no cached FX rate and we
-    # fell back to a 1:1 conversion — the total is a best-effort approximation.
+    # True when at least one contributing currency had no cached FX rate. That
+    # leg is excluded; a foreign amount is never treated as PLN at 1:1.
     fx_missing: bool = False
 
 
@@ -147,31 +157,43 @@ async def margin_by_contractor(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    rev_sql = _sql_monthly(Contract.rate_client)
-    marg_sql = _sql_monthly(Contract.margin)
-    # Group by (candidate, currency) so EUR/USD/PLN subtotals stay separate and
-    # each is converted to PLN before we fold them per contractor. Summing raw
-    # across currencies would add e.g. EUR + PLN nominally (M7-P0.11).
+    rev_sql = _sql_monthly(Contract.rate_client).label("revenue")
+    cost_sql = _sql_monthly(Contract.rate_candidate).label("cost")
+    # Read one row per contract: revenue and candidate cost can now carry two
+    # different currencies, so a single SQL ``SUM(margin) GROUP BY currency``
+    # has no valid financial meaning. Both legs are converted independently and
+    # only then subtracted in PLN.
     res = await db.execute(
         select(
             Candidate.id,
             Candidate.name,
             Candidate.lastname,
+            Contract.rate_client_currency,
+            Contract.rate_candidate_currency,
             Contract.currency,
-            func.count(Contract.id).label("active_contracts"),
-            func.coalesce(func.sum(marg_sql), 0).label("margin"),
-            func.coalesce(func.sum(rev_sql), 0).label("revenue"),
+            rev_sql,
+            cost_sql,
         )
         .join(Contract, Contract.candidate_id == Candidate.id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Candidate.id, Candidate.name, Candidate.lastname, Contract.currency)
     )
     raw = res.all()
-    rate_cache = await _resolve_rate_cache(db, (r.currency for r in raw))
+    currencies = {
+        currency
+        for r in raw
+        for currency in (
+            (r.rate_client_currency or r.currency or "PLN").upper(),
+            (r.rate_candidate_currency or r.currency or "PLN").upper(),
+        )
+    }
+    rate_cache = await _resolve_rate_cache(db, currencies)
 
     acc: dict[int, dict] = {}
     for r in raw:
-        rate, found = rate_cache[(r.currency or "PLN").upper()]
+        client_currency = (r.rate_client_currency or r.currency or "PLN").upper()
+        candidate_currency = (r.rate_candidate_currency or r.currency or "PLN").upper()
+        client_fx, client_found = rate_cache[client_currency]
+        candidate_fx, candidate_found = rate_cache[candidate_currency]
         bucket = acc.setdefault(
             r.id,
             {
@@ -183,10 +205,18 @@ async def margin_by_contractor(
                 "fx_missing": False,
             },
         )
-        bucket["active_contracts"] += int(r.active_contracts or 0)
-        bucket["margin"] += Decimal(r.margin or 0) * rate
-        bucket["revenue"] += Decimal(r.revenue or 0) * rate
-        if not found:
+        bucket["active_contracts"] += 1
+        revenue_pln, revenue_complete = amount_to_pln_with_rate(
+            r.revenue, client_fx if client_found else None
+        )
+        cost_pln, cost_complete = amount_to_pln_with_rate(
+            r.cost, candidate_fx if candidate_found else None
+        )
+        if revenue_pln is not None:
+            bucket["revenue"] += revenue_pln
+        if revenue_pln is not None and cost_pln is not None:
+            bucket["margin"] += revenue_pln - cost_pln
+        if not revenue_complete or not cost_complete:
             bucket["fx_missing"] = True
 
     rows = [
@@ -217,31 +247,41 @@ async def margin_by_client(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    rev_sql = _sql_monthly(Contract.rate_client)
-    marg_sql = _sql_monthly(Contract.margin)
+    rev_sql = _sql_monthly(Contract.rate_client).label("revenue")
+    cost_sql = _sql_monthly(Contract.rate_candidate).label("cost")
     client_name = client_display_name_expression()
-    # Group by (client, currency) and convert each subtotal to PLN before
-    # folding per client — otherwise EUR + PLN would be added nominally
-    # (M7-P0.11).
+    # One row per contract for the same reason as ``margin_by_contractor``:
+    # revenue and cost currencies must be resolved independently.
     res = await db.execute(
         select(
             Client.id,
             client_name.label("client_name"),
+            Contract.rate_client_currency,
+            Contract.rate_candidate_currency,
             Contract.currency,
-            func.count(Contract.id).label("active_contracts"),
-            func.coalesce(func.sum(marg_sql), 0).label("margin"),
-            func.coalesce(func.sum(rev_sql), 0).label("revenue"),
+            rev_sql,
+            cost_sql,
         )
         .join(Contract, Contract.client_id == Client.id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Client.id, client_name, Contract.currency)
     )
     raw = res.all()
-    rate_cache = await _resolve_rate_cache(db, (r.currency for r in raw))
+    currencies = {
+        currency
+        for r in raw
+        for currency in (
+            (r.rate_client_currency or r.currency or "PLN").upper(),
+            (r.rate_candidate_currency or r.currency or "PLN").upper(),
+        )
+    }
+    rate_cache = await _resolve_rate_cache(db, currencies)
 
     acc: dict[int, dict] = {}
     for r in raw:
-        rate, found = rate_cache[(r.currency or "PLN").upper()]
+        client_currency = (r.rate_client_currency or r.currency or "PLN").upper()
+        candidate_currency = (r.rate_candidate_currency or r.currency or "PLN").upper()
+        client_fx, client_found = rate_cache[client_currency]
+        candidate_fx, candidate_found = rate_cache[candidate_currency]
         bucket = acc.setdefault(
             r.id,
             {
@@ -252,10 +292,18 @@ async def margin_by_client(
                 "fx_missing": False,
             },
         )
-        bucket["active_contracts"] += int(r.active_contracts or 0)
-        bucket["margin"] += Decimal(r.margin or 0) * rate
-        bucket["revenue"] += Decimal(r.revenue or 0) * rate
-        if not found:
+        bucket["active_contracts"] += 1
+        revenue_pln, revenue_complete = amount_to_pln_with_rate(
+            r.revenue, client_fx if client_found else None
+        )
+        cost_pln, cost_complete = amount_to_pln_with_rate(
+            r.cost, candidate_fx if candidate_found else None
+        )
+        if revenue_pln is not None:
+            bucket["revenue"] += revenue_pln
+        if revenue_pln is not None and cost_pln is not None:
+            bucket["margin"] += revenue_pln - cost_pln
+        if not revenue_complete or not cost_complete:
             bucket["fx_missing"] = True
 
     rows = [
@@ -387,14 +435,21 @@ async def revenue_forecast(
     )
     active_contracts = list(all_active_res.scalars().all())
 
-    from app.api.reports import _monthly_margin, _monthly_rate_client
+    from app.api.reports import _monthly_rate_candidate, _monthly_rate_client
 
-    # Resolve each currency's rate once (all months use today's rate).
-    rate_cache = await _resolve_rate_cache(db, (c.currency for c in active_contracts))
+    # Resolve each leg's currency once (all forecast months use today's rate).
+    rate_cache = await _resolve_rate_cache(
+        db,
+        {
+            currency
+            for c in active_contracts
+            for currency in (_client_currency(c), _candidate_currency(c))
+        },
+    )
     fx_missing = False
     missing_fx: set[str] = set()
 
-    def _to_display(amount: int, currency: str) -> Optional[Decimal]:
+    def _to_display(amount: Decimal | int, currency: str) -> Optional[Decimal]:
         """Convert a monthly amount to PLN, or ``None`` when it must be dropped.
 
         When ``convert_currency`` is on and a non-PLN currency has no cached NBP
@@ -409,11 +464,13 @@ async def revenue_forecast(
         if not convert_currency or cur == "PLN":
             return Decimal(amount)
         rate, found = rate_cache.get(cur, (Decimal("1"), False))
-        if not found:
+        converted, complete = amount_to_pln_with_rate(amount, rate if found else None)
+        if not complete:
             fx_missing = True
             missing_fx.add(cur)
             return None
-        return Decimal(amount) * rate
+        assert converted is not None
+        return converted
 
     months: list[ForecastMonth] = []
     for i in range(horizon_months):
@@ -443,12 +500,20 @@ async def revenue_forecast(
         revenue_raw = Decimal("0")
         margin_raw = Decimal("0")
         for c in active_in_month:
-            rev = _to_display(_monthly_rate_client(c), c.currency)
-            marg = _to_display(_monthly_margin(c), c.currency)
+            rev = (
+                _to_display(_monthly_rate_client(c), _client_currency(c))
+                if c.rate_client is not None
+                else None
+            )
+            cost = (
+                _to_display(_monthly_rate_candidate(c), _candidate_currency(c))
+                if c.rate_candidate is not None
+                else None
+            )
             if rev is not None:
                 revenue_raw += rev
-            if marg is not None:
-                margin_raw += marg
+            if rev is not None and cost is not None:
+                margin_raw += rev - cost
         months.append(
             ForecastMonth(
                 month=month_start.strftime("%Y-%m"),

@@ -91,9 +91,13 @@ def effective_rate_fields(contract: Contract, on: date) -> dict:
 
     candidate_dec = Contract._as_decimal(eff_candidate)
     client_dec = Contract._as_decimal(eff_client)
+    candidate_currency = contract.resolved_rate_candidate_currency
+    client_currency = contract.resolved_rate_client_currency
     margin: Optional[Decimal] = (
         client_dec - candidate_dec
-        if client_dec is not None and candidate_dec is not None
+        if client_dec is not None
+        and candidate_dec is not None
+        and client_currency == candidate_currency
         else None
     )
 
@@ -101,13 +105,20 @@ def effective_rate_fields(contract: Contract, on: date) -> dict:
     monthly_client = contract.monthly_rate(eff_client)
     monthly_margin: Optional[Decimal] = (
         monthly_client - monthly_candidate
-        if monthly_client is not None and monthly_candidate is not None
+        if monthly_client is not None
+        and monthly_candidate is not None
+        and client_currency == candidate_currency
         else None
     )
 
     return {
         "rate_candidate": eff_candidate,
         "rate_client": eff_client,
+        "rate_candidate_currency": candidate_currency,
+        "rate_client_currency": client_currency,
+        # Legacy response alias: old consumers understand it as the client
+        # (revenue/order) currency.
+        "currency": client_currency,
         "framework_rate": eff_framework,
         "margin": margin,
         "monthly_rate_candidate": monthly_candidate,

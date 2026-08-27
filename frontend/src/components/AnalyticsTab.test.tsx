@@ -112,8 +112,8 @@ describe("AnalyticsTab finance redaction", () => {
     expect(await screen.findByText("Acme — analityka")).toBeInTheDocument();
     expect(screen.getByText("Konsultanci aktywni")).toBeInTheDocument();
     expect(screen.getByText("Completed orders")).toBeInTheDocument();
-    expect(screen.queryByText("Revenue lifetime")).not.toBeInTheDocument();
-    expect(screen.queryByText("Marża/mc (gross)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marża/mc (PLN, gross)")).not.toBeInTheDocument();
     expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
   });
 
@@ -144,8 +144,8 @@ describe("AnalyticsTab finance redaction", () => {
 
     renderTab();
 
-    expect(await screen.findByText("Revenue lifetime")).toBeInTheDocument();
-    expect(screen.getByText("Marża/mc (gross)")).toBeInTheDocument();
+    expect(await screen.findByText("Revenue lifetime (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Marża/mc (PLN, gross)")).toBeInTheDocument();
     expect(screen.getByText("Revenue per waluta")).toBeInTheDocument();
     expect(screen.getByText("PLN")).toBeInTheDocument();
   });

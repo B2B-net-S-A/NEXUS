@@ -43,6 +43,8 @@ const groupedMember = (over: Record<string, unknown>) => ({
   margin: 50,
   rate_unit: "hourly",
   currency: "PLN",
+  rate_client_currency: "PLN",
+  rate_candidate_currency: "PLN",
   status: "active",
   ...over,
 });
@@ -97,6 +99,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
                     id: 467,
                     client_id: 1,
                     client_name: "Bank Pocztowy",
+                    rate_client_currency: "EUR",
+                    rate_candidate_currency: "PLN",
+                    margin: null,
                   }),
                   groupedMember({
                     id: 512,
@@ -243,6 +248,17 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     // Osoba jednoklientowa renderuje się po staremu (bez prefiksów).
     expect(screen.getByText("Jan Solo")).toBeInTheDocument();
     expect(screen.queryByText(/Trzeci Klient:/)).not.toBeInTheDocument();
+  });
+
+  it("formatuje stawkę kosztową i przychodową ich własnymi walutami", async () => {
+    renderList();
+    const row = (await screen.findByText("Paweł Małek")).closest("tr");
+
+    expect(row).toHaveTextContent("125,00 zł");
+    expect(row).toHaveTextContent("175,00 €");
+    // Backend zwraca null dla marży w różnych walutach; lista nie podstawia
+    // wspólnej waluty i nie pokazuje pozornie porównywalnej kwoty.
+    expect(row).toHaveTextContent(/Bank Pocztowy: —/);
   });
 
   it("dla statusu innego niż aktywny używa neutralnych nazw liczników", async () => {
