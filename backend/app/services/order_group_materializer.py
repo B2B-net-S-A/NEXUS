@@ -44,6 +44,7 @@ from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
 from app.models.contract import Contract
+from app.models.order_type import OrderType
 from app.services.client_order_lines import record_event, recompute_remaining
 from app.services.cost_orders import skips_standard_order_group_materialization
 from app.services.multi_consultant_orders import (
@@ -103,10 +104,16 @@ async def materialize_group_for_activated_order(
         return None
     if order.order_group_id is not None:
         return None
-    if not is_multi_consultant_client(order.client_id):
+    explicit_type = OrderType(order.order_type) if order.order_type is not None else None
+    if explicit_type == OrderType.periodic:
         return None
-    if skips_standard_order_group_materialization(order.client_id):
-        return None
+    if explicit_type is None:
+        # Pełna zgodność wsteczna: tylko stare, skonfigurowane klienty MD są
+        # materializowane automatycznie i zachowują wszystkie dawne bramki.
+        if not is_multi_consultant_client(order.client_id):
+            return None
+        if skips_standard_order_group_materialization(order.client_id):
+            return None
     number = group_number_from_order(order)
     if number is None:
         return None
@@ -125,11 +132,17 @@ async def materialize_group_for_activated_order(
         )
     )
 
+    compatible_type = (
+        ClientOrderGroup.order_type.is_(None)
+        if explicit_type is None
+        else ClientOrderGroup.order_type == explicit_type.value
+    )
     group = await db.scalar(
         select(ClientOrderGroup)
         .where(
             ClientOrderGroup.client_id == order.client_id,
             ClientOrderGroup.order_number == number,
+            compatible_type,
             # WYŁĄCZNIE grupy aktywne: dołączenie aktywnej linii do grupy
             # ``scheduled`` łamałoby kontrakt modułu (add_line w scheduled
             # tworzy linie draft), chowało zamówienie przed pigułką „Aktywne"
@@ -154,6 +167,20 @@ async def materialize_group_for_activated_order(
         # nietknięte i są do poprawienia w wierszu.
         if end_date is not None and end_date < start_date:
             end_date = None
+        cost_budget = (
+            Decimal(str(order.total_value or 0))
+            if explicit_type == OrderType.cost
+            else None
+        )
+        md_budget = (
+            Decimal(str(order.md_total or 0))
+            if explicit_type == OrderType.md
+            else None
+        )
+        if explicit_type == OrderType.cost and cost_budget <= 0:
+            raise ValueError("Zamówienie kosztowe wymaga budżetu całkowitego")
+        if explicit_type == OrderType.md and md_budget <= 0:
+            raise ValueError("Zamówienie na MD wymaga budżetu w MD")
         group = ClientOrderGroup(
             client_id=order.client_id,
             order_number=number,
@@ -163,14 +190,33 @@ async def materialize_group_for_activated_order(
             start_date=start_date,
             end_date=end_date,
             status=GROUP_STATUS_ACTIVE,
-            is_cost_based=False,
+            order_type=(explicit_type.value if explicit_type is not None else None),
+            is_cost_based=explicit_type == OrderType.cost,
+            budget_amount=cost_budget,
+            budget_remaining=cost_budget,
+            is_md_budget_based=explicit_type == OrderType.md,
+            md_budget_total=md_budget,
+            md_budget_remaining=md_budget,
             created_by_user_id=actor_id,
         )
         db.add(group)
         await db.flush()
+    elif explicit_type == OrderType.cost:
+        supplied = Decimal(str(order.total_value or 0))
+        if supplied > 0 and supplied != Decimal(str(group.budget_amount or 0)):
+            raise ValueError(
+                "Budżet kosztowy różni się od istniejącego zamówienia o tym numerze"
+            )
+    elif explicit_type == OrderType.md:
+        supplied = Decimal(str(order.md_total or 0))
+        if supplied > 0 and supplied != Decimal(str(group.md_budget_total or 0)):
+            raise ValueError(
+                "Budżet MD różni się od istniejącego zamówienia o tym numerze"
+            )
 
     who = await _consultant_name(db, order)
     order.order_group_id = group.id
+    order.order_type = group.order_type
     # Tytuł linii przechodzi na konwencję grup („Zamówienie NR — osoba"):
     # numer mieszka odtąd na grupie, a osierocona kiedyś linia (usunięcie
     # grupy odpina, nie kasuje) zachowuje czytelny ślad numeru w tytule.
@@ -189,13 +235,28 @@ async def materialize_group_for_activated_order(
         order.md_rate_revenue = md_rate_from_order_rate(order.rate_client)
     if order.md_rate_cost is None and candidate_rate is not None:
         order.md_rate_cost = md_rate_from_order_rate(candidate_rate)
-    await recompute_remaining(db, order)
+    if explicit_type in (OrderType.cost, OrderType.md):
+        # Budżet jest wspólny na grupie; pozostawienie jego kopii na linii
+        # stworzyłoby dwa niezależne liczniki i pozwoliło mieszać typy.
+        order.total_value = None
+        order.md_input_mode = None
+        order.md_input_value = None
+        order.md_total = None
+        order.md_remaining = None
+        order.md_manual_adjustment = Decimal("0")
+    else:
+        await recompute_remaining(db, order)
 
-    budget_note = (
-        f", budżet {format_md(order.md_total)} MD"
-        if order.md_total is not None
-        else ", budżet MD do uzupełnienia"
-    )
+    if group.is_cost_based:
+        budget_note = f", wspólny budżet {group.budget_amount} PLN"
+    elif group.is_md_budget_based:
+        budget_note = f", wspólny budżet {format_md(group.md_budget_total)} MD"
+    else:
+        budget_note = (
+            f", budżet {format_md(order.md_total)} MD"
+            if order.md_total is not None
+            else ", budżet MD do uzupełnienia"
+        )
     record_event(
         db,
         group_id=group.id,

@@ -20,7 +20,6 @@ import {
   BookOpen,
   Users,
   Plus,
-  Trash2,
   X,
   Star,
   Heart,
@@ -49,7 +48,6 @@ import { ProjectsTab } from "./ProjectsTab";
 // Powiadomienia per-klient zostały zlikwidowane jako tab — globalny bell w
 // topbarze (NotificationsDropdown) wystarcza.
 import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
-import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
@@ -57,7 +55,6 @@ import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
-import { hasMixedOrderTypes } from "@/lib/client-order-capabilities";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -784,8 +781,6 @@ export default function ClientDetailPage() {
 
   useCanonicalClientRedirect(id, client?.id);
 
-  const mixedOrderTypesEnabled = hasMixedOrderTypes(client);
-
   useEffect(() => {
     if (client && Number(id) === client.id) {
       openTab("client", Number(id), client.name);
@@ -986,24 +981,17 @@ export default function ClientDetailPage() {
             </div>
           )}
 
-          {/* Typ rejestru wylicza backend: dotychczasowi klienci korzystają z
-              capability wielo-konsultantowej, a hardcoded Cyfrowy Polsat oraz
-              Lotte Wedel z wariantu mieszanego standardowe / kosztowe / MD.
-              Front nie duplikuje listy z ENV ani identyfikatorów klientów. */}
-          {activeTab === "zamowienia" &&
-            (client?.multi_consultant_orders_enabled ||
-            mixedOrderTypesEnabled ? (
-              <MultiConsultantOrdersTab
-                clientId={Number(id)}
-                costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
-                mixedOrderTypesEnabled={mixedOrderTypesEnabled}
-              />
-            ) : (
-              <OrdersAndContractsTab
-                clientId={Number(id)}
-                clientName={client?.display_name || client?.name || ""}
-              />
-            ))}
+          {/* Jeden rejestr dla wszystkich klientów: zamówienia okresowe nadal
+              korzystają z dotychczasowych kart kontraktorów, a kosztowe i MD
+              z grup ze wspólnym budżetem. */}
+          {activeTab === "zamowienia" && (
+            <MultiConsultantOrdersTab
+              clientId={Number(id)}
+              clientName={client?.display_name || client?.name || ""}
+              costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
+              mixedOrderTypesEnabled
+            />
+          )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
 
           {activeTab === "zespol" && (

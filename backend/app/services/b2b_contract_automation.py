@@ -27,11 +27,13 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
+from app.models.order_type import OrderType
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
+from app.services.order_types import suggested_order_type
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
 
@@ -425,6 +427,7 @@ async def _ensure_open_order(
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip()
     from_signed_confirmation = source == "signed_generated_contract"
+    suggested_type = await suggested_order_type(db, job.client_id)
     # U klienta wielo-konsultantowego tytuł szkicu to przyszły NUMER GRUPY
     # (materializacja przy aktywacji). Tytuł-imię przechodziłby bramkę
     # aktywacji jako „numer" i zakładał grupę „Jan Kowalski — Java Developer";
@@ -434,6 +437,7 @@ async def _ensure_open_order(
     title = (
         "(bez numeru)"
         if is_multi_consultant_client(job.client_id)
+        or suggested_type in (OrderType.cost, OrderType.md)
         else f"{candidate_name} — {job.title}"
     )
     order = ClientOrder(
@@ -441,6 +445,7 @@ async def _ensure_open_order(
         contract_id=contract.id,
         job_id=job.id,
         title=title,
+        order_type=suggested_type.value,
         status=ClientOrderStatus.draft,
         start_date=contract.start_date,
         rate_client=contract.rate_client,

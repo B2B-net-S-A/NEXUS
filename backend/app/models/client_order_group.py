@@ -65,6 +65,18 @@ class ClientOrderGroup(Base, TimestampMixin):
     __tablename__ = "client_order_groups"
     __table_args__ = (
         CheckConstraint(
+            "order_type IS NULL OR order_type IN ('cost', 'md')",
+            name="ck_client_order_groups_order_type",
+        ),
+        CheckConstraint(
+            "order_type IS NULL OR "
+            "(order_type = 'cost' AND is_cost_based = TRUE "
+            "AND is_md_budget_based = FALSE) OR "
+            "(order_type = 'md' AND is_cost_based = FALSE "
+            "AND is_md_budget_based = TRUE)",
+            name="ck_client_order_groups_explicit_type_coherence",
+        ),
+        CheckConstraint(
             "end_date IS NULL OR end_date >= start_date",
             name="ck_client_order_groups_dates",
         ),
@@ -142,6 +154,14 @@ class ClientOrderGroup(Base, TimestampMixin):
 
     closure_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     closure_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    order_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """Jawny typ nowych grup: ``cost`` albo ``md``.
+
+    Okresowe zamówienia pozostają samodzielnymi ``ClientOrder``. ``NULL``
+    oznacza grupę historyczną, której zachowanie wyznaczają istniejące flagi i
+    polityki klientowe; migracja nie klasyfikuje jej wstecz.
+    """
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

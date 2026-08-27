@@ -13,12 +13,14 @@ import {
 
 import { AppModal } from "@/components/ds/AppModal";
 import { FileDropZone } from "@/components/ds/FileDropZone";
+import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
   ClientOrderRead,
   ClientOrderUpdate,
   CreateDraftOrder,
+  OrderType,
 } from "@/lib/api/dlPortal";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
 import {
@@ -48,6 +50,7 @@ interface EditOrderDialogProps {
   rateCandidate: number | null;
   /** Serwer wylicza to per klient — patrz `can_manage_finance` w odpowiedzi. */
   canManageFinance: boolean;
+  suggestedOrderType?: OrderType;
   onClose: () => void;
   onSaved: () => void;
   /** Odświeża kartę po zmianie samego pliku, bez zamykania formularza. */
@@ -73,6 +76,7 @@ export function EditOrderDialog({
   onCreate,
   rateCandidate,
   canManageFinance,
+  suggestedOrderType = "periodic",
   onClose,
   onSaved,
   onChanged,
@@ -84,6 +88,17 @@ export function EditOrderDialog({
   const [description, setDescription] = useState(order?.description ?? "");
   const [startDate, setStartDate] = useState(order?.start_date ?? "");
   const [endDate, setEndDate] = useState(order?.end_date ?? "");
+  const canSelectOrderType =
+    order === null || (order.status === "draft" && order.order_type != null);
+  const [orderType, setOrderType] = useState<OrderType>(
+    order ? order.order_type ?? "periodic" : suggestedOrderType,
+  );
+  const [totalBudget, setTotalBudget] = useState(
+    order?.total_value != null ? String(order.total_value) : "",
+  );
+  const [mdBudget, setMdBudget] = useState(
+    order?.md_quantity != null ? String(order.md_quantity) : "",
+  );
   const [rateCost, setRateCost] = useState(
     rateCandidate != null ? String(rateCandidate) : "",
   );
@@ -120,6 +135,12 @@ export function EditOrderDialog({
       setTitleCheck(Boolean(data.title_needs_review));
       if (data.start_date) setStartDate(normalizeDateInput(data.start_date));
       if (data.end_date) setEndDate(normalizeDateInput(data.end_date));
+      if (orderType === "cost" && data.total_value != null) {
+        setTotalBudget(String(data.total_value));
+      }
+      if (orderType === "md" && data.md_total != null) {
+        setMdBudget(String(data.md_total));
+      }
       if (canManageFinance) {
         if (data.rate_client != null) setRateRevenue(String(data.rate_client));
         // Bank Pocztowy: pole stawki dostało wartość GODZINOWĄ; oryginał MD
@@ -173,6 +194,15 @@ export function EditOrderDialog({
         start_date: startDate ? normalizeDateInput(startDate) : null,
         end_date: endDate ? normalizeDateInput(endDate) : null,
       };
+      if (canSelectOrderType) payload.order_type = orderType;
+      if (orderType === "cost") {
+        payload.total_value = parseDecimalInput(totalBudget);
+      } else if (orderType === "md") {
+        payload.md_quantity = parseDecimalInput(mdBudget);
+        payload.total_value = null;
+      } else if (canSelectOrderType) {
+        payload.total_value = null;
+      }
       if (ezdrowie) payload.project_part = projectPart || null;
       // Kwoty POMIJAMY całkowicie, gdy rola ich nie prowadzi — wysłanie
       // zredagowanej (pustej) wartości nadpisałoby prawdziwą stawkę zerem.
@@ -258,7 +288,11 @@ export function EditOrderDialog({
     }, "Nie udało się usunąć pliku PDF zamówienia.");
   }
 
-  const canSubmit = title.trim().length > 0 && !mutation.isPending;
+  const budgetComplete =
+    (orderType !== "cost" || (parseDecimalInput(totalBudget) ?? 0) > 0) &&
+    (orderType !== "md" || (parseDecimalInput(mdBudget) ?? 0) > 0);
+  const canSubmit =
+    title.trim().length > 0 && budgetComplete && !mutation.isPending;
 
   return (
     <AppModal
@@ -291,6 +325,10 @@ export function EditOrderDialog({
       }
     >
       <div className="space-y-4">
+        {canSelectOrderType ? (
+          <OrderTypeSwitch value={orderType} onChange={setOrderType} />
+        ) : null}
+
         {/* Baner NAD tytułem — tak samo jak w przedłużeniu; to pierwsze, co
             widać po odczycie, więc ostrzeżenie nie może być pod formularzem. */}
         {checkData && (
@@ -363,6 +401,56 @@ export function EditOrderDialog({
             />
           </label>
         </div>
+
+        {orderType === "cost" ? (
+          <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-muted/30 p-3">
+            <label className="block">
+              <span className="text-sm font-medium">Budżet całkowity (PLN) *</span>
+              <input
+                value={totalBudget}
+                inputMode="decimal"
+                onChange={(event) =>
+                  setTotalBudget(sanitizeDecimalInput(event.target.value))
+                }
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                placeholder="np. 50000"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium">Zafakturowano</span>
+              <input
+                value="0"
+                readOnly
+                className="mt-1 w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+              />
+            </label>
+          </div>
+        ) : null}
+
+        {orderType === "md" ? (
+          <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-muted/30 p-3">
+            <label className="block">
+              <span className="text-sm font-medium">Budżet w MD *</span>
+              <input
+                value={mdBudget}
+                inputMode="decimal"
+                onChange={(event) =>
+                  setMdBudget(sanitizeDecimalInput(event.target.value))
+                }
+                className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                placeholder="np. 100"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium">Wykorzystano MD</span>
+              <input
+                value="0"
+                readOnly
+                className="mt-1 w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+              />
+            </label>
+          </div>
+        ) : null}
 
         {canManageFinance && (
           <div className="grid grid-cols-2 gap-3">

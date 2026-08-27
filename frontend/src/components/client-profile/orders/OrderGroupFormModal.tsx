@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 
 import { AppModal, FileDropZone } from "@/components/ds";
+import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import type { OrderType } from "@/lib/api/dlPortal";
 import {
   downloadAuthenticatedFile,
   openAuthenticatedFile,
@@ -41,11 +43,8 @@ interface Props {
   /** Ustawione = edycja; puste = nowe zamówienie. */
   group: OrderGroupRead | null;
   clientId: number;
-  /** Czy u tego klienta wolno zakładać zamówienia kosztowe (flaga z serwera). */
-  costOrdersEnabled: boolean;
-  /** Ustalony typ w mieszanym flow CP/Lotte Wedel. `null` zachowuje
-   *  dotychczasowy checkbox Polkomtela. */
-  forcedOrderType?: "cost" | "md" | null;
+  orderType: Exclude<OrderType, "periodic">;
+  onOrderTypeChange: (orderType: OrderType) => void;
   submitting: boolean;
   error: string | null;
   onSubmit: (values: OrderGroupInput, file: File | null) => void;
@@ -57,8 +56,8 @@ export function OrderGroupFormModal({
   onOpenChange,
   group,
   clientId,
-  costOrdersEnabled,
-  forcedOrderType = null,
+  orderType,
+  onOrderTypeChange,
   submitting,
   error,
   onSubmit,
@@ -69,10 +68,10 @@ export function OrderGroupFormModal({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [notes, setNotes] = useState("");
-  const [isCostBased, setIsCostBased] = useState(false);
   const [budgetAmount, setBudgetAmount] = useState("");
-  const [isMdBudgetBased, setIsMdBudgetBased] = useState(false);
   const [mdBudgetTotal, setMdBudgetTotal] = useState("");
+  const isCostBased = orderType === "cost";
+  const isMdBudgetBased = orderType === "md";
 
   const [file, setFile] = useState<File | null>(null);
   const [hasExistingFile, setHasExistingFile] = useState(false);
@@ -91,14 +90,6 @@ export function OrderGroupFormModal({
     setStartDate(group?.start_date ?? "");
     setEndDate(group?.end_date ?? "");
     setNotes(group?.notes ?? "");
-    setIsCostBased(
-      forcedOrderType === "cost" ||
-        (forcedOrderType !== "md" && (group?.is_cost_based ?? false)),
-    );
-    setIsMdBudgetBased(
-      forcedOrderType === "md" ||
-        (forcedOrderType !== "cost" && (group?.is_md_budget_based ?? false)),
-    );
     setBudgetAmount(numberToField(group?.budget_amount));
     setMdBudgetTotal(numberToField(group?.md_budget_total));
     setFile(null);
@@ -109,7 +100,7 @@ export function OrderGroupFormModal({
     setCheckReasons([]);
     setConflicts([]);
     setPendingApply(null);
-  }, [open, group, forcedOrderType]);
+  }, [open, group]);
 
   async function handleExtract() {
     if (!file || extracting) return;
@@ -187,7 +178,7 @@ export function OrderGroupFormModal({
   }
 
   const budgetMissing =
-    (isCostBased && budgetAmount.trim() === "") ||
+    (isCostBased && (parseDecimalInput(budgetAmount) ?? 0) <= 0) ||
     (isMdBudgetBased && (parseDecimalInput(mdBudgetTotal) ?? 0) <= 0);
   const canSubmit =
     !submitting && orderNumber.trim() !== "" && startDate !== "" && !budgetMissing;
@@ -215,7 +206,7 @@ export function OrderGroupFormModal({
       title={editing ? "Uzupełnij zamówienie" : "Nowe zamówienie"}
       description={
         editing
-          ? "Numer i okres obowiązywania. Linie konsultantów edytujesz osobno."
+          ? "Numer, okres i budżet. Linie konsultantów edytujesz osobno."
           : "Po zapisaniu dodasz do zamówienia konsultantów."
       }
       footer={
@@ -244,13 +235,12 @@ export function OrderGroupFormModal({
                 ...(editing
                   ? {}
                   : {
+                      order_type: orderType,
                       is_cost_based: isCostBased,
-                      ...(forcedOrderType
-                        ? { is_md_budget_based: isMdBudgetBased }
-                        : {}),
+                      is_md_budget_based: isMdBudgetBased,
                     }),
                 ...(isCostBased
-                  ? { budget_amount: Number(budgetAmount.replace(",", ".")) }
+                  ? { budget_amount: parseDecimalInput(budgetAmount) }
                   : {}),
                 ...(isMdBudgetBased
                   ? { md_budget_total: parseDecimalInput(mdBudgetTotal) }
@@ -273,6 +263,12 @@ export function OrderGroupFormModal({
             {error}
           </p>
         ) : null}
+
+        <OrderTypeSwitch
+          value={orderType}
+          onChange={onOrderTypeChange}
+          disabled={editing}
+        />
 
         {checkData ? (
           <div
@@ -309,81 +305,78 @@ export function OrderGroupFormModal({
           />
         </div>
 
-        {costOrdersEnabled || forcedOrderType ? (
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            {forcedOrderType ? (
-              <p className="text-sm font-medium text-foreground">
-                {forcedOrderType === "cost"
-                  ? "Zamówienie kosztowe"
-                  : "Zamówienie na MD"}
-              </p>
-            ) : (
-              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-                <input
-                  type="checkbox"
-                  checked={isCostBased}
-                  disabled={editing}
-                  onChange={(e) => {
-                    setIsCostBased(e.target.checked);
-                    if (!e.target.checked) setBudgetAmount("");
-                  }}
-                  className="h-4 w-4 rounded border-border"
-                />
-                Zamówienie kosztowe
-              </label>
-            )}
-            <p className="mt-1 text-xs text-muted-foreground">
-              {forcedOrderType === "md"
-                ? "Wspólna pula MD dla całego zamówienia, bez dzielenia budżetu na konsultantów."
-                : editing
+        <div className="rounded-md border border-border bg-muted/30 p-3">
+          <p className="mt-1 text-xs text-muted-foreground">
+            {isMdBudgetBased
+              ? "Wspólna pula MD dla całego zamówienia, bez dzielenia budżetu na konsultantów."
+              : editing
                 ? "Typu rozliczenia nie zmienia się po założeniu zamówienia."
                 : "Rozliczane ustaloną kwotą, z której schodzą faktury — zamiast liczby MD per konsultant."}
-            </p>
+          </p>
 
-            {isCostBased ? (
-              <div className="mt-3">
-                <label htmlFor="group-budget" className={labelClass}>
-                  Kwota zamówienia (zł) *
-                </label>
-                <input
-                  id="group-budget"
-                  inputMode="decimal"
-                  value={budgetAmount}
-                  onChange={(e) => setBudgetAmount(e.target.value)}
-                  className={inputClass}
-                  placeholder="50000"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Wartość wyjściowa na cały czas trwania zamówienia. Zużycie
-                  i pozostałość przelicza import faktur.
-                </p>
-              </div>
-            ) : null}
+          {isCostBased ? (
+            <div className="mt-3">
+              <label htmlFor="group-budget" className={labelClass}>
+                Budżet całkowity (PLN) *
+              </label>
+              <input
+                id="group-budget"
+                inputMode="decimal"
+                value={budgetAmount}
+                onChange={(e) =>
+                  setBudgetAmount(sanitizeDecimalInput(e.target.value))
+                }
+                className={inputClass}
+                placeholder="50000"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Wartość wyjściowa na cały czas trwania zamówienia. Zużycie i
+                pozostałość przelicza import faktur.
+              </p>
+              <label htmlFor="group-invoiced" className={`${labelClass} mt-3`}>
+                Zafakturowano
+              </label>
+              <input
+                id="group-invoiced"
+                value={numberToField(group?.budget_used ?? 0)}
+                readOnly
+                className={`${inputClass} bg-muted text-muted-foreground`}
+              />
+            </div>
+          ) : null}
 
-            {isMdBudgetBased ? (
-              <div className="mt-3">
-                <label htmlFor="group-md-budget" className={labelClass}>
-                  Budżet w MD *
-                </label>
-                <input
-                  id="group-md-budget"
-                  inputMode="decimal"
-                  value={mdBudgetTotal}
-                  onChange={(e) =>
-                    setMdBudgetTotal(sanitizeDecimalInput(e.target.value))
-                  }
-                  className={inputClass}
-                  placeholder="100"
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Automatyczne pomniejszanie działa dla obecnie rozpoznawanego
-                  formatu MD z raportu Finansów. Finalny szczegółowy raport
-                  godzin/MD może wymagać dostosowania mapowania.
-                </p>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+          {isMdBudgetBased ? (
+            <div className="mt-3">
+              <label htmlFor="group-md-budget" className={labelClass}>
+                Budżet w MD *
+              </label>
+              <input
+                id="group-md-budget"
+                inputMode="decimal"
+                value={mdBudgetTotal}
+                onChange={(e) =>
+                  setMdBudgetTotal(sanitizeDecimalInput(e.target.value))
+                }
+                className={inputClass}
+                placeholder="100"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Automatyczne pomniejszanie działa dla obecnie rozpoznawanego
+                formatu MD z raportu Finansów. Finalny szczegółowy raport
+                godzin/MD może wymagać dostosowania mapowania.
+              </p>
+              <label htmlFor="group-md-used" className={`${labelClass} mt-3`}>
+                Wykorzystano MD
+              </label>
+              <input
+                id="group-md-used"
+                value={numberToField(group?.md_budget_used ?? 0)}
+                readOnly
+                className={`${inputClass} bg-muted text-muted-foreground`}
+              />
+            </div>
+          ) : null}
+        </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>

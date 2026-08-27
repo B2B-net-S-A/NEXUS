@@ -113,6 +113,7 @@ from app.services.client_identity import (
 from app.services.contract_rates import effective_rate_fields
 from app.services.contract_service import validate_ready_for_activation
 from app.services.cost_orders import is_cost_order_client
+from app.services.order_types import suggested_order_type
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
 from app.api.financial_access import (
@@ -1539,6 +1540,7 @@ async def _create_manual_project_order_draft(
     candidate_name = " ".join(part.strip() for part in candidate_name_parts)
     if not candidate_name:
         candidate_name = f"kandydata id={candidate.id}"
+    suggested_type = await suggested_order_type(db, contract.client_id)
     order = ClientOrder(
         client_id=contract.client_id,
         contract_id=contract.id,
@@ -1547,6 +1549,7 @@ async def _create_manual_project_order_draft(
         # fully priced active contract leaves this order in the Draft section
         # until Delivery fills in the real client order number.
         title="(bez numeru)",
+        order_type=suggested_type.value,
         status=ClientOrderStatus.draft,
         filled_at=None,
         start_date=contract.start_date,

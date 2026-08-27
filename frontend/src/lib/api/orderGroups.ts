@@ -6,6 +6,9 @@
 // gotowe flagi z odpowiedzi `GET /api/clients/{id}`.
 
 import { api } from "@/lib/api";
+import type { OrderType } from "@/lib/api/dlPortal";
+
+export type { OrderType } from "@/lib/api/dlPortal";
 
 export type OrderInputMode = "md" | "amount";
 
@@ -52,6 +55,8 @@ export interface OrderGroupRead {
   end_date: string | null;
   notes: string | null;
   created_at: string;
+  /** `null` oznacza historyczną grupę obsługiwaną przez dotychczasowe reguły. */
+  order_type?: OrderType | null;
 
   status: OrderGroupStatus;
   status_label: string;
@@ -100,6 +105,7 @@ export interface OrderDraftRead {
   contract_id: number;
   consultant_name: string;
   title: string;
+  order_type?: OrderType | null;
   start_date: string | null;
   end_date: string | null;
   /** Zerowane dla ról bez uprawnień finansowych (jak w liniach). */
@@ -114,7 +120,8 @@ export interface OrderGroupListResponse {
   groups: OrderGroupRead[];
   total_groups: number;
   total_consultants: number;
-  /** Tylko klienci MD (bez kosztowych) i tylko szkice od dnia wdrożenia. */
+  suggested_order_type?: OrderType;
+  /** Szkice pokazywane przez historyczną sekcję grupową. */
   draft_orders?: OrderDraftRead[];
   total_draft_orders?: number;
 }
@@ -192,6 +199,7 @@ export interface OrderLineInput {
 }
 
 export interface OrderGroupInput {
+  order_type?: Exclude<OrderType, "periodic">;
   order_number: string;
   start_date: string;
   end_date?: string | null;

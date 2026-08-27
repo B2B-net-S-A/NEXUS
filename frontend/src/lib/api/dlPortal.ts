@@ -83,6 +83,8 @@ export type ClientOrderStatus =
   | "completed"
   | "cancelled";
 
+export type OrderType = "periodic" | "cost" | "md";
+
 export interface ClientOrderRead {
   id: number;
   client_id: number;
@@ -92,10 +94,13 @@ export interface ClientOrderRead {
   title: string;
   description: string | null;
   status: ClientOrderStatus;
+  /** `null` oznacza rekord historyczny, który zachowuje reguły sprzed wdrożenia. */
+  order_type?: OrderType | null;
   start_date: string | null;
   end_date: string | null;
   rate_client: number | null;
   total_value: string | number | null;
+  md_quantity?: string | number | null;
   currency: string | null;
   /** „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — null u innych klientów. */
   project_part: string | null;
@@ -199,6 +204,7 @@ export interface ClientOrderUpdate {
   title?: string;
   description?: string | null;
   status?: ClientOrderStatus;
+  order_type?: OrderType;
   start_date?: string | null;
   end_date?: string | null;
   /** Stawka kosztowa. Mieszka na powiązanym kontrakcie, ale zapisujemy ją tą
@@ -206,17 +212,16 @@ export interface ClientOrderUpdate {
    *  pokazuje obie stawki obok siebie i zapisuje je jednym żądaniem. */
   rate_candidate?: number | null;
   rate_client?: number | null;
-  total_value?: string | null;
+  total_value?: string | number | null;
   currency?: string | null;
   framework_contract_id?: number | null;
   job_id?: number | null;
   notes?: string | null;
   /** „Część umowy" e-Zdrowia — walidowana serwerowo (tylko client_id=115). */
   project_part?: string | null;
-  /** „Liczba MD zamówienia" — tylko klienci wielo-konsultantowi bez zamówień
-   *  kosztowych; opcjonalna (nie należy do 4 pól aktywacji). `null` z jawnym
-   *  kluczem czyści budżet MD szkicu. Walidacja serwerowa: wymaga wcześniej
-   *  uzupełnionej stawki przychodowej. */
+  /** „Liczba MD zamówienia". Dla jawnego typu MD jest wspólnym budżetem,
+   *  który przy aktywacji przechodzi na grupę. `null` z jawnym kluczem czyści
+   *  budżet szkicu; walidacja wymaga wcześniej stawki przychodowej. */
   md_quantity?: number | null;
 }
 
@@ -244,6 +249,7 @@ export interface NewContractorOrderRequest {
   title: string;
   order_start_date: string;
   order_end_date?: string | null;
+  order_type?: OrderType;
   rate_client?: number;
   rate_candidate?: number;
   rate_unit?: "monthly" | "daily" | "hourly";

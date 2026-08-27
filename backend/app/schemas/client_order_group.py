@@ -23,6 +23,7 @@ from pydantic import (
 )
 
 from app.models.contract import RateUnit
+from app.models.order_type import OrderType
 from app.services.multi_consultant_orders import (
     INPUT_MODES,
     MD_DISPLAY_SCALE,
@@ -141,6 +142,9 @@ class OrderGroupCreate(BaseModel):
     start_date: date
     end_date: Optional[date] = None
     notes: Optional[str] = None
+    order_type: Optional[OrderType] = None
+    """Jawny typ nowej grupy. ``None`` jest zgodnością ze starymi klientami;
+    nowy ogólny formularz zawsze wysyła ``cost`` albo ``md``."""
     is_cost_based: bool = False
     is_md_budget_based: bool = False
     budget_amount: Optional[MoneyPLN] = Field(
@@ -152,12 +156,29 @@ class OrderGroupCreate(BaseModel):
     md_budget_total: Optional[MdValue] = Field(
         None, gt=0, max_digits=16, decimal_places=6
     )
-    """Wspólna liczba MD całego zamówienia; tylko nowy wariant Cyfrowego Polsatu."""
+    """Wspólna liczba MD całego zamówienia."""
 
     lines: list[OrderLineCreate] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _group_budget_coherence(self) -> "OrderGroupCreate":
+        if self.order_type == OrderType.periodic:
+            raise ValueError("Zamówienie okresowe utwórz w formularzu standardowym")
+        if self.order_type is not None:
+            expected_cost = self.order_type == OrderType.cost
+            expected_md = self.order_type == OrderType.md
+            if (
+                "is_cost_based" in self.model_fields_set
+                and self.is_cost_based != expected_cost
+            ):
+                raise ValueError("Typ zamówienia jest sprzeczny z flagą kosztową")
+            if (
+                "is_md_budget_based" in self.model_fields_set
+                and self.is_md_budget_based != expected_md
+            ):
+                raise ValueError("Typ zamówienia jest sprzeczny z flagą MD")
+            self.is_cost_based = expected_cost
+            self.is_md_budget_based = expected_md
         if self.is_cost_based and self.is_md_budget_based:
             raise ValueError("Zamówienie nie może być jednocześnie kosztowe i na MD")
         if self.is_cost_based and self.budget_amount is None:
@@ -347,6 +368,7 @@ class OrderGroupRead(BaseModel):
     status_label: str = "Aktywne"
     closure_date: Optional[date] = None
     closure_reason: Optional[str] = None
+    order_type: Optional[OrderType] = None
 
     is_cost_based: bool = False
     budget_amount: Optional[MoneyPLN] = None
@@ -395,6 +417,7 @@ class OrderDraftRead(BaseModel):
     contract_id: int
     consultant_name: str = ""
     title: str
+    order_type: Optional[OrderType] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
 
@@ -414,8 +437,9 @@ class OrderGroupListResponse(BaseModel):
     groups: list[OrderGroupRead] = Field(default_factory=list)
     total_groups: int = 0
     total_consultants: int = 0
-    # Zakładka „Draft (do uzupełnienia)” — tylko klienci MD (bez kosztowych)
-    # i tylko szkice utworzone od dnia wdrożenia (ticket: bez retroakcji).
+    suggested_order_type: OrderType = OrderType.periodic
+    # Legacy zakładka „Draft (do uzupełnienia)” — tylko klienci, dla których
+    # historyczny rejestr grup ją obsługiwał, i tylko szkice od jego wdrożenia.
     draft_orders: list[OrderDraftRead] = Field(default_factory=list)
     total_draft_orders: int = 0
 

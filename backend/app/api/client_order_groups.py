@@ -132,6 +132,7 @@ from app.services.multi_consultant_orders import (
     swap_md_total,
 )
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_types import suggested_order_type
 from app.services.shared_md_orders import (
     settle_shared_md_group,
     shared_md_used_total,
@@ -237,15 +238,12 @@ async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> N
 
 
 def _assert_multi_client(client_id: int) -> None:
-    if not is_multi_consultant_client(client_id):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Ten klient nie jest rozliczany w modelu wielo-konsultantowym. "
-                "Użyj zwykłego zamówienia albo dopisz klienta do "
-                "MULTI_CONSULTANT_ORDER_CLIENT_IDS."
-            ),
-        )
+    """Kompatybilny punkt bramkowania — grupy są od teraz globalne.
+
+    Uprawnienia nadal sprawdzają zależność użytkownik-klient. Historyczna lista
+    klientów pozostaje używana tylko przez stare automaty i matchery.
+    """
+    return None
 
 
 def _has_md_line_management_role(user: User) -> bool:
@@ -686,6 +684,7 @@ async def _group_to_read(
         status_label=GROUP_STATUS_LABELS.get(group.status, group.status),
         closure_date=group.closure_date,
         closure_reason=group.closure_reason,
+        order_type=group.order_type,
         is_cost_based=group.is_cost_based,
         budget_amount=group.budget_amount if with_finance else None,
         budget_used=budget_used if with_finance else None,
@@ -880,6 +879,7 @@ async def _build_line(
         contract_id=contract.id,
         job_id=payload.job_id,
         order_group_id=group.id,
+        order_type=group.order_type,
         title=f"Zamówienie {group.order_number} — {who or 'konsultant'}"[:255],
         status=line_status,
         start_date=payload.start_date,
@@ -946,8 +946,6 @@ async def list_order_groups(
     gdzie faktycznie po prostu nie ma czego pokazać.
     """
     await _require_group_read(db, user, client_id)
-    if not is_multi_consultant_client(client_id):
-        return OrderGroupListResponse(groups=[], total_groups=0, total_consultants=0)
 
     # Scanner materializuje przejścia codziennie, ale odczyt jest dodatkową
     # idempotentną bramą: zamówienie zaczynające się dziś ma stać się bieżące
@@ -956,10 +954,18 @@ async def list_order_groups(
     if await materialize_scheduled_order_groups(db, client_id=client_id):
         await db.commit()
 
+    groups_query = select(ClientOrderGroup).where(
+        ClientOrderGroup.client_id == client_id
+    )
+    if not is_multi_consultant_client(client_id):
+        # Dla nowych klientów pokazujemy wyłącznie grupy utworzone przez jawny
+        # selektor. Ewentualny stary/sierocy rekord bez typu nie staje się
+        # widoczny tylko dlatego, że wdrożyliśmy mechanizm globalny.
+        groups_query = groups_query.where(ClientOrderGroup.order_type.is_not(None))
     result = await db.execute(
-        select(ClientOrderGroup)
-        .where(ClientOrderGroup.client_id == client_id)
-        .order_by(ClientOrderGroup.created_at.desc(), ClientOrderGroup.id.desc())
+        groups_query.order_by(
+            ClientOrderGroup.created_at.desc(), ClientOrderGroup.id.desc()
+        )
     )
     with_finance = _can_see_finance(user)
     models = list(result.scalars())
@@ -1019,6 +1025,7 @@ async def list_order_groups(
         groups=groups,
         total_groups=len(models),
         total_consultants=sum(read.active_consultants for read in reads_by_id.values()),
+        suggested_order_type=await suggested_order_type(db, client_id),
         draft_orders=draft_orders,
         total_draft_orders=len(draft_orders),
     )
@@ -1083,6 +1090,7 @@ async def _list_draft_orders(
                 contract_id=order.contract_id,
                 consultant_name=consultant_display_name(order),
                 title=order.title or "",
+                order_type=order.order_type,
                 start_date=order.start_date,
                 end_date=order.end_date,
                 # Stawki jak w liniach: zerowane dla ról bez dostępu do kwot.
@@ -1336,12 +1344,10 @@ async def list_consultant_options_for_client(
     wyłącznie po to, żeby nakarmić ``add_line``. Kto nie może dodać linii, nie
     potrzebuje nazwisk konsultantów z całej bazy.
 
-    Klient spoza listy wielo-konsultantowej dostaje PUSTĄ listę, nie 422 — to
-    GET, a odmowa renderuje się w interfejsie jak awaria.
+    Od wdrożenia jawnego typu grupy lista działa dla każdego klienta; dostęp
+    do nazwisk nadal ogranicza ``DlAssignedOrAdmin``.
     """
     await _assert_client(db, client_id)
-    if not is_multi_consultant_client(client_id):
-        return ConsultantOptionsResponse(options=[], total=0)
 
     options, total = await list_consultant_options(
         db, client_id=client_id, query=q, limit=limit
@@ -1625,8 +1631,14 @@ async def create_order_group(
     _assert_multi_client(client_id)
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(422, detail="Data zakończenia jest wcześniejsza niż start")
+    explicit_type = payload.order_type is not None
+    if not explicit_type and not is_multi_consultant_client(client_id):
+        raise HTTPException(
+            422,
+            detail="Zamówienia grupowe nie są dostępne dla tego klienta",
+        )
     is_cyfrowy_polsat = is_cyfrowy_polsat_order_types_client(client_id)
-    if is_cyfrowy_polsat:
+    if not explicit_type and is_cyfrowy_polsat:
         # Standardowe zamówienie CP powstaje w legacy `/orders`. Endpoint grup
         # przyjmuje dokładnie jeden z dwóch specjalnych wariantów, dzięki czemu
         # false/false nie tworzy ukrytego czwartego typu per-line MD.
@@ -1638,7 +1650,7 @@ async def create_order_group(
                     "kosztowe albo na MD"
                 ),
             )
-    elif is_lotte_wedel_order_types_client(client_id):
+    elif not explicit_type and is_lotte_wedel_order_types_client(client_id):
         # Standardowe zamówienie Lotte Wedel, tak samo jak CP, powstaje
         # w legacy `/orders`. Grupa reprezentuje dokładnie jeden z dwóch
         # specjalnych wariantów i nigdy nie miesza budżetu PLN z pulą MD.
@@ -1650,12 +1662,12 @@ async def create_order_group(
                     "kosztowe albo na MD"
                 ),
             )
-    elif payload.is_md_budget_based:
+    elif not explicit_type and payload.is_md_budget_based:
         raise HTTPException(
             422,
             detail="Wspólna pula MD jest dostępna tylko dla Cyfrowego Polsatu",
         )
-    if payload.is_cost_based:
+    if payload.is_cost_based and not explicit_type:
         try:
             assert_cost_order_client(client_id)
         except ValueError as exc:
@@ -1667,6 +1679,7 @@ async def create_order_group(
         start_date=payload.start_date,
         end_date=payload.end_date,
         notes=payload.notes,
+        order_type=(payload.order_type.value if payload.order_type is not None else None),
         status=_initial_group_status(payload.start_date),
         is_cost_based=payload.is_cost_based,
         is_md_budget_based=payload.is_md_budget_based,
@@ -1728,6 +1741,7 @@ async def create_order_group(
                 "lines": len(payload.lines),
                 "is_cost_based": group.is_cost_based,
                 "is_md_budget_based": group.is_md_budget_based,
+                "order_type": group.order_type,
             },
         )
     )
@@ -2240,6 +2254,7 @@ async def extend_order_group(
         start_date=payload.start_date,
         end_date=payload.end_date,
         notes=payload.notes,
+        order_type=source.order_type,
         # Każde przedłużenie zaczyna jako zaplanowane. Jeśli data już nadeszła,
         # wspólny materializer poniżej od razu aktywuje je i zamknie poprzednika.
         status=GROUP_STATUS_SCHEDULED,
@@ -2632,6 +2647,7 @@ async def swap_consultant(
         contract_id=new_contract.id,
         job_id=old.job_id,
         order_group_id=group.id,
+        order_type=group.order_type,
         title=f"Zamówienie {group.order_number} — {new_who}"[:255],
         status=ClientOrderStatus.active,
         start_date=payload.swap_date,

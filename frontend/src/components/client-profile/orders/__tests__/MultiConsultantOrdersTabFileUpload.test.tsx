@@ -27,6 +27,7 @@ vi.mock("@/store/auth", () => ({
   ) => selector({ user: { role: "admin", capabilities: ["manage_finance"] } }),
   canManageMultiConsultantOrders: () => true,
   canManageOrderLifecycle: () => true,
+  canManageCandidateFinance: () => true,
 }));
 
 vi.mock("@/lib/api/orderGroups", () => ({
@@ -71,11 +72,12 @@ const SAVED_GROUP = {
   status_label: "Aktywne",
   closure_date: null,
   closure_reason: null,
-  is_cost_based: false,
+  order_type: "cost",
+  is_cost_based: true,
   is_md_budget_based: false,
-  budget_amount: null,
-  budget_used: null,
-  budget_remaining: null,
+  budget_amount: 10000,
+  budget_used: 0,
+  budget_remaining: 10000,
   budget_manual_adjustment: null,
   md_budget_total: null,
   md_budget_used: null,
@@ -111,6 +113,7 @@ function renderTab() {
 async function fillNewOrderForm(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: /Nowe zamówienie/ }));
   await user.type(screen.getByLabelText(/Numer zamówienia/), "445");
+  await user.type(screen.getByLabelText(/Budżet całkowity/), "10000");
   fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
     target: { value: "2026-03-01" },
   });
@@ -124,7 +127,12 @@ describe("MultiConsultantOrdersTab — zapis zamówienia z PDF-em", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
-      data: { groups: [], total_groups: 0, total_consultants: 0 },
+      data: {
+        groups: [],
+        total_groups: 0,
+        total_consultants: 0,
+        suggested_order_type: "cost",
+      },
     } as never);
     vi.mocked(orderGroupsApi.create).mockResolvedValue({
       data: SAVED_GROUP,

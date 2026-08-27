@@ -8,6 +8,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from app.models.order_type import OrderType
+
 
 class NewContractorOrderRequest(BaseModel):
     """POST `/api/clients/{client_id}/contract-with-order` body.
@@ -31,6 +33,7 @@ class NewContractorOrderRequest(BaseModel):
     """End date kontraktu (typically dłuższy niż pierwszy Order)."""
 
     # Order-level
+    order_type: OrderType = OrderType.periodic
     title: str = Field(..., min_length=1, max_length=255)
     order_start_date: Optional[date] = None
     """Nullable — kolumna "Zamówienie od" bywa pusta."""
