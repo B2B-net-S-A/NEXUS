@@ -195,7 +195,13 @@ _JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = (
 )
 
 
-async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> None:
+async def ensure_job_membership(
+    db: AsyncSession,
+    user: User,
+    job_id: int,
+    *,
+    oversight_bypass: bool = True,
+) -> None:
     """Enforce that ``user`` may read/mutate ``job_id``'s pipeline.
 
     Fills the resource scope that the role guards above deliberately leave to a
@@ -217,10 +223,20 @@ async def ensure_job_membership(db: AsyncSession, user: User, job_id: int) -> No
     (not 404) is chosen for consistency and because job existence is already
     discoverable to any internal role through the jobs list; there is no
     enumeration surface to protect here.
+
+    ``oversight_bypass=False`` is for a user explicitly acting in a scoped
+    persona (for example HoR+recruiter on ``my-work``). It disables both the
+    HoR shortcut here and the admin shortcut inside ``is_member_of_job`` while
+    leaving every existing caller unchanged by default.
     """
-    if user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
+    if oversight_bypass and user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
         return
-    if await is_member_of_job(db, user, job_id):
+    if await is_member_of_job(
+        db,
+        user,
+        job_id,
+        admin_bypass=oversight_bypass,
+    ):
         return
     if await effective_priority_mode(db, user.id) is not PriorityMode.off:
         assignment_scope = await db.scalar(
@@ -316,7 +332,12 @@ async def ensure_optional_job_membership(
     await ensure_job_membership(db, user, job_id)
 
 
-def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
+def job_scope_clause(
+    user: User,
+    job_id_col: ColumnElement,
+    *,
+    oversight_bypass: bool = True,
+) -> ColumnElement:
     """Fragment ``WHERE`` zawężający listę do ofert, do których user należy.
 
     Potrzebny tam, gdzie ``ensure_job_membership`` nie ma zastosowania, bo trasa
@@ -325,7 +346,8 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
     (np. ostatnie 200 feedbacków ze WSZYSTKICH rekrutacji).
 
     Semantyka spójna z ``ensure_job_membership``:
-    - role nadzorcze (admin, head_of_recruitment) widzą wszystko,
+    - role nadzorcze (admin, head_of_recruitment) widzą wszystko, o ile caller
+      nie poda ``oversight_bypass=False`` dla jawnie wybranej persony self,
     - wiersz z ``job_id IS NULL`` nie jest zawężany (patrz
       ``ensure_optional_job_membership``),
     - reszta: właściciel / delivery lead / TAC / aktywny współpracownik,
@@ -336,7 +358,7 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
     Zwraca wyrażenie, nie listę id — zawężenie zostaje w jednym zapytaniu
     i nie psuje paginacji ani limitów.
     """
-    if user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
+    if oversight_bypass and user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
         return true()
 
     member_jobs = select(Job.id).where(
@@ -426,20 +448,32 @@ def job_scope_clause(user: User, job_id_col: ColumnElement) -> ColumnElement:
 async def delivery_lead_job_pairs(
     current_user: User,
     db: AsyncSession,
+    *,
+    head_of_recruitment_bypass: bool = True,
 ) -> frozenset[tuple[int, int]] | None:
     """Resolve the exact legacy Job scope for a Delivery Lead.
 
     ``None`` means this caller uses an oversight or non-DL persona. An empty
-    set is deny-all and must never fall back to the organization.
+    set is deny-all and must never fall back to the organization. Callers that
+    bind behavior to the explicitly selected Delivery Lead preset pass
+    ``head_of_recruitment_bypass=False`` so a HoR+DL hybrid gets its exact
+    client/TAC pairs; the default preserves legacy oversight semantics.
     """
     from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 
-    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    if current_user.has_role(UserRole.admin) or (
+        head_of_recruitment_bypass
+        and current_user.has_role(UserRole.head_of_recruitment)
+    ):
         return None
     if not current_user.has_role(UserRole.delivery_lead):
         return None
 
-    scope = await resolve_dashboard_scope(current_user, db)
+    scope = await resolve_dashboard_scope(
+        current_user,
+        db,
+        delivery_lead_persona=not head_of_recruitment_bypass,
+    )
     if scope.kind is not ScopeKind.delivery_clients or scope.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

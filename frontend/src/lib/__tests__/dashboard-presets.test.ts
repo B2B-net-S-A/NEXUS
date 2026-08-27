@@ -4,6 +4,7 @@ import {
   dashboardHref,
   getAvailableDashboardPresets,
   getDefaultDashboardPreset,
+  isDashboardTab,
 } from "@/lib/dashboard-presets"
 import type { DashboardPreset, UserRole } from "@/store/auth"
 
@@ -78,7 +79,19 @@ describe("dashboard presets — legacy session fallback", () => {
       expect(getAvailableDashboardPresets(legacyUser(role))).toEqual([
         "my-work",
       ])
+      expect(dashboardHref(legacyUser(role))).toBe(
+        "/dashboard?preset=my-work&period=day&tab=processes",
+      )
     }
+  })
+
+  it("adds the process tab to recruitment dashboards, but not Finance", () => {
+    expect(dashboardHref(legacyUser("delivery_lead"))).toBe(
+      "/dashboard?preset=delivery-lead&period=month&tab=processes",
+    )
+    expect(isDashboardTab("kpi")).toBe(true)
+    expect(isDashboardTab("processes")).toBe(true)
+    expect(isDashboardTab("orders")).toBe(false)
   })
 
   it("deprecated user role is not guessed into a target persona", () => {

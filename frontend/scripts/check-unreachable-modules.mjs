@@ -106,6 +106,16 @@ const BASELINE = new Set([
   // następną telefonię. Patrz CLAUDE.md → sekcja CloudTalk.
   "components/settings/CloudTalkSettingsCard.tsx",
   "components/dashboard/CallStatsWidget.tsx",
+  // Legacy miesięcznych statystyk i gamifikacji jest świadomie zdjęte z
+  // uproszczonego dashboardu KPI/Procesy. Komponenty czekają na osobną decyzję:
+  // przenieść je do Raportów albo usunąć razem z endpointem recruitment-stats.
+  "components/v2/dashboard/RecruitmentCompetitions.tsx",
+  "components/v2/dashboard/RecruitmentLinkedInPanel.tsx",
+  "components/v2/dashboard/RecruitmentStatsSection.tsx",
+  "components/v2/dashboard/RecruitmentTeamTable.tsx",
+  "components/v2/dashboard/RecruitmentTrendChart.tsx",
+  "components/v2/gamification/HeroLigaMistrzow.tsx",
+  "components/v2/gamification/RaceCard.tsx",
   // Zakładka powiadomień profilu klienta — odmontowana, nie zweryfikowano czy
   // świadomie; wymaga sprawdzenia z produktem przed usunięciem.
   "app/clients/[id]/NotificationsTab.tsx",

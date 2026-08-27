@@ -213,6 +213,11 @@ class Job(Base, TimestampMixin):
     tac_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    favorite_candidate_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("candidates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     # Hiring manager po stronie klienta (Contact w firmie klienta — osoba
     # która zatrudnia). Migracja 0097. Nullable bo backfill manual; analytics
     # może filtrować/agregować po tej osobie. ON DELETE SET NULL — kasacja
@@ -261,6 +266,7 @@ class Job(Base, TimestampMixin):
     recruiter = relationship("User", foreign_keys=[recruiter_id])
     delivery_lead = relationship("User", foreign_keys=[delivery_lead_id])
     tac = relationship("User", foreign_keys=[tac_id])
+    favorite_candidate = relationship("Candidate", foreign_keys=[favorite_candidate_id])
     creator = relationship("User", foreign_keys=[created_by])
     pipeline_template = relationship("PipelineTemplate")
     pipeline_stages = relationship(

@@ -21,14 +21,24 @@ from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
 
 
-async def is_member_of_job(db: AsyncSession, user: User, job_id: int) -> bool:
-    """Czy user może widzieć/uczestniczyć w Job Chacie danego projektu."""
+async def is_member_of_job(
+    db: AsyncSession,
+    user: User,
+    job_id: int,
+    *,
+    admin_bypass: bool = True,
+) -> bool:
+    """Czy user może widzieć/uczestniczyć w Job Chacie danego projektu.
+
+    ``admin_bypass=False`` supports an admin explicitly acting in a self-scoped
+    persona without changing the chat-oriented default contract.
+    """
     # A historical owner/collaborator id is not an authorization grant.
     # Recruitment chat is candidate-domain data, so Finance/viewer and
     # deactivated accounts fail closed before membership is evaluated.
     if not user_can_access_candidate_domain(user):
         return False
-    if user.has_role(UserRole.admin):
+    if admin_bypass and user.has_role(UserRole.admin):
         return True
 
     job = await db.get(Job, job_id)

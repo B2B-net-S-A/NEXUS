@@ -28,4 +28,22 @@ describe("DashboardShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Kwartał" }))
     expect(onPeriodChange).toHaveBeenCalledWith("quarter")
   })
+
+  it("hides the period selector for the live recruitment snapshot", () => {
+    render(
+      <DashboardShell
+        preset="my-work"
+        period="day"
+        availablePresets={["my-work"]}
+        onPresetChange={vi.fn()}
+        onPeriodChange={vi.fn()}
+        showPeriod={false}
+      >
+        <div>Procesy</div>
+      </DashboardShell>,
+    )
+
+    expect(screen.queryByRole("navigation", { name: "Okres dashboardu" })).toBeNull()
+    expect(screen.getByText("Procesy")).toBeInTheDocument()
+  })
 })
