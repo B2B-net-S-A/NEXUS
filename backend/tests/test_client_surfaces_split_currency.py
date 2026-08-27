@@ -27,6 +27,11 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
     from app.models.fx_rate import FxRate
 
     today = business_today()
+    # Client profile uses the Warsaw business day, while the legacy dashboard
+    # aggregates still resolve FX against the process date (UTC in CI/prod).
+    # A rate from the earlier boundary is visible to both surfaces around
+    # Polish midnight.
+    fx_date = date.today()
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         # Pick a genuinely free three-character code instead of relying on a
@@ -35,7 +40,7 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
         used_currencies = set(
             (
                 await db.scalars(
-                    select(FxRate.currency).where(FxRate.effective_date == today)
+                    select(FxRate.currency).where(FxRate.effective_date == fx_date)
                 )
             ).all()
         )
@@ -69,7 +74,7 @@ async def test_client_profile_and_dashboards_convert_mixed_currency_legs(
             [
                 contract,
                 FxRate(
-                    effective_date=today,
+                    effective_date=fx_date,
                     currency=client_currency,
                     rate_to_pln=Decimal("4.000000"),
                     source="TEST",

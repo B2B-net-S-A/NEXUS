@@ -45,20 +45,11 @@ async def _seed_rate(currency: str, rate: str, on: date) -> None:
             await db.commit()
 
 
-async def _free_test_currency(on: date | None = None) -> str:
-    """Return a currently unused X-prefixed code in the shared test DB."""
+async def _free_test_currency() -> str:
+    """Return an X-prefixed code with no historical rate in the shared DB."""
 
-    effective_date = on or date.today()
     async with AsyncSessionLocal() as db:
-        used = set(
-            (
-                await db.scalars(
-                    select(FxRate.currency).where(
-                        FxRate.effective_date == effective_date
-                    )
-                )
-            ).all()
-        )
+        used = set((await db.scalars(select(FxRate.currency))).all())
     return next(
         f"X{first}{second}"
         for first in "0123456789ABCDEF"
