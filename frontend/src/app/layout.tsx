@@ -5,6 +5,7 @@ import { QueryProvider } from "@/components/QueryProvider";
 import { AppShellV2 } from "@/components/v2/shell/AppShellV2";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/Toast";
+import { DatePasteHandler } from "@/components/DatePasteHandler";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
 
@@ -121,6 +122,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <QueryProvider>
           <ThemeProvider>
             <ToastProvider>
+              <DatePasteHandler />
               <TooltipProvider delayDuration={200} skipDelayDuration={100}>
                 <AppShellV2>{children}</AppShellV2>
                 <KpiNudgeToaster />
