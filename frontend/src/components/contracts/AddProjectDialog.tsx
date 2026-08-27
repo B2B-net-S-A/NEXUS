@@ -13,8 +13,8 @@
  * - Klient jest WYMAGANY (walidacja blokuje zapis, czerwone pole + opis).
  * - Rekrutacja opcjonalna — z listy rekrutacji WYBRANEGO KLIENTA (nowy projekt
  *   u nowego klienta zwykle nie ma jeszcze rekrutacji kandydata).
- * - Status „Aktywny" wymaga kompletu pól aktywacyjnych (daty rozpoczęcia,
- *   stawek, trybu pracy) — walidujemy lokalnie tym samym zestawem co backend
+ * - Status „Aktywny" wymaga kompletu pól aktywacyjnych (daty rozpoczęcia i
+ *   stawek) — walidujemy lokalnie tym samym zestawem co backend
  *   (ACTIVATION_REQUIRED_FIELDS). Data zakończenia jest opcjonalna: brak oznacza
  *   projekt bezterminowy. 409 z listą `missing` mapujemy na pola.
  * - Duplikat (ta sama osoba u tego samego klienta, po e-mailu) → komunikat
@@ -274,9 +274,6 @@ export function AddProjectDialog({
       // Lustro ACTIVATION_REQUIRED_FIELDS — lepiej odmówić tu, po polsku,
       // niż odsyłać użytkownika po 409 z serwera. `end_date` celowo nie jest
       // bramką: NULL to poprawny, aktywny projekt bezterminowy.
-      if (!workMode) {
-        errors.work_mode = "Status „Aktywny” wymaga trybu pracy.";
-      }
       if (canManageFinance && parseDecimalInput(rateCost) == null) {
         errors.rate_candidate = "Status „Aktywny” wymaga stawki kosztowej.";
       }
@@ -502,11 +499,11 @@ export function AddProjectDialog({
             </Select>
           </div>
           <div>
-            <Label className="mb-1.5 block">Tryb pracy</Label>
+            <Label className="mb-1.5 block">Tryb pracy (opcjonalnie)</Label>
             <Select
               value={workMode}
               onValueChange={(v) => {
-                setWorkMode(v);
+                setWorkMode(v === "none" ? "" : v);
                 clearField("work_mode");
               }}
             >
@@ -516,6 +513,7 @@ export function AddProjectDialog({
                 <SelectValue placeholder="—" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="none">Nie określono</SelectItem>
                 <SelectItem value="remote">Zdalnie</SelectItem>
                 <SelectItem value="hybrid">Hybrydowo</SelectItem>
                 <SelectItem value="onsite">Stacjonarnie</SelectItem>

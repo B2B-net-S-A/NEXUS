@@ -118,9 +118,7 @@ function NewContractForm() {
     RateScheduleRow[]
   >([{ rate: "", effectiveFrom: "" }]);
   const [lineManager, setLineManager] = useState("");
-  // Tryb pracy — bez niego status „Aktywny" NIGDY nie przechodził walidacji
-  // aktywacji (ACTIVATION_REQUIRED_FIELDS zawiera work_mode, a formularz nie
-  // miał tego pola wcale — użytkownik nie miał jak spełnić wymagania).
+  // Tryb pracy jest informacją opcjonalną i można go uzupełnić później.
   const [workMode, setWorkMode] = useState("");
   // Zużycie zamówienia (ilość + jednostka RBH/MD) — klienci per-zamówienie.
   const [orderConsumption, setOrderConsumption] = useState("");
@@ -311,9 +309,6 @@ function NewContractForm() {
       // body-leasingu normalnym stanem docelowym (rejestr renderuje ją jako
       // „bezterminowo"). Lustro `ACTIVATION_REQUIRED_FIELDS`, z którego
       // `end_date` zostało zdjęte razem z tą poprawką.
-      if (!workMode) {
-        errors.work_mode = `Status „${statusLabel}” wymaga trybu pracy.`;
-      }
       if (canManageFinance) {
         if (!rateSchedule.some((r) => r.rate.trim() !== "")) {
           errors.rate_candidate = `Status „${statusLabel}” wymaga stawki kosztowej (kandydata).`;
@@ -710,13 +705,11 @@ function NewContractForm() {
                 {fieldError("status")}
               </div>
               <div>
-                <Label className="mb-1.5 block">
-                  Tryb pracy{wantsLive && <span className="text-destructive"> *</span>}
-                </Label>
+                <Label className="mb-1.5 block">Tryb pracy (opcjonalnie)</Label>
                 <Select
                   value={workMode}
                   onValueChange={(v) => {
-                    setWorkMode(v);
+                    setWorkMode(v === "none" ? "" : v);
                     clearField("work_mode");
                   }}
                 >
@@ -726,6 +719,7 @@ function NewContractForm() {
                     <SelectValue placeholder="—" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">Nie określono</SelectItem>
                     <SelectItem value="remote">Zdalnie</SelectItem>
                     <SelectItem value="hybrid">Hybrydowo</SelectItem>
                     <SelectItem value="onsite">Stacjonarnie</SelectItem>

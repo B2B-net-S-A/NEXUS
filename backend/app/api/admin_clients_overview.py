@@ -18,6 +18,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import AdminUser
 from app.core.database import get_db
@@ -36,6 +37,10 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
+from app.services.contractor_identity import (
+    count_unique_contractors,
+    summarize_active_contracts,
+)
 
 router = APIRouter()
 
@@ -169,16 +174,21 @@ async def clients_overview(
         (
             await db.execute(
                 select(Contract)
-                .options(*RATE_SCHEDULE_LOADS)
+                .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
                 .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
             )
         ).scalars()
     )
     margin_lookup: dict[int, Decimal] = {}
-    consultants_lookup: dict[int, int] = {}
+    contractor_candidates: dict[int, list] = {}
+    active_contracts_lookup: dict[int, int] = {}
     today = date.today()
     for r in margin_rows:
-        consultants_lookup[r.client_id] = consultants_lookup.get(r.client_id, 0) + 1
+        active_contracts_lookup[r.client_id] = (
+            active_contracts_lookup.get(r.client_id, 0) + 1
+        )
+        if r.candidate is not None:
+            contractor_candidates.setdefault(r.client_id, []).append(r.candidate)
         monthly = effective_rate_fields(r, today)["monthly_margin"]
         if monthly is None:
             continue
@@ -202,7 +212,10 @@ async def clients_overview(
                 active_revenue=rev["active"] or None,
                 monthly_margin_total=margin_lookup.get(c.id),
                 active_orders_count=rev["active_count"],
-                active_consultants=consultants_lookup.get(c.id, 0),
+                active_consultants=count_unique_contractors(
+                    contractor_candidates.get(c.id, [])
+                ),
+                active_contracts=active_contracts_lookup.get(c.id, 0),
                 framework_status=fc[0] if fc else None,
                 framework_expiry_date=fc[1] if fc else None,
             )
@@ -302,7 +315,7 @@ async def kpi_by_dl(
             (
                 await db.execute(
                     select(Contract)
-                    .options(*RATE_SCHEDULE_LOADS)
+                    .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
                     .where(
                         Contract.client_id.in_(client_ids),
                         Contract.status.in_(_LIVE_CONTRACT_STATUSES),
@@ -310,7 +323,7 @@ async def kpi_by_dl(
                 )
             ).scalars()
         )
-        active_consultants = len(margin_rows_dl)
+        active_headcount = summarize_active_contracts(margin_rows_dl)
         margin_total: Decimal | int = 0
         has_margin = False
         today = date.today()
@@ -332,7 +345,8 @@ async def kpi_by_dl(
                 active_revenue=Decimal(rev.active) if rev.active else None,
                 monthly_margin_total=margin_total if has_margin else None,
                 active_orders_count=int(rev.active_orders_cnt or 0),
-                active_consultants=active_consultants,
+                active_consultants=active_headcount.contractors,
+                active_contracts=active_headcount.active_contracts,
             )
         )
     items.sort(key=lambda r: r.total_revenue or 0, reverse=True)

@@ -351,6 +351,7 @@ export interface ClientDirectoryItem {
   scope_label: string | null;
   industry: string | null;
   active_consultants_count: number;
+  active_contracts_count: number;
   /** EFFECTIVE values: a manual placement override wins over the manifest/MSA. */
   effective_date: string | null;
   expiry_date: string | null;
@@ -1424,6 +1425,8 @@ export const contractsApi = {
   create: (data: Record<string, unknown>) => api.post("/api/contracts", data),
   update: (id: number, data: Record<string, unknown>) => api.patch(`/api/contracts/${id}`, data),
   delete: (id: number) => api.delete(`/api/contracts/${id}`),
+  forceDeleteSigned: (id: number, confirmation: string) =>
+    api.post(`/api/contracts/${id}/force-delete-signed`, { confirmation }),
   expiring: (days?: number) => api.get("/api/contracts/expiring", { params: days ? { days } : undefined }),
   activities: (id: number) => api.get(`/api/contracts/${id}/activities`),
   rateHistory: (id: number) => api.get(`/api/contracts/${id}/rate-history`),
@@ -1600,6 +1603,7 @@ export interface ContractorStats {
   draft: number;
   drafts_incomplete: number;
   active: number;
+  active_contracts: number;
   ending: number;
 }
 
@@ -1721,6 +1725,8 @@ export interface RoleClientCell {
 
 export interface RoleClientMix {
   total_active: number;
+  total_active_contracts: number;
+  role_totals: Record<string, number>;
   rows: RoleClientCell[];
   roles: string[];
   clients: { id: number; name: string }[];

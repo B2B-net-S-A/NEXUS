@@ -48,6 +48,7 @@ export interface OverviewData {
   jobs: { total: number; open: number };
   clients: { total: number; active: number };
   contracts: { active: number; expiring_30d: number };
+  contractors: { active: number };
   placements_in_period: number;
 }
 
@@ -108,6 +109,7 @@ export interface FinanceSummaryData {
   margin_pct: string | null;
   currency: "PLN";
   active_contracts: number;
+  active_consultants: number;
 }
 
 export interface ExecutiveBoardData {
@@ -119,6 +121,7 @@ export interface ExecutiveBoardData {
 export interface ClientOperationsData {
   open_jobs: number;
   active_consultants: number;
+  active_contracts: number;
   placements_in_period: number;
 }
 

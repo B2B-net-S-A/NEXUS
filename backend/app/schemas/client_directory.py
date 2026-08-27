@@ -35,6 +35,7 @@ class ClientDirectoryItem(BaseModel):
     scope_label: Optional[str] = None
     industry: Optional[str] = None
     active_consultants_count: int = 0
+    active_contracts_count: int = 0
     # ``effective_date`` / ``expiry_date`` / ``category`` are the EFFECTIVE
     # values: a manual placement override wins over the manifest / linked MSA.
     effective_date: Optional[date] = None

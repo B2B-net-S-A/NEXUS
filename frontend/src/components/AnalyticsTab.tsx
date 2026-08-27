@@ -123,7 +123,7 @@ function KpiGrid({
       <KpiCard
         label="Konsultanci aktywni"
         value={`${data.active_consultants}`}
-        sublabel={`${data.completed_consultants} zakończonych`}
+        sublabel={`${data.active_contracts} aktywnych kontraktów · ${data.completed_consultants} zakończonych`}
         icon={<Users className="w-4 h-4 text-primary" />}
       />
       <KpiCard

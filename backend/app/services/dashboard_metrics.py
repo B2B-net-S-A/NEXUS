@@ -18,6 +18,7 @@ from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.services.contractor_identity import count_unique_contractors
 
 
 async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
@@ -60,6 +61,19 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             )
         )
     ).scalar()
+    active_contractor_rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Candidate.email,
+            )
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(Contract.status == ContractStatus.active)
+        )
+    ).all()
+    contractors_active = count_unique_contractors(active_contractor_rows)
 
     cutoff = today_d + timedelta(days=30)
     # active + ending: the cron promotes active→ending at the 30-day mark, so
@@ -103,5 +117,6 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
             "active": contracts_active or 0,
             "expiring_soon": contracts_expiring or 0,
         },
+        "contractors": {"active": contractors_active},
         "pipeline": {"hired_this_month": hired_this_month or 0},
     }

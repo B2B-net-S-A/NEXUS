@@ -43,6 +43,7 @@ from app.services.contract_service import (
     validate_ready_for_activation,
 )
 from app.services.client_identity import client_display_name
+from app.services.contractor_identity import count_unique_contractors
 
 router = APIRouter()
 
@@ -253,6 +254,7 @@ async def contractor_stats(
     contracts = list(result.scalars().all())
 
     stats = ContractorStats()
+    active_candidates: list[Candidate] = []
     for c in contracts:
         if c.status in _PENDING_STATUSES:
             stats.draft += 1
@@ -263,5 +265,8 @@ async def contractor_stats(
         else:
             # Live but not in the ending window (active, or expired-but-not-yet-
             # demoted). Mirrors live_not_ending_clause so tab counts == list rows.
-            stats.active += 1
+            stats.active_contracts += 1
+            if c.candidate is not None:
+                active_candidates.append(c.candidate)
+    stats.active = count_unique_contractors(active_candidates)
     return stats

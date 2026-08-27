@@ -29,6 +29,7 @@ export function SummaryBar({ summary }: Props) {
       <StatsCard
         title="Aktywni konsultanci"
         value={summary.active_consultants}
+        subtitle={`${summary.active_contracts} aktywnych kontraktów`}
         color="green"
         icon={<Users className="w-4 h-4" />}
       />

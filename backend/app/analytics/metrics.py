@@ -32,6 +32,7 @@ from typing import Any, Literal
 
 from sqlalchemy import distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.analytics.periods import Period
 from app.models.call import Call, CallStatus
@@ -45,6 +46,11 @@ from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
     REVENUE_BEARING_STATUSES,
     effective_rate_fields,
+)
+from app.services.contractor_identity import (
+    count_unique_contractors,
+    summarize_active_contracts,
+    unique_contractor_keys,
 )
 
 # Stage'y milestone'ów w kolejności lejka.
@@ -99,16 +105,30 @@ async def overview(db: AsyncSession, period: Period) -> dict[str, Any]:
             )
         )
     ).scalar()
+    active_contract_conditions = (
+        Contract.status.in_(REVENUE_BEARING_STATUSES),
+        Contract.start_date.isnot(None),
+        Contract.start_date <= today,
+        (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+    )
     contracts_active = (
         await db.execute(
-            select(func.count(Contract.id)).where(
-                Contract.status.in_(REVENUE_BEARING_STATUSES),
-                Contract.start_date.isnot(None),
-                Contract.start_date <= today,
-                (Contract.end_date.is_(None)) | (Contract.end_date >= today),
-            )
+            select(func.count(Contract.id)).where(*active_contract_conditions)
         )
     ).scalar()
+    active_contractor_rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Candidate.email,
+            )
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(*active_contract_conditions)
+        )
+    ).all()
+    contractors_active = count_unique_contractors(active_contractor_rows)
     # expiring = [dziś, dziś+30d] po datach, nie po statusie crona.
     expiring = (
         await db.execute(
@@ -139,6 +159,7 @@ async def overview(db: AsyncSession, period: Period) -> dict[str, Any]:
         "jobs": {"total": jobs_total or 0, "open": jobs_open or 0},
         "clients": {"total": clients_total or 0, "active": clients_active or 0},
         "contracts": {"active": contracts_active or 0, "expiring_30d": expiring or 0},
+        "contractors": {"active": contractors_active},
         "placements_in_period": placements or 0,
     }
 
@@ -468,7 +489,7 @@ async def _active_contracts(
             Contract.start_date <= on,
             (Contract.end_date.is_(None)) | (Contract.end_date >= on),
         )
-        .options(*RATE_SCHEDULE_LOADS)
+        .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
     )
     if client_id is not None:
         stmt = stmt.where(Contract.client_id == client_id)
@@ -552,6 +573,7 @@ async def _sum_finance(
             f"{on.isoformat()}): {', '.join(sorted(foreign))}"
         )
 
+    headcount = summarize_active_contracts(contracts)
     data = {
         "mrr": _dec(mrr),
         "monthly_margin": _dec(margin),
@@ -559,7 +581,8 @@ async def _sum_finance(
             str((margin / mrr * 100).quantize(Decimal("0.1"))) if mrr else None
         ),
         "currency": "PLN",
-        "active_contracts": len(contracts),
+        "active_contracts": headcount.active_contracts,
+        "active_consultants": headcount.contractors,
     }
     return data, warnings, flag
 
@@ -574,26 +597,39 @@ async def _bench_and_utilization(
     ``on`` domyślnie dziś; przy okresie historycznym = koniec okresu (M7-P0.4).
     """
     on = on or date.today()
-    active_cands = (
+    candidate_columns = (
+        Candidate.id,
+        Candidate.name,
+        Candidate.lastname,
+        Candidate.email,
+    )
+    active_rows = (
         await db.execute(
-            select(func.count(distinct(Contract.candidate_id))).where(
+            select(*candidate_columns)
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(
                 Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= on,
                 (Contract.end_date.is_(None)) | (Contract.end_date >= on),
             )
         )
-    ).scalar() or 0
-    ever_cands = (
+    ).all()
+    ever_rows = (
         await db.execute(
-            select(func.count(distinct(Contract.candidate_id))).where(
+            select(*candidate_columns)
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(
                 Contract.status.in_(REVENUE_BEARING_STATUSES),
                 Contract.start_date.isnot(None),
                 Contract.start_date <= on,
             )
         )
-    ).scalar() or 0
-    bench = max(0, ever_cands - active_cands)
+    ).all()
+    active_keys = unique_contractor_keys(active_rows)
+    ever_keys = unique_contractor_keys(ever_rows)
+    active_cands = len(active_keys)
+    bench = len(ever_keys - active_keys)
     denominator = active_cands + bench
     return {
         "active_consultants": active_cands,
@@ -659,7 +695,7 @@ async def finance_trend(
             Contract.start_date <= date.today(),
             (Contract.end_date.is_(None)) | (Contract.end_date >= earliest),
         )
-        .options(*RATE_SCHEDULE_LOADS)
+        .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
     )
     contracts = (await db.execute(stmt)).scalars().all()
 
@@ -695,6 +731,7 @@ async def finance_trend(
                         "mrr": None,
                         "monthly_margin": None,
                         "active_contracts": None,
+                        "active_consultants": None,
                     }
                 )
                 continue
@@ -709,7 +746,11 @@ async def finance_trend(
                     # Miesięczny przychód traktujemy jak MRR (kontrakt board).
                     "mrr": _dec(revenue),
                     "monthly_margin": _dec(revenue - costs),
-                    "active_contracts": snap.get("active_consultants"),
+                    # Legacy carried one ambiguous headcount only.  It is
+                    # usable as the historical people series, but cannot prove
+                    # how many simultaneous contract records produced it.
+                    "active_contracts": None,
+                    "active_consultants": snap.get("active_consultants"),
                 }
             )
             continue
@@ -731,6 +772,7 @@ async def finance_trend(
                 "mrr": data["mrr"],
                 "monthly_margin": data["monthly_margin"],
                 "active_contracts": data["active_contracts"],
+                "active_consultants": data["active_consultants"],
             }
         )
         for w in warnings:
@@ -775,6 +817,7 @@ async def finance_clients(
                 "mrr": data["mrr"],
                 "monthly_margin": data["monthly_margin"],
                 "active_contracts": data["active_contracts"],
+                "active_consultants": data["active_consultants"],
             }
         )
         for w in warnings:
@@ -796,17 +839,32 @@ async def client_operations(
             )
         )
     ).scalar()
-    active = (
+    active_conditions = (
+        Contract.client_id == client_id,
+        Contract.status.in_(REVENUE_BEARING_STATUSES),
+        Contract.start_date.isnot(None),
+        Contract.start_date <= today,
+        (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+    )
+    active_contracts = (
         await db.execute(
             select(func.count(Contract.id)).where(
-                Contract.client_id == client_id,
-                Contract.status.in_(REVENUE_BEARING_STATUSES),
-                Contract.start_date.isnot(None),
-                Contract.start_date <= today,
-                (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+                *active_conditions,
             )
         )
     ).scalar()
+    active_rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.name,
+                Candidate.lastname,
+                Candidate.email,
+            )
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(*active_conditions)
+        )
+    ).all()
     placements = (
         await db.execute(
             text(
@@ -820,7 +878,8 @@ async def client_operations(
     ).scalar()
     return {
         "open_jobs": open_jobs or 0,
-        "active_consultants": active or 0,
+        "active_consultants": count_unique_contractors(active_rows),
+        "active_contracts": active_contracts or 0,
         "placements_in_period": placements or 0,
     }
 

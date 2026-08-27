@@ -40,7 +40,6 @@ ACTIVATION_REQUIRED_FIELDS: tuple[str, ...] = (
     "rate_candidate",
     "rate_client",
     "contract_type",
-    "work_mode",
 )
 
 

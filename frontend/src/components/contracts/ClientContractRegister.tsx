@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   keepPreviousData,
@@ -51,6 +51,14 @@ import {
   type RegisterContractRow,
 } from "@/lib/contract-register";
 import { ContractRegisterDialog } from "./ContractRegisterDialog";
+import {
+  buildClientContractRegisterUrl,
+  buildContractDetailHref,
+  parseClientContractRegisterState,
+  rememberContractsListScroll,
+  restoreContractsListScroll,
+  takeContractsListScroll,
+} from "@/lib/contracts-list-navigation";
 
 const PROLONGATION_TEXT_CLASS: Record<string, string> = {
   soft: "text-muted-foreground",
@@ -229,26 +237,93 @@ function PeriodCell({ row }: { row: RegisterContractRow }) {
 export function ClientContractRegister({
   clientId,
   clientName,
+  navigationSearch,
 }: {
   clientId: number;
   clientName?: string;
+  navigationSearch?: string;
 }) {
   const user = useAuthStore((s) => s.user);
   const canEdit = hasRole(user, "admin", "delivery_lead", "tac");
 
+  const [initialListState] = useState(() => {
+    const parsed = parseClientContractRegisterState(navigationSearch ?? "");
+    return {
+      ...parsed,
+      returnTarget: buildClientContractRegisterUrl(
+        clientId,
+        clientName,
+        parsed.state,
+      ),
+    };
+  });
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<RegisterContractRow | null>(null);
-  const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState("");
+  const [page, setPage] = useState(initialListState.state.page);
+  const [searchInput, setSearchInput] = useState(initialListState.state.search);
   const search = useDebouncedValue(searchInput.trim(), 300);
   // Filtry łączone logiką AND (server-side): status (multi) + „Okres" (overlap)
   // + podkategoria oferty (multi).
-  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>([]);
-  const [periodFrom, setPeriodFrom] = useState("");
-  const [periodTo, setPeriodTo] = useState("");
-  const [subcategoryFilter, setSubcategoryFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<ContractStatusValue[]>(
+    initialListState.state.statusFilter,
+  );
+  const [periodFrom, setPeriodFrom] = useState(initialListState.state.periodFrom);
+  const [periodTo, setPeriodTo] = useState(initialListState.state.periodTo);
+  const [subcategoryFilter, setSubcategoryFilter] = useState<string[]>(
+    initialListState.state.subcategoryFilter,
+  );
   const [exporting, setExporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const ownNavigationUrl = useRef<string | null>(null);
+  const restoredScroll = useRef(false);
+
+  const returnTarget = useMemo(
+    () =>
+      buildClientContractRegisterUrl(clientId, clientName, {
+        search: searchInput,
+        statusFilter,
+        periodFrom,
+        periodTo,
+        subcategoryFilter,
+        page,
+      }),
+    [
+      clientId,
+      clientName,
+      searchInput,
+      statusFilter,
+      periodFrom,
+      periodTo,
+      subcategoryFilter,
+      page,
+    ],
+  );
+
+  useEffect(() => {
+    if (navigationSearch === undefined) return;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (current !== returnTarget) {
+      ownNavigationUrl.current = returnTarget;
+      window.history.replaceState(window.history.state, "", returnTarget);
+    }
+  }, [navigationSearch, returnTarget]);
+
+  useEffect(() => {
+    if (navigationSearch === undefined) return;
+    const currentUrl = `/contracts${navigationSearch ? `?${navigationSearch}` : ""}`;
+    if (ownNavigationUrl.current === currentUrl) {
+      ownNavigationUrl.current = null;
+      return;
+    }
+    const next = parseClientContractRegisterState(navigationSearch).state;
+    setSearchInput(next.search);
+    setStatusFilter(next.statusFilter);
+    setPeriodFrom(next.periodFrom);
+    setPeriodTo(next.periodTo);
+    setSubcategoryFilter(next.subcategoryFilter);
+    setPage(next.page);
+  }, [navigationSearch]);
 
   // Podkategorie są specyficzne per klient (Backend u klienta A ≠ oferta u B).
   // Ten komponent NIE jest remontowany przy zmianie klienta (brak `key`), więc
@@ -290,12 +365,6 @@ export function ClientContractRegister({
       return next.length === prev.length ? prev : next;
     });
   }, [subcategoryValues]);
-
-  // Każda zmiana filtra (fraza, status, okres, podkategoria) cofa do pierwszej
-  // strony, inaczej można utknąć na stronie N, której przefiltrowany wynik nie ma.
-  useEffect(() => {
-    setPage(1);
-  }, [search, statusFilter, periodFrom, periodTo, subcategoryFilter]);
 
   const statusKey = statusFilter.join(",");
   const subcatKey = JSON.stringify(subcategoryFilter);
@@ -347,6 +416,7 @@ export function ClientContractRegister({
     setPeriodFrom("");
     setPeriodTo("");
     setSubcategoryFilter([]);
+    setPage(1);
   };
 
   // Eksport do Excela — zawsze zawężony do WYBRANEGO klienta (ten komponent
@@ -417,6 +487,20 @@ export function ClientContractRegister({
     viewState === "forbidden" ||
     viewState === "not_found" ||
     viewState === "error";
+
+  useEffect(() => {
+    if (
+      restoredScroll.current ||
+      !initialListState.explicit ||
+      viewState === "loading"
+    ) {
+      return;
+    }
+    restoredScroll.current = true;
+    const y = takeContractsListScroll(initialListState.returnTarget);
+    if (y == null) return;
+    window.setTimeout(() => restoreContractsListScroll(y), 0);
+  }, [initialListState, viewState]);
   const resolvedName = clientName ?? items[0]?.candidate_name ?? undefined;
 
   const openNew = () => {
@@ -461,14 +545,20 @@ export function ClientContractRegister({
       <FilterBar
         search={{
           value: searchInput,
-          onChange: setSearchInput,
+          onChange: (value) => {
+            setSearchInput(value);
+            setPage(1);
+          },
           placeholder: "Szukaj po nazwisku konsultanta…",
         }}
         filters={
           <>
             <MultiSelectFilter<ContractStatusValue>
               value={statusFilter}
-              onChange={setStatusFilter}
+              onChange={(value) => {
+                setStatusFilter(value);
+                setPage(1);
+              }}
               options={CONTRACT_STATUS_OPTIONS}
               placeholder="Wszystkie statusy"
               searchPlaceholder="Szukaj statusu…"
@@ -490,7 +580,10 @@ export function ClientContractRegister({
                 type="date"
                 aria-label="Okres od"
                 value={periodFrom}
-                onChange={(e) => setPeriodFrom(e.target.value)}
+                onChange={(e) => {
+                  setPeriodFrom(e.target.value);
+                  setPage(1);
+                }}
                 className="h-9 w-[150px]"
               />
               <span className="text-sm text-muted-foreground" aria-hidden>
@@ -500,7 +593,10 @@ export function ClientContractRegister({
                 type="date"
                 aria-label="Okres do"
                 value={periodTo}
-                onChange={(e) => setPeriodTo(e.target.value)}
+                onChange={(e) => {
+                  setPeriodTo(e.target.value);
+                  setPage(1);
+                }}
                 className="h-9 w-[150px]"
               />
             </div>
@@ -509,7 +605,10 @@ export function ClientContractRegister({
             {subcategoryOptions.length > 0 && (
               <MultiSelectFilter<string>
                 value={subcategoryFilter}
-                onChange={setSubcategoryFilter}
+                onChange={(value) => {
+                  setSubcategoryFilter(value);
+                  setPage(1);
+                }}
                 options={subcategoryOptions}
                 placeholder="Wszystkie podkategorie"
                 searchPlaceholder="Szukaj podkategorii…"
@@ -618,7 +717,12 @@ export function ClientContractRegister({
                 </TableCell>
                 <TableCell>
                   <Link
-                    href={`/contracts/${row.id}`}
+                    href={buildContractDetailHref(
+                      row.id,
+                      returnTarget,
+                      "client-register",
+                    )}
+                    onClick={() => rememberContractsListScroll(returnTarget)}
                     className="font-medium text-foreground hover:text-primary"
                   >
                     {row.candidate_name ?? `#${row.candidate_id}`}

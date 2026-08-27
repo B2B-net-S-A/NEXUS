@@ -17,7 +17,12 @@ import { formatPLN, KpiCard, LoadingSpinner, SectionError } from "./_shared";
 
 interface BoardData {
   recruitment: { placements_ytd: number; funnel_efficiency_avg: number };
-  sales: { revenue_ytd: number; margin_ytd: number; active_consultants: number };
+  sales: {
+    revenue_ytd: number;
+    margin_ytd: number;
+    active_consultants: number;
+    active_contracts: number;
+  };
   delivery: { avg_hit_ratio: number; top_dl: string };
   tenders: { total: number; win_rate: number };
   headcount: { total_users: number; total_candidates: number };
@@ -27,6 +32,7 @@ interface BoardData {
     placements: number;
     revenue: number;
     consultants: number;
+    active_contracts: number;
   }>;
 }
 
@@ -99,6 +105,7 @@ export function BoardKPI() {
         <KpiCard
           label="Aktywni konsultanci"
           value={data.sales.active_consultants}
+          sub={`${data.sales.active_contracts} aktywnych kontraktów`}
           icon={Briefcase}
           color="purple"
         />

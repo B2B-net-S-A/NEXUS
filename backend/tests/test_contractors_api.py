@@ -64,7 +64,7 @@ def test_validate_partial_returns_only_missing():
         contract_type="b2b",
     )
     missing = validate_ready_for_activation(contract)
-    assert set(missing) == {"rate_client", "work_mode"}
+    assert set(missing) == {"rate_client"}
     # Preserves canonical order — the UI depends on it for a stable checklist
     assert missing == [f for f in ACTIVATION_REQUIRED_FIELDS if f in missing]
 
@@ -88,6 +88,19 @@ def test_open_ended_contract_is_ready_to_activate():
     )
     assert validate_ready_for_activation(contract) == []
     assert "end_date" not in ACTIVATION_REQUIRED_FIELDS
+
+
+def test_work_mode_is_optional_for_activation():
+    """Tryb pracy pozostaje edytowalny, ale nie blokuje zapisu Aktywnego."""
+    contract = _fake_contract(
+        start_date=date.today(),
+        rate_candidate=15000,
+        rate_client=20000,
+        contract_type="b2b",
+        work_mode=None,
+    )
+    assert validate_ready_for_activation(contract) == []
+    assert "work_mode" not in ACTIVATION_REQUIRED_FIELDS
 
 
 # ── Unit: bramka czyta HARMONOGRAM, nie tylko kolumnę cache'u ───────────────
@@ -168,7 +181,6 @@ def test_plain_attribute_bag_does_not_explode_on_inspect():
     assert validate_ready_for_activation(bag) == [
         "rate_candidate",
         "rate_client",
-        "work_mode",
     ]
 
 
@@ -247,9 +259,16 @@ async def test_contractor_stats_shape(app_client: AsyncClient, app_auth_headers:
     resp = await app_client.get("/api/contractors/stats", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert set(body.keys()) == {"draft", "drafts_incomplete", "active", "ending"}
+    assert set(body.keys()) == {
+        "draft",
+        "drafts_incomplete",
+        "active",
+        "active_contracts",
+        "ending",
+    }
     # drafts_incomplete is a subset of draft
     assert body["drafts_incomplete"] <= body["draft"]
+    assert body["active"] <= body["active_contracts"]
     # All non-negative
     for v in body.values():
         assert v >= 0

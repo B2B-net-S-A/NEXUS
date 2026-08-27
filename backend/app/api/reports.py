@@ -11,6 +11,7 @@ from typing import Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import CurrentUser, require_roles
@@ -30,6 +31,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
+from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import rates_to_pln
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
@@ -390,7 +392,7 @@ async def report_sales(
     Sales report: revenue, margin, active consultants, MRR trend, top clients.
     Cached for 5 minutes.
     """
-    cache_key = "reports:sales"
+    cache_key = "reports:sales:v2-contractor-headcount"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -403,10 +405,14 @@ async def report_sales(
     # contracts (start_date > today) and ones whose end_date has passed but
     # status hasn't flipped yet. Matches the time-bound logic in `mrr_trend`
     # below so KPI cards reconcile with the MoM comparison widget.
-    active_q = select(Contract).where(
-        Contract.status == ContractStatus.active,
-        Contract.start_date <= today,
-        (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+    active_q = (
+        select(Contract)
+        .where(
+            Contract.status == ContractStatus.active,
+            Contract.start_date <= today,
+            (Contract.end_date.is_(None)) | (Contract.end_date >= today),
+        )
+        .options(selectinload(Contract.candidate))
     )
     active_contracts = (await db.execute(active_q)).scalars().all()
 
@@ -420,7 +426,7 @@ async def report_sales(
         active_contracts, snapshot_rates
     )
     fx_missing |= missing
-    active_consultants = len(active_contracts)
+    active_headcount = summarize_active_contracts(active_contracts)
 
     # New contracts this month
     first_of_month = today.replace(day=1)
@@ -459,7 +465,8 @@ async def report_sales(
         month_contracts = (
             (
                 await db.execute(
-                    select(Contract).where(
+                    select(Contract)
+                    .where(
                         Contract.start_date < month_end,
                         (Contract.end_date >= month_start)
                         | Contract.end_date.is_(None),
@@ -471,6 +478,7 @@ async def report_sales(
                             ]
                         ),
                     )
+                    .options(selectinload(Contract.candidate))
                 )
             )
             .scalars()
@@ -484,13 +492,15 @@ async def report_sales(
         m_revenue, m_margin, m_missing = _fold_finance_pln(month_contracts, m_rates)
         fx_missing |= m_missing
 
+        month_headcount = summarize_active_contracts(month_contracts)
         mrr_trend.append(
             {
                 "month": month_start.strftime("%Y-%m"),
                 "month_label": month_start.strftime("%b %Y"),
                 "revenue": m_revenue,
                 "margin": m_margin,
-                "consultants": len(month_contracts),
+                "consultants": month_headcount.contractors,
+                "active_contracts": month_headcount.active_contracts,
             }
         )
 
@@ -561,7 +571,8 @@ async def report_sales(
     result_data = {
         "total_revenue": total_revenue,
         "total_margin": total_margin,
-        "active_consultants": active_consultants,
+        "active_consultants": active_headcount.contractors,
+        "active_contracts": active_headcount.active_contracts,
         "new_contracts_this_month": new_this_month,
         "ending_contracts_30days": ending_contracts_30days,
         "mrr_trend": mrr_trend,
@@ -1452,7 +1463,7 @@ async def report_board(
     High-level KPIs + 12-month trends.
     Cached for 5 minutes.
     """
-    cache_key = "reports:board"
+    cache_key = "reports:board:v2-contractor-headcount"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1490,11 +1501,13 @@ async def report_board(
     active_contracts = (
         (
             await db.execute(
-                select(Contract).where(
+                select(Contract)
+                .where(
                     Contract.status == ContractStatus.active,
                     Contract.start_date <= today,
                     (Contract.end_date.is_(None)) | (Contract.end_date >= today),
                 )
+                .options(selectinload(Contract.candidate))
             )
         )
         .scalars()
@@ -1503,7 +1516,7 @@ async def report_board(
 
     revenue_ytd = sum(_monthly_rate_client(c) for c in active_contracts)
     margin_ytd = sum(_monthly_margin(c) for c in active_contracts)
-    active_consultants = len(active_contracts)
+    active_headcount = summarize_active_contracts(active_contracts)
 
     # ── Delivery ─────────────────────────────────────────────────────────────
     dl_q = (
@@ -1571,7 +1584,8 @@ async def report_board(
         m_contracts = (
             (
                 await db.execute(
-                    select(Contract).where(
+                    select(Contract)
+                    .where(
                         Contract.start_date < month_end,
                         (Contract.end_date >= month_start)
                         | Contract.end_date.is_(None),
@@ -1583,6 +1597,7 @@ async def report_board(
                             ]
                         ),
                     )
+                    .options(selectinload(Contract.candidate))
                 )
             )
             .scalars()
@@ -1591,13 +1606,15 @@ async def report_board(
 
         m_revenue = sum(_monthly_rate_client(c) for c in m_contracts)
 
+        month_headcount = summarize_active_contracts(m_contracts)
         trends.append(
             {
                 "month": month_start.strftime("%Y-%m"),
                 "month_label": month_start.strftime("%b %Y"),
                 "placements": m_placements,
                 "revenue": m_revenue,
-                "consultants": len(m_contracts),
+                "consultants": month_headcount.contractors,
+                "active_contracts": month_headcount.active_contracts,
             }
         )
 
@@ -1609,7 +1626,8 @@ async def report_board(
         "sales": {
             "revenue_ytd": revenue_ytd,
             "margin_ytd": margin_ytd,
-            "active_consultants": active_consultants,
+            "active_consultants": active_headcount.contractors,
+            "active_contracts": active_headcount.active_contracts,
         },
         "delivery": {
             "avg_hit_ratio": avg_hit_ratio,

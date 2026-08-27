@@ -622,7 +622,7 @@ export function ClientsListV2() {
               <TableRow>
                 <TableHead>Firma</TableHead>
                 <TableHead>Branża</TableHead>
-                <TableHead>Aktywni konsultanci</TableHead>
+                <TableHead>Aktywni konsultanci / kontrakty</TableHead>
                 <TableHead>Start umowy</TableHead>
                 <TableHead>Koniec umowy</TableHead>
                 <TableHead>
@@ -809,10 +809,10 @@ export function ClientsListV2() {
                             <span
                               className="inline-flex cursor-help items-center gap-1.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               tabIndex={0}
-                              aria-label={`${item.active_consultants_count} aktywnych konsultantów u klienta, łącznie we wszystkich zakresach`}
+                              aria-label={`${item.active_consultants_count} aktywnych konsultantów i ${item.active_contracts_count} aktywnych kontraktów u klienta, łącznie we wszystkich zakresach`}
                             >
                               <span className="font-medium tabular-nums">
-                                {item.active_consultants_count}
+                                {item.active_consultants_count} / {item.active_contracts_count}
                               </span>
                               <Info
                                 className="h-3.5 w-3.5 text-muted-foreground"
@@ -821,8 +821,8 @@ export function ClientsListV2() {
                             </span>
                           </TooltipTrigger>
                           <TooltipContent>
-                            Liczba dla całego klienta: aktywni konsultanci
-                            łącznie we wszystkich zakresach.
+                            Liczba dla całego klienta: aktywni konsultanci /
+                            aktywne kontrakty, łącznie we wszystkich zakresach.
                           </TooltipContent>
                         </Tooltip>
                       </TableCell>

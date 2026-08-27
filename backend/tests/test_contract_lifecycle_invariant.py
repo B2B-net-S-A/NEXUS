@@ -2,11 +2,9 @@
 
 Locks the single guarded state machine (``app.services.contract_lifecycle``):
 
-* guarded lifecycle routes still require verified completion when a signature
-  is required (a completed ``DocumentSignature``);
-* manual contract creation can write its four operational statuses while
-  deliberately ignoring the in-app signature state because it also records
-  offline agreements; later PATCH/activate calls keep the guarded policy, and
+* activation depends only on operational contract fields, never on an
+  agreement or qualified-signature state;
+* manual create, PATCH and ``/activate`` share that same rule, while
   ``ready_for_signature``/``void`` stay exclusive to lifecycle routes;
 * finalizing an unsigned HTML draft ends at ``ready_for_signature`` (never
   ``active``), and emits no ``contract_signed`` side effect;
@@ -26,6 +24,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -158,34 +157,98 @@ def test_state_machine_allows_and_forbids() -> None:
     assert exc.value.status_code == 409
 
 
+def test_signed_delete_blocker_advertises_admin_confirmation_contract() -> None:
+    contract = SimpleNamespace(id=563, status=ContractStatus.active)
+    blocked = lifecycle.ContractHardDeleteBlocked(contract, "signed_generated_contract")
+    assert blocked.status_code == 409
+    assert blocked.detail["requires_admin_confirmation"] is True
+    assert blocked.detail["admin_only"] is True
+    assert blocked.detail["force_delete_endpoint"] == (
+        "/api/contracts/563/force-delete-signed"
+    )
+    assert blocked.detail["confirmation_options"] == [
+        "contractor_name",
+        "contract_id",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_activate_is_operational_only_and_work_mode_is_optional() -> None:
+    """Pure service regression: activation performs no signature DB lookup."""
+
+    class _AuditOnlyDB:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+
+        def add(self, row: object) -> None:
+            self.added.append(row)
+
+    contract = Contract(
+        id=900563,
+        status=ContractStatus.draft,
+        start_date=date.today(),
+        rate_candidate=150,
+        rate_client=200,
+        contract_type=ContractType.b2b,
+        work_mode=None,
+    )
+    db = _AuditOnlyDB()
+
+    await lifecycle.activate_contract(db, contract, actor_id=123)  # type: ignore[arg-type]
+
+    assert contract.status == ContractStatus.active
+    assert [row.action for row in db.added] == ["contract_activated"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("confirmation", ["563", "#563", "  #563  "])
+async def test_signed_delete_confirmation_accepts_exact_contract_number(
+    confirmation,
+) -> None:
+    contract = SimpleNamespace(id=563, candidate_id=None)
+    method = await lifecycle._signed_delete_confirmation_method(  # noqa: SLF001
+        None, contract, confirmation
+    )
+    assert method == "contract_id"
+
+
+@pytest.mark.asyncio
+async def test_signed_delete_confirmation_name_is_whitespace_casefold_not_fuzzy() -> (
+    None
+):
+    class _NameResult:
+        def one_or_none(self):
+            return SimpleNamespace(name="Agnieszka", lastname="Żurawiak")
+
+    class _NameDB:
+        async def execute(self, _query):
+            return _NameResult()
+
+    contract = SimpleNamespace(id=563, candidate_id=77)
+    db = _NameDB()
+    assert (
+        await lifecycle._signed_delete_confirmation_method(  # noqa: SLF001
+            db, contract, "  AGNIESZKA   ŻURAWIAK  "
+        )
+        == "contractor_name"
+    )
+    assert (
+        await lifecycle._signed_delete_confirmation_method(  # noqa: SLF001
+            db, contract, "Agnieszka Zurawiak"
+        )
+        is None
+    )
+
+
 # ── Activation invariant (service) ───────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_activate_requires_completed_signature_once_started(
-    monkeypatch,
-) -> None:
-    """A contract with an in-flight signature cannot activate until it completes."""
+async def test_activate_ignores_inflight_signature() -> None:
+    """An unverifiable/in-flight signature cannot block operational activation."""
     uid = await _seed_user()
     cid = await _seed_contract(status=ContractStatus.draft, complete=True)
     await _seed_signature(cid, uid, SignatureStatus.sent)
-
-    async with AsyncSessionLocal() as db:
-        contract = await db.get(Contract, cid)
-        with pytest.raises(HTTPException) as exc:
-            await lifecycle.activate_contract(db, contract, actor_id=uid)
-        assert exc.value.status_code == 409
-        assert exc.value.detail["reason"] == "signature_required"
-        # State unchanged — no route created `active` without completion.
-        assert contract.status == ContractStatus.draft
-
-    # Complete the signature → activation now allowed.
-    async with AsyncSessionLocal() as db:
-        sig = await db.scalar(
-            select(DocumentSignature).where(DocumentSignature.contract_id == cid)
-        )
-        sig.status = SignatureStatus.completed
-        await db.commit()
 
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, cid)
@@ -214,12 +277,12 @@ async def test_create_active_in_manual_register_never_queries_signature_state(
 ) -> None:
     """Manual POST accepts an offline agreement even with signing enabled."""
 
-    monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
-
     async def unexpected_signature_lookup(*_args, **_kwargs):
         raise AssertionError("manual contract create queried DocumentSignature")
 
-    monkeypatch.setattr(lifecycle, "_has_any_signature", unexpected_signature_lookup)
+    monkeypatch.setattr(
+        lifecycle, "_has_completed_signature", unexpected_signature_lookup
+    )
     cand_id, cli_id = await _seed_candidate_and_client()
     response = await app_client.post(
         "/api/contracts",
@@ -241,10 +304,10 @@ async def test_create_active_in_manual_register_never_queries_signature_state(
 
 
 @pytest.mark.asyncio
-async def test_patch_active_keeps_guarded_signature_policy(
+async def test_patch_active_does_not_require_qualified_signature(
     app_client, app_auth_headers, monkeypatch
 ) -> None:
-    """Only the two create flows bypass signing; PATCH cannot bypass QES."""
+    """PATCH can save Active even when signing is enabled and no proof exists."""
 
     cand_id, cli_id = await _seed_candidate_and_client()
     created = await app_client.post(
@@ -270,8 +333,8 @@ async def test_patch_active_keeps_guarded_signature_policy(
         headers=app_auth_headers,
     )
 
-    assert response.status_code == 409, response.text
-    assert response.json()["detail"]["reason"] == "signature_required"
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "active"
 
 
 @pytest.mark.asyncio
@@ -322,7 +385,7 @@ async def test_finalize_unsigned_html_ends_ready_for_signature(
 
 
 @pytest.mark.asyncio
-async def test_activate_finalized_blocked_without_signature_when_signing_on(
+async def test_activate_finalized_does_not_require_signature_when_signing_on(
     app_client, app_auth_headers, monkeypatch
 ) -> None:
     monkeypatch.setattr(settings, "SIGNING_ENABLED", True)
@@ -330,8 +393,8 @@ async def test_activate_finalized_blocked_without_signature_when_signing_on(
     resp = await app_client.post(
         f"/api/contracts/{cid}/activate", json={}, headers=app_auth_headers
     )
-    assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["reason"] == "signature_required"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "active"
 
 
 # ── Contract register status writes (HTTP) ───────────────────────────────────
@@ -371,7 +434,7 @@ async def test_create_contract_active_requires_complete_draft(
 
     ``active`` i ``ending`` są w ``REVENUE_BEARING_STATUSES``, więc wiersz
     założony w jednym z nich od razu liczy się do MRR, do liczników
-    konsultantów i do skanera wygasania. Ładunek bez stawek i trybu pracy ma
+    konsultantów i do skanera wygasania. Ładunek bez stawek ma
     dostać 409 z listą braków — a nie cichy szkic podany jako sukces ani
     aktywną umowę z pustymi polami, na których stoi liczenie pieniędzy.
 
@@ -395,7 +458,6 @@ async def test_create_contract_active_requires_complete_draft(
     assert set(detail["missing"]) == {
         "rate_candidate",
         "rate_client",
-        "work_mode",
     }
 
 
@@ -403,7 +465,7 @@ async def test_create_contract_active_requires_complete_draft(
 async def test_create_contract_active_accepts_open_ended_period(
     app_client, app_auth_headers
 ) -> None:
-    """Umowa BEZTERMINOWA z kompletem pozostałych pól aktywuje się normalnie.
+    """Umowa bezterminowa i bez trybu pracy aktywuje się normalnie.
 
     Zgłoszenie: „409 przy każdym zapisie ze statusem Aktywny, zapis działa
     tylko dla Draftu". Data końca w bramce dawała stan bez wyjścia — rejestr
@@ -421,7 +483,6 @@ async def test_create_contract_active_accepts_open_ended_period(
             "rate_candidate": 15000,
             "rate_client": 20000,
             "contract_type": "b2b",
-            "work_mode": "remote",
             "status": "active",
         },
         headers=app_auth_headers,
@@ -429,6 +490,7 @@ async def test_create_contract_active_accepts_open_ended_period(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["end_date"] is None
+    assert body["work_mode"] is None
     assert body["status"] == "active"
 
 
@@ -664,6 +726,17 @@ async def test_delete_contract_with_completed_signature_409(
     assert detail["code"] == "contract_has_completed_signature"
     assert "podpis" in detail["message"]
     assert "void_endpoint" in detail
+
+    forced = await app_client.post(
+        f"/api/contracts/{cid}/force-delete-signed",
+        json={"confirmation": f"#{cid}"},
+        headers=app_auth_headers,
+    )
+    assert forced.status_code == 409, forced.text
+    assert forced.json()["detail"]["code"] == "contract_has_completed_signature"
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(Contract, cid) is not None
 
 
 @pytest.mark.asyncio

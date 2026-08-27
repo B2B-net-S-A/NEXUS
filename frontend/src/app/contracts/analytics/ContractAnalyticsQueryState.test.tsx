@@ -12,7 +12,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), expansion: vi.fn() }));
@@ -110,6 +110,7 @@ describe("ContractAnalyticsPage — kafle pieniężne", () => {
           data: {
             total_candidates: 10,
             candidates_active: 4,
+            active_contracts: 6,
             candidates_on_bench: 6,
             utilization_pct: 40,
             avg_bench_days: 12,
@@ -157,5 +158,72 @@ describe("ContractAnalyticsPage — degradacja kursów FX", () => {
     // Bez tego prognoza, która wyrzuciła wszystkie kontrakty w EUR/USD,
     // renderowała się jakby była kompletna.
     expect(await screen.findByText(warning)).toBeInTheDocument();
+  });
+});
+
+describe("ContractAnalyticsPage — macierz rola × klient", () => {
+  it("Σ używa unikalnych osób per rola zamiast sumy komórek klientów", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-by")) return Promise.resolve({ data: [] });
+      if (url.includes("utilization")) {
+        return Promise.resolve({
+          data: {
+            total_candidates: 1,
+            candidates_active: 1,
+            active_contracts: 2,
+            candidates_on_bench: 0,
+            utilization_pct: 100,
+            avg_bench_days: null,
+          },
+        });
+      }
+      return Promise.resolve({ data: { horizon_months: 12, months: [] } });
+    });
+    mocks.expansion.mockImplementation((name: string) => {
+      if (name === "roleClientMix") {
+        return Promise.resolve({
+          data: {
+            total_active: 1,
+            total_active_contracts: 2,
+            role_totals: { Developer: 1 },
+            rows: [
+              {
+                role: "Developer",
+                client_id: 1,
+                client_name: "Client A",
+                active_count: 1,
+                pct_of_total: 100,
+              },
+              {
+                role: "Developer",
+                client_id: 2,
+                client_name: "Client B",
+                active_count: 1,
+                pct_of_total: 100,
+              },
+            ],
+            roles: ["Developer"],
+            clients: [
+              { id: 1, name: "Client A" },
+              { id: 2, name: "Client B" },
+            ],
+          },
+        });
+      }
+      return Promise.reject(httpError(500));
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByText(/1 kontraktor \/ 2 kontraktów/i),
+    ).toBeInTheDocument();
+    const row = screen.getByText("Developer").closest("tr");
+    expect(row).not.toBeNull();
+    expect(
+      within(row as HTMLTableRowElement)
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Developer", "1", "1", "1"]);
   });
 });

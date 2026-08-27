@@ -10,11 +10,10 @@ side-effectful status change goes through one of the guarded operations below;
 no route sets ``status = active`` directly. The rules:
 
 * :data:`ALLOWED_TRANSITIONS` — the only legal (from → to) edges.
-* :func:`activate_contract` — the ONLY path to ``active``. It always requires
-  the draft to be complete and, for guarded signing flows, a *completed*
-  qualified ``DocumentSignature``. Manual contract creation explicitly
-  disables only that signature gate because it also records offline agreements;
-  later status changes keep the guarded default.
+* :func:`activate_contract` — the ONLY path to ``active``. It requires the
+  operational fields used by reporting, but deliberately does not depend on
+  any generated agreement or qualified-signature state. Contract activation is
+  an operational decision; the signing rails keep their own lifecycle.
 * :func:`move_to_ready_for_signature` — a finalized (but unsigned) draft lands
   here, never at ``active``.
 * :func:`revert_contract` — the audited replacement for the old free
@@ -27,6 +26,7 @@ FastAPI rig, and reused by the signing pipeline.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
@@ -35,9 +35,8 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import ColumnElement, and_, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.activity import Activity
-from app.models.contract import Contract, ContractStatus, ContractType
+from app.models.contract import Contract, ContractStatus
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services.contract_service import validate_ready_for_activation
 
@@ -71,21 +70,69 @@ class ContractHardDeleteBlocked(HTTPException):
         ),
         "signed_generated_contract": (
             "Kontrakt powstał z umowy B2B potwierdzonej jako podpisana "
-            "przez obie strony i nie może zostać usunięty. Zamiast tego "
-            "anuluj kontrakt (void) albo zamknij umowę w rejestrze "
-            "„Wygenerowane umowy”."
+            "przez obie strony. Admin może wymusić trwałe usunięcie po "
+            "dodatkowym potwierdzeniu; alternatywnie anuluj kontrakt (void) "
+            "albo zamknij umowę w rejestrze „Wygenerowane umowy”."
         ),
     }
 
     def __init__(self, contract: Contract, reason: HardDeleteBlocker) -> None:
         self.reason = reason
+        detail: dict[str, object] = {
+            "code": f"contract_has_{reason}",
+            "message": self._MESSAGES[reason],
+            "status": contract.status.value,
+            "void_endpoint": f"/api/contracts/{contract.id}/void",
+        }
+        if reason == "signed_generated_contract":
+            detail.update(
+                {
+                    "requires_admin_confirmation": True,
+                    "admin_only": True,
+                    "force_delete_endpoint": (
+                        f"/api/contracts/{contract.id}/force-delete-signed"
+                    ),
+                    "confirmation_options": ["contractor_name", "contract_id"],
+                    "contract_id": contract.id,
+                }
+            )
+        super().__init__(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail=detail,
+        )
+
+
+class ContractSignedDeleteConfirmationError(HTTPException):
+    """The break-glass signed-delete confirmation did not match exactly."""
+
+    def __init__(self, contract_id: int) -> None:
+        super().__init__(
+            status_code=http_status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "signed_delete_confirmation_mismatch",
+                "message": (
+                    "Wpisz pełne imię i nazwisko kontrahenta albo numer "
+                    "kontraktu, aby potwierdzić trwałe usunięcie."
+                ),
+                "confirmation_options": ["contractor_name", "contract_id"],
+                "contract_id": contract_id,
+            },
+        )
+
+
+class ContractSignedDeleteUnavailable(HTTPException):
+    """The dedicated signed-delete endpoint was used for a non-signed row."""
+
+    def __init__(self, contract_id: int) -> None:
         super().__init__(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={
-                "code": f"contract_has_{reason}",
-                "message": self._MESSAGES[reason],
-                "status": contract.status.value,
-                "void_endpoint": f"/api/contracts/{contract.id}/void",
+                "code": "contract_not_protected_by_signed_generated_contract",
+                "message": (
+                    "Ten kontrakt nie wymaga wymuszonego usunięcia podpisanej "
+                    "umowy B2B. Użyj zwykłej operacji usunięcia."
+                ),
+                "delete_endpoint": f"/api/contracts/{contract_id}",
             },
         )
 
@@ -163,20 +210,6 @@ def assert_transition(current: ContractStatus, target: ContractStatus) -> None:
 # ── Signature evidence ───────────────────────────────────────────────────────
 
 
-async def _has_any_signature(db: AsyncSession, contract_id: int) -> bool:
-    """True when any ``DocumentSignature`` row exists for the contract.
-
-    Once a signing process is initiated, activation must wait for a *completed*
-    signature — you cannot start signing and then bypass it via ``/activate``.
-    """
-    found = await db.scalar(
-        select(DocumentSignature.id)
-        .where(DocumentSignature.contract_id == contract_id)
-        .limit(1)
-    )
-    return found is not None
-
-
 async def _has_completed_signature(db: AsyncSession, contract_id: int) -> bool:
     """True when at least one ``completed`` signature exists for the contract."""
     found = await db.scalar(
@@ -188,30 +221,6 @@ async def _has_completed_signature(db: AsyncSession, contract_id: int) -> bool:
         .limit(1)
     )
     return found is not None
-
-
-def signature_required(contract: Contract, *, has_signatures: bool) -> bool:
-    """Whether a completed qualified signature is required to activate.
-
-    Required when:
-      * a signing process was ever initiated for the contract (``has_signatures``)
-        — you must finish what you started, or
-      * the draft was finalized for signing (``ready_for_signature``) AND the
-        in-house rail is enabled, or
-      * the in-house signing rail is enabled for this signature-requiring type
-        (B2B).
-
-    When signing is disabled (``SIGNING_ENABLED=false``, the prod default) and no
-    signature was ever started, activation proceeds on field validation alone —
-    the legacy manual/offline flow is preserved, no regression.
-    """
-    if has_signatures:
-        return True
-    if not settings.SIGNING_ENABLED:
-        return False
-    if contract.status == ContractStatus.ready_for_signature:
-        return True
-    return contract.contract_type == ContractType.b2b
 
 
 # ── Guarded operations ───────────────────────────────────────────────────────
@@ -243,16 +252,15 @@ async def activate_contract(
     contract: Contract,
     *,
     actor_id: Optional[int],
-    enforce_signature_gate: bool = True,
 ) -> None:
     """The ONLY path to ``active``. Adds the audit row; the caller commits.
 
-    Enforces, in order: a legal transition, a complete draft, and — when
-    ``enforce_signature_gate`` is true and a signature is required — verified
-    signed evidence (a ``completed`` ``DocumentSignature``). Any failure raises
-    HTTP 409 and leaves state unchanged. Downstream side effects
-    (``contract_signed`` notification) MUST be emitted by the caller only AFTER
-    the activation commit.
+    Enforces a legal transition and the operational completeness check. It does
+    not inspect generated agreements or qualified signatures: the register must
+    be able to mark a contract active even when no signing state exists (or the
+    external signing state cannot be verified). Any field-validation failure
+    raises HTTP 409 and leaves state unchanged. Downstream side effects MUST be
+    emitted by the caller only AFTER the activation commit.
     """
     previous = contract.status
     assert_transition(previous, ContractStatus.active)
@@ -263,24 +271,6 @@ async def activate_contract(
             status_code=http_status.HTTP_409_CONFLICT,
             detail={"message": "Missing required fields", "missing": missing},
         )
-
-    # The manual register stores contracts backed by offline agreements and
-    # amendments, so its caller opts out before either signature lookup runs.
-    # Guarded signing endpoints keep the default and therefore the hard gate.
-    if enforce_signature_gate:
-        has_sig = await _has_any_signature(db, contract.id)
-        if signature_required(contract, has_signatures=has_sig):
-            if not await _has_completed_signature(db, contract.id):
-                raise HTTPException(
-                    status_code=http_status.HTTP_409_CONFLICT,
-                    detail={
-                        "message": (
-                            "Contract requires a completed qualified signature "
-                            "before it can be activated"
-                        ),
-                        "reason": "signature_required",
-                    },
-                )
 
     contract.status = ContractStatus.active
     db.add(
@@ -551,6 +541,54 @@ def signed_generated_link_filter(contract: Contract) -> ColumnElement[bool]:
     )
 
 
+def _normalise_signed_delete_confirmation(value: str) -> str:
+    """Normalise casing/whitespace only, never spelling or diacritics.
+
+    NFKC makes visually equivalent Unicode input compare consistently (for
+    example a non-breaking space pasted from a document). Collapsing whitespace
+    mirrors the confirmation modal and tolerates formatting, not identity
+    differences; Polish diacritics and every non-whitespace character remain
+    exact. A typo must therefore stay a mismatch: this value authorises an
+    irreversible operation.
+    """
+    normalised_unicode = unicodedata.normalize("NFKC", value)
+    return " ".join(normalised_unicode.split()).casefold()
+
+
+async def _signed_delete_confirmation_method(
+    db: AsyncSession,
+    contract: Contract,
+    confirmation: str,
+) -> Optional[Literal["contractor_name", "contract_id"]]:
+    """Return the exact confirmation kind, or ``None`` on any mismatch."""
+    normalised = _normalise_signed_delete_confirmation(confirmation)
+    contract_id = str(contract.id)
+    if normalised in {contract_id, f"#{contract_id}"}:
+        return "contract_id"
+
+    if contract.candidate_id is None:
+        return None
+
+    # Explicit columns avoid an async lazy-load through ``contract.candidate``.
+    # The contract parent is already FOR UPDATE-locked by the caller. Candidate
+    # deletion can only turn this FK into NULL; the contract number remains a
+    # stable confirmation fallback in that rare race.
+    from app.models.candidate import Candidate
+
+    candidate_name = await db.execute(
+        select(Candidate.name, Candidate.lastname).where(
+            Candidate.id == contract.candidate_id
+        )
+    )
+    name_parts = candidate_name.one_or_none()
+    if name_parts is None:
+        return None
+    expected = f"{name_parts.name.strip()} {name_parts.lastname.strip()}"
+    if normalised == _normalise_signed_delete_confirmation(expected):
+        return "contractor_name"
+    return None
+
+
 async def hard_delete_blocker(
     db: AsyncSession, contract: Contract
 ) -> Optional[HardDeleteBlocker]:
@@ -586,7 +624,9 @@ async def hard_delete_blocker(
     zaciąga tu rodzeństwa.
 
     Zablokowany kontrakt można anulować (``void``) — dokumenty i dowody
-    zostają.
+    zostają. ``signed_generated_contract`` ma ponadto jawny, admin-only
+    break-glass w ``hard_delete_contract``; ta funkcja nadal raportuje blocker,
+    aby wymuszenie nigdy nie stało się domyślnym DELETE-em.
     """
     if await _has_completed_signature(db, contract.id):
         return "completed_signature"
@@ -613,8 +653,9 @@ async def hard_delete_contract(
     contract: Contract,
     *,
     actor_id: Optional[int],
+    force_signed_confirmation: Optional[str] = None,
 ) -> HardDeleteResult:
-    """Physically delete one contract without destroying signed evidence.
+    """Physically delete one contract under the signed-evidence policy.
 
     This is the shared implementation behind the HTTP DELETE endpoint and
     trusted batch maintenance. The caller owns the surrounding transaction;
@@ -622,10 +663,13 @@ async def hard_delete_contract(
     complete before it returns, but it deliberately never commits.
 
     Project-owned children follow their declared FK policy (CASCADE or
-    SET NULL). Generated B2B rows that do not legally protect this project are
-    detached and preserved in their register. Completed qualified signatures
-    and a ``signed_both`` B2B that belongs to this client remain hard blockers.
-    Polymorphic Activity/Notification history is not rewritten.
+    SET NULL). Generated B2B rows are detached and preserved in their register.
+    Completed qualified signatures remain an unconditional hard blocker because
+    their FK would cascade-delete the proof. A protective ``signed_both`` B2B
+    can be overridden only when the dedicated admin route supplies an exact
+    contractor-name or contract-number confirmation. That forced path is
+    recorded with its own durable audit action. Polymorphic Activity/
+    Notification history is not rewritten.
     """
     # Lock the FK parent before looking at any deletion blocker. PostgreSQL FK
     # inserts acquire KEY SHARE on the parent, which conflicts with this
@@ -677,7 +721,23 @@ async def hard_delete_contract(
     ).all()
 
     blocker = await hard_delete_blocker(db, contract)
-    if blocker is not None:
+    forced_signed_delete = False
+    confirmation_method: Optional[Literal["contractor_name", "contract_id"]] = None
+    if force_signed_confirmation is not None:
+        # A distinct break-glass endpoint must not become a second generic
+        # DELETE. Re-check the blocker only after all relevant rows are locked;
+        # this is the TOCTOU boundary that matters, not the route's pre-load.
+        if blocker != "signed_generated_contract":
+            if blocker is not None:
+                raise ContractHardDeleteBlocked(contract, blocker)
+            raise ContractSignedDeleteUnavailable(contract_id)
+        confirmation_method = await _signed_delete_confirmation_method(
+            db, contract, force_signed_confirmation
+        )
+        if confirmation_method is None:
+            raise ContractSignedDeleteConfirmationError(contract_id)
+        forced_signed_delete = True
+    elif blocker is not None:
         raise ContractHardDeleteBlocked(contract, blocker)
 
     from app.models.client_order import ClientOrder
@@ -707,13 +767,14 @@ async def hard_delete_contract(
         )
     )
 
-    detached = await db.execute(
-        update(B2BGeneratedContract)
-        .where(
-            B2BGeneratedContract.contract_id == contract_id,
+    detach_filter = B2BGeneratedContract.contract_id == contract_id
+    if not forced_signed_delete:
+        detach_filter = and_(
+            detach_filter,
             not_(signed_generated_link_filter(contract)),
         )
-        .values(contract_id=None)
+    detached = await db.execute(
+        update(B2BGeneratedContract).where(detach_filter).values(contract_id=None)
     )
 
     # Same last-chance guard as the endpoint historically used: a row left
@@ -727,17 +788,29 @@ async def hard_delete_contract(
     if still_linked is not None:
         raise ContractHardDeleteBlocked(contract, "signed_generated_contract")
 
+    audit_details: dict[str, object] = {
+        "status": contract.status.value,
+        "candidate_id": contract.candidate_id,
+        "client_id": contract.client_id,
+    }
+    audit_action = "deleted"
+    if forced_signed_delete:
+        audit_action = "force_deleted_signed"
+        audit_details.update(
+            {
+                "contract_id": contract_id,
+                "forced_despite_signed": True,
+                "blocker": "signed_generated_contract",
+                "confirmation_method": confirmation_method,
+            }
+        )
     db.add(
         Activity(
             entity_type="contract",
             entity_id=contract_id,
-            action="deleted",
+            action=audit_action,
             user_id=actor_id,
-            details={
-                "status": contract.status.value,
-                "candidate_id": contract.candidate_id,
-                "client_id": contract.client_id,
-            },
+            details=audit_details,
         )
     )
     await db.delete(contract)

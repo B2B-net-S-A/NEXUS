@@ -98,6 +98,7 @@ async def test_mrr_excludes_future_contracts(
     resp = await app_client.get("/api/reports/sales", headers=app_auth_headers)
     assert resp.status_code == 200
     body = resp.json()
+    assert body["active_consultants"] <= body["active_contracts"]
 
     # Future contract should NOT contribute to total_revenue MRR snapshot.
     # We can't assert exact value (other test data may exist) but we know
@@ -129,7 +130,9 @@ async def test_mrr_excludes_ended_contracts(
     resp = await app_client.get("/api/reports/sales", headers=app_auth_headers)
     assert resp.status_code == 200
     # Just sanity — ended contract shouldn't crash the endpoint
-    assert resp.json()["active_consultants"] >= 0
+    body = resp.json()
+    assert body["active_consultants"] >= 0
+    assert body["active_consultants"] <= body["active_contracts"]
 
 
 @pytest.mark.asyncio
@@ -154,6 +157,7 @@ async def test_mrr_includes_running_contract(
     resp = await app_client.get("/api/reports/sales", headers=app_auth_headers)
     assert resp.status_code == 200
     body = resp.json()
+    assert body["active_consultants"] <= body["active_contracts"]
     # Daily rate × 22 working days = monthly contribution: 200/day diff × 22 = 4400
     # active_consultants >= 1 because we just added one
     assert body["active_consultants"] >= 1, (

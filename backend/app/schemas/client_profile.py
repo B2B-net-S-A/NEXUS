@@ -39,6 +39,7 @@ class CandidateBrief(BaseModel):
 class ClientProfileSummary(BaseModel):
     open_jobs: int
     active_consultants: int
+    active_contracts: int
     total_placements: int  # active + historical (ever placed)
     # R0 (plan 2026-07-16): finanse są Optional — dla ról bez VIEW_FINANCE
     # endpoint redaguje je do None zamiast zwracać kwoty.
