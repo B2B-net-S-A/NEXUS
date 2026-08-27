@@ -104,10 +104,10 @@ async def _create_group(
 # ── Bramka klientów ─────────────────────────────────────────────────────────
 
 
-async def test_gate_rejects_client_outside_allowlist(
+async def test_legacy_group_payload_stays_rejected_outside_allowlist(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Klient spoza listy nie może założyć zamówienia wielo-konsultantowego."""
+    """Stary payload bez jawnego typu nie otwiera grupy u nowego klienta."""
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch)  # pusta lista — nikt nie jest objęty
 
@@ -121,7 +121,7 @@ async def test_gate_rejects_client_outside_allowlist(
         headers=app_auth_headers,
     )
     assert resp.status_code == 422, resp.text
-    assert "MULTI_CONSULTANT_ORDER_CLIENT_IDS" in resp.text
+    assert "Zamówienia grupowe nie są dostępne" in resp.text
 
 
 async def test_gate_returns_empty_list_not_forbidden(
@@ -142,6 +142,7 @@ async def test_gate_returns_empty_list_not_forbidden(
         "groups": [],
         "total_groups": 0,
         "total_consultants": 0,
+        "suggested_order_type": "periodic",
         "draft_orders": [],
         "total_draft_orders": 0,
     }
@@ -1675,15 +1676,16 @@ async def test_options_report_how_many_were_cut(
     assert data["total"] == 3
 
 
-async def test_options_are_empty_for_client_outside_allowlist(
+async def test_options_are_available_for_client_outside_legacy_allowlist(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """GET u klienta spoza modelu = pusta lista, nie odmowa (403 renderuje się jak awaria)."""
-    client_id, _, _ = await _seed_client_with_contracts(1)
+    """Nowy jawny typ grupy nie wymaga już konfiguracji klienta."""
+    client_id, _, names = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch)  # nikt nie jest objęty
 
-    data = await _options(app_client, app_auth_headers, client_id)
-    assert data == {"options": [], "total": 0}
+    data = await _options(app_client, app_auth_headers, client_id, q=names[0])
+    assert any(option["full_name"] == names[0] for option in data["options"])
+    assert data["total"] >= 1
 
 
 # ── Dodanie osoby z bazy Nexus do zamówienia ────────────────────────────────

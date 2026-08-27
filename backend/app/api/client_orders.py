@@ -49,6 +49,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
+from app.models.order_type import OrderType
 from app.models.user import UserRole
 from app.schemas.client_order import (
     ClientOrderExportRequest,
@@ -330,7 +331,7 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
     """
 
     title = (order.title or "").strip()
-    return bool(
+    base_complete = bool(
         title
         and title != "(bez numeru)"
         and order.start_date is not None
@@ -338,6 +339,13 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
         and order.contract is not None
         and _activation_candidate_rate(order.contract) is not None
     )
+    if not base_complete:
+        return False
+    if order.order_type == OrderType.cost.value:
+        return order.total_value is not None and order.total_value > 0
+    if order.order_type == OrderType.md.value:
+        return order.md_total is not None and order.md_total > 0
+    return True
 
 
 def _auto_activate_unless_status_explicit(
@@ -445,18 +453,20 @@ async def _materialize_group_after_activation(
         if order.contract is not None
         else None
     )
-    await materialize_group_for_activated_order(
-        db, order, actor_id=actor_id, candidate_rate=candidate_rate
-    )
+    try:
+        await materialize_group_for_activated_order(
+            db, order, actor_id=actor_id, candidate_rate=candidate_rate
+        )
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
 
 
 def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) -> None:
-    """„Liczba MD zamówienia” — opcjonalny budżet na szkicu klienta MD.
+    """„Liczba MD zamówienia” — budżet na samodzielnym szkicu MD.
 
-    Pole z Ticketu 2: NIE należy do czterech pól wymaganych do aktywacji
-    (może zostać uzupełnione później), ale gdy jest podane, zasila
-    ``md_total``/``md_remaining`` — czyli licznik, od którego alert
-    ``ALERT_MD_BUDGET_LOW`` liczy „pozostało mniej niż próg”.
+    Dla jawnego, nowego typu MD pole jest wymagane przed aktywacją i przy
+    materializacji przechodzi na wspólną pulę grupy. Dla rekordu legacy
+    zachowuje dawną, opcjonalną semantykę budżetu linii.
 
     ``ck_client_orders_md_coherence`` wymaga kompletu: budżet bez stawki
     przychodowej > 0 nie przejdzie bazy, więc stawka jest tu warunkiem
@@ -465,14 +475,18 @@ def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) ->
     nic); lustro ``md_rate_revenue`` zostaje — linia bez budżetu z samą stawką
     jest legalna od migracji 0233.
     """
-    if not is_multi_consultant_client(order.client_id) or is_cost_order_client(
-        order.client_id
-    ):
+    explicit_md = order.order_type == OrderType.md.value
+    legacy_md = (
+        order.order_type is None
+        and is_multi_consultant_client(order.client_id)
+        and not is_cost_order_client(order.client_id)
+    )
+    if not (explicit_md or legacy_md):
         raise HTTPException(
             422,
             detail=(
-                "Liczba MD dotyczy wyłącznie zamówień klientów rozliczanych "
-                "w MD (lista wielo-konsultantowa, bez zamówień kosztowych)."
+                "Liczba MD dotyczy wyłącznie zamówienia typu MD albo "
+                "historycznego klienta rozliczanego w MD."
             ),
         )
     if order.order_group_id is not None:
@@ -912,6 +926,7 @@ def _build_order_read(
         title=order.title,
         description=order.description,
         status=order.status,
+        order_type=order.order_type,
         start_date=order.start_date,
         end_date=order.end_date,
         rate_client=order.rate_client,
@@ -932,6 +947,11 @@ def _build_order_read(
         job_title=job_title,
         monthly_margin=monthly_margin,
         days_to_end=_days_to(order.end_date),
+        md_quantity=(
+            order.md_input_value
+            if order.md_input_mode == INPUT_MODE_MD
+            else order.md_total
+        ),
     )
 
 
@@ -1014,7 +1034,15 @@ async def list_contractors_with_orders(
     today = business_today()
     for c in contracts:
         orders_list = sorted(
-            c.client_orders or [],
+            # Linie kosztowe/MD mają własny rejestr grup. Wspólny widok typów
+            # osadza ten endpoint jako sekcję „Okresowe”, więc pokazanie ich
+            # również tutaj dublowałoby każde historyczne zamówienie. Samych
+            # rekordów nie zmieniamy — filtr dotyczy wyłącznie prezentacji.
+            [
+                order
+                for order in (c.client_orders or [])
+                if order.order_group_id is None
+            ],
             key=lambda o: o.start_date or date.min,
             reverse=True,
         )
@@ -1209,6 +1237,7 @@ async def create_order_extension(
     contract_id: int = Form(...),
     title: str = Form(...),
     description: Optional[str] = Form(None),
+    order_type: OrderType = Form(OrderType.periodic),
     order_status: ClientOrderStatus = Form(ClientOrderStatus.active),
     start_date: Optional[date] = Form(None),
     end_date: Optional[date] = Form(None),
@@ -1219,6 +1248,7 @@ async def create_order_extension(
     job_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
     project_part: Optional[str] = Form(None),
+    md_quantity: Optional[Decimal] = Form(None),
 ):
     """Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract."""
     from decimal import InvalidOperation
@@ -1303,6 +1333,7 @@ async def create_order_extension(
         framework_contract_id=framework_contract_id,
         title=title,
         description=description,
+        order_type=order_type.value,
         status=order_status,
         # PR 6 (plan analytics): fakt pierwszej aktywacji — nie estymata.
         filled_at=(
@@ -1320,6 +1351,10 @@ async def create_order_extension(
         notes=notes,
     )
     db.add(order)
+    if order_type == OrderType.md:
+        _apply_md_order_quantity(order, md_quantity)
+    elif md_quantity is not None:
+        raise HTTPException(422, detail="Budżet MD dotyczy tylko zamówienia typu MD")
     if payload_bytes is not None:
         # flush → order.id istnieje, więc plik trafia do katalogu tego Orderu.
         await db.flush()
@@ -1334,6 +1369,15 @@ async def create_order_extension(
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
     _activate_complete_draft(order)
+    if (
+        order.status == ClientOrderStatus.active
+        and order_type in (OrderType.cost, OrderType.md)
+        and not _order_has_required_activation_data(order)
+    ):
+        raise HTTPException(
+            422,
+            detail="Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu",
+        )
     # Materializacja obejmuje też tworzenie OD RAZU ze statusem active
     # (domyślna wartość ``order_status`` tego formularza) — nie tylko drogę
     # przez auto-aktywację draftu.
@@ -1610,6 +1654,38 @@ async def update_order(
         raise HTTPException(404, detail="Order not found")
 
     data = payload.model_dump(exclude_unset=True)
+    requested_type = data.pop("order_type", None)
+    if "order_type" in payload.model_fields_set:
+        if requested_type is None:
+            raise HTTPException(422, detail="Typ zamówienia nie może być pusty")
+        if order.order_type is None:
+            # NULL jest trwałym znacznikiem rekordu sprzed wdrożenia. Nawet
+            # stary draft nie może zostać po fakcie sklasyfikowany przez nowy
+            # endpoint — historyczne zamówienia mają nadal przechodzić przez
+            # klientowe reguły i matchery, bez cichego backfillu przy edycji.
+            raise HTTPException(
+                409,
+                detail="Historyczne zamówienie zachowuje dotychczasowy typ",
+            )
+        requested_type = OrderType(requested_type)
+        requested_value = requested_type.value
+        if (
+            order.status != ClientOrderStatus.draft or order.order_group_id is not None
+        ) and order.order_type != requested_value:
+            raise HTTPException(
+                409,
+                detail="Typ można zmienić tylko przed aktywacją zamówienia",
+            )
+        if order.order_type != requested_value:
+            if requested_type != OrderType.cost:
+                order.total_value = None
+            if requested_type != OrderType.md:
+                order.md_input_mode = None
+                order.md_input_value = None
+                order.md_total = None
+                order.md_remaining = None
+                order.md_manual_adjustment = Decimal("0")
+            order.order_type = requested_value
     # Stawka KOSZTOWA mieszka na Contract, nie na Order, ale formularz
     # uzupełnienia draftu pokazuje ją obok stawki przychodowej i zapisuje
     # jednym PATCH-em. Przepuszczamy ją TĘDY, zamiast przez PATCH
@@ -1663,6 +1739,16 @@ async def update_order(
     # — dokładnie klasa awarii z ticketu. Poza swoim zakresem (klient
     # nie-MD, wiersz w grupie, tytuł-placeholder) serwis jest no-opem.
     if order.status == ClientOrderStatus.active and order.order_group_id is None:
+        if order.order_type in (
+            OrderType.cost.value,
+            OrderType.md.value,
+        ) and not _order_has_required_activation_data(order):
+            raise HTTPException(
+                422,
+                detail=(
+                    "Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu"
+                ),
+            )
         await _materialize_group_after_activation(db, order, actor_id=user.id)
 
     db.add(
@@ -1877,6 +1963,14 @@ async def create_contract_with_order(
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
     await _assert_client(db, client_id)
+    if payload.order_type != OrderType.periodic:
+        raise HTTPException(
+            422,
+            detail=(
+                "Nowego kontraktora zakłada formularz okresowy. Zamówienie "
+                "kosztowe lub MD utwórz jako grupę i dodaj konsultanta."
+            ),
+        )
     can_finance = _can_manage_order_finance(
         user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
     )
@@ -1943,6 +2037,7 @@ async def create_contract_with_order(
         job_id=payload.job_id,
         framework_contract_id=payload.framework_contract_id,
         title=payload.title,
+        order_type=payload.order_type.value,
         status=ClientOrderStatus.draft,
         # PR 6: the activation fact is stamped only by the explicit order
         # status transition, never by an incomplete atomic create.

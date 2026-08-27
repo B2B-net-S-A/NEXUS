@@ -9,6 +9,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from app.models.client_order import ClientOrderStatus
+from app.models.order_type import OrderType
 
 
 class ClientOrderCreate(BaseModel):
@@ -18,6 +19,7 @@ class ClientOrderCreate(BaseModel):
     """
 
     contract_id: int  # Required: każdy Order pod konkretnym Contract
+    order_type: OrderType = OrderType.periodic
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = None
     status: ClientOrderStatus = ClientOrderStatus.draft
@@ -36,6 +38,7 @@ class ClientOrderUpdate(BaseModel):
     """PATCH metadata orderu — plik wymaga osobnego PUT `/file`."""
 
     title: Optional[str] = Field(None, min_length=1, max_length=255)
+    order_type: Optional[OrderType] = None
     description: Optional[str] = None
     status: Optional[ClientOrderStatus] = None
     start_date: Optional[date] = None
@@ -73,6 +76,7 @@ class ClientOrderRead(BaseModel):
     title: str
     description: Optional[str]
     status: ClientOrderStatus
+    order_type: Optional[OrderType] = None
     start_date: Optional[date]
     end_date: Optional[date]
     rate_client: Optional[Decimal]
@@ -97,6 +101,8 @@ class ClientOrderRead(BaseModel):
     monthly_margin: Optional[Decimal] = None
     """rate_client (z Order) - rate_candidate (z Contract), normalizowane do mc."""
     days_to_end: Optional[int] = None
+    md_quantity: Optional[Decimal] = None
+    """Budżet MD wpisany na szkicu przed utworzeniem wspólnej grupy."""
 
     model_config = {"from_attributes": True}
 

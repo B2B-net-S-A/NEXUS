@@ -54,6 +54,10 @@ class ClientOrder(Base, TimestampMixin):
     __tablename__ = "client_orders"
     __table_args__ = (
         CheckConstraint(
+            "order_type IS NULL OR order_type IN ('periodic', 'cost', 'md')",
+            name="ck_client_orders_order_type",
+        ),
+        CheckConstraint(
             "project_part IS NULL OR project_part IN "
             "('cz1', 'cz2', 'cz4', 'cz5', 'cz6')",
             name="ck_client_orders_project_part",
@@ -114,6 +118,14 @@ class ClientOrder(Base, TimestampMixin):
         server_default="draft",
         index=True,
     )
+
+    order_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    """Jawny typ wyłącznie dla zamówień utworzonych po wdrożeniu selektora.
+
+    ``NULL`` jest stanem legacy i celowo nie jest uzupełniany migracją. Dzięki
+    temu stare zamówienia nadal przechodzą przez dotychczasową logikę klientową
+    i dopasowanie arkuszy, a nowe mają jednoznaczny typ niezależny od klienta.
+    """
 
     start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     # Plan analytics PR 6: FAKT pierwszej aktywacji zamówienia (nie estymata).

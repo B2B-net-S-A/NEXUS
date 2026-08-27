@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
+import type { OrderType } from "@/lib/api/dlPortal";
 
 // Komponent importuje instancję DOMYŚLNIE (`import api from "@/lib/api"`),
 // więc podmiana samego eksportu nazwanego zostawiłaby mu prawdziwego axiosa.
@@ -16,7 +17,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 import api from "@/lib/api";
 
-function renderDialog() {
+function renderDialog({
+  orderType,
+  onOrderTypeChange,
+}: {
+  orderType?: OrderType;
+  onOrderTypeChange?: (orderType: OrderType) => void;
+} = {}) {
   // `retry: 1` LUSTRZANIE do produkcji (`QueryProvider`), nie `false`. Przy
   // `retry: false` test przechodziłby, nie dotykając realnego opóźnienia:
   // zanim `isError` stanie się `true`, leci jeszcze jedna próba z backoffem.
@@ -29,6 +36,8 @@ function renderDialog() {
       <ToastProvider>
         <NewContractorOrderDialog
           clientId={11}
+          orderType={orderType}
+          onOrderTypeChange={onOrderTypeChange}
           onClose={() => {}}
           onCreated={() => {}}
         />
@@ -50,6 +59,20 @@ beforeEach(() => {
 });
 
 describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
+  it("pokazuje przełącznik typu na górze formularza", async () => {
+    const user = userEvent.setup();
+    const onOrderTypeChange = vi.fn();
+    mockApi(() => Promise.resolve({ data: { items: [] } }));
+    renderDialog({ orderType: "periodic", onOrderTypeChange });
+
+    expect(screen.getByRole("radio", { name: "Okresowe" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
+    expect(onOrderTypeChange).toHaveBeenCalledWith("cost");
+  });
+
   it("awaria zapytania NIE renderuje się jako „Brak wyników”", async () => {
     // Realny przypadek z produkcji (import Nordei): chwilowy rate limit ukrył
     // kandydata, którego `/api/candidates` zwraca bez problemu. Na tej ścieżce

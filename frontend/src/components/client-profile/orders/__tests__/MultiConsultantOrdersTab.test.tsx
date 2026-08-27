@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "@/components/Toast";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
 import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
+import type { OrderType } from "@/lib/api/dlPortal";
 
 const authState = vi.hoisted(() => ({
   role: "admin" as string,
@@ -68,13 +69,36 @@ vi.mock("@/components/OrdersAndContractsTab", () => ({
 
 vi.mock("@/components/NewContractorOrderDialog", () => ({
   NewContractorOrderDialog: ({
+    orderType = "periodic",
+    onOrderTypeChange,
     onClose,
     onCreated,
   }: {
+    orderType?: OrderType;
+    onOrderTypeChange?: (orderType: OrderType) => void;
     onClose: () => void;
     onCreated: () => void;
   }) => (
     <div role="dialog" aria-label="Nowe zamówienie standardowe">
+      <div role="radiogroup" aria-label="Typ zamówienia">
+        {(
+          [
+            ["periodic", "Okresowe"],
+            ["cost", "Kosztowe"],
+            ["md", "MD"],
+          ] as Array<[OrderType, string]>
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={orderType === value}
+            onClick={() => onOrderTypeChange?.(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <button type="button" onClick={onClose}>
         Zamknij standardowe
       </button>
@@ -334,7 +358,12 @@ describe("MultiConsultantOrdersTab", () => {
 
   it("brak zamówień renderuje pusty stan, nie błąd", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
-      data: { groups: [], total_groups: 0, total_consultants: 0 },
+      data: {
+        groups: [],
+        total_groups: 0,
+        total_consultants: 0,
+        suggested_order_type: "periodic",
+      },
     } as never);
 
     renderTab();
@@ -435,7 +464,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     } as never);
   });
 
-  it("ma jedno wejście tworzenia i trzy wzajemnie wykluczające się typy", async () => {
+  it("ma jedno wejście tworzenia i przełącznik trzech typów w formularzu", async () => {
     const user = userEvent.setup();
     renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
 
@@ -451,22 +480,24 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     expect(createButtons).toHaveLength(1);
     await user.click(createButtons[0]);
 
-    const standard = screen.getByRole("radio", { name: /^Standardowe/ });
-    const cost = screen.getByRole("radio", { name: /^Zamówienie kosztowe/ });
-    const md = screen.getByRole("radio", { name: /^Zamówienie na MD/ });
-    expect(standard).toBeChecked();
-    expect(cost).not.toBeChecked();
-    expect(md).not.toBeChecked();
+    const periodic = screen.getByRole("radio", { name: "Okresowe" });
+    expect(periodic).toHaveAttribute("aria-checked", "true");
 
-    await user.click(cost);
-    expect(standard).not.toBeChecked();
-    expect(cost).toBeChecked();
-    expect(md).not.toBeChecked();
+    await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
+    const cost = screen.getByRole("radio", { name: "Kosztowe" });
+    const md = screen.getByRole("radio", { name: "MD" });
+    expect(cost).toHaveAttribute("aria-checked", "true");
+    expect(md).toHaveAttribute("aria-checked", "false");
 
     await user.click(md);
-    expect(standard).not.toBeChecked();
-    expect(cost).not.toBeChecked();
-    expect(md).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    expect(screen.getByRole("radio", { name: "MD" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 
   it("standardowe otwiera istniejący dialog legacy", async () => {
@@ -476,7 +507,6 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
-    await user.click(screen.getByRole("button", { name: "Dalej" }));
 
     expect(
       screen.getByRole("dialog", { name: "Nowe zamówienie standardowe" }),
@@ -502,10 +532,12 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
-    await user.click(screen.getByRole("radio", { name: /^Zamówienie na MD/ }));
-    await user.click(screen.getByRole("button", { name: "Dalej" }));
+    await user.click(screen.getByRole("radio", { name: "MD" }));
 
-    expect(screen.getByText("Zamówienie na MD")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "MD" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     expect(screen.queryByRole("checkbox", { name: /kosztowe/i })).not.toBeInTheDocument();
     expect(
       screen.getByText(/Automatyczne pomniejszanie działa/),
@@ -524,6 +556,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
         start_date: "2026-09-01",
         end_date: null,
         notes: null,
+        order_type: "md",
         is_cost_based: false,
         is_md_budget_based: true,
         md_budget_total: 120.5,
@@ -550,13 +583,12 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
-    await user.click(screen.getByRole("radio", { name: /^Zamówienie kosztowe/ }));
-    await user.click(screen.getByRole("button", { name: "Dalej" }));
+    await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
 
-    expect(screen.getByLabelText(/Kwota zamówienia/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Budżet całkowity/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-COST-1");
-    await user.type(screen.getByLabelText(/Kwota zamówienia/), "50000");
+    await user.type(screen.getByLabelText(/Budżet całkowity/), "50000");
     fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
       target: { value: "2026-09-01" },
     });
@@ -568,6 +600,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
         start_date: "2026-09-01",
         end_date: null,
         notes: null,
+        order_type: "cost",
         is_cost_based: true,
         is_md_budget_based: false,
         budget_amount: 50000,
@@ -616,7 +649,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     ).toBeDisabled();
   });
 
-  it("Polkomtel zachowuje dotychczasowy checkbox bez selektora trzech typów", async () => {
+  it("klient z historyczną flagą kosztową także korzysta z ogólnego przełącznika", async () => {
     const user = userEvent.setup();
     renderTab({ costOrdersEnabled: true });
 
@@ -624,11 +657,39 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
 
-    expect(
-      screen.getByRole("checkbox", { name: "Zamówienie kosztowe" }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /^Standardowe/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /^Zamówienie na MD/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Okresowe" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await user.click(screen.getByRole("radio", { name: "Kosztowe" }));
+    expect(screen.queryByRole("checkbox", { name: /kosztowe/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+
+  it("otwiera od razu typ podpowiedziany przez ostatnie zamówienie", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [],
+        total_groups: 0,
+        total_consultants: 0,
+        suggested_order_type: "cost",
+      },
+    } as never);
+    const user = userEvent.setup();
+    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+
+    expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByLabelText(/Budżet całkowity/)).toBeInTheDocument();
   });
 });
 

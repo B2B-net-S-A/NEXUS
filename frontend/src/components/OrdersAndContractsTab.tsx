@@ -36,6 +36,7 @@ import type {
   ClientOrderUpdate,
   ContractWithOrdersRead,
   CreateDraftOrder,
+  OrderType,
 } from "@/lib/api/dlPortal";
 import {
   InlinePeriod,
@@ -58,6 +59,7 @@ interface OrdersAndContractsTabProps {
   clientName?: string;
   /** Tryb osadzony (CP/Lotte): tworzeniem steruje wspólny selektor typu. */
   hideCreateButton?: boolean;
+  suggestedOrderType?: OrderType;
 }
 
 type Filter = "all" | "active" | "expiring_30d" | "ended" | "drafts";
@@ -111,6 +113,7 @@ export function OrdersAndContractsTab({
   clientId,
   clientName = "",
   hideCreateButton = false,
+  suggestedOrderType = "periodic",
 }: OrdersAndContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -248,6 +251,9 @@ export function OrdersAndContractsTab({
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
+    // Zapis jawnego draftu kosztowego/MD może w tej samej transakcji
+    // zmaterializować grupę i zmienić podpowiedź typu dla kolejnego zamówienia.
+    queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
     // Ten sam plik żyje w sekcji „Dokumenty zamówień" w zakładce Dokumenty
     // kontraktu i w Plikach osoby (read-time bridge, zero kopii). Bez tego
     // wgrany PDF pokazuje się tam dopiero po przeładowaniu strony.
@@ -372,6 +378,7 @@ export function OrdersAndContractsTab({
               contractor={contractor}
               clientId={clientId}
               canManageFinance={canManageFinance}
+              suggestedOrderType={suggestedOrderType}
               searching={searching}
               onExtend={() => setExtendingContract(contractor)}
               onTerminate={() => setTerminatingContract(contractor)}
@@ -430,6 +437,7 @@ export function OrdersAndContractsTab({
           rateCandidate={editingOrder.rateCandidate}
           onCreate={editingOrder.createOrder}
           canManageFinance={canManageFinance}
+          suggestedOrderType={suggestedOrderType}
           onClose={() => setEditingOrder(null)}
           onSaved={() => {
             setEditingOrder(null);
@@ -567,6 +575,7 @@ interface ContractorCardProps {
   contractor: ContractWithOrdersRead;
   clientId: number;
   canManageFinance: boolean;
+  suggestedOrderType: OrderType;
   /** Aktywne wyszukiwanie — wymusza rozwinięcie historii, żeby trafienie
       w historycznym zamówieniu nie było schowane za zwiniętym togglem. */
   searching: boolean;
@@ -583,6 +592,7 @@ function ContractorCard({
   contractor,
   clientId,
   canManageFinance,
+  suggestedOrderType,
   searching,
   onExtend,
   onTerminate,
@@ -687,6 +697,7 @@ function ContractorCard({
       // z dialogu i tak promuje je od razu — robi to `_activate_complete_draft`
       // po stronie serwera, nie ten formularz.
       form.append("order_status", "draft");
+      form.append("order_type", patch.order_type ?? suggestedOrderType);
       if (contractor.initial_job_id != null) {
         form.append("job_id", String(contractor.initial_job_id));
       }
@@ -694,6 +705,12 @@ function ContractorCard({
       if (patch.end_date) form.append("end_date", patch.end_date);
       if (patch.rate_client != null) {
         form.append("rate_client", String(patch.rate_client));
+      }
+      if (patch.total_value != null) {
+        form.append("total_value", String(patch.total_value));
+      }
+      if (patch.md_quantity != null) {
+        form.append("md_quantity", String(patch.md_quantity));
       }
       if (patch.description) form.append("description", patch.description);
       // `POST /orders` przyjmuje plik w tym samym żądaniu, więc tworzenie
@@ -721,6 +738,7 @@ function ContractorCard({
       contractor.initial_job_id,
       ezdrowie,
       pendingPart,
+      suggestedOrderType,
     ],
   );
 

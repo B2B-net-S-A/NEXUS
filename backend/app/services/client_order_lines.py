@@ -646,9 +646,10 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
     * pytamy o stan GRUPY, nie tylko linii — z wyczerpanego zamówienia nie
       wolno już nic zdejmować, a z zakończonego tym bardziej.
 
-    Filtr po liście klientów kosztowych stoi tutaj, nie tylko w widoku: klient
-    zdjęty z ``COST_ORDER_CLIENT_IDS`` przestaje pokazywać te zamówienia
-    w interfejsie, więc import nie może dalej po cichu zdejmować z nich kwot.
+    Historyczne grupy (``order_type IS NULL``) nadal wymagają starej listy
+    klientów. Wyłącznie nowa, jawnie oznaczona grupa ``order_type='cost'``
+    omija tę bramkę — dzięki temu wdrożenie nie poszerza matchera żadnego
+    istniejącego zamówienia.
     """
     from app.services.cost_orders import is_cost_order_client
 
@@ -668,7 +669,9 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
     matches: list[LineMatch] = []
     for order in result.scalars():
         group = order.order_group
-        if group is None or not is_cost_order_client(order.client_id):
+        if group is None or (
+            group.order_type != "cost" and not is_cost_order_client(order.client_id)
+        ):
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (
@@ -683,7 +686,7 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
 async def active_shared_md_lines(
     db: AsyncSession, period_month: str
 ) -> list[LineMatch]:
-    """Aktywne linie wspólnej puli MD CP i Lotte Wedel w danym miesiącu.
+    """Aktywne linie wspólnej puli MD w danym miesiącu.
 
     To osobna pula na grupie, więc jej linie celowo mają ``md_total IS NULL``
     i nie mogą przejść przez historyczny ``active_md_lines`` ani jego matcher
@@ -711,9 +714,12 @@ async def active_shared_md_lines(
     matches: list[LineMatch] = []
     for order in result.scalars():
         group = order.order_group
-        if group is None or not (
-            is_cyfrowy_polsat_order_types_client(order.client_id)
-            or is_lotte_wedel_order_types_client(order.client_id)
+        if group is None or (
+            group.order_type != "md"
+            and not (
+                is_cyfrowy_polsat_order_types_client(order.client_id)
+                or is_lotte_wedel_order_types_client(order.client_id)
+            )
         ):
             continue
         candidate = order.contract.candidate if order.contract else None

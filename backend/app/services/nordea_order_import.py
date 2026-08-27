@@ -428,6 +428,7 @@ async def import_nordea_orders(
                     client_id=client.id,
                     contract_id=contract.id,
                     title=row.order_number,
+                    order_type="periodic",
                     status=(
                         ClientOrderStatus.completed
                         if row.end_date < today

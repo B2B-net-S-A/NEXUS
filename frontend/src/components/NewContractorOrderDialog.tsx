@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
+import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
+import type { OrderType } from "@/lib/api/dlPortal";
 import api, { extractErrorMsg } from "@/lib/api";
 import {
   DATE_PATTERN,
@@ -20,6 +22,8 @@ import {
 
 interface NewContractorOrderDialogProps {
   clientId: number;
+  orderType?: OrderType;
+  onOrderTypeChange?: (orderType: OrderType) => void;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -59,6 +63,8 @@ function formatCandidateLocation(loc?: string | null): string | null {
 /** Flow B — "Nowy kontraktor": atomic Contract + Order create. */
 export function NewContractorOrderDialog({
   clientId,
+  orderType = "periodic",
+  onOrderTypeChange,
   onClose,
   onCreated,
 }: NewContractorOrderDialogProps) {
@@ -156,6 +162,7 @@ export function NewContractorOrderDialog({
         contract_end_date: contractEnd || null,
         order_start_date: orderStart || contractStart,
         order_end_date: orderEnd || null,
+        order_type: orderType,
         notes: notes || null,
       };
       if (ezdrowie) {
@@ -219,6 +226,10 @@ export function NewContractorOrderDialog({
             Atomic: tworzy nowy Contract z kandydatem + pierwszy Order pod nim.
           </p>
         </div>
+
+        {onOrderTypeChange ? (
+          <OrderTypeSwitch value={orderType} onChange={onOrderTypeChange} />
+        ) : null}
 
         {/* Candidate picker (typeahead search) */}
         <div>
