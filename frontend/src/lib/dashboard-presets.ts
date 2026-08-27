@@ -7,6 +7,7 @@ import {
 export type { DashboardPreset } from "@/store/auth"
 
 export type DashboardPeriod = "day" | "week" | "month" | "quarter" | "year"
+export type DashboardTab = "kpi" | "processes"
 
 export interface DashboardPresetDefinition {
   label: string
@@ -24,28 +25,28 @@ export const DASHBOARD_PRESETS: Record<
     label: "Admin Ops",
     shortLabel: "Admin",
     title: "Centrum operacyjne",
-    description: "Wyjątki, przepływ pracy i kondycja operacji w jednym miejscu.",
+    description: "Otwarte procesy, odpowiedzialność i braki decyzyjne w jednym miejscu.",
     defaultPeriod: "month",
   },
   "delivery-lead": {
     label: "Delivery Lead",
     shortLabel: "Delivery",
     title: "Delivery Lead",
-    description: "Priorytety klientów, weryfikacje i realizacja bez danych finansowych.",
+    description: "Procesy przypisanych klientów, kandydaci na etapach i podobne zapytania.",
     defaultPeriod: "month",
   },
   "head-of-recruitment": {
     label: "Head of Recruitment",
     shortLabel: "HoR",
     title: "Head of Recruitment",
-    description: "Obciążenie zespołu, jakość procesu i miejsca wymagające interwencji.",
+    description: "Procesy zespołu według kategorii, etapów, właścicieli i faworytów.",
     defaultPeriod: "week",
   },
   "my-work": {
     label: "My Work",
     shortLabel: "My Work",
     title: "Moja praca",
-    description: "Kolejka działań, własne KPI i bieżące procesy.",
+    description: "Dzienny cel, własne KPI i bieżące procesy rekrutacyjne.",
     defaultPeriod: "day",
   },
   finance: {
@@ -65,6 +66,7 @@ const PERIOD_VALUES: DashboardPeriod[] = [
   "quarter",
   "year",
 ]
+const TAB_VALUES: DashboardTab[] = ["kpi", "processes"]
 
 export function isDashboardPreset(value: string | null): value is DashboardPreset {
   return value !== null && PRESET_VALUES.includes(value as DashboardPreset)
@@ -72,6 +74,10 @@ export function isDashboardPreset(value: string | null): value is DashboardPrese
 
 export function isDashboardPeriod(value: string | null): value is DashboardPeriod {
   return value !== null && PERIOD_VALUES.includes(value as DashboardPeriod)
+}
+
+export function isDashboardTab(value: string | null): value is DashboardTab {
+  return value !== null && TAB_VALUES.includes(value as DashboardTab)
 }
 
 /**
@@ -148,5 +154,6 @@ export function dashboardHref(
   const preset = getDefaultDashboardPreset(user)
   if (!preset) return "/dashboard"
   const period = DASHBOARD_PRESETS[preset].defaultPeriod
-  return `/dashboard?preset=${preset}&period=${period}`
+  const tab = preset === "finance" ? "" : "&tab=processes"
+  return `/dashboard?preset=${preset}&period=${period}${tab}`
 }

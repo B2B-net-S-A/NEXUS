@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { BarChart3, ChevronDown, FolderKanban, Wrench } from "lucide-react"
 
 import { TabbedNav } from "@/components/ds"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,17 +12,31 @@ import {
   getDefaultDashboardPreset,
   isDashboardPeriod,
   isDashboardPreset,
+  isDashboardTab,
   type DashboardPeriod,
   type DashboardPreset,
+  type DashboardTab,
 } from "@/lib/dashboard-presets"
 import type { FinanceDashboardTab } from "@/lib/dashboard-v2-api"
 import { getUserRoles, useAuthStore, type UserRole } from "@/store/auth"
 import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
 import { MyContactQueueWidget } from "@/components/candidate-contact/MyContactQueueWidget"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
+import { Button } from "@/components/ui/button"
+import { TabsContent } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 
 import { DashboardShell } from "./DashboardShell"
 import { DashboardV2Preset } from "./DashboardV2Preset"
-import { RecruitmentStatsSection } from "./RecruitmentStatsSection"
+import { DailyRecruiterKpi } from "./DailyRecruiterKpi"
+import {
+  RecruitmentOperationsDashboard,
+  RecruitmentOperationsKpis,
+} from "./RecruitmentOperationsDashboard"
 import {
   MyPriorityQueue,
   TeamAllocationBoard,
@@ -59,69 +74,109 @@ function FinancePreset({ period }: { period: DashboardPeriod }) {
 // błędu 403 zamiast danych.
 const CONTACT_CALLER_ROLES: UserRole[] = ["recruiter", "sourcer", "tac"]
 
-function presetContent(
-  preset: DashboardPreset,
-  period: DashboardPeriod,
-  roles: UserRole[],
-) {
-  if (preset === "finance") return <FinancePreset period={period} />
+function OperationalTools({
+  preset,
+  roles,
+}: {
+  preset: DashboardPreset
+  roles: UserRole[]
+}) {
+  const [open, setOpen] = useState(false)
+  const toolsRef = useRef<HTMLDivElement>(null)
 
-  // Nadzór nad kolejką pierwszego kontaktu. Head of Recruitment i admin nie
-  // mieli po #1031 ŻADNEJ powierzchni do tej kolejki: middleware odbija ich
-  // z `/candidates/contact-queue` na /403, wpis w sidebarze jest ograniczony
-  // do zespołu wykonawczego, a panel dashboardu został odmontowany razem
-  // z przepisaniem dashboardów — mimo że alerty SLA generowane w
-  // `dashboard_v2.py` linkują dokładnie tam. Osoba, której zadaniem jest
-  // wyłapywanie utkniętej pracy, latała na ślepo.
-  //
-  // Komponent jest fail-closed na fladze `CANDIDATE_CONTACT_ENABLED`
-  // (`useCandidateContactFeature` → `enabled === true`), więc przy wyłączonej
-  // funkcji nie renderuje ani nie pyta o nic poza samym statusem.
+  useEffect(() => {
+    const openLinkedTool = () => {
+      if (
+        window.location.hash === "#nadzor-kontaktu" &&
+        (preset === "head-of-recruitment" || preset === "admin-ops")
+      ) {
+        setOpen(true)
+        window.requestAnimationFrame(() => {
+          toolsRef.current?.scrollIntoView?.({ block: "start" })
+        })
+      }
+    }
+
+    openLinkedTool()
+    window.addEventListener("hashchange", openLinkedTool)
+    return () => window.removeEventListener("hashchange", openLinkedTool)
+  }, [preset])
+
+  // Te narzędzia zachowujemy jako drugorzędne, zwijane wejścia. Ich własne
+  // bramki ról i feature flagi nadal są źródłem prawdy.
   const oversight =
     preset === "head-of-recruitment" || preset === "admin-ops" ? (
       <ContactOversightPanel />
     ) : null
-
-  // Wykonawcy stracili swój skrót do kolejki w tym samym PR-ze. Do kolejki
-  // dochodzą przez sidebar, więc to była regresja odkrywalności, nie odcięcie.
   const myQueue =
     preset === "my-work" &&
     roles.some((role) => CONTACT_CALLER_ROLES.includes(role)) ? (
       <MyContactQueueWidget />
     ) : null
-
-  // Konsola Priority Work wróciła (#101, decyzja Artura 24.08). Cutover RBAC
-  // z #1031 odmontował te dwa boardy i nie zamontował ich nigdzie indziej —
-  // `grep` po `TeamAllocationBoard|MyPriorityQueue` poza ich własnym katalogiem
-  // nie zwracał NICZEGO. Utrzymywaliśmy 1743 linie routera, 1131 serwisu,
-  // 817 polityki, 9 tabel i pętlę w lifespanie dla funkcji bez jednego wejścia,
-  // a bezpieczny rollout (`off -> shadow -> enforce`) był nie tylko nieużywany,
-  // ale NIEWYKONALNY: przestawienie trybu na `enforce` bez opublikowanego planu
-  // zablokowałoby rekruterom otwieranie nowych par, bez UI do odblokowania.
-  //
-  // Oba komponenty bramkują się SAME (`if (!hydrated || !canManage) return null`,
-  // odpowiednio na `head_of_recruitment` i na rolach wykonawczych) i same
-  // renderują `ModeNotice` dla aktualnego `RECRUITMENT_PRIORITY_MODE`. Montaż
-  // jest więc fail-closed: przy trybie `off` nie pytają o nic poza statusem,
-  // a zapytania mają `enabled` związane z tą samą rolą.
   const teamAllocation =
     preset === "head-of-recruitment" ? <TeamAllocationBoard /> : null
-
   const priorityQueue = preset === "my-work" ? <MyPriorityQueue /> : null
 
-  // CompactGamification usunięty — pełny blok rywalizacji (hero ligi,
-  // wyścigi, Hall of Fame) renderuje RecruitmentStatsSection pod każdym
-  // presetem; skrót dublowałby requesty do /api/competitions.
-  if (!oversight && !myQueue && !teamAllocation && !priorityQueue) {
-    return <DashboardV2Preset preset={preset} period={period} />
+  if (!oversight && !myQueue && !teamAllocation && !priorityQueue) return null
+
+  return (
+    <div ref={toolsRef} className="scroll-mt-24">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-auto w-full justify-between rounded-xl p-4"
+            >
+              <span className="flex items-center gap-2">
+                <Wrench className="h-4 w-4 text-muted-foreground" />
+                Pozostałe narzędzia operacyjne
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  open && "rotate-180",
+                )}
+              />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6 border-t border-border pt-5">
+              {oversight}
+              {myQueue}
+              {teamAllocation}
+              {priorityQueue}
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+    </div>
+  )
+}
+
+function RecruitmentDashboardContent({
+  tab,
+  preset,
+  roles,
+}: {
+  tab: DashboardTab
+  preset: Exclude<DashboardPreset, "finance">
+  roles: UserRole[]
+}) {
+  if (tab === "kpi") {
+    return (
+      <div className="space-y-4">
+        <DailyRecruiterKpi />
+        <RecruitmentOperationsKpis preset={preset} />
+      </div>
+    )
   }
+
   return (
     <div className="space-y-6">
-      {oversight}
-      {myQueue}
-      {teamAllocation}
-      {priorityQueue}
-      <DashboardV2Preset preset={preset} period={period} />
+      <RecruitmentOperationsDashboard preset={preset} />
+      <OperationalTools preset={preset} roles={roles} />
     </div>
   )
 }
@@ -161,6 +216,10 @@ export function RoleDashboard() {
       : preset
         ? DASHBOARD_PRESETS[preset].defaultPeriod
         : "month"
+  const requestedTab = searchParams.get("tab")
+  const tab: DashboardTab = isDashboardTab(requestedTab)
+    ? requestedTab
+    : "processes"
 
   useEffect(() => {
     if (!hydrated) return
@@ -169,10 +228,13 @@ export function RoleDashboard() {
       return
     }
     if (!preset) return
+    const tabIsCanonical =
+      preset === "finance" ? requestedTab === null : requestedTab === tab
     if (
       requestedPreset === preset &&
       requestedPeriod === period &&
-      !legacyView
+      !legacyView &&
+      tabIsCanonical
     ) {
       return
     }
@@ -180,7 +242,9 @@ export function RoleDashboard() {
     next.set("preset", preset)
     next.set("period", period)
     next.delete("view")
-    router.replace(`/dashboard?${next.toString()}`)
+    if (preset === "finance") next.delete("tab")
+    else next.set("tab", tab)
+    router.replace(`/dashboard?${next.toString()}${window.location.hash}`)
   }, [
     hydrated,
     legacyView,
@@ -188,8 +252,10 @@ export function RoleDashboard() {
     preset,
     requestedPeriod,
     requestedPreset,
+    requestedTab,
     router,
     searchParams,
+    tab,
     user,
   ])
 
@@ -217,11 +283,14 @@ export function RoleDashboard() {
   const updateParams = (
     nextPreset: DashboardPreset,
     nextPeriod: DashboardPeriod,
+    nextTab: DashboardTab = "processes",
   ) => {
     const next = new URLSearchParams(searchParams.toString())
     next.set("preset", nextPreset)
     next.set("period", nextPeriod)
     next.delete("view")
+    if (nextPreset === "finance") next.delete("tab")
+    else next.set("tab", nextTab)
     router.push(`/dashboard?${next.toString()}`)
   }
 
@@ -230,18 +299,61 @@ export function RoleDashboard() {
       preset={preset}
       period={period}
       availablePresets={availablePresets}
+      showPeriod={preset === "finance"}
       onPresetChange={(nextPreset) =>
-        updateParams(nextPreset, DASHBOARD_PRESETS[nextPreset].defaultPeriod)
+        updateParams(
+          nextPreset,
+          DASHBOARD_PRESETS[nextPreset].defaultPeriod,
+          "processes",
+        )
       }
-      onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod)}
+      onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod, tab)}
     >
-      <div className="space-y-6">
-        {presetContent(preset, period, getUserRoles(user))}
-        {/* Sekcja wspólna dla WSZYSTKICH presetów (także finance, gdy ogląda
-            ją admin multi-preset); role bez dostępu (finance-only, viewer)
-            nie montują jej wcale — zero requestów i 403 w konsoli. */}
-        <RecruitmentStatsSection />
-      </div>
+      {preset === "finance" ? (
+        <FinancePreset period={period} />
+      ) : (
+        <TabbedNav
+          ariaLabel="Widok dashboardu rekrutacji"
+          value={tab}
+          onValueChange={(value) =>
+            updateParams(preset, period, value as DashboardTab)
+          }
+          tabs={[
+            { value: "kpi", label: "KPI", icon: BarChart3 },
+            { value: "processes", label: "Procesy", icon: FolderKanban },
+          ]}
+          listClassName="sm:w-auto"
+        >
+          <TabsContent
+            value="kpi"
+            forceMount
+            hidden={tab !== "kpi"}
+            className="mt-6"
+          >
+            {tab === "kpi" ? (
+              <RecruitmentDashboardContent
+                tab="kpi"
+                preset={preset}
+                roles={getUserRoles(user)}
+              />
+            ) : null}
+          </TabsContent>
+          <TabsContent
+            value="processes"
+            forceMount
+            hidden={tab !== "processes"}
+            className="mt-6"
+          >
+            {tab === "processes" ? (
+              <RecruitmentDashboardContent
+                tab="processes"
+                preset={preset}
+                roles={getUserRoles(user)}
+              />
+            ) : null}
+          </TabsContent>
+        </TabbedNav>
+      )}
     </DashboardShell>
   )
 }

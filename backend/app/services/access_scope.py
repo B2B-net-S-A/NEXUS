@@ -75,22 +75,26 @@ class DashboardScope:
 async def resolve_dashboard_scope(
     user: User,
     db: AsyncSession,
+    *,
+    delivery_lead_persona: bool = False,
 ) -> DashboardScope:
     """Resolve the narrowest authoritative scope for the user's persona.
 
     Precedence intentionally follows organizational authority.  Admin and the
     exclusive Finance persona can query organization-wide rows, with the
     capability matrix still limiting the domains/fields they may consume.
-    Head of Recruitment sees active recruitment operators.  Delivery Lead sees
+    Head of Recruitment sees active recruitment operators. Delivery Lead sees
     only the intersection of their clients and TACs assigned to those clients.
-    Operators see only their own work.
+    Operators see only their own work. ``delivery_lead_persona=True`` lets a
+    HoR+DL hybrid explicitly select its DL dashboard without inheriting HoR's
+    wider precedence; admin remains organization-wide.
     """
 
     roles = set(user.get_all_roles())
     if UserRole.admin in roles or UserRole.finance in roles:
         return DashboardScope(kind=ScopeKind.organization, user_id=user.id)
 
-    if UserRole.head_of_recruitment in roles:
+    if UserRole.head_of_recruitment in roles and not delivery_lead_persona:
         recruitment_roles = (
             UserRole.tac,
             UserRole.sourcer,
@@ -152,6 +156,12 @@ async def resolve_dashboard_scope(
             allowed_tac_user_ids=tac_ids,
             allowed_operator_user_ids=tac_ids,
             allowed_client_tac_pairs=client_tac_pairs,
+        )
+
+    if delivery_lead_persona:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not hold the Delivery Lead persona",
         )
 
     return DashboardScope(

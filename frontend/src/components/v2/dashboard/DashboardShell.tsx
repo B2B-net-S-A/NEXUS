@@ -25,6 +25,7 @@ interface DashboardShellProps {
   availablePresets: DashboardPreset[]
   onPresetChange: (preset: DashboardPreset) => void
   onPeriodChange: (period: DashboardPeriod) => void
+  showPeriod?: boolean
   children: ReactNode
 }
 
@@ -34,6 +35,7 @@ export function DashboardShell({
   availablePresets,
   onPresetChange,
   onPeriodChange,
+  showPeriod = true,
   children,
 }: DashboardShellProps) {
   const definition = DASHBOARD_PRESETS[preset]
@@ -73,28 +75,30 @@ export function DashboardShell({
           </p>
         )}
 
-        <nav
-          aria-label="Okres dashboardu"
-          className="flex max-w-full gap-1 overflow-x-auto"
-        >
-          {PERIODS.map((item) => (
-            <button
-              key={item.value}
-              type="button"
-              aria-pressed={item.value === period}
-              onClick={() => onPeriodChange(item.value)}
-              className={cn(
-                "shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                item.value === period
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        {showPeriod ? (
+          <nav
+            aria-label="Okres dashboardu"
+            className="flex max-w-full gap-1 overflow-x-auto"
+          >
+            {PERIODS.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                aria-pressed={item.value === period}
+                onClick={() => onPeriodChange(item.value)}
+                className={cn(
+                  "shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  item.value === period
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        ) : null}
       </div>
 
       {children}
