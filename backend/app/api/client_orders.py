@@ -1038,7 +1038,11 @@ async def list_contractors_with_orders(
             # osadza ten endpoint jako sekcję „Okresowe”, więc pokazanie ich
             # również tutaj dublowałoby każde historyczne zamówienie. Samych
             # rekordów nie zmieniamy — filtr dotyczy wyłącznie prezentacji.
-            [order for order in (c.client_orders or []) if order.order_group_id is None],
+            [
+                order
+                for order in (c.client_orders or [])
+                if order.order_group_id is None
+            ],
             key=lambda o: o.start_date or date.min,
             reverse=True,
         )
@@ -1666,8 +1670,7 @@ async def update_order(
         requested_type = OrderType(requested_type)
         requested_value = requested_type.value
         if (
-            order.status != ClientOrderStatus.draft
-            or order.order_group_id is not None
+            order.status != ClientOrderStatus.draft or order.order_group_id is not None
         ) and order.order_type != requested_value:
             raise HTTPException(
                 409,
@@ -1736,15 +1739,14 @@ async def update_order(
     # — dokładnie klasa awarii z ticketu. Poza swoim zakresem (klient
     # nie-MD, wiersz w grupie, tytuł-placeholder) serwis jest no-opem.
     if order.status == ClientOrderStatus.active and order.order_group_id is None:
-        if (
-            order.order_type in (OrderType.cost.value, OrderType.md.value)
-            and not _order_has_required_activation_data(order)
-        ):
+        if order.order_type in (
+            OrderType.cost.value,
+            OrderType.md.value,
+        ) and not _order_has_required_activation_data(order):
             raise HTTPException(
                 422,
                 detail=(
-                    "Uzupełnij numer, datę startu, obie stawki i budżet "
-                    "wybranego typu"
+                    "Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu"
                 ),
             )
         await _materialize_group_after_activation(db, order, actor_id=user.id)

@@ -104,7 +104,9 @@ async def materialize_group_for_activated_order(
         return None
     if order.order_group_id is not None:
         return None
-    explicit_type = OrderType(order.order_type) if order.order_type is not None else None
+    explicit_type = (
+        OrderType(order.order_type) if order.order_type is not None else None
+    )
     if explicit_type == OrderType.periodic:
         return None
     if explicit_type is None:
@@ -173,9 +175,7 @@ async def materialize_group_for_activated_order(
             else None
         )
         md_budget = (
-            Decimal(str(order.md_total or 0))
-            if explicit_type == OrderType.md
-            else None
+            Decimal(str(order.md_total or 0)) if explicit_type == OrderType.md else None
         )
         if explicit_type == OrderType.cost and cost_budget <= 0:
             raise ValueError("Zamówienie kosztowe wymaga budżetu całkowitego")

@@ -1679,7 +1679,9 @@ async def create_order_group(
         start_date=payload.start_date,
         end_date=payload.end_date,
         notes=payload.notes,
-        order_type=(payload.order_type.value if payload.order_type is not None else None),
+        order_type=(
+            payload.order_type.value if payload.order_type is not None else None
+        ),
         status=_initial_group_status(payload.start_date),
         is_cost_based=payload.is_cost_based,
         is_md_budget_based=payload.is_md_budget_based,
