@@ -1426,9 +1426,13 @@ async def test_reopen_brings_back_consultants_with_budget_left(
     group = await _create_group(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
     )
+    # The full CI shard can cross midnight in Europe/Warsaw after this module
+    # was collected. Use the current business day for the close/reopen pair so
+    # the just-closed line has not already expired when reopen evaluates it.
+    today = business_today()
     closed = await app_client.post(
         f"/api/clients/{client_id}/order-groups/{group['id']}/close",
-        json={"closure_date": _TODAY.isoformat()},
+        json={"closure_date": today.isoformat()},
         headers=app_auth_headers,
     )
     assert closed.json()["lines"][0]["is_active"] is False
