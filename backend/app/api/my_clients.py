@@ -44,6 +44,8 @@ from app.services.client_identity import (
 )
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.contractor_identity import summarize_active_contracts
+from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
+from app.services.order_revenue import order_revenue_rows_to_pln
 
 router = APIRouter()
 
@@ -55,6 +57,51 @@ router = APIRouter()
 # do „zakończonych", tylko znikał) i ucinało jego marżę — podczas gdy profil
 # tego samego klienta, o jedno kliknięcie dalej, liczył go dalej.
 _LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+
+
+async def _monthly_margin_total_pln(
+    db: AsyncSession,
+    contracts: list[Contract],
+    on: date,
+) -> tuple[Decimal, bool, bool]:
+    """Return ``(total, has_margin, complete)`` for contract margins in PLN.
+
+    The revenue and candidate-cost legs are converted independently. When a
+    required FX rate is unavailable, ``complete`` is false so the caller can
+    return ``None`` instead of presenting a partial aggregate as authoritative.
+    """
+
+    currencies = {
+        currency
+        for contract in contracts
+        for currency in (
+            contract.resolved_rate_client_currency,
+            contract.resolved_rate_candidate_currency,
+        )
+    }
+    fx_rates = await rates_to_pln(db, currencies, on)
+    total = Decimal("0")
+    has_margin = False
+    complete = True
+    for contract in contracts:
+        fields = effective_rate_fields(contract, on)
+        raw_client = fields["monthly_rate_client"]
+        raw_candidate = fields["monthly_rate_candidate"]
+        if raw_client is None or raw_candidate is None:
+            continue
+        client_fx = fx_rates.get(contract.resolved_rate_client_currency)
+        candidate_fx = fx_rates.get(contract.resolved_rate_candidate_currency)
+        client_pln, client_complete = amount_to_pln_with_rate(raw_client, client_fx)
+        candidate_pln, candidate_complete = amount_to_pln_with_rate(
+            raw_candidate, candidate_fx
+        )
+        if not client_complete or not candidate_complete:
+            complete = False
+            continue
+        assert client_pln is not None and candidate_pln is not None
+        total += client_pln - candidate_pln
+        has_margin = True
+    return total, has_margin, complete
 
 
 async def require_dl_assigned_or_admin_after_merge(
@@ -188,38 +235,32 @@ async def list_my_clients(
     active_revenue: dict[int, Decimal] = {}
     lifetime_revenue: dict[int, Decimal] = {}
     if finance_ok:
-        active_revenue = {
-            row.client_id: row.active_total
-            for row in (
-                await db.execute(
-                    select(
-                        ClientOrder.client_id,
-                        func.sum(ClientOrder.total_value).label("active_total"),
-                    )
-                    .where(
-                        ClientOrder.client_id.in_(client_ids),
-                        ClientOrder.status == ClientOrderStatus.active,
-                    )
-                    .group_by(ClientOrder.client_id)
+        revenue_rows = list(
+            await db.execute(
+                select(
+                    ClientOrder.client_id,
+                    ClientOrder.status,
+                    ClientOrder.currency,
+                    func.coalesce(func.sum(ClientOrder.total_value), 0).label(
+                        "sum_val"
+                    ),
+                )
+                .where(ClientOrder.client_id.in_(client_ids))
+                .group_by(
+                    ClientOrder.client_id,
+                    ClientOrder.status,
+                    ClientOrder.currency,
                 )
             )
-        }
-        lifetime_revenue = {
-            row.client_id: row.lifetime_total
-            for row in (
-                await db.execute(
-                    select(
-                        ClientOrder.client_id,
-                        func.sum(ClientOrder.total_value).label("lifetime_total"),
-                    )
-                    .where(
-                        ClientOrder.client_id.in_(client_ids),
-                        ClientOrder.status != ClientOrderStatus.cancelled,
-                    )
-                    .group_by(ClientOrder.client_id)
-                )
-            )
-        }
+        )
+        revenue_lookup, revenue_incomplete = await order_revenue_rows_to_pln(
+            db, revenue_rows, date.today()
+        )
+        for client_id, totals in revenue_lookup.items():
+            if client_id in revenue_incomplete:
+                continue
+            active_revenue[client_id] = totals["active"]
+            lifetime_revenue[client_id] = totals["total"]
 
     # Active framework contract per klient (status=active, max effective_date)
     fc_rows = list(
@@ -347,12 +388,16 @@ async def client_dashboard(
     total_rev = Decimal(0)
     active_rev = Decimal(0)
     completed_rev = Decimal(0)
+    active_rev_pln = Decimal(0)
+    revenue_fx_complete = True
     currency_breakdown: dict[str, Decimal] = {}
     if finance_ok:
+        finance_on = date.today()
         revenue_rows = list(
             (
                 await db.execute(
                     select(
+                        ClientOrder.client_id,
                         ClientOrder.status,
                         ClientOrder.currency,
                         func.coalesce(func.sum(ClientOrder.total_value), 0).label(
@@ -360,19 +405,35 @@ async def client_dashboard(
                         ),
                     )
                     .where(ClientOrder.client_id == client_id)
-                    .group_by(ClientOrder.status, ClientOrder.currency)
+                    .group_by(
+                        ClientOrder.client_id,
+                        ClientOrder.status,
+                        ClientOrder.currency,
+                    )
                 )
             )
         )
+        revenue_lookup, revenue_incomplete = await order_revenue_rows_to_pln(
+            db, revenue_rows, finance_on
+        )
+        revenue_totals = revenue_lookup.get(
+            client_id,
+            {
+                "total": Decimal("0"),
+                "active": Decimal("0"),
+                "completed": Decimal("0"),
+            },
+        )
+        active_rev_pln = revenue_totals["active"]
+        revenue_fx_complete = client_id not in revenue_incomplete
+        if revenue_fx_complete:
+            total_rev = revenue_totals["total"]
+            active_rev = revenue_totals["active"]
+            completed_rev = revenue_totals["completed"]
         for row in revenue_rows:
             value = Decimal(row.sum_val) if row.sum_val is not None else Decimal(0)
             if row.status == ClientOrderStatus.cancelled:
                 continue
-            total_rev += value
-            if row.status == ClientOrderStatus.active:
-                active_rev += value
-            if row.status == ClientOrderStatus.completed:
-                completed_rev += value
             if row.currency:
                 currency_breakdown[row.currency] = (
                     currency_breakdown.get(row.currency, Decimal(0)) + value
@@ -393,6 +454,7 @@ async def client_dashboard(
     )
     monthly_margin_total: Decimal | int = 0
     has_margin = False
+    margin_complete = True
     if finance_ok:
         # Filtr statusu zszedł do WHERE (wcześniej ładowaliśmy WSZYSTKIE
         # kontrakty klienta — szkice, zakończone, anulowane — żeby odsiać je
@@ -412,15 +474,15 @@ async def client_dashboard(
             ).scalars()
         )
         today = date.today()
-        for contract in contract_rows:
-            margin = effective_rate_fields(contract, today)["monthly_margin"]
-            if margin is not None:
-                monthly_margin_total += margin
-                has_margin = True
+        (
+            monthly_margin_total,
+            has_margin,
+            margin_complete,
+        ) = await _monthly_margin_total_pln(db, contract_rows, today)
 
     margin_pct: Optional[float] = None
-    if has_margin and active_rev and active_rev > 0:
-        margin_pct = round(float(monthly_margin_total) / float(active_rev) * 100, 2)
+    if margin_complete and revenue_fx_complete and has_margin and active_rev_pln > 0:
+        margin_pct = round(float(monthly_margin_total) / float(active_rev_pln) * 100, 2)
 
     # Konsultanci active vs completed (na podstawie kontraktów linkowanych do orderów)
     active_headcount = summarize_active_contracts(
@@ -530,12 +592,20 @@ async def client_dashboard(
     return ClientDashboardResponse(
         client_id=client_id,
         client_name=client_display_name(client),
-        total_revenue_all_time=(total_rev or None) if finance_ok else None,
-        active_revenue=(active_rev or None) if finance_ok else None,
-        completed_revenue=(completed_rev or None) if finance_ok else None,
+        total_revenue_all_time=(
+            (total_rev or None) if finance_ok and revenue_fx_complete else None
+        ),
+        active_revenue=(
+            (active_rev or None) if finance_ok and revenue_fx_complete else None
+        ),
+        completed_revenue=(
+            (completed_rev or None) if finance_ok and revenue_fx_complete else None
+        ),
         currency_breakdown=currency_breakdown if finance_ok else None,
         monthly_margin_total=(
-            monthly_margin_total if finance_ok and has_margin else None
+            monthly_margin_total
+            if finance_ok and has_margin and margin_complete
+            else None
         ),
         monthly_margin_pct=margin_pct if finance_ok else None,
         active_consultants=active_headcount.contractors,

@@ -123,7 +123,9 @@ def _to_item(contract: Contract) -> ContractorListItem:
         rate_candidate=contract.rate_candidate,
         rate_client=contract.rate_client,
         rate_unit=contract.rate_unit,
-        currency=contract.currency,
+        currency=contract.resolved_rate_client_currency,
+        rate_client_currency=contract.resolved_rate_client_currency,
+        rate_candidate_currency=contract.resolved_rate_candidate_currency,
         margin=contract.margin,
         contract_type=contract.contract_type,
         work_mode=contract.work_mode,
@@ -221,6 +223,8 @@ async def list_contractors(
             item.margin = None
             item.rate_unit = None
             item.currency = None
+            item.rate_client_currency = None
+            item.rate_candidate_currency = None
     return ContractorList(items=items, total=total, page=page, page_size=page_size)
 
 

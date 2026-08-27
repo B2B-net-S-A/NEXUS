@@ -93,6 +93,8 @@ def _in_memory_contract() -> Contract:
         rate_unit=RateUnit.hourly,
         billing_hours_per_month=160,
         currency="PLN",
+        rate_client_currency="EUR",
+        rate_candidate_currency="PLN",
         framework_rate=Decimal("210.50"),
         project_code="PRJ-1",
         project_name="Nordea Core",
@@ -133,13 +135,15 @@ def test_contract_export_row_shape_and_values():
     assert by["Najnowsze zamówienie do"] == "2026-07-15"
     assert by["Stawka kandydata"] == 150.0
     assert by["Stawka klienta"] == 200.0
-    assert by["Marża"] == 50.0
+    # Mixed-currency amounts are never subtracted nominally.
+    assert by["Marża"] == ""
     assert by["Jednostka stawki"] == "godzinowa"
-    assert by["Waluta"] == "PLN"
+    assert by["Waluta stawki kandydata"] == "PLN"
+    assert by["Waluta stawki klienta"] == "EUR"
     # hourly × 160 billing hours → monthly equivalents.
     assert by["Stawka mies. kandydata"] == 150.0 * 160
     assert by["Stawka mies. klienta"] == 200.0 * 160
-    assert by["Marża mies."] == 50.0 * 160
+    assert by["Marża mies."] == ""
     assert by["Stawka ramowa (MSA)"] == 210.5
     assert by["Numer projektu/zamówienia"] == "PRJ-1"
     assert by["Tryb pracy"] == "zdalnie"
@@ -296,15 +300,18 @@ async def test_export_defaults_to_xlsx_with_client_rates_and_order_dates(
         assert by["Stawka klienta"] == 10000
         assert by["Stawka kandydata"] == 8000
         assert by["Marża"] == 2000
-        assert by["Waluta"] == "PLN"
+        assert by["Waluta stawki klienta"] == "PLN"
+        assert by["Waluta stawki kandydata"] == "PLN"
         assert by["Numer projektu/zamówienia"] == "ZAM-77"
         # Order dates: contract-level PO end + latest ClientOrder end.
-        assert by["Koniec zamówienia u klienta"] == (
-            date.today() + timedelta(days=45)
-        ).isoformat()
-        assert by["Najnowsze zamówienie do"] == (
-            date.today() + timedelta(days=90)
-        ).isoformat()
+        assert (
+            by["Koniec zamówienia u klienta"]
+            == (date.today() + timedelta(days=45)).isoformat()
+        )
+        assert (
+            by["Najnowsze zamówienie do"]
+            == (date.today() + timedelta(days=90)).isoformat()
+        )
     finally:
         await _cleanup([seeded])
 

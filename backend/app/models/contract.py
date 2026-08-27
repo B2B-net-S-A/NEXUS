@@ -152,6 +152,14 @@ class Contract(Base, TimestampMixin):
     # Numeric(12,2): stawki ramowe bywają z groszami (np. 215,60) — Integer
     # odrzucał je 422-ką na schemacie (migracja 0157).
     framework_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 2))
+    # Waluty są rozdzielone per strona stawki. Kolumny celowo pozostają
+    # nullable podczas wdrożenia: starsza wersja aplikacji może jeszcze zapisać
+    # wyłącznie legacy ``currency``. Odczyt zawsze przechodzi przez
+    # ``resolved_*_currency`` i wtedy bezpiecznie wraca do legacy/PLN.
+    rate_candidate_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    rate_client_currency: Mapped[Optional[str]] = mapped_column(String(3))
+    # Legacy alias waluty stawki klienta. Nie usuwać: starsze integracje nadal
+    # wysyłają i odczytują ``currency``.
     currency: Mapped[str] = mapped_column(String(3), default="PLN")
 
     # Jednostka stawki (godz. / dzień / mies.) + liczba godzin billingowych (dla stawki godzinowej).
@@ -419,12 +427,49 @@ class Contract(Base, TimestampMixin):
         return Decimal(str(value))
 
     def calculate_margin(self) -> Optional[Decimal]:
-        """Oblicz marżę: stawka klienta - stawka kandydata (w tej samej jednostce)."""
+        """Oblicz marżę tylko wtedy, gdy obie stawki mają tę samą walutę.
+
+        Odejmowanie np. 100 EUR od 300 PLN daje liczbę bez znaczenia. Marża dla
+        kontraktu mieszanego jest liczona dopiero po przeliczeniu obu składników
+        do PLN przez konsumenta posiadającego kurs na konkretny dzień.
+        """
         client = self._as_decimal(self.rate_client)
         candidate = self._as_decimal(self.rate_candidate)
-        if client is not None and candidate is not None:
+        if (
+            client is not None
+            and candidate is not None
+            and self.resolved_rate_client_currency
+            == self.resolved_rate_candidate_currency
+        ):
             return client - candidate
         return None
+
+    @staticmethod
+    def _normalized_currency(value: object) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip().upper()
+        return normalized or None
+
+    @property
+    def resolved_rate_client_currency(self) -> str:
+        """Waluta przychodu z fallbackiem dla rekordów sprzed migracji 0248."""
+
+        return (
+            self._normalized_currency(self.rate_client_currency)
+            or self._normalized_currency(self.currency)
+            or "PLN"
+        )
+
+    @property
+    def resolved_rate_candidate_currency(self) -> str:
+        """Waluta kosztu z fallbackiem dla rekordów sprzed migracji 0248."""
+
+        return (
+            self._normalized_currency(self.rate_candidate_currency)
+            or self._normalized_currency(self.currency)
+            or "PLN"
+        )
 
     @staticmethod
     def _resolve_scheduled_rate(
@@ -519,6 +564,8 @@ class Contract(Base, TimestampMixin):
 
     @property
     def monthly_margin(self) -> Optional[Decimal]:
+        if self.resolved_rate_client_currency != self.resolved_rate_candidate_currency:
+            return None
         c, k = self.monthly_rate_client, self.monthly_rate_candidate
         if c is None or k is None:
             return None

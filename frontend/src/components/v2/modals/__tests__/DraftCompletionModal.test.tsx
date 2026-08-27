@@ -35,7 +35,7 @@ vi.mock("@/components/ui/dialog", () => ({
 
 import { DraftCompletionModal } from "@/components/v2/modals/DraftCompletionModal";
 
-function renderModal() {
+function renderModal(contractorOverrides: Record<string, unknown> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -54,9 +54,11 @@ function renderModal() {
             end_date: null,
             rate_candidate: 100,
             rate_client: 150,
+            currency: "PLN",
             contract_type: "b2b",
             work_mode: null,
             missing_fields: [],
+            ...contractorOverrides,
           } as never
         }
       />
@@ -84,9 +86,61 @@ describe("DraftCompletionModal — opcjonalny tryb pracy", () => {
     await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
     expect(mocks.update).toHaveBeenCalledWith(
       563,
-      expect.objectContaining({ work_mode: null }),
+      expect.objectContaining({
+        work_mode: null,
+        rate_candidate_currency: "PLN",
+        rate_client_currency: "PLN",
+      }),
     );
+    expect(mocks.update.mock.calls[0]?.[1]).not.toHaveProperty("currency");
     expect(mocks.activate).toHaveBeenCalledWith(563);
     await waitFor(() => expect(onActivated).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("DraftCompletionModal — niezależne waluty stawek", () => {
+  it("prefilluje obie waluty, PATCHuje tylko nowe pola i ukrywa nominalną marżę mieszaną", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderModal({
+      currency: "EUR",
+      rate_client_currency: "EUR",
+      rate_candidate_currency: "PLN",
+    });
+
+    expect(
+      screen.getByRole("combobox", {
+        name: "Waluta stawki przychodowej (klienta)",
+      }),
+    ).toHaveTextContent("EUR");
+    expect(
+      screen.getByRole("combobox", {
+        name: "Waluta stawki kosztowej (kandydata)",
+      }),
+    ).toHaveTextContent("PLN");
+    expect(screen.queryByText("Marża:")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Aktywuj kontrakt/i }));
+
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    expect(mocks.update).toHaveBeenCalledWith(
+      563,
+      expect.objectContaining({
+        rate_candidate_currency: "PLN",
+        rate_client_currency: "EUR",
+      }),
+    );
+    expect(mocks.update.mock.calls[0]?.[1]).not.toHaveProperty("currency");
+  });
+
+  it("pokazuje marżę wyłącznie dla porównywalnych walut i podpisuje ją właściwą walutą", () => {
+    renderModal({
+      currency: "EUR",
+      rate_client_currency: "EUR",
+      rate_candidate_currency: "EUR",
+    });
+
+    expect(screen.getByText("Marża:").parentElement).toHaveTextContent(
+      "Marża: 50 EUR",
+    );
   });
 });

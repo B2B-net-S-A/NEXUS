@@ -292,7 +292,7 @@ def _rate_suggestion(
 
     def rate_per_md_pln(contract: Contract) -> Optional[Decimal]:
         raw_rate = contract.effective_candidate_rate(on)
-        currency = (contract.currency or "PLN").upper()
+        currency = contract.resolved_rate_candidate_currency
         rate_to_pln = currency_rates.get(currency)
         if raw_rate is None or rate_to_pln is None:
             return None
@@ -318,7 +318,7 @@ def _rate_suggestion(
     suggested_rate_to_pln: Optional[Decimal] = None
     if current is not None:
         current_rate = current.effective_candidate_rate(on)
-        current_currency = (current.currency or "PLN").upper()
+        current_currency = current.resolved_rate_candidate_currency
         current_rate_to_pln = currency_rates.get(current_currency)
         if current_rate is not None and suggested_per_md_pln is not None:
             suggested_contract_rate = Decimal(str(current_rate))
@@ -472,7 +472,7 @@ async def list_consultant_options(
     currency_rates = await rates_to_pln(
         db,
         {
-            (contract.currency or "PLN").upper()
+            contract.resolved_rate_candidate_currency
             for contracts in contracts_by_candidate.values()
             for contract in contracts
         },

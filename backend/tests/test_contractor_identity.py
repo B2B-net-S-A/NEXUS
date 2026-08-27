@@ -110,8 +110,18 @@ async def test_finance_summary_exposes_one_person_and_two_contracts(
     first_profile = _candidate(30, "Piotr", "Klimczak", "first@example.com")
     duplicate_profile = _candidate(31, " PIOTR ", "klimczak", "duplicate@example.com")
     contracts = [
-        SimpleNamespace(candidate=first_profile, currency="PLN"),
-        SimpleNamespace(candidate=duplicate_profile, currency="PLN"),
+        SimpleNamespace(
+            candidate=first_profile,
+            currency="PLN",
+            rate_client_currency=None,
+            rate_candidate_currency=None,
+        ),
+        SimpleNamespace(
+            candidate=duplicate_profile,
+            currency="PLN",
+            rate_client_currency=None,
+            rate_candidate_currency=None,
+        ),
     ]
 
     async def fake_rates(_db, _currencies, _on):
@@ -123,6 +133,7 @@ async def test_finance_summary_exposes_one_person_and_two_contracts(
         "effective_rate_fields",
         lambda _contract, _on: {
             "monthly_rate_client": Decimal("10000"),
+            "monthly_rate_candidate": Decimal("8000"),
             "monthly_margin": Decimal("2000"),
         },
     )

@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
-import type { OrderType } from "@/lib/api/dlPortal";
+import { dlPortalApi, type OrderType } from "@/lib/api/dlPortal";
+import { useAuthStore, type User } from "@/store/auth";
 
 // Komponent importuje instancję DOMYŚLNIE (`import api from "@/lib/api"`),
 // więc podmiana samego eksportu nazwanego zostawiłaby mu prawdziwego axiosa.
@@ -15,7 +16,35 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, api: mocked, default: mocked };
 });
 
+vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/dlPortal")>();
+  return {
+    ...actual,
+    dlPortalApi: {
+      ...actual.dlPortalApi,
+      createContractWithOrder: vi.fn(),
+    },
+  };
+});
+
 import api from "@/lib/api";
+
+const createContractWithOrder = vi.mocked(dlPortalApi.createContractWithOrder);
+
+function financeAdmin(): User {
+  return {
+    id: 1,
+    email: "admin@example.com",
+    name: "Admin",
+    role: "admin",
+    roles: ["admin"],
+    profile_completed: true,
+    profile_completed_at: null,
+    force_password_change: false,
+    force_password_change_at: null,
+    capabilities: ["manage_finance"],
+  };
+}
 
 function renderDialog({
   orderType,
@@ -56,6 +85,23 @@ function mockApi(candidates: () => Promise<unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  act(() => {
+    useAuthStore.setState({ user: financeAdmin(), hydrated: true });
+  });
+  createContractWithOrder.mockResolvedValue({
+    data: {
+      contract_id: 563,
+      order_id: 991,
+      candidate_name: "Jan Kowalski",
+      monthly_margin: null,
+    },
+  } as never);
+});
+
+afterEach(() => {
+  act(() => {
+    useAuthStore.setState({ user: null, hydrated: true });
+  });
 });
 
 describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
@@ -114,5 +160,77 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
 
     expect(await screen.findByText(/Brak wyników/i)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("NewContractorOrderDialog — niezależne waluty stawek", () => {
+  it("wysyła mieszaną walutę bez legacy currency i nie pokazuje nominalnej marży", async () => {
+    const user = userEvent.setup({ delay: null });
+    mockApi(() =>
+      Promise.resolve({
+        data: {
+          items: [
+            {
+              id: 42,
+              name: "Jan",
+              lastname: "Kowalski",
+              email: "jan@example.com",
+            },
+          ],
+        },
+      }),
+    );
+    renderDialog();
+
+    await user.type(
+      screen.getByPlaceholderText(/Szukaj po imieniu/i),
+      "Jan",
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
+    );
+    await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
+    await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
+    await user.type(screen.getByPlaceholderText("np. 215,60"), "215,60");
+    await user.type(screen.getByPlaceholderText("np. 150,40"), "150,40");
+
+    expect(screen.getByText(/Marża \/mc \(przybl\.\):/i)).toBeInTheDocument();
+    await user.selectOptions(
+      screen.getByRole("combobox", {
+        name: "Waluta stawki przychodowej (klienta)",
+      }),
+      "EUR",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", {
+        name: "Waluta stawki kosztowej (kandydata)",
+      }),
+      "PLN",
+    );
+
+    expect(
+      screen.queryByText(/Marża \/mc \(przybl\.\):/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Marża zostanie pokazana po niezależnym przeliczeniu/i),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Stwórz Contract + Order" }),
+    );
+
+    await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
+    expect(createContractWithOrder).toHaveBeenCalledWith(
+      11,
+      expect.objectContaining({
+        rate_client: 215.6,
+        rate_candidate: 150.4,
+        rate_client_currency: "EUR",
+        rate_candidate_currency: "PLN",
+      }),
+    );
+    expect(createContractWithOrder.mock.calls[0]?.[1]).not.toHaveProperty(
+      "currency",
+    );
   });
 });

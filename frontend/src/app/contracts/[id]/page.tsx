@@ -116,6 +116,8 @@ interface ContractDetail {
   target_rate_min: number | null;
   target_rate_max: number | null;
   currency: string;
+  rate_client_currency?: string | null;
+  rate_candidate_currency?: string | null;
   eur_pln_rate?: EurPlnRate | null;
   rate_unit: "hourly" | "daily" | "monthly";
   billing_hours_per_month: number;
@@ -348,7 +350,8 @@ interface EditForm {
   framework_rate_schedule: RateScheduleRow[];
   target_rate_min: string;
   target_rate_max: string;
-  currency: string;
+  rate_client_currency: string;
+  rate_candidate_currency: string;
   rate_unit: string;
   billing_hours_per_month: string;
   contract_type: string;
@@ -394,7 +397,8 @@ function contractToForm(c: ContractDetail): EditForm {
       })),
     target_rate_min: c.target_rate_min?.toString() ?? "",
     target_rate_max: c.target_rate_max?.toString() ?? "",
-    currency: c.currency,
+    rate_client_currency: c.rate_client_currency ?? c.currency ?? "PLN",
+    rate_candidate_currency: c.rate_candidate_currency ?? c.currency ?? "PLN",
     rate_unit: c.rate_unit ?? "monthly",
     billing_hours_per_month: (c.billing_hours_per_month ?? 160).toString(),
     contract_type: c.contract_type,
@@ -675,7 +679,8 @@ export default function ContractDetailPage() {
         rate_client: parseDecimalInput(form.rate_client),
         target_rate_min: parseDecimalInput(form.target_rate_min),
         target_rate_max: parseDecimalInput(form.target_rate_max),
-        currency: form.currency,
+        rate_client_currency: form.rate_client_currency,
+        rate_candidate_currency: form.rate_candidate_currency,
         rate_unit: form.rate_unit,
         billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
       });
@@ -985,6 +990,8 @@ export default function ContractDetailPage() {
             contract_type: contract.contract_type,
             rate_unit: contract.rate_unit,
             currency: contract.currency,
+            rate_client_currency: contract.rate_client_currency,
+            rate_candidate_currency: contract.rate_candidate_currency,
             billing_hours_per_month: contract.billing_hours_per_month,
             work_mode: contract.work_mode,
           }}
@@ -1079,11 +1086,17 @@ export default function ContractDetailPage() {
                   (contract.target_rate_min || contract.target_rate_max) && (
                   <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">
                     {contract.target_rate_min != null
-                      ? formatCurrency(contract.target_rate_min, contract.currency)
+                      ? formatCurrency(
+                          contract.target_rate_min,
+                          contract.rate_client_currency ?? contract.currency ?? "PLN",
+                        )
                       : "—"}
                     {" / "}
                     {contract.target_rate_max != null
-                      ? formatCurrency(contract.target_rate_max, contract.currency)
+                      ? formatCurrency(
+                          contract.target_rate_max,
+                          contract.rate_client_currency ?? contract.currency ?? "PLN",
+                        )
                       : "—"}
                   </InfoRow>
                 )}
@@ -1094,7 +1107,7 @@ export default function ContractDetailPage() {
             {!editing && canManageFinance && (
               <ContractRateBenchmarkCard
                 contractId={id}
-                currency={contract.currency}
+                currency={contract.rate_client_currency ?? contract.currency ?? "PLN"}
               />
             )}
 
@@ -1272,7 +1285,7 @@ export default function ContractDetailPage() {
 
                 {canManageFinance && (
                   <>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Stawka klienta
@@ -1336,13 +1349,36 @@ export default function ContractDetailPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
-                      Waluta
+                      Waluta stawki przychodowej (klienta)
                     </label>
                     <select
-                      value={form.currency}
+                      value={form.rate_client_currency}
                       onChange={(e) =>
-                        setForm((f) => (f ? { ...f, currency: e.target.value } : f))
+                        setForm((f) =>
+                          f ? { ...f, rate_client_currency: e.target.value } : f,
+                        )
                       }
+                      aria-label="Waluta stawki przychodowej (klienta)"
+                      className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
+                    >
+                      <option value="PLN">PLN</option>
+                      <option value="EUR">EUR</option>
+                      <option value="USD">USD</option>
+                      <option value="GBP">GBP</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
+                      Waluta stawki kosztowej (kandydata / umowy ramowej)
+                    </label>
+                    <select
+                      value={form.rate_candidate_currency}
+                      onChange={(e) =>
+                        setForm((f) =>
+                          f ? { ...f, rate_candidate_currency: e.target.value } : f,
+                        )
+                      }
+                      aria-label="Waluta stawki kosztowej (kandydata / umowy ramowej)"
                       className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted dark:text-foreground"
                     >
                       <option value="PLN">PLN</option>

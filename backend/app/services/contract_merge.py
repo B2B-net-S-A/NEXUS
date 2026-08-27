@@ -195,12 +195,13 @@ _CONTRACT_RATE_CACHE_FIELDS = {
     "framework_rate",
     "rate_unit",
     "currency",
+    "rate_client_currency",
+    "rate_candidate_currency",
     "billing_hours_per_month",
     "margin",
 }
 _FINANCIAL_METADATA_FIELDS = (
     "rate_unit",
-    "currency",
     "billing_hours_per_month",
 )
 _FIELD_DECISION_FIELDS = frozenset(_MERGEABLE_FIELDS) - {"start_date", "end_date"}
@@ -871,13 +872,16 @@ def _rate_snapshot(
         "framework": "framework_rate",
     }[kind]
     value = chosen.get("rate") if chosen is not None else contract.get(raw_field)
+    currency_field = (
+        "rate_client_currency" if kind == "client" else "rate_candidate_currency"
+    )
     return {
         "contract_id": int(contract["id"]),
         "rate": _stable(value),
         "source": "schedule" if chosen is not None else "cache",
         "schedule_id": int(chosen["id"]) if chosen is not None else None,
         "rate_unit": _stable(contract.get("rate_unit")),
-        "currency": contract.get("currency"),
+        "currency": contract.get(currency_field) or contract.get("currency"),
         "billing_hours_per_month": contract.get("billing_hours_per_month"),
     }
 
@@ -909,9 +913,12 @@ def _date_value(value: Any) -> date:
     return date.fromisoformat(str(value)[:10])
 
 
-def _rate_value_key(snapshot: Mapping[str, Any]) -> Decimal | None:
+def _rate_value_key(snapshot: Mapping[str, Any]) -> tuple[Decimal, str] | None:
     value = snapshot.get("rate")
-    return Decimal(str(value)) if value is not None else None
+    if value is None:
+        return None
+    currency = str(snapshot.get("currency") or "PLN").strip().upper()
+    return Decimal(str(value)), currency
 
 
 def _rate_timeline_plan(
@@ -996,13 +1003,15 @@ def _financial_metadata_plan(
 ) -> dict[str, Any]:
     """Resolve shared rate metadata only from contracts carrying rate data.
 
-    ``rate_unit``, ``currency`` and ``billing_hours_per_month`` interpret all
-    three financial rate kinds.  Metadata on a duplicate with no candidate,
-    client or framework rate at any schedule boundary cannot safely interpret
-    a copied value, so it is excluded from the rate-bearing resolution.  Its
-    disagreement is still recorded as a separate blocker that requires an
-    explicit bulk ALLOW at apply time. Missing metadata on a rate-bearing
-    record is coalesced; two different non-empty values are never guessed.
+    ``rate_unit`` and ``billing_hours_per_month`` interpret all three financial
+    rate kinds. Currencies deliberately stay on their rate snapshots: client
+    and candidate/framework sources may use different currencies.
+    Metadata on a duplicate with no candidate, client or framework rate at any
+    schedule boundary cannot safely interpret a copied value, so it is excluded
+    from the rate-bearing resolution. Its disagreement is still recorded as a
+    separate blocker that requires an explicit bulk ALLOW at apply time.
+    Missing metadata on a rate-bearing record is coalesced; two different
+    non-empty values are never guessed.
     """
     rate_bearing_ids = sorted(
         {
@@ -2612,6 +2621,26 @@ def _assert_rate_sources_match_metadata(
                 )
 
 
+def _selected_rate_currency(
+    group: Mapping[str, Any], kind: str, source: int | None
+) -> str | None:
+    """Currency carried by the selected side-specific rate source."""
+
+    if source is None:
+        return None
+    snapshot = next(
+        (
+            item
+            for item in group[f"{kind}_rates"].get("snapshots", [])
+            if int(item["contract_id"]) == source
+        ),
+        None,
+    )
+    if snapshot is None or _is_empty(snapshot.get("currency")):
+        return None
+    return str(snapshot["currency"]).strip().upper()
+
+
 def _resolve_field_decisions(
     group: Mapping[str, Any],
     decisions: Mapping[tuple[int, str], int],
@@ -3360,6 +3389,38 @@ async def apply_contract_merge_plan(
                 if not _is_empty(value)
             }
         )
+        client_currency = _selected_rate_currency(group, "client", client_source)
+        candidate_currency = _selected_rate_currency(
+            group, "candidate", candidate_source
+        )
+        framework_currency = _selected_rate_currency(
+            group, "framework", framework_source
+        )
+        if (
+            candidate_currency is not None
+            and framework_currency is not None
+            and candidate_currency != framework_currency
+        ):
+            raise ContractMergeError(
+                "candidate and framework rate sources use different cost currencies "
+                f"in group {group['group_key']}"
+            )
+        survivor = next(
+            row for row in group["contract_rows"] if int(row["id"]) == survivor_id
+        )
+        legacy_currency = str(survivor.get("currency") or "PLN").upper()
+        client_currency = (
+            client_currency
+            or str(survivor.get("rate_client_currency") or legacy_currency).upper()
+        )
+        cost_currency = (
+            candidate_currency
+            or framework_currency
+            or str(survivor.get("rate_candidate_currency") or legacy_currency).upper()
+        )
+        financial_values["currency"] = client_currency
+        financial_values["rate_client_currency"] = client_currency
+        financial_values["rate_candidate_currency"] = cost_currency
         changed_fields = sorted(set(safe_updates) | set(financial_values))
         if {"rate_candidate", "rate_client"}.intersection(financial_values):
             changed_fields.append("margin")
@@ -3418,13 +3479,25 @@ async def apply_contract_merge_plan(
                         f"UPDATE contracts SET {assignments}, "
                         "margin = CASE WHEN COALESCE(:new_client, rate_client) IS NOT NULL "
                         "AND COALESCE(:new_candidate, rate_candidate) IS NOT NULL "
-                        "THEN COALESCE(:new_client, rate_client) - COALESCE(:new_candidate, rate_candidate) ELSE NULL END, "
+                        "AND UPPER(COALESCE(:new_client_currency, rate_client_currency, "
+                        ":new_legacy_currency, currency, 'PLN')) = "
+                        "UPPER(COALESCE(:new_candidate_currency, rate_candidate_currency, "
+                        ":new_legacy_currency, currency, 'PLN')) "
+                        "THEN COALESCE(:new_client, rate_client) - "
+                        "COALESCE(:new_candidate, rate_candidate) ELSE NULL END, "
                         "updated_at = NOW() WHERE id = :contract_id"
                     ),
                     {
                         **financial_values,
                         "new_client": financial_values.get("rate_client"),
                         "new_candidate": financial_values.get("rate_candidate"),
+                        "new_client_currency": financial_values.get(
+                            "rate_client_currency"
+                        ),
+                        "new_candidate_currency": financial_values.get(
+                            "rate_candidate_currency"
+                        ),
+                        "new_legacy_currency": financial_values.get("currency"),
                         "contract_id": survivor_id,
                     },
                 )

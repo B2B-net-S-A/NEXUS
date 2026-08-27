@@ -34,6 +34,9 @@ interface MarginRow {
   total_monthly_margin: number;
   total_monthly_revenue: number;
   margin_pct: number | null;
+  // Gdy true, backend pominął co najmniej jedną nogę bez kursu FX. Kwoty są
+  // wtedy częściowe i nie wolno prezentować ich jak kompletnego agregatu.
+  fx_missing?: boolean;
 }
 
 interface UtilizationData {
@@ -147,6 +150,7 @@ function MarginLeaderboard({
             {rows.map((r, i) => {
               const linkId = (r.candidate_id ?? r.client_id) as number;
               const name = (r[nameKey] ?? "—") as string;
+              const fxMissing = r.fx_missing === true;
               return (
                 <tr key={linkId} className="border-t border-border dark:border-border">
                   <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
@@ -157,16 +161,30 @@ function MarginLeaderboard({
                     >
                       {name}
                     </Link>
+                    {fxMissing && (
+                      <span
+                        role="alert"
+                        className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+                        title="Kwoty pomijają pozycje bez dostępnego kursu FX"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                        Brak kursu FX
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">{r.active_contracts}</td>
                   <td className="px-3 py-2 text-right">
-                    {formatCurrency(r.total_monthly_revenue, "PLN")}
+                    {fxMissing
+                      ? "—"
+                      : formatCurrency(r.total_monthly_revenue, "PLN")}
                   </td>
                   <td className="px-3 py-2 text-right font-semibold text-emerald-600">
-                    {formatCurrency(r.total_monthly_margin, "PLN")}
+                    {fxMissing
+                      ? "—"
+                      : formatCurrency(r.total_monthly_margin, "PLN")}
                   </td>
                   <td className="px-3 py-2 text-right text-muted-foreground dark:text-muted-foreground">
-                    {r.margin_pct !== null ? `${r.margin_pct}%` : "—"}
+                    {!fxMissing && r.margin_pct !== null ? `${r.margin_pct}%` : "—"}
                   </td>
                 </tr>
               );
@@ -324,7 +342,12 @@ export default function ContractAnalyticsPage() {
   // „0,00 zł" — nieodróżnialne od prawdziwego wyniku na ekranie, na którym
   // admin odpowiada sobie na pytanie „ile zarabiamy w tym miesiącu".
   // Dlatego bez sukcesu renderujemy „—", a nie sformatowane zero.
-  const marginTotalsKnown = clientQ.isSuccess && byClient !== undefined;
+  const clientFxMissing = (byClient ?? []).some((row) => row.fx_missing === true);
+  const anyLeaderboardFxMissing =
+    clientFxMissing ||
+    (byContractor ?? []).some((row) => row.fx_missing === true);
+  const marginTotalsKnown =
+    clientQ.isSuccess && byClient !== undefined && !clientFxMissing;
   const totalMonthlyMargin = (byClient ?? []).reduce(
     (acc, r) => acc + r.total_monthly_margin,
     0,
@@ -350,6 +373,19 @@ export default function ContractAnalyticsPage() {
           </p>
         </div>
 
+        {anyLeaderboardFxMissing && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              Dane finansowe są niepełne — pozycje bez kursu FX zostały pominięte.
+              Kwoty i sumy zależne od tych pozycji pokazujemy jako „—”.
+            </span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             icon={TrendingUp}
@@ -363,7 +399,9 @@ export default function ContractAnalyticsPage() {
               !marginTotalsKnown
                 ? clientQ.isLoading
                   ? "Ładowanie…"
-                  : "Nie udało się pobrać marży"
+                  : clientFxMissing
+                    ? "Niepełne dane — brak kursu FX"
+                    : "Nie udało się pobrać marży"
                 : totalMonthlyRevenue
                   ? `${((totalMonthlyMargin / totalMonthlyRevenue) * 100).toFixed(1)}% z przychodu`
                   : undefined
@@ -382,7 +420,9 @@ export default function ContractAnalyticsPage() {
                 ? undefined
                 : clientQ.isLoading
                   ? "Ładowanie…"
-                  : "Nie udało się pobrać przychodu"
+                  : clientFxMissing
+                    ? "Niepełne dane — brak kursu FX"
+                    : "Nie udało się pobrać przychodu"
             }
           />
           <MetricCard

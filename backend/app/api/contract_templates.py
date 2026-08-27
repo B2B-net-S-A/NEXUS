@@ -139,7 +139,7 @@ def _contract_vars(contract: Contract) -> dict:
     _rate_clause = _build_rate_clause(
         _rate_stages,
         language=lang,
-        currency=contract.currency,
+        currency=contract.resolved_rate_candidate_currency,
         words_override=_words_override,
     )
     return {
@@ -149,7 +149,7 @@ def _contract_vars(contract: Contract) -> dict:
             "end_date": contract.end_date,
             "rate_candidate": contract.rate_candidate,
             "rate_client": contract.rate_client,
-            "currency": contract.currency,
+            "currency": contract.resolved_rate_candidate_currency,
             "rate_unit": contract.rate_unit.value
             if hasattr(contract.rate_unit, "value")
             else str(contract.rate_unit),

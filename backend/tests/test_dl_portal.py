@@ -281,6 +281,46 @@ async def test_contract_with_order_atomic_create(
         await _cleanup([client_id], [], [cand_id])
 
 
+async def test_contract_with_order_keeps_revenue_and_cost_currencies_independent(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    client_id = await _new_client()
+    cand_id = await _new_candidate()
+    try:
+        resp = await app_client.post(
+            f"/api/clients/{client_id}/contract-with-order",
+            json={
+                "candidate_id": cand_id,
+                "title": "Mixed currency order",
+                "contract_start_date": "2026-07-01",
+                "order_start_date": "2026-07-01",
+                "order_end_date": "2026-12-31",
+                "rate_client": 100,
+                "rate_candidate": 300,
+                "rate_unit": "monthly",
+                "rate_client_currency": "EUR",
+                "rate_candidate_currency": "PLN",
+            },
+            headers=app_auth_headers,
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["monthly_margin"] is None
+
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, body["contract_id"])
+            order = await db.get(ClientOrder, body["order_id"])
+            assert contract is not None
+            assert order is not None
+            assert contract.currency == "EUR"
+            assert contract.rate_client_currency == "EUR"
+            assert contract.rate_candidate_currency == "PLN"
+            assert contract.margin is None
+            assert order.currency == "EUR"
+    finally:
+        await _cleanup([client_id], [], [cand_id])
+
+
 async def test_grouped_response_shows_contract_with_orders(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):

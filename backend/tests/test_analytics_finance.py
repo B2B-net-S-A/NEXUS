@@ -44,7 +44,12 @@ def test_month_starts_true_calendar_arithmetic():
 
 
 def _priced_contract(
-    rate: str | None, margin: str | None, currency: str = "PLN"
+    rate: str | None,
+    margin: str | None,
+    currency: str = "PLN",
+    *,
+    rate_client_currency: str | None = None,
+    rate_candidate_currency: str | None = None,
 ) -> Contract:
     """Nieprzypisana umowa o zadanej miesięcznej stawce klienta i marży.
 
@@ -65,6 +70,8 @@ def _priced_contract(
         rate_candidate=candidate_rate,
         rate_unit=RateUnit.monthly,
         currency=currency,
+        rate_client_currency=rate_client_currency,
+        rate_candidate_currency=rate_candidate_currency,
     )
 
 
@@ -113,6 +120,29 @@ async def test_sum_finance_fx_conversion_with_rate():
     assert any("kursie raportowym" in w for w in warnings)
 
 
+async def test_sum_finance_converts_revenue_and_cost_independently():
+    await _seed_rate("EUR", "4.000000", date(2026, 1, 2))
+    contract = _priced_contract(
+        "1000",
+        None,
+        rate_client_currency="EUR",
+        rate_candidate_currency="PLN",
+    )
+    contract.rate_candidate = Decimal("2500")
+
+    async with AsyncSessionLocal() as db:
+        data, warnings, flag = await _sum_finance(
+            db,
+            [contract],
+            on=date(2026, 1, 10),
+        )
+
+    assert flag == "complete"
+    assert data["mrr"] == "4000.00"
+    assert data["monthly_margin"] == "1500.00"
+    assert any("kursie raportowym" in warning for warning in warnings)
+
+
 async def test_sum_finance_missing_rate_is_unavailable_never_nominal():
     """Waluta bez kursu ⇒ unavailable; kwota NIE wchodzi 1:1 (plan §3.4)."""
     async with AsyncSessionLocal() as db:
@@ -123,6 +153,24 @@ async def test_sum_finance_missing_rate_is_unavailable_never_nominal():
     assert flag == "unavailable"
     assert data["mrr"] == "2000.00", "kwota XXX nie może wejść nominalnie"
     assert any("Brak kursu" in w for w in warnings)
+
+
+async def test_sum_finance_zero_foreign_leg_does_not_require_fx():
+    contract = _priced_contract(
+        "0",
+        None,
+        rate_client_currency="XXZ",
+        rate_candidate_currency="PLN",
+    )
+    contract.rate_candidate = Decimal("100")
+
+    async with AsyncSessionLocal() as db:
+        data, warnings, flag = await _sum_finance(db, [contract])
+
+    assert flag == "complete"
+    assert data["mrr"] == "0.00"
+    assert data["monthly_margin"] == "-100.00"
+    assert not any("XXZ" in warning for warning in warnings)
 
 
 # ── filled_at + financial_adjustments przez API ─────────────────────────────

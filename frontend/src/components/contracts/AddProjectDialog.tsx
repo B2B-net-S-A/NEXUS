@@ -76,6 +76,8 @@ export interface AddProjectDialogProps {
     contract_type: string;
     rate_unit: string;
     currency: string;
+    rate_client_currency?: string | null;
+    rate_candidate_currency?: string | null;
     billing_hours_per_month: number;
     work_mode: string | null;
   };
@@ -110,6 +112,12 @@ export function AddProjectDialog({
   const [contractType, setContractType] = useState(baseContract.contract_type);
   const [workMode, setWorkMode] = useState(baseContract.work_mode ?? "");
   const [rateUnit, setRateUnit] = useState(baseContract.rate_unit || "monthly");
+  const [rateClientCurrency, setRateClientCurrency] = useState(
+    baseContract.rate_client_currency ?? baseContract.currency ?? "PLN",
+  );
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState(
+    baseContract.rate_candidate_currency ?? baseContract.currency ?? "PLN",
+  );
   const [rateCost, setRateCost] = useState("");
   const [rateRevenue, setRateRevenue] = useState("");
   // Bez dostępu finansowego nie da się podać stawek, a bez stawek nie ma
@@ -138,9 +146,13 @@ export function AddProjectDialog({
     });
 
   const clientsQuery = useQuery({
-    queryKey: ["clients-lookup-add-project"],
+    queryKey: ["clients-lookup-add-project", "contract-eligible"],
     queryFn: async () =>
-      (await api.get<ClientOption[]>("/api/clients-lookup")).data,
+      (
+        await api.get<ClientOption[]>("/api/clients-lookup", {
+          params: { contract_eligible: true },
+        })
+      ).data,
     enabled: open,
   });
 
@@ -186,7 +198,8 @@ export function AddProjectDialog({
       };
       if (canManageFinance) {
         Object.assign(payload, {
-          currency: baseContract.currency || "PLN",
+          rate_client_currency: rateClientCurrency,
+          rate_candidate_currency: rateCandidateCurrency,
           rate_unit: rateUnit,
           billing_hours_per_month: baseContract.billing_hours_per_month || 160,
           rate_candidate: parseDecimalInput(rateCost),
@@ -524,7 +537,7 @@ export function AddProjectDialog({
         </div>
 
         {canManageFinance && (
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <div>
               <Label className="mb-1.5 block">Stawka kosztowa</Label>
               <Input
@@ -565,6 +578,40 @@ export function AddProjectDialog({
                   <SelectItem value="monthly">Miesięcznie</SelectItem>
                   <SelectItem value="daily">Dziennie</SelectItem>
                   <SelectItem value="hourly">Godzinowo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1.5 block">Waluta przychodowa (klienta)</Label>
+              <Select
+                value={rateClientCurrency}
+                onValueChange={setRateClientCurrency}
+              >
+                <SelectTrigger aria-label="Waluta stawki przychodowej (klienta)">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PLN">PLN</SelectItem>
+                  <SelectItem value="EUR">EUR</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                  <SelectItem value="GBP">GBP</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1.5 block">Waluta kosztowa (kandydata)</Label>
+              <Select
+                value={rateCandidateCurrency}
+                onValueChange={setRateCandidateCurrency}
+              >
+                <SelectTrigger aria-label="Waluta stawki kosztowej (kandydata / umowy ramowej)">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PLN">PLN</SelectItem>
+                  <SelectItem value="EUR">EUR</SelectItem>
+                  <SelectItem value="USD">USD</SelectItem>
+                  <SelectItem value="GBP">GBP</SelectItem>
                 </SelectContent>
               </Select>
             </div>

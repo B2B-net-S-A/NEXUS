@@ -195,6 +195,60 @@ def test_effective_rate_uses_latest_schedule_step():
     assert len(same_day) == 1
 
 
+def test_rate_snapshot_uses_currency_of_the_selected_rate_side():
+    contract = {
+        "id": 8,
+        "rate_candidate": Decimal("100"),
+        "rate_client": Decimal("150"),
+        "framework_rate": Decimal("120"),
+        "rate_unit": "hourly",
+        "currency": "EUR",
+        "rate_client_currency": "EUR",
+        "rate_candidate_currency": "PLN",
+        "billing_hours_per_month": 160,
+    }
+
+    assert (
+        _rate_snapshot(contract, [], "client", date(2026, 8, 26))["currency"] == "EUR"
+    )
+    assert (
+        _rate_snapshot(contract, [], "candidate", date(2026, 8, 26))["currency"]
+        == "PLN"
+    )
+    assert (
+        _rate_snapshot(contract, [], "framework", date(2026, 8, 26))["currency"]
+        == "PLN"
+    )
+
+
+def test_rate_timeline_treats_equal_amounts_in_different_currencies_as_conflict():
+    contracts = [
+        {
+            "id": 8,
+            "rate_client": Decimal("100"),
+            "rate_unit": "hourly",
+            "currency": "EUR",
+            "rate_client_currency": "EUR",
+            "billing_hours_per_month": 160,
+        },
+        {
+            "id": 9,
+            "rate_client": Decimal("100"),
+            "rate_unit": "hourly",
+            "currency": "PLN",
+            "rate_client_currency": "PLN",
+            "billing_hours_per_month": 160,
+        },
+    ]
+
+    plan = _rate_timeline_plan(contracts, [], "client", date(2026, 8, 26))
+
+    assert plan["current_value_conflict"] is True
+    assert plan["conflict"] is True
+    assert plan["single_source_contract_id"] is None
+    assert plan["available_source_contract_ids"] == [8, 9]
+
+
 def test_effective_rate_future_only_uses_earliest_future_and_highest_id_tie():
     contract = {
         "id": 9,
@@ -346,7 +400,6 @@ def test_financial_metadata_separates_rate_empty_conflict_and_coalesces_safe_val
     assert metadata["single_source_contract_id"] == 1
     assert metadata["resolved_metadata"] == {
         "rate_unit": "hourly",
-        "currency": "PLN",
         "billing_hours_per_month": 160,
     }
 
@@ -387,7 +440,47 @@ def test_financial_metadata_reports_only_different_nonempty_rate_bearing_values(
     assert metadata["available_source_contract_ids"] == [1, 2]
     assert metadata["resolved_metadata"] == {
         "rate_unit": None,
-        "currency": "PLN",
+        "billing_hours_per_month": 160,
+    }
+
+
+def test_financial_metadata_does_not_couple_client_and_cost_currencies():
+    today = date(2026, 8, 26)
+    contracts = [
+        {
+            "id": 1,
+            "rate_candidate": Decimal("100"),
+            "rate_client": None,
+            "framework_rate": None,
+            "rate_unit": "hourly",
+            "currency": "PLN",
+            "rate_client_currency": "PLN",
+            "rate_candidate_currency": "EUR",
+            "billing_hours_per_month": 160,
+        },
+        {
+            "id": 2,
+            "rate_candidate": None,
+            "rate_client": Decimal("150"),
+            "framework_rate": None,
+            "rate_unit": "hourly",
+            "currency": "GBP",
+            "rate_client_currency": "GBP",
+            "rate_candidate_currency": "PLN",
+            "billing_hours_per_month": 160,
+        },
+    ]
+    plans = [
+        _rate_timeline_plan(contracts, [], kind, today)
+        for kind in ("candidate", "client", "framework")
+    ]
+
+    metadata = _financial_metadata_plan(contracts, plans)
+
+    assert metadata["conflict"] is False
+    assert metadata["conflict_fields"] == []
+    assert metadata["resolved_metadata"] == {
+        "rate_unit": "hourly",
         "billing_hours_per_month": 160,
     }
 
@@ -407,7 +500,6 @@ def test_framework_and_metadata_decisions_are_explicit_and_compatible():
             "single_source_contract_id": None,
             "resolved_metadata": {
                 "rate_unit": None,
-                "currency": "PLN",
                 "billing_hours_per_month": 160,
             },
             "snapshots": [

@@ -1406,6 +1406,8 @@ export interface ContractGroupMember {
   margin: number | null;
   rate_unit: "hourly" | "daily" | "monthly" | null;
   currency: string | null;
+  rate_client_currency?: string | null;
+  rate_candidate_currency?: string | null;
 }
 
 // Inny kontrakt tej samej osoby (szczegóły kontraktu → zakładki per klient).
@@ -1586,6 +1588,8 @@ export interface ContractorListItem {
   rate_client?: number | null;
   rate_unit: "hourly" | "daily" | "monthly";
   currency?: string;
+  rate_client_currency?: string | null;
+  rate_candidate_currency?: string | null;
   margin?: number | null;
   contract_type: "b2b" | "uop" | "uzlecenie";
   work_mode?: "remote" | "hybrid" | "onsite" | null;

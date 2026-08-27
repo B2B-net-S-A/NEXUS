@@ -324,6 +324,8 @@ async def test_tac_gets_redacted_detail(app_client: AsyncClient):
     assert body["margin"] is None
     assert body["candidate_rate_schedule"] == []
     assert body["currency"] is None
+    assert body["rate_client_currency"] is None
+    assert body["rate_candidate_currency"] is None
     assert body["rate_unit"] is None
     assert body["billing_hours_per_month"] is None
     assert body["eur_pln_rate"] is None
@@ -343,6 +345,8 @@ async def test_delivery_lead_gets_redacted_detail(app_client: AsyncClient):
     assert body["rate_client"] is None
     assert body["margin"] is None
     assert body["currency"] is None
+    assert body["rate_client_currency"] is None
+    assert body["rate_candidate_currency"] is None
     assert body["rate_unit"] is None
     assert body["billing_hours_per_month"] is None
 
@@ -409,6 +413,8 @@ async def test_tac_gets_redacted_contractor_list(app_client: AsyncClient):
     assert row["rate_candidate"] is None
     assert row["margin"] is None
     assert row["currency"] is None
+    assert row["rate_client_currency"] is None
+    assert row["rate_candidate_currency"] is None
     assert row["rate_unit"] is None
 
 
@@ -468,6 +474,14 @@ async def test_tac_cannot_patch_finance_fields(
     )
     assert r.status_code == 403, r.text
     assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+
+    currency_write = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"rate_candidate_currency": "EUR"},
+        headers=tac,
+    )
+    assert currency_write.status_code == 403, currency_write.text
+    assert currency_write.json()["detail"]["code"] == "finance_fields_forbidden"
 
     unchanged = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert unchanged.status_code == 200, unchanged.text

@@ -1,4 +1,5 @@
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -38,6 +39,11 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contractor_identity import summarize_active_contracts
+from app.services.fx_service import (
+    amount_to_pln_with_rate,
+    rates_to_pln,
+    rates_to_pln_by_date,
+)
 from app.schemas.money import to_whole_pln
 from app.schemas.client_profile import (
     ActiveConsultantItem,
@@ -54,6 +60,7 @@ from app.api.contracts import _effective_rate_fields
 from app.api.deps import AdminUser, OperationalUser, TacPlus
 
 router = APIRouter()
+_RATE_NOT_PROVIDED = object()
 
 
 # ── Profile helpers ───────────────────────────────────────────────────────────
@@ -80,7 +87,7 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
 def _contract_total_revenue(
     contract: Contract,
     boundary: Optional[date] = None,
-    monthly_rate_client: Optional[object] = None,
+    monthly_rate_client: object = _RATE_NOT_PROVIDED,
 ) -> Optional[int]:
     """Cumulative revenue from a contract up to a boundary date (exclusive).
 
@@ -94,16 +101,66 @@ def _contract_total_revenue(
     different rate than the one displayed next to it in the same row.
     """
     monthly = (
-        monthly_rate_client
-        if monthly_rate_client is not None
-        else contract.monthly_rate_client
+        contract.monthly_rate_client
+        if monthly_rate_client is _RATE_NOT_PROVIDED
+        else monthly_rate_client
     )
     if monthly is None or contract.start_date is None:
         return None
     months = _duration_months(contract.start_date, boundary)
     if months is None:
         return None
-    return int(monthly) * int(months)
+    return to_whole_pln(monthly) * int(months)
+
+
+def _contract_rate_currencies(contract: Contract) -> tuple[str, str]:
+    """Return the independently resolved client and candidate currencies."""
+
+    return (
+        contract.resolved_rate_client_currency,
+        contract.resolved_rate_candidate_currency,
+    )
+
+
+def _finance_rates_in_pln(
+    contract: Contract,
+    rate_fields: dict[str, object],
+    fx_rates: dict[str, Optional[Decimal]],
+) -> dict[str, object]:
+    """Convert both monthly rate legs independently and derive a PLN margin.
+
+    ``effective_rate_fields`` deliberately leaves mixed-currency margin empty,
+    because subtracting the nominal amounts would be meaningless. Client
+    profile amounts are ``WholePLN`` fields, so this surface resolves both legs
+    to PLN first. A missing FX rate stays ``None`` and is reported through the
+    two internal flags so aggregates can fail closed instead of publishing a
+    partial total as complete.
+    """
+
+    client_currency, candidate_currency = _contract_rate_currencies(contract)
+    raw_client = rate_fields.get("monthly_rate_client")
+    raw_candidate = rate_fields.get("monthly_rate_candidate")
+    client_fx = fx_rates.get(client_currency)
+    candidate_fx = fx_rates.get(candidate_currency)
+
+    client_pln, client_complete = amount_to_pln_with_rate(raw_client, client_fx)
+    candidate_pln, candidate_complete = amount_to_pln_with_rate(
+        raw_candidate, candidate_fx
+    )
+    client_missing_fx = not client_complete
+    candidate_missing_fx = not candidate_complete
+    margin_pln = (
+        client_pln - candidate_pln
+        if client_pln is not None and candidate_pln is not None
+        else None
+    )
+    return {
+        "monthly_rate_client": client_pln,
+        "monthly_rate_candidate": candidate_pln,
+        "monthly_margin": margin_pln,
+        "client_missing_fx": client_missing_fx,
+        "candidate_missing_fx": candidate_missing_fx,
+    }
 
 
 def _candidate_brief(candidate: Candidate) -> CandidateBrief:
@@ -491,12 +548,25 @@ async def get_client_profile(
     # te liczby wyeksponować w osobnych kolumnach; eksponowanie złej liczby jest
     # gorsze niż jej brak.
     active_rates = {c.id: _effective_rate_fields(c, today) for c in active_contracts}
+    active_fx_rates = await rates_to_pln(
+        db,
+        {
+            currency
+            for contract in active_contracts
+            for currency in _contract_rate_currencies(contract)
+        },
+        today,
+    )
+    active_rates_pln = {
+        c.id: _finance_rates_in_pln(c, active_rates[c.id], active_fx_rates)
+        for c in active_contracts
+    }
 
     active_consultants: list[ActiveConsultantItem] = []
     for c in active_contracts:
         if c.candidate is None:
             continue
-        rates = active_rates[c.id]
+        rates = active_rates_pln[c.id]
         job_id, job_title, job_from_order = _resolve_job(c)
         active_consultants.append(
             ActiveConsultantItem(
@@ -511,7 +581,9 @@ async def get_client_profile(
                 monthly_rate_client=rates["monthly_rate_client"],
                 monthly_rate_candidate=rates["monthly_rate_candidate"],
                 monthly_margin=rates["monthly_margin"],
-                currency=c.currency or "PLN",
+                # This profile schema has a single display currency. Both rate
+                # legs above have already been converted independently to PLN.
+                currency="PLN",
                 project_part=_representative_project_part(c),
             )
         )
@@ -551,13 +623,33 @@ async def get_client_profile(
     ended_rates = {
         c.id: _effective_rate_fields(c, ended_boundaries[c.id]) for c in ended_contracts
     }
+    ended_fx_by_boundary = await rates_to_pln_by_date(
+        db,
+        {
+            boundary: {
+                currency
+                for contract in ended_contracts
+                if ended_boundaries[contract.id] == boundary
+                for currency in _contract_rate_currencies(contract)
+            }
+            for boundary in set(ended_boundaries.values())
+        },
+    )
+    ended_rates_pln = {
+        c.id: _finance_rates_in_pln(
+            c,
+            ended_rates[c.id],
+            ended_fx_by_boundary[ended_boundaries[c.id]],
+        )
+        for c in ended_contracts
+    }
 
     placements: list[HistoricalPlacementItem] = []
     for c in ended_contracts:
         if c.candidate is None:
             continue
         end_boundary = ended_boundaries[c.id]
-        rates = ended_rates[c.id]
+        rates = ended_rates_pln[c.id]
         job_id, job_title, job_from_order = _resolve_job(c)
         duration = _duration_months(c.start_date, end_boundary)
         placements.append(
@@ -622,23 +714,38 @@ async def get_client_profile(
     # zaokrąglona raz na końcu potrafi różnić się od sumy kolumny o złotówkę
     # (zmierzone na prodzie: Alior 59 211 vs 59 212). Kafel ma być sumą tego,
     # co użytkownik WIDZI pod nim.
-    active_mrr = sum(
-        to_whole_pln(active_rates[c.id]["monthly_margin"] or 0)
-        for c in active_contracts
+    active_mrr_complete = not any(
+        rates["client_missing_fx"] or rates["candidate_missing_fx"]
+        for rates in active_rates_pln.values()
+    )
+    active_mrr = (
+        sum(
+            to_whole_pln(active_rates_pln[c.id]["monthly_margin"] or 0)
+            for c in active_contracts
+        )
+        if active_mrr_complete
+        else None
     )
 
     # LTV = cumulative revenue so far. For active contracts use today as the
     # boundary so the number keeps ticking; for ended use the real end date.
     ltv = 0
+    ltv_complete = True
     for c in active_contracts:
-        rev = _contract_total_revenue(
-            c, today, active_rates[c.id]["monthly_rate_client"]
-        )
+        rates = active_rates_pln[c.id]
+        if rates["client_missing_fx"]:
+            ltv_complete = False
+            continue
+        rev = _contract_total_revenue(c, today, rates["monthly_rate_client"])
         if rev:
             ltv += rev
     for c in ended_contracts:
+        rates = ended_rates_pln[c.id]
+        if rates["client_missing_fx"]:
+            ltv_complete = False
+            continue
         rev = _contract_total_revenue(
-            c, ended_boundaries[c.id], ended_rates[c.id]["monthly_rate_client"]
+            c, ended_boundaries[c.id], rates["monthly_rate_client"]
         )
         if rev:
             ltv += rev
@@ -667,8 +774,8 @@ async def get_client_profile(
         active_consultants=active_headcount.contractors,
         active_contracts=active_headcount.active_contracts,
         total_placements=total_placements,
-        active_mrr=int(active_mrr),
-        ltv=int(ltv),
+        active_mrr=int(active_mrr) if active_mrr is not None else None,
+        ltv=int(ltv) if ltv_complete else None,
         avg_time_to_fill_days=round(avg_ttf, 1) if avg_ttf is not None else None,
     )
 

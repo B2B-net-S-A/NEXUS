@@ -12,7 +12,7 @@ from app.schemas.money import WholePLN
 
 
 class OverviewRow(BaseModel):
-    """Wiersz w rankingu klientów."""
+    """Wiersz w rankingu klientów; wszystkie kwoty są w PLN."""
 
     client_id: int
     name: str
@@ -32,7 +32,7 @@ class OverviewRow(BaseModel):
 
 
 class DlKpiRow(BaseModel):
-    """Wiersz w leaderboardzie DL."""
+    """Wiersz w leaderboardzie DL; wszystkie kwoty są w PLN."""
 
     dl_user_id: int
     dl_name: str

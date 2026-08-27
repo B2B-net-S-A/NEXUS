@@ -45,6 +45,28 @@ async def _seed_rate(currency: str, rate: str, on: date) -> None:
             await db.commit()
 
 
+async def _free_test_currency(on: date | None = None) -> str:
+    """Return a currently unused X-prefixed code in the shared test DB."""
+
+    effective_date = on or date.today()
+    async with AsyncSessionLocal() as db:
+        used = set(
+            (
+                await db.scalars(
+                    select(FxRate.currency).where(
+                        FxRate.effective_date == effective_date
+                    )
+                )
+            ).all()
+        )
+    return next(
+        f"X{first}{second}"
+        for first in "0123456789ABCDEF"
+        for second in "0123456789ABCDEF"
+        if f"X{first}{second}" not in used
+    )
+
+
 async def _seed_contractor_two_currencies() -> tuple[int, int]:
     """One contractor + client with a PLN and a GBP active contract.
 
@@ -87,6 +109,39 @@ async def _seed_contractor_two_currencies() -> tuple[int, int]:
                     currency="GBP",
                 ),
             ]
+        )
+        await db.commit()
+        return cand.id, client.id
+
+
+async def _seed_split_currency_contract(
+    *, currency: str, rate_to_pln: str = "4.1234"
+) -> tuple[int, int]:
+    """One contract whose revenue and candidate cost use different currencies."""
+    await _seed_rate(currency, rate_to_pln, date.today())
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Split FX Client {unique}")
+        db.add(client)
+        await db.flush()
+        cand = Candidate(name="SplitFx", lastname=f"Contractor-{unique}")
+        db.add(cand)
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=cand.id,
+                client_id=client.id,
+                status=ContractStatus.active,
+                start_date=date(2025, 1, 1),
+                end_date=None,
+                rate_client=Decimal("5000"),
+                rate_candidate=Decimal("3000"),
+                rate_client_currency=currency,
+                rate_candidate_currency="PLN",
+                # Legacy alias follows the client currency, but finance must use
+                # both explicit legs rather than this lossy compatibility field.
+                currency=currency,
+            )
         )
         await db.commit()
         return cand.id, client.id
@@ -148,10 +203,66 @@ async def test_margin_by_client_converts_currencies_to_pln(
     assert row["fx_missing"] is False
 
 
+async def test_margin_endpoints_convert_revenue_and_cost_independently(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    fake_currency = await _free_test_currency()
+    candidate_id, client_id = await _seed_split_currency_contract(
+        currency=fake_currency
+    )
+
+    contractor_response = await app_client.get(
+        "/api/contract-analytics/margin-by-contractor?limit=100",
+        headers=app_auth_headers,
+    )
+    client_response = await app_client.get(
+        "/api/contract-analytics/margin-by-client?limit=100",
+        headers=app_auth_headers,
+    )
+
+    assert contractor_response.status_code == 200, contractor_response.text
+    assert client_response.status_code == 200, client_response.text
+    contractor_row = _find(contractor_response.json(), "candidate_id", candidate_id)
+    client_row = _find(client_response.json(), "client_id", client_id)
+    expected_revenue = 5000 * 4.1234
+    expected_margin = expected_revenue - 3000
+    for row in (contractor_row, client_row):
+        assert row["total_monthly_revenue"] == pytest.approx(expected_revenue, abs=0.05)
+        assert row["total_monthly_margin"] == pytest.approx(expected_margin, abs=0.05)
+        assert row["fx_missing"] is False
+
+
+async def test_revenue_forecast_converts_split_currency_margin_per_leg(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    async def _forecast() -> dict:
+        response = await app_client.get(
+            "/api/contract-analytics/revenue-forecast?horizon_months=1",
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["months"][0]
+
+    before = await _forecast()
+    fake_currency = await _free_test_currency()
+    await _seed_split_currency_contract(currency=fake_currency)
+    after = await _forecast()
+
+    expected_revenue = 5000 * 4.1234
+    expected_margin = expected_revenue - 3000
+    assert after["revenue"] - before["revenue"] == pytest.approx(
+        expected_revenue, abs=0.05
+    )
+    assert after["margin"] - before["margin"] == pytest.approx(
+        expected_margin, abs=0.05
+    )
+    assert after["active_count"] == before["active_count"] + 1
+
+
 async def test_margin_missing_fx_rate_is_flagged_not_fatal(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """A currency with no cached rate degrades 1:1 but sets fx_missing (observable)."""
+    """A currency without a cached rate is flagged and never treated as PLN."""
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"NoFx Client {unique}")
@@ -183,8 +294,75 @@ async def test_margin_missing_fx_rate_is_flagged_not_fatal(
     assert resp.status_code == 200, resp.text
     row = _find(resp.json(), "candidate_id", cand_id)
     assert row["fx_missing"] is True
-    # 1:1 fallback → nominal value preserved.
-    assert row["total_monthly_margin"] == pytest.approx(70000, abs=0.05)
+    # Missing FX excludes both legs. It must not preserve the foreign nominal
+    # amount and label it as PLN.
+    assert row["total_monthly_revenue"] == 0
+    assert row["total_monthly_margin"] == 0
+
+
+async def test_zero_foreign_revenue_leg_does_not_require_fx(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    forecast_before_response = await app_client.get(
+        "/api/contract-analytics/revenue-forecast?horizon_months=1",
+        headers=app_auth_headers,
+    )
+    assert forecast_before_response.status_code == 200, forecast_before_response.text
+    forecast_before = forecast_before_response.json()["months"][0]
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Zero FX Client {unique}")
+        candidate = Candidate(name="ZeroFx", lastname=f"Contractor-{unique}")
+        db.add_all([client, candidate])
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=candidate.id,
+                client_id=client.id,
+                status=ContractStatus.active,
+                start_date=date(2025, 1, 1),
+                rate_client=Decimal("0"),
+                rate_candidate=Decimal("100"),
+                currency="XXZ",
+                rate_client_currency="XXZ",
+                rate_candidate_currency="PLN",
+            )
+        )
+        await db.commit()
+        candidate_id = candidate.id
+        client_id = client.id
+
+    contractor_response = await app_client.get(
+        "/api/contract-analytics/margin-by-contractor?limit=100",
+        headers=app_auth_headers,
+    )
+    client_response = await app_client.get(
+        "/api/contract-analytics/margin-by-client?limit=100",
+        headers=app_auth_headers,
+    )
+    forecast_after_response = await app_client.get(
+        "/api/contract-analytics/revenue-forecast?horizon_months=1",
+        headers=app_auth_headers,
+    )
+
+    assert contractor_response.status_code == 200, contractor_response.text
+    assert client_response.status_code == 200, client_response.text
+    assert forecast_after_response.status_code == 200, forecast_after_response.text
+    for row in (
+        _find(contractor_response.json(), "candidate_id", candidate_id),
+        _find(client_response.json(), "client_id", client_id),
+    ):
+        assert row["total_monthly_revenue"] == 0
+        assert row["total_monthly_margin"] == -100
+        assert row["fx_missing"] is False
+
+    forecast_after_body = forecast_after_response.json()
+    forecast_after = forecast_after_body["months"][0]
+    assert forecast_after["revenue"] - forecast_before["revenue"] == 0
+    assert forecast_after["margin"] - forecast_before["margin"] == -100
+    assert forecast_after["active_count"] == forecast_before["active_count"] + 1
+    assert not any("XXZ" in warning for warning in forecast_after_body["fx_warnings"])
 
 
 async def test_revenue_forecast_converts_by_default(
@@ -266,7 +444,7 @@ async def test_revenue_forecast_missing_fx_excluded_not_counted_1to1(
     unique = uuid.uuid4().hex[:8]
     # A per-run fake ISO-ish code (X-space = "no currency"), 3 chars, that no
     # other test seeds a rate for — so the "no cached rate" precondition holds.
-    fake_cur = f"X{uuid.uuid4().hex[:2].upper()}"
+    fake_cur = await _free_test_currency()
     monthly = 10000  # default rate_unit → monthly == rate_client
     async with AsyncSessionLocal() as db:
         client = Client(name=f"NoRate Client {unique}")

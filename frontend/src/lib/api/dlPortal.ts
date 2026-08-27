@@ -255,6 +255,8 @@ export interface NewContractorOrderRequest {
   rate_unit?: "monthly" | "daily" | "hourly";
   billing_hours_per_month?: number;
   currency?: string;
+  rate_client_currency?: string;
+  rate_candidate_currency?: string;
   total_value?: number | null;
   notes?: string | null;
   /** „Część umowy" e-Zdrowia — wymagana dla client_id=115, zabroniona u innych. */

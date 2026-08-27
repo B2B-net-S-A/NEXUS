@@ -2090,6 +2090,11 @@ function CurrentContractCard({
  queryFn: () => contractsApi.documents(contract.id).then((r: any) => r.data),
  });
  const documents = docsQuery.data ?? [];
+ const legacyCurrency = contract.currency ?? "PLN";
+ const clientRateCurrency = contract.rate_client_currency ?? legacyCurrency;
+ const candidateRateCurrency = contract.rate_candidate_currency ?? legacyCurrency;
+ const hasComparableCurrencies =
+ clientRateCurrency.toUpperCase() === candidateRateCurrency.toUpperCase();
 
  const handleDownload = async (d: any) => {
  try {
@@ -2133,7 +2138,7 @@ function CurrentContractCard({
  label="Stawka kandydata"
  value={formatRate(
  contract.rate_candidate,
- contract.currency,
+ candidateRateCurrency,
  contract.rate_unit,
  )}
  />
@@ -2141,15 +2146,15 @@ function CurrentContractCard({
  label="Stawka klienta"
  value={formatRate(
  contract.rate_client,
- contract.currency,
+ clientRateCurrency,
  contract.rate_unit,
  )}
  />
  <StatTile
  label="Marża"
  value={formatRate(
- contract.margin,
- contract.currency,
+ hasComparableCurrencies ? contract.margin : null,
+ clientRateCurrency,
  contract.rate_unit,
  )}
  />

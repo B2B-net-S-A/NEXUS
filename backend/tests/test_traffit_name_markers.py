@@ -44,12 +44,54 @@ ACTIVE_FORMS = [
     ("[Active] Marek", "Marek"),
     ("[active] Paweł", "Paweł"),
     ("[active/ Maciej", "Maciej"),
+    ("[INACTIVE] Anna", "Anna"),
+    ("(inactive) Anna", "Anna"),
+    ("[NIEAKTYWNY] Jan", "Jan"),
+    ("(aktywny) Jan", "Jan"),
+    ("[PASSIVE] Piotr", "Piotr"),
+    ("(passive) Piotr", "Piotr"),
+    ("[ZATRUNIONY] Tomasz", "Tomasz"),
+]
+
+BARE_EDGE_FORMS = [
+    ("ACTIVE Marcin", "Marcin"),
+    ("Marcin active", "Marcin"),
+    ("AKTYWNY Jan", "Jan"),
+    ("Jan aktywny", "Jan"),
+    ("INACTIVE Anna", "Anna"),
+    ("Anna nieaktywny", "Anna"),
+    ("passive Piotr", "Piotr"),
+    ("Piotr - PASSIVE", "Piotr"),
+    ("zatruniony Tomasz", "Tomasz"),
+    ("Tomasz zatruniona", "Tomasz"),
 ]
 
 
 @pytest.mark.parametrize("raw,oczekiwane", BLACKLIST_FORMS + ACTIVE_FORMS)
 def test_marker_znika_z_imienia(raw: str, oczekiwane: str):
     assert strip_status_marker(raw) == oczekiwane
+
+
+@pytest.mark.parametrize("raw,oczekiwane", BARE_EDGE_FORMS)
+def test_bare_marker_znika_tylko_z_krawedzi(raw: str, oczekiwane: str):
+    assert strip_status_marker(raw) == oczekiwane
+
+
+@pytest.mark.parametrize(
+    "wartosc",
+    [
+        "Activision",
+        "Inactivewicz",
+        "Jan Inactivewicz",
+        "[Inactivewicz] Jan",
+        "[Activision] Jan",
+        "Active",
+        "Jan ACTIVE Kowalski",
+    ],
+)
+def test_bare_marker_nie_narusza_realnego_ani_jedynego_tekstu(wartosc: str):
+    assert strip_status_marker(wartosc) == wartosc
+    assert extract_markers(wartosc) == []
 
 
 @pytest.mark.parametrize("raw,_", BLACKLIST_FORMS)
@@ -126,6 +168,39 @@ def test_zdjety_marker_zostaje_w_prowieniencji():
     )
     assert wynik["name"] == "Rajan"
     assert "akcept" in wynik["cv_extracted_data"]["traffit_name_marker"].lower()
+
+
+def test_bare_markery_zostaja_w_prowieniencji_i_nie_zmieniaja_statusu():
+    wynik = traffit_employee_to_candidate(
+        {
+            "id": 103,
+            "name": "ACTIVE Jan",
+            "lastname": "Kowalski zatruniony",
+            "status": "inactive",
+        }
+    )
+    assert wynik["name"] == "Jan"
+    assert wynik["lastname"] == "Kowalski"
+    assert wynik["status"] == "passive"
+    markery = wynik["cv_extracted_data"]["traffit_name_marker"].lower()
+    assert "active" in markery
+    assert "zatruniony" in markery
+
+
+def test_kilka_markerow_na_krawedzi_jest_czyszczonych_i_zapisanych():
+    wynik = traffit_employee_to_candidate(
+        {
+            "id": 104,
+            "name": "[zatrudniony] ACTIVE PASSIVE Jan",
+            "lastname": "Nowak",
+            "status": "active",
+        }
+    )
+    assert wynik["name"] == "Jan"
+    markery = wynik["cv_extracted_data"]["traffit_name_marker"].lower()
+    assert "zatrudniony" in markery
+    assert "active" in markery
+    assert "passive" in markery
 
 
 def test_prowieniencja_nie_powstaje_bez_markera():

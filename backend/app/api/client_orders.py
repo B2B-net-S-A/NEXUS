@@ -35,7 +35,11 @@ from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.contracts import _synced_client_order_end
+from app.api.contracts import (
+    _normalize_contract_currency,
+    _raise_currency_conflict,
+    _synced_client_order_end,
+)
 from app.api.deps import DlAssignedOrAdmin, TacPlus
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.core.database import get_db
@@ -613,6 +617,16 @@ def _compute_monthly_margin(
     )
     if rate_client_effective is None or eff["rate_candidate"] is None:
         return None
+    client_currency = (
+        (order.currency or "PLN").upper()
+        if order.rate_client is not None
+        else eff["rate_client_currency"]
+    )
+    if client_currency != eff["rate_candidate_currency"]:
+        # This synchronous helper has no dated FX snapshot. Returning no
+        # margin is safer than subtracting nominal values in different
+        # currencies; PLN analytics convert both legs independently.
+        return None
     monthly_client = _normalize_monthly(
         rate_client_effective, contract.rate_unit, contract.billing_hours_per_month
     )
@@ -718,6 +732,8 @@ _ORDER_FINANCE_WRITE_FIELDS = frozenset(
         "rate_candidate",
         "total_value",
         "currency",
+        "rate_client_currency",
+        "rate_candidate_currency",
         "rate_unit",
         "billing_hours_per_month",
     }
@@ -730,7 +746,14 @@ _ORDER_FINANCE_WRITE_FIELDS = frozenset(
 # stawki. Waluta i wartość zamówienia zostają, bo opisują to konkretne
 # zamówienie i nie przepisują niczego wstecz.
 _DL_ORDER_FINANCE_WRITE_FIELDS = frozenset(
-    {"rate_client", "rate_candidate", "total_value", "currency"}
+    {
+        "rate_client",
+        "rate_candidate",
+        "total_value",
+        "currency",
+        "rate_client_currency",
+        "rate_candidate_currency",
+    }
 )
 
 
@@ -860,19 +883,43 @@ def _flow_b_finance_kwargs(
     except ValueError:
         raise HTTPException(400, detail="Invalid rate_unit") from None
 
-    currency = payload.currency or "PLN"
+    supplied = payload.model_fields_set
+    legacy = _normalize_contract_currency(payload.currency or "PLN", "currency")
+    client_currency = (
+        _normalize_contract_currency(
+            payload.rate_client_currency, "rate_client_currency"
+        )
+        if "rate_client_currency" in supplied
+        else legacy
+    )
+    candidate_currency = (
+        _normalize_contract_currency(
+            payload.rate_candidate_currency, "rate_candidate_currency"
+        )
+        if "rate_candidate_currency" in supplied
+        else legacy
+    )
+    if (
+        "currency" in supplied
+        and "rate_client_currency" in supplied
+        and client_currency != legacy
+    ):
+        _raise_currency_conflict(["rate_client_currency"])
     billing_hours = payload.billing_hours_per_month or 160
     contract_kwargs: dict[str, object] = {
         "rate_client": payload.rate_client,
         "rate_candidate": payload.rate_candidate,
-        "currency": currency,
+        "currency": client_currency,
+        "rate_client_currency": client_currency,
+        "rate_candidate_currency": candidate_currency,
         "rate_unit": rate_unit,
         "billing_hours_per_month": billing_hours,
     }
     order_kwargs: dict[str, object] = {
         "rate_client": payload.rate_client,
         "total_value": payload.total_value,
-        "currency": currency,
+        # Zamówienie reprezentuje przychód od klienta.
+        "currency": client_currency,
     }
     return contract_kwargs, order_kwargs
 
@@ -1345,7 +1392,7 @@ async def create_order_extension(
         end_date=end_date,
         rate_client=rate_client,
         total_value=total_dec,
-        currency=currency or contract.currency,
+        currency=currency or contract.resolved_rate_client_currency,
         project_part=project_part,
         created_by_user_id=user.id,
         notes=notes,

@@ -32,7 +32,7 @@ from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
-from app.services.fx_service import rates_to_pln
+from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,10 @@ def _monthly_rate_client(contract: Contract) -> Decimal:
     return _monthly(contract, contract.rate_client)
 
 
+def _monthly_rate_candidate(contract: Contract) -> Decimal:
+    return _monthly(contract, contract.rate_candidate)
+
+
 def _monthly_margin(contract: Contract) -> Decimal:
     return _monthly(contract, contract.margin)
 
@@ -80,24 +84,42 @@ def _monthly_margin(contract: Contract) -> Decimal:
 def _fold_finance_pln(
     contracts, rates: dict[str, Optional[Decimal]]
 ) -> tuple[Decimal, Decimal, set[str]]:
-    """Sum monthly client-rate & margin in PLN over ``contracts`` using ``rates``
-    (currency→PLN, ``None`` = no report rate).
+    """Sum monthly revenue and margin in PLN using per-rate currencies.
 
-    A contract whose currency lacks a rate is EXCLUDED from the sum and its code
-    is returned in the ``missing`` set — the total never silently under-reports
-    a foreign amount as if it were PLN. Mirrors ``metrics._sum_finance``.
+    Revenue and candidate cost are converted independently before subtraction.
+    A missing revenue FX excludes revenue; a missing cost FX makes that
+    contract's margin unavailable, but does not discard a valid revenue amount.
+    No foreign amount is ever treated as PLN at nominal value. Mirrors
+    ``metrics._sum_finance``.
     """
     revenue = Decimal("0")
     margin = Decimal("0")
     missing: set[str] = set()
     for c in contracts:
-        cur = (c.currency or "PLN").upper()
-        rate = rates.get(cur)
-        if rate is None:
-            missing.add(cur)
+        client_currency = (c.rate_client_currency or c.currency or "PLN").upper()
+        candidate_currency = (c.rate_candidate_currency or c.currency or "PLN").upper()
+        client_fx = rates.get(client_currency)
+        candidate_fx = rates.get(candidate_currency)
+        if c.rate_client is None:
             continue
-        revenue += _monthly_rate_client(c) * rate
-        margin += _monthly_margin(c) * rate
+        client_pln, client_complete = amount_to_pln_with_rate(
+            _monthly_rate_client(c), client_fx
+        )
+        if not client_complete:
+            missing.add(client_currency)
+            continue
+        assert client_pln is not None
+        revenue += client_pln
+        if c.rate_candidate is None:
+            continue
+        candidate_pln, candidate_complete = amount_to_pln_with_rate(
+            _monthly_rate_candidate(c), candidate_fx
+        )
+        if not candidate_complete:
+            missing.add(candidate_currency)
+            continue
+        assert candidate_pln is not None
+        margin += client_pln - candidate_pln
     return revenue, margin, missing
 
 
@@ -392,7 +414,7 @@ async def report_sales(
     Sales report: revenue, margin, active consultants, MRR trend, top clients.
     Cached for 5 minutes.
     """
-    cache_key = "reports:sales:v2-contractor-headcount"
+    cache_key = "reports:sales:v3-split-rate-currencies"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -420,7 +442,14 @@ async def report_sales(
     # be added at face value. Missing-rate currencies are excluded and surfaced
     # in `finance_warnings` rather than silently counted as PLN.
     fx_missing: set[str] = set()
-    snapshot_currencies = {(c.currency or "PLN").upper() for c in active_contracts}
+    snapshot_currencies = {
+        currency
+        for c in active_contracts
+        for currency in (
+            (c.rate_client_currency or c.currency or "PLN").upper(),
+            (c.rate_candidate_currency or c.currency or "PLN").upper(),
+        )
+    }
     snapshot_rates = await rates_to_pln(db, snapshot_currencies, today)
     total_revenue, total_margin, missing = _fold_finance_pln(
         active_contracts, snapshot_rates
@@ -455,6 +484,8 @@ async def report_sales(
             "client_name": row.client_name,
             "end_date": str(row.Contract.end_date),
             "rate_client": row.Contract.rate_client,
+            "rate_client_currency": row.Contract.resolved_rate_client_currency,
+            "rate_unit": row.Contract.rate_unit.value,
         }
         for row in ending_rows
     ]
@@ -487,7 +518,14 @@ async def report_sales(
 
         # FX as of the month being reported (point-in-time), matching
         # metrics.finance_trend — a March MRR uses March's rate, not today's.
-        m_currencies = {(c.currency or "PLN").upper() for c in month_contracts}
+        m_currencies = {
+            currency
+            for c in month_contracts
+            for currency in (
+                (c.rate_client_currency or c.currency or "PLN").upper(),
+                (c.rate_candidate_currency or c.currency or "PLN").upper(),
+            )
+        }
         m_rates = await rates_to_pln(db, m_currencies, month_start)
         m_revenue, m_margin, m_missing = _fold_finance_pln(month_contracts, m_rates)
         fx_missing |= m_missing
@@ -504,29 +542,36 @@ async def report_sales(
             }
         )
 
-    # Top clients by revenue — group by client × currency so each per-currency
-    # subtotal is converted to PLN before ranking. Adding raw rates across
-    # currencies produced both wrong totals and a wrong ranking. The DB Numeric
-    # sums keep full precision; only the FX fold + top-10 cut happen in Python.
+    # Top clients by revenue — one row per contract because revenue and cost can
+    # carry different currencies. Convert each leg independently before folding
+    # and ranking in PLN.
     top_clients_q = (
         select(
             Client.id,
             client_name.label("client_name"),
+            Contract.rate_client_currency,
+            Contract.rate_candidate_currency,
             Contract.currency,
-            func.count(Contract.id).label("contracts_count"),
-            func.sum(_sql_monthly(Contract.rate_client)).label("revenue"),
-            func.sum(_sql_monthly(Contract.margin)).label("margin"),
+            _sql_monthly(Contract.rate_client).label("revenue"),
+            _sql_monthly(Contract.rate_candidate).label("cost"),
         )
         .join(Contract, Client.id == Contract.client_id)
         .where(Contract.status == ContractStatus.active)
-        .group_by(Client.id, client_name, Contract.currency)
     )
     top_clients_rows = (await db.execute(top_clients_q)).all()
-    tc_currencies = {(r.currency or "PLN").upper() for r in top_clients_rows}
+    tc_currencies = {
+        currency
+        for r in top_clients_rows
+        for currency in (
+            (r.rate_client_currency or r.currency or "PLN").upper(),
+            (r.rate_candidate_currency or r.currency or "PLN").upper(),
+        )
+    }
     tc_rates = await rates_to_pln(db, tc_currencies, today)
     tc_acc: dict[int, dict] = {}
     for r in top_clients_rows:
-        cur = (r.currency or "PLN").upper()
+        client_currency = (r.rate_client_currency or r.currency or "PLN").upper()
+        candidate_currency = (r.rate_candidate_currency or r.currency or "PLN").upper()
         acc = tc_acc.setdefault(
             r.id,
             {
@@ -536,13 +581,25 @@ async def report_sales(
                 "margin": Decimal("0"),
             },
         )
-        acc["contracts_count"] += int(r.contracts_count or 0)
-        rate = tc_rates.get(cur)
-        if rate is None:
-            fx_missing.add(cur)
+        acc["contracts_count"] += 1
+        client_fx = tc_rates.get(client_currency)
+        candidate_fx = tc_rates.get(candidate_currency)
+        if r.revenue is None:
             continue
-        acc["revenue"] += Decimal(r.revenue or 0) * rate
-        acc["margin"] += Decimal(r.margin or 0) * rate
+        revenue_pln, revenue_complete = amount_to_pln_with_rate(r.revenue, client_fx)
+        if not revenue_complete:
+            fx_missing.add(client_currency)
+            continue
+        assert revenue_pln is not None
+        acc["revenue"] += revenue_pln
+        if r.cost is None:
+            continue
+        cost_pln, cost_complete = amount_to_pln_with_rate(r.cost, candidate_fx)
+        if not cost_complete:
+            fx_missing.add(candidate_currency)
+            continue
+        assert cost_pln is not None
+        acc["margin"] += revenue_pln - cost_pln
     top_clients = [
         {
             "client_id": cid,
@@ -1463,7 +1520,7 @@ async def report_board(
     High-level KPIs + 12-month trends.
     Cached for 5 minutes.
     """
-    cache_key = "reports:board:v2-contractor-headcount"
+    cache_key = "reports:board:v4-split-rate-currencies"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -1514,8 +1571,19 @@ async def report_board(
         .all()
     )
 
-    revenue_ytd = sum(_monthly_rate_client(c) for c in active_contracts)
-    margin_ytd = sum(_monthly_margin(c) for c in active_contracts)
+    board_currencies = {
+        currency
+        for c in active_contracts
+        for currency in (
+            (c.rate_client_currency or c.currency or "PLN").upper(),
+            (c.rate_candidate_currency or c.currency or "PLN").upper(),
+        )
+    }
+    board_rates = await rates_to_pln(db, board_currencies, today)
+    revenue_ytd, margin_ytd, board_missing = _fold_finance_pln(
+        active_contracts, board_rates
+    )
+    board_fx_missing = set(board_missing)
     active_headcount = summarize_active_contracts(active_contracts)
 
     # ── Delivery ─────────────────────────────────────────────────────────────
@@ -1604,7 +1672,19 @@ async def report_board(
             .all()
         )
 
-        m_revenue = sum(_monthly_rate_client(c) for c in m_contracts)
+        month_currencies = {
+            currency
+            for c in m_contracts
+            for currency in (
+                (c.rate_client_currency or c.currency or "PLN").upper(),
+                (c.rate_candidate_currency or c.currency or "PLN").upper(),
+            )
+        }
+        month_rates = await rates_to_pln(db, month_currencies, month_start)
+        m_revenue, _m_margin, month_missing = _fold_finance_pln(
+            m_contracts, month_rates
+        )
+        board_fx_missing |= month_missing
 
         month_headcount = summarize_active_contracts(m_contracts)
         trends.append(
@@ -1616,6 +1696,18 @@ async def report_board(
                 "consultants": month_headcount.contractors,
                 "active_contracts": month_headcount.active_contracts,
             }
+        )
+
+    finance_warnings: list[str] = []
+    if board_fx_missing:
+        details = ", ".join(sorted(board_fx_missing))
+        finance_warnings.append(
+            f"Brak kursu NBP dla walut: {details} — kwoty w tych walutach "
+            "POMINIĘTE w KPI lub trendach (uzupełnij: POST /api/fx/refresh)"
+        )
+        logger.warning(
+            "reports/board: missing FX rate(s) for %s — amounts excluded from totals",
+            details,
         )
 
     result_data = {
@@ -1642,6 +1734,8 @@ async def report_board(
             "total_candidates": total_candidates,
         },
         "trends": trends,
+        "finance_quality": "unavailable" if board_fx_missing else "complete",
+        "finance_warnings": finance_warnings,
     }
     await cache_set(cache_key, result_data, ttl_seconds=300)
     return result_data

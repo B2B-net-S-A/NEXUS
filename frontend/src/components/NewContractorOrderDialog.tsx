@@ -90,7 +90,8 @@ export function NewContractorOrderDialog({
     "monthly",
   );
   const [billingHours, setBillingHours] = useState("160");
-  const [currency, setCurrency] = useState("PLN");
+  const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
   const [notes, setNotes] = useState("");
   // „Część umowy" — pole widoczne i wymagane wyłącznie dla Centrum e-Zdrowia
   // (ticket #3; bramka po client_id, walidacja też serwerowo).
@@ -143,7 +144,9 @@ export function NewContractorOrderDialog({
   const rateClientNum = parseDecimalInput(rateClient);
   const rateCandidateNum = parseDecimalInput(rateCandidate);
   const margin =
-    rateClientNum !== null && rateCandidateNum !== null
+    rateClientCurrency === rateCandidateCurrency &&
+    rateClientNum !== null &&
+    rateCandidateNum !== null
       ? rateClientNum - rateCandidateNum
       : null;
 
@@ -173,7 +176,8 @@ export function NewContractorOrderDialog({
         payload.rate_candidate = rateCandidateNum ?? undefined;
         payload.rate_unit = rateUnit;
         payload.billing_hours_per_month = Number(billingHours);
-        payload.currency = currency;
+        payload.rate_client_currency = rateClientCurrency;
+        payload.rate_candidate_currency = rateCandidateCurrency;
       }
       return dlPortalApi.createContractWithOrder(clientId, payload);
     },
@@ -491,14 +495,15 @@ export function NewContractorOrderDialog({
             {margin !== null && (
               <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
                 Marża /mc (przybl.):{" "}
-                <strong>{margin.toLocaleString("pl-PL")}</strong> {currency}
+                <strong>{margin.toLocaleString("pl-PL")}</strong>{" "}
+                {rateClientCurrency}
                 {rateClientNum !== null && rateClientNum > 0 && (
                   <> ({((margin / rateClientNum) * 100).toFixed(1)}%)</>
                 )}
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <label>
                 <span className="text-sm">Jednostka stawki</span>
                 <select
@@ -525,15 +530,43 @@ export function NewContractorOrderDialog({
                 />
               </label>
               <label>
-                <span className="text-sm">Waluta</span>
-                <input
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  maxLength={3}
+                <span className="text-sm">Waluta klienta</span>
+                <select
+                  aria-label="Waluta stawki przychodowej (klienta)"
+                  value={rateClientCurrency}
+                  onChange={(e) => setRateClientCurrency(e.target.value)}
                   className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                />
+                >
+                  <option value="PLN">PLN</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </label>
+              <label>
+                <span className="text-sm">Waluta kontraktora</span>
+                <select
+                  aria-label="Waluta stawki kosztowej (kandydata)"
+                  value={rateCandidateCurrency}
+                  onChange={(e) => setRateCandidateCurrency(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                >
+                  <option value="PLN">PLN</option>
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
               </label>
             </div>
+
+            {rateClientCurrency !== rateCandidateCurrency &&
+              rateClientNum !== null &&
+              rateCandidateNum !== null && (
+                <p className="text-xs text-muted-foreground">
+                  Marża zostanie pokazana po niezależnym przeliczeniu obu stawek
+                  do PLN.
+                </p>
+              )}
           </>
         )}
 

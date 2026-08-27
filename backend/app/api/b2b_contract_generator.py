@@ -951,6 +951,8 @@ async def generate(
                 start_date=payload.start_date,
                 rate_unit=RateUnit.hourly,
                 currency=payload.currency,
+                rate_client_currency=payload.currency,
+                rate_candidate_currency=payload.currency,
             )
             db.add(contract)
             await db.flush()
@@ -958,7 +960,7 @@ async def generate(
     # 2. Pola finansowe/daty na Contract.
     contract.start_date = payload.start_date
     contract.rate_candidate = payload.rate_candidate
-    contract.currency = payload.currency
+    contract.rate_candidate_currency = payload.currency
     contract.rate_unit = RateUnit.hourly
     # Stawka progresywna → harmonogram `candidate_rate_schedule`. Formularz
     # generatora wysyła zawsze PEŁNY stan, więc replace bezwarunkowy: brak
@@ -1049,7 +1051,7 @@ async def get_detail(
         project_description=d.project_description if d else None,
         correspondence_address=d.correspondence_address if d else None,
         rate_candidate=contract.rate_candidate,
-        currency=contract.currency,
+        currency=contract.resolved_rate_candidate_currency,
         rate_in_words=d.rate_in_words if d else None,
         scope_items_override=d.role_scope_override if d else None,
     )

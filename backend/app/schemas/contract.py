@@ -123,7 +123,12 @@ class ContractCreate(BaseModel):
     framework_rate: Optional[float] = None
     target_rate_min: Optional[float] = None
     target_rate_max: Optional[float] = None
+    # ``currency`` pozostaje kompatybilnym aliasem waluty klienta. Nowe pola
+    # pozwalają rozdzielić przychód i koszt; ich brak uruchamia fallback do
+    # jawnie przysłanego legacy ``currency``, a następnie do PLN.
     currency: str = "PLN"
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
     rate_unit: RateUnit = RateUnit.monthly
     billing_hours_per_month: int = 160
     # Effective-dated candidate-rate schedule (optional). When provided, drives
@@ -194,6 +199,8 @@ class ContractUpdate(BaseModel):
     target_rate_min: Optional[float] = None
     target_rate_max: Optional[float] = None
     currency: Optional[str] = None
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = None
     contract_type: Optional[ContractType] = None
@@ -302,6 +309,8 @@ class ContractGroupMember(BaseModel):
     margin: Optional[float] = None
     rate_unit: Optional[RateUnit] = None
     currency: Optional[str] = None
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
 
 
 class ContractResponse(BaseModel):
@@ -329,6 +338,8 @@ class ContractResponse(BaseModel):
     target_rate_min: Optional[float] = None
     target_rate_max: Optional[float] = None
     currency: Optional[str] = None
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = None
     margin: Optional[float]
@@ -618,6 +629,8 @@ class ContractorListItem(BaseModel):
     rate_client: Optional[float] = None
     rate_unit: Optional[RateUnit] = None
     currency: Optional[str] = None
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
     margin: Optional[float] = None
     contract_type: ContractType
     work_mode: Optional[ContractWorkMode] = None

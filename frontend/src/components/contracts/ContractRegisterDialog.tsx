@@ -154,6 +154,7 @@ export function ContractRegisterDialog({
   const [rateSchedule, setRateSchedule] = useState<RateScheduleRow[]>([
     { rate: "", effectiveFrom: "" },
   ]);
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
   const [error, setError] = useState("");
 
   // Reset / hydrate na otwarcie.
@@ -186,6 +187,7 @@ export function ContractRegisterDialog({
           : "",
       );
       setRateSchedule([{ rate: "", effectiveFrom: "" }]);
+      setRateCandidateCurrency("PLN");
     } else {
       setCandidate(null);
       setCandidateQuery("");
@@ -200,6 +202,7 @@ export function ContractRegisterDialog({
       setProlongation("unknown");
       setStatusVal("active");
       setRateSchedule([{ rate: "", effectiveFrom: "" }]);
+      setRateCandidateCurrency("PLN");
     }
   }, [open, contract]);
 
@@ -252,6 +255,7 @@ export function ContractRegisterDialog({
         candidate_id: candidate!.id,
         job_id: null,
         contract_type: "b2b",
+        rate_candidate_currency: rateCandidateCurrency,
         candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
       });
     },
@@ -529,11 +533,32 @@ export function ContractRegisterDialog({
             {/* Stawka kandydata — progresja stawki w czasie (tylko nowy kontrakt).
                 Edycja stawek istniejącego kontraktu idzie przez aneksy. */}
             {!isEdit && (
-              <CandidateRateScheduleFields
-                rows={rateSchedule}
-                onChange={setRateSchedule}
-                startDate={startDate}
-              />
+              <div className="space-y-4">
+                <CandidateRateScheduleFields
+                  rows={rateSchedule}
+                  onChange={setRateSchedule}
+                  startDate={startDate}
+                />
+                <div>
+                  <Label className="mb-1.5 block">
+                    Waluta stawki kosztowej (kandydata)
+                  </Label>
+                  <Select
+                    value={rateCandidateCurrency}
+                    onValueChange={setRateCandidateCurrency}
+                  >
+                    <SelectTrigger aria-label="Waluta stawki kosztowej (kandydata)">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PLN">PLN</SelectItem>
+                      <SelectItem value="EUR">EUR</SelectItem>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="GBP">GBP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             )}
 
             {/* Statusy */}

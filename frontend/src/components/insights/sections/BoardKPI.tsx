@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   BarChart3,
   Briefcase,
   DollarSign,
@@ -34,6 +35,8 @@ interface BoardData {
     consultants: number;
     active_contracts: number;
   }>;
+  finance_quality?: "complete" | "unavailable";
+  finance_warnings?: string[];
 }
 
 export function BoardKPI() {
@@ -84,6 +87,18 @@ export function BoardKPI() {
         <Trophy className="w-5 h-5 text-amber-500" />
         Board KPI — YTD
       </h2>
+
+      {data.finance_quality === "unavailable" &&
+        data.finance_warnings?.map((warning) => (
+          <div
+            key={warning}
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{warning}</span>
+          </div>
+        ))}
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <KpiCard

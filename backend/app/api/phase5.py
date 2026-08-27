@@ -32,6 +32,7 @@ from app.services.embedding_service import (
     _jobs_collection,
     generate_embedding,
 )
+from app.services.client_identity import visible_client_predicates
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +353,13 @@ async def clients_lookup(
             "(wyselekcjonowana lista, np. dropdown generatora umów B2B)."
         ),
     ),
+    contract_eligible: bool = Query(
+        False,
+        description=(
+            "Gdy true -> zwroc tylko klientow z efektywnej zakladki "
+            "Aktywni albo Relacyjni w katalogu klientow."
+        ),
+    ),
 ):
     """Minimal client list for dropdown (id, name) — avoids heavy /clients payload.
 
@@ -361,10 +369,18 @@ async def clients_lookup(
     ``featured=true`` zawęża do klientów z ustawionym ``display_name`` — to
     obecnie kuratorska lista (np. 17 nazw w generatorze umów B2B). „Na razie"
     marker = istnienie ``display_name``; gdyby kiedyś potrzebny był trwały
-    odrębny znacznik, należałoby dodać dedykowaną kolumnę/flagę."""
-    from sqlalchemy import func
+    odrębny znacznik, należałoby dodać dedykowaną kolumnę/flagę.
+
+    ``contract_eligible=true`` jest filtrem formularza nowego kontraktu. Używa
+    zakładek katalogu klientow (``ClientPortfolioScope``), a nie technicznego
+    ``Client.status``. Manualne przeniesienie zakładki ma pierwszeństwo przed
+    manifestem, dokładnie tak jak na liście klientow. Zapytanie ``EXISTS`` nie
+    duplikuje klienta, gdy ma więcej niż jeden aktywny scope.
+    """
+    from sqlalchemy import exists, func
 
     from app.models.client import Client
+    from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 
     name_col = func.coalesce(
         func.nullif(func.btrim(Client.display_name), ""),
@@ -377,6 +393,26 @@ async def clients_lookup(
     )
     if featured:
         stmt = stmt.where(Client.display_name.isnot(None))
+    if contract_eligible:
+        effective_category = func.coalesce(
+            ClientPortfolioScope.category_override,
+            ClientPortfolioScope.category,
+        )
+        stmt = stmt.where(
+            *visible_client_predicates(Client),
+            exists(
+                select(ClientPortfolioScope.id).where(
+                    ClientPortfolioScope.client_id == Client.id,
+                    ClientPortfolioScope.archived_at.is_(None),
+                    effective_category.in_(
+                        (
+                            PortfolioCategory.active,
+                            PortfolioCategory.relationship,
+                        )
+                    ),
+                )
+            ),
+        )
     rows = await db.execute(stmt.order_by(name_col))
     return [{"id": r[0], "name": r[1]} for r in rows.all()]
 

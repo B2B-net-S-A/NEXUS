@@ -48,6 +48,8 @@ async def _seed_contract(
     rate_client: int = 1000,
     rate_candidate: int = 800,
     rate_unit: str = "daily",
+    rate_client_currency: str = "PLN",
+    rate_candidate_currency: str = "PLN",
 ) -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus
@@ -62,6 +64,9 @@ async def _seed_contract(
             rate_client=rate_client,
             rate_candidate=rate_candidate,
             rate_unit=rate_unit,
+            currency=rate_client_currency,
+            rate_client_currency=rate_client_currency,
+            rate_candidate_currency=rate_candidate_currency,
             billing_hours_per_month=160,
         )
         db.add(c)
@@ -184,7 +189,9 @@ async def test_sales_contract_lists_use_canonical_client_display_name(
         end_date=today + timedelta(days=7),
         rate_client=99_999_999,
         rate_candidate=1,
-        rate_unit="monthly",
+        rate_unit="daily",
+        rate_client_currency="EUR",
+        rate_candidate_currency="PLN",
     )
 
     await _clear_cache()
@@ -198,6 +205,9 @@ async def test_sales_contract_lists_use_canonical_client_display_name(
         if row["contract_id"] == contract_id
     )
     assert ending["client_name"] == canonical_name
+    assert ending["rate_client"] == 99_999_999
+    assert ending["rate_client_currency"] == "EUR"
+    assert ending["rate_unit"] == "daily"
     top_client = next(
         row for row in body["top_clients"] if row["client_id"] == client_id
     )
