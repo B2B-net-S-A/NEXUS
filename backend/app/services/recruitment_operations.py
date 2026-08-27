@@ -163,11 +163,14 @@ def _job_filters(
         )
     normalized_q = (q or "").strip()
     if normalized_q:
-        pattern = f"%{normalized_q}%"
+        escaped_q = (
+            normalized_q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        pattern = f"%{escaped_q}%"
         filters.append(
             or_(
-                Job.title.ilike(pattern),
-                client_display_name_expression().ilike(pattern),
+                Job.title.ilike(pattern, escape="\\"),
+                client_display_name_expression().ilike(pattern, escape="\\"),
             )
         )
     if category_id is not None:

@@ -11,6 +11,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.dialects import postgresql
 
 from app.api import dashboard_v2 as dashboard_api
@@ -40,6 +41,22 @@ def _user(
         is_active=True,
         profile_completed=True,
     )
+
+
+def test_process_search_treats_sql_wildcards_as_literals() -> None:
+    scope = service._RecruitmentOperationsScope(preset="my-work")
+    statement = select(Job.id).where(
+        *service._job_filters(
+            _user(UserRole.recruiter),
+            scope=scope,
+            q=r"50%_C:\temp",
+        )
+    )
+
+    compiled = statement.compile(dialect=postgresql.dialect())
+
+    assert r"%50\%\_C:\\temp%" in compiled.params.values()
+    assert "ESCAPE '\\\\'" in str(compiled)
 
 
 @pytest_asyncio.fixture

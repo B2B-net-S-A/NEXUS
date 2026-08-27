@@ -85,7 +85,7 @@ RecruitmentOperationsUser = Annotated[
 _RECRUITMENT_OPERATIONS_PRESET_ROLES: dict[
     RecruitmentOperationsPreset, tuple[UserRole, ...]
 ] = {
-    "admin-ops": (),
+    "admin-ops": (),  # Empty means admin-only; the shortcut below handles admins.
     "delivery-lead": (UserRole.delivery_lead,),
     "head-of-recruitment": (UserRole.head_of_recruitment,),
     "my-work": (UserRole.recruiter, UserRole.tac, UserRole.sourcer),
