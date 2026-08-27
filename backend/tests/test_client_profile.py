@@ -53,7 +53,6 @@ async def test_profile_returns_expected_shape(
         "summary",
         "open_jobs",
         "active_consultants",
-        "active_contracts",
         "historical",
     }
     assert isinstance(body["open_jobs"], list)
@@ -67,6 +66,7 @@ async def test_profile_returns_expected_shape(
     for key in (
         "open_jobs",
         "active_consultants",
+        "active_contracts",
         "total_placements",
         "active_mrr",
         "ltv",
