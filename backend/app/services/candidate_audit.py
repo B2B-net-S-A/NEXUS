@@ -50,6 +50,8 @@ IDENTITY_SOURCE_QUARANTINED = "candidate_identity_source_quarantined"
 IDENTITY_SOURCE_QUARANTINE_OVERRIDDEN = (
     "candidate_identity_source_quarantine_overridden"
 )
+IDENTITY_MANUAL_OWNERSHIP_SET = "candidate_identity_manual_ownership_set"
+IDENTITY_RESTORED_FROM_TRAFFIT = "candidate_identity_restored_from_traffit"
 
 
 def record_candidate_audit(

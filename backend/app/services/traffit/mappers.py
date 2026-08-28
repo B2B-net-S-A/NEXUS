@@ -622,12 +622,22 @@ def traffit_employee_to_candidate(
     candidate_location = normalize_candidate_location(
         raw_location=payload.get("candidate_location")
     )
+    source_updated_at = _parse_traffit_datetime(payload.get("updated_at"))
 
     return {
         "external_id": str(traffit_id),
         "external_source": "traffit",
         "name": name[:100],
         "lastname": lastname[:100],
+        # The first post-rollout sync can distinguish a legacy source-owned
+        # marker from a real NEXUS correction.  If the stored value still
+        # equals this raw Traffit value, the importer may safely apply the
+        # cleaned value; any other mismatch is preserved for human review.
+        "traffit_raw_name": raw_name[:100],
+        "traffit_raw_lastname": raw_lastname[:100],
+        "traffit_source_updated_at": (
+            source_updated_at.isoformat() if source_updated_at else None
+        ),
         "email": _trunc(_pick_nonempty(payload.get("email")), 255),
         "phone": _trunc(
             _pick_nonempty(payload.get("mobile"), payload.get("phone")), 30

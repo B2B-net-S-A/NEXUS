@@ -917,8 +917,25 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError("");
     try {
-      const { city: _city, country: _country, ...profilePayload } =
+      const {
+        city: _city,
+        country: _country,
+        name: nextName,
+        lastname: nextLastname,
+        ...nonIdentityPayload
+      } =
         candidateFormToPayload(form);
+      const profilePayload: typeof nonIdentityPayload & {
+        name?: string;
+        lastname?: string;
+      } = { ...nonIdentityPayload };
+      // Nie wysyłaj pól tożsamości tylko dlatego, że pełny modal zawsze je
+      // renderuje. W przeciwnym razie nocny sync między otwarciem a zapisem
+      // telefonu zamieniłby starą wartość formularza w fałszywy manual lock.
+      if (nextName !== candidate.name) profilePayload.name = nextName;
+      if (nextLastname !== candidate.lastname) {
+        profilePayload.lastname = nextLastname;
+      }
       await api.patch(`/api/candidates/${candidate.id}`, profilePayload);
 
       const nextCity = form.city.trim();

@@ -90,6 +90,8 @@ from app.schemas.candidate import (
     CandidateQuickViewRecruitment,
     CandidateQuickViewResponse,
     CandidateQuickViewSource,
+    CandidateIdentityRestoreRequest,
+    CandidateIdentitySync,
     CandidateResponse,
     CandidateUpdate,
     EmploymentEngagement,
@@ -168,6 +170,11 @@ from app.services.candidate_profile_rate import (
 from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
     normalize_candidate_location,
+)
+from app.services.candidate_identity_ownership import (
+    identity_sync_state,
+    lock_changed_traffit_identity_fields,
+    restore_traffit_identity_fields,
 )
 from app.services.recruitment_process_commands import (
     open_process,
@@ -637,10 +644,16 @@ def _candidate_to_response(candidate: Candidate) -> CandidateResponse:
     on the ORM model.
     """
     payload = CandidateResponse.model_validate(candidate)
+    raw_identity_sync = identity_sync_state(candidate)
     return payload.model_copy(
         update={
             "employment": _derive_employment(candidate),
             "talent_pools": _talent_pools_for(candidate),
+            "identity_sync": (
+                CandidateIdentitySync.model_validate(raw_identity_sync)
+                if raw_identity_sync is not None
+                else None
+            ),
         }
     )
 
@@ -1880,9 +1893,12 @@ async def list_candidates(
         payload = payload.model_copy(
             update={"contact_case": contact_case_by_candidate.get(cand.id)}
         )
-        # Strip eagerly-loaded snapshots from the list response — they are
-        # only surfaced on the detail endpoint (trimmed to 5 there).
-        payload = payload.model_copy(update={"linkedin_snapshots": None})
+        # Strip detail-only sync/snapshot state from list responses. Identity
+        # ownership carries source values used by the editor and would only
+        # bloat every candidate tile; detail/mutation responses keep it.
+        payload = payload.model_copy(
+            update={"linkedin_snapshots": None, "identity_sync": None}
+        )
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
             payload = payload.model_copy(update={"match_stats": stats})
@@ -4231,11 +4247,16 @@ async def update_candidate(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Candidate).where(Candidate.id == candidate_id))
+    result = await db.execute(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .with_for_update(of=Candidate)
+    )
     candidate = result.scalar_one_or_none()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     updates = data.model_dump(exclude_unset=True)
+    activity_details = dict(updates)
     if {"expected_rate_hourly", "expected_rate_currency"} & updates.keys():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -4246,6 +4267,21 @@ async def update_candidate(
                     f"/api/candidates/{candidate_id}/profile-rate z If-Match."
                 ),
             },
+        )
+
+    manual_identity_locks = lock_changed_traffit_identity_fields(
+        candidate,
+        updates,
+        user_id=current_user.id,
+    )
+    if manual_identity_locks:
+        activity_details["manual_identity_locks"] = manual_identity_locks
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.IDENTITY_MANUAL_OWNERSHIP_SET,
+            user_id=current_user.id,
+            entity_id=candidate.id,
+            details={"fields": manual_identity_locks, "owner": "nexus"},
         )
 
     # Phase D4: flag manual edits to `experience` so a subsequent CV upload
@@ -4267,7 +4303,7 @@ async def update_candidate(
         entity_id=candidate.id,
         action="updated",
         user_id=current_user.id,
-        details=updates,
+        details=activity_details,
     )
     db.add(activity)
 
@@ -4307,6 +4343,83 @@ async def update_candidate(
     )
     full = reloaded.scalar_one()
     return _candidate_to_response(full)
+
+
+@router.post(
+    "/{candidate_id}/identity/restore-from-traffit",
+    response_model=CandidateResponse,
+)
+async def restore_candidate_identity_from_traffit(
+    candidate_id: int,
+    data: CandidateIdentityRestoreRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Release selected manual locks and restore confirmed Traffit values."""
+
+    result = await db.execute(
+        select(Candidate)
+        .where(Candidate.id == candidate_id)
+        .with_for_update(of=Candidate)
+    )
+    candidate = result.scalar_one_or_none()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    try:
+        restored_fields = restore_traffit_identity_fields(
+            candidate,
+            data.fields,
+            expected_current_values=data.expected_current_values,
+            expected_source_values=data.expected_traffit_values,
+            expected_override_tokens=data.expected_override_tokens,
+        )
+    except ValueError as exc:
+        reason = str(exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": reason.split(":", 1)[0],
+                "field": reason.split(":", 1)[1] if ":" in reason else None,
+                "message": (
+                    "Dane źródłowe zmieniły się albo nie są już dostępne. "
+                    "Odśwież profil i potwierdź aktualną wartość."
+                ),
+            },
+        ) from exc
+
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.IDENTITY_RESTORED_FROM_TRAFFIT,
+        user_id=current_user.id,
+        entity_id=candidate.id,
+        details={"fields": restored_fields, "owner": "traffit"},
+    )
+
+    identity_value_changed = any(
+        data.expected_current_values[field] != getattr(candidate, field)
+        for field in restored_fields
+    )
+    await db.flush()
+    if identity_value_changed:
+        try:
+            from app.services.index_outbox_service import schedule_or_embed_candidate
+
+            await schedule_or_embed_candidate(candidate.id, db)
+        except Exception as e:  # noqa: BLE001 — reindex is best-effort
+            logger.warning(
+                "[restore_candidate_identity_from_traffit] re-embed failed id=%s: %s",
+                candidate.id,
+                e,
+            )
+
+    reloaded = await db.execute(
+        select(Candidate)
+        .execution_options(populate_existing=True)
+        .options(*_candidate_list_options())
+        .where(Candidate.id == candidate.id)
+    )
+    return _candidate_to_response(reloaded.scalar_one())
 
 
 @router.delete("/{candidate_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -317,6 +317,20 @@ class TestTraffitEmployeeToCandidate:
             "traffit_certificates": "AWS Solutions Architect",
         }
 
+    def test_identity_snapshot_timestamp_is_normalized_to_utc_aware_iso(self):
+        result = traffit_employee_to_candidate(
+            {
+                "id": 1,
+                "name": "Anna",
+                "lastname": "Kowalska",
+                "updated_at": "2026-08-28 10:15:00",
+            }
+        )
+
+        assert result["traffit_source_updated_at"] == "2026-08-28T10:15:00+00:00"
+        assert result["traffit_raw_name"] == "Anna"
+        assert result["traffit_raw_lastname"] == "Kowalska"
+
     def test_user_id_map_lookup(self):
         payload = {
             "id": 1,

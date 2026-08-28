@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -23,6 +23,10 @@ vi.mock("@/lib/api", () => ({
   pipelineTemplatesApi: {},
   requestHistoryApi: {},
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 /**
  * Kontrakt dostępności shella modali z `AppShell.tsx`. `AddClientModal` jest tu
@@ -247,5 +251,42 @@ describe("EditCandidateModal — profile rate boundary", () => {
     >;
     expect(payload).not.toHaveProperty("expected_rate_hourly");
     expect(payload).not.toHaveProperty("expected_rate_currency");
+    expect(payload).not.toHaveProperty("name");
+    expect(payload).not.toHaveProperty("lastname");
+  });
+
+  it("submits only the identity field that the recruiter actually changed", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{ id: 8, name: "Jan", lastname: "Kowalski" }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    const lastname = screen.getByPlaceholderText("Kowalski");
+    await user.clear(lastname);
+    await user.type(lastname, "Nowak");
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("name");
+    expect(payload).toHaveProperty("lastname", "Nowak");
   });
 });
