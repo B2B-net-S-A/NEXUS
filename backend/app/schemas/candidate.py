@@ -366,6 +366,51 @@ class InviteSourceBrief(BaseModel):
     previous_created_by_name: Optional[str] = None
 
 
+CandidateIdentityField = Literal["name", "lastname"]
+
+
+class CandidateIdentityFieldSync(BaseModel):
+    """Ownership and last observed Traffit value for one identity field."""
+
+    owner: Literal["traffit", "nexus"]
+    manual_lock: bool
+    traffit_value: Optional[str] = None
+    can_restore: bool
+    overridden_at: Optional[datetime] = None
+    override_token: Optional[str] = None
+    overridden_by: Optional[int] = None
+    ownership_reason: Optional[Literal["manual_edit", "bootstrap_mismatch"]] = None
+
+
+class CandidateIdentitySync(BaseModel):
+    """Typed projection of private identity-sync metadata."""
+
+    name: CandidateIdentityFieldSync
+    lastname: CandidateIdentityFieldSync
+
+
+class CandidateIdentityRestoreRequest(BaseModel):
+    """Restore selected fields from the value the user just confirmed."""
+
+    fields: list[CandidateIdentityField] = Field(min_length=1, max_length=2)
+    expected_current_values: dict[CandidateIdentityField, str]
+    expected_traffit_values: dict[CandidateIdentityField, str]
+    expected_override_tokens: dict[CandidateIdentityField, str]
+
+    @model_validator(mode="after")
+    def _require_exact_expected_values(self) -> "CandidateIdentityRestoreRequest":
+        requested = set(self.fields)
+        if len(requested) != len(self.fields):
+            raise ValueError("identity_restore_fields_must_be_unique")
+        if (
+            set(self.expected_current_values) != requested
+            or set(self.expected_traffit_values) != requested
+            or set(self.expected_override_tokens) != requested
+        ):
+            raise ValueError("identity_restore_expected_values_must_match_fields")
+        return self
+
+
 class CandidateResponse(BaseModel):
     id: int
     name: str
@@ -467,6 +512,9 @@ class CandidateResponse(BaseModel):
     # tego do badge "z Traffita" w nagłówku profilu kandydata.
     external_source: Optional[str] = None
     external_id: Optional[str] = None
+    # Populated only for Traffit-linked profiles. Private custom_fields stay
+    # server-side; the UI receives this stable ownership projection instead.
+    identity_sync: Optional[CandidateIdentitySync] = None
     created_by: Optional[int] = None
     # Reads from ORM attribute `creator` (Candidate.creator relationship).
     # Populated when the endpoint eager-loads `selectinload(Candidate.creator)`.

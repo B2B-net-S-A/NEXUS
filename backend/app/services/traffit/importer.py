@@ -413,17 +413,27 @@ _UPSERT_CANDIDATE = text(
     INSERT INTO candidates (
         external_id, external_source, name, lastname, email, phone, linkedin,
         status, profile_about, cv_filename,
-        cv_extracted_data, source, created_by,
+        cv_extracted_data, custom_fields, source, created_by,
         notes_count, champion, availability_status,
         linkedin_sync_status,
         created_at, updated_at
     ) VALUES (
-        :external_id, :external_source, :name, :lastname, :email, :phone,
+        :external_id, :external_source,
+        CAST(:name AS text), CAST(:lastname AS text), :email, :phone,
         :linkedin,
         CAST(:status AS candidatestatus),
         :profile_about,
         :cv_filename,
         CAST(:cv_extracted_data AS JSONB),
+        jsonb_build_object(
+            '_nexus_identity',
+            jsonb_strip_nulls(jsonb_build_object(
+                'traffit_name', CAST(:name AS text),
+                'traffit_lastname', CAST(:lastname AS text),
+                'traffit_source_updated_at',
+                    CAST(:traffit_source_updated_at AS text)
+            ))
+        ),
         :source, :created_by,
         0, false,
         CAST('unknown' AS availabilitystatus),
@@ -432,8 +442,42 @@ _UPSERT_CANDIDATE = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        name              = EXCLUDED.name,
-        lastname          = EXCLUDED.lastname,
+        -- Ręczna korekta w NEXUS-ie przejmuje własność tylko nad wskazanym
+        -- polem. Traffit nadal odświeża snapshot źródłowy w custom_fields,
+        -- dzięki czemu użytkownik może świadomie przywrócić jego wartość.
+        name              = CASE
+                              WHEN COALESCE(
+                                candidates.custom_fields #>>
+                                  '{_nexus_identity,name_manual}',
+                                'false'
+                              ) = 'true'
+                              OR (
+                                candidates.custom_fields #>>
+                                  '{_nexus_identity,traffit_name}' IS NULL
+                                AND candidates.name IS DISTINCT FROM EXCLUDED.name
+                                AND candidates.name IS DISTINCT FROM
+                                    CAST(:traffit_raw_name AS text)
+                              )
+                              THEN candidates.name
+                              ELSE EXCLUDED.name
+                            END,
+        lastname          = CASE
+                              WHEN COALESCE(
+                                candidates.custom_fields #>>
+                                  '{_nexus_identity,lastname_manual}',
+                                'false'
+                              ) = 'true'
+                              OR (
+                                candidates.custom_fields #>>
+                                  '{_nexus_identity,traffit_lastname}' IS NULL
+                                AND candidates.lastname
+                                    IS DISTINCT FROM EXCLUDED.lastname
+                                AND candidates.lastname IS DISTINCT FROM
+                                    CAST(:traffit_raw_lastname AS text)
+                              )
+                              THEN candidates.lastname
+                              ELSE EXCLUDED.lastname
+                            END,
         email             = COALESCE(EXCLUDED.email, candidates.email),
         phone             = COALESCE(EXCLUDED.phone, candidates.phone),
         linkedin          = COALESCE(EXCLUDED.linkedin, candidates.linkedin),
@@ -479,6 +523,76 @@ _UPSERT_CANDIDATE = text(
                                  )
                                  ELSE '{}'::jsonb
                                END,
+        custom_fields     = jsonb_set(
+                              CASE
+                                WHEN jsonb_typeof(candidates.custom_fields)
+                                     = 'object'
+                                THEN candidates.custom_fields
+                                ELSE '{}'::jsonb
+                              END,
+                              '{_nexus_identity}',
+                              CASE
+                                WHEN jsonb_typeof(
+                                  candidates.custom_fields
+                                    -> '_nexus_identity'
+                                ) = 'object'
+                                THEN candidates.custom_fields
+                                       -> '_nexus_identity'
+                                ELSE '{}'::jsonb
+                              END
+                              || CASE
+                                   WHEN candidates.custom_fields #>>
+                                          '{_nexus_identity,traffit_name}'
+                                          IS NULL
+                                        AND COALESCE(
+                                          candidates.custom_fields #>>
+                                            '{_nexus_identity,name_manual}',
+                                          'false'
+                                        ) <> 'true'
+                                        AND candidates.name
+                                            IS DISTINCT FROM EXCLUDED.name
+                                        AND candidates.name IS DISTINCT FROM
+                                            CAST(:traffit_raw_name AS text)
+                                   THEN jsonb_build_object(
+                                     'name_manual', true,
+                                     'name_ownership_reason',
+                                       'bootstrap_mismatch',
+                                     'name_set_at', NOW()
+                                   )
+                                   ELSE '{}'::jsonb
+                                 END
+                              || CASE
+                                   WHEN candidates.custom_fields #>>
+                                          '{_nexus_identity,traffit_lastname}'
+                                          IS NULL
+                                        AND COALESCE(
+                                          candidates.custom_fields #>>
+                                            '{_nexus_identity,lastname_manual}',
+                                          'false'
+                                        ) <> 'true'
+                                        AND candidates.lastname
+                                            IS DISTINCT FROM EXCLUDED.lastname
+                                        AND candidates.lastname IS DISTINCT FROM
+                                            CAST(:traffit_raw_lastname AS text)
+                                   THEN jsonb_build_object(
+                                     'lastname_manual', true,
+                                     'lastname_ownership_reason',
+                                       'bootstrap_mismatch',
+                                     'lastname_set_at', NOW()
+                                   )
+                                   ELSE '{}'::jsonb
+                                 END
+                              || CASE
+                                   WHEN jsonb_typeof(
+                                     EXCLUDED.custom_fields
+                                       -> '_nexus_identity'
+                                   ) = 'object'
+                                   THEN EXCLUDED.custom_fields
+                                          -> '_nexus_identity'
+                                   ELSE '{}'::jsonb
+                                 END,
+                              true
+                            ),
         updated_at        = NOW(),
         -- Kandydat jest w żywym feedzie `/employees/`, więc ewentualny
         -- nagrobek jest nieaktualny. Bez tego czyszczenia pojedyncze 404
@@ -499,8 +613,40 @@ _UPDATE_CANDIDATE_ADOPT = text(
     UPDATE candidates
     SET external_source = CAST(:external_source AS text),
         external_id     = CAST(:external_id AS text),
-        name            = CAST(:name AS text),
-        lastname        = CAST(:lastname AS text),
+        name            = CASE
+                            WHEN COALESCE(
+                              candidates.custom_fields #>>
+                                '{_nexus_identity,name_manual}',
+                              'false'
+                            ) = 'true'
+                            OR (
+                              candidates.custom_fields #>>
+                                '{_nexus_identity,traffit_name}' IS NULL
+                              AND candidates.name
+                                  IS DISTINCT FROM CAST(:name AS text)
+                              AND candidates.name IS DISTINCT FROM
+                                  CAST(:traffit_raw_name AS text)
+                            )
+                            THEN candidates.name
+                            ELSE CAST(:name AS text)
+                          END,
+        lastname        = CASE
+                            WHEN COALESCE(
+                              candidates.custom_fields #>>
+                                '{_nexus_identity,lastname_manual}',
+                              'false'
+                            ) = 'true'
+                            OR (
+                              candidates.custom_fields #>>
+                                '{_nexus_identity,traffit_lastname}' IS NULL
+                              AND candidates.lastname
+                                  IS DISTINCT FROM CAST(:lastname AS text)
+                              AND candidates.lastname IS DISTINCT FROM
+                                  CAST(:traffit_raw_lastname AS text)
+                            )
+                            THEN candidates.lastname
+                            ELSE CAST(:lastname AS text)
+                          END,
         phone           = COALESCE(CAST(:phone AS text), candidates.phone),
         linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
         status          = CAST(:status AS candidatestatus),
@@ -537,6 +683,78 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                  )
                                  ELSE '{}'::jsonb
                                END,
+        custom_fields   = jsonb_set(
+                            CASE
+                              WHEN jsonb_typeof(candidates.custom_fields)
+                                   = 'object'
+                              THEN candidates.custom_fields
+                              ELSE '{}'::jsonb
+                            END,
+                            '{_nexus_identity}',
+                            CASE
+                              WHEN jsonb_typeof(
+                                candidates.custom_fields -> '_nexus_identity'
+                              ) = 'object'
+                              THEN candidates.custom_fields
+                                     -> '_nexus_identity'
+                              ELSE '{}'::jsonb
+                            END
+                            || CASE
+                                 WHEN candidates.custom_fields #>>
+                                        '{_nexus_identity,traffit_name}' IS NULL
+                                      AND COALESCE(
+                                        candidates.custom_fields #>>
+                                          '{_nexus_identity,name_manual}',
+                                        'false'
+                                      ) <> 'true'
+                                      AND candidates.name
+                                          IS DISTINCT FROM CAST(:name AS text)
+                                      AND candidates.name IS DISTINCT FROM
+                                          CAST(:traffit_raw_name AS text)
+                                 THEN jsonb_build_object(
+                                   'name_manual', true,
+                                   'name_ownership_reason',
+                                     'bootstrap_mismatch',
+                                   'name_set_at', NOW()
+                                 )
+                                 ELSE '{}'::jsonb
+                               END
+                            || CASE
+                                 WHEN candidates.custom_fields #>>
+                                        '{_nexus_identity,traffit_lastname}'
+                                        IS NULL
+                                      AND COALESCE(
+                                        candidates.custom_fields #>>
+                                          '{_nexus_identity,lastname_manual}',
+                                        'false'
+                                      ) <> 'true'
+                                      AND candidates.lastname
+                                          IS DISTINCT FROM CAST(:lastname AS text)
+                                      AND candidates.lastname IS DISTINCT FROM
+                                          CAST(:traffit_raw_lastname AS text)
+                                 THEN jsonb_build_object(
+                                   'lastname_manual', true,
+                                   'lastname_ownership_reason',
+                                     'bootstrap_mismatch',
+                                   'lastname_set_at', NOW()
+                                 )
+                                 ELSE '{}'::jsonb
+                               END
+                            || jsonb_build_object(
+                                 'traffit_name', CAST(:name AS text),
+                                 'traffit_lastname', CAST(:lastname AS text)
+                               )
+                            || CASE
+                                 WHEN CAST(:traffit_source_updated_at AS text)
+                                      IS NOT NULL
+                                 THEN jsonb_build_object(
+                                   'traffit_source_updated_at',
+                                   CAST(:traffit_source_updated_at AS text)
+                                 )
+                                 ELSE '{}'::jsonb
+                               END,
+                            true
+                          ),
         updated_at      = NOW()
     WHERE id = :nexus_id
     RETURNING id
@@ -1711,6 +1929,11 @@ class TraffitImporter:
                                 "external_source": payload["external_source"],
                                 "name": payload["name"],
                                 "lastname": payload["lastname"],
+                                "traffit_raw_name": payload["traffit_raw_name"],
+                                "traffit_raw_lastname": payload["traffit_raw_lastname"],
+                                "traffit_source_updated_at": payload.get(
+                                    "traffit_source_updated_at"
+                                ),
                                 "phone": payload.get("phone"),
                                 "linkedin": payload.get("linkedin"),
                                 "status": payload["status"],

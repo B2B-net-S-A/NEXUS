@@ -24,6 +24,7 @@ import {
  GraduationCap,
  Link2,
  Linkedin,
+ LockKeyhole,
  Loader2,
  Mail,
  MapPin,
@@ -865,6 +866,17 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
 
  const fullName = `${candidate.name ??""} ${candidate.lastname ??""}`.trim();
  const initials = getCandidateInitials(candidate) || "?";
+ const protectedIdentityFields = (
+  [
+   ["name", "imię"],
+   ["lastname", "nazwisko"],
+  ] as const
+ ).flatMap(([field, label]) => {
+  const state = candidate.identity_sync?.[field];
+  return state?.manual_lock
+   ? [{ field, label, reason: state.ownership_reason }]
+   : [];
+ });
 
  const rootClass = embedded
  ?"space-y-4"
@@ -992,6 +1004,23 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {STATUS_LABELS[candidate.status]}
  </Badge>
  )}
+ {protectedIdentityFields.map(({ field, label, reason }) => (
+ <Badge
+ key={field}
+ variant="soft"
+ size="sm"
+ title={
+ reason === "bootstrap_mismatch"
+ ? `Wartość pola „${label}” zachowano z NEXUS do weryfikacji; synchronizacja z Traffita jej nie nadpisze.`
+ : `Pole „${label}” ma ręczną korektę i nie zostanie nadpisane przez Traffit.`
+ }
+ >
+ <LockKeyhole className="h-3 w-3" aria-hidden="true" />
+ {reason === "bootstrap_mismatch"
+ ? `Do weryfikacji: ${label}`
+ : `Ręczna korekta: ${label}`}
+ </Badge>
+ ))}
  {riskProfile && <RiskBadge profile={riskProfile} />}
  <CandidateHighlights candidate={candidate} variant="full" />
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="md" />

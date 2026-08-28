@@ -378,6 +378,16 @@ async def test_profile_fact_etags_reject_stale_writers_and_rate_clears_to_null(
 
 WRITE_ENDPOINTS = [
     ("POST", "/api/notes", {"content": "x", "candidate_id": 999999}),
+    (
+        "POST",
+        "/api/candidates/999999/identity/restore-from-traffit",
+        {
+            "fields": ["lastname"],
+            "expected_current_values": {"lastname": "Manual"},
+            "expected_traffit_values": {"lastname": "Traffit"},
+            "expected_override_tokens": {"lastname": "2026-08-28T12:00:00+00:00"},
+        },
+    ),
     ("POST", "/api/candidates/999999/sources", {"channel": "other"}),
     ("POST", "/api/talent-pools", {"name": "m2-denied"}),
     ("POST", "/api/candidates/999999/assign-to-job/999999", None),
