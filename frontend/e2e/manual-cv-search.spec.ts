@@ -80,6 +80,9 @@ test.describe("Manual CV search V2", () => {
     await page.goto("/jobs");
     const firstJobLink = page.locator('a[href^="/jobs/"]').first();
     await firstJobLink.click();
+    await page
+      .getByRole("button", { name: "Pozyskaj kandydatów" })
+      .click();
     const manualTab = page.getByTestId("tab-manual-search");
     await expect(manualTab).toBeVisible({ timeout: 10_000 });
     await manualTab.click();
