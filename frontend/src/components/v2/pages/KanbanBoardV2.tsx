@@ -12,6 +12,8 @@ import {
 } from"@hello-pangea/dnd";
 import {
  AlertCircle,
+ ChevronLeft,
+ ChevronRight,
  CheckCircle2,
  Clock,
  FileArchive,
@@ -172,57 +174,127 @@ const colId = (col: KanbanColumn) =>
 
 const columnLabel = (col: KanbanColumn) => col.name ?? col.stage;
 
-// ── Stage summary strip ──────────────────────────────────────────────
-// Przy długich pipeline'ach (10+ etapów) liczników w nagłówkach kolumn nie
-// widać bez poziomego scrollowania. Ten pasek pokazuje WSZYSTKIE etapy
-// z licznikami w jednym zawijanym wierszu nad boardem; klik w pigułkę
-// przewija board do danej kolumny.
+const defaultFocusColumnId = (cols: KanbanColumn[]) => {
+ const preferred = cols.find(
+ (col) => col.count > 0 && col.category !== "terminal"
+ );
+ const col = preferred ?? cols[0];
+ return col ? colId(col) : null;
+};
 
-const StageSummaryStrip = memo(function StageSummaryStrip({
+// ── Stage focus navigator ───────────────────────────────────────────
+// Wszystkie kolumny pozostają zamontowane dla DnD. Navigator zmienia wyłącznie
+// poziomy viewport planszy: wybór etapu centruje go pomiędzy sąsiadami.
+
+const StageFocusNavigator = memo(function StageFocusNavigator({
  cols,
- onJump,
+ focusedId,
+ onFocus,
+ density,
+ onToggleDensity,
 }: {
  cols: KanbanColumn[];
- onJump: (id: string) => void;
+ focusedId: string | null;
+ onFocus: (id: string) => void;
+ density: "cozy" | "compact";
+ onToggleDensity: () => void;
 }) {
  const total = cols.reduce(
  (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
  0
  );
+ const focusedIndex = Math.max(
+ 0,
+ cols.findIndex((col) => colId(col) === focusedId)
+ );
+ const focused = cols[focusedIndex];
+
+ if (!focused) return null;
+
  return (
- <div className="flex flex-wrap items-center gap-1.5" role="navigation" aria-label="Podsumowanie etapów">
- <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary border border-primary/20 px-2.5 py-1 text-xs font-semibold">
- W procesie: <span className="tabular-nums">{total}</span>
- </span>
- {cols.map((col) => (
- <button
- key={colId(col)}
+ <div
+ className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-2 py-1.5"
+ role="navigation"
+ aria-label="Nawigacja etapów pipeline"
+ >
+ <Badge variant="soft" className="tabular-nums">
+ W procesie: {total}
+ </Badge>
+
+ <div className="order-3 flex w-full min-w-0 items-center justify-center gap-1 sm:order-none sm:w-auto">
+ <Button
  type="button"
- onClick={() => onJump(colId(col))}
- title={`Przewiń do kolumny „${columnLabel(col)}”`}
- className={cn("inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
- col.count > 0
- ?"border-border bg-card text-foreground hover:border-primary/40 hover:bg-primary/5" :"border-border/60 bg-transparent text-muted-foreground/60 hover:text-muted-foreground hover:bg-card/60"
- )}
+ size="icon-sm"
+ variant="ghost"
+ onClick={() => onFocus(colId(cols[focusedIndex - 1]))}
+ disabled={focusedIndex === 0}
+ aria-label="Poprzedni etap"
  >
- {col.category && (
- <span
- className={cn("h-1.5 w-1.5 rounded-full shrink-0 ring-1 ring-border",
- CATEGORY_COLOR[col.category]
- )}
- aria-hidden
- />
- )}
- <span className="truncate max-w-[160px]">{columnLabel(col)}</span>
- <span
- className={cn("font-semibold tabular-nums",
- col.count > 0 &&"text-primary"
- )}
+ <ChevronLeft className="h-4 w-4" />
+ </Button>
+ <Select value={colId(focused)} onValueChange={onFocus}>
+ <SelectTrigger
+ className="h-8 min-w-0 flex-1 sm:w-[300px] sm:flex-none"
+ aria-label={`${columnLabel(focused)}, etap ${focusedIndex + 1} z ${cols.length}`}
  >
+ <SelectValue>
+ <span className="truncate">
+ {columnLabel(focused)} · etap {focusedIndex + 1} z {cols.length}
+ </span>
+ </SelectValue>
+ </SelectTrigger>
+ <SelectContent>
+ {cols.map((col, index) => (
+ <SelectItem
+ key={colId(col)}
+ value={colId(col)}
+ textValue={columnLabel(col)}
+ >
+ <span className="flex w-full items-center justify-between gap-3">
+ <span className="truncate">
+ {index + 1}. {columnLabel(col)}
+ </span>
+ <span className="tabular-nums text-muted-foreground" aria-hidden="true">
  {col.count}
  </span>
- </button>
+ <span className="sr-only">, liczba kandydatów: {col.count}</span>
+ </span>
+ </SelectItem>
  ))}
+ </SelectContent>
+ </Select>
+ <Button
+ type="button"
+ size="icon-sm"
+ variant="ghost"
+ onClick={() => onFocus(colId(cols[focusedIndex + 1]))}
+ disabled={focusedIndex === cols.length - 1}
+ aria-label="Następny etap"
+ >
+ <ChevronRight className="h-4 w-4" />
+ </Button>
+ </div>
+
+ <Tooltip>
+ <TooltipTrigger asChild>
+ <Button
+ type="button"
+ size="icon-sm"
+ variant="ghost"
+ onClick={onToggleDensity}
+ aria-label={`Gęstość: ${density === "compact" ? "kompaktowa" : "cozy"}`}
+ >
+ {density === "compact" ? (
+ <LayoutGrid className="h-4 w-4" />
+ ) : (
+ <Rows3 className="h-4 w-4" />
+ )}
+ </Button>
+ </TooltipTrigger>
+ <TooltipContent>
+ Gęstość: {density === "compact" ? "kompaktowa" : "cozy"}
+ </TooltipContent>
+ </Tooltip>
  </div>
  );
 });
@@ -598,9 +670,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <div
  data-colid={dropId}
- className={cn("flex flex-col shrink-0 rounded-lg bg-background/60 border border-border",
- density === "compact" ?"w-60" :"w-96"
- )}
+ className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]"
  >
  <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
  {col.category && (
@@ -702,6 +772,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  const authUser = useAuthStore((s) => s.user);
  const isApprover = getUserRoles(authUser).some((r) => APPROVER_ROLES.has(r));
  const [cols, setCols] = useState(columns);
+ const [focusedColId, setFocusedColId] = useState<string | null>(() =>
+ defaultFocusColumnId(columns)
+ );
  const [selected, setSelected] = useState<Set<number>>(new Set());
  const [bulkBusy, setBulkBusy] = useState(false);
  const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
@@ -763,7 +836,14 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  // zwinięcie nagłówka (prop), zmiana gęstości, status-baru lub liczby kolumn.
  useEffect(() => {
  measureColumnHeight();
- }, [measureColumnHeight, headerCollapsed, density, statusMessage, cols.length]);
+ }, [
+ measureColumnHeight,
+ headerCollapsed,
+ density,
+ statusMessage,
+ cols.length,
+ selected.size,
+ ]);
 
  // Terminal-move modal — pojedynczy drag LUB bulk (wspólny powód odrzucenia
  // dla wszystkich zaznaczonych kandydatów).
@@ -815,7 +895,14 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  const [pendingRemoval, setPendingRemoval] = useState<KanbanItem | null>(null);
  const [removeBusy, setRemoveBusy] = useState(false);
 
- useEffect(() => setCols(columns), [columns]);
+ useEffect(() => {
+ setCols(columns);
+ setFocusedColId((current) =>
+ current && columns.some((col) => colId(col) === current)
+ ? current
+ : defaultFocusColumnId(columns)
+ );
+ }, [columns]);
 
  useEffect(() => {
  (async () => {
@@ -873,16 +960,51 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  })();
  }, [jobId]);
 
- const filtered = cols;
-
- // Klik w pigułkę paska podsumowania → poziomy scroll boardu do kolumny.
- // block:"nearest" nie rusza pionowego scrolla strony.
- const scrollToColumn = useCallback((id: string) => {
- const el = boardRef.current?.querySelector<HTMLElement>(
- `[data-colid="${CSS.escape(id)}"]`
- );
- el?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+ // Navigator zmienia tylko poziomy viewport. Szukamy po dataset zamiast
+ // składać selektor CSS, żeby custom stage IDs pozostały bezpieczne.
+ const scrollToColumn = useCallback((
+ id: string,
+ behavior: ScrollBehavior = "smooth"
+ ) => {
+ const el = Array.from(
+ boardRef.current?.querySelectorAll<HTMLElement>("[data-colid]") ?? []
+ ).find((column) => column.dataset.colid === id);
+ el?.scrollIntoView?.({
+ behavior,
+ inline: "center",
+ block: "nearest",
+ });
  }, []);
+
+ const focusColumn = useCallback(
+ (id: string) => {
+ setFocusedColId(id);
+ scrollToColumn(id);
+ },
+ [scrollToColumn]
+ );
+
+ const initialFocusApplied = useRef(false);
+ useEffect(() => {
+ if (!focusedColId) return;
+ const behavior = initialFocusApplied.current ? "smooth" : "auto";
+ initialFocusApplied.current = true;
+ const frame = window.requestAnimationFrame(() =>
+ scrollToColumn(focusedColId, behavior)
+ );
+ return () => window.cancelAnimationFrame(frame);
+ }, [focusedColId, cols.length, scrollToColumn]);
+
+ // Po zmianie breakpointu/obrocie ekranu aktywny etap ma nadal zostać w
+ // centrum nowego viewportu, a nie utknąć w pozycji policzonej dla desktopu.
+ useEffect(() => {
+ if (!focusedColId) return;
+ const refocusAfterResize = () => {
+ window.requestAnimationFrame(() => scrollToColumn(focusedColId, "auto"));
+ };
+ window.addEventListener("resize", refocusAfterResize);
+ return () => window.removeEventListener("resize", refocusAfterResize);
+ }, [focusedColId, scrollToColumn]);
 
  const applyOptimistic = useCallback(
  (item: KanbanItem, srcId: string, dst: KanbanColumn) => {
@@ -1480,31 +1602,17 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  return (
  <div className="relative space-y-3">
- {/* Density toggle floated into the header gap (top-right, beside the
- tabs) so the board sits flush under the tabs instead of leaving an
- empty toolbar band above it. */}
- <div className="absolute -top-9 right-0 z-10 flex items-center gap-2">
- <Tooltip>
- <TooltipTrigger asChild>
- <button
- onClick={() => setDensity(density === "cozy" ?"compact" :"cozy")}
- className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-primary/10 hover:text-foreground"
- >
- {density === "compact" ? (
- <LayoutGrid className="h-4 w-4" />
- ) : (
- <Rows3 className="h-4 w-4" />
+ {cols.length > 0 && (
+ <StageFocusNavigator
+ cols={cols}
+ focusedId={focusedColId}
+ onFocus={focusColumn}
+ density={density}
+ onToggleDensity={() =>
+ setDensity(density === "cozy" ? "compact" : "cozy")
+ }
+ />
  )}
- </button>
- </TooltipTrigger>
- <TooltipContent>
- Gęstość: {density === "compact" ?"kompaktowa" :"cozy"}
- </TooltipContent>
- </Tooltip>
- </div>
-
- {/* Podsumowanie etapów — wszystkie liczniki widoczne bez scrollowania */}
- {cols.length > 0 && <StageSummaryStrip cols={cols} onJump={scrollToColumn} />}
 
  {/* Bulk action bar */}
  {selected.size > 0 && (
@@ -1572,17 +1680,17 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  // skrajne kolumny osiągalne — bez ręcznego rAF). Definite height wypełnia
  // viewport; calc fallback działa do pierwszego pomiaru (SSR/pierwszy render).
  "flex gap-3 overflow-auto pb-4 min-h-[280px]",
- columnHeight == null && "h-[calc(100vh-350px)]"
+ columnHeight == null && "h-[calc(100vh-240px)]"
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
- {filtered.length === 0 ? (
+ {cols.length === 0 ? (
  <div className="w-full py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
  Brak kolumn w tej kategorii.
  </div>
  ) : (
- filtered.map((col) => (
+ cols.map((col) => (
  <KanbanColumnV2
  key={colId(col)}
  col={col}

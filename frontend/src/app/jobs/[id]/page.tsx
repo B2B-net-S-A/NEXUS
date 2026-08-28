@@ -21,7 +21,7 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { MapPin, Banknote, Calendar, Globe, Trash2, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, PencilLine, Sparkles, UserCheck, AlertCircle, Mail, Link2, MessageCircle, History, Search, UserPlus, ChevronUp, ChevronDown } from "lucide-react";
+import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
 import { proposalsBulkApi } from "@/lib/candidate-search-api";
@@ -41,6 +41,11 @@ import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { assignErrorMessage } from "@/lib/assign-error";
+import {
+  JobDetailCompactHeader,
+  type JobDetailTab,
+} from "@/components/v2/jobs/JobDetailCompactHeader";
+import { Badge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -972,23 +977,16 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
 
 // ── Recruitment type config ───────────────────────────────────────────────────
 
-const RECRUITMENT_TYPE_CONFIG: Record<string, { label: string; color: string }> = {
-  body_leasing: { label: "Body Leasing", color: "bg-primary/15 text-primary" },
-  sales_project: { label: "Sprzedaż",    color: "bg-green-100 text-green-700" },
-  tender:        { label: "Przetarg",    color: "bg-orange-100 text-orange-700" },
+const RECRUITMENT_TYPE_CONFIG: Record<
+  string,
+  { label: string; variant: "soft" | "success" | "warning" }
+> = {
+  body_leasing: { label: "Body Leasing", variant: "soft" },
+  sales_project: { label: "Sprzedaż", variant: "success" },
+  tender: { label: "Przetarg", variant: "warning" },
 };
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
-
-type PageTab =
-  | "pipeline"
-  | "history"
-  | "ai-matching"
-  | "manual-search"
-  | "portals"
-  | "champion"
-  | "questions"
-  | "chat";
 
 export default function JobDetailPage() {
   const { id } = useParams();
@@ -1016,17 +1014,15 @@ export default function JobDetailPage() {
   // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty, żeby nagłówek
   // nie spychał pipeline'u poza ekran.
   const [showFullDescription, setShowFullDescription] = useState(false);
-  const [activeTab, setActiveTab] = useState<PageTab>("pipeline");
+  const [activeTab, setActiveTab] = useState<JobDetailTab>("pipeline");
   const [proposalsHighlight, setProposalsHighlight] = useState(false);
   // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
   // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
   // ofertami i sesjami.
   const [headerCollapsed, setHeaderCollapsed] = useLocalStorageFlag(
-    "nexus:jobHeaderCollapsed",
+    "nexus:jobHeaderCollapsed:v2",
+    true,
   );
-  const toggleHeaderCollapsed = useCallback(() => {
-    setHeaderCollapsed((v) => !v);
-  }, [setHeaderCollapsed]);
 
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
@@ -1150,142 +1146,121 @@ export default function JobDetailPage() {
 
   return (
     <div className="space-y-2">
-      <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-4 py-2.5">
-        <div className="flex items-start justify-between flex-wrap gap-2">
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-bold">{job.title}</h1>
-              {job.reference_number && (
-                <span
-                  className="font-mono text-xs px-2 py-0.5 rounded-md bg-muted text-muted-foreground border border-border"
-                  title="Numer referencyjny rekrutacji"
-                >
-                  {job.reference_number}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-4 mt-1 text-sm text-muted-foreground">
-              {job.location && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" /> {job.location}
-                </span>
-              )}
-              {(job.salary_min || job.salary_max) && (
-                <span className="flex items-center gap-1">
-                  <Banknote className="w-3.5 h-3.5" />
-                  {job.salary_min?.toLocaleString()}–{job.salary_max?.toLocaleString()} PLN
-                </span>
-              )}
-              {job.deadline && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5" /> {formatDate(job.deadline)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap">
-            <ActiveViewers
-              resourceType="job"
-              resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
-              className="mr-1"
-            />
-            {!headerCollapsed && (
-              <>
-                <button
-                  onClick={() => setShowAddCandidates(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-xs"
-                  data-testid="open-add-candidates"
-                  title="Wyszukaj kandydatów po imieniu i nazwisku i dodaj ich do pipeline"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  Dodaj kandydata
-                </button>
-                <button
-                  onClick={() => setShowEditJob(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-xs"
-                >
-                  <PencilLine className="w-3.5 h-3.5 text-muted-foreground" />
-                  Edytuj
-                </button>
-                <button
-                  onClick={() => setShowAIWriter(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors shadow-xs"
-                >
-                  <Wand2 className="w-3.5 h-3.5" />
-                  AI Ogłoszenie
-                </button>
-                {job.status === "published" && canCreateInviteLink && (
-                  <button
-                    onClick={() => setShowInviteLink(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-card dark:bg-muted border border-border dark:border-border text-foreground text-sm font-medium rounded-lg hover:bg-muted transition-colors shadow-xs"
-                    title="Wygeneruj indywidualny link aplikacyjny dla tej rekrutacji"
-                  >
-                    <Link2 className="w-3.5 h-3.5 text-primary" />
-                    Wygeneruj link
-                  </button>
-                )}
-                {job.recruitment_type && RECRUITMENT_TYPE_CONFIG[job.recruitment_type] && (
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${RECRUITMENT_TYPE_CONFIG[job.recruitment_type].color}`}>
-                    {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
-                  </span>
-                )}
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  job.status === "published" ? "bg-green-100 text-green-700" :
-                  job.status === "draft" ? "bg-muted text-muted-foreground" : "bg-destructive/15 text-destructive"
-                }`}>
-                  {job.status}
-                </span>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={toggleHeaderCollapsed}
-              className="flex items-center justify-center w-8 h-8 rounded-lg border border-border dark:border-border text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-expanded={!headerCollapsed}
-              data-testid="toggle-job-header"
-              title={headerCollapsed ? "Rozwiń nagłówek rekrutacji" : "Zwiń nagłówek — więcej miejsca na pipeline"}
+      <JobDetailCompactHeader
+        title={job.title}
+        referenceNumber={job.reference_number}
+        badges={
+          <>
+            {job.recruitment_type &&
+            RECRUITMENT_TYPE_CONFIG[job.recruitment_type] ? (
+              <Badge
+                variant={
+                  RECRUITMENT_TYPE_CONFIG[job.recruitment_type].variant
+                }
+              >
+                {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
+              </Badge>
+            ) : null}
+            <Badge
+              variant={
+                job.status === "published"
+                  ? "success"
+                  : job.status === "draft"
+                    ? "neutral"
+                    : "danger"
+              }
             >
-              {headerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        {!headerCollapsed && (
-          <div className="mt-2 border-t border-border dark:border-border pt-2 flex items-center justify-between flex-wrap gap-x-6 gap-y-1.5">
-            <JobOwnershipPanel
-              jobId={Number(id)}
-              jobTitle={job.title}
-              primaryOwner={job.primary_owner ?? null}
-              collaborators={job.collaborators ?? []}
-            />
-            <HiringManagerPicker
-              jobId={Number(id)}
-              clientId={job.client_id ?? null}
-              value={job.hiring_manager_contact_id ?? null}
-              valueName={job.hiring_manager_name ?? null}
-              canEdit={canUpdateJob}
-              onSaved={() => queryClient.invalidateQueries({ queryKey: ["job", id] })}
-            />
-          </div>
-        )}
-
-        {!headerCollapsed && job.description && (
-          <div className="mt-2">
-            <button
-              type="button"
-              onClick={() => setShowFullDescription((v) => !v)}
-              className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
-            </button>
-            {showFullDescription && (
-              <div className="mt-1.5 text-sm text-muted-foreground whitespace-pre-line">{job.description}</div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <JobPriorityContext jobId={Number(id)} />
+              {job.status === "published"
+                ? "Aktywna"
+                : job.status === "draft"
+                  ? "Szkic"
+                  : job.status}
+            </Badge>
+          </>
+        }
+        metadata={
+          <>
+            {job.location ? (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5" /> {job.location}
+              </span>
+            ) : null}
+            {job.salary_min || job.salary_max ? (
+              <span className="flex items-center gap-1">
+                <Banknote className="h-3.5 w-3.5" />
+                {job.salary_min?.toLocaleString()}–
+                {job.salary_max?.toLocaleString()} PLN
+              </span>
+            ) : null}
+            {job.deadline ? (
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" />
+                {formatDate(job.deadline)}
+              </span>
+            ) : null}
+          </>
+        }
+        presence={
+          <ActiveViewers
+            resourceType="job"
+            resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
+          />
+        }
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onAddCandidate={() => setShowAddCandidates(true)}
+        onEdit={canUpdateJob ? () => setShowEditJob(true) : undefined}
+        onWriteAnnouncement={
+          canUpdateJob ? () => setShowAIWriter(true) : undefined
+        }
+        onGenerateInviteLink={
+          job.status === "published" && canCreateInviteLink
+            ? () => setShowInviteLink(true)
+            : undefined
+        }
+        chatUnreadCount={chatUnread?.unread_count ?? 0}
+        contextOpen={!headerCollapsed}
+        onContextOpenChange={(open) => setHeaderCollapsed(!open)}
+        contextContent={
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+              <JobOwnershipPanel
+                jobId={Number(id)}
+                jobTitle={job.title}
+                primaryOwner={job.primary_owner ?? null}
+                collaborators={job.collaborators ?? []}
+              />
+              <HiringManagerPicker
+                jobId={Number(id)}
+                clientId={job.client_id ?? null}
+                value={job.hiring_manager_contact_id ?? null}
+                valueName={job.hiring_manager_name ?? null}
+                canEdit={canUpdateJob}
+                onSaved={() =>
+                  queryClient.invalidateQueries({ queryKey: ["job", id] })
+                }
+              />
+            </div>
+            {job.description ? (
+              <div className="border-t border-border pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowFullDescription((value) => !value)}
+                  className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
+                </button>
+                {showFullDescription ? (
+                  <div className="mt-2 whitespace-pre-line text-sm text-muted-foreground">
+                    {job.description}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <JobPriorityContext jobId={Number(id)} />
+          </>
+        }
+      />
 
       {/* Edit Job Modal */}
       {showEditJob && job && (
@@ -1322,115 +1297,6 @@ export default function JobDetailPage() {
         jobId={Number(id)}
         jobTitle={job.title}
       />
-
-      {/* Tabs */}
-      <div className="border-b border-border dark:border-border">
-        <div className="flex gap-1">
-          <button
-            onClick={() => setActiveTab("pipeline")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "pipeline"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Pipeline kandydatów
-          </button>
-          <button
-            onClick={() => setActiveTab("history")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "history"
-                ? "border-amber-600 text-amber-600"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-            data-testid="tab-history"
-          >
-            <History className="w-4 h-4" />
-            Historia
-          </button>
-          <button
-            onClick={() => setActiveTab("ai-matching")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "ai-matching"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <Sparkles className="w-4 h-4" />
-            AI Matching
-          </button>
-          <button
-            onClick={() => setActiveTab("manual-search")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "manual-search"
-                ? "border-violet-600 text-violet-600"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-            data-testid="tab-manual-search"
-          >
-            <Search className="w-4 h-4" />
-            Wyszukaj manualnie
-          </button>
-          <button
-            onClick={() => setActiveTab("portals")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "portals"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Portale ogłoszeniowe
-          </button>
-          <button
-            onClick={() => setActiveTab("champion")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "champion"
-                ? "border-purple-600 text-purple-600"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-            data-testid="tab-champion"
-          >
-            <Sparkles className="w-4 h-4" />
-            Profil Championa
-          </button>
-          <button
-            onClick={() => setActiveTab("questions")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-              activeTab === "questions"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-            data-testid="tab-questions"
-          >
-            Baza pytań
-          </button>
-          <button
-            onClick={() => setActiveTab("chat")}
-            className={cn(
-              "flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors relative",
-              activeTab === "chat"
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-            data-testid="tab-chat"
-          >
-            <MessageCircle className="w-4 h-4" />
-            Chat
-            {chatUnread && chatUnread.unread_count > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold rounded-full bg-destructive text-white">
-                {chatUnread.unread_count > 99 ? "99+" : chatUnread.unread_count}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
 
       {/* Tab Content */}
       {activeTab === "pipeline" && (
