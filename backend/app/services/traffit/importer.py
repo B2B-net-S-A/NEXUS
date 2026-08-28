@@ -418,7 +418,8 @@ _UPSERT_CANDIDATE = text(
         linkedin_sync_status,
         created_at, updated_at
     ) VALUES (
-        :external_id, :external_source, :name, :lastname, :email, :phone,
+        :external_id, :external_source,
+        CAST(:name AS text), CAST(:lastname AS text), :email, :phone,
         :linkedin,
         CAST(:status AS candidatestatus),
         :profile_about,
@@ -744,7 +745,8 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                  'traffit_lastname', CAST(:lastname AS text)
                                )
                             || CASE
-                                 WHEN :traffit_source_updated_at IS NOT NULL
+                                 WHEN CAST(:traffit_source_updated_at AS text)
+                                      IS NOT NULL
                                  THEN jsonb_build_object(
                                    'traffit_source_updated_at',
                                    CAST(:traffit_source_updated_at AS text)

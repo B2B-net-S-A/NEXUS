@@ -155,6 +155,31 @@ describe("IdentityEditor", () => {
     });
   });
 
+  it("zamyka no-op po normalizacji bez PATCH-a, toasta i invalidacji", async () => {
+    const { onClose, queryClient } = renderEditor({
+      name: "Anna",
+      lastname: "Nowak",
+      email: "anna@example.com",
+      phone: "+48 500 600 700",
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    // Surowa wartość formularza się zmienia, ale po dotychczasowej normalizacji
+    // payload nie zawiera żadnej rzeczywistej zmiany.
+    fireEvent.change(screen.getByLabelText("Imię"), {
+      target: { value: "  Anna  " },
+    });
+    fireEvent.change(screen.getByLabelText("E-mail"), {
+      target: { value: "  anna@example.com  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(patchMock).not.toHaveBeenCalled();
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(screen.queryByText("Zapisano dane kandydata")).not.toBeInTheDocument();
+  });
+
   it("blokuje zapis bez imienia lub nazwiska", async () => {
     renderEditor({ name: "", lastname: "" });
 

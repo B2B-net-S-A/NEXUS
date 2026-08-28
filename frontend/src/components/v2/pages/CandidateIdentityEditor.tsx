@@ -136,29 +136,31 @@ export function IdentityEditor({
   const [restoreField, setRestoreField] = useState<IdentityFieldName | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
 
+  const buildChangedPayload = () => {
+    const next = {
+      name: form.name.trim(),
+      lastname: form.lastname.trim(),
+      // Pusty string → null: pozwala WYCZYŚCIĆ pole. Backend EmailStr
+      // odrzuca "" (422), a null kasuje wartość. Trim, by nie zapisać spacji.
+      email: form.email.trim() || null,
+      phone: form.phone.trim() || null,
+    };
+    const previous = {
+      name: persistedForm.name.trim(),
+      lastname: persistedForm.lastname.trim(),
+      email: persistedForm.email.trim() || null,
+      phone: persistedForm.phone.trim() || null,
+    };
+    return Object.fromEntries(
+      (Object.keys(next) as Array<keyof typeof next>)
+        .filter((field) => next[field] !== previous[field])
+        .map((field) => [field, next[field]]),
+    );
+  };
+
   const save = useMutation({
-    mutationFn: () => {
-      const next = {
-        name: form.name.trim(),
-        lastname: form.lastname.trim(),
-        // Pusty string → null: pozwala WYCZYŚCIĆ pole. Backend EmailStr
-        // odrzuca "" (422), a null kasuje wartość. Trim, by nie zapisać spacji.
-        email: form.email.trim() || null,
-        phone: form.phone.trim() || null,
-      };
-      const previous = {
-        name: persistedForm.name.trim(),
-        lastname: persistedForm.lastname.trim(),
-        email: persistedForm.email.trim() || null,
-        phone: persistedForm.phone.trim() || null,
-      };
-      const changedPayload = Object.fromEntries(
-        (Object.keys(next) as Array<keyof typeof next>)
-          .filter((field) => next[field] !== previous[field])
-          .map((field) => [field, next[field]]),
-      );
-      return api.patch(`/api/candidates/${candidate.id}`, changedPayload);
-    },
+    mutationFn: (changedPayload: Record<string, string | null>) =>
+      api.patch(`/api/candidates/${candidate.id}`, changedPayload),
     onSuccess: () => {
       showSuccess("Zapisano dane kandydata");
       invalidateCandidateMutation(queryClient, candidate.id, "edit");
@@ -251,7 +253,12 @@ export function IdentityEditor({
       showError("Imię i nazwisko są wymagane");
       return;
     }
-    save.mutate();
+    const changedPayload = buildChangedPayload();
+    if (Object.keys(changedPayload).length === 0) {
+      onClose();
+      return;
+    }
+    save.mutate(changedPayload);
   };
 
   const openRestore = (field: IdentityFieldName) => {
