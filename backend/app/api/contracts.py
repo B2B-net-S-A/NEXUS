@@ -101,6 +101,7 @@ from app.services import storage_service
 from app.services.contract_lifecycle import (
     activate_contract as lifecycle_activate_contract,
     assert_transition,
+    auto_activate_complete_draft,
     hard_delete_contract,
     move_to_ready_for_signature,
     reopen_contract,
@@ -113,7 +114,10 @@ from app.services.client_identity import (
 )
 from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
-from app.services.contract_service import validate_ready_for_activation
+from app.services.contract_service import (
+    ACTIVATION_REQUIRED_FIELDS,
+    validate_ready_for_activation,
+)
 from app.services.cost_orders import is_cost_order_client
 from app.services.order_types import suggested_order_type
 from app.tasks.contract_alerts import run_contract_alerts_cycle
@@ -137,7 +141,17 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 EXPIRY_WARNING_DAYS = 30
 
-
+# A draft is promoted only when a PATCH closes its canonical completeness gap.
+# This makes the transition write-time (no retroactive sweep on deployment)
+# without letting an incidental edit activate a legacy draft that was already
+# complete. The candidate schedule is included because it can satisfy
+# ``rate_candidate`` without a separate scalar-field write.
+_AUTO_ACTIVATION_INPUTS = frozenset(
+    (
+        *ACTIVATION_REQUIRED_FIELDS,
+        "candidate_rate_schedule",
+    )
+)
 # Resolver stawek efektywnych mieszka w ``app.services.contract_rates`` — czytają
 # go analityka, raporty, /my-clients, zamówienia i profil klienta, a moduł api.*
 # importowany przez inny moduł api.* tylko po to, żeby policzyć marżę, prędzej
@@ -2320,6 +2334,9 @@ async def update_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    was_incomplete_draft = contract.status == ContractStatus.draft and bool(
+        validate_ready_for_activation(contract)
+    )
     updates = data.model_dump(exclude_unset=True)
     _prepare_update_rate_currencies(contract, updates, set(data.model_fields_set))
     # The candidate-rate schedule ("stawka progresywna") is a relationship, not a
@@ -2373,7 +2390,9 @@ async def update_contract(
         if contract.framework_rate_schedule:
             contract.framework_rate = contract.effective_framework_rate(date.today())
     # Przejście stanu PO zapisaniu pozostałych pól ORAZ po wyprowadzeniu stawek
-    # z harmonogramów, nie przed. Kolejność jest nośna w obie strony:
+    # z harmonogramów, nie przed. Dotyczy to zarówno jawnego statusu, jak i
+    # automatycznej aktywacji po domknięciu wymaganych danych. Kolejność jest
+    # nośna w obie strony:
     # `activate_contract` sprawdza komplet pól, więc musi widzieć wartości
     # z TEGO żądania, a domknięcie umowy przypina `end_date` do dziś — pętla
     # `setattr` odtworzyłaby potem przysłaną datę i zostawiła `ended` z datą
@@ -2386,6 +2405,7 @@ async def update_contract(
     # kolejności bramka oglądała jeszcze pustą kolumnę cache'u i odmawiała
     # aktywacji z „missing: rate_candidate", mimo że stawka przyszła w tym
     # samym żądaniu — a linijkę niżej ta sama kolumna była już wypełniana.
+    auto_activated = False
     if status_sent and status_target is not None:
         await _apply_contract_status_change(
             db,
@@ -2396,6 +2416,22 @@ async def update_contract(
         # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
         # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
         updates["status"] = contract.status.value
+    elif (
+        not status_sent
+        and was_incomplete_draft
+        and data.model_fields_set & _AUTO_ACTIVATION_INPUTS
+    ):
+        auto_activated = await auto_activate_complete_draft(
+            db,
+            contract,
+            actor_id=current_user.id,
+            status_explicit=False,
+        )
+        if auto_activated:
+            updates["status"] = contract.status.value
+            # Do not emit the legacy ``contract_signed`` Teams event here.
+            # Operational readiness is signature-independent, so automatic
+            # completion must not announce a signature that may not exist.
     # Coherence guard: a PATCH that leaves the contract indefinite or with a
     # future end date makes a stored "Zakończony"/"Kończący się" stale. Reset to
     # active so editing only the end date to "bezterminowo" heals a contract
@@ -2435,6 +2471,7 @@ async def update_contract(
                     if framework_sent
                     else {}
                 ),
+                **({"auto_activated": True} if auto_activated else {}),
             },
         )
     )
@@ -2475,12 +2512,12 @@ async def activate_contract(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    """Flip a draft contract to `active` after validating required fields.
+    """Explicitly flip a draft contract to ``active`` after validation.
 
-    Contractor module — called from the DraftCompletionModal after the client
-    has PATCH-ed the draft with start_date / end_date / rates / type / mode.
-    Returns 409 with the list of missing fields if anything is still blank,
-    so the UI can re-render the form without losing filled data.
+    A PATCH that completes an ordinary draft now performs this transition
+    automatically. This command remains available for explicit/manual clients
+    and for ``ready_for_signature`` contracts. It returns 409 with the stable
+    missing-fields list when the operational data is incomplete.
     """
     result = await db.execute(
         select(Contract)

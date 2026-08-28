@@ -342,6 +342,9 @@ async def test_activate_draft_happy_path(
             "rate_client": 20000,
             "contract_type": "b2b",
             "work_mode": "remote",
+            # Preserve this draft deliberately so the dedicated endpoint is
+            # still covered independently of write-time auto-activation.
+            "status": "draft",
         },
         headers=app_auth_headers,
     )

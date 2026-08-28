@@ -84,10 +84,10 @@ function formDirtyOrValid(
 /**
  * DraftCompletionModal — fills the activation-required fields
  * (start_date, rate_candidate, rate_client, contract_type; work mode and the
- * end date are optional) then POSTs /activate. Two-step flow:
- * PATCH first so values persist even if activation fails for an unrelated
- * reason, then activate. A 409 from activate surfaces the missing-fields list
- * returned by the server.
+ * end date are optional) with one PATCH. The backend automatically activates
+ * an incomplete draft when this write closes its last completeness gap. A
+ * legacy draft that was already complete still uses the explicit command, so
+ * an incidental edit elsewhere cannot become a retroactive status sweep.
  */
 export function DraftCompletionModal({
  contractor,
@@ -112,7 +112,7 @@ export function DraftCompletionModal({
  setError(null);
  }, [contractor]);
 
- const saveAndActivate = useMutation({
+ const saveRequiredFields = useMutation({
  mutationFn: async () => {
  const payload: Record<string, unknown> = {
  start_date: form.start_date,
@@ -128,9 +128,14 @@ export function DraftCompletionModal({
  payload.rate_candidate_currency = form.rate_candidate_currency;
  payload.rate_client_currency = form.rate_client_currency;
  }
- await contractsApi.update(contractor.contract_id, payload);
- if (needsAdminFinance) return;
+ const response = await contractsApi.update(contractor.contract_id, payload);
+ // Normally the PATCH above is the whole transition. A complete legacy draft
+ // has no new incomplete→complete edge, so the deliberate click on this modal
+ // remains its explicit opt-in to activation. The fallback also keeps a rolling
+ // frontend/backend deploy safe while an older API version is still serving.
+ if (!needsAdminFinance && response.data?.status === "draft") {
  await contractsApi.activate(contractor.contract_id);
+ }
  },
  onSuccess: () => {
  onActivated();
@@ -164,7 +169,7 @@ export function DraftCompletionModal({
  ? Number(form.rate_client) - Number(form.rate_candidate)
  : null;
  const canSubmit =
- formDirtyOrValid(form, canManageFinance) && !saveAndActivate.isPending;
+ formDirtyOrValid(form, canManageFinance) && !saveRequiredFields.isPending;
 
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
@@ -176,8 +181,8 @@ export function DraftCompletionModal({
  </DialogTitle>
  <DialogDescription>
  {needsAdminFinance
- ? "Uzupełnij dane operacyjne. Administrator dokończy aktywację kontraktu."
- : "Wypełnij wymagane pola, żeby aktywować kontrakt i przenieść kontraktora do zakładki „Aktywni”."}
+ ? "Uzupełnij dane operacyjne. Po uzupełnieniu stawek przez administratora kontrakt aktywuje się automatycznie."
+ : "Wypełnij wymagane pola. Po zapisaniu kontrakt aktywuje się automatycznie i trafia do zakładki „Aktywni”."}
  </DialogDescription>
  </DialogHeader>
 
@@ -357,15 +362,15 @@ export function DraftCompletionModal({
  <Button
  variant="ghost"
  onClick={() => onOpenChange(false)}
- disabled={saveAndActivate.isPending}
+ disabled={saveRequiredFields.isPending}
  >
  Anuluj
  </Button>
  <Button
  variant="primary"
  disabled={!canSubmit}
- loading={saveAndActivate.isPending}
- onClick={() => saveAndActivate.mutate()}
+ loading={saveRequiredFields.isPending}
+ onClick={() => saveRequiredFields.mutate()}
  >
  <CheckCircle2 className="h-4 w-4" />{""}
  {needsAdminFinance ? "Zapisz dane operacyjne" : "Aktywuj kontrakt"}
