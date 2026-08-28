@@ -884,6 +884,10 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
 }
 
 export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidate: any; onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [initialIdentity] = useState(() => ({
+    name: candidate.name ?? "",
+    lastname: candidate.lastname ?? "",
+  }));
   const [form, setForm] = useState<CandidateFormData>(() => candidateToForm(candidate));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -932,8 +936,8 @@ export function EditCandidateModal({ candidate, onClose, onSuccess }: { candidat
       // Nie wysyłaj pól tożsamości tylko dlatego, że pełny modal zawsze je
       // renderuje. W przeciwnym razie nocny sync między otwarciem a zapisem
       // telefonu zamieniłby starą wartość formularza w fałszywy manual lock.
-      if (nextName !== candidate.name) profilePayload.name = nextName;
-      if (nextLastname !== candidate.lastname) {
+      if (nextName !== initialIdentity.name) profilePayload.name = nextName;
+      if (nextLastname !== initialIdentity.lastname) {
         profilePayload.lastname = nextLastname;
       }
       await api.patch(`/api/candidates/${candidate.id}`, profilePayload);

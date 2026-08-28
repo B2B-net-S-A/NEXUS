@@ -289,4 +289,47 @@ describe("EditCandidateModal — profile rate boundary", () => {
     expect(payload).not.toHaveProperty("name");
     expect(payload).toHaveProperty("lastname", "Nowak");
   });
+
+  it("compares identity to the opening snapshot when candidate props refresh", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const onClose = vi.fn();
+    const onSuccess = vi.fn();
+    const renderModal = (candidate: Record<string, unknown>) => (
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={candidate}
+          onClose={onClose}
+          onSuccess={onSuccess}
+        />
+      </QueryClientProvider>
+    );
+
+    const view = render(
+      renderModal({ id: 9, name: "Jan", lastname: "Kowalski" }),
+    );
+
+    // Odświeżenie query zmienia props, ale otwarty formularz celowo zachowuje
+    // snapshot „Kowalski”. Brak interakcji z polem nie może odesłać tej starej
+    // wartości jako świadomej ręcznej korekty.
+    view.rerender(
+      renderModal({ id: 9, name: "Jan", lastname: "Nowak z synchronizacji" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(payload).not.toHaveProperty("name");
+    expect(payload).not.toHaveProperty("lastname");
+  });
 });

@@ -214,6 +214,9 @@ async def test_tombstone_is_cleared_when_the_candidate_comes_back(db) -> None:
         "external_source": "traffit",
         "name": "Jan",
         "lastname": "Kowalski",
+        "traffit_raw_name": "Jan",
+        "traffit_raw_lastname": "Kowalski",
+        "traffit_source_updated_at": None,
         "email": None,
         "phone": None,
         "linkedin": None,
@@ -229,10 +232,11 @@ async def test_tombstone_is_cleared_when_the_candidate_comes_back(db) -> None:
         "created_by": None,
     }
     try:
-        await imp.import_candidates(since=None)
+        progress = await imp.import_candidates(since=None)
     finally:
         importer_mod.traffit_employee_to_candidate = orig
 
+    assert progress.errors == 0, progress.error_samples
     assert await _tombstone(db, cid) is None, "nagrobek przetrwał powrót kandydata"
 
 
