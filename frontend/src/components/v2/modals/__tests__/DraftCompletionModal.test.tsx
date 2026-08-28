@@ -69,12 +69,12 @@ function renderModal(contractorOverrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.update.mockResolvedValue({ data: {} });
+  mocks.update.mockResolvedValue({ data: { status: "active" } });
   mocks.activate.mockResolvedValue({ data: {} });
 });
 
 describe("DraftCompletionModal — opcjonalny tryb pracy", () => {
-  it("aktywuje kontrakt z pustym trybem i wysyła null zamiast sztucznego remote", async () => {
+  it("PATCHuje wymagane pola raz i polega na automatycznej aktywacji backendu", async () => {
     const user = userEvent.setup({ delay: null });
     const { onActivated } = renderModal();
 
@@ -83,7 +83,11 @@ describe("DraftCompletionModal — opcjonalny tryb pracy", () => {
     expect(submit).toBeEnabled();
     await user.click(submit);
 
-    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(mocks.update).toHaveBeenCalledTimes(1);
+      expect(mocks.activate).not.toHaveBeenCalled();
+      expect(onActivated).toHaveBeenCalledTimes(1);
+    });
     expect(mocks.update).toHaveBeenCalledWith(
       563,
       expect.objectContaining({
@@ -93,8 +97,19 @@ describe("DraftCompletionModal — opcjonalny tryb pracy", () => {
       }),
     );
     expect(mocks.update.mock.calls[0]?.[1]).not.toHaveProperty("currency");
-    expect(mocks.activate).toHaveBeenCalledWith(563);
-    await waitFor(() => expect(onActivated).toHaveBeenCalledTimes(1));
+  });
+
+  it("zachowuje jawne Aktywuj dla kompletnego legacy draftu", async () => {
+    mocks.update.mockResolvedValueOnce({ data: { status: "draft" } });
+    const user = userEvent.setup({ delay: null });
+    renderModal();
+
+    await user.click(screen.getByRole("button", { name: /Aktywuj kontrakt/i }));
+
+    await waitFor(() => {
+      expect(mocks.update).toHaveBeenCalledTimes(1);
+      expect(mocks.activate).toHaveBeenCalledWith(563);
+    });
   });
 });
 

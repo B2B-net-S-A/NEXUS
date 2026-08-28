@@ -520,10 +520,9 @@ class ContractRateHistoryEntry(BaseModel):
 class ContractActivateRequest(BaseModel):
     """Payload for POST /api/contracts/{id}/activate.
 
-    Empty body — the assumption is that the client has already PATCH-ed the
-    contract with the required fields. The activation endpoint only validates
-    and flips the status. A future iteration may accept inline field updates
-    here to collapse PATCH+activate into one call.
+    Empty body. A normal PATCH that supplies the final required field activates
+    a draft automatically; this endpoint remains the explicit lifecycle command
+    for manual/API callers and finalized ``ready_for_signature`` contracts.
     """
 
 

@@ -244,6 +244,10 @@ async def test_patch_replaces_schedule_with_progressive_steps(
         # Current rate derived = the step in effect today (130 is future-dated).
         assert body["rate_candidate"] == 100
         assert body["margin"] == 100  # 200 - 100
+        # This draft was already complete before the schedule edit. Avoid an
+        # incidental retroactive transition; only incomplete→complete PATCHes
+        # auto-activate.
+        assert body["status"] == "draft"
 
         # Re-PATCH REPLACES the schedule wholesale (single step now).
         patch2 = await app_client.patch(

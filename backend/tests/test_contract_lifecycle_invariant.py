@@ -201,6 +201,58 @@ async def test_activate_is_operational_only_and_work_mode_is_optional() -> None:
 
 
 @pytest.mark.asyncio
+async def test_auto_activate_complete_draft_including_future_start() -> None:
+    """Implicit readiness uses the guarded transition, also for future starts."""
+
+    class _AuditOnlyDB:
+        def __init__(self) -> None:
+            self.added: list[object] = []
+
+        def add(self, row: object) -> None:
+            self.added.append(row)
+
+    contract = Contract(
+        id=900564,
+        status=ContractStatus.draft,
+        start_date=date.today() + timedelta(days=30),
+        rate_candidate=150,
+        rate_client=200,
+        contract_type=ContractType.b2b,
+    )
+    db = _AuditOnlyDB()
+
+    changed = await lifecycle.auto_activate_complete_draft(
+        db, contract, actor_id=123, status_explicit=False  # type: ignore[arg-type]
+    )
+
+    assert changed is True
+    assert contract.status == ContractStatus.active
+    assert [row.action for row in db.added] == ["contract_activated"]
+
+
+@pytest.mark.asyncio
+async def test_auto_activate_complete_draft_respects_explicit_status() -> None:
+    """A complete record explicitly saved as Draft remains a Draft."""
+
+    contract = Contract(
+        id=900565,
+        status=ContractStatus.draft,
+        start_date=date.today(),
+        rate_candidate=150,
+        rate_client=200,
+        contract_type=ContractType.b2b,
+    )
+    db = SimpleNamespace(add=lambda _row: None)
+
+    changed = await lifecycle.auto_activate_complete_draft(
+        db, contract, actor_id=123, status_explicit=True  # type: ignore[arg-type]
+    )
+
+    assert changed is False
+    assert contract.status == ContractStatus.draft
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("confirmation", ["563", "#563", "  #563  "])
 async def test_signed_delete_confirmation_accepts_exact_contract_number(
     confirmation,
@@ -426,6 +478,30 @@ async def test_create_contract_honours_register_status_body(
 
 
 @pytest.mark.asyncio
+async def test_create_complete_contract_without_status_remains_draft(
+    app_client, app_auth_headers
+) -> None:
+    """Write-time promotion changes existing drafts, not POST defaults."""
+
+    cand_id, cli_id = await _seed_candidate_and_client()
+    resp = await app_client.post(
+        "/api/contracts",
+        json={
+            "candidate_id": cand_id,
+            "client_id": cli_id,
+            "start_date": date.today().isoformat(),
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+        },
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "draft"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("selected_status", ["active", "ending"])
 async def test_create_contract_active_requires_complete_draft(
     app_client, app_auth_headers, selected_status
@@ -602,6 +678,100 @@ async def test_patch_contract_honours_register_status_body(
         )
         assert changed.status_code == 200, changed.text
         assert changed.json()["status"] == selected_status
+
+
+@pytest.mark.asyncio
+async def test_patch_completing_draft_auto_activates_once(
+    app_client, app_auth_headers
+) -> None:
+    """Saving the required fields removes the separate manual status change."""
+
+    cid = await _seed_contract(status=ContractStatus.draft, complete=False)
+    resp = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={
+            "start_date": (date.today() + timedelta(days=30)).isoformat(),
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+        },
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "active"
+
+    async with AsyncSessionLocal() as db:
+        actions = list(
+            await db.scalars(
+                select(Activity.action).where(
+                    Activity.entity_type == "contract", Activity.entity_id == cid
+                )
+            )
+        )
+    assert actions.count("contract_activated") == 1
+
+
+@pytest.mark.asyncio
+async def test_patch_legacy_complete_draft_does_not_auto_activate_incidentally(
+    app_client, app_auth_headers
+) -> None:
+    """Only a new incomplete→complete edge triggers; there is no retro-sweep."""
+
+    cid = await _seed_contract(status=ContractStatus.draft, complete=True)
+    resp = await app_client.patch(
+        f"/api/contracts/{cid}",
+        # The client-register dialog always echoes start_date, even when the
+        # operator only edits a project field. Presence alone must not promote
+        # an already-complete legacy draft.
+        json={"start_date": date.today().isoformat(), "team_name": "Platform"},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_patch_complete_draft_with_explicit_draft_stays_draft(
+    app_client, app_auth_headers
+) -> None:
+    """An explicit lifecycle choice wins over completeness automation."""
+
+    cid = await _seed_contract(status=ContractStatus.draft, complete=False)
+    resp = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={
+            "start_date": date.today().isoformat(),
+            "rate_candidate": 15000,
+            "rate_client": 20000,
+            "contract_type": "b2b",
+            "status": "draft",
+        },
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_patch_ready_for_signature_never_auto_activates(
+    app_client, app_auth_headers
+) -> None:
+    """Only Draft participates; finalized contracts keep their explicit gate."""
+
+    cid = await _seed_contract(
+        status=ContractStatus.ready_for_signature, complete=True
+    )
+    resp = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"rate_client": 21000},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "ready_for_signature"
 
 
 @pytest.mark.asyncio

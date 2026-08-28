@@ -14,6 +14,9 @@ no route sets ``status = active`` directly. The rules:
   operational fields used by reporting, but deliberately does not depend on
   any generated agreement or qualified-signature state. Contract activation is
   an operational decision; the signing rails keep their own lifecycle.
+* :func:`auto_activate_complete_draft` — the write-time completeness trigger;
+  it delegates to ``activate_contract`` and yields to an explicitly chosen
+  status.
 * :func:`move_to_ready_for_signature` — a finalized (but unsigned) draft lands
   here, never at ``active``.
 * :func:`revert_contract` — the audited replacement for the old free
@@ -282,6 +285,39 @@ async def activate_contract(
             to_status=ContractStatus.active,
         )
     )
+
+
+async def auto_activate_complete_draft(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    actor_id: Optional[int],
+    status_explicit: bool,
+) -> bool:
+    """Promote a complete draft after a write unless the caller chose a status.
+
+    Completeness is the canonical operational activation gate shared with the
+    explicit ``/activate`` path.  An explicit status always wins, including an
+    intentional ``draft`` used while the operator is still preparing the
+    record.  Only editable drafts are eligible: ``ready_for_signature`` keeps
+    its separate lifecycle and still requires an explicit activation.
+
+    A future ``start_date`` satisfies the gate deliberately, just as it does for
+    explicit activation and the established order lifecycle. Financial reports
+    apply their separate date-effective window; status-only operational views
+    may show the ready contract before work starts.
+
+    Returns ``True`` only when this call performed the transition.  The helper
+    deliberately delegates to :func:`activate_contract` so automatic and
+    manual activation share transition validation and the same audit event.
+    """
+    if status_explicit or contract.status != ContractStatus.draft:
+        return False
+    if validate_ready_for_activation(contract):
+        return False
+
+    await activate_contract(db, contract, actor_id=actor_id)
+    return True
 
 
 async def move_to_ready_for_signature(
