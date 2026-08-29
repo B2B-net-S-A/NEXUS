@@ -26,6 +26,7 @@ import {
  Sparkles,
  Star,
  Trash2,
+ UserPlus,
  UserX,
  XCircle,
 } from"lucide-react";
@@ -401,6 +402,52 @@ const ScoreRing = memo(function ScoreRing({
  );
 });
 
+const OverviewScoreBadge = memo(function OverviewScoreBadge({
+ score,
+ loading,
+ candidateId,
+}: {
+ score?: number;
+ loading?: boolean;
+ candidateId: number;
+}) {
+ const pct = score == null ? null : Math.max(0, Math.min(100, Math.round(score)));
+ const label = loading
+ ? "Obliczanie dopasowania AI…"
+ : pct == null
+ ? "Brak wyliczonego dopasowania AI"
+ : `Dopasowanie AI: ${pct} na 100`;
+ const tone =
+ pct == null
+ ? "border-border bg-muted text-muted-foreground"
+ : pct >= 75
+ ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+ : pct >= 50
+ ? "border-sky-200 bg-sky-50 text-sky-700"
+ : pct >= 25
+ ? "border-amber-200 bg-amber-50 text-amber-700"
+ : "border-rose-200 bg-rose-50 text-rose-700";
+
+ return (
+ <Tooltip>
+ <TooltipTrigger asChild>
+ <span
+ data-testid={`overview-match-score-${candidateId}`}
+ className={cn(
+ "inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[9px] font-bold leading-none",
+ loading && "animate-pulse",
+ tone
+ )}
+ aria-hidden="true"
+ >
+ {loading ? "…" : pct ?? "—"}
+ </span>
+ </TooltipTrigger>
+ <TooltipContent side="top">{label}</TooltipContent>
+ </Tooltip>
+ );
+});
+
 // ── Card ─────────────────────────────────────────────────────────────
 
 interface CardProps {
@@ -440,6 +487,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
+ const normalizedMatchScore =
+ typeof matchScore === "number" && Number.isFinite(matchScore)
+ ? Math.max(0, Math.min(100, Math.round(matchScore)))
+ : null;
  const initials = fullName
  .split(/\s+/)
  .map((w) => w[0])
@@ -455,12 +506,26 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ?"warning"
  :"neutral";
  const detailsId = `kanban-candidate-details-${item.id}`;
+ const hasAddedByName = Boolean(item.added_to_job_by_name?.trim());
+ const addedByDisplayName = item.added_to_job_by_name?.trim() || "brak danych";
+ const addedByShortName = item.added_to_job_by_name?.trim()
+ ? item.added_to_job_by_name.trim().split(/\s+/)[0]
+ : "Brak danych";
+ const addedAttribution = hasAddedByName
+ ? `Dodano do rekrutacji przez: ${addedByDisplayName}${
+ item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` : ""
+ }`
+ : `Brak danych o osobie dodającej${
+ item.added_to_job_at ? ` · dodano ${formatDate(item.added_to_job_at)}` : ""
+ }`;
  const accessibleDetails = [
  isPending ? "Oczekuje akceptacji weryfikacji." : null,
- matchScore != null
- ? `Dopasowanie AI: ${Math.round(matchScore)} na 100.`
+ normalizedMatchScore != null
+ ? `Dopasowanie AI: ${normalizedMatchScore} na 100.`
  : scoresLoading
  ? "Trwa obliczanie dopasowania AI."
+ : desktopOverview
+ ? "Brak wyliczonego dopasowania AI."
  : null,
  item.rating != null && item.rating > 0
  ? `Ocena: ${item.rating.toFixed(1)}.`
@@ -468,27 +533,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.days_in_stage != null
  ? `W etapie od ${item.days_in_stage} dni.`
  : null,
+ `${addedAttribution}.`,
  item.hm_veto ? "Weto hiring managera." : null,
  ]
  .filter(Boolean)
  .join(" ");
-
- // Kto przypisał kandydata do tej rekrutacji (+ kiedy) — tooltip na hover karty.
- const addedAttribution = item.added_to_job_by_name
- ? `Dodany do rekrutacji przez: ${item.added_to_job_by_name}${
- item.added_to_job_at ? ` · ${formatDate(item.added_to_job_at)}` :""
- }`
- : item.added_to_job_at
- ? `Dodany do rekrutacji: ${formatDate(item.added_to_job_at)}`
- : undefined;
 
  return (
  <div
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
  density === "compact" ?"p-2" :"p-5",
- desktopOverview &&"xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pt-6",
- desktopOverview && canScreen &&"xl:pointer-fine:pb-6",
+ desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
  isPending &&"opacity-70 grayscale-40 border-amber-300 bg-amber-50/40",
  // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
  // się jako „nieaktywny". Ten kandydat jest aktywny, tylko nie dla tego
@@ -500,8 +556,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `${fullName}\nOczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
  : [
  fullName,
- matchScore != null
- ? `Dopasowanie AI: ${Math.round(matchScore)}/100`
+ normalizedMatchScore != null
+ ? `Dopasowanie AI: ${normalizedMatchScore}/100`
  : null,
  item.rating != null && item.rating > 0
  ? `Ocena: ${item.rating.toFixed(1)}`
@@ -531,9 +587,23 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  checked={selected}
  onCheckedChange={() => onToggleSelect(item.id)}
  aria-label={`Zaznacz ${fullName}`}
- className={cn("bg-card", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6")}
+ className={cn(
+ "relative h-6 w-6 border-0 bg-transparent before:absolute before:inset-1 before:rounded-md before:border before:border-border before:bg-card before:transition-colors hover:border-transparent hover:before:border-primary",
+ "data-[state=checked]:border-transparent data-[state=checked]:bg-transparent data-[state=checked]:before:border-primary data-[state=checked]:before:bg-primary",
+ "data-[state=indeterminate]:border-transparent data-[state=indeterminate]:bg-transparent data-[state=indeterminate]:before:border-primary data-[state=indeterminate]:before:bg-primary"
+ )}
  />
  </div>
+
+ {desktopOverview && (
+ <div className="absolute right-0 top-0 hidden h-6 min-w-6 items-center justify-center xl:pointer-fine:flex">
+ <OverviewScoreBadge
+ score={normalizedMatchScore ?? undefined}
+ loading={scoresLoading && normalizedMatchScore == null}
+ candidateId={item.candidate_id}
+ />
+ </div>
+ )}
 
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
@@ -555,10 +625,29 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div
  className={cn("font-medium text-foreground truncate",
  density === "compact" ?"text-sm" :"text-2xl",
- desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]"
+ desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3"
  )}
  >
  {fullName}
+ </div>
+ <div
+ className={cn(
+ "mt-1 flex min-w-0 items-center gap-1 text-muted-foreground",
+ density === "compact" ? "text-[11px]" : "text-sm",
+ desktopOverview && "xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:text-[9px] xl:pointer-fine:leading-none"
+ )}
+ title={addedAttribution}
+ aria-hidden="true"
+ >
+ <UserPlus className={cn("h-3 w-3 shrink-0", desktopOverview && "xl:pointer-fine:hidden")} />
+ <span className={cn("truncate", desktopOverview && "xl:pointer-fine:hidden")}>
+ Dodano przez: {addedByDisplayName}
+ </span>
+ {desktopOverview && (
+ <span className="hidden truncate xl:pointer-fine:inline">
+ R: {addedByShortName}
+ </span>
+ )}
  </div>
  {contactFeatureEnabled ? (
  <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
@@ -614,9 +703,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
  </div>
  </div>
- {!isPending && (matchScore != null || scoresLoading) && (
+ {(normalizedMatchScore != null || scoresLoading) && (
  <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
- <ScoreRing score={matchScore ?? null} density={density} />
+ <ScoreRing score={normalizedMatchScore} density={density} />
  </div>
  )}
  </div>
@@ -636,7 +725,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  density === "compact" ?"h-5 w-5" :"h-6 w-6",
  desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6",
  isPending ?"top-7" :"top-1",
- desktopOverview &&"xl:pointer-fine:top-0"
+ desktopOverview &&"xl:pointer-fine:bottom-0 xl:pointer-fine:left-0 xl:pointer-fine:right-auto xl:pointer-fine:top-auto"
  )}
  title="Usuń kandydata z tej rekrutacji"
  aria-label={`Usuń ${fullName} z rekrutacji`}
