@@ -118,6 +118,21 @@ def _detach_lotte_wedel_client_gate(monkeypatch):
     monkeypatch.setattr("app.services.lotte_wedel_orders.LOTTE_WEDEL_CLIENT_ID", -2)
 
 
+# ── Ticket 29.08: stałe ID polityki typów zamówień vs sekwencja testowa ─────
+
+
+@pytest.fixture(autouse=True)
+def _detach_canonical_order_type_policy(monkeypatch):
+    """Testowe seriale 12/15/18/155 nie mogą udawać klientów produkcyjnych.
+
+    Regresje samej polityki ustawiają mapę jawnie w swoim teście. Pozostałe
+    fabryki klientów zachowują zwykły wybór typów niezależnie od kolejności
+    plików w shardzie CI.
+    """
+
+    monkeypatch.setattr("app.services.order_types._PINNED_ALLOWED_ORDER_TYPES", {})
+
+
 # ── Global skill-taxonomy isolation ─────────────────────────────────────────
 
 

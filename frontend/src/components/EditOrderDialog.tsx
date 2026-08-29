@@ -31,6 +31,10 @@ import {
 import { downloadOrderDocument, openOrderDocument } from "@/lib/order-documents";
 import { extractionErrorMessage } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import {
+  effectiveClientOrderType,
+  type LegacyClientOrderType,
+} from "@/lib/client-order-list";
 
 /** Serwerowy limit z `client_orders.py` (MAX_UPLOAD_BYTES). */
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -51,6 +55,9 @@ interface EditOrderDialogProps {
   /** Serwer wylicza to per klient — patrz `can_manage_finance` w odpowiedzi. */
   canManageFinance: boolean;
   suggestedOrderType?: OrderType;
+  allowedOrderTypes?: readonly OrderType[];
+  /** Znaczenie trwałego `order_type=NULL` dla tego klienta. */
+  legacyNullOrderType?: LegacyClientOrderType;
   onClose: () => void;
   onSaved: () => void;
   /** Odświeża kartę po zmianie samego pliku, bez zamykania formularza. */
@@ -77,6 +84,8 @@ export function EditOrderDialog({
   rateCandidate,
   canManageFinance,
   suggestedOrderType = "periodic",
+  allowedOrderTypes,
+  legacyNullOrderType = "periodic",
   onClose,
   onSaved,
   onChanged,
@@ -91,7 +100,9 @@ export function EditOrderDialog({
   const canSelectOrderType =
     order === null || (order.status === "draft" && order.order_type != null);
   const [orderType, setOrderType] = useState<OrderType>(
-    order ? order.order_type ?? "periodic" : suggestedOrderType,
+    order
+      ? effectiveClientOrderType(order, legacyNullOrderType)
+      : suggestedOrderType,
   );
   const [totalBudget, setTotalBudget] = useState(
     order?.total_value != null ? String(order.total_value) : "",
@@ -326,7 +337,11 @@ export function EditOrderDialog({
     >
       <div className="space-y-4">
         {canSelectOrderType ? (
-          <OrderTypeSwitch value={orderType} onChange={setOrderType} />
+          <OrderTypeSwitch
+            value={orderType}
+            onChange={setOrderType}
+            allowedTypes={allowedOrderTypes}
+          />
         ) : null}
 
         {/* Baner NAD tytułem — tak samo jak w przedłużeniu; to pierwsze, co

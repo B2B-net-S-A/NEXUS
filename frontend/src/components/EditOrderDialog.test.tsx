@@ -7,6 +7,7 @@ import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { ToastProvider } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { ClientOrderRead, OrderType } from "@/lib/api/dlPortal";
+import type { LegacyClientOrderType } from "@/lib/client-order-list";
 
 vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/dlPortal")>();
@@ -27,10 +28,12 @@ const extractOrderPdf = vi.mocked(dlPortalApi.extractOrderPdf);
 function renderDialog({
   order = null,
   suggestedOrderType = "periodic",
+  legacyNullOrderType = "periodic",
   onCreate = vi.fn(),
 }: {
   order?: ClientOrderRead | null;
   suggestedOrderType?: OrderType;
+  legacyNullOrderType?: LegacyClientOrderType;
   onCreate?: ReturnType<typeof vi.fn>;
 } = {}) {
   const queryClient = new QueryClient({
@@ -48,6 +51,7 @@ function renderDialog({
           rateCandidate={null}
           canManageFinance
           suggestedOrderType={suggestedOrderType}
+          legacyNullOrderType={legacyNullOrderType}
           onClose={vi.fn()}
           onSaved={vi.fn()}
         />
@@ -253,5 +257,27 @@ describe("EditOrderDialog — jawny typ nowego draftu", () => {
     expect(
       screen.queryByRole("radiogroup", { name: "Typ zamówienia" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("pokazuje legacy NULL jako MD tylko w kontekście klienta bez periodic", () => {
+    const { unmount } = renderDialog({
+      order: draftOrder(null),
+      suggestedOrderType: "cost",
+      legacyNullOrderType: "md",
+    });
+
+    expect(
+      screen.queryByRole("radiogroup", { name: "Typ zamówienia" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/Budżet w MD/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Budżet całkowity/)).not.toBeInTheDocument();
+
+    unmount();
+    renderDialog({
+      order: draftOrder(null),
+      suggestedOrderType: "md",
+    });
+    expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Budżet całkowity/)).not.toBeInTheDocument();
   });
 });

@@ -26,8 +26,11 @@ import {
 } from "@/lib/authenticated-files";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
+  contractorOrderType,
+  effectiveClientOrderType,
   filterAndSortContractors,
   visibleLegacyOrderIds,
+  type LegacyClientOrderType,
   type OrderListFilters,
 } from "@/lib/client-order-list";
 import type {
@@ -52,6 +55,7 @@ import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog"
 import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
 import { OrderListControls } from "@/components/client-profile/orders/OrderListControls";
 import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
+import { OrderTypeBadge } from "@/components/client-profile/orders/OrderTypeBadge";
 import { useAuthStore } from "@/store/auth";
 
 interface OrdersAndContractsTabProps {
@@ -60,6 +64,8 @@ interface OrdersAndContractsTabProps {
   /** Tryb osadzony (CP/Lotte): tworzeniem steruje wspólny selektor typu. */
   hideCreateButton?: boolean;
   suggestedOrderType?: OrderType;
+  /** Znaczenie trwałego `ClientOrder.order_type=NULL` dla tego klienta. */
+  legacyNullOrderType?: LegacyClientOrderType;
 }
 
 type Filter = "all" | "active" | "expiring_30d" | "ended" | "drafts";
@@ -114,6 +120,7 @@ export function OrdersAndContractsTab({
   clientName = "",
   hideCreateButton = false,
   suggestedOrderType = "periodic",
+  legacyNullOrderType = "periodic",
 }: OrdersAndContractsTabProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -125,20 +132,7 @@ export function OrdersAndContractsTab({
   });
   const [exporting, setExporting] = useState(false);
   const searching = search.trim().length > 0;
-  const [extendingContract, setExtendingContract] = useState<ContractWithOrdersRead | null>(
-    null,
-  );
-  // „Zakończ" obok „Dodaj przedłużenie" (ticket #5 krok 3) — reuse modal
-  // terminacji; backend synchronizuje kontrakt + zamówienia jedną datą.
-  const [terminatingContract, setTerminatingContract] =
-    useState<ContractWithOrdersRead | null>(null);
   const [newContractor, setNewContractor] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<{
-    /** `null` = kontraktor nie ma jeszcze żadnego zamówienia (tryb tworzenia). */
-    order: ClientOrderRead | null;
-    rateCandidate: number | null;
-    createOrder: CreateDraftOrder;
-  } | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["dl-orders-grouped", clientId],
@@ -152,6 +146,9 @@ export function OrdersAndContractsTab({
   // nie zna przypisań DL, więc bramkowanie po samej roli pokazywałoby pola
   // stawek komuś, kto na zapisie dostanie 403.
   const canManageFinance = data?.can_manage_finance ?? false;
+  // Ta sama odpowiedź serwera jest obecnie kanoniczną bramką zapisu
+  // zamówień okresowych: admin albo DL przypisany do tego klienta.
+  const canManageOrders = canManageFinance;
 
   // Predykaty pigułek w JEDNYM miejscu — filtr i licznik MUSZĄ liczyć to samo.
   // Dwie kopie tej samej reguły rozjeżdżają się przy pierwszej zmianie i dają
@@ -304,7 +301,7 @@ export function OrdersAndContractsTab({
             Zakończeni ({counts.ended})
           </FilterPill>
         </div>
-        {!hideCreateButton ? (
+        {!hideCreateButton && canManageOrders ? (
           <button
             onClick={() => setNewContractor(true)}
             className="flex items-center gap-1.5 px-3 py-2 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
@@ -371,41 +368,14 @@ export function OrdersAndContractsTab({
           )}
         </div>
       ) : (
-        <ul className="space-y-3">
-          {filtered.map((contractor) => (
-            <ContractorCard
-              key={contractor.contract_id}
-              contractor={contractor}
-              clientId={clientId}
-              canManageFinance={canManageFinance}
-              suggestedOrderType={suggestedOrderType}
-              searching={searching}
-              onExtend={() => setExtendingContract(contractor)}
-              onTerminate={() => setTerminatingContract(contractor)}
-              onEditOrder={(order, createOrder) =>
-                setEditingOrder({
-                  order,
-                  rateCandidate: contractor.rate_candidate,
-                  createOrder,
-                })
-              }
-              onChange={refresh}
-              onError={(msg) => showToast(msg, "error")}
-              onSuccess={(msg) => showToast(msg, "success")}
-            />
-          ))}
-        </ul>
-      )}
-
-      {extendingContract && (
-        <ExtendOrderDialog
+        <ContractorOrderCards
           clientId={clientId}
-          contract={extendingContract}
-          onClose={() => setExtendingContract(null)}
-          onCreated={() => {
-            setExtendingContract(null);
-            refresh();
-          }}
+          contractors={filtered}
+          canManageFinance={canManageFinance}
+          canManageOrders={canManageOrders}
+          suggestedOrderType={suggestedOrderType}
+          legacyNullOrderType={legacyNullOrderType}
+          searching={searching}
         />
       )}
 
@@ -420,7 +390,96 @@ export function OrdersAndContractsTab({
         />
       )}
 
-      {terminatingContract && (
+    </div>
+  );
+}
+
+interface ContractorOrderCardsProps {
+  clientId: number;
+  contractors: readonly ContractWithOrdersRead[];
+  canManageFinance: boolean;
+  canManageOrders: boolean;
+  suggestedOrderType: OrderType;
+  legacyNullOrderType: LegacyClientOrderType;
+  allowedOrderTypes?: readonly OrderType[];
+  searching: boolean;
+}
+
+/**
+ * Warstwa prezentacyjna istniejących kart kontraktorów. Dzięki niej wspólna
+ * lista może przeplatać domeny grupowe i okresowe bez kopiowania zachowania
+ * edycji, przedłużeń, zakończeń ani draftów.
+ */
+export function ContractorOrderCards({
+  clientId,
+  contractors,
+  canManageFinance,
+  canManageOrders,
+  suggestedOrderType,
+  legacyNullOrderType,
+  allowedOrderTypes,
+  searching,
+}: ContractorOrderCardsProps) {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [extendingContract, setExtendingContract] =
+    useState<ContractWithOrdersRead | null>(null);
+  const [terminatingContract, setTerminatingContract] =
+    useState<ContractWithOrdersRead | null>(null);
+  const [editingOrder, setEditingOrder] = useState<{
+    order: ClientOrderRead | null;
+    rateCandidate: number | null;
+    createOrder: CreateDraftOrder;
+  } | null>(null);
+
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
+    queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
+    queryClient.invalidateQueries({ queryKey: ["order-documents"] });
+  }
+
+  return (
+    <>
+      <ul className="space-y-3">
+        {contractors.map((contractor) => (
+          <ContractorCard
+            key={contractor.contract_id}
+            contractor={contractor}
+            clientId={clientId}
+            canManageFinance={canManageFinance}
+            canManageOrders={canManageOrders}
+            suggestedOrderType={suggestedOrderType}
+            legacyNullOrderType={legacyNullOrderType}
+            searching={searching}
+            onExtend={() => setExtendingContract(contractor)}
+            onTerminate={() => setTerminatingContract(contractor)}
+            onEditOrder={(order, createOrder) =>
+              setEditingOrder({
+                order,
+                rateCandidate: contractor.rate_candidate,
+                createOrder,
+              })
+            }
+            onChange={refresh}
+            onError={(msg) => showToast(msg, "error")}
+            onSuccess={(msg) => showToast(msg, "success")}
+          />
+        ))}
+      </ul>
+
+      {extendingContract ? (
+        <ExtendOrderDialog
+          clientId={clientId}
+          contract={extendingContract}
+          onClose={() => setExtendingContract(null)}
+          onCreated={() => {
+            setExtendingContract(null);
+            refresh();
+          }}
+        />
+      ) : null}
+
+      {terminatingContract ? (
         <TerminateContractModal
           contractId={terminatingContract.contract_id}
           candidateName={terminatingContract.candidate_name}
@@ -428,9 +487,9 @@ export function OrdersAndContractsTab({
           onClose={() => setTerminatingContract(null)}
           onTerminated={refresh}
         />
-      )}
+      ) : null}
 
-      {editingOrder && (
+      {editingOrder ? (
         <EditOrderDialog
           clientId={clientId}
           order={editingOrder.order}
@@ -438,6 +497,8 @@ export function OrdersAndContractsTab({
           onCreate={editingOrder.createOrder}
           canManageFinance={canManageFinance}
           suggestedOrderType={suggestedOrderType}
+          allowedOrderTypes={allowedOrderTypes}
+          legacyNullOrderType={legacyNullOrderType}
           onClose={() => setEditingOrder(null)}
           onSaved={() => {
             setEditingOrder(null);
@@ -445,8 +506,8 @@ export function OrdersAndContractsTab({
           }}
           onChanged={refresh}
         />
-      )}
-    </div>
+      ) : null}
+    </>
   );
 }
 
@@ -575,7 +636,9 @@ interface ContractorCardProps {
   contractor: ContractWithOrdersRead;
   clientId: number;
   canManageFinance: boolean;
+  canManageOrders: boolean;
   suggestedOrderType: OrderType;
+  legacyNullOrderType: LegacyClientOrderType;
   /** Aktywne wyszukiwanie — wymusza rozwinięcie historii, żeby trafienie
       w historycznym zamówieniu nie było schowane za zwiniętym togglem. */
   searching: boolean;
@@ -592,7 +655,9 @@ function ContractorCard({
   contractor,
   clientId,
   canManageFinance,
+  canManageOrders,
   suggestedOrderType,
+  legacyNullOrderType,
   searching,
   onExtend,
   onTerminate,
@@ -769,6 +834,11 @@ function ContractorCard({
     contractor.days_to_latest_end <= 30;
 
   const hasSection = futureOrders.length > 0 || historyOrders.length > 0;
+  const cardOrderType = activeOrder
+    ? effectiveClientOrderType(activeOrder, legacyNullOrderType)
+    : contractor.orders.length > 0
+      ? contractorOrderType(contractor, legacyNullOrderType)
+      : suggestedOrderType;
 
   return (
     <li className="border border-border rounded-lg bg-card p-4 space-y-3">
@@ -786,6 +856,7 @@ function ContractorCard({
             <span className="text-xs text-muted-foreground">
               Contract {contractor.contract_id}
             </span>
+            <OrderTypeBadge type={cardOrderType} />
             {expiringWarn && (
               <span className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
@@ -808,6 +879,7 @@ function ContractorCard({
                 )
               }
               ariaLabel="Numer zamówienia"
+              editable={canManageOrders}
               placeholder="np. 45767"
               onError={onError}
               onSave={async (raw) => {
@@ -837,6 +909,7 @@ function ContractorCard({
                     )
                   }
                   ariaLabel="Stawka kosztowa"
+                  editable={canManageOrders}
                   inputMode="decimal"
                   sanitize={sanitizeDecimalInput}
                   placeholder="np. 12000"
@@ -880,6 +953,7 @@ function ContractorCard({
                     )
                   }
                   ariaLabel="Stawka przychodowa"
+                  editable={canManageOrders}
                   inputMode="decimal"
                   sanitize={sanitizeDecimalInput}
                   placeholder="np. 18000"
@@ -898,7 +972,7 @@ function ContractorCard({
                 <select
                   value={activeOrder ? (activeOrder.project_part ?? "") : pendingPart}
                   aria-label="Część umowy"
-                  disabled={partSaving}
+                  disabled={!canManageOrders || partSaving}
                   onChange={async (e) => {
                     const value = e.target.value || null;
                     // disabled na czas zapisu (bez wyścigu dwóch PATCHy);
@@ -947,6 +1021,7 @@ function ContractorCard({
             <InlinePeriod
               startDate={activeOrder?.start_date ?? null}
               endDate={activeOrder?.end_date ?? null}
+              editable={canManageOrders}
               onError={onError}
               onSave={async (start, end) => {
                 await saveOntoOrder({ start_date: start, end_date: end });
@@ -973,14 +1048,18 @@ function ContractorCard({
           {/* Bez `activeOrder &&` — kontraktor bez zamówienia też musi mieć
               czym je założyć; dialog otwiera się pusty, a POST leci dopiero
               przy zapisie. */}
-          <CompleteOrderButton onClick={() => openOrderDialog(activeOrder)} />
-          <button
-            onClick={onExtend}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
-          >
-            <Plus className="w-4 h-4" />
-            Dodaj przedłużenie
-          </button>
+          {canManageOrders ? (
+            <>
+              <CompleteOrderButton onClick={() => openOrderDialog(activeOrder)} />
+              <button
+                onClick={onExtend}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
+              >
+                <Plus className="w-4 h-4" />
+                Dodaj przedłużenie
+              </button>
+            </>
+          ) : null}
           {/* „Zakończ" (ticket #5 krok 3) — ukryte WYŁĄCZNIE w stanach
               terminalnych; uzasadnienie przy `canTerminateContractor`. */}
           {canTerminateContractor(contractor.contract_status) && (
@@ -1016,6 +1095,8 @@ function ContractorCard({
                   order={order}
                   candidateName={contractor.candidate_name}
                   clientId={clientId}
+                  canManageOrders={canManageOrders}
+                  legacyNullOrderType={legacyNullOrderType}
                   onEditOrder={openOrderDialog}
                   onError={onError}
                   onSuccess={onSuccess}
@@ -1052,6 +1133,8 @@ function ContractorCard({
                     order={order}
                     clientId={clientId}
                     canManageFinance={canManageFinance}
+                    canManageOrders={canManageOrders}
+                    legacyNullOrderType={legacyNullOrderType}
                     rateUnit={contractor.rate_unit}
                     onEditOrder={openOrderDialog}
                     onError={onError}
@@ -1080,6 +1163,8 @@ interface FutureOrderRowProps {
   order: ClientOrderRead;
   candidateName: string;
   clientId: number;
+  canManageOrders: boolean;
+  legacyNullOrderType: LegacyClientOrderType;
   onEditOrder: (order: ClientOrderRead) => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
@@ -1090,6 +1175,8 @@ function FutureOrderRow({
   order,
   candidateName,
   clientId,
+  canManageOrders,
+  legacyNullOrderType,
   onEditOrder,
   onError,
   onSuccess,
@@ -1109,13 +1196,19 @@ function FutureOrderRow({
   return (
     <div className="flex items-start justify-between gap-3 text-sm border border-border rounded p-2 bg-background">
       <div className="flex-1 min-w-0 space-y-0.5">
-        <div className="font-medium">{candidateName}</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">{candidateName}</span>
+          <OrderTypeBadge
+            type={effectiveClientOrderType(order, legacyNullOrderType)}
+          />
+        </div>
         <div className="text-xs">
           <span className="text-muted-foreground">Numer zamówienia: </span>
           <InlineText
             value={order.title}
             display={<span className="font-medium">{order.title}</span>}
             ariaLabel="Numer zamówienia (przyszłe)"
+            editable={canManageOrders}
             onError={onError}
             onSave={async (raw) => {
               if (!raw) throw new Error("Numer zamówienia nie może być pusty");
@@ -1131,18 +1224,24 @@ function FutureOrderRow({
             {fmtDate(order.start_date)} → {fmtDate(order.end_date) || "bezterminowo"}
           </div>
         )}
-        <CompleteOrderButton onClick={() => onEditOrder(order)} compact />
+        {canManageOrders ? (
+          <CompleteOrderButton onClick={() => onEditOrder(order)} compact />
+        ) : null}
       </div>
-      <button
-        type="button"
-        onClick={() => {
-          if (confirm(`Anulować zamówienie "${order.title}"?`)) deleteMutation.mutate();
-        }}
-        className="text-muted-foreground hover:text-destructive p-1"
-        title="Usuń / anuluj"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      {canManageOrders ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm(`Anulować zamówienie "${order.title}"?`)) {
+              deleteMutation.mutate();
+            }
+          }}
+          className="text-muted-foreground hover:text-destructive p-1"
+          title="Usuń / anuluj"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1153,6 +1252,8 @@ interface HistoryOrderRowProps {
   order: ClientOrderRead;
   clientId: number;
   canManageFinance: boolean;
+  canManageOrders: boolean;
+  legacyNullOrderType: LegacyClientOrderType;
   /** Jednostka stawek kontraktu — surowy rate_client jest w tej jednostce. */
   rateUnit: string;
   onEditOrder: (order: ClientOrderRead) => void;
@@ -1165,6 +1266,8 @@ function HistoryOrderRow({
   order,
   clientId,
   canManageFinance,
+  canManageOrders,
+  legacyNullOrderType,
   rateUnit,
   onEditOrder,
   onError,
@@ -1203,6 +1306,9 @@ function HistoryOrderRow({
             {STATUS_LABELS[order.status]}
           </span>
           <span className="font-medium">{order.title}</span>
+          <OrderTypeBadge
+            type={effectiveClientOrderType(order, legacyNullOrderType)}
+          />
         </div>
         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
           {(order.start_date || order.end_date) && (
@@ -1234,19 +1340,25 @@ function HistoryOrderRow({
               PDF
             </button>
           )}
-          <CompleteOrderButton onClick={() => onEditOrder(order)} compact />
+          {canManageOrders ? (
+            <CompleteOrderButton onClick={() => onEditOrder(order)} compact />
+          ) : null}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={() => {
-          if (confirm(`Anulować zamówienie "${order.title}"?`)) deleteMutation.mutate();
-        }}
-        className="text-muted-foreground hover:text-destructive p-1"
-        title="Usuń / anuluj"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      {canManageOrders ? (
+        <button
+          type="button"
+          onClick={() => {
+            if (confirm(`Anulować zamówienie "${order.title}"?`)) {
+              deleteMutation.mutate();
+            }
+          }}
+          className="text-muted-foreground hover:text-destructive p-1"
+          title="Usuń / anuluj"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      ) : null}
     </div>
   );
 }

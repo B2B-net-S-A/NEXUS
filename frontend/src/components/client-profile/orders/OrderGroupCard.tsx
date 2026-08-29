@@ -33,6 +33,7 @@ import {
 } from "@/lib/api/orderGroups";
 import {
   consultantMatchesQuery,
+  effectiveGroupOrderType,
   flattenOrderGroupIds,
   sortOrderLinesByConsultant,
 } from "@/lib/client-order-list";
@@ -40,6 +41,7 @@ import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
 
 import { formatMd, MdBudgetBar } from "./MdBudgetBar";
+import { OrderTypeBadge } from "./OrderTypeBadge";
 
 function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
@@ -282,8 +284,11 @@ function FutureOrders({
           <li key={future.id} id={orderGroupAnchorId(future.id)} className="p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-foreground">
-                  nr {future.order_number} · od {formatDate(future.start_date)}
+                <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+                  <span className="truncate">
+                    nr {future.order_number} · od {formatDate(future.start_date)}
+                  </span>
+                  <OrderTypeBadge type={effectiveGroupOrderType(future)} />
                 </p>
                 {future.end_date ? (
                   <p className="text-xs text-muted-foreground">
@@ -499,16 +504,7 @@ export function OrderGroupCard({
                 {group.status_label}
               </span>
             ) : null}
-            {group.is_cost_based ? (
-              <span className="rounded bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                kosztowe
-              </span>
-            ) : null}
-            {group.is_md_budget_based ? (
-              <span className="rounded bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800">
-                na MD
-              </span>
-            ) : null}
+            <OrderTypeBadge type={effectiveGroupOrderType(group)} />
           </p>
           <p className="text-xs text-muted-foreground">
             {periodLabel(group)}

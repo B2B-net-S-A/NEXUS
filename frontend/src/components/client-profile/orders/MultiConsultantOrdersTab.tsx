@@ -6,14 +6,14 @@ import { Plus } from "lucide-react";
 
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
-import { OrdersAndContractsTab } from "@/components/OrdersAndContractsTab";
+import { ContractorOrderCards } from "@/components/OrdersAndContractsTab";
 import { useToast } from "@/components/Toast";
+import { dlPortalApi } from "@/lib/api/dlPortal";
 import {
   orderGroupsApi,
   type OrderGroupExtendInput,
   type OrderGroupInput,
   type OrderGroupRead,
-  type OrderGroupStatus,
   type OrderLineRead,
   type OrderType,
   type SwapConsultantInput,
@@ -21,9 +21,21 @@ import {
 import { countPl } from "@/lib/plural-pl";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
+  ORDER_TYPE_ORDER,
+  contractorMatchesPill,
+  contractorOrderType,
+  effectiveClientOrderType,
+  effectiveGroupOrderType,
+  filterMaterializedContractorShells,
+  filterAndSortContractors,
   filterAndSortOrderGroups,
   flattenOrderGroupIds,
+  orderGroupMatchesPill,
+  sortUnifiedOrderItems,
+  visibleLegacyOrderIds,
+  type LegacyClientOrderType,
   type OrderListFilters,
+  type UnifiedOrderPill,
 } from "@/lib/client-order-list";
 import {
   downloadBlob,
@@ -36,12 +48,13 @@ import {
 } from "@/store/auth";
 
 import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal";
-import { DraftOrdersSection } from "./DraftOrdersSection";
 import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
+import { NordeaOrderImportPanel } from "./NordeaOrderImportPanel";
 import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
 import { OrderListControls } from "./OrderListControls";
+import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
 /** Wyciąga czytelny komunikat z odpowiedzi API (detail bywa stringiem lub obiektem). */
@@ -68,54 +81,14 @@ function apiError(err: unknown, fallback: string): string {
  *  wprost do duplikatu zamówienia (patrz `attachFile`). */
 type GroupSaveResult = { saved: OrderGroupRead; fileError: string | null };
 
-type MainOrderGroupStatus = Exclude<OrderGroupStatus, "scheduled">;
-type PillKey = "all" | MainOrderGroupStatus | "ending_30d" | "draft";
-
-// Zestaw bazowy (Polkomtel — klient kosztowy — zostaje przy nim bez zmian,
-// wymóg ticketu). Klienci MD (BIK/BNP) dostają dodatkowo „Kończące się 30d"
-// i „Draft (do uzupełnienia)" — ten sam słownik pigułek co widok jednoosobowy.
-// „Wyczerpane" zostaje także u nich: budżety MD wyczerpują się właśnie tam,
-// a zdjęcie pigułki ukryłoby istniejące grupy w tym stanie.
-const BASE_PILLS: Array<{ key: PillKey; label: string }> = [
-  { key: "all", label: "Wszystkie" },
-  { key: "active", label: "Aktywne" },
-  { key: "completed", label: "Zakończeni" },
-  { key: "exhausted", label: "Wyczerpane" },
-];
-
-const MD_CLIENT_PILLS: Array<{ key: PillKey; label: string }> = [
+const PILLS: Array<{ key: UnifiedOrderPill; label: string }> = [
   { key: "all", label: "Wszystkie" },
   { key: "active", label: "Aktywne" },
   { key: "ending_30d", label: "⚠️ Kończące się 30d" },
-  { key: "draft", label: "📝 Draft (do uzupełnienia)" },
   { key: "completed", label: "Zakończeni" },
   { key: "exhausted", label: "Wyczerpane" },
+  { key: "draft", label: "📝 Draft (do uzupełnienia)" },
 ];
-
-// Cyfrowy Polsat i Lotte Wedel pokazują standardowe zamówienia w legacy
-// rejestrze. Powtarzanie tu pustej pigułki Draft sugerowałoby, że część
-// standardowych zamówień zniknęła; grupy kosztowe/MD zachowują natomiast
-// przydatny filtr kończących się zamówień.
-const MIXED_GROUP_PILLS = MD_CLIENT_PILLS.filter(
-  (entry) => entry.key !== "draft",
-);
-
-/** Dni do końca zamówienia liczone datami kalendarzowymi (bez stref). */
-function daysToEnd(end: string | null): number | null {
-  if (!end) return null;
-  const endDate = new Date(`${end.slice(0, 10)}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((endDate.getTime() - today.getTime()) / 86_400_000);
-}
-
-/** Aktywna grupa kończąca się w ciągu 30 dni — lustro `expiring_30d`
- *  z widoku jednoosobowego (przedział [0, 30], bez już zakończonych). */
-function isEndingSoon(group: OrderGroupRead): boolean {
-  if (group.status !== "active") return false;
-  const days = daysToEnd(group.end_date);
-  return days !== null && days >= 0 && days <= 30;
-}
 
 interface Props {
   clientId: number;
@@ -127,29 +100,36 @@ interface Props {
    *  ją profil klienta, który i tak ma już pobrany rekord. Front nie trzyma
    *  kopii listy klientów ani nie robi drugiego zapytania o ten sam obiekt. */
   costOrdersEnabled?: boolean;
-  /** CP/Lotte Wedel: obok grup kosztowych/MD zachowują legacy zamówienia
-   *  standardowe i dostają jedno, wspólne wejście tworzenia. */
-  mixedOrderTypesEnabled?: boolean;
+  /** Trwała konfiguracja klienta; `false` usuwa typ okresowy z tworzenia. */
+  periodicOrdersEnabled?: boolean;
 }
 
 /**
- * Wspólna zakładka „Zamówienia" dla każdego klienta. Zamówienia okresowe i
- * samodzielne drafty zachowują dotychczasowy rejestr kontraktorów, a kosztowe
- * oraz MD korzystają z grup ze wspólnym budżetem.
+ * Jedna zakładka i jeden zestaw kontrolek dla wszystkich typów zamówień.
+ * Renderowanie kart pozostaje domenowe: okresowe korzystają z kart kontraktora,
+ * a kosztowe/MD z grup, ale użytkownik dostaje jedną posortowaną listę.
  */
 export function MultiConsultantOrdersTab({
   clientId,
   clientName = "",
   costOrdersEnabled = false,
-  mixedOrderTypesEnabled = false,
+  periodicOrdersEnabled = true,
 }: Props) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
   const canManage = canManageMultiConsultantOrders(user);
   const canLifecycle = canManageOrderLifecycle(user);
+  const legacyNullOrderType: LegacyClientOrderType = periodicOrdersEnabled
+    ? "periodic"
+    : "md";
+  const allowedOrderTypes: readonly OrderType[] = periodicOrdersEnabled
+    ? ["periodic", "cost", "md"]
+    : costOrdersEnabled
+      ? ["cost", "md"]
+      : ["md"];
 
-  const [pill, setPill] = useState<PillKey>("all");
+  const [pill, setPill] = useState<UnifiedOrderPill>("all");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<OrderListFilters>({
     ...DEFAULT_ORDER_LIST_FILTERS,
@@ -190,11 +170,22 @@ export function MultiConsultantOrdersTab({
     queryKey: ["client-order-groups", clientId],
     queryFn: async () => (await orderGroupsApi.list(clientId)).data,
   });
+  const contractorQuery = useQuery({
+    queryKey: ["dl-orders-grouped", clientId],
+    queryFn: async () => (await dlPortalApi.listContractorsWithOrders(clientId)).data,
+  });
+  const serverSuggestedOrderType = query.data?.suggested_order_type ?? "periodic";
+  const suggestedOrderType = allowedOrderTypes.includes(serverSuggestedOrderType)
+    ? serverSuggestedOrderType
+    : allowedOrderTypes[0];
 
   function openNewOrderForm(orderType: OrderType) {
+    const allowedType = allowedOrderTypes.includes(orderType)
+      ? orderType
+      : allowedOrderTypes[0];
     setFormError(null);
-    setNewOrderType(orderType);
-    if (orderType === "periodic") {
+    setNewOrderType(allowedType);
+    if (allowedType === "periodic") {
       setGroupModal({ open: false, group: null });
       setStandardOrderModalOpen(true);
       return;
@@ -431,48 +422,130 @@ export function MultiConsultantOrdersTab({
   });
 
   const groups = useMemo(() => query.data?.groups ?? [], [query.data]);
-  const draftOrders = useMemo(
-    () => query.data?.draft_orders ?? [],
-    [query.data],
+  const contractors = useMemo(
+    () =>
+      filterMaterializedContractorShells(
+        contractorQuery.data?.contractors ?? [],
+        groups,
+      ),
+    [contractorQuery.data, groups],
   );
-  const pills = mixedOrderTypesEnabled
-    ? MIXED_GROUP_PILLS
-    : costOrdersEnabled
-      ? BASE_PILLS
-      : MD_CLIENT_PILLS;
   const counts = useMemo(() => {
-    const byStatus: Record<PillKey, number> = {
-      all: groups.length,
-      active: 0,
-      completed: 0,
-      exhausted: 0,
-      // „Kończące się" jest PODZBIOREM „Aktywne" — suma pigułek świadomie
-      // nie równa się „Wszystkie" (ta sama reguła co w widoku jednoosobowym).
-      ending_30d: groups.filter(isEndingSoon).length,
-      draft: draftOrders.length,
-    };
-    for (const group of groups) {
-      if (group.status !== "scheduled") byStatus[group.status] += 1;
+    const byStatus = {} as Record<UnifiedOrderPill, number>;
+    for (const entry of PILLS) {
+      byStatus[entry.key] =
+        groups.filter((group) => orderGroupMatchesPill(group, entry.key)).length +
+        contractors.filter((contractor) =>
+          contractorMatchesPill(contractor, entry.key),
+        ).length;
     }
     return byStatus;
-  }, [groups, draftOrders]);
-  const visible = useMemo(() => {
-    if (pill === "draft") return [];
-    const byPill =
-      pill === "all"
-        ? groups
-        : pill === "ending_30d"
-          ? groups.filter(isEndingSoon)
-          : groups.filter((group) => group.status === pill);
-    return filterAndSortOrderGroups(byPill, search, filters);
-  }, [groups, pill, search, filters]);
+  }, [contractors, groups]);
+  const visibleGroups = useMemo(
+    () =>
+      filterAndSortOrderGroups(
+        groups.filter((group) => orderGroupMatchesPill(group, pill)),
+        search,
+        filters,
+      ),
+    [filters, groups, pill, search],
+  );
+  const visibleContractors = useMemo(
+    () =>
+      // „Blisko budżetu" opisuje wyłącznie grupy kosztowe/MD. Kontraktorzy
+      // okresowi nie mają wspólnego budżetu, więc przy tym filtrze odpadają.
+      filters.nearBudget
+        ? []
+        : filterAndSortContractors(
+            contractors.filter((contractor) =>
+              contractorMatchesPill(contractor, pill),
+            ),
+            search,
+            filters,
+          ),
+    [contractors, filters, pill, search],
+  );
+  const sections = useMemo(
+    () =>
+      ORDER_TYPE_ORDER.map((type) => ({
+        type,
+        items: sortUnifiedOrderItems(
+          [
+            ...visibleGroups
+              .filter((group) => effectiveGroupOrderType(group) === type)
+              .map((group) => ({ kind: "group" as const, group })),
+            ...visibleContractors
+              .filter(
+                (contractor) =>
+                  (contractor.orders.length > 0
+                    ? contractorOrderType(contractor, legacyNullOrderType)
+                    : suggestedOrderType) === type,
+              )
+              .map((contractor) => ({
+                kind: "contractor" as const,
+                contractor,
+              })),
+          ],
+          filters.sort,
+        ),
+      })).filter((section) => section.items.length > 0),
+    [
+      filters.sort,
+      legacyNullOrderType,
+      suggestedOrderType,
+      visibleContractors,
+      visibleGroups,
+    ],
+  );
+  const resultCount = visibleGroups.length + visibleContractors.length;
 
   async function exportVisible() {
     setExporting(true);
     try {
+      const visibleOrderIds = new Set(
+        visibleLegacyOrderIds(visibleContractors, search),
+      );
+      type ExportItem =
+        | { kind: "group"; id: number }
+        | { kind: "order"; id: number };
+      const items: ExportItem[] = ORDER_TYPE_ORDER.flatMap<ExportItem>((type) =>
+        sortUnifiedOrderItems(
+          [
+            ...visibleGroups
+              .filter((group) => effectiveGroupOrderType(group) === type)
+              .map((group) => ({ kind: "group" as const, group })),
+            ...visibleContractors
+              .filter((contractor) =>
+                contractor.orders.some(
+                  (order) =>
+                    visibleOrderIds.has(order.id) &&
+                    effectiveClientOrderType(order, legacyNullOrderType) === type,
+                ),
+              )
+              .map((contractor) => ({
+                kind: "contractor" as const,
+                contractor,
+              })),
+          ],
+          filters.sort,
+        ).flatMap<ExportItem>((item) =>
+          item.kind === "group"
+            ? flattenOrderGroupIds([item.group]).map((id) => ({
+                kind: "group" as const,
+                id,
+              }))
+            : item.contractor.orders
+                .filter(
+                  (order) =>
+                    visibleOrderIds.has(order.id) &&
+                    effectiveClientOrderType(order, legacyNullOrderType) === type,
+                )
+                .map((order) => ({ kind: "order" as const, id: order.id })),
+        ),
+      );
       const result = await postAuthenticatedDownload(
-        `/api/clients/${clientId}/order-groups/export`,
-        { group_ids: flattenOrderGroupIds(visible) },
+        `/api/clients/${clientId}/orders/export`,
+        { items },
       );
       downloadBlob(result.blob, result.filename ?? "Zamowienia.xlsx");
       showToast("Pobrano zamówienia do Excela", "success");
@@ -483,6 +556,73 @@ export function MultiConsultantOrdersTab({
     }
   }
 
+  function renderGroup(group: OrderGroupRead) {
+    return (
+      <OrderGroupCard
+        key={group.id}
+        clientId={clientId}
+        group={group}
+        searchQuery={search}
+        canManage={canManage}
+        canManageLifecycle={canLifecycle}
+        onAddConsultant={(selected) => {
+          setFormError(null);
+          setLineModal({ open: true, group: selected, line: null });
+        }}
+        onEditGroup={(selected) => {
+          setFormError(null);
+          setGroupModal({ open: true, group: selected });
+        }}
+        onEditLine={(selected, line) => {
+          setFormError(null);
+          setLineModal({ open: true, group: selected, line });
+        }}
+        onSwapLine={(selected, line) => {
+          setFormError(null);
+          setSwapModal({ open: true, group: selected, line });
+        }}
+        onDeleteLine={(selected, line) => {
+          if (
+            !window.confirm(
+              `Czy na pewno chcesz usunąć konsultanta ${line.consultant_name} ` +
+                `z zamówienia nr ${selected.order_number}? Tej operacji nie można cofnąć.`,
+            )
+          ) {
+            return;
+          }
+          removeLine.mutate({ groupId: selected.id, lineId: line.id });
+        }}
+        onDeleteGroup={(selected) => {
+          if (
+            !window.confirm(
+              `Czy na pewno chcesz usunąć całe zamówienie nr ${selected.order_number} ` +
+                `wraz ze wszystkimi konsultantami? Tej operacji nie można cofnąć.`,
+            )
+          ) {
+            return;
+          }
+          removeGroup.mutate(selected.id);
+        }}
+        onCloseGroup={(selected) => {
+          setFormError(null);
+          setEndModal({ open: true, group: selected });
+        }}
+        onReopenGroup={(selected) => reopenGroup.mutate(selected.id)}
+        onExtendGroup={(selected) => {
+          setFormError(null);
+          setExtendModal({ open: true, group: selected });
+        }}
+        focusRequest={focusRequest}
+        onFocusGroup={(groupId) =>
+          setFocusRequest((previous) => ({
+            groupId,
+            nonce: (previous?.nonce ?? 0) + 1,
+          }))
+        }
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -491,42 +631,28 @@ export function MultiConsultantOrdersTab({
             Zamówienia klienta
           </h2>
           <p className="text-xs text-muted-foreground">
-            {mixedOrderTypesEnabled
-              ? "Zamówienia okresowe, kosztowe i rozliczane wspólną pulą MD."
-              : "Jedno zamówienie może obejmować wielu konsultantów, każdego z własnym budżetem MD."}
+            Jedna lista zamówień okresowych, kosztowych i rozliczanych w MD.
           </p>
         </div>
         <div className="flex items-center gap-3">
           {/* `isSuccess`, nie `!isLoading && !isError` — w przerwie między
               ponowieniami dane są puste, a licznik pokazywałby „0 zamówienia",
               czyli tę samą nieprawdę co pusty stan pod spodem. */}
-          {query.isSuccess ? (
+          {query.isSuccess && contractorQuery.isSuccess ? (
             <p className="text-xs text-muted-foreground">
-              {mixedOrderTypesEnabled ? "Grupy kosztowe/MD: " : ""}
               {countPl(
-                query.data.total_groups,
-                "zamówienie",
-                "zamówienia",
-                "zamówień",
-              )}{" "}
-              ·{" "}
-              {countPl(
-                query.data.total_consultants,
-                "konsultant",
-                "konsultanci",
-                "konsultantów",
+                groups.length + contractors.length,
+                "pozycja na liście",
+                "pozycje na liście",
+                "pozycji na liście",
               )}
             </p>
           ) : null}
           {canManage ? (
             <button
               type="button"
-              disabled={!query.isSuccess}
-              onClick={() => {
-                openNewOrderForm(
-                  query.data?.suggested_order_type ?? "periodic",
-                );
-              }}
+              disabled={!query.isSuccess || !contractorQuery.isSuccess}
+              onClick={() => openNewOrderForm(suggestedOrderType)}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
               <Plus className="h-4 w-4" aria-hidden="true" /> Nowe zamówienie
@@ -535,39 +661,13 @@ export function MultiConsultantOrdersTab({
         </div>
       </header>
 
-      {mixedOrderTypesEnabled ? (
-        <section
-          aria-labelledby="standard-orders-heading"
-          className="rounded-xl border border-border bg-card p-4"
-        >
-          <h3
-            id="standard-orders-heading"
-            className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground"
-          >
-            Zamówienia okresowe i drafty do uzupełnienia
-          </h3>
-          <OrdersAndContractsTab
-            clientId={clientId}
-            clientName={clientName}
-            hideCreateButton
-            suggestedOrderType={query.data?.suggested_order_type ?? "periodic"}
-          />
-        </section>
-      ) : null}
-
-      {mixedOrderTypesEnabled ? (
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-foreground">
-          Zamówienia kosztowe i na MD
-        </h3>
-      ) : null}
-
       {/* Liczniki liczone z POBRANEJ listy, nie z osobnego zapytania — kafel
           będący sumą innych liczb niż widoczne pod nim jest niemożliwy do
           zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
           żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
-      {query.isSuccess ? (
+      {query.isSuccess && contractorQuery.isSuccess ? (
         <div className="flex flex-wrap gap-2">
-          {pills.map((entry) => (
+          {PILLS.map((entry) => (
             <button
               key={entry.key}
               type="button"
@@ -586,144 +686,88 @@ export function MultiConsultantOrdersTab({
         </div>
       ) : null}
 
-      {/* Wyszukiwarka/sortowanie/eksport operują na GRUPACH — w zakładce
-          szkiców ukryte, żeby nie obiecywać filtrowania, które ich nie
-          obejmuje (krótka kolejka do uzupełnienia, nie rejestr). */}
-      {query.isSuccess && pill !== "draft" ? (
+      {query.isSuccess && contractorQuery.isSuccess ? (
         <OrderListControls
           search={search}
           onSearchChange={setSearch}
           filters={filters}
           onFiltersChange={setFilters}
-          resultCount={visible.length}
+          resultCount={resultCount}
           exporting={exporting}
           onExport={exportVisible}
         />
       ) : null}
 
-      {query.isError ? (
-        /* Awaria pobrania MUSI mieć własną gałąź — pusty stan czytałby się jak
-           „klient nie ma zamówień", czyli jak utrata danych. */
+      {query.isSuccess &&
+      contractorQuery.isSuccess &&
+      (user?.role === "admin" || user?.roles?.includes("admin")) &&
+      clientName.toLocaleLowerCase("pl").includes("nordea") ? (
+        <NordeaOrderImportPanel clientId={clientId} onApplied={invalidate} />
+      ) : null}
+
+      {query.isError || contractorQuery.isError ? (
         <QueryStateNotice
           state="error"
-          description="Nie udało się wczytać zamówień tego klienta."
-          onRetry={() => query.refetch()}
+          description="Nie udało się wczytać pełnej listy zamówień tego klienta."
+          onRetry={() => {
+            query.refetch();
+            contractorQuery.refetch();
+          }}
         />
-      ) : !query.isSuccess ? (
-        /* Warunek na `isSuccess`, a NIE `isLoading`: w przerwie między
-           ponowieniami react-query ma `isLoading === false` i `isError ===
-           false` przy pustym `data`, więc pusty stan wygrywał i ekran mówił
-           „brak zamówień", zanim wiadomo było cokolwiek. */
+      ) : !query.isSuccess || !contractorQuery.isSuccess ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
           Wczytywanie zamówień…
         </p>
-      ) : pill === "draft" ? (
-        <DraftOrdersSection
-          clientId={clientId}
-          drafts={draftOrders}
-          canManage={canManage}
-          onError={(msg) => showToast(msg, "error")}
-          onSaved={({ activated, orderNumber }) => {
-            invalidate();
-            // Szkice żyją też w listingu jednoosobowym (`/orders`) — sekcja
-            // „Dokumenty zamówień" i alerty DL czytają ten sam wiersz.
-            queryClient.invalidateQueries({
-              queryKey: ["dl-orders-grouped", clientId],
-            });
-            showToast(
-              activated
-                ? `Zamówienie aktywowane i przypisane: ${orderNumber}`
-                : "Zapisano zmiany szkicu",
-              "success",
-            );
-          }}
-        />
-      ) : visible.length === 0 ? (
+      ) : resultCount === 0 ? (
         <EmptyState
           title={
             search.trim()
               ? "Nie znaleziono zamówienia pasującego do wyszukiwania"
               : pill === "all"
-                ? mixedOrderTypesEnabled
-                  ? "Brak zamówień kosztowych i na MD"
-                  : "Brak zamówień"
+                ? "Brak zamówień"
                 : "Brak wyników dla tego filtra"
           }
           description={
             search.trim()
               ? "Zmień wyszukiwaną frazę albo wyczyść aktywne filtry."
               : pill === "all"
-              ? mixedOrderTypesEnabled
-                ? "Zamówienia okresowe pozostają w rejestrze powyżej."
-                : "Ten klient nie ma jeszcze zamówień wielo-konsultantowych."
-              : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
+                ? "Ten klient nie ma jeszcze zamówień."
+                : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
           }
         />
       ) : (
-        <div className="flex flex-col gap-4">
-          {visible.map((group) => (
-            <OrderGroupCard
-              key={group.id}
-              clientId={clientId}
-              group={group}
-              searchQuery={search}
-              canManage={canManage}
-              canManageLifecycle={canLifecycle}
-              onAddConsultant={(g) => {
-                setFormError(null);
-                setLineModal({ open: true, group: g, line: null });
-              }}
-              onEditGroup={(g) => {
-                setFormError(null);
-                setGroupModal({ open: true, group: g });
-              }}
-              onEditLine={(g, line) => {
-                setFormError(null);
-                setLineModal({ open: true, group: g, line });
-              }}
-              onSwapLine={(g, line) => {
-                setFormError(null);
-                setSwapModal({ open: true, group: g, line });
-              }}
-              onDeleteLine={(g, line) => {
-                if (
-                  !window.confirm(
-                    `Czy na pewno chcesz usunąć konsultanta ${line.consultant_name} ` +
-                      `z zamówienia nr ${g.order_number}? Tej operacji nie można cofnąć.`,
-                  )
-                ) {
-                  return;
-                }
-                removeLine.mutate({ groupId: g.id, lineId: line.id });
-              }}
-              onDeleteGroup={(g) => {
-                if (
-                  !window.confirm(
-                    `Czy na pewno chcesz usunąć całe zamówienie nr ${g.order_number} ` +
-                      `wraz ze wszystkimi konsultantami? Tej operacji nie można cofnąć.`,
-                  )
-                ) {
-                  return;
-                }
-                removeGroup.mutate(g.id);
-              }}
-              onCloseGroup={(g) => {
-                setFormError(null);
-                setEndModal({ open: true, group: g });
-              }}
-              onReopenGroup={(g) => reopenGroup.mutate(g.id)}
-              onExtendGroup={(g) => {
-                setFormError(null);
-                setExtendModal({ open: true, group: g });
-              }}
-              focusRequest={focusRequest}
-              onFocusGroup={(groupId) =>
-                setFocusRequest((prev) => ({
-                  groupId,
-                  nonce: (prev?.nonce ?? 0) + 1,
-                }))
-              }
-            />
+        <div className="flex flex-col gap-6">
+          {sections.map((section) => (
+            <section
+              key={section.type}
+              aria-labelledby={`orders-${section.type}-heading`}
+              className="space-y-3"
+            >
+              <h3
+                id={`orders-${section.type}-heading`}
+                className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+              >
+                <OrderTypeBadge type={section.type} />
+                {orderTypeLabel(section.type)} ({section.items.length})
+              </h3>
+              {section.items.map((item) =>
+                item.kind === "group" ? (
+                  renderGroup(item.group)
+                ) : (
+                  <ContractorOrderCards
+                    key={`contractor-${item.contractor.contract_id}`}
+                    clientId={clientId}
+                    contractors={[item.contractor]}
+                    canManageFinance={contractorQuery.data.can_manage_finance}
+                    canManageOrders={contractorQuery.data.can_manage_finance}
+                    suggestedOrderType={suggestedOrderType}
+                    legacyNullOrderType={legacyNullOrderType}
+                    allowedOrderTypes={allowedOrderTypes}
+                    searching={search.trim().length > 0}
+                  />
+                ),
+              )}
+            </section>
           ))}
         </div>
       )}
@@ -744,6 +788,7 @@ export function MultiConsultantOrdersTab({
               : newOrderType
         }
         onOrderTypeChange={(orderType) => openNewOrderForm(orderType)}
+        allowedOrderTypes={allowedOrderTypes}
         submitting={saveGroup.isPending}
         error={formError}
         onSubmit={(values, file) => saveGroup.mutate({ values, file })}
@@ -761,6 +806,7 @@ export function MultiConsultantOrdersTab({
           clientId={clientId}
           orderType={newOrderType}
           onOrderTypeChange={openNewOrderForm}
+          allowedOrderTypes={allowedOrderTypes}
           onClose={() => setStandardOrderModalOpen(false)}
           onCreated={() => {
             setStandardOrderModalOpen(false);

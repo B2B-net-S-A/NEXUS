@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.models.client_order import ClientOrderStatus
 from app.models.order_type import OrderType
@@ -153,10 +153,31 @@ class ClientOrdersGroupedResponse(BaseModel):
     can_manage_finance: bool = False
 
 
+class ClientOrderExportItem(BaseModel):
+    """One ordered item in the unified client-order list."""
+
+    kind: Literal["group", "order"]
+    id: int = Field(gt=0)
+
+
 class ClientOrderExportRequest(BaseModel):
-    """Ordered IDs currently visible in the client-side list."""
+    """Legacy order IDs or the ordered items from the unified client view."""
 
     order_ids: list[int] = Field(default_factory=list, max_length=5000)
+    # Pusta wspólna lista jest poprawna: profil może zawierać kartę kontraktu
+    # bez żadnego zamówienia. Eksport zwraca wtedy arkusz z samym nagłówkiem,
+    # tak jak historyczny kontrakt `order_ids=[]`.
+    items: Optional[list[ClientOrderExportItem]] = Field(None, max_length=5000)
+
+    @model_validator(mode="after")
+    def _one_ordered_source_without_duplicates(self) -> "ClientOrderExportRequest":
+        if self.items is not None and self.order_ids:
+            raise ValueError("Podaj order_ids albo items, nie oba pola")
+        if self.items is not None:
+            keys = [(item.kind, item.id) for item in self.items]
+            if len(keys) != len(set(keys)):
+                raise ValueError("Lista eksportu zawiera powtórzone zamówienia")
+        return self
 
 
 class OrderExtractionResult(BaseModel):

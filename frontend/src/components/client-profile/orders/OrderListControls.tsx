@@ -166,7 +166,7 @@ export function OrderListControls({
                   onChange={(event) => update("nearBudget", event.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-ring"
                 />
-                Bliskie wyczerpania budżetu MD (≥80%)
+                Bliskie wyczerpania budżetu (≥80%)
               </label>
             ) : null}
             <div className="flex flex-wrap items-center gap-2">

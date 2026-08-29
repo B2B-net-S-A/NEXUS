@@ -82,3 +82,37 @@ def test_user_text_cannot_become_an_excel_formula():
     assert sheet["A2"].data_type == "s"
     assert sheet["A2"].value.startswith("'=")
     assert sheet["B2"].value.startswith("'+")
+
+
+def test_unified_workbook_adds_order_type_after_full_combined_columns():
+    content = build_orders_workbook(
+        [
+            OrderExportRow(
+                consultant_name="Anna Nowak",
+                order_number="PO-42",
+                cost_rate=Decimal("100"),
+                revenue_rate=Decimal("150"),
+                start_date=date(2026, 1, 1),
+                end_date=None,
+                allocation=Decimal("80"),
+                consumption=Decimal("12"),
+                order_type="MD",
+            )
+        ],
+        include_model_columns=True,
+        include_order_type=True,
+    )
+
+    sheet = load_workbook(io.BytesIO(content)).active
+    assert [cell.value for cell in sheet[1]] == [
+        "Imię i nazwisko",
+        "Numer zamówienia",
+        "Stawka kosztowa",
+        "Stawka przychodowa",
+        "Okres zamówienia",
+        "Liczba MD / Kwota zamówienia",
+        "Zużycie zamówienia",
+        "Typ zamówienia",
+    ]
+    assert sheet["H2"].value == "MD"
+    assert sheet.auto_filter.ref == "A1:H2"

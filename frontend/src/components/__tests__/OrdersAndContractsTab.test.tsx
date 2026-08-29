@@ -96,6 +96,7 @@ function makeOrder(partial: Partial<ClientOrderRead> & { id: number; title: stri
 const ACTIVE = makeOrder({
   id: 1,
   title: "45767",
+  order_type: "md",
   start_date: localISO(-30),
   end_date: null,
   rate_client: 180,
@@ -103,6 +104,7 @@ const ACTIVE = makeOrder({
 const FUTURE = makeOrder({
   id: 2,
   title: "3320",
+  order_type: "cost",
   start_date: localISO(30),
   end_date: localISO(60),
   rate_client: 190,
@@ -110,6 +112,7 @@ const FUTURE = makeOrder({
 const HISTORY = makeOrder({
   id: 3,
   title: "OLD-1",
+  order_type: "periodic",
   status: "completed",
   start_date: localISO(-400),
   end_date: localISO(-40),
@@ -156,7 +159,12 @@ const CONTRACTOR_2 = {
   ],
 };
 
-function renderTab(clientId = 7, hideCreateButton = false) {
+function renderTab(
+  clientId = 7,
+  hideCreateButton = false,
+  suggestedOrderType: "periodic" | "cost" | "md" = "periodic",
+  legacyNullOrderType: "periodic" | "md" = "periodic",
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -166,6 +174,8 @@ function renderTab(clientId = 7, hideCreateButton = false) {
         <OrdersAndContractsTab
           clientId={clientId}
           hideCreateButton={hideCreateButton}
+          suggestedOrderType={suggestedOrderType}
+          legacyNullOrderType={legacyNullOrderType}
         />
       </ToastProvider>
     </QueryClientProvider>,
@@ -254,6 +264,104 @@ describe("OrdersAndContractsTab card", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("oznacza typ bieżącego, przyszłego i historycznego zamówienia", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    expect(await screen.findByText("MD")).toBeInTheDocument();
+    expect(screen.getByText("Kosztowe")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
+    );
+    expect(screen.getByText("Okresowe")).toBeInTheDocument();
+  });
+
+  it("oznacza kartę z wyłącznie anulowanym orderem jego ostatnim typem", async () => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          {
+            ...structuredClone(CONTRACTOR),
+            contract_id: 601,
+            candidate_name: "Anulowane kosztowe",
+            contract_status: "ended",
+            orders: [
+              makeOrder({
+                id: 601,
+                title: "CANCELLED-COST",
+                contract_id: 601,
+                status: "cancelled",
+                order_type: "cost",
+                start_date: localISO(-20),
+              }),
+            ],
+          },
+          {
+            ...structuredClone(CONTRACTOR),
+            contract_id: 602,
+            candidate_name: "Anulowane MD",
+            contract_status: "ended",
+            orders: [
+              makeOrder({
+                id: 602,
+                title: "CANCELLED-MD",
+                contract_id: 602,
+                status: "cancelled",
+                order_type: "md",
+                start_date: localISO(-10),
+              }),
+            ],
+          },
+        ],
+        total_contractors: 2,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    await screen.findByRole("heading", { name: /Anulowane kosztowe/ });
+    expect(screen.getByText("Kosztowe")).toBeInTheDocument();
+    expect(screen.getByText("MD")).toBeInTheDocument();
+    expect(screen.queryByText("Okresowe")).not.toBeInTheDocument();
+  });
+
+  it("oznacza legacy NULL jako MD w każdym slocie klienta bez periodic", async () => {
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          {
+            ...structuredClone(CONTRACTOR),
+            orders: [FUTURE, ACTIVE, HISTORY].map((order) => ({
+              ...structuredClone(order),
+              order_type: null,
+            })),
+          },
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    renderTab(7, false, "cost", "md");
+
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.getAllByText("MD")).toHaveLength(2);
+    expect(screen.queryByText("Kosztowe")).not.toBeInTheDocument();
+    expect(screen.queryByText("Okresowe")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
+    );
+    expect(screen.getAllByText("MD")).toHaveLength(3);
+
+    await user.click(
+      screen.getAllByRole("button", { name: "Uzupełnij zamówienie" })[0],
+    );
+    expect(await screen.findByLabelText(/Budżet w MD/)).toBeInTheDocument();
+  });
+
   it("shows the consultant name with the contract id and recruitment origin", async () => {
     renderTab();
     expect(
@@ -301,6 +409,45 @@ describe("OrdersAndContractsTab card", () => {
       expect(screen.getByText(/okres zamówienia:/)).toBeInTheDocument();
     },
   );
+
+  it("TAC widzi dane i terminację, ale żadnej mutacji zamówienia okresowego", async () => {
+    authState.role = "tac";
+    authState.capabilities = [];
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [structuredClone(CONTRACTOR)],
+        total_contractors: 1,
+        can_manage_finance: false,
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    renderTab(EZDROWIE_CLIENT_ID);
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+
+    expect(screen.queryAllByLabelText(/^Edytuj:/)).toHaveLength(0);
+    expect(screen.getByLabelText("Część umowy")).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "Uzupełnij zamówienie" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Dodaj przedłużenie/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Zakończ$/ })).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
+    );
+    expect(await screen.findByText("OLD-1")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Uzupełnij zamówienie" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+  });
 
   it("shows candidate finance rows when the server grants manage_finance", async () => {
     renderTab();
@@ -668,6 +815,11 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     expect(
       await screen.findByRole("button", { name: /Edytuj: Stawka przychodowa/i }),
     ).toBeInTheDocument();
+  });
+
+  it("pusta karta pokazuje badge sugerowanego typu sekcji", async () => {
+    renderTab(7, false, "md");
+    expect(await screen.findByText("MD")).toBeInTheDocument();
   });
 
   it("okres i numer zamówienia są edytowalne mimo braku zamówienia", async () => {

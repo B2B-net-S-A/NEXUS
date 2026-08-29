@@ -30,6 +30,26 @@ export interface OrderListFilters {
   endingDays: number;
 }
 
+/** Wspólny zestaw filtrów statusu dla połączonej listy grup i zamówień. */
+export type UnifiedOrderPill =
+  | "all"
+  | "active"
+  | "ending_30d"
+  | "completed"
+  | "exhausted"
+  | "draft";
+
+/** Kolejność biznesowa sekcji na profilu klienta. */
+export const ORDER_TYPE_ORDER = ["md", "cost", "periodic"] as const;
+export type EffectiveOrderType = (typeof ORDER_TYPE_ORDER)[number];
+/** Znaczenie trwałego markera `ClientOrder.order_type=NULL` u danego klienta. */
+export type LegacyClientOrderType = "periodic" | "md";
+
+/** Jedna pozycja wspólnej listy — domena pozostaje jawna, ale sort jest wspólny. */
+export type UnifiedOrderListItem =
+  | { kind: "group"; group: OrderGroupRead }
+  | { kind: "contractor"; contractor: ContractWithOrdersRead };
+
 export const DEFAULT_ORDER_LIST_FILTERS: OrderListFilters = {
   startFrom: "",
   startTo: "",
@@ -351,7 +371,53 @@ export function flattenOrderGroupIds(
   ]);
 }
 
-function primaryOrder(
+/** Id kontraktów zmaterializowanych już jako linie grupy, także następcy. */
+export function orderGroupContractIds(
+  groups: readonly OrderGroupRead[],
+): Set<number> {
+  const result = new Set<number>();
+  const visit = (group: OrderGroupRead) => {
+    for (const line of group.lines) result.add(line.contract_id);
+    for (const future of group.future_orders) visit(future);
+  };
+  for (const group of groups) visit(group);
+  return result;
+}
+
+/**
+ * Po materializacji szkicu grupowego `/orders` może chwilowo zwrócić jeszcze
+ * pusty shell kontraktora. Grupa jest już kanoniczną pozycją listy, więc taki
+ * shell ukrywamy; pusty kontrakt bez żadnej linii grupowej pozostaje jako
+ * prawidłowy workflow draftu do uzupełnienia.
+ */
+export function filterMaterializedContractorShells(
+  contractors: readonly ContractWithOrdersRead[],
+  groups: readonly OrderGroupRead[],
+): ContractWithOrdersRead[] {
+  const groupedContractIds = orderGroupContractIds(groups);
+  return contractors.filter(
+    (contractor) =>
+      contractor.orders.length > 0 ||
+      !groupedContractIds.has(contractor.contract_id),
+  );
+}
+
+/** Historyczne rekordy bez jawnego typu zachowują dotychczasową semantykę. */
+export function effectiveGroupOrderType(
+  group: Pick<OrderGroupRead, "order_type" | "is_cost_based">,
+): EffectiveOrderType {
+  return group.order_type ?? (group.is_cost_based ? "cost" : "md");
+}
+
+/** `NULL` zachowuje marker legacy; jego znaczenie wynika z konfiguracji klienta. */
+export function effectiveClientOrderType(
+  order: Pick<ClientOrderRead, "order_type"> | null | undefined,
+  legacyNullOrderType: LegacyClientOrderType = "periodic",
+): EffectiveOrderType {
+  return order?.order_type ?? legacyNullOrderType;
+}
+
+export function primaryOrder(
   contractor: ContractWithOrdersRead,
   todayIso: string,
 ): ClientOrderRead | null {
@@ -373,6 +439,192 @@ function primaryOrder(
         ),
       )[0] ?? null
   );
+}
+
+/**
+ * Zamówienie reprezentujące kartę kontraktora.
+ *
+ * Bieżące/przyszłe zamówienie ma pierwszeństwo. Jeżeli wszystkie wpisy
+ * są anulowane, karta nadal nie jest pustym shellem — jej typ bierze się z
+ * najpóźniejszego wpisu historii, zamiast z klientowego fallbacku.
+ */
+export function representativeOrder(
+  contractor: ContractWithOrdersRead,
+  todayIso = localTodayIso(),
+): ClientOrderRead | null {
+  const primary = primaryOrder(contractor, todayIso);
+  if (primary) return primary;
+  return (
+    [...contractor.orders].sort((left, right) =>
+      (dateOnly(right.start_date) ?? "").localeCompare(
+        dateOnly(left.start_date) ?? "",
+      ) ||
+      right.created_at.localeCompare(left.created_at) ||
+      right.id - left.id,
+    )[0] ?? null
+  );
+}
+
+export function contractorOrderType(
+  contractor: ContractWithOrdersRead,
+  legacyNullOrderType: LegacyClientOrderType = "periodic",
+  todayIso = localTodayIso(),
+): EffectiveOrderType {
+  return effectiveClientOrderType(
+    representativeOrder(contractor, todayIso),
+    legacyNullOrderType,
+  );
+}
+
+function numericOrderValue(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function unifiedCreatedAt(
+  item: UnifiedOrderListItem,
+  todayIso: string,
+): string {
+  return item.kind === "group"
+    ? item.group.created_at
+    : representativeOrder(item.contractor, todayIso)?.created_at ?? "";
+}
+
+function unifiedStableId(item: UnifiedOrderListItem): number {
+  return item.kind === "group" ? item.group.id : item.contractor.contract_id;
+}
+
+function compareUnifiedCreated(
+  left: UnifiedOrderListItem,
+  right: UnifiedOrderListItem,
+  todayIso: string,
+): number {
+  return (
+    unifiedCreatedAt(right, todayIso).localeCompare(
+      unifiedCreatedAt(left, todayIso),
+    ) ||
+    unifiedStableId(right) - unifiedStableId(left) ||
+    left.kind.localeCompare(right.kind)
+  );
+}
+
+function unifiedConsultantKey(item: UnifiedOrderListItem): string {
+  return item.kind === "group"
+    ? groupConsultantKey(item.group)
+    : consultantSortKey(item.contractor.candidate_name);
+}
+
+function unifiedMetric(
+  item: UnifiedOrderListItem,
+  sort: OrderSort,
+  todayIso: string,
+): number | null {
+  if (item.kind === "group") {
+    const metrics = orderGroupMetrics(item.group);
+    if (sort.startsWith("md_")) return metrics.totalMd;
+    if (sort.startsWith("cost_")) return metrics.averageCost;
+    return metrics.averageRevenue;
+  }
+  const order = representativeOrder(item.contractor, todayIso);
+  if (sort.startsWith("md_")) return numericOrderValue(order?.md_quantity);
+  if (sort.startsWith("cost_")) return item.contractor.rate_candidate;
+  return order?.rate_client ?? null;
+}
+
+/**
+ * Sortuje grupy i karty kontraktorów jednym comparatorem. Kolejność typów
+ * jest nakładana przez wywołującego; ta funkcja porządkuje pozycje wewnątrz
+ * jednej sekcji i zachowuje braki kwot/nazwisk na końcu w obu kierunkach.
+ */
+export function sortUnifiedOrderItems(
+  items: readonly UnifiedOrderListItem[],
+  sort: OrderSort,
+  todayIso = localTodayIso(),
+): UnifiedOrderListItem[] {
+  return [...items].sort((left, right) => {
+    if (sort === "created_desc") {
+      return compareUnifiedCreated(left, right, todayIso);
+    }
+    if (sort.startsWith("consultant_")) {
+      return (
+        compareConsultantKey(
+          unifiedConsultantKey(left),
+          unifiedConsultantKey(right),
+          consultantDirection(sort),
+        ) || compareUnifiedCreated(left, right, todayIso)
+      );
+    }
+    return (
+      compareNullable(
+        unifiedMetric(left, sort, todayIso),
+        unifiedMetric(right, sort, todayIso),
+        sort.endsWith("_asc") ? "asc" : "desc",
+      ) || compareUnifiedCreated(left, right, todayIso)
+    );
+  });
+}
+
+/** Predykaty są wspólne dla liczników i zawartości pigułek. */
+export function contractorMatchesPill(
+  contractor: ContractWithOrdersRead,
+  pill: UnifiedOrderPill,
+): boolean {
+  if (pill === "all") return true;
+  if (pill === "active") {
+    return (
+      contractor.contract_status === "active" ||
+      contractor.contract_status === "ending" ||
+      (contractor.contract_status === "draft" &&
+        contractor.orders.some((order) => order.status === "active"))
+    );
+  }
+  if (pill === "ending_30d") {
+    return (
+      contractor.days_to_latest_end !== null &&
+      contractor.days_to_latest_end >= 0 &&
+      contractor.days_to_latest_end <= 30
+    );
+  }
+  if (pill === "completed") {
+    return (
+      contractor.contract_status === "ended" ||
+      contractor.contract_status === "completed"
+    );
+  }
+  if (pill === "draft") {
+    return (
+      contractor.orders.some((order) => order.status === "draft") ||
+      (contractor.contract_status === "draft" &&
+        !contractor.orders.some((order) => order.status === "active"))
+    );
+  }
+  return false;
+}
+
+function groupDaysToEnd(endDate: string | null, todayIso: string): number | null {
+  if (!endDate) return null;
+  const end = new Date(`${endDate.slice(0, 10)}T12:00:00`);
+  const today = new Date(`${todayIso}T12:00:00`);
+  return Math.round((end.getTime() - today.getTime()) / 86_400_000);
+}
+
+export function orderGroupMatchesPill(
+  group: OrderGroupRead,
+  pill: UnifiedOrderPill,
+  todayIso = localTodayIso(),
+): boolean {
+  if (pill === "all") return true;
+  if (pill === "active") return group.status === "active";
+  if (pill === "completed") return group.status === "completed";
+  if (pill === "exhausted") return group.status === "exhausted";
+  if (pill === "ending_30d") {
+    const days = groupDaysToEnd(group.end_date, todayIso);
+    return group.status === "active" && days !== null && days >= 0 && days <= 30;
+  }
+  // Szkice grupowe pochodzą z tej samej populacji ClientOrder co `/orders`.
+  // Liczymy/renderujemy je wyłącznie po stronie kontraktorów, bez duplikatu.
+  return false;
 }
 
 export function contractorMatchesQuery(
@@ -400,7 +652,7 @@ export function filterAndSortContractors(
     : 30;
   const filtered = contractors.filter((contractor) => {
     if (!contractorMatchesQuery(contractor, query)) return false;
-    const order = primaryOrder(contractor, todayIso);
+    const order = representativeOrder(contractor, todayIso);
     if (
       !matchesDateRange(
         dateOnly(order?.start_date),
@@ -426,8 +678,8 @@ export function filterAndSortContractors(
   });
 
   return filtered.sort((left, right) => {
-    const leftOrder = primaryOrder(left, todayIso);
-    const rightOrder = primaryOrder(right, todayIso);
+    const leftOrder = representativeOrder(left, todayIso);
+    const rightOrder = representativeOrder(right, todayIso);
     if (filters.sort === "created_desc") {
       return (
         (rightOrder?.created_at ?? "").localeCompare(
@@ -445,13 +697,15 @@ export function filterAndSortContractors(
       );
     }
     const direction = filters.sort.endsWith("_asc") ? "asc" : "desc";
-    const metric = filters.sort.startsWith("cost_")
-      ? compareNullable(left.rate_candidate, right.rate_candidate, direction)
-      : compareNullable(
-          leftOrder?.rate_client ?? null,
-          rightOrder?.rate_client ?? null,
-          direction,
-        );
+    const metric = filters.sort.startsWith("md_")
+      ? compareNullable(null, null, direction)
+      : filters.sort.startsWith("cost_")
+        ? compareNullable(left.rate_candidate, right.rate_candidate, direction)
+        : compareNullable(
+            leftOrder?.rate_client ?? null,
+            rightOrder?.rate_client ?? null,
+            direction,
+          );
     return metric || right.contract_id - left.contract_id;
   });
 }
