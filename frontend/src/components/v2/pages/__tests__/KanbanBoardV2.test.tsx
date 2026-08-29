@@ -149,6 +149,8 @@ function overviewColumns() {
         days_in_stage: 5,
         rating: 4.5,
         verification_status: null,
+        added_to_job_by_name: "Ewa Nowak",
+        added_to_job_at: "2026-08-20T08:15:00Z",
       },
     ],
   };
@@ -171,14 +173,17 @@ function overflowColumns() {
   ] as never;
 }
 
-function renderBoard(columns = pendingColumns()) {
+function renderBoard(
+  columns = pendingColumns(),
+  scoreMap?: Map<number, number>,
+) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
       <TooltipProvider>
-        <KanbanBoardV2 columns={columns} jobId={10} />
+        <KanbanBoardV2 columns={columns} jobId={10} scoreMap={scoreMap} />
       </TooltipProvider>
     </QueryClientProvider>
   );
@@ -202,6 +207,19 @@ describe("KanbanBoardV2 — pending verification card", () => {
     expect(screen.getByTitle("Odrzuć weryfikację")).toBeTruthy();
   });
 
+  it("pokazuje wynik dopasowania także na karcie oczekującej na akceptację", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    useUiStore.setState({ density: "compact" } as never);
+
+    renderBoard(pendingColumns(), new Map([[5, 77]]));
+
+    expect(
+      await screen.findByLabelText("Dopasowanie AI: 77 na 100"),
+    ).toBeTruthy();
+  });
+
   it("approver po roli DODATKOWEJ widzi akcje (multi-role, P0.3 FE)", async () => {
     useAuthStore.setState({
       // primary tac (bez uprawnień approvera), secondary delivery_lead — stary
@@ -222,9 +240,15 @@ describe("KanbanBoardV2 — pending verification card", () => {
 
     renderBoard();
     // Karta się renderuje…
-    expect(await screen.findByText(/Kowalska/)).toBeTruthy();
+    const candidate = await screen.findByRole("link", { name: "Anna Kowalska" });
     // …ale decyzje approvera nie.
     expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
+    expect(screen.getByText("Dodano przez: brak danych")).toBeTruthy();
+    const descriptionId = candidate.getAttribute("aria-describedby");
+    expect(descriptionId).toBeTruthy();
+    expect(document.querySelector(`#${descriptionId}`)).toHaveTextContent(
+      "Brak danych o osobie dodającej.",
+    );
   });
 
   it("accept celuje w id karty (fundament fixu stale-ID)", async () => {
@@ -249,7 +273,10 @@ describe("KanbanBoardV2 — focus na etapie", () => {
   });
 
   it("pokazuje pełny pipeline w równych desktopowych kolumnach", async () => {
-    const { container } = renderBoard(overviewColumns());
+    const { container } = renderBoard(
+      overviewColumns(),
+      new Map([[90, 82]]),
+    );
 
     const board = await screen.findByTestId("pipeline-board");
     expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
@@ -278,19 +305,26 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     });
     expect(candidate.parentElement).toHaveClass(
       "xl:pointer-fine:p-1",
+      "xl:pointer-fine:pb-6",
       "xl:pointer-fine:pt-6",
     );
     expect(candidate.parentElement?.getAttribute("title")).toContain(
       "Aleksandra Nowakowska",
     );
+    expect(candidate.parentElement?.getAttribute("title")).toContain(
+      "Dodano do rekrutacji przez: Ewa Nowak",
+    );
+    expect(screen.getByTestId("overview-match-score-90")).toHaveTextContent("82");
+    expect(screen.getByText("R: Ewa")).toBeTruthy();
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
     expect(container.querySelector(`#${descriptionId}`)).toHaveTextContent(
-      "Ocena: 4.5. W etapie od 5 dni.",
+      "Dopasowanie AI: 82 na 100. Ocena: 4.5. W etapie od 5 dni. Dodano do rekrutacji przez: Ewa Nowak",
     );
-    expect(
-      screen.getByRole("checkbox", { name: "Zaznacz Aleksandra Nowakowska" }),
-    ).toBeTruthy();
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Zaznacz Aleksandra Nowakowska",
+    });
+    expect(checkbox).toHaveClass("h-6", "w-6", "before:inset-1");
     expect(
       screen.getByRole("button", {
         name: "Usuń Aleksandra Nowakowska z rekrutacji",
@@ -310,6 +344,12 @@ describe("KanbanBoardV2 — focus na etapie", () => {
       name: "Aleksandra Nowakowska",
     });
     expect(candidate.parentElement).toHaveClass("xl:pointer-fine:pt-6");
+    expect(screen.getByTestId("overview-match-score-90")).toHaveTextContent("—");
+    const descriptionId = candidate.getAttribute("aria-describedby");
+    expect(descriptionId).toBeTruthy();
+    expect(document.querySelector(`#${descriptionId}`)).toHaveTextContent(
+      "Brak wyliczonego dopasowania AI.",
+    );
   });
 
   it("zachowuje scroll i navigator dla pipeline dłuższego niż 15 etapów", async () => {
