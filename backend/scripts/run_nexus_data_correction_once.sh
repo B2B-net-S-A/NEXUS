@@ -45,6 +45,14 @@ parse_cli_args() {
   fi
 }
 
+emit_redacted_payload() {
+  local source="$1"
+  # Coolify stores command output in one bounded message. The closed redacted
+  # audit report contains 471 contract entries, so compress it before base64;
+  # otherwise the trailing payload marker and sentinel can be truncated.
+  gzip -9 -n -c "$source" | base64 | tr -d '\r\n'
+}
+
 if [ "${NEXUS_DATA_CORRECTION_WRAPPER_LIB_ONLY:-0}" = "1" ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -168,11 +176,14 @@ if [ ! -s "$redacted_report" ]; then
 fi
 
 echo '===NEXUS-DATA-CORRECTION-PAYLOAD-BEGIN==='
-base64 -w 0 "$redacted_report"
+emit_redacted_payload "$redacted_report"
 echo
 echo '===NEXUS-DATA-CORRECTION-PAYLOAD-END==='
 
 cleanup
 trap - EXIT HUP INT TERM
+echo "===NEXUS-DATA-CORRECTION-OPERATION-RC=${operation_rc}==="
 echo '===NEXUS-DATA-CORRECTION-END==='
-exit "$operation_rc"
+# Coolify persists successful scheduled-command output reliably. The validated
+# operation result is carried above and restored by the Actions transport.
+exit 0

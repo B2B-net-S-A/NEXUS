@@ -12,7 +12,15 @@ cleanup_test() {
     "$test_dir/create.json" \
     "$test_dir/audit.json" \
     "$test_dir/apply.json" \
-    "$test_dir/projected.json"
+    "$test_dir/projected.json" \
+    "$test_dir/large-report.json" \
+    "$test_dir/large-report-plain.b64" \
+    "$test_dir/large-report.b64" \
+    "$test_dir/large-report-roundtrip.json" \
+    "$test_dir/corrupt-report.b64" \
+    "$test_dir/corrupt-report.json" \
+    "$test_dir/transport-message.txt" \
+    "$test_dir/invalid-transport-message.txt"
   rmdir -- "$test_dir"
 }
 trap cleanup_test EXIT
@@ -52,6 +60,71 @@ if parse_cli_args apply \
   --fingerprint "$wrapper_plan" \
   --approval-fingerprint "$wrapper_approval" 2>/dev/null; then
   echo "duplicate wrapper fingerprint unexpectedly passed" >&2
+  exit 1
+fi
+
+# The real audit contains 471 contract entries and exceeded the bounded
+# Coolify execution message after plain base64 encoding. Verify that the
+# container encoder and Actions decoder round-trip a representative report and
+# materially reduce its transport size.
+jq -n '
+  {
+    contracts: [
+      range(0; 471) as $id
+      | {
+          id: $id,
+          changed_fields: [
+            "contract_type",
+            "start_date",
+            "end_date",
+            "client_order_end_date",
+            "rate_client"
+          ]
+        }
+    ]
+  }
+' > "$test_dir/large-report.json"
+base64 < "$test_dir/large-report.json" \
+  | tr -d '\r\n' > "$test_dir/large-report-plain.b64"
+emit_redacted_payload "$test_dir/large-report.json" > "$test_dir/large-report.b64"
+decode_redacted_payload \
+  "$test_dir/large-report.b64" \
+  "$test_dir/large-report-roundtrip.json"
+cmp "$test_dir/large-report.json" "$test_dir/large-report-roundtrip.json"
+raw_report_bytes=$(wc -c < "$test_dir/large-report.json")
+plain_encoded_report_bytes=$(wc -c < "$test_dir/large-report-plain.b64")
+encoded_report_bytes=$(wc -c < "$test_dir/large-report.b64")
+[ "$plain_encoded_report_bytes" -gt 65536 ] || {
+  echo "representative plain-base64 audit did not reproduce the message risk" >&2
+  exit 1
+}
+[ "$encoded_report_bytes" -lt 65536 ] \
+  && [ "$encoded_report_bytes" -lt "$raw_report_bytes" ] || {
+  echo "compressed audit transport did not fit the bounded message" >&2
+  exit 1
+}
+printf 'not-valid-base64' > "$test_dir/corrupt-report.b64"
+if decode_redacted_payload \
+  "$test_dir/corrupt-report.b64" \
+  "$test_dir/corrupt-report.json" 2>/dev/null; then
+  echo "corrupt compressed audit transport unexpectedly decoded" >&2
+  exit 1
+fi
+{
+  echo '===NEXUS-DATA-CORRECTION-PAYLOAD-BEGIN==='
+  cat "$test_dir/large-report.b64"
+  echo
+  echo '===NEXUS-DATA-CORRECTION-PAYLOAD-END==='
+  echo '===NEXUS-DATA-CORRECTION-OPERATION-RC=2==='
+  echo '===NEXUS-DATA-CORRECTION-END==='
+} > "$test_dir/transport-message.txt"
+[ "$(operation_rc_from_message "$test_dir/transport-message.txt")" = "2" ]
+{
+  echo '===NEXUS-DATA-CORRECTION-OPERATION-RC=2==='
+  echo '===NEXUS-DATA-CORRECTION-OPERATION-RC=0==='
+} > "$test_dir/invalid-transport-message.txt"
+if operation_rc_from_message "$test_dir/invalid-transport-message.txt" >/dev/null; then
+  echo "ambiguous operation result unexpectedly passed" >&2
   exit 1
 fi
 

@@ -33,6 +33,25 @@ is_positive_integer() {
   esac
 }
 
+decode_redacted_payload() {
+  local encoded_file="$1"
+  local output_file="$2"
+  base64 --decode < "$encoded_file" | gzip -dc > "$output_file"
+}
+
+operation_rc_from_message() {
+  local message_file="$1"
+  local operation_rc
+  operation_rc=$(sed -n \
+    's/^===NEXUS-DATA-CORRECTION-OPERATION-RC=\([0-9][0-9]*\)===$/\1/p' \
+    "$message_file")
+  case "$operation_rc" in
+    ""|*[!0-9]*) return 1 ;;
+  esac
+  [ "$operation_rc" -le 255 ] || return 1
+  printf '%s\n' "$operation_rc"
+}
+
 ops_sleep() {
   sleep "$1"
 }
@@ -263,6 +282,12 @@ while [ "$(date -u +%s)" -lt "$deadline" ]; do
       echo "::error::production command finished without a redacted report"
       exit 1
     fi
+    if jq -e \
+      'type=="array" and any(.[]; (.status // "")=="failed")' \
+        "$executions_file" >/dev/null 2>&1; then
+      echo "::error::production command failed before completing the redacted transport"
+      exit 1
+    fi
   fi
   statuses=$(jq -r 'if type=="array" then ([.[].status] | join(",")) else "?" end' \
     "$executions_file" 2>/dev/null || echo "?")
@@ -270,6 +295,11 @@ while [ "$(date -u +%s)" -lt "$deadline" ]; do
 done
 [ -s "$message_file" ] || {
   echo "::error::no execution produced a redacted report within 15 minutes"
+  exit 1
+}
+
+operation_rc=$(operation_rc_from_message "$message_file") || {
+  echo "::error::execution did not contain one valid operation result"
   exit 1
 }
 
@@ -283,8 +313,8 @@ awk -v begin="$PAYLOAD_BEGIN" -v end="$PAYLOAD_END" '
   echo "::error::execution did not contain a redacted payload"
   exit 1
 }
-base64 --decode "$encoded" > "$raw_redacted" 2>/dev/null || {
-  echo "::error::redacted payload was truncated or invalid"
+decode_redacted_payload "$encoded" "$raw_redacted" 2>/dev/null || {
+  echo "::error::compressed redacted payload was truncated or invalid"
   exit 1
 }
 
@@ -322,9 +352,11 @@ reconciliation_status=$(jq -r '.reconciliation.status // "not_applicable"' "$rep
   echo "legacy_null_orders_preserved=$legacy_null_orders"
   echo "blockers=$blockers"
   echo "reconciliation_status=$reconciliation_status"
+  echo "operation_exit_code=$operation_rc"
 } > "$summary"
 cat "$summary"
 
 cleanup_task
 trap - EXIT
+[ "$operation_rc" = "0" ] || exit "$operation_rc"
 [ "$ok" = "true" ] || exit 2
