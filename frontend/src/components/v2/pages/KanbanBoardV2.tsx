@@ -192,12 +192,14 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  onFocus,
  density,
  onToggleDensity,
+ fullPipelineDesktop,
 }: {
  cols: KanbanColumn[];
  focusedId: string | null;
  onFocus: (id: string) => void;
  density: "cozy" | "compact";
  onToggleDensity: () => void;
+ fullPipelineDesktop: boolean;
 }) {
  const total = cols.reduce(
  (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
@@ -221,7 +223,13 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  W procesie: {total}
  </Badge>
 
- <div className="order-3 flex w-full min-w-0 items-center justify-center gap-1 sm:order-none sm:w-auto">
+ <div
+ data-mobile-stage-navigation
+ className={cn(
+ "order-3 flex w-full min-w-0 items-center justify-center gap-1 sm:order-none sm:w-auto",
+ fullPipelineDesktop &&"xl:pointer-fine:hidden"
+ )}
+ >
  <Button
  type="button"
  size="icon-sm"
@@ -410,6 +418,7 @@ interface CardProps {
  onRejectVerification?: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
+ desktopOverview: boolean;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -427,6 +436,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onRejectVerification,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
+ desktopOverview,
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
@@ -444,6 +454,24 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  : item.days_in_stage >= 3
  ?"warning"
  :"neutral";
+ const detailsId = `kanban-candidate-details-${item.id}`;
+ const accessibleDetails = [
+ isPending ? "Oczekuje akceptacji weryfikacji." : null,
+ matchScore != null
+ ? `Dopasowanie AI: ${Math.round(matchScore)} na 100.`
+ : scoresLoading
+ ? "Trwa obliczanie dopasowania AI."
+ : null,
+ item.rating != null && item.rating > 0
+ ? `Ocena: ${item.rating.toFixed(1)}.`
+ : null,
+ item.days_in_stage != null
+ ? `W etapie od ${item.days_in_stage} dni.`
+ : null,
+ item.hm_veto ? "Weto hiring managera." : null,
+ ]
+ .filter(Boolean)
+ .join(" ");
 
  // Kto przypisał kandydata do tej rekrutacji (+ kiedy) — tooltip na hover karty.
  const addedAttribution = item.added_to_job_by_name
@@ -459,6 +487,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
  density === "compact" ?"p-2" :"p-5",
+ desktopOverview &&"xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pt-6",
+ desktopOverview && canScreen &&"xl:pointer-fine:pb-6",
  isPending &&"opacity-70 grayscale-40 border-amber-300 bg-amber-50/40",
  // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
  // się jako „nieaktywny". Ten kandydat jest aktywny, tylko nie dla tego
@@ -467,34 +497,56 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  )}
  title={
  isPending
- ? `Oczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
- : addedAttribution
+ ? `${fullName}\nOczekuje akceptacji weryfikacji — rate ${item.expected_rate_value} > budżet ${item.budget_max_at_move ??"?"}`
+ : [
+ fullName,
+ matchScore != null
+ ? `Dopasowanie AI: ${Math.round(matchScore)}/100`
+ : null,
+ item.rating != null && item.rating > 0
+ ? `Ocena: ${item.rating.toFixed(1)}`
+ : null,
+ item.days_in_stage != null
+ ? `W etapie: ${item.days_in_stage} dni`
+ : null,
+ addedAttribution,
+ ]
+ .filter(Boolean)
+ .join("\n")
  }
  >
+ {accessibleDetails && (
+ <span id={detailsId} className="sr-only">
+ {accessibleDetails}
+ </span>
+ )}
  {isPending && (
- <div className="absolute top-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold">
+ <div className={cn("absolute top-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 font-semibold", desktopOverview &&"xl:pointer-fine:hidden")}>
  <HelpCircle className="h-2.5 w-2.5" />
  Pending
  </div>
  )}
- <div className="absolute top-1 left-1">
+ <div className="absolute left-0 top-0 flex h-6 w-6 items-center justify-center">
  <Checkbox
  checked={selected}
  onCheckedChange={() => onToggleSelect(item.id)}
  aria-label={`Zaznacz ${fullName}`}
- className="bg-card"
+ className={cn("bg-card", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6")}
  />
  </div>
 
  <Link
  href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
  className="block"
+ aria-label={fullName}
+ aria-describedby={accessibleDetails ? detailsId : undefined}
  onClick={(e) => e.stopPropagation()}
  >
- <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5")}>
+ <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
- density === "compact" ?"h-6 w-6 text-[10px]" :"h-12 w-12 text-lg"
+ density === "compact" ?"h-6 w-6 text-[10px]" :"h-12 w-12 text-lg",
+ desktopOverview &&"xl:pointer-fine:hidden"
  )}
  >
  {initials}
@@ -502,20 +554,24 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <div className="min-w-0 flex-1">
  <div
  className={cn("font-medium text-foreground truncate",
- density === "compact" ?"text-sm" :"text-2xl"
+ density === "compact" ?"text-sm" :"text-2xl",
+ desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]"
  )}
  >
  {fullName}
  </div>
  {contactFeatureEnabled ? (
+ <div className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
  <ContactStatusBadge
  contactCase={item.contact_case}
  className="mt-1"
  />
+ </div>
  ) : null}
  <div
  className={cn("flex items-center gap-1.5 mt-0.5 text-muted-foreground",
- density === "compact" ?"text-xs" :"text-base"
+ density === "compact" ?"text-xs" :"text-base",
+ desktopOverview &&"xl:pointer-fine:hidden"
  )}
  >
  {item.rating != null && item.rating > 0 && (
@@ -559,7 +615,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  </div>
  {!isPending && (matchScore != null || scoresLoading) && (
+ <div className={cn(desktopOverview &&"xl:pointer-fine:hidden")}>
  <ScoreRing score={matchScore ?? null} density={density} />
+ </div>
  )}
  </div>
  </Link>
@@ -576,7 +634,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }}
  className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 transition-opacity","hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
  density === "compact" ?"h-5 w-5" :"h-6 w-6",
- isPending ?"top-7" :"top-1"
+ desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6",
+ isPending ?"top-7" :"top-1",
+ desktopOverview &&"xl:pointer-fine:top-0"
  )}
  title="Usuń kandydata z tej rekrutacji"
  aria-label={`Usuń ${fullName} z rekrutacji`}
@@ -592,15 +652,16 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onOpenScreening(item.id, fullName);
  }}
- className="absolute bottom-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold hover:bg-primary hover:text-white transition-colors"
+ className={cn("absolute bottom-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold hover:bg-primary hover:text-white transition-colors", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:p-0")}
  title="Screening Championa"
+ aria-label={`Screening Championa dla ${fullName}`}
  >
  <Sparkles className="h-2.5 w-2.5" />
- Screening
+ <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Screening</span>
  </button>
  )}
  {isPending && isApprover && (
- <div className="mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5">
+ <div className={cn("mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5", desktopOverview &&"xl:pointer-fine:mt-1 xl:pointer-fine:flex-col xl:pointer-fine:items-center xl:pointer-fine:gap-0.5 xl:pointer-fine:pt-1")}>
  <button
  type="button"
  onClick={(e) => {
@@ -608,11 +669,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onAcceptVerification?.(item);
  }}
- className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors"
+ className={cn("inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition-colors", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:p-0")}
  title="Akceptuj weryfikację"
  >
  <CheckCircle2 className="h-3 w-3" />
- Akceptuj
+ <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Akceptuj</span>
  </button>
  <button
  type="button"
@@ -621,11 +682,11 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onRejectVerification?.(item);
  }}
- className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-card text-rose-700 border border-rose-300 font-semibold hover:bg-rose-50 transition-colors"
+ className={cn("inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md bg-card text-rose-700 border border-rose-300 font-semibold hover:bg-rose-50 transition-colors", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:p-0")}
  title="Odrzuć weryfikację"
  >
  <XCircle className="h-3 w-3" />
- Odrzuć
+ <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Odrzuć</span>
  </button>
  </div>
  )}
@@ -649,6 +710,8 @@ interface ColProps {
  onRejectVerification: (item: KanbanItem) => void;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
+ desktopOverview: boolean;
+ fullPipelineDesktop: boolean;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -665,19 +728,27 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onRejectVerification,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
+ desktopOverview,
+ fullPipelineDesktop,
 }: ColProps) {
  const dropId = colId(col);
  return (
  <div
  data-colid={dropId}
- className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]"
+ role="group"
+ aria-label={`${columnLabel(col)}, liczba kandydatów: ${col.count}`}
+ className={cn(
+ "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
+ fullPipelineDesktop &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink"
+ )}
  >
- <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3")}>
+ <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5")}>
  {col.category && (
  <Tooltip>
  <TooltipTrigger asChild>
  <span
  className={cn("h-2 w-2 rounded-full shrink-0",
+ desktopOverview &&"xl:pointer-fine:h-1.5 xl:pointer-fine:w-1.5 xl:pointer-fine:self-center",
  CATEGORY_COLOR[col.category]
  )}
  aria-label={CATEGORY_LABEL[col.category]}
@@ -686,10 +757,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <TooltipContent side="top">{CATEGORY_LABEL[col.category]}</TooltipContent>
  </Tooltip>
  )}
- <span className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold")}>
+ <h3 className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={columnLabel(col)}>
  {columnLabel(col)}
- </span>
- <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"}>
+ </h3>
+ <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[9px]")}>
  {col.count}
  </Badge>
  </div>
@@ -707,6 +778,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  // scroll-kontenera (biblioteka go nie wspiera → wcześniej kursor mapował
  // się na złą kolumnę po poziomym auto-scrollu).
  "flex-1 p-2 space-y-2 rounded-b-v2-m transition-colors",
+ desktopOverview &&"xl:pointer-fine:space-y-1 xl:pointer-fine:p-1",
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
@@ -740,6 +812,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onRejectVerification={onRejectVerification}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
  contactFeatureEnabled={contactFeatureEnabled}
+ desktopOverview={desktopOverview}
  />
  </div>
  )}
@@ -1600,6 +1673,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }
  };
 
+ const fullPipelineDesktop = cols.length > 0 && cols.length <= 15;
+ const desktopOverview = fullPipelineDesktop && cols.length > 3;
+
  return (
  <div className="relative space-y-3">
  {cols.length > 0 && (
@@ -1611,6 +1687,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  onToggleDensity={() =>
  setDensity(density === "cozy" ? "compact" : "cozy")
  }
+ fullPipelineDesktop={fullPipelineDesktop}
  />
  )}
 
@@ -1673,6 +1750,8 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  <DragDropContext onDragEnd={onDragEnd}>
  <div
  ref={boardRef}
+ data-testid="pipeline-board"
+ data-desktop-layout={fullPipelineDesktop ?"full-pipeline" :"scroll"}
  className={cn(
  // Board = JEDYNY scroll-kontener (oba kierunki). Po usunięciu overflow-y
  // z kolumn to on jest „closestScrollable" każdej kolumny → @hello-pangea/dnd
@@ -1680,6 +1759,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  // skrajne kolumny osiągalne — bez ręcznego rAF). Definite height wypełnia
  // viewport; calc fallback działa do pierwszego pomiaru (SSR/pierwszy render).
  "flex gap-3 overflow-auto pb-4 min-h-[280px]",
+ fullPipelineDesktop &&"xl:pointer-fine:gap-1",
  columnHeight == null && "h-[calc(100vh-240px)]"
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
@@ -1706,6 +1786,8 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  onRejectVerification={handleRejectVerification}
  onRemoveFromRecruitment={handleRemoveFromRecruitment}
  contactFeatureEnabled={contactFeature.enabled}
+ desktopOverview={desktopOverview}
+ fullPipelineDesktop={fullPipelineDesktop}
  />
  ))
  )}

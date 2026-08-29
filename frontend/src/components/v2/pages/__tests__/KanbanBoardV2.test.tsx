@@ -134,6 +134,43 @@ function focusColumns() {
   })) as never;
 }
 
+function overviewColumns() {
+  const columns = focusColumns() as unknown as Array<Record<string, unknown>>;
+  columns[0] = {
+    ...columns[0],
+    count: 1,
+    items: [
+      {
+        id: 901,
+        candidate_id: 90,
+        name: "Aleksandra",
+        lastname: "Nowakowska",
+        stage: "new",
+        days_in_stage: 5,
+        rating: 4.5,
+        verification_status: null,
+      },
+    ],
+  };
+  return columns as never;
+}
+
+function overflowColumns() {
+  const columns = focusColumns() as unknown as Array<Record<string, unknown>>;
+  return [
+    ...columns,
+    {
+      stage: "new",
+      name: "Archiwum",
+      category: "terminal",
+      stage_def_id: 216,
+      count: 0,
+      items: [],
+      terminal_type: "withdrawn",
+    },
+  ] as never;
+}
+
 function renderBoard(columns = pendingColumns()) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -209,6 +246,85 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     vi.clearAllMocks();
     kanban.mockResolvedValue({ data: { columns: [] } });
     post.mockResolvedValue({ data: {} });
+  });
+
+  it("pokazuje pełny pipeline w równych desktopowych kolumnach", async () => {
+    const { container } = renderBoard(overviewColumns());
+
+    const board = await screen.findByTestId("pipeline-board");
+    expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
+    expect(board).toHaveClass("overflow-auto", "xl:pointer-fine:gap-1");
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(15);
+    for (const column of container.querySelectorAll("[data-colid]")) {
+      expect(column).toHaveClass(
+        "xl:pointer-fine:w-0",
+        "xl:pointer-fine:min-w-0",
+        "xl:pointer-fine:basis-0",
+        "xl:pointer-fine:grow",
+        "xl:pointer-fine:shrink",
+      );
+    }
+
+    expect(container.querySelector("[data-mobile-stage-navigation]")).toHaveClass(
+      "xl:pointer-fine:hidden",
+    );
+    expect(screen.getByTitle("Rozmowa techniczna")).toBeTruthy();
+    expect(
+      screen.getByRole("group", { name: "Nowy, liczba kandydatów: 1" }),
+    ).toBeTruthy();
+
+    const candidate = await screen.findByRole("link", {
+      name: "Aleksandra Nowakowska",
+    });
+    expect(candidate.parentElement).toHaveClass(
+      "xl:pointer-fine:p-1",
+      "xl:pointer-fine:pt-6",
+    );
+    expect(candidate.parentElement?.getAttribute("title")).toContain(
+      "Aleksandra Nowakowska",
+    );
+    const descriptionId = candidate.getAttribute("aria-describedby");
+    expect(descriptionId).toBeTruthy();
+    expect(container.querySelector(`#${descriptionId}`)).toHaveTextContent(
+      "Ocena: 4.5. W etapie od 5 dni.",
+    );
+    expect(
+      screen.getByRole("checkbox", { name: "Zaznacz Aleksandra Nowakowska" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Usuń Aleksandra Nowakowska z rekrutacji",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("kompaktuje karty od czterech etapów, aby nie przywracać scrolla", async () => {
+    const columns = (
+      overviewColumns() as unknown as Array<Record<string, unknown>>
+    ).slice(0, 4) as never;
+    renderBoard(columns);
+
+    const board = await screen.findByTestId("pipeline-board");
+    expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
+    const candidate = await screen.findByRole("link", {
+      name: "Aleksandra Nowakowska",
+    });
+    expect(candidate.parentElement).toHaveClass("xl:pointer-fine:pt-6");
+  });
+
+  it("zachowuje scroll i navigator dla pipeline dłuższego niż 15 etapów", async () => {
+    const { container } = renderBoard(overflowColumns());
+
+    const board = await screen.findByTestId("pipeline-board");
+    expect(board).toHaveAttribute("data-desktop-layout", "scroll");
+    expect(board).not.toHaveClass("xl:pointer-fine:gap-1");
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(16);
+    expect(container.querySelector("[data-colid]")).not.toHaveClass(
+      "xl:pointer-fine:min-w-0",
+    );
+    expect(container.querySelector("[data-mobile-stage-navigation]")).not.toHaveClass(
+      "xl:pointer-fine:hidden",
+    );
   });
 
   it("pokazuje wszystkie 15 etapów i nie odmontowuje Droppable po zmianie fokusu", async () => {
