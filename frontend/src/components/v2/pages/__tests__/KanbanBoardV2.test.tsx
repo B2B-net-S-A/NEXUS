@@ -207,6 +207,19 @@ describe("KanbanBoardV2 — pending verification card", () => {
     expect(screen.getByTitle("Odrzuć weryfikację")).toBeTruthy();
   });
 
+  it("pokazuje wynik dopasowania także na karcie oczekującej na akceptację", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+    useUiStore.setState({ density: "compact" } as never);
+
+    renderBoard(pendingColumns(), new Map([[5, 77]]));
+
+    expect(
+      await screen.findByLabelText("Dopasowanie AI: 77 na 100"),
+    ).toBeTruthy();
+  });
+
   it("approver po roli DODATKOWEJ widzi akcje (multi-role, P0.3 FE)", async () => {
     useAuthStore.setState({
       // primary tac (bez uprawnień approvera), secondary delivery_lead — stary

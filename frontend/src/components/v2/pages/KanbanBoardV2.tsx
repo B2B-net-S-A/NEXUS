@@ -403,15 +403,15 @@ const ScoreRing = memo(function ScoreRing({
 });
 
 const OverviewScoreBadge = memo(function OverviewScoreBadge({
- score,
+ normalizedScore,
  loading,
  candidateId,
 }: {
- score?: number;
+ normalizedScore?: number;
  loading?: boolean;
  candidateId: number;
 }) {
- const pct = score == null ? null : Math.max(0, Math.min(100, Math.round(score)));
+ const pct = normalizedScore ?? null;
  const label = loading
  ? "Obliczanie dopasowania AI…"
  : pct == null
@@ -598,7 +598,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {desktopOverview && (
  <div className="absolute right-0 top-0 hidden h-6 min-w-6 items-center justify-center xl:pointer-fine:flex">
  <OverviewScoreBadge
- score={normalizedMatchScore ?? undefined}
+ normalizedScore={normalizedMatchScore ?? undefined}
  loading={scoresLoading && normalizedMatchScore == null}
  candidateId={item.candidate_id}
  />
