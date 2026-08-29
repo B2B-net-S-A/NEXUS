@@ -89,6 +89,7 @@ from app.services.order_group_materializer import (
 from app.services.order_types import (
     assert_order_type_allowed,
     effective_standalone_order_type,
+    should_process_active_standalone_order,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
@@ -1846,6 +1847,7 @@ async def update_order(
     if order is None:
         raise HTTPException(404, detail="Order not found")
 
+    was_active = order.status == ClientOrderStatus.active
     data = payload.model_dump(exclude_unset=True)
     requested_type = data.pop("order_type", None)
     if "order_type" in payload.model_fields_set:
@@ -1936,17 +1938,23 @@ async def update_order(
         effective_type = effective_standalone_order_type(
             order.client_id, order.order_type
         )
-        _assert_allowed_order_type(client_id, effective_type)
-        if effective_type in (OrderType.cost, OrderType.md) and not (
-            _order_has_required_activation_data(order)
-        ):
-            raise HTTPException(
-                422,
-                detail=(
-                    "Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu"
-                ),
+        try:
+            process_active_type = should_process_active_standalone_order(
+                client_id, effective_type, was_active=was_active
             )
-        await _materialize_group_after_activation(db, order, actor_id=user.id)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
+        if process_active_type:
+            if effective_type in (OrderType.cost, OrderType.md) and not (
+                _order_has_required_activation_data(order)
+            ):
+                raise HTTPException(
+                    422,
+                    detail=(
+                        "Uzupełnij numer, datę startu, obie stawki i budżet wybranego typu"
+                    ),
+                )
+            await _materialize_group_after_activation(db, order, actor_id=user.id)
 
     db.add(
         Activity(

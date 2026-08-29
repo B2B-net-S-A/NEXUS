@@ -48,6 +48,28 @@ def assert_order_type_allowed(client_id: int, order_type: OrderType | str) -> No
         )
 
 
+def should_process_active_standalone_order(
+    client_id: int,
+    order_type: OrderType | str,
+    *,
+    was_active: bool,
+) -> bool:
+    """Enforce new activation policy without freezing live cleanup targets.
+
+    A draft or paused order entering ``active`` must use an allowed type.
+    An already-active row with a now-forbidden explicit type remains editable
+    until the separately approved data cleanup, but callers must skip any
+    materialization or other type-specific activation work for that row.
+    """
+
+    resolved = OrderType(order_type)
+    if resolved in allowed_order_types(client_id):
+        return True
+    if not was_active:
+        assert_order_type_allowed(client_id, resolved)
+    return False
+
+
 def effective_standalone_order_type(
     client_id: int, order_type: OrderType | str | None
 ) -> OrderType:

@@ -13,8 +13,30 @@ from app.services.order_types import (
     allowed_order_types,
     assert_order_type_allowed,
     effective_standalone_order_type,
+    should_process_active_standalone_order,
     suggested_order_type,
 )
+
+
+def test_existing_forbidden_active_order_stays_editable_before_cleanup(monkeypatch):
+    """Deploying the policy must not freeze rows awaiting approved deletion."""
+
+    monkeypatch.setattr(
+        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
+        {12: (OrderType.md,)},
+    )
+
+    for forbidden_type in (OrderType.periodic, OrderType.cost):
+        assert (
+            should_process_active_standalone_order(12, forbidden_type, was_active=True)
+            is False
+        )
+    assert (
+        should_process_active_standalone_order(12, OrderType.md, was_active=True)
+        is True
+    )
+    with pytest.raises(ValueError, match="periodic"):
+        should_process_active_standalone_order(12, OrderType.periodic, was_active=False)
 
 
 def test_ticket_clients_have_pinned_allowed_types(monkeypatch):

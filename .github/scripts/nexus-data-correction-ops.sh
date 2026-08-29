@@ -25,6 +25,14 @@ is_sha256() {
   [ "${#1}" -eq 64 ]
 }
 
+is_positive_integer() {
+  case "$1" in
+    ""|*[!0-9]*) return 1 ;;
+    *[1-9]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 ops_sleep() {
   sleep "$1"
 }
@@ -157,6 +165,10 @@ fi
 for required in CO_URL CO_TOKEN APP_UUID MODE TASK_NAME SENTINEL PAYLOAD_BEGIN PAYLOAD_END OPS_RUN_ID OPS_RUN_ATTEMPT RUNNER_TEMP; do
   require_env "$required"
 done
+is_positive_integer "$OPS_RUN_ID" && is_positive_integer "$OPS_RUN_ATTEMPT" || {
+  echo "::error::OPS_RUN_ID and OPS_RUN_ATTEMPT must be positive integers"
+  exit 1
+}
 [ "$TASK_NAME" = "$EXPECTED_TASK_NAME" ] || {
   echo "::error::unexpected Coolify task name"
   exit 1

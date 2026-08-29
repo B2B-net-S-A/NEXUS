@@ -21,6 +21,18 @@ export NEXUS_DATA_CORRECTION_OPS_LIB_ONLY=1
 # shellcheck source=nexus-data-correction-ops.sh
 source "$script_dir/nexus-data-correction-ops.sh"
 
+# These values are interpolated into the scheduled command, so the transport
+# validates them before command construction instead of relying on the
+# container-side wrapper alone.
+is_positive_integer 1
+is_positive_integer 001
+for invalid_run_identity in "" 0 00 "1:2" -1 1.2 " " "1;touch" "1|true"; do
+  if is_positive_integer "$invalid_run_identity"; then
+    echo "invalid run identity unexpectedly passed" >&2
+    exit 1
+  fi
+done
+
 # The container wrapper parses named apply arguments independently of order;
 # the reconciliation receipt must always receive the plan, never the unlock.
 export NEXUS_DATA_CORRECTION_WRAPPER_LIB_ONLY=1
