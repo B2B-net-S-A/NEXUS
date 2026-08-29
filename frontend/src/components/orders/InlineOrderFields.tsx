@@ -36,6 +36,8 @@ interface InlineTextProps {
   placeholder?: string;
   inputMode?: "text" | "decimal";
   sanitize?: (raw: string) => string;
+  /** Czy pole może wejść w tryb edycji. Widok wartości pozostaje bez zmian. */
+  editable?: boolean;
 }
 
 /** Click-to-edit text/number field. Enter/blur saves, Esc cancels. */
@@ -48,6 +50,7 @@ export function InlineText({
   placeholder,
   inputMode = "text",
   sanitize,
+  editable = true,
 }: InlineTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -75,18 +78,20 @@ export function InlineText({
     }
   }
 
-  if (!editing) {
+  if (!editable || !editing) {
     return (
       <span className="inline-flex items-center gap-1">
         {display}
-        <button
-          type="button"
-          onClick={begin}
-          aria-label={`Edytuj: ${ariaLabel}`}
-          className="text-muted-foreground/50 hover:text-violet-600 transition-colors"
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
+        {editable ? (
+          <button
+            type="button"
+            onClick={begin}
+            aria-label={`Edytuj: ${ariaLabel}`}
+            className="text-muted-foreground/50 hover:text-violet-600 transition-colors"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+        ) : null}
       </span>
     );
   }
@@ -144,6 +149,8 @@ interface InlinePeriodProps {
   endDate: string | null;
   onSave: (start: string | null, end: string | null) => Promise<void>;
   onError: (msg: string) => void;
+  /** Czy okres może wejść w tryb edycji. */
+  editable?: boolean;
 }
 
 /** Click-to-edit order period (start → end / bezterminowo). */
@@ -152,6 +159,7 @@ export function InlinePeriod({
   endDate,
   onSave,
   onError,
+  editable = true,
 }: InlinePeriodProps) {
   const [editing, setEditing] = useState(false);
   const [start, setStart] = useState(dateOnly(startDate) ?? "");
@@ -183,7 +191,7 @@ export function InlinePeriod({
     }
   }
 
-  if (!editing) {
+  if (!editable || !editing) {
     return (
       <span className="inline-flex items-center gap-1">
         <Calendar className="w-3 h-3" />
@@ -191,14 +199,16 @@ export function InlinePeriod({
           okres zamówienia: {fmtDate(startDate) ?? "—"} →{" "}
           {fmtDate(endDate) ?? "bezterminowo"}
         </span>
-        <button
-          type="button"
-          onClick={begin}
-          aria-label="Edytuj: okres zamówienia"
-          className="text-muted-foreground/50 hover:text-violet-600 transition-colors"
-        >
-          <Pencil className="w-3 h-3" />
-        </button>
+        {editable ? (
+          <button
+            type="button"
+            onClick={begin}
+            aria-label="Edytuj: okres zamówienia"
+            className="text-muted-foreground/50 hover:text-violet-600 transition-colors"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+        ) : null}
       </span>
     );
   }

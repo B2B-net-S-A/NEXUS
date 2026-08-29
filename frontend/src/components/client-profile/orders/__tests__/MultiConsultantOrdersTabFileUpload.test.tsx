@@ -54,6 +54,9 @@ vi.mock("@/lib/api/orderGroups", () => ({
 vi.mock("@/lib/api/dlPortal", () => ({
   dlPortalApi: {
     listActiveContractsForExtension: vi.fn(),
+    listContractorsWithOrders: vi.fn().mockResolvedValue({
+      data: { contractors: [], total_contractors: 0, can_manage_finance: true },
+    }),
     extractOrderPdf: vi.fn(),
   },
 }));

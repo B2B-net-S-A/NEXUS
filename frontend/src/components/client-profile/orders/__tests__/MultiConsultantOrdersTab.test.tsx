@@ -13,6 +13,17 @@ const authState = vi.hoisted(() => ({
   capabilities: ["manage_finance"] as string[],
 }));
 
+const downloadMocks = vi.hoisted(() => ({
+  post: vi.fn().mockResolvedValue({ blob: new Blob(), filename: "Zamowienia.xlsx" }),
+  save: vi.fn(),
+}));
+
+vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/authenticated-files")>()),
+  postAuthenticatedDownload: downloadMocks.post,
+  downloadBlob: downloadMocks.save,
+}));
+
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
@@ -52,17 +63,30 @@ vi.mock("@/lib/api/orderGroups", () => ({
 }));
 
 vi.mock("@/lib/api/dlPortal", () => ({
-  dlPortalApi: { listActiveContractsForExtension: vi.fn(), updateOrder: vi.fn() },
+  dlPortalApi: {
+    listActiveContractsForExtension: vi.fn(),
+    listContractorsWithOrders: vi.fn().mockResolvedValue({
+      data: { contractors: [], total_contractors: 0, can_manage_finance: true },
+    }),
+    updateOrder: vi.fn(),
+  },
 }));
 
 vi.mock("@/components/OrdersAndContractsTab", () => ({
-  OrdersAndContractsTab: ({
-    hideCreateButton,
+  ContractorOrderCards: ({
+    contractors,
+    legacyNullOrderType,
   }: {
-    hideCreateButton?: boolean;
+    contractors: Array<{ contract_id: number; candidate_name: string }>;
+    legacyNullOrderType: "periodic" | "md";
   }) => (
-    <div data-testid="standard-orders-list">
-      {hideCreateButton ? "wspólne tworzenie" : "własne tworzenie"}
+    <div
+      data-testid="contractor-order-cards"
+      data-legacy-null-order-type={legacyNullOrderType}
+    >
+      {contractors.map((contractor) => (
+        <span key={contractor.contract_id}>{contractor.candidate_name}</span>
+      ))}
     </div>
   ),
 }));
@@ -71,11 +95,13 @@ vi.mock("@/components/NewContractorOrderDialog", () => ({
   NewContractorOrderDialog: ({
     orderType = "periodic",
     onOrderTypeChange,
+    allowedOrderTypes = ["periodic", "cost", "md"],
     onClose,
     onCreated,
   }: {
     orderType?: OrderType;
     onOrderTypeChange?: (orderType: OrderType) => void;
+    allowedOrderTypes?: readonly OrderType[];
     onClose: () => void;
     onCreated: () => void;
   }) => (
@@ -87,7 +113,9 @@ vi.mock("@/components/NewContractorOrderDialog", () => ({
             ["cost", "Kosztowe"],
             ["md", "MD"],
           ] as Array<[OrderType, string]>
-        ).map(([value, label]) => (
+        )
+          .filter(([value]) => allowedOrderTypes.includes(value))
+          .map(([value, label]) => (
           <button
             key={value}
             type="button"
@@ -181,7 +209,7 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
 function renderTab(
   props: {
     costOrdersEnabled?: boolean;
-    mixedOrderTypesEnabled?: boolean;
+    periodicOrdersEnabled?: boolean;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -232,8 +260,8 @@ describe("MultiConsultantOrdersTab", () => {
     expect(await screen.findByText("Zamówienie nr 445")).toBeInTheDocument();
     expect(screen.getByText("Jan Kowalski")).toBeInTheDocument();
     expect(screen.getByText("Jan Nowak")).toBeInTheDocument();
-    // Polska liczba mnoga: 1 zamówienie / 2 konsultanci, nie „1 zamówienia".
-    expect(screen.getByText(/1 zamówienie · 2 konsultanci/)).toBeInTheDocument();
+    // Polska liczba mnoga: 1 pozycja, nie „1 pozycje".
+    expect(screen.getByText("1 pozycja na liście")).toBeInTheDocument();
     expect(screen.getByText("15")).toBeInTheDocument();
     expect(screen.getByText("/ 50 MD")).toBeInTheDocument();
     expect(screen.getByText("48")).toBeInTheDocument();
@@ -333,7 +361,7 @@ describe("MultiConsultantOrdersTab", () => {
     renderTab();
 
     expect(
-      await screen.findByText(/Nie udało się wczytać zamówień/),
+      await screen.findByText(/Nie udało się wczytać pełnej listy zamówień/),
     ).toBeInTheDocument();
     expect(screen.queryByText("Brak zamówień")).not.toBeInTheDocument();
     expect(
@@ -370,7 +398,7 @@ describe("MultiConsultantOrdersTab", () => {
 
     expect(await screen.findByText("Brak zamówień")).toBeInTheDocument();
     // Zero bierze dopełniacz — „0 zamówienia" było moim błędem widocznym na prodzie.
-    expect(screen.getByText(/0 zamówień · 0 konsultantów/)).toBeInTheDocument();
+    expect(screen.getByText("0 pozycji na liście")).toBeInTheDocument();
     expect(
       screen.queryByText(/Nie udało się wczytać zamówień/),
     ).not.toBeInTheDocument();
@@ -466,14 +494,12 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
   it("ma jedno wejście tworzenia i przełącznik trzech typów w formularzu", async () => {
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+    renderTab({ costOrdersEnabled: true });
 
-    expect(await screen.findByTestId("standard-orders-list")).toHaveTextContent(
-      "wspólne tworzenie",
-    );
+    expect(await screen.findByText("Zamówienia klienta")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
+    ).toBeInTheDocument();
     const createButtons = screen.getAllByRole("button", {
       name: "Nowe zamówienie",
     });
@@ -502,7 +528,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
 
   it("standardowe otwiera istniejący dialog legacy", async () => {
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+    renderTab({ costOrdersEnabled: true });
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -527,7 +553,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       }),
     } as never);
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+    renderTab({ costOrdersEnabled: true });
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -578,7 +604,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       }),
     } as never);
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+    renderTab({ costOrdersEnabled: true });
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -635,9 +661,9 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       },
     } as never);
 
-    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+    renderTab({ costOrdersEnabled: true });
 
-    expect(await screen.findByText("na MD")).toBeInTheDocument();
+    expect((await screen.findAllByText("MD")).length).toBeGreaterThanOrEqual(1);
     const budget = screen.getByText(/Budżet 100 MD/);
     expect(budget).toHaveTextContent(/wykorzystano 105 MD/);
     expect(budget).toHaveTextContent(/pozostało 0 MD/);
@@ -679,7 +705,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
       },
     } as never);
     const user = userEvent.setup();
-    renderTab({ costOrdersEnabled: true, mixedOrderTypesEnabled: true });
+    renderTab({ costOrdersEnabled: true });
 
     await user.click(
       await screen.findByRole("button", { name: "Nowe zamówienie" }),
@@ -1012,145 +1038,591 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
   });
 });
 
-// ── Zakładka „Draft (do uzupełnienia)" (BIK/BNP) ────────────────────────────
+// ── Połączona lista wszystkich typów ────────────────────────────────────────
 
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import type { OrderDraftRead } from "@/lib/api/orderGroups";
 
-function draftOrder(overrides: Partial<OrderDraftRead> = {}): OrderDraftRead {
+function contractor(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
-    id: 900,
     contract_id: 100,
-    consultant_name: "Robert Łuszczyński",
-    title: "Robert Łuszczyński — Java Developer",
-    start_date: "2026-08-21",
-    end_date: null,
-    rate_cost: null,
-    rate_revenue: null,
-    md_quantity: null,
-    created_at: "2026-08-24T08:00:00Z",
+    candidate_id: 50,
+    candidate_name: "Robert Łuszczyński",
+    contract_status: "active",
+    contract_start_date: "2026-08-21",
+    contract_end_date: null,
+    rate_candidate: 1000,
+    rate_unit: "monthly",
+    initial_job_id: null,
+    initial_job_title: null,
+    latest_order_id: 900,
+    latest_order_end_date: null,
+    latest_order_rate_client: 1500,
+    latest_order_monthly_margin: 500,
+    days_to_latest_end: null,
+    orders: [
+      {
+        id: 900,
+        title: "PER-900",
+        status: "active",
+        order_type: "periodic",
+        start_date: "2026-08-21",
+        end_date: null,
+        created_at: "2026-08-24T08:00:00Z",
+        rate_client: 1500,
+      },
+    ],
     ...overrides,
   };
 }
 
-describe("MultiConsultantOrdersTab — zakładka Draft (do uzupełnienia)", () => {
+describe("MultiConsultantOrdersTab — połączona lista", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authState.role = "admin";
     authState.capabilities = ["manage_finance"];
   });
 
-  it("klient MD dostaje pigułki Draft i Kończące się; klient kosztowy zostaje przy starym zestawie", async () => {
+  it("grupuje pozycje w kolejności MD, kosztowe, okresowe", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
-        groups: [group()],
+        groups: [
+          group({ id: 11, order_number: "COST-11", order_type: "cost" }),
+          group({ id: 12, order_number: "MD-12", order_type: "md" }),
+        ],
+        total_groups: 2,
+        total_consultants: 2,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [contractor()],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    const rendered = renderTab({ costOrdersEnabled: true });
+    await screen.findByText("Zamówienie nr MD-12");
+    const text = rendered.container.textContent ?? "";
+    expect(text.indexOf("MD (1)")).toBeLessThan(text.indexOf("Kosztowe (1)"));
+    expect(text.indexOf("Kosztowe (1)")).toBeLessThan(
+      text.indexOf("Okresowe (1)"),
+    );
+  });
+
+  it("przeplata grupy i kontraktorów po dacie dodania w obrębie typu", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            id: 11,
+            order_number: "OLDER-MD-GROUP",
+            order_type: "md",
+            created_at: "2026-08-20T08:00:00Z",
+          }),
+        ],
         total_groups: 1,
         total_consultants: 1,
-        draft_orders: [draftOrder()],
-        total_draft_orders: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            candidate_name: "Nowszy kontraktor",
+            orders: [
+              {
+                id: 901,
+                title: "NEWER-MD-ORDER",
+                status: "active",
+                order_type: "md",
+                start_date: "2026-08-21",
+                end_date: null,
+                created_at: "2026-08-24T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
       },
     } as never);
 
-    const first = renderTab();
-    expect(
-      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\) \(1\)/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Kończące się 30d/ }),
-    ).toBeInTheDocument();
-    first.unmount();
+    const user = userEvent.setup();
+    const rendered = renderTab();
+    await screen.findByText("Zamówienie nr OLDER-MD-GROUP");
+    const text = rendered.container.textContent ?? "";
+    expect(text.indexOf("Nowszy kontraktor")).toBeLessThan(
+      text.indexOf("Zamówienie nr OLDER-MD-GROUP"),
+    );
 
-    // Polkomtel (zamówienia kosztowe): wymóg ticketu — zakładki bez zmian.
+    await user.click(screen.getByRole("button", { name: "Pobierz do Excela" }));
+    await waitFor(() =>
+      expect(downloadMocks.post).toHaveBeenCalledWith(
+        "/api/clients/7/orders/export",
+        {
+          items: [
+            { kind: "order", id: 901 },
+            { kind: "group", id: 11 },
+          ],
+        },
+      ),
+    );
+  });
+
+  it("sortuje konsultantów wspólnie między grupą i kartą kontraktora", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            id: 11,
+            order_number: "GROUP-ZOFIA",
+            order_type: "md",
+            lines: [line({ consultant_name: "Zofia Zawadzka" })],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            candidate_name: "Adam Adamski",
+            orders: [
+              {
+                id: 901,
+                title: "ORDER-ADAM",
+                status: "active",
+                order_type: "md",
+                start_date: "2026-08-21",
+                end_date: null,
+                created_at: "2026-08-19T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    const user = userEvent.setup();
+    const rendered = renderTab();
+    await screen.findByText("Zamówienie nr GROUP-ZOFIA");
+
+    await user.selectOptions(screen.getByLabelText("Sortowanie"), "consultant_asc");
+
+    const text = rendered.container.textContent ?? "";
+    expect(text.indexOf("Adam Adamski")).toBeLessThan(
+      text.indexOf("Zamówienie nr GROUP-ZOFIA"),
+    );
+  });
+
+  it("sortuje wspólną metryką, a brak wartości zostawia na końcu", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            id: 11,
+            order_number: "GROUP-COST-100",
+            order_type: "cost",
+            is_cost_based: true,
+            lines: [line({ rate_cost: 100 })],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            contract_id: 101,
+            candidate_name: "Koszt 200",
+            rate_candidate: 200,
+            orders: [
+              {
+                id: 901,
+                title: "ORDER-COST-200",
+                status: "active",
+                order_type: "cost",
+                start_date: "2026-08-21",
+                end_date: null,
+                created_at: "2026-08-18T08:00:00Z",
+                rate_client: 300,
+              },
+            ],
+          }),
+          contractor({
+            contract_id: 102,
+            candidate_id: 52,
+            candidate_name: "Koszt nieznany",
+            rate_candidate: null,
+            orders: [
+              {
+                id: 902,
+                title: "ORDER-COST-NULL",
+                status: "active",
+                order_type: "cost",
+                start_date: "2026-08-21",
+                end_date: null,
+                created_at: "2026-08-25T08:00:00Z",
+                rate_client: null,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 2,
+        can_manage_finance: true,
+      },
+    } as never);
+    const user = userEvent.setup();
+    const rendered = renderTab({ costOrdersEnabled: true });
+    await screen.findByText("Zamówienie nr GROUP-COST-100");
+
+    await user.selectOptions(screen.getByLabelText("Sortowanie"), "cost_desc");
+
+    const text = rendered.container.textContent ?? "";
+    expect(text.indexOf("Koszt 200")).toBeLessThan(
+      text.indexOf("Zamówienie nr GROUP-COST-100"),
+    );
+    expect(text.indexOf("Zamówienie nr GROUP-COST-100")).toBeLessThan(
+      text.indexOf("Koszt nieznany"),
+    );
+  });
+
+  it("klasyfikuje karty z wyłącznie anulowanym orderem po jego jawnym typie", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [], total_groups: 0, total_consultants: 0 },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            contract_id: 101,
+            candidate_name: "Anulowane MD",
+            contract_status: "ended",
+            orders: [
+              {
+                id: 901,
+                title: "CANCELLED-MD",
+                status: "cancelled",
+                order_type: "md",
+                start_date: "2026-01-01",
+                end_date: "2026-02-01",
+                created_at: "2026-01-01T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+          contractor({
+            contract_id: 102,
+            candidate_id: 52,
+            candidate_name: "Anulowane kosztowe",
+            contract_status: "ended",
+            orders: [
+              {
+                id: 902,
+                title: "CANCELLED-COST",
+                status: "cancelled",
+                order_type: "cost",
+                start_date: "2026-01-01",
+                end_date: "2026-02-01",
+                created_at: "2026-01-02T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 2,
+        can_manage_finance: true,
+      },
+    } as never);
+
     renderTab({ costOrdersEnabled: true });
-    await screen.findByText(/Zamówienie nr 445/);
-    expect(
-      screen.queryByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Kończące się 30d/ }),
-    ).not.toBeInTheDocument();
+
+    expect(await screen.findByText("Anulowane MD")).toBeInTheDocument();
+    expect(document.getElementById("orders-md-heading")).toHaveTextContent("MD (1)");
+    expect(document.getElementById("orders-cost-heading")).toHaveTextContent(
+      "Kosztowe (1)",
+    );
+    expect(document.getElementById("orders-periodic-heading")).toBeNull();
   });
 
-  it("uzupełnienie numeru w zakładce Draft zapisuje PATCH i toastuje aktywację", async () => {
+  it("liczy i pokazuje draft tylko z `/orders`, bez duplikatu `draft_orders` grup", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [],
         total_groups: 0,
         total_consultants: 0,
-        draft_orders: [draftOrder()],
+        draft_orders: [{ id: 900 }],
         total_draft_orders: 1,
       },
     } as never);
-    vi.mocked(dlPortalApi.updateOrder).mockResolvedValue({
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
       data: {
-        id: 900,
-        status: "active",
-        title: "Zamówienie 4500030999 — Robert Łuszczyński",
+        contractors: [
+          contractor({
+            contract_status: "draft",
+            orders: [
+              {
+                id: 900,
+                title: "DRAFT-900",
+                status: "draft",
+                order_type: "md",
+                start_date: null,
+                end_date: null,
+                created_at: "2026-08-24T08:00:00Z",
+                rate_client: null,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
       },
     } as never);
 
     renderTab();
     const user = userEvent.setup();
-    await user.click(
-      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
-    );
-    expect(await screen.findByTestId("draft-order-900")).toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", {
-        name: /Edytuj: numer zamówienia \(Robert Łuszczyński\)/,
-      }),
-    );
-    const input = screen.getByRole("textbox", {
-      name: /numer zamówienia \(Robert Łuszczyński\)/,
+    const draftPill = await screen.findByRole("button", {
+      name: /Draft \(do uzupełnienia\) \(1\)/,
     });
-    await user.clear(input);
-    await user.type(input, "4500030999{Enter}");
+    await user.click(draftPill);
+    expect(screen.getByText("Robert Łuszczyński")).toBeInTheDocument();
+  });
 
-    await waitFor(() =>
-      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 900, {
-        title: "4500030999",
-      }),
-    );
+  it("nie dubluje pustego shellu kontraktora z linii grupy ani future_orders", async () => {
+    const future = group({
+      id: 11,
+      order_number: "FUTURE-11",
+      lines: [line({ id: 11, group_id: 11, contract_id: 100 })],
+    });
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            id: 10,
+            order_number: "CURRENT-10",
+            lines: [],
+            future_orders: [future],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({ orders: [] }),
+          contractor({
+            contract_id: 101,
+            candidate_id: 51,
+            candidate_name: "Draft bez grupy",
+            contract_status: "draft",
+            orders: [],
+          }),
+        ],
+        total_contractors: 2,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText("Draft bez grupy")).toBeInTheDocument();
+    expect(screen.queryByText("Robert Łuszczyński")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Wszystkie \(2\)/ })).toBeInTheDocument();
     expect(
-      await screen.findByText(/Zamówienie aktywowane i przypisane/),
+      screen.getByRole("button", { name: /Draft \(do uzupełnienia\) \(1\)/ }),
     ).toBeInTheDocument();
   });
 
-  it("liczba MD idzie osobnym polem md_quantity (opcjonalnym)", async () => {
+  it("nie oferuje typu okresowego klientowi z wyłączoną konfiguracją", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [],
         total_groups: 0,
         total_consultants: 0,
-        draft_orders: [draftOrder({ rate_revenue: 1550 })],
-        total_draft_orders: 1,
+        suggested_order_type: "periodic",
       },
     } as never);
-    vi.mocked(dlPortalApi.updateOrder).mockResolvedValue({
-      data: { id: 900, status: "draft", title: "Robert Łuszczyński — Java Developer" },
-    } as never);
 
-    renderTab();
+    renderTab({ costOrdersEnabled: true, periodicOrdersEnabled: false });
     const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", { name: /Draft \(do uzupełnienia\)/ }),
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
     );
+    expect(screen.queryByRole("radio", { name: "Okresowe" })).not.toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Kosztowe" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("radio", { name: "MD" })).toBeInTheDocument();
+  });
+
+  it("klient bez periodic klasyfikuje legacy NULL jako MD, nie suggested cost", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group({ id: 11, order_number: "COST-11", order_type: "cost" })],
+        total_groups: 1,
+        total_consultants: 1,
+        suggested_order_type: "cost",
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            orders: [
+              {
+                id: 900,
+                title: "LEGACY-900",
+                status: "active",
+                order_type: null,
+                start_date: "2026-08-21",
+                end_date: null,
+                created_at: "2026-08-24T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    renderTab({ costOrdersEnabled: true, periodicOrdersEnabled: false });
+
+    await screen.findByText("Zamówienie nr COST-11");
+    expect(document.getElementById("orders-md-heading")).toHaveTextContent("MD (1)");
+    expect(document.getElementById("orders-cost-heading")).toHaveTextContent(
+      "Kosztowe (1)",
+    );
+    expect(document.getElementById("orders-periodic-heading")).toBeNull();
+    expect(screen.getByTestId("contractor-order-cards")).toHaveAttribute(
+      "data-legacy-null-order-type",
+      "md",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Pobierz do Excela" }));
+    await waitFor(() =>
+      expect(downloadMocks.post).toHaveBeenCalledWith(
+        "/api/clients/7/orders/export",
+        {
+          items: [
+            { kind: "order", id: 900 },
+            { kind: "group", id: 11 },
+          ],
+        },
+      ),
+    );
+  });
+
+  it("zwykły klient zachowuje legacy NULL jako periodic mimo suggested cost", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group({ id: 11, order_number: "COST-11", order_type: "cost" })],
+        total_groups: 1,
+        total_consultants: 1,
+        suggested_order_type: "cost",
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [
+          contractor({
+            orders: [
+              {
+                id: 900,
+                title: "LEGACY-900",
+                status: "active",
+                order_type: null,
+                start_date: "2026-08-21",
+                end_date: null,
+                created_at: "2026-08-24T08:00:00Z",
+                rate_client: 1500,
+              },
+            ],
+          }),
+        ],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    renderTab({ costOrdersEnabled: true });
+
+    await screen.findByText("Zamówienie nr COST-11");
+    expect(document.getElementById("orders-md-heading")).toBeNull();
+    expect(document.getElementById("orders-periodic-heading")).toHaveTextContent(
+      "Okresowe (1)",
+    );
+    expect(screen.getByTestId("contractor-order-cards")).toHaveAttribute(
+      "data-legacy-null-order-type",
+      "periodic",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Pobierz do Excela" }));
+    await waitFor(() =>
+      expect(downloadMocks.post).toHaveBeenCalledWith(
+        "/api/clients/7/orders/export",
+        {
+          items: [
+            { kind: "group", id: 11 },
+            { kind: "order", id: 900 },
+          ],
+        },
+      ),
+    );
+  });
+
+  it("eksportuje widoczną listę jednym żądaniem w kolejności typów", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({ id: 11, order_number: "COST-11", order_type: "cost" }),
+          group({ id: 12, order_number: "MD-12", order_type: "md" }),
+        ],
+        total_groups: 2,
+        total_consultants: 2,
+      },
+    } as never);
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [contractor()],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab({ costOrdersEnabled: true });
+    const user = userEvent.setup();
     await user.click(
-      await screen.findByRole("button", {
-        name: /Edytuj: liczba MD zamówienia \(Robert Łuszczyński\)/,
-      }),
+      await screen.findByRole("button", { name: "Pobierz do Excela" }),
     );
-    const input = screen.getByRole("textbox", {
-      name: /liczba MD zamówienia \(Robert Łuszczyński\)/,
-    });
-    await user.type(input, "60{Enter}");
 
     await waitFor(() =>
-      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 900, {
-        md_quantity: 60,
-      }),
+      expect(downloadMocks.post).toHaveBeenCalledWith(
+        "/api/clients/7/orders/export",
+        {
+          items: [
+            { kind: "group", id: 12 },
+            { kind: "group", id: 11 },
+            { kind: "order", id: 900 },
+          ],
+        },
+      ),
     );
-    expect(await screen.findByText(/Zapisano zmiany szkicu/)).toBeInTheDocument();
   });
 });

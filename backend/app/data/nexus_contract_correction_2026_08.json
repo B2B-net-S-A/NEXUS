@@ -1,0 +1,2924 @@
+{
+  "contracts": [
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 443,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 516,
+      "start_date": "2024-08-01"
+    },
+    {
+      "contract_type": "uzlecenie",
+      "end_date": "2026-10-31",
+      "id": 436,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 121,
+      "start_date": "2026-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 365,
+      "start_date": "2023-07-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 122,
+      "start_date": "2026-04-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 612,
+      "start_date": "2023-02-22"
+    },
+    {
+      "client_order_end_date": "2026-11-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 65,
+      "start_date": "2026-01-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 187,
+      "start_date": "2026-04-01"
+    },
+    {
+      "client_order_end_date": "2027-02-15",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 558,
+      "rate_client": "196",
+      "start_date": "2026-08-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 361,
+      "start_date": "2023-05-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 154,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 276,
+      "start_date": "2022-09-12"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 251,
+      "start_date": "2023-03-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 136,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 577,
+      "start_date": "2018-10-26"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 341,
+      "start_date": "2026-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 567,
+      "start_date": "2025-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 561,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 462,
+      "start_date": "2023-07-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 85,
+      "start_date": "2024-04-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 477,
+      "start_date": "2025-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 321,
+      "start_date": "2023-01-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 232,
+      "start_date": "2024-09-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 149,
+      "start_date": "2022-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 278,
+      "start_date": "2023-07-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 71,
+      "start_date": "2026-06-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 267,
+      "start_date": "2024-05-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 376,
+      "start_date": "2025-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 287,
+      "start_date": "2023-07-03"
+    },
+    {
+      "client_order_end_date": "2026-11-03",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 556,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 445,
+      "start_date": "2026-06-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 200,
+      "start_date": "2023-02-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 285,
+      "start_date": "2024-12-02"
+    },
+    {
+      "client_order_end_date": "2026-08-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 284,
+      "start_date": "2022-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 518,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 517,
+      "start_date": "2023-07-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 129,
+      "start_date": "2026-02-23"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 444,
+      "start_date": "2026-01-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 463,
+      "start_date": "2024-01-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 298,
+      "start_date": "2023-03-06"
+    },
+    {
+      "client_order_end_date": "2026-12-15",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 216,
+      "start_date": "2022-10-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 447,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 413,
+      "start_date": "2021-06-02"
+    },
+    {
+      "client_order_end_date": "2026-09-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 77,
+      "start_date": "2025-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 201,
+      "start_date": "2025-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 163,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 34,
+      "start_date": "2025-08-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 487,
+      "start_date": "2025-10-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 570,
+      "start_date": "2024-04-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 21,
+      "start_date": "2024-11-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 86,
+      "start_date": "2025-10-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 359,
+      "start_date": "2023-04-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 55,
+      "start_date": "2026-06-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 613,
+      "start_date": "2026-06-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 355,
+      "start_date": "2022-11-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 60,
+      "start_date": "2022-06-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 131,
+      "start_date": "2026-04-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 328,
+      "rate_client": "176",
+      "start_date": "2025-07-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 101,
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 446,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 186,
+      "start_date": "2023-04-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 391,
+      "start_date": "2026-03-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 488,
+      "start_date": "2025-08-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 333,
+      "start_date": "2024-05-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 398,
+      "start_date": "2025-08-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 305,
+      "start_date": "2024-08-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 489,
+      "start_date": "2025-09-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 381,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 375,
+      "start_date": "2025-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 178,
+      "start_date": "2021-11-02"
+    },
+    {
+      "contract_type": "uzlecenie",
+      "end_date": "2026-01-31",
+      "id": 434,
+      "start_date": "2025-02-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 522,
+      "rate_client": "131",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 519,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 242,
+      "start_date": "2021-06-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 61,
+      "start_date": "2022-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 35,
+      "start_date": "2023-05-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 283,
+      "start_date": "2024-07-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 245,
+      "start_date": "2022-11-28"
+    },
+    {
+      "client_order_end_date": "2026-08-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 301,
+      "start_date": "2024-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 410,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 273,
+      "start_date": "2023-04-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 169,
+      "start_date": "2026-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 527,
+      "start_date": "2026-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 415,
+      "start_date": "2025-10-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 171,
+      "start_date": "2026-04-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 90,
+      "start_date": "2024-04-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 568,
+      "start_date": "2025-08-01"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 564,
+      "rate_client": "139",
+      "start_date": "2024-07-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 303,
+      "start_date": "2023-11-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 231,
+      "start_date": "2023-10-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 471,
+      "start_date": "2024-01-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 614,
+      "start_date": "2026-06-23"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 68,
+      "start_date": "2025-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 362,
+      "start_date": "2023-06-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 315,
+      "start_date": "2023-04-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 264,
+      "start_date": "2024-05-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 565,
+      "rate_client": "213",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 269,
+      "rate_client": "197",
+      "start_date": "2023-04-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 538,
+      "rate_client": "178",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 130,
+      "start_date": "2026-02-23"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 297,
+      "start_date": "2024-01-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 448,
+      "start_date": "2025-10-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 292,
+      "start_date": "2022-11-28"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 623,
+      "start_date": "2022-11-28"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 152,
+      "start_date": "2022-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 27,
+      "start_date": "2024-10-28"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 97,
+      "start_date": "2024-10-21"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 406,
+      "start_date": "2025-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 180,
+      "start_date": "2024-04-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 409,
+      "start_date": "2026-02-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 45,
+      "start_date": "2025-03-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 557,
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 615,
+      "start_date": "2026-03-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 344,
+      "start_date": "2024-02-28"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 348,
+      "rate_client": "150",
+      "start_date": "2025-01-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 605,
+      "start_date": "2022-01-17"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 545,
+      "start_date": "2026-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 428,
+      "start_date": "2026-05-04"
+    },
+    {
+      "client_order_end_date": "2027-01-26",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 73,
+      "start_date": "2022-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 349,
+      "start_date": "2019-06-06"
+    },
+    {
+      "client_order_end_date": "2027-02-28",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 327,
+      "start_date": "2025-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 38,
+      "start_date": "2026-07-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 183,
+      "start_date": "2025-03-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 576,
+      "start_date": "2023-08-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 36,
+      "start_date": "2025-09-22"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 63,
+      "start_date": "2023-04-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 247,
+      "rate_client": "175",
+      "start_date": "2025-01-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 304,
+      "start_date": "2024-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 279,
+      "rate_client": "188",
+      "start_date": "2024-03-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 318,
+      "start_date": "2022-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 89,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 449,
+      "start_date": "2025-12-01"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 554,
+      "rate_client": "145",
+      "start_date": "2026-07-01"
+    },
+    {
+      "client_order_end_date": "2026-11-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 195,
+      "start_date": "2025-09-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 334,
+      "start_date": "2023-02-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 174,
+      "start_date": "2022-10-10"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 214,
+      "start_date": "2023-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 172,
+      "start_date": "2021-10-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 166,
+      "start_date": "2026-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 153,
+      "start_date": "2021-04-28"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 371,
+      "start_date": "2025-05-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 370,
+      "start_date": "2025-04-01"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 549,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 601,
+      "start_date": "2026-04-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 426,
+      "start_date": "2026-06-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 360,
+      "start_date": "2023-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 421,
+      "start_date": "2024-09-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 384,
+      "start_date": "2026-06-01"
+    },
+    {
+      "client_order_end_date": "2027-01-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 547,
+      "start_date": "2026-08-03"
+    },
+    {
+      "client_order_end_date": "2026-09-19",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 91,
+      "start_date": "2025-02-03"
+    },
+    {
+      "client_order_end_date": "2026-12-06",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 550,
+      "start_date": "2026-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 424,
+      "start_date": "2023-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 105,
+      "rate_client": "170",
+      "start_date": "2026-05-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 299,
+      "start_date": "2023-01-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 81,
+      "start_date": "2025-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 364,
+      "start_date": "2022-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 405,
+      "start_date": "2025-12-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 358,
+      "start_date": "2023-02-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 170,
+      "start_date": "2026-03-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 164,
+      "start_date": "2023-10-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 451,
+      "start_date": "2019-10-14"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 502,
+      "start_date": "2023-07-03"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 553,
+      "start_date": "2026-06-29"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 270,
+      "start_date": "2022-11-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 438,
+      "start_date": "2017-10-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 452,
+      "start_date": "2026-06-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 114,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 143,
+      "start_date": "2026-04-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 453,
+      "start_date": "2018-08-24"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 548,
+      "start_date": "2026-06-29"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 64,
+      "start_date": "2026-06-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 435,
+      "start_date": "2025-09-29"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 160,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 295,
+      "start_date": "2021-08-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 69,
+      "start_date": "2024-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 345,
+      "start_date": "2026-04-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 125,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 490,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 302,
+      "rate_client": "175",
+      "start_date": "2023-04-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 373,
+      "start_date": "2025-06-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 407,
+      "start_date": "2026-01-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 111,
+      "rate_client": "178",
+      "start_date": "2016-11-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 491,
+      "start_date": "2025-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 104,
+      "start_date": "2026-05-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 454,
+      "start_date": "2023-08-14"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 312,
+      "start_date": "2024-11-21"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 429,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 472,
+      "start_date": "2024-01-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 215,
+      "start_date": "2025-03-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 67,
+      "start_date": "2026-03-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 388,
+      "start_date": "2025-09-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 397,
+      "start_date": "2025-08-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 437,
+      "start_date": "2025-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 540,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 403,
+      "start_date": "2025-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 573,
+      "start_date": "2026-06-12"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 44,
+      "start_date": "2025-03-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 128,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 266,
+      "start_date": "2024-05-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 134,
+      "start_date": "2026-04-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 220,
+      "start_date": "2026-01-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 268,
+      "start_date": "2024-04-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 51,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 263,
+      "start_date": "2024-03-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 417,
+      "start_date": "2026-02-23"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 401,
+      "start_date": "2026-05-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 275,
+      "start_date": "2023-05-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 280,
+      "start_date": "2022-06-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 54,
+      "start_date": "2025-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 151,
+      "start_date": "2024-10-21"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 552,
+      "start_date": "2026-06-23"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 37,
+      "start_date": "2024-06-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 380,
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 197,
+      "rate_client": "170",
+      "start_date": "2022-08-01"
+    },
+    {
+      "contract_type": "uzlecenie",
+      "end_date": "2026-10-15",
+      "id": 132,
+      "start_date": "2026-04-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 199,
+      "start_date": "2026-01-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 139,
+      "rate_client": "163",
+      "start_date": "2024-04-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 62,
+      "start_date": "2025-02-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 84,
+      "start_date": "2025-02-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 317,
+      "start_date": "2020-11-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 277,
+      "start_date": "2025-06-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 350,
+      "start_date": "2025-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 229,
+      "start_date": "2023-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 393,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 616,
+      "start_date": "2026-04-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 120,
+      "start_date": "2022-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 300,
+      "start_date": "2022-06-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 607,
+      "start_date": "2024-05-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 253,
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 96,
+      "start_date": "2026-01-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 155,
+      "start_date": "2025-12-01"
+    },
+    {
+      "contract_type": "uzlecenie",
+      "end_date": "2026-12-31",
+      "id": 610,
+      "start_date": "2026-01-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 569,
+      "start_date": "2025-07-14"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 313,
+      "start_date": "2024-11-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 430,
+      "start_date": "2026-05-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 144,
+      "start_date": "2025-04-01"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 532,
+      "start_date": "2026-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 617,
+      "start_date": "2024-12-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 118,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 351,
+      "start_date": "2022-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 521,
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 107,
+      "start_date": "2026-05-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 29,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 33,
+      "start_date": "2023-02-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 402,
+      "start_date": "2023-07-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 246,
+      "start_date": "2022-10-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 404,
+      "start_date": "2025-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 46,
+      "start_date": "2023-06-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 272,
+      "start_date": "2022-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 412,
+      "start_date": "2026-03-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 102,
+      "start_date": "2022-09-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 30,
+      "start_date": "2022-12-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 389,
+      "start_date": "2026-04-23"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 250,
+      "start_date": "2021-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 252,
+      "start_date": "2024-05-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 535,
+      "start_date": "2026-07-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 281,
+      "start_date": "2022-12-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 347,
+      "start_date": "2023-11-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 94,
+      "start_date": "2024-03-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 244,
+      "start_date": "2021-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 50,
+      "start_date": "2022-10-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 309,
+      "start_date": "2024-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 555,
+      "rate_client": "163",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 162,
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 182,
+      "start_date": "2025-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 76,
+      "start_date": "2026-07-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 325,
+      "start_date": "2025-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 367,
+      "start_date": "2024-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 478,
+      "start_date": "2025-12-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 326,
+      "start_date": "2022-12-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 551,
+      "start_date": "2026-07-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 399,
+      "start_date": "2025-06-14"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 294,
+      "start_date": "2023-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 369,
+      "start_date": "2025-04-14"
+    },
+    {
+      "client_order_end_date": "2026-10-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 530,
+      "rate_client": "196",
+      "start_date": "2026-08-03"
+    },
+    {
+      "client_order_end_date": "2026-08-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 117,
+      "start_date": "2026-05-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 145,
+      "start_date": "2026-03-30"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 356,
+      "start_date": "2022-10-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 624,
+      "start_date": "2022-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 479,
+      "start_date": "2026-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 431,
+      "start_date": "2025-10-22"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 528,
+      "rate_client": "196",
+      "start_date": "2026-08-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 92,
+      "start_date": "2023-01-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 618,
+      "start_date": "2026-08-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 608,
+      "start_date": "2023-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 209,
+      "start_date": "2024-08-26"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 311,
+      "start_date": "2024-11-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 387,
+      "start_date": "2025-09-01"
+    },
+    {
+      "client_order_end_date": "2026-11-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 536,
+      "start_date": "2026-07-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 156,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 420,
+      "start_date": "2023-07-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 353,
+      "start_date": "2022-09-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 526,
+      "rate_client": "178",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 625,
+      "start_date": "2024-06-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 352,
+      "start_date": "2022-08-01"
+    },
+    {
+      "client_order_end_date": "2027-01-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 543,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 408,
+      "start_date": "2026-04-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 422,
+      "start_date": "2022-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 319,
+      "start_date": "2022-09-22"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 578,
+      "start_date": "2025-01-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 140,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 308,
+      "start_date": "2025-10-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 202,
+      "start_date": "2023-09-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 620,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 619,
+      "start_date": "2026-08-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 392,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 590,
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 49,
+      "start_date": "2023-07-26"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 78,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 98,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 80,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 394,
+      "start_date": "2025-06-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 626,
+      "start_date": "2019-02-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 378,
+      "start_date": "2025-12-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 290,
+      "start_date": "2025-02-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 173,
+      "start_date": "2022-03-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 31,
+      "start_date": "2025-09-22"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 137,
+      "start_date": "2026-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 330,
+      "start_date": "2023-09-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 108,
+      "start_date": "2025-11-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 255,
+      "start_date": "2023-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 539,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 537,
+      "start_date": "2026-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 609,
+      "start_date": "2024-05-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 574,
+      "start_date": "2026-05-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 135,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 87,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 243,
+      "start_date": "2024-06-03"
+    },
+    {
+      "client_order_end_date": "2026-08-19",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 343,
+      "start_date": "2026-06-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 324,
+      "start_date": "2024-04-15"
+    },
+    {
+      "client_order_end_date": "2026-12-15",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 541,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 432,
+      "start_date": "2026-02-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 566,
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 52,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 237,
+      "start_date": "2023-02-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 133,
+      "start_date": "2025-07-21"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 181,
+      "start_date": "2024-04-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 493,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 383,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 177,
+      "start_date": "2023-03-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 322,
+      "start_date": "2024-09-30"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 53,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 66,
+      "start_date": "2022-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 382,
+      "start_date": "2026-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 396,
+      "start_date": "2025-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 193,
+      "start_date": "2024-12-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 123,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 265,
+      "start_date": "2023-02-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 473,
+      "start_date": "2024-01-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 331,
+      "start_date": "2024-02-12"
+    },
+    {
+      "contract_type": "uzlecenie",
+      "end_date": "2026-12-31",
+      "id": 611,
+      "start_date": "2025-12-22"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 72,
+      "start_date": "2025-02-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 116,
+      "start_date": "2025-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 455,
+      "start_date": "2024-04-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 520,
+      "rate_client": "157",
+      "start_date": "2026-10-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 377,
+      "start_date": "2025-10-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 138,
+      "start_date": "2021-09-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 79,
+      "start_date": "2026-02-16"
+    },
+    {
+      "client_order_end_date": "2026-09-11",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 286,
+      "start_date": "2022-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 167,
+      "start_date": "2026-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 474,
+      "start_date": "2018-03-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 75,
+      "start_date": "2023-05-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 395,
+      "start_date": "2025-07-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 572,
+      "start_date": "2023-08-21"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 416,
+      "start_date": "2022-01-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 418,
+      "start_date": "2022-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 468,
+      "start_date": "2021-09-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 433,
+      "start_date": "2026-05-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 354,
+      "start_date": "2022-09-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 184,
+      "start_date": "2025-03-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 498,
+      "start_date": "2025-08-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 57,
+      "start_date": "2026-06-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 196,
+      "start_date": "2025-06-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 525,
+      "rate_client": "150",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 372,
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 234,
+      "rate_client": "272",
+      "start_date": "2022-02-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 559,
+      "rate_client": "205",
+      "start_date": "2026-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 82,
+      "rate_client": "185",
+      "start_date": "2026-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 185,
+      "start_date": "2024-09-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 425,
+      "start_date": "2023-03-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 88,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 414,
+      "start_date": "2022-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 146,
+      "start_date": "2026-04-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 534,
+      "start_date": "2026-07-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 316,
+      "start_date": "2023-05-22"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 456,
+      "start_date": "2026-01-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 48,
+      "start_date": "2025-05-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 288,
+      "start_date": "2024-01-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 274,
+      "start_date": "2025-01-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 291,
+      "start_date": "2023-09-25"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 310,
+      "start_date": "2022-07-20"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 271,
+      "start_date": "2024-09-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 56,
+      "start_date": "2025-02-10"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 621,
+      "start_date": "2026-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 28,
+      "start_date": "2026-01-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 113,
+      "start_date": "2024-12-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 562,
+      "start_date": "2026-08-06"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 494,
+      "start_date": "2025-08-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 411,
+      "start_date": "2026-05-04"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 366,
+      "start_date": "2023-07-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 314,
+      "start_date": "2022-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 374,
+      "start_date": "2025-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 457,
+      "start_date": "2026-03-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 379,
+      "start_date": "2022-10-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 109,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 256,
+      "start_date": "2024-08-12"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 70,
+      "start_date": "2026-06-08"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 475,
+      "start_date": "2026-03-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 627,
+      "start_date": "2026-01-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 622,
+      "rate_client": "165",
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 115,
+      "start_date": "2026-08-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 259,
+      "start_date": "2025-07-21"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 495,
+      "start_date": "2025-07-28"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 106,
+      "start_date": "2026-05-11"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 262,
+      "start_date": "2025-03-24"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 571,
+      "start_date": "2025-12-10"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 257,
+      "start_date": "2025-02-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 419,
+      "start_date": "2022-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 95,
+      "start_date": "2023-03-27"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 168,
+      "start_date": "2023-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 112,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 127,
+      "start_date": "2023-11-02"
+    },
+    {
+      "client_order_end_date": "2027-03-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 542,
+      "start_date": "2026-07-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 368,
+      "start_date": "2025-03-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 110,
+      "start_date": "2026-06-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 357,
+      "start_date": "2023-02-01"
+    },
+    {
+      "client_order_end_date": "2026-12-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 47,
+      "start_date": "2025-07-22"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 306,
+      "start_date": "2024-12-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 32,
+      "start_date": "2025-10-14"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 189,
+      "start_date": "2026-02-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 198,
+      "start_date": "2024-10-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 248,
+      "start_date": "2020-11-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 103,
+      "start_date": "2025-05-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 179,
+      "start_date": "2026-02-09"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 296,
+      "start_date": "2022-12-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 441,
+      "start_date": "2022-09-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 458,
+      "start_date": "2026-03-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 99,
+      "start_date": "2023-11-16"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 100,
+      "start_date": "2023-09-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 363,
+      "start_date": "2022-02-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 119,
+      "start_date": "2025-02-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 628,
+      "start_date": "2023-03-15"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 442,
+      "start_date": "2025-05-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 150,
+      "start_date": "2021-06-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 74,
+      "start_date": "2026-07-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 83,
+      "start_date": "2026-01-05"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 523,
+      "start_date": "2026-08-17"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 529,
+      "start_date": "2026-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 93,
+      "rate_client": "170",
+      "start_date": "2023-04-03"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 124,
+      "rate_client": "215.6",
+      "start_date": "2026-08-03"
+    },
+    {
+      "client_order_end_date": "2027-06-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 546,
+      "start_date": "2026-07-13"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 459,
+      "start_date": "2019-08-26"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 423,
+      "start_date": "2022-02-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 496,
+      "start_date": "2024-12-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 427,
+      "start_date": "2021-09-07"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 476,
+      "start_date": "2025-02-18"
+    },
+    {
+      "contract_type": "uzlecenie",
+      "end_date": "2026-11-30",
+      "id": 603,
+      "start_date": "2026-08-18"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 497,
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 24,
+      "rate_client": "170",
+      "start_date": "2023-08-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 339,
+      "start_date": "2025-07-21"
+    },
+    {
+      "client_order_end_date": "2026-11-30",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 165,
+      "rate_client": "157",
+      "start_date": "2024-03-04"
+    },
+    {
+      "client_order_end_date": "2027-01-31",
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 533,
+      "start_date": "2026-08-31"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 460,
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 600,
+      "start_date": "2026-08-10"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 205,
+      "start_date": "2026-02-02"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 58,
+      "start_date": "2026-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 575,
+      "start_date": "2024-07-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 176,
+      "start_date": "2025-05-19"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 42,
+      "start_date": "2024-04-01"
+    },
+    {
+      "contract_type": "b2b",
+      "end_date": null,
+      "id": 531,
+      "start_date": "2026-08-03"
+    }
+  ],
+  "periodic_order_cleanup": {
+    "clients": [
+      {
+        "id": 12,
+        "name": "BNP Paribas"
+      },
+      {
+        "id": 18,
+        "name": "BIK"
+      },
+      {
+        "id": 15,
+        "name": "Polkomtel"
+      },
+      {
+        "id": 155,
+        "name": "Wedel"
+      }
+    ]
+  },
+  "source": {
+    "data_rows": 471,
+    "file": "Nexus.xlsx",
+    "purple_client_order_end_date_cells": 34,
+    "purple_rate_client_cells": 30,
+    "purple_rows": 58,
+    "sha256": "5f4c38cba2ac3ba6703e66862ccc20525b400dc50f39455f3adf722ac4be8b7a",
+    "sheet": "Kontrakty"
+  },
+  "version": 1
+}

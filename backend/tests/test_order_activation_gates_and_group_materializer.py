@@ -543,6 +543,23 @@ def test_open_ended_relaxation_does_not_loosen_the_other_requirements():
     assert _order_has_required_activation_data(missing_revenue) is False
 
 
+def test_legacy_null_activation_uses_the_pinned_client_type(monkeypatch):
+    """NULL u BNP jest efektywnie MD, więc wymaga budżetu MD przed aktywacją."""
+
+    from app.models.order_type import OrderType
+
+    monkeypatch.setattr(
+        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
+        {12: (OrderType.md,)},
+    )
+    order = _complete_draft_order(_contract_with_future_progressive_rate())
+    order.client_id = 12
+
+    assert _order_has_required_activation_data(order) is False
+    order.md_total = Decimal("20")
+    assert _order_has_required_activation_data(order) is True
+
+
 # ── 6. Polkomtel (klient kosztowy): hook zatrudnienia bez auto-zamówienia ───
 
 
@@ -565,9 +582,18 @@ def test_cost_order_clients_skip_the_auto_order(monkeypatch):
 
 def _md_client(monkeypatch, *, multi: str = "12,18", cost: str = "15"):
     from app.core.config import settings
+    from app.models.order_type import OrderType
 
     monkeypatch.setattr(settings, "MULTI_CONSULTANT_ORDER_CLIENT_IDS", multi)
     monkeypatch.setattr(settings, "COST_ORDER_CLIENT_IDS", cost)
+    monkeypatch.setattr(
+        "app.services.order_types._PINNED_ALLOWED_ORDER_TYPES",
+        {
+            12: (OrderType.md,),
+            18: (OrderType.md,),
+            15: (OrderType.md, OrderType.cost),
+        },
+    )
 
 
 def _standalone_draft(client_id: int) -> ClientOrder:
@@ -591,10 +617,10 @@ def test_md_quantity_requires_an_md_client(monkeypatch):
         _apply_md_order_quantity(_standalone_draft(99), Decimal("20"))
     assert excinfo.value.status_code == 422
 
-    # Klient kosztowy (Polkomtel) — pole nie istnieje także od strony API.
-    with pytest.raises(HTTPException) as excinfo:
-        _apply_md_order_quantity(_standalone_draft(15), Decimal("20"))
-    assert excinfo.value.status_code == 422
+    # Polkomtel dopuszcza MD + kosztowe; legacy NULL rozwiązuje się do MD.
+    polkomtel = _standalone_draft(15)
+    _apply_md_order_quantity(polkomtel, Decimal("20"))
+    assert polkomtel.md_total == Decimal("20.000000")
 
 
 def test_md_quantity_needs_the_revenue_rate_first(monkeypatch):

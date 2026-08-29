@@ -24,6 +24,7 @@ interface NewContractorOrderDialogProps {
   clientId: number;
   orderType?: OrderType;
   onOrderTypeChange?: (orderType: OrderType) => void;
+  allowedOrderTypes?: readonly OrderType[];
   onClose: () => void;
   onCreated: () => void;
 }
@@ -65,6 +66,7 @@ export function NewContractorOrderDialog({
   clientId,
   orderType = "periodic",
   onOrderTypeChange,
+  allowedOrderTypes,
   onClose,
   onCreated,
 }: NewContractorOrderDialogProps) {
@@ -232,7 +234,11 @@ export function NewContractorOrderDialog({
         </div>
 
         {onOrderTypeChange ? (
-          <OrderTypeSwitch value={orderType} onChange={onOrderTypeChange} />
+          <OrderTypeSwitch
+            value={orderType}
+            onChange={onOrderTypeChange}
+            allowedTypes={allowedOrderTypes}
+          />
         ) : null}
 
         {/* Candidate picker (typeahead search) */}

@@ -45,6 +45,7 @@ interface Props {
   clientId: number;
   orderType: Exclude<OrderType, "periodic">;
   onOrderTypeChange: (orderType: OrderType) => void;
+  allowedOrderTypes?: readonly OrderType[];
   submitting: boolean;
   error: string | null;
   onSubmit: (values: OrderGroupInput, file: File | null) => void;
@@ -58,6 +59,7 @@ export function OrderGroupFormModal({
   clientId,
   orderType,
   onOrderTypeChange,
+  allowedOrderTypes,
   submitting,
   error,
   onSubmit,
@@ -267,6 +269,7 @@ export function OrderGroupFormModal({
         <OrderTypeSwitch
           value={orderType}
           onChange={onOrderTypeChange}
+          allowedTypes={allowedOrderTypes}
           disabled={editing}
         />
 

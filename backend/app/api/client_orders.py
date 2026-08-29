@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import (
     APIRouter,
@@ -40,7 +41,7 @@ from app.api.contracts import (
     _raise_currency_conflict,
     _synced_client_order_end,
 )
-from app.api.deps import DlAssignedOrAdmin, TacPlus
+from app.api.deps import DlAssignedOrAdmin, TacPlus, require_roles
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -50,11 +51,12 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
 from app.models.order_type import OrderType
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.client_order import (
     ClientOrderExportRequest,
     ClientOrderRead,
@@ -75,16 +77,18 @@ from app.services.client_access import deny, resolve_client_access
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
-from app.services.cost_orders import is_cost_order_client
 from app.services.ezdrowie import validate_project_part
 from app.services.multi_consultant_orders import (
     INPUT_MODE_MD,
-    is_multi_consultant_client,
     quantize_md,
 )
 from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
     md_rate_from_order_rate,
+)
+from app.services.order_types import (
+    assert_order_type_allowed,
+    effective_standalone_order_type,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_pdf_parser import (
@@ -98,14 +102,40 @@ from app.services.order_pdf_parser import (
 from app.services.order_excel_export import (
     OrderExportRow,
     build_orders_workbook,
+    export_rows_for_group,
+    order_type_export_label,
     orders_export_filename,
 )
 
 router = APIRouter()
 
 
+# The combined export can contain group cards, whose established read audience
+# also includes HoR and Finance.  Standalone order items still pass their own
+# narrower role + client-assignment guards inside the handler below.
+UnifiedOrderExportReader = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.finance,
+            UserRole.tac,
+        )
+    ),
+]
+
+
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 _ALLOWED_EXT = (".pdf", ".docx", ".doc")
+
+
+def _assert_allowed_order_type(client_id: int, order_type: OrderType | str) -> None:
+    try:
+        assert_order_type_allowed(client_id, order_type)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -345,9 +375,10 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
     )
     if not base_complete:
         return False
-    if order.order_type == OrderType.cost.value:
+    effective_type = effective_standalone_order_type(order.client_id, order.order_type)
+    if effective_type == OrderType.cost:
         return order.total_value is not None and order.total_value > 0
-    if order.order_type == OrderType.md.value:
+    if effective_type == OrderType.md:
         return order.md_total is not None and order.md_total > 0
     return True
 
@@ -479,13 +510,10 @@ def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) ->
     nic); lustro ``md_rate_revenue`` zostaje — linia bez budżetu z samą stawką
     jest legalna od migracji 0233.
     """
-    explicit_md = order.order_type == OrderType.md.value
-    legacy_md = (
-        order.order_type is None
-        and is_multi_consultant_client(order.client_id)
-        and not is_cost_order_client(order.client_id)
-    )
-    if not (explicit_md or legacy_md):
+    if (
+        effective_standalone_order_type(order.client_id, order.order_type)
+        != OrderType.md
+    ):
         raise HTTPException(
             422,
             detail=(
@@ -973,6 +1001,9 @@ def _build_order_read(
         title=order.title,
         description=order.description,
         status=order.status,
+        # Preserve the raw compatibility marker on the wire.  Legacy rows use
+        # NULL to distinguish them from explicitly typed drafts in the UI;
+        # effective type resolution belongs in policy checks and export only.
         order_type=order.order_type,
         start_date=order.start_date,
         end_date=order.end_date,
@@ -1046,13 +1077,30 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
 async def list_contractors_with_orders(
     client_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
 
     UI: tab "Zamówienia & Kontrakty" pokazuje listę kart (1 karta = 1 kontraktor).
     """
+    # Finance zachowuje dotychczasowy dostęp do person-free kart grupowych,
+    # ale nie dostaje danych kandydatów z legacy `/orders`. Zwracamy pustą,
+    # poprawną część wspólnego źródła zamiast 403, żeby jeden widok mógł nadal
+    # załadować grupy. HoR przechodzi pełny resolver nadzorczy; DL/TAC nadal
+    # wymagają jawnego przypisania.
+    finance_only = user.has_role(UserRole.finance) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.tac,
+    )
+    if finance_only:
+        await _assert_client(db, client_id)
+        return ClientOrdersGroupedResponse(
+            contractors=[], total_contractors=0, can_manage_finance=False
+        )
+
     await _require_client_order_read(db, user, client_id)
 
     contracts = list(
@@ -1176,36 +1224,133 @@ async def list_contractors_with_orders(
 async def export_client_orders(
     client_id: int,
     payload: ClientOrderExportRequest,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
-    """Export exactly the ordered rows visible in the caller's client view."""
+    """Export exactly the ordered rows visible in the unified client view.
+
+    ``order_ids`` remains the backwards-compatible standalone-order request.
+    ``items`` is the unified contract: it preserves the mixed group/order
+    sequence supplied by the UI and adds the group budget plus order-type
+    columns to one workbook.
+    """
 
     client = await _assert_client(db, client_id)
-    grouped = await list_contractors_with_orders(client_id, user, db)
-    by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
-    for contractor in grouped.contractors:
-        for order in contractor.orders:
-            by_id[order.id] = (contractor, order)
+    unified = payload.items is not None
+    requested = (
+        [(item.kind, item.id) for item in payload.items]
+        if payload.items is not None
+        else [("order", order_id) for order_id in dict.fromkeys(payload.order_ids)]
+    )
+    requested_order_ids = [item_id for kind, item_id in requested if kind == "order"]
+    requested_group_ids = [item_id for kind, item_id in requested if kind == "group"]
 
-    requested = list(dict.fromkeys(payload.order_ids))
-    if any(order_id not in by_id for order_id in requested):
-        # Do not reveal whether an ID belongs to another client.
-        raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
+    if unified and not requested:
+        # Pusty arkusz nadal jest odczytem zasobu klienta. Nie pozwalamy, by
+        # `{items: []}` omijało przypisanie DL/TAC tylko dlatego, że nie ma ID,
+        # po którym późniejsze gałęzie wykonałyby właściwy guard.
+        from app.api.client_order_groups import _require_group_read
 
-    rows = [
-        OrderExportRow(
-            consultant_name=by_id[order_id][0].candidate_name,
-            order_number=by_id[order_id][1].title,
-            cost_rate=by_id[order_id][0].rate_candidate,
-            revenue_rate=by_id[order_id][1].rate_client,
-            start_date=by_id[order_id][1].start_date,
-            end_date=by_id[order_id][1].end_date,
+        await _require_group_read(db, user, client_id)
+
+    orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
+    if not unified or requested_order_ids:
+        # Do not let the broader group-export dependency widen access to the
+        # standalone contractor/order surface for Finance. HoR already passes
+        # the same global supervisory resolver as the unified GET list.
+        if not user.has_any_role(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.tac,
+        ):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="Brak dostępu do zamówień okresowych tego klienta",
+            )
+        grouped = await list_contractors_with_orders(client_id, user, db)
+        for contractor in grouped.contractors:
+            for order in contractor.orders:
+                orders_by_id[order.id] = (contractor, order)
+        if any(order_id not in orders_by_id for order_id in requested_order_ids):
+            # Do not reveal whether an ID belongs to another client.
+            raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
+
+    group_models_by_id: dict[int, ClientOrderGroup] = {}
+    group_rows_by_id: dict[int, list[OrderExportRow]] = {}
+    if requested_group_ids:
+        # Imported lazily to keep the two routers independently importable.
+        from app.api.client_order_groups import (
+            _can_see_finance,
+            _group_to_read,
+            _require_group_read,
         )
-        for order_id in requested
-    ]
+        from app.services.order_types import effective_group_order_type
+        from app.services.shared_md_orders import shared_md_used_totals
+
+        await _require_group_read(db, user, client_id)
+        group_models = list(
+            (
+                await db.execute(
+                    select(ClientOrderGroup).where(
+                        ClientOrderGroup.client_id == client_id,
+                        ClientOrderGroup.id.in_(requested_group_ids),
+                    )
+                )
+            ).scalars()
+        )
+        group_models_by_id = {group.id: group for group in group_models}
+        if any(group_id not in group_models_by_id for group_id in requested_group_ids):
+            raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
+
+        shared_md_used_by_group = await shared_md_used_totals(
+            db, (group.id for group in group_models if group.is_md_budget_based)
+        )
+        for group_id in requested_group_ids:
+            group_model = group_models_by_id[group_id]
+            group = await _group_to_read(
+                db,
+                group_model,
+                with_finance=_can_see_finance(user),
+                precomputed_md_budget_used=(
+                    shared_md_used_by_group[group_id]
+                    if group_model.is_md_budget_based
+                    else None
+                ),
+            )
+            type_label = order_type_export_label(
+                effective_group_order_type(group_model)
+            )
+            group_rows_by_id[group_id] = [
+                replace(row, order_type=type_label)
+                for row in export_rows_for_group(group)
+            ]
+
+    rows: list[OrderExportRow] = []
+    for kind, item_id in requested:
+        if kind == "group":
+            rows.extend(group_rows_by_id[item_id])
+            continue
+        contractor, order = orders_by_id[item_id]
+        rows.append(
+            OrderExportRow(
+                consultant_name=contractor.candidate_name,
+                order_number=order.title,
+                cost_rate=contractor.rate_candidate,
+                revenue_rate=order.rate_client,
+                start_date=order.start_date,
+                end_date=order.end_date,
+                order_type=order_type_export_label(
+                    effective_standalone_order_type(client_id, order.order_type)
+                ),
+            )
+        )
+
     content = await run_in_threadpool(
-        build_orders_workbook, rows, include_model_columns=False
+        build_orders_workbook,
+        rows,
+        include_model_columns=unified,
+        include_order_type=unified,
     )
     filename = orders_export_filename(client_display_name(client))
     return Response(
@@ -1310,6 +1455,7 @@ async def create_order_extension(
         if value is not None
     }
     await _assert_client(db, client_id)
+    _assert_allowed_order_type(client_id, order_type)
     can_finance = _can_manage_order_finance(
         user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
     )
@@ -1715,6 +1861,7 @@ async def update_order(
                 detail="Historyczne zamówienie zachowuje dotychczasowy typ",
             )
         requested_type = OrderType(requested_type)
+        _assert_allowed_order_type(client_id, requested_type)
         requested_value = requested_type.value
         if (
             order.status != ClientOrderStatus.draft or order.order_group_id is not None
@@ -1786,10 +1933,13 @@ async def update_order(
     # — dokładnie klasa awarii z ticketu. Poza swoim zakresem (klient
     # nie-MD, wiersz w grupie, tytuł-placeholder) serwis jest no-opem.
     if order.status == ClientOrderStatus.active and order.order_group_id is None:
-        if order.order_type in (
-            OrderType.cost.value,
-            OrderType.md.value,
-        ) and not _order_has_required_activation_data(order):
+        effective_type = effective_standalone_order_type(
+            order.client_id, order.order_type
+        )
+        _assert_allowed_order_type(client_id, effective_type)
+        if effective_type in (OrderType.cost, OrderType.md) and not (
+            _order_has_required_activation_data(order)
+        ):
             raise HTTPException(
                 422,
                 detail=(
@@ -2010,6 +2160,7 @@ async def create_contract_with_order(
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
     await _assert_client(db, client_id)
+    _assert_allowed_order_type(client_id, payload.order_type)
     if payload.order_type != OrderType.periodic:
         raise HTTPException(
             422,

@@ -26,6 +26,8 @@ name: Coolify Ops
 #                                    artefaktu trafia raport bez nazw i kwot.
 #   9. action=contract-merge-apply → zastosowanie DOKŁADNIE zatwierdzonego planu;
 #                                    wymaga fingerprintu i jawnego potwierdzenia.
+#  10. action=nexus-data-correction-audit → read-only plan korekty z Nexus.xlsx.
+#  11. action=nexus-data-correction-apply → dokładny, zatwierdzony plan korekty.
 #
 # The list output contains only build metadata (UUIDs, SHAs, statuses,
 # timestamps) — no env values or secrets.
@@ -36,7 +38,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [list, cancel, cron-list, backup-status, client-lookup, contract-merge-audit, contract-merge-apply, eval-ab, eval-read, eval-stop]
+        options: [list, cancel, cron-list, backup-status, client-lookup, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-read, eval-stop]
         default: list
       deployment_uuids:
         description: "Space-separated deployment UUIDs to cancel (action=cancel)"
@@ -115,6 +117,15 @@ on:
         type: choice
         options: ["NO", "APPLY"]
         default: "NO"
+      nexus_data_correction_fingerprint:
+        description: "Dokładny fingerprint z nexus-data-correction-audit (tylko apply)"
+        required: false
+        default: ""
+      nexus_data_correction_confirm:
+        description: "Bezpiecznik fizycznego DELETE i korekty kontraktów (tylko apply)"
+        type: choice
+        options: ["NO", "APPLY"]
+        default: "NO"
 
 permissions:
   contents: read
@@ -125,7 +136,7 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ !startsWith(inputs.action, 'eval') && !startsWith(inputs.action, 'contract-merge-') }}
+    if: ${{ !startsWith(inputs.action, 'eval') && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -840,6 +851,46 @@ jobs:
         with:
           name: contract-merge-${{ inputs.action }}-${{ github.run_id }}
           path: ${{ runner.temp }}/contract-merge/
+          if-no-files-found: error
+          retention-days: 7
+
+  nexus_data_correction:
+    name: Nexus data correction (${{ inputs.action == 'nexus-data-correction-apply' && 'APPLY' || 'audit' }})
+    if: ${{ startsWith(inputs.action, 'nexus-data-correction-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: coolify-nexus-data-correction
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Uruchom audyt albo zatwierdzony plan Nexus.xlsx
+        # Apply is unlocked out-of-band: after the exact audit is accepted,
+        # NEXUS_DATA_CORRECTION_APPLY_UNLOCK must be set to that audit's
+        # approval hash. It cannot be supplied as a workflow-dispatch input.
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          TASK_NAME: nexus-data-correction-oneshot
+          SENTINEL: ===NEXUS-DATA-CORRECTION-END===
+          PAYLOAD_BEGIN: ===NEXUS-DATA-CORRECTION-PAYLOAD-BEGIN===
+          PAYLOAD_END: ===NEXUS-DATA-CORRECTION-PAYLOAD-END===
+          MODE: ${{ inputs.action == 'nexus-data-correction-apply' && 'apply' || 'audit' }}
+          PLAN_FINGERPRINT: ${{ inputs.nexus_data_correction_fingerprint }}
+          APPLY_CONFIRMATION: ${{ inputs.nexus_data_correction_confirm }}
+          APPLY_UNLOCK: ${{ inputs.action == 'nexus-data-correction-apply' && secrets.NEXUS_DATA_CORRECTION_APPLY_UNLOCK || '' }}
+          OPS_RUN_ID: ${{ github.run_id }}
+          OPS_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash .github/scripts/nexus-data-correction-ops.sh
+
+      - name: Zachowaj zredagowany raport korekty
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nexus-data-correction-${{ inputs.action }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/nexus-data-correction/
           if-no-files-found: error
           retention-days: 7
 

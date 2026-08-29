@@ -52,6 +52,7 @@ from app.services.multi_consultant_orders import (
     format_md,
     is_multi_consultant_client,
 )
+from app.services.order_types import effective_standalone_order_type
 
 _PLACEHOLDER_TITLE = "(bez numeru)"
 
@@ -105,9 +106,10 @@ async def materialize_group_for_activated_order(
     if order.order_group_id is not None:
         return None
     raw_order_type = getattr(order, "order_type", None)
-    explicit_type = OrderType(raw_order_type) if raw_order_type is not None else None
-    if explicit_type == OrderType.periodic:
+    effective_type = effective_standalone_order_type(order.client_id, raw_order_type)
+    if effective_type == OrderType.periodic:
         return None
+    explicit_type = OrderType(raw_order_type) if raw_order_type is not None else None
     if explicit_type is None:
         # Pełna zgodność wsteczna: tylko stare, skonfigurowane klienty MD są
         # materializowane automatycznie i zachowują wszystkie dawne bramki.

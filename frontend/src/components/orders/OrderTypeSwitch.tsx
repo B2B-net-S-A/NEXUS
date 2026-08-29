@@ -12,24 +12,32 @@ interface OrderTypeSwitchProps {
   value: OrderType;
   onChange: (value: OrderType) => void;
   disabled?: boolean;
+  allowedTypes?: readonly OrderType[];
 }
 
 export function OrderTypeSwitch({
   value,
   onChange,
   disabled = false,
+  allowedTypes = OPTIONS.map((option) => option.value),
 }: OrderTypeSwitchProps) {
+  const visibleOptions = OPTIONS.filter((option) =>
+    allowedTypes.includes(option.value),
+  );
   return (
     <fieldset>
       <legend className="mb-1.5 text-sm font-medium text-foreground">
         Typ zamówienia
       </legend>
       <div
-        className="grid grid-cols-3 rounded-lg border border-border bg-muted/40 p-1"
+        className="grid rounded-lg border border-border bg-muted/40 p-1"
+        style={{
+          gridTemplateColumns: `repeat(${visibleOptions.length}, minmax(0, 1fr))`,
+        }}
         role="radiogroup"
         aria-label="Typ zamówienia"
       >
-        {OPTIONS.map((option) => {
+        {visibleOptions.map((option) => {
           const selected = option.value === value;
           return (
             <button

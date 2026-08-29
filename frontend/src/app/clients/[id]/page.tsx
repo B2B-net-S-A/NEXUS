@@ -989,7 +989,7 @@ export default function ClientDetailPage() {
               clientId={Number(id)}
               clientName={client?.display_name || client?.name || ""}
               costOrdersEnabled={Boolean(client?.cost_orders_enabled)}
-              mixedOrderTypesEnabled
+              periodicOrdersEnabled={client?.periodic_orders_enabled !== false}
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}

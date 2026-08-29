@@ -14,12 +14,7 @@ from decimal import Decimal
 import pytest
 from fastapi import HTTPException
 
-from app.api.client_order_groups import (
-    COST_GROUP_TOTAL_LABEL,
-    MD_GROUP_TOTAL_LABEL,
-    assert_group_is_reopenable,
-    export_rows_for_group,
-)
+from app.api.client_order_groups import assert_group_is_reopenable
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_COMPLETED,
@@ -27,6 +22,11 @@ from app.models.client_order_group import (
     GROUP_STATUS_SCHEDULED,
 )
 from app.schemas.client_order_group import OrderGroupRead, OrderLineRead
+from app.services.order_excel_export import (
+    COST_GROUP_TOTAL_LABEL,
+    MD_GROUP_TOTAL_LABEL,
+    export_rows_for_group,
+)
 
 
 def _line(name: str, **overrides) -> OrderLineRead:

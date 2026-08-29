@@ -98,19 +98,28 @@ class ClientSafeResponse(BaseModel):
     def cost_orders_enabled(self) -> bool:
         """Czy u tego klienta wolno założyć zamówienie KOSZTOWE (kwotowe).
 
-        Wyliczane serwerowo z ``COST_ORDER_CLIENT_IDS`` — z tego samego powodu
-        co flaga wyżej: to zmienna środowiskowa, którą zmienia się w Coolify
-        bez deployu, więc kopia listy w bundlu byłaby nieaktualna od pierwszej
-        takiej zmiany.
-
-        Świadomie OSOBNA od ``multi_consultant_orders_enabled``, mimo że dziś
-        jest jej podzbiorem: BIK i BNP rozliczają się wyłącznie na MD, więc
-        checkbox „Zamówienie kosztowe" w ich formularzu byłby zaproszeniem do
-        założenia zamówienia, którego nikt nigdy nie rozliczy.
+        Wyliczane z tej samej polityki co walidacja zapisu. Dzięki temu
+        Polkomtel i Wedel zachowują kosztowe niezależnie od chwilowego ENV,
+        a BIK i BNP nie dostają kontrolki prowadzącej do odrzuconego zapisu.
         """
+        from app.models.order_type import OrderType
         from app.services.cost_orders import is_cost_order_client
+        from app.services.order_types import allowed_order_types
 
+        allowed = allowed_order_types(self.id)
+        if OrderType.periodic not in allowed:
+            return OrderType.cost in allowed
         return is_cost_order_client(self.id)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def periodic_orders_enabled(self) -> bool:
+        """Czy klient może tworzyć nowe zamówienia okresowe."""
+
+        from app.models.order_type import OrderType
+        from app.services.order_types import allowed_order_types
+
+        return OrderType.periodic in allowed_order_types(self.id)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

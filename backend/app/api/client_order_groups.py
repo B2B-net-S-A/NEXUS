@@ -67,6 +67,7 @@ from app.models.md_consumption import (
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.job import Job
+from app.models.order_type import OrderType
 from app.models.user import User, UserRole
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
@@ -132,7 +133,11 @@ from app.services.multi_consultant_orders import (
     swap_md_total,
 )
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
-from app.services.order_types import suggested_order_type
+from app.services.order_types import (
+    assert_order_type_allowed,
+    effective_group_order_type,
+    suggested_order_type,
+)
 from app.services.shared_md_orders import (
     settle_shared_md_group,
     shared_md_used_total,
@@ -141,6 +146,7 @@ from app.services.shared_md_orders import (
 from app.services.order_excel_export import (
     OrderExportRow,
     build_orders_workbook,
+    export_rows_for_group,
     orders_export_filename,
 )
 from app.services import storage_service
@@ -148,17 +154,6 @@ from app.services import storage_service
 router = APIRouter()
 
 MAX_GROUP_PDF_BYTES = 25 * 1024 * 1024
-
-COST_GROUP_TOTAL_LABEL = "Całe zamówienie (kwota łączna)"
-"""Etykieta wiersza zbiorczego w eksporcie zamówień kosztowych.
-
-Nagłówki arkusza są wspólne z eksportem legacy (``order_excel_export``), więc
-nie da się kolumny przemianować na „kwota całego zamówienia" bez zmiany
-znaczenia tej samej kolumny w drugim eksporcie. Zamiast tego rozróżniamy
-wiersze: zbiorczy niesie kwotę grupy, wiersze osób — własne zużycie."""
-
-MD_GROUP_TOTAL_LABEL = "Całe zamówienie (wspólna pula MD)"
-
 
 # Nazwy KOLUMN, którymi `update_order_group` opisuje własną edycję. Wpis
 # `edycja_reczna` zawierający wyłącznie takie nazwy jest zapisem technicznym —
@@ -1157,113 +1152,6 @@ def assert_group_is_reopenable(status: str) -> None:
         )
 
 
-def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
-    """Wiersze arkusza dla jednej grupy — czysta funkcja, bez bazy.
-
-    Wyniesione z handlera, żeby dało się sprawdzić granulację kolumn bez
-    stawiania klienta, kontraktów i zamówienia: to właśnie tu regresja jest
-    CICHA (arkusz się generuje, liczby są poprawne arytmetycznie, tylko opisują
-    co innego).
-    """
-
-    rows: list[OrderExportRow] = []
-    if group.is_cost_based and group.lines:
-        # Kwota zamówienia kosztowego jest JEDNA na całą grupę, a nie per
-        # konsultant. Wklejana dotąd do każdego wiersza osoby dawała
-        # w jednym arkuszu, pod jednym nagłówkiem, dwie różne granulacje:
-        # sąsiednie „Zużycie zamówienia" jest zawsze per linia, więc wiersz
-        # „zużycie 5 000 z 200 000" czytał się jak budżet TEJ osoby, a suma
-        # kolumny (arkusz ma auto-filtr i ludzie go sumują) rosła krotnie do
-        # liczby konsultantów. Kwota idzie więc raz, do wiersza zbiorczego,
-        # a wiersze konsultantów niosą wyłącznie własne zużycie — dzięki temu
-        # obie kolumny sumują się do prawdy.
-        rows.append(
-            OrderExportRow(
-                consultant_name=COST_GROUP_TOTAL_LABEL,
-                order_number=group.order_number,
-                cost_rate=None,
-                revenue_rate=None,
-                start_date=group.start_date,
-                end_date=group.end_date,
-                allocation=group.budget_amount,
-                consumption=None,
-            )
-        )
-    if group.is_md_budget_based and group.lines:
-        # Wspólna pula MD ma tę samą granulację co kwota kosztowa: jedna liczba
-        # całej grupy, a nie kopia przy każdym konsultancie.
-        rows.append(
-            OrderExportRow(
-                consultant_name=MD_GROUP_TOTAL_LABEL,
-                order_number=group.order_number,
-                cost_rate=None,
-                revenue_rate=None,
-                start_date=group.start_date,
-                end_date=group.end_date,
-                allocation=group.md_budget_total,
-                consumption=group.md_budget_used,
-            )
-        )
-    if not group.lines:
-        # Grupa bez konsultantów: sam wiersz zamówienia. Bez etykiety zbiorczej
-        # — nie ma tu od czego go odróżniać.
-        rows.append(
-            OrderExportRow(
-                consultant_name="",
-                order_number=group.order_number,
-                cost_rate=None,
-                revenue_rate=None,
-                start_date=group.start_date,
-                end_date=group.end_date,
-                allocation=(
-                    group.budget_amount
-                    if group.is_cost_based
-                    else group.md_budget_total
-                    if group.is_md_budget_based
-                    else None
-                ),
-                consumption=(
-                    group.md_budget_used if group.is_md_budget_based else None
-                ),
-            )
-        )
-        return rows
-    for line in group.lines:
-        consumption: Optional[Decimal]
-        if group.is_cost_based:
-            consumption = line.invoiced_total
-        elif group.is_md_budget_based:
-            consumption = None
-        elif line.md_total is None:
-            consumption = None
-        else:
-            consumption = (
-                line.md_total
-                + (line.md_manual_adjustment or Decimal("0"))
-                - (line.md_remaining or Decimal("0"))
-            )
-        rows.append(
-            OrderExportRow(
-                consultant_name=line.consultant_name,
-                order_number=group.order_number,
-                cost_rate=line.rate_cost,
-                revenue_rate=line.rate_revenue,
-                start_date=group.start_date,
-                end_date=group.end_date,
-                # Zamówienie kosztowe ma kwotę w wierszu zbiorczym powyżej;
-                # tutaj zostaje pusto, żeby jedna liczba nie powtórzyła się
-                # tylu razy, ilu jest konsultantów.
-                allocation=(
-                    None
-                    if group.is_cost_based or group.is_md_budget_based
-                    else line.md_total
-                ),
-                consumption=consumption,
-            )
-        )
-    return rows
-
-
 @router.post("/{client_id}/order-groups/export")
 async def export_order_groups(
     client_id: int,
@@ -1632,6 +1520,15 @@ async def create_order_group(
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(422, detail="Data zakończenia jest wcześniejsza niż start")
     explicit_type = payload.order_type is not None
+    resolved_type = (
+        payload.order_type
+        if payload.order_type is not None
+        else (OrderType.cost if payload.is_cost_based else OrderType.md)
+    )
+    try:
+        assert_order_type_allowed(client_id, resolved_type)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     if not explicit_type and not is_multi_consultant_client(client_id):
         raise HTTPException(
             422,
@@ -1651,9 +1548,9 @@ async def create_order_group(
                 ),
             )
     elif not explicit_type and is_lotte_wedel_order_types_client(client_id):
-        # Standardowe zamówienie Lotte Wedel, tak samo jak CP, powstaje
-        # w legacy `/orders`. Grupa reprezentuje dokładnie jeden z dwóch
-        # specjalnych wariantów i nigdy nie miesza budżetu PLN z pulą MD.
+        # Lotte Wedel nie może już tworzyć zamówień okresowych. Grupa
+        # reprezentuje dokładnie jeden z dwóch dozwolonych wariantów i nigdy
+        # nie miesza budżetu PLN z pulą MD.
         if payload.is_cost_based == payload.is_md_budget_based:
             raise HTTPException(
                 422,
@@ -2228,6 +2125,10 @@ async def extend_order_group(
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
+    try:
+        assert_order_type_allowed(client_id, effective_group_order_type(source))
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
 
     if payload.end_date and payload.end_date < payload.start_date:
         raise HTTPException(422, detail="Data zakończenia jest wcześniejsza niż start")

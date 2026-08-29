@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
+import type {
+  ClientOrderRead,
+  ContractWithOrdersRead,
+  OrderType,
+} from "@/lib/api/dlPortal";
 import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
   consultantMatchesQuery,
+  contractorMatchesPill,
+  contractorOrderType,
+  effectiveClientOrderType,
+  effectiveGroupOrderType,
+  filterMaterializedContractorShells,
   filterAndSortContractors,
   filterAndSortOrderGroups,
   flattenOrderGroupIds,
+  orderGroupMatchesPill,
   sortOrderLinesByConsultant,
 } from "@/lib/client-order-list";
 
@@ -108,6 +118,46 @@ function contractor(
     latest_order_monthly_margin: null,
     days_to_latest_end: null,
     orders: [],
+    ...overrides,
+  };
+}
+
+function clientOrder(
+  id: number,
+  orderType: OrderType,
+  overrides: Partial<ClientOrderRead> = {},
+): ClientOrderRead {
+  return {
+    id,
+    client_id: 10,
+    contract_id: id,
+    job_id: null,
+    framework_contract_id: null,
+    title: `ORDER-${id}`,
+    description: null,
+    status: "cancelled",
+    order_type: orderType,
+    start_date: "2026-04-01",
+    end_date: "2026-05-01",
+    rate_client: 150,
+    total_value: null,
+    md_quantity: null,
+    currency: "PLN",
+    project_part: null,
+    filename: null,
+    has_file: false,
+    content_type: null,
+    size_bytes: null,
+    created_by_user_id: null,
+    notes: null,
+    created_at: `2026-04-${String(id).padStart(2, "0")}T10:00:00Z`,
+    updated_at: `2026-04-${String(id).padStart(2, "0")}T10:00:00Z`,
+    candidate_id: id,
+    candidate_name: `Kandydat ${id}`,
+    contract_status: "ended",
+    job_title: null,
+    monthly_margin: null,
+    days_to_end: null,
     ...overrides,
   };
 }
@@ -274,6 +324,42 @@ describe("client order list filters", () => {
     expect(names("consultant_desc")).toEqual([3, 1, 2, 4]);
   });
 
+  it("filtruje i sortuje po datach reprezentatywnego anulowanego cost/MD", () => {
+    const cancelledMd = contractor(1, "Anulowane MD", {
+      orders: [
+        clientOrder(1, "md", {
+          start_date: "2026-04-10",
+          end_date: "2026-05-10",
+          created_at: "2026-04-10T10:00:00Z",
+        }),
+      ],
+    });
+    const cancelledCost = contractor(2, "Anulowane kosztowe", {
+      orders: [
+        clientOrder(2, "cost", {
+          start_date: "2026-04-20",
+          end_date: "2026-05-20",
+          created_at: "2026-04-20T10:00:00Z",
+        }),
+      ],
+    });
+
+    expect(
+      filterAndSortContractors(
+        [cancelledMd, cancelledCost],
+        "",
+        {
+          ...DEFAULT_ORDER_LIST_FILTERS,
+          startFrom: "2026-04-01",
+          startTo: "2026-04-30",
+          endFrom: "2026-05-01",
+          endTo: "2026-05-31",
+        },
+        "2026-08-29",
+      ).map((item) => item.contract_id),
+    ).toEqual([2, 1]);
+  });
+
   it("traktuje serwerowy myślnik jak brak konsultanta, nie jak nazwisko", () => {
     // `consultant_display_name` (backend) zwraca „—" dla linii bez kandydata.
     // Myślnik wypada w kolacji PRZED każdą literą, więc bez odsiania wiersz bez
@@ -315,5 +401,64 @@ describe("client order list filters", () => {
     const future = group(2, "FUTURE");
     const current = group(1, "CURRENT", { future_orders: [future] });
     expect(flattenOrderGroupIds([current])).toEqual([1, 2]);
+  });
+
+  it("usuwa tylko puste shelle kontraktów obecnych w grupach, także przyszłych", () => {
+    const future = group(2, "FUTURE", {
+      lines: [line(22, "Future Person", { contract_id: 22 })],
+    });
+    const current = group(1, "CURRENT", {
+      lines: [line(11, "Current Person", { contract_id: 11 })],
+      future_orders: [future],
+    });
+
+    const result = filterMaterializedContractorShells(
+      [
+        contractor(11, "Shell bieżącej grupy"),
+        contractor(22, "Shell przyszłej grupy"),
+        contractor(33, "Prawidłowy draft bez grupy", {
+          contract_status: "draft",
+        }),
+      ],
+      [current],
+    );
+
+    expect(result.map((item) => item.contract_id)).toEqual([33]);
+  });
+
+  it("resolves legacy and explicit order types without guessing from names", () => {
+    expect(effectiveGroupOrderType(group(1, "MD"))).toBe("md");
+    expect(
+      effectiveGroupOrderType(group(2, "COST", { is_cost_based: true })),
+    ).toBe("cost");
+    expect(
+      effectiveGroupOrderType(
+        group(3, "EXPLICIT", { order_type: "md", is_cost_based: true }),
+      ),
+    ).toBe("md");
+    expect(effectiveClientOrderType({ order_type: null })).toBe("periodic");
+    expect(effectiveClientOrderType({ order_type: null }, "md")).toBe("md");
+    expect(effectiveClientOrderType({ order_type: "periodic" }, "md")).toBe(
+      "periodic",
+    );
+    expect(effectiveClientOrderType({ order_type: "cost" })).toBe("cost");
+    expect(contractorOrderType(contractor(1, "Bez zamówienia"))).toBe("periodic");
+  });
+
+  it("uses the same status predicates for unified counters and rows", () => {
+    expect(orderGroupMatchesPill(group(1, "ACTIVE"), "active")).toBe(true);
+    expect(
+      orderGroupMatchesPill(
+        group(2, "DONE", { status: "completed" }),
+        "completed",
+      ),
+    ).toBe(true);
+    expect(orderGroupMatchesPill(group(3, "NO-DRAFT"), "draft")).toBe(false);
+    expect(
+      contractorMatchesPill(
+        contractor(4, "Draft", { contract_status: "draft" }),
+        "draft",
+      ),
+    ).toBe(true);
   });
 });
