@@ -124,3 +124,8 @@ def test_order_snapshot_migration_and_startup_safety_net_stay_in_sync() -> None:
             "przeniesienie_puli_md",
         ):
             assert token in source
+
+        alert_fk_tail = source.split("ADD CONSTRAINT fk_dl_alerts_offboarding_case", 1)[
+            1
+        ].split(";", 1)[0]
+        assert "ON DELETE SET NULL NOT VALID" in alert_fk_tail

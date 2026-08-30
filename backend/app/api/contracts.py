@@ -2071,12 +2071,23 @@ async def bulk_mark_ended(
     """Mark each selected contract as ended (status='ended')."""
     if not contract_ids:
         raise HTTPException(status_code=422, detail="No contract ids provided")
-    result = await db.execute(select(Contract).where(Contract.id.in_(contract_ids)))
+    # Rodzic Contract przed dziećmi ClientOrder — ten sam porządek co cron.
+    # Bez blokady rodzica bulk mógł trzymać order i czekać na Contract dopiero
+    # przy flushu, podczas gdy cron trzymał Contract i czekał na ten order.
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id.in_(contract_ids))
+        .order_by(Contract.id.asc())
+        .with_for_update()
+    )
     contracts = list(result.scalars().all())
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     changed = 0
-    for c in contracts:
+    # Każde przejście na ``ended`` blokuje powiązane zamówienia. Dwa
+    # nakładające się bulki muszą brać kontrakty (a przez nie ordery) w tej
+    # samej kolejności, niezależnie od kolejności ``ids`` i planu zapytania.
+    for c in sorted(contracts, key=lambda contract: contract.id):
         await _apply_contract_status_change(
             db,
             c,

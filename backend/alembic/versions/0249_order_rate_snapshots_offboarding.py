@@ -148,7 +148,7 @@ BEGIN
             ADD CONSTRAINT fk_dl_alerts_offboarding_case
             FOREIGN KEY (offboarding_case_id)
             REFERENCES client_order_offboarding_cases(id)
-            ON DELETE SET NULL;
+            ON DELETE SET NULL NOT VALID;
     END IF;
 END
 $$

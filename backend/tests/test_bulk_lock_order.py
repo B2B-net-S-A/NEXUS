@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import inspect
 
+from app.api import client_order_groups as order_groups_api
+from app.api import contracts as contracts_api
 from app.api import pipeline as pipeline_api
 from app.api import proposals_bulk
 from app.services import recruitment_process_commands as commands
@@ -87,3 +89,31 @@ def test_bulk_add_proposals_never_iterates_the_raw_client_list() -> None:
 
     assert "for candidate_id in body.candidate_ids:" not in src
     assert "for candidate_id in lock_ordered_ids:" in src
+
+
+def test_bulk_contract_termination_uses_one_lock_order() -> None:
+    src = inspect.getsource(contracts_api.bulk_mark_ended)
+
+    assert src.index(".order_by(Contract.id.asc())") < src.index(
+        "_apply_contract_status_change("
+    )
+    assert src.index(".with_for_update()") < src.index("_apply_contract_status_change(")
+    assert "for c in sorted(contracts, key=lambda contract: contract.id):" in src
+
+
+def test_md_offboarding_resolution_locks_source_and_target_in_one_order() -> None:
+    src = inspect.getsource(order_groups_api.resolve_md_offboarding_case)
+    line_lock = src.split("locked_lines_result = await db.execute(", 1)[1].split(
+        "locked_lines = {", 1
+    )[0]
+
+    assert line_lock.index("ClientOrder.id.in_(line_ids)") < line_lock.index(
+        ".order_by(ClientOrder.id.asc())"
+    )
+    assert line_lock.index(".order_by(ClientOrder.id.asc())") < line_lock.index(
+        ".with_for_update()"
+    )
+    assert line_lock.index(".with_for_update()") < line_lock.index(
+        ".execution_options(populate_existing=True)"
+    )
+    assert "target = locked_lines.get(payload.target_order_id)" in src

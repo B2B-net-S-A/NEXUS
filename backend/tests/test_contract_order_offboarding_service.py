@@ -401,6 +401,31 @@ async def test_legacy_remove_reduces_signed_budget_instead_of_faking_consumption
     assert adjusted_line.md_manual_adjustment == Decimal("0.000000")
 
 
+@pytest.mark.parametrize("rate_revenue", [None, Decimal("0")])
+async def test_legacy_amount_without_positive_rate_fails_before_mutation(
+    rate_revenue,
+):
+    """Niekompletny legacy budget zostaje do korekty, bez częściowego zapisu."""
+
+    amount_line = ClientOrder(
+        md_total=Decimal("50"),
+        md_input_mode="amount",
+        md_input_value=Decimal("60000"),
+        md_manual_adjustment=Decimal("5"),
+        md_rate_revenue=rate_revenue,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _reduce_legacy_md_budget(amount_line, Decimal("20"))
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "invalid_legacy_md_budget"
+    assert amount_line.md_total == Decimal("50")
+    assert amount_line.md_manual_adjustment == Decimal("5")
+    assert amount_line.md_input_mode == "amount"
+    assert amount_line.md_input_value == Decimal("60000")
+
+
 async def test_existing_pending_case_is_reconciled_without_creating_another(
     monkeypatch,
 ):

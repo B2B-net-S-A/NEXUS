@@ -330,6 +330,31 @@ def _reduce_legacy_md_budget(order: ClientOrder, remaining: Decimal) -> None:
 
     if order.md_total is None or remaining <= 0:
         return
+    rate_revenue = (
+        None if order.md_rate_revenue is None else Decimal(str(order.md_rate_revenue))
+    )
+    if (
+        order.md_input_mode not in {INPUT_MODE_AMOUNT, INPUT_MODE_MD}
+        or order.md_input_value is None
+        or rate_revenue is None
+        or rate_revenue <= 0
+    ):
+        # Migracyjne CHECK-i legacy są celowo NOT VALID. Nie wolno więc
+        # polegać wyłącznie na bazie ani próbować zgadywać brakującej stawki:
+        # kwota mogłaby zostać zapisana jako MD albo częściowo zmieniony rekord
+        # mógłby zakończyć transakcję błędem 500. Zatrzymaj decyzję DL przed
+        # pierwszą mutacją i pozostaw case do ręcznej korekty danych.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "invalid_legacy_md_budget",
+                "message": (
+                    "Nie można rozliczyć pozostałej puli: historyczne dane "
+                    "budżetu MD są niekompletne. Skoryguj stawkę zamówienia "
+                    "i ponów decyzję."
+                ),
+            },
+        )
     current_total = Decimal(str(order.md_total))
     new_total = quantize_md(max(Decimal("0"), current_total - remaining))
     total_reduction = current_total - new_total
@@ -339,11 +364,9 @@ def _reduce_legacy_md_budget(order: ClientOrder, remaining: Decimal) -> None:
         order.md_manual_adjustment = quantize_md(
             Decimal(str(order.md_manual_adjustment or 0)) - overflow
         )
-    if order.md_input_mode == INPUT_MODE_AMOUNT and order.md_rate_revenue:
-        order.md_input_value = quantize_md(
-            new_total * Decimal(str(order.md_rate_revenue))
-        )
-    else:
+    if order.md_input_mode == INPUT_MODE_AMOUNT:
+        order.md_input_value = quantize_md(new_total * rate_revenue)
+    elif order.md_input_mode == INPUT_MODE_MD:
         order.md_input_mode = INPUT_MODE_MD
         order.md_input_value = new_total
 
@@ -2695,15 +2718,31 @@ async def resolve_md_offboarding_case(
             },
         )
 
-    source = await db.scalar(
+    # Resolve i operacje grupowe mogą dotykać dwóch tych samych linii. Blokuj
+    # source + target jednym zapytaniem w rosnącym porządku ID; osobne locki
+    # source→target tworzyłyby cykl z close/reopen/delete, które poprawnie
+    # blokują wszystkie linie grupy rosnąco.
+    line_ids = [case.order_id]
+    if (
+        payload.action == OFFBOARDING_RESOLUTION_TRANSFER
+        and payload.target_order_id is not None
+    ):
+        line_ids.append(payload.target_order_id)
+    locked_lines_result = await db.execute(
         _line_query()
         .where(
-            ClientOrder.id == case.order_id,
+            ClientOrder.id.in_(line_ids),
             ClientOrder.order_group_id == group_id,
             ClientOrder.client_id == client_id,
         )
+        .order_by(ClientOrder.id.asc())
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
+    locked_lines = {
+        line.id: line for line in locked_lines_result.scalars().unique().all()
+    }
+    source = locked_lines.get(case.order_id)
     if source is None:
         raise HTTPException(409, detail="Linia odchodzącego konsultanta nie istnieje")
 
@@ -2715,15 +2754,7 @@ async def resolve_md_offboarding_case(
     target_rate: Optional[Decimal] = None
 
     if payload.action == OFFBOARDING_RESOLUTION_TRANSFER:
-        target = await db.scalar(
-            _line_query()
-            .where(
-                ClientOrder.id == payload.target_order_id,
-                ClientOrder.order_group_id == group_id,
-                ClientOrder.client_id == client_id,
-            )
-            .with_for_update()
-        )
+        target = locked_lines.get(payload.target_order_id)
         if target is None:
             raise HTTPException(
                 422, detail="Wskazany konsultant nie jest na zamówieniu"
