@@ -201,10 +201,11 @@ def test_effective_client_rate_schedule_selection_matches_contract_resolver():
 
 @pytest.mark.asyncio
 async def test_rate_schedule_fetch_fingerprints_full_rows_and_locks_them():
-    full_row = {
+    json_row = {
         "id": 12,
         "contract_id": 1,
-        "rate": 170.0,
+        # PostgreSQL JSONB decoding loses the NUMERIC/date native types.
+        "rate": 169.999999999,
         "effective_from": "2026-07-01",
         "note": "preserve exactly",
         "created_by": 9,
@@ -219,16 +220,29 @@ async def test_rate_schedule_fetch_fingerprints_full_rows_and_locks_them():
         async def execute(self, statement, params):
             self.statement = str(statement)
             assert params == {"ids": [1]}
-            return _RowsMappingsResult([{"row": full_row}])
+            return _RowsMappingsResult(
+                [
+                    {
+                        "row": json_row,
+                        "rate": Decimal("170.000"),
+                        "effective_from": date(2026, 7, 1),
+                    }
+                ]
+            )
 
     db = Session()
     rows = await _fetch_rate_schedule_rows(db, [1], lock=True)
 
-    assert rows == [full_row]
-    assert "SELECT to_jsonb(r) AS row" in db.statement
+    typed_row = {
+        **json_row,
+        "rate": Decimal("170.000"),
+        "effective_from": date(2026, 7, 1),
+    }
+    assert rows == [typed_row]
+    assert "SELECT to_jsonb(r) AS row, r.rate, r.effective_from" in db.statement
     assert "ORDER BY r.contract_id, r.effective_from, r.id" in db.statement
     assert "FOR UPDATE OF r" in db.statement
-    changed = [{**full_row, "note": "drifted"}]
+    changed = [{**typed_row, "note": "drifted"}]
     assert plan_fingerprint({"schedule": rows}) != plan_fingerprint(
         {"schedule": changed}
     )

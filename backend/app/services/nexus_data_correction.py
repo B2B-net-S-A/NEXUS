@@ -531,12 +531,19 @@ async def _fetch_rate_schedule_rows(
         return []
     suffix = " FOR UPDATE OF r" if lock else ""
     return [
-        dict(item["row"])
+        {
+            **dict(item["row"]),
+            # JSONB numbers decode as floats.  Keep the two decision fields in
+            # their native asyncpg types so a financial equality/fingerprint
+            # never depends on an IEEE-754 round trip.
+            "rate": item["rate"],
+            "effective_from": item["effective_from"],
+        }
         for item in (
             (
                 await db.execute(
                     text(
-                        "SELECT to_jsonb(r) AS row "
+                        "SELECT to_jsonb(r) AS row, r.rate, r.effective_from "
                         "FROM contract_client_rates r "
                         "WHERE r.contract_id = ANY(:ids) "
                         f"ORDER BY r.contract_id, r.effective_from, r.id{suffix}"
