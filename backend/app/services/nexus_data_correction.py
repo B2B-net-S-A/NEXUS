@@ -198,7 +198,7 @@ def _parse_date(value: Any, label: str, *, nullable: bool) -> date | None:
 
 
 def _parse_rate(value: Any, label: str) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+    if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
         raise NexusDataCorrectionError(f"{label} must be a decimal")
     try:
         parsed = Decimal(str(value))
