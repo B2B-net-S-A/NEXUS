@@ -504,7 +504,7 @@ async def _client_order_fk_catalog(db: AsyncSession) -> list[dict[str, Any]]:
                     "parent_a.attname AS target_column_name, "
                     "con.conname AS constraint_name, "
                     "array_length(con.conkey, 1) AS column_count, "
-                    "con.confdeltype AS delete_action, "
+                    "con.confdeltype::text AS delete_action, "
                     "COALESCE(pk_info.primary_key_columns, ARRAY[]::name[]) "
                     "AS primary_key_columns FROM pg_constraint con "
                     "JOIN pg_class child ON child.oid = con.conrelid "
