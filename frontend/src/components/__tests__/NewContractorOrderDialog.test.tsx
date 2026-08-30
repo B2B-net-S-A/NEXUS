@@ -46,12 +46,26 @@ function financeAdmin(): User {
   };
 }
 
+function assignedDeliveryLead(): User {
+  return {
+    ...financeAdmin(),
+    id: 17,
+    email: "dl@example.com",
+    name: "Delivery Lead",
+    role: "delivery_lead",
+    roles: ["delivery_lead"],
+    capabilities: ["view_client_operations"],
+  };
+}
+
 function renderDialog({
   orderType,
   onOrderTypeChange,
+  canManageFinance,
 }: {
   orderType?: OrderType;
   onOrderTypeChange?: (orderType: OrderType) => void;
+  canManageFinance?: boolean;
 } = {}) {
   // `retry: 1` LUSTRZANIE do produkcji (`QueryProvider`), nie `false`. Przy
   // `retry: false` test przechodziłby, nie dotykając realnego opóźnienia:
@@ -67,6 +81,7 @@ function renderDialog({
           clientId={11}
           orderType={orderType}
           onOrderTypeChange={onOrderTypeChange}
+          canManageFinance={canManageFinance}
           onClose={() => {}}
           onCreated={() => {}}
         />
@@ -163,8 +178,25 @@ describe("NewContractorOrderDialog — wyszukiwarka kandydatów", () => {
   });
 });
 
-describe("NewContractorOrderDialog — niezależne waluty stawek", () => {
-  it("wysyła mieszaną walutę bez legacy currency i nie pokazuje nominalnej marży", async () => {
+describe("NewContractorOrderDialog — jednostka i waluta zamówienia", () => {
+  it("pokazuje pola przypisanemu DL na podstawie serwerowego uprawnienia", () => {
+    act(() => {
+      useAuthStore.setState({ user: assignedDeliveryLead(), hydrated: true });
+    });
+    mockApi(() => Promise.resolve({ data: { items: [] } }));
+    renderDialog({ canManageFinance: true });
+
+    expect(
+      screen.getByRole("radiogroup", { name: "Jednostka stawki" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", {
+        name: "Waluta zamówienia (przychodowa)",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("przelicza obie stawki hour → MD i zachowuje niezależne waluty", async () => {
     const user = userEvent.setup({ delay: null });
     mockApi(() =>
       Promise.resolve({
@@ -191,26 +223,27 @@ describe("NewContractorOrderDialog — niezależne waluty stawek", () => {
     );
     await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
     await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
+    await user.click(screen.getByRole("radio", { name: "Godzinowa" }));
     await user.type(screen.getByPlaceholderText("np. 215,60"), "215,60");
     await user.type(screen.getByPlaceholderText("np. 150,40"), "150,40");
 
-    expect(screen.getByText(/Marża \/mc \(przybl\.\):/i)).toBeInTheDocument();
+    expect(screen.getByText(/Marża \/h \(przybl\.\):/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "MD" }));
+    expect(screen.getByLabelText(/Klient płaci/)).toHaveValue("1724.8");
+    expect(screen.getByLabelText(/My płacimy kontraktorowi/)).toHaveValue(
+      "1203.2",
+    );
     await user.selectOptions(
       screen.getByRole("combobox", {
-        name: "Waluta stawki przychodowej (klienta)",
+        name: "Waluta zamówienia (przychodowa)",
       }),
       "EUR",
     );
     await user.selectOptions(
-      screen.getByRole("combobox", {
-        name: "Waluta stawki kosztowej (kandydata)",
-      }),
+      screen.getByRole("combobox", { name: "Waluta stawki kosztowej" }),
       "PLN",
     );
-
-    expect(
-      screen.queryByText(/Marża \/mc \(przybl\.\):/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Marża \/MD \(przybl\.\):/i)).not.toBeInTheDocument();
     expect(
       screen.getByText(/Marża zostanie pokazana po niezależnym przeliczeniu/i),
     ).toBeInTheDocument();
@@ -223,8 +256,9 @@ describe("NewContractorOrderDialog — niezależne waluty stawek", () => {
     expect(createContractWithOrder).toHaveBeenCalledWith(
       11,
       expect.objectContaining({
-        rate_client: 215.6,
-        rate_candidate: 150.4,
+        rate_client: 1724.8,
+        rate_candidate: 1203.2,
+        rate_unit: "daily",
         rate_client_currency: "EUR",
         rate_candidate_currency: "PLN",
       }),

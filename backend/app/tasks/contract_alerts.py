@@ -32,6 +32,10 @@ from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
+from app.services.contract_order_offboarding import (
+    apply_contract_order_offboarding,
+    reconcile_pending_md_offboarding_alerts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +76,32 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         )
         .values(status=ContractStatus.ending)
     )
-    ended_count = await db.execute(
-        update(Contract)
-        .where(
-            Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
-            Contract.end_date.isnot(None),
-            Contract.end_date < today,
+    ended_contracts = list(
+        (
+            await db.execute(
+                select(Contract)
+                .where(
+                    Contract.status.in_([ContractStatus.active, ContractStatus.ending]),
+                    Contract.end_date.isnot(None),
+                    Contract.end_date < today,
+                )
+                .order_by(Contract.id.asc())
+                .with_for_update(skip_locked=True)
+            )
         )
-        .values(status=ContractStatus.ended)
+        .scalars()
+        .all()
     )
-    return (ending_count.rowcount or 0, ended_count.rowcount or 0)
+    for contract in ended_contracts:
+        contract.status = ContractStatus.ended
+        await apply_contract_order_offboarding(
+            db,
+            contract_id=contract.id,
+            effective_date=contract.end_date,
+            actor_id=None,
+            today=today,
+        )
+    return (ending_count.rowcount or 0, len(ended_contracts))
 
 
 async def _staff_user_ids(db: AsyncSession) -> list[int]:
@@ -348,12 +368,16 @@ async def run_contract_alerts_cycle() -> dict:
         "compliance_alerts": 0,
         "equipment_return_alerts": 0,
         "client_order_alerts": 0,
+        "md_offboarding_alerts": 0,
         "slack_sent": 0,
     }
     async with AsyncSessionLocal() as db:
         ending, ended = await _promote_statuses(db)
         stats["promoted_ending"] = ending
         stats["promoted_ended"] = ended
+        stats["md_offboarding_alerts"] = await reconcile_pending_md_offboarding_alerts(
+            db
+        )
         await db.commit()
 
         staff_ids = await _staff_user_ids(db)

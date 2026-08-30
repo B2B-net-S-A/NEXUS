@@ -67,6 +67,10 @@ EVENT_INVOICE_IMPORT = "import_faktur"
 # z resztą — rozdzielony rejestr to dokładnie ten dryf, przez który wartość
 # trafia do bazy bez etykiety i renderuje się użytkownikowi surowym slugiem.
 EVENT_MD_TRANSFER = "transfer_md"
+EVENT_CONSULTANT_ENDED = "zakonczenie_konsultanta"
+EVENT_MD_OFFBOARDING_PENDING = "decyzja_md_wymagana"
+EVENT_MD_OFFBOARDING_REMOVED = "usuniecie_puli_md"
+EVENT_MD_OFFBOARDING_TRANSFERRED = "przeniesienie_puli_md"
 EVENT_TYPES: tuple[str, ...] = (
     EVENT_ORDER_CREATED,
     EVENT_CONSULTANT_ADDED,
@@ -79,6 +83,10 @@ EVENT_TYPES: tuple[str, ...] = (
     EVENT_ORDER_EXTENDED,
     EVENT_INVOICE_IMPORT,
     EVENT_MD_TRANSFER,
+    EVENT_CONSULTANT_ENDED,
+    EVENT_MD_OFFBOARDING_PENDING,
+    EVENT_MD_OFFBOARDING_REMOVED,
+    EVENT_MD_OFFBOARDING_TRANSFERRED,
 )
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -93,6 +101,10 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     EVENT_ORDER_EXTENDED: "Przedłużenie",
     EVENT_INVOICE_IMPORT: "Import faktur",
     EVENT_MD_TRANSFER: "Przejęcie zużycia MD",
+    EVENT_CONSULTANT_ENDED: "Zakończenie współpracy konsultanta",
+    EVENT_MD_OFFBOARDING_PENDING: "Decyzja o pozostałej puli MD",
+    EVENT_MD_OFFBOARDING_REMOVED: "Usunięcie pozostałej puli MD",
+    EVENT_MD_OFFBOARDING_TRANSFERRED: "Przeniesienie pozostałej puli MD",
 }
 
 

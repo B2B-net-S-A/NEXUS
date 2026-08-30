@@ -12,6 +12,52 @@ export type { OrderType } from "@/lib/api/dlPortal";
 
 export type OrderInputMode = "md" | "amount";
 
+export type OrderOffboardingAction = "remove" | "transfer";
+export type OrderOffboardingRateBasis = "departing" | "recipient";
+
+/** Trwała sprawa decyzyjna tworzona po zakończeniu kontraktu konsultanta MD.
+ *
+ *  Snapshoty pozwalają pokazać Delivery Leadowi dokładnie stan z chwili
+ *  zakończenia współpracy, nawet jeśli zamówienie zostało później odświeżone.
+ *  Pola finansowe są `null` dla ról bez VIEW_FINANCE. */
+export interface OrderOffboardingCaseRead {
+  id: number;
+  contract_id: number;
+  order_id: number;
+  order_group_id: number | null;
+  client_id: number;
+  effective_date: string;
+  status: "pending" | "resolved";
+  version: number;
+  uses_shared_md_pool: boolean;
+  remaining_md_snapshot: number;
+  rate_cost_snapshot: number | null;
+  rate_revenue_snapshot: number | null;
+  currency_snapshot: string | null;
+  order_number_snapshot: string | null;
+  resolution: OrderOffboardingAction | null;
+  target_order_id: number | null;
+  rate_basis: OrderOffboardingRateBasis | null;
+  resolution_payload: Record<string, unknown> | null;
+  resolved_at: string | null;
+  resolved_by_user_id: number | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type OrderOffboardingResolutionInput =
+  | {
+      action: "remove";
+      expected_version: number;
+    }
+  | {
+      action: "transfer";
+      target_order_id: number;
+      rate_basis: OrderOffboardingRateBasis;
+      expected_version: number;
+    };
+
 export interface OrderLineRead {
   id: number;
   group_id: number | null;
@@ -43,6 +89,9 @@ export interface OrderLineRead {
   unsettled_total: number | null;
   /** Ostatni zaimportowany miesiąc bez zejścia dla tej linii („2026-07"). */
   missing_consumption_month: string | null;
+  /** Decyzja po zakończeniu współpracy na zamówieniu MD. `pending` oznacza,
+   *  że linia zostaje oznaczona alarmowo do czasu decyzji Delivery Leada. */
+  offboarding_case?: OrderOffboardingCaseRead | null;
 }
 
 export type OrderGroupStatus = "active" | "scheduled" | "completed" | "exhausted";
@@ -403,6 +452,17 @@ export const orderGroupsApi = {
   ) =>
     api.post<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/swap`,
+      payload,
+    ),
+
+  resolveOffboardingCase: (
+    clientId: number,
+    groupId: number,
+    caseId: number,
+    payload: OrderOffboardingResolutionInput,
+  ) =>
+    api.post<OrderOffboardingCaseRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/offboarding-cases/${caseId}/resolve`,
       payload,
     ),
 

@@ -273,7 +273,7 @@ def test_flow_b_delivery_lead_can_create_operational_records_without_finance():
         assert getattr(payload, field) is None
 
 
-def test_flow_b_admin_keeps_rate_defaults_and_computed_margin_shape():
+def test_flow_b_admin_keeps_rate_defaults_and_order_snapshot_shape():
     payload = NewContractorOrderRequest(
         candidate_id=10,
         title="Pełny order",
@@ -296,9 +296,14 @@ def test_flow_b_admin_keeps_rate_defaults_and_computed_margin_shape():
         "billing_hours_per_month": 160,
     }
     assert order_kwargs == {
+        "rate_candidate": Decimal("14000"),
         "rate_client": Decimal("18000"),
+        "rate_unit": RateUnit.monthly,
+        "billing_hours_per_month": 160,
         "total_value": None,
         "currency": "PLN",
+        "rate_client_currency": "PLN",
+        "rate_candidate_currency": "PLN",
     }
     response = NewContractorOrderResponse(
         contract_id=1,

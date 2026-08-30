@@ -135,6 +135,12 @@ _KNOWN_CONTRACT_FKS = {
     ("b2b_contract_details", "contract_id"),
     ("b2b_generated_contracts", "contract_id"),
     ("calls", "contract_id"),
+    # Durable offboarding decisions belong to the same candidate/client
+    # engagement as their ClientOrder.  During a same-client duplicate merge
+    # both rows are reparented to the survivor in this transaction; keeping the
+    # case in the catalog allowlist also exposes its exact row IDs/counts in the
+    # audit plan instead of letting the loser DELETE cascade erase the evidence.
+    ("client_order_offboarding_cases", "contract_id"),
     ("client_orders", "contract_id"),
     ("contract_amendments", "contract_id"),
     ("contract_candidate_rates", "contract_id"),

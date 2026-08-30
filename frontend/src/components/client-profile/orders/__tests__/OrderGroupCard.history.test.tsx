@@ -137,6 +137,7 @@ function renderCard(props: {
         onEditLine={noop}
         onSwapLine={noop}
         onDeleteLine={noop}
+        onResolveOffboarding={noop}
         onDeleteGroup={noop}
         onCloseGroup={noop}
         onReopenGroup={noop}

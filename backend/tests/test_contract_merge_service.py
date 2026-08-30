@@ -837,6 +837,7 @@ def test_redacted_explicit_delete_exposes_only_exact_allowlisted_dependency_ids(
                 "hard_delete_plan": {
                     "child_row_ids": {
                         "b2b_generated_contracts": [48],
+                        "client_order_offboarding_cases": [91],
                         "client_orders": [90],
                     },
                     "historical_row_ids": {
@@ -855,10 +856,12 @@ def test_redacted_explicit_delete_exposes_only_exact_allowlisted_dependency_ids(
     hard_delete = redact_contract_merge_report(full)["groups"][0]["hard_delete"]
     assert hard_delete["child_row_ids"] == {
         "b2b_generated_contracts": [48],
+        "client_order_offboarding_cases": [91],
         "client_orders": [90],
     }
     assert hard_delete["child_row_counts"] == {
         "b2b_generated_contracts": 1,
+        "client_order_offboarding_cases": 1,
         "client_orders": 1,
     }
     assert hard_delete["historical_row_counts"] == {
@@ -887,6 +890,7 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
     from app.models.contract import Contract, ContractStatus, RateUnit
     from app.models.contract_alert_dedup import ContractAlertDedup
     from app.services.contract_merge import (
@@ -897,6 +901,7 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
     suffix = uuid.uuid4().hex[:10]
     today = business_today()
     candidate_id = client_id = survivor_id = loser_id = None
+    order_id = offboarding_case_id = None
     source_alert_key = alias_alert_key = None
     async with AsyncSessionLocal() as db:
         try:
@@ -951,6 +956,23 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
             db.add_all([order, ContractAlertDedup(dedup_key=source_alert_key)])
             await db.flush()
             order_id = order.id
+            offboarding_case = ClientOrderOffboardingCase(
+                contract_id=loser.id,
+                order_id=order.id,
+                client_id=client.id,
+                effective_date=today,
+                status="pending",
+                version=1,
+                uses_shared_md_pool=False,
+                remaining_md_snapshot=Decimal("7.500000"),
+                rate_cost_snapshot=Decimal("100.00"),
+                rate_revenue_snapshot=Decimal("150.00"),
+                currency_snapshot="PLN",
+                order_number_snapshot="Current order on duplicate",
+            )
+            db.add(offboarding_case)
+            await db.flush()
+            offboarding_case_id = offboarding_case.id
             await db.commit()
             manifest = ContractMergeManifest(
                 same_client_groups=((survivor_id, loser_id),)
@@ -964,6 +986,9 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
             )
             assert audit["groups"][0]["survivor_id"] == survivor_id
             assert audit["groups"][0]["blockers"] == []
+            assert audit["groups"][0]["child_row_ids"][str(loser_id)][
+                "client_order_offboarding_cases"
+            ] == [offboarding_case_id]
             # Apply intentionally requires SERIALIZABLE as its first SQL
             # statement, just like the separate operational apply invocation.
             await db.rollback()
@@ -989,6 +1014,19 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
             assert await db.get(Contract, loser_id) is None
             moved_order = await db.get(ClientOrder, order_id)
             assert moved_order is not None and moved_order.contract_id == survivor_id
+            moved_case = await db.get(ClientOrderOffboardingCase, offboarding_case_id)
+            assert moved_case is not None
+            assert moved_case.contract_id == survivor_id
+            assert moved_case.order_id == order_id
+            assert moved_case.remaining_md_snapshot == Decimal("7.500000")
+            assert moved_case.rate_cost_snapshot == Decimal("100.00")
+            assert moved_case.rate_revenue_snapshot == Decimal("150.00")
+            assert moved_case.currency_snapshot == "PLN"
+            assert moved_case.status == "pending"
+            assert (
+                applied["applied"][0]["reparented"]["client_order_offboarding_cases"]
+                == 1
+            )
             activity = await db.scalar(
                 select(Activity).where(
                     Activity.entity_type == "contract",
@@ -1003,6 +1041,10 @@ async def test_transacted_apply_keeps_live_survivor_and_physically_deletes_loser
             assert activity.details["deleted_contract_ids"] == [loser_id]
             assert "source_contract_snapshots" not in activity.details
             assert "line_manager" in activity.details["changed_fields"]
+            assert (
+                activity.details["reparented_rows"]["client_order_offboarding_cases"]
+                == 1
+            )
             alert_keys = set(
                 (
                     await db.execute(

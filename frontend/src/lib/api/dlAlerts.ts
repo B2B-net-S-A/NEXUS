@@ -13,7 +13,8 @@ export type DlAlertType =
   | "cost_order_exhausted"
   | "draft_consultant_unassigned"
   | "md_budget_low"
-  | "missing_revenue_rate";
+  | "missing_revenue_rate"
+  | "md_consultant_ended";
 
 export interface DlAlertRead {
   id: number;

@@ -32,6 +32,8 @@ from app.api.client_orders import (
     _activation_candidate_rate,
     _auto_activate_unless_status_explicit,
     _is_nordea_order_number_client,
+    _is_orlen_order_client,
+    _is_pfron_order_client,
     _order_has_required_activation_data,
 )
 from app.core.scheduling import business_today
@@ -42,7 +44,7 @@ from app.models.client_order_group import (
     GROUP_STATUS_SCHEDULED,
     ClientOrderGroup,
 )
-from app.models.contract import Contract
+from app.models.contract import Contract, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.services.multi_consultant_orders import EVENT_ORDER_CLOSED
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
@@ -179,6 +181,25 @@ def test_nordea_policy_is_fail_closed_and_typo_tolerant(monkeypatch):
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "7,nordea,,9")
     assert _is_nordea_order_number_client(7) is True
     assert _is_nordea_order_number_client(9) is True
+
+
+def test_orlen_and_pfron_policies_are_client_specific_and_env_additive(monkeypatch):
+    monkeypatch.delenv("ORLEN_ORDER_EXTRACTION_CLIENT_IDS", raising=False)
+    monkeypatch.delenv("PFRON_ORDER_EXTRACTION_CLIENT_IDS", raising=False)
+
+    assert _is_orlen_order_client(35) is True
+    assert _is_pfron_order_client(122) is True
+    assert _is_orlen_order_client(122) is False
+    assert _is_pfron_order_client(35) is False
+    assert _is_orlen_order_client(11) is False
+    assert _is_pfron_order_client(19) is False
+    assert _is_orlen_order_client(None) is False
+    assert _is_pfron_order_client(None) is False
+
+    monkeypatch.setenv("ORLEN_ORDER_EXTRACTION_CLIENT_IDS", "350,orlen")
+    monkeypatch.setenv("PFRON_ORDER_EXTRACTION_CLIENT_IDS", "1220,pfron")
+    assert _is_orlen_order_client(350) is True
+    assert _is_pfron_order_client(1220) is True
 
 
 # ── 4. Materializer przyszłych grup ─────────────────────────────────────────
@@ -604,6 +625,9 @@ def _standalone_draft(client_id: int) -> ClientOrder:
         status=ClientOrderStatus.draft,
         start_date=_TODAY,
         rate_client=Decimal("1550.000"),
+        rate_unit=RateUnit.daily,
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
     )
 
 
@@ -759,6 +783,47 @@ async def test_materializer_creates_an_active_group_from_the_order_number(
     assert order.md_rate_cost == Decimal("1260.00")
     events = [type(o).__name__ for o in db.added]
     assert "ClientOrderGroupEvent" in events
+
+
+@pytest.mark.asyncio
+async def test_explicit_md_materialization_overwrites_temporary_mirror_with_pln_md(
+    monkeypatch,
+):
+    """A non-null standalone mirror is still in the source unit/currency."""
+    from app.services import order_group_materializer as materializer
+
+    async def eur_rate(*_args, **_kwargs):
+        return {"EUR": Decimal("4")}
+
+    monkeypatch.setattr(materializer, "rates_to_pln", eur_rate)
+    db = _DraftMaterializerSession(
+        candidate=_Candidate(name="Jan", lastname="Kowalski")
+    )
+    order = _activated_standalone_order(99)
+    order.order_type = "md"
+    order.rate_unit = RateUnit.hourly
+    order.rate_client = Decimal("100")
+    order.rate_candidate = Decimal("50")
+    order.rate_client_currency = "EUR"
+    order.rate_candidate_currency = "EUR"
+    order.currency = "EUR"
+    order.md_rate_revenue = Decimal("100")  # standalone coherence mirror
+    order.md_input_mode = "md"
+    order.md_input_value = Decimal("20")
+    order.md_total = Decimal("20")
+    order.md_remaining = Decimal("20")
+
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=Decimal("50")
+    )
+
+    assert group is not None and group.is_md_budget_based is True
+    assert order.md_rate_revenue == Decimal("3200.00")
+    assert order.md_rate_cost == Decimal("1600.00")
+    assert order.rate_client == Decimal("3200.00")
+    assert order.rate_candidate == Decimal("1600.00")
+    assert order.rate_unit == RateUnit.daily
+    assert order.currency == "PLN"
 
 
 @pytest.mark.asyncio

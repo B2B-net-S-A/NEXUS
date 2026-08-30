@@ -679,6 +679,35 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("pokazuje przeliczenie brutto na netto zwrócone dla PFRON/Erste", async () => {
+    vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
+      extraction({
+        start_date: GROUP.start_date,
+        end_date: null,
+        rate_client: 100,
+        rate_client_gross: 123,
+        rate_unit: "hour",
+        md_total: null,
+      }) as never,
+    );
+    const user = setupUser();
+    renderModal();
+    await user.click(
+      await screen.findByRole("button", { name: /Barbara Nowak/ }),
+    );
+    addPdf();
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
+    );
+
+    expect(
+      await screen.findByText(
+        /Z dokumentu: 123 PLN\/h brutto → 100 PLN\/h netto/i,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("przy edycji wysyła candidate_id istniejącej linii", async () => {
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
       extraction({
@@ -779,7 +808,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(1200);
   });
 
-  it("pyta przed zmianą tej samej liczby z MD na stawkę godzinową", async () => {
+  it("automatycznie zmienia jednostkę pozycji i przelicza drugą stawkę", async () => {
     vi.mocked(dlPortalApi.extractOrderPdf).mockResolvedValue(
       extraction({
         start_date: GROUP.start_date,
@@ -801,23 +830,24 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       screen.getByRole("button", { name: /Zczytaj dane z dokumentu/i }),
     );
 
-    const conflictDialog = await screen.findByRole("dialog", {
-      name: /Odczytane dane różnią się od wpisanych/i,
-    });
-    expect(conflictDialog).toHaveTextContent("Jednostka stawki przychodowej");
-    expect(conflictDialog).toHaveTextContent("MD 8h (zł/MD)");
-    expect(conflictDialog).toHaveTextContent("godzinowa (zł/h)");
-    await user.click(
-      within(conflictDialog).getByRole("button", {
-        name: /Nie — zostaw wpisane ręcznie/i,
-      }),
+    expect(
+      await screen.findByRole("status"),
+    ).toHaveTextContent(
+      /Jednostkę stawki zmieniono na godzinową na podstawie dodanej pozycji/i,
     );
+    expect(
+      screen.queryByRole("dialog", {
+        name: /Odczytane dane różnią się od wpisanych/i,
+      }),
+    ).not.toBeInTheDocument();
     const revenueUnits = screen.getByRole("group", {
       name: "Jednostka stawki przychodowej",
     });
     expect(
-      within(revenueUnits).getByRole("button", { name: "MD 8h (zł/MD)" }),
+      within(revenueUnits).getByRole("button", { name: "godzinowa (zł/h)" }),
     ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(/Stawka przychodowa/i)).toHaveValue("150");
+    expect(screen.getByLabelText(/Stawka kosztowa/i)).toHaveValue("70");
   });
 
   it("nowy PDF resetuje jednostkę poprzedniej stawki automatycznej", async () => {

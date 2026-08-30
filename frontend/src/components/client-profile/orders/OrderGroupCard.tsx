@@ -247,6 +247,228 @@ function SharedMdBudgetBar({ group }: { group: OrderGroupRead }) {
   );
 }
 
+interface OrderLineRowProps {
+  group: OrderGroupRead;
+  line: OrderLineRead;
+  searchQuery: string;
+  canManage: boolean;
+  canManageLifecycle: boolean;
+  onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
+}
+
+/** Jeden wiersz obsady. Stan `pending` jest częścią domeny, nie dekoracją:
+ *  zwykłe akcje są wtedy ukryte, żeby nie dało się usunąć linii bokiem i
+ *  pozostawić alertu Delivery Leada bez rozstrzygnięcia. */
+function OrderLineRow({
+  group,
+  line,
+  searchQuery,
+  canManage,
+  canManageLifecycle,
+  onEditLine,
+  onSwapLine,
+  onDeleteLine,
+  onResolveOffboarding,
+}: OrderLineRowProps) {
+  const pendingOffboarding = line.offboarding_case?.status === "pending";
+  const completedCostLine = group.is_cost_based && !line.is_active;
+
+  return (
+    <li
+      className={cn(
+        "flex flex-wrap items-center gap-x-6 gap-y-3 py-3",
+        !line.is_active && !pendingOffboarding && "opacity-60",
+        searchQuery.trim() &&
+          consultantMatchesQuery(line.consultant_name, searchQuery) &&
+          "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
+        pendingOffboarding &&
+          "my-1 rounded-lg border border-destructive/50 bg-destructive/10 px-3 opacity-100 ring-1 ring-inset ring-destructive/20",
+      )}
+    >
+      <div className="flex min-w-[13rem] flex-1 items-center gap-3">
+        <Avatar className="h-8 w-8">
+          <AvatarFallback
+            className={cn(
+              "bg-primary/10 text-[11px] font-semibold text-primary",
+              pendingOffboarding && "bg-destructive/15 text-destructive",
+            )}
+          >
+            {initials(line.consultant_name)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+            <span className="truncate">{line.consultant_name}</span>
+            {pendingOffboarding ? (
+              <span className="rounded bg-destructive px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-destructive-foreground">
+                Zakończenie współpracy
+              </span>
+            ) : null}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {pendingOffboarding
+              ? "Współpraca zakończona"
+              : line.is_active
+                ? "Konsultant"
+                : "Zakończony"}
+            {line.start_date ? ` · od ${formatDate(line.start_date)}` : ""}
+            {!line.is_active && line.end_date
+              ? ` do ${formatDate(line.end_date)}`
+              : ""}
+          </p>
+          {pendingOffboarding && line.offboarding_case ? (
+            <p role="status" className="mt-1 text-xs font-medium text-destructive">
+              Kontrakt zakończył się {formatDate(line.offboarding_case.effective_date)}.
+              Wymagana decyzja o pozostałej puli MD
+              {line.offboarding_case.uses_shared_md_pool
+                ? " (wspólna pula pozostaje bez zmian)."
+                : "."}
+            </p>
+          ) : null}
+          {completedCostLine ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Zamówienie nr {group.order_number} · zafakturowano {" "}
+              {line.invoiced_total == null
+                ? "—"
+                : line.invoiced_total === 0
+                  ? "brak faktur"
+                  : formatPLN(line.invoiced_total)}
+            </p>
+          ) : null}
+          {line.predecessor_consultant_name ? (
+            <p className="truncate text-xs text-muted-foreground">
+              zastąpił: {line.predecessor_consultant_name}
+            </p>
+          ) : null}
+          {line.missing_consumption_month ? (
+            <p className="truncate text-xs text-amber-700">
+              Brak zejścia za {line.missing_consumption_month}
+            </p>
+          ) : null}
+          {line.unsettled_total != null && line.unsettled_total > 0 ? (
+            <p className="text-xs text-destructive">
+              Nie udało się rozliczyć pełnej kwoty faktury — brakuje {" "}
+              {formatPLN(line.unsettled_total)} na zamówieniu.
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Stawki — „—" gdy rola nie ma uprawnień finansowych. Zniknięcie
+          kolumny zostawiłoby pustkę bez wyjaśnienia. */}
+      <div className="min-w-[8rem]">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Stawka kosztowa
+        </p>
+        <p className="text-sm font-medium text-foreground">
+          {line.rate_cost === null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
+        </p>
+      </div>
+      <div className="min-w-[8rem]">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Stawka przychodowa
+        </p>
+        <p className="text-sm font-medium text-foreground">
+          {line.rate_revenue === null
+            ? "—"
+            : `${formatPLN(line.rate_revenue)}/MD`}
+        </p>
+      </div>
+
+      {group.is_cost_based ? (
+        <div className="ml-auto min-w-[8rem]">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Zafakturowano
+          </p>
+          <p className="text-sm font-medium text-foreground">
+            {/* „—" dla braku faktur, nie „0 zł": zero znaczyłoby
+                „wystawiono zero", a tu nic jeszcze nie przyszło. */}
+            {line.invoiced_total == null || line.invoiced_total === 0
+              ? "—"
+              : formatPLN(line.invoiced_total)}
+          </p>
+        </div>
+      ) : group.is_md_budget_based ? (
+        <div className="ml-auto min-w-[8rem] text-right">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Budżet MD
+          </p>
+          <p className="text-sm font-medium text-foreground">Wspólna pula</p>
+        </div>
+      ) : (
+        <MdBudgetBar
+          remaining={line.md_remaining}
+          total={line.md_total}
+          className="ml-auto"
+        />
+      )}
+
+      {pendingOffboarding ? (
+        <div className="ml-auto flex flex-col items-end gap-1">
+          {canManage ? (
+            <button
+              type="button"
+              onClick={() => onResolveOffboarding(group, line)}
+              aria-label={`Podejmij decyzję o MD — ${line.consultant_name}`}
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90"
+            >
+              Podejmij decyzję
+            </button>
+          ) : (
+            <span className="text-xs font-medium text-destructive">
+              Oczekuje na decyzję Delivery Leada
+            </span>
+          )}
+        </div>
+      ) : canManage || canManageLifecycle ? (
+        <div className="flex items-center gap-1">
+          {canManage ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onEditLine(group, line)}
+                aria-label={`Edytuj linię — ${line.consultant_name}`}
+                title="Edytuj linię"
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onSwapLine(group, line)}
+                disabled={!line.is_active}
+                aria-label={`Zamień kontraktora — ${line.consultant_name}`}
+                title={
+                  line.is_active
+                    ? "Zamień kontraktora"
+                    : "Zamienić można tylko aktywną linię"
+                }
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Repeat className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </>
+          ) : null}
+          {canManageLifecycle ? (
+            <button
+              type="button"
+              onClick={() => onDeleteLine(group, line)}
+              aria-label={`Usuń konsultanta z zamówienia — ${line.consultant_name}`}
+              title="Usuń konsultanta z zamówienia"
+              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
 interface FutureOrdersProps {
   orders: OrderGroupRead[];
   searchQuery: string;
@@ -413,6 +635,7 @@ interface Props {
   onEditLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onSwapLine: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteLine: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onResolveOffboarding: (group: OrderGroupRead, line: OrderLineRead) => void;
   onDeleteGroup: (group: OrderGroupRead) => void;
   onCloseGroup: (group: OrderGroupRead) => void;
   onReopenGroup: (group: OrderGroupRead) => void;
@@ -435,6 +658,7 @@ export function OrderGroupCard({
   onEditLine,
   onSwapLine,
   onDeleteLine,
+  onResolveOffboarding,
   onDeleteGroup,
   onCloseGroup,
   onReopenGroup,
@@ -476,7 +700,17 @@ export function OrderGroupCard({
   });
 
   const sortedLines = sortOrderLinesByConsultant(group.lines);
-  const activeLines = sortedLines.filter((l) => l.is_active);
+  const activeLines = sortedLines.filter(
+    (line) => line.is_active && line.offboarding_case?.status !== "pending",
+  );
+  // Sprawa pending pozostaje na widoku głównym do czasu decyzji, ale nie jest
+  // już liczona jako aktywna obsada w awatarach nagłówka.
+  const currentLines = sortedLines.filter(
+    (line) => line.is_active || line.offboarding_case?.status === "pending",
+  );
+  const completedLines = sortedLines.filter(
+    (line) => !line.is_active && line.offboarding_case?.status !== "pending",
+  );
   const isActive = group.status === "active";
 
   return (
@@ -599,150 +833,71 @@ export function OrderGroupCard({
               To zamówienie nie ma jeszcze konsultantów.
             </p>
           ) : (
-            <ul className="flex flex-col divide-y divide-border">
-              {sortedLines.map((line) => (
-                <li
-                  key={line.id}
+            <div className="flex flex-col gap-5">
+              <section aria-labelledby={`order-group-${group.id}-active-heading`}>
+                <h4
+                  id={`order-group-${group.id}-active-heading`}
                   className={cn(
-                    "flex flex-wrap items-center gap-x-6 gap-y-3 py-3",
-                    !line.is_active && "opacity-60",
-                    searchQuery.trim() &&
-                      consultantMatchesQuery(line.consultant_name, searchQuery) &&
-                      "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
+                    "mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+                    completedLines.length === 0 && "sr-only",
                   )}
                 >
-                  <div className="flex min-w-[13rem] flex-1 items-center gap-3">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
-                        {initials(line.consultant_name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {line.consultant_name}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {line.is_active ? "Konsultant" : "Zakończony"}
-                        {line.start_date ? ` · od ${formatDate(line.start_date)}` : ""}
-                        {!line.is_active && line.end_date
-                          ? ` do ${formatDate(line.end_date)}`
-                          : ""}
-                      </p>
-                      {line.predecessor_consultant_name ? (
-                        <p className="truncate text-xs text-muted-foreground">
-                          zastąpił: {line.predecessor_consultant_name}
-                        </p>
-                      ) : null}
-                      {line.missing_consumption_month ? (
-                        <p className="truncate text-xs text-amber-700">
-                          Brak zejścia za {line.missing_consumption_month}
-                        </p>
-                      ) : null}
-                      {line.unsettled_total != null && line.unsettled_total > 0 ? (
-                        <p className="text-xs text-destructive">
-                          Nie udało się rozliczyć pełnej kwoty faktury — brakuje{" "}
-                          {formatPLN(line.unsettled_total)} na zamówieniu.
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
+                  Aktywna obsada
+                </h4>
+                {currentLines.length === 0 ? (
+                  <p className="py-3 text-sm text-muted-foreground">
+                    Brak aktywnych konsultantów.
+                  </p>
+                ) : (
+                  <ul className="flex flex-col divide-y divide-border">
+                    {currentLines.map((line) => (
+                      <OrderLineRow
+                        key={line.id}
+                        group={group}
+                        line={line}
+                        searchQuery={searchQuery}
+                        canManage={canManage}
+                        canManageLifecycle={canManageLifecycle}
+                        onEditLine={onEditLine}
+                        onSwapLine={onSwapLine}
+                        onDeleteLine={onDeleteLine}
+                        onResolveOffboarding={onResolveOffboarding}
+                      />
+                    ))}
+                  </ul>
+                )}
+              </section>
 
-                  {/* Stawki — „—" gdy rola nie ma uprawnień finansowych.
-                      Zniknięcie kolumny zostawiłoby pustkę bez wyjaśnienia. */}
-                  <div className="min-w-[8rem]">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Stawka kosztowa
-                    </p>
-                    <p className="text-sm font-medium text-foreground">
-                      {line.rate_cost === null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
-                    </p>
-                  </div>
-                  <div className="min-w-[8rem]">
-                    <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Stawka przychodowa
-                    </p>
-                    <p className="text-sm font-medium text-foreground">
-                      {line.rate_revenue === null
-                        ? "—"
-                        : `${formatPLN(line.rate_revenue)}/MD`}
-                    </p>
-                  </div>
-
-                  {group.is_cost_based ? (
-                    <div className="ml-auto min-w-[8rem]">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Zafakturowano
-                      </p>
-                      <p className="text-sm font-medium text-foreground">
-                        {/* „—" dla braku faktur, nie „0 zł": zero znaczyłoby
-                            „wystawiono zero", a tu nic jeszcze nie przyszło. */}
-                        {line.invoiced_total == null || line.invoiced_total === 0
-                          ? "—"
-                          : formatPLN(line.invoiced_total)}
-                      </p>
-                    </div>
-                  ) : group.is_md_budget_based ? (
-                    <div className="ml-auto min-w-[8rem] text-right">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Budżet MD
-                      </p>
-                      <p className="text-sm font-medium text-foreground">
-                        Wspólna pula
-                      </p>
-                    </div>
-                  ) : (
-                    <MdBudgetBar
-                      remaining={line.md_remaining}
-                      total={line.md_total}
-                      className="ml-auto"
-                    />
-                  )}
-
-                  {canManage || canManageLifecycle ? (
-                    <div className="flex items-center gap-1">
-                      {canManage ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => onEditLine(group, line)}
-                            aria-label={`Edytuj linię — ${line.consultant_name}`}
-                            title="Edytuj linię"
-                            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                          >
-                            <Pencil className="h-4 w-4" aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => onSwapLine(group, line)}
-                            disabled={!line.is_active}
-                            aria-label={`Zamień kontraktora — ${line.consultant_name}`}
-                            title={
-                              line.is_active
-                                ? "Zamień kontraktora"
-                                : "Zamienić można tylko aktywną linię"
-                            }
-                            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <Repeat className="h-4 w-4" aria-hidden="true" />
-                          </button>
-                        </>
-                      ) : null}
-                      {canManageLifecycle ? (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteLine(group, line)}
-                          aria-label={`Usuń konsultanta z zamówienia — ${line.consultant_name}`}
-                          title="Usuń konsultanta z zamówienia"
-                          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" aria-hidden="true" />
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+              {completedLines.length > 0 ? (
+                <section
+                  aria-labelledby={`order-group-${group.id}-completed-heading`}
+                  className="border-t border-border pt-4"
+                >
+                  <h4
+                    id={`order-group-${group.id}-completed-heading`}
+                    className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  >
+                    Zakończone
+                  </h4>
+                  <ul className="flex flex-col divide-y divide-border">
+                    {completedLines.map((line) => (
+                      <OrderLineRow
+                        key={line.id}
+                        group={group}
+                        line={line}
+                        searchQuery={searchQuery}
+                        canManage={canManage}
+                        canManageLifecycle={canManageLifecycle}
+                        onEditLine={onEditLine}
+                        onSwapLine={onSwapLine}
+                        onDeleteLine={onDeleteLine}
+                        onResolveOffboarding={onResolveOffboarding}
+                      />
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
           )}
 
           {canManage || canManageLifecycle ? (

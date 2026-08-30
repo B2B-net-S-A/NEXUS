@@ -130,6 +130,8 @@ const CONTRACTOR = {
   contract_start_date: localISO(-30),
   contract_end_date: null,
   rate_candidate: 120,
+  rate_client_currency: "PLN",
+  rate_candidate_currency: "PLN",
   rate_unit: "monthly",
   initial_job_id: null,
   initial_job_title: "Specjalista: Engineer DevOps",
@@ -569,20 +571,57 @@ describe("OrdersAndContractsTab card", () => {
     expect(screen.getByText("ustaw stawkę")).toBeInTheDocument();
   });
 
-  it("labels raw rates with the contract's rate unit (hourly ≠ /mc)", async () => {
+  it("uses the active order's unit and currency before contract fallbacks", async () => {
+    const contractor = structuredClone(CONTRACTOR);
+    const active = contractor.orders.find((order) => order.id === ACTIVE.id)!;
+    active.rate_unit = "hourly";
+    active.currency = "GBP";
+    active.rate_client_currency = "EUR";
+    active.rate_candidate_currency = "USD";
+    active.rate_candidate = 125;
+    const history = contractor.orders.find((order) => order.id === HISTORY.id)!;
+    history.rate_unit = "daily";
+    history.rate_client_currency = "USD";
     vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
       data: {
-        contractors: [{ ...structuredClone(CONTRACTOR), rate_unit: "hourly" }],
+        contractors: [contractor],
         total_contractors: 1,
         can_manage_finance: true,
       },
     } as never);
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-    // Surowe stawki w jednostce kontraktu: 120/h (koszt) i 180/h (przychód).
-    expect(screen.getByText("120/h")).toBeInTheDocument();
-    expect(screen.getByText("180/h")).toBeInTheDocument();
-    expect(screen.queryByText("120/mc")).not.toBeInTheDocument();
+    expect(screen.getByText("125 USD/h")).toBeInTheDocument();
+    expect(screen.getByText("180 EUR/h")).toBeInTheDocument();
+    expect(screen.queryByText("120 PLN/mc")).not.toBeInTheDocument();
+    await userEvent.setup().click(
+      screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
+    );
+    expect(screen.getByText(/przychód 150 USD\/MD/)).toBeInTheDocument();
+  });
+
+  it("falls back to the contract unit/currency for historical orders", async () => {
+    const contractor = {
+      ...structuredClone(CONTRACTOR),
+      rate_unit: "daily",
+      rate_client_currency: "GBP",
+      rate_candidate_currency: "USD",
+    };
+    const active = contractor.orders.find((order) => order.id === ACTIVE.id)!;
+    delete active.rate_unit;
+    active.currency = null;
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [contractor],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+    expect(screen.getByText("120 USD/MD")).toBeInTheDocument();
+    expect(screen.getByText("180 GBP/MD")).toBeInTheDocument();
   });
 });
 
@@ -911,27 +950,23 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     expect(sent.get("contract_id")).toBe("701");
     expect(sent.get("start_date")).toBe("2026-09-01");
     expect(sent.get("end_date")).toBe("2027-02-28");
+    expect(sent.get("rate_candidate")).toBe("120");
     expect(sent.get("rate_client")).toBe("180");
+    expect(sent.get("rate_unit")).toBe("monthly");
+    expect(sent.get("rate_client_currency")).toBe("PLN");
+    expect(sent.get("rate_candidate_currency")).toBe("PLN");
+    expect(sent.has("currency")).toBe(false);
     // Status zostaje `draft` — o promocji decyduje serwer
     // (`_activate_complete_draft`), nie ten formularz.
     expect(sent.get("order_status")).toBe("draft");
-    // Stawka KOSZTOWA mieszka na kontrakcie, więc leci osobnym PATCH-em.
-    await waitFor(() =>
-      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 4242, {
-        rate_candidate: 120,
-      }),
-    );
+    // Obie stawki powstają atomowo w POST — bez okna, w którym materializacja
+    // grupy widziałaby stary koszt przed późniejszym PATCH-em.
+    expect(dlPortalApi.updateOrder).not.toHaveBeenCalled();
   });
 
-  it("nieudany zapis nie zakłada DRUGIEGO zamówienia przy ponownym Zapisz", async () => {
-    // `onError` tylko toastuje — okienko zostaje otwarte i wciąż w trybie
-    // tworzenia (`editingOrder.order` to zamrożony snapshot ze stanu rodzica).
-    // Bez wspólnego guardu drugie kliknięcie „Zapisz" zakładało DRUGIE
-    // zamówienie na tym samym kontrakcie, a pierwsze zostawało sierotą
-    // w pigułce „Draft". Dopłata stawki kosztowej to normalna druga noga
-    // każdego zapisu z dialogu, więc ta ścieżka NIE jest wyścigiem.
+  it("nieudany atomowy POST można ponowić bez PATCH-a do nieistniejącego szkicu", async () => {
     const user = userEvent.setup();
-    vi.mocked(dlPortalApi.updateOrder).mockRejectedValueOnce(
+    vi.mocked(dlPortalApi.createOrderExtension).mockRejectedValueOnce(
       new Error("boom"),
     );
     renderTab();
@@ -946,16 +981,12 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
       expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
     );
 
-    // Druga próba — musi PATCH-ować szkic 4242, a nie tworzyć kolejny.
+    // Pierwszy atomowy request nie utworzył rekordu, więc retry ponawia POST.
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() =>
-      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(
-        7,
-        4242,
-        expect.objectContaining({ title: "45767" }),
-      ),
+      expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(2),
     );
-    expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1);
+    expect(dlPortalApi.updateOrder).not.toHaveBeenCalled();
   });
 
   it("dialog otwarty po edycji inline dopisuje do tego samego szkicu", async () => {
@@ -1006,13 +1037,9 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     await waitFor(() =>
       expect(dlPortalApi.createOrderExtension).toHaveBeenCalledTimes(1),
     );
-    // Stawka KOSZTOWA mieszka na kontrakcie i `POST /orders` jej nie
-    // przyjmuje — dosyłamy ją PATCH-em na nowo powstałe zamówienie.
-    await waitFor(() =>
-      expect(dlPortalApi.updateOrder).toHaveBeenCalledWith(7, 4242, {
-        rate_candidate: 120,
-      }),
-    );
+    const [, form] = vi.mocked(dlPortalApi.createOrderExtension).mock.calls[0];
+    expect((form as FormData).get("rate_candidate")).toBe("120");
+    expect(dlPortalApi.updateOrder).not.toHaveBeenCalled();
   });
 });
 

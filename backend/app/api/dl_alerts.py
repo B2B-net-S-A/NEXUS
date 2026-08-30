@@ -43,6 +43,7 @@ from app.models.dl_alert import (
     DL_ALERT_TYPE_LABELS,
     DlAlert,
 )
+from app.models.client_order_offboarding import OFFBOARDING_STATUS_PENDING
 from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name
 from app.schemas.dl_alert import DlAlertListResponse, DlAlertRead
@@ -117,7 +118,30 @@ def _base_query():
         selectinload(DlAlert.client),
         selectinload(DlAlert.recipient),
         selectinload(DlAlert.handler),
+        selectinload(DlAlert.offboarding_case),
     )
+
+
+def _assert_manual_handling_allowed(alert: DlAlert) -> None:
+    """MD departure alerts close only with the versioned order decision."""
+
+    case = alert.offboarding_case
+    if (
+        alert.offboarding_case_id is not None
+        and case is not None
+        and case.status == OFFBOARDING_STATUS_PENDING
+    ):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "offboarding_decision_required",
+                "message": (
+                    "To powiadomienie zostanie obsłużone po podjęciu decyzji "
+                    "o puli MD w zamówieniu."
+                ),
+                "link": alert.link,
+            },
+        )
 
 
 @router.get("", response_model=DlAlertListResponse)
@@ -176,6 +200,7 @@ async def mark_handled(
         # 404, nie 403 — cudzy wpis nie ma prawa nawet potwierdzić swojego
         # istnienia komuś, kto go nie dostał.
         raise HTTPException(404, detail="Powiadomienie nie istnieje")
+    _assert_manual_handling_allowed(alert)
     if alert.status == DL_ALERT_STATUS_HANDLED:
         return _to_read(alert)
 
