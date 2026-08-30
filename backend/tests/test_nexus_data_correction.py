@@ -313,6 +313,18 @@ def test_fk_catalog_is_fail_closed_for_schema_identifier_pk_and_action_drift():
     assert (
         correction_service._catalog_fk_issue(_fk("dl_alerts", "order_id", "n")) is None
     )
+    assert (
+        correction_service._catalog_fk_issue(
+            _fk("client_order_offboarding_cases", "order_id", "c")
+        )
+        is None
+    )
+    assert (
+        correction_service._catalog_fk_issue(
+            _fk("client_order_offboarding_cases", "target_order_id", "n")
+        )
+        is None
+    )
     # Reviewed CASCADE definitions are catalog-compatible; matching child rows
     # are separated into the blocking inventory below.
     assert (
@@ -358,6 +370,18 @@ def test_fk_catalog_is_fail_closed_for_schema_identifier_pk_and_action_drift():
     assert (
         correction_service._catalog_fk_issue(
             _fk("client_order_invoice_consumptions", "order_id", "n")
+        )
+        == "unexpected_delete_action"
+    )
+    assert (
+        correction_service._catalog_fk_issue(
+            _fk("client_order_offboarding_cases", "order_id", "n")
+        )
+        == "unexpected_delete_action"
+    )
+    assert (
+        correction_service._catalog_fk_issue(
+            _fk("client_order_offboarding_cases", "target_order_id", "c")
         )
         == "unexpected_delete_action"
     )
@@ -411,6 +435,14 @@ def test_only_surviving_set_null_children_are_allowed():
             **_fk("client_order_md_consumptions", "order_id", "c"),
             "rows": [{"id": 92, "order_id": 7, "md_reported": "1.0"}],
         },
+        "public.client_order_offboarding_cases.target_order_id": {
+            **_fk("client_order_offboarding_cases", "target_order_id", "n"),
+            "rows": [{"id": 93, "target_order_id": 7, "status": "resolved"}],
+        },
+        "public.client_order_offboarding_cases.order_id": {
+            **_fk("client_order_offboarding_cases", "order_id", "c"),
+            "rows": [{"id": 94, "order_id": 7, "status": "pending"}],
+        },
         "public.client_orders.predecessor_order_id": {
             **_fk("client_orders", "predecessor_order_id", "n"),
             "rows": [{"id": 7, "predecessor_order_id": 7, "status": "draft"}],
@@ -421,10 +453,17 @@ def test_only_surviving_set_null_children_are_allowed():
         inventory, [7]
     )
 
-    assert set(allowed) == {"public.dl_alerts.order_id"}
+    assert set(allowed) == {
+        "public.client_order_offboarding_cases.target_order_id",
+        "public.dl_alerts.order_id",
+    }
     assert set(also_deleted) == {"public.client_orders.predecessor_order_id"}
-    assert set(blocking) == {"public.client_order_md_consumptions.order_id"}
+    assert set(blocking) == {
+        "public.client_order_md_consumptions.order_id",
+        "public.client_order_offboarding_cases.order_id",
+    }
     assert correction_service._dependency_row_ids(allowed) == {
+        "public.client_order_offboarding_cases.target_order_id": {7: [93]},
         "public.dl_alerts.order_id": {7: [91]}
     }
 
