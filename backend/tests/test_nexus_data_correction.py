@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import text
 
 import app.services.nexus_data_correction as correction_service
 from app.models.order_type import OrderType
@@ -84,6 +85,36 @@ def test_checked_in_manifest_has_exact_source_and_purple_cell_scope():
         (15, "Polkomtel"),
         (18, "BIK"),
         (155, "Wedel"),
+    )
+
+
+@pytest.mark.asyncio
+async def test_checked_in_audit_plan_executes_against_postgres_catalog():
+    """Exercise the complete read-only plan with the production DB driver.
+
+    PostgreSQL exposes ``pg_constraint.confdeltype`` as its internal ``char``
+    type, which asyncpg decodes as bytes unless the catalog query casts it to
+    text. Mocks that hand-build string actions cannot catch that boundary.
+    """
+
+    from app.core.database import AsyncSessionLocal
+
+    manifest = load_nexus_data_correction_manifest(MANIFEST)
+    async with AsyncSessionLocal() as db:
+        try:
+            await db.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
+            plan = await build_nexus_data_correction_plan(db, manifest)
+        finally:
+            await db.rollback()
+
+    assert plan["summary"]["manifest_contracts"] == 471
+    assert len(plan["fingerprint"]) == 64
+    assert plan["live_state"]["client_order_foreign_keys"]
+    assert all(
+        isinstance(item["delete_action"], str)
+        for item in plan["live_state"]["client_order_foreign_keys"]
     )
 
 
@@ -173,6 +204,7 @@ async def test_fk_catalog_scans_all_non_system_child_schemas():
     assert "primary_key_columns" in db.statement
     assert "unnest(con.confkey)" in db.statement
     assert "target_column_name" in db.statement
+    assert "con.confdeltype::text AS delete_action" in db.statement
 
 
 def test_fk_catalog_is_fail_closed_for_schema_identifier_pk_and_action_drift():
