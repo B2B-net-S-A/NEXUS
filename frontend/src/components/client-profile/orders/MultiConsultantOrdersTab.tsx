@@ -15,6 +15,7 @@ import {
   type OrderGroupInput,
   type OrderGroupRead,
   type OrderLineRead,
+  type OrderOffboardingResolutionInput,
   type OrderType,
   type SwapConsultantInput,
 } from "@/lib/api/orderGroups";
@@ -51,6 +52,7 @@ import { ConsultantLineModal, type LineFormValues } from "./ConsultantLineModal"
 import { EndOrderGroupModal } from "./EndOrderGroupModal";
 import { ExtendOrderGroupModal } from "./ExtendOrderGroupModal";
 import { NordeaOrderImportPanel } from "./NordeaOrderImportPanel";
+import { OffboardingDecisionModal } from "./OffboardingDecisionModal";
 import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
 import { OrderListControls } from "./OrderListControls";
@@ -63,13 +65,15 @@ function apiError(err: unknown, fallback: string): string {
     ?.detail;
   if (typeof detail === "string") return detail;
   if (detail && typeof detail === "object" && "code" in detail) {
-    const code = (detail as { code?: string }).code;
+    const typedDetail = detail as { code?: string; message?: string };
+    const code = typedDetail.code;
     if (code === "finance_fields_forbidden") {
       return (
         "Stawki linii może ustawiać administrator albo Delivery Lead " +
         "przypisany do tego klienta."
       );
     }
+    if (typedDetail.message) return typedDetail.message;
   }
   return fallback;
 }
@@ -150,6 +154,11 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead | null;
     line: OrderLineRead | null;
   }>({ open: false, group: null, line: null });
+  const [offboardingModal, setOffboardingModal] = useState<{
+    open: boolean;
+    group: OrderGroupRead | null;
+    line: OrderLineRead | null;
+  }>({ open: false, group: null, line: null });
   const [endModal, setEndModal] = useState<{ open: boolean; group: OrderGroupRead | null }>({
     open: false,
     group: null,
@@ -199,6 +208,9 @@ export function MultiConsultantOrdersTab({
     queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
     queryClient.invalidateQueries({ queryKey: ["order-group-events", clientId] });
     queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
+    // Backend oznacza alert jako handled w tej samej transakcji co decyzję.
+    // Dashboard ma od razu odczytać ten stan, bez czekania na staleTime.
+    queryClient.invalidateQueries({ queryKey: ["dl-alerts"] });
   };
 
   /** Dogrywa PDF do zamówienia, które JUŻ jest w bazie.
@@ -346,6 +358,40 @@ export function MultiConsultantOrdersTab({
       showToast("Zamieniono kontraktora", "success");
     },
     onError: (err) => setFormError(apiError(err, "Nie udało się zamienić kontraktora.")),
+  });
+
+  const resolveOffboarding = useMutation({
+    mutationFn: async (values: OrderOffboardingResolutionInput) => {
+      const group = offboardingModal.group;
+      const offboardingCase = offboardingModal.line?.offboarding_case;
+      if (!group || !offboardingCase || offboardingCase.status !== "pending") {
+        throw new Error("Brak aktywnej sprawy zakończenia współpracy");
+      }
+      return (
+        await orderGroupsApi.resolveOffboardingCase(
+          clientId,
+          group.id,
+          offboardingCase.id,
+          values,
+        )
+      ).data;
+    },
+    onSuccess: () => {
+      setOffboardingModal({ open: false, group: null, line: null });
+      setFormError(null);
+      invalidate();
+      showToast("Zapisano decyzję i zaktualizowano obsadę zamówienia", "success");
+    },
+    onError: (err) => {
+      setFormError(
+        apiError(err, "Nie udało się zapisać decyzji o pozostałej puli MD."),
+      );
+      // Konflikt wersji oznacza, że ktoś rozstrzygnął sprawę w innym oknie.
+      // Odświeżenie listy usuwa z formularza nieaktualną wersję sprawy.
+      queryClient.invalidateQueries({
+        queryKey: ["client-order-groups", clientId],
+      });
+    },
   });
 
   // ── Cykl życia ────────────────────────────────────────────────────────────
@@ -581,6 +627,10 @@ export function MultiConsultantOrdersTab({
           setFormError(null);
           setSwapModal({ open: true, group: selected, line });
         }}
+        onResolveOffboarding={(selected, line) => {
+          setFormError(null);
+          setOffboardingModal({ open: true, group: selected, line });
+        }}
         onDeleteLine={(selected, line) => {
           if (
             !window.confirm(
@@ -804,6 +854,9 @@ export function MultiConsultantOrdersTab({
       {standardOrderModalOpen ? (
         <NewContractorOrderDialog
           clientId={clientId}
+          canManageFinance={
+            contractorQuery.data?.can_manage_finance ?? false
+          }
           orderType={newOrderType}
           onOrderTypeChange={openNewOrderForm}
           allowedOrderTypes={allowedOrderTypes}
@@ -838,6 +891,18 @@ export function MultiConsultantOrdersTab({
         submitting={swap.isPending}
         error={formError}
         onSubmit={(values) => swap.mutate(values)}
+      />
+
+      <OffboardingDecisionModal
+        open={offboardingModal.open}
+        onOpenChange={(open) =>
+          setOffboardingModal((state) => ({ ...state, open }))
+        }
+        group={offboardingModal.group}
+        line={offboardingModal.line}
+        submitting={resolveOffboarding.isPending}
+        error={formError}
+        onSubmit={(values) => resolveOffboarding.mutate(values)}
       />
 
       <EndOrderGroupModal

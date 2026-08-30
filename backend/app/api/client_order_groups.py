@@ -59,12 +59,20 @@ from app.models.client_order_group import (
     ClientOrderGroup,
     ClientOrderGroupEvent,
 )
+from app.models.client_order_offboarding import (
+    OFFBOARDING_RATE_BASIS_DEPARTING,
+    OFFBOARDING_RESOLUTION_REMOVE,
+    OFFBOARDING_RESOLUTION_TRANSFER,
+    OFFBOARDING_STATUS_PENDING,
+    OFFBOARDING_STATUS_RESOLVED,
+    ClientOrderOffboardingCase,
+)
 from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     MdConsumptionImport,
 )
-from app.models.contract import Contract, ContractStatus
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.job import Job
 from app.models.order_type import OrderType
@@ -83,6 +91,8 @@ from app.schemas.client_order_group import (
     OrderGroupRead,
     OrderGroupUpdate,
     OrderLineCreate,
+    OrderOffboardingCaseRead,
+    OrderOffboardingResolutionRequest,
     OrderLineRead,
     OrderLineSwapRequest,
     OrderLineUpdate,
@@ -110,7 +120,10 @@ from app.services.cost_orders import (
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
-from app.services.dl_alerts import emit_cost_order_exhausted
+from app.services.dl_alerts import (
+    emit_cost_order_exhausted,
+    handle_offboarding_case_alerts,
+)
 from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import (
     EVENT_BUDGET_EXHAUSTED,
@@ -118,6 +131,8 @@ from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_SWAPPED,
     EVENT_MANUAL_EDIT,
     EVENT_MD_TRANSFER,
+    EVENT_MD_OFFBOARDING_REMOVED,
+    EVENT_MD_OFFBOARDING_TRANSFERRED,
     EVENT_ORDER_CLOSED,
     EVENT_ORDER_CREATED,
     EVENT_ORDER_EXTENDED,
@@ -275,6 +290,62 @@ def _has_md_line_management_role(user: User) -> bool:
     """
     # Sam test roli. Przypisanie do klienta MUSI być sprawdzone przez trasę.
     return user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+
+
+async def _assert_no_pending_offboarding_case(
+    db: AsyncSession,
+    *,
+    group_id: int,
+    order_id: Optional[int] = None,
+) -> None:
+    """Block ordinary mutations that could orphan/version-skew a DL decision."""
+
+    query = select(ClientOrderOffboardingCase.id).where(
+        ClientOrderOffboardingCase.order_group_id == group_id,
+        ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+    )
+    if order_id is not None:
+        query = query.where(ClientOrderOffboardingCase.order_id == order_id)
+    if await db.scalar(query.limit(1)) is not None:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "offboarding_decision_required",
+                "message": (
+                    "Najpierw podejmij decyzję o pozostałej puli MD po "
+                    "zakończeniu współpracy konsultanta."
+                ),
+            },
+        )
+
+
+def _reduce_legacy_md_budget(order: ClientOrder, remaining: Decimal) -> None:
+    """Lower the signed line budget by the forfeited/transferred remainder.
+
+    Keeping the old total and merely offsetting ``md_manual_adjustment`` made
+    exports and cards claim that the unused MD had been consumed.  Reducing
+    the source total represents the requested decrease in order value while
+    consumption rows and historical adjustments remain intact.
+    """
+
+    if order.md_total is None or remaining <= 0:
+        return
+    current_total = Decimal(str(order.md_total))
+    new_total = quantize_md(max(Decimal("0"), current_total - remaining))
+    total_reduction = current_total - new_total
+    overflow = max(Decimal("0"), remaining - total_reduction)
+    order.md_total = new_total
+    if overflow > 0:
+        order.md_manual_adjustment = quantize_md(
+            Decimal(str(order.md_manual_adjustment or 0)) - overflow
+        )
+    if order.md_input_mode == INPUT_MODE_AMOUNT and order.md_rate_revenue:
+        order.md_input_value = quantize_md(
+            new_total * Decimal(str(order.md_rate_revenue))
+        )
+    else:
+        order.md_input_mode = INPUT_MODE_MD
+        order.md_input_value = new_total
 
 
 # Role uprawnione do CYKLU ŻYCIA zamówienia (usuń / zakończ / przywróć /
@@ -504,6 +575,7 @@ def _line_to_read(
     invoiced: Optional[Decimal] = None,
     unsettled: Optional[Decimal] = None,
     missing_month: Optional[str] = None,
+    offboarding_case: Optional[ClientOrderOffboardingCase] = None,
 ) -> OrderLineRead:
     contract = order.contract
     predecessor_name: Optional[str] = None
@@ -540,6 +612,43 @@ def _line_to_read(
         invoiced_total=invoiced,
         unsettled_total=unsettled,
         missing_consumption_month=missing_month,
+        offboarding_case=(
+            _offboarding_case_to_read(offboarding_case, with_finance=with_finance)
+            if offboarding_case is not None
+            else None
+        ),
+    )
+
+
+def _offboarding_case_to_read(
+    case: ClientOrderOffboardingCase, *, with_finance: bool
+) -> OrderOffboardingCaseRead:
+    """Serialize one workflow case without bypassing finance redaction."""
+
+    return OrderOffboardingCaseRead(
+        id=case.id,
+        contract_id=case.contract_id,
+        order_id=case.order_id,
+        order_group_id=case.order_group_id,
+        client_id=case.client_id,
+        effective_date=case.effective_date,
+        status=case.status,
+        version=case.version,
+        uses_shared_md_pool=case.uses_shared_md_pool,
+        remaining_md_snapshot=case.remaining_md_snapshot,
+        rate_cost_snapshot=case.rate_cost_snapshot if with_finance else None,
+        rate_revenue_snapshot=(case.rate_revenue_snapshot if with_finance else None),
+        currency_snapshot=case.currency_snapshot if with_finance else None,
+        order_number_snapshot=case.order_number_snapshot,
+        resolution=case.resolution,
+        target_order_id=case.target_order_id,
+        rate_basis=case.rate_basis,
+        resolution_payload=case.resolution_payload if with_finance else None,
+        resolved_at=case.resolved_at,
+        resolved_by_user_id=case.resolved_by_user_id,
+        created_by_user_id=case.created_by_user_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
     )
 
 
@@ -551,6 +660,34 @@ async def _group_to_read(
     precomputed_md_budget_used: Optional[Decimal] = None,
 ) -> OrderGroupRead:
     lines = await lines_for_group(db, group.id)
+    offboarding_by_order: dict[int, ClientOrderOffboardingCase] = {}
+    if lines:
+        case_rows = list(
+            (
+                await db.scalars(
+                    select(ClientOrderOffboardingCase)
+                    .where(
+                        ClientOrderOffboardingCase.order_id.in_(
+                            [line.id for line in lines]
+                        )
+                    )
+                    .order_by(
+                        ClientOrderOffboardingCase.effective_date.desc(),
+                        ClientOrderOffboardingCase.id.desc(),
+                    )
+                )
+            ).all()
+        )
+        # Nierozwiązana decyzja ma pierwszeństwo przed nowszym historycznym
+        # epizodem; normalnie unikalność odcinka czasu daje jedną sprawę, ale
+        # reaktywacja kontraktu może utworzyć kolejny epizod zakończenia.
+        for case in case_rows:
+            previous = offboarding_by_order.get(case.order_id)
+            if previous is None or (
+                previous.status != OFFBOARDING_STATUS_PENDING
+                and case.status == OFFBOARDING_STATUS_PENDING
+            ):
+                offboarding_by_order[case.order_id] = case
     job_titles: dict[int, str] = {}
     job_ids = [line.job_id for line in lines if line.job_id]
     if job_ids:
@@ -622,6 +759,7 @@ async def _group_to_read(
                 unsettled.get(line.id) if group.is_cost_based and with_finance else None
             ),
             missing_month=missing_month.get(line.id),
+            offboarding_case=offboarding_by_order.get(line.id),
         )
         if item.job_id:
             item.job_title = job_titles.get(item.job_id)
@@ -882,6 +1020,13 @@ async def _build_line(
         filled_at=now if line_status == ClientOrderStatus.active else None,
         md_rate_cost=payload.rate_cost,
         md_rate_revenue=payload.rate_revenue,
+        rate_candidate=payload.rate_cost,
+        rate_client=payload.rate_revenue,
+        rate_unit=RateUnit.daily,
+        billing_hours_per_month=160,
+        currency="PLN",
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
         md_input_mode=payload.input_mode,
         md_input_value=payload.input_value,
         md_total=md_total,
@@ -1666,6 +1811,18 @@ async def update_order_group(
     if not data:
         return await _group_to_read(db, group, with_finance=_can_see_finance(user))
 
+    # Contract offboarding locks the affected line before it creates a pending
+    # decision.  Use the same lock order here so a concurrent PATCH cannot
+    # observe "no case yet" and then reactivate or financially change that
+    # line after the case has been created.
+    await db.execute(
+        select(ClientOrder.id)
+        .where(ClientOrder.order_group_id == group.id)
+        .order_by(ClientOrder.id)
+        .with_for_update()
+    )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
+
     new_start = data.get("start_date", group.start_date)
     new_end = data.get("end_date", group.end_date)
     if new_end and new_start and new_end < new_start:
@@ -1684,16 +1841,9 @@ async def update_order_group(
             detail="Wspólny budżet MD można zmieniać tylko na zamówieniu na MD",
         )
     if data.keys() & (cost_budget_fields | md_budget_fields):
-        # Lock before applying the operator's PLN/MD budget edit so the later
-        # before/after event and exhausted alert use one serialized state.
-        # Lines come first to match contract hard-delete's child -> group lock
-        # order; a combined period/budget PATCH updates those lines later.
-        await db.execute(
-            select(ClientOrder.id)
-            .where(ClientOrder.order_group_id == group.id)
-            .order_by(ClientOrder.id)
-            .with_for_update()
-        )
+        # Lines were locked above before applying the operator's PLN/MD budget
+        # edit.  Lock the group next so the later before/after event and
+        # exhausted alert use one serialized state.
         group = await lock_group_for_settlement(db, group, flush_local_changes=False)
     # Jawny `null` przechodzi walidację schematu (pole jest Optional), ale na
     # zamówieniu kosztowym narusza CHECK spójności — czyli IntegrityError i 500
@@ -1829,7 +1979,14 @@ async def delete_order_group(
     group = await _load_group(db, client_id, group_id)
     master_path = group.file_path
 
-    lines = await lines_for_group(db, group.id)
+    lines_result = await db.execute(
+        _line_query()
+        .where(ClientOrder.order_group_id == group.id)
+        .order_by(ClientOrder.id.asc())
+        .with_for_update()
+    )
+    lines = list(lines_result.scalars().unique().all())
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
     detached = 0
     for line in lines:
         if await _detach_or_delete_line(db, line):
@@ -1922,12 +2079,14 @@ async def delete_line(
     group = await _load_group(db, client_id, group_id)
 
     line = await db.scalar(
-        select(ClientOrder).where(
-            ClientOrder.id == line_id, ClientOrder.order_group_id == group.id
-        )
+        select(ClientOrder)
+        .where(ClientOrder.id == line_id, ClientOrder.order_group_id == group.id)
+        .with_for_update()
     )
     if line is None:
         raise HTTPException(404, detail="Ta linia nie należy do tego zamówienia")
+
+    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
 
     detached = await _detach_or_delete_line(db, line)
     if group.is_cost_based:
@@ -1988,6 +2147,20 @@ async def close_order_group(
             ),
         )
 
+    # Close and contract offboarding both write the line end date.  Lock every
+    # line in the same deterministic order before either group or lines are
+    # mutated; whichever lifecycle action wins becomes the authoritative one,
+    # and an already-pending MD decision cannot be invalidated by closing the
+    # whole order behind it.
+    locked_lines_result = await db.execute(
+        _line_query()
+        .where(ClientOrder.order_group_id == group.id)
+        .order_by(ClientOrder.id.asc())
+        .with_for_update()
+    )
+    locked_lines = list(locked_lines_result.scalars().unique().all())
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
+
     # `business_today()`, nie `date.today()` — ten sam dzień graniczny, którym
     # cykl życia grupy posługuje się wszędzie indziej (`_initial_group_status`,
     # `materialize_scheduled_order_groups`). Kontener chodzi w UTC, więc między
@@ -2003,7 +2176,7 @@ async def close_order_group(
         group.end_date = payload.closure_date
 
     closed_lines = 0
-    for line in await lines_for_group(db, group.id):
+    for line in locked_lines:
         if line.status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
             continue
         if line.end_date is None or line.end_date > payload.closure_date:
@@ -2053,6 +2226,17 @@ async def reopen_order_group(
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
+
+    # Serialize with contract offboarding before checking for its pending case.
+    # Without the line locks, a same-day reopen could race the case insert and
+    # make an ended consultant active again behind the decision workflow.
+    await db.execute(
+        select(ClientOrder.id)
+        .where(ClientOrder.order_group_id == group.id)
+        .order_by(ClientOrder.id)
+        .with_for_update()
+    )
+    await _assert_no_pending_offboarding_case(db, group_id=group.id)
 
     assert_group_is_reopenable(group.status)
 
@@ -2339,14 +2523,17 @@ async def update_line(
     # edycję linii po zamianie kontraktora, i to już PO `commit()` — zmiana
     # zapisywała się, a operator widział błąd bez treści i ponawiał.
     line = await db.scalar(
-        _line_query().where(
+        _line_query()
+        .where(
             ClientOrder.id == line_id,
             ClientOrder.order_group_id == group_id,
             ClientOrder.client_id == client_id,
         )
+        .with_for_update()
     )
     if line is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
+    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=line.id)
 
     data = payload.model_dump(exclude_unset=True)
     changed: list[str] = []
@@ -2440,6 +2627,221 @@ async def update_line(
 
 
 @router.post(
+    "/{client_id}/order-groups/{group_id}/offboarding-cases/{case_id}/resolve",
+    response_model=OrderOffboardingCaseRead,
+)
+async def resolve_md_offboarding_case(
+    client_id: int,
+    group_id: int,
+    case_id: int,
+    payload: OrderOffboardingResolutionRequest,
+    user: DlAssignedOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Resolve the Delivery Lead decision after an MD consultant leaves.
+
+    Legacy per-line pools are either forfeited or added to another active line.
+    New shared-pool orders never assign an implicit personal slice: the group
+    budget stays unchanged and the decision only removes the departed line
+    from the active workflow. Every branch is locked and versioned so two DLs
+    cannot apply the same pool twice.
+    """
+
+    await _assert_client(db, client_id)
+    _assert_multi_client(client_id)
+    if not _has_md_line_management_role(user):
+        raise deny("decyzję o puli MD podejmuje Delivery Lead albo administrator")
+
+    group = await db.scalar(
+        select(ClientOrderGroup)
+        .where(
+            ClientOrderGroup.id == group_id,
+            ClientOrderGroup.client_id == client_id,
+        )
+        .with_for_update()
+    )
+    if group is None:
+        raise HTTPException(404, detail="Zamówienie nie istnieje")
+    if effective_group_order_type(group) != OrderType.md:
+        raise HTTPException(409, detail="Ta decyzja dotyczy wyłącznie zamówień MD")
+
+    case = await db.scalar(
+        select(ClientOrderOffboardingCase)
+        .where(
+            ClientOrderOffboardingCase.id == case_id,
+            ClientOrderOffboardingCase.client_id == client_id,
+            ClientOrderOffboardingCase.order_group_id == group_id,
+        )
+        .with_for_update()
+    )
+    if case is None:
+        raise HTTPException(404, detail="Sprawa zakończenia współpracy nie istnieje")
+    if case.status != OFFBOARDING_STATUS_PENDING:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "offboarding_case_already_resolved",
+                "message": "Ta decyzja została już obsłużona.",
+                "version": case.version,
+            },
+        )
+    if case.version != payload.expected_version:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "offboarding_case_version_conflict",
+                "message": "Sprawa zmieniła się w innym oknie. Odśwież zamówienie.",
+                "version": case.version,
+            },
+        )
+
+    source = await db.scalar(
+        _line_query()
+        .where(
+            ClientOrder.id == case.order_id,
+            ClientOrder.order_group_id == group_id,
+            ClientOrder.client_id == client_id,
+        )
+        .with_for_update()
+    )
+    if source is None:
+        raise HTTPException(409, detail="Linia odchodzącego konsultanta nie istnieje")
+
+    remaining = max(Decimal("0"), quantize_md(case.remaining_md_snapshot))
+    transferred_md = Decimal("0")
+    target: Optional[ClientOrder] = None
+    target_name: Optional[str] = None
+    source_rate = case.rate_revenue_snapshot or source.md_rate_revenue
+    target_rate: Optional[Decimal] = None
+
+    if payload.action == OFFBOARDING_RESOLUTION_TRANSFER:
+        target = await db.scalar(
+            _line_query()
+            .where(
+                ClientOrder.id == payload.target_order_id,
+                ClientOrder.order_group_id == group_id,
+                ClientOrder.client_id == client_id,
+            )
+            .with_for_update()
+        )
+        if target is None:
+            raise HTTPException(
+                422, detail="Wskazany konsultant nie jest na zamówieniu"
+            )
+        if target.id == source.id:
+            raise HTTPException(422, detail="Nie można przenieść puli na tę samą osobę")
+        if (
+            source.contract is not None
+            and target.contract is not None
+            and source.contract.candidate_id == target.contract.candidate_id
+        ):
+            raise HTTPException(
+                422, detail="Nie można przenieść puli na drugi wpis tej samej osoby"
+            )
+        if target.status != ClientOrderStatus.active:
+            raise HTTPException(409, detail="Konsultant docelowy nie jest już aktywny")
+        target_name = consultant_display_name(target)
+        target_rate = target.md_rate_revenue
+        if target_rate is None or target_rate <= 0:
+            raise HTTPException(
+                422, detail="Konsultant docelowy nie ma stawki przychodowej"
+            )
+
+        if not case.uses_shared_md_pool:
+            if target.md_total is None:
+                raise HTTPException(422, detail="Linia docelowa nie ma budżetu MD")
+            basis_rate = (
+                source_rate
+                if payload.rate_basis == OFFBOARDING_RATE_BASIS_DEPARTING
+                else target_rate
+            )
+            if basis_rate is None or basis_rate <= 0:
+                raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
+            transferred_md = quantize_md(remaining * basis_rate / target_rate)
+            target.md_total = quantize_md(
+                Decimal(str(target.md_total)) + transferred_md
+            )
+            if target.md_input_mode == INPUT_MODE_AMOUNT:
+                target.md_input_value = quantize_md(
+                    Decimal(str(target.md_input_value or 0))
+                    + transferred_md * target_rate
+                )
+            else:
+                target.md_input_mode = INPUT_MODE_MD
+                target.md_input_value = quantize_md(
+                    Decimal(str(target.md_input_value or 0)) + transferred_md
+                )
+            await recompute_remaining(db, target)
+
+    # A legacy line's unused pool is removed from its signed value. Consumption
+    # stays untouched; cards and exports now show the reduced total instead of
+    # pretending the forfeited/transferred remainder was consumed.
+    if not case.uses_shared_md_pool and source.md_total is not None and remaining > 0:
+        _reduce_legacy_md_budget(source, remaining)
+        await recompute_remaining(db, source)
+
+    now = datetime.now(timezone.utc)
+    case.status = OFFBOARDING_STATUS_RESOLVED
+    case.resolution = payload.action
+    case.target_order_id = target.id if target is not None else None
+    case.rate_basis = payload.rate_basis
+    case.resolved_at = now
+    case.resolved_by_user_id = user.id
+    case.version += 1
+    case.resolution_payload = {
+        "remaining_md_snapshot": str(remaining),
+        "transferred_md": str(transferred_md),
+        "uses_shared_md_pool": case.uses_shared_md_pool,
+        "source_rate_revenue": None if source_rate is None else str(source_rate),
+        "target_rate_revenue": None if target_rate is None else str(target_rate),
+        "target_order_id": target.id if target is not None else None,
+        "target_consultant": target_name,
+    }
+
+    source_name = consultant_display_name(source)
+    if payload.action == OFFBOARDING_RESOLUTION_REMOVE:
+        event_type = EVENT_MD_OFFBOARDING_REMOVED
+        description = f"{source_name} — zakończenie współpracy obsłużone: " + (
+            "linia usunięta z aktywnej obsady; wspólna pula MD zamówienia "
+            "pozostała bez zmian."
+            if case.uses_shared_md_pool
+            else f"pozostałe {format_md(remaining)} MD usunięto z zamówienia."
+        )
+    else:
+        event_type = EVENT_MD_OFFBOARDING_TRANSFERRED
+        description = f"{source_name} — zakończenie współpracy obsłużone: " + (
+            f"wskazano {target_name}; wspólna pula MD zamówienia pozostała bez zmian."
+            if case.uses_shared_md_pool
+            else (
+                f"pozostałe {format_md(remaining)} MD przeliczono na "
+                f"{format_md(transferred_md)} MD dla {target_name} "
+                f"według stawki {'osoby odchodzącej' if payload.rate_basis == OFFBOARDING_RATE_BASIS_DEPARTING else 'osoby przejmującej'}."
+            )
+        )
+    record_event(
+        db,
+        group_id=group_id,
+        order_id=source.id,
+        event_type=event_type,
+        description=description,
+        payload={
+            "offboarding_case_id": case.id,
+            "source_order_id": source.id,
+            "target_order_id": case.target_order_id,
+            "rate_basis": case.rate_basis,
+            **case.resolution_payload,
+        },
+        user_id=user.id,
+    )
+    await handle_offboarding_case_alerts(
+        db, case_id=case.id, handled_by_user_id=user.id, now=now
+    )
+    await db.commit()
+    await db.refresh(case)
+    return _offboarding_case_to_read(case, with_finance=_can_see_finance(user))
+
+
+@router.post(
     "/{client_id}/order-groups/{group_id}/lines/{line_id}/swap",
     response_model=OrderLineRead,
     status_code=status.HTTP_201_CREATED,
@@ -2475,9 +2877,11 @@ async def swap_consultant(
             ClientOrder.order_group_id == group_id,
             ClientOrder.client_id == client_id,
         )
+        .with_for_update()
     )
     if old is None:
         raise HTTPException(404, detail="Linia nie istnieje w tym zamówieniu")
+    await _assert_no_pending_offboarding_case(db, group_id=group.id, order_id=old.id)
     # Zamówienie KOSZTOWE nie ma budżetu per linia — pula mieszka na grupie,
     # a linia z definicji ma `md_total = None` (`_build_line`). Warunek pisany
     # pod tryb MD odrzucał więc KAŻDĄ zamianę u klienta kosztowego, i to
@@ -2558,6 +2962,13 @@ async def swap_consultant(
         filled_at=datetime.now(timezone.utc),
         md_rate_cost=payload.rate_cost,
         md_rate_revenue=payload.rate_revenue,
+        rate_candidate=payload.rate_cost,
+        rate_client=payload.rate_revenue,
+        rate_unit=RateUnit.daily,
+        billing_hours_per_month=160,
+        currency="PLN",
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
         # Tryb „md": budżet nowej linii POWSTAŁ z przeliczenia, a nie z kwoty
         # wpisanej przez operatora. Zapisanie go jako „amount" sugerowałoby
         # kwotę, której nikt nie podał.

@@ -329,6 +329,7 @@ async def import_nordea_orders(
     from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.contract import Contract
     from app.models.contract_framework_rate import ContractFrameworkRate
+    from app.services.order_rate_snapshots import inherited_order_rate_fields
 
     client_label = client.display_name or client.legal_name or client.name
     if "nordea" not in _normalize_name_part(client_label):
@@ -436,7 +437,10 @@ async def import_nordea_orders(
                     ),
                     start_date=row.start_date,
                     end_date=row.end_date,
-                    rate_client=row.revenue_rate,
+                    **inherited_order_rate_fields(
+                        contract,
+                        rate_client=row.revenue_rate,
+                    ),
                     created_by_user_id=user_id,
                     notes=f"Import Nordea z pliku {filename}",
                 )

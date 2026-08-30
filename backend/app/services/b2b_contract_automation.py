@@ -33,6 +33,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
+from app.services.order_rate_snapshots import inherited_order_rate_fields
 from app.services.order_types import suggested_order_type
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
@@ -452,8 +453,7 @@ async def _ensure_open_order(
         order_type=suggested_type.value,
         status=ClientOrderStatus.draft,
         start_date=contract.start_date,
-        rate_client=contract.rate_client,
-        currency=contract.resolved_rate_client_currency,
+        **inherited_order_rate_fields(contract),
         created_by_user_id=actor_id,
         notes=(
             (

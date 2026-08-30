@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
+import {
+  OrderCurrencySelect,
+  OrderRateUnitToggle,
+} from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { OrderType } from "@/lib/api/dlPortal";
@@ -25,6 +29,7 @@ interface NewContractorOrderDialogProps {
   orderType?: OrderType;
   onOrderTypeChange?: (orderType: OrderType) => void;
   allowedOrderTypes?: readonly OrderType[];
+  canManageFinance?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -67,12 +72,14 @@ export function NewContractorOrderDialog({
   orderType = "periodic",
   onOrderTypeChange,
   allowedOrderTypes,
+  canManageFinance: serverCanManageFinance,
   onClose,
   onCreated,
 }: NewContractorOrderDialogProps) {
   const { showToast, showError } = useToast();
   const user = useAuthStore((state) => state.user);
-  const canManageFinance = canManageCandidateFinance(user);
+  const canManageFinance =
+    serverCanManageFinance ?? canManageCandidateFinance(user);
 
   // Candidate typeahead state
   const [candidateQuery, setCandidateQuery] = useState("");
@@ -145,6 +152,8 @@ export function NewContractorOrderDialog({
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
   const rateCandidateNum = parseDecimalInput(rateCandidate);
+  const rateUnitSuffix =
+    rateUnit === "hourly" ? "h" : rateUnit === "daily" ? "MD" : "mc";
   const margin =
     rateClientCurrency === rateCandidateCurrency &&
     rateClientNum !== null &&
@@ -469,7 +478,9 @@ export function NewContractorOrderDialog({
           <>
             <div className="grid grid-cols-2 gap-3">
               <label>
-                <span className="text-sm">Klient płaci /mc *</span>
+                <span className="text-sm">
+                  Klient płaci ({rateClientCurrency}/{rateUnitSuffix}) *
+                </span>
                 <input
                   type="text"
                   inputMode="decimal"
@@ -483,7 +494,10 @@ export function NewContractorOrderDialog({
                 />
               </label>
               <label>
-                <span className="text-sm">My płacimy kontraktorowi *</span>
+                <span className="text-sm">
+                  My płacimy kontraktorowi ({rateCandidateCurrency}/
+                  {rateUnitSuffix}) *
+                </span>
                 <input
                   type="text"
                   inputMode="decimal"
@@ -500,7 +514,7 @@ export function NewContractorOrderDialog({
 
             {margin !== null && (
               <div className="text-sm text-green-700 bg-green-50 px-3 py-2 rounded">
-                Marża /mc (przybl.):{" "}
+                Marża /{rateUnitSuffix} (przybl.):{" "}
                 <strong>{margin.toLocaleString("pl-PL")}</strong>{" "}
                 {rateClientCurrency}
                 {rateClientNum !== null && rateClientNum > 0 && (
@@ -509,60 +523,39 @@ export function NewContractorOrderDialog({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <label>
-                <span className="text-sm">Jednostka stawki</span>
-                <select
-                  value={rateUnit}
-                  onChange={(e) =>
-                    setRateUnit(e.target.value as "monthly" | "daily" | "hourly")
-                  }
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                >
-                  <option value="monthly">Miesięcznie</option>
-                  <option value="daily">Dziennie</option>
-                  <option value="hourly">Godzinowo</option>
-                </select>
-              </label>
-              <label>
-                <span className="text-sm">Godziny / mc</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={billingHours}
-                  onChange={(e) => setBillingHours(e.target.value)}
-                  disabled={rateUnit !== "hourly"}
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background disabled:opacity-50"
-                />
-              </label>
-              <label>
-                <span className="text-sm">Waluta klienta</span>
-                <select
-                  aria-label="Waluta stawki przychodowej (klienta)"
+            <div className="space-y-3">
+              <OrderRateUnitToggle
+                value={rateUnit}
+                rateCandidate={rateCandidate}
+                rateClient={rateClient}
+                onValueChange={setRateUnit}
+                onRateCandidateChange={setRateCandidate}
+                onRateClientChange={setRateClient}
+                billingHoursPerMonth={Number(billingHours) || 160}
+              />
+              <div className="grid gap-3 sm:grid-cols-[8rem_1fr_1fr] sm:items-end">
+                <label>
+                  <span className="text-sm">Godziny / mc</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={billingHours}
+                    onChange={(e) => setBillingHours(e.target.value)}
+                    disabled={rateUnit !== "hourly"}
+                    className="mt-1 w-full px-3 py-2 border border-border rounded bg-background disabled:opacity-50"
+                  />
+                </label>
+                <OrderCurrencySelect
                   value={rateClientCurrency}
-                  onChange={(e) => setRateClientCurrency(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                >
-                  <option value="PLN">PLN</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </label>
-              <label>
-                <span className="text-sm">Waluta kontraktora</span>
-                <select
-                  aria-label="Waluta stawki kosztowej (kandydata)"
+                  onChange={setRateClientCurrency}
+                />
+                <OrderCurrencySelect
                   value={rateCandidateCurrency}
-                  onChange={(e) => setRateCandidateCurrency(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                >
-                  <option value="PLN">PLN</option>
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </label>
+                  onChange={setRateCandidateCurrency}
+                  label="Waluta stawki kosztowej"
+                  ariaLabel="Waluta stawki kosztowej"
+                />
+              </div>
             </div>
 
             {rateClientCurrency !== rateCandidateCurrency &&

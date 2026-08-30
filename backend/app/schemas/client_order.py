@@ -9,6 +9,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from app.models.client_order import ClientOrderStatus
+from app.models.contract import RateUnit
 from app.models.order_type import OrderType
 
 
@@ -25,10 +26,17 @@ class ClientOrderCreate(BaseModel):
     status: ClientOrderStatus = ClientOrderStatus.draft
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    rate_candidate: Optional[Decimal] = Field(
+        None, ge=0, max_digits=12, decimal_places=3
+    )
     rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
     """Może być różny od Contract.rate_client (przedłużenie z podwyżką)."""
+    rate_unit: Optional[RateUnit] = None
+    billing_hours_per_month: Optional[int] = Field(None, ge=1)
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
+    rate_client_currency: Optional[str] = Field(None, max_length=3)
+    rate_candidate_currency: Optional[str] = Field(None, max_length=3)
     framework_contract_id: Optional[int] = None
     job_id: Optional[int] = None
     notes: Optional[str] = None
@@ -43,17 +51,19 @@ class ClientOrderUpdate(BaseModel):
     status: Optional[ClientOrderStatus] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    # Stawka KOSZTOWA mieszka na powiązanym ``Contract``, nie na zamówieniu —
-    # przyjmujemy ją tutaj, bo formularz uzupełnienia draftu pokazuje obie
-    # stawki obok siebie i zapisuje je jednym żądaniem. Handler przepisuje ją
-    # na kontrakt; `PATCH /api/contracts/{id}` zostaje nietknięty (ma własną,
-    # admin-only bramkę osłaniającą 17 pól i ~20 innych odpowiedzi).
+    # Obie stawki są snapshotem tego zamówienia. Contract jest źródłem wartości
+    # domyślnej przy tworzeniu, ale ręczna korekta nie może przepisać historii
+    # ani sąsiedniego zamówienia tej samej osoby.
     rate_candidate: Optional[Decimal] = Field(
         None, ge=0, max_digits=12, decimal_places=3
     )
     rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
+    rate_unit: Optional[RateUnit] = None
+    billing_hours_per_month: Optional[int] = Field(None, ge=1)
     total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     currency: Optional[str] = Field(None, max_length=3)
+    rate_client_currency: Optional[str] = Field(None, max_length=3)
+    rate_candidate_currency: Optional[str] = Field(None, max_length=3)
     framework_contract_id: Optional[int] = None
     job_id: Optional[int] = None
     notes: Optional[str] = None
@@ -79,9 +89,14 @@ class ClientOrderRead(BaseModel):
     order_type: Optional[OrderType] = None
     start_date: Optional[date]
     end_date: Optional[date]
+    rate_candidate: Optional[Decimal] = None
     rate_client: Optional[Decimal]
+    rate_unit: RateUnit = RateUnit.monthly
+    billing_hours_per_month: int = 160
     total_value: Optional[Decimal]
     currency: Optional[str]
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
     # „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — NULL u innych klientów.
     project_part: Optional[str] = None
     filename: Optional[str]
@@ -120,11 +135,14 @@ class ContractWithOrdersRead(BaseModel):
     contract_start_date: Optional[date]
     contract_end_date: Optional[date]
     rate_candidate: Optional[Decimal]  # we płacimy
+    rate_client_currency: Optional[str] = None
+    rate_candidate_currency: Optional[str] = None
     # Jednostka stawek kontraktu ("hourly" | "daily" | "monthly") — surowe
     # rate_candidate/rate_client są w TEJ jednostce; FE etykietuje /h, /dzień,
     # /mc zamiast hardkodować "/mc". Sama jednostka nie jest kwotą → nie
     # podlega redakcji finansowej.
     rate_unit: str = "monthly"
+    billing_hours_per_month: int = 160
 
     # Initial Job z którego powstał Contract
     initial_job_id: Optional[int]

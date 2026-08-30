@@ -14,12 +14,21 @@ import {
 import { AppModal } from "@/components/ds/AppModal";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
+import {
+  OrderCurrencySelect,
+  OrderRateUnitToggle,
+  convertRateInput,
+  extractionRateUnit,
+  normalizeOrderCurrency,
+  rateUnitNoticeLabel,
+} from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
   ClientOrderRead,
   ClientOrderUpdate,
   CreateDraftOrder,
+  OrderRateUnit,
   OrderType,
 } from "@/lib/api/dlPortal";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
@@ -41,6 +50,7 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 interface EditOrderDialogProps {
   clientId: number;
+  candidateId: number;
   /**
    * `null` = kontraktor nie ma jeszcze żadnego zamówienia. Formularz otwiera
    * się wtedy pusty i zakłada szkic dopiero przy zapisie — anulowanie nie
@@ -52,6 +62,11 @@ interface EditOrderDialogProps {
   onCreate?: CreateDraftOrder;
   /** Stawka kosztowa z powiązanego kontraktu (`ContractWithOrdersRead`). */
   rateCandidate: number | null;
+  /** Fallback dla zamówień utworzonych przed snapshotem jednostki/waluty. */
+  contractRateUnit?: OrderRateUnit | null;
+  contractBillingHoursPerMonth?: number | null;
+  contractRateClientCurrency?: string | null;
+  contractRateCandidateCurrency?: string | null;
   /** Serwer wylicza to per klient — patrz `can_manage_finance` w odpowiedzi. */
   canManageFinance: boolean;
   suggestedOrderType?: OrderType;
@@ -79,9 +94,14 @@ interface EditOrderDialogProps {
  */
 export function EditOrderDialog({
   clientId,
+  candidateId,
   order,
   onCreate,
   rateCandidate,
+  contractRateUnit = "monthly",
+  contractBillingHoursPerMonth = 160,
+  contractRateClientCurrency,
+  contractRateCandidateCurrency,
   canManageFinance,
   suggestedOrderType = "periodic",
   allowedOrderTypes,
@@ -111,10 +131,33 @@ export function EditOrderDialog({
     order?.md_quantity != null ? String(order.md_quantity) : "",
   );
   const [rateCost, setRateCost] = useState(
-    rateCandidate != null ? String(rateCandidate) : "",
+    order?.rate_candidate != null
+      ? String(order.rate_candidate)
+      : rateCandidate != null
+        ? String(rateCandidate)
+        : "",
   );
   const [rateRevenue, setRateRevenue] = useState(
     order?.rate_client != null ? String(order.rate_client) : "",
+  );
+  const [rateUnit, setRateUnit] = useState<OrderRateUnit>(
+    order?.rate_unit ?? contractRateUnit ?? "monthly",
+  );
+  const rateBillingHours =
+    order?.billing_hours_per_month ?? contractBillingHoursPerMonth ?? 160;
+  const [rateClientCurrency, setRateClientCurrency] = useState(
+    normalizeOrderCurrency(
+      order?.rate_client_currency,
+      order?.currency,
+      contractRateClientCurrency,
+    ),
+  );
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState(
+    normalizeOrderCurrency(
+      order?.rate_candidate_currency,
+      contractRateCandidateCurrency,
+      contractRateClientCurrency,
+    ),
   );
   const [projectPart, setProjectPart] = useState(order?.project_part ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -136,12 +179,21 @@ export function EditOrderDialog({
   // Oryginalna stawka za 1 MD z dokumentu (Bank Pocztowy) — pokazywana obok
   // pola stawki; samo pole niesie już wartość przeliczoną na zł/h (MD ÷ 8).
   const [rateMdOriginal, setRateMdOriginal] = useState<string | null>(null);
+  const [grossConversion, setGrossConversion] = useState<{
+    gross: string;
+    net: string;
+  } | null>(null);
+  const [unitChangeNotice, setUnitChangeNotice] = useState<string | null>(null);
 
   async function handleExtract() {
     if (!file || extracting) return;
     setExtracting(true);
     try {
-      const { data } = await dlPortalApi.extractOrderPdf(clientId, file);
+      const { data } = await dlPortalApi.extractOrderPdf(
+        clientId,
+        file,
+        candidateId,
+      );
       if (data.title) setTitle(data.title);
       setTitleCheck(Boolean(data.title_needs_review));
       if (data.start_date) setStartDate(normalizeDateInput(data.start_date));
@@ -153,11 +205,44 @@ export function EditOrderDialog({
         setMdBudget(String(data.md_total));
       }
       if (canManageFinance) {
+        const detectedUnit = extractionRateUnit(data.rate_unit);
+        if (detectedUnit && detectedUnit !== rateUnit) {
+          setRateCost(
+            convertRateInput(rateCost, rateUnit, detectedUnit, rateBillingHours),
+          );
+          setRateRevenue(
+            convertRateInput(
+              rateRevenue,
+              rateUnit,
+              detectedUnit,
+              rateBillingHours,
+            ),
+          );
+          setRateUnit(detectedUnit);
+          setUnitChangeNotice(
+            `Jednostkę stawki zmieniono na ${rateUnitNoticeLabel(detectedUnit)} na podstawie odczytanej pozycji`,
+          );
+        } else {
+          setUnitChangeNotice(null);
+        }
         if (data.rate_client != null) setRateRevenue(String(data.rate_client));
+        // PDF opisuje pozycję przychodową klienta. Nie wolno nim nadpisać
+        // niezależnej waluty kosztowej kontraktora.
+        if (data.currency) {
+          setRateClientCurrency(normalizeOrderCurrency(data.currency));
+        }
         // Bank Pocztowy: pole stawki dostało wartość GODZINOWĄ; oryginał MD
         // pokazujemy obok, żeby obie wartości były widoczne przed zapisem.
         setRateMdOriginal(
           data.rate_client_md != null ? String(data.rate_client_md) : null,
+        );
+        setGrossConversion(
+          data.rate_client_gross != null && data.rate_client != null
+            ? {
+                gross: String(data.rate_client_gross),
+                net: String(data.rate_client),
+              }
+            : null,
         );
       }
       setCheckData(Boolean(data.uncertain));
@@ -195,6 +280,8 @@ export function EditOrderDialog({
     setCheckReasons([]);
     setTitleCheck(false);
     setRateMdOriginal(null);
+    setGrossConversion(null);
+    setUnitChangeNotice(null);
   }
 
   const mutation = useMutation({
@@ -220,6 +307,10 @@ export function EditOrderDialog({
       if (canManageFinance) {
         payload.rate_candidate = parseDecimalInput(rateCost);
         payload.rate_client = parseDecimalInput(rateRevenue);
+        payload.rate_unit = rateUnit;
+        payload.billing_hours_per_month = rateBillingHours;
+        payload.rate_client_currency = rateClientCurrency;
+        payload.rate_candidate_currency = rateCandidateCurrency;
       }
       if (order) {
         await dlPortalApi.updateOrder(clientId, order.id, payload);
@@ -294,6 +385,8 @@ export function EditOrderDialog({
       setCheckReasons([]);
       setTitleCheck(false);
       setRateMdOriginal(null);
+      setGrossConversion(null);
+      setUnitChangeNotice(null);
       onChanged?.();
       showToast("Plik PDF zamówienia usunięty", "success");
     }, "Nie udało się usunąć pliku PDF zamówienia.");
@@ -468,36 +561,77 @@ export function EditOrderDialog({
         ) : null}
 
         {canManageFinance && (
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-sm font-medium">Stawka kosztowa</span>
-              <input
-                value={rateCost}
-                inputMode="decimal"
-                onChange={(e) => setRateCost(sanitizeDecimalInput(e.target.value))}
-                className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-                placeholder="np. 12000"
+          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-sm font-medium">Stawka kosztowa</span>
+                <input
+                  value={rateCost}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    setRateCost(sanitizeDecimalInput(e.target.value))
+                  }
+                  className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                  placeholder="np. 12000"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium">Stawka przychodowa</span>
+                <input
+                  value={rateRevenue}
+                  inputMode="decimal"
+                  onChange={(e) =>
+                    setRateRevenue(sanitizeDecimalInput(e.target.value))
+                  }
+                  className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
+                  placeholder="np. 18000"
+                />
+                {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
+                    wyżej ma już przeliczoną stawkę godzinową (edytowalną),
+                    a oryginał z dokumentu zostaje widoczny obok. */}
+                {rateMdOriginal !== null && (
+                  <span className="text-xs text-muted-foreground mt-0.5 block">
+                    Z dokumentu: {rateMdOriginal} {rateClientCurrency}/MD →
+                    przeliczono na stawkę godzinową (÷ 8, w górę do 2 miejsc)
+                  </span>
+                )}
+                {grossConversion !== null && (
+                  <span className="text-xs text-muted-foreground mt-0.5 block">
+                    Z dokumentu: {grossConversion.gross} {rateClientCurrency}/h
+                    brutto → {grossConversion.net} {rateClientCurrency}/h netto
+                    (÷ 1,23)
+                  </span>
+                )}
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+              <div className="sm:col-span-2">
+                <OrderRateUnitToggle
+                  value={rateUnit}
+                  rateCandidate={rateCost}
+                  rateClient={rateRevenue}
+                  onValueChange={setRateUnit}
+                onRateCandidateChange={setRateCost}
+                onRateClientChange={setRateRevenue}
+                billingHoursPerMonth={rateBillingHours}
               />
-            </label>
-            <label className="block">
-              <span className="text-sm font-medium">Stawka przychodowa</span>
-              <input
-                value={rateRevenue}
-                inputMode="decimal"
-                onChange={(e) => setRateRevenue(sanitizeDecimalInput(e.target.value))}
-                className="mt-1 w-full border border-border rounded-md px-3 py-2 text-sm bg-background"
-                placeholder="np. 18000"
+              </div>
+              <OrderCurrencySelect
+                value={rateClientCurrency}
+                onChange={setRateClientCurrency}
               />
-              {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
-                  wyżej ma już przeliczoną stawkę godzinową (edytowalną),
-                  a oryginał z dokumentu zostaje widoczny obok. */}
-              {rateMdOriginal !== null && (
-                <span className="text-xs text-muted-foreground mt-0.5 block">
-                  Z dokumentu: {rateMdOriginal} zł/MD → przeliczono na stawkę
-                  godzinową (÷ 8, w górę do 2 miejsc)
-                </span>
-              )}
-            </label>
+              <OrderCurrencySelect
+                value={rateCandidateCurrency}
+                onChange={setRateCandidateCurrency}
+                label="Waluta stawki kosztowej"
+                ariaLabel="Waluta stawki kosztowej"
+              />
+            </div>
+            {unitChangeNotice ? (
+              <p role="status" className="text-xs text-primary">
+                {unitChangeNotice}
+              </p>
+            ) : null}
           </div>
         )}
 

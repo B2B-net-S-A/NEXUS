@@ -942,7 +942,14 @@ _COLUMN_STATEMENTS = [
            CONSTRAINT ck_client_order_group_events_type
                CHECK (event_type IN ('utworzenie', 'dodanie_konsultanta',
                                      'import_md', 'zamiana_kontraktora',
-                                     'edycja_reczna'))
+                                     'edycja_reczna', 'zakonczenie',
+                                     'przywrocenie', 'wyczerpanie',
+                                     'przedluzenie', 'import_faktur',
+                                     'transfer_md',
+                                     'zakonczenie_konsultanta',
+                                     'decyzja_md_wymagana',
+                                     'usuniecie_puli_md',
+                                     'przeniesienie_puli_md'))
        )""",
     """CREATE INDEX IF NOT EXISTS ix_client_order_group_events_group
        ON client_order_group_events (group_id)""",
@@ -3415,11 +3422,81 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT uq_dl_alerts_dedupe_key UNIQUE (dedupe_key),
         CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
             'cost_order_exhausted', 'draft_consultant_unassigned',
-            'md_budget_low', 'missing_revenue_rate')),
+            'md_budget_low', 'missing_revenue_rate',
+            'md_consultant_ended')),
         CONSTRAINT ck_dl_alerts_status CHECK (status IN ('new', 'handled')),
         CONSTRAINT ck_dl_alerts_handled_coherence
             CHECK (status <> 'handled' OR handled_at IS NOT NULL)
     )""",
+    # 0249: order owns a finance snapshot. Add nullable first; the data phase
+    # below deterministically fills every existing row before the constraint
+    # phase installs defaults and NOT NULL on the two required columns.
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS "
+    "rate_candidate NUMERIC(12, 3) NULL",
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS rate_unit rateunit NULL",
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS "
+    "billing_hours_per_month INTEGER NULL",
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS "
+    "rate_client_currency VARCHAR(3) NULL",
+    "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS "
+    "rate_candidate_currency VARCHAR(3) NULL",
+    # Contract termination is a fact, but an MD pool needs a durable DL
+    # decision. This table mirrors ClientOrderOffboardingCase exactly and is
+    # intentionally created before dl_alerts receives its FK below.
+    """CREATE TABLE IF NOT EXISTS client_order_offboarding_cases (
+        id SERIAL PRIMARY KEY,
+        contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+        order_id INTEGER NOT NULL REFERENCES client_orders(id) ON DELETE CASCADE,
+        order_group_id INTEGER NULL
+            REFERENCES client_order_groups(id) ON DELETE SET NULL,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        effective_date DATE NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'pending',
+        version INTEGER NOT NULL DEFAULT 1,
+        uses_shared_md_pool BOOLEAN NOT NULL DEFAULT FALSE,
+        remaining_md_snapshot NUMERIC(16, 6) NOT NULL DEFAULT 0,
+        rate_cost_snapshot NUMERIC(12, 2) NULL,
+        rate_revenue_snapshot NUMERIC(12, 2) NULL,
+        currency_snapshot VARCHAR(3) NULL,
+        order_number_snapshot VARCHAR(64) NULL,
+        resolution VARCHAR(16) NULL,
+        target_order_id INTEGER NULL
+            REFERENCES client_orders(id) ON DELETE SET NULL,
+        rate_basis VARCHAR(16) NULL,
+        resolution_payload JSONB NULL,
+        resolved_at TIMESTAMPTZ NULL,
+        resolved_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_client_order_offboarding_order_effective
+            UNIQUE (order_id, effective_date),
+        CONSTRAINT ck_client_order_offboarding_status
+            CHECK (status IN ('pending', 'resolved')),
+        CONSTRAINT ck_client_order_offboarding_resolution
+            CHECK (resolution IS NULL OR resolution IN ('remove', 'transfer')),
+        CONSTRAINT ck_client_order_offboarding_rate_basis
+            CHECK (rate_basis IS NULL OR rate_basis IN ('departing', 'recipient')),
+        CONSTRAINT ck_client_order_offboarding_resolution_state CHECK (
+            (status = 'pending' AND resolution IS NULL AND resolved_at IS NULL
+             AND target_order_id IS NULL AND rate_basis IS NULL)
+            OR (status = 'resolved' AND resolution IS NOT NULL
+                AND resolved_at IS NOT NULL)
+        ),
+        CONSTRAINT ck_client_order_offboarding_transfer_target CHECK (
+            resolution IS DISTINCT FROM 'transfer'
+            OR rate_basis IS NOT NULL
+        ),
+        CONSTRAINT ck_client_order_offboarding_remove_target CHECK (
+            resolution IS DISTINCT FROM 'remove'
+            OR (target_order_id IS NULL AND rate_basis IS NULL)
+        ),
+        CONSTRAINT ck_client_order_offboarding_version CHECK (version >= 1),
+        CONSTRAINT ck_client_order_offboarding_remaining_nonnegative
+            CHECK (remaining_md_snapshot >= 0)
+    )""",
+    "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS "
+    "offboarding_case_id INTEGER NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -3717,6 +3794,57 @@ _DATA_STATEMENTS = [
            )
        WHERE rate_client_currency IS NULL
           OR rate_candidate_currency IS NULL""",
+    # 0249: the new nullable metadata fields are also the resumability guard.
+    # Historical amounts stay untouched: contracts.rate_* is only a cache and
+    # can lag a progressive schedule, so copying it would freeze a wrong rate
+    # and margin on the order. Null amounts keep the existing dated fallback.
+    """UPDATE client_orders AS order_row
+       SET rate_unit = COALESCE(contract.rate_unit, 'monthly'::rateunit),
+           billing_hours_per_month = COALESCE(
+               contract.billing_hours_per_month, 160
+           ),
+           rate_client_currency = COALESCE(
+               NULLIF(UPPER(BTRIM(contract.rate_client_currency)), ''),
+               NULLIF(UPPER(BTRIM(contract.currency)), ''),
+               'PLN'
+           ),
+           rate_candidate_currency = COALESCE(
+               NULLIF(UPPER(BTRIM(contract.rate_candidate_currency)), ''),
+               NULLIF(UPPER(BTRIM(contract.currency)), ''),
+               'PLN'
+           ),
+           currency = COALESCE(
+               NULLIF(UPPER(BTRIM(contract.rate_client_currency)), ''),
+               NULLIF(UPPER(BTRIM(contract.currency)), ''),
+               'PLN'
+           )
+       FROM contracts AS contract
+       WHERE order_row.contract_id = contract.id
+         AND order_row.order_group_id IS NULL
+         AND (
+             order_row.rate_unit IS NULL
+             OR order_row.billing_hours_per_month IS NULL
+             OR order_row.rate_client_currency IS NULL
+             OR order_row.rate_candidate_currency IS NULL
+         )""",
+    # Multi-consultant lines are deliberately canonical PLN/MD, independent of
+    # the linked contract's display unit/currency. Their authoritative rates
+    # already live in md_rate_cost/md_rate_revenue.
+    """UPDATE client_orders AS order_row
+       SET rate_candidate = order_row.md_rate_cost,
+           rate_client = order_row.md_rate_revenue,
+           rate_unit = 'daily'::rateunit,
+           billing_hours_per_month = 160,
+           rate_client_currency = 'PLN',
+           rate_candidate_currency = 'PLN',
+           currency = 'PLN'
+       WHERE order_row.order_group_id IS NOT NULL
+         AND (
+             order_row.rate_unit IS NULL
+             OR order_row.billing_hours_per_month IS NULL
+             OR order_row.rate_client_currency IS NULL
+             OR order_row.rate_candidate_currency IS NULL
+         )""",
     # 0204: seed zarezerwowanego feature'a AI `candidate_summary` (widoczność
     # + licznik w Ustawieniach → AI). Idempotentny: WHERE NOT EXISTS.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
@@ -4853,6 +4981,45 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0249: data phase above has filled every existing row. Defaults protect
+    # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
+    "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",
+    "ALTER TABLE client_orders ALTER COLUMN rate_unit SET NOT NULL",
+    "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 160",
+    "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET NOT NULL",
+    # Atomic closed-domain rewrite. If lock_timeout fires, the DROP rolls back
+    # with the ADD and the next container start retries safely.
+    """DO $$ BEGIN
+        ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_type;
+        ALTER TABLE dl_alerts
+            ADD CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
+                'cost_order_exhausted', 'draft_consultant_unassigned',
+                'md_budget_low', 'missing_revenue_rate',
+                'md_consultant_ended'
+            ));
+    END $$""",
+    # Detect the FK structurally rather than by name: metadata.create_all may
+    # have installed an automatically named equivalent after an earlier boot.
+    """DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint AS constraint_row
+            JOIN pg_attribute AS source_column
+              ON source_column.attrelid = constraint_row.conrelid
+             AND source_column.attnum = ANY(constraint_row.conkey)
+            WHERE constraint_row.contype = 'f'
+              AND constraint_row.conrelid = 'dl_alerts'::regclass
+              AND constraint_row.confrelid =
+                  'client_order_offboarding_cases'::regclass
+              AND source_column.attname = 'offboarding_case_id'
+        ) THEN
+            ALTER TABLE dl_alerts
+                ADD CONSTRAINT fk_dl_alerts_offboarding_case
+                FOREIGN KEY (offboarding_case_id)
+                REFERENCES client_order_offboarding_cases(id)
+                ON DELETE SET NULL NOT VALID;
+        END IF;
+    END $$""",
     # 0229 — pozycja Pomocy musi być ALBO linkiem, ALBO szablonem treści.
     # Wiersz bez `url` i bez `template_body` wyrenderowałby się w zakładce jako
     # martwa pozycja bez żadnej akcji — czyta się jak awaria, nie jak pustka.
@@ -5090,18 +5257,23 @@ _CONSTRAINT_STATEMENTS = [
     # bieżącym a przyszłym. Bez tego pierwszy import z Finansów, który przeleje
     # nadwyżkę na następcę, wywróci się IntegrityError-em w ŚRODKU transakcji
     # importu, czyli zabierze ze sobą także poprawnie dopasowane wiersze.
-    "ALTER TABLE client_order_group_events "
-    "DROP CONSTRAINT IF EXISTS ck_client_order_group_events_type",
+    # 0249 dodaje cztery zdarzenia offboardingu. DROP i ADD są teraz jednym
+    # atomowym DO: timeout między dwiema transakcjami nie zostawia tabeli bez
+    # ochrony domeny.
     """DO $$ BEGIN
+        ALTER TABLE client_order_group_events
+            DROP CONSTRAINT IF EXISTS ck_client_order_group_events_type;
         ALTER TABLE client_order_group_events
             ADD CONSTRAINT ck_client_order_group_events_type
             CHECK (event_type IN (
                 'utworzenie', 'dodanie_konsultanta', 'import_md',
                 'zamiana_kontraktora', 'edycja_reczna', 'zakonczenie',
                 'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur',
-                'transfer_md'
+                'transfer_md', 'zakonczenie_konsultanta',
+                'decyzja_md_wymagana', 'usuniecie_puli_md',
+                'przeniesienie_puli_md'
             ));
-    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    END $$""",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
     """DO $$ BEGIN
@@ -5342,6 +5514,25 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    # 0249: pending MD decisions and their durable DL alerts.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_client_order_offboarding_cases_id "
+    "ON client_order_offboarding_cases (id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_client_order_offboarding_cases_contract_id "
+    "ON client_order_offboarding_cases (contract_id)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_client_order_offboarding_pending "
+    "ON client_order_offboarding_cases (client_id, effective_date) "
+    "WHERE status = 'pending'",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_client_order_offboarding_contract_effective "
+    "ON client_order_offboarding_cases (contract_id, effective_date)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_client_order_offboarding_group "
+    "ON client_order_offboarding_cases (order_group_id, status)",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_dl_alerts_offboarding_case "
+    "ON dl_alerts (offboarding_case_id)",
     # 0227 — moduł Finanse. Indeks CZĘŚCIOWY, nie zwykły UNIQUE: aktualna
     # wersja miesiąca musi być dokładnie jedna, ale zastąpionych wolno mieć
     # dowolnie wiele (to cała treść Archiwum). Pełny UNIQUE zabroniłby

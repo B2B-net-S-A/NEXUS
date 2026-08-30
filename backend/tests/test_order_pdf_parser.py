@@ -709,8 +709,7 @@ class TestConsultantRowMatching:
             ),
             (
                 m.apply_credit_agricole_order_policy,
-                "Szacowana ilość MD: 20\n"
-                "Wynagrodzenie za 1MD (8h) (PLN netto): 1040",
+                "Szacowana ilość MD: 20\nWynagrodzenie za 1MD (8h) (PLN netto): 1040",
             ),
         ],
     )
@@ -730,9 +729,7 @@ class TestConsultantRowMatching:
             uncertain=False,
             source="claude",
         )
-        no_match = m.apply_consultant_row_match(
-            result, "Natalia Prus-Rudzińska"
-        )
+        no_match = m.apply_consultant_row_match(result, "Natalia Prus-Rudzińska")
         assert no_match.rate_client is None
 
         policy_result = policy(no_match, document)
@@ -784,10 +781,7 @@ class TestConsultantRowMatching:
             ),
             "Natalia Prus-Rudzińska",
         )
-        document = (
-            "Szacowana ilość MD: 20\n"
-            "Wynagrodzenie za 1MD (8h) (PLN netto): 1040"
-        )
+        document = "Szacowana ilość MD: 20\nWynagrodzenie za 1MD (8h) (PLN netto): 1040"
 
         corrected = m.apply_credit_agricole_order_policy(matched, document)
         protected = m.enforce_consultant_policy_safety(corrected)
@@ -923,6 +917,146 @@ class TestConsultantRowMatching:
         assert matched.md_total == Decimal("20")
         assert matched.uncertain is True
         assert any("jednostki stawki" in reason for reason in matched.uncertain_reasons)
+
+
+class TestOrlenOrderPolicy:
+    """On-site/off-site dzielą pulę MD, ale mogą nieść jedną wspólną stawkę."""
+
+    def _rows(
+        self,
+        *,
+        onsite_rate: Decimal = Decimal("1320"),
+        offsite_rate: Decimal = Decimal("1320"),
+        onsite_unit: str = "day",
+        offsite_unit: str = "day",
+        offsite_uncertain: bool = False,
+    ) -> list[m.ConsultantOrderRow]:
+        return [
+            m.ConsultantOrderRow(
+                consultant_name="Aleksandra Lebiedziewicz",
+                rate_client=onsite_rate,
+                rate_unit=onsite_unit,
+                md_total=Decimal("75"),
+                uncertain=False,
+            ),
+            m.ConsultantOrderRow(
+                consultant_name="Lebiedziewicz Aleksandra",
+                rate_client=offsite_rate,
+                rate_unit=offsite_unit,
+                md_total=Decimal("50"),
+                uncertain=offsite_uncertain,
+            ),
+        ]
+
+    def test_equal_onsite_offsite_rate_is_accepted_without_md_total(self):
+        result = m.OrderExtraction(
+            start_date="2026-09-01",
+            end_date="2026-12-31",
+            consultant_rows=self._rows(),
+            uncertain=False,
+            source="claude",
+        )
+        # Generyczny matcher prawidłowo pozostaje zachowawczy dla innych
+        # klientów i widzi dwie pozycje z różnymi pulami MD.
+        ambiguous = m.apply_consultant_row_match(result, "Aleksandra Lebiedziewicz")
+        assert ambiguous.rate_client is None
+        assert any("więcej niż jedną" in r for r in ambiguous.uncertain_reasons)
+
+        enforced = m.apply_orlen_order_policy(
+            ambiguous,
+            "on-site 75 MD; off-site 50 MD",
+            consultant_name="Aleksandra Lebiedziewicz",
+        )
+
+        assert enforced.rate_client == Decimal("1320")
+        assert enforced.rate_unit == "day"
+        assert enforced.md_total is None
+        assert enforced.consultant_rate_matched is True
+        assert enforced.consultant_md_matched is False
+        assert enforced.start_date == "2026-09-01"
+        assert enforced.end_date == "2026-12-31"
+        assert enforced.uncertain is False
+        assert not any("więcej niż jedną" in r for r in enforced.uncertain_reasons)
+
+    @pytest.mark.parametrize(
+        ("offsite_rate", "offsite_unit"),
+        [
+            (Decimal("1330"), "day"),
+            (Decimal("1320"), "hour"),
+        ],
+    )
+    def test_different_rate_or_unit_stays_fail_closed(self, offsite_rate, offsite_unit):
+        ambiguous = m.apply_consultant_row_match(
+            m.OrderExtraction(
+                consultant_rows=self._rows(
+                    offsite_rate=offsite_rate,
+                    offsite_unit=offsite_unit,
+                ),
+                uncertain=False,
+                source="claude",
+            ),
+            "Aleksandra Lebiedziewicz",
+        )
+
+        enforced = m.apply_orlen_order_policy(
+            ambiguous,
+            "",
+            consultant_name="Aleksandra Lebiedziewicz",
+        )
+
+        assert enforced.rate_client is None
+        assert enforced.rate_unit is None
+        assert enforced.md_total is None
+        assert enforced.consultant_rate_matched is False
+        assert enforced.uncertain is True
+        assert any(
+            "nie mają jednej pewnej stawki" in r for r in enforced.uncertain_reasons
+        )
+
+    def test_uncertain_row_stays_fail_closed_even_when_rates_are_equal(self):
+        result = m.OrderExtraction(
+            consultant_rows=self._rows(offsite_uncertain=True),
+            md_total=Decimal("125"),
+            confidence={"md_total": 0.95},
+            uncertain=False,
+            source="claude",
+        )
+
+        enforced = m.apply_orlen_order_policy(
+            result,
+            "",
+            consultant_name="Aleksandra Lebiedziewicz",
+        )
+
+        assert enforced.rate_client is None
+        assert enforced.md_total is None
+        assert "md_total" not in enforced.confidence
+        assert enforced.uncertain is True
+
+    def test_unrelated_consultant_rows_do_not_change_target_common_rate(self):
+        result = m.OrderExtraction(
+            consultant_rows=self._rows()
+            + [
+                m.ConsultantOrderRow(
+                    consultant_name="Jan Kowalski",
+                    rate_client=Decimal("1800"),
+                    rate_unit="day",
+                    md_total=Decimal("20"),
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+        enforced = m.apply_orlen_order_policy(
+            result,
+            "",
+            consultant_name="Aleksandra Lebiedziewicz",
+        )
+
+        assert enforced.rate_client == Decimal("1320")
+        assert enforced.md_total is None
 
 
 class TestTargetedDocumentExcerpt:
@@ -1135,6 +1269,114 @@ class TestCreditAgricolePolicy:
         assert enforced.uncertain_reasons == []
 
 
+class TestPfronOrderPolicy:
+    """PFRON używa konkretnego okresu, pomija MD i podaje stawkę brutto/h."""
+
+    def test_period_end_ignores_extension_note_and_md_is_never_used(self):
+        result = m.OrderExtraction(
+            end_date="2027-12-31",
+            rate_client=Decimal("1230"),
+            rate_unit="hour",
+            total_value=Decimal("246000"),
+            md_total=Decimal("125"),
+            confidence={"end_date": 0.4, "md_total": 0.9},
+            uncertain=True,
+            uncertain_reasons=[
+                "Niepewny odczyt: data zakończenia",
+                "Niepewna liczba MD",
+                "Data zawiera dopisek o możliwości przedłużenia",
+                "Stawka brutto wymaga przeliczenia VAT",
+            ],
+            source="claude",
+        )
+        document = (
+            "Termin realizacji usług: od 01.09.2026 do 31.12.2026 "
+            "z możliwością przedłużenia."
+        )
+
+        enforced = m.apply_pfron_order_policy(result, document)
+
+        assert enforced.end_date == "2026-12-31"
+        assert enforced.confidence["end_date"] == 1.0
+        assert enforced.md_total is None
+        assert "md_total" not in enforced.confidence
+        assert enforced.rate_client_gross == Decimal("1230")
+        assert enforced.rate_client == Decimal("1000.00")
+        assert enforced.rate_unit == "hour"
+        assert enforced.total_value == Decimal("246000")
+        assert enforced.uncertain is False
+        assert enforced.uncertain_reasons == []
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            "Data zakończenia realizacji usług: 31.12.2026 "
+            "(z możliwością przedłużenia)",
+            "Okres realizacji usług: 01.09.2026 – 31.12.2026; możliwość przedłużenia",
+            "Termin realizacji usług do dnia 31-12-2026, z możliwością przedłużenia",
+        ],
+    )
+    def test_supported_explicit_end_date_forms(self, document):
+        assert m.pfron_end_date(document) == "2026-12-31"
+
+    def test_multiple_distinct_service_periods_are_fail_closed(self):
+        result = m.OrderExtraction(
+            end_date="2026-12-31",
+            rate_client=Decimal("1230"),
+            rate_unit="hour",
+            md_total=Decimal("125"),
+            uncertain=False,
+            source="claude",
+        )
+        document = (
+            "Okres podstawowy od 01.09.2026 do 31.12.2026. "
+            "Okres opcjonalny od 01.01.2027 do 31.03.2027."
+        )
+
+        enforced = m.apply_pfron_order_policy(result, document)
+
+        assert enforced.end_date is None
+        assert enforced.md_total is None
+        assert enforced.rate_client == Decimal("1000.00")
+        assert enforced.uncertain is True
+        assert any("jednej konkretnej daty" in r for r in enforced.uncertain_reasons)
+
+    def test_missing_explicit_end_date_does_not_keep_model_guess(self):
+        result = m.OrderExtraction(
+            end_date="2026-12-31",
+            md_total=Decimal("125"),
+            uncertain=False,
+            source="claude",
+        )
+
+        enforced = m.apply_pfron_order_policy(
+            result, "Usługi będą realizowane zgodnie z zamówieniem."
+        )
+
+        assert enforced.end_date is None
+        assert enforced.md_total is None
+        assert enforced.uncertain is True
+
+    def test_policy_is_idempotent_on_the_same_result(self):
+        result = m.OrderExtraction(
+            rate_client=Decimal("1230"),
+            rate_unit="hour",
+            md_total=Decimal("125"),
+            uncertain=False,
+            source="claude",
+        )
+        document = "Termin realizacji: od 01.09.2026 do 31.12.2026"
+
+        once = m.apply_pfron_order_policy(result, document)
+        twice = m.apply_pfron_order_policy(once, document)
+
+        assert twice is once
+        assert twice.rate_client_gross == Decimal("1230")
+        assert twice.rate_client == Decimal("1000.00")
+        assert twice.end_date == "2026-12-31"
+        assert twice.md_total is None
+
+
 class TestErsteGrossToNetPolicy:
     """Stawka w PDF Erste jest BRUTTO — zapisujemy netto (÷ 1,23)."""
 
@@ -1144,6 +1386,20 @@ class TestErsteGrossToNetPolicy:
         assert enforced.rate_client == Decimal("1000.00")
         # Oryginał brutto zostaje widoczny obok — operator konfrontuje z PDF-em.
         assert enforced.rate_client_gross == Decimal("1230")
+        assert enforced.rate_unit == "hour"
+
+    def test_client_rule_overrides_missing_or_wrong_model_unit_with_hourly(self):
+        missing = m.apply_erste_order_policy(
+            m.OrderExtraction(rate_client=Decimal("1230"), source="claude"), ""
+        )
+        wrong = m.apply_pfron_order_policy(
+            m.OrderExtraction(
+                rate_client=Decimal("1230"), rate_unit="day", source="claude"
+            ),
+            "Termin realizacji usług do dnia 31.12.2026",
+        )
+        assert missing.rate_unit == "hour"
+        assert wrong.rate_unit == "hour"
 
     def test_rounding_is_half_up_to_two_places(self):
         # 1000 / 1,23 = 813,00813… → 813,01
@@ -1167,19 +1423,25 @@ class TestErsteGrossToNetPolicy:
         assert enforced.rate_client is None
         assert enforced.rate_client_gross is None
 
-    def test_conversion_is_idempotent_per_call_not_applied_twice(self):
+    def test_conversion_is_idempotent_on_the_same_result(self):
         """Dwa przebiegi tej samej polityki nie mogą dzielić dwa razy.
 
         Router woła politykę raz, ale wartość musi być funkcją WEJŚCIA, a nie
         liczby wywołań — inaczej powtórka odczytu cicho zaniża stawkę o 23%.
         """
-        once = m.apply_erste_order_policy(
-            m.OrderExtraction(rate_client=Decimal("1230"), source="claude"), ""
+        result = m.OrderExtraction(rate_client=Decimal("1230"), source="claude")
+
+        once = m.apply_erste_order_policy(result, "")
+        twice = m.apply_erste_order_policy(once, "")
+
+        assert twice is once
+        assert twice.rate_client_gross == Decimal("1230")
+        assert twice.rate_client == Decimal("1000.00")
+
+    def test_compatible_erste_helper_uses_shared_conversion(self):
+        assert m.erste_net_from_gross(Decimal("1000")) == m.net_rate_from_gross(
+            Decimal("1000")
         )
-        twice = m.apply_erste_order_policy(
-            m.OrderExtraction(rate_client=Decimal("1230"), source="claude"), ""
-        )
-        assert once.rate_client == twice.rate_client == Decimal("1000.00")
 
 
 class TestParseOrderDocument:
@@ -1254,6 +1516,48 @@ class TestParseOrderDocument:
         assert r.rate_client is None
         assert r.md_total is None
         assert r.uncertain is True
+
+    async def test_targeted_client_default_preserves_rate_when_model_omits_unit(
+        self, monkeypatch
+    ):
+        """Twarda reguła PFRON/Erste działa przed fail-closed safety matchera."""
+
+        async def fake_extract(
+            text: str,
+            *,
+            consultant_name: str | None = None,
+            consultant_given_names: str | None = None,
+        ):
+            return m.OrderExtraction(
+                consultant_rows=[
+                    m.ConsultantOrderRow(
+                        consultant_name="Natalia Prus-Rudzińska",
+                        rate_client=Decimal("1230"),
+                        rate_unit=None,
+                        uncertain=False,
+                    )
+                ],
+                uncertain=False,
+                source="claude",
+            )
+
+        monkeypatch.setattr(m, "_extract_with_claude", fake_extract)
+
+        parsed = await parse_order_document(
+            "Natalia Prus-Rudzińska — stawka brutto 1230 PLN za godzinę",
+            consultant_name="Natalia Prus-Rudzińska",
+            consultant_rate_unit_default="hour",
+        )
+        enforced = m.apply_pfron_order_policy(
+            parsed,
+            "Natalia Prus-Rudzińska — termin realizacji usług do 31.12.2026",
+        )
+        enforced = m.enforce_consultant_policy_safety(enforced)
+
+        assert enforced.consultant_rate_matched is True
+        assert enforced.rate_client_gross == Decimal("1230")
+        assert enforced.rate_client == Decimal("1000.00")
+        assert enforced.rate_unit == "hour"
 
     async def test_untargeted_regex_fallback_stays_backward_compatible(
         self, monkeypatch

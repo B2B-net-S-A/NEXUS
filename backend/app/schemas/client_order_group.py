@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import (
     BaseModel,
@@ -280,7 +280,61 @@ class OrderLineSwapRequest(BaseModel):
     swap_date: date
 
 
+class OrderOffboardingResolutionRequest(BaseModel):
+    """Delivery Lead decision for one pending MD offboarding case."""
+
+    action: Literal["remove", "transfer"]
+    target_order_id: Optional[int] = Field(None, gt=0)
+    rate_basis: Optional[Literal["departing", "recipient"]] = None
+    expected_version: int = Field(..., ge=1)
+
+    @model_validator(mode="after")
+    def _coherent_decision(self):
+        if self.action == "transfer":
+            if self.target_order_id is None:
+                raise ValueError("Przeniesienie wymaga konsultanta docelowego")
+            if self.rate_basis is None:
+                raise ValueError("Przeniesienie wymaga wyboru stawki")
+        elif self.target_order_id is not None or self.rate_basis is not None:
+            raise ValueError(
+                "Usunięcie puli nie przyjmuje konsultanta ani podstawy stawki"
+            )
+        return self
+
+
 # ── Wyjście ─────────────────────────────────────────────────────────────────
+
+
+class OrderOffboardingCaseRead(BaseModel):
+    """Durable pending/resolved state rendered next to an MD order line."""
+
+    model_config = {"from_attributes": True}
+
+    id: int
+    contract_id: int
+    order_id: int
+    order_group_id: Optional[int] = None
+    client_id: int
+    effective_date: date
+    status: Literal["pending", "resolved"]
+    version: int
+
+    uses_shared_md_pool: bool
+    remaining_md_snapshot: MdValue
+    rate_cost_snapshot: Optional[MoneyPLN] = None
+    rate_revenue_snapshot: Optional[MoneyPLN] = None
+    currency_snapshot: Optional[str] = None
+    order_number_snapshot: Optional[str] = None
+
+    resolution: Optional[Literal["remove", "transfer"]] = None
+    target_order_id: Optional[int] = None
+    rate_basis: Optional[Literal["departing", "recipient"]] = None
+    resolution_payload: Optional[dict[str, Any]] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by_user_id: Optional[int] = None
+    created_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class OrderLineRead(BaseModel):
@@ -325,8 +379,11 @@ class OrderLineRead(BaseModel):
 
     missing_consumption_month: Optional[str] = None
     """Ostatni zaimportowany miesiąc, w którym ta linia NIE ma zejścia —
-    źródło komunikatu „Brak zejścia za {miesiąc}". `None` = jest zejście albo
+    źródło komunikatu „Brak zejścia za {miesiąc}”. `None` = jest zejście albo
     nie było jeszcze żadnego importu."""
+
+    offboarding_case: Optional[OrderOffboardingCaseRead] = None
+    """Nierozwiązana lub historyczna decyzja po zakończeniu współpracy."""
 
 
 class OrderGroupEventRead(BaseModel):

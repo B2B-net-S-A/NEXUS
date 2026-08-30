@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,17 +30,26 @@ vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
 });
 
 const extractOrderPdf = vi.mocked(dlPortalApi.extractOrderPdf);
+const updateOrder = vi.mocked(dlPortalApi.updateOrder);
 
 function renderDialog({
   order = null,
   suggestedOrderType = "periodic",
   legacyNullOrderType = "periodic",
   onCreate = vi.fn(),
+  rateCandidate = null,
+  contractRateUnit = "monthly",
+  contractRateClientCurrency = "PLN",
+  contractRateCandidateCurrency = "PLN",
 }: {
   order?: ClientOrderRead | null;
   suggestedOrderType?: OrderType;
   legacyNullOrderType?: LegacyClientOrderType;
   onCreate?: ReturnType<typeof vi.fn>;
+  rateCandidate?: number | null;
+  contractRateUnit?: "hourly" | "daily" | "monthly";
+  contractRateClientCurrency?: string | null;
+  contractRateCandidateCurrency?: string | null;
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
@@ -44,11 +59,15 @@ function renderDialog({
       <ToastProvider>
         <EditOrderDialog
           clientId={10}
+          candidateId={1}
           // Tryb „kontraktor bez zamówienia" (realny przypadek Banku
           // Pocztowego) — formularz pusty, szkic powstaje dopiero przy zapisie.
           order={order}
           onCreate={onCreate}
-          rateCandidate={null}
+          rateCandidate={rateCandidate}
+          contractRateUnit={contractRateUnit}
+          contractRateClientCurrency={contractRateClientCurrency}
+          contractRateCandidateCurrency={contractRateCandidateCurrency}
           canManageFinance
           suggestedOrderType={suggestedOrderType}
           legacyNullOrderType={legacyNullOrderType}
@@ -113,6 +132,8 @@ function extractBtn() {
 describe("EditOrderDialog — polityka Banku Pocztowego (odczyt PDF)", () => {
   beforeEach(() => {
     extractOrderPdf.mockReset();
+    updateOrder.mockReset();
+    updateOrder.mockResolvedValue({ data: {} } as never);
   });
 
   it("pokazuje oryginał MD obok przeliczonej stawki godzinowej (edytowalnej)", async () => {
@@ -143,7 +164,7 @@ describe("EditOrderDialog — polityka Banku Pocztowego (odczyt PDF)", () => {
       expect(screen.getByDisplayValue("200")).toBeInTheDocument(),
     );
     expect(screen.getByDisplayValue("BP/DIT/2026/0451")).toBeInTheDocument();
-    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+    expect(screen.getByText(/Z dokumentu: 1600 PLN\/MD/)).toBeInTheDocument();
     // Czysty odczyt BP → bez banera „Sprawdź dane!".
     expect(screen.queryByText("Sprawdź dane!")).not.toBeInTheDocument();
 
@@ -197,6 +218,118 @@ describe("EditOrderDialog — polityka Banku Pocztowego (odczyt PDF)", () => {
   });
 });
 
+describe("EditOrderDialog — jednostka i waluta zamówienia", () => {
+  beforeEach(() => {
+    extractOrderPdf.mockReset();
+    updateOrder.mockReset();
+    updateOrder.mockResolvedValue({ data: {} } as never);
+  });
+
+  it("przekazuje candidate_id do odczytu, wykrywa MD i wysyła przeliczone stawki", async () => {
+    const order = draftOrder("periodic");
+    order.rate_candidate = 125;
+    order.rate_client = 150;
+    order.rate_unit = "hourly";
+    order.currency = "EUR";
+    order.rate_client_currency = "EUR";
+    order.rate_candidate_currency = "GBP";
+    extractOrderPdf.mockResolvedValue({
+      data: {
+        title: "PO-MD-1",
+        start_date: null,
+        end_date: null,
+        rate_client: 1320,
+        rate_unit: "day",
+        total_value: null,
+        currency: "USD",
+        md_total: null,
+        uncertain: false,
+        uncertain_reasons: [],
+        fields_confidence: {},
+        source: "claude",
+      },
+    } as never);
+
+    renderDialog({ order });
+    const file = addPdf();
+    fireEvent.click(extractBtn());
+
+    await waitFor(() =>
+      expect(extractOrderPdf).toHaveBeenCalledWith(10, file, 1),
+    );
+    expect(screen.getByLabelText("Stawka kosztowa")).toHaveValue("1000");
+    expect(screen.getByLabelText("Stawka przychodowa")).toHaveValue("1320");
+    expect(
+      within(
+        screen.getByRole("radiogroup", { name: "Jednostka stawki" }),
+      ).getByRole("radio", { name: "MD" }),
+    ).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(
+      screen.getByRole("combobox", {
+        name: "Waluta zamówienia (przychodowa)",
+      }),
+    ).toHaveValue("USD");
+    expect(
+      screen.getByRole("combobox", { name: "Waluta stawki kosztowej" }),
+    ).toHaveValue("GBP");
+    expect(
+      screen.getByText(
+        "Jednostkę stawki zmieniono na MD na podstawie odczytanej pozycji",
+      ),
+    ).toHaveAttribute("role", "status");
+
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(updateOrder).toHaveBeenCalledOnce());
+    expect(updateOrder).toHaveBeenCalledWith(
+      10,
+      41,
+      expect.objectContaining({
+        rate_candidate: 1000,
+        rate_client: 1320,
+        rate_unit: "daily",
+        rate_client_currency: "USD",
+        rate_candidate_currency: "GBP",
+      }),
+    );
+    expect(updateOrder.mock.calls[0]?.[2]).not.toHaveProperty("currency");
+  });
+
+  it("pokazuje brutto i netto PFRON/Erste oraz resetuje informację z nowym plikiem", async () => {
+    const order = draftOrder("periodic");
+    order.rate_unit = "hourly";
+    extractOrderPdf.mockResolvedValue({
+      data: {
+        title: "PFRON-1",
+        start_date: null,
+        end_date: null,
+        rate_client: 100,
+        rate_client_gross: 123,
+        rate_unit: "hour",
+        total_value: null,
+        currency: "PLN",
+        md_total: null,
+        uncertain: false,
+        uncertain_reasons: [],
+        fields_confidence: {},
+        source: "claude",
+      },
+    } as never);
+
+    renderDialog({ order });
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    expect(
+      await screen.findByText(/123 PLN\/h brutto.*100 PLN\/h netto/),
+    ).toBeInTheDocument();
+    addPdf("nowy.pdf");
+    expect(screen.queryByText(/PLN\/h brutto/)).not.toBeInTheDocument();
+  });
+});
+
 describe("EditOrderDialog — jawny typ nowego draftu", () => {
   it("podpowiada typ z historii i jednym kliknięciem przełącza pola", async () => {
     const user = userEvent.setup();
@@ -210,15 +343,20 @@ describe("EditOrderDialog — jawny typ nowego draftu", () => {
     expect(screen.getByLabelText(/Budżet całkowity/)).toBeInTheDocument();
     expect(screen.getByLabelText("Zafakturowano")).toHaveValue("0");
 
-    await user.click(screen.getByRole("radio", { name: "MD" }));
+    const typeSwitch = screen.getByRole("radiogroup", {
+      name: "Typ zamówienia",
+    });
+    await user.click(within(typeSwitch).getByRole("radio", { name: "MD" }));
     expect(screen.queryByLabelText(/Budżet całkowity/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Budżet w MD/)).toBeInTheDocument();
     expect(screen.getByLabelText("Wykorzystano MD")).toHaveValue("0");
 
-    await user.click(screen.getByRole("radio", { name: "Okresowe" }));
+    await user.click(
+      within(typeSwitch).getByRole("radio", { name: "Okresowe" }),
+    );
     expect(screen.queryByLabelText(/Budżet całkowity/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: "MD" }));
+    await user.click(within(typeSwitch).getByRole("radio", { name: "MD" }));
 
     await user.type(screen.getByLabelText(/Numer zamówienia/), "MD-77");
     await user.type(screen.getByLabelText(/Budżet w MD/), "75,5");

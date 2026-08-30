@@ -45,12 +45,14 @@ ALERT_COST_ORDER_EXHAUSTED = "cost_order_exhausted"
 ALERT_DRAFT_CONSULTANT_UNASSIGNED = "draft_consultant_unassigned"
 ALERT_MD_BUDGET_LOW = "md_budget_low"
 ALERT_MISSING_REVENUE_RATE = "missing_revenue_rate"
+ALERT_MD_CONSULTANT_ENDED = "md_consultant_ended"
 
 DL_ALERT_TYPES: tuple[str, ...] = (
     ALERT_COST_ORDER_EXHAUSTED,
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
+    ALERT_MD_CONSULTANT_ENDED,
 )
 
 DL_ALERT_TYPE_LABELS: dict[str, str] = {
@@ -58,6 +60,7 @@ DL_ALERT_TYPE_LABELS: dict[str, str] = {
     ALERT_DRAFT_CONSULTANT_UNASSIGNED: "Konsultant bez zamówienia (Draft)",
     ALERT_MD_BUDGET_LOW: "Niski poziom MD na zamówieniu",
     ALERT_MISSING_REVENUE_RATE: "Brak stawki przychodowej",
+    ALERT_MD_CONSULTANT_ENDED: "Zakończenie współpracy — decyzja MD",
 }
 
 DL_ALERT_STATUS_NEW = "new"
@@ -78,7 +81,7 @@ class DlAlert(Base):
         CheckConstraint(
             "alert_type IN ('cost_order_exhausted', "
             "'draft_consultant_unassigned', 'md_budget_low', "
-            "'missing_revenue_rate')",
+            "'missing_revenue_rate', 'md_consultant_ended')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint("status IN ('new', 'handled')", name="ck_dl_alerts_status"),
@@ -111,6 +114,7 @@ class DlAlert(Base):
             "status",
             "created_at",
         ),
+        Index("ix_dl_alerts_offboarding_case", "offboarding_case_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -131,6 +135,10 @@ class DlAlert(Base):
     )
     order_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("client_orders.id", ondelete="SET NULL"), nullable=True
+    )
+    offboarding_case_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_order_offboarding_cases.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -159,6 +167,11 @@ class DlAlert(Base):
     client = relationship("Client", foreign_keys=[client_id])
     order_group = relationship("ClientOrderGroup", foreign_keys=[order_group_id])
     order = relationship("ClientOrder", foreign_keys=[order_id])
+    offboarding_case = relationship(
+        "ClientOrderOffboardingCase",
+        foreign_keys=[offboarding_case_id],
+        back_populates="alerts",
+    )
 
     def __repr__(self) -> str:
         return (

@@ -118,7 +118,9 @@ from app.services.contract_service import (
     ACTIVATION_REQUIRED_FIELDS,
     validate_ready_for_activation,
 )
+from app.services.contract_order_offboarding import apply_contract_order_offboarding
 from app.services.cost_orders import is_cost_order_client
+from app.services.order_rate_snapshots import inherited_order_rate_fields
 from app.services.order_types import suggested_order_type
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus
@@ -227,7 +229,11 @@ def _status_after_end_date_change(
 
 
 async def _sync_client_orders_to_contract_end(
-    db: AsyncSession, contract_id: int, when: date
+    db: AsyncSession,
+    contract_id: int,
+    when: date,
+    *,
+    actor_id: Optional[int] = None,
 ) -> int:
     """JEDNA data końca w obu modelach — kontrakt i jego zamówienia klienta.
 
@@ -252,35 +258,13 @@ async def _sync_client_orders_to_contract_end(
 
     Zwraca liczbę dotkniętych zamówień — ``/terminate`` zapisuje ją w audycie.
     """
-    from app.models.client_order import ClientOrder, ClientOrderStatus
-
-    open_orders = (
-        (
-            await db.execute(
-                select(ClientOrder).where(
-                    ClientOrder.contract_id == contract_id,
-                    ClientOrder.status.in_(
-                        (
-                            ClientOrderStatus.draft,
-                            ClientOrderStatus.active,
-                            ClientOrderStatus.paused,
-                        )
-                    ),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    result = await apply_contract_order_offboarding(
+        db,
+        contract_id=contract_id,
+        effective_date=when,
+        actor_id=actor_id,
     )
-    for order in open_orders:
-        if order.start_date is not None and order.start_date > when:
-            order.status = ClientOrderStatus.cancelled
-        else:
-            if order.end_date is None or order.end_date > when:
-                order.end_date = when
-            if when <= business_today():
-                order.status = ClientOrderStatus.completed
-    return len(open_orders)
+    return result.affected_orders
 
 
 async def _apply_contract_status_change(
@@ -403,14 +387,20 @@ async def _apply_contract_status_change(
     assert_transition(contract.status, target)
 
     if target == ContractStatus.ended:
-        when = business_today()
+        today = business_today()
         # Bez tego `_status_after_end_date_change` (niżej w handlerze oraz w
         # dziennym cronie) natychmiast cofnąłby `ended` na `active`, bo umowa
         # bezterminowa albo z datą w przyszłości „jeszcze się nie skończyła".
         # Zapis wyglądałby na udany i sam się kasował.
-        if contract.end_date is None or contract.end_date > when:
-            contract.end_date = when
-        await _sync_client_orders_to_contract_end(db, contract.id, when)
+        if contract.end_date is None or contract.end_date > today:
+            contract.end_date = today
+        # Gdy kontrakt ma już historyczną datę końca, to ona jest faktem
+        # biznesowym i granicą zamówień. Użycie zawsze `today` wydłużało okres
+        # zamówienia po spóźnionym ręcznym oznaczeniu kontraktu jako zakończony.
+        assert contract.end_date is not None
+        await _sync_client_orders_to_contract_end(
+            db, contract.id, contract.end_date, actor_id=actor_id
+        )
 
     contract.status = target
 
@@ -532,6 +522,54 @@ def _prepare_update_rate_currencies(
         updates["currency"] = client
     if candidate_sent:
         updates["rate_candidate_currency"] = candidate
+
+
+_DRAFT_ORDER_RATE_INHERITANCE_INPUTS = frozenset(
+    {
+        "rate_candidate",
+        "rate_client",
+        "candidate_rate_schedule",
+        "currency",
+        "rate_client_currency",
+        "rate_candidate_currency",
+        "rate_unit",
+        "billing_hours_per_month",
+    }
+)
+
+
+async def _inherit_rates_into_unpriced_order_drafts(
+    db: AsyncSession, contract: Contract
+) -> int:
+    """Initialize drafts created before the Contract had financial terms.
+
+    Flow B can be created operationally by a Delivery Lead without rates.  Its
+    non-null ORM defaults (monthly/160) must not masquerade as a manual order
+    choice when an admin later completes the Contract.  We only touch
+    standalone drafts whose two own rates are still empty; any priced order is
+    already an independent snapshot and remains untouched.
+    """
+
+    if contract.rate_candidate is None or contract.rate_client is None:
+        return 0
+    result = await db.scalars(
+        select(ClientOrder)
+        .where(
+            ClientOrder.contract_id == contract.id,
+            ClientOrder.order_group_id.is_(None),
+            ClientOrder.status == ClientOrderStatus.draft,
+            ClientOrder.rate_candidate.is_(None),
+            ClientOrder.rate_client.is_(None),
+        )
+        .order_by(ClientOrder.id.asc())
+        .with_for_update()
+    )
+    drafts = list(result.all())
+    inherited = inherited_order_rate_fields(contract)
+    for order in drafts:
+        for field, value in inherited.items():
+            setattr(order, field, value)
+    return len(drafts)
 
 
 def _to_detail(contract: Contract) -> ContractDetailResponse:
@@ -1729,8 +1767,7 @@ async def _create_manual_project_order_draft(
         filled_at=None,
         start_date=contract.start_date,
         end_date=contract.end_date,
-        rate_client=contract.rate_client,
-        currency=contract.resolved_rate_client_currency,
+        **inherited_order_rate_fields(contract),
         created_by_user_id=actor_id,
         notes=(
             "Auto-utworzone przy dodaniu kolejnego projektu dla "
@@ -2039,11 +2076,13 @@ async def bulk_mark_ended(
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     changed = 0
-    today = date.today()
     for c in contracts:
-        c.status = ContractStatus.ended
-        if c.end_date is None or c.end_date > today:
-            c.end_date = today
+        await _apply_contract_status_change(
+            db,
+            c,
+            ContractStatus.ended,
+            actor_id=current_user.id,
+        )
         changed += 1
         db.add(
             Activity(
@@ -2389,6 +2428,12 @@ async def update_contract(
         # setattr loop when present in this same PATCH).
         if contract.framework_rate_schedule:
             contract.framework_rate = contract.effective_framework_rate(date.today())
+
+    draft_orders_inherited = 0
+    if data.model_fields_set & _DRAFT_ORDER_RATE_INHERITANCE_INPUTS:
+        draft_orders_inherited = await _inherit_rates_into_unpriced_order_drafts(
+            db, contract
+        )
     # Przejście stanu PO zapisaniu pozostałych pól ORAZ po wyprowadzeniu stawek
     # z harmonogramów, nie przed. Dotyczy to zarówno jawnego statusu, jak i
     # automatycznej aktywacji po domknięciu wymaganych danych. Kolejność jest
@@ -2472,6 +2517,11 @@ async def update_contract(
                     else {}
                 ),
                 **({"auto_activated": True} if auto_activated else {}),
+                **(
+                    {"order_drafts_inherited_rates": draft_orders_inherited}
+                    if draft_orders_inherited
+                    else {}
+                ),
             },
         )
     )
@@ -3511,7 +3561,13 @@ async def create_contract_amendment(
         # remain visible as active; the daily status job progresses it according
         # to the end-date lifecycle (P0.7 — future termination must not end now).
         contract.status = _status_after_end_date_change(
-            ContractStatus.ended, end, date.today()
+            ContractStatus.ended, end, business_today()
+        )
+        await _sync_client_orders_to_contract_end(
+            db,
+            contract.id,
+            end,
+            actor_id=current_user.id,
         )
         new_values["end_date"] = end.isoformat()
         new_values["status"] = contract.status.value
@@ -3814,7 +3870,7 @@ async def terminate_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
-    when = data.terminated_at or date.today()
+    when = data.terminated_at or business_today()
     previous_end_date = contract.end_date
 
     # Idempotentny replay (double-submit / retry): identyczna dyspozycja nie
@@ -3826,6 +3882,15 @@ async def terminate_contract(
         and contract.end_date is not None
         and contract.end_date <= when
     ):
+        # Retry pozostaje audytowo idempotentny, ale naprawia ewentualny brak
+        # sprawy/alertu MD po przerwanym wcześniejszym wdrożeniu. Serwis ma
+        # unikalność per (order, effective_date), więc nie dubluje historii.
+        await _sync_client_orders_to_contract_end(
+            db,
+            contract_id,
+            when,
+            actor_id=current_user.id,
+        )
         detail = _to_detail(contract)
         from app.analytics.capabilities import (
             AnalyticsCapability,
@@ -3847,10 +3912,15 @@ async def terminate_contract(
     # status job materializes `ended` on/after that date. Derived from the
     # (already coherent) end_date, not from raw ContractStatus.ended.
     contract.status = _status_after_end_date_change(
-        ContractStatus.ended, contract.end_date, date.today()
+        ContractStatus.ended, contract.end_date, business_today()
     )
 
-    synced_orders = await _sync_client_orders_to_contract_end(db, contract_id, when)
+    synced_orders = await _sync_client_orders_to_contract_end(
+        db,
+        contract_id,
+        when,
+        actor_id=current_user.id,
+    )
 
     # Audit amendment if the contract was cut short.
     if previous_end_date is not None and when < previous_end_date:

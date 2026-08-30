@@ -24,10 +24,11 @@ od nowa niezależnie od tego, co obsłużono wcześniej.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Optional, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,7 +37,9 @@ from app.models.client import Client
 from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
 from app.models.dl_alert import (
     ALERT_COST_ORDER_EXHAUSTED,
+    ALERT_MD_CONSULTANT_ENDED,
     DL_ALERT_STATUS_HANDLED,
+    DL_ALERT_STATUS_NEW,
     DlAlert,
 )
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -106,6 +109,7 @@ async def emit(
     payload: Optional[dict] = None,
     order_group_id: Optional[int] = None,
     order_id: Optional[int] = None,
+    offboarding_case_id: Optional[int] = None,
     repeat_every_days: Optional[int] = None,
     now: Optional[datetime] = None,
 ) -> list[DlAlert]:
@@ -150,6 +154,7 @@ async def emit(
                 client_id=client_id,
                 order_group_id=order_group_id,
                 order_id=order_id,
+                offboarding_case_id=offboarding_case_id,
                 title=title[:255],
                 message=message,
                 link=link,
@@ -166,6 +171,97 @@ async def emit(
         if alert is not None:
             created.append(alert)
     return created
+
+
+async def emit_md_consultant_ended(
+    db: AsyncSession,
+    *,
+    case_id: int,
+    client_id: int,
+    order_id: int,
+    order_group_id: Optional[int],
+    order_number: Optional[str],
+    consultant_name: str,
+    effective_date: date,
+    remaining_md: Decimal,
+    uses_shared_md_pool: bool,
+) -> list[DlAlert]:
+    """Emit the one-off DL decision alert for an effective MD offboarding.
+
+    The case id is the episode discriminator.  Re-running contract termination
+    therefore repairs a missing alert but cannot duplicate an existing one.
+    Rates deliberately stay out of the alert payload: dashboard visibility is
+    wider than financial visibility, while the decision endpoint can enforce
+    ``VIEW_FINANCE`` before returning the snapshots.
+    """
+
+    user_ids = await dl_user_ids_for_client(db, client_id)
+    client_name = (
+        await db.scalar(
+            select(client_display_name_expression()).where(Client.id == client_id)
+        )
+    ) or "Klient"
+    number = order_number or "—"
+    if uses_shared_md_pool:
+        pool_detail = (
+            "Zamówienie ma wspólną pulę MD — zakończenie jednej osoby nie "
+            "zmieniło jej wartości."
+        )
+    else:
+        pool_detail = f"Do rozstrzygnięcia pozostało {remaining_md} MD."
+
+    return await emit(
+        db,
+        alert_type=ALERT_MD_CONSULTANT_ENDED,
+        user_ids=user_ids,
+        client_id=client_id,
+        entity_key=f"case:{case_id}",
+        title=f"{client_name} — decyzja MD po zakończeniu współpracy",
+        message=(
+            f"{consultant_name} zakończył(a) współpracę {effective_date.isoformat()} "
+            f"na zamówieniu {number}. {pool_detail} Otwórz zamówienie i wybierz "
+            "usunięcie albo przeniesienie."
+        ),
+        link=(f"/clients/{client_id}?tab=zamowienia&offboardingCase={case_id}"),
+        payload={
+            "offboarding_case_id": case_id,
+            "order_number": order_number,
+            "consultant_name": consultant_name,
+            "effective_date": effective_date.isoformat(),
+            "remaining_md": str(remaining_md),
+            "uses_shared_md_pool": uses_shared_md_pool,
+        },
+        order_group_id=order_group_id,
+        order_id=order_id,
+        offboarding_case_id=case_id,
+        repeat_every_days=None,
+    )
+
+
+async def handle_offboarding_case_alerts(
+    db: AsyncSession,
+    *,
+    case_id: int,
+    handled_by_user_id: int,
+    now: Optional[datetime] = None,
+) -> int:
+    """Resolve every recipient row for one decision without deleting history."""
+
+    moment = now or datetime.now(timezone.utc)
+    result = await db.execute(
+        update(DlAlert)
+        .where(
+            DlAlert.offboarding_case_id == case_id,
+            DlAlert.status == DL_ALERT_STATUS_NEW,
+        )
+        .values(
+            status=DL_ALERT_STATUS_HANDLED,
+            handled_by_user_id=handled_by_user_id,
+            handled_at=moment,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
 
 
 async def emit_cost_order_exhausted(

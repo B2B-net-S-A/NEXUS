@@ -36,13 +36,14 @@ import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
 
-from app.api.client_orders import _apply_candidate_rate
+from app.api.client_orders import _apply_candidate_rate, _compute_monthly_margin
 from app.api.contracts import _apply_contract_status_change
 from app.core.scheduling import business_today
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
+from app.models.order_type import OrderType
 from app.services.contract_lifecycle import ContractTransitionError
 from app.services.contract_rates import effective_rate_fields
 
@@ -106,6 +107,24 @@ def test_rate_write_keeps_the_cached_column_and_margin_coherent():
     assert c.margin == _P1_CLIENT - Decimal("13500.000")
 
 
+async def test_historical_order_without_amount_snapshot_uses_dated_schedule():
+    """0249 nie zamraża starego cache'u na zamówieniu historycznym."""
+
+    contract = _scheduled_contract()
+    order = ClientOrder(
+        rate_candidate=None,
+        rate_client=None,
+        rate_unit=RateUnit.monthly,
+        billing_hours_per_month=160,
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
+    )
+
+    assert _compute_monthly_margin(order, contract, business_today()) == (
+        _P2_CLIENT - _P2_CANDIDATE
+    )
+
+
 def test_same_day_correction_overwrites_the_step_instead_of_stacking():
     c = _scheduled_contract()
     today = business_today()
@@ -160,6 +179,9 @@ class _FakeResult:
     def scalars(self):
         return self
 
+    def unique(self):
+        return self
+
     def all(self):
         return self._rows
 
@@ -169,10 +191,14 @@ class _FakeDb:
 
     def __init__(self, orders=()):
         self.orders = list(orders)
+        # Centralny offboarding najpierw odczytuje pending cases, potem otwarte
+        # zamówienia. Ta atrapa zachowuje kolejność dwóch jawnych SELECT-ów.
+        self._execute_rows = [[], self.orders]
         self.added: list[object] = []
 
     async def execute(self, *_args, **_kwargs):
-        return _FakeResult(self.orders)
+        rows = self._execute_rows.pop(0) if self._execute_rows else []
+        return _FakeResult(rows)
 
     async def scalar(self, *_args, **_kwargs):
         return None
@@ -248,11 +274,15 @@ async def test_ending_a_contract_closes_its_open_client_orders():
     """Bez syncu skaner wygasania alarmuje o zamówieniu zakończonej współpracy."""
     when = business_today()
     running = ClientOrder(
+        client_id=1,
+        order_type=OrderType.periodic.value,
         status=ClientOrderStatus.active,
         start_date=when - timedelta(days=30),
         end_date=when + timedelta(days=120),
     )
     not_started_yet = ClientOrder(
+        client_id=1,
+        order_type=OrderType.periodic.value,
         status=ClientOrderStatus.active,
         start_date=when + timedelta(days=10),
         end_date=when + timedelta(days=200),
@@ -270,6 +300,30 @@ async def test_ending_a_contract_closes_its_open_client_orders():
     assert running.status == ClientOrderStatus.completed
     # Zamówienie, które miało ruszyć po dacie końca, nigdy nie ruszy.
     assert not_started_yet.status == ClientOrderStatus.cancelled
+
+
+async def test_late_manual_end_uses_the_contracts_historical_end_date():
+    """Spóźniona zmiana statusu nie może wydłużyć zamówienia do dzisiaj."""
+    today = business_today()
+    contract_end = today - timedelta(days=7)
+    running = ClientOrder(
+        client_id=1,
+        order_type=OrderType.periodic.value,
+        status=ClientOrderStatus.active,
+        start_date=contract_end - timedelta(days=30),
+        end_date=today + timedelta(days=90),
+    )
+    contract = _contract(ContractStatus.active, end_date=contract_end)
+
+    await _apply_contract_status_change(
+        _FakeDb([running]),
+        contract,
+        ContractStatus.ended,
+        actor_id=1,
+    )
+
+    assert running.end_date == contract_end
+    assert running.status == ClientOrderStatus.completed
 
 
 async def test_reactivating_an_ended_contract_goes_through_reopen_not_activation():
