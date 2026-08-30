@@ -770,20 +770,20 @@ async def test_plan_accepts_matching_effective_schedule_and_blocks_mismatch(
         {
             "id": 11,
             "contract_id": 1,
-            "rate": 160.0,
+            "rate": Decimal("160.000"),
             "effective_from": "2026-07-01",
             "note": "older same-day row",
         },
         {
             "id": 12,
             "contract_id": 1,
-            "rate": 170.0,
+            "rate": Decimal("170.000"),
             "effective_from": "2026-07-01",
             "note": "effective same-day row",
         },
     ]
     mismatching = [{**row} for row in matching]
-    mismatching[-1]["rate"] = 171.0
+    mismatching[-1]["rate"] = Decimal("171.000")
 
     monkeypatch.setattr(correction_service, "business_today", lambda: date(2026, 8, 30))
     monkeypatch.setattr(
