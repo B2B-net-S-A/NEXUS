@@ -437,7 +437,7 @@ async def test_contractor_card_reports_one_rate_source_not_two(
 async def test_patching_the_cost_rate_actually_moves_the_money(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
-    """Pełna pętla: zapis → odczyt. Wcześniej 200 i zero zmian w liczbach."""
+    """PATCH zmienia snapshot i marżę jednego zamówienia, nie jego Contract."""
     client_id, contract_id, order_id = await _seed_scheduled_contract_with_order()
     new_rate = Decimal("13500.000")
 
@@ -454,5 +454,9 @@ async def test_patching_the_cost_rate_actually_moves_the_money(
     assert resp.status_code == 200, resp.text
     row = next(c for c in resp.json()["contractors"] if c["contract_id"] == contract_id)
 
-    assert Decimal(str(row["rate_candidate"])) == new_rate
+    # Karta kontraktu nadal pokazuje jego bieżący harmonogram. Ręczna korekta
+    # zamówienia nie może przepisać umowy ani sąsiednich zamówień tej osoby.
+    assert Decimal(str(row["rate_candidate"])) == _P2_CANDIDATE
+    order_row = next(order for order in row["orders"] if order["id"] == order_id)
+    assert Decimal(str(order_row["rate_candidate"])) == new_rate
     assert Decimal(str(row["latest_order_monthly_margin"])) == _P2_CLIENT - new_rate

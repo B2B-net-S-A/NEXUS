@@ -912,9 +912,10 @@ def _assert_order_finance_write_allowed(
     zamyka się dla wszystkich poza adminem, zamiast otwierać dla wszystkich —
     bramka nie zależy od tego, czy wywołujący pamiętał o argumencie.
 
-    Przypisany Delivery Lead dostaje WĘŻSZY zestaw pól niż admin. Jednostka
-    i godziny są snapshotem jednego zamówienia, więc mogą być zmieniane razem
-    ze stawkami bez przepisywania Contract ani zamówień historycznych.
+    Przypisany Delivery Lead dostaje wyłącznie jawnie allowlistowane pola
+    finansowe zamówienia. Jednostka i godziny są snapshotem jednego zamówienia,
+    więc mogą być zmieniane razem ze stawkami bez przepisywania Contract ani
+    zamówień historycznych.
     """
 
     is_admin = user.has_role(UserRole.admin)
@@ -1900,21 +1901,26 @@ async def extract_order_pdf(
             },
         ) from exc
 
-    if target_consultant:
+    if target_consultant and (
+        _is_pfron_order_client(client_id) or _is_erste_gross_rate_client(client_id)
+    ):
+        # PFRON i Erste deklarują stawkę przychodową zawsze godzinowo.
+        # Podajemy tę twardą, client-specific regułę już matcherowi:
+        # inaczej bezpieczny matcher wyczyściłby poprawną kwotę, gdy model
+        # odczytał wiersz osoby, ale pominął sam token jednostki.
         extraction = await parse_order_document(
             text,
             consultant_name=target_consultant,
             consultant_given_names=target_given_names,
-            # PFRON i Erste deklarują stawkę przychodową zawsze godzinowo.
-            # Podajemy tę twardą, client-specific regułę już matcherowi:
-            # inaczej bezpieczny matcher wyczyściłby poprawną kwotę, gdy model
-            # odczytał wiersz osoby, ale pominął sam token jednostki.
-            consultant_rate_unit_default=(
-                "hour"
-                if _is_pfron_order_client(client_id)
-                or _is_erste_gross_rate_client(client_id)
-                else None
-            ),
+            consultant_rate_unit_default="hour",
+        )
+    elif target_consultant:
+        # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
+        # ich matchery zachowują dotychczasowe, fail-closed zachowanie.
+        extraction = await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
         )
     else:
         # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
