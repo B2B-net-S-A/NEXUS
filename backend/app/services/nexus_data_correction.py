@@ -20,6 +20,7 @@ from typing import Any, Mapping, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_today
 from app.services.order_types import allowed_order_types
 
 
@@ -419,6 +420,68 @@ def build_contract_deltas(
     return result
 
 
+def _schedule_effective_from(row: Mapping[str, Any]) -> date:
+    value = row.get("effective_from")
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        parsed = _parse_date(value, "schedule.effective_from", nullable=False)
+        assert parsed is not None
+        return parsed
+    raise NexusDataCorrectionError("schedule.effective_from must be a date")
+
+
+def select_effective_client_rate_schedule_rows(
+    rows: Sequence[Mapping[str, Any]], audit_date: date
+) -> dict[int, dict[str, Any]]:
+    """Select the exact row read by ``Contract._resolve_scheduled_rate``.
+
+    Database relationship order is ``effective_from, id``.  Therefore the
+    resolver's last-insertion tie break is the highest row ID: newest past
+    step wins; if all steps are future-dated, the earliest future date and
+    highest ID on that date wins.
+    """
+
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    seen_row_ids: set[int] = set()
+    for raw_row in rows:
+        row = dict(raw_row)
+        row_id = _positive_int(row.get("id"), "schedule row ID")
+        contract_id = _positive_int(row.get("contract_id"), "schedule contract ID")
+        if row_id in seen_row_ids:
+            raise NexusDataCorrectionError(
+                f"client-rate schedule row ID {row_id} is repeated"
+            )
+        seen_row_ids.add(row_id)
+        _schedule_effective_from(row)
+        # ``rate`` is NOT NULL in PostgreSQL, but validate the live boundary
+        # before it can participate in a fingerprint or mismatch decision.
+        _parse_rate(row.get("rate"), "schedule.rate")
+        grouped.setdefault(contract_id, []).append(row)
+
+    selected: dict[int, dict[str, Any]] = {}
+    for contract_id, entries in grouped.items():
+        past = [row for row in entries if _schedule_effective_from(row) <= audit_date]
+        if past:
+            chosen = max(
+                past,
+                key=lambda row: (
+                    _schedule_effective_from(row),
+                    int(row["id"]),
+                ),
+            )
+        else:
+            earliest = min(_schedule_effective_from(row) for row in entries)
+            chosen = max(
+                (row for row in entries if _schedule_effective_from(row) == earliest),
+                key=lambda row: int(row["id"]),
+            )
+        selected[contract_id] = chosen
+    return selected
+
+
 async def _fetch_contracts(
     db: AsyncSession, ids: Sequence[int], *, lock: bool
 ) -> dict[int, dict[str, Any]]:
@@ -468,14 +531,15 @@ async def _fetch_rate_schedule_rows(
         return []
     suffix = " FOR UPDATE OF r" if lock else ""
     return [
-        dict(row)
-        for row in (
+        dict(item["row"])
+        for item in (
             (
                 await db.execute(
                     text(
-                        "SELECT r.id, r.contract_id, r.rate, r.effective_from "
+                        "SELECT to_jsonb(r) AS row "
                         "FROM contract_client_rates r "
-                        f"WHERE r.contract_id = ANY(:ids) ORDER BY r.id{suffix}"
+                        "WHERE r.contract_id = ANY(:ids) "
+                        f"ORDER BY r.contract_id, r.effective_from, r.id{suffix}"
                     ),
                     {"ids": list(ids)},
                 )
@@ -840,6 +904,7 @@ async def build_nexus_data_correction_plan(
     lock: bool = False,
 ) -> dict[str, Any]:
     """Build a deterministic plan.  With ``lock=False`` this is read-only."""
+    audit_date = business_today()
     contract_ids = list(manifest.contract_ids)
     client_ids = [item[0] for item in manifest.clients]
     contracts = await _fetch_contracts(db, contract_ids, lock=lock)
@@ -903,14 +968,6 @@ async def build_nexus_data_correction_plan(
     if unknown_fks:
         blockers.append(_blocker("unknown_client_order_foreign_keys", fks=unknown_fks))
 
-    if schedules:
-        blockers.append(
-            _blocker(
-                "target_client_rate_schedule_rows",
-                contract_ids=sorted({int(item["contract_id"]) for item in schedules}),
-                row_ids=[int(item["id"]) for item in schedules],
-            )
-        )
     blocking_dependency_ids = _dependency_row_ids(blocking_dependencies)
     if blocking_dependency_ids:
         blockers.append(
@@ -935,6 +992,34 @@ async def build_nexus_data_correction_plan(
             _blocker("client_order_file_evidence", order_ids=file_order_ids)
         )
 
+    schedule_targets = {
+        item.id: item.rate_client
+        for item in manifest.contracts
+        if item.rate_client_present
+    }
+    selected_schedule_rows = select_effective_client_rate_schedule_rows(
+        schedules, audit_date
+    )
+    unexpected_schedule_contracts = sorted(
+        set(selected_schedule_rows) - set(schedule_targets)
+    )
+    if unexpected_schedule_contracts:
+        raise NexusDataCorrectionError(
+            "client-rate schedule escaped purple-M scope: "
+            + ", ".join(str(item) for item in unexpected_schedule_contracts)
+        )
+    for contract_id, row in sorted(selected_schedule_rows.items()):
+        if not _database_equal(
+            "rate_client", row.get("rate"), schedule_targets[contract_id]
+        ):
+            blockers.append(
+                _blocker(
+                    "target_client_rate_schedule_mismatch",
+                    contract_id=contract_id,
+                    row_id=int(row["id"]),
+                )
+            )
+
     deltas = build_contract_deltas(contracts, manifest)
     field_counts = {
         field: sum(
@@ -947,6 +1032,7 @@ async def build_nexus_data_correction_plan(
     plan: dict[str, Any] = {
         "mode": "audit",
         "ok": not blockers,
+        "business_date": audit_date,
         "manifest": {
             "version": manifest.version,
             "source_sha256": manifest.source["sha256"],
@@ -1184,6 +1270,11 @@ async def _assert_postconditions(
     if sorted(after) != list(manifest.contract_ids):
         raise NexusDataCorrectionError("contract postcondition cardinality failed")
     before = {int(row["id"]): row for row in plan["live_state"]["contract_rows"]}
+    before_schedules = [
+        dict(row)
+        for row in plan.get("live_state", {}).get("client_rate_schedule_rows", [])
+    ]
+    schedule_contract_ids = {int(row["contract_id"]) for row in before_schedules}
     for target in manifest.contracts:
         current = after[target.id]
         for field, expected in target.targets.items():
@@ -1232,13 +1323,35 @@ async def _assert_postconditions(
     if actual_clients != dict(manifest.clients):
         raise NexusDataCorrectionError("canonical client identity drifted")
 
-    schedules = await _fetch_rate_schedule_rows(
+    schedules_after = await _fetch_rate_schedule_rows(
         db, manifest.rate_client_contract_ids, lock=False
     )
-    if schedules:
+    if _stable(schedules_after) != _stable(before_schedules):
         raise NexusDataCorrectionError(
-            "target client-rate schedule appeared during apply"
+            "client-rate schedule preservation postcondition failed"
         )
+
+    if schedule_contract_ids:
+        business_date = _parse_date(
+            str(plan.get("business_date")), "plan.business_date", nullable=False
+        )
+        assert business_date is not None
+        selected_after = select_effective_client_rate_schedule_rows(
+            schedules_after, business_date
+        )
+        target_by_id = {
+            item.id: item.rate_client
+            for item in manifest.contracts
+            if item.rate_client_present
+        }
+        for contract_id in schedule_contract_ids:
+            selected = selected_after.get(contract_id)
+            if selected is None or not _database_equal(
+                "rate_client", selected.get("rate"), target_by_id[contract_id]
+            ):
+                raise NexusDataCorrectionError(
+                    f"contract {contract_id} effective client-rate postcondition failed"
+                )
 
 
 async def apply_nexus_data_correction_plan(
@@ -1372,7 +1485,6 @@ def redact_nexus_data_correction_report(
         }
         for item in report.get("contract_updates", [])
     ]
-
     live_state = report.get("live_state", {})
 
     def dependency_counts_for(state_key: str) -> dict[int, dict[str, int]]:
@@ -1447,10 +1559,9 @@ def redact_nexus_data_correction_report(
                 }
                 for fk in item.get("fks", [])
             )
-        elif code == "target_client_rate_schedule_rows":
-            simple_blockers.extend(
-                {"code": code, "contract_id": int(contract_id)}
-                for contract_id in item.get("contract_ids", [])
+        elif code == "target_client_rate_schedule_mismatch":
+            simple_blockers.append(
+                {"code": code, "contract_id": int(item["contract_id"])}
             )
         elif code == "client_order_dependencies":
             for key, per_order in item.get("dependencies", {}).items():

@@ -24,6 +24,7 @@ from app.services.nexus_data_correction import (
     _assert_postconditions,
     _contract_non_target_snapshot,
     _fetch_client_order_groups,
+    _fetch_rate_schedule_rows,
     _fetch_standalone_orders,
     _order_type_policy_inventory,
     approval_fingerprint,
@@ -32,6 +33,7 @@ from app.services.nexus_data_correction import (
     load_nexus_data_correction_manifest,
     plan_fingerprint,
     redact_nexus_data_correction_report,
+    select_effective_client_rate_schedule_rows,
 )
 from scripts import correct_nexus_orders_contracts as correction_cli
 from scripts.reconcile_nexus_data_correction import build_reconciliation_receipt
@@ -144,6 +146,92 @@ class _RowsMappingsResult:
 
     def all(self):
         return self._rows
+
+
+def test_effective_client_rate_schedule_selection_matches_contract_resolver():
+    rows = [
+        {
+            "id": 10,
+            "contract_id": 1,
+            "rate": 150.0,
+            "effective_from": "2026-01-01",
+        },
+        {
+            "id": 11,
+            "contract_id": 1,
+            "rate": 160.0,
+            "effective_from": "2026-07-01",
+        },
+        {
+            "id": 12,
+            "contract_id": 1,
+            "rate": 170.0,
+            "effective_from": "2026-07-01",
+        },
+        {
+            "id": 20,
+            "contract_id": 2,
+            "rate": 200.0,
+            "effective_from": "2027-02-01",
+        },
+        {
+            "id": 21,
+            "contract_id": 2,
+            "rate": 210.0,
+            "effective_from": "2027-01-01",
+        },
+        {
+            "id": 22,
+            "contract_id": 2,
+            "rate": 220.0,
+            "effective_from": "2027-01-01",
+        },
+    ]
+
+    selected = select_effective_client_rate_schedule_rows(rows, date(2026, 8, 30))
+
+    # Latest effective past date wins; highest ID mirrors the relationship's
+    # insertion-order tie break.  With only future rows, earliest date wins
+    # and the same highest-ID tie break applies.
+    assert {contract_id: row["id"] for contract_id, row in selected.items()} == {
+        1: 12,
+        2: 22,
+    }
+
+
+@pytest.mark.asyncio
+async def test_rate_schedule_fetch_fingerprints_full_rows_and_locks_them():
+    full_row = {
+        "id": 12,
+        "contract_id": 1,
+        "rate": 170.0,
+        "effective_from": "2026-07-01",
+        "note": "preserve exactly",
+        "created_by": 9,
+        "created_at": "2026-06-01T10:00:00+00:00",
+        "updated_at": "2026-06-01T10:00:00+00:00",
+    }
+
+    class Session:
+        def __init__(self):
+            self.statement = ""
+
+        async def execute(self, statement, params):
+            self.statement = str(statement)
+            assert params == {"ids": [1]}
+            return _RowsMappingsResult([{"row": full_row}])
+
+    db = Session()
+    rows = await _fetch_rate_schedule_rows(db, [1], lock=True)
+
+    assert rows == [full_row]
+    assert "SELECT to_jsonb(r) AS row" in db.statement
+    assert "ORDER BY r.contract_id, r.effective_from, r.id" in db.statement
+    assert "FOR UPDATE OF r" in db.statement
+    changed = [{**full_row, "note": "drifted"}]
+    assert plan_fingerprint({"schedule": rows}) != plan_fingerprint(
+        {"schedule": changed}
+    )
 
 
 def _fk(
@@ -641,6 +729,111 @@ async def test_plan_blocks_disallowed_standalone_and_group_types(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_plan_accepts_matching_effective_schedule_and_blocks_mismatch(
+    monkeypatch,
+):
+    manifest = _manifest(
+        ContractCorrection(
+            1,
+            "b2b",
+            date(2026, 1, 1),
+            None,
+            False,
+            None,
+            True,
+            Decimal("170.000"),
+        )
+    )
+    contract_row = {
+        "id": 1,
+        "contract_type": "b2b",
+        "start_date": "2026-01-01",
+        "end_date": None,
+        # The legacy/cache column keeps its original manifest delta behavior.
+        "rate_client": "169.000",
+    }
+    matching = [
+        {
+            "id": 11,
+            "contract_id": 1,
+            "rate": 160.0,
+            "effective_from": "2026-07-01",
+            "note": "older same-day row",
+        },
+        {
+            "id": 12,
+            "contract_id": 1,
+            "rate": 170.0,
+            "effective_from": "2026-07-01",
+            "note": "effective same-day row",
+        },
+    ]
+    mismatching = [{**row} for row in matching]
+    mismatching[-1]["rate"] = 171.0
+
+    monkeypatch.setattr(correction_service, "business_today", lambda: date(2026, 8, 30))
+    monkeypatch.setattr(
+        correction_service,
+        "_fetch_contracts",
+        AsyncMock(return_value={1: contract_row}),
+    )
+    monkeypatch.setattr(
+        correction_service,
+        "_fetch_clients",
+        AsyncMock(return_value=[{"id": 12, "name": "BNP Paribas"}]),
+    )
+    monkeypatch.setattr(
+        correction_service,
+        "_fetch_rate_schedule_rows",
+        AsyncMock(side_effect=[matching, mismatching]),
+    )
+    monkeypatch.setattr(
+        correction_service, "_client_order_fk_catalog", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        correction_service, "_fetch_standalone_orders", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        correction_service, "_fetch_client_order_groups", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        correction_service, "_dependency_inventory", AsyncMock(return_value={})
+    )
+
+    allowed = await build_nexus_data_correction_plan(
+        db=SimpleNamespace(), manifest=manifest
+    )
+    assert allowed["ok"] is True
+    assert allowed["blockers"] == []
+    assert allowed["business_date"] == date(2026, 8, 30)
+    assert allowed["contract_updates"] == [
+        {
+            "contract_id": 1,
+            "changes": [
+                {
+                    "field": "rate_client",
+                    "before": "169.000",
+                    "after": Decimal("170.000"),
+                }
+            ],
+        }
+    ]
+    assert allowed["live_state"]["client_rate_schedule_rows"] == matching
+
+    blocked = await build_nexus_data_correction_plan(
+        db=SimpleNamespace(), manifest=manifest
+    )
+    assert blocked["ok"] is False
+    assert blocked["blockers"] == [
+        {
+            "code": "target_client_rate_schedule_mismatch",
+            "contract_id": 1,
+            "row_id": 12,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_plan_allows_set_null_rows_but_blocks_cascade_rows(monkeypatch):
     manifest = _manifest(
         ContractCorrection(
@@ -825,6 +1018,74 @@ async def test_postcondition_preserves_legacy_null_and_non_target_order_rows(
 
     preserved_orders.return_value = []
     with pytest.raises(NexusDataCorrectionError, match="preservation"):
+        await _assert_postconditions(SimpleNamespace(), manifest, plan)
+
+
+@pytest.mark.asyncio
+async def test_postcondition_preserves_every_client_rate_schedule_field(monkeypatch):
+    target = ContractCorrection(
+        1,
+        "b2b",
+        date(2026, 1, 1),
+        None,
+        False,
+        None,
+        True,
+        Decimal("170.000"),
+    )
+    manifest = _manifest(target)
+    contract_row = {
+        "id": 1,
+        "contract_type": "b2b",
+        "start_date": "2026-01-01",
+        "end_date": None,
+        "rate_client": 170.0,
+    }
+    schedule = [
+        {
+            "id": 11,
+            "contract_id": 1,
+            "rate": 170.0,
+            "effective_from": "2026-07-01",
+            "note": "must survive",
+            "created_by": 9,
+            "created_at": "2026-06-01T10:00:00+00:00",
+            "updated_at": "2026-06-01T10:00:00+00:00",
+        }
+    ]
+    changed_schedule = [{**schedule[0], "note": "unexpected mutation"}]
+    plan = {
+        "business_date": date(2026, 8, 30),
+        "live_state": {
+            "contract_rows": [contract_row],
+            "client_rate_schedule_rows": schedule,
+            "standalone_order_rows": [],
+            "client_order_group_rows": [],
+        },
+        "client_order_deletions": [],
+    }
+    monkeypatch.setattr(
+        correction_service,
+        "_fetch_contracts",
+        AsyncMock(return_value={1: contract_row}),
+    )
+    monkeypatch.setattr(
+        correction_service, "_fetch_standalone_orders", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        correction_service, "_fetch_client_order_groups", AsyncMock(return_value=[])
+    )
+    monkeypatch.setattr(
+        correction_service,
+        "_fetch_clients",
+        AsyncMock(return_value=[{"id": 12, "name": "BNP Paribas"}]),
+    )
+    schedule_fetch = AsyncMock(side_effect=[schedule, changed_schedule])
+    monkeypatch.setattr(correction_service, "_fetch_rate_schedule_rows", schedule_fetch)
+
+    await _assert_postconditions(SimpleNamespace(), manifest, plan)
+
+    with pytest.raises(NexusDataCorrectionError, match="schedule preservation"):
         await _assert_postconditions(SimpleNamespace(), manifest, plan)
 
 
@@ -1077,6 +1338,11 @@ def test_redacted_report_has_only_ids_field_names_counts_and_safe_order_flags():
                 "client_id": 12,
                 "effective_type": "cost",
             },
+            {
+                "code": "target_client_rate_schedule_mismatch",
+                "contract_id": 24,
+                "row_id": 666,
+            },
         ],
     }
 
@@ -1128,12 +1394,17 @@ def test_redacted_report_has_only_ids_field_names_counts_and_safe_order_flags():
         "client_id": 12,
         "effective_type": "cost",
     } in redacted["blockers"]
+    assert {
+        "code": "target_client_rate_schedule_mismatch",
+        "contract_id": 24,
+    } in redacted["blockers"]
     assert "Candidate Person" not in encoded
     assert "Legacy Person" not in encoded
     assert "Secret candidate dependency message" not in encoded
     assert "BNP Paribas" not in encoded
     assert "123" not in encoded
     assert "/secret" not in encoded
+    assert "666" not in encoded
     assert "approval_fingerprint" not in set(redacted)
 
 
