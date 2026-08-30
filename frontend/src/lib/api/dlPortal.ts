@@ -84,6 +84,7 @@ export type ClientOrderStatus =
   | "cancelled";
 
 export type OrderType = "periodic" | "cost" | "md";
+export type OrderRateUnit = "hourly" | "daily" | "monthly";
 
 export interface ClientOrderRead {
   id: number;
@@ -98,10 +99,17 @@ export interface ClientOrderRead {
   order_type?: OrderType | null;
   start_date: string | null;
   end_date: string | null;
+  /** Snapshot jednostki stawek tego zamówienia. Starsze odpowiedzi mogą nie
+   *  zawierać pola — wtedy UI dziedziczy jednostkę kontraktu. */
+  rate_unit?: OrderRateUnit | null;
+  billing_hours_per_month?: number | null;
+  rate_candidate?: number | null;
   rate_client: number | null;
   total_value: string | number | null;
   md_quantity?: string | number | null;
   currency: string | null;
+  rate_client_currency?: string | null;
+  rate_candidate_currency?: string | null;
   /** „Część umowy" e-Zdrowia (cz1|cz2|cz4|cz5|cz6) — null u innych klientów. */
   project_part: string | null;
   filename: string | null;
@@ -129,9 +137,15 @@ export interface ContractWithOrdersRead {
   contract_start_date: string | null;
   contract_end_date: string | null;
   rate_candidate: number | null;
+  /** Waluty kontraktu są fallbackiem dla zamówień sprzed snapshotów stawek. */
+  rate_client_currency?: string | null;
+  rate_candidate_currency?: string | null;
+  /** Opcjonalny legacy alias ze starszych odpowiedzi API. */
+  currency?: string | null;
   /** Jednostka stawek kontraktu — surowe rate_candidate/rate_client są w tej
       jednostce; UI etykietuje /h, /dzień, /mc zamiast hardkodować "/mc". */
-  rate_unit: "hourly" | "daily" | "monthly";
+  rate_unit: OrderRateUnit;
+  billing_hours_per_month?: number | null;
   initial_job_id: number | null;
   initial_job_title: string | null;
   latest_order_id: number | null;
@@ -165,6 +179,9 @@ export interface OrderExtractionResult {
    *  Kwota finansowa: redagowana jak `rate_client` dla ról bez uprawnień.
    *  Opcjonalne — starszy backend pola nie wysyła. */
   rate_client_md?: number | null;
+  /** Oryginalna stawka brutto z dokumentu PFRON/Erste. `rate_client` zawiera
+   *  już wartość netto po przeliczeniu brutto / 1,23. */
+  rate_client_gross?: number | null;
   total_value: number | null;
   currency: string | null;
   /** Liczba MD z dokumentu. NIE podlega redakcji finansowej — MD są
@@ -207,13 +224,16 @@ export interface ClientOrderUpdate {
   order_type?: OrderType;
   start_date?: string | null;
   end_date?: string | null;
-  /** Stawka kosztowa. Mieszka na powiązanym kontrakcie, ale zapisujemy ją tą
-   *  samą ścieżką co resztę zamówienia — formularz uzupełnienia draftu
-   *  pokazuje obie stawki obok siebie i zapisuje je jednym żądaniem. */
+  /** Stawka kosztowa jako snapshot tego zamówienia. Zmiana nie przepisuje
+   *  kontraktu ani innych zamówień tej samej osoby. */
   rate_candidate?: number | null;
   rate_client?: number | null;
+  rate_unit?: OrderRateUnit | null;
+  billing_hours_per_month?: number | null;
   total_value?: string | number | null;
   currency?: string | null;
+  rate_client_currency?: string | null;
+  rate_candidate_currency?: string | null;
   framework_contract_id?: number | null;
   job_id?: number | null;
   notes?: string | null;
@@ -252,7 +272,7 @@ export interface NewContractorOrderRequest {
   order_type?: OrderType;
   rate_client?: number;
   rate_candidate?: number;
-  rate_unit?: "monthly" | "daily" | "hourly";
+  rate_unit?: OrderRateUnit;
   billing_hours_per_month?: number;
   currency?: string;
   rate_client_currency?: string;

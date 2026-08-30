@@ -1121,59 +1121,284 @@ def apply_credit_agricole_order_policy(
     return result
 
 
-# ── Erste Bank Polska: stawka w dokumencie jest BRUTTO ──────────────────────
+# ── Orlen: on-site/off-site mogą mieć tę samą stawkę, ale różne pule MD ─────
 #
-# Stała tego klienta, nie przedmiot niepewności: kwota wynagrodzenia za MD
-# w PDF jest brutto przy stałej stawce VAT 23%. Zamówienie w NEXUS-ie nosi
-# stawkę NETTO (tak liczy się marża i tak czytają ją wszystkie widoki), więc
-# konwersja musi się wydarzyć przy odczycie — inaczej różnica 23% wchodzi do
-# rozliczeń jako zysk, którego nie ma.
-_ERSTE_VAT_DIVISOR = Decimal("1.23")
+# Wiersze tego samego konsultanta są w PDF Orlen rozbite na on-site/off-site.
+# Generyczny matcher świadomie uznaje dwie pozycje z różnym ``md_total`` za
+# niejednoznaczne. Dla Orlen liczba MD nie zasila jednak zamówienia: jeżeli
+# wszystkie PEWNE wiersze dokładnie tej samej osoby niosą tę samą parę
+# (stawka, jednostka), możemy zachować wspólną stawkę i całkowicie pominąć MD.
+# Reguła pozostaje osobną polityką klientową — nie rozluźnia matchera innych
+# klientów, dla których różne pozycje nadal wymagają ręcznej weryfikacji.
+
+
+def _clear_rate_for_manual_entry(result: OrderExtraction) -> None:
+    """Usuń stawkę i wszystkie jej pochodne przed ręcznym uzupełnieniem."""
+
+    result.rate_client = None
+    result.rate_unit = None
+    result.rate_client_md = None
+    result.rate_client_gross = None
+    result.consultant_rate_matched = False
+    for key in ("rate_client", "rate_unit", "rate_client_md", "rate_client_gross"):
+        result.confidence.pop(key, None)
+
+
+def _ignore_md_total(result: OrderExtraction) -> None:
+    """Wymuś politykę klienta, w której liczba MD z PDF nie jest używana."""
+
+    result.md_total = None
+    result.consultant_md_matched = False
+    result.confidence.pop("md_total", None)
+
+
+def _fold_policy_text(value: str) -> str:
+    """Tekst do bezpiecznego filtrowania klientowych powodów niepewności."""
+
+    folded = unicodedata.normalize("NFKD", (value or "").casefold())
+    folded = folded.replace("ł", "l")
+    return "".join(ch for ch in folded if not unicodedata.combining(ch))
+
+
+def _is_md_quantity_reason(reason: str) -> bool:
+    """Czy powód dotyczy wyłącznie liczby/puli MD, a nie samej stawki."""
+
+    folded = _fold_policy_text(reason)
+    return (
+        re.search(r"\bmd\b", folded) is not None
+        and "stawk" not in folded
+        and any(marker in folded for marker in ("liczb", "ilos", "pula", "sum"))
+    )
+
+
+def apply_orlen_order_policy(
+    result: OrderExtraction,
+    document_text: str,
+    *,
+    consultant_name: str,
+    consultant_given_names: Optional[str] = None,
+) -> OrderExtraction:
+    """Wybierz wspólną stawkę on/off-site targetowanej osoby, nigdy jej MD.
+
+    ``document_text`` pozostaje w sygnaturze zgodnej z innymi politykami.
+    Źródłem kwoty są wyłącznie ``consultant_rows`` już odczytane dla osoby
+    wskazanej przez serwer. Różna stawka, jednostka, niepewny wiersz albo
+    niejednoznaczna tożsamość zawsze kończą się pustą stawką.
+    """
+
+    del document_text
+    target = (consultant_name or "").strip()
+    _ignore_md_total(result)
+
+    matches = [
+        row
+        for row in result.consultant_rows
+        if _name_match_score(
+            target,
+            row.consultant_name,
+            consultant_given_names=consultant_given_names,
+        )
+        is not None
+    ]
+    exact_identity = bool(matches) and all(
+        _names_exactly_equivalent(target, row.consultant_name) for row in matches
+    )
+    common_rates = {
+        (row.rate_client, row.rate_unit)
+        for row in matches
+        if row.rate_client is not None and row.rate_unit is not None
+    }
+    rows_are_safe = (
+        exact_identity
+        and all(
+            not row.uncertain
+            and row.rate_client is not None
+            and row.rate_unit is not None
+            for row in matches
+        )
+        and len(common_rates) == 1
+    )
+
+    if rows_are_safe:
+        rate, unit = next(iter(common_rates))
+        result.rate_client = rate
+        result.rate_unit = unit
+        result.rate_client_md = None
+        result.rate_client_gross = None
+        result.consultant_rate_matched = True
+        result.uncertain_reasons = [
+            reason
+            for reason in result.uncertain_reasons
+            if not (
+                "Znaleziono więcej niż jedną pozycję pasującą do konsultanta" in reason
+                or _is_md_quantity_reason(reason)
+            )
+        ]
+        result.uncertain = bool(result.uncertain_reasons)
+        return result
+
+    _clear_rate_for_manual_entry(result)
+    reason = (
+        f"Pozycje on-site/off-site konsultanta „{target}” nie mają jednej "
+        "pewnej stawki i jednostki — wpisz stawkę przychodową ręcznie"
+    )
+    if reason not in result.uncertain_reasons:
+        result.uncertain_reasons.append(reason)
+    result.uncertain = True
+    return result
+
+
+# ── PFRON: konkretny okres, bez liczby MD; stawka brutto → netto ────────────
+
+_DATE_TOKEN_PATTERN = r"(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4})"
+_PFRON_OD_DO_END_RE = re.compile(
+    rf"\bod(?:\s+dnia)?\s+{_DATE_TOKEN_PATTERN}\s*"
+    rf"(?:do(?:\s+dnia)?|[-–—])\s*(?P<end>{_DATE_TOKEN_PATTERN})",
+    re.IGNORECASE,
+)
+_PFRON_LABELLED_RANGE_END_RE = re.compile(
+    rf"(?:termin|okres)\s+realizacji(?:\s+usług)?\s*[:\-–—]?\s*"
+    rf"{_DATE_TOKEN_PATTERN}\s*[-–—]\s*(?P<end>{_DATE_TOKEN_PATTERN})",
+    re.IGNORECASE,
+)
+_PFRON_LABELLED_END_RE = re.compile(
+    rf"(?:data|termin)\s+zakończenia"
+    rf"(?:\s+(?:zamówienia|realizacji(?:\s+usług)?|usług))?"
+    rf"\s*[:\-–—]?\s*(?P<end>{_DATE_TOKEN_PATTERN})",
+    re.IGNORECASE,
+)
+_PFRON_SERVICE_TO_END_RE = re.compile(
+    rf"(?:termin|okres)\s+realizacji(?:\s+usług)?[^\n]{{0,100}}?"
+    rf"\bdo(?:\s+dnia)?\s+(?P<end>{_DATE_TOKEN_PATTERN})",
+    re.IGNORECASE,
+)
+
+
+def _pfron_end_date_candidates(document_text: str) -> list[str]:
+    """Jawne daty końca okresu usług; pozostałe daty dokumentu są ignorowane."""
+
+    candidates: list[str] = []
+    for pattern in (
+        _PFRON_OD_DO_END_RE,
+        _PFRON_LABELLED_RANGE_END_RE,
+        _PFRON_LABELLED_END_RE,
+        _PFRON_SERVICE_TO_END_RE,
+    ):
+        for match in pattern.finditer(document_text or ""):
+            normalized = _normalize_date(match.group("end"), end=True)
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+    return candidates
+
+
+def pfron_end_date(document_text: str) -> Optional[str]:
+    """Jedyna konkretna data końca usług PFRON albo ``None`` (fail closed)."""
+
+    candidates = _pfron_end_date_candidates(document_text)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+# ── PFRON i Erste: stawka w dokumencie jest BRUTTO ─────────────────────────
+
+_GROSS_RATE_VAT_DIVISOR = Decimal("1.23")
+# Alias zachowany dla zgodności kodu/testów odwołujących się do polityki Erste.
+_ERSTE_VAT_DIVISOR = _GROSS_RATE_VAT_DIVISOR
+
+
+def net_rate_from_gross(gross: Decimal) -> Decimal:
+    """Brutto → netto przy stałym VAT 23%, zaokrąglone do 2 miejsc."""
+
+    return (gross / _GROSS_RATE_VAT_DIVISOR).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
 
 
 def erste_net_from_gross(gross: Decimal) -> Decimal:
-    """Brutto → netto przy stałym VAT 23%, zaokrąglone do 2 miejsc.
+    """Kompatybilny alias historycznej funkcji konwersji Erste."""
 
-    ``ROUND_HALF_UP``, a nie ``ROUND_CEILING`` jak przy dzieleniu MD ÷ 8
-    u Banku Pocztowego: tamto zaokrąglenie w górę było świadomą decyzją
-    handlową przy ROZBIJANIU stawki na godziny (nie chcemy zaniżyć stawki
-    godzinowej), a tu odwracamy dokładne działanie arytmetyczne — właściwe
-    jest zwykłe zaokrąglenie kwot pieniężnych.
+    return net_rate_from_gross(gross)
+
+
+def apply_gross_to_net_rate_policy(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Przelicz stawkę brutto na netto raz, zachowując oryginalną wartość.
+
+    ``rate_client_gross`` jest jednocześnie wartością do pokazania operatorowi
+    i znacznikiem idempotencji. ``total_value`` pozostaje bez zmian: ticket
+    dotyczy wyłącznie stawki, a charakter całkowitej kwoty dokumentu może być
+    inny i nie wolno go zgadywać.
     """
-    return (gross / _ERSTE_VAT_DIVISOR).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+
+    del document_text
+    if result.rate_client is None:
+        return result
+
+    # Dokumenty obu objętych klientów podają tę stawkę zawsze za godzinę.
+    # Jest to deterministyczna reguła klientowa, więc nie wolno zachować
+    # omyłkowej etykiety MD z modelu ani wyczyścić poprawnej kwoty tylko dlatego,
+    # że model pominął jednostkę.
+    result.rate_unit = "hour"
+    result.confidence["rate_unit"] = 1.0
+    if result.rate_client_gross is not None:
+        return result
+
+    gross = result.rate_client
+    result.rate_client_gross = gross
+    result.rate_client = net_rate_from_gross(gross)
+    result.uncertain_reasons = [
+        reason
+        for reason in result.uncertain_reasons
+        # Ostrzeżenie „stawka może być w innej jednostce/VAT" przestało opisywać
+        # wynik — przeliczenie właśnie się wydarzyło i jest deterministyczne.
+        if "vat" not in _fold_policy_text(reason)
+        and "przeliczenie" not in _fold_policy_text(reason)
+    ]
+    result.uncertain = bool(result.uncertain_reasons)
+    return result
+
+
+def apply_pfron_order_policy(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Pomiń MD, zapisz jawną datę końca i przelicz stawkę brutto na netto."""
+
+    _ignore_md_total(result)
+    candidates = _pfron_end_date_candidates(document_text)
+    end_date = candidates[0] if len(candidates) == 1 else None
+
+    result.uncertain_reasons = [
+        reason
+        for reason in result.uncertain_reasons
+        if not _is_md_quantity_reason(reason)
+        and "przedluz" not in _fold_policy_text(reason)
+        and not (
+            end_date is not None and "data zakonczenia" in _fold_policy_text(reason)
+        )
+    ]
+    if end_date is not None:
+        result.end_date = end_date
+        result.confidence["end_date"] = 1.0
+    else:
+        result.end_date = None
+        result.confidence.pop("end_date", None)
+        reason = (
+            "Nie znaleziono jednej konkretnej daty zakończenia okresu usług "
+            "PFRON — wpisz datę ręcznie"
+        )
+        if reason not in result.uncertain_reasons:
+            result.uncertain_reasons.append(reason)
+
+    result.uncertain = bool(result.uncertain_reasons)
+    return apply_gross_to_net_rate_policy(result, document_text)
 
 
 def apply_erste_order_policy(
     result: OrderExtraction, document_text: str
 ) -> OrderExtraction:
-    """Przelicz odczytaną stawkę brutto na netto (÷ 1,23) i zapisz netto.
+    """Kompatybilna polityka Erste delegująca do wspólnej konwersji brutto."""
 
-    ``document_text`` nie jest tu czytany — kwotę bierzemy z wyniku odczytu,
-    a nie z osobnej etykiety. Parametr zostaje w sygnaturze, żeby wszystkie
-    polityki klientowe wołało się w routerze jednakowo.
-
-    ``total_value`` zostaje BEZ ZMIAN i to jest świadome: ticket mówi
-    o stawce przychodowej, a wartość całkowita bywa w tych dokumentach podana
-    z własną adnotacją (netto/brutto) — ciche podzielenie jej przez 1,23
-    „przy okazji" byłoby zgadywaniem na kwocie, o którą nikt nie prosił.
-    """
-    if result.rate_client is None:
-        return result
-    gross = result.rate_client
-    result.rate_client_gross = gross
-    result.rate_client = erste_net_from_gross(gross)
-    reasons = [
-        reason
-        for reason in result.uncertain_reasons
-        # Ostrzeżenie „stawka może być w innej jednostce/VAT" przestało opisywać
-        # wynik — przeliczenie właśnie się wydarzyło i jest deterministyczne.
-        if "VAT" not in reason and "przeliczenie" not in reason
-    ]
-    result.uncertain_reasons = reasons
-    result.uncertain = bool(reasons)
-    return result
+    return apply_gross_to_net_rate_policy(result, document_text)
 
 
 def _extract_with_regex(text: str) -> OrderExtraction:
@@ -1381,6 +1606,7 @@ def apply_consultant_row_match(
     consultant_name: str,
     *,
     consultant_given_names: Optional[str] = None,
+    rate_unit_default: Optional[str] = None,
 ) -> OrderExtraction:
     """Wybierz dokładnie jeden wiersz tej osoby albo wyczyść stawkę i MD.
 
@@ -1444,7 +1670,8 @@ def apply_consultant_row_match(
             result.md_total = None
             return result
         result.consultant_md_matched = row.md_total is not None
-        if row.rate_client is not None and row.rate_unit is None:
+        matched_rate_unit = row.rate_unit or rate_unit_default
+        if row.rate_client is not None and matched_rate_unit is None:
             result.uncertain = True
             result.uncertain_reasons.append(
                 f"W pozycji konsultanta „{target}” nie znaleziono jednostki stawki — "
@@ -1452,9 +1679,9 @@ def apply_consultant_row_match(
             )
             return result
         result.rate_client = row.rate_client
-        result.rate_unit = row.rate_unit
+        result.rate_unit = matched_rate_unit
         result.consultant_rate_matched = (
-            row.rate_client is not None and row.rate_unit is not None
+            row.rate_client is not None and matched_rate_unit is not None
         )
         if row.rate_client is None:
             result.rate_unit = None
@@ -1521,6 +1748,7 @@ async def parse_order_document(
     *,
     consultant_name: Optional[str] = None,
     consultant_given_names: Optional[str] = None,
+    consultant_rate_unit_default: Optional[str] = None,
 ) -> OrderExtraction:
     """Odczytaj pola zamówienia z tekstu dokumentu. Nigdy nie rzuca."""
     text = (text or "").strip()
@@ -1552,5 +1780,6 @@ async def parse_order_document(
             result,
             consultant_name,
             consultant_given_names=consultant_given_names,
+            rate_unit_default=consultant_rate_unit_default,
         )
     return result

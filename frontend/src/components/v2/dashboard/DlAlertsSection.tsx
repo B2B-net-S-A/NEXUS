@@ -44,6 +44,7 @@ function AlertRow({
   onHandled: (id: number) => void;
   handling: boolean;
 }) {
+  const requiresOrderDecision = alert.alert_type === "md_consultant_ended";
   return (
     <li className="rounded-lg border border-border bg-muted/30 p-3">
       <div className="flex items-start justify-between gap-3">
@@ -68,7 +69,14 @@ function AlertRow({
               : ""}
           </p>
         </div>
-        {alert.status === "new" ? (
+        {alert.status === "new" && requiresOrderDecision && alert.link ? (
+          <Link
+            href={alert.link}
+            className="inline-flex shrink-0 items-center rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            Podejmij decyzję
+          </Link>
+        ) : alert.status === "new" && !requiresOrderDecision ? (
           <button
             type="button"
             onClick={() => onHandled(alert.id)}

@@ -4,11 +4,20 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { FileDropZone } from "@/components/ds/FileDropZone";
+import {
+  OrderCurrencySelect,
+  OrderRateUnitToggle,
+  convertRateInput,
+  extractionRateUnit,
+  normalizeOrderCurrency,
+  rateUnitNoticeLabel,
+} from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg } from "@/lib/api";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
   ContractWithOrdersRead,
+  OrderRateUnit,
   OrderExtractionResult,
 } from "@/lib/api/dlPortal";
 import {
@@ -27,6 +36,7 @@ import {
 interface ExtendOrderDialogProps {
   clientId: number;
   contract: ContractWithOrdersRead;
+  canManageFinance?: boolean;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -35,13 +45,19 @@ interface ExtendOrderDialogProps {
 export function ExtendOrderDialog({
   clientId,
   contract,
+  canManageFinance: serverCanManageFinance,
   onClose,
   onCreated,
 }: ExtendOrderDialogProps) {
   const { showToast } = useToast();
   const user = useAuthStore((state) => state.user);
-  const canManageFinance = canManageCandidateFinance(user);
+  const canManageFinance =
+    serverCanManageFinance ?? canManageCandidateFinance(user);
   const latest = contract.orders[0]; // assumed already sorted desc
+  const rateBillingHours =
+    latest?.billing_hours_per_month ??
+    contract.billing_hours_per_month ??
+    160;
 
   // Bez autofillu: ta wartość ląduje na karcie jako „Numer zamówienia", więc
   // podpowiedź „Przedłużenie <imię>" wpisywała tam nazwisko zamiast numeru
@@ -61,6 +77,30 @@ export function ExtendOrderDialog({
     canManageFinance
       ? String(latest?.rate_client ?? contract.latest_order_rate_client ?? "")
       : "",
+  );
+  const [rateCandidate, setRateCandidate] = useState(
+    canManageFinance
+      ? String(latest?.rate_candidate ?? contract.rate_candidate ?? "")
+      : "",
+  );
+  const [rateUnit, setRateUnit] = useState<OrderRateUnit>(
+    latest?.rate_unit ?? contract.rate_unit ?? "monthly",
+  );
+  const [rateClientCurrency, setRateClientCurrency] = useState(
+    normalizeOrderCurrency(
+      latest?.rate_client_currency,
+      latest?.currency,
+      contract.rate_client_currency,
+      contract.currency,
+    ),
+  );
+  const [rateCandidateCurrency, setRateCandidateCurrency] = useState(
+    normalizeOrderCurrency(
+      latest?.rate_candidate_currency,
+      contract.rate_candidate_currency,
+      contract.rate_client_currency,
+      contract.currency,
+    ),
   );
   const [totalValue, setTotalValue] = useState("");
   const [jobId, setJobId] = useState(
@@ -88,9 +128,15 @@ export function ExtendOrderDialog({
   // Oryginalna stawka za 1 MD z dokumentu (Bank Pocztowy) — pokazywana obok
   // pola stawki; samo pole niesie już wartość przeliczoną na zł/h (MD ÷ 8).
   const [rateMdOriginal, setRateMdOriginal] = useState<string | null>(null);
+  const [grossConversion, setGrossConversion] = useState<{
+    gross: string;
+    net: string;
+  } | null>(null);
+  const [unitChangeNotice, setUnitChangeNotice] = useState<string | null>(null);
 
   // Stawki przyjmują grosze wpisane po polsku (przecinek) — parseDecimalInput.
   const rateClientNum = parseDecimalInput(rateClient);
+  const rateCandidateNum = parseDecimalInput(rateCandidate);
 
   /** Wstawia odczytane pola. Wypełnia tylko te, które dokument dostarczył —
    *  nie kasuje ręcznych wpisów dla pól nieodczytanych. Wszystkie edytowalne. */
@@ -100,12 +146,49 @@ export function ExtendOrderDialog({
     if (d.start_date) setStartDate(normalizeDateInput(d.start_date));
     if (d.end_date) setEndDate(normalizeDateInput(d.end_date));
     if (canManageFinance) {
+      const detectedUnit = extractionRateUnit(d.rate_unit);
+      if (detectedUnit && detectedUnit !== rateUnit) {
+        setRateCandidate(
+          convertRateInput(
+            rateCandidate,
+            rateUnit,
+            detectedUnit,
+            rateBillingHours,
+          ),
+        );
+        setRateClient(
+          convertRateInput(
+            rateClient,
+            rateUnit,
+            detectedUnit,
+            rateBillingHours,
+          ),
+        );
+        setRateUnit(detectedUnit);
+        setUnitChangeNotice(
+          `Jednostkę stawki zmieniono na ${rateUnitNoticeLabel(detectedUnit)} na podstawie odczytanej pozycji`,
+        );
+      } else {
+        setUnitChangeNotice(null);
+      }
       // Kwoty finansowe tylko dla ról z manage_finance (backend i tak je redaguje).
       if (d.rate_client != null) setRateClient(String(d.rate_client));
+      // Waluta z dokumentu dotyczy przychodu klienta, nie kosztu kontraktora.
+      if (d.currency) {
+        setRateClientCurrency(normalizeOrderCurrency(d.currency));
+      }
       if (d.total_value != null) setTotalValue(String(d.total_value));
       // Bank Pocztowy: pole wyżej dostało stawkę GODZINOWĄ; oryginał MD
       // pokazujemy obok, żeby obie wartości były widoczne przed zapisem.
       setRateMdOriginal(d.rate_client_md != null ? String(d.rate_client_md) : null);
+      setGrossConversion(
+        d.rate_client_gross != null && d.rate_client != null
+          ? {
+              gross: String(d.rate_client_gross),
+              net: String(d.rate_client),
+            }
+          : null,
+      );
     }
     // `md_total` z odczytu jest tu świadomie POMIJANE: ten formularz obsługuje
     // wyłącznie klientów rozliczanych jednoosobowo, u których zamówienie nie ma
@@ -120,7 +203,11 @@ export function ExtendOrderDialog({
     if (!file || extracting) return;
     setExtracting(true);
     try {
-      const res = await dlPortalApi.extractOrderPdf(clientId, file);
+      const res = await dlPortalApi.extractOrderPdf(
+        clientId,
+        file,
+        contract.candidate_id,
+      );
       applyExtraction(res.data);
       showToast("Odczytano dane z dokumentu", "success");
     } catch (err: unknown) {
@@ -144,6 +231,13 @@ export function ExtendOrderDialog({
         // Candidate-bearing order finance is Admin-only. Operational callers
         // omit amounts entirely instead of sending redacted/default values.
         if (rateClientNum !== null) fd.append("rate_client", String(rateClientNum));
+        if (rateCandidateNum !== null) {
+          fd.append("rate_candidate", String(rateCandidateNum));
+        }
+        fd.append("rate_unit", rateUnit);
+        fd.append("billing_hours_per_month", String(rateBillingHours));
+        fd.append("rate_client_currency", rateClientCurrency);
+        fd.append("rate_candidate_currency", rateCandidateCurrency);
         const totalValueNum = parseDecimalInput(totalValue);
         if (totalValueNum !== null) fd.append("total_value", String(totalValueNum));
       }
@@ -260,35 +354,95 @@ export function ExtendOrderDialog({
         </div>
 
         {canManageFinance && (
-          <div className="grid grid-cols-2 gap-3">
-            <label>
-              <span className="text-sm">Klient płaci (rate_client) /mc</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={rateClient}
-                onChange={(e) =>
-                  setRateClient(sanitizeDecimalInput(e.target.value))
-                }
-                className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
-                placeholder="np. 17000"
+          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label>
+                <span className="text-sm">Stawka przychodowa (klient)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={rateClient}
+                  onChange={(e) =>
+                    setRateClient(sanitizeDecimalInput(e.target.value))
+                  }
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                  placeholder="np. 17000"
+                />
+                {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
+                    wyżej ma już przeliczoną stawkę godzinową (edytowalną),
+                    a oryginał z dokumentu zostaje widoczny obok. */}
+                {rateMdOriginal !== null && (
+                  <span className="text-xs text-muted-foreground mt-0.5 block">
+                    Z dokumentu: {rateMdOriginal} {rateClientCurrency}/MD →
+                    przeliczono na stawkę godzinową (÷ 8, w górę do 2 miejsc)
+                  </span>
+                )}
+                {grossConversion !== null && (
+                  <span className="text-xs text-muted-foreground mt-0.5 block">
+                    Z dokumentu: {grossConversion.gross} {rateClientCurrency}/h
+                    brutto → {grossConversion.net} {rateClientCurrency}/h netto
+                    (÷ 1,23)
+                  </span>
+                )}
+              </label>
+              <label>
+                <span className="text-sm">Stawka kosztowa (kontraktor)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={rateCandidate}
+                  onChange={(e) =>
+                    setRateCandidate(sanitizeDecimalInput(e.target.value))
+                  }
+                  className="mt-1 w-full px-3 py-2 border border-border rounded bg-background"
+                  placeholder="np. 12000"
+                />
+                {rateCandidateNum !== null &&
+                  rateClientNum !== null &&
+                  rateCandidateCurrency === rateClientCurrency && (
+                  <span className="text-xs text-green-700 mt-0.5 block">
+                    marża: {rateClientNum - rateCandidateNum} {rateClientCurrency}
+                  </span>
+                )}
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+              <div className="sm:col-span-2">
+                <OrderRateUnitToggle
+                  value={rateUnit}
+                  rateCandidate={rateCandidate}
+                  rateClient={rateClient}
+                  onValueChange={setRateUnit}
+                onRateCandidateChange={setRateCandidate}
+                onRateClientChange={setRateClient}
+                billingHoursPerMonth={rateBillingHours}
               />
-              {/* Bank Pocztowy: dokument podaje stawkę za 1 MD (8 h) — pole
-                  wyżej ma już przeliczoną stawkę godzinową (edytowalną),
-                  a oryginał z dokumentu zostaje widoczny obok. */}
-              {rateMdOriginal !== null && (
-                <span className="text-xs text-muted-foreground mt-0.5 block">
-                  Z dokumentu: {rateMdOriginal} zł/MD → przeliczono na stawkę
-                  godzinową (÷ 8, w górę do 2 miejsc)
-                </span>
+              </div>
+              <OrderCurrencySelect
+                value={rateClientCurrency}
+                onChange={setRateClientCurrency}
+              />
+              <OrderCurrencySelect
+                value={rateCandidateCurrency}
+                onChange={setRateCandidateCurrency}
+                label="Waluta stawki kosztowej"
+                ariaLabel="Waluta stawki kosztowej"
+              />
+            </div>
+            {rateClientNum !== null &&
+              rateCandidateNum !== null &&
+              rateClientCurrency !== rateCandidateCurrency && (
+                <p className="text-xs text-muted-foreground">
+                  Marża zostanie pokazana po niezależnym przeliczeniu obu stawek
+                  do PLN.
+                </p>
               )}
-              {contract.rate_candidate !== null && rateClientNum !== null && (
-                <span className="text-xs text-green-700 mt-0.5 block">
-                  marża /mc: {rateClientNum - contract.rate_candidate}
-                </span>
-              )}
-            </label>
-            <label>
+            {unitChangeNotice ? (
+              <p role="status" className="text-xs text-primary">
+                {unitChangeNotice}
+              </p>
+            ) : null}
+            <label className="block">
               <span className="text-sm">Total value (opcjonalnie)</span>
               <input
                 type="text"
@@ -349,6 +503,8 @@ export function ExtendOrderDialog({
               setCheckReasons([]);
               setTitleCheck(false);
               setRateMdOriginal(null);
+              setGrossConversion(null);
+              setUnitChangeNotice(null);
             }}
             onError={setFileError}
             error={fileError}
@@ -383,6 +539,8 @@ export function ExtendOrderDialog({
                     setCheckReasons([]);
                     setTitleCheck(false);
                     setRateMdOriginal(null);
+                    setGrossConversion(null);
+                    setUnitChangeNotice(null);
                   }
                 }}
                 className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"

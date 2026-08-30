@@ -370,12 +370,15 @@ async def test_head_of_recruitment_never_gains_order_finance(
     )
 
 
-async def test_delivery_lead_cannot_rewrite_rate_unit(app_client: AsyncClient) -> None:
-    """Przypisany DL zapisuje KWOTY, ale nie regułę ich przeliczania.
+async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
+    app_client: AsyncClient,
+) -> None:
+    """Jednostka jest snapshotem zamówienia, ale nadal wymaga przypisania DL.
 
-    ``rate_unit`` i ``billing_hours_per_month`` przeliczają wstecz każdą kwotę
-    i marżę na kontrakcie (``_normalize_monthly``), a ticket prosi wyłącznie
-    o dwie stawki. Admin zachowuje pełen zestaw.
+    Zmiana ``rate_unit`` i ``billing_hours_per_month`` przelicza wyłącznie
+    stawki jednego zamówienia. Nie zmienia Contract ani innych zamówień, więc
+    przypisany Delivery Lead korzysta z tego samego uprawnienia co przy zapisie
+    kwot; nieprzypisany DL pozostaje odcięty.
     """
     import pytest as _pytest
     from fastapi import HTTPException
@@ -395,13 +398,26 @@ async def test_delivery_lead_cannot_rewrite_rate_unit(app_client: AsyncClient) -
     client_orders._assert_order_finance_write_allowed(
         dl, {"rate_client", "rate_candidate"}, can_finance=True
     )
-    # Jednostka stawki — nie.
+    # Jednostka i liczba godzin są częścią snapshotu tego zamówienia — wolno.
+    client_orders._assert_order_finance_write_allowed(
+        dl,
+        {"rate_client", "rate_unit", "billing_hours_per_month"},
+        can_finance=True,
+    )
+
+    # Ten sam DL bez jawnego przypisania do klienta — nie.
     with _pytest.raises(HTTPException) as exc_info:
         client_orders._assert_order_finance_write_allowed(
-            dl, {"rate_client", "rate_unit"}, can_finance=True
+            dl,
+            {"rate_client", "rate_unit", "billing_hours_per_month"},
+            can_finance=False,
         )
     assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["fields"] == ["rate_unit"]
+    assert exc_info.value.detail["fields"] == [
+        "billing_hours_per_month",
+        "rate_client",
+        "rate_unit",
+    ]
 
     # Admin — pełen zestaw, niezależnie od flagi.
     client_orders._assert_order_finance_write_allowed(

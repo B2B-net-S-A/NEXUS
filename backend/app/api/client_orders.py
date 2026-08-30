@@ -52,6 +52,10 @@ from app.models.client import Client
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
+from app.models.client_order_offboarding import (
+    OFFBOARDING_STATUS_PENDING,
+    ClientOrderOffboardingCase,
+)
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.job import Job
@@ -86,6 +90,7 @@ from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
     md_rate_from_order_rate,
 )
+from app.services.order_rate_snapshots import convert_order_rate
 from app.services.order_types import (
     assert_order_type_allowed,
     effective_standalone_order_type,
@@ -96,6 +101,8 @@ from app.services.order_pdf_parser import (
     apply_bank_pocztowy_order_policy,
     apply_credit_agricole_order_policy,
     apply_erste_order_policy,
+    apply_orlen_order_policy,
+    apply_pfron_order_policy,
     enforce_consultant_policy_safety,
     enforce_nordea_order_number,
     parse_order_document,
@@ -243,6 +250,17 @@ _CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV = "CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT
 # niż jeden wiersz (ta sama lekcja co przy BNP).
 _ERSTE_GROSS_RATE_CLIENT_IDS_ENV = "ERSTE_GROSS_RATE_CLIENT_IDS"
 
+# Reguły Orlen/PFRON są celowo związane z kanonicznymi rekordami klientów,
+# które zweryfikowano w produkcyjnym rejestrze przed wdrożeniem ticketu. Env
+# pozwala dopisać kontrolowany duplikat/rekord w innym środowisku bez
+# rozlewania heurystyki na klientów o podobnej nazwie. Nazwa klienta nie jest
+# bramką: import z Traffita może ją zmienić, a reguła finansowa ma pozostać
+# dokładnie client-specific.
+_ORLEN_ORDER_EXTRACTION_CLIENT_IDS_ENV = "ORLEN_ORDER_EXTRACTION_CLIENT_IDS"
+_PFRON_ORDER_EXTRACTION_CLIENT_IDS_ENV = "PFRON_ORDER_EXTRACTION_CLIENT_IDS"
+_ORLEN_CANONICAL_CLIENT_IDS = frozenset({35})
+_PFRON_CANONICAL_CLIENT_IDS = frozenset({122})
+
 
 def _client_ids_from_env(env_name: str) -> frozenset[int]:
     """CSV `client_id` ze zmiennej środowiskowej bramki polityki ekstrakcji.
@@ -325,6 +343,24 @@ def _is_erste_gross_rate_client(client_id: Optional[int]) -> bool:
     return client_id in _client_ids_from_env(_ERSTE_GROSS_RATE_CLIENT_IDS_ENV)
 
 
+def _is_orlen_order_client(client_id: Optional[int]) -> bool:
+    if client_id is None:
+        return False
+    return client_id in (
+        _ORLEN_CANONICAL_CLIENT_IDS
+        | _client_ids_from_env(_ORLEN_ORDER_EXTRACTION_CLIENT_IDS_ENV)
+    )
+
+
+def _is_pfron_order_client(client_id: Optional[int]) -> bool:
+    if client_id is None:
+        return False
+    return client_id in (
+        _PFRON_CANONICAL_CLIENT_IDS
+        | _client_ids_from_env(_PFRON_ORDER_EXTRACTION_CLIENT_IDS_ENV)
+    )
+
+
 def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
     """Stawka kosztowa, którą bramka aktywacji uznaje za „wypełnioną”.
 
@@ -371,8 +407,13 @@ def _order_has_required_activation_data(order: ClientOrder) -> bool:
         and title != "(bez numeru)"
         and order.start_date is not None
         and order.rate_client is not None
-        and order.contract is not None
-        and _activation_candidate_rate(order.contract) is not None
+        and (
+            order.rate_candidate is not None
+            or (
+                order.contract is not None
+                and _activation_candidate_rate(order.contract) is not None
+            )
+        )
     )
     if not base_complete:
         return False
@@ -484,11 +525,9 @@ async def _materialize_group_after_activation(
     „harmonogram jest prawdą" mieszka tutaj (``_activation_candidate_rate``),
     a serwis nie importuje z warstwy API.
     """
-    candidate_rate = (
-        _activation_candidate_rate(order.contract)
-        if order.contract is not None
-        else None
-    )
+    candidate_rate = order.rate_candidate
+    if candidate_rate is None and order.contract is not None:
+        candidate_rate = _activation_candidate_rate(order.contract)
     try:
         await materialize_group_for_activated_order(
             db, order, actor_id=actor_id, candidate_rate=candidate_rate
@@ -644,23 +683,33 @@ def _compute_monthly_margin(
     rate_client_effective = (
         order.rate_client if order.rate_client is not None else eff["rate_client"]
     )
-    if rate_client_effective is None or eff["rate_candidate"] is None:
+    rate_candidate_effective = (
+        order.rate_candidate
+        if order.rate_candidate is not None
+        else eff["rate_candidate"]
+    )
+    if rate_client_effective is None or rate_candidate_effective is None:
         return None
     client_currency = (
-        (order.currency or "PLN").upper()
-        if order.rate_client is not None
-        else eff["rate_client_currency"]
-    )
-    if client_currency != eff["rate_candidate_currency"]:
+        order.rate_client_currency or order.currency or eff["rate_client_currency"]
+    ).upper()
+    candidate_currency = (
+        order.rate_candidate_currency or eff["rate_candidate_currency"]
+    ).upper()
+    if client_currency != candidate_currency:
         # This synchronous helper has no dated FX snapshot. Returning no
         # margin is safer than subtracting nominal values in different
         # currencies; PLN analytics convert both legs independently.
         return None
     monthly_client = _normalize_monthly(
-        rate_client_effective, contract.rate_unit, contract.billing_hours_per_month
+        rate_client_effective,
+        order.rate_unit or contract.rate_unit,
+        order.billing_hours_per_month or contract.billing_hours_per_month,
     )
     monthly_cand = _normalize_monthly(
-        eff["rate_candidate"], contract.rate_unit, contract.billing_hours_per_month
+        rate_candidate_effective,
+        order.rate_unit or contract.rate_unit,
+        order.billing_hours_per_month or contract.billing_hours_per_month,
     )
     if monthly_client is None or monthly_cand is None:
         return None
@@ -744,14 +793,31 @@ def _apply_candidate_rate(
 # kontraktorów, ale bez kwot — spójne z redakcją w contracts.py
 # (`_redact_contract_finance`) i clients.py. Waluta również znika, żeby nie
 # zdradzać sposobu rozliczenia ukrytej kwoty.
-_ORDER_FINANCE_FIELDS = ("rate_client", "total_value", "monthly_margin", "currency")
+_ORDER_FINANCE_FIELDS = (
+    "rate_candidate",
+    "rate_client",
+    "total_value",
+    "monthly_margin",
+    "currency",
+    "rate_client_currency",
+    "rate_candidate_currency",
+)
 # Klucze pól finansowych w fields_confidence odczytu PDF — redagowane dla ról
 # bez VIEW_FINANCE (obecność klucza sama zdradza, że PO zawiera stawkę/wartość).
 _EXTRACTION_FINANCE_CONF_KEYS = frozenset(
-    {"rate_client", "rate_client_md", "total_value", "currency", "rate_unit"}
+    {
+        "rate_client",
+        "rate_client_md",
+        "rate_client_gross",
+        "total_value",
+        "currency",
+        "rate_unit",
+    }
 )
 _CONTRACTOR_FINANCE_FIELDS = (
     "rate_candidate",
+    "rate_client_currency",
+    "rate_candidate_currency",
     "latest_order_rate_client",
     "latest_order_monthly_margin",
 )
@@ -768,12 +834,9 @@ _ORDER_FINANCE_WRITE_FIELDS = frozenset(
     }
 )
 # Podzbiór, który wolno zapisać PRZYPISANEMU Delivery Leadowi. Admin ma pełen
-# zestaw. Różnica nie jest kosmetyczna: `rate_unit` i `billing_hours_per_month`
-# nie są kwotami, tylko REGUŁĄ PRZELICZANIA kwot (`_normalize_monthly` mnoży
-# stawkę przez 22 albo przez godziny). Ich zmiana przelicza wstecz KAŻDĄ kwotę
-# i marżę na kontrakcie, w tym historyczne — a ticket prosi wyłącznie o dwie
-# stawki. Waluta i wartość zamówienia zostają, bo opisują to konkretne
-# zamówienie i nie przepisują niczego wstecz.
+# zestaw. Wszystkie pola poniżej opisują wyłącznie snapshot jednego zamówienia;
+# zmiana jednostki przelicza jego dwie stawki, ale nie dotyka Contract ani
+# sąsiednich zamówień. Pozostałe admin-only pola nie są tu dopuszczane.
 _DL_ORDER_FINANCE_WRITE_FIELDS = frozenset(
     {
         "rate_client",
@@ -782,6 +845,10 @@ _DL_ORDER_FINANCE_WRITE_FIELDS = frozenset(
         "currency",
         "rate_client_currency",
         "rate_candidate_currency",
+        # These fields now describe one order snapshot; they no longer rewrite
+        # Contract or the history of sibling orders.
+        "rate_unit",
+        "billing_hours_per_month",
     }
 )
 
@@ -845,8 +912,10 @@ def _assert_order_finance_write_allowed(
     zamyka się dla wszystkich poza adminem, zamiast otwierać dla wszystkich —
     bramka nie zależy od tego, czy wywołujący pamiętał o argumencie.
 
-    Przypisany Delivery Lead dostaje WĘŻSZY zestaw pól niż admin
-    (``_DL_ORDER_FINANCE_WRITE_FIELDS``): kwoty tak, reguły ich przeliczania nie.
+    Przypisany Delivery Lead dostaje wyłącznie jawnie allowlistowane pola
+    finansowe zamówienia. Jednostka i godziny są snapshotem jednego zamówienia,
+    więc mogą być zmieniane razem ze stawkami bez przepisywania Contract ani
+    zamówień historycznych.
     """
 
     is_admin = user.has_role(UserRole.admin)
@@ -867,6 +936,34 @@ def _assert_order_finance_write_allowed(
             detail={
                 "code": "finance_fields_forbidden",
                 "fields": forbidden,
+            },
+        )
+
+
+async def _assert_no_pending_group_line_offboarding(
+    db: AsyncSession, order: ClientOrder
+) -> None:
+    """Keep legacy standalone routes from bypassing the MD decision workflow."""
+
+    if order.order_group_id is None:
+        return
+    pending_case_id = await db.scalar(
+        select(ClientOrderOffboardingCase.id)
+        .where(
+            ClientOrderOffboardingCase.order_id == order.id,
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+        )
+        .limit(1)
+    )
+    if pending_case_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "offboarding_decision_required",
+                "message": (
+                    "Najpierw podejmij decyzję o pozostałej puli MD po "
+                    "zakończeniu współpracy konsultanta."
+                ),
             },
         )
 
@@ -945,10 +1042,15 @@ def _flow_b_finance_kwargs(
         "billing_hours_per_month": billing_hours,
     }
     order_kwargs: dict[str, object] = {
+        "rate_candidate": payload.rate_candidate,
         "rate_client": payload.rate_client,
+        "rate_unit": rate_unit,
+        "billing_hours_per_month": billing_hours,
         "total_value": payload.total_value,
         # Zamówienie reprezentuje przychód od klienta.
         "currency": client_currency,
+        "rate_client_currency": client_currency,
+        "rate_candidate_currency": candidate_currency,
     }
     return contract_kwargs, order_kwargs
 
@@ -1008,9 +1110,14 @@ def _build_order_read(
         order_type=order.order_type,
         start_date=order.start_date,
         end_date=order.end_date,
+        rate_candidate=order.rate_candidate,
         rate_client=order.rate_client,
+        rate_unit=order.rate_unit,
+        billing_hours_per_month=order.billing_hours_per_month,
         total_value=order.total_value,
         currency=order.currency,
+        rate_client_currency=order.rate_client_currency or order.currency,
+        rate_candidate_currency=order.rate_candidate_currency,
         project_part=order.project_part,
         filename=order.filename,
         has_file=order.file_path is not None,
@@ -1182,7 +1289,10 @@ async def list_contractors_with_orders(
                 contract_start_date=c.start_date,
                 contract_end_date=c.end_date,
                 rate_candidate=eff["rate_candidate"],
+                rate_client_currency=eff["rate_client_currency"],
+                rate_candidate_currency=eff["rate_candidate_currency"],
                 rate_unit=c.rate_unit.value,
+                billing_hours_per_month=c.billing_hours_per_month or 160,
                 initial_job_id=c.job_id,
                 initial_job_title=c.job.title if c.job else None,
                 latest_order_id=latest.id if latest else None,
@@ -1337,7 +1447,11 @@ async def export_client_orders(
             OrderExportRow(
                 consultant_name=contractor.candidate_name,
                 order_number=order.title,
-                cost_rate=contractor.rate_candidate,
+                cost_rate=(
+                    order.rate_candidate
+                    if order.rate_candidate is not None
+                    else contractor.rate_candidate
+                ),
                 revenue_rate=order.rate_client,
                 start_date=order.start_date,
                 end_date=order.end_date,
@@ -1434,9 +1548,14 @@ async def create_order_extension(
     order_status: ClientOrderStatus = Form(ClientOrderStatus.active),
     start_date: Optional[date] = Form(None),
     end_date: Optional[date] = Form(None),
+    rate_candidate: Optional[Decimal] = Form(None),
     rate_client: Optional[Decimal] = Form(None),
+    rate_unit: Optional[RateUnit] = Form(None),
+    billing_hours_per_month: Optional[int] = Form(None, ge=1),
     total_value: Optional[str] = Form(None),
     currency: Optional[str] = Form(None),
+    rate_client_currency: Optional[str] = Form(None),
+    rate_candidate_currency: Optional[str] = Form(None),
     framework_contract_id: Optional[int] = Form(None),
     job_id: Optional[int] = Form(None),
     notes: Optional[str] = Form(None),
@@ -1449,9 +1568,14 @@ async def create_order_extension(
     supplied_finance_fields = {
         field
         for field, value in {
+            "rate_candidate": rate_candidate,
             "rate_client": rate_client,
+            "rate_unit": rate_unit,
+            "billing_hours_per_month": billing_hours_per_month,
             "total_value": total_value,
             "currency": currency,
+            "rate_client_currency": rate_client_currency,
+            "rate_candidate_currency": rate_candidate_currency,
         }.items()
         if value is not None
     }
@@ -1479,13 +1603,54 @@ async def create_order_extension(
         # harmonogram byłoby w sesji async `MissingGreenlet` (HTTP 500 bez
         # CORS), a z ostrożnościowym fallbackiem — cichym powrotem do kolumny,
         # czyli dokładnie do defektu, który ta bramka zamyka.
-        .options(selectinload(Contract.candidate_rate_schedule))
+        .options(*RATE_SCHEDULE_LOADS)
         .where(Contract.id == contract_id, Contract.client_id == client_id)
     )
     if contract is None:
         raise HTTPException(
             400, detail="contract_id must reference a Contract of this client"
         )
+
+    effective = effective_rate_fields(contract, start_date or business_today())
+    resolved_unit = rate_unit or contract.rate_unit
+    resolved_billing_hours = (
+        billing_hours_per_month or contract.billing_hours_per_month or 160
+    )
+    # Values supplied by the form are already expressed in resolved_unit. A
+    # missing value is inherited from Contract and therefore must be converted
+    # when the operator selected a different unit for this order.
+    resolved_candidate_rate = (
+        rate_candidate
+        if rate_candidate is not None
+        else convert_order_rate(
+            effective["rate_candidate"],
+            contract.rate_unit,
+            resolved_unit,
+            resolved_billing_hours,
+        )
+    )
+    resolved_client_rate = (
+        rate_client
+        if rate_client is not None
+        else convert_order_rate(
+            effective["rate_client"],
+            contract.rate_unit,
+            resolved_unit,
+            resolved_billing_hours,
+        )
+    )
+    legacy_currency = _normalize_contract_currency(
+        currency or effective["rate_client_currency"], "currency"
+    )
+    resolved_client_currency = _normalize_contract_currency(
+        rate_client_currency or legacy_currency, "rate_client_currency"
+    )
+    resolved_candidate_currency = _normalize_contract_currency(
+        rate_candidate_currency or effective["rate_candidate_currency"],
+        "rate_candidate_currency",
+    )
+    if currency is not None and resolved_client_currency != legacy_currency:
+        _raise_currency_conflict(["rate_client_currency"])
 
     if framework_contract_id:
         fc = await db.scalar(
@@ -1537,9 +1702,14 @@ async def create_order_extension(
         ),
         start_date=start_date,
         end_date=end_date,
-        rate_client=rate_client,
+        rate_candidate=resolved_candidate_rate,
+        rate_client=resolved_client_rate,
+        rate_unit=resolved_unit,
+        billing_hours_per_month=resolved_billing_hours,
         total_value=total_dec,
-        currency=currency or contract.resolved_rate_client_currency,
+        currency=resolved_client_currency,
+        rate_client_currency=resolved_client_currency,
+        rate_candidate_currency=resolved_candidate_currency,
         project_part=project_part,
         created_by_user_id=user.id,
         notes=notes,
@@ -1731,7 +1901,22 @@ async def extract_order_pdf(
             },
         ) from exc
 
-    if target_consultant:
+    if target_consultant and (
+        _is_pfron_order_client(client_id) or _is_erste_gross_rate_client(client_id)
+    ):
+        # PFRON i Erste deklarują stawkę przychodową zawsze godzinowo.
+        # Podajemy tę twardą, client-specific regułę już matcherowi:
+        # inaczej bezpieczny matcher wyczyściłby poprawną kwotę, gdy model
+        # odczytał wiersz osoby, ale pominął sam token jednostki.
+        extraction = await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+            consultant_rate_unit_default="hour",
+        )
+    elif target_consultant:
+        # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
+        # ich matchery zachowują dotychczasowe, fail-closed zachowanie.
         extraction = await parse_order_document(
             text,
             consultant_name=target_consultant,
@@ -1746,11 +1931,25 @@ async def extract_order_pdf(
         extraction = apply_bank_pocztowy_order_policy(extraction, text)
     if _is_credit_agricole_order_client(client_id):
         extraction = apply_credit_agricole_order_policy(extraction, text)
-    # Erste jako OSTATNIA i to jest kolejność wymuszona: przelicza kwotę, którą
-    # ustawiły polityki wyżej. Odwrotna kolejność dzieliłaby przez 1,23 wartość,
-    # którą któraś z nich zaraz potem by nadpisała — czyli po cichu nie
-    # przeliczyłaby nic.
-    if _is_erste_gross_rate_client(client_id):
+    # Orlen i PFRON są rozłączne, twardo bramkowane po client_id. Orlen może
+    # zaakceptować dwie pozycje tej samej osoby tylko przy IDENTYCZNEJ stawce,
+    # ale zawsze usuwa MD; PFRON opiera okres wyłącznie o konkretną datę i
+    # sam wykonuje brutto→netto. Obie polityki działają po matcherze, bo nie
+    # mogą zgadywać tożsamości konsultanta.
+    if _is_orlen_order_client(client_id) and target_consultant:
+        extraction = apply_orlen_order_policy(
+            extraction,
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+        )
+    if _is_pfron_order_client(client_id):
+        extraction = apply_pfron_order_policy(extraction, text)
+
+    # Erste jako OSTATNIA (PFRON jest rozłączny i już przeliczył własną stawkę):
+    # wrapper przelicza kwotę po innych politykach. Odwrotna kolejność mogłaby
+    # podzielić wartość, którą kolejna polityka zaraz nadpisze.
+    if _is_erste_gross_rate_client(client_id) and not _is_pfron_order_client(client_id):
         extraction = apply_erste_order_policy(extraction, text)
 
     # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
@@ -1831,21 +2030,19 @@ async def update_order(
         # Eager-load jak w get_order — _order_to_read czyta order.contract,
         # a lazy-load na async sesji = MissingGreenlet (500).
         #
-        # Harmonogram stawki kandydata dociągany JAWNIE, bo `_apply_candidate_rate`
-        # niżej dotyka `contract.candidate_rate_schedule`. Sam `selectinload`
-        # na relacji `contract` go nie obejmuje, a sięgnięcie po niego bez
-        # wczytania to w sesji async nie wolniejszy odczyt, tylko
-        # `MissingGreenlet` — HTTP 500 bez nagłówków CORS, który front pokazuje
-        # jako „Network Error".
+        # Harmonogram kandydata jest potrzebny bramce aktywacji jako fallback
+        # podczas rolling deploymentu dla wierszy bez snapshotu kosztu.
         .options(
             selectinload(ClientOrder.contract).selectinload(
                 Contract.candidate_rate_schedule
             )
         )
         .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
+    await _assert_no_pending_group_line_offboarding(db, order)
 
     was_active = order.status == ClientOrderStatus.active
     data = payload.model_dump(exclude_unset=True)
@@ -1882,17 +2079,54 @@ async def update_order(
                 order.md_remaining = None
                 order.md_manual_adjustment = Decimal("0")
             order.order_type = requested_value
-    # Stawka KOSZTOWA mieszka na Contract, nie na Order, ale formularz
-    # uzupełnienia draftu pokazuje ją obok stawki przychodowej i zapisuje
-    # jednym PATCH-em. Przepuszczamy ją TĘDY, zamiast przez PATCH
-    # /api/contracts/{id}: tamten handler ma własną, admin-only bramkę
-    # osłaniającą 17 pól i ~20 innych odpowiedzi, więc poszerzanie go dla
-    # jednego pola rozlałoby dostęp do kwot na całą powierzchnię kontraktów.
-    rate_candidate = data.pop("rate_candidate", None)
-    if "rate_candidate" in payload.model_fields_set:
-        if order.contract is None:
-            raise HTTPException(409, detail="Order has no contract to price")
-        _apply_candidate_rate(order.contract, rate_candidate, actor_id=user.id)
+    # Obie stawki są snapshotem TEGO zamówienia. Ręczna korekta nie może już
+    # przepisywać Contract ani sąsiednich zamówień tej osoby.
+    if "rate_unit" in payload.model_fields_set:
+        new_unit = data.get("rate_unit")
+        if new_unit is None:
+            raise HTTPException(422, detail="Jednostka stawki nie może być pusta")
+        old_unit = order.rate_unit or (
+            order.contract.rate_unit if order.contract else RateUnit.monthly
+        )
+        if new_unit != old_unit:
+            if "rate_candidate" not in payload.model_fields_set:
+                data["rate_candidate"] = convert_order_rate(
+                    order.rate_candidate,
+                    old_unit,
+                    new_unit,
+                    order.billing_hours_per_month or 160,
+                )
+            if "rate_client" not in payload.model_fields_set:
+                data["rate_client"] = convert_order_rate(
+                    order.rate_client,
+                    old_unit,
+                    new_unit,
+                    order.billing_hours_per_month or 160,
+                )
+
+    legacy_sent = "currency" in payload.model_fields_set
+    client_currency_sent = "rate_client_currency" in payload.model_fields_set
+    candidate_currency_sent = "rate_candidate_currency" in payload.model_fields_set
+    if legacy_sent:
+        legacy_currency = _normalize_contract_currency(data.get("currency"), "currency")
+        if client_currency_sent:
+            client_currency = _normalize_contract_currency(
+                data.get("rate_client_currency"), "rate_client_currency"
+            )
+            if client_currency != legacy_currency:
+                _raise_currency_conflict(["rate_client_currency"])
+        data["currency"] = legacy_currency
+        data["rate_client_currency"] = legacy_currency
+    elif client_currency_sent:
+        client_currency = _normalize_contract_currency(
+            data.get("rate_client_currency"), "rate_client_currency"
+        )
+        data["rate_client_currency"] = client_currency
+        data["currency"] = client_currency
+    if candidate_currency_sent:
+        data["rate_candidate_currency"] = _normalize_contract_currency(
+            data.get("rate_candidate_currency"), "rate_candidate_currency"
+        )
     if "project_part" in data:
         # Edycja/uzupełnienie draftu: wartość ze słownika albo NULL; u klientów
         # innych niż e-Zdrowie pole pozostaje zabronione (ticket #3).
@@ -1986,12 +2220,13 @@ async def delete_order(
     """Soft cancel: status=cancelled. Hard delete tylko gdy status=draft."""
     await _assert_client(db, client_id)
     order = await db.scalar(
-        select(ClientOrder).where(
-            ClientOrder.id == order_id, ClientOrder.client_id == client_id
-        )
+        select(ClientOrder)
+        .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
     )
     if order is None:
         raise HTTPException(404, detail="Order not found")
+    await _assert_no_pending_group_line_offboarding(db, order)
 
     if order.status == ClientOrderStatus.draft:
         if order.file_path:

@@ -43,15 +43,17 @@ from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
-from app.models.contract import Contract
+from app.models.contract import Contract, RateUnit
 from app.models.order_type import OrderType
 from app.services.client_order_lines import record_event, recompute_remaining
 from app.services.cost_orders import skips_standard_order_group_materialization
+from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ADDED,
     format_md,
     is_multi_consultant_client,
 )
+from app.services.order_rate_snapshots import convert_order_rate
 from app.services.order_types import effective_standalone_order_type
 
 _PLACEHOLDER_TITLE = "(bez numeru)"
@@ -228,14 +230,89 @@ async def materialize_group_for_activated_order(
     # dostawałaby cotygodniowy alert o jej braku. Stawka zerowa NIE wchodzi
     # do lustra: `ck_client_orders_md_coherence` żąda md_rate_revenue > 0
     # także bez budżetu, więc zero dałoby IntegrityError w środku aktywacji.
-    if (
-        order.md_rate_revenue is None
-        and order.rate_client is not None
-        and order.rate_client > 0
-    ):
-        order.md_rate_revenue = md_rate_from_order_rate(order.rate_client)
-    if order.md_rate_cost is None and candidate_rate is not None:
-        order.md_rate_cost = md_rate_from_order_rate(candidate_rate)
+    unit = order.rate_unit or (
+        order.contract.rate_unit if order.contract is not None else RateUnit.monthly
+    )
+    client_currency = (
+        order.rate_client_currency
+        or order.currency
+        or (
+            order.contract.resolved_rate_client_currency
+            if order.contract is not None
+            else "PLN"
+        )
+    ).upper()
+    candidate_currency = (
+        order.rate_candidate_currency
+        or (
+            order.contract.resolved_rate_candidate_currency
+            if order.contract is not None
+            else "PLN"
+        )
+    ).upper()
+    fx = await rates_to_pln(
+        db,
+        {client_currency, candidate_currency},
+        order.start_date or business_today(),
+    )
+
+    def canonical_pln_md(value: Optional[Decimal], currency: str) -> Optional[Decimal]:
+        if value is None:
+            return None
+        rate_to_pln = fx.get(currency)
+        if rate_to_pln is None:
+            raise ValueError(
+                f"Brak kursu {currency}/PLN potrzebnego do zapisania stawki linii"
+            )
+        per_md = convert_order_rate(
+            value,
+            unit,
+            RateUnit.daily,
+            order.billing_hours_per_month or 160,
+        )
+        if per_md is None:
+            return None
+        return md_rate_from_order_rate(per_md * rate_to_pln)
+
+    if explicit_type in (OrderType.cost, OrderType.md):
+        # Explicit drafts carry their true unit/currencies as an order
+        # snapshot.  ``md_rate_revenue`` may already contain a temporary
+        # mirror required by the standalone MD coherence check; that mirror is
+        # still in the source unit/currency and must never be relabelled as
+        # PLN/MD.  Materialization is the canonicalization boundary, so always
+        # overwrite both mirrors here.
+        order.md_rate_revenue = (
+            canonical_pln_md(order.rate_client, client_currency)
+            if order.rate_client is not None and order.rate_client > 0
+            else None
+        )
+        order.md_rate_cost = (
+            canonical_pln_md(candidate_rate, candidate_currency)
+            if candidate_rate is not None
+            else None
+        )
+    else:
+        # Legacy client-specific lines were already maintained in canonical
+        # PLN/MD. Preserve a populated historical mirror and fill only gaps.
+        if (
+            order.md_rate_revenue is None
+            and order.rate_client is not None
+            and order.rate_client > 0
+        ):
+            order.md_rate_revenue = canonical_pln_md(order.rate_client, client_currency)
+        if order.md_rate_cost is None and candidate_rate is not None:
+            order.md_rate_cost = canonical_pln_md(candidate_rate, candidate_currency)
+
+    # Od tej chwili rekord jest linią grupową, której kanoniczną jednostką jest
+    # PLN/MD. Zachowanie surowych warunków wejściowych należy do eventu/grupy;
+    # relabeling bez konwersji był dotychczas źródłem błędu ×8 i EUR→PLN.
+    order.rate_candidate = order.md_rate_cost
+    order.rate_client = order.md_rate_revenue
+    order.rate_unit = RateUnit.daily
+    order.billing_hours_per_month = 160
+    order.currency = "PLN"
+    order.rate_client_currency = "PLN"
+    order.rate_candidate_currency = "PLN"
     if explicit_type in (OrderType.cost, OrderType.md):
         # Budżet jest wspólny na grupie; pozostawienie jego kopii na linii
         # stworzyłoby dwa niezależne liczniki i pozwoliło mieszać typy.

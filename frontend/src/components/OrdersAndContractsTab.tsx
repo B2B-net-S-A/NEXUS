@@ -56,6 +56,7 @@ import { TerminateContractModal } from "@/components/client-profile/actions/Term
 import { OrderListControls } from "@/components/client-profile/orders/OrderListControls";
 import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
 import { OrderTypeBadge } from "@/components/client-profile/orders/OrderTypeBadge";
+import { normalizeOrderCurrency } from "@/components/orders/OrderRateUnitToggle";
 import { useAuthStore } from "@/store/auth";
 
 interface OrdersAndContractsTabProps {
@@ -382,6 +383,7 @@ export function OrdersAndContractsTab({
       {newContractor && (
         <NewContractorOrderDialog
           clientId={clientId}
+          canManageFinance={canManageFinance}
           onClose={() => setNewContractor(false)}
           onCreated={() => {
             setNewContractor(false);
@@ -428,7 +430,12 @@ export function ContractorOrderCards({
     useState<ContractWithOrdersRead | null>(null);
   const [editingOrder, setEditingOrder] = useState<{
     order: ClientOrderRead | null;
+    candidateId: number;
     rateCandidate: number | null;
+    contractRateUnit: ContractWithOrdersRead["rate_unit"];
+    contractBillingHoursPerMonth: number;
+    contractRateClientCurrency: string;
+    contractRateCandidateCurrency: string;
     createOrder: CreateDraftOrder;
   } | null>(null);
 
@@ -456,7 +463,20 @@ export function ContractorOrderCards({
             onEditOrder={(order, createOrder) =>
               setEditingOrder({
                 order,
+                candidateId: contractor.candidate_id,
                 rateCandidate: contractor.rate_candidate,
+                contractRateUnit: contractor.rate_unit,
+                contractBillingHoursPerMonth:
+                  contractor.billing_hours_per_month ?? 160,
+                contractRateClientCurrency: normalizeOrderCurrency(
+                  contractor.rate_client_currency,
+                  contractor.currency,
+                ),
+                contractRateCandidateCurrency: normalizeOrderCurrency(
+                  contractor.rate_candidate_currency,
+                  contractor.currency,
+                  contractor.rate_client_currency,
+                ),
                 createOrder,
               })
             }
@@ -471,6 +491,7 @@ export function ContractorOrderCards({
         <ExtendOrderDialog
           clientId={clientId}
           contract={extendingContract}
+          canManageFinance={canManageFinance}
           onClose={() => setExtendingContract(null)}
           onCreated={() => {
             setExtendingContract(null);
@@ -492,8 +513,17 @@ export function ContractorOrderCards({
       {editingOrder ? (
         <EditOrderDialog
           clientId={clientId}
+          candidateId={editingOrder.candidateId}
           order={editingOrder.order}
           rateCandidate={editingOrder.rateCandidate}
+          contractRateUnit={editingOrder.contractRateUnit}
+          contractBillingHoursPerMonth={
+            editingOrder.contractBillingHoursPerMonth
+          }
+          contractRateClientCurrency={editingOrder.contractRateClientCurrency}
+          contractRateCandidateCurrency={
+            editingOrder.contractRateCandidateCurrency
+          }
           onCreate={editingOrder.createOrder}
           canManageFinance={canManageFinance}
           suggestedOrderType={suggestedOrderType}
@@ -698,6 +728,27 @@ function ContractorCard({
     [contractor.orders],
   );
   knownOrderIdRef.current = activeOrder?.id ?? draftOrderId;
+  const contractRateClientCurrency = normalizeOrderCurrency(
+    contractor.rate_client_currency,
+    contractor.currency,
+  );
+  const contractRateCandidateCurrency = normalizeOrderCurrency(
+    contractor.rate_candidate_currency,
+    contractor.currency,
+    contractor.rate_client_currency,
+  );
+  const displayedRateUnit = activeOrder?.rate_unit ?? contractor.rate_unit;
+  const displayedRateClientCurrency = normalizeOrderCurrency(
+    activeOrder?.rate_client_currency,
+    activeOrder?.currency,
+    contractRateClientCurrency,
+  );
+  const displayedRateCandidateCurrency = normalizeOrderCurrency(
+    activeOrder?.rate_candidate_currency,
+    contractRateCandidateCurrency,
+  );
+  const displayedRateCandidate =
+    activeOrder?.rate_candidate ?? contractor.rate_candidate;
 
   /**
    * Zapis pola karty, gdy kontraktor NIE MA jeszcze żadnego zamówienia.
@@ -771,6 +822,33 @@ function ContractorCard({
       if (patch.rate_client != null) {
         form.append("rate_client", String(patch.rate_client));
       }
+      if (patch.rate_candidate != null) {
+        form.append("rate_candidate", String(patch.rate_candidate));
+      }
+      form.append("rate_unit", patch.rate_unit ?? contractor.rate_unit);
+      form.append(
+        "billing_hours_per_month",
+        String(
+          patch.billing_hours_per_month ??
+            contractor.billing_hours_per_month ??
+            160,
+        ),
+      );
+      form.append(
+        "rate_client_currency",
+        normalizeOrderCurrency(
+          patch.rate_client_currency,
+          patch.currency,
+          contractRateClientCurrency,
+        ),
+      );
+      form.append(
+        "rate_candidate_currency",
+        normalizeOrderCurrency(
+          patch.rate_candidate_currency,
+          contractRateCandidateCurrency,
+        ),
+      );
       if (patch.total_value != null) {
         form.append("total_value", String(patch.total_value));
       }
@@ -783,24 +861,20 @@ function ContractorCard({
       // który przy błędzie drugiego kroku zostawiałby zamówienie bez pliku.
       if (opts?.file) form.append("file", opts.file);
       const created = await dlPortalApi.createOrderExtension(clientId, form);
-      // Ref PRZED stanem: ponowny „Zapisz" po nieudanej dopłacie stawki
-      // kosztowej leci, zanim React zdąży przerenderować kartę.
+      // Ref PRZED stanem: ponowny „Zapisz" po nieudanym odświeżeniu widoku
+      // leci, zanim React zdąży przerenderować kartę.
       knownOrderIdRef.current = created.data.id;
       setDraftOrderId(created.data.id);
-      // Stawka KOSZTOWA mieszka na kontrakcie, a `POST /orders` jej nie
-      // przyjmuje — dosyłamy ją PATCH-em na świeżo utworzone zamówienie, którego
-      // handler przepisuje ją na kontrakt.
-      if (patch.rate_candidate != null) {
-        await dlPortalApi.updateOrder(clientId, created.data.id, {
-          rate_candidate: patch.rate_candidate,
-        });
-      }
       return created.data.id;
     },
     [
       clientId,
       contractor.contract_id,
+      contractor.billing_hours_per_month,
       contractor.initial_job_id,
+      contractor.rate_unit,
+      contractRateClientCurrency,
+      contractRateCandidateCurrency,
       ezdrowie,
       pendingPart,
       suggestedOrderType,
@@ -897,12 +971,17 @@ function ContractorCard({
               <span>
                 stawka kosztowa{" "}
                 <InlineText
-                  value={contractor.rate_candidate != null ? String(contractor.rate_candidate) : ""}
+                  value={
+                    displayedRateCandidate != null
+                      ? String(displayedRateCandidate)
+                      : ""
+                  }
                   display={
-                    contractor.rate_candidate != null ? (
+                    displayedRateCandidate != null ? (
                       <strong className="text-foreground">
-                        {fmtMoney(contractor.rate_candidate)}
-                        {rateUnitSuffix(contractor.rate_unit)}
+                        {fmtMoney(displayedRateCandidate)}
+                        {` ${displayedRateCandidateCurrency}`}
+                        {rateUnitSuffix(displayedRateUnit)}
                       </strong>
                     ) : (
                       <em className="text-muted-foreground">ustaw stawkę</em>
@@ -946,7 +1025,8 @@ function ContractorCard({
                     activeOrder?.rate_client != null ? (
                       <strong className="text-foreground">
                         {fmtMoney(activeOrder.rate_client)}
-                        {rateUnitSuffix(contractor.rate_unit)}
+                        {` ${displayedRateClientCurrency}`}
+                        {rateUnitSuffix(displayedRateUnit)}
                       </strong>
                     ) : (
                       <em className="text-muted-foreground">ustaw stawkę</em>
@@ -1135,7 +1215,8 @@ function ContractorCard({
                     canManageFinance={canManageFinance}
                     canManageOrders={canManageOrders}
                     legacyNullOrderType={legacyNullOrderType}
-                    rateUnit={contractor.rate_unit}
+                    fallbackRateUnit={contractor.rate_unit}
+                    fallbackRateClientCurrency={contractRateClientCurrency}
                     onEditOrder={openOrderDialog}
                     onError={onError}
                     onSuccess={onSuccess}
@@ -1254,8 +1335,9 @@ interface HistoryOrderRowProps {
   canManageFinance: boolean;
   canManageOrders: boolean;
   legacyNullOrderType: LegacyClientOrderType;
-  /** Jednostka stawek kontraktu — surowy rate_client jest w tej jednostce. */
-  rateUnit: string;
+  /** Fallback dla zamówień utworzonych przed snapshotem stawek. */
+  fallbackRateUnit: string;
+  fallbackRateClientCurrency: string;
   onEditOrder: (order: ClientOrderRead) => void;
   onError: (msg: string) => void;
   onSuccess: (msg: string) => void;
@@ -1268,7 +1350,8 @@ function HistoryOrderRow({
   canManageFinance,
   canManageOrders,
   legacyNullOrderType,
-  rateUnit,
+  fallbackRateUnit,
+  fallbackRateClientCurrency,
   onEditOrder,
   onError,
   onSuccess,
@@ -1319,8 +1402,13 @@ function HistoryOrderRow({
           )}
           {canManageFinance && order.rate_client !== null && (
             <span>
-              przychód {fmtMoney(order.rate_client)}
-              {rateUnitSuffix(rateUnit)}
+              przychód {fmtMoney(order.rate_client)}{" "}
+              {normalizeOrderCurrency(
+                order.rate_client_currency,
+                order.currency,
+                fallbackRateClientCurrency,
+              )}
+              {rateUnitSuffix(order.rate_unit ?? fallbackRateUnit)}
             </span>
           )}
           {/* Marża zostaje /mc — jest znormalizowana miesięcznie po stronie BE. */}
@@ -1375,7 +1463,7 @@ function fmtMoney(v: number | string | null): string {
 // był bug). Marża NIE używa tego sufiksu — jest normalizowana do /mc na BE.
 const RATE_UNIT_SUFFIX: Record<string, string> = {
   hourly: "/h",
-  daily: "/dzień",
+  daily: "/MD",
   monthly: "/mc",
 };
 

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
@@ -49,6 +50,8 @@ const contract: ContractWithOrdersRead = {
   contract_end_date: null,
   // Intentionally populated to prove the UI does not trust a stale/leaky cache.
   rate_candidate: 12_000,
+  rate_client_currency: "PLN",
+  rate_candidate_currency: "PLN",
   rate_unit: "monthly",
   initial_job_id: 44,
   initial_job_title: "Backend Engineer",
@@ -60,7 +63,10 @@ const contract: ContractWithOrdersRead = {
   orders: [],
 };
 
-function renderDialog() {
+function renderDialog(
+  contractValue: ContractWithOrdersRead = contract,
+  canManageFinance?: boolean,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   });
@@ -69,7 +75,8 @@ function renderDialog() {
       <ToastProvider>
         <ExtendOrderDialog
           clientId={10}
-          contract={contract}
+          contract={contractValue}
+          canManageFinance={canManageFinance}
           onClose={vi.fn()}
           onCreated={vi.fn()}
         />
@@ -96,7 +103,8 @@ describe("ExtendOrderDialog candidate finance lockdown", () => {
     });
     renderDialog();
 
-    expect(screen.queryByText(/Klient płaci/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Stawka przychodowa/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Stawka kosztowa/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Total value/)).not.toBeInTheDocument();
     expect(screen.queryByText(/marża/i)).not.toBeInTheDocument();
 
@@ -116,6 +124,11 @@ describe("ExtendOrderDialog candidate finance lockdown", () => {
     await waitFor(() => expect(createOrderExtension).toHaveBeenCalledOnce());
     const formData = createOrderExtension.mock.calls[0][1];
     expect(formData.has("rate_client")).toBe(false);
+    expect(formData.has("rate_candidate")).toBe(false);
+    expect(formData.has("rate_unit")).toBe(false);
+    expect(formData.has("currency")).toBe(false);
+    expect(formData.has("rate_client_currency")).toBe(false);
+    expect(formData.has("rate_candidate_currency")).toBe(false);
     expect(formData.has("total_value")).toBe(false);
     expect(formData.get("contract_id")).toBe("101");
   });
@@ -126,9 +139,25 @@ describe("ExtendOrderDialog candidate finance lockdown", () => {
     });
     renderDialog();
 
-    expect(screen.getByText(/Klient płaci/)).toBeInTheDocument();
+    expect(screen.getByText(/Stawka przychodowa/)).toBeInTheDocument();
+    expect(screen.getByText(/Stawka kosztowa/)).toBeInTheDocument();
     expect(screen.getByText(/Total value/)).toBeInTheDocument();
     expect(screen.getByText(/marża/i)).toBeInTheDocument();
+  });
+
+  it("przypisany Delivery Lead korzysta z serwerowego can_manage_finance", () => {
+    act(() => {
+      useAuthStore.setState({ user: user("delivery_lead"), hydrated: true });
+    });
+    renderDialog(contract, true);
+
+    expect(screen.getByText(/Stawka przychodowa/)).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: "Jednostka stawki" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", {
+        name: "Waluta zamówienia (przychodowa)",
+      }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -211,7 +240,7 @@ describe("ExtendOrderDialog — odczyt PDF (Zczytaj dane z dokumentu)", () => {
     fireEvent.click(extractBtn());
 
     await waitFor(() => expect(extractOrderPdf).toHaveBeenCalledOnce());
-    expect(extractOrderPdf).toHaveBeenCalledWith(10, expect.any(File));
+    expect(extractOrderPdf).toHaveBeenCalledWith(10, expect.any(File), 7);
 
     await waitFor(() =>
       expect(screen.getByDisplayValue("PO-123")).toBeInTheDocument(),
@@ -287,8 +316,81 @@ describe("ExtendOrderDialog — odczyt PDF (Zczytaj dane z dokumentu)", () => {
     );
     expect(screen.getByDisplayValue("2026-03-01")).toBeInTheDocument();
     // Finanse dalej ukryte — extraction nie może ich przemycić.
-    expect(screen.queryByText(/Klient płaci/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Stawka przychodowa/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Total value/)).not.toBeInTheDocument();
+  });
+
+  it("wykrywa MD z pozycji, przelicza koszt i wysyła snapshot jednostki/waluty", async () => {
+    const userActions = userEvent.setup();
+    act(() => {
+      useAuthStore.setState({ user: user("admin"), hydrated: true });
+    });
+    const hourlyContract: ContractWithOrdersRead = {
+      ...contract,
+      rate_candidate: 125,
+      rate_unit: "hourly",
+      rate_client_currency: "EUR",
+      rate_candidate_currency: "GBP",
+      latest_order_rate_client: 150,
+    };
+    extractOrderPdf.mockResolvedValue({
+      data: {
+        title: "PO-MD",
+        start_date: "2026-09-01",
+        end_date: "2026-12-31",
+        rate_client: 1320,
+        rate_unit: "md",
+        total_value: null,
+        currency: "USD",
+        md_total: null,
+        uncertain: false,
+        uncertain_reasons: [],
+        fields_confidence: {},
+        source: "claude",
+      },
+    } as never);
+
+    renderDialog(hourlyContract);
+    const file = addPdf();
+    fireEvent.click(extractBtn());
+
+    await waitFor(() =>
+      expect(extractOrderPdf).toHaveBeenCalledWith(10, file, 7),
+    );
+    expect(screen.getByLabelText(/Stawka kosztowa/)).toHaveValue("1000");
+    expect(screen.getByLabelText(/Stawka przychodowa/)).toHaveValue("1320");
+    expect(screen.getByRole("radio", { name: "MD" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(
+      screen.getByText(
+        "Jednostkę stawki zmieniono na MD na podstawie odczytanej pozycji",
+      ),
+    ).toHaveAttribute("role", "status");
+    expect(
+      screen.getByRole("combobox", {
+        name: "Waluta zamówienia (przychodowa)",
+      }),
+    ).toHaveValue("USD");
+    expect(
+      screen.getByRole("combobox", { name: "Waluta stawki kosztowej" }),
+    ).toHaveValue("GBP");
+    expect(
+      screen.getByText(/Marża zostanie pokazana po niezależnym przeliczeniu/),
+    ).toBeInTheDocument();
+
+    await userActions.click(
+      screen.getByRole("button", { name: "Zapisz przedłużenie" }),
+    );
+    await waitFor(() => expect(createOrderExtension).toHaveBeenCalledOnce());
+    const sent = createOrderExtension.mock.calls[0][1];
+    expect(sent.get("rate_candidate")).toBe("1000");
+    expect(sent.get("rate_client")).toBe("1320");
+    expect(sent.get("rate_unit")).toBe("daily");
+    expect(sent.get("rate_client_currency")).toBe("USD");
+    expect(sent.get("rate_candidate_currency")).toBe("GBP");
+    expect(sent.has("currency")).toBe(false);
   });
 });
 
@@ -340,7 +442,7 @@ describe("ExtendOrderDialog — polityka Banku Pocztowego", () => {
     await waitFor(() =>
       expect(screen.getByDisplayValue("200")).toBeInTheDocument(),
     );
-    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+    expect(screen.getByText(/Z dokumentu: 1600 PLN\/MD/)).toBeInTheDocument();
 
     // Czysty odczyt BP → zero banera „Sprawdź dane!" (wymóg ticketu).
     expect(screen.queryByText("Sprawdź dane!")).not.toBeInTheDocument();
@@ -350,7 +452,7 @@ describe("ExtendOrderDialog — polityka Banku Pocztowego", () => {
     const rateInput = screen.getByDisplayValue("200");
     fireEvent.change(rateInput, { target: { value: "210" } });
     expect(screen.getByDisplayValue("210")).toBeInTheDocument();
-    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+    expect(screen.getByText(/Z dokumentu: 1600 PLN\/MD/)).toBeInTheDocument();
   });
 
   it("brak numeru w dokumencie → Sprawdź numer zamówienia przy polu, znika po wpisaniu", async () => {
@@ -401,6 +503,7 @@ describe("ExtendOrderDialog — polityka Banku Pocztowego", () => {
         start_date: null,
         end_date: null,
         rate_client: 200,
+        rate_client_gross: 246,
         rate_unit: "hour",
         rate_client_md: 1600,
         total_value: null,
@@ -421,7 +524,8 @@ describe("ExtendOrderDialog — polityka Banku Pocztowego", () => {
     await waitFor(() =>
       expect(screen.getByText("Sprawdź numer zamówienia")).toBeInTheDocument(),
     );
-    expect(screen.getByText(/Z dokumentu: 1600 zł\/MD/)).toBeInTheDocument();
+    expect(screen.getByText(/Z dokumentu: 1600 PLN\/MD/)).toBeInTheDocument();
+    expect(screen.getByText(/246 PLN\/h brutto.*200 PLN\/h netto/)).toBeInTheDocument();
 
     // Wybór innego pliku — stany odczytu wracają do zera (dotyczyły innego PDF).
     addPdf("inne-zamowienie.pdf");

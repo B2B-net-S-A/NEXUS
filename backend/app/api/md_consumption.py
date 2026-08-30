@@ -264,27 +264,56 @@ async def _apply_to_line(
     importu — wsadowa i ręczne rozstrzygnięcie — wołają tę funkcję, więc
     podział nie zależy od tego, którą z nich operator akurat wybrał.
     """
+    expected_group_id = group.id if group is not None else match_order.order_group_id
+    locked_order = await db.scalar(
+        select(ClientOrder)
+        .options(
+            selectinload(ClientOrder.contract).selectinload(Contract.candidate),
+            selectinload(ClientOrder.order_group),
+        )
+        .where(ClientOrder.id == match_order.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        locked_order is None
+        or locked_order.status != ClientOrderStatus.active
+        or locked_order.order_group_id != expected_group_id
+    ):
+        # The match was computed before this transaction acquired the line.
+        # Contract offboarding (or another lifecycle action) may have changed
+        # the staffing in between; applying the spreadsheet to the stale row
+        # would make its remaining-MD snapshot financially incorrect.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Obsada zamówienia zmieniła się podczas importu. "
+                "Odśwież dane i ponów import."
+            ),
+        )
+
+    locked_group = locked_order.order_group
     outcome = await apply_md_consumption(
         db,
-        order=match_order,
-        group=group,
+        order=locked_order,
+        group=locked_group,
         period_month=period_month,
         md_reported=md_reported,
         import_id=import_id,
         user_id=user_id,
     )
-    if group is not None:
+    if locked_group is not None:
         record_event(
             db,
-            group_id=group.id,
-            order_id=match_order.id,
+            group_id=locked_group.id,
+            order_id=locked_order.id,
             event_type=EVENT_MD_IMPORT,
             description=describe_import(
-                match_order,
+                locked_order,
                 period_month,
                 outcome.applied,
                 outcome.previous,
-                order_number=group.order_number,
+                order_number=locked_group.order_number,
             ),
             payload={
                 # `md_reported` zostaje liczbą Z ARKUSZA, a `md_applied` mówi,
@@ -295,7 +324,7 @@ async def _apply_to_line(
                 "md_applied": str(outcome.applied),
                 "md_transferred": str(outcome.transferred),
                 "md_previous": str(outcome.previous),
-                "md_remaining": str(match_order.md_remaining),
+                "md_remaining": str(locked_order.md_remaining),
                 "import_id": import_id,
             },
             user_id=user_id,
@@ -420,7 +449,8 @@ async def create_import(
             )
         db.add(row)
 
-    for order_id, md_total in pending_md.items():
+    for order_id in sorted(pending_md):
+        md_total = pending_md[order_id]
         order_obj, order_group = md_orders[order_id]
         await _apply_to_line(
             db,

@@ -210,6 +210,11 @@ export function ConsultantLineModal({
   const [extractError, setExtractError] = useState<string | null>(null);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
+  const [unitChangeNotice, setUnitChangeNotice] = useState<string | null>(null);
+  const [grossConversion, setGrossConversion] = useState<{
+    gross: string;
+    net: string;
+  } | null>(null);
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
   const [autoExtracted, setAutoExtracted] = useState<AutoExtractedValues | null>(
@@ -219,6 +224,8 @@ export function ConsultantLineModal({
   // stanem zamkniętym w async handlerze przy starcie requestu. Użytkownik może
   // w tym czasie poprawić pole ręcznie i taka zmiana wymaga dialogu konfliktu.
   const extractionFormRef = useRef({
+    rateCost,
+    costUnit,
     rateRevenue,
     revenueUnit,
     inputValue,
@@ -228,6 +235,8 @@ export function ConsultantLineModal({
     autoExtracted,
   });
   extractionFormRef.current = {
+    rateCost,
+    costUnit,
     rateRevenue,
     revenueUnit,
     inputValue,
@@ -327,6 +336,7 @@ export function ConsultantLineModal({
       setRevenueUnit("md");
       setInputValue("");
       setInputMode("md");
+      setGrossConversion(null);
       const extractedDates =
         autoExtracted &&
         (autoExtracted.startDate != null || autoExtracted.endDate != null)
@@ -347,6 +357,8 @@ export function ConsultantLineModal({
     // targetu i zostać potwierdzone dla nowego konsultanta.
     setCheckData(false);
     setCheckReasons([]);
+    setUnitChangeNotice(null);
+    setGrossConversion(null);
     setConflicts([]);
     setPendingApply(null);
     setExtractError(null);
@@ -410,6 +422,8 @@ export function ConsultantLineModal({
     setExtractError(null);
     setCheckData(false);
     setCheckReasons([]);
+    setUnitChangeNotice(null);
+    setGrossConversion(null);
     setConflicts([]);
     setPendingApply(null);
     setAutoExtracted(null);
@@ -436,6 +450,10 @@ export function ConsultantLineModal({
         data.rate_client != null && extractedRateUnit != null
           ? String(data.rate_client)
           : null;
+      const explicitUnitMismatch =
+        extractedRate != null &&
+        extractedRateUnit != null &&
+        extractedRateUnit !== extractionFormRef.current.revenueUnit;
       const extractedMd =
         !costBased && !sharedMdBased && data.md_total != null
           ? String(data.md_total)
@@ -524,11 +542,35 @@ export function ConsultantLineModal({
         if (extractedEnd != null) setEndDate(extractedEnd);
         else if (previousAutoEndStillPresent) setEndDate(line?.end_date ?? "");
         if (extractedRate != null) {
+          if (explicitUnitMismatch && extractedRateUnit != null) {
+            const parsedCost = parseDecimalInput(currentForm.rateCost);
+            if (parsedCost !== null) {
+              const convertedCost = convertRate(
+                parsedCost,
+                currentForm.costUnit,
+                extractedRateUnit,
+              );
+              if (convertedCost !== null) setRateCost(String(convertedCost));
+            }
+            setCostUnit(extractedRateUnit);
+            setUnitChangeNotice(
+              `Jednostkę stawki zmieniono na ${extractedRateUnit === "md" ? "MD" : extractedRateUnit === "hour" ? "godzinową" : "miesięczną"} na podstawie dodanej pozycji. Stawkę kosztową przeliczono automatycznie.`,
+            );
+          }
           setRevenueUnit(extractedRateUnit as RateUnit);
           setRateRevenue(extractedRate);
+          setGrossConversion(
+            data.rate_client_gross != null
+              ? {
+                  gross: String(data.rate_client_gross),
+                  net: extractedRate,
+                }
+              : null,
+          );
         } else if (previousAutoRateStillPresent) {
           setRateRevenue("");
           setRevenueUnit("md");
+          setGrossConversion(null);
         }
         if (extractedMd != null) {
           setInputMode("md");
@@ -565,24 +607,28 @@ export function ConsultantLineModal({
           current: currentForm.endDate,
           incoming: extractedEnd,
         },
-        {
-          key: "rate_client",
-          label: "Stawka przychodowa",
-          current: currentForm.rateRevenue,
-          incoming: extractedRate,
-        },
-        {
-          key: "rate_unit",
-          label: "Jednostka stawki przychodowej",
-          current:
-            currentForm.rateRevenue.trim() && extractedRate != null
-              ? rateUnitLabel(currentForm.revenueUnit, "PLN")
-              : "",
-          incoming:
-            extractedRate != null && extractedRateUnit != null
-              ? rateUnitLabel(extractedRateUnit, "PLN")
-              : null,
-        },
+        ...(explicitUnitMismatch
+          ? []
+          : [
+              {
+                key: "rate_client" as const,
+                label: "Stawka przychodowa",
+                current: currentForm.rateRevenue,
+                incoming: extractedRate,
+              },
+              {
+                key: "rate_unit" as const,
+                label: "Jednostka stawki przychodowej",
+                current:
+                  currentForm.rateRevenue.trim() && extractedRate != null
+                    ? rateUnitLabel(currentForm.revenueUnit, "PLN")
+                    : "",
+                incoming:
+                  extractedRate != null && extractedRateUnit != null
+                    ? rateUnitLabel(extractedRateUnit, "PLN")
+                    : null,
+              },
+            ]),
         ...(costBased || sharedMdBased
           ? []
           : [
@@ -886,6 +932,12 @@ export function ConsultantLineModal({
                 {rateRevenueAsMd === null ? "—" : `${rateRevenueAsMd} zł`}
               </p>
             ) : null}
+            {grossConversion ? (
+              <p role="status" className="mt-1 text-xs text-primary">
+                Z dokumentu: {grossConversion.gross} PLN/h brutto →{" "}
+                {grossConversion.net} PLN/h netto (brutto ÷ 1,23)
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -960,6 +1012,15 @@ export function ConsultantLineModal({
           </div>
         </div>
 
+        {unitChangeNotice ? (
+          <div
+            role="status"
+            className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm text-foreground"
+          >
+            {unitChangeNotice}
+          </div>
+        ) : null}
+
         {checkData ? (
           <div
             role="alert"
@@ -998,6 +1059,8 @@ export function ConsultantLineModal({
               setExtractError(null);
               setCheckData(false);
               setCheckReasons([]);
+              setUnitChangeNotice(null);
+              setGrossConversion(null);
               setConflicts([]);
               setPendingApply(null);
             }}

@@ -97,6 +97,30 @@ describe("DlAlertsSection", () => {
     );
   });
 
+  it("alert zakończenia MD prowadzi do decyzji i nie pozwala ominąć workflow", async () => {
+    vi.mocked(dlAlertsApi.list).mockResolvedValue({
+      data: {
+        alerts: [
+          alert({
+            alert_type: "md_consultant_ended",
+            alert_type_label: "Konsultant zakończył współpracę — decyzja MD",
+          }),
+        ],
+        total_new: 1,
+        total_handled: 0,
+      },
+    } as never);
+
+    renderSection();
+
+    expect(
+      await screen.findByRole("link", { name: /Podejmij decyzję/i }),
+    ).toHaveAttribute("href", "/clients/12?tab=zamowienia");
+    expect(
+      screen.queryByRole("button", { name: /Oznacz jako obsłużone/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("zakładka Historia pyta serwer o wpisy obsłużone", async () => {
     renderSection();
     await screen.findByText(/zostało wyczerpane/);

@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
-import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
+import type {
+  OrderGroupRead,
+  OrderLineRead,
+  OrderOffboardingCaseRead,
+} from "@/lib/api/orderGroups";
 import type { OrderType } from "@/lib/api/dlPortal";
 
 const authState = vi.hoisted(() => ({
@@ -50,6 +54,7 @@ vi.mock("@/lib/api/orderGroups", () => ({
     addLine: vi.fn(),
     updateLine: vi.fn(),
     swapLine: vi.fn(),
+    resolveOffboardingCase: vi.fn(),
     events: vi.fn(),
     remove: vi.fn(),
     removeLine: vi.fn(),
@@ -164,6 +169,37 @@ function line(overrides: Partial<OrderLineRead> = {}): OrderLineRead {
     invoiced_total: null,
     unsettled_total: null,
     missing_consumption_month: null,
+    ...overrides,
+  };
+}
+
+function offboardingCase(
+  overrides: Partial<OrderOffboardingCaseRead> = {},
+): OrderOffboardingCaseRead {
+  return {
+    id: 901,
+    contract_id: 100,
+    order_id: 1,
+    order_group_id: 10,
+    client_id: 7,
+    effective_date: "2026-08-31",
+    status: "pending",
+    version: 3,
+    uses_shared_md_pool: false,
+    remaining_md_snapshot: 15,
+    rate_cost_snapshot: 1000,
+    rate_revenue_snapshot: 1200,
+    currency_snapshot: "PLN",
+    order_number_snapshot: "445",
+    resolution: null,
+    target_order_id: null,
+    rate_basis: null,
+    resolution_payload: null,
+    resolved_at: null,
+    resolved_by_user_id: null,
+    created_by_user_id: null,
+    created_at: "2026-08-31T08:00:00Z",
+    updated_at: "2026-08-31T08:00:00Z",
     ...overrides,
   };
 }
@@ -958,6 +994,161 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(budget).toHaveTextContent(/wykorzystano/);
     expect(budget).toHaveTextContent(/pozostało/);
     expect(screen.getByText("Zafakturowano")).toBeInTheDocument();
+  });
+
+  it("przenosi zakończoną osobę kosztową do sekcji Zakończone z numerem i fakturami", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            is_cost_based: true,
+            budget_amount: 80000,
+            budget_used: 32000,
+            budget_remaining: 48000,
+            lines: [
+              line({ id: 1, consultant_name: "Jan Kowalski" }),
+              line({
+                id: 2,
+                consultant_name: "Anna Zakończona",
+                status: "completed",
+                is_active: false,
+                end_date: "2026-08-31",
+                md_total: null,
+                md_remaining: null,
+                invoiced_total: 32000,
+              }),
+            ],
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    const completedHeading = await screen.findByRole("heading", {
+      name: "Zakończone",
+    });
+    const completedSection = completedHeading.closest("section");
+    expect(completedSection).not.toBeNull();
+    expect(completedSection).toHaveTextContent("Anna Zakończona");
+    expect(completedSection).toHaveTextContent(
+      /Zamówienie nr 445 · zafakturowano 32.*000,00 zł/,
+    );
+    // Pozostali konsultanci nadal są w aktywnej obsadzie tej samej grupy.
+    expect(completedSection).not.toHaveTextContent("Jan Kowalski");
+    expect(screen.getByText("Jan Kowalski")).toBeInTheDocument();
+  });
+
+  it("oznacza pending MD na czerwono i zapisuje wersjonowaną decyzję transferu", async () => {
+    const departingCase = offboardingCase({ uses_shared_md_pool: true });
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            order_type: "md",
+            is_md_budget_based: true,
+            md_budget_total: 100,
+            md_budget_used: 40,
+            md_budget_remaining: 60,
+            lines: [
+              line({
+                id: 1,
+                consultant_name: "Jan Odchodzący",
+                status: "completed",
+                is_active: false,
+                end_date: "2026-08-31",
+                offboarding_case: departingCase,
+              }),
+              line({ id: 2, consultant_name: "Anna Przejmująca" }),
+            ],
+            active_consultants: 1,
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 2,
+      },
+    } as never);
+    vi.mocked(orderGroupsApi.resolveOffboardingCase).mockResolvedValue({
+      data: offboardingCase({
+        status: "resolved",
+        version: 4,
+        resolution: "transfer",
+        target_order_id: 2,
+        rate_basis: "recipient",
+      }),
+    } as never);
+    const user = userEvent.setup();
+
+    renderTab({ costOrdersEnabled: true });
+
+    const badge = await screen.findByText("Zakończenie współpracy");
+    const departingRow = badge.closest("li");
+    expect(departingRow).toHaveClass("bg-destructive/10");
+    expect(departingRow).toHaveTextContent(/Wymagana decyzja/);
+    // Zwykłe usunięcie jest ukryte — sprawę trzeba rozstrzygnąć endpointem,
+    // który jednocześnie obsłuży alert dashboardu.
+    expect(
+      screen.queryByRole("button", {
+        name: "Usuń konsultanta z zamówienia — Jan Odchodzący",
+      }),
+    ).not.toBeInTheDocument();
+    const listCallsBeforeDecision = vi.mocked(orderGroupsApi.list).mock.calls.length;
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Podejmij decyzję o MD — Jan Odchodzący",
+      }),
+    );
+    expect(
+      screen.getByRole("dialog", {
+        name: "Zakończenie współpracy — decyzja o MD",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(/wspólna pula pozostaje bez zmian/i).length,
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByRole("radio", { name: /Usuń z zamówienia/ }),
+    ).toBeChecked();
+
+    await user.click(
+      screen.getByRole("radio", { name: /Przelicz na innego konsultanta/ }),
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Konsultant przejmujący *"),
+      "2",
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Przelicz po stawce *"),
+      "recipient",
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz decyzję" }));
+
+    await waitFor(() =>
+      expect(orderGroupsApi.resolveOffboardingCase).toHaveBeenCalledWith(
+        7,
+        10,
+        901,
+        {
+          action: "transfer",
+          target_order_id: 2,
+          rate_basis: "recipient",
+          expected_version: 3,
+        },
+      ),
+    );
+    await waitFor(() =>
+      expect(vi.mocked(orderGroupsApi.list).mock.calls.length).toBeGreaterThan(
+        listCallsBeforeDecision,
+      ),
+    );
+    expect(
+      screen.queryByRole("dialog", {
+        name: "Zakończenie współpracy — decyzja o MD",
+      }),
+    ).not.toBeInTheDocument();
   });
 
   it("niepełne rozliczenie faktury jest nazwane kwotą, nie samym ostrzeżeniem", async () => {

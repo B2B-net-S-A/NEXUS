@@ -36,6 +36,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.models.contract import RateUnit
 
 
 class ClientOrderStatus(str, enum.Enum):
@@ -139,13 +140,41 @@ class ClientOrder(Base, TimestampMixin):
     end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     """``NULL`` = open-ended. Indeksowane — scheduler skanuje expiry."""
 
-    # Rate_client per Order — może różnić się od Contract.rate_client przy
-    # przedłużeniach z podwyżką. rate_candidate trzymamy na Contract (typically
-    # stała przez całą współpracę z kontraktorem).
+    # Stawki są snapshotem warunków TEGO zamówienia. Mogą różnić się od
+    # bieżącego Contract przy przedłużeniu albo po ręcznej korekcie zamówienia.
+    # Do 0249 koszt był czytany i edytowany wprost na Contract, przez co zmiana
+    # jednostki/waluty jednego zamówienia przepisywała wszystkie pozostałe.
     # Numeric(12,3) — stawka klienta z PO może być dziesiętna z 3 miejscami
     # po przecinku (np. Alior 164.375 PLN/h — migracja 0149).
     rate_client: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 3), nullable=True
+    )
+    rate_candidate: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(12, 3), nullable=True
+    )
+
+    # Jedna jednostka opisuje obie stawki zamówienia. Snapshot jest konieczny:
+    # późniejsza zmiana Contract nie może przepisać historii ani ręcznego
+    # wyboru w pojedynczym zamówieniu. Linie grupowe nadal przechowują
+    # kanoniczne stawki w md_rate_* (PLN/MD); dla nich ten snapshot ma wartość
+    # daily i nie zmienia arytmetyki budżetów.
+    rate_unit: Mapped[RateUnit] = mapped_column(
+        Enum(RateUnit, name="rateunit", create_type=False),
+        nullable=False,
+        default=RateUnit.monthly,
+        server_default="monthly",
+    )
+    billing_hours_per_month: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=160, server_default="160"
+    )
+
+    # Waluty obu stron stawki. ``currency`` niżej zostaje aliasem strony
+    # przychodowej dla zgodności starszych integracji.
+    rate_client_currency: Mapped[Optional[str]] = mapped_column(
+        String(3), nullable=True
+    )
+    rate_candidate_currency: Mapped[Optional[str]] = mapped_column(
+        String(3), nullable=True
     )
 
     total_value: Mapped[Optional[Decimal]] = mapped_column(
