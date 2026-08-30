@@ -77,6 +77,8 @@ _KNOWN_CLIENT_ORDER_FKS: dict[tuple[str, str], str] = {
     ("client_order_group_events", "order_id"): "n",
     ("client_order_invoice_consumptions", "order_id"): "c",
     ("client_order_md_consumptions", "order_id"): "c",
+    ("client_order_offboarding_cases", "order_id"): "c",
+    ("client_order_offboarding_cases", "target_order_id"): "n",
     ("dl_alerts", "order_id"): "n",
     ("md_consumption_import_rows", "matched_order_id"): "n",
 }
