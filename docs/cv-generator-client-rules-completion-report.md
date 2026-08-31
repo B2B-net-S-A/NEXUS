@@ -82,6 +82,14 @@ ORM. Pipeline generacji jest synchroniczny i leci w `run_in_threadpool`, gdzie
 dostęp do atrybutu wiersza potrafi skończyć się `MissingGreenlet` — czyli 500
 bez CORS, widocznym w UI jako „Network Error".
 
+**Oba odczyty stoją na `OperationalUser`, nie na samym zalogowaniu.** Bramka jest
+lustrem `GET /api/clients/{id}` — reguła to konfiguracja klienta, a `notes` niosą
+jego standardy handlowe (SLA, off-limit, adresy biur). Nikomu to nie zawęża
+dostępu do banera w generatorze: `CANDIDATE_DOCUMENT_ROLES`, czyli bramka obu
+ścieżek generacji, to DOKŁADNIE ten sam zestaw siedmiu ról operacyjnych. Wyszło
+to z `test_route_authz_contract`, który świadomie nie wpuszcza nowych tras bez
+bramki zasobu.
+
 **Brak więzu „confirmed_at i confirmed_by naraz albo wcale".** `confirmed_by` ma
 `ON DELETE SET NULL`, więc taki CHECK zerwałby się przy usuwaniu konta osoby,
 która regułę zatwierdziła, i zablokowałby DELETE użytkownika.
