@@ -55,32 +55,84 @@ def test_snapshot_carries_every_field_the_pipeline_reads():
 # (etykieta, wzór, spaces_to_underscores, oczekiwana nazwa)
 # Kandydat: „Jan Kowalski", stanowisko: „Analityk Biznesowy", projekt: „4521".
 _CASES = [
-    ("ALIOR", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "B2B_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("BIK", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "B2B_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("BNP PARIBAS", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "B2B_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("SANTANDER", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "B2B_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("Nordea", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "B2B_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("PFRON", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "B2B_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("KIR", "B2B_{STANOWISKO}_{IMIE_NAZWISKO}", True,
-     "B2B_Analityk_Biznesowy_Jan_Kowalski.docx"),
-    ("Bank Pocztowy", "Bank_Pocztowy_{STANOWISKO}_{IMIE_NAZWISKO}", True,
-     "Bank_Pocztowy_Analityk_Biznesowy_Jan_Kowalski.docx"),
-    ("PANSA", "B2B_PANSA_{STANOWISKO}_{IMIE_NAZWISKO}", True,
-     "B2B_PANSA_Analityk_Biznesowy_Jan_Kowalski.docx"),
-    ("Tauron", "B2B_Tauron_{STANOWISKO}_{IMIE_NAZWISKO}", True,
-     "B2B_Tauron_Analityk_Biznesowy_Jan_Kowalski.docx"),
-    ("ENERGA", "ENERGA_{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "ENERGA_4521_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("ORLEN", "ORLEN_{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "ORLEN_4521_Analityk Biznesowy_Jan Kowalski.docx"),
-    ("PKO BP", "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}", False,
-     "ZOB-4521_Analityk Biznesowy_Jan Kowalski.docx"),
+    (
+        "ALIOR",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "B2B_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "BIK",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "B2B_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "BNP PARIBAS",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "B2B_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "SANTANDER",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "B2B_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "Nordea",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "B2B_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "PFRON",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "B2B_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "KIR",
+        "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
+        True,
+        "B2B_Analityk_Biznesowy_Jan_Kowalski.docx",
+    ),
+    (
+        "Bank Pocztowy",
+        "Bank_Pocztowy_{STANOWISKO}_{IMIE_NAZWISKO}",
+        True,
+        "Bank_Pocztowy_Analityk_Biznesowy_Jan_Kowalski.docx",
+    ),
+    (
+        "PANSA",
+        "B2B_PANSA_{STANOWISKO}_{IMIE_NAZWISKO}",
+        True,
+        "B2B_PANSA_Analityk_Biznesowy_Jan_Kowalski.docx",
+    ),
+    (
+        "Tauron",
+        "B2B_Tauron_{STANOWISKO}_{IMIE_NAZWISKO}",
+        True,
+        "B2B_Tauron_Analityk_Biznesowy_Jan_Kowalski.docx",
+    ),
+    (
+        "ENERGA",
+        "ENERGA_{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "ENERGA_4521_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "ORLEN",
+        "ORLEN_{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "ORLEN_4521_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
+    (
+        "PKO BP",
+        "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}",
+        False,
+        "ZOB-4521_Analityk Biznesowy_Jan Kowalski.docx",
+    ),
 ]
 
 
@@ -272,3 +324,31 @@ class TestReminders:
 
         assert rule_reminders(_rule("B2B_{IMIE_NAZWISKO}")) == ()
         assert rule_reminders(None) == ()
+
+
+def test_empty_candidate_name_falls_back_instead_of_naming_a_file_after_nobody():
+    """Pusty kandydat MUSI zdegradować do globalnej nazwy.
+
+    Regresja: strażnik tożsamości opierał się wyłącznie na
+    ``values[TOKEN_FULL_NAME] not in stem``, a ``"" in cokolwiek`` jest zawsze
+    prawdą — więc przepuszczał dokładnie ten przypadek, przed którym miał
+    chronić. Plik nazwany „B2B_Analityk.docx" nie niesie tożsamości i jest
+    nie do odróżnienia w folderze „Pobrane".
+    """
+    assert (
+        build_filename(
+            _rule("B2B_{STANOWISKO}_{IMIE_NAZWISKO}"),
+            position="Analityk",
+            candidate_name="",
+        )
+        is None
+    )
+    # Same białe znaki to ta sama sytuacja — normalizacja zwija je do pustki.
+    assert (
+        build_filename(
+            _rule("B2B_{STANOWISKO}_{IMIE_NAZWISKO}"),
+            position="Analityk",
+            candidate_name="   ",
+        )
+        is None
+    )

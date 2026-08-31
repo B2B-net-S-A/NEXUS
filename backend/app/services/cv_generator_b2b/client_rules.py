@@ -162,7 +162,12 @@ def build_filename(
     # Ostatnia linia obrony: nazwa musi nieść tożsamość kandydata. Wzór złożony
     # z samych nierozwiązanych tokenów dałby plik „B2B.docx" dla każdego —
     # nie do odróżnienia w folderze „Pobrane" i nie do wysłania klientowi.
-    if not stem or values[TOKEN_FULL_NAME] not in stem:
+    #
+    # Pustka sprawdzana OSOBNO i PRZED `in`: `"" in cokolwiek` jest zawsze
+    # prawdą, więc warunek oparty wyłącznie na `not in` przepuszczałby dokładnie
+    # ten przypadek, przed którym miał chronić — kandydata bez nazwiska.
+    name_value = values[TOKEN_FULL_NAME]
+    if not stem or not name_value or name_value not in stem:
         return None
 
     # Znaki zarezerwowane przez systemy plików; polskie znaki i spacje zostają

@@ -54,11 +54,9 @@ from app.services.cv_generator_b2b.champion_builder import (
 )
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
-)
-from app.services.cv_generator_b2b.client_rules import (
     build_filename as build_client_filename,
+    rule_reminders,
 )
-from app.services.cv_generator_b2b.client_rules import rule_reminders
 from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
