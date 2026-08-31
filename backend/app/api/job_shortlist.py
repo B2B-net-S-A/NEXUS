@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
 from app.api.proposals_bulk import _resolve_initial_stage
-from app.api.recruitment_access import ensure_job_membership
+from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict
@@ -183,7 +183,7 @@ async def list_shortlist(
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ) -> list[ShortlistEntryResponse]:
-    await ensure_job_membership(db, current_user, job_id)
+    await ensure_job_read_access(db, current_user, job_id)
     rows = (
         await db.execute(
             select(JobShortlistEntry, Candidate.name, Candidate.lastname)

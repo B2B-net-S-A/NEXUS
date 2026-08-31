@@ -43,7 +43,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.deps import DlAssignedOrAdmin, require_roles
+from app.api.deps import (
+    DlAssignedOrAdmin,
+    get_current_user,
+    require_dl_assigned_or_admin,
+    require_roles,
+)
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
@@ -411,6 +416,25 @@ OrderGroupReader = Annotated[
         )
     ),
 ]
+
+
+async def require_consultant_options_reader(
+    client_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Preserve the legacy DL assignment guard and add Finance read only."""
+
+    if current_user.has_role(UserRole.finance):
+        return current_user
+    return await require_dl_assigned_or_admin(
+        client_id=client_id,
+        current_user=current_user,
+        db=db,
+    )
+
+
+ConsultantOptionsReader = Annotated[User, Depends(require_consultant_options_reader)]
 
 
 def _has_order_lifecycle_role(user: User) -> bool:
@@ -1383,7 +1407,7 @@ async def export_order_groups(
 )
 async def list_consultant_options_for_client(
     client_id: int,
-    user: OrderGroupReader,
+    user: ConsultantOptionsReader,
     q: str = Query("", max_length=120, description="Imię i nazwisko"),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),

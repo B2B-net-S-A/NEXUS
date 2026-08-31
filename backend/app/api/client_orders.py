@@ -1349,13 +1349,14 @@ async def export_client_orders(
 
     orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
     if not unified or requested_order_ids:
-        # Do not let the broader group-export dependency widen access to the
-        # standalone contractor/order surface for Finance. HoR already passes
-        # the same global supervisory resolver as the unified GET list.
+        # Standalone order rows use the same business-read audience as the
+        # unified order list. Finance is organization-wide; DL/TAC still pass
+        # their normal client-assignment resolver inside the list handler.
         if not user.has_any_role(
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.finance,
             UserRole.tac,
         ):
             raise HTTPException(

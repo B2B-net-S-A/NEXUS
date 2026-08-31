@@ -672,7 +672,7 @@ def test_legacy_order_business_gets_use_finance_extended_reader():
 
     assert (
         _user_annotation(client_order_groups.list_consultant_options_for_client)
-        == client_order_groups.OrderGroupReader
+        == client_order_groups.ConsultantOptionsReader
     )
     assert (
         _user_annotation(client_order_groups.add_line)
