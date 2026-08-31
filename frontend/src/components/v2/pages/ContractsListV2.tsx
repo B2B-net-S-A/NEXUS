@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from"react";
+import { useEffect, useMemo, useRef, useState } from"react";
 import Link from"next/link";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
- Calendar,
  Download,
  FileText,
  Plus,
@@ -208,20 +207,68 @@ function contractorsCountText(
  return `${contractors} ${personNoun} / ${contracts} ${contractNoun}`;
 }
 
-// Wspólny rendering komórek rozbijanych per klient („Bank Pocztowy: 175,00 zł /
-// VeloBank: 162,50 zł"). Członkowie przychodzą z backendu w stałej kolejności
-// (żywe najpierw, potem najnowsza), więc wszystkie kolumny wiersza czytają się
-// linia-w-linię dla tego samego klienta.
-function memberLines(
- members: ContractGroupMemberRow[],
- render: (m: ContractGroupMemberRow) => ReactNode,
-) {
- return members.map((m) => (
- <div key={m.id} className="text-xs whitespace-nowrap">
- <span className="text-muted-foreground">{m.client_name ?? "—"}: </span>
- {render(m)}
- </div>
- ));
+/**
+ * Globalny `formatDate` zachowuje czterocyfrowy rok. Rejestr kontraktów ma
+ * osobny, celowo zwarty format, żeby pełny zestaw kolumn mieścił się na
+ * standardowym ekranie roboczym. Pełna data pozostaje w `title`/`aria-label`.
+ */
+export function formatContractListDate(
+ date: string | Date | null | undefined,
+): string {
+ if (!date) return"—";
+ return new Intl.DateTimeFormat("pl-PL", {
+ day: "2-digit",
+ month: "2-digit",
+ year: "2-digit",
+ }).format(new Date(date));
+}
+
+function CompactDate({ value }: { value: string }) {
+ const fullDate = formatDate(value);
+ return (
+ <time dateTime={value} title={fullDate} aria-label={fullDate}>
+ {formatContractListDate(value)}
+ </time>
+ );
+}
+
+function marginPercent(
+ margin: number | null | undefined,
+ rateClient: number | null | undefined,
+): string | null {
+ if (margin == null || rateClient == null || rateClient === 0) return null;
+ return `${new Intl.NumberFormat("pl-PL", {
+ minimumFractionDigits: 1,
+ maximumFractionDigits: 1,
+ }).format((margin / rateClient) * 100)}%`;
+}
+
+function rowAsGroupMember(row: ContractRow): ContractGroupMemberRow {
+ return {
+ id: row.id,
+ client_id: 0,
+ client_name: row.client_name,
+ job_title: row.job_title,
+ start_date: row.start_date,
+ end_date: row.end_date,
+ latest_order_end_date: row.latest_order_end_date,
+ contract_type: row.contract_type,
+ rate_client: row.rate_client,
+ rate_candidate: row.rate_candidate,
+ margin: row.margin,
+ status: row.status,
+ currency: row.currency,
+ rate_client_currency: row.rate_client_currency,
+ rate_candidate_currency: row.rate_candidate_currency,
+ };
+}
+
+function MobileFieldLabel({ children }: { children: string }) {
+ return (
+ <span className="mb-1 hidden text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground max-xl:block">
+ {children}
+ </span>
+ );
 }
 
 interface ContractsListV2Props {
@@ -645,11 +692,39 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  }}
  />
 
- {/* Table */}
- <Table density="cozy">
- <TableHeader>
+ {/* Compact client-band table. One semantic row per contract keeps every
+ client/date/rate/status tuple aligned; the candidate cell spans the group. */}
+ <Table
+ density="compact"
+ className="table-fixed text-xs max-xl:block"
+ data-contracts-responsive-table
+ >
+ <colgroup className="max-xl:hidden">
+ {canSeeFinance ? (
+ <>
+ <col className="w-[18%]" />
+ <col className="w-[15%]" />
+ <col className="w-[13%]" />
+ <col className="w-[13.5%]" />
+ <col className="w-[14%]" />
+ <col className="w-[10%]" />
+ <col className="w-[7.5%]" />
+ <col className="w-[9%]" />
+ </>
+ ) : (
+ <>
+ <col className="w-[26%]" />
+ <col className="w-[26%]" />
+ <col className="w-[22%]" />
+ <col className="w-[10%]" />
+ <col className="w-[16%]" />
+ </>
+ )}
+ </colgroup>
+ <TableHeader className="max-xl:hidden">
  <TableRow>
- <TableHead className="w-8">
+ <TableHead className="px-2">
+ <span className="flex items-center gap-2">
  <Checkbox
  checked={
  allVisibleSelected
@@ -663,31 +738,34 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  }
  aria-label="Zaznacz wszystkie"
  />
+ Kandydat
+ </span>
  </TableHead>
- <TableHead>Kandydat</TableHead>
- <TableHead className="max-w-[240px]">Klient · Rekrutacja</TableHead>
- <TableHead>Daty</TableHead>
- <TableHead>Typ</TableHead>
+ <TableHead className="px-2">Klient</TableHead>
+ <TableHead className="px-2">Daty</TableHead>
  {canSeeFinance && (
  <>
- <TableHead className="text-right">Stawka kosztowa</TableHead>
- <TableHead className="text-right">Stawka przychodowa</TableHead>
- <TableHead className="text-right">Marża</TableHead>
+ <TableHead className="px-2 text-right">Stawka kosztowa</TableHead>
+ <TableHead className="px-2 text-right">Stawka przychodowa</TableHead>
+ <TableHead className="px-2 text-right">Marża</TableHead>
  </>
  )}
- <TableHead>Status</TableHead>
+ <TableHead className="px-2">Typ</TableHead>
+ <TableHead className="px-2">Status</TableHead>
  </TableRow>
  </TableHeader>
- <TableBody>
  {viewState === "loading" ? (
- <TableRow>
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 text-muted-foreground">
+ <TableBody className="max-xl:block max-xl:w-full">
+ <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 8 : 5} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
  Ładowanie…
  </TableCell>
  </TableRow>
+ </TableBody>
  ) : failed ? (
- <TableRow>
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="p-0">
+ <TableBody className="max-xl:block max-xl:w-full">
+ <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 8 : 5} className="p-0 max-xl:block max-xl:w-full">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -700,37 +778,72 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  />
  </TableCell>
  </TableRow>
+ </TableBody>
  ) : viewState === "empty" ? (
- <TableRow>
- <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10">
+ <TableBody className="max-xl:block max-xl:w-full">
+ <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 8 : 5} className="text-center py-10 max-xl:block max-xl:w-full">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
  </p>
  </TableCell>
  </TableRow>
+ </TableBody>
  ) : (
  items.map((c) => {
- // Wiersz zgrupowany: >1 umowy tej samej osoby (różni klienci).
- // Kolumny okresu/stawek/marży rozbijają się wtedy per klient;
- // pojedyncza umowa renderuje się dokładnie jak dotychczas.
- const members = c.group_members ?? [];
+ const groupedMembers = c.group_members ?? [];
+ const members = groupedMembers.length ? groupedMembers : [rowAsGroupMember(c)];
  const multi = members.length > 1;
- // Checkbox wiersza = komplet umów osoby (patrz `toggleIds`).
- const rowIds = members.length ? members.map((m) => m.id) : [c.id];
+ const rowIds = members.map((m) => m.id);
  const rowSelected = rowIds.every((id) => selectedIds.has(id));
- // „pracuje u N klientów" mówi o ŻYWYCH umowach i ODRĘBNYCH klientach —
- // ended+active u tego samego klienta (powrót po przerwie) to nie jest
- // praca u dwóch klientów naraz. Lustro `liveClientCount` z widoku
- // szczegółów.
  const liveClientCount = new Set(
- members
+ groupedMembers
  .filter((m) => m.status === "active" || m.status === "ending")
  .map((m) => m.client_id),
  ).size;
+
  return (
- <TableRow key={c.id} interactive selected={rowSelected}>
- <TableCell onClick={(e) => e.stopPropagation()}>
+ <TableBody
+ key={c.id}
+ data-contract-group={c.id}
+ className="max-xl:mb-3 max-xl:block max-xl:overflow-hidden max-xl:rounded-lg max-xl:border max-xl:border-border max-xl:bg-card"
+ >
+ {members.map((m, memberIndex) => {
+ const comparableMargin = hasComparableRateCurrencies(m)
+ ? m.margin
+ : null;
+ const marginPct = marginPercent(comparableMargin, m.rate_client);
+ const statusBadge = m.status
+ ? CONTRACT_STATUS_BADGE[m.status]
+ : undefined;
+
+ return (
+ <TableRow
+ key={m.id}
+ data-contract-member={m.id}
+ interactive
+ selected={rowSelected}
+ className={cn(
+ "h-auto min-h-10",
+ rowSelected
+ ?"bg-primary/10!"
+ : memberIndex % 2 === 0
+ ?"bg-info-muted/35"
+ :"bg-primary/[0.04]",
+ memberIndex === members.length - 1 &&
+ "xl:border-border! xl:border-b-2!",
+ "max-xl:grid max-xl:h-auto max-xl:grid-cols-2 max-xl:bg-card",
+ )}
+ >
+ {memberIndex === 0 && (
+ <TableCell
+ rowSpan={members.length}
+ data-label="Kandydat"
+ className="align-top bg-card px-2 py-2 max-xl:col-span-2 max-xl:block max-xl:border-b max-xl:border-border max-xl:bg-muted/40"
+ onClick={(e) => e.stopPropagation()}
+ >
+ <div className="flex min-w-0 items-start gap-2">
  <Checkbox
  checked={rowSelected}
  onCheckedChange={() => toggleIds(rowIds)}
@@ -740,175 +853,142 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  : `Zaznacz kontrakt ${c.id}`
  }
  />
- </TableCell>
- <TableCell>
+ <div className="min-w-0">
  <Link
  href={buildContractDetailHref(c.id, returnTarget)}
  onClick={() => rememberContractsListScroll(returnTarget)}
- className="font-medium text-foreground hover:text-primary"
+ className="block truncate text-[13px] font-semibold leading-4 text-foreground hover:text-primary"
+ title={c.candidate_name ?? undefined}
  >
  {c.candidate_name ?? `#${c.id}`}
  </Link>
  {liveClientCount > 1 && (
- <div className="text-xs text-muted-foreground">
+ <div className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
  pracuje u {liveClientCount} klientów
  </div>
  )}
+ </div>
+ </div>
  </TableCell>
- <TableCell>
- {multi ? (
- members.map((m) => (
- <div key={m.id} className="text-sm">
+ )}
+
+ <TableCell
+ data-label="Klient"
+ className={cn(
+ "border-l-2 px-2 py-1.5 align-top",
+ memberIndex % 2 === 0
+ ?"border-l-info/60"
+ :"border-l-primary/70",
+ "max-xl:block max-xl:min-w-0 max-xl:border-b max-xl:border-b-border/60",
+ )}
+ >
+ <MobileFieldLabel>Klient</MobileFieldLabel>
  <Link
  href={buildContractDetailHref(m.id, returnTarget)}
  onClick={() => rememberContractsListScroll(returnTarget)}
- className="hover:text-primary"
+ className="block min-w-0 hover:text-primary"
  >
- <TruncatedText>{m.client_name}</TruncatedText>
+ <TruncatedText className="max-w-full text-[12px] font-semibold leading-4">
+ {m.client_name}
+ </TruncatedText>
  </Link>
  {m.job_title && (
- <TruncatedText className="text-xs text-muted-foreground">
+ <TruncatedText className="max-w-full text-[10px] leading-4 text-muted-foreground">
  {m.job_title}
  </TruncatedText>
  )}
- </div>
- ))
- ) : (
- <>
- <TruncatedText className="text-sm">{c.client_name}</TruncatedText>
- <TruncatedText className="text-xs text-muted-foreground">
- {c.job_title}
- </TruncatedText>
- </>
- )}
  </TableCell>
- <TableCell>
- {multi ? (
- memberLines(members, (m) => (
- <span className="text-foreground">
- {m.start_date ? formatDate(m.start_date) : "—"}
- {m.end_date ? ` → ${formatDate(m.end_date)}` : " → bezterminowo"}
+
+ <TableCell
+ data-label="Daty"
+ className="px-2 py-1.5 align-top max-xl:block max-xl:border-b max-xl:border-b-border/60"
+ >
+ <MobileFieldLabel>Daty</MobileFieldLabel>
+ <div className="text-[12px] font-medium leading-4 text-foreground">
+ <span className="block whitespace-nowrap">
+ {m.start_date ? <CompactDate value={m.start_date} /> : "—"}
+ </span>
+ <span className="block whitespace-nowrap text-muted-foreground">
+ <span className="mr-1" aria-hidden="true">→</span>
+ {m.end_date ? <CompactDate value={m.end_date} /> : "bezterminowo"}
+ </span>
+ </div>
  {m.latest_order_end_date &&
  m.latest_order_end_date !== m.end_date && (
- <span
- className="text-warning-muted-foreground"
+ <div
+ className="whitespace-nowrap text-[10px] leading-4 text-warning-muted-foreground"
  title="Aktualne zamówienie klienta kończy się tej daty"
  >
- {" "}
- · zam. do {formatDate(m.latest_order_end_date)}
- </span>
- )}
- </span>
- ))
- ) : (
- <>
- <div className="flex items-center gap-1 text-xs text-foreground">
- <Calendar className="h-3 w-3" />
- {c.start_date ? formatDate(c.start_date) : "—"}
+ zam. do <CompactDate value={m.latest_order_end_date} />
  </div>
- <div className="text-xs text-muted-foreground">
- {c.end_date ? `→ ${formatDate(c.end_date)}` : "→ bezterminowo"}
- </div>
- {c.latest_order_end_date && c.latest_order_end_date !== c.end_date && (
- <div className="mt-0.5 text-xs text-warning-muted-foreground" title="Aktualne zamówienie klienta kończy się tej daty">
- zamówienie do {formatDate(c.latest_order_end_date)}
- </div>
- )}
- </>
  )}
  </TableCell>
- <TableCell>
- {multi ? (
- <div className="flex flex-col items-start gap-0.5">
- {members.map((m) => (
- <Badge key={m.id} size="sm" variant="soft">
- {m.contract_type ??"—"}
- </Badge>
- ))}
- </div>
- ) : (
- <Badge size="sm" variant="soft">
- {c.contract_type ??"—"}
- </Badge>
- )}
- </TableCell>
+
  {canSeeFinance && (
  <>
- <TableCell className="text-right font-mono text-sm">
- {multi
- ? memberLines(members, (m) =>
- m.rate_candidate != null
+ <TableCell
+ data-label="Stawka kosztowa"
+ className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ >
+ <MobileFieldLabel>Stawka kosztowa</MobileFieldLabel>
+ {m.rate_candidate != null
  ? formatCurrency(m.rate_candidate, candidateCurrency(m))
- :"—",
- )
- : c.rate_candidate != null
- ? formatCurrency(c.rate_candidate, candidateCurrency(c))
  :"—"}
  </TableCell>
- <TableCell className="text-right font-mono text-sm">
- {multi
- ? memberLines(members, (m) =>
- m.rate_client != null
+ <TableCell
+ data-label="Stawka przychodowa"
+ className="px-2 py-1.5 text-right align-top font-mono text-[12px] font-semibold leading-5 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ >
+ <MobileFieldLabel>Stawka przychodowa</MobileFieldLabel>
+ {m.rate_client != null
  ? formatCurrency(m.rate_client, clientCurrency(m))
- :"—",
- )
- : c.rate_client != null
- ? formatCurrency(c.rate_client, clientCurrency(c))
  :"—"}
  </TableCell>
- <TableCell className="text-right font-mono text-sm">
- {multi
- ? memberLines(members, (m) => (
+ <TableCell
+ data-label="Marża"
+ className="px-2 py-1.5 text-right align-top font-mono text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
+ >
+ <MobileFieldLabel>Marża</MobileFieldLabel>
  <span
  className={marginColor(
- hasComparableRateCurrencies(m) ? m.margin ?? undefined : undefined,
+ comparableMargin ?? undefined,
  m.rate_client ?? undefined,
  )}
  >
- {m.margin != null && hasComparableRateCurrencies(m)
- ? formatCurrency(m.margin, clientCurrency(m))
+ {comparableMargin != null
+ ? formatCurrency(comparableMargin, clientCurrency(m))
  :"—"}
  </span>
- ))
- : (
- <span
- className={cn(
- marginColor(
- hasComparableRateCurrencies(c) ? c.margin : undefined,
- c.rate_client,
- ),
- )}
- >
- {c.margin != null && hasComparableRateCurrencies(c)
- ? formatCurrency(c.margin, clientCurrency(c))
- :"—"}
+ {marginPct && (
+ <span className="block text-[10px] font-sans text-muted-foreground">
+ {marginPct}
  </span>
  )}
  </TableCell>
  </>
  )}
- <TableCell>
- {multi ? (
- <div className="flex flex-col items-start gap-0.5">
- {members.map((m) => (
- <Badge
- key={m.id}
- size="sm"
- variant={
- (m.status && CONTRACT_STATUS_BADGE[m.status]?.variant) ||"neutral"
- }
+
+ <TableCell
+ data-label="Typ"
+ className="px-2 py-1.5 align-top max-xl:block"
  >
- {(m.status && CONTRACT_STATUS_BADGE[m.status]?.label) ??
- m.status ??"—"}
+ <MobileFieldLabel>Typ</MobileFieldLabel>
+ <Badge size="md" variant="soft" className="max-w-full px-1.5 text-[11px]">
+ {m.contract_type ??"—"}
  </Badge>
- ))}
- </div>
- ) : c.status ? (
- <Badge
- size="sm"
- variant={CONTRACT_STATUS_BADGE[c.status]?.variant ??"neutral"}
+ </TableCell>
+ <TableCell
+ data-label="Status"
+ className="px-2 py-1.5 align-top max-xl:block"
  >
- {CONTRACT_STATUS_BADGE[c.status]?.label ?? c.status}
+ <MobileFieldLabel>Status</MobileFieldLabel>
+ {m.status ? (
+ <Badge
+ size="md"
+ variant={statusBadge?.variant ??"neutral"}
+ className="max-w-full px-1.5 text-[11px]"
+ >
+ {statusBadge?.label ?? m.status}
  </Badge>
  ) : (
  <span className="text-xs text-muted-foreground">—</span>
@@ -916,9 +996,11 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </TableCell>
  </TableRow>
  );
+ })}
+ </TableBody>
+ );
  })
  )}
- </TableBody>
  </Table>
 
  {toast && (
