@@ -1,30 +1,35 @@
-"""Admin global chat view — Feature 10.
+"""Organization-wide chat audit view — Feature 10.
 
 Endpoint dla adminów: agregowany strumień wszystkich chatów (job + candidate)
 across the entire system. Cel: audyt + szybki przegląd "co się działo
 ostatnio" bez konieczności wchodzenia w każdy projekt z osobna.
 
-Tylko `admin` (nie `head_of_recruitment`!) — to jest superpower do
-audytu. Niech HoR przesz wnioskuje przez Job Chat tab jak wszyscy inni.
+Odczyt jest dostępny dla administratora i Finance. Finance dostaje wyłącznie
+widok audytowy; zarządzanie wiadomościami pozostaje w routerach domenowych.
 """
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser
+from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_chat import CandidateChatMessage
 from app.models.job import Job
 from app.models.job_chat import JobChatMessage
-from app.models.user import User
+from app.models.user import User, UserRole
 
 router = APIRouter()
+
+GlobalChatsReadUser = Annotated[
+    User,
+    Depends(require_roles(UserRole.admin, UserRole.finance)),
+]
 
 
 class GlobalChatItem(BaseModel):
@@ -46,13 +51,13 @@ class GlobalChatList(BaseModel):
 
 @router.get("/global-chats", response_model=GlobalChatList)
 async def global_chats(
-    current_user: AdminUser,
+    current_user: GlobalChatsReadUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
     chat_type: Optional[Literal["job", "candidate"]] = Query(None),
     search: Optional[str] = Query(None, min_length=1, max_length=200),
 ) -> GlobalChatList:
-    """Recent messages across ALL job + candidate chats (admin-only audit feed).
+    """Recent messages across all job and candidate chats (read-only audit feed).
 
     Filtry:
       - `chat_type=job|candidate` — ogranicz do jednego typu

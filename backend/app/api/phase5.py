@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateFinanceAccess
+from app.api.candidate_access import CandidateFinanceReadAccess
 from app.api.deps import AdminUser, CurrentUser, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
@@ -168,7 +168,7 @@ def _rate_to_dict(r: RateHistory) -> dict:
 @router.get("/candidates/{candidate_id}/rate-history")
 async def list_rate_history(
     candidate_id: int,
-    current_user: CandidateFinanceAccess,
+    current_user: CandidateFinanceReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
@@ -263,7 +263,7 @@ def _conflict_to_dict(c: CandidateConflict) -> dict:
 @router.get("/candidates/{candidate_id}/conflicts")
 async def list_conflicts(
     candidate_id: int,
-    current_user: CandidateFinanceAccess,
+    current_user: CandidateFinanceReadAccess,
     active_only: bool = True,
     db: AsyncSession = Depends(get_db),
 ):

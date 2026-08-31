@@ -46,7 +46,7 @@ from app.services.html_sanitizer import sanitize_cv_html
 # same CandidateDocumentAccess capability as the canonical document routes.
 from app.api.candidate_access import CandidateDocumentAccess
 from app.api.deps import RecruiterPlus
-from app.api.recruitment_access import ensure_job_membership
+from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -54,7 +54,7 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.candidate_stage_cv import (
     CVBrandedFinalizeResponse,
     CVBrandedResponse,
@@ -117,7 +117,11 @@ async def _ensure_stage_membership(db: AsyncSession, stage_id: int, user: User) 
 
 
 async def _load_csv_for_stage(
-    db: AsyncSession, stage_id: int, user: User
+    db: AsyncSession,
+    stage_id: int,
+    user: User,
+    *,
+    read_access: bool = False,
 ) -> CandidateStageCV:
     """Wczytaj CandidateStageCV dla stage_id, 404 gdy brak. Sprawdza tez czy
     sam stage istnieje — żeby rozróżnić "stage nie istnieje" od "stage bez CV".
@@ -153,7 +157,10 @@ async def _load_csv_for_stage(
         raise HTTPException(status_code=404, detail="Stage nie znaleziony")
 
     job_id, csv = row
-    await ensure_job_membership(db, user, job_id)
+    if read_access:
+        await ensure_job_read_access(db, user, job_id)
+    else:
+        await ensure_job_membership(db, user, job_id)
 
     if csv is None:
         raise HTTPException(
@@ -176,7 +183,7 @@ async def get_original_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVOriginalSnapshotResponse:
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     return _build_original_response(csv)
 
 
@@ -186,7 +193,7 @@ async def download_original_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     if csv.original_cv_content is None:
         raise HTTPException(
             status_code=404,
@@ -292,6 +299,28 @@ def _build_branded_response(
     )
 
 
+def _build_transient_branded_response(
+    csv: CandidateStageCV, html: str
+) -> CVBrandedResponse:
+    """Finance preview for an uninitialized draft without mutating the ORM row."""
+
+    return CVBrandedResponse(
+        candidate_stage_id=csv.candidate_stage_id,
+        status="draft",
+        content_html=html,
+        template=_DEFAULT_TEMPLATE,
+        language=_DEFAULT_LANGUAGE,
+        updated_at=None,
+        updated_by=None,
+        updated_by_name=None,
+        finalized_at=None,
+        finalized_by=None,
+        finalized_by_name=None,
+        snapshot_filename=None,
+        rendered_from_default=True,
+    )
+
+
 @router.get(
     "/candidates/stages/{stage_id}/cv/branded",
     response_model=CVBrandedResponse,
@@ -303,12 +332,14 @@ async def get_branded_cv(
 ) -> CVBrandedResponse:
     """Lazy render brandowanego CV — pierwszy GET generuje HTML z `_generate_cv_html()`,
     następne zwracają zachowany content."""
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
 
     rendered = False
     if csv.branded_status == "none":
         candidate, job = await _load_candidate_and_job(db, csv)
         html = _generate_cv_html(candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job)
+        if current_user.has_role(UserRole.finance):
+            return _build_transient_branded_response(csv, html)
         csv.branded_draft_html = html
         csv.branded_template = _DEFAULT_TEMPLATE
         csv.branded_language = _DEFAULT_LANGUAGE
@@ -428,24 +459,30 @@ async def render_branded_cv_for_print(
 ) -> HTMLResponse:
     """Wrap brandowane CV w printable HTML z auto window.print() — FE otwiera w
     nowej karcie i drukuje (Save as PDF)."""
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
-    if not csv.branded_draft_html:
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
+    draft_html = csv.branded_draft_html
+    candidate: Optional[Candidate] = None
+    if not draft_html and current_user.has_role(UserRole.finance):
+        candidate, job = await _load_candidate_and_job(db, csv)
+        draft_html = _generate_cv_html(
+            candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job
+        )
+    if not draft_html:
         raise HTTPException(
             status_code=404,
             detail="Brandowane CV jest puste — otwórz edytor pierwszy raz, by je wygenerować.",
         )
-    candidate = await db.scalar(
-        select(Candidate).where(Candidate.id == csv.candidate_id)
-    )
+    if candidate is None:
+        candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == csv.candidate_id)
+        )
     label = (
         f"{candidate.name} {candidate.lastname}" if candidate else f"stage_{stage_id}"
     )
     # M4 PR-04 (audyt P1.9): printable HTML przechodzi allowlist sanitizer —
     # authenticated flow otwiera blob text/html w nowej karcie.
     return HTMLResponse(
-        content=_wrap_printable_cv(
-            sanitize_cv_html(csv.branded_draft_html), stage_id, label
-        )
+        content=_wrap_printable_cv(sanitize_cv_html(draft_html), stage_id, label)
     )
 
 
@@ -653,7 +690,7 @@ async def list_cv_share_tokens(
     """Lista linków (aktywnych i odwołanych) dla CV tego stage'a — bez
     sekretów. M4 PR-04: dotąd modal gubił token po zamknięciu i nie dało się
     odwołać wcześniejszych linków (audyt P1.9 dead-end)."""
-    csv = await _load_csv_for_stage(db, stage_id, current_user)
+    csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     rows = (
         (
             await db.execute(

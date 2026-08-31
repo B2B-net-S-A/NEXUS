@@ -358,7 +358,7 @@ export default function ContractAnalyticsPage() {
   );
 
   return (
-    <RequireRole roles={["admin"]}>
+    <RequireRole roles={["admin", "finance"]}>
       <div className="space-y-6">
         <div>
           <Link

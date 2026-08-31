@@ -43,6 +43,7 @@ import {
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import {
+  canViewCandidateFinance,
   canManageMultiConsultantOrders,
   canManageOrderLifecycle,
   useAuthStore,
@@ -122,6 +123,7 @@ export function MultiConsultantOrdersTab({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
+  const canViewFinance = canViewCandidateFinance(user);
   const canManage = canManageMultiConsultantOrders(user);
   const canLifecycle = canManageOrderLifecycle(user);
   const legacyNullOrderType: LegacyClientOrderType = periodicOrdersEnabled
@@ -808,6 +810,7 @@ export function MultiConsultantOrdersTab({
                     key={`contractor-${item.contractor.contract_id}`}
                     clientId={clientId}
                     contractors={[item.contractor]}
+                    canViewFinance={canViewFinance}
                     canManageFinance={contractorQuery.data.can_manage_finance}
                     canManageOrders={contractorQuery.data.can_manage_finance}
                     suggestedOrderType={suggestedOrderType}

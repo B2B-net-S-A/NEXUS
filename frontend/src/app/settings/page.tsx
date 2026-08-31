@@ -132,7 +132,7 @@ const ADVANCED_LINKS: Array<{
     description: "Import i zarządzanie benchmarkami stawek (No Fluff Jobs, Bulldogjob, własne).",
     icon: <Coins className="w-5 h-5" />,
     // R0 (plan analytics 2026-07-16): benchmarki stawek = finanse (DL+/admin).
-    roles: ["admin", "delivery_lead"],
+    roles: ["admin", "delivery_lead", "finance"],
   },
   {
     href: "/settings/contract-templates",
@@ -181,28 +181,28 @@ const ADVANCED_LINKS: Array<{
     title: "Kompetencje i odpowiedzialności",
     description: "Kompetencje Sourcerów, TAC-ów i Rekruterów oraz przypisania Delivery Leadów do klientów.",
     icon: <Network className="w-5 h-5" />,
-    roles: ["admin", "head_of_recruitment"],
+    roles: ["admin", "head_of_recruitment", "finance"],
   },
   {
     href: "/settings/linkedin-metrics",
     title: "Aktywność LinkedIn",
     description: "Bulk edit dziennych liczb (CV / Msg / Resp) per TAC/sourcer.",
     icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin"],
+    roles: ["admin", "head_of_recruitment", "finance"],
   },
   {
     href: "/settings/chats",
     title: "Globalny audyt czatów",
     description: "Przegląd wszystkich rozmów (projekty + kandydaci) z możliwością przeszukania treści.",
     icon: <MessageSquare className="w-5 h-5" />,
-    roles: ["admin"],
+    roles: ["admin", "finance"],
   },
   {
     href: "/settings/clients-overview",
     title: "Przegląd klientów",
     description: "Ranking klientów + leaderboard delivery leadów.",
     icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin", "head_of_recruitment"],
+    roles: ["admin", "head_of_recruitment", "finance"],
   },
   {
     href: "/settings/client-portfolio-preview",
@@ -210,16 +210,30 @@ const ADVANCED_LINKS: Array<{
     description:
       "Read-only plan Excela: dopasowania, KIR, blockery i podejrzenia duplikatów przed apply-once.",
     icon: <FileText className="w-5 h-5" />,
-    roles: ["admin"],
+    roles: ["admin", "finance"],
   },
   {
     href: "/settings/hiring-managers",
     title: "Top hiring managers",
     description: "KPI hiring managerów w klientach (Phase 9b).",
     icon: <UsersIcon className="w-5 h-5" />,
-    roles: ["admin", "head_of_recruitment"],
+    roles: ["admin", "head_of_recruitment", "finance"],
   },
 ];
+
+// Finance gets operational read surfaces only. Integration sync, templates,
+// scoring, AI, diagnostics and configuration editors remain unavailable.
+const FINANCE_READ_ONLY_TABS = new Set<Tab>(["zaawansowane", "pomoc"]);
+const FINANCE_READ_ONLY_LINKS = new Set([
+  "/settings/rate-benchmarks",
+  "/settings/contract-templates",
+  "/settings/team-structure",
+  "/settings/linkedin-metrics",
+  "/settings/chats",
+  "/settings/clients-overview",
+  "/settings/client-portfolio-preview",
+  "/settings/hiring-managers",
+]);
 
 // ── Fireflies Card ────────────────────────────────────────────────────────────
 
@@ -394,12 +408,22 @@ export default function SettingsPage() {
     return <div className="p-6 text-muted-foreground">Ładowanie…</div>;
   }
 
-  const visibleTabs = TABS.filter((tab) => !tab.roles || hasRole(user, ...tab.roles));
-  const visibleAdvancedLinks = ADVANCED_LINKS.filter(
-    (link) => !link.roles || hasRole(user, ...link.roles)
+  const financeReadOnly = hasRole(user, "finance") && !hasRole(user, "admin");
+  const visibleTabs = TABS.filter(
+    (tab) =>
+      (!financeReadOnly || FINANCE_READ_ONLY_TABS.has(tab.id)) &&
+      (!tab.roles || hasRole(user, ...tab.roles)),
   );
+  const visibleAdvancedLinks = ADVANCED_LINKS.filter(
+    (link) =>
+      (!financeReadOnly || FINANCE_READ_ONLY_LINKS.has(link.href)) &&
+      (!link.roles || hasRole(user, ...link.roles)),
+  );
+  const visibleActiveTab = visibleTabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : (visibleTabs[0]?.id ?? "pomoc");
 
-  const isWide = WIDE_TABS.includes(activeTab);
+  const isWide = WIDE_TABS.includes(visibleActiveTab);
   const containerClass = isWide ? "max-w-7xl mx-auto space-y-6" : "max-w-4xl mx-auto space-y-6";
 
   return (
@@ -418,7 +442,7 @@ export default function SettingsPage() {
             onClick={() => setActiveTab(tab.id)}
             className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-              activeTab === tab.id
+              visibleActiveTab === tab.id
                 ? "bg-card dark:bg-muted text-foreground dark:text-foreground shadow-xs"
                 : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
             )}
@@ -429,7 +453,7 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {activeTab === "integracje" && (
+      {visibleActiveTab === "integracje" && (
         <div className="space-y-4">
           <Microsoft365Card />
           <FirefliesCard />
@@ -444,7 +468,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {activeTab === "szablony" && (
+      {visibleActiveTab === "szablony" && (
         <div className="space-y-4">
           <EmailTemplatesCard />
           <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6 text-center">
@@ -462,13 +486,13 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {activeTab === "coaching" && <CoachingSettings />}
+      {visibleActiveTab === "coaching" && <CoachingSettings />}
 
-      {activeTab === "procesy" && <PipelineTemplatesTab />}
+      {visibleActiveTab === "procesy" && <PipelineTemplatesTab />}
 
-      {activeTab === "administracja" && <AdminUsersTab />}
+      {visibleActiveTab === "administracja" && <AdminUsersTab />}
 
-      {activeTab === "zaawansowane" && (
+      {visibleActiveTab === "zaawansowane" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {visibleAdvancedLinks.map((link) => (
             <Link
@@ -497,7 +521,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {activeTab === "pomoc" && <OnboardingSettings />}
+      {visibleActiveTab === "pomoc" && <OnboardingSettings />}
     </div>
   );
 }

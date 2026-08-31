@@ -9,19 +9,21 @@ Plan: ``docs/in-house-qes-signature-plan.md`` §7.
 
 import logging
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import CurrentUser, TacPlus, require_roles
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract import Contract
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.signature_link import SignatureLink
+from app.models.user import User, UserRole
 from app.schemas.document_signature import (
     DocumentSignatureDetailResponse,
     DocumentSignatureResponse,
@@ -40,6 +42,19 @@ _MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+ContractSignatureReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.finance,
+        )
+    ),
+]
 
 
 def _require_enabled() -> None:
@@ -167,7 +182,7 @@ async def upload_signed_offline(
 )
 async def list_signatures(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractSignatureReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first signatures for a contract."""
@@ -185,7 +200,7 @@ async def list_signatures(
 )
 async def get_signature(
     signature_id: int,
-    current_user: TacPlus,
+    current_user: ContractSignatureReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     sig = await db.scalar(

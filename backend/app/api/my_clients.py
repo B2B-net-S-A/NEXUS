@@ -50,6 +50,13 @@ from app.services.order_revenue import order_revenue_rows_to_pln
 router = APIRouter()
 
 
+_MY_CLIENTS_ORGANIZATION_READ_ROLES = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.finance,
+)
+
+
 # „Konsultant pracuje u tego klienta" = active LUB ending. Dzienny cron
 # ``contract_alerts._promote_statuses`` przestawia active→ending na 30 dni
 # przed końcem, a taki kontrakt nadal jest wykonywany i fakturowany. Liczenie
@@ -114,6 +121,11 @@ async def require_dl_assigned_or_admin_after_merge(
     if canonical is None:
         raise HTTPException(404, detail="Client not found")
 
+    # Finance is an organization-wide business reader. Keep the existing
+    # assignment guard for Delivery Leads; this dependency is used by GET only.
+    if current_user.has_any_role(*_MY_CLIENTS_ORGANIZATION_READ_ROLES):
+        return current_user
+
     # The merge moves client FK rows (including DL assignments) atomically.
     # Authorizing the canonical record avoids retaining access granted only by
     # an archived source identity.
@@ -149,14 +161,15 @@ async def list_my_clients(
     user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista klientów DL (lub wszystkich dla admin/HoR)."""
+    """Lista klientów DL (lub wszystkich dla admin/HoR/Finance)."""
     # Multi-role aware (M1-RBAC-02): hybryda np. recruiter+DL ma przejść
     # po roli dodatkowej, nie tylko primary.
-    is_admin = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+    is_organization_reader = user.has_any_role(*_MY_CLIENTS_ORGANIZATION_READ_ROLES)
     client_name = client_display_name_expression()
 
-    if is_admin:
-        # Admin: wszyscy klienci, is_head_dl ustawione na False (admin nie ma DL assignment)
+    if is_organization_reader:
+        # Org-wide readers: wszyscy klienci; ``is_head_dl`` dotyczy tylko
+        # osobistego przypisania Delivery Leada.
         clients_stmt = (
             select(Client)
             .where(*visible_client_predicates())
@@ -324,7 +337,11 @@ async def list_my_clients(
                 client_id=c.id,
                 name=client_display_name(c),
                 industry=getattr(c, "industry", None),
-                is_head_dl=head_lookup.get(c.id, False) if not is_admin else False,
+                is_head_dl=(
+                    head_lookup.get(c.id, False)
+                    if not is_organization_reader
+                    else False
+                ),
                 active_orders_count=oa.active_count if oa else 0,
                 total_revenue_all_time=lifetime_revenue.get(c.id),
                 active_revenue=active_revenue.get(c.id),

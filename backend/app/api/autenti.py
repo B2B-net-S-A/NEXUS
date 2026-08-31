@@ -18,17 +18,19 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import CurrentUser, TacPlus, require_roles
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.document_signature import DocumentSignature, SignatureStatus
+from app.models.user import User, UserRole
 from app.schemas.document_signature import (
     AutentiSendRequest,
     AutentiSendResponse,
@@ -46,6 +48,19 @@ from app.services.autenti.webhook_verify import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+ContractSignatureReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.finance,
+        )
+    ),
+]
 
 
 def _require_enabled() -> None:
@@ -97,7 +112,7 @@ async def send_contract_for_signature(
 )
 async def list_signatures_for_contract(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractSignatureReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first list of every send attempt on this contract.
@@ -120,7 +135,7 @@ async def list_signatures_for_contract(
 )
 async def get_signature_detail(
     signature_id: int,
-    current_user: TacPlus,
+    current_user: ContractSignatureReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Single signature + chronological event timeline (Phase 3 webhooks)."""

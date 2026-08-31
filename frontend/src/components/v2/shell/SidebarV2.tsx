@@ -196,13 +196,19 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/my-clients",
         label: "Moi klienci",
         icon: Briefcase,
-        roles: ["delivery_lead", "admin", "head_of_recruitment"],
+        roles: ["delivery_lead", "admin", "head_of_recruitment", "finance"],
       },
       {
         href: "/my-relationships",
         label: "Moje relacje",
         icon: Heart,
-        roles: ["delivery_lead", "admin", "head_of_recruitment", "tac"],
+        roles: [
+          "delivery_lead",
+          "admin",
+          "head_of_recruitment",
+          "tac",
+          "finance",
+        ],
       },
       // "Kontrakty" is now a single workspace with two modes (Obsługa
       // kontraktorów / Rejestr kontraktów). The former standalone
@@ -214,7 +220,7 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/contracts",
         label: "Kontrakty",
         icon: FileText,
-        roles: ["admin", "delivery_lead", "tac"],
+        roles: ["admin", "delivery_lead", "tac", "finance"],
       },
       // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
       //    na prośbę usera ("wylacz z UI na razie"). Route
@@ -253,7 +259,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/cortex",
         label: "Cortex",
         icon: Brain,
-        roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+        roles: [
+          "admin",
+          "head_of_recruitment",
+          "delivery_lead",
+          "tac",
+          "finance",
+        ],
       },
     ],
   },

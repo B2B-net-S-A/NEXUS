@@ -5,7 +5,7 @@ DL który zaznaczył kontakty u różnych klientów jako `is_key_relationship=Tr
 posortowane po `last_personal_touchpoint_at` (najstarsze najpierw — do
 follow-up planning).
 
-Admin/HoR widzi wszystkie key relationships (bez filtra po owner_id).
+Admin/HoR/Finance widzi wszystkie key relationships (bez filtra po owner_id).
 """
 
 from __future__ import annotations
@@ -53,10 +53,14 @@ async def list_my_key_relationships(
 ):
     """Lista key contactów DL'a cross-client, posortowane po stalności touchpoint'u.
 
-    Admin/HoR widzi wszystkie key contacts (debug + management view).
+    Admin/HoR/Finance widzi wszystkie key contacts (management read view).
     """
     # Multi-role aware (M1-RBAC-02) — patrz my_clients.py.
-    is_admin = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+    is_organization_reader = user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.finance,
+    )
 
     stmt = (
         select(
@@ -77,7 +81,7 @@ async def list_my_key_relationships(
         .where(Contact.is_key_relationship.is_(True))
     )
 
-    if not is_admin:
+    if not is_organization_reader:
         # DL widzi tylko swoje (gdzie sam zaznaczył jako owner)
         stmt = stmt.where(Contact.key_relationship_owner_id == user.id)
 

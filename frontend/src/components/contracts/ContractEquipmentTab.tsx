@@ -14,6 +14,7 @@ import { Laptop, Plus, Trash2, Check, AlertTriangle } from "lucide-react";
 
 interface Props {
   contractId: number;
+  readOnly?: boolean;
 }
 
 const ITEM_TYPE_LABELS: Record<EquipmentItemType, string> = {
@@ -70,7 +71,7 @@ function isOverdue(item: ContractEquipmentItem): boolean {
   return item.return_due_date.slice(0, 10) < warsawToday();
 }
 
-export function ContractEquipmentTab({ contractId }: Props) {
+export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
 
@@ -115,17 +116,19 @@ export function ContractEquipmentTab({ contractId }: Props) {
         <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
           Sprzęt kontraktora ({items.length})
         </h3>
-        <button
-          type="button"
-          onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-xs px-3 py-1.5"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Dodaj sprzęt
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-xs px-3 py-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Dodaj sprzęt
+          </button>
+        )}
       </div>
 
-      {adding && (
+      {!readOnly && adding && (
         <EquipmentForm
           onSubmit={(payload) => createMut.mutate(payload)}
           onCancel={() => setAdding(false)}
@@ -149,7 +152,9 @@ export function ContractEquipmentTab({ contractId }: Props) {
                 <th className="text-left px-3 py-2">Właściciel</th>
                 <th className="text-left px-3 py-2">Termin zwrotu</th>
                 <th className="text-left px-3 py-2">Status</th>
-                <th className="text-right px-3 py-2">Akcje</th>
+                {!readOnly && (
+                  <th className="text-right px-3 py-2">Akcje</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -194,39 +199,42 @@ export function ContractEquipmentTab({ contractId }: Props) {
                       {STATUS_LABELS[item.return_status]}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="inline-flex gap-1">
-                      {item.return_status === "pending" && (
+                  {!readOnly && (
+                    <td className="px-3 py-2 text-right">
+                      <div className="inline-flex gap-1">
+                        {item.return_status === "pending" && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateMut.mutate({
+                                id: item.id,
+                                payload: {
+                                  return_status: "returned",
+                                  returned_date: new Date()
+                                    .toISOString()
+                                    .slice(0, 10),
+                                },
+                              })
+                            }
+                            className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Zwrócono
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() =>
-                            updateMut.mutate({
-                              id: item.id,
-                              payload: {
-                                return_status: "returned",
-                                returned_date: new Date()
-                                  .toISOString()
-                                  .slice(0, 10),
-                              },
-                            })
-                          }
-                          className="inline-flex items-center gap-1 text-xs text-green-700 hover:underline"
+                          onClick={() => {
+                            if (confirm("Usunąć pozycję ? "))
+                              deleteMut.mutate(item.id);
+                          }}
+                          className="inline-flex items-center text-xs text-destructive hover:underline"
                         >
-                          <Check className="w-3.5 h-3.5" />
-                          Zwrócono
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (confirm("Usunąć pozycję ? ")) deleteMut.mutate(item.id);
-                        }}
-                        className="inline-flex items-center text-xs text-destructive hover:underline"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

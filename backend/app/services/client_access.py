@@ -70,6 +70,7 @@ class ClientAccess:
     user_id: int
     client_id: int
     is_admin_like: bool
+    is_organization_reader: bool
     is_client_team: bool
     is_job_assigned: bool
 
@@ -96,7 +97,7 @@ class ClientAccess:
         DL/TAC, który sam je zapisał, dostawałby pusty formularz i przy
         zapisie po cichu WYMAZAŁ istniejącą treść (dialog odsyła całość).
         """
-        if self.is_admin_like:
+        if self.is_admin_like or self.is_organization_reader:
             return True
         if contact.key_relationship_owner_id is None:
             return self.can_edit_contacts
@@ -221,11 +222,14 @@ async def resolve_client_visible_client_ids(
 ) -> frozenset[int] | None:
     """Resolve all clients whose operational surface the user may read.
 
-    Admin/HoR remain unrestricted. DL/TAC contribute only explicit relationship
-    assignments. Recruiter/Sourcer contribute only clients reached through
-    their exact Job or JobCollaborator membership. Empty is authoritative
-    deny-all and never means organization-wide fallback.
+    Admin/HoR and Finance business read remain unrestricted. DL/TAC contribute
+    only explicit relationship assignments. Recruiter/Sourcer contribute only
+    clients reached through their exact Job or JobCollaborator membership.
+    Empty is authoritative deny-all and never means organization-wide fallback.
     """
+
+    if user.has_role(UserRole.finance):
+        return None
 
     client_ids = await resolve_client_team_client_ids(db, user)
     if client_ids is None:
@@ -242,6 +246,7 @@ async def resolve_client_access(
 ) -> ClientAccess:
     """Zbuduj decyzję dostępu. Zakłada, że klient istnieje (404 wcześniej)."""
     is_admin_like = user.has_any_role(*ADMIN_LIKE_ROLES)
+    is_organization_reader = user.has_role(UserRole.finance)
     client_team_client_ids = await resolve_client_team_client_ids(db, user)
     is_client_team = (
         client_team_client_ids is None or client_id in client_team_client_ids
@@ -253,13 +258,16 @@ async def resolve_client_access(
     if not is_admin_like and not is_client_team and is_delivery:
         is_job_assigned = await _user_assigned_to_client_job(db, user.id, client_id)
 
-    can_view_team_surfaces = is_admin_like or is_client_team or is_job_assigned
+    can_view_team_surfaces = (
+        is_admin_like or is_organization_reader or is_client_team or is_job_assigned
+    )
     can_edit = is_admin_like or is_client_team
 
     return ClientAccess(
         user_id=user.id,
         client_id=client_id,
         is_admin_like=is_admin_like,
+        is_organization_reader=is_organization_reader,
         is_client_team=is_client_team,
         is_job_assigned=is_job_assigned,
         can_view_contacts=can_view_team_surfaces,
@@ -271,10 +279,10 @@ async def resolve_client_access(
         # i sourcer widzą je wyłącznie przez przypisany Job tego klienta.
         can_view_materials=can_view_team_surfaces,
         can_edit_materials=can_edit,
-        can_view_legal_documents=is_admin_like or is_client_team,
+        can_view_legal_documents=(
+            is_admin_like or is_organization_reader or is_client_team
+        ),
         can_edit_legal_documents=can_edit,
-        # Finance korzysta z person-free finance APIs. Sam VIEW_FINANCE nie
-        # może otworzyć mieszanej, kandydackiej powierzchni klienta.
         can_view_financials=can_view_team_surfaces and has_financial_access(user),
         can_manage_client=is_admin_like,
     )

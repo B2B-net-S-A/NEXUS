@@ -5,6 +5,8 @@ import { hasCapability } from "@/lib/capabilities"
 import {
   canManageCandidateFinance,
   canManageMultiConsultantOrders,
+  canViewCandidateFinance,
+  hasSection,
   hasRole,
   hasMinRole,
   onboardingPersona,
@@ -153,6 +155,101 @@ describe("canManageCandidateFinance", () => {
     expect(canManageCandidateFinance(null)).toBe(false)
     expect(canManageCandidateFinance(undefined)).toBe(false)
     expect(canManageCandidateFinance({ role: "admin" })).toBe(false)
+  })
+})
+
+describe("canViewCandidateFinance", () => {
+  it("pozwala Adminowi i Finance z capability view_finance", () => {
+    expect(canViewCandidateFinance({ role: "admin" })).toBe(true)
+    expect(
+      canViewCandidateFinance({
+        role: "finance",
+        capabilities: ["view_finance"],
+      })
+    ).toBe(true)
+    expect(
+      canViewCandidateFinance({
+        role: "delivery_lead",
+        roles: ["delivery_lead", "finance"],
+        analytics_capabilities: ["view_finance"],
+      })
+    ).toBe(true)
+  })
+
+  it("nie zamienia prawa odczytu Finance w prawo edycji", () => {
+    const finance = {
+      role: "finance" as const,
+      capabilities: ["view_finance"],
+    }
+
+    expect(canViewCandidateFinance(finance)).toBe(true)
+    expect(canManageCandidateFinance(finance)).toBe(false)
+  })
+
+  it("fail-closed dla Finance bez capability i innych ról", () => {
+    expect(canViewCandidateFinance(null)).toBe(false)
+    expect(canViewCandidateFinance(undefined)).toBe(false)
+    expect(canViewCandidateFinance({ role: "finance" })).toBe(false)
+    expect(
+      canViewCandidateFinance({
+        role: "delivery_lead",
+        capabilities: ["view_finance"],
+      })
+    ).toBe(false)
+  })
+})
+
+describe("hasSection — DynaReporter", () => {
+  it("Finance widzi odczytowe sekcje biznesowe nawet bez allowed_sections", () => {
+    const businessSections = [
+      "body-leasing",
+      "sales",
+      "delivery-lead",
+      "placements",
+      "clients-mrr",
+      "competitions",
+      "przetargi",
+      "board",
+      "sales-mgmt",
+    ] as const
+
+    for (const section of businessSections) {
+      expect(hasSection({ role: "finance", allowed_sections: [] }, section)).toBe(
+        true
+      )
+    }
+  })
+
+  it("Finance dostaje MINDY wyłącznie po jawnym przypisaniu", () => {
+    expect(hasSection({ role: "finance", allowed_sections: [] }, "mindy")).toBe(
+      false
+    )
+    expect(
+      hasSection(
+        { role: "finance", allowed_sections: ["mindy"] },
+        "mindy"
+      )
+    ).toBe(true)
+  })
+
+  it("Finance nie dostaje sekcji admin nawet z wpisem w allowed_sections", () => {
+    expect(
+      hasSection(
+        { role: "finance", allowed_sections: ["admin"] },
+        "admin"
+      )
+    ).toBe(false)
+  })
+
+  it("Admin zachowuje override, a pozostałe role nadal używają allowlisty", () => {
+    expect(hasSection({ role: "admin" }, "admin")).toBe(true)
+    expect(hasSection({ role: "recruiter" }, "sales")).toBe(false)
+    expect(
+      hasSection(
+        { role: "recruiter", allowed_sections: ["sales"] },
+        "sales"
+      )
+    ).toBe(true)
   })
 })
 

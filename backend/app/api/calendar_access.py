@@ -43,10 +43,18 @@ from app.models.activity import Activity
 from app.models.calendar_event import CalendarEvent
 from app.models.user import User, UserRole
 
-# Roles that see and mutate every event regardless of ownership/attendance.
+# Roles that can mutate every event regardless of ownership.
 CALENDAR_OVERRIDE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
+)
+
+# Read-only organization oversight. Finance may inspect the complete calendar,
+# but is deliberately absent from ``CALENDAR_OVERRIDE_ROLES`` so PATCH/DELETE
+# authority is unchanged.
+CALENDAR_READ_OVERRIDE_ROLES: tuple[UserRole, ...] = (
+    *CALENDAR_OVERRIDE_ROLES,
+    UserRole.finance,
 )
 
 # ── Audit actions (Activity.action) ──────────────────────────────────────────
@@ -79,14 +87,19 @@ def user_is_override(user: User) -> bool:
     return user.has_any_role(*CALENDAR_OVERRIDE_ROLES)
 
 
+def user_is_read_override(user: User) -> bool:
+    """True for roles with organization-wide read access to calendar data."""
+    return user.has_any_role(*CALENDAR_READ_OVERRIDE_ROLES)
+
+
 def user_owns_event(event: CalendarEvent, user: User) -> bool:
     return event.created_by is not None and event.created_by == user.id
 
 
 def user_can_view_event(event: CalendarEvent, user: User) -> bool:
-    """Owner OR participant OR admin/HoR."""
+    """Owner OR participant OR organization-wide read role."""
     return (
-        user_is_override(user)
+        user_is_read_override(user)
         or user_owns_event(event, user)
         or _is_attendee(event, user)
     )
@@ -116,10 +129,10 @@ _ATTENDEE_MATCH_SQL = (
 def event_visibility_filter(user: User) -> ColumnElement[bool]:
     """SQLAlchemy boolean condition scoping a ``CalendarEvent`` query to ``user``.
 
-    admin / head_of_recruitment → unrestricted (``TRUE``). Everyone else →
+    admin / head_of_recruitment / finance → unrestricted (``TRUE``). Everyone else →
     events they own or are an attendee of.
     """
-    if user_is_override(user):
+    if user_is_read_override(user):
         return true()
     attendee_clause = text(_ATTENDEE_MATCH_SQL).bindparams(
         cal_scope_email=(user.email or "")
@@ -133,14 +146,14 @@ def event_visibility_filter(user: User) -> ColumnElement[bool]:
 def project_event_fields(event: CalendarEvent, user: User) -> dict[str, Any]:
     """Return the ``attendees`` / ``description`` a viewer is allowed to see.
 
-    Owner / admin / HoR get the full record. A non-owner participant gets the
+    Owner / admin / HoR / Finance get the full record. A non-owner participant gets the
     two fields the finding calls out as leaking others' data redacted: other
     attendees' emails (only their own entry is kept) and the free-text
     ``description`` (internal notes). All meeting logistics stay — they are
     attending. Redacting candidate/client references for participants is a
     possible follow-up refinement.
     """
-    if user_can_mutate_event(event, user):
+    if user_is_read_override(user) or user_owns_event(event, user):
         return {
             "attendees": event.attendees or [],
             "description": event.description,

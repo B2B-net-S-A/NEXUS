@@ -159,7 +159,11 @@ async def ensure_team_scope(db: AsyncSession, user: User) -> Scope:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Brak uprawnień do KPI zespołu",
         )
-    if user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    if user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.finance,
+    ):
         return organization_scope()
     if not user.has_role(UserRole.delivery_lead):
         raise HTTPException(
@@ -202,7 +206,11 @@ async def ensure_recruitment_user_scope(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="KPI innego użytkownika wymagają uprawnień zespołowych",
         )
-    if user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    if user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.finance,
+    ):
         return Scope(kind=ScopeKind.user, user_id=target_user_id)
 
     team_scope = await ensure_team_scope(db, user)

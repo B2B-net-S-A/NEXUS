@@ -25,6 +25,8 @@ import {
 } from"@/lib/view-state";
 import {
  canManageCandidateFinance,
+ canViewCandidateFinance,
+ hasRole,
  useAuthStore,
 } from"@/store/auth";
 import { Badge } from"@/components/ui/badge";
@@ -80,6 +82,8 @@ function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
 export function ContractorsListV2() {
  const user = useAuthStore((state) => state.user);
  const canManageFinance = canManageCandidateFinance(user);
+ const canViewFinance = canViewCandidateFinance(user);
+ const canOperateContracts = hasRole(user,"admin","delivery_lead","tac");
  const searchParams = useSearchParams();
  const navigationSearch = searchParams.toString();
  const [initialListState] = useState(() => {
@@ -161,10 +165,10 @@ export function ContractorsListV2() {
  const visibleFieldLabels = Object.entries(FIELD_LABELS)
  .filter(
  ([field]) =>
- canManageFinance || !["rate_candidate","rate_client"].includes(field)
+ canViewFinance || !["rate_candidate","rate_client"].includes(field)
  )
  .map(([, label]) => label);
- const visibleColumnCount = canManageFinance ? 8 : 6;
+ const visibleColumnCount = canViewFinance ? 8 : 6;
 
  // 403 (stawki = uprawnienie finansowe) i 5xx NIE mogą renderować się jako
  // „Brak aktywnych kontraktorów" — to zdanie o delivery, a nie o serwerze
@@ -277,7 +281,7 @@ export function ContractorsListV2() {
  <TableHead className="max-w-[240px]">Klient · Rekrutacja</TableHead>
  <TableHead>Daty</TableHead>
  <TableHead>Tryb</TableHead>
- {canManageFinance && (
+ {canViewFinance && (
  <>
  <TableHead className="text-right">Stawka klient</TableHead>
  <TableHead className="text-right">Marża</TableHead>
@@ -339,7 +343,7 @@ export function ContractorsListV2() {
  const isReadyForSignature = c.status === "ready_for_signature";
  const readyToActivate = isDraft && c.missing_fields.length === 0;
  const visibleMissingFields = c.missing_fields.filter(
- (field) => canManageFinance || !FINANCE_COMPLETION_FIELDS.has(field)
+ (field) => canViewFinance || !FINANCE_COMPLETION_FIELDS.has(field)
  );
  const waitsForAdmin =
  isDraft &&
@@ -384,7 +388,7 @@ export function ContractorsListV2() {
  {c.work_mode ??"—"}
  </Badge>
  </TableCell>
- {canManageFinance && (
+ {canViewFinance && (
  <>
  <TableCell className="text-right font-mono text-sm">
  {c.rate_client != null
@@ -426,7 +430,9 @@ export function ContractorsListV2() {
  </TableCell>
  <TableCell className="text-right">
  <div className="flex items-center justify-end gap-1">
- {isDraft && (!waitsForAdmin || visibleMissingFields.length > 0) ? (
+ {canOperateContracts &&
+ isDraft &&
+ (!waitsForAdmin || visibleMissingFields.length > 0) ? (
  <Button
  size="sm"
  variant={readyToActivate ?"primary" :"outline"}
@@ -447,7 +453,8 @@ export function ContractorsListV2() {
  >
  <FileText className="h-3.5 w-3.5" /> Szczegóły
  </Link>
- {(c.status === "active" || c.status === "ending") && (
+ {canOperateContracts &&
+ (c.status === "active" || c.status === "ending") && (
  <Button
  size="sm"
  variant="ghost"
@@ -503,7 +510,7 @@ export function ContractorsListV2() {
  </div>
  )}
 
- {terminating && (
+ {canOperateContracts && terminating && (
  <TerminateContractModal
  contractId={terminating.contract_id}
  candidateName={`${terminating.candidate.name} ${terminating.candidate.lastname}`.trim()}
@@ -516,7 +523,7 @@ export function ContractorsListV2() {
  />
  )}
 
- {draftToComplete && (
+ {canOperateContracts && draftToComplete && (
  <DraftCompletionModal
  contractor={draftToComplete}
  open={!!draftToComplete}

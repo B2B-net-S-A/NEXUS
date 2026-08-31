@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { ArrowLeft, Plus, Trash2, Save, X, Pencil } from "lucide-react";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 interface ContractTemplate {
   id: number;
@@ -149,6 +150,8 @@ function TemplateEditor({
 }
 
 export default function ContractTemplatesPage() {
+  const user = useAuthStore((state) => state.user);
+  const canEdit = hasRole(user, "admin");
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Partial<ContractTemplate> | null>(null);
 
@@ -164,7 +167,7 @@ export default function ContractTemplatesPage() {
   });
 
   return (
-    <RequireRole roles={["admin"]}>
+    <RequireRole roles={["admin", "finance"]}>
       <div className="space-y-4 max-w-5xl">
         <Link
           href="/settings"
@@ -174,7 +177,7 @@ export default function ContractTemplatesPage() {
         </Link>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Szablony kontraktów</h1>
-          {!editing && (
+          {!editing && canEdit && (
             <button
               onClick={() => setEditing({})}
               className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
@@ -184,7 +187,7 @@ export default function ContractTemplatesPage() {
           )}
         </div>
 
-        {editing && (
+        {canEdit && editing && (
           <TemplateEditor
             template={editing.id ? editing : null}
             onCancel={() => setEditing(null)}
@@ -208,7 +211,7 @@ export default function ContractTemplatesPage() {
                     <th className="text-left px-3 py-2">Nazwa</th>
                     <th className="text-left px-3 py-2">Typ</th>
                     <th className="text-left px-3 py-2">Domyślny</th>
-                    <th className="text-right px-3 py-2"></th>
+                    {canEdit && <th className="text-right px-3 py-2"></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -221,28 +224,30 @@ export default function ContractTemplatesPage() {
                       <td className="px-3 py-2 text-muted-foreground">
                         {t.is_default ? "Tak" : "—"}
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="inline-flex gap-1">
-                          <button
-                            onClick={() => setEditing(t)}
-                            className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted"
-                            title="Edytuj"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Usunąć szablon "${t.name}"?`)) {
-                                deleteMutation.mutate(t.id);
-                              }
-                            }}
-                            className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
-                            title="Usuń"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td className="px-3 py-2 text-right">
+                          <div className="inline-flex gap-1">
+                            <button
+                              onClick={() => setEditing(t)}
+                              className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted"
+                              title="Edytuj"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Usunąć szablon "${t.name}"?`)) {
+                                  deleteMutation.mutate(t.id);
+                                }
+                              }}
+                              className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
+                              title="Usuń"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

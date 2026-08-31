@@ -11,6 +11,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Plus, Trash2, Upload, X, Save } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 const SENIORITY_LABELS: Record<SeniorityLevel, string> = {
   junior: "Junior",
@@ -27,16 +28,15 @@ const RATE_UNIT_LABELS: Record<string, string> = {
 };
 
 export default function RateBenchmarksPage() {
-  // Kafelek „Stawki rynkowe" w Ustawieniach → Zaawansowane pokazuje się także
-  // Delivery Leadowi, a ta strona wpuszcza wyłącznie admina (spójnie z
-  // backendem: POST/PATCH/DELETE/import stoją na `AdminUser`). Domyślny
-  // `fallback = null` w RequireRole zamieniał ten rozjazd w BIAŁY obszar
-  // treści — nieodróżnialny od zwiechy strony, więc zgłaszany jako „aplikacja
-  // się wysypała", a nie „nie mam uprawnień". Komunikat mówi wprost, co się
-  // stało; middleware trzyma tę samą regułę dla wejścia z paska adresu.
+  const user = useAuthStore((state) => state.user);
+  const canEdit = hasRole(user, "admin");
+  // Odczyt benchmarków jest dostępny dla Admina i Finance. Mutacje
+  // (POST/PATCH/DELETE/import) pozostają wyłącznie za `AdminUser` w API i są
+  // ukryte w tym widoku dla Finance. Middleware trzyma tę samą regułę również
+  // dla wejścia bezpośrednio z paska adresu.
   return (
     <RequireRole
-      roles={["admin"]}
+      roles={["admin", "finance"]}
       fallback={
         <QueryStateNotice
           state="forbidden"
@@ -44,12 +44,12 @@ export default function RateBenchmarksPage() {
         />
       }
     >
-      <RateBenchmarksAdmin />
+      <RateBenchmarksAdmin readOnly={!canEdit} />
     </RequireRole>
   );
 }
 
-function RateBenchmarksAdmin() {
+function RateBenchmarksAdmin({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [roleFilter, setRoleFilter] = useState("");
@@ -102,38 +102,40 @@ function RateBenchmarksAdmin() {
             IT). Używane przez kartę Benchmark na stronie każdego kontraktu.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            className="inline-flex items-center gap-1.5 border border-border dark:border-border rounded-md px-3 py-1.5 text-sm hover:bg-muted dark:hover:bg-muted"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Import CSV
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) importMut.mutate(file);
-              e.target.value = "";
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-sm px-3 py-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Dodaj
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInput.current?.click()}
+              className="inline-flex items-center gap-1.5 border border-border dark:border-border rounded-md px-3 py-1.5 text-sm hover:bg-muted dark:hover:bg-muted"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Import CSV
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importMut.mutate(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary hover:bg-primary/90 text-white text-sm px-3 py-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Dodaj
+            </button>
+          </div>
+        )}
       </header>
 
-      {importResult && (
+      {!readOnly && importResult && (
         <div className="rounded-lg border border-border dark:border-border p-4 text-sm bg-muted dark:bg-muted">
           <div className="font-medium mb-1">
             Import: {importResult.created} dodanych, {importResult.skipped}{" "}
@@ -165,7 +167,7 @@ function RateBenchmarksAdmin() {
         />
       </div>
 
-      {adding && (
+      {!readOnly && adding && (
         <BenchmarkForm
           onSubmit={(payload) => createMut.mutate(payload)}
           onCancel={() => setAdding(false)}
@@ -185,19 +187,25 @@ function RateBenchmarksAdmin() {
               <th className="text-right px-3 py-2">Max</th>
               <th className="text-left px-3 py-2">Lokalizacja</th>
               <th className="text-left px-3 py-2">Źródło</th>
-              <th className="text-right px-3 py-2"></th>
+              {!readOnly && <th className="text-right px-3 py-2"></th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {isLoading ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
+                <td
+                  colSpan={readOnly ? 8 : 9}
+                  className="px-3 py-6 text-center text-muted-foreground"
+                >
                   Ładowanie…
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
+                <td
+                  colSpan={readOnly ? 8 : 9}
+                  className="px-3 py-6 text-center text-muted-foreground"
+                >
                   Brak wpisów.
                 </td>
               </tr>
@@ -231,17 +239,19 @@ function RateBenchmarksAdmin() {
                       {formatDate(row.source_date)}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (confirm("Usunąć wpis ? ")) deleteMut.mutate(row.id);
-                      }}
-                      className="text-destructive hover:underline"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
+                  {!readOnly && (
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (confirm("Usunąć wpis ? ")) deleteMut.mutate(row.id);
+                        }}
+                        className="text-destructive hover:underline"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))
             )}

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 type RelationshipStrength = "cold" | "warm" | "strong" | "champion";
 
@@ -48,6 +49,15 @@ const STRENGTH_LABELS: Record<RelationshipStrength, string> = {
 };
 
 export default function MyRelationshipsPage() {
+  const user = useAuthStore((state) => state.user);
+  const isFinance = hasRole(user, "finance");
+  const canEdit = hasRole(
+    user,
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+  );
   const [editing, setEditing] = useState<MyRelationshipRow | null>(null);
 
   const { data, isLoading, error } = useQuery({
@@ -80,12 +90,15 @@ export default function MyRelationshipsPage() {
       <header>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Heart className="w-6 h-6 text-pink-600" />
-          Moje kluczowe relacje
+          {isFinance ? "Kluczowe relacje w organizacji" : "Moje kluczowe relacje"}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Osoby u klientów z którymi DL/TAC ma zbudowaną relację (oznaczone
-          jako <Star className="w-3 h-3 inline text-yellow-500 fill-yellow-500" />{" "}
-          w zakładce Zespół klienta). Sortowanie: najpilniejsze (najstarszy
+          {isFinance
+            ? "Wszystkie oznaczone relacje z klientami w organizacji. "
+            : "Osoby u klientów, z którymi DL/TAC ma zbudowaną relację. "}
+          Oznaczone jako{" "}
+          <Star className="w-3 h-3 inline text-yellow-500 fill-yellow-500" /> w
+          zakładce Zespół klienta. Sortowanie: najpilniejsze (najstarszy
           personal touchpoint) na górze.
         </p>
       </header>
@@ -93,8 +106,9 @@ export default function MyRelationshipsPage() {
       {rows.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
           <Heart className="w-12 h-12 mx-auto mb-2 opacity-40" />
-          Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w
-          klienta → Zespół → Kontakty i kliknij ikonę serca aby oznaczyć.
+          {isFinance
+            ? "W organizacji nie ma jeszcze oznaczonych kluczowych relacji."
+            : "Nie masz jeszcze oznaczonych żadnych kluczowych relacji. Wejdź w klienta → Zespół → Kontakty i kliknij ikonę serca, aby oznaczyć."}
         </div>
       ) : (
         <ul className="space-y-3">
@@ -179,12 +193,14 @@ export default function MyRelationshipsPage() {
                       {r.days_since_personal_touchpoint} dni temu
                     </span>
                   )}
-                  <button
-                    onClick={() => setEditing(r)}
-                    className="text-xs text-violet-600 hover:text-violet-700 underline"
-                  >
-                    Aktualizuj
-                  </button>
+                  {canEdit && (
+                    <button
+                      onClick={() => setEditing(r)}
+                      className="text-xs text-violet-600 hover:text-violet-700 underline"
+                    >
+                      Aktualizuj
+                    </button>
+                  )}
                 </div>
               </div>
             </li>
@@ -192,7 +208,7 @@ export default function MyRelationshipsPage() {
         </ul>
       )}
 
-      {editing && (
+      {canEdit && editing && (
         <KeyRelationshipDialog
           contact={{
             id: editing.contact_id,

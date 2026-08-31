@@ -30,6 +30,7 @@ from app.models.client_directory import (
 )
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.contract import Contract, ContractStatus
+from app.models.user import UserRole
 from app.schemas.client_directory import (
     ClientDirectoryCategoryCounts,
     ClientDirectoryItem,
@@ -279,6 +280,7 @@ async def list_client_directory(
     can_view_legal = current_user.has_any_role(
         *ADMIN_LIKE_ROLES,
         *CLIENT_TEAM_ROLES,
+        UserRole.finance,
     )
     items = [
         ClientDirectoryItem(
@@ -429,7 +431,11 @@ async def export_client_directory(
     up to ``limit``. Legal columns (Nazwa prawna / NIP / REGON) appear only for
     roles that already see them in the directory; the export never widens access.
     """
-    can_view_legal = current_user.has_any_role(*ADMIN_LIKE_ROLES, *CLIENT_TEAM_ROLES)
+    can_view_legal = current_user.has_any_role(
+        *ADMIN_LIKE_ROLES,
+        *CLIENT_TEAM_ROLES,
+        UserRole.finance,
+    )
     statement = _directory_rows_statement(
         category=category,
         q=q,

@@ -34,7 +34,7 @@ from sqlalchemy.orm import undefer
 from app.api.candidate_access import CandidateWriteAccess
 from app.api.recruitment_access import (
     ensure_optional_job_membership,
-    job_scope_clause,
+    job_read_scope_clause,
 )
 from app.core.database import get_db
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
@@ -249,7 +249,7 @@ async def list_application_submissions(
     Zgłoszenia bez `job_id` zostają widoczne dla ról operacyjnych.
     """
     stmt = select(ApplicationSubmission).where(
-        job_scope_clause(current_user, ApplicationSubmission.job_id)
+        job_read_scope_clause(current_user, ApplicationSubmission.job_id)
     )
     if status_filter:
         valid = {s.value for s in ApplicationSubmissionStatus}
