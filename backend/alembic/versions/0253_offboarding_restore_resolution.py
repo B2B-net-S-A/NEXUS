@@ -1,7 +1,7 @@
 """Third Delivery Lead decision after an MD offboarding: restore the line.
 
-Revision ID: 0250_offboarding_restore_resolution
-Revises: 0249_order_rate_snapshots_offboarding
+Revision ID: 0253_offboarding_restore_resolution
+Revises: 0252_md_cost_result_precision3
 
 ``remove`` forfeits the remaining pool and ``transfer`` hands it to somebody
 else.  Both assume the engagement really ended.  The reported cases are the
@@ -19,8 +19,8 @@ trap documented for 0226/0233).
 from alembic import op
 
 
-revision = "0250_offboarding_restore_resolution"
-down_revision = "0249_order_rate_snapshots_offboarding"
+revision = "0253_offboarding_restore_resolution"
+down_revision = "0252_md_cost_result_precision3"
 branch_labels = None
 depends_on = None
 
@@ -52,7 +52,7 @@ _EVENT_CHECK_SQL = (
     "'przywrocenie_konsultanta'))"
 )
 
-_EVENT_CHECK_SQL_0249 = (
+_EVENT_CHECK_SQL_BEFORE = (
     "ALTER TABLE client_order_group_events "
     "ADD CONSTRAINT ck_client_order_group_events_type CHECK (event_type IN ("
     "'utworzenie', 'dodanie_konsultanta', 'import_md', "
@@ -62,7 +62,7 @@ _EVENT_CHECK_SQL_0249 = (
     "'usuniecie_puli_md', 'przeniesienie_puli_md'))"
 )
 
-_RESOLUTION_CHECK_SQL_0249 = (
+_RESOLUTION_CHECK_SQL_BEFORE = (
     "ALTER TABLE client_order_offboarding_cases "
     "ADD CONSTRAINT ck_client_order_offboarding_resolution "
     "CHECK (resolution IS NULL OR resolution IN ('remove', 'transfer'))"
@@ -100,7 +100,7 @@ def downgrade() -> None:
         "ALTER TABLE client_order_group_events "
         "DROP CONSTRAINT IF EXISTS ck_client_order_group_events_type"
     )
-    op.execute(_EVENT_CHECK_SQL_0249)
+    op.execute(_EVENT_CHECK_SQL_BEFORE)
 
     # A resolved case cannot become pending again (that would resurrect an
     # alert for a decision somebody already made), so downgrade rewrites the
@@ -121,4 +121,4 @@ def downgrade() -> None:
         "ALTER TABLE client_order_offboarding_cases "
         "DROP CONSTRAINT IF EXISTS ck_client_order_offboarding_resolution"
     )
-    op.execute(_RESOLUTION_CHECK_SQL_0249)
+    op.execute(_RESOLUTION_CHECK_SQL_BEFORE)

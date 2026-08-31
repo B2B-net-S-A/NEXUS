@@ -142,7 +142,7 @@ było zapisanie decyzji, która się nie wydarzyła.
 
 ### Rozwiązanie
 
-Trzecia wartość rozstrzygnięcia `restore` (migracja `0250` + lustro DDL
+Trzecia wartość rozstrzygnięcia `restore` (migracja `0253` + lustro DDL
 w `entrypoint.sh`).
 
 - **Pula MD zostaje NIETKNIĘTA** — gałąź omija `_reduce_legacy_md_budget`.

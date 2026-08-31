@@ -129,10 +129,11 @@ async def test_creating_an_md_order_with_a_budget_succeeds(
     # „Zamówienie nie zostaje zapisane" było dosłownie prawdziwe — całe
     # tworzenie się cofało. Liczymy wiersze, nie tylko kod odpowiedzi.
     assert await _count_orders(client_id) == 1
-    # Komplet pól = zamówienie od razu aktywne, a budżet MD przechodzi na
-    # wspólną pulę grupy (materializacja). Sprawdzamy, że 85 MD naprawdę
-    # gdzieś wylądowało, a nie tylko że request nie wybuchł.
-    assert await _group_md_budget(client_id) == Decimal("85")
+    # Budżet ma NAPRAWDĘ gdzieś wylądować, a nie tylko nie wybuchnąć. Zwykłe
+    # zamówienie MD trzyma pulę NA LINII (wspólna pula grupy to dwie świadome
+    # odmiany klientowe — Cyfrowy Polsat i Lotte Wedel), więc sprawdzamy linię.
+    assert Decimal(str(resp.json()["md_quantity"])) == Decimal("85")
+    assert await _group_md_budget(client_id) is None
 
 
 async def test_creating_an_md_order_with_a_budget_and_a_file_succeeds(

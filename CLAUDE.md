@@ -886,7 +886,7 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
 
 Terminacja kontraktu domyka linię MD (`completed`, `end_date` ucięta do dnia
 terminacji) i zakłada sprawę `client_order_offboarding_cases` w stanie
-`pending`. Rozstrzygnięcie ma TRZY wartości (migracja `0250`, + lustro DDL
+`pending`. Rozstrzygnięcie ma TRZY wartości (migracja `0253`, + lustro DDL
 w `entrypoint.sh` — CREATE TABLE dotyczy tylko instalacji od zera, więc
 poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
 

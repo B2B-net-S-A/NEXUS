@@ -89,7 +89,12 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
             start_date=_TODAY - timedelta(days=200),
             end_date=group_end,
             status=GROUP_STATUS_ACTIVE,
-            order_type="md" if shared_pool else None,
+            # LEGACY (`order_type IS NULL`) świadomie: od migracji 0251 CHECK
+            # `ck_client_order_groups_explicit_type_coherence` dopuszcza
+            # wspólną pulę przy JAWNYM typie `md` wyłącznie dla dwóch
+            # klientowych odmian (Cyfrowy Polsat, Lotte Wedel). Grupy BIK/BNP,
+            # o które chodzi w zgłoszeniu, są właśnie legacy.
+            order_type=None,
             is_md_budget_based=shared_pool,
             md_budget_total=Decimal("500") if shared_pool else None,
             md_budget_remaining=Decimal("500") if shared_pool else None,
@@ -102,7 +107,7 @@ async def _seed_pending_case(*, shared_pool: bool = False) -> dict:
             contract_id=contract.id,
             order_group_id=group.id,
             title=f"Zamówienie {group.order_number} — Tomasz Plonka",
-            order_type="md" if shared_pool else None,
+            order_type=None,
             status=ClientOrderStatus.completed,
             start_date=_TODAY - timedelta(days=200),
             end_date=ended_on,
