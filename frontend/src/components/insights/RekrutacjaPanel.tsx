@@ -1,60 +1,83 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuthStore, hasRole } from "@/store/auth";
 import { ActivityHeatmap } from "@/components/insights/sections/ActivityHeatmap";
-import { FunnelSection } from "@/components/insights/sections/FunnelSection";
-import { TimeToHireSection } from "@/components/insights/sections/TimeToHireSection";
-import { SLAAlertsSection } from "@/components/insights/sections/SLAAlertsSection";
+import { RecruitmentFunnel } from "@/components/insights/sections/RecruitmentFunnel";
+import { RecruitmentConversions } from "@/components/insights/sections/RecruitmentConversions";
+import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
 import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
+import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import {
-  PeriodSelector,
-  type Period,
-} from "@/components/insights/sections/PeriodSelector";
+  insightsApi,
+  type InsightsPeriodKind,
+  type InsightsPeriodParams,
+} from "@/lib/insights-api";
+
+const KINDS: InsightsPeriodKind[] = ["week", "month", "quarter", "year"];
 
 export function RekrutacjaPanel() {
-  const user = useAuthStore((s) => s.user);
-  // Plan PR 5 (§Okresy): URL jest jedynym źródłem prawdy okresu —
-  // back/forward odtwarza wybór, link można udostępnić.
+  // URL jest jedynym źródłem prawdy okresu — back/forward odtwarza wybór,
+  // a link da się udostępnić. Stan w `useState` gubił się przy odświeżeniu.
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawPeriod = searchParams.get("period");
-  const period: Period = (
-    ["today", "week", "month", "quarter"].includes(rawPeriod ?? "")
-      ? rawPeriod
-      : "month"
-  ) as Period;
+
+  const rawKind = searchParams.get("period");
+  const rawOffset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
+
+  const period: InsightsPeriodParams = useMemo(
+    () => ({
+      period: (KINDS.includes(rawKind as InsightsPeriodKind)
+        ? rawKind
+        : "month") as InsightsPeriodKind,
+      offset: Number.isFinite(rawOffset) ? rawOffset : 0,
+    }),
+    [rawKind, rawOffset],
+  );
+
   const setPeriod = useCallback(
-    (next: Period) => {
+    (next: InsightsPeriodParams) => {
       const params = new URLSearchParams(searchParams.toString());
-      params.set("period", next);
-      router.push(`/insights?${params.toString()}`);
+      params.set("period", next.period);
+      params.set("offset", String(next.offset ?? 0));
+      router.push(`/insights?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
   );
-  // D7 (Artur, 2026-08-31): bramka rolowa na imiennym rankingu ZDJĘTA —
-  // /insights widzi każda zalogowana rola. Nie przywracaj jej tutaj bez
-  // zmiany decyzji w docs/insights-dynareporter-migration-plan.md §0 D7;
-  // ukryta sekcja przy otwartym API to split-brain, nie zabezpieczenie.
+
+  // Etykieta okna pochodzi z SERWERA, nie z arytmetyki we froncie — inaczej
+  // dwie strony liczyłyby granice miesiąca osobno i rozjechałyby się przy DST.
+  const { data: funnel } = useQuery({
+    queryKey: ["insights", "recruitment", "funnel", period],
+    queryFn: () => insightsApi.recruitmentFunnel(period),
+  });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Aktywność rekruterów, pipeline, time-to-hire i źródła kandydatów.
+          Lejek, konwersje, time-to-hire, aktywność zespołu i źródła kandydatów.
         </p>
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <PeriodPicker
+          value={period}
+          onChange={setPeriod}
+          resolved={funnel?.period ?? null}
+        />
       </div>
-
-      <ActivityHeatmap period={period} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <FunnelSection />
-        <TimeToHireSection />
+        <RecruitmentFunnel period={period} />
+        <RecruitmentConversions period={period} />
       </div>
 
-      <SLAAlertsSection />
+      <InsightsTimeToHire period={period} />
+
+      {/* D7: bramka rolowa na imiennym rankingu zdjęta — /insights widzi każda
+          zalogowana rola. Nie przywracaj jej tutaj bez zmiany decyzji w
+          docs/insights-dynareporter-migration-plan.md §0 D7; ukryta sekcja
+          przy otwartym API to split-brain, nie zabezpieczenie. */}
+      <ActivityHeatmap period="month" />
 
       <SourcesFunnelSection />
     </div>

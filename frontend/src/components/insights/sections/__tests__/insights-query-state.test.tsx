@@ -4,7 +4,7 @@
  * Sześć sekcji dzieliło jedną lukę: kit (`_shared.tsx`) miał `LoadingSpinner`,
  * ale nie miał NIC na awarię. Efekt: `if (!data) return null` (BoardKPI,
  * InviteLinksSection) albo zdanie o rekrutacji zamiast zdania
- * o systemie (FunnelSection, TimeToHireSection, ActivityHeatmap).
+ * o systemie (ActivityHeatmap, InviteLinksSection).
  *
  * Testy odrzucają obietnice API, czyli idą tą samą ścieżką co defekt.
  */
@@ -35,8 +35,6 @@ vi.mock("@/lib/api", () => ({
 
 import { ActivityHeatmap } from "@/components/insights/sections/ActivityHeatmap";
 import { BoardKPI } from "@/components/insights/sections/BoardKPI";
-import { FunnelSection } from "@/components/insights/sections/FunnelSection";
-import { TimeToHireSection } from "@/components/insights/sections/TimeToHireSection";
 
 function httpError(status: number) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status } });
@@ -104,40 +102,6 @@ describe("sekcje insights — awaria zapytania", () => {
     expect(
       screen.queryByRole("button", { name: /Spróbuj ponownie/ }),
     ).not.toBeInTheDocument();
-  });
-
-  it("FunnelSection przy awarii NIE pisze „Brak danych.”", async () => {
-    mocks.funnel.mockRejectedValue(httpError(500));
-
-    renderSection(<FunnelSection />);
-
-    expect(
-      await screen.findByText(/Nie udało się pobrać danych sekcji/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Brak danych.")).not.toBeInTheDocument();
-  });
-
-  it("FunnelSection przy pustym lejku dalej pisze „Brak danych.”", async () => {
-    mocks.funnel.mockResolvedValue({ data: { funnel: [] } });
-
-    renderSection(<FunnelSection />);
-
-    expect(await screen.findByText("Brak danych.")).toBeInTheDocument();
-    expect(
-      screen.queryByText(/Nie udało się pobrać danych sekcji/),
-    ).not.toBeInTheDocument();
-  });
-
-  it("TimeToHireSection przy awarii nie twierdzi „łącznie 0 zatrudnień”", async () => {
-    mocks.timeToHire.mockRejectedValue(httpError(500));
-
-    renderSection(<TimeToHireSection />);
-
-    expect(
-      await screen.findByText(/Nie udało się pobrać danych sekcji/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Brak zatrudnień w okresie/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/łącznie 0 zatrudnień/)).not.toBeInTheDocument();
   });
 
   it("ActivityHeatmap przy awarii nie mówi „Brak danych dla wybranego okresu”", async () => {
