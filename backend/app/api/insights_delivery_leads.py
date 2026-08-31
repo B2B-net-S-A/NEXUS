@@ -68,6 +68,21 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Nazwa klienta i widocznosc — LUSTRO `app/services/client_identity.py`
+# w surowym SQL-u (te zapytania sa tekstowe, wiec nie moga wolac helperow ORM).
+#
+# Bez tego ten sam klient wystepowalby na jednym ekranie pod DWIEMA nazwami:
+# zakladka Klienci uzywa `client_display_name_expression()` (czyli recznej
+# korekty nazwy z Traffita), a Delivery Lead pokazywalby surowe `clients.name`.
+# Gorzej z `merged_into_client_id`: klient wchloniety w innego wciaz ma wlasne
+# wiersze `jobs`, wiec renderowalby sie jako osobny kawalek donuta, podczas gdy
+# Klienci juz go zwineli — dwoch sum nie dalo by sie uzgodnic wzrokiem.
+_CLIENT_DISPLAY_NAME_SQL = "COALESCE(NULLIF(BTRIM(c.display_name), ''), c.name)"
+_CLIENT_VISIBLE_SQL = (
+    "c.hidden IS FALSE AND c.archived_at IS NULL AND c.merged_into_client_id IS NULL"
+)
+
+
 CACHE_TTL_SECONDS = 300
 
 # Próg wejścia do „Ligi Mistrzów DL" (InfraReporter). Ta sama wartość co
@@ -163,9 +178,12 @@ async def insights_delivery_leads(
                 SELECT js.dl_id AS dl_id,
                        count(*) AS requests,
                        COALESCE(SUM(js.headcount), 0) AS vacancies,
-                       ARRAY_REMOVE(ARRAY_AGG(DISTINCT c.name), NULL) AS clients
+                       ARRAY_REMOVE(
+                           ARRAY_AGG(DISTINCT {_CLIENT_DISPLAY_NAME_SQL}), NULL
+                       ) AS clients
                 FROM jobs_scoped js
-                LEFT JOIN clients c ON c.id = js.client_id
+                LEFT JOIN clients c
+                  ON c.id = js.client_id AND {_CLIENT_VISIBLE_SQL}
                 WHERE js.created_at >= :start AND js.created_at < :end
                 GROUP BY js.dl_id
                 """
@@ -395,17 +413,18 @@ async def insights_dl_placements_by_client(
                 text(
                     f"""
                 SELECT j.client_id AS client_id,
-                       c.name AS client_name,
+                       {_CLIENT_DISPLAY_NAME_SQL} AS client_name,
                        count(*) AS placements
                 FROM analytics_first_milestones fm
                 JOIN jobs j ON j.id = fm.job_id
-                LEFT JOIN clients c ON c.id = j.client_id
+                LEFT JOIN clients c
+                  ON c.id = j.client_id AND {_CLIENT_VISIBLE_SQL}
                 WHERE fm.stage = 'hired'
                   AND fm.first_reached_at >= :start
                   AND fm.first_reached_at < :end
                   AND j.recruitment_type = '{RECRUITMENT_TYPE}'
-                GROUP BY j.client_id, c.name
-                ORDER BY placements DESC, c.name ASC
+                GROUP BY j.client_id, {_CLIENT_DISPLAY_NAME_SQL}
+                ORDER BY placements DESC, {_CLIENT_DISPLAY_NAME_SQL} ASC
                 """
                 ),
                 {"start": resolved.start, "end": resolved.end},

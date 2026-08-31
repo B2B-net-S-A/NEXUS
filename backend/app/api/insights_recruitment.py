@@ -40,32 +40,107 @@ router = APIRouter()
 
 CACHE_TTL_SECONDS = 300
 
-# Kolejność etapów w lejku. Klucz = wartość w `analytics_first_milestones.stage`.
-# `mapped_from_traffit=False` oznacza etap, którego import Traffita NIE zna —
-# jego zero to brak ewidencji, nie brak zjawiska.
+# Kolejność etapów w lejku.
+#
+# Dwa NIEZALEŻNE powody, dla których etap pokazuje zero — i nie wolno ich
+# mylić, bo znaczą co innego:
+#
+# `in_milestones` — czy etap jest w widoku `analytics_first_milestones`.
+#   Widok niesie DOKŁADNIE sześć: verified, cv_sent, interview,
+#   client_interview, acceptance, hired (zweryfikowane `pg_get_viewdef`).
+#   Reszta lejka musi przyjść z `candidate_stages`, deduplikowana tak samo —
+#   inaczej liczby z dwóch źródeł nie dają się porównać.
+#
+# `mapped_from_traffit` — czy import z Traffita zna ten etap
+#   (`app/services/traffit/mappers.py:404-449` mapuje wyłącznie na
+#   new|screening|verified|interview|cv_sent|hired|rejected|withdrawn).
+#   Etap spoza tej listy pokazuje zero, bo NIE JEST ODNOTOWYWANY.
+#
+# Pomylenie tych flag daje dokładnie defekt, przed którym broni docstring
+# modułu: API twierdziłoby, że zero przy „Nowi" to obserwacja, a przy
+# „Akceptacja" — brak danych. Jest odwrotnie.
 FUNNEL_STAGES: list[dict] = [
-    {"stage": "new", "label": "Nowi / Analiza CV", "mapped_from_traffit": True},
-    {"stage": "screening", "label": "Screening", "mapped_from_traffit": True},
-    {"stage": "verified", "label": "Zweryfikowany", "mapped_from_traffit": True},
+    {
+        "stage": "new",
+        "label": "Nowi / Analiza CV",
+        "in_milestones": False,
+        "mapped_from_traffit": True,
+    },
+    {
+        "stage": "screening",
+        "label": "Screening",
+        "in_milestones": False,
+        "mapped_from_traffit": True,
+    },
+    {
+        "stage": "verified",
+        "label": "Zweryfikowany",
+        "in_milestones": True,
+        "mapped_from_traffit": True,
+    },
     {
         "stage": "prep_call",
         "label": "Preparation Meeting",
+        "in_milestones": False,
         "mapped_from_traffit": False,
     },
-    {"stage": "cv_sent", "label": "CV wysłane", "mapped_from_traffit": True},
-    {"stage": "interview", "label": "Rozmowa", "mapped_from_traffit": True},
+    {
+        "stage": "cv_sent",
+        "label": "CV wysłane",
+        "in_milestones": True,
+        "mapped_from_traffit": True,
+    },
+    {
+        "stage": "interview",
+        "label": "Rozmowa",
+        "in_milestones": True,
+        "mapped_from_traffit": True,
+    },
     {
         "stage": "client_interview",
         "label": "Rozmowa u klienta",
+        "in_milestones": True,
         "mapped_from_traffit": False,
     },
-    {"stage": "acceptance", "label": "Akceptacja", "mapped_from_traffit": False},
-    {"stage": "negotiation", "label": "Negocjacje", "mapped_from_traffit": False},
-    {"stage": "hired", "label": "Zatrudniony", "mapped_from_traffit": True},
-    {"stage": "onboarding", "label": "Onboarding", "mapped_from_traffit": False},
-    {"stage": "rejected", "label": "Odrzucony", "mapped_from_traffit": True},
-    {"stage": "withdrawn", "label": "Wycofany", "mapped_from_traffit": True},
+    {
+        "stage": "acceptance",
+        "label": "Akceptacja",
+        "in_milestones": True,
+        "mapped_from_traffit": False,
+    },
+    {
+        "stage": "negotiation",
+        "label": "Negocjacje",
+        "in_milestones": False,
+        "mapped_from_traffit": False,
+    },
+    {
+        "stage": "hired",
+        "label": "Zatrudniony",
+        "in_milestones": True,
+        "mapped_from_traffit": True,
+    },
+    {
+        "stage": "onboarding",
+        "label": "Onboarding",
+        "in_milestones": False,
+        "mapped_from_traffit": False,
+    },
+    {
+        "stage": "rejected",
+        "label": "Odrzucony",
+        "in_milestones": False,
+        "mapped_from_traffit": True,
+    },
+    {
+        "stage": "withdrawn",
+        "label": "Wycofany",
+        "in_milestones": False,
+        "mapped_from_traffit": True,
+    },
 ]
+
+_STAGE_LOG_STAGES = [x["stage"] for x in FUNNEL_STAGES if not x["in_milestones"]]
 
 # Konwersje liczone z TYCH SAMYCH liczników co kafle wyżej. Gdy mianownik jest
 # zerem, wynik to None (luka), nigdy 0.0 — „nie da się policzyć" to co innego
@@ -171,6 +246,38 @@ async def insights_recruitment_funnel(
     )
     counts = {r["stage"]: int(r["cnt"]) for r in rows}
 
+    # Zrodlo 2 — reszta lejka wprost z `candidate_stages`, DEDUPLIKOWANA TAK
+    # SAMO jak widok: pierwsze wystapienie per (kandydat, oferta, etap). Bez
+    # tego gora lejka liczylaby surowe wiersze, a srodek — pary, i dwie czesci
+    # tego samego wykresu nie dalyby sie porownac. Import Traffita dopisuje
+    # wiersz na kazde zdarzenie, wiec ponowne wejscie liczyloby sie wielokrotnie.
+    log_rows = (
+        (
+            await db.execute(
+                text(
+                    """
+                    SELECT stage, count(*) AS cnt
+                    FROM (
+                        SELECT DISTINCT ON (cs.candidate_id, cs.job_id, cs.stage)
+                               cs.stage AS stage, cs.moved_at AS moved_at
+                        FROM candidate_stages cs
+                        WHERE cs.stage::text = ANY(:stages)
+                        ORDER BY cs.candidate_id, cs.job_id, cs.stage,
+                                 cs.moved_at, cs.id
+                    ) firsts
+                    WHERE firsts.moved_at >= :start AND firsts.moved_at < :end
+                    GROUP BY stage
+                    """
+                ),
+                {**params, "stages": _STAGE_LOG_STAGES},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    for lr in log_rows:
+        counts[str(lr["stage"])] = int(lr["cnt"])
+
     # Pokrycie: ile ruchu w tym oknie powstało W NEXUSIE, a ile przyszło
     # z importu. Dyskryminator to `external_source = 'manual'`, NIE `IS NULL`
     # (kolumna ma ORM-owy default 'manual', a importer wpisuje 'traffit').
@@ -206,6 +313,9 @@ async def insights_recruitment_funnel(
             "label": s["label"],
             "count": counts.get(s["stage"], 0),
             "mapped_from_traffit": s["mapped_from_traffit"],
+            # Skad przyszla liczba — zeby konsument nie zsumowal dwoch zrodel
+            # pod jednym naglowkiem, nie wiedzac o tym.
+            "source": "milestones" if s["in_milestones"] else "stage_log",
             # Udział względem najliczniejszego etapu — do szerokości paska.
             "share_pct": _ratio(counts.get(s["stage"], 0), max_count),
         }

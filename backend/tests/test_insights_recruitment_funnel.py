@@ -188,8 +188,54 @@ async def test_stages_flag_the_ones_traffit_never_maps(fx_client: AsyncClient):
     ).json()
 
     unmapped = {s["stage"] for s in body["stages"] if not s["mapped_from_traffit"]}
-    assert {"acceptance", "client_interview", "onboarding", "prep_call"} <= unmapped
+    # Dokladnie te piec, ktorych `traffit/mappers.py:404-449` NIE mapuje.
+    assert unmapped == {
+        "acceptance",
+        "client_interview",
+        "negotiation",
+        "onboarding",
+        "prep_call",
+    }
     assert set(body["coverage"]["stages_not_mapped_from_traffit"]) == unmapped
+
+    # Etapy, ktore SA mapowane z Traffita, nie moga byc oznaczone jako
+    # nieodnotowywane — inaczej UI kazaloby nie ufac jedynym liczbom, ktore
+    # naprawde pochodza z zewnatrz.
+    mapped = {s["stage"] for s in body["stages"] if s["mapped_from_traffit"]}
+    assert {"new", "screening", "verified", "cv_sent", "hired"} <= mapped
+
+
+@pytest.mark.asyncio
+async def test_stage_source_matches_what_the_milestone_view_actually_carries(
+    fx_client: AsyncClient,
+):
+    """Widok kamieni niesie DOKLADNIE szesc etapow — reszta idzie z logu.
+
+    To jest regresja na blad, w ktorym lejek listowal 13 etapow jako pochodzace
+    z widoku. Siedem z nich nie moglo miec tam danych NIGDY, wiec API twierdzilo,
+    ze ich zero to obserwacja — a przy „Akceptacja", ktora w widoku JEST,
+    twierdzilo odwrotnie. Zrodlo musi byc zgodne z `pg_get_viewdef`.
+    """
+    _, email, password = await _seed_user(UserRole.admin, "stage-source")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get("/api/insights/recruitment/funnel", headers=headers)
+    ).json()
+
+    from_view = {s["stage"] for s in body["stages"] if s["source"] == "milestones"}
+    assert from_view == {
+        "verified",
+        "cv_sent",
+        "interview",
+        "client_interview",
+        "acceptance",
+        "hired",
+    }
+    # Gora i dol lejka MUSZA byc oznaczone jako inne zrodlo — inaczej ktos
+    # zsumuje je z kamieniami pod jednym naglowkiem.
+    from_log = {s["stage"] for s in body["stages"] if s["source"] == "stage_log"}
+    assert {"new", "screening", "rejected", "withdrawn"} <= from_log
+    assert from_view.isdisjoint(from_log)
 
 
 @pytest.mark.asyncio
