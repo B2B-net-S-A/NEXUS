@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileSearch, Search } from "lucide-react";
 import { FileDropZone } from "@/components/ds/FileDropZone";
@@ -128,6 +128,37 @@ export function NewContractorOrderDialog({
   // operatora z przekonaniem, że numer przyszedł z właściwego pola dokumentu.
   const [clientPolicy, setClientPolicy] = useState<string | null>(null);
 
+  // Odczyt jest asynchroniczny, a `applyExtraction` czyta wartości pól, żeby
+  // wiedzieć, które są puste. Gdyby brał je z domknięcia handlera, patrzyłby na
+  // stan Z CHWILI WGRANIA PLIKU — a użytkownik może pisać w trakcie odczytu
+  // i jego tekst zostałby nadpisany „bo pole było puste". Ref niesie stan
+  // BIEŻĄCY. Ten sam wzorzec co `extractionFormRef` w `ConsultantLineModal`.
+  const formRef = useRef({
+    title: "",
+    contractStart: "",
+    orderStart: "",
+    orderEnd: "",
+    rateClient: "",
+    rateCandidate: "",
+    rateUnit: "monthly" as "monthly" | "daily" | "hourly",
+    billingHours: "160",
+  });
+  formRef.current = {
+    title,
+    contractStart,
+    orderStart,
+    orderEnd,
+    rateClient,
+    rateCandidate,
+    rateUnit,
+    billingHours,
+  };
+
+  // Dwa szybkie wgrania pliku = dwa równoległe odczyty. Bez licznika epok
+  // wolniejsza odpowiedź STARSZEGO pliku wygrywałaby z nowszą — do formularza
+  // trafiłyby dane z dokumentu, którego już nie ma w polu wyboru.
+  const extractionEpochRef = useRef(0);
+
   function resetExtraction() {
     setCheckData(false);
     setCheckReasons([]);
@@ -147,6 +178,7 @@ export function NewContractorOrderDialog({
     data: Awaited<ReturnType<typeof dlPortalApi.extractOrderPdf>>["data"],
     { overwrite }: { overwrite: boolean },
   ) {
+    const form = formRef.current;
     const fill = (
       current: string,
       incoming: string | null | undefined,
@@ -157,43 +189,43 @@ export function NewContractorOrderDialog({
       setter(incoming);
     };
 
-    fill(title, data.title, setTitle);
+    fill(form.title, data.title, setTitle);
     fill(
-      orderStart,
+      form.orderStart,
       data.start_date ? normalizeDateInput(data.start_date) : null,
       setOrderStart,
     );
     fill(
-      orderEnd,
+      form.orderEnd,
       data.end_date ? normalizeDateInput(data.end_date) : null,
       setOrderEnd,
     );
     // Kontrakt zaczyna się razem z zamówieniem, dopóki operator nie powie
     // inaczej — to pole jest wymagane, a jego brak blokuje zapis.
     fill(
-      contractStart,
+      form.contractStart,
       data.start_date ? normalizeDateInput(data.start_date) : null,
       setContractStart,
     );
     if (canManageFinance) {
       const detectedUnit = extractionRateUnit(data.rate_unit);
-      if (detectedUnit && detectedUnit !== rateUnit) {
+      if (detectedUnit && detectedUnit !== form.rateUnit) {
         // Jednostka z dokumentu przelicza to, co JUŻ jest w polach — inaczej
         // kwota zostałaby przeetykietowana bez konwersji (błąd ×8 / ×22).
         setRateClient(
           convertRateInput(
-            rateClient,
-            rateUnit,
+            form.rateClient,
+            form.rateUnit,
             detectedUnit,
-            Number(billingHours) || 160,
+            Number(form.billingHours) || 160,
           ),
         );
         setRateCandidate(
           convertRateInput(
-            rateCandidate,
-            rateUnit,
+            form.rateCandidate,
+            form.rateUnit,
             detectedUnit,
-            Number(billingHours) || 160,
+            Number(form.billingHours) || 160,
           ),
         );
         setRateUnit(detectedUnit);
@@ -201,7 +233,7 @@ export function NewContractorOrderDialog({
       // Dokument opisuje pozycję PRZYCHODOWĄ klienta. Stawka kosztowa
       // kontraktora nie wynika z niego i zostaje do wpisania ręcznie.
       fill(
-        rateClient,
+        form.rateClient,
         data.rate_client == null ? null : String(data.rate_client),
         setRateClient,
       );
@@ -213,6 +245,8 @@ export function NewContractorOrderDialog({
   }
 
   async function runExtraction(picked: File, options: { overwrite: boolean }) {
+    const epoch = extractionEpochRef.current + 1;
+    extractionEpochRef.current = epoch;
     setExtracting(true);
     setFileError(null);
     try {
@@ -221,13 +255,16 @@ export function NewContractorOrderDialog({
         picked,
         selectedCandidate?.id ?? null,
       );
+      // Wynik starszego pliku nie może nadpisać nowszego.
+      if (extractionEpochRef.current !== epoch) return;
       applyExtraction(data, options);
     } catch (err: unknown) {
+      if (extractionEpochRef.current !== epoch) return;
       setFileError(
         extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
       );
     } finally {
-      setExtracting(false);
+      if (extractionEpochRef.current === epoch) setExtracting(false);
     }
   }
 
@@ -545,6 +582,10 @@ export function NewContractorOrderDialog({
             inputId="new-order-po"
             file={file}
             onPick={(picked) => {
+              // Unieważnia odczyt w locie: odpowiedź poprzedniego pliku nie
+              // może wpaść do formularza po zmianie wyboru.
+              extractionEpochRef.current += 1;
+              setExtracting(false);
               setFile(picked);
               setFileError(null);
               resetExtraction();

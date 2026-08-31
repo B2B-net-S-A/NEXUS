@@ -335,8 +335,10 @@ describe("NewContractorOrderDialog — PDF od klienta", () => {
     // Klient wynika z profilu, z którego formularz otwarto — endpoint dostaje
     // `clientId`, a nie wartość odczytaną z dokumentu.
     expect(extractOrderPdf).toHaveBeenCalledWith(11, expect.any(File), null);
-    expect(screen.getByDisplayValue("01.09.2026")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("31.12.2026")).toBeInTheDocument();
+    // `normalizeDateInput` zostawia ISO w postaci ISO — pola dat przyjmują
+    // oba zapisy, a odczyt zwraca właśnie ISO.
+    expect(screen.getAllByDisplayValue("2026-09-01").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("2026-12-31")).toBeInTheDocument();
   });
 
   it("odczyt automatyczny NIE kasuje tego, co operator już wpisał", async () => {
