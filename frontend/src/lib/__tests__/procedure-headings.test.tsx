@@ -97,3 +97,40 @@ describe("assignHeadingIds", () => {
     expect(assignHeadingIds(root)).toEqual([]);
   });
 });
+
+describe("skok spisu treści", () => {
+  it("NIE prosi o płynne przewijanie", async () => {
+    // Treść procedury przewija się w zagnieżdżonym kontenerze wewnątrz
+    // przodków z `overflow: hidden`. Chrome cicho pomija tam płynne
+    // przewijanie — zmierzone na produkcji: `behavior:"smooth"` zostawiało
+    // `scrollTop` bez zmian, ta sama instrukcja bez `behavior` przewijała.
+    // Klik wyglądał na działający (element dostawał fokus), a czytelnik
+    // zostawał w miejscu. Ten test broni tej decyzji przed „upiększeniem".
+    const { ProcedureTableOfContents } = await import(
+      "@/components/v2/ProcedureTableOfContents"
+    );
+    const { render, screen } = await import("@testing-library/react");
+    const { default: userEvent } = await import("@testing-library/user-event");
+
+    const heading = document.createElement("h2");
+    heading.id = "sekcja-testowa";
+    heading.textContent = "Sekcja testowa";
+    document.body.appendChild(heading);
+
+    const calls: (ScrollIntoViewOptions | boolean | undefined)[] = [];
+    heading.scrollIntoView = ((arg?: ScrollIntoViewOptions | boolean) => {
+      calls.push(arg);
+    }) as HTMLElement["scrollIntoView"];
+
+    render(
+      <ProcedureTableOfContents
+        headings={[{ id: "sekcja-testowa", text: "Sekcja testowa", level: 2 }]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Sekcja testowa" }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({ block: "start" });
+    heading.remove();
+  });
+});

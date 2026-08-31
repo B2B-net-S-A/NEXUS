@@ -35,7 +35,19 @@ export function ProcedureTableOfContents({
   const jumpTo = useCallback((id: string) => {
     const target = document.getElementById(id);
     if (!target) return;
-    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    // BEZ `behavior: "smooth"` — i to jest wymóg, nie przeoczenie. Treść
+    // procedury przewija się w zagnieżdżonym `<main class="overflow-y-auto">`,
+    // którego przodkowie mają `overflow: hidden` (powłoka aplikacji). W takim
+    // układzie Chrome CICHO POMIJA płynne przewijanie: zmierzone na produkcji
+    // `scrollIntoView({behavior:"smooth"})` zostawiało `scrollTop` bez zmian,
+    // a ta sama instrukcja bez `behavior` przewijała do 10353 px. To samo
+    // dotyczy `scrollTo({behavior:"smooth"})` na kontenerze.
+    //
+    // Objaw był najgorszy z możliwych: klik w spis treści wyglądał na
+    // działający (element dostawał fokus), ale czytelnik zostawał tam, gdzie
+    // był. Lokalny harness tego nie łapał, bo przewijało się w nim OKNO —
+    // dlatego `/preview/procedure-help` odtwarza dziś układ powłoki.
+    target.scrollIntoView({ block: "start" });
     // Fokus dla czytników ekranu i klawiatury: samo przewinięcie przesuwa
     // obraz, ale zostawia karetkę na liście, więc następny Tab wraca na górę
     // dokumentu zamiast wejść w sekcję, do której użytkownik właśnie skoczył.
