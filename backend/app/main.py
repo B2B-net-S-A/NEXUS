@@ -49,6 +49,7 @@ from app.api import (
 )
 from app.api import activities
 from app.api import admin
+from app.api import client_cv_rules as client_cv_rules_api
 from app.api import analytics_v1 as analytics_v1_api
 from app.api import dashboard_v2 as dashboard_v2_api
 from app.api import finance as finance_api
@@ -843,6 +844,9 @@ app.include_router(
     tags=["client-directory"],
 )
 app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
+# Trasy niosą pełne ścieżki (/clients/{id}/cv-rule oraz /settings/cv-rules),
+# bo ten sam router obsługuje dwa wejścia do tej samej reguły.
+app.include_router(client_cv_rules_api.router, prefix="/api", tags=["client-cv-rules"])
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(
     client_framework_contracts.router,
@@ -2028,6 +2032,7 @@ async def api_health_deep_check():
     )
     from app.models.candidate import Candidate
     from app.models.client import Client
+    from app.models.client_cv_rule import ClientCvRule
     from app.models.client_order_group import (
         ClientOrderGroup,
         ClientOrderGroupEvent,
@@ -2113,6 +2118,12 @@ async def api_health_deep_check():
         ("dl_alerts", DlAlert),
         ("candidates", Candidate),
         ("clients", Client),
+        # 0255: reguły CV per klient. Brak tabeli nie wywraca generatora —
+        # `resolve_client_rule` po prostu nic nie znajdzie i CV powstanie ze
+        # starą, globalną nazwą pliku. To najgorszy rodzaj awarii: zielony
+        # deploy i pliki nazwane wzorem, którego klient nie akceptuje, wykryte
+        # dopiero przez odbiorcę. Sonda jest jedynym dowodem, że tabela jest.
+        ("client_cv_rules", ClientCvRule),
         ("jobs", Job),
         # Pięć najgorętszych tabel produktu, których ta bramka nie obejmowała
         # do 2026-08-21 — czyli dokładnie te, na których rozjazd kolumny

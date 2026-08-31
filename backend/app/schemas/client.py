@@ -44,6 +44,24 @@ class ClientUpdate(BaseModel):
     # Interaktywna wersja CV na publicznym linku (kafelki + chat) dla hiring
     # managerów tego klienta. Niezależne od `cv_content_mode_cap`.
     cv_interactive_enabled: Optional[bool] = None
+    # Sufit trybu obróbki CV. Kolumna istnieje od 0202, ale do teraz nie miała
+    # ŻADNEJ ścieżki edycji — ustawiało się ją ręcznym UPDATE-em w bazie, więc
+    # ma ją zero klientów. Ekran „Reguły CV" jest pierwszym miejscem, w którym
+    # da się ją nadać; PATCH klienta jest generyczny, więc wystarczy tu wpis.
+    cv_content_mode_cap: Optional[str] = None
+
+    @field_validator("cv_content_mode_cap")
+    @classmethod
+    def _known_content_mode_cap(cls, v: Optional[str]) -> Optional[str]:
+        """Lustro CHECK-a `ck_clients_cv_content_mode_cap` — czytelne 422 po
+        polsku zamiast surowego IntegrityError z bazy."""
+        if v in (None, ""):
+            return None
+        if v not in ("basic", "polished", "tailored"):
+            raise ValueError(
+                "Sufit trybu treści może być tylko „basic”, „polished” albo „tailored”."
+            )
+        return v
 
     @field_validator("display_name")
     @classmethod
@@ -73,6 +91,8 @@ class ClientSafeResponse(BaseModel):
     nda_signed: bool
     contract_type: Optional[str]
     cv_interactive_enabled: bool = True
+    # NULL = bez sufitu (stan każdego klienta do tej pory).
+    cv_content_mode_cap: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
