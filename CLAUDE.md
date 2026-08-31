@@ -887,6 +887,68 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   udokumentowane i konsumowane przez front, a mimo to nigdy nie powstało (PR #1196);
   wyszło z odpytania produkcji, nie z zielonych testów.
 
+## Decyzja Delivery Leada po zakończeniu współpracy konsultanta MD
+
+Terminacja kontraktu domyka linię MD (`completed`, `end_date` ucięta do dnia
+terminacji) i zakłada sprawę `client_order_offboarding_cases` w stanie
+`pending`. Rozstrzygnięcie ma TRZY wartości (migracja `0253`, + lustro DDL
+w `entrypoint.sh` — CREATE TABLE dotyczy tylko instalacji od zera, więc
+poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
+
+| Decyzja | Co robi z pulą | Co robi z linią |
+|---|---|---|
+| `remove` | pula per linia przepada (`_reduce_legacy_md_budget`) | osoba znika z aktywnej obsady |
+| `transfer` | pula przeliczona na innego konsultanta | jw. + budżet rośnie odbiorcy |
+| `restore` | **pula NIETKNIĘTA** | linia wraca na `active`, kontrakt wraca do aktywnych |
+
+- **`restore` powstał, bo bez niego jedynym wyjściem ze sprawy było zapisanie
+  decyzji, która się nie wydarzyła.** Zgłoszone przypadki (Płonka 90 MD, Dynek
+  120 MD, Krawczyk 85 MD) to współpraca, która trwa dalej — ani nie oddano
+  puli, ani jej nikomu nie przekazano.
+- **Gałąź `restore` MUSI omijać `_reduce_legacy_md_budget`.** Zdjęcie
+  niewykorzystanych MD z wartości zamówienia byłoby zapisaniem faktu, który się
+  nie wydarzył, i zabraniem konsultantowi budżetu, na którym właśnie pracuje.
+- **Przywrócenie wskrzesza KONTRAKT** (`sync_contract_to_live_order`). Bez tego
+  decyzja kasuje samą siebie: konsultant zostaje w „Zakończonych" mimo aktywnej
+  linii, a nocny cron widzi `end_date < today`, stawia `ended` i domyka linię
+  z powrotem — bez nowej sprawy i bez alertu, bo `_ensure_md_case` trafia
+  w istniejący wiersz.
+- **Data zakończenia jest DECYZJĄ, nie odtworzeniem.** Oryginalna `end_date`
+  linii przepadła przy offboardingu (sprawa snapshotuje pulę, stawki i numer
+  zamówienia — nie okres), więc serwer nie ma jej skąd wziąć. Przy zamówieniu
+  z datą końca pole jest WYMAGANE i ograniczone do okresu zamówienia; przy
+  bezterminowym puste znaczy „bezterminowo". Data z przeszłości jest odrzucana:
+  linia ze WSPÓLNEJ puli ma `md_total IS NULL`, więc nie chroni jej
+  `sync_md_line_status`, a `dl_portal_expiry_scanner._promote_statuses` domyka
+  dokładnie takie linie.
+- **Osobny typ zdarzenia `przywrocenie_konsultanta`**, świadomie różny od
+  `przywrocenie` (= przywrócenie CAŁEGO zamówienia, `reopen_order_group`).
+  Wspólny slug zlałby w historii dwie operacje na dwóch różnych poziomach.
+- **Osobny CHECK `ck_..._restore_target`**: dwa istniejące guardy używają
+  `IS DISTINCT FROM`, więc trzecia wartość omijała OBA i mogłaby nieść
+  `target_order_id`/`rate_basis` bez żadnego ograniczenia.
+
+## Zapis zamówienia: „Network Error" znaczy nieobsłużone 500
+
+`UnhandledErrorMiddleware` (`app/main.py`) jest dodane jako PIERWSZE, czyli
+NAJGŁĘBIEJ w stosie — pod `CORSMiddleware`. Bez niego wyjątek z handlera leci
+ponad całym stosem do starlette'owego `ServerErrorMiddleware`, które odpowiada
+gołym 500 bez `Access-Control-Allow-Origin`; przeglądarka blokuje odpowiedź
+i użytkownik widzi wyłącznie „Network Error" — bez statusu, bez treści, bez
+śladu w zgłoszeniu. Kolejność `add_middleware` jest tu load-bearing.
+
+Warstwa wyżej: `commit_order_write` (`services/order_write_errors.py`) zamienia
+znane naruszenia więzów modułu zamówień na 409 z komunikatem po polsku.
+Dopisując CHECK w migracji, dopisz tam zdanie — inaczej operator dostanie
+komunikat ogólny i nie będzie wiedział, którego pola dotyczy.
+
+Cztery odtworzone ścieżki, które kończyły się „Network Error" (wszystkie
+naprawione, każda ma test w `test_order_write_unhandled_500.py`):
+`POST /orders` z `md_quantity` (brak `md_remaining` → CHECK; regresja
+PR #1276), nazwa pliku PDF > 255 znaków, nieistniejące `job_id` /
+`framework_contract_id` w PATCH, przepełnienie `Numeric(12,3)` przy
+relabelingu stawek w materializerze.
+
 ## Aktywacja umowy: `end_date` NIE jest wymagane (umowa bezterminowa)
 
 `ACTIVATION_REQUIRED_FIELDS` (`contract_service.py`) to `start_date`,
@@ -938,7 +1000,7 @@ wszystkie te ścieżki; migracja `0250` koryguje dwa jawnie wskazane rekordy po
 pełnych kluczach biznesowych i zapisuje read-only audyt analogicznych przypadków
 innych klientów w `app_settings['0250_live_order_contract_repair']`.
 
-## Polityki odczytu PDF per klient — jeden wzorzec, cztery bramki
+## Polityki odczytu PDF per klient — jeden wzorzec, siedem bramek
 
 Każda polityka jest DETERMINISTYCZNA i stosowana PO odpowiedzi LLM (model
 wybiera interpretację, nie stosuje reguł), bramkowana CSV `client_id` z env,
@@ -949,7 +1011,10 @@ fail-closed:
 | Nordea | `NORDEA_ORDER_NUMBER_CLIENT_IDS` | numer tylko z „Call Off Agreement number” |
 | Bank Pocztowy | `BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS` | numer pisma; netto MD ÷ 8 (w górę) |
 | Credit Agricole | `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` | stawka tylko z „Wynagrodzenie za 1MD (8h)”, MD tylko z „Szacowana ilość MD” |
+| BNP | `BNP_ORDER_EXTRACTION_CLIENT_IDS` | dokument JEDNOOSOBOWY; „Cena netto” → stawka za 1 MD, „Szt.” → liczba MD, „MM-RRRR do MM-RRRR” → pierwszy/ostatni dzień miesiąca |
 | Erste Bank Polska | `ERSTE_GROSS_RATE_CLIENT_IDS` | brutto ÷ 1,23 → netto (half-up, 2 miejsca) |
+| Orlen | `ORLEN_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 35) | wspólna stawka on/off-site tej samej osoby; MD z PDF zawsze pomijane |
+| PFRON | `PFRON_ORDER_EXTRACTION_CLIENT_IDS` (+ kanoniczne ID 122) | okres wyłącznie z jawnej daty końca usług; brutto → netto |
 
 - **Erste stosuje się OSTATNIA** — przelicza kwotę ustaloną przez polityki
   wyżej. Odwrotna kolejność po cichu nie przeliczyłaby nic.
@@ -958,6 +1023,36 @@ fail-closed:
   za etykietą” trafia w liczbę porządkową. Zła stawka zapisana jako pewna jest
   gorsza niż puste pole — wychodzi dopiero na fakturze.
 - **`total_value` NIE jest przeliczane** u Erste (ticket mówi o stawce).
+- **BNP omija matcher konsultanta, i to jest cała jego istota.** PDF-y tego
+  klienta NIE zawierają imienia ani nazwiska — niosą wyłącznie numer ID
+  konsultanta. Generyczny matcher (`apply_consultant_row_match` +
+  `enforce_consultant_policy_safety`) jest fail-closed po nazwisku, więc dla
+  takiego dokumentu KAŻDY odczyt kończył się wyczyszczeniem stawki i liczby
+  MD — to jest zgłoszona awaria, nie błąd modelu. Dla BNP parser dostaje sam
+  tekst (bez `consultant_name`), a bramka bezpieczeństwa matchera jest
+  pomijana; tożsamość rozstrzyga karta, z której operator uruchomił odczyt.
+- **Odczytany numer ID NIE jest nigdzie zapisywany.** Nexus nie przechowuje
+  identyfikatorów nadanych przez klienta (`candidates.external_id` to ID
+  z Traffita, objęte unikalnością per źródło i nadpisywane przy każdym syncu),
+  więc numer jedzie wyłącznie w odpowiedzi odczytu jako `consultant_ref` i
+  służy WZROKOWEMU potwierdzeniu. Nie jest kwotą, więc przeżywa redakcję
+  finansową — rola bez `VIEW_FINANCE` też musi wiedzieć, czyjego zamówienia
+  dotyczy plik.
+- **BNP jest klientem WIELO-KONSULTANTOWYM**, więc jego zamówienia obsługuje
+  `ConsultantLineModal` / `OrderGroupFormModal` / `ExtendOrderGroupModal`, a nie
+  widok jednoosobowy. Pole odczytu dołożone tylko do `EditOrderDialog` byłoby
+  dla realnego użytkownika BNP MARTWE (ta sama pułapka co przy „Dwóch widokach
+  zamówień” wyżej).
+- **Brak etykiety u BNP NIE czyści pola** (inaczej niż w Credit Agricole).
+  Tam kasowanie było odpowiedzią na udokumentowaną pomyłkę dwóch sąsiednich
+  etykiet; tu takiego incydentu nie ma, a wyczyszczenie zostawiłoby operatora
+  z pustym formularzem, czyli z tym, na co się skarży. Wartość modelu zostaje,
+  ale zawsze z komunikatem „sprawdź”.
+- **Dwie rzeczy w wyrażeniu ilości są obroną, nie kosmetyką**: `[^\S\n]*`
+  zamiast `\s*` (zwykłe `\s*` przechodzi przez nową linię, więc kwota
+  z wiersza wyżej sklejała się z „Szt.” z wiersza niżej i do liczby MD
+  trafiała STAWKA) oraz brak spacji w klasie cyfr (separator tysięcy sklejał
+  numer porządkowy z ilością: „1 105 szt.” → 1105 zamiast 105).
 
 ## Odczyt PDF w formularzu NOWEGO zamówienia
 

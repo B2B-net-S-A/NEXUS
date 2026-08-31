@@ -72,6 +72,13 @@ EVENT_CONSULTANT_ENDED = "zakonczenie_konsultanta"
 EVENT_MD_OFFBOARDING_PENDING = "decyzja_md_wymagana"
 EVENT_MD_OFFBOARDING_REMOVED = "usuniecie_puli_md"
 EVENT_MD_OFFBOARDING_TRANSFERRED = "przeniesienie_puli_md"
+# Trzecia decyzja Delivery Leada: współpraca jednak trwa, więc linia wraca do
+# aktywnej obsady z NIENARUSZONĄ pulą MD. Świadomie OSOBNY typ od
+# `EVENT_ORDER_REOPENED` ("przywrocenie"): tamten opisuje przywrócenie CAŁEGO
+# zamówienia (`reopen_order_group`), a wspólny slug zlałby w historii dwie
+# różne operacje na dwóch różnych poziomach — po latach nie dałoby się
+# odpowiedzieć, czy wracało zamówienie, czy jedna osoba.
+EVENT_MD_OFFBOARDING_RESTORED = "przywrocenie_konsultanta"
 EVENT_TYPES: tuple[str, ...] = (
     EVENT_ORDER_CREATED,
     EVENT_CONSULTANT_ADDED,
@@ -88,6 +95,7 @@ EVENT_TYPES: tuple[str, ...] = (
     EVENT_MD_OFFBOARDING_PENDING,
     EVENT_MD_OFFBOARDING_REMOVED,
     EVENT_MD_OFFBOARDING_TRANSFERRED,
+    EVENT_MD_OFFBOARDING_RESTORED,
 )
 
 EVENT_TYPE_LABELS: dict[str, str] = {
@@ -106,6 +114,7 @@ EVENT_TYPE_LABELS: dict[str, str] = {
     EVENT_MD_OFFBOARDING_PENDING: "Decyzja o pozostałej puli MD",
     EVENT_MD_OFFBOARDING_REMOVED: "Usunięcie pozostałej puli MD",
     EVENT_MD_OFFBOARDING_TRANSFERRED: "Przeniesienie pozostałej puli MD",
+    EVENT_MD_OFFBOARDING_RESTORED: "Przywrócenie konsultanta na zamówieniu",
 }
 
 

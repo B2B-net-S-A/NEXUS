@@ -3474,7 +3474,8 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_client_order_offboarding_status
             CHECK (status IN ('pending', 'resolved')),
         CONSTRAINT ck_client_order_offboarding_resolution
-            CHECK (resolution IS NULL OR resolution IN ('remove', 'transfer')),
+            CHECK (resolution IS NULL
+                   OR resolution IN ('remove', 'transfer', 'restore')),
         CONSTRAINT ck_client_order_offboarding_rate_basis
             CHECK (rate_basis IS NULL OR rate_basis IN ('departing', 'recipient')),
         CONSTRAINT ck_client_order_offboarding_resolution_state CHECK (
@@ -3489,6 +3490,10 @@ _COLUMN_STATEMENTS = [
         ),
         CONSTRAINT ck_client_order_offboarding_remove_target CHECK (
             resolution IS DISTINCT FROM 'remove'
+            OR (target_order_id IS NULL AND rate_basis IS NULL)
+        ),
+        CONSTRAINT ck_client_order_offboarding_restore_target CHECK (
+            resolution IS DISTINCT FROM 'restore'
             OR (target_order_id IS NULL AND rate_basis IS NULL)
         ),
         CONSTRAINT ck_client_order_offboarding_version CHECK (version >= 1),
@@ -5260,6 +5265,11 @@ _CONSTRAINT_STATEMENTS = [
     # 0249 dodaje cztery zdarzenia offboardingu. DROP i ADD są teraz jednym
     # atomowym DO: timeout między dwiema transakcjami nie zostawia tabeli bez
     # ochrony domeny.
+    # 0250 dokłada „przywrocenie_konsultanta" — trzecią decyzję DL po
+    # zakończeniu współpracy (linia wraca na aktywną obsadę z nietkniętą pulą).
+    # Świadomie OSOBNY slug od „przywrocenie", które opisuje przywrócenie
+    # CAŁEGO zamówienia; wspólna wartość zlałaby w historii dwie różne
+    # operacje na dwóch różnych poziomach.
     """DO $$ BEGIN
         ALTER TABLE client_order_group_events
             DROP CONSTRAINT IF EXISTS ck_client_order_group_events_type;
@@ -5271,8 +5281,27 @@ _CONSTRAINT_STATEMENTS = [
                 'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur',
                 'transfer_md', 'zakonczenie_konsultanta',
                 'decyzja_md_wymagana', 'usuniecie_puli_md',
-                'przeniesienie_puli_md'
+                'przeniesienie_puli_md', 'przywrocenie_konsultanta'
             ));
+    END $$""",
+    # 0250 — trzecia decyzja offboardingowa („restore"). Poszerzenie MUSI
+    # iść przez DROP: CREATE TABLE wyżej dotyczy WYŁĄCZNIE instalacji od zera,
+    # a na produkcji tabela istnieje od 0249 z węższą domeną. Bez tego bloku
+    # pierwsze „Przywróć jako aktywne" na prodzie kończy się naruszeniem
+    # CHECK-a w środku transakcji decyzji.
+    """DO $$ BEGIN
+        ALTER TABLE client_order_offboarding_cases
+            DROP CONSTRAINT IF EXISTS ck_client_order_offboarding_resolution;
+        ALTER TABLE client_order_offboarding_cases
+            ADD CONSTRAINT ck_client_order_offboarding_resolution
+            CHECK (resolution IS NULL
+                   OR resolution IN ('remove', 'transfer', 'restore'));
+        ALTER TABLE client_order_offboarding_cases
+            DROP CONSTRAINT IF EXISTS ck_client_order_offboarding_restore_target;
+        ALTER TABLE client_order_offboarding_cases
+            ADD CONSTRAINT ck_client_order_offboarding_restore_target
+            CHECK (resolution IS DISTINCT FROM 'restore'
+                   OR (target_order_id IS NULL AND rate_basis IS NULL));
     END $$""",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",

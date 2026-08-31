@@ -12,7 +12,7 @@ export type { OrderType } from "@/lib/api/dlPortal";
 
 export type OrderInputMode = "md" | "amount";
 
-export type OrderOffboardingAction = "remove" | "transfer";
+export type OrderOffboardingAction = "remove" | "transfer" | "restore";
 export type OrderOffboardingRateBasis = "departing" | "recipient";
 
 /** Trwała sprawa decyzyjna tworzona po zakończeniu kontraktu konsultanta MD.
@@ -55,6 +55,18 @@ export type OrderOffboardingResolutionInput =
       action: "transfer";
       target_order_id: number;
       rate_basis: OrderOffboardingRateBasis;
+      expected_version: number;
+    }
+  | {
+      /** Współpraca trwa dalej — linia wraca na aktywną obsadę, pula MD
+       *  zostaje nienaruszona. */
+      action: "restore";
+      /** Do kiedy współpraca trwa. `null` = bezterminowo, dozwolone tylko dla
+       *  zamówienia bez daty zakończenia (serwer odrzuca puste pole, gdy
+       *  zamówienie ma swój koniec — linia nie może go przeżyć). Oryginalna
+       *  data końca linii przepadła przy offboardingu, więc to jest decyzja,
+       *  nie odtworzenie. */
+      restore_end_date: string | null;
       expected_version: number;
     };
 

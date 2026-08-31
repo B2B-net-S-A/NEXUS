@@ -4,7 +4,9 @@
 Po co osobne narzędzie: kilka polityk domenowych jest bramkowanych LISTĄ
 ``client_id`` w zmiennych środowiskowych (``MULTI_CONSULTANT_ORDER_CLIENT_IDS``,
 ``COST_ORDER_CLIENT_IDS``, ``BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS``,
-``CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS``, ``ERSTE_GROSS_RATE_CLIENT_IDS``).
+``CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS``, ``BNP_ORDER_EXTRACTION_CLIENT_IDS``,
+``ERSTE_GROSS_RATE_CLIENT_IDS``, ``ORLEN_ORDER_EXTRACTION_CLIENT_IDS``,
+``PFRON_ORDER_EXTRACTION_CLIENT_IDS``).
 Bramka po ID, nie po nazwie, jest świadoma — Traffit nadpisuje ``Client.name``,
 a rodzina rekordów tego samego banku bywa większa niż jeden wiersz. Cena tej
 decyzji: żeby WŁĄCZYĆ politykę, trzeba znać numer, a numeru nie widać ani

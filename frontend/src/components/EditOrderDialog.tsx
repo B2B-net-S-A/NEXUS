@@ -179,6 +179,13 @@ export function EditOrderDialog({
   // Oryginalna stawka za 1 MD z dokumentu (Bank Pocztowy) — pokazywana obok
   // pola stawki; samo pole niesie już wartość przeliczoną na zł/h (MD ÷ 8).
   const [rateMdOriginal, setRateMdOriginal] = useState<string | null>(null);
+  // Numer ID konsultanta z dokumentu (polityka BNP). PDF-y tego klienta nie
+  // niosą imienia ani nazwiska, więc to JEDYNY ślad tożsamości w dokumencie —
+  // pokazujemy go operatorowi do wzrokowego potwierdzenia, że wgrany plik
+  // dotyczy osoby, której kartę ma otwartą. Nexus nie przechowuje
+  // identyfikatorów nadanych przez klienta, więc nie ma tego z czym zestawić
+  // automatycznie i pole jest świadomie informacyjne.
+  const [consultantRef, setConsultantRef] = useState<string | null>(null);
   const [grossConversion, setGrossConversion] = useState<{
     gross: string;
     net: string;
@@ -245,6 +252,10 @@ export function EditOrderDialog({
             : null,
         );
       }
+      // Poza blokiem `canManageFinance` — numer ID nie jest kwotą, a operator
+      // bez uprawnień finansowych też musi wiedzieć, czyjego zamówienia
+      // dotyczy wgrany dokument.
+      setConsultantRef(data.consultant_ref ?? null);
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       showToast("Odczytano dane z dokumentu", "success");
@@ -279,6 +290,7 @@ export function EditOrderDialog({
     setCheckData(false);
     setCheckReasons([]);
     setTitleCheck(false);
+    setConsultantRef(null);
     setRateMdOriginal(null);
     setGrossConversion(null);
     setUnitChangeNotice(null);
@@ -384,6 +396,7 @@ export function EditOrderDialog({
       setCheckData(false);
       setCheckReasons([]);
       setTitleCheck(false);
+      setConsultantRef(null);
       setRateMdOriginal(null);
       setGrossConversion(null);
       setUnitChangeNotice(null);
@@ -459,6 +472,17 @@ export function EditOrderDialog({
               )}
             </div>
           </div>
+        )}
+
+        {consultantRef !== null && (
+          <p
+            role="status"
+            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+          >
+            Numer ID konsultanta z dokumentu:{" "}
+            <span className="font-semibold">{consultantRef}</span> — potwierdź,
+            że dokument dotyczy tej osoby.
+          </p>
         )}
 
         <label className="block">

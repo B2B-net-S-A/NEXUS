@@ -1606,3 +1606,189 @@ class TestParseOrderDocument:
 
         assert r.rate_client == Decimal("910")
         assert r.md_total == Decimal("8")
+
+
+class TestBnpOrderPolicy:
+    """Zamówienie BNP: dokument JEDNOOSOBOWY, konsultant po numerze ID.
+
+    Zgłoszony objaw: dla BNP odczyt nie dawał ani stawki, ani liczby MD.
+    Przyczyną nie był model, tylko tożsamość — PDF-y tego klienta nie
+    zawierają imienia ani nazwiska, a generyczny matcher jest fail-closed po
+    nazwisku, więc kasował oba pola. Tu sprawdzamy samą politykę: co czyta,
+    czego świadomie NIE zgaduje i czym o tym mówi.
+    """
+
+    def _doc(
+        self,
+        *,
+        period: str = "Okres realizacji: 08-2026 do 12-2026",
+        price: str = "Cena netto: 1 040,00 PLN",
+        qty: str = "Szt.: 105",
+        ref: str = "Konsultant ID: 4711",
+    ) -> str:
+        return f"Zamówienie nr 3728_2026\n{ref}\n{period}\n{price}\n{qty}\n"
+
+    def _blank(self) -> m.OrderExtraction:
+        return m.OrderExtraction(title="3728_2026", uncertain=False, source="claude")
+
+    # ── Okres MM-RRRR do MM-RRRR ────────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        "period",
+        [
+            "Okres: 08-2026 do 12-2026",
+            "od 08-2026 do 12-2026",
+            "08-2026 - 12-2026",
+            "08-2026 – 12-2026",
+            "08-2026 — 12-2026",
+            "mc 06-2026_12-2026",
+            "08.2026 do 12.2026",
+            "08/2026 do 12/2026",
+            "8-2026 do 12-2026",
+        ],
+    )
+    def test_month_range_variants_are_read(self, period):
+        assert m.bnp_order_period(period) is not None
+
+    def test_first_and_last_day_of_the_month(self):
+        assert m.bnp_order_period("08-2026 do 12-2026") == ("2026-08-01", "2026-12-31")
+
+    def test_february_uses_the_real_number_of_days(self):
+        assert m.bnp_order_period("02-2026 do 02-2026") == ("2026-02-01", "2026-02-28")
+        assert m.bnp_order_period("02-2024 do 02-2024") == ("2024-02-01", "2024-02-29")
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            # Środek pełnej daty NIE jest okresem miesięcznym — inaczej
+            # „01.08.2026 do 31.12.2026" czytałoby się jako 08-2026 → 12-2026,
+            # czyli tę samą liczbę w innym znaczeniu.
+            "od 01.08.2026 do 31.12.2026",
+            "Data: 31-12-2026 do 31-01-2027",
+            "Kwota 1 040,00 do 2 000,00",
+            "Faktura 12/2026 pozycja 3",
+            "nr 445-2026 z dnia 01-2026",
+        ],
+    )
+    def test_month_range_refuses_lookalikes(self, text):
+        assert m.bnp_order_period(text) is None
+
+    # ── „Cena netto" → stawka za 1 MD ───────────────────────────────────────
+
+    def test_price_comes_from_its_own_label(self):
+        assert m.bnp_net_md_rate("Cena netto: 1 040,00 PLN") == Decimal("1040.00")
+        assert m.bnp_net_md_rate(
+            "Cena jednostkowa netto (PLN): 1 040,00"
+        ) == Decimal("1040.00")
+
+    def test_price_ignores_neighbouring_labels(self):
+        assert m.bnp_net_md_rate("Wartość netto: 109 200,00") is None
+        assert m.bnp_net_md_rate("Cena brutto: 1 279,20") is None
+
+    def test_price_refuses_to_guess_a_table_column(self):
+        """Nagłówek tabeli = wartości leżą w innym wierszu, w kolumnach.
+
+        Ekstrakcja z PDF gubi wyrównanie, więc „pierwsza liczba za etykietą"
+        trafia w sąsiednią kolumnę. Zła stawka zapisana jako pewna wychodzi
+        dopiero na fakturze — dlatego odmowa, nie zgadywanie.
+        """
+        table = "Lp Ilość Jm Cena netto Wartość netto\n1 105 szt. 1 040,00 109 200,00"
+        assert m.bnp_net_md_rate(table) is None
+
+    # ── „Szt." → liczba MD ──────────────────────────────────────────────────
+
+    def test_quantity_does_not_glue_the_amount_from_the_line_above(self):
+        """REGRESJA: ``\\s*`` przechodziło przez znak nowej linii.
+
+        Kwota z wiersza wyżej sklejała się z „Szt." z wiersza niżej i do
+        liczby MD trafiała STAWKA (1040 zamiast 105) — cicha pomyłka
+        operacyjno-finansowa dokładnie tej klasy, przed którą chronią
+        pozostałe polityki klientowe.
+        """
+        assert m.bnp_md_quantity("Cena netto: 1 040,00\nSzt.: 105\n") == Decimal("105")
+
+    def test_quantity_does_not_glue_the_row_number(self):
+        """REGRESJA: spacja jako separator tysięcy sklejała Lp. z ilością."""
+        row = "Lp Ilość Jm Cena netto Wartość netto\n1 105 szt. 1 040,00 109 200,00"
+        assert m.bnp_md_quantity(row) == Decimal("105")
+
+    def test_quantity_reads_both_layouts(self):
+        assert m.bnp_md_quantity("Ilość: 105 szt.") == Decimal("105")
+        assert m.bnp_md_quantity("Szt.: 105") == Decimal("105")
+
+    def test_quantity_needs_the_unit_not_a_similar_word(self):
+        assert m.bnp_md_quantity("Sztywny 5") is None
+
+    # ── Numer ID konsultanta ────────────────────────────────────────────────
+
+    def test_consultant_ref_needs_a_word_about_a_person(self):
+        assert m.bnp_consultant_ref("Konsultant ID: 4711") == "4711"
+        # Sam „nr" stoi w dokumencie wszędzie — numer zamówienia nie może
+        # udawać identyfikatora osoby.
+        assert m.bnp_consultant_ref("Zamówienie nr 3728_2026") is None
+
+    # ── Polityka jako całość ────────────────────────────────────────────────
+
+    def test_full_document_fills_every_field(self):
+        result = m.apply_bnp_order_policy(self._blank(), self._doc())
+        assert (result.start_date, result.end_date) == ("2026-08-01", "2026-12-31")
+        assert result.rate_client == Decimal("1040.00")
+        assert result.rate_unit == "day"
+        assert result.md_total == Decimal("105")
+        assert result.consultant_ref == "4711"
+        assert result.uncertain is False
+
+    def test_single_consultant_document_keeps_the_matcher_flags(self):
+        """Cały PDF JEST pozycją jednej osoby — nie ma czego dopasowywać.
+
+        Bez tych flag ``enforce_consultant_policy_safety`` wyczyściłaby
+        stawkę i MD, czyli dokładnie to, na co skarży się zgłoszenie.
+        """
+        result = m.apply_bnp_order_policy(self._blank(), self._doc())
+        assert result.consultant_rate_matched is True
+        assert result.consultant_md_matched is True
+        assert m.enforce_consultant_policy_safety(result).rate_client == Decimal(
+            "1040.00"
+        )
+
+    def test_missing_consultant_ref_is_reported(self):
+        result = m.apply_bnp_order_policy(self._blank(), self._doc(ref="—"))
+        assert result.consultant_ref is None
+        assert result.uncertain is True
+        assert any("ID konsultanta" in reason for reason in result.uncertain_reasons)
+
+    def test_missing_labels_keep_the_model_value_but_flag_it(self):
+        """Brak etykiety NIE czyści pola (inaczej niż w Credit Agricole).
+
+        Tam kasowanie było odpowiedzią na udokumentowaną pomyłkę dwóch
+        sąsiednich etykiet. Tu takiego incydentu nie ma, a wyczyszczenie
+        zostawiłoby operatora BNP z pustym formularzem — czyli z tym, na co
+        się skarży. Wartość zostaje, ale zawsze z komunikatem „sprawdź".
+        """
+        model = m.OrderExtraction(
+            rate_client=Decimal("1040"),
+            md_total=Decimal("105"),
+            uncertain=False,
+            source="claude",
+        )
+        result = m.apply_bnp_order_policy(model, "Zamówienie nr 3728_2026\n")
+        assert result.rate_client == Decimal("1040")
+        assert result.md_total == Decimal("105")
+        assert result.uncertain is True
+        assert any("Cena netto" in reason for reason in result.uncertain_reasons)
+        assert any("Szt." in reason for reason in result.uncertain_reasons)
+
+    def test_rate_unit_is_always_md_for_this_client(self):
+        """Jednostka jest u BNP regułą klientową, nie interpretacją modelu."""
+        model = m.OrderExtraction(
+            rate_client=Decimal("130"), rate_unit="hour", source="claude"
+        )
+        assert m.apply_bnp_order_policy(model, self._doc()).rate_unit == "day"
+
+    def test_rate_outside_the_sanity_band_is_flagged(self):
+        result = m.apply_bnp_order_policy(
+            self._blank(), self._doc(price="Cena netto: 12,00 PLN")
+        )
+        assert result.rate_client == Decimal("12.00")
+        assert result.uncertain is True
+        assert any("Nietypowa stawka" in r for r in result.uncertain_reasons)
