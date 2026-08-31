@@ -1,4 +1,4 @@
-.PHONY: dev build migrate seed logs stop clean
+.PHONY: dev build migrate seed logs stop clean stamp-orders-procedure
 
 # ─── Development ──────────────────────────────────────────────────────────────
 
@@ -69,6 +69,14 @@ type-check-frontend:
 
 lint-frontend:
 	cd frontend && npm run lint
+
+# ─── Dokumentacja ─────────────────────────────────────────────────────────────
+
+# Po zmianie logiki zamówień: przejrzyj instrukcję dla Delivery Leada
+# (Pomoc → Procedury) i potwierdź, że nadal jest prawdziwa. Bez tego
+# tests/test_orders_procedure_freshness.py trzyma CI na czerwono.
+stamp-orders-procedure:
+	cd backend && python scripts/stamp_orders_procedure.py
 
 # ─── Cleanup ──────────────────────────────────────────────────────────────────
 

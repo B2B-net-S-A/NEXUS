@@ -1100,6 +1100,43 @@ oficjalnie (prompt dopuszcza „a similar document reference"). Test negatywny
 `test_frame_agreement_number_never_becomes_the_order_number` pilnuje, że numer
 UMOWY RAMOWEJ nigdy nie wygrywa — także wtedy, gdy stoi przed właściwą etykietą.
 
+## Instrukcja zamówień w Pomocy — przestempluj po ZMIANIE LOGIKI ZAMÓWIEŃ
+
+Pomoc → Procedury zawiera „Zamówienia — instrukcja dla Delivery Leada"
+(`backend/app/data/procedures/zamowienia-instrukcja-delivery-lead.md`). Opisuje
+ZACHOWANIE SYSTEMU — który przelicznik stosuje się u którego klienta, ile dni
+przed końcem przyjdzie alert, co wypełni się samo z PDF-a. Taka treść psuje się
+nie wtedy, gdy zmieni się proces w firmie, tylko wtedy, gdy ktoś zmieni parser
+albo próg — a wtedy nikt nie ma powodu wchodzić do modułu Pomoc.
+
+**Zmieniasz cokolwiek w logice zamówień → przejrzyj instrukcję i przestempluj:**
+
+```bash
+cd backend && python scripts/stamp_orders_procedure.py
+```
+
+`tests/test_orders_procedure_freshness.py` trzyma CI na czerwono, dopóki tego nie
+zrobisz, i wypisuje po polsku, które pliki się zmieniły. Lista obserwowanych
+plików (36 pozycji, backend + ekrany) siedzi w `app/data/procedures/__init__.py`.
+Przegląd zakończony wnioskiem „ta zmiana nie dotyczy instrukcji" jest w pełni
+poprawny i też kończy się przestemplowaniem — to nie jest obejście.
+
+- **Treść jest w repo, nie tylko w bazie.** Jedno źródło (`.md`) czytają OBA
+  kanały zasiewu: migracja `0250_orders_procedure_seed` i `_seed_repo_procedures`
+  w `entrypoint.sh` (prod alembic bywa osierocony). Nie przepisuj treści do
+  migracji — 40 KB w trzech miejscach rozjeżdża się przy pierwszej poprawce.
+- **Zasiew jest UPSERT-em z warunkiem `procedures.updated_by IS NULL`.** Wdrożenie
+  odświeża wiersz tak długo, jak nikt nie tknął go w aplikacji; edycja przez
+  `PUT /api/procedures/{id}` stempluje autora i od tej chwili wiersz zostaje
+  taki, jaki zapisał człowiek. Sama instrukcja mówi o tym czytelnikowi wprost.
+- **Data w treści i w stemplu muszą być równe** — test to sprawdza, a skrypt
+  ustawia obie naraz. Ta data jest jedynym sygnałem świeżości, jaki widzi
+  Delivery Lead.
+- **Spis treści w module Pomoc** powstaje z DOM-u (`lib/procedure-headings.ts`),
+  nie z parsowania Markdownu — parser po naszej stronie musiałby powtórzyć
+  zachowanie `react-markdown` co do joty, a każdy rozjazd to link prowadzący
+  w złe miejsce. Harness wizualny: `/preview/procedure-help`.
+
 ## Audyt pomylonych klientów — `GET /api/admin/client-mixups`
 
 Read-only raport (admin) rodzin klientów o wspólnym rdzeniu nazwy wraz z ich

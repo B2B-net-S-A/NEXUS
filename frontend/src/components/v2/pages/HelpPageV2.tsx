@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from"react";
+import { useCallback, useEffect, useMemo, useRef, useState } from"react";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  BookOpen,
@@ -31,6 +31,11 @@ import { TabbedNav, TabbedNavItem } from"@/components/ds/TabbedNav";
 import { HelpMaterial } from"@/lib/api/help-materials";
 import { HelpMaterialsSection } from"@/components/v2/pages/HelpMaterialsSection";
 import { HelpMaterialEditorModal } from"@/components/v2/modals/HelpMaterialEditorModal";
+import {
+ ProcedureHeading,
+ ProcedureTableOfContents,
+} from"@/components/v2/ProcedureTableOfContents";
+import { assignHeadingIds } from"@/lib/procedure-headings";
 
 type HelpTab ="procedures" |"materials";
 
@@ -359,7 +364,13 @@ function EmptyContent() {
  );
 }
 
-function ProcedureContent({
+/**
+ * Treść procedury z kotwicami i spisem treści.
+ *
+ * Wyeksportowane, żeby harness `/preview/procedure-help` renderował TEN komponent,
+ * a nie jego kopię — kopia rozjeżdża się z oryginałem i przestaje cokolwiek dowodzić.
+ */
+export function ProcedureContent({
  procedure,
  isAdmin,
  onEdit,
@@ -370,6 +381,20 @@ function ProcedureContent({
  onEdit: () => void;
  onDelete: () => void;
 }) {
+ const contentRef = useRef<HTMLDivElement | null>(null);
+ const [headings, setHeadings] = useState<ProcedureHeading[]>([]);
+
+ // Kotwice nadajemy PO renderze, bo czytamy je z DOM-u (patrz
+ // `assignHeadingIds`). Zależność na treści, nie na całym obiekcie procedury:
+ // react-query podmienia referencję przy każdym refetchu, a `updated_at`
+ // zmienia się przy edycji metadanych — przeliczanie przy każdej takiej
+ // podmianie kasowałoby fokus czytelnika bez żadnego powodu.
+ useEffect(() => {
+ const root = contentRef.current;
+ if (!root) return;
+ setHeadings(assignHeadingIds(root));
+ }, [procedure.content]);
+
  return (
  <article className="p-6 md:p-8">
  <header className="flex items-start justify-between gap-4 flex-wrap mb-5">
@@ -403,7 +428,14 @@ function ProcedureContent({
  )}
  </header>
 
- <div className="prose prose-sm md:prose-base max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-a:text-primary">
+ {/* Próg 3: przy dwóch sekcjach spis treści zabiera więcej miejsca, niż
+ oszczędza przewijania. Instrukcje per klient mają ich kilkanaście. */}
+ {headings.length >= 3 && <ProcedureTableOfContents headings={headings} />}
+
+ <div
+ ref={contentRef}
+ className="prose prose-sm md:prose-base max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-a:text-primary"
+ >
  <ReactMarkdown remarkPlugins={[remarkGfm]}>{procedure.content}</ReactMarkdown>
  </div>
  </article>

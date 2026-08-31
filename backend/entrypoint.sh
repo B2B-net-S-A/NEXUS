@@ -5694,6 +5694,82 @@ async def _apply_limits(conn, lock, statement):
             print(f"backfill: nie udało się ustawić {name}={value} -> {e!r}")
 
 
+# ── Procedury utrzymywane w repozytorium ────────────────────────────────────
+# Instrukcja obsługi zamówień (Pomoc → Procedury) opisuje ZACHOWANIE SYSTEMU,
+# więc jej źródłem jest plik w repo, a nie wpis, który ktoś kiedyś wkleił do
+# bazy. Migracja 0250 sieje ją tak samo — ten blok jest safety-netem na
+# wypadek osieroconego alembica, dokładnie jak reszta tego pliku.
+#
+# Treści NIE ma tutaj dosłownie: to kilkadziesiąt kilobajtów Markdownu, a druga
+# kopia rozjeżdża się z pierwszą przy pierwszej poprawce. Czytamy ten sam plik,
+# który czyta migracja, i wysyłamy go PARAMETREM — sklejanie literału SQL z
+# tekstu zawierającego apostrofy, dolary i backslashe to sposób na zepsucie
+# startu kontenera cudzysłowem w zdaniu.
+_REPO_PROCEDURES = [
+    {
+        "slug": "zamowienia-instrukcja-delivery-lead",
+        "title": "Zamówienia — instrukcja dla Delivery Leada",
+        "sort_order": 100,
+        "filename": "zamowienia-instrukcja-delivery-lead.md",
+    },
+]
+
+_PROCEDURE_UPSERT = """
+    INSERT INTO procedures
+        (title, slug, content, sort_order, is_published, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, TRUE, now(), now())
+    ON CONFLICT (slug) DO UPDATE
+        SET title = EXCLUDED.title,
+            content = EXCLUDED.content,
+            sort_order = EXCLUDED.sort_order,
+            is_published = EXCLUDED.is_published,
+            updated_at = now()
+        WHERE procedures.updated_by IS NULL
+"""
+
+
+def _read_procedure(filename):
+    """Treść procedury z obrazu. ``None`` = brak pliku, pomijamy zasiew.
+
+    Dwie ścieżki, bo obraz ma WORKDIR ``/app`` i PYTHONPATH ``/app``, ale ten
+    skrypt bywa uruchamiany też lokalnie z katalogu ``backend/``.
+    """
+    for base in ("/app/app/data/procedures", os.path.join(os.getcwd(), "app", "data", "procedures")):
+        path = os.path.join(base, filename)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                return fh.read()
+        except OSError:
+            continue
+    return None
+
+
+async def _seed_repo_procedures(conn):
+    """Wgraj procedury utrzymywane w repo.
+
+    ``updated_by IS NULL`` w klauzuli ON CONFLICT: wiersz poprawiony ręcznie
+    przez admina w aplikacji przestaje być nadpisywany przy wdrożeniu. Zasiew
+    zostawia to pole puste, a ``PUT /api/procedures/{id}`` je stempluje, więc
+    rozróżnienie „nasz tekst" / „czyjaś praca" nie wymaga dodatkowej kolumny.
+    """
+    for procedure in _REPO_PROCEDURES:
+        content = _read_procedure(procedure["filename"])
+        if not content:
+            print(f"procedure seed skip: brak pliku {procedure['filename']}")
+            continue
+        try:
+            await conn.execute(
+                _PROCEDURE_UPSERT,
+                procedure["title"],
+                procedure["slug"],
+                content,
+                procedure["sort_order"],
+            )
+            print(f"procedure seed ok: {procedure['slug']}")
+        except Exception as e:
+            print(f"procedure seed skip: {procedure['slug']} -> {e!r}")
+
+
 _INDEX_NAME_RE = re.compile(
     r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"
     r"([A-Za-z_][A-Za-z0-9_]*)",
@@ -5791,6 +5867,7 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
+        await _seed_repo_procedures(conn)
         await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _CONSTRAINT_STATEMENTS:
             try:
