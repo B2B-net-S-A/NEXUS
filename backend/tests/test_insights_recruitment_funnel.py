@@ -25,8 +25,10 @@ from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus, RemotePolicy
+from app.models.invite_link import CandidateInviteLink
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.models.user_activity import UserActionType, UserActivity
 
 
 async def _seed_user(role: UserRole, label: str) -> tuple[int, str, str]:
@@ -427,3 +429,331 @@ async def test_time_to_hire_reports_unattributed_instead_of_hiding_it(
     totals = body["totals"]
     assert "unattributed_hires" in totals
     assert totals["attributed_hires"] + totals["unattributed_hires"] == totals["hires"]
+
+
+# ── team-activity (odpowiednik /api/activities/leaderboard) ─────────────────
+
+
+async def _seed_activity(
+    user_id: int, action: UserActionType, created_at: datetime
+) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            UserActivity(
+                user_id=user_id,
+                action_type=action,
+                entity_type="candidate",
+                entity_id=1,
+                created_at=created_at,
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_team_activity_is_open_to_every_logged_in_role(fx_client: AsyncClient):
+    """D7 — także dla `user`, którego capability `VIEW_RECRUITMENT_RANKING`
+    NIE obejmuje (`analytics/capabilities.py` daje mu pustą frozenset).
+
+    To jest dokładnie ta rola, dla której legacy `/api/activities/leaderboard`
+    zwraca 403 — a sekcja na `/insights` renderowała ten 403 jako „brak
+    danych o zespole".
+    """
+    for role in (
+        UserRole.admin,
+        UserRole.user,
+        UserRole.sourcer,
+        UserRole.recruiter,
+        UserRole.finance,
+    ):
+        _, email, password = await _seed_user(role, "ta-rbac")
+        headers = await _login(fx_client, email, password)
+        resp = await fx_client.get(
+            "/api/insights/recruitment/team-activity", headers=headers
+        )
+        assert resp.status_code == 200, f"{role.value}: {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_team_activity_requires_authentication(fx_client: AsyncClient):
+    resp = await fx_client.get("/api/insights/recruitment/team-activity")
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_legacy_leaderboard_guard_was_not_widened(fx_client: AsyncClient):
+    """Otwarcie `/insights` NIE MOŻE otworzyć powierzchni legacy.
+
+    `/api/activities/leaderboard` jest współdzielony (dashboard rekrutera),
+    a `VIEW_RECRUITMENT_RANKING` steruje kilkoma innymi ekranami. Ten test
+    jest strażnikiem granicy: gdyby ktoś „uprościł" refaktor, podmieniając
+    tam guard na `CurrentUser`, zmiana przeszłaby niezauważona.
+    """
+    _, email, password = await _seed_user(UserRole.user, "legacy-guard")
+    headers = await _login(fx_client, email, password)
+    resp = await fx_client.get("/api/activities/leaderboard", headers=headers)
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_team_activity_window_is_half_open(fx_client: AsyncClient):
+    """Aktywność z NASTĘPNEGO okresu nie może wpaść do bieżącego.
+
+    Legacy liczy okno KROCZĄCE (`now - 30 dni`, bez sufitu), więc „poprzedni
+    miesiąc" znaczy tam „od poprzedniego miesiąca do dziś". To jest regresja
+    na tę właśnie różnicę.
+    """
+    await cache_invalidate("insights:recruitment:team-activity:*")
+    # Rok bez innych danych i unikalny per przebieg — baza testowa jest
+    # współdzielona, więc stałe okno zbierałoby wiersze z poprzednich runów.
+    year = 1300 + int(uuid.uuid4().hex[:6], 16) % 200
+    actor_id, email, password = await _seed_user(UserRole.recruiter, "ta-window")
+    headers = await _login(fx_client, email, password)
+
+    inside = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
+    after = datetime(year, 7, 2, 12, tzinfo=timezone.utc)
+    await _seed_activity(actor_id, UserActionType.candidate_added, inside)
+    await _seed_activity(actor_id, UserActionType.call_made, after)
+
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/team-activity",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-06-01",
+                "date_to": f"{year}-06-30",
+            },
+        )
+    ).json()
+
+    mine = [e for e in body["entries"] if e["user_id"] == actor_id]
+    assert len(mine) == 1, body
+    assert mine[0]["total_actions"] == 1
+    assert mine[0]["candidates_added"] == 1
+    # Telefon z lipca NIE może wejść do czerwca.
+    assert mine[0]["calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_team_activity_counters_match_the_legacy_shape(fx_client: AsyncClient):
+    """Te same liczniki co legacy — serwis jest jeden, nie dwa podobne SQL-e."""
+    await cache_invalidate("insights:recruitment:team-activity:*")
+    year = 1500 + int(uuid.uuid4().hex[:6], 16) % 200
+    actor_id, email, password = await _seed_user(UserRole.recruiter, "ta-shape")
+    headers = await _login(fx_client, email, password)
+
+    when = datetime(year, 3, 10, 9, tzinfo=timezone.utc)
+    for action in (
+        UserActionType.candidate_added,
+        UserActionType.screening_done,
+        UserActionType.interview_scheduled,
+        UserActionType.placement_closed,
+        UserActionType.call_made,
+    ):
+        await _seed_activity(actor_id, action, when)
+
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/team-activity",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-03-01",
+                "date_to": f"{year}-03-31",
+            },
+        )
+    ).json()
+
+    row = next(e for e in body["entries"] if e["user_id"] == actor_id)
+    assert row["candidates_added"] == 1
+    assert row["screenings"] == 1
+    assert row["interviews"] == 1
+    assert row["placements"] == 1
+    assert row["calls"] == 1
+    assert row["total_actions"] == 5
+    # Kafel jest FOLDEM po widocznej liście — musi dać się sprawdzić dodając
+    # kolumnę na ekranie.
+    assert body["totals"]["actions"] == sum(e["total_actions"] for e in body["entries"])
+    assert body["totals"]["users"] == len(body["entries"])
+
+
+@pytest.mark.asyncio
+async def test_team_activity_empty_window_has_no_fabricated_zero_share(
+    fx_client: AsyncClient,
+):
+    """Puste okno: zero wierszy i ŻADNEGO `share_pct` równego 0.0."""
+    _, email, password = await _seed_user(UserRole.admin, "ta-empty")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/team-activity",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": "1801-01-01",
+                "date_to": "1801-01-31",
+            },
+        )
+    ).json()
+    assert body["entries"] == []
+    assert body["totals"]["actions"] == 0
+    # Pusty ranking to nie „zespół nic nie robił" — koperta musi to powiedzieć.
+    assert body["coverage"]["source"] == "user_activities"
+    assert "NEXUSIE" in body["coverage"]["note"]
+
+
+# ── invite-links (odpowiednik /api/reports/invite-links) ────────────────────
+
+
+async def _seed_invite_link(
+    creator_id: int,
+    job_id: int,
+    label: str | None,
+    use_count: int,
+    created_at: datetime,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateInviteLink(
+                token=uuid.uuid4().hex,
+                created_by=creator_id,
+                job_id=job_id,
+                label=label,
+                expires_at=datetime(2099, 1, 1, tzinfo=timezone.utc),
+                use_count=use_count,
+                created_at=created_at,
+            )
+        )
+        await db.commit()
+
+
+async def _seed_job() -> int:
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"IlCli-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        job = Job(
+            title=f"Il {uuid.uuid4().hex[:6]}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        return job.id
+
+
+@pytest.mark.asyncio
+async def test_invite_links_is_open_to_every_logged_in_role(fx_client: AsyncClient):
+    """D7 — także dla `recruiter`, `sourcer`, `tac` i `user`.
+
+    To są dokładnie te role, dla których legacy `/api/reports/invite-links`
+    zwraca 403 (`require_roles(admin, delivery_lead, head_of_recruitment,
+    finance)`).
+    """
+    for role in (
+        UserRole.recruiter,
+        UserRole.sourcer,
+        UserRole.tac,
+        UserRole.user,
+        UserRole.admin,
+    ):
+        _, email, password = await _seed_user(role, "il-rbac")
+        headers = await _login(fx_client, email, password)
+        resp = await fx_client.get(
+            "/api/insights/recruitment/invite-links", headers=headers
+        )
+        assert resp.status_code == 200, f"{role.value}: {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_legacy_invite_links_guard_was_not_widened(fx_client: AsyncClient):
+    """Otwarcie `/insights` NIE MOŻE otworzyć powierzchni legacy."""
+    _, email, password = await _seed_user(UserRole.recruiter, "il-legacy")
+    headers = await _login(fx_client, email, password)
+    resp = await fx_client.get("/api/reports/invite-links", headers=headers)
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_invite_links_window_is_half_open_and_flags_unlabelled(
+    fx_client: AsyncClient,
+):
+    """Link z NASTĘPNEGO okresu odpada; link bez etykiety jest OZNACZONY.
+
+    Sam string „Bez etykiety" nie wystarcza — to jest legalna nazwa kanału
+    i po samym tekście nie da się odróżnić kubełka od kanału tak nazwanego.
+    """
+    await cache_invalidate("insights:recruitment:invite-links:*")
+    year = 1700 + int(uuid.uuid4().hex[:6], 16) % 90
+    creator_id, email, password = await _seed_user(UserRole.recruiter, "il-window")
+    headers = await _login(fx_client, email, password)
+    job_id = await _seed_job()
+
+    label = f"LinkedIn-{uuid.uuid4().hex[:6]}"
+    await _seed_invite_link(
+        creator_id, job_id, label, 4, datetime(year, 5, 10, tzinfo=timezone.utc)
+    )
+    await _seed_invite_link(
+        creator_id, job_id, None, 2, datetime(year, 5, 20, tzinfo=timezone.utc)
+    )
+    # Poza oknem — nie może wejść do maja.
+    await _seed_invite_link(
+        creator_id, job_id, label, 99, datetime(year, 6, 5, tzinfo=timezone.utc)
+    )
+
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/invite-links",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-05-01",
+                "date_to": f"{year}-05-31",
+            },
+        )
+    ).json()
+
+    by_label = {c["channel"]: c for c in body["channels"]}
+    assert by_label[label]["links_count"] == 1
+    assert by_label[label]["applications"] == 4
+    assert by_label[label]["unlabelled"] is False
+    assert by_label["Bez etykiety"]["unlabelled"] is True
+    assert by_label["Bez etykiety"]["applications"] == 2
+    # Kafel = fold po widocznej liście.
+    assert body["totals"]["links"] == sum(c["links_count"] for c in body["channels"])
+    assert body["totals"]["applications"] == 6
+    # Koperta MUSI powiedzieć, że licznik aplikacji jest kumulatywny na linku.
+    assert body["window_scope"]["applications_are_lifetime_per_link"] is True
+
+
+@pytest.mark.asyncio
+async def test_invite_links_conversion_is_none_not_zero_on_empty_window(
+    fx_client: AsyncClient,
+):
+    """Zero linków → `None`, nie `0.0`.
+
+    Legacy `_safe_pct` zwraca tu 0.0, czyli twierdzi, że kanały miały zerową
+    konwersję — a nie było ani jednego linku. Ta różnica jest powodem, dla
+    którego procenty liczy router, a nie współdzielony serwis.
+    """
+    _, email, password = await _seed_user(UserRole.admin, "il-zero")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/invite-links",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": "1802-01-01",
+                "date_to": "1802-01-31",
+            },
+        )
+    ).json()
+    assert body["channels"] == []
+    assert body["totals"]["links"] == 0
+    assert body["totals"]["conversion_pct"] is None

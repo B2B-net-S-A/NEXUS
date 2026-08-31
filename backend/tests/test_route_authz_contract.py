@@ -191,6 +191,37 @@ def _routes() -> list[tuple[str, str, str]]:
 # most have simply never been reviewed. Removing an entry means that route
 # gained a real gate. That is the burn-down, and mutating routes come first.
 _BARE_BASELINE: set[tuple[str, str]] = {
+    # ── /insights + konkursy: świadomie bez bramki zasobowej (decyzja D7) ────
+    #
+    # Artur, 2026-08-31: /insights ma być widoczne dla KAŻDEJ zalogowanej roli,
+    # łącznie z kwotami i danymi imiennymi. Konsekwencja została zgłoszona
+    # i potwierdzona — patrz docs/insights-dynareporter-migration-plan.md §0 D7.
+    #
+    # To NIE jest dług do spłacenia jak reszta tej listy. Te trasy mają
+    # `CurrentUser` celowo i nie wolno „naprawić" ich przez dołożenie
+    # `require_capability(VIEW_FINANCE)`: ta capability steruje 40+ innymi
+    # powierzchniami (app/analytics/capabilities.py:64-115), więc jej użycie
+    # tutaj albo odetnie /insights wbrew decyzji, albo — jeśli ktoś ją poszerzy
+    # dla ról — wycieknie stawki konsultantów poza Insights.
+    #
+    # Dokładnie dlatego /insights dostało WŁASNE routery zamiast poszerzenia
+    # /api/reports/* i /api/admin/*: tamte są współdzielone z innymi stronami.
+    # Zawężenie tych tras wymaga zmiany decyzji D7, nie edycji tej listy.
+    ("GET", "/api/competitions/current"),
+    ("GET", "/api/competitions/monthly-races"),
+    ("GET", "/api/insights/board"),
+    ("GET", "/api/insights/clients/hiring-managers"),
+    ("GET", "/api/insights/clients/hit-ratio"),
+    ("GET", "/api/insights/clients/ranking"),
+    ("GET", "/api/insights/delivery-leads"),
+    ("GET", "/api/insights/delivery-leads/placements-by-client"),
+    ("GET", "/api/insights/delivery-leads/{dl_id}/trend"),
+    ("GET", "/api/insights/recruitment/available-periods"),
+    ("GET", "/api/insights/recruitment/funnel"),
+    ("GET", "/api/insights/recruitment/invite-links"),
+    ("GET", "/api/insights/recruitment/team-activity"),
+    ("GET", "/api/insights/recruitment/time-to-hire"),
+    # ── koniec bloku D7 ──────────────────────────────────────────────────────
     ("DELETE", "/api/client-knowledge/{knowledge_id}"),
     ("DELETE", "/api/contacts/{contact_id}"),
     ("DELETE", "/api/interview-questions/{question_id}"),

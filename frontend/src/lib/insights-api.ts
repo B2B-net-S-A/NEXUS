@@ -92,6 +92,106 @@ export interface TimeToHireResponse {
   min_hires: number;
 }
 
+export interface TeamActivityEntry {
+  rank: number;
+  user_id: number;
+  name: string;
+  candidates_added: number;
+  screenings: number;
+  interviews: number;
+  placements: number;
+  calls: number;
+  total_actions: number;
+  /** `null` = pusty ranking, czyli brak skali paska. Nigdy nie mylić z 0. */
+  share_pct: number | null;
+}
+
+export interface TeamActivityResponse {
+  period: InsightsPeriod;
+  limit: number;
+  entries: TeamActivityEntry[];
+  totals: { users: number; actions: number };
+  /**
+   * `user_activities` zapisuje WYŁĄCZNIE czynności wykonane w NEXUSIE — import
+   * z Traffita nie tworzy tam ani jednego wiersza. Bez wyrenderowania `note`
+   * pusty ranking czyta się jako „zespół nic nie robił”.
+   */
+  coverage: { source: string; note: string };
+}
+
+export interface InviteLinkChannel {
+  channel: string;
+  /**
+   * `true` = kubełek linków bez etykiety. Sam string nie wystarcza — „Bez
+   * etykiety” jest legalną nazwą kanału i po tekście nie da się ich odróżnić.
+   */
+  unlabelled: boolean;
+  links_count: number;
+  applications: number;
+  /** `null` = zero linków, czyli brak mianownika. Legacy zwraca tu `0`. */
+  conversion_pct: number | null;
+  last_used_at: string | null;
+}
+
+export interface InviteLinksResponse {
+  period: InsightsPeriod;
+  channels: InviteLinkChannel[];
+  totals: {
+    links: number;
+    applications: number;
+    candidates: number;
+    conversion_pct: number | null;
+  };
+  /**
+   * Co okno FILTRUJE. Licznik aplikacji jest kumulatywny na linku, więc link
+   * założony w oknie wnosi też aplikacje sprzed jego granicy — to musi być
+   * napisane przy liczbie, nie przemilczane.
+   */
+  window_scope: {
+    channels: string;
+    candidates: string;
+    applications_are_lifetime_per_link: boolean;
+    note: string;
+  };
+}
+
+export interface InsightsHiringManagerRow {
+  contact_id: number;
+  contact_name: string;
+  position: string | null;
+  client_id: number;
+  client_name: string;
+  jobs_total: number;
+  jobs_open: number;
+  contracts_total: number;
+  contracts_active: number;
+  /** `null` = zero rekrutacji. Świadomie NIE przycinane do 100%. */
+  contract_rate_pct: number | null;
+}
+
+export interface InsightsHiringManagersResponse {
+  period: InsightsPeriod;
+  limit: number;
+  managers: InsightsHiringManagerRow[];
+  totals: {
+    managers: number;
+    jobs_total: number;
+    jobs_open: number;
+    contracts_total: number;
+    contracts_active: number;
+    open_rate_pct: number | null;
+  };
+  /** Ilu HM odsiał `limit`. Przycięta lista bez tej liczby czyta się jako komplet. */
+  truncated: number;
+  scope: {
+    jobs: string;
+    contracts: string;
+    /** `true` = „Aktywni” to stan NA DZIŚ, nie z końca okna. */
+    contracts_active_is_snapshot_now: boolean;
+    note: string;
+  };
+}
+
 export interface AvailablePeriodsResponse {
   granularity: "week" | "month" | "quarter";
   periods: Array<{ start: string; milestones: number }>;
@@ -132,6 +232,33 @@ export const insightsApi = {
           params: { granularity },
         },
       )
+      .then((r) => r.data),
+
+  /**
+   * Imienny ranking aktywności. Zastępuje `/api/activities/leaderboard`, który
+   * stoi na capability `VIEW_RECRUITMENT_RANKING` — dla roli `user` zwracał
+   * 403, a sekcja renderowała go jako „brak danych o zespole”. Guard tamtego
+   * endpointu ZOSTAJE nietknięty (steruje też dashboardem rekrutera).
+   */
+  teamActivity: (p: InsightsPeriodParams & { limit?: number }) =>
+    api
+      .get<TeamActivityResponse>("/api/insights/recruitment/team-activity", {
+        params: {
+          ...periodQuery(p),
+          ...(p.limit ? { limit: p.limit } : {}),
+        },
+      })
+      .then((r) => r.data),
+
+  /**
+   * Kanały aplikacyjne. Zastępuje `/api/reports/invite-links` (cztery role,
+   * okno KROCZĄCE bez sufitu, `conversion_pct` = 0 przy zerowym mianowniku).
+   */
+  inviteLinks: (p: InsightsPeriodParams) =>
+    api
+      .get<InviteLinksResponse>("/api/insights/recruitment/invite-links", {
+        params: periodQuery(p),
+      })
       .then((r) => r.data),
 };
 
@@ -438,6 +565,12 @@ export const insightsQueryKeys = {
     ["insights", "delivery-leads", "by-client", p] as const,
   deliveryLeadTrend: (dlId: number, months: number) =>
     ["insights", "delivery-leads", "trend", dlId, months] as const,
+  teamActivity: (p: InsightsPeriodParams, limit?: number) =>
+    ["insights", "recruitment", "team-activity", p, limit ?? null] as const,
+  inviteLinks: (p: InsightsPeriodParams) =>
+    ["insights", "recruitment", "invite-links", p] as const,
+  hiringManagers: (p: InsightsPeriodParams) =>
+    ["insights", "clients", "hiring-managers", p] as const,
 };
 
 export const insightsBoardApi = {
@@ -482,6 +615,19 @@ export const insightsBoardApi = {
       .get<InsightsDeliveryLeadTrendResponse>(
         `/api/insights/delivery-leads/${dlId}/trend`,
         { params: { months } },
+      )
+      .then((r) => r.data),
+
+  /**
+   * Ranking hiring managerów. Zastępuje `/api/reports/hiring-managers`, który
+   * stoi na trzech rolach (admin / HoR / finance) i nie zna okresu w ogóle.
+   * Guard tamtego routera ZOSTAJE nietknięty.
+   */
+  hiringManagers: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsHiringManagersResponse>(
+        "/api/insights/clients/hiring-managers",
+        { params: periodQuery(p) },
       )
       .then((r) => r.data),
 };

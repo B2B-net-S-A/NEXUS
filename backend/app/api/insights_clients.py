@@ -28,12 +28,19 @@ i zasila OBIE powierzchnie. Cztery reguły, które ten moduł utrzymuje:
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.periods import Period, PeriodError, PeriodKind, resolve_period
+from app.analytics.periods import (
+    ANALYTICS_TIMEZONE,
+    Period,
+    PeriodError,
+    PeriodKind,
+    resolve_period,
+)
 from app.api.deps import CurrentUser
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
@@ -46,7 +53,9 @@ from app.services.insights_clients import (
     compute_client_ranking,
     fold_hit_ratio_totals,
     fold_ranking_totals,
+    ratio_pct,
 )
+from app.services.insights_hiring_managers import compute_hiring_manager_kpis
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +90,15 @@ def _valuation_date(period: Period) -> date:
     dziś nie fakturuje.
     """
     last_day = (period.end - timedelta(days=1)).date()
-    today = date.today()
+    # „Dziś" MUSI być w tej samej strefie co okno. `date.today()` czyta zegar
+    # systemowy (na prodzie UTC), a okna liczy `resolve_period` w Europe/Warsaw
+    # — więc przez ~2 godziny każdej doby (00:00-02:00 CEST) UTC jest jeszcze
+    # w dniu poprzednim. Skutek: pierwszego dnia miesiąca ranking BIEZĄCEGO
+    # okna wyceniał się ostatnim dniem miesiąca POPRZEDNIEGO, czyli innym
+    # krokiem harmonogramu i innym kursem NBP. Ta sama data trafia do klucza
+    # cache'u pośrednio (przez wycenę), więc dwa różne okna potrafiły wyjść
+    # z identycznymi liczbami.
+    today = datetime.now(ZoneInfo(ANALYTICS_TIMEZONE)).date()
     return min(last_day, today)
 
 
@@ -371,6 +388,105 @@ async def insights_clients_hit_ratio(
             # at-risk czyta się jako „nikt nie spada", a znaczy „nie było czego
             # porównać".
             "not_comparable": not_comparable,
+        },
+    }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
+
+
+@router.get("/hiring-managers")
+async def insights_hiring_managers(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("year", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Ranking hiring managerów po stronie klientów.
+
+    Dostępne dla KAŻDEGO zalogowanego (decyzja D7). Legacy
+    `/api/reports/hiring-managers` zostaje na swoich trzech rolach i na całej
+    historii — ten endpoint go nie zmienia, tylko liczy to samo w oknie.
+
+    Dwie rzeczy, które koperta mówi WPROST, bo bez nich kolumna znaczy co
+    innego, niż wygląda:
+
+    1. Okno filtruje REKRUTACJE po ``Job.created_at``. Kontrakty liczone są dla
+       rekrutacji z okna, niezależnie od tego, kiedy same powstały — umowę
+       z rekrutacji otwartej w lipcu zwykle podpisuje się później.
+    2. ``contracts_active`` to MIGAWKA NA DZIŚ. ``ContractStatus`` nie ma
+       historii, więc „ilu konsultantów pracowało w maju" jest z tych danych
+       nieodtwarzalne. Liczba migawkowa podana pod etykietą okna czyta się jak
+       stan historyczny i nie da się jej od niego odróżnić.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+
+    cache_key = f"insights:clients:hiring-managers:v1:{resolved.cache_suffix}:{limit}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = await compute_hiring_manager_kpis(
+        db, since=resolved.start, until=resolved.end
+    )
+    visible = rows[:limit]
+
+    managers = [
+        {
+            "contact_id": r.contact_id,
+            "contact_name": r.contact_name,
+            "position": r.position,
+            "client_id": r.client_id,
+            "client_name": r.client_name,
+            "jobs_total": r.jobs_total,
+            "jobs_open": r.jobs_open,
+            "contracts_total": r.contracts_total,
+            "contracts_active": r.contracts_active,
+            # Ile rekrutacji tego HM skończyło się kontraktem. `None` przy
+            # zerze rekrutacji — „nie było czego dzielić" to co innego niż
+            # „policzone i wyszło zero". Świadomie BEZ przycinania do 100%:
+            # jedna rekrutacja z dwoma kontraktami daje 200% i to ma być
+            # widoczne, a nie schowane pod sufitem.
+            "contract_rate_pct": ratio_pct(r.contracts_total, r.jobs_total),
+        }
+        for r in visible
+    ]
+
+    # Kafle to FOLD po WIDOCZNEJ liście — kafel liczony z pełnego zbioru pod
+    # przyciętą tabelą nie daje się sprawdzić dodając kolumnę na ekranie.
+    jobs_total = sum(m["jobs_total"] for m in managers)
+    jobs_open = sum(m["jobs_open"] for m in managers)
+
+    result = {
+        "period": resolved.as_payload(),
+        "limit": limit,
+        "managers": managers,
+        "totals": {
+            "managers": len(managers),
+            "jobs_total": jobs_total,
+            "jobs_open": jobs_open,
+            "contracts_total": sum(m["contracts_total"] for m in managers),
+            "contracts_active": sum(m["contracts_active"] for m in managers),
+            # Puste okno daje `None`, nie 0.0 — inaczej „brak rekrutacji"
+            # czytałoby się jako „zero otwartych", czyli jako obserwacja.
+            "open_rate_pct": ratio_pct(jobs_open, jobs_total),
+        },
+        # Ilu HM odsiał `limit`. Bez tej liczby przycięta lista czyta się jako
+        # komplet.
+        "truncated": max(len(rows) - len(visible), 0),
+        "scope": {
+            "jobs": "job_created_at_in_window",
+            "contracts": "contracts_of_jobs_in_window",
+            "contracts_active_is_snapshot_now": True,
+            "note": (
+                "Okno filtruje rekrutacje po dacie utworzenia; kontrakty liczą "
+                "się dla tych rekrutacji niezależnie od własnej daty. "
+                "„Aktywni” to stan NA DZIŚ — statusy kontraktów nie mają "
+                "historii, więc stanu z końca okna nie da się odtworzyć."
+            ),
         },
     }
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)

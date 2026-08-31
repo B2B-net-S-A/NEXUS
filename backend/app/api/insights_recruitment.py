@@ -33,6 +33,11 @@ from app.analytics.periods import PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
+from app.services.insights_invite_links import (
+    compute_invite_link_channels,
+    count_invite_link_candidates,
+)
+from app.services.insights_team_activity import compute_team_activity
 
 logger = logging.getLogger(__name__)
 
@@ -541,6 +546,186 @@ async def insights_time_to_hire(
             "unattributed_hires": unattributed_hires,
         },
         "min_hires": min_hires,
+    }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
+
+
+@router.get("/team-activity")
+async def insights_team_activity(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Imienny ranking aktywności zespołu w oknie.
+
+    UWAGA — ta odpowiedź niesie DANE IMIENNE (kto ile zrobił) i jest dostępna
+    dla KAŻDEJ zalogowanej roli. To jest ŚWIADOME, nie przeoczenie: decyzja D7
+    (Artur, 2026-08-31, docs/insights-dynareporter-migration-plan.md §0 D7)
+    otwiera całe `/insights` dla wszystkich zalogowanych. Nie „napraw" tego,
+    podstawiając tu `require_capability(VIEW_RECRUITMENT_RANKING)` — ta
+    capability steruje 40+ innymi powierzchniami i jej semantyka jest inna;
+    powierzchnia legacy (`/api/activities/leaderboard`) zostaje na niej bez
+    zmian. Zawężenie zaczyna się od zmiany decyzji D7, nie stąd.
+
+    Różnica wobec legacy nie jest kosmetyczna: tamten endpoint liczy okno
+    KROCZĄCE (`now - 30 dni`, bez sufitu), więc „poprzedni miesiąc" znaczy tam
+    „od poprzedniego miesiąca do dziś". Tutaj okno jest kalendarzowe
+    i półotwarte `[start, end)`.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+
+    # Klucz NIESIE OKNO i `limit` — obcięta lista pod kluczem pełnej dałaby
+    # liczby jednego zapytania pod etykietą drugiego.
+    cache_key = f"insights:recruitment:team-activity:v1:{resolved.cache_suffix}:{limit}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = await compute_team_activity(
+        db, since=resolved.start, until=resolved.end, limit=limit
+    )
+
+    # Mianownik paska: najaktywniejsza osoba w oknie. Pusty ranking daje zero,
+    # a `_ratio` zamienia je na `None` — pasek bez skali to brak wartości,
+    # nie zero aktywności.
+    max_actions = max([r.total_actions for r in rows] + [0])
+
+    entries = [
+        {
+            "rank": rank,
+            "user_id": r.user_id,
+            "name": r.user_name,
+            "candidates_added": r.candidates_added,
+            "screenings": r.screenings,
+            "interviews": r.interviews,
+            "placements": r.placements,
+            "calls": r.calls,
+            "total_actions": r.total_actions,
+            "share_pct": _ratio(r.total_actions, max_actions),
+        }
+        for rank, r in enumerate(rows, start=1)
+    ]
+
+    result = {
+        "period": resolved.as_payload(),
+        "limit": limit,
+        "entries": entries,
+        "totals": {
+            "users": len(entries),
+            # Suma WIDOCZNYCH wierszy, nie całej tabeli `user_activities` —
+            # kafel liczony z innego zbioru niż lista pod nim nie daje się
+            # sprawdzić wzrokiem.
+            "actions": sum(e["total_actions"] for e in entries),
+        },
+        "coverage": {
+            "source": "user_activities",
+            # Bez tego zdania pusty ranking czyta się jako „zespół nic nie
+            # robił". `user_activities` zapisuje wyłącznie czynności wykonane
+            # W NEXUSIE — import z Traffita nie tworzy tam ani jednego wiersza.
+            "note": (
+                "Liczone są wyłącznie czynności wykonane w NEXUSIE. "
+                "Ruch zaimportowany z Traffita nie zasila tej tabeli, więc "
+                "zero przy osobie znaczy „nie pracowała w NEXUSIE”, "
+                "a nie „nie pracowała”."
+            ),
+        },
+    }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
+
+
+@router.get("/invite-links")
+async def insights_invite_links(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """Skuteczność kanałów aplikacyjnych (linki z etykietą) w oknie.
+
+    Dostępne dla KAŻDEGO zalogowanego (decyzja D7). Legacy
+    `/api/reports/invite-links` zostaje na swoich czterech rolach i na swoim
+    kroczącym oknie — ten endpoint go nie zmienia, tylko liczy to samo
+    kalendarzowo i z uczciwą konwencją zerowego mianownika.
+
+    Trzy różnice wobec legacy, każda naprawiająca konkretną nieprawdę:
+
+    1. Okno jest półotwarte `[start, end)`, a nie kroczące bez sufitu — legacy
+       nie zna ani granulacji rocznej, ani przesunięcia (`offset`) i zawsze
+       pokazuje okres BIEŻĄCY.
+    2. `conversion_pct` przy zerze linków to `None`, nie `0.0`. „Nie było czego
+       dzielić" to co innego niż „policzone i wyszło zero".
+    3. `window_scope` mówi WPROST, co okno filtruje. Bez tego liczba aplikacji
+       wygląda na „aplikacje w tym okresie", a jest sumą liczników na linkach
+       ZAŁOŻONYCH w tym okresie — patrz niżej.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+
+    cache_key = f"insights:recruitment:invite-links:v1:{resolved.cache_suffix}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = await compute_invite_link_channels(
+        db, since=resolved.start, until=resolved.end
+    )
+    candidates = await count_invite_link_candidates(
+        db, since=resolved.start, until=resolved.end
+    )
+
+    channels = [
+        {
+            # Etykieta do wyświetlenia ORAZ flaga, bo etykieta „Bez etykiety"
+            # jest legalną nazwą kanału i sam string nie pozwoliłby odróżnić
+            # kubełka linków nieopisanych od kanału tak nazwanego.
+            "channel": r.channel or "Bez etykiety",
+            "unlabelled": r.channel is None,
+            "links_count": r.links_count,
+            "applications": r.applications,
+            "conversion_pct": _ratio(r.applications, r.links_count),
+            "last_used_at": r.last_used_at.isoformat() if r.last_used_at else None,
+        }
+        for r in rows
+    ]
+
+    total_links = sum(c["links_count"] for c in channels)
+    total_applications = sum(c["applications"] for c in channels)
+
+    result = {
+        "period": resolved.as_payload(),
+        "channels": channels,
+        # Kafle to FOLD po tej samej liście, którą niesie `channels` — kafel
+        # będący sumą innych liczb niż widoczne pod nim nie daje się
+        # zweryfikować wzrokiem.
+        "totals": {
+            "links": total_links,
+            "applications": total_applications,
+            "candidates": candidates,
+            "conversion_pct": _ratio(total_applications, total_links),
+        },
+        "window_scope": {
+            "channels": "link_created_at",
+            "candidates": "candidate_created_at",
+            # `use_count` jest licznikiem NA LINKU, kumulatywnym od jego
+            # powstania — nie da się go pociąć oknem bez tabeli zdarzeń.
+            "applications_are_lifetime_per_link": True,
+            "note": (
+                "Okno filtruje LINKI po dacie utworzenia. Licznik aplikacji "
+                "jest kumulatywny na linku, więc link założony w tym oknie "
+                "wnosi wszystkie swoje aplikacje — także sprzed granicy okna. "
+                "Oknem przycięta uczciwie jest wyłącznie liczba unikalnych "
+                "kandydatów."
+            ),
+        },
     }
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result

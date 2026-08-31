@@ -4,7 +4,7 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
-import { HiringManagersSection } from "@/components/insights/sections/HiringManagersSection";
+import { InsightsHiringManagers } from "@/components/insights/sections/InsightsHiringManagers";
 import { InsightsClientsHitRatio } from "@/components/insights/sections/InsightsClientsHitRatio";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
 import { InsightsDeliveryLeads } from "@/components/insights/sections/InsightsDeliveryLeads";
@@ -85,11 +85,16 @@ export function KlienciPanel() {
       <InsightsPlacementsByClient period={period} />
       <InsightsClientsHitRatio period={period} />
 
-      {/* Bez odpowiednika w `/api/insights/*` — zostaje na `/api/reports/
-          hiring-managers`, który ma własny, węższy guard. Sekcja renderuje
-          własny komunikat, gdy rola nie ma dostępu; nie chowamy jej z ekranu,
-          bo ukryta sekcja przy otwartym API to split-brain, nie zabezpieczenie. */}
-      <HiringManagersSection />
+      {/* Ma już odpowiednik w `/api/insights/*`. Legacy
+          `/api/reports/hiring-managers` stoi na trzech rolach (admin / HoR /
+          finance) i dla reszty zwracał 403, który ta sekcja renderowała jako
+          czerwone „Błąd ładowania. Wymaga roli admin / head_of_recruitment." —
+          na zakładce otwartej pod D7 dla KAŻDEJ zalogowanej roli. Guard tamtego
+          routera zostaje nietknięty (jest współdzielony poza Insights);
+          liczenie jest wspólne (`app/services/insights_hiring_managers.py`).
+          Dodatkowo legacy nie znał okresu w ogóle — liczył całą historię pod
+          etykietą wybranego okna. */}
+      <InsightsHiringManagers period={period} />
     </div>
   );
 }

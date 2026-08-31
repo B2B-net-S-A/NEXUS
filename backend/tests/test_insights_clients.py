@@ -33,6 +33,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
+from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
@@ -643,3 +644,199 @@ async def test_unknown_exclude_reason_is_rejected_not_ignored(
         params={"exclude_reasons": "paused,typo_reason"},
     )
     assert resp.status_code == 422, resp.text
+
+
+# ── hiring-managers (odpowiednik /api/reports/hiring-managers) ──────────────
+
+HIRING_MANAGERS = "/api/insights/clients/hiring-managers"
+
+
+async def _seed_hiring_manager(*, job_created_at: datetime) -> tuple[int, str]:
+    """Klient + kontakt + JEDNA opublikowana rekrutacja prowadzona przez ten kontakt.
+
+    ``Job.created_at`` ustawiamy wprost, bo to właśnie ta kolumna jest filtrowana
+    oknem — bez niej rekrutacja lądowałaby „dziś" i test okna nic by nie mierzył.
+    """
+    sfx = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"HmCli-{sfx}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+
+        contact = Contact(client_id=client.id, name=f"HM {sfx}", position="CTO")
+        db.add(contact)
+        await db.commit()
+        await db.refresh(contact)
+
+        job = Job(
+            title=f"Hm {sfx}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=client.id,
+            hiring_manager_contact_id=contact.id,
+            created_at=job_created_at,
+        )
+        db.add(job)
+        await db.commit()
+        return contact.id, f"HM {sfx}"
+
+
+@pytest.mark.asyncio
+async def test_hiring_managers_is_open_to_every_logged_in_role(
+    fx_client: AsyncClient,
+):
+    """D7 — także dla `recruiter`, `sourcer`, `tac`, `delivery_lead` i `user`.
+
+    To są dokładnie te role, dla których legacy `/api/reports/hiring-managers`
+    zwraca 403 (`require_roles(admin, head_of_recruitment, finance)`), a sekcja
+    na `/insights` renderowała ten 403 jako „Błąd ładowania".
+    """
+    for role in (
+        UserRole.recruiter,
+        UserRole.sourcer,
+        UserRole.tac,
+        UserRole.delivery_lead,
+        UserRole.user,
+        UserRole.admin,
+    ):
+        _, email, password = await _seed_user(role, "hm-rbac")
+        headers = await _login(fx_client, email, password)
+        resp = await fx_client.get(HIRING_MANAGERS, headers=headers)
+        assert resp.status_code == 200, f"{role.value}: {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_hiring_managers_requires_authentication(fx_client: AsyncClient):
+    resp = await fx_client.get(HIRING_MANAGERS)
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_legacy_hiring_managers_guard_was_not_widened(fx_client: AsyncClient):
+    """Otwarcie `/insights` NIE MOŻE otworzyć powierzchni legacy.
+
+    `/api/reports/hiring-managers` jest osobnym routerem z własnym, węższym
+    guardem. Gdyby ktoś „uprościł" refaktor i podmienił tam bramkę na
+    `CurrentUser`, zmiana przeszłaby bez śladu.
+    """
+    _, email, password = await _seed_user(UserRole.recruiter, "hm-legacy")
+    headers = await _login(fx_client, email, password)
+    resp = await fx_client.get("/api/reports/hiring-managers", headers=headers)
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_hiring_managers_window_filters_jobs_by_creation_date(
+    fx_client: AsyncClient,
+):
+    """Rekrutacja spoza okna nie może wejść do rankingu.
+
+    Legacy liczy CAŁĄ historię i nie zna okresu w ogóle — to jest regresja na
+    tę różnicę. Okno jest półotwarte `[start, end)`.
+    """
+    await cache_invalidate("insights:clients:hiring-managers:*")
+    year = 1600 + int(uuid.uuid4().hex[:6], 16) % 90
+    inside_id, _ = await _seed_hiring_manager(
+        job_created_at=datetime(year, 4, 10, tzinfo=timezone.utc)
+    )
+    outside_id, _ = await _seed_hiring_manager(
+        job_created_at=datetime(year, 5, 2, tzinfo=timezone.utc)
+    )
+
+    _, email, password = await _seed_user(UserRole.sourcer, "hm-window")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get(
+            HIRING_MANAGERS,
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-04-01",
+                "date_to": f"{year}-04-30",
+                "limit": 200,
+            },
+        )
+    ).json()
+
+    ids = {m["contact_id"] for m in body["managers"]}
+    assert inside_id in ids, body
+    assert outside_id not in ids, body
+
+    row = next(m for m in body["managers"] if m["contact_id"] == inside_id)
+    assert row["jobs_total"] == 1
+    assert row["jobs_open"] == 1
+    assert row["position"] == "CTO"
+    # Bez kontraktu: 0 z 1 rekrutacji to POLICZONE zero, nie luka.
+    assert row["contract_rate_pct"] == 0.0
+
+    # Kafle to fold po WIDOCZNEJ liście — muszą dać się sprawdzić dodając
+    # kolumnę na ekranie.
+    assert body["totals"]["jobs_total"] == sum(
+        m["jobs_total"] for m in body["managers"]
+    )
+    assert body["totals"]["managers"] == len(body["managers"])
+    # `contracts_active` to migawka na dziś, nie stan z końca okna — koperta
+    # musi to powiedzieć, inaczej liczba czyta się jak stan historyczny.
+    assert body["scope"]["contracts_active_is_snapshot_now"] is True
+
+
+@pytest.mark.asyncio
+async def test_hiring_managers_empty_window_gives_none_not_zero(
+    fx_client: AsyncClient,
+):
+    """Zero rekrutacji → `open_rate_pct` = `None`, nie `0.0`.
+
+    „Nie było czego dzielić" to co innego niż „policzone i wyszło zero" —
+    na ekranie oceniającym ludzi po stronie klienta to jest różnica między
+    pytaniem a werdyktem.
+    """
+    _, email, password = await _seed_user(UserRole.admin, "hm-zero")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get(
+            HIRING_MANAGERS,
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": "1803-01-01",
+                "date_to": "1803-01-31",
+            },
+        )
+    ).json()
+    assert body["managers"] == []
+    assert body["totals"]["jobs_total"] == 0
+    assert body["totals"]["open_rate_pct"] is None
+    assert body["truncated"] == 0
+
+
+@pytest.mark.asyncio
+async def test_hiring_managers_reports_how_many_rows_the_limit_cut(
+    fx_client: AsyncClient,
+):
+    """Przycięta lista bez licznika czyta się jako komplet."""
+    await cache_invalidate("insights:clients:hiring-managers:*")
+    year = 1900 + int(uuid.uuid4().hex[:6], 16) % 90
+    for _ in range(3):
+        await _seed_hiring_manager(
+            job_created_at=datetime(year, 8, 3, tzinfo=timezone.utc)
+        )
+
+    _, email, password = await _seed_user(UserRole.admin, "hm-trunc")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get(
+            HIRING_MANAGERS,
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": f"{year}-08-01",
+                "date_to": f"{year}-08-31",
+                "limit": 2,
+            },
+        )
+    ).json()
+
+    assert len(body["managers"]) == 2
+    assert body["truncated"] == 1

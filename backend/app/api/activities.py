@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select, desc
+from sqlalchemy import func, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -23,6 +23,7 @@ from app.analytics.capabilities import (
     user_has_capability,
 )
 from app.services.access_scope import apply_activity_feed_scope
+from app.services.insights_team_activity import compute_team_activity
 
 router = APIRouter()
 
@@ -105,71 +106,27 @@ async def get_leaderboard(
     """
     since = _period_start(period)
 
-    # Aggregate per user and action type
-    subq = (
-        select(
-            UserActivity.user_id,
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.candidate_added, 1),
-                    else_=0,
-                )
-            ).label("candidates_added"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.screening_done, 1),
-                    else_=0,
-                )
-            ).label("screenings"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.interview_scheduled, 1),
-                    else_=0,
-                )
-            ).label("interviews"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.placement_closed, 1),
-                    else_=0,
-                )
-            ).label("placements"),
-            func.sum(
-                case(
-                    (UserActivity.action_type == UserActionType.call_made, 1),
-                    else_=0,
-                )
-            ).label("calls"),
-            func.count(UserActivity.id).label("total_actions"),
-        )
-        .where(UserActivity.created_at >= since)
-        .group_by(UserActivity.user_id)
-        .subquery()
-    )
+    # Liczenie mieszka w `app/services/insights_team_activity.py` — ten sam
+    # ranking pokazuje `/api/insights/recruitment/team-activity` (D7), a dwa
+    # podobne zapytania rozjechałyby się cicho. Bez `until`, bo TA powierzchnia
+    # ma okno KROCZĄCE (`now - 30 dni`, bez sufitu) i zmiana tego zmieniłaby
+    # liczby konsumentom, którzy o nią nie prosili.
+    rows = await compute_team_activity(db, since=since, limit=limit)
 
-    query = (
-        select(User.id, User.name, User.email, subq)
-        .join(subq, User.id == subq.c.user_id)
-        .order_by(subq.c.total_actions.desc())
-        .limit(limit)
-    )
-    result = await db.execute(query)
-    rows = result.all()
-
-    leaderboard = []
-    for rank, row in enumerate(rows, start=1):
-        leaderboard.append(
-            {
-                "rank": rank,
-                "user_id": row.id,
-                "user_name": row.name,
-                "candidates_added": row.candidates_added,
-                "screenings": row.screenings,
-                "interviews": row.interviews,
-                "placements": row.placements,
-                "calls": row.calls,
-                "total_actions": row.total_actions,
-            }
-        )
+    leaderboard = [
+        {
+            "rank": rank,
+            "user_id": row.user_id,
+            "user_name": row.user_name,
+            "candidates_added": row.candidates_added,
+            "screenings": row.screenings,
+            "interviews": row.interviews,
+            "placements": row.placements,
+            "calls": row.calls,
+            "total_actions": row.total_actions,
+        }
+        for rank, row in enumerate(rows, start=1)
+    ]
 
     return {
         "period": period,

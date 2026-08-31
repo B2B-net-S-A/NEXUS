@@ -25,7 +25,6 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.contract import Contract, ContractStatus
-from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -1762,6 +1761,10 @@ async def report_board(
 # leadership-level insight.
 
 from app.api.deps import require_roles  # noqa: E402
+from app.services.insights_invite_links import (  # noqa: E402
+    compute_invite_link_channels,
+    count_invite_link_candidates,
+)
 
 
 @router.get("/invite-links")
@@ -1784,66 +1787,39 @@ async def report_invite_links(
         return cached
 
     start = _period_start(period)
-    created_at_filter = (
-        [CandidateInviteLink.created_at >= start] if period != "all" else []
-    )
+    # Okno kroczące bez sufitu — tak liczy ta powierzchnia od zawsze i zmiana
+    # semantyki byłaby zmianą liczb u konsumentów, którzy o nią nie prosili.
+    # `period='all'` = brak dolnej granicy.
+    since = start if period != "all" else None
 
-    # Per-channel rollup straight from the invite-link table. `use_count`
-    # is incremented on every successful apply (see public_share.py), so
-    # sum(use_count) == total applications through that label. Revoked links
-    # are excluded — they're "cofnięte" and shouldn't dilute channel KPIs.
-    rollup_stmt = (
-        select(
-            CandidateInviteLink.label.label("channel"),
-            func.count(CandidateInviteLink.token).label("links_count"),
-            func.coalesce(func.sum(CandidateInviteLink.use_count), 0).label(
-                "applications"
-            ),
-            func.max(CandidateInviteLink.last_used_at).label("last_used_at"),
-        )
-        .where(
-            CandidateInviteLink.revoked.is_(False),
-            *created_at_filter,
-        )
-        .group_by(CandidateInviteLink.label)
-        .order_by(func.coalesce(func.sum(CandidateInviteLink.use_count), 0).desc())
-    )
-    rollup_rows = (await db.execute(rollup_stmt)).all()
+    # Liczenie mieszka w `app/services/insights_invite_links.py` — ten sam
+    # rollup pokazuje `/api/insights/recruitment/invite-links` (D7). Procenty
+    # ZOSTAJĄ tutaj: legacy liczy je `_safe_pct` (0.0 przy zerowym mianowniku),
+    # a `/insights` `_ratio` (None) — serwis zwraca surowe liczniki, żeby żadna
+    # z tych konwencji nie wyciekła do drugiej powierzchni.
+    rollup_rows = await compute_invite_link_channels(db, since=since)
 
     channels: list[dict] = []
     totals_links = 0
     totals_applications = 0
-    for channel, links_count, applications, last_used_at in rollup_rows:
-        links_count = int(links_count or 0)
-        applications = int(applications or 0)
-        totals_links += links_count
-        totals_applications += applications
+    for row in rollup_rows:
+        totals_links += row.links_count
+        totals_applications += row.applications
         channels.append(
             {
                 # NULL labels surface as "Bez etykiety" so the UI has a
                 # single bucket for unlabelled links rather than an empty row.
-                "channel": channel or "Bez etykiety",
-                "links_count": links_count,
-                "applications": applications,
-                "conversion_pct": _safe_pct(applications, links_count),
-                "last_used_at": last_used_at.isoformat() if last_used_at else None,
+                "channel": row.channel or "Bez etykiety",
+                "links_count": row.links_count,
+                "applications": row.applications,
+                "conversion_pct": _safe_pct(row.applications, row.links_count),
+                "last_used_at": row.last_used_at.isoformat()
+                if row.last_used_at
+                else None,
             }
         )
 
-    # Distinct candidates — best-effort. `Candidate.source` uses the
-    # `invite_link:<prefix>` convention from public_share.py; a LIKE over
-    # the indexed `source` column is cheap and good enough to surface the
-    # "unique applicants" KPI without another JSON lookup.
-    candidate_source_filter = [Candidate.source.like("invite_link:%")]
-    if period != "all":
-        candidate_source_filter.append(Candidate.created_at >= start)
-    distinct_candidates = (
-        await db.execute(
-            select(func.count(func.distinct(Candidate.id))).where(
-                *candidate_source_filter
-            )
-        )
-    ).scalar() or 0
+    distinct_candidates = await count_invite_link_candidates(db, since=since)
 
     result_data = {
         "period": period,

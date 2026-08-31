@@ -3,7 +3,7 @@
 import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ActivityHeatmap } from "@/components/insights/sections/ActivityHeatmap";
+import { InsightsTeamActivity } from "@/components/insights/sections/InsightsTeamActivity";
 import { RecruitmentFunnel } from "@/components/insights/sections/RecruitmentFunnel";
 import { RecruitmentConversions } from "@/components/insights/sections/RecruitmentConversions";
 import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
@@ -76,8 +76,16 @@ export function RekrutacjaPanel() {
       {/* D7: bramka rolowa na imiennym rankingu zdjęta — /insights widzi każda
           zalogowana rola. Nie przywracaj jej tutaj bez zmiany decyzji w
           docs/insights-dynareporter-migration-plan.md §0 D7; ukryta sekcja
-          przy otwartym API to split-brain, nie zabezpieczenie. */}
-      <ActivityHeatmap period="month" />
+          przy otwartym API to split-brain, nie zabezpieczenie.
+
+          Sama bramka we froncie nie wystarczała: sekcja wołała
+          `/api/activities/leaderboard`, który stoi na capability
+          `VIEW_RECRUITMENT_RANKING` — rola `user` ma tam pustą frozenset, więc
+          dostawała 403 i widziała go jako „brak danych o zespole". Teraz jedzie
+          na `/api/insights/recruitment/team-activity` (`CurrentUser`), które
+          w dodatku przyjmuje TO SAMO okno co reszta zakładki — legacy liczył
+          okno kroczące i ignorował `PeriodPicker`. */}
+      <InsightsTeamActivity period={period} />
 
       <SourcesFunnelSection />
     </div>
