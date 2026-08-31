@@ -16,6 +16,7 @@ import pytest
 
 from app.services.kpi_catalog import KpiPeriod
 from app.services.kpi_engine import (
+    _hours_until_period_end,
     derive_state,
     expected_progress_ratio,
     period_bounds,
@@ -123,6 +124,22 @@ def test_expected_progress_ratio_at_workday_end_is_one():
 def test_expected_progress_ratio_after_workday_end_is_one():
     now = datetime(2026, 4, 21, 22, 0, tzinfo=WARSAW)
     assert expected_progress_ratio(KpiPeriod.day, now) == pytest.approx(1.0)
+
+
+def test_daily_deadline_hours_use_workday_end():
+    now = datetime(2026, 4, 21, 15, 0, tzinfo=WARSAW)
+    assert _hours_until_period_end(KpiPeriod.day, now) == pytest.approx(2.5)
+
+
+def test_daily_deadline_hours_are_zero_after_workday_end():
+    now = datetime(2026, 4, 21, 18, 0, tzinfo=WARSAW)
+    assert _hours_until_period_end(KpiPeriod.day, now) == 0.0
+
+
+def test_daily_deadline_hours_convert_utc_to_warsaw():
+    # 13:00 UTC = 15:00 Europe/Warsaw in April.
+    now = datetime(2026, 4, 21, 13, 0, tzinfo=timezone.utc)
+    assert _hours_until_period_end(KpiPeriod.day, now) == pytest.approx(2.5)
 
 
 def test_expected_progress_ratio_midday():

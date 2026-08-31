@@ -1,5 +1,4 @@
 import { act, render, screen } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { RoleDashboard } from "@/components/v2/dashboard/RoleDashboard"
@@ -25,15 +24,12 @@ vi.mock("@/components/v2/dashboard/DashboardShell", () => ({
     children: React.ReactNode
   }) => <div data-show-period={String(showPeriod)}>{children}</div>,
 }))
-vi.mock("@/components/v2/dashboard/DashboardV2Preset", () => ({
-  DashboardV2Preset: () => <div>finance-dashboard</div>,
-}))
 vi.mock("@/components/v2/dashboard/DailyRecruiterKpi", () => ({
   DailyRecruiterKpi: () => <div>daily-recruiter-kpi</div>,
 }))
-vi.mock("@/components/v2/dashboard/RecruitmentOperationsDashboard", () => ({
-  RecruitmentOperationsDashboard: () => <div>recruitment-processes</div>,
-  RecruitmentOperationsKpis: () => <div>process-kpis</div>,
+vi.mock("@/components/v2/dashboard/RecruitmentCompetenceDashboard", () => ({
+  RecruitmentCompetenceDashboard: () => <div>recruitment-processes</div>,
+  RecruitmentCompetenceKpis: () => <div>recruitment-kpis</div>,
 }))
 vi.mock("@/components/candidate-contact/ContactOversightPanel", () => ({
   ContactOversightPanel: () => <div>contact-oversight</div>,
@@ -62,7 +58,7 @@ function recruiter(): User {
   }
 }
 
-describe("RoleDashboard — simple KPI/process tabs", () => {
+describe("RoleDashboard — unified recruitment view", () => {
   beforeEach(() => {
     navigation.push.mockReset()
     navigation.replace.mockReset()
@@ -78,42 +74,73 @@ describe("RoleDashboard — simple KPI/process tabs", () => {
     })
   })
 
-  it("defaults recruitment dashboards to processes and canonicalizes the URL", () => {
+  it("shows KPI and recruitments together and removes the legacy tab parameter", () => {
+    navigation.params = new URLSearchParams(
+      "preset=my-work&period=day&tab=processes",
+    )
+
+    render(<RoleDashboard />)
+
+    expect(screen.getByText("recruitment-kpis")).toBeInTheDocument()
+    expect(screen.getByText("recruitment-processes")).toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: "KPI" })).toBeNull()
+    expect(screen.queryByRole("tab", { name: "Procesy" })).toBeNull()
+    expect(navigation.replace).toHaveBeenCalledWith(
+      "/dashboard?preset=my-work&period=day",
+    )
+  })
+
+  it("does not show the period selector on recruitment dashboards", () => {
     navigation.params = new URLSearchParams("preset=my-work&period=day")
 
     render(<RoleDashboard />)
 
-    expect(screen.getByText("recruitment-processes")).toBeInTheDocument()
-    expect(screen.queryByText("daily-recruiter-kpi")).toBeNull()
-    const activeTab = screen.getByRole("tab", { name: "Procesy" })
-    expect(activeTab).toHaveAttribute(
-      "aria-controls",
-      screen.getByRole("tabpanel").id,
-    )
-    expect(navigation.replace).toHaveBeenCalledWith(
-      "/dashboard?preset=my-work&period=day&tab=processes",
-    )
-  })
-
-  it("shows the daily target and process KPI on the KPI tab", async () => {
-    const user = userEvent.setup()
-    navigation.params = new URLSearchParams(
-      "preset=my-work&period=day&tab=kpi",
-    )
-
-    render(<RoleDashboard />)
-
-    expect(screen.getByText("daily-recruiter-kpi")).toBeInTheDocument()
-    expect(screen.getByText("process-kpis")).toBeInTheDocument()
-    expect(screen.queryByText("recruitment-processes")).toBeNull()
-    expect(screen.getByText("daily-recruiter-kpi").closest("[data-show-period]"))
+    expect(screen.getByText("recruitment-kpis").closest("[data-show-period]"))
       .toHaveAttribute("data-show-period", "false")
-
-    await user.click(screen.getByRole("tab", { name: "Procesy" }))
-    expect(navigation.push).toHaveBeenCalledWith(
-      "/dashboard?preset=my-work&period=day&tab=processes",
-    )
   })
+
+  it.each([
+    ["Admin Ops", "admin", "admin-ops", "month"],
+    ["Delivery Lead", "delivery_lead", "delivery-lead", "month"],
+    [
+      "Head of Recruitment",
+      "head_of_recruitment",
+      "head-of-recruitment",
+      "week",
+    ],
+    ["My Work", "recruiter", "my-work", "day"],
+    ["Finanse", "finance", "finance", "quarter"],
+  ] as const)(
+    "uses the same KPI-above-recruitments skeleton for %s",
+    (_label, role, preset, period) => {
+      act(() => {
+        useAuthStore.setState({
+          user: {
+            ...recruiter(),
+            role,
+            roles: [role],
+            available_dashboard_presets: [preset],
+            default_dashboard_preset: preset,
+          },
+          hydrated: true,
+        })
+      })
+      navigation.params = new URLSearchParams(
+        `preset=${preset}&period=${period}`,
+      )
+
+      const { container } = render(<RoleDashboard />)
+
+      const kpis = screen.getByText("recruitment-kpis")
+      const processes = screen.getByText("recruitment-processes")
+      expect(
+        kpis.compareDocumentPosition(processes) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(screen.queryByRole("tab", { name: "KPI" })).toBeNull()
+      expect(container.firstChild).toHaveAttribute("data-show-period", "false")
+    },
+  )
 
   it("preserves and opens the contact oversight deep link", () => {
     act(() => {
@@ -138,8 +165,38 @@ describe("RoleDashboard — simple KPI/process tabs", () => {
     render(<RoleDashboard />)
 
     expect(navigation.replace).toHaveBeenCalledWith(
-      "/dashboard?preset=head-of-recruitment&period=week&tab=processes#nadzor-kontaktu",
+      "/dashboard?preset=head-of-recruitment&period=week#nadzor-kontaktu",
     )
     expect(screen.getByText("contact-oversight")).toBeVisible()
+  })
+
+  it("uses the shared recruitment dashboard for Finance and removes its legacy tab", () => {
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "finance",
+          roles: ["finance"],
+          available_dashboard_presets: ["finance"],
+          default_dashboard_preset: "finance",
+        },
+        hydrated: true,
+      })
+    })
+    navigation.params = new URLSearchParams(
+      "preset=finance&period=quarter&tab=executive",
+    )
+
+    render(<RoleDashboard />)
+
+    expect(screen.getByText("recruitment-kpis")).toBeInTheDocument()
+    expect(screen.getByText("recruitment-processes")).toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: "Operations" })).toBeNull()
+    expect(screen.queryByRole("tab", { name: "Executive" })).toBeNull()
+    expect(screen.getByText("recruitment-kpis").closest("[data-show-period]"))
+      .toHaveAttribute("data-show-period", "false")
+    expect(navigation.replace).toHaveBeenCalledWith(
+      "/dashboard?preset=finance&period=quarter",
+    )
   })
 })

@@ -38,7 +38,61 @@ describe("DailyRecruiterKpi", () => {
       "aria-valuenow",
       "50",
     )
-    expect(within(card).getByText(/6 h do końca dnia/)).toBeInTheDocument()
+    expect(
+      within(card).getByText(/6 h do końca dnia pracy/),
+    ).toBeInTheDocument()
+  })
+
+  it("uses the workday deadline wording in the final hour", () => {
+    useKpis.mockReturnValue({
+      data: [
+        {
+          kpi_id: "daily_first_verifications",
+          period: "day",
+          title_pl: "Pierwsze weryfikacje",
+          description_pl: "Pierwsza weryfikacja kandydata",
+          target: 4,
+          current: 3,
+          progress_pct: 75,
+          state: "behind",
+          deadline_hours_left: 0.5,
+        },
+      ],
+      isLoading: false,
+    } as ReturnType<typeof useMyKpis>)
+
+    render(<DailyRecruiterKpi />)
+
+    expect(
+      screen.getByText("Mniej niż godzina do końca dnia pracy", {
+        exact: false,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it("states that the workday is over after the deadline", () => {
+    useKpis.mockReturnValue({
+      data: [
+        {
+          kpi_id: "daily_first_verifications",
+          period: "day",
+          title_pl: "Pierwsze weryfikacje",
+          description_pl: "Pierwsza weryfikacja kandydata",
+          target: 4,
+          current: 2,
+          progress_pct: 50,
+          state: "missed",
+          deadline_hours_left: 0,
+        },
+      ],
+      isLoading: false,
+    } as ReturnType<typeof useMyKpis>)
+
+    render(<DailyRecruiterKpi />)
+
+    expect(
+      screen.getByText("Dzień pracy zakończony", { exact: false }),
+    ).toBeInTheDocument()
   })
 
   it("does not invent a target for a role without the daily KPI", () => {

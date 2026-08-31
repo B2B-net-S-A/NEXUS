@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 RecruitmentOperationsPreset = Literal[
     "admin-ops",
     "delivery-lead",
+    "finance",
     "head-of-recruitment",
     "my-work",
 ]
@@ -57,6 +58,7 @@ class RecruitmentOperationsProcess(RecruitmentOperationsModel):
     client: RecruitmentOperationsLookup
     competence_category: RecruitmentOperationsLookup | None = None
     candidate_count: int
+    shared_candidate_count: int = 0
     stage_counts: RecruitmentOperationsStageCounts
     favorite_candidate: RecruitmentOperationsFavorite | None = None
     owners: RecruitmentOperationsOwners
@@ -68,12 +70,16 @@ class RecruitmentOperationsSummary(RecruitmentOperationsModel):
     competence_categories: int
     active_candidates: int
     processes_without_favorite: int
+    shared_candidates: int = 0
+    processes_with_shared_candidates: int = 0
 
 
 class RecruitmentOperationsCategory(RecruitmentOperationsModel):
     id: int | None
     name: str
     total: int
+    shared_candidates: int = 0
+    processes_with_shared_candidates: int = 0
 
 
 class RecruitmentOperationsListResponse(RecruitmentOperationsModel):
