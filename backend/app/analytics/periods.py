@@ -52,6 +52,16 @@ class Period:
     def timezone(self) -> str:
         return ANALYTICS_TIMEZONE
 
+    @property
+    def cache_suffix(self) -> str:
+        """Fragment klucza cache'u jednoznacznie identyfikujacy OKNO.
+
+        Klucz cache'u bez okna to nie niedociagniecie, tylko blad poprawnosci:
+        poda liczby jednego okresu pod etykieta drugiego, i nikt sie nie
+        dowie. Kazdy klucz w /insights sklada sie z tego wlasnie fragmentu.
+        """
+        return f"{self.kind.value}:{self.start.isoformat()}:{self.end.isoformat()}"
+
     def as_payload(self) -> dict:
         """Sekcja ``period`` wspólnej koperty odpowiedzi (plan §4.5)."""
         return {
@@ -98,6 +108,7 @@ def resolve_period(
     kind: str | PeriodKind,
     *,
     offset: int = 0,
+    anchor: date | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
     now: datetime | None = None,
@@ -109,6 +120,10 @@ def resolve_period(
       ``offset=0`` (domyślnie) = BIEŻĄCY, ``-1`` = poprzedni zamknięty,
       ``+1`` = następny. ``end`` to początek kolejnego okresu — half-open
       pozwala liczyć okres w toku,
+    - ``anchor`` = dowolny dzień W ŚRODKU żądanego okresu.
+      ``resolve_period("month", anchor=date(2026, 7, 15))`` zwraca lipiec.
+      Składa się z ``offset``: kotwica wybiera punkt odniesienia, offset
+      przesuwa względem niego. Dla ``custom`` niedozwolony,
     - custom → wymaga ``date_from`` i ``date_to`` (dni kalendarzowe Warsaw,
       inclusive po stronie użytkownika → ``end`` = date_to + 1 dzień),
       maksymalnie MAX_CUSTOM_PERIOD_DAYS. ``offset`` jest wtedy niedozwolony
@@ -144,6 +159,11 @@ def resolve_period(
                 "offset nie ma zastosowania do okresu custom — zakres jest "
                 "podany wprost przez date_from/date_to"
             )
+        if anchor is not None:
+            raise PeriodError(
+                "anchor nie ma zastosowania do okresu custom — zakres jest "
+                "podany wprost przez date_from/date_to"
+            )
         if date_from is None or date_to is None:
             raise PeriodError("Okres custom wymaga parametrów date_from i date_to")
         if date_from > date_to:
@@ -160,7 +180,10 @@ def resolve_period(
             end=_local_midnight(date_to + timedelta(days=1)),
         )
 
-    today = _today_warsaw(now)
+    # Kotwica zastępuje „dziś" jako punkt odniesienia; offset przesuwa
+    # względem niej. Dzięki temu jedno wywołanie adresuje dowolny okres,
+    # a arytmetyka granic zostaje w tym pliku.
+    today = anchor if anchor is not None else _today_warsaw(now)
 
     if period_kind is PeriodKind.day:
         start_d = today + timedelta(days=offset)

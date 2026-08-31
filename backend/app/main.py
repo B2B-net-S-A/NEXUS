@@ -59,6 +59,7 @@ from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
+from app.api import insights_recruitment
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
@@ -1029,6 +1030,15 @@ app.include_router(
     tags=["teams-channels"],
 )
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+# /api/insights/* — powierzchnia Insights na danych natywnych NEXUSA.
+# Swiadomie ODDZIELNA od /api/reports/*: tamte endpointy sa wspoldzielone
+# z innymi stronami, wiec zmiana ich semantyki okresu albo poszerzenie
+# guardu (decyzja D7) zmienialoby po cichu liczby i widocznosc gdzie indziej.
+app.include_router(
+    insights_recruitment.router,
+    prefix="/api/insights/recruitment",
+    tags=["insights"],
+)
 app.include_router(
     dynareporter_profile.router,
     prefix="/api/dynareporter/profile",

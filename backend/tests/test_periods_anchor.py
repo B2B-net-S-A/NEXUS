@@ -157,3 +157,71 @@ def test_periods_remain_half_open_and_contiguous():
     prev = resolve_period("month", offset=-1, now=now)
     cur = resolve_period("month", offset=0, now=now)
     assert prev.end == cur.start
+
+
+# ── anchor: dowolny dzień W ŚRODKU okresu ──────────────────────────────────
+
+
+def test_anchor_selects_the_period_containing_that_day():
+    p = resolve_period("month", anchor=date(2026, 7, 15), now=_at(2026, 12, 31))
+    assert _d(p) == (date(2026, 7, 1), date(2026, 8, 1))
+
+
+def test_anchor_on_leap_day_resolves_february_2024():
+    p = resolve_period("month", anchor=date(2024, 2, 29), now=_at(2026, 8, 31))
+    assert _d(p) == (date(2024, 2, 1), date(2024, 3, 1))
+
+
+def test_anchor_on_sunday_resolves_the_preceding_monday():
+    # 2026-08-30 to niedziela → tydzień zaczyna się w poniedziałek 24.08.
+    p = resolve_period("week", anchor=date(2026, 8, 30), now=_at(2026, 12, 31))
+    assert _d(p) == (date(2026, 8, 24), date(2026, 8, 31))
+
+
+def test_anchor_composes_with_offset():
+    """Kotwica wybiera punkt odniesienia, offset przesuwa względem niego."""
+    p = resolve_period(
+        "month", anchor=date(2026, 7, 15), offset=-1, now=_at(2026, 12, 31)
+    )
+    assert _d(p) == (date(2026, 6, 1), date(2026, 7, 1))
+
+
+def test_anchor_with_custom_is_rejected():
+    with pytest.raises(PeriodError, match="anchor nie ma zastosowania"):
+        resolve_period(
+            "custom",
+            anchor=date(2026, 7, 15),
+            date_from=date(2026, 1, 1),
+            date_to=date(2026, 1, 31),
+        )
+
+
+# ── cache_suffix: klucz cache'u MUSI nieść okno ────────────────────────────
+
+
+def test_cache_suffix_differs_between_two_windows_of_same_granularity():
+    """To jest test na błąd POPRAWNOŚCI, nie na wygodę.
+
+    Klucz cache'u bez okna serwuje liczby jednego miesiąca pod etykietą
+    drugiego — i nikt się nie dowie, bo obie liczby wyglądają wiarygodnie.
+    """
+    now = _at(2026, 8, 31)
+    lipiec = resolve_period("month", offset=-1, now=now)
+    sierpien = resolve_period("month", offset=0, now=now)
+    assert lipiec.cache_suffix != sierpien.cache_suffix
+
+
+def test_cache_suffix_is_stable_for_the_same_window():
+    now = _at(2026, 8, 31)
+    a = resolve_period("month", offset=-1, now=now)
+    b = resolve_period("month", anchor=date(2026, 7, 20), now=now)
+    assert a.cache_suffix == b.cache_suffix
+
+
+def test_cache_suffix_distinguishes_granularities_over_same_span():
+    """Dzień i tydzień o tym samym starcie nie mogą dzielić klucza."""
+    now = _at(2026, 8, 31)  # poniedziałek
+    dzien = resolve_period("day", now=now)
+    tydzien = resolve_period("week", now=now)
+    assert dzien.start == tydzien.start
+    assert dzien.cache_suffix != tydzien.cache_suffix
