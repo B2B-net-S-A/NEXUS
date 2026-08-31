@@ -6,13 +6,13 @@
 """
 
 from datetime import date, timedelta
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, HeadOfRecruitmentPlus
+from app.api.deps import CurrentUser, HeadOfRecruitmentPlus, require_roles
 from app.core.database import get_db
 from app.models.linkedin_metric import LinkedInDailyMetric
 from app.models.user import User, UserRole
@@ -24,6 +24,17 @@ from app.schemas.linkedin_metric import (
 )
 
 router = APIRouter()
+
+LinkedInMetricsReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.finance,
+        )
+    ),
+]
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -72,7 +83,7 @@ def _week_number_for(d: date) -> int:
 
 @router.get("/batch", response_model=list[LinkedInMetricOut])
 async def list_batch(
-    _user: HeadOfRecruitmentPlus,
+    _user: LinkedInMetricsReadUser,
     db: AsyncSession = Depends(get_db),
     date_from: date = Query(..., description="Inclusive start date"),
     date_to: date = Query(..., description="Inclusive end date"),
@@ -121,7 +132,7 @@ async def list_batch(
 
 @router.get("/users", response_model=list[dict])
 async def list_linkedin_users(
-    _user: HeadOfRecruitmentPlus,
+    _user: LinkedInMetricsReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista userów uprawnionych do raportowania LinkedIn (TAC/rek/sourcer)."""

@@ -57,7 +57,7 @@ import { OrderListControls } from "@/components/client-profile/orders/OrderListC
 import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
 import { OrderTypeBadge } from "@/components/client-profile/orders/OrderTypeBadge";
 import { normalizeOrderCurrency } from "@/components/orders/OrderRateUnitToggle";
-import { useAuthStore } from "@/store/auth";
+import { canViewCandidateFinance, useAuthStore } from "@/store/auth";
 
 interface OrdersAndContractsTabProps {
   clientId: number;
@@ -147,6 +147,8 @@ export function OrdersAndContractsTab({
   // nie zna przypisań DL, więc bramkowanie po samej roli pokazywałoby pola
   // stawek komuś, kto na zapisie dostanie 403.
   const canManageFinance = data?.can_manage_finance ?? false;
+  const canViewFinance =
+    canManageFinance || canViewCandidateFinance(user);
   // Ta sama odpowiedź serwera jest obecnie kanoniczną bramką zapisu
   // zamówień okresowych: admin albo DL przypisany do tego klienta.
   const canManageOrders = canManageFinance;
@@ -372,6 +374,7 @@ export function OrdersAndContractsTab({
         <ContractorOrderCards
           clientId={clientId}
           contractors={filtered}
+          canViewFinance={canViewFinance}
           canManageFinance={canManageFinance}
           canManageOrders={canManageOrders}
           suggestedOrderType={suggestedOrderType}
@@ -399,6 +402,7 @@ export function OrdersAndContractsTab({
 interface ContractorOrderCardsProps {
   clientId: number;
   contractors: readonly ContractWithOrdersRead[];
+  canViewFinance: boolean;
   canManageFinance: boolean;
   canManageOrders: boolean;
   suggestedOrderType: OrderType;
@@ -415,6 +419,7 @@ interface ContractorOrderCardsProps {
 export function ContractorOrderCards({
   clientId,
   contractors,
+  canViewFinance,
   canManageFinance,
   canManageOrders,
   suggestedOrderType,
@@ -453,7 +458,7 @@ export function ContractorOrderCards({
             key={contractor.contract_id}
             contractor={contractor}
             clientId={clientId}
-            canManageFinance={canManageFinance}
+            canViewFinance={canViewFinance}
             canManageOrders={canManageOrders}
             suggestedOrderType={suggestedOrderType}
             legacyNullOrderType={legacyNullOrderType}
@@ -665,7 +670,7 @@ export function splitOrders(orders: ClientOrderRead[]): SplitOrders {
 interface ContractorCardProps {
   contractor: ContractWithOrdersRead;
   clientId: number;
-  canManageFinance: boolean;
+  canViewFinance: boolean;
   canManageOrders: boolean;
   suggestedOrderType: OrderType;
   legacyNullOrderType: LegacyClientOrderType;
@@ -684,7 +689,7 @@ interface ContractorCardProps {
 function ContractorCard({
   contractor,
   clientId,
-  canManageFinance,
+  canViewFinance,
   canManageOrders,
   suggestedOrderType,
   legacyNullOrderType,
@@ -967,7 +972,7 @@ function ContractorCard({
 
           {/* Finance + period row */}
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-            {canManageFinance && (
+            {canViewFinance && (
               <span>
                 stawka kosztowa{" "}
                 <InlineText
@@ -1012,7 +1017,7 @@ function ContractorCard({
                 po prostu ZNIKAŁO, więc karta pokazywała stawkę kosztową bez
                 przychodowej i wyglądała, jakby tej drugiej u tego klienta nie
                 było wcale. */}
-            {canManageFinance && (
+            {canViewFinance && (
               <span>
                 stawka przychodowa{" "}
                 <InlineText
@@ -1212,7 +1217,7 @@ function ContractorCard({
                     key={order.id}
                     order={order}
                     clientId={clientId}
-                    canManageFinance={canManageFinance}
+                    canViewFinance={canViewFinance}
                     canManageOrders={canManageOrders}
                     legacyNullOrderType={legacyNullOrderType}
                     fallbackRateUnit={contractor.rate_unit}
@@ -1332,7 +1337,7 @@ function FutureOrderRow({
 interface HistoryOrderRowProps {
   order: ClientOrderRead;
   clientId: number;
-  canManageFinance: boolean;
+  canViewFinance: boolean;
   canManageOrders: boolean;
   legacyNullOrderType: LegacyClientOrderType;
   /** Fallback dla zamówień utworzonych przed snapshotem stawek. */
@@ -1347,7 +1352,7 @@ interface HistoryOrderRowProps {
 function HistoryOrderRow({
   order,
   clientId,
-  canManageFinance,
+  canViewFinance,
   canManageOrders,
   legacyNullOrderType,
   fallbackRateUnit,
@@ -1400,7 +1405,7 @@ function HistoryOrderRow({
               {fmtDate(order.start_date)} → {fmtDate(order.end_date) || "bezterminowo"}
             </span>
           )}
-          {canManageFinance && order.rate_client !== null && (
+          {canViewFinance && order.rate_client !== null && (
             <span>
               przychód {fmtMoney(order.rate_client)}{" "}
               {normalizeOrderCurrency(
@@ -1412,7 +1417,7 @@ function HistoryOrderRow({
             </span>
           )}
           {/* Marża zostaje /mc — jest znormalizowana miesięcznie po stronie BE. */}
-          {canManageFinance && order.monthly_margin !== null && (
+          {canViewFinance && order.monthly_margin !== null && (
             <span className="flex items-center gap-1 text-green-700">
               <TrendingUp className="w-3 h-3" />
               marża {fmtMoney(order.monthly_margin)}/mc

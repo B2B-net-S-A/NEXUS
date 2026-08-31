@@ -8,30 +8,57 @@ put back behind the legacy ``DeliveryLeadPlus`` role guard.
 from __future__ import annotations
 
 from decimal import Decimal
+from inspect import signature
 from types import SimpleNamespace
-from typing import get_type_hints
+from typing import get_args, get_type_hints
 
 import pytest
 from fastapi import HTTPException
 
+from app.analytics.capabilities import (
+    AnalyticsCapability,
+    require_dynareporter_section,
+)
+from app.analytics.scope import (
+    ScopeKind,
+    ensure_recruitment_user_scope,
+    ensure_team_scope,
+)
 from app.api import (
+    admin_chats,
+    admin_client_portfolio,
+    admin_clients_overview,
+    autenti,
+    calendar,
+    calendar_access,
     candidate_access,
+    candidate_chat,
+    champion_suggestions,
+    client_order_groups,
     client_orders,
     clients,
     contract_analytics,
+    contractors,
     contracts,
+    cortex,
     dynareporter_przetargi,
     financial_adjustments,
     invoices,
+    hiring_managers_analytics,
+    job_chat,
+    jobs,
+    linkedin_metrics,
     my_clients,
+    my_relationships,
     notifications,
     phase5,
     pipeline,
     rate_benchmarks,
     rate_cards,
     reports,
+    signing,
 )
-from app.api.deps import AdminUser
+from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus, TacPlus
 from app.api.financial_access import (
     FinanceApproveUser,
     FinanceManageUser,
@@ -49,7 +76,19 @@ from app.schemas.new_contractor_order import (
 
 
 def _current_user_annotation(endpoint):
-    return get_type_hints(endpoint, include_extras=True)["current_user"]
+    return _user_annotation(endpoint, "current_user")
+
+
+def _user_annotation(endpoint, name: str = "user"):
+    return get_type_hints(endpoint, include_extras=True)[name]
+
+
+def _annotated_dependency(annotation):
+    return get_args(annotation)[1].dependency
+
+
+def _parameter_dependency(endpoint, name: str = "current_user"):
+    return signature(endpoint).parameters[name].default.dependency
 
 
 def _user(role: UserRole) -> User:
@@ -112,10 +151,8 @@ def test_financial_adjustment_approval_requires_finance_approve():
 @pytest.mark.parametrize(
     "endpoint",
     [
-        pipeline.list_pending_verifications,
         pipeline.accept_verification,
         pipeline.reject_verification,
-        contract_analytics.margin_by_contractor,
         phase5.create_rate_history,
         phase5.update_rate_history,
         phase5.delete_rate_history,
@@ -125,19 +162,27 @@ def test_rate_exception_and_candidate_pii_finance_endpoints_are_admin_only(endpo
     assert _current_user_annotation(endpoint) == AdminUser
 
 
+def test_pending_verifications_are_finance_read_but_approval_stays_admin_only():
+    assert (
+        _current_user_annotation(pipeline.list_pending_verifications)
+        == candidate_access.CandidateFinanceReadAccess
+    )
+    assert _current_user_annotation(pipeline.accept_verification) == AdminUser
+    assert _current_user_annotation(pipeline.reject_verification) == AdminUser
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [
+        contract_analytics.margin_by_contractor,
         contract_analytics.utilization,
         contract_analytics.role_client_mix,
         contract_analytics.location_distribution,
         contract_analytics.termination_analysis,
     ],
 )
-def test_legacy_organization_contract_analytics_are_admin_only(
-    endpoint,
-):
-    assert _current_user_annotation(endpoint) == AdminUser
+def test_organization_contract_analytics_are_finance_read(endpoint):
+    assert _current_user_annotation(endpoint) == FinanceReadUser
 
 
 def test_my_clients_financial_none_fields_are_structurally_omitted():
@@ -370,18 +415,384 @@ def test_mixed_contract_and_order_redaction_removes_finance_interpretation():
     assert order.currency is None
 
 
-def test_candidate_bearing_export_is_admin_only_and_benchmark_is_finance_read():
-    assert _current_user_annotation(contracts.export_contracts) == AdminUser
+def test_candidate_bearing_export_and_benchmark_are_finance_read():
+    assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
     assert _current_user_annotation(contracts.contract_benchmark) == FinanceReadUser
 
 
-def test_legacy_przetargi_identity_projections_are_admin_only():
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        contracts.list_contracts,
+        contracts.export_client_register,
+        contracts.list_client_register_subcategories,
+        contracts.expiring_contracts,
+        contracts.get_contract,
+        contracts.contract_activities,
+        contracts.contract_rate_history,
+        contracts.get_contract_draft,
+        contracts.render_draft_for_print,
+        contracts.list_contract_documents,
+        contracts.download_contract_document,
+        contracts.list_contract_amendments,
+        contracts.list_onboarding_items,
+        contracts.list_contract_equipment,
+        contracts.contract_timeline,
+    ],
+)
+def test_contract_business_reads_use_finance_extended_read_guard(endpoint):
+    assert _current_user_annotation(endpoint) == contracts.ContractReadUser
+
+
+@pytest.mark.asyncio
+async def test_finance_draft_preview_does_not_persist_lazy_initialization(monkeypatch):
+    finance = _user(UserRole.finance)
+    contract = SimpleNamespace(
+        id=17,
+        contract_type="b2b",
+        draft_content_html=None,
+        draft_template_id=None,
+        draft_updated_at=None,
+        draft_updated_by=None,
+    )
+    template = SimpleNamespace(
+        id=8,
+        name="B2B default",
+        contract_type="b2b",
+        content_jinja="<p>template</p>",
+        is_default=True,
+    )
+
+    async def load_contract(*_args, **_kwargs):
+        return contract
+
+    async def list_templates(*_args, **_kwargs):
+        return [template]
+
+    class ReadOnlyDb:
+        def add(self, *_args, **_kwargs):
+            raise AssertionError("Finance GET must not add Activity")
+
+        async def flush(self):
+            raise AssertionError("Finance GET must not flush writes")
+
+        async def scalar(self, *_args, **_kwargs):
+            raise AssertionError("No updated_by lookup is expected")
+
+    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
+    monkeypatch.setattr(
+        contracts,
+        "_list_templates_for_contract_type",
+        list_templates,
+    )
+    monkeypatch.setattr(
+        contracts,
+        "_render_draft_body",
+        lambda *_args: "<p>Finance preview</p>",
+    )
+
+    response = await contracts.get_contract_draft(17, finance, ReadOnlyDb())
+
+    assert response.content_html == "<p>Finance preview</p>"
+    assert response.template_id == 8
+    assert response.rendered_from_default is True
+    assert contract.draft_content_html is None
+    assert contract.draft_template_id is None
+    assert contract.draft_updated_by is None
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        contracts.create_contract,
+        contracts.update_contract,
+        contracts.delete_contract,
+        contracts.upload_contract_document,
+        contracts.create_contract_amendment,
+        contracts.create_onboarding_item,
+        contracts.create_contract_equipment,
+    ],
+)
+def test_contract_mutations_keep_tac_plus(endpoint):
+    assert _current_user_annotation(endpoint) == TacPlus
+
+
+def test_candidate_finance_read_is_split_from_candidate_finance_write():
+    assert UserRole.finance in candidate_access.CANDIDATE_EXPORT_ROLES
+    assert UserRole.finance in candidate_access.CANDIDATE_FINANCE_READ_ROLES
+    assert UserRole.finance not in candidate_access.CANDIDATE_FINANCE_ROLES
     assert (
-        _current_user_annotation(dynareporter_przetargi.list_consultants) == AdminUser
+        _current_user_annotation(phase5.list_rate_history)
+        == candidate_access.CandidateFinanceReadAccess
     )
     assert (
-        _current_user_annotation(dynareporter_przetargi.list_allocations) == AdminUser
+        _current_user_annotation(phase5.list_conflicts)
+        == candidate_access.CandidateFinanceReadAccess
     )
+    assert _current_user_annotation(contracts.export_contracts) == FinanceReadUser
+
+
+@pytest.mark.asyncio
+async def test_finance_passes_cortex_read_guard_and_contractor_scope_is_global():
+    finance = _user(UserRole.finance)
+    guarded = await _annotated_dependency(cortex.CortexUser)(finance)
+
+    assert guarded is finance
+    assert UserRole.finance in contractors._FULL_VISIBILITY_ROLES
+
+
+@pytest.mark.asyncio
+async def test_finance_bypasses_business_section_narrowing_after_capability_check():
+    finance = _user(UserRole.finance)
+    finance.allowed_sections = []
+
+    for section in ("clients-mrr", "przetargi", "board", "sales-mgmt"):
+        guard = require_dynareporter_section(section, AnalyticsCapability.VIEW_FINANCE)
+        assert await guard(finance) is finance
+
+    with pytest.raises(HTTPException) as mindy_requires_explicit_grant:
+        await require_dynareporter_section(
+            "mindy",
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+        )(finance)
+    assert mindy_requires_explicit_grant.value.status_code == 403
+
+    finance.allowed_sections = ["mindy"]
+    assert (
+        await require_dynareporter_section(
+            "mindy",
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+        )(finance)
+        is finance
+    )
+
+    with pytest.raises(HTTPException) as no_admin_capability:
+        await require_dynareporter_section(
+            "sales",
+            AnalyticsCapability.ADMIN_ANALYTICS,
+        )(finance)
+    assert no_admin_capability.value.status_code == 403
+
+    with pytest.raises(HTTPException) as no_admin_section:
+        await require_dynareporter_section(
+            "admin",
+            AnalyticsCapability.VIEW_FINANCE,
+        )(finance)
+    assert no_admin_section.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_finance_analytics_team_and_user_scope_are_organization_wide():
+    finance = _user(UserRole.finance)
+
+    team_scope = await ensure_team_scope(None, finance)
+    assert team_scope.kind is ScopeKind.organization
+
+    user_scope = await ensure_recruitment_user_scope(None, finance, 999)
+    assert user_scope.kind is ScopeKind.user
+    assert user_scope.user_id == 999
+
+
+@pytest.mark.asyncio
+async def test_przetargi_identity_projections_use_the_section_guard():
+    finance = _user(UserRole.finance)
+    finance.allowed_sections = []
+
+    for endpoint in (
+        dynareporter_przetargi.list_consultants,
+        dynareporter_przetargi.list_allocations,
+    ):
+        assert await _parameter_dependency(endpoint)(finance) is finance
+
+
+def test_finance_reads_client_overview_and_hiring_manager_reports():
+    assert (
+        get_type_hints(
+            admin_clients_overview.clients_overview,
+            include_extras=True,
+        )["_user"]
+        == FinanceReadUser
+    )
+    assert (
+        get_type_hints(
+            admin_clients_overview.kpi_by_dl,
+            include_extras=True,
+        )["_user"]
+        == FinanceReadUser
+    )
+    assert (
+        get_type_hints(
+            hiring_managers_analytics.hiring_managers_kpi,
+            include_extras=True,
+        )["_user"]
+        == hiring_managers_analytics.HiringManagersReadUser
+    )
+
+
+def test_finance_reads_settings_audit_surfaces_without_gaining_mutations():
+    assert (
+        _current_user_annotation(admin_chats.global_chats)
+        == admin_chats.GlobalChatsReadUser
+    )
+    for endpoint in (
+        admin_client_portfolio.preview_client_portfolio_import,
+        admin_client_portfolio.list_client_portfolio_import_runs,
+        admin_client_portfolio.get_client_portfolio_import_run,
+    ):
+        assert (
+            get_type_hints(endpoint, include_extras=True)["_user"]
+            == admin_client_portfolio.ClientPortfolioReadUser
+        )
+    for endpoint in (
+        linkedin_metrics.list_batch,
+        linkedin_metrics.list_linkedin_users,
+    ):
+        assert (
+            get_type_hints(endpoint, include_extras=True)["_user"]
+            == linkedin_metrics.LinkedInMetricsReadUser
+        )
+    assert (
+        _current_user_annotation(linkedin_metrics.upsert_batch) == HeadOfRecruitmentPlus
+    )
+    assert (
+        get_type_hints(linkedin_metrics.delete_metric, include_extras=True)["_user"]
+        == HeadOfRecruitmentPlus
+    )
+
+
+def test_legacy_order_business_gets_use_finance_extended_reader():
+    for endpoint in (
+        client_orders.list_active_contracts_for_extension,
+        client_orders.get_order,
+        client_orders.download_order_po,
+        client_orders.list_contract_order_documents,
+        client_orders.list_candidate_order_documents,
+    ):
+        assert _user_annotation(endpoint) == client_orders.UnifiedOrderExportReader
+
+    assert (
+        _user_annotation(client_order_groups.list_consultant_options_for_client)
+        == client_order_groups.OrderGroupReader
+    )
+    assert (
+        _user_annotation(client_order_groups.add_line)
+        == client_order_groups.DlAssignedOrAdmin
+    )
+
+
+def test_finance_is_org_reader_for_my_clients_without_becoming_a_dl():
+    assert UserRole.finance in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+    assert UserRole.recruiter not in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+
+
+@pytest.mark.asyncio
+async def test_finance_reads_all_key_relationships_without_owner_filter():
+    class _Result:
+        def all(self):
+            return []
+
+    class _Db:
+        async def execute(self, statement):
+            compiled = str(statement.compile(compile_kwargs={"literal_binds": True}))
+            assert "key_relationship_owner_id" not in compiled
+            return _Result()
+
+    assert (
+        await my_relationships.list_my_key_relationships(
+            _user(UserRole.finance),
+            _Db(),
+        )
+        == []
+    )
+
+
+def test_recruitment_history_gets_use_finance_extended_reader_only():
+    for endpoint in (
+        jobs.champion_consultant_suggestions,
+        jobs.get_champion_historical_matches,
+        jobs.preview_historical_matches_for_new_role,
+        jobs.get_request_history,
+        jobs.preview_request_history,
+        jobs.list_champion_suggestions,
+    ):
+        assert _current_user_annotation(endpoint) == jobs.RecruitmentHistoryReadUser
+
+    assert (
+        _current_user_annotation(jobs.generate_champion_from_history)
+        == DeliveryLeadPlus
+    )
+    assert _current_user_annotation(jobs.add_candidate_from_history) == DeliveryLeadPlus
+
+
+def test_champion_suggestion_detail_is_finance_read_but_actions_stay_tac_plus():
+    assert (
+        _current_user_annotation(champion_suggestions.get_suggestion)
+        == champion_suggestions.ChampionSuggestionReadUser
+    )
+    for endpoint in (
+        champion_suggestions.apply_suggestion_endpoint,
+        champion_suggestions.reject_suggestion_endpoint,
+        champion_suggestions.rate_suggestion_endpoint,
+    ):
+        assert _current_user_annotation(endpoint) == TacPlus
+
+
+def test_contract_signature_reads_include_finance_without_signature_actions():
+    for endpoint in (
+        autenti.list_signatures_for_contract,
+        autenti.get_signature_detail,
+    ):
+        assert _current_user_annotation(endpoint) == autenti.ContractSignatureReadUser
+    for endpoint in (signing.list_signatures, signing.get_signature):
+        assert _current_user_annotation(endpoint) == signing.ContractSignatureReadUser
+
+    for endpoint in (
+        autenti.send_contract_for_signature,
+        autenti.withdraw_signature,
+        signing.send_for_signature,
+        signing.withdraw_signature,
+    ):
+        assert _current_user_annotation(endpoint) == TacPlus
+
+
+def test_finance_calendar_oversight_is_read_only():
+    finance = _user(UserRole.finance)
+    event = SimpleNamespace(
+        created_by=999,
+        attendees=["someone@example.com"],
+        description="internal",
+    )
+
+    assert calendar_access.user_can_view_event(event, finance)
+    assert not calendar_access.user_can_mutate_event(event, finance)
+    assert calendar_access.project_event_fields(event, finance) == {
+        "attendees": ["someone@example.com"],
+        "description": "internal",
+    }
+    assert str(calendar_access.event_visibility_filter(finance)) == "true"
+    assert calendar._resolve_scope_user(999, finance) == 999
+
+
+@pytest.mark.asyncio
+async def test_finance_chat_scope_bypass_exists_only_on_read_helper():
+    finance = _user(UserRole.finance)
+    await job_chat._require_read_access(None, finance, 10)
+    await candidate_chat._require_read_access(None, finance, 20)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        reports.report_delivery_leads,
+        reports.report_delivery_lead_trend,
+        reports.report_invite_links,
+        reports.report_power_calling,
+    ],
+)
+async def test_finance_passes_organization_report_read_guards(endpoint):
+    finance = _user(UserRole.finance)
+    assert await _parameter_dependency(endpoint)(finance) is finance
 
 
 def test_destructive_client_management_is_admin_only():

@@ -5,7 +5,7 @@ import logging
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import (
     APIRouter,
@@ -123,7 +123,7 @@ from app.services.cost_orders import is_cost_order_client
 from app.services.order_rate_snapshots import inherited_order_rate_fields
 from app.services.order_types import suggested_order_type
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, TacPlus
+from app.api.deps import AdminUser, TacPlus, require_roles
 from app.api.financial_access import (
     FinanceReadUser,
     redact_feed_activity,
@@ -137,6 +137,21 @@ from app.services.access_scope import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Existing contract readers (Admin/DL/TAC) plus the organization-wide Finance
+# business reader.  This alias is used only by GET handlers; contract commands
+# keep their existing ``TacPlus``/``AdminUser`` dependencies.
+ContractReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.finance,
+        )
+    ),
+]
 
 # Upload limit — nothing fancy, we're storing contracts + PDFs, not media.
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -969,7 +984,7 @@ async def _ensure_delivery_lead_contract_visible(
 
 @router.get("", response_model=ContractList)
 async def list_contracts(
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -1330,7 +1345,7 @@ def _contract_export_row(
 
 @router.get("/export")
 async def export_contracts(
-    current_user: AdminUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
     q: Optional[str] = Query(None),
@@ -1356,8 +1371,9 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
-    # Eksport zawiera dane kandydata razem ze stawkami i marżą, więc jest
-    # Admin-only. Finance korzysta z bezosobowych raportów finansowych.
+    # Eksport zawiera dane kandydata razem ze stawkami i marżą. Finance ma
+    # jawny organization-wide business read; zapis i lifecycle kontraktu nadal
+    # pozostają poza tą zależnością.
     query = select(Contract).options(
         selectinload(Contract.candidate),
         selectinload(Contract.client),
@@ -1523,7 +1539,7 @@ def _register_export_row(c: Contract) -> list:
 
 @router.get("/register/export")
 async def export_client_register(
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ...,
@@ -1608,7 +1624,7 @@ async def export_client_register(
 
 @router.get("/register/subcategories", response_model=RegisterSubcategoriesResponse)
 async def list_client_register_subcategories(
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
     client_id: int = Query(
         ..., description="Klient, którego podkategorie rekrutacji zwracamy — WYMAGANY."
@@ -2109,7 +2125,7 @@ async def bulk_mark_ended(
 
 @router.get("/expiring", response_model=List[ContractResponse])
 async def expiring_contracts(
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
     days: int = Query(EXPIRY_WARNING_DAYS, ge=1, le=90),
 ):
@@ -2174,7 +2190,7 @@ async def expiring_contracts(
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
 async def get_contract(
-    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: ContractReadUser, db: AsyncSession = Depends(get_db)
 ):
     """Return contract with denormalized candidate/client/job names."""
     result = await db.execute(
@@ -2266,7 +2282,7 @@ async def _related_contracts_for(
 @router.get("/{contract_id}/activities", response_model=List[ContractActivityEntry])
 async def contract_activities(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -2315,7 +2331,7 @@ async def contract_activities(
 )
 async def contract_rate_history(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return rate history for this contract's candidate+client combination."""
@@ -2739,11 +2755,22 @@ def _draft_response(
     available_templates: list[ContractTemplate],
     updated_by_name: Optional[str],
     rendered_from_default: bool,
+    *,
+    content_html_override: Optional[str] = None,
+    template_id_override: Optional[int] = None,
 ) -> ContractDraftResponse:
     return ContractDraftResponse(
         contract_id=contract.id,
-        content_html=contract.draft_content_html,
-        template_id=contract.draft_template_id,
+        content_html=(
+            content_html_override
+            if content_html_override is not None
+            else contract.draft_content_html
+        ),
+        template_id=(
+            template_id_override
+            if template_id_override is not None
+            else contract.draft_template_id
+        ),
         updated_at=contract.draft_updated_at,
         updated_by=contract.draft_updated_by,
         updated_by_name=updated_by_name,
@@ -2757,15 +2784,16 @@ def _draft_response(
 @router.get("/{contract_id}/draft", response_model=ContractDraftResponse)
 async def get_contract_draft(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return editable draft state for a contract.
+    """Return draft state for a contract.
 
     First call (`draft_content_html IS NULL`) lazy-renders the default
-    template for this `contract_type` and persists it. If no default exists,
-    the response carries an empty body and the FE prompts for template
-    selection from `available_templates`.
+    template for this `contract_type`. Existing write roles preserve the legacy
+    persisted initialization; Finance receives the same rendered preview
+    without mutating the contract or activity log. If no default exists, the
+    response carries an empty body.
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     contract_type_value = (
@@ -2776,24 +2804,34 @@ async def get_contract_draft(
     available = await _list_templates_for_contract_type(db, contract_type_value)
 
     rendered_from_default = False
+    preview_content_html: Optional[str] = None
+    preview_template_id: Optional[int] = None
     if contract.draft_content_html is None:
         default = next((t for t in available if t.is_default), None)
         if default is not None:
-            contract.draft_content_html = _render_draft_body(default, contract)
-            contract.draft_template_id = default.id
-            contract.draft_updated_at = datetime.now(timezone.utc)
-            contract.draft_updated_by = current_user.id
             rendered_from_default = True
-            db.add(
-                Activity(
-                    entity_type="contract",
-                    entity_id=contract.id,
-                    action="draft_initialized",
-                    user_id=current_user.id,
-                    details={"template_id": default.id, "template_name": default.name},
+            rendered = _render_draft_body(default, contract)
+            if current_user.has_role(UserRole.finance):
+                preview_content_html = rendered
+                preview_template_id = default.id
+            else:
+                contract.draft_content_html = rendered
+                contract.draft_template_id = default.id
+                contract.draft_updated_at = datetime.now(timezone.utc)
+                contract.draft_updated_by = current_user.id
+                db.add(
+                    Activity(
+                        entity_type="contract",
+                        entity_id=contract.id,
+                        action="draft_initialized",
+                        user_id=current_user.id,
+                        details={
+                            "template_id": default.id,
+                            "template_name": default.name,
+                        },
+                    )
                 )
-            )
-            await db.flush()
+                await db.flush()
 
     updated_by_name: Optional[str] = None
     if contract.draft_updated_by:
@@ -2801,7 +2839,14 @@ async def get_contract_draft(
             select(User.email).where(User.id == contract.draft_updated_by)
         )
 
-    return _draft_response(contract, available, updated_by_name, rendered_from_default)
+    return _draft_response(
+        contract,
+        available,
+        updated_by_name,
+        rendered_from_default,
+        content_html_override=preview_content_html,
+        template_id_override=preview_template_id,
+    )
 
 
 @router.patch("/{contract_id}/draft", response_model=ContractDraftResponse)
@@ -2876,7 +2921,7 @@ async def update_contract_draft(
 @router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
 async def render_draft_for_print(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the draft body wrapped in a printable HTML page.
@@ -2887,6 +2932,18 @@ async def render_draft_for_print(
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     body = contract.draft_content_html
+    if not body and current_user.has_role(UserRole.finance):
+        contract_type_value = (
+            contract.contract_type.value
+            if hasattr(contract.contract_type, "value")
+            else str(contract.contract_type)
+        )
+        available = await _list_templates_for_contract_type(db, contract_type_value)
+        default = next(
+            (template for template in available if template.is_default), None
+        )
+        if default is not None:
+            body = _render_draft_body(default, contract)
     if not body:
         raise HTTPException(
             status_code=404,
@@ -3183,7 +3240,9 @@ async def _document_to_response(
     response_model=List[ContractDocumentResponse],
 )
 async def list_contract_documents(
-    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int,
+    current_user: ContractReadUser,
+    db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
@@ -3289,7 +3348,7 @@ async def update_contract_document(
 async def download_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -3388,7 +3447,9 @@ async def _amendment_to_response(
     response_model=List[ContractAmendmentResponse],
 )
 async def list_contract_amendments(
-    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int,
+    current_user: ContractReadUser,
+    db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
@@ -3624,7 +3685,9 @@ async def create_contract_amendment(
     response_model=List[OnboardingItemResponse],
 )
 async def list_onboarding_items(
-    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int,
+    current_user: ContractReadUser,
+    db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
     res = await db.execute(
@@ -3711,7 +3774,9 @@ async def delete_onboarding_item(
     response_model=List[ContractEquipmentResponse],
 )
 async def list_contract_equipment(
-    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int,
+    current_user: ContractReadUser,
+    db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
@@ -3990,7 +4055,7 @@ async def terminate_contract(
 )
 async def contract_timeline(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500),
 ):

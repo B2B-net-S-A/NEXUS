@@ -7,19 +7,25 @@ after this preview has been exercised against production data.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import AdminUser
+from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.client_directory import ClientImportRun
+from app.models.user import User, UserRole
 from app.services.client_portfolio_import import build_client_portfolio_plan
 
 router = APIRouter()
+
+ClientPortfolioReadUser = Annotated[
+    User,
+    Depends(require_roles(UserRole.admin, UserRole.finance)),
+]
 
 
 def _run_payload(run: ClientImportRun, *, include_rows: bool = False) -> dict[str, Any]:
@@ -61,7 +67,7 @@ def _run_payload(run: ClientImportRun, *, include_rows: bool = False) -> dict[st
 
 @router.get("/import-preview")
 async def preview_client_portfolio_import(
-    _admin: AdminUser,
+    _user: ClientPortfolioReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Build the deterministic production plan without writing any data."""
@@ -71,7 +77,7 @@ async def preview_client_portfolio_import(
 
 @router.get("/import-runs")
 async def list_client_portfolio_import_runs(
-    _admin: AdminUser,
+    _user: ClientPortfolioReadUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -90,7 +96,7 @@ async def list_client_portfolio_import_runs(
 @router.get("/import-runs/{run_id}")
 async def get_client_portfolio_import_run(
     run_id: int,
-    _admin: AdminUser,
+    _user: ClientPortfolioReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     run = await db.scalar(

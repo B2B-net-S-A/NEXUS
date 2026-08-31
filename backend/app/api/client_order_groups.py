@@ -233,13 +233,14 @@ async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> N
     """Ta sama decyzja dostępu co przy zamówieniach jednoosobowych.
 
     Lustro ``client_orders._require_client_order_read``: linia niesie kandydata
-    i stawki, więc wymaga jawnego przypisania DL/TAC, a nie samej roli.
+    i stawki, więc DL/TAC wymagają jawnego przypisania. Finance ma organizacyjny
+    business-read niezależny od przypisania.
     """
     await _assert_client(db, client_id)
     # Head of Recruitment i Finanse mają prawo do akcji cyklu życia (patrz
     # `_ORDER_LIFECYCLE_ROLES`), więc muszą też WIDZIEĆ zamówienia — inaczej
-    # dostają uprawnienie do przycisku, którego nigdy nie zobaczą. Poszerzenie
-    # jest wąskie: dotyczy TEJ powierzchni, nie reszty profilu klienta.
+    # dostają uprawnienie do przycisku, którego nigdy nie zobaczą. Finance ma
+    # dodatkowo pełny read pozostałych powierzchni klienta przez client_access.
     if user.has_any_role(UserRole.head_of_recruitment, UserRole.finance):
         return
     access = await resolve_client_access(db, user, client_id)
@@ -280,13 +281,11 @@ def _has_md_line_management_role(user: User) -> bool:
     * **head_of_recruitment NIE** — przechodzi przez ``DlAssignedOrAdmin``
       globalnie, bez przypisania, a przy powierzchniach finansowych repo
       konsekwentnie trzyma go poza (patrz `/settings/clients-overview`),
-    * rola ``finance`` NIE — nie z powodu danych osobowych (od 19.08 finance
-      ma pełny dostęp operacyjny), tylko dlatego, że stawki linii MD to tier
-      ZARZĄDCZY obsady — jak wyżej, poza nim stoi też recruiter i HoR.
+    * rola ``finance`` NIE zapisuje stawek linii MD, ale widzi je przez osobny
+      ``_can_see_finance`` i capability ``VIEW_FINANCE``.
 
-    Uprawnienie do ODCZYTU i ZAPISU jest wyliczane z tej jednej funkcji.
-    Rozdzielenie ich dałoby rolę, która zapisuje stawkę i widzi w jej miejscu
-    „—" — czyli formularz, w którym nie da się sprawdzić własnej pracy.
+    Odczyt i zapis są celowo rozdzielone: role zapisujące nadal widzą stawki,
+    a Finance ma wyłącznie organizacyjny odczyt.
     """
     # Sam test roli. Przypisanie do klienta MUSI być sprawdzone przez trasę.
     return user.has_any_role(UserRole.admin, UserRole.delivery_lead)
@@ -1384,7 +1383,7 @@ async def export_order_groups(
 )
 async def list_consultant_options_for_client(
     client_id: int,
-    user: DlAssignedOrAdmin,
+    user: OrderGroupReader,
     q: str = Query("", max_length=120, description="Imię i nazwisko"),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -1396,19 +1395,16 @@ async def list_consultant_options_for_client(
     Każda pozycja niesie etykietę pochodzenia, bo wybór między dwiema osobami
     o tym samym nazwisku bywa wyborem między „ta, którą tu znamy" a „ta z bazy".
 
-    Bramka zapisu (``DlAssignedOrAdmin``), a nie odczytu: ta lista istnieje
-    wyłącznie po to, żeby nakarmić ``add_line``. Kto nie może dodać linii, nie
-    potrzebuje nazwisk konsultantów z całej bazy.
-
-    Od wdrożenia jawnego typu grupy lista działa dla każdego klienta; dostęp
-    do nazwisk nadal ogranicza ``DlAssignedOrAdmin``.
+    Lista jest odczytem biznesowym: Finance może sprawdzić dostępne osoby i
+    sugerowane stawki w całej organizacji, ale nie zyskuje przez to prawa do
+    ``add_line`` ani żadnej innej mutacji grupy.
     """
-    await _assert_client(db, client_id)
+    await _require_group_read(db, user, client_id)
 
     options, total = await list_consultant_options(
         db, client_id=client_id, query=q, limit=limit
     )
-    include_rate_suggestions = _has_md_line_management_role(user)
+    include_rate_suggestions = _can_see_finance(user)
     return ConsultantOptionsResponse(
         options=[
             ConsultantOptionRead(
@@ -1420,9 +1416,9 @@ async def list_consultant_options_for_client(
                 source=o.source,
                 source_label=o.source_label,
                 job_title=o.job_title,
-                # Endpoint nazwisk jest dostępny także Head of Recruitment,
-                # ale stawki linii prowadzą wyłącznie admin i przypisany DL.
-                # Nie rozszerzamy uprawnień finansowych przy okazji autofillu.
+                # Odczyt stawek jest szerszy od ich zapisu: Finance ma
+                # VIEW_FINANCE, ale mutacje linii nadal wymagają admina albo
+                # przypisanego Delivery Leada.
                 suggested_rate_cost=(
                     o.suggested_rate_cost if include_rate_suggestions else None
                 ),

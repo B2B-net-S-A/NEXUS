@@ -25,22 +25,34 @@ const TABS: TabDef[] = [
     id: "klienci",
     label: "Klienci & Delivery",
     icon: Building2,
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+    roles: [
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "finance",
+    ],
   },
   {
     id: "zarzad",
     label: "Zarząd",
     icon: Briefcase,
-    // Widok P&L/kwotowy nie należy do Delivery Lead.
-    roles: ["admin"],
+    // Widok P&L/kwotowy: Admin oraz Finance w trybie business-read.
+    roles: ["admin", "finance"],
   },
 ];
 
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
-function getDefaultTabForUser(user: AuthUser): TabId {
-  if (hasRole(user, "admin", "head_of_recruitment")) return "klienci";
+export function getDefaultTabForUser(user: AuthUser): TabId {
+  if (hasRole(user, "admin", "head_of_recruitment", "finance")) return "klienci";
   return "rekrutacja";
+}
+
+export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
+  return TABS.filter((tab) => !tab.roles || hasRole(user, ...tab.roles)).map(
+    (tab) => tab.id,
+  );
 }
 
 function isTabId(v: string | null): v is TabId {
@@ -55,7 +67,7 @@ export function InsightsView() {
   const toast = useToast();
 
   const visibleTabs = useMemo(
-    () => TABS.filter((t) => !t.roles || hasRole(user, ...t.roles)),
+    () => TABS.filter((t) => getVisibleInsightTabIds(user).includes(t.id)),
     [user]
   );
 

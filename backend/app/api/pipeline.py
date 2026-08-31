@@ -50,9 +50,10 @@ from app.schemas.pipeline import (
     StageInfo,
     STAGE_LABELS,
 )
-from app.api.candidate_access import CandidatePIIAccess
+from app.api.candidate_access import CandidateFinanceReadAccess, CandidatePIIAccess
 from app.api.deps import AdminUser, CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
+    ensure_job_read_access,
     ensure_job_membership,
     user_can_edit_rates,
     user_can_terminal_transition,
@@ -1027,7 +1028,7 @@ async def get_kanban(
         raise HTTPException(status_code=404, detail="Job not found")
 
     # P1-PIPE-01: reading a job's board is a pipeline ingress — members only.
-    await ensure_job_membership(db, current_user, job.id)
+    await ensure_job_read_access(db, current_user, job.id)
 
     # All CandidateStage rows for this job, newest→oldest per candidate.
     # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
@@ -1219,7 +1220,7 @@ async def get_stage_history(
     """Full stage history for a candidate in a specific job."""
     # P1-PIPE-01: stage history is a per-job pipeline read — members only
     # (same scope as the kanban board).
-    await ensure_job_membership(db, current_user, job_id)
+    await ensure_job_read_access(db, current_user, job_id)
     result = await db.execute(
         select(CandidateStage)
         .where(
@@ -1622,23 +1623,23 @@ async def pipeline_overview(
     response_model=List[PendingVerificationListItem],
 )
 async def list_pending_verifications(
-    current_user: AdminUser,
+    current_user: CandidateFinanceReadAccess,
     job_id: Optional[int] = Query(None, description="Filter by job_id"),
     mine: bool = Query(
         False,
         description=(
             "Legacy compatibility filter: limit to jobs where the current "
-            "administrator is also the assigned delivery_lead. This flag never "
-            "widens the Admin-only authorization policy."
+            "user is also the assigned delivery_lead. This flag only narrows "
+            "the Admin/Finance read scope."
         ),
     ),
     db: AsyncSession = Depends(get_db),
 ):
     """Lista kandydatów oczekujących akceptacji (verification_status=pending).
 
-    Dostępna tylko dla administratora. Rekruter, Delivery Lead i Head of
+    Dostępna dla administratora i Finance. Rekruter, Delivery Lead i Head of
     Recruitment dostaną 403, ponieważ wiersze zawierają oczekiwaną stawkę oraz
-    budżet stanowiska.
+    budżet stanowiska. Akceptacja i odrzucenie pozostają Admin-only.
     """
     query = (
         select(CandidateStage, Candidate, Job, User)

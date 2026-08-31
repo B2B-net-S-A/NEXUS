@@ -6,27 +6,39 @@ Agregaty po `Job.hiring_manager_contact_id`:
 - avg time-to-fill
 - ile aktywnych konsultantów obecnie
 
-Permission: `HeadOfRecruitmentPlus` (admin + head_of_recruitment).
+Permission: organization read for admin, head_of_recruitment and Finance.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import HeadOfRecruitmentPlus
+from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.contact import Contact
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
+from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 
 router = APIRouter()
+
+HiringManagersReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.finance,
+        )
+    ),
+]
 
 
 class HiringManagerKpiRow(BaseModel):
@@ -45,7 +57,7 @@ class HiringManagerKpiRow(BaseModel):
 
 @router.get("", response_model=list[HiringManagerKpiRow])
 async def hiring_managers_kpi(
-    _user: HeadOfRecruitmentPlus,
+    _user: HiringManagersReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Top hiring managers ranking.

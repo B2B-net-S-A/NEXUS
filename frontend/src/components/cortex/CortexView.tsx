@@ -29,6 +29,7 @@ export const CORTEX_ROLES: UserRole[] = [
   "head_of_recruitment",
   "delivery_lead",
   "tac",
+  "finance",
 ];
 
 type TabId =

@@ -106,10 +106,13 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
     UserRole.finance: frozenset(
         {
             AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
+            AnalyticsCapability.VIEW_TEAM_KPI,
             AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
             AnalyticsCapability.VIEW_FINANCE,
             AnalyticsCapability.MANAGE_FINANCE,
             AnalyticsCapability.VIEW_EXECUTIVE,
+            AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
         }
     ),
     UserRole.admin: _ALL,
@@ -170,7 +173,9 @@ def require_dynareporter_section(section: str, cap: AnalyticsCapability):
     """Centralny guard legacy DynaReportera: capability ∩ allowed_sections.
 
     - user musi mieć wymaganą capability (wynikającą z ról), ORAZ
-    - sekcję w ``users.allowed_sections`` (admin bez zawężenia sekcyjnego).
+    - sekcję w ``users.allowed_sections`` (admin bez zawężenia sekcyjnego),
+    - Finance po pomyślnym capability checku widzi każdą sekcję biznesową;
+      techniczna sekcja ``admin`` pozostaje wyłączona.
     Sekcja nigdy nie zwiększa prawa wynikającego z roli; puste lub błędne
     ``allowed_sections`` oznacza brak dostępu.
     """
@@ -185,6 +190,17 @@ def require_dynareporter_section(section: str, cap: AnalyticsCapability):
             )
         if current_user.has_role(UserRole.admin):
             return current_user
+        if current_user.has_role(UserRole.finance):
+            if section not in {"admin", "mindy"}:
+                return current_user
+            if section == "admin":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="DynaReporter admin section is reserved for administrators",
+                )
+            # MINDY uses paid external model calls and persists usage counters.
+            # It remains an explicitly assigned action surface, not an implicit
+            # consequence of organization-wide business reads.
         sections = current_user.allowed_sections
         if not isinstance(sections, list) or section not in sections:
             raise HTTPException(

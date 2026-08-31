@@ -27,6 +27,12 @@ vi.mock("@/store/auth", () => ({
   ) =>
     user?.role === "admin" &&
     (user.capabilities ?? []).includes("manage_finance"),
+  canViewCandidateFinance: (
+    user: { role?: string; capabilities?: string[] } | null,
+  ) =>
+    user?.role === "admin" ||
+    (user?.role === "finance" &&
+      (user.capabilities ?? []).includes("view_finance")),
 }));
 
 vi.mock("@/lib/api/dlPortal", () => ({
@@ -389,7 +395,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(screen.getByText("3320")).toBeInTheDocument();
   });
 
-  it.each(["tac", "delivery_lead", "finance"])(
+  it.each(["tac", "delivery_lead"])(
     "hides candidate finance rows when the server says %s cannot manage them",
     async (role) => {
       // Bramka jest teraz SERWEROWA (`can_manage_finance` w odpowiedzi), bo
@@ -411,6 +417,43 @@ describe("OrdersAndContractsTab card", () => {
       expect(screen.getByText(/okres zamówienia:/)).toBeInTheDocument();
     },
   );
+
+  it("Finance widzi pełne stawki i zachowuje istniejącą terminację kontraktu", async () => {
+    authState.role = "finance";
+    authState.capabilities = ["view_finance"];
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [structuredClone(CONTRACTOR)],
+        total_contractors: 1,
+        can_manage_finance: false,
+      },
+    } as never);
+    const user = userEvent.setup();
+
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+
+    expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
+    expect(screen.getByText(/stawka przychodowa/)).toBeInTheDocument();
+    expect(screen.queryAllByLabelText(/^Edytuj:/)).toHaveLength(0);
+    expect(
+      screen.queryByRole("button", { name: "Uzupełnij zamówienie" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Dodaj przedłużenie/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Zakończ$/ })).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
+    );
+    expect(await screen.findByText(/przychód 150/)).toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+  });
 
   it("TAC widzi dane i terminację, ale żadnej mutacji zamówienia okresowego", async () => {
     authState.role = "tac";

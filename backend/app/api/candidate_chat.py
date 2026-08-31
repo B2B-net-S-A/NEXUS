@@ -65,6 +65,17 @@ async def _require_member(db: AsyncSession, user: User, candidate_id: int) -> No
         )
 
 
+async def _require_read_access(
+    db: AsyncSession,
+    user: User,
+    candidate_id: int,
+) -> None:
+    """GET-only organization oversight for Finance; membership for everyone else."""
+    if user.has_role(UserRole.finance):
+        return
+    await _require_member(db, user, candidate_id)
+
+
 def _user_to_mini(user: Optional[User]) -> Optional[ChatUserMini]:
     if user is None:
         return None
@@ -189,7 +200,7 @@ async def list_messages(
     before_id: Optional[int] = Query(None, ge=1),
     search: Optional[str] = Query(None, min_length=1, max_length=200),
 ) -> CandidateChatMessageList:
-    await _require_member(db, current_user, candidate_id)
+    await _require_read_access(db, current_user, candidate_id)
 
     q = select(CandidateChatMessage).where(
         CandidateChatMessage.candidate_id == candidate_id
@@ -497,7 +508,7 @@ async def list_pinned(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[CandidateChatMessageResponse]:
-    await _require_member(db, current_user, candidate_id)
+    await _require_read_access(db, current_user, candidate_id)
     rows = (
         (
             await db.execute(
@@ -566,7 +577,7 @@ async def unread_count(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CandidateChatUnreadCount:
-    await _require_member(db, current_user, candidate_id)
+    await _require_read_access(db, current_user, candidate_id)
     state = (
         await db.execute(
             select(CandidateChatReadState).where(
@@ -598,7 +609,7 @@ async def list_members(
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[ChatUserMini]:
-    await _require_member(db, current_user, candidate_id)
+    await _require_read_access(db, current_user, candidate_id)
     members = await list_candidate_chat_members(db, candidate_id)
     return [_user_to_mini(u) for u in members if u is not None]
 
@@ -731,7 +742,7 @@ async def message_read_by(
 
     Derived z `candidate_chat_read_state.last_read_message_id >= msg_id`.
     """
-    await _require_member(db, current_user, candidate_id)
+    await _require_read_access(db, current_user, candidate_id)
     msg = await db.get(CandidateChatMessage, msg_id)
     if msg is None or msg.candidate_id != candidate_id:
         raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")
