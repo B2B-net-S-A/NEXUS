@@ -3,7 +3,7 @@
  *
  * Sześć sekcji dzieliło jedną lukę: kit (`_shared.tsx`) miał `LoadingSpinner`,
  * ale nie miał NIC na awarię. Efekt: `if (!data) return null` (BoardKPI,
- * TendersSection, InviteLinksSection) albo zdanie o rekrutacji zamiast zdania
+ * InviteLinksSection) albo zdanie o rekrutacji zamiast zdania
  * o systemie (FunnelSection, TimeToHireSection, ActivityHeatmap).
  *
  * Testy odrzucają obietnice API, czyli idą tą samą ścieżką co defekt.
@@ -37,7 +37,6 @@ import { ActivityHeatmap } from "@/components/insights/sections/ActivityHeatmap"
 import { BoardKPI } from "@/components/insights/sections/BoardKPI";
 import { FunnelSection } from "@/components/insights/sections/FunnelSection";
 import { TimeToHireSection } from "@/components/insights/sections/TimeToHireSection";
-import { SalesOverview } from "@/components/insights/sections/SalesOverview";
 
 function httpError(status: number) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status } });
@@ -81,61 +80,6 @@ describe("sekcje insights — awaria zapytania", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Brak kursu NBP dla walut: GBP",
     );
-  });
-
-  it("SalesOverview pokazuje ostrzeżenie i ukrywa pozornie pełny margin%", async () => {
-    mocks.sales.mockResolvedValue({
-      data: {
-        total_revenue: 5000,
-        total_margin: 1000,
-        active_consultants: 2,
-        active_contracts: 2,
-        new_contracts_this_month: 1,
-        mrr_trend: [],
-        ending_contracts_30days: [],
-        top_clients: [],
-        finance_quality: "unavailable",
-        finance_warnings: ["Brak kursu NBP dla walut: GBP"],
-      },
-    });
-
-    renderSection(<SalesOverview />);
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Brak kursu NBP dla walut: GBP",
-    );
-    expect(screen.getByText("Marża % niedostępna")).toBeInTheDocument();
-    expect(screen.queryByText("20% marży")).not.toBeInTheDocument();
-  });
-
-  it("SalesOverview pokazuje własną walutę i jednostkę kończącego się kontraktu", async () => {
-    mocks.sales.mockResolvedValue({
-      data: {
-        total_revenue: 0,
-        total_margin: 0,
-        active_consultants: 1,
-        active_contracts: 1,
-        new_contracts_this_month: 0,
-        mrr_trend: [],
-        ending_contracts_30days: [
-          {
-            contract_id: 71,
-            client_name: "Euro Client",
-            end_date: "2026-09-01",
-            rate_client: 100,
-            rate_client_currency: "EUR",
-            rate_unit: "daily",
-          },
-        ],
-        top_clients: [],
-        finance_quality: "complete",
-      },
-    });
-
-    renderSection(<SalesOverview />);
-
-    expect(await screen.findByText("Euro Client")).toBeInTheDocument();
-    expect(screen.getByText(/100.*€.*\/dzień/)).toBeInTheDocument();
   });
 
   it("BoardKPI przy 500 mówi o awarii zamiast znikać z ekranu", async () => {

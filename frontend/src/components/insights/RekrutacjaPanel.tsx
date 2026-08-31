@@ -8,7 +8,10 @@ import { FunnelSection } from "@/components/insights/sections/FunnelSection";
 import { TimeToHireSection } from "@/components/insights/sections/TimeToHireSection";
 import { SLAAlertsSection } from "@/components/insights/sections/SLAAlertsSection";
 import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
-import { PeriodSelector, type Period } from "@/components/insights/sections/PeriodSelector";
+import {
+  PeriodSelector,
+  type Period,
+} from "@/components/insights/sections/PeriodSelector";
 
 export function RekrutacjaPanel() {
   const user = useAuthStore((s) => s.user);
@@ -28,21 +31,12 @@ export function RekrutacjaPanel() {
       params.set("period", next);
       router.push(`/insights?${params.toString()}`);
     },
-    [router, searchParams]
+    [router, searchParams],
   );
-  // R0 (plan analytics 2026-07-16): heatmapa bazuje na imiennym leaderboardzie
-  // (/api/activities/leaderboard, VIEW_RECRUITMENT_RANKING) — viewer `user`
-  // widzi wyłącznie agregaty (lejek, TTH, źródła), bez rankingu osób.
-  const canSeeRanking = hasRole(
-    user,
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "tac",
-    "recruiter",
-    "sourcer",
-    "finance",
-  );
+  // D7 (Artur, 2026-08-31): bramka rolowa na imiennym rankingu ZDJĘTA —
+  // /insights widzi każda zalogowana rola. Nie przywracaj jej tutaj bez
+  // zmiany decyzji w docs/insights-dynareporter-migration-plan.md §0 D7;
+  // ukryta sekcja przy otwartym API to split-brain, nie zabezpieczenie.
 
   return (
     <div className="space-y-6">
@@ -53,7 +47,7 @@ export function RekrutacjaPanel() {
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
-      {canSeeRanking && <ActivityHeatmap period={period} />}
+      <ActivityHeatmap period={period} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <FunnelSection />
