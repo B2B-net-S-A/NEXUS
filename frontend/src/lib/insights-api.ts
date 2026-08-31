@@ -134,3 +134,354 @@ export const insightsApi = {
       )
       .then((r) => r.data),
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zarząd (`/api/insights/board`) i Klienci & Delivery
+// (`/api/insights/clients/*`, `/api/insights/delivery-leads*`).
+//
+// Wszystkie liczby procentowe i kwotowe są `number | null`. `null` ZNACZY
+// „nie dało się policzyć" (zerowy mianownik, brak kursu NBP) i musi się
+// wyrenderować jako „—”. Zamiana na `0` czyta się jako wynik biznesowy,
+// a to jest ta różnica, którą backend świadomie utrzymuje w każdej z tych
+// tras (`_ratio` zwraca `None`, nigdy `0.0`).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Porównanie okresu do poprzedniego. `change_pct === null` = brak mianownika. */
+export interface InsightsDelta {
+  current: number | null;
+  previous: number | null;
+  delta: number | null;
+  change_pct: number | null;
+}
+
+export interface InsightsBoardFinance {
+  /** Dzień, NA KTÓRY wyceniono MRR — bez niego nie da się sprawdzić kafla. */
+  asof: string;
+  basis: string;
+  revenue_monthly_pln: number | null;
+  consultant_cost_monthly_pln: number | null;
+  margin_monthly_pln: number | null;
+  margin_pct: number | null;
+  active_consultants: number;
+  active_contracts: number;
+  priced_contracts: number;
+  /** Kontrakty bez stawki kandydata — ich marża jest NIEZNANA, nie zerowa. */
+  contracts_without_cost_leg: number;
+  complete: boolean;
+}
+
+export interface InsightsBoardKpis {
+  /** Nazwa definicji placementu — do napisania na kaflu (trzy różne w apce). */
+  placements_definition: string;
+  placements: number;
+  verified: number;
+  cv_sent: number;
+  interview: number;
+  funnel_efficiency_pct: number | null;
+  jobs_closed: number;
+  jobs_closed_with_placement: number;
+  hit_ratio_pct: number | null;
+  hit_ratio_definition: string;
+  finance: InsightsBoardFinance;
+}
+
+export interface InsightsBoardTrendMonth {
+  month: string;
+  label: string;
+  asof: string;
+  placements: number;
+  revenue_monthly_pln: number | null;
+  consultant_cost_monthly_pln: number | null;
+  margin_monthly_pln: number | null;
+  consultants: number;
+  active_contracts: number;
+  /** `false` = któraś kwota tego miesiąca wypadła z sumy (brak kursu NBP). */
+  complete: boolean;
+}
+
+export interface InsightsBoardDegraded {
+  reasons: string[];
+  fx: {
+    currencies: string[];
+    kpi_contracts_excluded_from_revenue: number;
+    kpi_contracts_excluded_from_margin: number;
+    months_affected: string[];
+  };
+  contracts_without_cost_leg: number;
+  message: string;
+}
+
+export interface InsightsBoardResponse {
+  period: InsightsPeriod;
+  kpis: InsightsBoardKpis;
+  trend: { months: InsightsBoardTrendMonth[] };
+  comparison: {
+    previous_period: InsightsPeriod;
+    previous_asof: string;
+    placements: InsightsDelta;
+    revenue_monthly_pln: InsightsDelta;
+    margin_monthly_pln: InsightsDelta;
+    active_consultants: InsightsDelta;
+    complete: boolean;
+  };
+  /** `null` = policzone w całości. Degraduje KAFEL, nie stronę. */
+  degraded: InsightsBoardDegraded | null;
+}
+
+export interface InsightsClientRankingRow {
+  client_id: number;
+  name: string;
+  industry: string | null;
+  head_dl_id: number | null;
+  head_dl_name: string | null;
+  total_revenue_all_time: number | null;
+  active_revenue: number | null;
+  monthly_margin_total: number | null;
+  active_orders_count: number;
+  active_consultants: number;
+  active_contracts: number;
+  framework_status: string | null;
+  framework_expiry_date: string | null;
+  /** `false` = brak kursu NBP skasował kwotę z sumy tego wiersza. */
+  revenue_complete: boolean;
+  margin_complete: boolean;
+}
+
+export interface InsightsClientsRankingResponse {
+  period: InsightsPeriod;
+  valuation: { on: string; basis: string; note: string };
+  /**
+   * Kafle są FOLDEM po tej samej liście, którą niesie `clients` — kwoty
+   * sumują się z już zaokrąglonych składników, więc kafel da się sprawdzić
+   * dodając kolumnę na ekranie. Nie licz ich drugim zapytaniem.
+   */
+  totals: {
+    clients: number;
+    active_clients: number;
+    active_consultants: number;
+    active_contracts: number;
+    active_orders_count: number;
+    monthly_margin_complete: boolean;
+    revenue_complete: boolean;
+    monthly_margin_total: number;
+    total_revenue_all_time: number;
+    active_revenue: number;
+  };
+  clients: InsightsClientRankingRow[];
+}
+
+export interface InsightsClientHitRatioRow {
+  client_id: number;
+  client_name: string;
+  client_status: string | null;
+  closed_jobs: number;
+  filled_jobs: number;
+  lost_jobs: number;
+  total_vacancies: number;
+  placements: number;
+  hit_ratio: number | null;
+  fill_rate: number | null;
+  active_jobs: number;
+  /** `null` = nie da się ocenić. To NIE jest `false`. */
+  target_achieved: boolean | null;
+  close_reasons: Record<string, number>;
+}
+
+export interface InsightsClientAtRiskRow extends InsightsClientHitRatioRow {
+  prev_hit_ratio: number;
+  prev_closed_jobs: number;
+  delta_pp: number;
+}
+
+export interface InsightsClientsHitRatioResponse {
+  period: InsightsPeriod;
+  placement_definition: string;
+  sort: string;
+  /** Próg odsiewu ECHOWANY przez serwer — kafle liczą się PO tym filtrze. */
+  min_closed: number;
+  excluded_reasons: string[];
+  clients: InsightsClientHitRatioRow[];
+  overall: {
+    total_clients: number;
+    clients_with_closed_jobs: number;
+    total_closed_jobs: number;
+    total_filled_jobs: number;
+    total_lost_jobs: number;
+    total_vacancies: number;
+    total_placements: number;
+    global_hit_ratio: number | null;
+    global_fill_rate: number | null;
+    avg_hit_ratio: number | null;
+    avg_fill_rate: number | null;
+    target_count: number;
+    hit_ratio_target_pct: number;
+  };
+  at_risk: {
+    previous_period: InsightsPeriod;
+    drop_threshold_pp: number;
+    min_closed: number;
+    clients: InsightsClientAtRiskRow[];
+    /**
+     * Klienci bez punktu odniesienia w poprzednim oknie. Bez tej liczby pusta
+     * lista at-risk czyta się jako „nikt nie spada", a znaczy „nie było czego
+     * porównać".
+     */
+    not_comparable: number;
+  };
+}
+
+export interface InsightsDeliveryLeadRow {
+  user_id: number;
+  name: string;
+  is_active: boolean;
+  total_requests: number;
+  total_vacancies: number;
+  placements: number;
+  hit_ratio: number | null;
+  fill_rate: number | null;
+  avg_vacancies_per_request: number | null;
+  open_requests: number;
+  open_vacancies: number;
+  target_achieved: boolean | null;
+  clients: string[];
+}
+
+export interface InsightsDeliveryLeadsResponse {
+  period: InsightsPeriod;
+  /** Ranking dotyczy WYŁĄCZNIE ofert tego typu — nie zsumuje się do lejka. */
+  recruitment_type: string;
+  hit_ratio_target_pct: number;
+  /** `snapshot_now` = otwarty pipeline NIE jest liczony w oknie. */
+  open_pipeline_scope: string;
+  /** Licznik i mianownik hit ratio pochodzą z różnych kohort. */
+  hit_ratio_is_cross_cohort: boolean;
+  per_dl: InsightsDeliveryLeadRow[];
+  overall: {
+    dl_count: number;
+    total_requests: number;
+    total_vacancies: number;
+    total_placements: number;
+    total_open_requests: number;
+    total_open_vacancies: number;
+    hit_ratio: number | null;
+    fill_rate: number | null;
+    avg_hit_ratio: number | null;
+    dl_with_hit_ratio: number;
+    not_assessable_count: number;
+    target_count: number;
+  };
+  /** Org-level, NIGDY w czyimś wierszu. Musi być widoczne obok rankingu. */
+  unattributed: {
+    requests: number;
+    vacancies: number;
+    placements: number;
+    open_requests: number;
+  };
+}
+
+export interface InsightsPlacementsByClientResponse {
+  period: InsightsPeriod;
+  recruitment_type: string;
+  total_placements: number;
+  clients: Array<{
+    client_id: number | null;
+    client_name: string;
+    placements: number;
+    share_pct: number | null;
+  }>;
+}
+
+export interface InsightsDeliveryLeadTrendResponse {
+  dl_id: number;
+  name: string;
+  is_active: boolean;
+  months: number;
+  recruitment_type: string;
+  /** `false` — każdy punkt to OSOBNE okno [start, end), nie ogon do dziś. */
+  cumulative: boolean;
+  trend: Array<{
+    month: string;
+    period: InsightsPeriod;
+    requests: number;
+    vacancies: number;
+    placements: number;
+    hit_ratio: number | null;
+    fill_rate: number | null;
+  }>;
+}
+
+export interface InsightsHitRatioOptions {
+  min_closed?: number;
+  sort?: "hit_ratio" | "volume" | "name";
+  exclude_reasons?: string;
+  drop_pp?: number;
+  at_risk_min_closed?: number;
+}
+
+/**
+ * Klucze react-query współdzielone przez sekcję i panel.
+ *
+ * Panel powtarza zapytanie sekcji WYŁĄCZNIE po to, żeby `PeriodPicker` mógł
+ * pokazać okno policzone przez serwer. Deduplikacja działa tylko przy
+ * IDENTYCZNYM kluczu, więc klucz ma jedno źródło — dwie literalne tablice
+ * rozjechałyby się po pierwszym refaktorze i panel odpalałby drugie zapytanie.
+ */
+export const insightsQueryKeys = {
+  board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
+  clientsRanking: (p: InsightsPeriodParams) =>
+    ["insights", "clients", "ranking", p] as const,
+  clientsHitRatio: (p: InsightsPeriodParams, o: InsightsHitRatioOptions) =>
+    ["insights", "clients", "hit-ratio", p, o] as const,
+  deliveryLeads: (p: InsightsPeriodParams) =>
+    ["insights", "delivery-leads", p] as const,
+  placementsByClient: (p: InsightsPeriodParams) =>
+    ["insights", "delivery-leads", "by-client", p] as const,
+  deliveryLeadTrend: (dlId: number, months: number) =>
+    ["insights", "delivery-leads", "trend", dlId, months] as const,
+};
+
+export const insightsBoardApi = {
+  board: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsBoardResponse>("/api/insights/board", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  clientsRanking: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsClientsRankingResponse>("/api/insights/clients/ranking", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  clientsHitRatio: (p: InsightsPeriodParams, o: InsightsHitRatioOptions = {}) =>
+    api
+      .get<InsightsClientsHitRatioResponse>("/api/insights/clients/hit-ratio", {
+        params: { ...periodQuery(p), ...o },
+      })
+      .then((r) => r.data),
+
+  deliveryLeads: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsDeliveryLeadsResponse>("/api/insights/delivery-leads", {
+        params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  placementsByClient: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsPlacementsByClientResponse>(
+        "/api/insights/delivery-leads/placements-by-client",
+        { params: periodQuery(p) },
+      )
+      .then((r) => r.data),
+
+  deliveryLeadTrend: (dlId: number, months: number) =>
+    api
+      .get<InsightsDeliveryLeadTrendResponse>(
+        `/api/insights/delivery-leads/${dlId}/trend`,
+        { params: { months } },
+      )
+      .then((r) => r.data),
+};
