@@ -464,3 +464,38 @@ PR **8** i **9** (§E) są **odblokowane** — z trzema poprawkami do specyfikac
 `lower(email)` wystarczy jako klucz (bez tieru „ten sam localpart, dowolna
 domena", którego §F.11 słusznie zakazuje); sync raportuje niedopasowania w obie
 strony; kafel nazywa się „dni robocze minus urlop", nie „dni przepracowane".
+
+---
+
+## H. Stan wykonania (aktualizowane w trakcie PR #1314)
+
+### H.1 Zrobione
+
+| Obszar | Co dokładnie |
+|---|---|
+| **Power Calling** | Usunięty zmyślony dzielnik `POWER_CALLING_WORKDAYS = 5`. `per_day`/`meets_target`/`progress_pct` → `None`, wszyscy w `not_assessable`, próg tygodniowy jako liczba bezwzględna. Test-strażnik blokuje powrót jakiejkolwiek stałej. |
+| **Kontrakt okresu** | `resolve_period(kind, *, offset, anchor)` + `Period.cache_suffix`. `offset=0` ≡ dotychczasowe zachowanie, więc zmiana niezrywająca. `offset`/`anchor` przy `custom` → 422, nie ciche zignorowanie. |
+| **Kontrakt pustki** | `resolveViewState` przyjmuje `isSuccess`; bez niego przerwa między ponowieniami react-query renderowała AWARIĘ jako „brak danych". |
+| **`/api/insights/recruitment`** | `funnel` (dwa źródła, jawnie oznaczone), `conversions`, `time-to-hire` (od prawdziwego początku procesu), `available-periods`. |
+| **`/api/insights/board`** | Placementy wg D2, `placements_definition` w odpowiedzi, uczciwy `hit_ratio`, brak FX → jawny `degraded`, przetargi wycięte. |
+| **`/api/insights/clients`** | `ranking` + `hit-ratio`; kwoty z harmonogramów, logika współdzielona z `/api/admin/clients-overview` przez `services/insights_clients.py` (bez kopiowania SQL-a, bez ruszania tamtego guardu). |
+| **`/api/insights/delivery-leads`** | Ranking, trend (każdy miesiąc we WŁASNYM oknie — naprawa martwego kodu z `reports.py:913-916`), `placements-by-client`. Nazwy klientów kanonizowane jak w zakładce Klienci. |
+| **RBAC D7** | Sześć luster listy ról zdjętych, w tym cztery gołe `hasRole` w ciele `KlienciPanel`. `ROLE_CAPABILITIES` i middleware nietknięte. `/api/competitions/current` i `/monthly-races` poszerzone (jedyny router z konsumentem wyłącznie w /insights); `/history` świadomie NIE. |
+| **Wycięte** | `SalesOverview`, `TendersSection` (poza zakresem), `FunnelSection` (czwarta definicja lejka), `TimeToHireSection` (zaniżał), `SLAAlertsSection` (zero alertów — żaden etap nie ma SLA). |
+
+### H.2 Dwa defekty złapane przez przegląd adwersarialny, nie przez testy
+
+**Lejek listował 13 etapów jako pochodzące z `analytics_first_milestones`.** Widok niesie **dokładnie sześć** (`pg_get_viewdef`: `verified`, `cv_sent`, `interview`, `client_interview`, `acceptance`, `hired`). Efekt był dokładnie tym defektem, przed którym broni docstring modułu, tylko odwrócony: „Nowi", „Screening", „Odrzucony" i „Wycofany" miały `mapped_from_traffit=True`, więc API twierdziło, że ich twarde zero to **obserwacja** — a `client_interview` i `acceptance`, które w widoku SĄ i mają realne liczby, były oznaczone jako nieodnotowywane.
+
+Pierwotny test tego nie łapał, bo asertował zgodność `stages[].mapped_from_traffit` z `coverage.stages_not_mapped_from_traffit` — czyli **dwóch pól tej samej odpowiedzi**. Test, który porównuje odpowiedź sama ze sobą, przechodzi niezależnie od tego, czy jest prawdziwa.
+
+**Otwarte zakładki wołały wciąż wąskie endpointy.** Sweep RBAC zdjął bramki z zakładek Klienci i Zarząd, ale ich sekcje nadal szły na `/api/admin/clients-overview` (`FinanceReadUser`) i `/api/reports/board` (`FinanceReadUser`) — więc dla większości ról otwarta zakładka kończyła się czerwonym „Błąd ładowania" bez ponowienia. To jest split-brain w drugą stronę niż #1215: nie menu bez dostępu, tylko dostęp bez danych.
+
+### H.3 Zostaje do zrobienia
+
+| Rzecz | Dlaczego nie w tym PR |
+|---|---|
+| **D5 — dni robocze z COMPASSA** | Bramka pomiarowa przeszła (§G), ale integracja to praca po OBU stronach repo — endpoint push w COMPASSIE + konsument w NEXUSIE. Osobny PR, po obu stronach. |
+| **D6 — seniority z placementów** | Weryfikacja adwersarialna wykazała, że `import_users` zakłada konta niedopasowanych operatorów Traffita z rolą domyślną `recruiter` i robi to w NOCNYM syncu — więc regułą „N placementów w oknie" awansowałyby konta-widma. Wymaga najpierw rozstrzygnięcia, kto jest realnym rekruterem. |
+| **D3 — konfigurowalne wagi Ligi** | Zmiana formuły przesuwa podium, a podium ma kwoty. Osobny PR z wypisaniem starego i nowego podium obok siebie PRZED merge'em. |
+| **Sprzątanie osieroconych sekcji** | `BoardKPI`, `ClientsRanking`, `ClientsHitRatio`, `DLRevenueLeaderboard` nie mają już konsumenta. Kasowanie to Etap 7. |
