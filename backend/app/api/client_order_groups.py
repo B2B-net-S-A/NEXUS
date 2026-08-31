@@ -2256,14 +2256,17 @@ async def _assert_group_is_disposable(
     wymagał, żeby dało się usunąć POMYŁKĘ — i to zostaje możliwe.
 
     Nie blokujemy zakończonych ani wyczerpanych: „zakończone" to normalny
-    koniec życia, a nie powód, żeby wiersz był nieusuwalny. Blokuje wyłącznie
-    ŚLAD ROZLICZENIOWY.
+    koniec życia, a nie powód, żeby wiersz był nieusuwalny. Nie blokuje też
+    wgrany PDF — jego los przy kasowaniu jest osobno przemyślany. Blokuje
+    wyłącznie ŚLAD ROZLICZENIOWY: pieniądze i dni, które ktoś już zaraportował.
     """
     blockers: list[str] = []
 
-    if group.file_path:
-        blockers.append("wgrany dokument zamówienia (PDF)")
-
+    # Wgrany PDF NIE blokuje — to świadoma, obsłużona ścieżka: automatyczne
+    # kopie na kontraktach zostają jako zapis historyczny (FK źródła idzie na
+    # NULL), a master usuniętej grupy nie ma już konsumenta. Traktowanie pliku
+    # jak śladu rozliczeniowego wywracało `test_deleting_future_group_keeps_
+    # pdf_as_historical_contract_document`, czyli regresję tej decyzji.
     shared_md_months = await db.scalar(
         select(func.count(ClientOrderGroupMdConsumption.id)).where(
             ClientOrderGroupMdConsumption.group_id == group.id

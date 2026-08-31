@@ -220,7 +220,7 @@ w przód) konsultantów dodajesz normalnie — czekają razem z nim na dzień st
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
-| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, faktury, wgrany PDF). Wtedy właściwą akcją jest **Zakończ**. Konsultanci nie znikają nigdy: linia, po której coś zostało, jest **odpinana** od numeru i żyje dalej |
+| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Konsultanci nie znikają nigdy: linia, po której coś zostało, jest **odpinana** od numeru i żyje dalej |
 | **Historia zamówienia** | rozwijana lista zdarzeń z datami i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. **Nie ma tu edycji zrobionych przez „Uzupełnij zamówienie"** — zmiana numeru, dat, notatek czy budżetu nie zostawia śladu |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
