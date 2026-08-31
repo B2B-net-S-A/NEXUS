@@ -149,6 +149,7 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     from app.api import admin_clients_overview, my_clients, reports
     from app.api.clients import _finance_rates_in_pln
     from app.models.client_order import ClientOrderStatus
+    from app.services import insights_clients as insights_clients_service
     from app.services.fx_service import amount_to_pln_with_rate
     from app.services.order_revenue import fold_order_revenue_rows_pln
 
@@ -192,9 +193,13 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     assert has_margin is False
     assert complete is False
 
-    monkeypatch.setattr(admin_clients_overview, "rates_to_pln", missing_fx)
+    # `_margin_lookup_pln` mieszka od refaktoru w `app/services/insights_clients.py`
+    # (ta sama funkcja zasila `/api/admin/clients-overview` i `/api/insights/clients`),
+    # więc podmiana musi celować w moduł, z którego globalnych nazw ona korzysta.
+    # Alias w routerze wskazuje ten sam obiekt, dlatego wywołanie zostaje bez zmian.
+    monkeypatch.setattr(insights_clients_service, "rates_to_pln", missing_fx)
     monkeypatch.setattr(
-        admin_clients_overview, "effective_rate_fields", effective_fields
+        insights_clients_service, "effective_rate_fields", effective_fields
     )
     totals, incomplete = await admin_clients_overview._margin_lookup_pln(
         object(), [contract], date.today()

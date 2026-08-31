@@ -47,17 +47,32 @@ export interface ResolveViewStateInput {
   error?: unknown
   /** Sukces, ale zero rekordów / brak encji. */
   isEmpty?: boolean
+  /**
+   * React Query `isSuccess`. Gdy podany, `"empty"` wolno zwrócić WYŁĄCZNIE
+   * przy sukcesie — inaczej przerwa między ponowieniami udaje pusty wynik.
+   *
+   * Opcjonalny wyłącznie po to, żeby nie zerwać istniejących wywołań.
+   * KAŻDE NOWE wywołanie musi go podawać.
+   */
+  isSuccess?: boolean
 }
 
 /**
  * Zamień stan React Query na jeden z sześciu rozłącznych stanów widoku.
  * Kolejność jest istotna: błąd NIGDY nie może się przebrać za pusty wynik.
+ *
+ * Gałąź `isSuccess === false` zamyka dziurę, przez którą AWARIA renderowała
+ * się jako „brak danych": w przerwie między ponowieniami react-query ma
+ * `isLoading=false`, `isError=false` i wciąż puste `data`, więc bez niej
+ * jedynym pasującym stanem było `"empty"`. Sekcje obchodziły to, podając
+ * `isPending` w miejsce `isLoading` — obejście, nie kontrakt.
  */
 export function resolveViewState({
   isLoading,
   isError,
   error,
   isEmpty,
+  isSuccess,
 }: ResolveViewStateInput): ViewState {
   if (isLoading) return "loading"
   if (isError || error) {
@@ -66,6 +81,9 @@ export function resolveViewState({
     if (status === 404) return "not_found"
     return "error"
   }
+  // Jawne `false` (a nie „falsy") — pominięty `isSuccess` zostawia stare
+  // zachowanie wywołań sprzed tej zmiany.
+  if (isSuccess === false) return "loading"
   if (isEmpty) return "empty"
   return "ready"
 }

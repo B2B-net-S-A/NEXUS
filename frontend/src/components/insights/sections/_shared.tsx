@@ -1,9 +1,10 @@
 "use client";
 
-import type { ElementType } from "react";
-import { TrendingDown, TrendingUp } from "lucide-react";
+import type { ElementType, ReactNode } from "react";
+import { AlertTriangle, HelpCircle, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
+import type { DashboardQualityStatus } from "@/lib/dashboard-v2-api";
 import {
   QueryStateNotice,
   type BlockingViewState,
@@ -193,5 +194,152 @@ export function SectionError({
       description={description}
       onRetry={state === "error" ? onRetry : undefined}
     />
+  );
+}
+
+/** Statusy koperty `data_quality` inne niż „complete" — tylko one degradują kafel. */
+export type DegradedStatus = Exclude<DashboardQualityStatus, "complete">;
+
+const DEGRADED_TITLE: Record<DegradedStatus, string> = {
+  partial: "Dane niepełne",
+  stale: "Dane nieaktualne",
+  unavailable: "Część danych niedostępna",
+};
+
+/**
+ * Degradacja POJEDYNCZEGO kafla, gdy koperta zwraca `quality != "complete"`
+ * (wzorzec `_Quality` z `backend/app/services/dashboard_v2.py`).
+ *
+ * Świadomie NIE baner na górze strony (R6): koperta niesie jakość per sekcja,
+ * więc baner zbiorczy podważałby też te kafle, które policzyły się w całości —
+ * a to uczy ignorować ostrzeżenie. Liczby zostają widoczne: „niepełne" to nie
+ * to samo co „nieznane", a schowanie ich cofnęłoby nas do pustki udającej dane.
+ */
+export function Degraded({
+  reason,
+  status = "partial",
+  className,
+}: {
+  /** Ostrzeżenia z koperty (`data_quality.warnings`) albo jedno zdanie. */
+  reason: string | string[];
+  status?: DegradedStatus;
+  className?: string;
+}) {
+  // Puste ostrzeżenia po odsianiu = nie ma czego napisać. Pasek bez treści
+  // mówiłby „coś jest nie tak" i nie dawał żadnego tropu, więc go nie ma.
+  const reasons = (Array.isArray(reason) ? reason : [reason])
+    .map((r) => r?.trim())
+    .filter((r): r is string => Boolean(r));
+  if (reasons.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className={cn(
+        "flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900",
+        "dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-200",
+        className
+      )}
+    >
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <div className="space-y-0.5">
+        <p className="font-medium">{DEGRADED_TITLE[status]}</p>
+        {reasons.map((r) => (
+          <p key={r} className="opacity-90">
+            {r}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Kody powodów, dla których wiersza NIE DA SIĘ ocenić.
+ *
+ * `no_workday_data` / `no_compass_profile` / `calendar_gap` — trzecia lista
+ * Power Callingu (brak mianownika dni roboczych). `no_data` — D6, ścieżka
+ * rozwoju bez ani jednego atrybuowanego placementu.
+ */
+const NOT_ASSESSABLE_REASON: Record<string, string> = {
+  no_workday_data:
+    "Brak danych o nieobecnościach — nie ma z czego policzyć dziennego mianownika.",
+  no_compass_profile:
+    "Brak powiązanego profilu w COMPASSIE — nie znamy dni roboczych tej osoby.",
+  calendar_gap:
+    "Luka w kalendarzu dni roboczych — okres nie jest pokryty w całości.",
+  stale_workday_data:
+    "Dane o nieobecnościach starsze niż jeden interwał synchronizacji.",
+  no_data:
+    "Brak przypisanych placementów w NEXUSIE — poziom nie jest liczony.",
+};
+
+export interface NotAssessableRow {
+  /** Klucz listy: `user_id` z Power Callingu, `id` z D6. */
+  id?: string | number | null;
+  name?: string | null;
+  /** Kod powodu z backendu. */
+  reason?: string | null;
+  /** Doprecyzowanie z backendu, np. „dane od 03.2026". */
+  hint?: string | null;
+}
+
+/**
+ * Lista osób, których w tym okresie NIE OCENIAMY.
+ *
+ * Sedno: ten komponent nie ma gdzie wyrenderować liczby. Wiersz bez mianownika
+ * wrzucony do zwykłej tabeli dostaje `0` i czerwony próg, czyli „wiemy, że
+ * słabo" zamiast „nie wiemy" — dokładnie ten defekt zamyka rozbicie Power
+ * Callingu na trzy listy. Dlatego wychodzi stąd nazwisko i powód po polsku,
+ * i nic poza tym.
+ */
+export function NotAssessable({
+  rows,
+  title = "Nieoceniani w tym okresie",
+  footnote,
+}: {
+  rows: NotAssessableRow[];
+  title?: string;
+  footnote?: ReactNode;
+}) {
+  // Wiersz bez nazwiska I bez powodu nie ma treści — pusty wiersz na takiej
+  // liście czyta się jak błąd renderowania, nie jak informacja.
+  const visible = rows.filter((row) => row?.name?.trim() || row?.reason?.trim());
+  // Pusta lista = wszyscy są oceniani. Nagłówek nad zerem wierszy sugerowałby,
+  // że dane się nie doczytały.
+  if (visible.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-dashed border-border p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <HelpCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        <h3 className="text-sm font-medium text-foreground">{title}</h3>
+        <span className="ml-auto text-xs text-muted-foreground">{visible.length}</span>
+      </div>
+      <ul className="space-y-1.5">
+        {visible.map((row, index) => {
+          const code = row.reason?.trim();
+          // Nieznany kod NADAL musi coś powiedzieć — milczący wiersz wygląda
+          // jak brak powodu, a powód zawsze istnieje, tylko my go nie znamy.
+          const explanation = code
+            ? (NOT_ASSESSABLE_REASON[code] ?? `Powód: ${code}.`)
+            : "Powód nieznany — dane wejściowe niekompletne.";
+          return (
+            <li key={row.id ?? `${row.name ?? "?"}-${index}`} className="text-sm">
+              <span className="text-foreground">
+                {row.name?.trim() || "Nieznany użytkownik"}
+              </span>
+              <span className="text-muted-foreground"> — {explanation}</span>
+              {row.hint?.trim() ? (
+                <span className="text-xs text-muted-foreground"> ({row.hint.trim()})</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      {footnote ? (
+        <p className="mt-2 text-xs text-muted-foreground">{footnote}</p>
+      ) : null}
+    </div>
   );
 }

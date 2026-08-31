@@ -100,6 +100,26 @@ describe("resolveViewState — mapowanie statusu HTTP na stan widoku", () => {
       input: { isLoading: false },
       expected: "ready",
     },
+    {
+      name: "isSuccess=true + 0 rekordów → empty (pustka dopiero po sukcesie)",
+      input: { isLoading: false, isError: false, isSuccess: true, isEmpty: true },
+      expected: "empty",
+    },
+    {
+      name: "isSuccess=true + rekordy → ready",
+      input: { isLoading: false, isError: false, isSuccess: true, isEmpty: false },
+      expected: "ready",
+    },
+    {
+      name: "403 przebija isSuccess=false — inaczej 403 byłby wiecznym spinnerem",
+      input: {
+        isLoading: false,
+        isError: true,
+        error: axiosError(403),
+        isSuccess: false,
+      },
+      expected: "forbidden",
+    },
   ]
 
   for (const { name, input, expected } of cases) {
@@ -119,6 +139,33 @@ describe("resolveViewState — mapowanie statusu HTTP na stan widoku", () => {
       expect(state).not.toBe("empty")
       expect(state).not.toBe("ready")
     }
+  })
+})
+
+describe("resolveViewState — przerwa między ponowieniami nie jest pustką", () => {
+  it("isSuccess=false + isEmpty → loading, NIE empty", () => {
+    // Regresja na konkretny defekt (specyfikacja §D.3). React Query między
+    // ponowieniami raportuje `isLoading=false`, `isError=false`, a `data`
+    // wciąż jest puste — więc bez `isSuccess` jedynym pasującym stanem było
+    // "empty". Czyli AWARIA BACKENDU renderowała się jako „brak danych":
+    // zdanie o zespole zamiast zdania o systemie. Sekcje obchodziły to,
+    // podając `isPending` w miejsce `isLoading` — obejście, nie kontrakt.
+    expect(
+      resolveViewState({
+        isLoading: false,
+        isError: false,
+        isSuccess: false,
+        isEmpty: true,
+      })
+    ).toBe("loading")
+  })
+
+  it("pominięty isSuccess zostawia stare zachowanie (zmiana niezrywająca)", () => {
+    // Opcjonalność jest tym, co pozwala zmergować to bez tykania wszystkich
+    // wywołań naraz. KAŻDE NOWE wywołanie musi podawać `isSuccess`.
+    expect(
+      resolveViewState({ isLoading: false, isError: false, isEmpty: true })
+    ).toBe("empty")
   })
 })
 
