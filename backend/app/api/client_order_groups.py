@@ -63,6 +63,7 @@ from app.models.client_order_group import (
     GROUP_STATUS_LABELS,
     ClientOrderGroup,
     ClientOrderGroupEvent,
+    ClientOrderGroupMdConsumption,
 )
 from app.models.client_order_offboarding import (
     OFFBOARDING_RATE_BASIS_DEPARTING,
@@ -129,6 +130,7 @@ from app.services.cyfrowy_polsat_orders import (
 )
 from app.services.dl_alerts import (
     emit_cost_order_exhausted,
+    emit_shared_md_pool_exhausted,
     handle_offboarding_case_alerts,
 )
 from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
@@ -2155,6 +2157,7 @@ async def update_order_group(
                 ),
                 user_id=user.id,
             )
+            await emit_shared_md_pool_exhausted(db, group)
 
     record_event(
         db,
@@ -2206,6 +2209,7 @@ async def delete_order_group(
     )
     lines = list(lines_result.scalars().unique().all())
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
+    await _assert_group_is_disposable(db, group, lines)
     detached = 0
     for line in lines:
         if await _detach_or_delete_line(db, line):
@@ -2231,6 +2235,73 @@ async def delete_order_group(
     # usuniętej grupy nie ma już konsumenta, więc można go bezpiecznie zwolnić.
     if master_path:
         storage_service.delete_client_order_group_po(master_path)
+
+
+async def _assert_group_is_disposable(
+    db: AsyncSession, group: ClientOrderGroup, lines: list[ClientOrder]
+) -> None:
+    """Twardo kasować wolno tylko zamówienie, po którym nic nie zostało.
+
+    Ta sama ostrożność co w ``_detach_or_delete_line``, tyle że o poziom wyżej.
+    Tam była stosowana od początku — „zamówienie konsultanta niesie kontrakt,
+    plik od klienta i historię rozliczeń" — ale samo zamówienie znikało
+    BEZWARUNKOWO, choć niesie więcej: własny dziennik zdarzeń (kasowany
+    kaskadowo), miesięczne rozliczenia wspólnej puli MD i wgrany dokument PO.
+    Linie z historią były odpinane i przeżywały, więc wyglądało to na
+    bezpieczne — a znikał cały ślad, na podstawie którego wystawiono faktury.
+
+    Asymetria nie była decyzją: docstring `delete_order_group` uzasadnia
+    kasowanie LINII razem z zamówieniem („do 0233 zamówienie z liniami było
+    odrzucane 409"), a nie kasowanie zamówienia z rozliczeniami. Ticket
+    wymagał, żeby dało się usunąć POMYŁKĘ — i to zostaje możliwe.
+
+    Nie blokujemy zakończonych ani wyczerpanych: „zakończone" to normalny
+    koniec życia, a nie powód, żeby wiersz był nieusuwalny. Blokuje wyłącznie
+    ŚLAD ROZLICZENIOWY.
+    """
+    blockers: list[str] = []
+
+    if group.file_path:
+        blockers.append("wgrany dokument zamówienia (PDF)")
+
+    shared_md_months = await db.scalar(
+        select(func.count(ClientOrderGroupMdConsumption.id)).where(
+            ClientOrderGroupMdConsumption.group_id == group.id
+        )
+    )
+    if shared_md_months:
+        blockers.append(f"rozliczone miesiące wspólnej puli MD ({shared_md_months})")
+
+    line_ids = [line.id for line in lines]
+    if line_ids:
+        md_rows = await db.scalar(
+            select(func.count(ClientOrderMdConsumption.id)).where(
+                ClientOrderMdConsumption.order_id.in_(line_ids)
+            )
+        )
+        if md_rows:
+            blockers.append(f"rozliczone MD konsultantów ({md_rows})")
+        invoice_rows = await db.scalar(
+            select(func.count(ClientOrderInvoiceConsumption.id)).where(
+                ClientOrderInvoiceConsumption.order_id.in_(line_ids)
+            )
+        )
+        if invoice_rows:
+            blockers.append(f"zaimportowane faktury ({invoice_rows})")
+
+    if not blockers:
+        return
+
+    raise HTTPException(
+        409,
+        detail=(
+            "Tego zamówienia nie można usunąć, bo są na nim rozliczenia: "
+            + ", ".join(blockers)
+            + ". Usunięcie skasowałoby też jego historię. Jeżeli współpraca "
+            "się skończyła — użyj „Zakończ”. Jeżeli to pomyłka do wycofania, "
+            "najpierw usuń z niego rozliczenia."
+        ),
+    )
 
 
 async def _detach_or_delete_line(db: AsyncSession, line: ClientOrder) -> bool:

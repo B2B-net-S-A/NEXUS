@@ -72,9 +72,11 @@ i **Cyfrowego Polsatu** obowiązuje **wspólna pula dni dla całego zamówienia*
 karta pokazuje wtedy napis **„Wspólna pula"**, a przy dodawanym konsultancie
 nie ma pola budżetu.
 
-Różnica jest praktyczna, nie kosmetyczna — od niej zależy, czy dostaniesz
-ostrzeżenie o kończących się dniach (przy wspólnej puli **nie dostaniesz**)
-i czego wymaga miesięczny import z Finansów. Modelu nie da się przełączyć;
+Różnica jest praktyczna, nie kosmetyczna — od niej zależy, **czego wymaga
+miesięczny import z Finansów** (wspólna pula potrzebuje numeru zamówienia
+w kolumnie „Uwagi", sam budżet przy osobie nie) i **czego dotyczą ostrzeżenia
+o kończących się dniach**: przy budżecie przy osobie liczą się dni tej osoby,
+przy wspólnej puli — dni całego zamówienia. Modelu nie da się przełączyć;
 poznajesz go po tym, co widzisz na karcie.
 
 **Nie u każdego klienta masz wszystkie trzy do wyboru.** Cztery firmy mają
@@ -215,7 +217,7 @@ w przód) konsultantów dodajesz normalnie — czekają razem z nim na dzień st
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
-| **Usuń całe zamówienie** | nieodwracalne. **Zamówienie znika z rejestru razem z całą swoją historią — także wtedy, gdy ma już zużycie MD i faktury.** Nie znikają za to konsultanci: linia, po której coś zostało, jest **odpinana** od numeru i żyje dalej; twardo kasowany jest tylko czysty szkic |
+| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, faktury, wgrany PDF). Wtedy właściwą akcją jest **Zakończ**. Konsultanci nie znikają nigdy: linia, po której coś zostało, jest **odpinana** od numeru i żyje dalej |
 | **Historia zamówienia** | rozwijana lista zdarzeń z datami i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. **Nie ma tu edycji zrobionych przez „Uzupełnij zamówienie"** — zmiana numeru, dat, notatek czy budżetu nie zostawia śladu |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
@@ -423,8 +425,8 @@ reakcji. Pięć rodzajów:
 |---|---|---|
 | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (czeka na uzupełnienie) | co 7 dni |
 | **[Klient] — brak stawki przychodowej** | zamówienie bez stawki, którą płaci klient | co 7 dni |
-| **[Klient] — mało MD na zamówieniu [numer]** | konsultantowi zostało 15 MD lub mniej. **Nie działa przy wspólnej puli** (Lotte Wedel, Cyfrowy Polsat) | co 7 dni |
-| **[Klient] — zamówienie [numer] wyczerpane** | budżet **kosztowy** zszedł do zera | raz |
+| **[Klient] — mało MD na zamówieniu [numer]** | zostało 15 MD lub mniej — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | co 7 dni |
+| **[Klient] — zamówienie [numer] wyczerpane** | budżet **kosztowy** albo **wspólna pula MD** zeszły do zera | raz |
 | **[Klient] — decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz |
 
 > **Uwaga na dziurę w pierwszym alercie:** przypomina on o zamówieniach
@@ -449,11 +451,10 @@ osoba) alarmuje od nowa.
 
 **Trzy rzeczy, o których warto wiedzieć zawczasu:**
 
-* **Zamówienie ze wspólną pulą MD nie wysyła ŻADNEGO powiadomienia o budżecie.**
-  Ani „mało MD", ani „wyczerpane". Dotyczy to **Lotte Wedel i Cyfrowego Polsatu**
-  — tam **musisz sam patrzeć na kartę zamówienia**; pomaga filtr „Bliskie
-  wyczerpania budżetu (≥80%)". Alert o wyczerpaniu budżetu przychodzi wyłącznie
-  przy zamówieniach **kosztowych**.
+* **Zamówienie kosztowe nie ostrzega wcześniej — tylko po fakcie.** Odpowiednika
+  progu „mało MD" dla puli w złotych nie ma: alert przychodzi dopiero, gdy kwota
+  zejdzie do zera. Wcześniejszy sygnał daje wyłącznie filtr **Bliskie wyczerpania
+  budżetu (≥80%)**, który trzeba sprawdzać samodzielnie.
 * **Alertu „decyzja MD" nie da się odkliknąć.** Zamyka się dopiero, gdy podejmiesz
   w zamówieniu decyzję o pozostałej puli.
 * **Powiadomienia z pulpitu nie trafiają do dzwonka i odwrotnie.** To dwa osobne
@@ -640,13 +641,11 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * Typy zamówień i wspólna pula są u tego klienta **wpisane w system na stałe** —
   działają niezależnie od konfiguracji. (Nie dotyczy to reguł odczytu PDF-a:
   Lotte Wedel żadnej własnej nie ma.)
-* **Powiadomienia:** przy zamówieniu ze wspólną pulą MD **nie przyjdzie żaden
-  alert o budżecie** — ani „mało MD", ani „wyczerpane". Zamówienie po cichu
-  dostaje status „Wyczerpane" i przestaje przyjmować konsultantów, więc pulę
-  trzeba pilnować samodzielnie (pomaga filtr „Bliskie wyczerpania budżetu
-  (≥80%)"). Przy zamówieniu **kosztowym** przyjdzie jednorazowy alert
-  o wyczerpaniu. Pozostałe sprawy („bez zamówienia", „brak stawki przychodowej")
-  i alerty o końcu zamówienia działają normalnie.
+* **Powiadomienia:** standardowe, a dla wspólnej puli MD dwa własne: **„mało MD"**,
+  gdy w puli zostanie 15 dni lub mniej, oraz jednorazowy alert **o wyczerpaniu**,
+  gdy zejdzie do zera i zamówienie przestanie przyjmować konsultantów. Przy
+  zamówieniu **kosztowym** przychodzi tylko ten drugi — o kończącej się kwocie
+  nie ostrzega nic poza filtrem „Bliskie wyczerpania budżetu (≥80%)".
 
 ### Cyfrowy Polsat
 
@@ -656,10 +655,9 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   konfiguracji. Własnej reguły odczytu PDF-a ten klient nie ma.
 * Zamówienie okresowe zakładasz tu tak jak u każdego innego klienta —
   formularzem „Nowy kontraktor / zamówienie".
-* **Powiadomienia:** standardowe (koniec zamówienia 30/14/7 dni, sprawy
-  „bez zamówienia" i „brak stawki przychodowej"). Poza tym jak u Lotte Wedel:
-  wspólna pula MD **nie wysyła żadnego alertu o budżecie**, a zamówienie kosztowe
-  — jednorazowy alert o wyczerpaniu.
+* **Powiadomienia:** standardowe, a poza tym jak u Lotte Wedel: wspólna pula MD
+  ostrzega przy 15 pozostałych dniach i alarmuje o wyczerpaniu, a zamówienie
+  kosztowe — tylko o wyczerpaniu.
 
 ### Nordea
 

@@ -98,6 +98,11 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/shared_md_orders.py",
     "backend/app/services/client_order_lines.py",
     "backend/app/services/md_import_parser.py",
+    # Import zużycia MD i rozliczeń kosztowych: to on decyduje, czy wiersz
+    # z arkusza w ogóle zejdzie z budżetu, a instrukcja opisuje jego trzy
+    # wyniki dopasowania i wymóg numeru w kolumnie „Uwagi".
+    "backend/app/api/md_consumption.py",
+    "backend/app/services/finance_order_matching.py",
     # ── Cykl życia zamówienia ───────────────────────────────────────────
     "backend/app/services/order_group_lifecycle.py",
     "backend/app/services/order_group_materializer.py",

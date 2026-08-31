@@ -109,7 +109,10 @@ from app.services.md_import_parser import (
     extract_order_number_candidates,
     parse_md_sheet,
 )
-from app.services.dl_alerts import emit_cost_order_exhausted
+from app.services.dl_alerts import (
+    emit_cost_order_exhausted,
+    emit_shared_md_pool_exhausted,
+)
 from app.services.multi_consultant_orders import (
     EVENT_BUDGET_EXHAUSTED,
     EVENT_INVOICE_IMPORT,
@@ -1412,6 +1415,11 @@ async def _settle_shared_md_and_record(
             payload={"period_month": period_month, "import_id": import_id},
             user_id=user_id,
         )
+        # Zdarzenie w historii widzi tylko ten, kto otworzy kartę zamówienia.
+        # Bez tej emisji wyczerpanie wspólnej puli nie docierało do NIKOGO:
+        # próg „mało MD" liczy budżet PRZYPISANY OSOBIE, więc dla Lotte Wedel
+        # i Cyfrowego Polsatu ten alert jest jedynym sygnałem o końcu budżetu.
+        await emit_shared_md_pool_exhausted(db, group)
 
 
 async def _settle_and_record(

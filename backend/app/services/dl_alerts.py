@@ -267,7 +267,42 @@ async def handle_offboarding_case_alerts(
 async def emit_cost_order_exhausted(
     db: AsyncSession, group: ClientOrderGroup
 ) -> list[DlAlert]:
-    """Alert o wyczerpaniu budżetu zamówienia kosztowego.
+    """Alert o wyczerpaniu budżetu zamówienia KOSZTOWEGO (pula w złotych)."""
+
+    return await _emit_budget_exhausted(
+        db,
+        group,
+        detail="Sprawdź rozliczenie i zorganizuj nowe zamówienie.",
+    )
+
+
+async def emit_shared_md_pool_exhausted(
+    db: AsyncSession, group: ClientOrderGroup
+) -> list[DlAlert]:
+    """Alert o wyczerpaniu WSPÓLNEJ PULI MD (Lotte Wedel, Cyfrowy Polsat).
+
+    Ten sam typ alertu co przy zamówieniu kosztowym, bo dla odbiorcy to ta sama
+    sprawa: pula się skończyła, zamówienie przestało przyjmować konsultantów
+    i trzeba coś z tym zrobić. Osobny typ oznaczałby osobną kolumnę w raporcie
+    i osobną pozycję do odklikania, mimo że decyzja jest identyczna.
+
+    Różni się treść, bo różni się jednostka: tam brakło pieniędzy, tu dni.
+    Wspólna pula NIE MA odpowiednika progu „mało MD" — ten działa na budżecie
+    przypisanym osobie — więc dla tych dwóch klientów jest to jedyny sygnał
+    o końcu budżetu, jaki w ogóle przychodzi.
+    """
+
+    return await _emit_budget_exhausted(
+        db,
+        group,
+        detail="Zwiększ pulę MD albo zorganizuj nowe zamówienie.",
+    )
+
+
+async def _emit_budget_exhausted(
+    db: AsyncSession, group: ClientOrderGroup, *, detail: str
+) -> list[DlAlert]:
+    """Wspólna mechanika alertu „zamówienie wyczerpane".
 
     Nie powtarza się co tydzień — samo zdarzenie jest jednorazowe (zamówienie
     trafia do zakończonych), więc ponawianie mówiłoby o czymś, co już się nie
@@ -283,7 +318,7 @@ async def emit_cost_order_exhausted(
     Epizod liczymy LICZBĄ PRZEJŚĆ zapisanych w historii zamówienia, nie kwotą
     budżetu: kwota podniesiona i wróconą do poprzedniej wartości dałaby ten sam
     klucz co pierwszy raz. Zdarzenie ``wyczerpanie`` powstaje dokładnie raz na
-    przejście ``active → exhausted`` (obie ścieżki emisji zapisują je przed
+    przejście ``active → exhausted`` (każda ścieżka emisji zapisuje je przed
     wywołaniem tej funkcji), więc licznik jest deterministyczny i stały
     w obrębie jednej transakcji — ponowienie tego samego przejścia nadal
     trafia w ten sam klucz. Ten sam wzorzec „epizod w kluczu" co
@@ -315,8 +350,7 @@ async def emit_cost_order_exhausted(
         title=f"{client_name} — zamówienie {group.order_number} wyczerpane",
         message=(
             f"⚠ {client_name} — zamówienie {group.order_number} zostało "
-            "wyczerpane i przeniesione do zakończonych. Sprawdź rozliczenie "
-            "i zorganizuj nowe zamówienie."
+            f"wyczerpane i przeniesione do zakończonych. {detail}"
         ),
         link=f"/clients/{group.client_id}?tab=zamowienia",
         payload={"order_number": group.order_number},
