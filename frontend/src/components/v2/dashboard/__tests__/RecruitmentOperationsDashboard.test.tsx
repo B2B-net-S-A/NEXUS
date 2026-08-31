@@ -35,6 +35,7 @@ const process = {
   client: { id: 4, name: "Nordic Bank" },
   competence_category: { id: 9, name: "Java" },
   candidate_count: 12,
+  shared_candidate_count: 5,
   stage_counts: {
     sourcing: 4,
     verified: 3,
@@ -62,8 +63,18 @@ const listResponse: RecruitmentOperationsListResponse = {
     competence_categories: 3,
     active_candidates: 31,
     processes_without_favorite: 2,
+    shared_candidates: 9,
+    processes_with_shared_candidates: 4,
   },
-  categories: [{ id: 9, name: "Java", total: 4 }],
+  categories: [
+    {
+      id: 9,
+      name: "Java",
+      total: 4,
+      shared_candidates: 9,
+      processes_with_shared_candidates: 4,
+    },
+  ],
   items: [process],
 }
 
@@ -112,7 +123,9 @@ describe("RecruitmentOperationsDashboard", () => {
     expect(within(dashboard).getByText("Anna Test · Rozmowa u klienta")).toBeInTheDocument()
     expect(within(dashboard).getByText("Java Engineer")).toBeInTheDocument()
     expect(within(dashboard).getByText("83%")).toBeInTheDocument()
-    expect(within(dashboard).getByText("5 wspólnych kandydatów")).toBeInTheDocument()
+    expect(
+      within(dashboard).getByText("5 wspólnych kandydatów"),
+    ).toBeInTheDocument()
   })
 
   it("shows a read-only favorite to a process collaborator", async () => {

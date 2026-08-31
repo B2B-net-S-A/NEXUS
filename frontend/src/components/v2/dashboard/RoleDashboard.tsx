@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { BarChart3, ChevronDown, FolderKanban, Wrench } from "lucide-react"
+import { ChevronDown, Wrench } from "lucide-react"
 
-import { TabbedNav } from "@/components/ds"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   DASHBOARD_PRESETS,
@@ -12,12 +11,9 @@ import {
   getDefaultDashboardPreset,
   isDashboardPeriod,
   isDashboardPreset,
-  isDashboardTab,
   type DashboardPeriod,
   type DashboardPreset,
-  type DashboardTab,
 } from "@/lib/dashboard-presets"
-import type { FinanceDashboardTab } from "@/lib/dashboard-v2-api"
 import { getUserRoles, useAuthStore, type UserRole } from "@/store/auth"
 import { ContactOversightPanel } from "@/components/candidate-contact/ContactOversightPanel"
 import { MyContactQueueWidget } from "@/components/candidate-contact/MyContactQueueWidget"
@@ -27,16 +23,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { Button } from "@/components/ui/button"
-import { TabsContent } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 import { DashboardShell } from "./DashboardShell"
-import { DashboardV2Preset } from "./DashboardV2Preset"
-import { DailyRecruiterKpi } from "./DailyRecruiterKpi"
 import {
-  RecruitmentOperationsDashboard,
-  RecruitmentOperationsKpis,
-} from "./RecruitmentOperationsDashboard"
+  RecruitmentCompetenceDashboard,
+  RecruitmentCompetenceKpis,
+} from "./RecruitmentCompetenceDashboard"
 import {
   MyPriorityQueue,
   TeamAllocationBoard,
@@ -46,26 +39,6 @@ const LEGACY_VIEW_PRESET: Partial<Record<string, DashboardPreset>> = {
   operations: "admin-ops",
   delivery: "delivery-lead",
   executive: "finance",
-}
-
-function FinancePreset({ period }: { period: DashboardPeriod }) {
-  const [tab, setTab] = useState<FinanceDashboardTab>("operations")
-
-  return (
-    <div className="space-y-6">
-      <TabbedNav
-        ariaLabel="Widok finansów"
-        value={tab}
-        onValueChange={(value) => setTab(value as FinanceDashboardTab)}
-        tabs={[
-          { value: "operations", label: "Operations" },
-          { value: "executive", label: "Executive" },
-        ]}
-        listClassName="sm:w-auto"
-      />
-      <DashboardV2Preset preset="finance" period={period} financeTab={tab} />
-    </div>
-  )
 }
 
 // Kto może wołać `/api/candidate-contact/queue` (backendowe `ContactCaller`).
@@ -156,26 +129,16 @@ function OperationalTools({
 }
 
 function RecruitmentDashboardContent({
-  tab,
   preset,
   roles,
 }: {
-  tab: DashboardTab
-  preset: Exclude<DashboardPreset, "finance">
+  preset: DashboardPreset
   roles: UserRole[]
 }) {
-  if (tab === "kpi") {
-    return (
-      <div className="space-y-4">
-        <DailyRecruiterKpi />
-        <RecruitmentOperationsKpis preset={preset} />
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
-      <RecruitmentOperationsDashboard preset={preset} />
+      <RecruitmentCompetenceKpis preset={preset} />
+      <RecruitmentCompetenceDashboard preset={preset} />
       <OperationalTools preset={preset} roles={roles} />
     </div>
   )
@@ -217,9 +180,6 @@ export function RoleDashboard() {
         ? DASHBOARD_PRESETS[preset].defaultPeriod
         : "month"
   const requestedTab = searchParams.get("tab")
-  const tab: DashboardTab = isDashboardTab(requestedTab)
-    ? requestedTab
-    : "processes"
 
   useEffect(() => {
     if (!hydrated) return
@@ -228,13 +188,11 @@ export function RoleDashboard() {
       return
     }
     if (!preset) return
-    const tabIsCanonical =
-      preset === "finance" ? requestedTab === null : requestedTab === tab
     if (
       requestedPreset === preset &&
       requestedPeriod === period &&
       !legacyView &&
-      tabIsCanonical
+      requestedTab === null
     ) {
       return
     }
@@ -242,8 +200,7 @@ export function RoleDashboard() {
     next.set("preset", preset)
     next.set("period", period)
     next.delete("view")
-    if (preset === "finance") next.delete("tab")
-    else next.set("tab", tab)
+    next.delete("tab")
     router.replace(`/dashboard?${next.toString()}${window.location.hash}`)
   }, [
     hydrated,
@@ -255,7 +212,6 @@ export function RoleDashboard() {
     requestedTab,
     router,
     searchParams,
-    tab,
     user,
   ])
 
@@ -283,14 +239,12 @@ export function RoleDashboard() {
   const updateParams = (
     nextPreset: DashboardPreset,
     nextPeriod: DashboardPeriod,
-    nextTab: DashboardTab = "processes",
   ) => {
     const next = new URLSearchParams(searchParams.toString())
     next.set("preset", nextPreset)
     next.set("period", nextPeriod)
     next.delete("view")
-    if (nextPreset === "finance") next.delete("tab")
-    else next.set("tab", nextTab)
+    next.delete("tab")
     router.push(`/dashboard?${next.toString()}`)
   }
 
@@ -299,61 +253,19 @@ export function RoleDashboard() {
       preset={preset}
       period={period}
       availablePresets={availablePresets}
-      showPeriod={preset === "finance"}
+      showPeriod={false}
       onPresetChange={(nextPreset) =>
         updateParams(
           nextPreset,
           DASHBOARD_PRESETS[nextPreset].defaultPeriod,
-          "processes",
         )
       }
-      onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod, tab)}
+      onPeriodChange={(nextPeriod) => updateParams(preset, nextPeriod)}
     >
-      {preset === "finance" ? (
-        <FinancePreset period={period} />
-      ) : (
-        <TabbedNav
-          ariaLabel="Widok dashboardu rekrutacji"
-          value={tab}
-          onValueChange={(value) =>
-            updateParams(preset, period, value as DashboardTab)
-          }
-          tabs={[
-            { value: "kpi", label: "KPI", icon: BarChart3 },
-            { value: "processes", label: "Procesy", icon: FolderKanban },
-          ]}
-          listClassName="sm:w-auto"
-        >
-          <TabsContent
-            value="kpi"
-            forceMount
-            hidden={tab !== "kpi"}
-            className="mt-6"
-          >
-            {tab === "kpi" ? (
-              <RecruitmentDashboardContent
-                tab="kpi"
-                preset={preset}
-                roles={getUserRoles(user)}
-              />
-            ) : null}
-          </TabsContent>
-          <TabsContent
-            value="processes"
-            forceMount
-            hidden={tab !== "processes"}
-            className="mt-6"
-          >
-            {tab === "processes" ? (
-              <RecruitmentDashboardContent
-                tab="processes"
-                preset={preset}
-                roles={getUserRoles(user)}
-              />
-            ) : null}
-          </TabsContent>
-        </TabbedNav>
-      )}
+      <RecruitmentDashboardContent
+        preset={preset}
+        roles={getUserRoles(user)}
+      />
     </DashboardShell>
   )
 }

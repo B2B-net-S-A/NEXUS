@@ -309,7 +309,15 @@ def _hours_until_period_end(period: KpiPeriod, now: datetime) -> float:
     """Ile godzin zostało do końca bieżącego okresu w Warsaw."""
     now_w = _as_warsaw(now)
     if period == KpiPeriod.day:
-        end = now_w.replace(hour=23, minute=59, second=0, microsecond=0)
+        # Dzienny KPI jest oceniany w oknie dnia roboczego 09:00–17:30.
+        # Ten sam deadline musi zasilać komunikat w UI, inaczej po 17:30
+        # stan jest już `missed`, a karta nadal obiecuje kilka godzin pracy.
+        end = now_w.replace(
+            hour=WORKDAY_END.hour,
+            minute=WORKDAY_END.minute,
+            second=0,
+            microsecond=0,
+        )
     elif period == KpiPeriod.week:
         # Koniec piątku 17:30 jako "business week end"
         sunday_end = now_w + timedelta(days=(6 - now_w.weekday()))
