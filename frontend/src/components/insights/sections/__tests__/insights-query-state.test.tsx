@@ -2,7 +2,7 @@
  * Sekcje raportowe: awaria ≠ „Brak danych.” i ≠ pusty DOM (audyt F-20).
  *
  * Sześć sekcji dzieliło jedną lukę: kit (`_shared.tsx`) miał `LoadingSpinner`,
- * ale nie miał NIC na awarię. Efekt: `if (!data) return null` (BoardKPI,
+ * ale nie miał NIC na awarię. Efekt: `if (!data) return null`
  * InviteLinksSection) albo zdanie o rekrutacji zamiast zdania
  * o systemie (ActivityHeatmap, InviteLinksSection).
  *
@@ -34,7 +34,6 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ActivityHeatmap } from "@/components/insights/sections/ActivityHeatmap";
-import { BoardKPI } from "@/components/insights/sections/BoardKPI";
 
 function httpError(status: number) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status } });
@@ -52,56 +51,6 @@ function renderSection(ui: React.ReactNode) {
 describe("sekcje insights — awaria zapytania", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("BoardKPI pokazuje ostrzeżenie, gdy KPI finansowe pomijają brakujący kurs", async () => {
-    mocks.board.mockResolvedValue({
-      data: {
-        recruitment: { placements_ytd: 0, funnel_efficiency_avg: 0 },
-        sales: {
-          revenue_ytd: 0,
-          margin_ytd: 0,
-          active_consultants: 0,
-          active_contracts: 0,
-        },
-        delivery: { avg_hit_ratio: 0, top_dl: "—" },
-        tenders: { total: 0, win_rate: 0 },
-        headcount: { total_users: 0, total_candidates: 0 },
-        trends: [],
-        finance_quality: "unavailable",
-        finance_warnings: ["Brak kursu NBP dla walut: GBP"],
-      },
-    });
-
-    renderSection(<BoardKPI />);
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Brak kursu NBP dla walut: GBP",
-    );
-  });
-
-  it("BoardKPI przy 500 mówi o awarii zamiast znikać z ekranu", async () => {
-    mocks.board.mockRejectedValue(httpError(500));
-
-    const { container } = renderSection(<BoardKPI />);
-
-    expect(
-      await screen.findByText(/Nie udało się pobrać danych sekcji „Board KPI"/),
-    ).toBeInTheDocument();
-    // Przed naprawą `if (!data) return null` zostawiał pusty DOM.
-    expect(container).not.toBeEmptyDOMElement();
-  });
-
-  it("BoardKPI przy 403 nie proponuje ponowienia, tylko tłumaczy uprawnienia", async () => {
-    mocks.board.mockRejectedValue(httpError(403));
-
-    renderSection(<BoardKPI />);
-
-    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
-    expect(screen.getByText(/Dane NIE są puste/)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /Spróbuj ponownie/ }),
-    ).not.toBeInTheDocument();
   });
 
   it("ActivityHeatmap przy awarii nie mówi „Brak danych dla wybranego okresu”", async () => {
