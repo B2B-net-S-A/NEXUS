@@ -44,7 +44,7 @@ const LINE: OrderLineRead = {
 
 const SHARED_MD_GROUP: OrderGroupRead = {
   id: 10,
-  client_id: 7,
+  client_id: 38339,
   order_number: "CP-MD-1",
   start_date: "2026-01-01",
   end_date: "2026-08-31",
@@ -99,7 +99,7 @@ describe("modale wspólnego budżetu MD", () => {
       <SwapConsultantModal
         open
         onOpenChange={vi.fn()}
-        clientId={7}
+        clientId={38339}
         group={SHARED_MD_GROUP}
         line={LINE}
         submitting={false}
@@ -123,7 +123,7 @@ describe("modale wspólnego budżetu MD", () => {
       <ExtendOrderGroupModal
         open
         onOpenChange={vi.fn()}
-        clientId={7}
+        clientId={38339}
         group={SHARED_MD_GROUP}
         submitting={false}
         error={null}
@@ -166,7 +166,7 @@ describe("modale wspólnego budżetu MD", () => {
       <ExtendOrderGroupModal
         open
         onOpenChange={vi.fn()}
-        clientId={7}
+        clientId={38339}
         group={{
           ...SHARED_MD_GROUP,
           is_md_budget_based: false,

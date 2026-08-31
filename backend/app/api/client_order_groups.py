@@ -122,6 +122,7 @@ from app.services.cost_orders import (
     quantize_money,
     settle_group,
 )
+from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
@@ -159,9 +160,12 @@ from app.services.order_types import (
     suggested_order_type,
 )
 from app.services.shared_md_orders import (
+    client_uses_shared_md_pool,
+    normalize_empty_generic_explicit_md_group,
     settle_shared_md_group,
     shared_md_used_total,
     shared_md_used_totals,
+    uses_shared_md_pool,
 )
 from app.services.order_excel_export import (
     OrderExportRow,
@@ -611,6 +615,10 @@ async def _load_group(
     )
     if group is None:
         raise HTTPException(404, detail="Zamówienie nie istnieje")
+    # 0251 is schema-only/NOT VALID. Empty generic rows carrying the phantom
+    # 0246 pool become constraint-valid on their first ordinary write; rows
+    # with consultant data fail closed and are never rewritten here.
+    await normalize_empty_generic_explicit_md_group(db, group)
     return group
 
 
@@ -706,6 +714,7 @@ async def _group_to_read(
     precomputed_md_budget_used: Optional[Decimal] = None,
 ) -> OrderGroupRead:
     lines = await lines_for_group(db, group.id)
+    uses_shared_md_budget = uses_shared_md_pool(group)
     offboarding_by_order: dict[int, ClientOrderOffboardingCase] = {}
     if lines:
         case_rows = list(
@@ -844,7 +853,7 @@ async def _group_to_read(
         budget_used = quantize_money(max(Decimal("0"), pool - remaining))
 
     md_budget_used: Optional[Decimal] = None
-    if group.is_md_budget_based:
+    if uses_shared_md_budget:
         md_budget_used = (
             quantize_md(precomputed_md_budget_used)
             if precomputed_md_budget_used is not None
@@ -873,14 +882,14 @@ async def _group_to_read(
             if group.is_cost_based and with_finance
             else None
         ),
-        is_md_budget_based=group.is_md_budget_based,
-        md_budget_total=(group.md_budget_total if group.is_md_budget_based else None),
+        is_md_budget_based=uses_shared_md_budget,
+        md_budget_total=(group.md_budget_total if uses_shared_md_budget else None),
         md_budget_used=md_budget_used,
         md_budget_remaining=(
-            group.md_budget_remaining if group.is_md_budget_based else None
+            group.md_budget_remaining if uses_shared_md_budget else None
         ),
         md_budget_manual_adjustment=(
-            group.md_budget_manual_adjustment if group.is_md_budget_based else None
+            group.md_budget_manual_adjustment if uses_shared_md_budget else None
         ),
         predecessor_group_id=group.predecessor_group_id,
         filename=group.filename,
@@ -894,6 +903,14 @@ async def _group_to_read(
         active_consultants=sum(1 for r in reads if r.is_active),
         event_count=event_count,
     )
+
+
+async def _normalize_empty_explicit_md_group(
+    db: AsyncSession, group: ClientOrderGroup
+) -> bool:
+    """API adapter for the canonical, fail-closed write-time self-heal."""
+
+    return await normalize_empty_generic_explicit_md_group(db, group)
 
 
 async def _resolve_contract(
@@ -1019,7 +1036,7 @@ async def _build_line(
     # wymyślenia liczby, której nikt nigdy nie rozliczy, a CHECK spójności
     # w bazie i tak dopuszcza komplet NULL-i.
     md_total: Optional[Decimal] = None
-    if group.is_cost_based or group.is_md_budget_based:
+    if group.is_cost_based or uses_shared_md_pool(group):
         if payload.input_mode is not None or payload.input_value is not None:
             raise HTTPException(
                 422,
@@ -1089,6 +1106,26 @@ async def _build_line(
     return line, who or "konsultant", contract_created
 
 
+async def _sync_contract_after_live_group_line(
+    db: AsyncSession, line: ClientOrder, *, actor_id: Optional[int]
+) -> bool:
+    """Apply the Contract↔live-order invariant to a freshly active group line."""
+
+    if line.status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled):
+        return False
+    contract = await db.get(Contract, line.contract_id)
+    if contract is None:
+        return False
+    return await sync_contract_to_live_order(
+        db,
+        contract,
+        order_start=line.start_date,
+        order_end=line.end_date,
+        actor_id=actor_id,
+        today=business_today(),
+    )
+
+
 def _describe_line(
     order: ClientOrder,
     who: str,
@@ -1104,7 +1141,7 @@ def _describe_line(
         " (osoba z bazy Nexus — założono szkic kontraktu)" if contract_created else ""
     )
     if order.md_total is None:
-        if group.is_md_budget_based:
+        if uses_shared_md_pool(group):
             return f"{who} — konsultant na zamówieniu ze wspólną pulą MD{suffix}"
         # Linia zamówienia kosztowego — budżetu MD nie ma, więc wypisywanie
         # „budżet — MD" mówiłoby o polu, którego ta linia nigdy nie miała.
@@ -1156,7 +1193,7 @@ async def list_order_groups(
     with_finance = _can_see_finance(user)
     models = list(result.scalars())
     shared_md_used_by_group = await shared_md_used_totals(
-        db, (group.id for group in models if group.is_md_budget_based)
+        db, (group.id for group in models if uses_shared_md_pool(group))
     )
     reads_by_id = {
         group.id: await _group_to_read(
@@ -1164,7 +1201,9 @@ async def list_order_groups(
             group,
             with_finance=with_finance,
             precomputed_md_budget_used=(
-                shared_md_used_by_group[group.id] if group.is_md_budget_based else None
+                shared_md_used_by_group[group.id]
+                if uses_shared_md_pool(group)
+                else None
             ),
         )
         for group in models
@@ -1372,7 +1411,7 @@ async def export_order_groups(
         raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
 
     shared_md_used_by_group = await shared_md_used_totals(
-        db, (group.id for group in models if group.is_md_budget_based)
+        db, (group.id for group in models if uses_shared_md_pool(group))
     )
     rows: list[OrderExportRow] = []
     for group_id in requested:
@@ -1382,7 +1421,7 @@ async def export_order_groups(
             with_finance=_can_see_finance(user),
             precomputed_md_budget_used=(
                 shared_md_used_by_group[group_id]
-                if by_id[group_id].is_md_budget_based
+                if uses_shared_md_pool(by_id[group_id])
                 else None
             ),
         )
@@ -1723,6 +1762,22 @@ async def create_order_group(
             detail="Zamówienia grupowe nie są dostępne dla tego klienta",
         )
     is_cyfrowy_polsat = is_cyfrowy_polsat_order_types_client(client_id)
+    is_lotte_wedel = is_lotte_wedel_order_types_client(client_id)
+    is_special_shared_md_client = client_uses_shared_md_pool(client_id)
+    if explicit_type and payload.order_type == OrderType.md:
+        if payload.is_md_budget_based and not is_special_shared_md_client:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Wspólna pula MD jest dostępna tylko dla Cyfrowego Polsatu "
+                    "i Lotte Wedel"
+                ),
+            )
+        if is_special_shared_md_client and not payload.is_md_budget_based:
+            raise HTTPException(
+                422,
+                detail="Zamówienie MD tego klienta wymaga wspólnego budżetu MD",
+            )
     if not explicit_type and is_cyfrowy_polsat:
         # Standardowe zamówienie CP powstaje w legacy `/orders`. Endpoint grup
         # przyjmuje dokładnie jeden z dwóch specjalnych wariantów, dzięki czemu
@@ -1735,7 +1790,7 @@ async def create_order_group(
                     "kosztowe albo na MD"
                 ),
             )
-    elif not explicit_type and is_lotte_wedel_order_types_client(client_id):
+    elif not explicit_type and is_lotte_wedel:
         # Lotte Wedel nie może już tworzyć zamówień okresowych. Grupa
         # reprezentuje dokładnie jeden z dwóch dozwolonych wariantów i nigdy
         # nie miesza budżetu PLN z pulą MD.
@@ -1750,7 +1805,10 @@ async def create_order_group(
     elif not explicit_type and payload.is_md_budget_based:
         raise HTTPException(
             422,
-            detail="Wspólna pula MD jest dostępna tylko dla Cyfrowego Polsatu",
+            detail=(
+                "Wspólna pula MD jest dostępna tylko dla Cyfrowego Polsatu "
+                "i Lotte Wedel"
+            ),
         )
     if payload.is_cost_based and not explicit_type:
         try:
@@ -1798,6 +1856,7 @@ async def create_order_group(
             db, group=group, payload=line_payload, user=user
         )
         await db.flush()
+        await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
         record_event(
             db,
             group_id=group.id,
@@ -1865,6 +1924,7 @@ async def update_order_group(
         .with_for_update()
     )
     await _assert_no_pending_offboarding_case(db, group_id=group.id)
+    await _normalize_empty_explicit_md_group(db, group)
 
     new_start = data.get("start_date", group.start_date)
     new_end = data.get("end_date", group.end_date)
@@ -1878,7 +1938,7 @@ async def update_order_group(
             422,
             detail="Kwotę zamówienia można zmieniać tylko na zamówieniu kosztowym",
         )
-    if data.keys() & md_budget_fields and not group.is_md_budget_based:
+    if data.keys() & md_budget_fields and not uses_shared_md_pool(group):
         raise HTTPException(
             422,
             detail="Wspólny budżet MD można zmieniać tylko na zamówieniu na MD",
@@ -1966,7 +2026,7 @@ async def update_order_group(
             )
             await emit_cost_order_exhausted(db, group)
 
-    if data.keys() & md_budget_fields:
+    if data.keys() & md_budget_fields and uses_shared_md_pool(group):
         was_exhausted = group.status == GROUP_STATUS_EXHAUSTED
         await settle_shared_md_group(db, group)
         if not was_exhausted and group.status == GROUP_STATUS_EXHAUSTED:
@@ -2352,6 +2412,8 @@ async def extend_order_group(
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
+    await _normalize_empty_explicit_md_group(db, source)
+    source_uses_shared_md = uses_shared_md_pool(source)
     try:
         assert_order_type_allowed(client_id, effective_group_order_type(source))
     except ValueError as exc:
@@ -2368,11 +2430,11 @@ async def extend_order_group(
             422,
             detail="Kwotę zamówienia można podać tylko przy zamówieniu kosztowym",
         )
-    if source.is_md_budget_based and payload.md_budget_total is None:
+    if source_uses_shared_md and payload.md_budget_total is None:
         raise HTTPException(
             422, detail="Przedłużenie zamówienia na MD wymaga wspólnego budżetu MD"
         )
-    if not source.is_md_budget_based and payload.md_budget_total is not None:
+    if not source_uses_shared_md and payload.md_budget_total is not None:
         raise HTTPException(
             422,
             detail="Wspólny budżet MD można podać tylko przy zamówieniu na MD",
@@ -2389,7 +2451,7 @@ async def extend_order_group(
         # wspólny materializer poniżej od razu aktywuje je i zamknie poprzednika.
         status=GROUP_STATUS_SCHEDULED,
         is_cost_based=source.is_cost_based,
-        is_md_budget_based=source.is_md_budget_based,
+        is_md_budget_based=source_uses_shared_md,
         budget_amount=payload.budget_amount,
         budget_remaining=payload.budget_amount,
         md_budget_total=payload.md_budget_total,
@@ -2492,10 +2554,13 @@ async def add_line(
             ),
         )
 
+    await _normalize_empty_explicit_md_group(db, group)
+
     line, who, contract_created = await _build_line(
         db, group=group, payload=payload, user=user
     )
     await db.flush()
+    await _sync_contract_after_live_group_line(db, line, actor_id=user.id)
     record_event(
         db,
         group_id=group.id,
@@ -2547,7 +2612,7 @@ async def update_line(
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
-    has_group_budget = group.is_cost_based or group.is_md_budget_based
+    has_group_budget = group.is_cost_based or uses_shared_md_pool(group)
     line_budget_fields = {"input_mode", "input_value", "md_remaining"}
     if has_group_budget and supplied & line_budget_fields:
         raise HTTPException(
@@ -2942,7 +3007,7 @@ async def swap_consultant(
     # (`settle_group` nie filtruje po statusie linii, więc domknięcie
     # poprzednika nie odsłania wydanych już pieniędzy).
     is_cost = bool(group.is_cost_based)
-    is_shared_md = bool(group.is_md_budget_based)
+    is_shared_md = uses_shared_md_pool(group)
     has_group_budget = is_cost or is_shared_md
     if has_group_budget:
         if old.md_rate_revenue is None:
@@ -3036,6 +3101,7 @@ async def swap_consultant(
     )
     db.add(new_line)
     await db.flush()
+    await _sync_contract_after_live_group_line(db, new_line, actor_id=user.id)
 
     event_payload: dict[str, object] = {
         "swap_date": payload.swap_date.isoformat(),

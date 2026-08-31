@@ -17,6 +17,7 @@ import type {
   OrderInputMode,
   OrderLineRead,
 } from "@/lib/api/orderGroups";
+import { usesSharedMdPool } from "@/lib/client-order-list";
 import {
   contractRateUnitToInputUnit,
   convertRate,
@@ -202,7 +203,9 @@ export function ConsultantLineModal({
   // własnego budżetu MD. Wymuszanie go zmuszałoby operatora do wymyślenia
   // liczby, której nikt nigdy nie rozliczy.
   const costBased = Boolean(group?.is_cost_based);
-  const sharedMdBased = Boolean(group?.is_md_budget_based);
+  // Wspólna pula MD jest świadomym wariantem tylko dla CP/Lotte. Każdy inny
+  // klient ma niezależny budżet przy linii, nawet gdy stary rekord nosi flagę.
+  const sharedMdBased = group ? usesSharedMdPool(group) : false;
 
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);

@@ -42,6 +42,8 @@ from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_COMPLETED,
+    GROUP_STATUS_EXHAUSTED,
     ClientOrderGroup,
     ClientOrderGroupEvent,
 )
@@ -59,6 +61,7 @@ from app.services.multi_consultant_orders import (
     is_multi_consultant_client,
     quantize_md,
 )
+from app.services.shared_md_orders import uses_shared_md_pool
 
 ZERO = Decimal("0")
 HOURS_PER_MD = Decimal("8")
@@ -693,11 +696,6 @@ async def active_shared_md_lines(
     po samym nazwisku. Raport dla wspólnej puli wymaga jednocześnie konsultanta
     i numeru zamówienia z kolumny „Uwagi".
     """
-    from app.services.cyfrowy_polsat_orders import (
-        is_cyfrowy_polsat_order_types_client,
-    )
-    from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
-
     first, last = month_bounds(period_month)
     result = await db.execute(
         _line_query()
@@ -714,13 +712,132 @@ async def active_shared_md_lines(
     matches: list[LineMatch] = []
     for order in result.scalars():
         group = order.order_group
+        if group is None or not uses_shared_md_pool(group):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
+# A replay of an old Finance batch cannot use today's ``active`` snapshot.
+# An order that was valid in the batch month can legitimately be completed or
+# exhausted by the time the SAP-prefix correction is run.  These queries are
+# intentionally separate from the ordinary importer so new uploads retain the
+# existing active-only behavior.
+_HISTORICAL_GROUP_STATUSES: tuple[str, ...] = (
+    GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_COMPLETED,
+    GROUP_STATUS_EXHAUSTED,
+)
+
+
+def _historical_period_conditions(period_month: str):
+    first, last = month_bounds(period_month)
+    return (
+        ClientOrder.status.in_((ClientOrderStatus.active, ClientOrderStatus.completed)),
+        Contract.status != ContractStatus.void,
+        Contract.client_id == ClientOrder.client_id,
+        (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
+        (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+        ClientOrderGroup.start_date <= last,
+        (ClientOrderGroup.end_date.is_(None)) | (ClientOrderGroup.end_date >= first),
+    )
+
+
+async def historical_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
+    """Per-consultant MD candidates valid in an already imported month.
+
+    Current ``completed`` state is not evidence that the line was inactive in
+    the historical month.  The inclusive date overlap is the temporal
+    boundary.  Draft/paused/cancelled lines, void contracts and scheduled
+    groups remain excluded because replay cannot prove that they ever entered
+    the settlement lifecycle.
+    """
+
+    result = await db.execute(
+        _line_query()
+        .join(Contract, ClientOrder.contract_id == Contract.id)
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrder.md_total.isnot(None),
+            ClientOrderGroup.status.in_(_HISTORICAL_GROUP_STATUSES),
+            *_historical_period_conditions(period_month),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or not is_multi_consultant_client(order.client_id):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
+async def historical_cost_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
+    """Cost candidates valid in an old batch, including closed/exhausted pools."""
+
+    from app.services.cost_orders import is_cost_order_client
+
+    result = await db.execute(
+        _line_query()
+        .join(Contract, ClientOrder.contract_id == Contract.id)
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrderGroup.is_cost_based.is_(True),
+            ClientOrderGroup.status.in_(_HISTORICAL_GROUP_STATUSES),
+            *_historical_period_conditions(period_month),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
         if group is None or (
-            group.order_type != "md"
-            and not (
-                is_cyfrowy_polsat_order_types_client(order.client_id)
-                or is_lotte_wedel_order_types_client(order.client_id)
-            )
+            group.order_type != "cost" and not is_cost_order_client(order.client_id)
         ):
+            continue
+        candidate = order.contract.candidate if order.contract else None
+        display = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate
+            else ""
+        )
+        matches.append(LineMatch(order=order, group=group, consultant_name=display))
+    return matches
+
+
+async def historical_shared_md_lines(
+    db: AsyncSession, period_month: str
+) -> list[LineMatch]:
+    """Shared-MD candidates valid in an old batch, including exhausted pools."""
+
+    result = await db.execute(
+        _line_query()
+        .join(Contract, ClientOrder.contract_id == Contract.id)
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .options(selectinload(ClientOrder.order_group))
+        .where(
+            ClientOrderGroup.is_md_budget_based.is_(True),
+            ClientOrderGroup.status.in_(_HISTORICAL_GROUP_STATUSES),
+            *_historical_period_conditions(period_month),
+        )
+    )
+    matches: list[LineMatch] = []
+    for order in result.scalars():
+        group = order.order_group
+        if group is None or not uses_shared_md_pool(group):
             continue
         candidate = order.contract.candidate if order.contract else None
         display = (
@@ -1030,6 +1147,7 @@ async def apply_md_consumption(
     source: str = CONSUMPTION_SOURCE_IMPORT,
     import_id: Optional[int] = None,
     user_id: Optional[int] = None,
+    allow_successor_transfer: bool = True,
 ) -> MdConsumptionOutcome:
     """Zapisz zużycie MD, dzieląc nadwyżkę na zamówienie-następcę.
 
@@ -1040,9 +1158,18 @@ async def apply_md_consumption(
     Bez następcy zachowanie jest dotychczasowe: całość ląduje na linii
     bieżącej, a przekroczenie budżetu widać jako ujemną pozostałość. Następcy
     nie wymyślamy — zamówienie, którego nie ma, nie przejmie zużycia.
+
+    ``allow_successor_transfer=False`` jest bezpiecznikiem jednorazowego
+    replayu historycznego. Replay najpierw fail-closed wykrywa istniejącą
+    kontynuację; wyłączenie transferu tutaj domyka wyścig z kontynuacją
+    utworzoną już po tym sprawdzeniu, zanim zapis zdążyłby dotknąć jej
+    ręcznego/nowszego rozliczenia.
     """
     value = quantize_md(md_reported)
-    successor_line, successor_group = await successor_line_for(db, order)
+    successor_line: Optional[ClientOrder] = None
+    successor_group: Optional[ClientOrderGroup] = None
+    if allow_successor_transfer:
+        successor_line, successor_group = await successor_line_for(db, order)
 
     applied = value
     overflow = ZERO

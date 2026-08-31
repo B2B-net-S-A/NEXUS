@@ -21,7 +21,7 @@ MdValue = Annotated[
 
 
 def _money_out(value: Decimal) -> float:
-    return float(Decimal(value).quantize(Decimal("0.01")))
+    return float(Decimal(value).quantize(Decimal("0.001")))
 
 
 # Liczba, nie string — front rysuje z tego pasek budżetu i porównuje kwoty.
@@ -95,3 +95,35 @@ class ImportListResponse(BaseModel):
 
 class AssignRowRequest(BaseModel):
     order_id: int
+
+
+class PolkomtelReprocessRequest(BaseModel):
+    """Dry-run by default; ``apply=true`` performs the reviewed correction."""
+
+    apply: bool = False
+
+
+class PolkomtelReprocessTarget(BaseModel):
+    kind: str
+    order_id: Optional[int] = None
+    group_id: int
+    order_number: str
+    # Wszystkie wiersze składające się na oczekiwaną wartość oraz ich podzbiór,
+    # którego status/dopasowanie rzeczywiście zostanie poprawione przez APPLY.
+    row_ids: list[int] = Field(default_factory=list)
+    row_ids_to_update: list[int] = Field(default_factory=list)
+    current_value: Optional[Decimal] = None
+    expected_value: Decimal
+    write_required: bool
+
+
+class PolkomtelReprocessResponse(BaseModel):
+    import_id: int
+    period_month: str
+    client_id: int
+    applied: bool
+    rows_scanned: int
+    rows_to_update: int
+    targets_to_recalculate: int
+    conflicts: list[str] = Field(default_factory=list)
+    targets: list[PolkomtelReprocessTarget] = Field(default_factory=list)

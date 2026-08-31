@@ -9,13 +9,13 @@ interface Props {
   className?: string;
 }
 
-/** Sformatowana liczba MD — 2 miejsca po przecinku, bez zer na końcu. */
+/** Sformatowana liczba MD — do 3 miejsc po przecinku, bez zer na końcu. */
 export function formatMd(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded)
-    ? String(rounded)
-    : rounded.toFixed(2).replace(/0$/, "");
+  return new Intl.NumberFormat("pl-PL", {
+    maximumFractionDigits: 3,
+    useGrouping: false,
+  }).format(value);
 }
 
 /**

@@ -183,7 +183,7 @@ class MdConsumptionImportRow(Base):
     """Ciąg cyfr wyłuskany z „Uwag" („SAP 4500719650" → „4500719650")."""
 
     invoice_amount: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(16, 2), nullable=True
+        Numeric(17, 3), nullable=True
     )
     """Kolumna „Faktura" — kwota, o którą schodzi budżet kosztowy."""
 
@@ -302,15 +302,15 @@ class ClientOrderInvoiceConsumption(Base, TimestampMixin):
     )
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
 
-    invoice_amount: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    invoice_amount: Mapped[Decimal] = mapped_column(Numeric(17, 3), nullable=False)
     """Kwota z kolumny „Faktura" — pełna, niezależnie od tego, ile się zmieściło.
     To ona sumuje się do pola „Zafakturowano" przy konsultancie."""
 
     settled_amount: Mapped[Decimal] = mapped_column(
-        Numeric(16, 2), nullable=False, server_default="0"
+        Numeric(17, 3), nullable=False, server_default="0"
     )
     unsettled_amount: Mapped[Decimal] = mapped_column(
-        Numeric(16, 2), nullable=False, server_default="0"
+        Numeric(17, 3), nullable=False, server_default="0"
     )
     """Część faktury, która nie zmieściła się w budżecie zamówienia."""
 

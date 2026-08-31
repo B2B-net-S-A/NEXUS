@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, PlainSerializer
 MoneyPLN = Annotated[
     Decimal,
     PlainSerializer(
-        lambda v: float(Decimal(v).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+        lambda v: float(Decimal(v).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)),
         return_type=float,
         when_used="json",
     ),
@@ -98,14 +98,14 @@ class FinanceRowUpdate(BaseModel):
     więc pominięcie pola zostawia je bez zmian, a jawne ``null`` czyści."""
 
     cost_rate_md: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
-    md_count: Optional[Decimal] = Field(None, ge=0, max_digits=8, decimal_places=2)
-    compensation: Optional[Decimal] = Field(None, max_digits=14, decimal_places=2)
+    md_count: Optional[Decimal] = Field(None, ge=0, max_digits=9, decimal_places=3)
+    compensation: Optional[Decimal] = Field(None, max_digits=15, decimal_places=3)
     revenue_rate_md: Optional[Decimal] = Field(
         None, ge=0, max_digits=12, decimal_places=2
     )
-    invoice_amount: Optional[Decimal] = Field(None, max_digits=14, decimal_places=2)
+    invoice_amount: Optional[Decimal] = Field(None, max_digits=15, decimal_places=3)
     # Marża bywa ujemna — brak `ge=0` jest tu świadomy.
-    margin_pln: Optional[Decimal] = Field(None, max_digits=14, decimal_places=2)
+    margin_pln: Optional[Decimal] = Field(None, max_digits=15, decimal_places=3)
     margin_pct: Optional[Decimal] = Field(None, max_digits=7, decimal_places=2)
 
 

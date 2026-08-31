@@ -250,17 +250,19 @@ function group(overrides: Partial<OrderGroupRead> = {}): OrderGroupRead {
 
 function renderTab(
   props: {
+    clientId?: number;
     costOrdersEnabled?: boolean;
     periodicOrdersEnabled?: boolean;
   } = {},
 ) {
+  const { clientId = 7, ...tabProps } = props;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <MultiConsultantOrdersTab clientId={7} {...props} />
+        <MultiConsultantOrdersTab clientId={clientId} {...tabProps} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -279,7 +281,7 @@ describe("MultiConsultantOrdersTab", () => {
         groups: [
           group({
             lines: [
-              line(),
+              line({ md_total: 50.125, md_remaining: 15.375 }),
               line({
                 id: 2,
                 consultant_name: "Jan Nowak",
@@ -304,8 +306,8 @@ describe("MultiConsultantOrdersTab", () => {
     expect(screen.getByText("Jan Nowak")).toBeInTheDocument();
     // Polska liczba mnoga: 1 pozycja, nie „1 pozycje".
     expect(screen.getByText("1 pozycja na liście")).toBeInTheDocument();
-    expect(screen.getByText("15")).toBeInTheDocument();
-    expect(screen.getByText("/ 50 MD")).toBeInTheDocument();
+    expect(screen.getByText("15,375")).toBeInTheDocument();
+    expect(screen.getByText("/ 50,125 MD")).toBeInTheDocument();
     expect(screen.getByText("48")).toBeInTheDocument();
     expect(screen.getByText("/ 63 MD")).toBeInTheDocument();
   });
@@ -581,15 +583,12 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     ).toBeInTheDocument();
   });
 
-  it("zamówienie na MD wysyła wspólny budżet bez typu kosztowego", async () => {
+  it("nowe zamówienie MD nie wysyła wspólnej puli grupy", async () => {
     vi.mocked(orderGroupsApi.create).mockResolvedValue({
       data: group({
         id: 77,
         order_number: "CP-MD-1",
-        is_md_budget_based: true,
-        md_budget_total: 120.5,
-        md_budget_used: 0,
-        md_budget_remaining: 120.5,
+        order_type: "md",
         lines: [],
         active_consultants: 0,
       }),
@@ -608,11 +607,11 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     );
     expect(screen.queryByRole("checkbox", { name: /kosztowe/i })).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Automatyczne pomniejszanie działa/),
+      screen.getByText(/Budżet MD ustawiasz osobno przy każdym konsultancie/),
     ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Budżet w MD/)).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-MD-1");
-    await user.type(screen.getByLabelText(/Budżet w MD/), "120,5");
     fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
       target: { value: "2026-09-01" },
     });
@@ -621,6 +620,48 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     await waitFor(() =>
       expect(orderGroupsApi.create).toHaveBeenCalledWith(7, {
         order_number: "CP-MD-1",
+        start_date: "2026-09-01",
+        end_date: null,
+        notes: null,
+        order_type: "md",
+      }),
+    );
+  });
+
+  it("nowe zamówienie MD CP zachowuje wspólną pulę grupy", async () => {
+    vi.mocked(orderGroupsApi.create).mockResolvedValue({
+      data: group({
+        id: 79,
+        client_id: 38339,
+        order_number: "CP-MD-SHARED",
+        order_type: "md",
+        is_md_budget_based: true,
+        md_budget_total: 120.5,
+        md_budget_used: 0,
+        md_budget_remaining: 120.5,
+        lines: [],
+        active_consultants: 0,
+      }),
+    } as never);
+    const user = userEvent.setup();
+    renderTab({ clientId: 38339, costOrdersEnabled: true });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Nowe zamówienie" }),
+    );
+    await user.click(screen.getByRole("radio", { name: "MD" }));
+
+    expect(screen.getByLabelText(/Budżet w MD/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Numer zamówienia/), "CP-MD-SHARED");
+    await user.type(screen.getByLabelText(/Budżet w MD/), "120,5");
+    fireEvent.change(screen.getByLabelText(/Obowiązuje od/), {
+      target: { value: "2026-09-01" },
+    });
+    await user.click(screen.getByRole("button", { name: "Utwórz zamówienie" }));
+
+    await waitFor(() =>
+      expect(orderGroupsApi.create).toHaveBeenCalledWith(38339, {
+        order_number: "CP-MD-SHARED",
         start_date: "2026-09-01",
         end_date: null,
         notes: null,
@@ -669,18 +710,47 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
         end_date: null,
         notes: null,
         order_type: "cost",
-        is_cost_based: true,
-        is_md_budget_based: false,
         budget_amount: 50000,
       }),
     );
   });
 
-  it("pokazuje wspólną pulę MD z zerem i blokadą po wyczerpaniu", async () => {
+  it("jawne MD bez konsultantów nie pokazuje wspólnego paska", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
         groups: [
           group({
+            order_type: "md",
+            is_md_budget_based: true,
+            md_budget_total: 60,
+            md_budget_used: 0,
+            md_budget_remaining: 60,
+            lines: [],
+            active_consultants: 0,
+          }),
+        ],
+        total_groups: 1,
+        total_consultants: 0,
+      },
+    } as never);
+
+    renderTab({ costOrdersEnabled: true });
+
+    expect(
+      await screen.findByText("To zamówienie nie ma jeszcze konsultantów."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Budżet 60 MD/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Wspólna pula")).not.toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("zachowuje specjalną pulę MD CP, gdy istnieją już rozliczane linie", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group({
+            client_id: 38339,
+            order_type: "md",
             status: "exhausted",
             status_label: "Wyczerpane",
             is_md_budget_based: true,
@@ -974,14 +1044,14 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
         groups: [
           group({
             is_cost_based: true,
-            budget_amount: 50000,
-            budget_used: 30000,
-            budget_remaining: 20000,
+            budget_amount: 50000.125,
+            budget_used: 30000.375,
+            budget_remaining: 19999.75,
             lines: [
               line({
                 md_total: null,
                 md_remaining: null,
-                invoiced_total: 30000,
+                invoiced_total: 30000.375,
                 unsettled_total: 0,
               }),
             ],
@@ -999,6 +1069,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     const budget = await screen.findByText(/Kwota/);
     expect(budget).toHaveTextContent(/wykorzystano/);
     expect(budget).toHaveTextContent(/pozostało/);
+    expect(budget).toHaveTextContent(/30.*000,375 zł/);
     expect(screen.getByText("Zafakturowano")).toBeInTheDocument();
   });
 
@@ -1053,6 +1124,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
       data: {
         groups: [
           group({
+            client_id: 38339,
             order_type: "md",
             is_md_budget_based: true,
             md_budget_total: 100,
