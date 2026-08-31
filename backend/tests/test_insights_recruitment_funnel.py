@@ -202,7 +202,13 @@ async def test_coverage_counts_manual_moves_by_external_source(
     liczenie po NULL dałoby zero ruchu własnego przy każdym pomiarze.
     """
     await cache_invalidate("insights:recruitment:funnel:*")
-    when = datetime(2017, 6, 15, 12, tzinfo=timezone.utc)
+    # Okno UNIKALNE dla tego przebiegu. Baza testowa jest wspoldzielona miedzy
+    # uruchomieniami, wiec staly miesiac zbieralby wiersze z poprzednich runow
+    # i asercja na dokladna liczbe przestalaby byc prawdziwa przy drugim
+    # uruchomieniu — czyli test bylby zielony raz.
+    slot = int(uuid.uuid4().hex[:6], 16) % 900
+    year = 1100 + slot  # rok bez zadnych innych danych
+    when = datetime(year, 6, 15, 12, tzinfo=timezone.utc)
     await _seed_stage(PipelineStage.verified, when, "manual")
     await _seed_stage(PipelineStage.verified, when + timedelta(days=1), "traffit")
 
@@ -215,8 +221,8 @@ async def test_coverage_counts_manual_moves_by_external_source(
             headers=headers,
             params={
                 "period": "custom",
-                "date_from": "2017-06-01",
-                "date_to": "2017-06-30",
+                "date_from": f"{year}-06-01",
+                "date_to": f"{year}-06-30",
             },
         )
     ).json()
@@ -260,3 +266,118 @@ async def test_invalid_period_returns_422_not_500(fx_client: AsyncClient):
         params={"period": "custom"},  # brak date_from/date_to
     )
     assert resp.status_code == 422
+
+
+# ── time-to-hire ───────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_time_to_hire_is_open_to_every_role(fx_client: AsyncClient):
+    for role in (UserRole.sourcer, UserRole.finance, UserRole.admin):
+        _, email, password = await _seed_user(role, "tth-rbac")
+        headers = await _login(fx_client, email, password)
+        resp = await fx_client.get(
+            "/api/insights/recruitment/time-to-hire", headers=headers
+        )
+        assert resp.status_code == 200, f"{role.value}: {resp.text}"
+
+
+@pytest.mark.asyncio
+async def test_time_to_hire_measures_from_the_real_process_start(
+    fx_client: AsyncClient,
+):
+    """Start procesu bierzemy z CAŁEJ historii pary, nie z okna.
+
+    To jest regresja na `phase3.py:404-432`, gdzie `items[0].moved_at`
+    pochodziło wyłącznie z etapów WEWNĄTRZ okna — więc proces zaczęty przed
+    oknem dostawał sztucznie krótki czas, i tym krótszy, im dłużej naprawdę
+    trwał.
+    """
+    await cache_invalidate("insights:recruitment:tth:*")
+
+    async with AsyncSessionLocal() as db:
+        cli = Client(name=f"TthCli-{uuid.uuid4().hex[:6]}")
+        db.add(cli)
+        await db.commit()
+        await db.refresh(cli)
+        job = Job(
+            title=f"Tth {uuid.uuid4().hex[:6]}",
+            location="Warszawa",
+            status=JobStatus.published,
+            remote_policy=RemotePolicy.hybrid,
+            client_id=cli.id,
+        )
+        cand = Candidate(
+            name=f"Tth-{uuid.uuid4().hex[:4]}",
+            lastname=f"Case-{uuid.uuid4().hex[:4]}",
+            email=f"tth-{uuid.uuid4().hex[:8]}@example.com",
+        )
+        db.add_all([job, cand])
+        await db.commit()
+        await db.refresh(job)
+        await db.refresh(cand)
+
+        # Proces startuje 100 dni PRZED oknem, zatrudnienie wpada do okna.
+        hired_at = datetime(2015, 6, 15, 12, tzinfo=timezone.utc)
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.new,
+                    moved_at=hired_at - timedelta(days=100),
+                    external_source="manual",
+                ),
+                CandidateStage(
+                    candidate_id=cand.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=hired_at,
+                    external_source="manual",
+                ),
+            ]
+        )
+        await db.commit()
+
+    _, email, password = await _seed_user(UserRole.admin, "tth-window")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get(
+            "/api/insights/recruitment/time-to-hire",
+            headers=headers,
+            params={
+                "period": "custom",
+                "date_from": "2015-06-01",
+                "date_to": "2015-06-30",
+                "min_hires": 1,
+            },
+        )
+    ).json()
+
+    assert body["totals"]["hires"] >= 1
+    # Gdyby start był liczony od okna, mediana wyszłaby <= ~15 dni.
+    medians = [
+        e["median_days"] for e in body["entries"] if e["median_days"] is not None
+    ]
+    if medians:
+        assert max(medians) >= 90, body
+
+
+@pytest.mark.asyncio
+async def test_time_to_hire_reports_unattributed_instead_of_hiding_it(
+    fx_client: AsyncClient,
+):
+    """Kamień bez autora musi być POLICZONY OSOBNO, nie wycięty po cichu.
+
+    Wycięty sprawia, że suma kolumny per osoba nie zgadza się z lejkiem —
+    a tabela wygląda wtedy na zepsutą, nie na niekompletną.
+    """
+    _, email, password = await _seed_user(UserRole.admin, "tth-unattr")
+    headers = await _login(fx_client, email, password)
+    body = (
+        await fx_client.get("/api/insights/recruitment/time-to-hire", headers=headers)
+    ).json()
+
+    totals = body["totals"]
+    assert "unattributed_hires" in totals
+    assert totals["attributed_hires"] + totals["unattributed_hires"] == totals["hires"]

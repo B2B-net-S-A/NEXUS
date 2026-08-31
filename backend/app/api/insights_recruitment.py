@@ -289,3 +289,148 @@ async def insights_available_periods(
             if r["bucket"] is not None
         ],
     }
+
+
+@router.get("/time-to-hire")
+async def insights_time_to_hire(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("quarter", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0),
+    anchor: date | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    min_hires: int = Query(1, ge=1, le=50),
+):
+    """Czas od pierwszego ruchu pary (kandydat × oferta) do zatrudnienia.
+
+    Naprawia zaniżenie z `phase3.py:404-432`: tamta implementacja pobiera
+    wyłącznie etapy Z OKNA (`WHERE moved_at >= since`), a potem bierze
+    `items[0].moved_at` jako początek procesu. Dla kandydata, którego proces
+    zaczął się PRZED oknem, początkiem staje się pierwszy etap wewnątrz okna,
+    więc czas wychodzi krótszy, niż był naprawdę — i to tym bardziej, im
+    dłużej trwała rekrutacja. Tutaj startu szukamy w CAŁEJ historii pary;
+    oknem ograniczone jest wyłącznie samo zatrudnienie.
+
+    Mediana i p90 zamiast średniej: rozkład ma długi ogon (pojedyncza
+    rekrutacja ciągnąca się rok podnosi średnią całemu zespołowi).
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+    cache_key = f"insights:recruitment:tth:v1:{resolved.cache_suffix}:{min_hires}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    rows = (
+        (
+            await db.execute(
+                text(
+                    """
+                WITH hired AS (
+                    -- Kanoniczny placement (D2): PIERWSZE 'hired' dla pary
+                    -- (kandydat, oferta). candidate_stages nie ma unikalnosci
+                    -- na (candidate_id, job_id, stage), a import Traffita
+                    -- dopisuje wiersz na kazde zdarzenie — liczenie surowych
+                    -- wierszy dublowaloby ponowne wejscia na etap.
+                    SELECT fm.candidate_id, fm.job_id, fm.first_reached_at,
+                           fm.first_moved_by
+                    FROM analytics_first_milestones fm
+                    WHERE fm.stage = 'hired'
+                      AND fm.first_reached_at >= :start
+                      AND fm.first_reached_at < :end
+                ),
+                started AS (
+                    -- Poczatek procesu z CALEJ historii pary, bez ograniczenia
+                    -- oknem. To jest ta poprawka.
+                    SELECT cs.candidate_id, cs.job_id, min(cs.moved_at) AS started_at
+                    FROM candidate_stages cs
+                    JOIN hired h
+                      ON h.candidate_id = cs.candidate_id
+                     AND h.job_id IS NOT DISTINCT FROM cs.job_id
+                    GROUP BY cs.candidate_id, cs.job_id
+                ),
+                spans AS (
+                    SELECT h.first_moved_by AS user_id,
+                           GREATEST(
+                               0,
+                               EXTRACT(EPOCH FROM (h.first_reached_at - s.started_at))
+                               / 86400.0
+                           ) AS days
+                    FROM hired h
+                    JOIN started s
+                      ON s.candidate_id = h.candidate_id
+                     AND s.job_id IS NOT DISTINCT FROM h.job_id
+                )
+                SELECT user_id,
+                       count(*) AS hires,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY days) AS median_days,
+                       percentile_cont(0.9) WITHIN GROUP (ORDER BY days) AS p90_days
+                FROM spans
+                GROUP BY user_id
+                """
+                ),
+                {"start": resolved.start, "end": resolved.end},
+            )
+        )
+        .mappings()
+        .all()
+    )
+
+    user_ids = [int(r["user_id"]) for r in rows if r["user_id"] is not None]
+    names: dict[int, str] = {}
+    if user_ids:
+        name_rows = (
+            (
+                await db.execute(
+                    text("SELECT id, name FROM users WHERE id = ANY(:ids)"),
+                    {"ids": user_ids},
+                )
+            )
+            .mappings()
+            .all()
+        )
+        names = {int(r["id"]): r["name"] for r in name_rows}
+
+    entries = []
+    unattributed_hires = 0
+    for r in rows:
+        hires = int(r["hires"])
+        if r["user_id"] is None:
+            # Kamien, ktorego nie da sie przypisac nikomu — operator Traffita
+            # bez dopasowania po e-mailu. NIE wolno go po cichu wyciac: suma
+            # kolumny przestalaby sie zgadzac z lejkiem, a tabela wygladalaby
+            # na zepsuta. Raportujemy osobno.
+            unattributed_hires += hires
+            continue
+        if hires < min_hires:
+            continue
+        entries.append(
+            {
+                "user_id": int(r["user_id"]),
+                "name": names.get(int(r["user_id"]), "—"),
+                "hires": hires,
+                "median_days": round(float(r["median_days"]), 1)
+                if r["median_days"] is not None
+                else None,
+                "p90_days": round(float(r["p90_days"]), 1)
+                if r["p90_days"] is not None
+                else None,
+            }
+        )
+    entries.sort(key=lambda e: (-e["hires"], e["name"]))
+
+    total_hires = sum(e["hires"] for e in entries) + unattributed_hires
+    result = {
+        "period": resolved.as_payload(),
+        "entries": entries,
+        "totals": {
+            "hires": total_hires,
+            "attributed_hires": total_hires - unattributed_hires,
+            # Ta liczba MUSI byc wyrenderowana obok sumy kolumny. Bez niej
+            # tabela per osoba nie zgadza sie z lejkiem i czyta sie jak blad.
+            "unattributed_hires": unattributed_hires,
+        },
+        "min_hires": min_hires,
+    }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
