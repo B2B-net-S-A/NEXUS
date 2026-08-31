@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import OperationalUser, TacPlus
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_cv_rule import ClientCvRule
@@ -209,14 +209,19 @@ async def _client_or_404(db: AsyncSession, client_id: int) -> tuple[int, str]:
 @router.get("/clients/{client_id}/cv-rule", response_model=ClientCvRuleRead)
 async def get_client_cv_rule(
     client_id: int,
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Reguła CV klienta — także niezatwierdzona.
 
-    Odczyt jest szeroki (każdy zalogowany), bo z tego korzysta baner
-    w generatorze: rekruter musi wiedzieć, czy dla wybranego klienta
-    obowiązują jakieś reguły, zanim wygeneruje dokument.
+    Bramka jest lustrem `GET /api/clients/{id}` (`OperationalUser`), bo to
+    konfiguracja klienta, a nie dana kandydata. Nie zawęża to nikomu dostępu
+    do banera w generatorze: `CANDIDATE_DOCUMENT_ROLES` (bramka obu ścieżek
+    generacji) to DOKŁADNIE ten sam zestaw siedmiu ról operacyjnych.
+
+    Samo uwierzytelnienie nie wystarcza — `notes` niosą standardy handlowe
+    klienta (SLA, off-limit, adresy biur), a `test_route_authz_contract`
+    świadomie nie wpuszcza nowych tras bez bramki zasobu.
     """
     cid, cname = await _client_or_404(db, client_id)
     rule = (
@@ -305,7 +310,7 @@ async def delete_client_cv_rule(
 
 @router.get("/settings/cv-rules", response_model=list[ChampionTemplateRow])
 async def list_champion_template_rules(
-    current_user: CurrentUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[ChampionTemplateRow]:
     """Ekran weryfikacji: 14 szablonów Championa i stan reguły każdego z nich.
