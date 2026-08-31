@@ -105,8 +105,8 @@ describe("FinanceResultsTab — stany", () => {
             consultant_name: "Adrian Kruk",
             client_name: "BNP Paribas",
             cost_rate_md: 950,
-            md_count: 22,
-            compensation: 20900,
+            md_count: 22.375,
+            compensation: 20900.125,
             revenue_rate_md: 1190,
             invoice_amount: 26180,
             margin_pln: 5280,
@@ -122,6 +122,8 @@ describe("FinanceResultsTab — stany", () => {
     renderTab();
 
     expect(await screen.findByText("Adrian Kruk")).toBeInTheDocument();
+    expect(screen.getByText("22,375")).toBeInTheDocument();
+    expect(screen.getByText(/20.*900,125 zł/)).toBeInTheDocument();
     expect(screen.getByText("KOSZT")).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByLabelText("Miesiąc")).toBeInTheDocument(),

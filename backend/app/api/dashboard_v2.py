@@ -77,6 +77,7 @@ RecruitmentOperationsUser = Annotated[
             UserRole.delivery_lead,
             UserRole.tac,
             UserRole.recruiter,
+            UserRole.finance,
             UserRole.sourcer,
         )
     ),
@@ -87,6 +88,7 @@ _RECRUITMENT_OPERATIONS_PRESET_ROLES: dict[
 ] = {
     "admin-ops": (),  # Empty means admin-only; the shortcut below handles admins.
     "delivery-lead": (UserRole.delivery_lead,),
+    "finance": (UserRole.finance,),
     "head-of-recruitment": (UserRole.head_of_recruitment,),
     "my-work": (UserRole.recruiter, UserRole.tac, UserRole.sourcer),
 }
@@ -231,7 +233,7 @@ async def recruitment_operations_detail(
     preset: RecruitmentOperationsPreset = Query(...),
 ) -> RecruitmentOperationsDetailResponse:
     ensure_recruitment_operations_preset(current_user, preset)
-    if preset != "delivery-lead":
+    if preset not in {"delivery-lead", "finance"}:
         await ensure_job_membership(
             db,
             current_user,
@@ -258,7 +260,7 @@ async def recruitment_operations_favorite(
     preset: RecruitmentOperationsPreset = Query(...),
 ) -> RecruitmentOperationsFavorite | None:
     ensure_recruitment_operations_preset(current_user, preset)
-    if preset != "delivery-lead":
+    if preset not in {"delivery-lead", "finance"}:
         await ensure_job_membership(
             db,
             current_user,

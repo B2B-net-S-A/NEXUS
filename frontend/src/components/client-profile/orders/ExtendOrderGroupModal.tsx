@@ -10,6 +10,7 @@ import type {
   OrderGroupRead,
   OrderLineInput,
 } from "@/lib/api/orderGroups";
+import { usesSharedMdPool } from "@/lib/client-order-list";
 import {
   extractionErrorMessage,
   findConflicts,
@@ -78,7 +79,7 @@ export function ExtendOrderGroupModal({
   onSubmit,
 }: Props) {
   const costBased = Boolean(group?.is_cost_based);
-  const sharedMdBased = Boolean(group?.is_md_budget_based);
+  const sharedMdBased = group ? usesSharedMdPool(group) : false;
 
   const [orderNumber, setOrderNumber] = useState("");
   const [startDate, setStartDate] = useState("");

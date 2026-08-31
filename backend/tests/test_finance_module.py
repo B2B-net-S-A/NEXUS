@@ -52,13 +52,13 @@ def _sample_rows() -> list[list]:
             **{
                 "Imię i nazwisko": "Adrian Kruk",
                 "Średnia Stawka MD": 950,
-                "Ilość MD": 22,
+                "Ilość MD": "22,375",
                 # Polski zapis z walutą i twardą spacją — tak wychodzi z Excela.
-                "Wynagrodzenie": "20 900,00 zł",
+                "Wynagrodzenie": "20 900,125 zł",
                 "Klient": "BNP Paribas",
                 "Stawka MD": 1190,
-                "Faktura": 26180,
-                "Marża PLN": "5 280,00",
+                "Faktura": "26 180,375 zł",
+                "Marża PLN": "5 280,250 zł",
                 "Marża %": "20,2%",
                 "Uwagi": "tajna notatka",
                 "Projekt": "Projekt X",
@@ -120,8 +120,10 @@ async def test_parser_reads_polish_money_and_percent():
 
     result = parse_finance_workbook(_workbook(_sample_rows()))
     adrian = result.rows[0]
-    assert adrian.compensation == Decimal("20900.00")  # „20 900,00 zł"
-    assert adrian.margin_pln == Decimal("5280.00")  # „5 280,00"
+    assert adrian.md_count == Decimal("22.375")
+    assert adrian.compensation == Decimal("20900.125")
+    assert adrian.invoice_amount == Decimal("26180.375")
+    assert adrian.margin_pln == Decimal("5280.250")
     assert adrian.margin_pct == Decimal("20.2")  # „20,2%"
 
 
@@ -291,9 +293,17 @@ async def test_import_results_and_hidden_columns_never_serialised(
         "Adrian Kruk",
         "Magdalena Dąbrowska",
     }
+    adrian = next(
+        row for row in data["rows"] if row["consultant_name"] == "Adrian Kruk"
+    )
+    assert adrian["md_count"] == 22.375
+    assert adrian["compensation"] == 20900.125
+    assert adrian["invoice_amount"] == 26180.375
+    assert adrian["margin_pln"] == 5280.25
     # Kafle liczone z tych samych wierszy, które widać w tabeli.
-    assert data["totals"]["cost"] == 20900.0  # tylko Adrian ma wynagrodzenie
-    assert data["totals"]["revenue"] == 26180.0 + 27280.0
+    assert data["totals"]["cost"] == 20900.125  # tylko Adrian ma wynagrodzenie
+    assert data["totals"]["revenue"] == 26180.375 + 27280.0
+    assert data["totals"]["margin"] == 5280.25 + 5500.0
     assert data["needs_completion_count"] == 1
 
 

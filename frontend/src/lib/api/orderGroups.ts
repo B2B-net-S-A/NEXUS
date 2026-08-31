@@ -125,8 +125,8 @@ export interface OrderGroupRead {
   closure_reason: string | null;
 
   is_cost_based: boolean;
-  /** Wspólna pula MD na poziomie zamówienia (Cyfrowy Polsat / Lotte Wedel).
-   *  Dotychczasowe zamówienia MD BIK/Polkomtela/BNP nadal mają budżet per linia. */
+  /** Flaga kompatybilności dla istniejących wspólnych pul MD.
+   *  Nowe jawne `order_type="md"` zawsze mają budżet per linia. */
   is_md_budget_based: boolean;
   /** Trzy liczby, nie jedna: kwota / wykorzystano / pozostało. Ticket nazywa
    *  „zużyciem" wartość, która maleje — czyli resztę; jedno pole podpisane
@@ -249,9 +249,8 @@ export interface OrderLineInput {
   candidate_id?: number | null;
   rate_cost: number;
   rate_revenue: number;
-  /** Budżet MD per linia. Pomijany na zamówieniu KOSZTOWYM i na wspólnej
-   *  puli MD — w obu wariantach budżet mieszka na grupie, a backend odrzuca
-   *  konkurencyjny budżet przy osobie. */
+  /** Budżet MD per linia. Pomijany na zamówieniu KOSZTOWYM i zachowanych
+   *  istniejących wspólnych pulach MD. */
   input_mode?: OrderInputMode | null;
   input_value?: number | null;
   start_date: string;
@@ -266,6 +265,8 @@ export interface OrderGroupInput {
   end_date?: string | null;
   notes?: string | null;
   is_cost_based?: boolean;
+  /** Tylko kompatybilność odczytu/edycji istniejącej wspólnej puli.
+   *  Frontend nie ustawia tej flagi dla nowych zamówień MD. */
   is_md_budget_based?: boolean;
   budget_amount?: number | null;
   md_budget_total?: number | null;
@@ -371,6 +372,33 @@ export interface ImportDetail extends ImportSummary {
   rows: ImportRow[];
   skipped_rows: Array<{ row: number; reason: string; consultant_name?: string }>;
   sheet_name: string | null;
+}
+
+export type PolkomtelReprocessTargetKind = "md_line" | "shared_md" | "cost";
+
+export interface PolkomtelReprocessTarget {
+  kind: PolkomtelReprocessTargetKind;
+  order_id: number | null;
+  group_id: number;
+  order_number: string;
+  row_ids: number[];
+  row_ids_to_update: number[];
+  /** Decimal z backendu może być serializowany jako string zależnie od kodeka. */
+  current_value: number | string | null;
+  expected_value: number | string;
+  write_required: boolean;
+}
+
+export interface PolkomtelReprocessResponse {
+  import_id: number;
+  period_month: string;
+  client_id: number;
+  applied: boolean;
+  rows_scanned: number;
+  rows_to_update: number;
+  targets_to_recalculate: number;
+  conflicts: string[];
+  targets: PolkomtelReprocessTarget[];
 }
 
 export const orderGroupsApi = {
@@ -485,8 +513,10 @@ export const orderGroupsApi = {
 };
 
 export const mdConsumptionApi = {
-  listImports: () =>
-    api.get<{ imports: ImportSummary[] }>("/api/md-consumption/imports"),
+  listImports: (limit = 100) =>
+    api.get<{ imports: ImportSummary[] }>("/api/md-consumption/imports", {
+      params: { limit },
+    }),
 
   getImport: (importId: number) =>
     api.get<ImportDetail>(`/api/md-consumption/imports/${importId}`),
@@ -504,5 +534,11 @@ export const mdConsumptionApi = {
     api.post<ImportRow>(
       `/api/md-consumption/imports/${importId}/rows/${rowId}/assign`,
       { order_id: orderId },
+    ),
+
+  reprocessPolkomtel: (importId: number, apply = false) =>
+    api.post<PolkomtelReprocessResponse>(
+      `/api/md-consumption/imports/${importId}/reprocess-polkomtel`,
+      { apply },
     ),
 };

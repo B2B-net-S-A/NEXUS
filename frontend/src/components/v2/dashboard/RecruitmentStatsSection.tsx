@@ -77,8 +77,8 @@ function formatKpiValue(kpi: DashboardKpi | undefined): string {
   return String(kpi.value)
 }
 
-// Ten sam kontrakt co boundaryState w DashboardV2Preset (koperta v2 zna
-// też "stale", którego analytics-owy deriveBoundaryState nie obsługuje).
+// Koperta v2 zna też "stale", którego analytics-owy deriveBoundaryState
+// nie obsługuje.
 function boundaryState(
   query: {
     isLoading: boolean
@@ -111,8 +111,7 @@ export function RecruitmentStatsSection({ className }: { className?: string }) {
   const [period, setPeriod] = useState<DashboardPeriod>("month")
 
   // Cache nie może przeciekać między rolami/impersonacją — klucz zawiera
-  // tożsamość, wersję autoryzacji, scope i capabilities (wzorzec
-  // DashboardV2Preset).
+  // tożsamość, wersję autoryzacji, scope i capabilities.
   const scopeCacheKey = user?.data_scope
     ? JSON.stringify({
         kind: user.data_scope.kind,

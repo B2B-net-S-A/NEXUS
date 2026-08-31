@@ -987,6 +987,14 @@ ze statusem** — bez tego nocny `_promote_statuses` demotuje wskrzeszony
 kontrakt tej samej nocy i poprawka kasuje samą siebie. Historię leczy migracja
 `0243` (reguła ogólna, zero ID w SQL-u).
 
+**Każdy writer aktywnego zamówienia musi wołać tę samą regułę.** Po 0243
+zostały pominięte: PATCH uzupełniający draft, import CSV Nordea oraz aktywne
+linie grupowe (create/add/swap i materializacja `scheduled`). Skutek wrócił dla
+Contract 327/order 285493 i Contract 165/order 285623. Runtime obsługuje teraz
+wszystkie te ścieżki; migracja `0250` koryguje dwa jawnie wskazane rekordy po
+pełnych kluczach biznesowych i zapisuje read-only audyt analogicznych przypadków
+innych klientów w `app_settings['0250_live_order_contract_repair']`.
+
 ## Polityki odczytu PDF per klient — jeden wzorzec, siedem bramek
 
 Każda polityka jest DETERMINISTYCZNA i stosowana PO odpowiedzi LLM (model

@@ -45,11 +45,11 @@ from app.services.cyfrowy_polsat_orders import (
 )
 from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 
-# Kwoty w złotych — dwa miejsca po przecinku. W odróżnieniu od MD (sześć
-# miejsc, bo `kwota / stawka` bywa ułamkiem nieskończonym) tutaj wartości
-# wejściowe SĄ kwotami i nic ich nie dzieli.
-MONEY_SCALE = Decimal("0.01")
-ZERO = Decimal("0.00")
+# Kwoty konsumpcji i pozostałego budżetu — trzy miejsca po przecinku zgodnie
+# z raportem Finansów. Stawki jednostkowe pozostają na swojej dotychczasowej
+# skali; ta stała dotyczy wyłącznie puli oraz miesięcznych kwot rozliczenia.
+MONEY_SCALE = Decimal("0.001")
+ZERO = Decimal("0.000")
 
 
 def quantize_money(value: Decimal | int | float | str) -> Decimal:

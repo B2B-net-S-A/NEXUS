@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
@@ -215,50 +215,145 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(window.location.search).toBe("?status=active");
   });
 
-  it("nagłówki: Stawka kosztowa + Stawka przychodowa, bez dawnej Stawka klient", async () => {
-    renderList();
+  it("ma dokładnie 8 kolumn danych w kolejności priorytetu", async () => {
+    const { container } = renderList();
     await screen.findByText("Paweł Małek");
-    expect(screen.getByText("Stawka kosztowa")).toBeInTheDocument();
-    expect(screen.getByText("Stawka przychodowa")).toBeInTheDocument();
+
+    const table = container.querySelector("[data-contracts-responsive-table]");
+    expect(table).toBeInTheDocument();
+    expect(
+      within(table as HTMLElement)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent?.replace(/\s+/g, " ").trim()),
+    ).toEqual([
+      "Kandydat",
+      "Klient",
+      "Daty",
+      "Stawka kosztowa",
+      "Stawka przychodowa",
+      "Marża",
+      "Typ",
+      "Status",
+    ]);
     expect(screen.queryByText("Stawka klient")).not.toBeInTheDocument();
   });
 
-  it("osoba u 2 klientów = JEDEN wiersz z rozbiciem per klient", async () => {
-    renderList();
+  it("osoba u 2 klientów ma 2 widoczne pasy bez rozwijania, ze wspólną komórką kandydata", async () => {
+    const { container } = renderList();
     await screen.findByText("Paweł Małek");
 
     expect(
       screen.getByText(/2 kontraktorów \/ 3 aktywne kontrakty/i),
     ).toBeInTheDocument();
 
-    // Obaj klienci w kolumnie „Klient" + adnotacja o wieloklientowości.
-    expect(screen.getByText("Bank Pocztowy")).toBeInTheDocument();
-    expect(screen.getByText("VeloBank")).toBeInTheDocument();
-    expect(screen.getByText(/pracuje u 2 klientów/i)).toBeInTheDocument();
-    expect(screen.getByText("Paweł Małek").closest("tr")).toHaveTextContent(
-      /VeloBank:.*bezterminowo/i,
+    const groups = container.querySelectorAll("[data-contract-group]");
+    expect(groups).toHaveLength(2);
+    const multiGroup = Array.from(groups).find((group) =>
+      group.textContent?.includes("Paweł Małek"),
     );
+    expect(multiGroup).toBeDefined();
 
-    // Rozbicie stawek per klient: prefiks z nazwą klienta w komórkach kwotowych
-    // (memberLines renderuje „Bank Pocztowy: " i „VeloBank: " per linia w
-    // czterech kolumnach: daty, kosztowa, przychodowa, marża).
-    expect(screen.getAllByText(/Bank Pocztowy:/).length).toBeGreaterThanOrEqual(3);
-    expect(screen.getAllByText(/VeloBank:/).length).toBeGreaterThanOrEqual(3);
+    const memberRows = multiGroup!.querySelectorAll("[data-contract-member]");
+    expect(memberRows).toHaveLength(2);
+    expect(memberRows[0]).toHaveTextContent("Bank Pocztowy");
+    expect(memberRows[1]).toHaveTextContent("VeloBank");
+    expect(multiGroup).toHaveTextContent(/pracuje u 2 klientów/i);
+    expect(multiGroup!.querySelector("[aria-expanded]")).not.toBeInTheDocument();
 
-    // Osoba jednoklientowa renderuje się po staremu (bez prefiksów).
-    expect(screen.getByText("Jan Solo")).toBeInTheDocument();
-    expect(screen.queryByText(/Trzeci Klient:/)).not.toBeInTheDocument();
+    const candidateCell = within(memberRows[0] as HTMLElement)
+      .getByRole("link", { name: "Paweł Małek" })
+      .closest("td");
+    expect(candidateCell).toHaveAttribute("rowspan", "2");
+    expect(
+      within(memberRows[1] as HTMLElement).queryByText("Paweł Małek"),
+    ).not.toBeInTheDocument();
+
+    // Typ i status są danymi konkretnej umowy i pozostają dwiema ostatnimi
+    // komórkami każdego pasa.
+    const firstMemberCells = within(memberRows[0] as HTMLElement).getAllByRole(
+      "cell",
+    );
+    const secondMemberCells = within(memberRows[1] as HTMLElement).getAllByRole(
+      "cell",
+    );
+    expect(firstMemberCells.slice(-2)[0]).toHaveTextContent("b2b");
+    expect(firstMemberCells.slice(-1)[0]).toHaveTextContent("Aktywny");
+    expect(secondMemberCells.slice(-2)[0]).toHaveTextContent("b2b");
+    expect(secondMemberCells.slice(-1)[0]).toHaveTextContent("Aktywny");
+  });
+
+  it("pokazuje daty listy jako dd.mm.yy", async () => {
+    const { container } = renderList();
+    await screen.findByText("Paweł Małek");
+
+    const multiGroup = Array.from(
+      container.querySelectorAll("[data-contract-group]"),
+    ).find((group) => group.textContent?.includes("Paweł Małek"));
+    expect(multiGroup).toBeDefined();
+    expect(multiGroup).toHaveTextContent(/01\.07\.26\s*→\s*30\.09\.26/);
+    expect(multiGroup).toHaveTextContent(/01\.07\.26\s*→\s*bezterminowo/);
+    expect(multiGroup).not.toHaveTextContent(/2026/);
+  });
+
+  it("jeden responsywny DOM zachowuje komplet pól każdego klienta", async () => {
+    const { container } = renderList();
+    await screen.findByText("Paweł Małek");
+
+    const table = container.querySelector("[data-contracts-responsive-table]");
+    expect(table).toBeInTheDocument();
+    expect(
+      container.querySelectorAll("[data-contracts-responsive-table]"),
+    ).toHaveLength(1);
+
+    const multiGroup = Array.from(
+      container.querySelectorAll("[data-contract-group]"),
+    ).find((group) => group.textContent?.includes("Paweł Małek"));
+    expect(multiGroup).toBeDefined();
+    const memberRows = multiGroup!.querySelectorAll("[data-contract-member]");
+    const expectedLabels = [
+      "Klient",
+      "Daty",
+      "Stawka kosztowa",
+      "Stawka przychodowa",
+      "Marża",
+      "Typ",
+      "Status",
+    ];
+
+    const clientNames = ["Bank Pocztowy", "VeloBank"];
+    for (const [index, row] of Array.from(memberRows).entries()) {
+      const labelledCells = Array.from(row.querySelectorAll("td[data-label]"));
+      const labels = labelledCells
+        .map((cell) => cell.getAttribute("data-label"))
+        .filter(
+          (label): label is string => Boolean(label) && label !== "Kandydat",
+        );
+      expect(labels).toEqual(expectedLabels);
+
+      const clientCell = labelledCells.find(
+        (cell) => cell.getAttribute("data-label") === "Klient",
+      );
+      expect(clientCell).toBeDefined();
+      expect(clientCell).toHaveTextContent(clientNames[index]);
+      for (const cell of labelledCells.filter((item) => item !== clientCell)) {
+        expect(cell).not.toHaveTextContent(clientNames[index]);
+      }
+    }
   });
 
   it("formatuje stawkę kosztową i przychodową ich własnymi walutami", async () => {
-    renderList();
-    const row = (await screen.findByText("Paweł Małek")).closest("tr");
+    const { container } = renderList();
+    await screen.findByText("Paweł Małek");
+    const row = Array.from(
+      container.querySelectorAll("[data-contract-member]"),
+    ).find((member) => member.textContent?.includes("Bank Pocztowy"));
+    expect(row).toBeDefined();
 
     expect(row).toHaveTextContent("125,00 zł");
     expect(row).toHaveTextContent("175,00 €");
     // Backend zwraca null dla marży w różnych walutach; lista nie podstawia
     // wspólnej waluty i nie pokazuje pozornie porównywalnej kwoty.
-    expect(row).toHaveTextContent(/Bank Pocztowy: —/);
+    expect(row?.querySelector('[data-label="Marża"]')).toHaveTextContent("—");
   });
 
   it("dla statusu innego niż aktywny używa neutralnych nazw liczników", async () => {

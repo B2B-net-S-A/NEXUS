@@ -73,7 +73,9 @@ class ClientOrderGroup(Base, TimestampMixin):
             "(order_type = 'cost' AND is_cost_based = TRUE "
             "AND is_md_budget_based = FALSE) OR "
             "(order_type = 'md' AND is_cost_based = FALSE "
-            "AND is_md_budget_based = TRUE)",
+            "AND ((client_id IN (155, 38339) AND is_md_budget_based = TRUE) "
+            "OR (client_id NOT IN (155, 38339) "
+            "AND is_md_budget_based = FALSE)))",
             name="ck_client_order_groups_explicit_type_coherence",
         ),
         CheckConstraint(
@@ -180,12 +182,12 @@ class ClientOrderGroup(Base, TimestampMixin):
     tu ma znaczenie: ile jeszcze zostało na całym zamówieniu."""
 
     budget_amount: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(16, 2), nullable=True
+        Numeric(17, 3), nullable=True
     )
     """Kwota wyjściowa — niezmienna w toku zwykłej pracy, do wglądu."""
 
     budget_remaining: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(16, 2), nullable=True
+        Numeric(17, 3), nullable=True
     )
     """WYLICZANE: ``budget_amount - Σ rozliczonych faktur + korekta``.
 
@@ -194,7 +196,7 @@ class ClientOrderGroup(Base, TimestampMixin):
     powiedzieć, KTÓREJ osobie zabrakło pieniędzy, a nie tylko że zabrakło."""
 
     budget_manual_adjustment: Mapped[Decimal] = mapped_column(
-        Numeric(16, 2), nullable=False, server_default="0"
+        Numeric(17, 3), nullable=False, server_default="0"
     )
     """Ręczna korekta trzymana OSOBNO od konsumpcji — dokładnie z tego samego
     powodu co ``ClientOrder.md_manual_adjustment``: korekta nadpisująca
@@ -204,10 +206,11 @@ class ClientOrderGroup(Base, TimestampMixin):
     is_md_budget_based: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
-    """Wspólna pula MD całego zamówienia Cyfrowego Polsatu.
+    """Klientowo ograniczona, wspólna pula MD całego zamówienia.
 
-    To osobny wariant od istniejących zamówień MD, gdzie budżet mieszka na
-    każdej linii konsultanta. Rozdzielenie chroni zachowanie BIK/BNP/Polkomtela.
+    Zwykły jawny ``order_type='md'`` nie ustawia tej flagi: jego budżet mieszka
+    na każdej linii konsultanta. ``True`` jest wyłącznie świadomym wariantem
+    Cyfrowego Polsatu i Lotte Wedel, także dla nowo tworzonych zamówień.
     """
 
     md_budget_total: Mapped[Optional[Decimal]] = mapped_column(

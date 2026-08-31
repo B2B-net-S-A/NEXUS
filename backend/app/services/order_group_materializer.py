@@ -55,6 +55,10 @@ from app.services.multi_consultant_orders import (
 )
 from app.services.order_rate_snapshots import convert_order_rate
 from app.services.order_types import effective_standalone_order_type
+from app.services.shared_md_orders import (
+    client_uses_shared_md_pool,
+    uses_shared_md_pool,
+)
 
 _PLACEHOLDER_TITLE = "(bez numeru)"
 
@@ -201,13 +205,16 @@ async def materialize_group_for_activated_order(
             if explicit_type == OrderType.cost
             else None
         )
-        md_budget = (
-            Decimal(str(order.md_total or 0)) if explicit_type == OrderType.md else None
-        )
         if explicit_type == OrderType.cost and cost_budget <= 0:
             raise ValueError("Zamówienie kosztowe wymaga budżetu całkowitego")
-        if explicit_type == OrderType.md and md_budget <= 0:
+        if explicit_type == OrderType.md and Decimal(str(order.md_total or 0)) <= 0:
             raise ValueError("Zamówienie na MD wymaga budżetu w MD")
+        shared_md_budget = (
+            Decimal(str(order.md_total))
+            if explicit_type == OrderType.md
+            and client_uses_shared_md_pool(order.client_id)
+            else None
+        )
         group = ClientOrderGroup(
             client_id=order.client_id,
             order_number=number,
@@ -221,9 +228,12 @@ async def materialize_group_for_activated_order(
             is_cost_based=explicit_type == OrderType.cost,
             budget_amount=cost_budget,
             budget_remaining=cost_budget,
-            is_md_budget_based=explicit_type == OrderType.md,
-            md_budget_total=md_budget,
-            md_budget_remaining=md_budget,
+            # Zwykłe MD zachowuje budżet na linii. Tylko dwie świadome,
+            # klientowe odmiany CP/Lotte przenoszą budżet na grupę — tak samo
+            # jak ręczne tworzenie przez endpoint grup.
+            is_md_budget_based=shared_md_budget is not None,
+            md_budget_total=shared_md_budget,
+            md_budget_remaining=shared_md_budget,
             created_by_user_id=actor_id,
         )
         db.add(group)
@@ -235,11 +245,30 @@ async def materialize_group_for_activated_order(
                 "Budżet kosztowy różni się od istniejącego zamówienia o tym numerze"
             )
     elif explicit_type == OrderType.md:
-        supplied = Decimal(str(order.md_total or 0))
-        if supplied > 0 and supplied != Decimal(str(group.md_budget_total or 0)):
-            raise ValueError(
-                "Budżet MD różni się od istniejącego zamówienia o tym numerze"
+        if client_uses_shared_md_pool(order.client_id):
+            if not uses_shared_md_pool(group):
+                raise ValueError(
+                    "Zamówienie MD tego klienta wymaga wspólnego budżetu MD"
+                )
+            supplied = Decimal(str(order.md_total or 0))
+            if supplied > 0 and supplied != Decimal(str(group.md_budget_total or 0)):
+                raise ValueError(
+                    "Budżet MD różni się od istniejącego zamówienia o tym numerze"
+                )
+        elif group.is_md_budget_based:
+            existing_line_id = await db.scalar(
+                select(ClientOrder.id)
+                .where(ClientOrder.order_group_id == group.id)
+                .order_by(ClientOrder.id)
+                .limit(1)
             )
+            if existing_line_id is None:
+                # Pusta grupa nie ma historycznych rozliczeń do zachowania.
+                # Przy pierwszej linii usuń flagę błędnie wywnioskowaną w 0246.
+                group.is_md_budget_based = False
+                group.md_budget_total = None
+                group.md_budget_remaining = None
+                group.md_budget_manual_adjustment = Decimal("0")
 
     who = await _consultant_name(db, order)
     order.order_group_id = group.id
@@ -345,9 +374,9 @@ async def materialize_group_for_activated_order(
     order.currency = "PLN"
     order.rate_client_currency = "PLN"
     order.rate_candidate_currency = "PLN"
-    if explicit_type in (OrderType.cost, OrderType.md):
-        # Budżet jest wspólny na grupie; pozostawienie jego kopii na linii
-        # stworzyłoby dwa niezależne liczniki i pozwoliło mieszać typy.
+    if explicit_type == OrderType.cost or uses_shared_md_pool(group):
+        # Budżet kosztowy oraz klientowa wspólna pula MD mieszkają na grupie;
+        # pozostawienie kopii na linii stworzyłoby dwa niezależne liczniki.
         order.total_value = None
         order.md_input_mode = None
         order.md_input_value = None
@@ -355,11 +384,12 @@ async def materialize_group_for_activated_order(
         order.md_remaining = None
         order.md_manual_adjustment = Decimal("0")
     else:
+        # Zwykłe jawne MD zachowuje własną pulę konsultanta.
         await recompute_remaining(db, order)
 
     if group.is_cost_based:
         budget_note = f", wspólny budżet {group.budget_amount} PLN"
-    elif group.is_md_budget_based:
+    elif uses_shared_md_pool(group):
         budget_note = f", wspólny budżet {format_md(group.md_budget_total)} MD"
     else:
         budget_note = (

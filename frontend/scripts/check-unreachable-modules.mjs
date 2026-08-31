@@ -116,6 +116,11 @@ const BASELINE = new Set([
   "components/v2/dashboard/RecruitmentTrendChart.tsx",
   "components/v2/gamification/HeroLigaMistrzow.tsx",
   "components/v2/gamification/RaceCard.tsx",
+  // Wspólne zależności powyższej, zachowanej sekcji statystyk. Nie są
+  // niezależnymi funkcjami do ponownego montowania na uproszczonym dashboardzie.
+  "components/v2/dashboard/StatsBoundary.tsx",
+  "lib/dashboard-v2-api.ts",
+  "lib/stats-api.ts",
   // Zakładka powiadomień profilu klienta — odmontowana, nie zweryfikowano czy
   // świadomie; wymaga sprawdzenia z produktem przed usunięciem.
   "app/clients/[id]/NotificationsTab.tsx",

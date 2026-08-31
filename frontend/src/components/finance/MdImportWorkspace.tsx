@@ -2,7 +2,14 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, HelpCircle, Upload } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileSpreadsheet,
+  HelpCircle,
+  RefreshCw,
+  Upload,
+} from "lucide-react";
 
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { useToast } from "@/components/Toast";
@@ -11,6 +18,8 @@ import {
   type ImportDetail,
   type ImportRow,
   type ImportRowStatus,
+  type PolkomtelReprocessResponse,
+  type PolkomtelReprocessTarget,
 } from "@/lib/api/orderGroups";
 import { cn } from "@/lib/utils";
 
@@ -29,14 +38,42 @@ function currentMonth(): string {
 
 function formatMd(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  const rounded = Math.round(value * 100) / 100;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2);
+  return new Intl.NumberFormat("pl-PL", {
+    maximumFractionDigits: 3,
+    useGrouping: false,
+  }).format(value);
 }
 
 function apiError(err: unknown, fallback: string): string {
   const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
     ?.detail;
   return typeof detail === "string" ? detail : fallback;
+}
+
+const REPROCESS_KIND_LABEL: Record<PolkomtelReprocessTarget["kind"], string> = {
+  md_line: "MD konsultanta",
+  shared_md: "Wspólna pula MD",
+  cost: "Zamówienie kosztowe",
+};
+
+function formatReprocessValue(
+  value: number | string | null,
+  kind: PolkomtelReprocessTarget["kind"],
+): string {
+  if (value === null) return "brak";
+  return `${formatMd(Number(value))} ${kind === "cost" ? "PLN" : "MD"}`;
+}
+
+function reprocessConflictsFromError(err: unknown): string[] {
+  const detail = (
+    err as {
+      response?: { data?: { detail?: { conflicts?: unknown } } };
+    }
+  )?.response?.data?.detail;
+  if (!detail || !Array.isArray(detail.conflicts)) return [];
+  return detail.conflicts.filter(
+    (conflict): conflict is string => typeof conflict === "string",
+  );
 }
 
 /**
@@ -55,10 +92,16 @@ export function MdImportWorkspace() {
   const [periodMonth, setPeriodMonth] = useState(currentMonth());
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [detail, setDetail] = useState<ImportDetail | null>(null);
+  const [reprocessPreview, setReprocessPreview] =
+    useState<PolkomtelReprocessResponse | null>(null);
+  const [reprocessRaceConflict, setReprocessRaceConflict] = useState<{
+    importId: number;
+    conflicts: string[];
+  } | null>(null);
 
   const history = useQuery({
     queryKey: ["md-imports"],
-    queryFn: async () => (await mdConsumptionApi.listImports()).data,
+    queryFn: async () => (await mdConsumptionApi.listImports(100)).data,
   });
 
   const upload = useMutation({
@@ -68,6 +111,8 @@ export function MdImportWorkspace() {
     },
     onSuccess: (data) => {
       setDetail(data);
+      setReprocessPreview(null);
+      setReprocessRaceConflict(null);
       setUploadError(null);
       setFile(null);
       if (fileInput.current) fileInput.current.value = "";
@@ -86,15 +131,87 @@ export function MdImportWorkspace() {
     },
     onSuccess: (data) => {
       setDetail(data);
+      setReprocessPreview(null);
+      setReprocessRaceConflict(null);
       queryClient.invalidateQueries({ queryKey: ["md-imports"] });
       showToast("Przypisano zamówienie i zaktualizowano MD", "success");
     },
     onError: (err) => showToast(apiError(err, "Nie udało się przypisać."), "error"),
   });
 
+  const reprocessDryRun = useMutation({
+    mutationFn: async (importId: number) => {
+      return (await mdConsumptionApi.reprocessPolkomtel(importId, false)).data;
+    },
+    onMutate: () => {
+      setReprocessPreview(null);
+      setReprocessRaceConflict(null);
+    },
+    onSuccess: (data) => {
+      setReprocessPreview(data);
+      showToast("Analiza ponownego dopasowania Polkomtel jest gotowa", "success");
+    },
+    onError: (err) =>
+      showToast(
+        apiError(err, "Nie udało się sprawdzić ponownego dopasowania."),
+        "error",
+      ),
+  });
+
+  const reprocessApply = useMutation({
+    mutationFn: async (importId: number) => {
+      return (await mdConsumptionApi.reprocessPolkomtel(importId, true)).data;
+    },
+    onSuccess: async (data) => {
+      setReprocessPreview(data);
+      setReprocessRaceConflict(null);
+      queryClient.invalidateQueries({ queryKey: ["md-imports"] });
+      try {
+        if (detail?.id === data.import_id) {
+          setDetail((await mdConsumptionApi.getImport(data.import_id)).data);
+        }
+      } catch {
+        // Sam APPLY już się udał. Nie zmieniamy komunikatu sukcesu tylko dlatego,
+        // że wtórne odświeżenie tabeli importu chwilowo się nie powiodło.
+      }
+      showToast("Ponowne dopasowanie Polkomtel zostało zastosowane", "success");
+    },
+    onError: (err, importId) => {
+      // Endpoint ponownie waliduje plan pod blokadami. Po konflikcie podgląd
+      // jest nieaktualny i operator musi świadomie uruchomić nowy dry-run.
+      setReprocessPreview(null);
+      const conflicts = reprocessConflictsFromError(err);
+      setReprocessRaceConflict({ importId, conflicts });
+      showToast(
+        conflicts.length > 0
+          ? "Stan danych się zmienił. Sprawdź konflikty i uruchom analizę ponownie."
+          : apiError(err, "Stan danych się zmienił. Uruchom analizę ponownie."),
+        "error",
+      );
+    },
+  });
+
   const pendingCount = useMemo(
     () => (detail?.rows ?? []).filter((r) => r.status === "needs_assignment").length,
     [detail],
+  );
+
+  const currentReprocessPreview =
+    reprocessPreview?.import_id === detail?.id ? reprocessPreview : null;
+  const currentReprocessRaceConflicts =
+    reprocessRaceConflict && reprocessRaceConflict.importId === detail?.id
+      ? reprocessRaceConflict.conflicts
+      : [];
+  const reprocessHasChanges = Boolean(
+    currentReprocessPreview &&
+      (currentReprocessPreview.rows_to_update > 0 ||
+        currentReprocessPreview.targets_to_recalculate > 0),
+  );
+  const reprocessCanApply = Boolean(
+    currentReprocessPreview &&
+      !currentReprocessPreview.applied &&
+      currentReprocessPreview.conflicts.length === 0 &&
+      reprocessHasChanges,
   );
 
   return (
@@ -199,6 +316,165 @@ export function MdImportWorkspace() {
             </p>
           ) : null}
 
+          <div className="border-b border-border bg-muted/20 px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Ponowne dopasowanie Polkomtel
+                </h3>
+                <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
+                  Najpierw wykonaj bezpieczną analizę. System pokaże dokładne
+                  zamówienia, identyfikatory wierszy i wartości przed oraz po korekcie.
+                  Samo sprawdzenie nie zapisuje żadnych zmian.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={reprocessDryRun.isPending || reprocessApply.isPending}
+                onClick={() => reprocessDryRun.mutate(detail.id)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={cn("h-3.5 w-3.5", reprocessDryRun.isPending && "animate-spin")}
+                  aria-hidden="true"
+                />
+                {reprocessDryRun.isPending
+                  ? "Sprawdzanie…"
+                  : "Sprawdź dopasowanie Polkomtel"}
+              </button>
+            </div>
+
+            {currentReprocessRaceConflicts.length > 0 ? (
+              <div role="alert" className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <p className="font-semibold">
+                  Stan danych zmienił się po analizie. Korekta nie została
+                  zastosowana. Sprawdź konflikty i uruchom analizę ponownie:
+                </p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {currentReprocessRaceConflicts.map((conflict, index) => (
+                    <li key={`${conflict}-${index}`}>{conflict}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {currentReprocessPreview ? (
+              <div className="mt-4 flex flex-col gap-3" aria-label="Podgląd korekty Polkomtel">
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    Import: <strong className="text-foreground">#{currentReprocessPreview.import_id}</strong>
+                  </span>
+                  <span>
+                    Miesiąc: <strong className="text-foreground">{currentReprocessPreview.period_month}</strong>
+                  </span>
+                  <span>
+                    Sprawdzone wiersze: <strong className="text-foreground">{currentReprocessPreview.rows_scanned}</strong>
+                  </span>
+                  <span>
+                    Wiersze do korekty: <strong className="text-foreground">{currentReprocessPreview.rows_to_update}</strong>
+                  </span>
+                  <span>
+                    Budżety do przeliczenia: <strong className="text-foreground">{currentReprocessPreview.targets_to_recalculate}</strong>
+                  </span>
+                </div>
+
+                {currentReprocessPreview.targets.length > 0 ? (
+                  <div className="overflow-x-auto rounded-md border border-border bg-background">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-left uppercase tracking-wide text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">Typ</th>
+                          <th className="px-3 py-2 font-medium">Zamówienie</th>
+                          <th className="px-3 py-2 font-medium">Wiersze importu</th>
+                          <th className="px-3 py-2 font-medium">Zmiana wartości</th>
+                          <th className="px-3 py-2 font-medium">Zapis</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {currentReprocessPreview.targets.map((target) => (
+                          <tr key={`${target.kind}-${target.group_id}-${target.order_id ?? "group"}`}>
+                            <td className="px-3 py-2 text-foreground">
+                              {REPROCESS_KIND_LABEL[target.kind]}
+                            </td>
+                            <td className="px-3 py-2 text-foreground">
+                              <span className="font-medium">{target.order_number}</span>
+                              <span className="ml-1 text-muted-foreground">
+                                (grupa #{target.group_id}
+                                {target.order_id !== null ? `, linia #${target.order_id}` : ""})
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <span>ID: {target.row_ids.join(", ") || "—"}</span>
+                              <br />
+                              <span>
+                                Do korekty: {target.row_ids_to_update.join(", ") || "—"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 tabular-nums text-foreground">
+                              {formatReprocessValue(target.current_value, target.kind)} →{" "}
+                              {formatReprocessValue(target.expected_value, target.kind)}
+                            </td>
+                            <td className="px-3 py-2">
+                              {target.write_required ? (
+                                <span className="font-medium text-amber-700">wymagany</span>
+                              ) : (
+                                <span className="text-muted-foreground">bez zmiany budżetu</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+
+                {currentReprocessPreview.conflicts.length > 0 ? (
+                  <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    <p className="font-semibold">
+                      Nie można zastosować korekty — najpierw rozwiąż konflikty:
+                    </p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                      {currentReprocessPreview.conflicts.map((conflict, index) => (
+                        <li key={`${conflict}-${index}`}>{conflict}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : currentReprocessPreview.applied ? (
+                  <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+                    Korekta została zastosowana. Możesz uruchomić analizę ponownie,
+                    aby potwierdzić brak dalszych zmian.
+                  </p>
+                ) : !reprocessHasChanges ? (
+                  <p className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+                    Brak zmian do zastosowania — import jest już poprawnie dopasowany.
+                  </p>
+                ) : null}
+
+                {reprocessCanApply ? (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={reprocessApply.isPending || reprocessDryRun.isPending}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          `Zastosować korektę dla importu #${currentReprocessPreview.import_id} (${currentReprocessPreview.period_month})? Zostanie poprawionych ${currentReprocessPreview.rows_to_update} wierszy i przeliczonych ${currentReprocessPreview.targets_to_recalculate} budżetów.`,
+                        );
+                        if (confirmed) {
+                          reprocessApply.mutate(currentReprocessPreview.import_id);
+                        }
+                      }}
+                      className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+                    >
+                      {reprocessApply.isPending
+                        ? "Stosowanie korekty…"
+                        : "Zastosuj sprawdzoną korektę"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -276,6 +552,8 @@ export function MdImportWorkspace() {
                   onClick={async () => {
                     try {
                       setDetail((await mdConsumptionApi.getImport(imp.id)).data);
+                      setReprocessPreview(null);
+                      setReprocessRaceConflict(null);
                     } catch {
                       showToast("Nie udało się otworzyć importu", "error");
                     }
@@ -346,7 +624,7 @@ function ImportRowLine({
           ? "—"
           : row.invoice_amount.toLocaleString("pl-PL", {
               minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
+              maximumFractionDigits: 3,
             })}
       </td>
       <td className="px-5 py-2">

@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToastProvider } from "@/components/Toast";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
-import type { ImportDetail, ImportRow } from "@/lib/api/orderGroups";
+import type {
+  ImportDetail,
+  ImportRow,
+  PolkomtelReprocessResponse,
+} from "@/lib/api/orderGroups";
 
 vi.mock("@/lib/api/orderGroups", () => ({
   orderGroupsApi: {},
@@ -14,6 +18,7 @@ vi.mock("@/lib/api/orderGroups", () => ({
     getImport: vi.fn(),
     upload: vi.fn(),
     assignRow: vi.fn(),
+    reprocessPolkomtel: vi.fn(),
   },
 }));
 
@@ -56,14 +61,56 @@ function detail(rows: ImportRow[]): ImportDetail {
     rows_applied: rows.filter((r) => r.status === "applied").length,
     rows_ambiguous: rows.filter((r) => r.status === "needs_assignment").length,
     rows_cost_applied: 0,
-  rows_cost_unmatched: 0,
-  rows_unmatched: rows.filter((r) => r.status === "unmatched").length,
+    rows_cost_unmatched: 0,
+    rows_unmatched: rows.filter((r) => r.status === "unmatched").length,
     uploaded_by_user_id: 1,
     created_at: "2026-07-01T10:00:00Z",
     rows,
     skipped_rows: [],
     sheet_name: "Dane",
   };
+}
+
+function reprocessResponse(
+  overrides: Partial<PolkomtelReprocessResponse> = {},
+): PolkomtelReprocessResponse {
+  return {
+    import_id: 1,
+    period_month: "2026-07",
+    client_id: 15,
+    applied: false,
+    rows_scanned: 2,
+    rows_to_update: 1,
+    targets_to_recalculate: 1,
+    conflicts: [],
+    targets: [
+      {
+        kind: "md_line",
+        order_id: 321,
+        group_id: 222,
+        order_number: "SAP 1234567",
+        row_ids: [71, 72],
+        row_ids_to_update: [71],
+        current_value: "1.125",
+        expected_value: "2.375",
+        write_required: true,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+async function openUploadedImport(user: ReturnType<typeof userEvent.setup>) {
+  vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+    data: detail([row()]),
+  } as never);
+
+  await user.upload(
+    screen.getByLabelText(/Plik XLSX/),
+    new File(["x"], "raport.xlsx"),
+  );
+  await user.click(screen.getByRole("button", { name: /Importuj/ }));
+  await screen.findByText(/Wynik importu/);
 }
 
 function renderWorkspace() {
@@ -81,6 +128,7 @@ function renderWorkspace() {
 
 describe("MdImportWorkspace", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
     vi.mocked(mdConsumptionApi.listImports).mockResolvedValue({
       data: { imports: [] },
@@ -93,6 +141,14 @@ describe("MdImportWorkspace", () => {
     expect(
       await screen.findByText(/numer zamówienia z kolumny.*Uwagi/i),
     ).toBeInTheDocument();
+  });
+
+  it("pobiera do 100 historycznych importów, aby starszy miesiąc był osiągalny", async () => {
+    renderWorkspace();
+
+    await waitFor(() =>
+      expect(mdConsumptionApi.listImports).toHaveBeenCalledWith(100),
+    );
   });
 
   it("wiersz niejednoznaczny czeka na wybór i NIE jest zastosowany sam", async () => {
@@ -188,6 +244,168 @@ describe("MdImportWorkspace", () => {
     expect(screen.getByText("Nikt Taki")).toBeInTheDocument();
     // Pozostałe wiersze przeszły mimo jednego bez dopasowania.
     expect(screen.getByText("Zaktualizowano")).toBeInTheDocument();
+  });
+
+  it("pokazuje MD i kwotę importu do trzech miejsc z polskim separatorem", async () => {
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+      data: detail([
+        row({
+          md_reported: 15.375,
+          invoice_amount: 1234.125,
+          cost_status: "applied",
+          cost_status_label: "Rozliczono kwotę",
+        }),
+      ]),
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.upload(
+      screen.getByLabelText(/Plik XLSX/),
+      new File(["x"], "raport.xlsx"),
+    );
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+
+    expect(await screen.findByText("15,375")).toBeInTheDocument();
+    expect(screen.getByText(/1.*234,125/)).toBeInTheDocument();
+  });
+
+  it("pokazuje dokładny dry-run Polkomtela bez zapisywania zmian", async () => {
+    vi.mocked(mdConsumptionApi.reprocessPolkomtel).mockResolvedValue({
+      data: reprocessResponse(),
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await openUploadedImport(user);
+
+    await user.click(
+      screen.getByRole("button", { name: "Sprawdź dopasowanie Polkomtel" }),
+    );
+
+    expect(mdConsumptionApi.reprocessPolkomtel).toHaveBeenCalledWith(1, false);
+    expect(await screen.findByText("SAP 1234567")).toBeInTheDocument();
+    expect(screen.getByText(/grupa #222, linia #321/)).toBeInTheDocument();
+    expect(screen.getByText("ID: 71, 72")).toBeInTheDocument();
+    expect(screen.getByText("Do korekty: 71")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) =>
+        element?.textContent === "1,125 MD → 2,375 MD",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Zastosuj sprawdzoną korektę" }),
+    ).toBeEnabled();
+  });
+
+  it.each([
+    {
+      caseName: "konflikty",
+      response: reprocessResponse({
+        conflicts: ["Zamówienie SAP 1234567 ma nowsze ręczne rozliczenie."],
+      }),
+      expectedMessage: /nowsze ręczne rozliczenie/,
+    },
+    {
+      caseName: "brak realnych zmian",
+      response: reprocessResponse({
+        rows_to_update: 0,
+        targets_to_recalculate: 0,
+        targets: [],
+      }),
+      expectedMessage: /Brak zmian do zastosowania/,
+    },
+  ])("nie udostępnia APPLY, gdy dry-run wykrywa $caseName", async ({ response, expectedMessage }) => {
+    vi.mocked(mdConsumptionApi.reprocessPolkomtel).mockResolvedValue({
+      data: response,
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await openUploadedImport(user);
+    await user.click(
+      screen.getByRole("button", { name: "Sprawdź dopasowanie Polkomtel" }),
+    );
+
+    expect(await screen.findByText(expectedMessage)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Zastosuj sprawdzoną korektę" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("wymaga jawnego potwierdzenia przed APPLY", async () => {
+    const preview = reprocessResponse();
+    vi.mocked(mdConsumptionApi.reprocessPolkomtel)
+      .mockResolvedValueOnce({ data: preview } as never)
+      .mockResolvedValueOnce({ data: { ...preview, applied: true } } as never);
+    vi.mocked(mdConsumptionApi.getImport).mockResolvedValue({
+      data: detail([row()]),
+    } as never);
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await openUploadedImport(user);
+    await user.click(
+      screen.getByRole("button", { name: "Sprawdź dopasowanie Polkomtel" }),
+    );
+
+    const applyButton = await screen.findByRole("button", {
+      name: "Zastosuj sprawdzoną korektę",
+    });
+    await user.click(applyButton);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(mdConsumptionApi.reprocessPolkomtel).toHaveBeenCalledTimes(1);
+
+    await user.click(applyButton);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    await waitFor(() =>
+      expect(mdConsumptionApi.reprocessPolkomtel).toHaveBeenLastCalledWith(1, true),
+    );
+    expect(
+      await screen.findByText(/Korekta została zastosowana/),
+    ).toBeInTheDocument();
+  });
+
+  it("po konflikcie 409 usuwa stary plan i pokazuje aktualną listę konfliktów", async () => {
+    const preview = reprocessResponse();
+    vi.mocked(mdConsumptionApi.reprocessPolkomtel)
+      .mockResolvedValueOnce({ data: preview } as never)
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              code: "polkomtel_reprocess_conflict",
+              conflicts: ["Wiersz 71 został ręcznie przypisany po analizie."],
+            },
+          },
+        },
+      });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+    await openUploadedImport(user);
+    await user.click(
+      screen.getByRole("button", { name: "Sprawdź dopasowanie Polkomtel" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Zastosuj sprawdzoną korektę" }),
+    );
+
+    expect(
+      await screen.findByText(/Wiersz 71 został ręcznie przypisany/),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Podgląd korekty Polkomtel")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Zastosuj sprawdzoną korektę" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText(/uruchom analizę ponownie/i).length).toBeGreaterThan(0);
   });
 
   it("odrzuca plik o złym rozszerzeniu zanim poleci request", async () => {

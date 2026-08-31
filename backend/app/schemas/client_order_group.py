@@ -43,7 +43,7 @@ def _contract_rate_out(value: Decimal) -> float:
     return float(Decimal(value).quantize(Decimal("0.001")))
 
 
-# Pełna precyzja wewnątrz, JSON number na drucie. Zaokrąglenie do 2 miejsc
+# Pełna precyzja wewnątrz, JSON number na drucie. Zaokrąglenie do 3 miejsc
 # robi wyłącznie warstwa prezentacji — patrz docstring
 # ``app/services/multi_consultant_orders``.
 MdValue = Annotated[
@@ -53,7 +53,7 @@ MoneyPLN = Annotated[
     Decimal, PlainSerializer(_money_out, return_type=float, when_used="json")
 ]
 # Stawki kontraktu są Numeric(12,3), więc podpowiedź nie może przechodzić
-# przez MoneyPLN (2 miejsca). JSON number zachowuje pełną skalę źródła.
+# przez MoneyPLN (3 miejsca). JSON number zachowuje pełną skalę źródła.
 ContractRateValue = Annotated[
     Decimal, PlainSerializer(_contract_rate_out, return_type=float, when_used="json")
 ]
@@ -144,11 +144,17 @@ class OrderGroupCreate(BaseModel):
     notes: Optional[str] = None
     order_type: Optional[OrderType] = None
     """Jawny typ nowej grupy. ``None`` jest zgodnością ze starymi klientami;
-    nowy ogólny formularz zawsze wysyła ``cost`` albo ``md``."""
+    nowy ogólny formularz zawsze wysyła ``cost`` albo ``md``.
+
+    ``md`` opisuje sposób rozliczenia. Zwykłe zamówienie MD przechowuje budżet
+    przy każdej linii konsultanta, natomiast klientowe warianty CP/Lotte mają
+    jedną pulę grupową. DTO nie zna ``client_id`` z URL, dlatego dopuszcza obie
+    flagi, a endpoint wymusza wariant właściwy konkretnemu klientowi.
+    """
     is_cost_based: bool = False
     is_md_budget_based: bool = False
     budget_amount: Optional[MoneyPLN] = Field(
-        None, gt=0, max_digits=16, decimal_places=2
+        None, gt=0, max_digits=17, decimal_places=3
     )
     """Kwota całego zamówienia. Wymagana przy ``is_cost_based``; zero i wartości
     ujemne odrzucone na wejściu, bo budżet, z którego nic nie da się zdjąć, nie
@@ -166,7 +172,6 @@ class OrderGroupCreate(BaseModel):
             raise ValueError("Zamówienie okresowe utwórz w formularzu standardowym")
         if self.order_type is not None:
             expected_cost = self.order_type == OrderType.cost
-            expected_md = self.order_type == OrderType.md
             if (
                 "is_cost_based" in self.model_fields_set
                 and self.is_cost_based != expected_cost
@@ -174,11 +179,13 @@ class OrderGroupCreate(BaseModel):
                 raise ValueError("Typ zamówienia jest sprzeczny z flagą kosztową")
             if (
                 "is_md_budget_based" in self.model_fields_set
-                and self.is_md_budget_based != expected_md
+                and self.is_md_budget_based
+                and self.order_type != OrderType.md
             ):
                 raise ValueError("Typ zamówienia jest sprzeczny z flagą MD")
             self.is_cost_based = expected_cost
-            self.is_md_budget_based = expected_md
+            if self.order_type != OrderType.md:
+                self.is_md_budget_based = False
         if self.is_cost_based and self.is_md_budget_based:
             raise ValueError("Zamówienie nie może być jednocześnie kosztowe i na MD")
         if self.is_cost_based and self.budget_amount is None:
@@ -200,14 +207,14 @@ class OrderGroupUpdate(BaseModel):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     budget_amount: Optional[MoneyPLN] = Field(
-        None, gt=0, max_digits=16, decimal_places=2
+        None, gt=0, max_digits=17, decimal_places=3
     )
     """Korekta kwoty zamówienia kosztowego. Zmiana PRZELICZA pozostałość od
     nowa i potrafi zdjąć status „Wyczerpane" — podniesienie kwoty musi odsłonić
     budżet, inaczej zamówienie zostaje w zakończonych z dodatnią resztą."""
 
     budget_manual_adjustment: Optional[MoneyPLN] = Field(
-        None, max_digits=16, decimal_places=2
+        None, max_digits=17, decimal_places=3
     )
     """Ręczna korekta puli, trzymana OSOBNO od kwoty — dokładnie tak jak
     ``md_manual_adjustment`` przy liniach MD."""
@@ -240,7 +247,7 @@ class OrderGroupExtend(BaseModel):
     end_date: Optional[date] = None
     notes: Optional[str] = None
     budget_amount: Optional[MoneyPLN] = Field(
-        None, gt=0, max_digits=16, decimal_places=2
+        None, gt=0, max_digits=17, decimal_places=3
     )
     md_budget_total: Optional[MdValue] = Field(
         None, gt=0, max_digits=16, decimal_places=6
