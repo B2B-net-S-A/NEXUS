@@ -261,7 +261,7 @@ async def test_patch_with_an_unknown_job_is_refused_not_crashed(
         headers=app_auth_headers,
     )
 
-    assert resp.status_code == 400, resp.text
+    assert resp.status_code == 422, resp.text
     assert "job_id" in resp.text
 
 
@@ -279,7 +279,7 @@ async def test_patch_with_an_unknown_framework_contract_is_refused(
         headers=app_auth_headers,
     )
 
-    assert resp.status_code == 400, resp.text
+    assert resp.status_code == 422, resp.text
     assert "framework_contract_id" in resp.text
 
 

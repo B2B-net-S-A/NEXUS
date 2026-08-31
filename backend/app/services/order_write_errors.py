@@ -61,6 +61,10 @@ _CONSTRAINT_MESSAGES: dict[str, str] = {
         "Nieznany typ zdarzenia w historii zamówienia — zgłoś to jako błąd "
         "aplikacji, zmiana nie została zapisana."
     ),
+    "ck_client_order_offboarding_restore_target": (
+        "Przywrócenie konsultanta nie przyjmuje odbiorcy puli ani podstawy "
+        "stawki — odśwież stronę i wybierz decyzję ponownie."
+    ),
     "ck_client_order_offboarding_resolution": (
         "Nieznana decyzja o zakończeniu współpracy. Odśwież stronę i wybierz "
         "decyzję ponownie."

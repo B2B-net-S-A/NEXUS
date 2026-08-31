@@ -2205,6 +2205,12 @@ async def update_order(
     # da się przeczytać. ``create_order_extension`` sprawdza umowę ramową od
     # początku; PATCH tej pary nie miał. Oba pola muszą też należeć do TEGO
     # klienta — samo istnienie wiersza pozwalałoby podpiąć cudzą rekrutację.
+    #
+    # 422, nie 400: to jest walidacja PAYLOADU, a każda inna bramka w tym
+    # handlerze (typ zamówienia, część umowy, liczba MD, komplet pól do
+    # aktywacji) odpowiada 422. ``create_order_extension`` zwraca dla umowy
+    # ramowej 400 i tak ZOSTAJE — zmiana statusu na istniejącym endpointcie
+    # jest zmianą kontraktu API, której ten ticket nie dotyczy.
     if data.get("framework_contract_id") is not None:
         framework_ok = await db.scalar(
             select(ClientFrameworkContract.id).where(
@@ -2213,7 +2219,13 @@ async def update_order(
             )
         )
         if framework_ok is None:
-            raise HTTPException(400, detail="Invalid framework_contract_id")
+            raise HTTPException(
+                422,
+                detail=(
+                    "Wskazana umowa ramowa nie istnieje albo należy do innego "
+                    "klienta (framework_contract_id)."
+                ),
+            )
     if data.get("job_id") is not None:
         job_ok = await db.scalar(
             select(Job.id).where(
@@ -2222,7 +2234,13 @@ async def update_order(
             )
         )
         if job_ok is None:
-            raise HTTPException(400, detail="Invalid job_id")
+            raise HTTPException(
+                422,
+                detail=(
+                    "Wskazana rekrutacja nie istnieje albo należy do innego "
+                    "klienta (job_id)."
+                ),
+            )
     if "project_part" in data:
         # Edycja/uzupełnienie draftu: wartość ze słownika albo NULL; u klientów
         # innych niż e-Zdrowie pole pozostaje zabronione (ticket #3).
