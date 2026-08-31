@@ -80,8 +80,13 @@ def main() -> int:
         previous = {}
 
     changed = sorted(k for k, v in digests.items() if previous.get(k) != v)
-    write_stamp(today, digests)
+    # Kolejność jest load-bearing: `_restamp_markdown` WALIDUJE treść i potrafi
+    # przerwać skrypt (brak linii z datą). Gdyby stempel szedł pierwszy,
+    # zostawałby z dzisiejszą datą przy nieruszonej treści — a test złapałby to
+    # jako „data w dokumencie różni się od stempla", czyli komunikat opisujący
+    # skutek zamiast przyczyny.
     md_changed = _restamp_markdown(today)
+    write_stamp(today, digests)
 
     if changed:
         print("Przestemplowano po zmianie w:")

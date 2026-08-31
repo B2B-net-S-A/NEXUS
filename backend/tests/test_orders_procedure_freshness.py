@@ -153,6 +153,10 @@ _REQUIRED_CLIENT_SECTIONS = (
     "Erste",
     "Orlen",
     "PFRON",
+    # Serwer wymusza tu wybór części umowy (`validate_project_part(...,
+    # require=True)`), więc bez tej sekcji instrukcja przemilczałaby pole,
+    # bez którego zapis zamówienia u tego klienta po prostu nie przechodzi.
+    "Centrum e-Zdrowia",
 )
 
 
