@@ -145,6 +145,12 @@ mimo kompletu pozostałych pól.
 docelowym, a nie brakiem danych — nie wpisuj daty „na oko" tylko po to, żeby
 zamówienie ruszyło.
 
+> **Ale pusta data ma cenę: zamówienie bez daty zakończenia nie dostanie żadnego
+> ostrzeżenia 30/14/7 dni.** Cały mechanizm liczy dni od konkretnej daty, więc
+> puste pole znaczy „nie ostrzegaj nigdy". Jeżeli dokument od klienta podaje datę
+> końca — wpisz ją. Zostaw puste pole tylko wtedy, gdy współpraca naprawdę jest
+> bezterminowa, i wtedy pilnuj terminu sam.
+
 ---
 
 ## Jak dodać zamówienie MD albo kosztowe (kilku konsultantów, jeden numer)
@@ -184,10 +190,12 @@ u tego klienta **szkic umowy**, żeby było do czego przypiąć zamówienie. Umo
 trzeba potem domknąć osobno — szkic nie wchodzi do przychodów ani do alertów
 o wygasaniu.
 
-Każdy konsultant to osobna **linia** z **obiema stawkami — obie są wymagane**.
+Każdy konsultant to osobna **linia** — tak nazywają wiersz jednej osoby na
+zamówieniu przyciski w aplikacji („Edytuj linię"). Linia ma **obie stawki i obie
+są wymagane**.
 Budżet przy osobie podajesz **tylko w starszym modelu MD** (budżet per osoba);
-przełącznik daje wtedy wybór **„Liczba MD"** albo **„Kwota zamówienia"**, którą
-system dzieli przez stawkę przychodową. Przy wspólnej puli MD i przy zamówieniu
+przełącznik daje wtedy wybór **„Liczba MD"** albo **„Kwota zamówienia"** — tę
+kwotę system dzieli przez stawkę przychodową i sam wylicza liczbę dni. Przy wspólnej puli MD i przy zamówieniu
 kosztowym pola budżetu przy osobie nie ma — pula jest wspólna.
 
 Przycisk **Dodaj konsultanta** jest wyszarzony tylko przy zamówieniu
@@ -208,14 +216,17 @@ w przód) konsultantów dodajesz normalnie — czekają razem z nim na dzień st
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
 (tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**. Gdy po
 zakończeniu współpracy czeka decyzja o pozostałych MD, **ikonki znikają, a na ich
-miejscu stoi czerwony przycisk „Podejmij decyzję"** — dopóki go nie klikniesz, tej
-osoby nie edytujesz ani nie zamienisz.
+miejscu stoi czerwony przycisk „Podejmij decyzję"**. Dopóki go nie klikniesz,
+zablokowana jest nie tylko ta osoba, ale **całe zamówienie**: nie zadziała ani
+„Uzupełnij zamówienie", ani „Zakończ", „Przywróć" i „Usuń całe zamówienie".
+Jeżeli któryś z tych przycisków odmawia bez wyraźnego powodu — poszukaj na
+karcie osoby z czekającą decyzją.
 
 ### Przedłużenie tworzy nowe zamówienie, nie edytuje starego
 
 To jest celowe: na podstawie poprzedniego zamówienia wystawiono już faktury,
-więc jego treść musi zostać taka, jaka była. Nowe zamówienie **dziedziczy typ
-rozliczenia** i uruchamia się samo w dniu startu; jeżeli ta data już minęła,
+więc jego treść musi zostać taka, jaka była. Nowe zamówienie ma **ten sam typ
+rozliczenia** co poprzednie i uruchamia się samo w dniu startu; jeżeli ta data już minęła,
 staje się aktywne od razu przy zapisie.
 
 **Przy zamówieniach MD jest inaczej: przedłużenie czeka, aż poprzednikowi skończą
@@ -267,9 +278,9 @@ zostanie odczytane.
 
 **Co zobaczysz po odczycie:**
 
-* pomarańczowy baner **„Sprawdź dane!"** — pojawia się wtedy, gdy sam odczyt uzna
-  się za niepewny (niska pewność pola, jednostka stawki niezgodna z formularzem,
-  brak daty okresu, odczyt awaryjny). **Wypunktowane powody widzi tylko ten, kto
+* pomarańczowy baner **„Sprawdź dane!"** — pojawia się wtedy, gdy system sam nie
+  jest pewien tego, co odczytał (nieczytelne pole, jednostka stawki inna niż
+  w formularzu, brak dat okresu, odczyt bez AI). **Wypunktowane powody widzi tylko ten, kto
   ma dostęp do kwot** — pozostali dostają jedno ogólne zdanie „Sprawdź odczytane
   dane przed zapisem.",
 * **osobne, czerwone ostrzeżenie przy polu numeru** — to inne miejsce niż baner,
@@ -311,9 +322,10 @@ dwie daty i pierwszą kwotę z dokumentu, a **numeru zamówienia sam nie znajduj
 numer wyszukiwany jest po etykiecie i działa też w trybie awaryjnym). Poznasz go
 po powodzie „Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola" w banerze.
 
-**Odczyt może uruchomić administrator, Head of Recruitment (u każdego klienta,
-bez przypisania) i Delivery Lead przypisany do tego klienta.** Pozostałe role —
-w tym Finanse i nieprzypisany Delivery Lead — dostaną odmowę.
+**Przycisk „Zczytaj dane z dokumentu" kliknie administrator, Head of Recruitment
+(u każdego klienta, bez przypisania) i Delivery Lead przypisany do tego klienta.**
+Pozostałe role — w tym Finanse i nieprzypisany Delivery Lead — dostaną odmowę.
+(To osobna sprawa od oglądania listy zamówień, opisanego w „Kto co może".)
 
 **Kwoty z odczytu widzi tylko administrator i przypisany Delivery Lead.** Head of
 Recruitment uruchomi odczyt, ale dostanie pusty komplet finansowy — to nie jest
@@ -334,14 +346,20 @@ wielkością operacyjną, nie finansową.
   zamówieniach MD następca czeka dodatkowo, aż poprzednikowi skończą się dni,
   więc mimo minionej daty startu potrafi jeszcze przez jakiś czas figurować jako
   przyszły.
-* **Domyka zamówienia okresowe** po dacie zakończenia. **Zamówień zbiorczych
-  (MD i kosztowych) data nie zamyka** — kończą się dopiero, gdy klikniesz
-  **Zakończ** albo gdy wyczerpie się budżet. Do tego czasu można do nich
-  dopisywać kolejne osoby, nawet po dacie z dokumentu.
-* **Przelicza pozostałość budżetu od zera** przy każdej zmianie, dzięki czemu
-  powtórny import tego samego miesiąca nie odejmuje dni drugi raz. Przy budżecie
-  przypisanym osobie możesz mimo to wpisać właściwą pozostałość ręcznie — system
-  zapamięta różnicę jako korektę.
+* **Domyka po dacie zakończenia poszczególne osoby** — zarówno zamówienia
+  okresowe, jak i konsultantów na zamówieniach kosztowych i na zamówieniach MD
+  ze wspólną pulą. Po minięciu daty ich linie same przechodzą do „Zakończeni".
+  **Jedynym wyjątkiem są konsultanci z własnym budżetem MD** — tam o końcu
+  decyduje budżet, nie kalendarz, więc osoba z niewykorzystanymi dniami pracuje
+  dalej.
+* **Samego zamówienia zbiorczego data nie zamyka.** Numer zostaje „Aktywny",
+  dopóki nie klikniesz **Zakończ** albo dopóki nie wyczerpie się budżet — więc
+  można do niego dopisywać kolejne osoby także po dacie z dokumentu, mimo że
+  wcześniej dodani zostali już domknięci.
+* **Po każdej zmianie przelicza budżet na nowo**, dzięki czemu powtórny import
+  tego samego miesiąca nie odejmuje dni drugi raz. Przy budżecie przypisanym
+  osobie możesz mimo to wpisać właściwą pozostałość ręcznie — system potraktuje
+  to jako korektę i nie skasuje jej przy kolejnym imporcie.
 * **Przestawia zamówienie na „Wyczerpane"**, gdy pula zejdzie do zera; od tej
   chwili nie przyjmuje ono nowych konsultantów.
 * **Przelicza stawkę przy zmianie jednostki** — gdy odczyt z dokumentu zmieni
@@ -416,7 +434,7 @@ przypisania sprawy z pulpitu dla tego klienta **w ogóle nie powstają — dla
 nikogo**. To pierwsza rzecz do sprawdzenia, gdy „system nic nie przysyła".
 Powiadomienia z dzwonka (Miejsce 1) idą niezależnie od przypisania.
 
-Sekcja pokazuje wyłącznie **Twoje** wpisy — nawet administratorowi. Renderuje się
+Sekcja pokazuje wyłącznie **Twoje** wpisy — nawet administratorowi. Widać ją
 tylko w widoku pulpitu „Delivery Lead".
 
 **Powtórki wracają co 7 dni jako nowy wpis**, dopóki nie klikniesz **Oznacz jako
@@ -482,7 +500,7 @@ przypisanego Delivery Leada.
 
 Rola bez uprawnień do stawek (np. Head of Recruitment, TAC) widzi na zamówieniach
 zbiorczych **myślnik „—"** — nie zero i nie komunikat o błędzie — a na kartach
-pojedynczych konsultantów wiersze z pieniędzmi po prostu się nie renderują.
+pojedynczych konsultantów wiersze z pieniędzmi w ogóle się nie pokazują.
 
 **Importu zużycia MD nie robi Delivery Lead.** Moduł Finanse jest dostępny tylko
 dla ról administrator i Finanse — ale wynik tego importu natychmiast zmienia to,
@@ -528,10 +546,10 @@ błędną pozostałość korektą (patrz koniec tej sekcji).
 widać na czerwono) — chyba że ta osoba ma linię w przedłużeniu tego zamówienia:
 wtedy nadwyżkowe dni system **przenosi na przedłużenie**, więc poprzednik
 zatrzymuje się na zerze, a nowe zamówienie startuje już częściowo zużyte.
-**Wspólna pula — kosztowa i MD — zatrzymuje się na zerze.** Przy zamówieniu
-**kosztowym** nadwyżka jest pokazana przy konkretnej osobie jako nierozliczona;
-przy **wspólnej puli MD** system nikogo nie wskazuje — przekroczenie widać tylko
-na pasku całego zamówienia, gdzie „wykorzystano" przekracza budżet. Przekroczenie
+**Przy wspólnej puli — kosztowej i MD — licznik „pozostało" nie schodzi poniżej
+zera.** Przekroczenie poznasz po tym, że „wykorzystano" jest większe niż budżet.
+Przy zamówieniu **kosztowym** nadwyżka jest dodatkowo pokazana przy konkretnej
+osobie jako nierozliczona; przy **wspólnej puli MD** system nikogo nie wskazuje. Przekroczenie
 budżetu nie jest nigdzie blokowane: to fakt handlowy, o którym system informuje,
 a nie błąd, przed którym broni.
 
@@ -594,11 +612,15 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   To najważniejsza różnica praktyczna dla tego klienta.
 * Przy zamówieniu kosztowym kwota jest **wspólna dla całego zamówienia**; przy
   konsultancie nie ma pola budżetu, są tylko obie stawki.
-* **Powiadomienia:** przy zamówieniu kosztowym — jednorazowy alert
-  „zamówienie [numer] wyczerpane". **Nie ma tu odpowiednika progu „mało MD"** —
-  o kończącej się kwocie dowiesz się dopiero, gdy zejdzie do zera. Filtr
-  **Bliskie wyczerpania budżetu (≥80%)** nad listą jest jedynym wcześniejszym
-  ostrzeżeniem i trzeba go sprawdzać samodzielnie.
+* Polkomtel ma **oba modele budżetu MD obok siebie**: starsze zamówienia
+  z budżetem przy osobie i nowe ze wspólną pulą. Sprawdź na karcie, z którym masz
+  do czynienia — od tego zależy, czy dostaniesz ostrzeżenie o kończących się dniach.
+* **Powiadomienia:** standardowe (koniec zamówienia 30/14/7 dni, sprawy
+  „bez zamówienia" i „brak stawki przychodowej"). Do tego alert **„mało MD"** —
+  ale **tylko na starszych zamówieniach z budżetem przy osobie**. Przy zamówieniu
+  **kosztowym** przyjdzie jednorazowy alert o wyczerpaniu; **wcześniejszego
+  ostrzeżenia o kończącej się kwocie nie ma w ogóle**, więc jedynym sygnałem jest
+  filtr **Bliskie wyczerpania budżetu (≥80%)**, który trzeba sprawdzać samemu.
 
 ### Lotte Wedel
 
@@ -611,8 +633,9 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
   zamówienie MD.)
 * Pulę pomniejsza import z Finansów tylko wtedy, gdy wiersz zawiera
   **jednocześnie nazwisko i numer zamówienia** w kolumnie „Uwagi".
-* Ten klient jest wpisany do systemu na stałe — działa niezależnie od
-  konfiguracji.
+* Typy zamówień i wspólna pula są u tego klienta **wpisane w system na stałe** —
+  działają niezależnie od konfiguracji. (Nie dotyczy to reguł odczytu PDF-a:
+  Lotte Wedel żadnej własnej nie ma.)
 * **Powiadomienia:** przy zamówieniu ze wspólną pulą MD **nie przyjdzie żaden
   alert o budżecie** — ani „mało MD", ani „wyczerpane". Zamówienie po cichu
   dostaje status „Wyczerpane" i przestaje przyjmować konsultantów, więc pulę
@@ -625,12 +648,14 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 
 * **Wszystkie trzy typy do wyboru** — Okresowe, Kosztowe i MD.
 * Przy typie MD obowiązuje **wspólna pula dni**, tak samo jak u Lotte Wedel.
-* Klient wpisany do systemu na stałe, niezależnie od konfiguracji.
+* Typy zamówień i wspólna pula są wpisane w system na stałe, niezależnie od
+  konfiguracji. Własnej reguły odczytu PDF-a ten klient nie ma.
 * Zamówienie okresowe zakładasz tu tak jak u każdego innego klienta —
   formularzem „Nowy kontraktor / zamówienie".
-* **Powiadomienia:** jak u Lotte Wedel — wspólna pula MD **nie wysyła żadnego
-  alertu o budżecie**, zamówienie kosztowe wysyła jednorazowy alert
-  o wyczerpaniu, a zamówienie okresowe — alerty o końcu 30/14/7 dni przed datą.
+* **Powiadomienia:** standardowe (koniec zamówienia 30/14/7 dni, sprawy
+  „bez zamówienia" i „brak stawki przychodowej"). Poza tym jak u Lotte Wedel:
+  wspólna pula MD **nie wysyła żadnego alertu o budżecie**, a zamówienie kosztowe
+  — jednorazowy alert o wyczerpaniu.
 
 ### Nordea
 
@@ -653,13 +678,15 @@ administrator**. Aktualizuje naraz wielu konsultantów z pliku od Finansów
 koniec, stawka przychodowa, stawka z umowy ramowej). Przebieg jest dwuetapowy:
 **Sprawdź import** (podgląd, nic się nie zapisuje), potem **Zastosuj import**
 z potwierdzeniem. Import nadpisuje numer, obie daty, stawkę przychodową i status zamówienia,
-a dodatkowo **zapisuje stawkę z umowy ramowej** — dopisuje ją do harmonogramu
-stawek umowy konsultanta albo aktualizuje wpis o tej samej dacie początkowej.
+a dodatkowo **zapisuje stawkę z umowy ramowej** — w umowie konsultanta jako
+stawkę obowiązującą od podanej daty; jeśli wpis z tą samą datą już istnieje,
+nadpisuje go.
 **Stawki kosztowej nie rusza nigdy.** Powtórzenie tego samego pliku niczego nie
 duplikuje.
 
-* Nordea korzysta ze **zwykłych zamówień okresowych** — jedna osoba, jedno
-  zamówienie.
+* Nordea nie ma zawężonej listy typów — masz do wyboru wszystkie trzy. W praktyce
+  jej zamówienia prowadzi się jako **okresowe** (jedna osoba, jedno zamówienie)
+  i takie właśnie tworzy import CSV.
 * **Powiadomienia:** koniec zamówienia 30/14/7 dni przed datą, plus sprawy
   „bez zamówienia" i „brak stawki przychodowej" co 7 dni.
 
@@ -729,7 +756,8 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   zamówienia i przy dodawaniu go do zamówienia zbiorczego. **Liczba MD jest wtedy
   pomijana.** W formularzu zamówienia zbiorczego, gdzie osoby się nie wskazuje,
   reguła w ogóle nie działa: do pola budżetu wpadnie liczba MD odczytana przez AI,
-  a stawka nie przejdzie kontroli identycznych pozycji. Sprawdź oba pola.
+  a system nie sprawdzi, czy wszystkie pozycje tej osoby mają tę samą kwotę.
+  Sprawdź oba pola.
 * Ta reguła **działa zawsze**, bez żadnej konfiguracji.
 * **Powiadomienia:** standardowe.
 
@@ -758,10 +786,12 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Alior
 
-* Nie ma żadnej własnej reguły odczytu dokumentu.
-* Jedyna specyfika: **stawki godzinowe z trzema miejscami po przecinku**
-  (np. 164,375 zł/h). System zapisuje je dokładnie, bez zaokrąglania — wpisuj
-  wartość z dokumentu co do trzeciego miejsca.
+* **Alior nie ma w module zamówień żadnej własnej reguły.** Obowiązuje wyłącznie
+  opis ogólny — ta sekcja istnieje po to, żebyś nie szukał dalej.
+* Warto natomiast wiedzieć (to działa u każdego klienta, nie tylko tutaj):
+  **stawki godzinowe zapisują się z dokładnością do trzech miejsc po przecinku**
+  — np. 164,375 zł/h. System niczego nie zaokrągla, więc wpisuj wartość
+  z dokumentu co do trzeciego miejsca.
 * **Powiadomienia:** standardowe.
 
 ### Pozostali klienci
@@ -805,11 +835,12 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
    drugi raz.
 6. **„Kliknąłem Oznacz jako obsłużone, a problem trwa."** Ta sprawa już nie
    wróci. Trzymaj to kliknięcie na moment, w którym naprawdę ją zamykasz.
-7. **„Kwoty pokazują myślnik."** Jako Delivery Lead przypisany do klienta widzisz
-   stawki, więc myślnik u Ciebie znaczy **brak wpisanej stawki** — uzupełnij ją.
-   (Puste miejsce zamiast kwoty widzą też role bez uprawnień finansowych, ale to
-   nie Twój przypadek.) Przy brakującej stawce przychodowej na aktywnym
-   zamówieniu przyjdzie osobne powiadomienie.
+7. **„Kwoty pokazują myślnik."** Myślnik wygląda tak samo w dwóch różnych
+   sytuacjach i **nie da się ich po nim rozróżnić**: stawki nie ma w systemie
+   albo Twoja rola jej nie widzi. Jako Delivery Lead przypisany do klienta
+   stawki widzisz — u Ciebie myślnik znaczy więc **brak wpisanej stawki**;
+   uzupełnij ją. Przy brakującej stawce przychodowej na aktywnym zamówieniu
+   przyjdzie o tym osobne powiadomienie.
 8. **„Osoba wzięta z Bazy Nexus nie liczy się do przychodów."** Powstał jej
    **szkic umowy** — trzeba go domknąć osobno.
 
@@ -820,20 +851,17 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 Data u góry (**Zgodność z systemem sprawdzona**) to dzień, w którym treść ostatni
 raz porównano z działającym systemem.
 
-Ta instrukcja jest utrzymywana razem z kodem aplikacji. Gdy ktoś zmienia kod
-zamówień — reguły odczytu dokumentów, przebieg dodawania zamówienia, obsługę
-powiadomień — testy automatyczne **zatrzymują wdrożenie** i wymagają, żeby autor
-zmiany przejrzał ten dokument i potwierdził go nową datą. Dzięki temu data u góry
-nie jest deklaracją, tylko warunkiem wypuszczenia zmiany.
+**Zmiana w module zamówień nie może trafić na produkcję, dopóki ktoś nie
+przejrzy tej instrukcji i nie potwierdzi jej nową datą.** Pilnuje tego sama
+aplikacja przy wypuszczaniu zmian — także liczb, które tu padają wprost, jak
+próg „15 MD" i powtórka „co 7 dni". Dzięki temu data u góry nie jest
+deklaracją, tylko warunkiem wypuszczenia zmiany.
 
-Osobno pilnowane są liczby, które ta instrukcja podaje wprost — próg „15 MD"
-i powtórka „co 7 dni" pochodzą z ustawień serwera, więc mają własny test
-porównujący je z treścią. Jeżeli mimo to zauważysz, że alert przychodzi przy
-innej liczbie dni, niż tu napisano, zgłoś to — to znaczy, że ustawienie zmieniono
-poza tym mechanizmem.
+Jeżeli mimo to zauważysz, że system zachowuje się inaczej, niż tu napisano —
+zgłoś to. To znaczy, że jakaś zmiana ominęła ten przegląd.
 
-Treść jest odświeżana przy wdrożeniu. **Jeżeli poprawisz ją ręcznie w edytorze
-procedur, przestanie być nadpisywana** — od tego momentu utrzymujesz ją sam.
-Drobne uzupełnienia o praktykę zespołu są jak najbardziej w porządku; jeśli
-zauważysz, że instrukcja rozmija się z tym, co robi system, zgłoś to zamiast
-poprawiać opis — to znaczy, że zmiana ominęła przegląd.
+Treść jest odświeżana przy każdym wdrożeniu. **Jeżeli poprawisz ją ręcznie
+w edytorze procedur, przestanie być odświeżana** — od tego momentu utrzymujesz ją
+sam. Dopisanie praktyki zespołu jest jak najbardziej w porządku; opisu działania
+systemu lepiej nie poprawiać na własną rękę — zgłoś rozbieżność, żeby poprawka
+weszła po obu stronach.
