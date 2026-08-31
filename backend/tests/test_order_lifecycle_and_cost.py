@@ -1706,3 +1706,50 @@ async def test_cost_family_continuation_still_promotes_on_the_start_date(
 
     old = await _card(app_client, app_auth_headers, client_id, group["id"])
     assert old["status"] == "completed"
+
+
+async def test_delete_group_with_settlements_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zamówienie z rozliczeniami przeżywa — jak linia z historią o poziom niżej.
+
+    Linie były chronione od początku, ale samo zamówienie znikało bezwarunkowo,
+    a wraz z nim jego dziennik zdarzeń (kaskada) i miesięczne rozliczenia
+    wspólnej puli. Wyglądało to bezpiecznie, bo odpięte linie przeżywały —
+    znikał natomiast ślad, na podstawie którego wystawiono faktury.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroup
+    from app.models.md_consumption import (
+        CONSUMPTION_SOURCE_IMPORT,
+        ClientOrderMdConsumption,
+    )
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientOrderMdConsumption(
+                order_id=group["lines"][0]["id"],
+                period_month="2026-07",
+                md_reported=Decimal("10"),
+                source=CONSUMPTION_SOURCE_IMPORT,
+            )
+        )
+        await db.commit()
+
+    resp = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert "rozliczone MD" in detail
+    assert "Zakończ" in detail, "komunikat ma wskazać wyjście, nie tylko odmówić"
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(ClientOrderGroup, group["id"]) is not None

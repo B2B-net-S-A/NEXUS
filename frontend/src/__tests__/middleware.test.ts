@@ -162,6 +162,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/contact-queue",
     "/preview/order-consultant-picker",
     "/preview/contracts-consolidation",
+    "/preview/procedure-help",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })
@@ -198,6 +199,9 @@ describe("linki publiczne działają bez tokenu", () => {
     // Picker konsultanta — harness renderuje prawdziwy komponent, ale z cache
     // react-query zasianym z góry, więc nie woła API (warunek wejścia tutaj).
     expect(destination("/preview/order-consultant-picker")).toBe("pass")
+    // Treść procedury z modułu Pomoc — sam `ProcedureContent` z mockiem,
+    // bez sesji i bez API.
+    expect(destination("/preview/procedure-help")).toBe("pass")
 
     // Reszta harnessów zostaje prywatna. /preview/shell renderuje prawdziwy
     // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.

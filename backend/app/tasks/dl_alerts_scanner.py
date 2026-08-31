@@ -40,6 +40,7 @@ from app.models.dl_alert import (
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import consultant_display_name
 from app.services.dl_alerts import dl_user_ids_for_client, emit
+from app.services.shared_md_orders import uses_shared_md_pool
 
 logger = logging.getLogger(__name__)
 
@@ -105,13 +106,22 @@ async def rule_draft_consultant_unassigned(db: AsyncSession) -> int:
 
 
 async def rule_md_budget_low(db: AsyncSession) -> int:
-    """Aktywna linia MD z pozostałością poniżej progu.
+    """Kończące się MD — osobno przy osobie i osobno we wspólnej puli.
 
     Próg jest GLOBALNY (``DL_ALERT_MD_THRESHOLD``), bez konfiguracji per klient
     — ticket wprost tego wymaga, żeby „poniżej progu" znaczyło to samo
-    w każdym raporcie.
+    w każdym raporcie. Z tego samego powodu wspólna pula dostaje ten SAM próg
+    bezwzględny, a nie procent budżetu: „mało MD" ma znaczyć tyle samo dni
+    niezależnie od tego, czy budżet wisi przy osobie, czy na zamówieniu.
     """
     threshold = Decimal(str(settings.DL_ALERT_MD_THRESHOLD))
+    created = await _md_low_per_consultant(db, threshold)
+    created += await _md_low_shared_pool(db, threshold)
+    return created
+
+
+async def _md_low_per_consultant(db: AsyncSession, threshold: Decimal) -> int:
+    """Aktywna linia z własnym budżetem MD i pozostałością poniżej progu."""
     result = await db.execute(
         select(ClientOrder)
         .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
@@ -151,6 +161,66 @@ async def rule_md_budget_low(db: AsyncSession) -> int:
             },
             order_group_id=order.order_group_id,
             order_id=order.id,
+            repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
+        )
+        created += len(alerts)
+    return created
+
+
+async def _md_low_shared_pool(db: AsyncSession, threshold: Decimal) -> int:
+    """Wspólna pula MD (Lotte Wedel, Cyfrowy Polsat) poniżej progu.
+
+    Osobne zapytanie, bo budżet mieszka gdzie indziej: przy tych dwóch
+    klientach linia konsultanta NIE MA ``md_remaining``, więc reguła oparta
+    o linie mijała je w całości. Skutek był taki, że jedyny alert budżetowy,
+    jaki te zamówienia w ogóle dostawały, przychodził dopiero po zejściu puli
+    do zera — czyli wtedy, gdy zamówienie już przestało przyjmować ludzi.
+
+    ``uses_shared_md_pool`` sprawdzamy PONOWNIE w Pythonie, mimo filtra po
+    ``is_md_budget_based`` w zapytaniu: sama flaga nie jest miarodajna, bo
+    rewizja 0246 ustawiała ją każdemu jawnemu typowi ``md``, a historyczne
+    wiersze innych klientów wciąż ją niosą. Alert wysłany takiemu wierszowi
+    mówiłby o puli, której na jego karcie nie ma.
+    """
+    result = await db.execute(
+        select(ClientOrderGroup).where(
+            ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+            ClientOrderGroup.is_md_budget_based.is_(True),
+            ClientOrderGroup.md_budget_remaining.isnot(None),
+            ClientOrderGroup.md_budget_remaining < threshold,
+        )
+    )
+    groups = [group for group in result.scalars() if uses_shared_md_pool(group)]
+    names = await _client_names(db, {group.client_id for group in groups})
+    created = 0
+    for group in groups:
+        user_ids = await dl_user_ids_for_client(db, group.client_id)
+        if not user_ids:
+            continue
+        client_name = names.get(group.client_id, "Klient")
+        number = group.order_number or "—"
+        alerts = await emit(
+            db,
+            alert_type=ALERT_MD_BUDGET_LOW,
+            user_ids=user_ids,
+            client_id=group.client_id,
+            # Inny prefiks niż `order:` — wspólna pula jest sprawą CAŁEGO
+            # zamówienia, nie konkretnej linii, a klucze obu wariantów muszą
+            # żyć w rozłącznych przestrzeniach.
+            entity_key=f"group:{group.id}",
+            title=f"{client_name} — mało MD na zamówieniu {number}",
+            message=(
+                f"⏳ {client_name} — we wspólnej puli zamówienia {number} "
+                f"pozostało mniej niż {int(threshold)} MD. Zwiększ pulę albo "
+                "zorganizuj nowe zamówienie."
+            ),
+            link=_client_link(group.client_id),
+            payload={
+                "order_number": number,
+                "md_remaining": str(group.md_budget_remaining),
+                "shared_pool": True,
+            },
+            order_group_id=group.id,
             repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
         )
         created += len(alerts)
