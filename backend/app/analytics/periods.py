@@ -4,6 +4,8 @@ Wszystkie okresy:
 - strefa ``Europe/Warsaw`` (kalendarz lokalny, nie rolling UTC),
 - przedziały półotwarte ``[start, end)`` — timezone-aware,
 - kalendarzowe granice dnia / tygodnia (pon.) / miesiąca / kwartału / roku,
+- ``offset`` przesuwa okres wstecz/naprzód o całe jednostki (0 = bieżący,
+  -1 = poprzedni zamknięty),
 - ``custom`` maksymalnie 366 dni.
 
 Zero zależności od FastAPI — czysta logika, łatwa do unit-testów
@@ -74,25 +76,54 @@ def _today_warsaw(now: datetime | None = None) -> date:
     return ref.date()
 
 
+def _shift_months(d: date, months: int) -> date:
+    """Przesuń PIERWSZY dzień miesiąca o ``months`` (może być ujemne).
+
+    Zakłada ``d.day == 1`` — wołane wyłącznie na początkach miesiąca/kwartału,
+    więc nie ma problemu z 31 stycznia + 1 miesiąc.
+    """
+    total = (d.year * 12 + (d.month - 1)) + months
+    return date(total // 12, total % 12 + 1, 1)
+
+
+MAX_PERIOD_OFFSET = 120
+"""Ile jednostek wstecz/naprzód wolno zaadresować kotwicą.
+
+120 pokrywa 10 lat miesięcy i ponad 2 lata tygodni — dość na każdy realny
+raport, a jednocześnie ucina generowanie dowolnych dat przez parametr URL.
+"""
+
+
 def resolve_period(
     kind: str | PeriodKind,
     *,
+    offset: int = 0,
     date_from: date | None = None,
     date_to: date | None = None,
     now: datetime | None = None,
 ) -> Period:
     """Rozwiąż parametry requestu na kanoniczny ``Period``.
 
-    - day/week/month/quarter/year → BIEŻĄCY okres kalendarzowy zawierający
-      „teraz" (Warsaw); ``end`` to początek następnego okresu (może być
-      w przyszłości — half-open pozwala liczyć okres w toku),
+    - day/week/month/quarter/year → okres kalendarzowy przesunięty o
+      ``offset`` jednostek względem tego, który zawiera „teraz" (Warsaw).
+      ``offset=0`` (domyślnie) = BIEŻĄCY, ``-1`` = poprzedni zamknięty,
+      ``+1`` = następny. ``end`` to początek kolejnego okresu — half-open
+      pozwala liczyć okres w toku,
     - custom → wymaga ``date_from`` i ``date_to`` (dni kalendarzowe Warsaw,
       inclusive po stronie użytkownika → ``end`` = date_to + 1 dzień),
-      maksymalnie MAX_CUSTOM_PERIOD_DAYS.
+      maksymalnie MAX_CUSTOM_PERIOD_DAYS. ``offset`` jest wtedy niedozwolony
+      — zakres jest już podany wprost, a ciche przesuwanie go dałoby okno
+      inne niż to, o które poprosił użytkownik.
+
+    Po co ``offset``: bez niego jedynym sposobem zaadresowania POPRZEDNIEGO
+    miesiąca był ``custom`` z ręcznie policzonymi datami — czyli każdy
+    konsument liczył granice miesiąca u siebie, po swojemu, i mylił się
+    inaczej. Kotwica trzyma tę arytmetykę w jednym miejscu.
 
     Raises:
         PeriodError: nieznany kind, brak from/to dla custom, from > to,
-            zakres dłuższy niż 366 dni.
+            zakres dłuższy niż 366 dni, offset poza ``MAX_PERIOD_OFFSET``,
+            offset podany razem z custom.
     """
     try:
         period_kind = PeriodKind(kind)
@@ -102,7 +133,17 @@ def resolve_period(
             f"{', '.join(k.value for k in PeriodKind)}"
         ) from None
 
+    if abs(offset) > MAX_PERIOD_OFFSET:
+        raise PeriodError(
+            f"offset poza zakresem: {offset} (dozwolone +/-{MAX_PERIOD_OFFSET})"
+        )
+
     if period_kind is PeriodKind.custom:
+        if offset:
+            raise PeriodError(
+                "offset nie ma zastosowania do okresu custom — zakres jest "
+                "podany wprost przez date_from/date_to"
+            )
         if date_from is None or date_to is None:
             raise PeriodError("Okres custom wymaga parametrów date_from i date_to")
         if date_from > date_to:
@@ -122,30 +163,22 @@ def resolve_period(
     today = _today_warsaw(now)
 
     if period_kind is PeriodKind.day:
-        start_d = today
-        end_d = today + timedelta(days=1)
+        start_d = today + timedelta(days=offset)
+        end_d = start_d + timedelta(days=1)
     elif period_kind is PeriodKind.week:
         # Tydzień kalendarzowy pon.–niedz. (ISO).
-        start_d = today - timedelta(days=today.weekday())
+        start_d = today - timedelta(days=today.weekday()) + timedelta(weeks=offset)
         end_d = start_d + timedelta(days=7)
     elif period_kind is PeriodKind.month:
-        start_d = today.replace(day=1)
-        end_d = (
-            start_d.replace(year=start_d.year + 1, month=1)
-            if start_d.month == 12
-            else start_d.replace(month=start_d.month + 1)
-        )
+        start_d = _shift_months(today.replace(day=1), offset)
+        end_d = _shift_months(start_d, 1)
     elif period_kind is PeriodKind.quarter:
         q_month = 3 * ((today.month - 1) // 3) + 1
-        start_d = date(today.year, q_month, 1)
-        end_d = (
-            date(today.year + 1, 1, 1)
-            if q_month == 10
-            else date(today.year, q_month + 3, 1)
-        )
+        start_d = _shift_months(date(today.year, q_month, 1), 3 * offset)
+        end_d = _shift_months(start_d, 3)
     elif period_kind is PeriodKind.year:
-        start_d = date(today.year, 1, 1)
-        end_d = date(today.year + 1, 1, 1)
+        start_d = date(today.year + offset, 1, 1)
+        end_d = date(start_d.year + 1, 1, 1)
     else:  # pragma: no cover — wyczerpane wyżej
         raise PeriodError(f"Unhandled period kind: {period_kind}")
 
