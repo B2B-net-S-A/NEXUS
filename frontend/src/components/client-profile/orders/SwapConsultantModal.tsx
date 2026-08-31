@@ -11,6 +11,7 @@ import type {
   OrderLineRead,
   SwapConsultantInput,
 } from "@/lib/api/orderGroups";
+import { usesSharedMdPool } from "@/lib/client-order-list";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { formatPLN } from "@/types/client-profile";
 
@@ -68,7 +69,7 @@ export function SwapConsultantModal({
   // grupy i rozlicza się fakturami. Przeliczenia MD tu po prostu nie ma, więc
   // kafelek nie może obiecywać liczby, która nigdy nie powstanie.
   const costBased = group?.is_cost_based === true;
-  const sharedMdBased = group?.is_md_budget_based === true;
+  const sharedMdBased = group ? usesSharedMdPool(group) : false;
 
   const preview = useMemo(() => {
     if (costBased || sharedMdBased) return null;

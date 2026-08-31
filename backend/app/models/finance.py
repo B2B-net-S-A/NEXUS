@@ -199,17 +199,17 @@ class FinanceMonthlyResult(Base, TimestampMixin):
     cost_rate_md: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 2), nullable=True
     )
-    md_count: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2), nullable=True)
+    md_count: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 3), nullable=True)
     compensation: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(14, 2), nullable=True
+        Numeric(15, 3), nullable=True
     )
     revenue_rate_md: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(12, 2), nullable=True
     )
     invoice_amount: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(14, 2), nullable=True
+        Numeric(15, 3), nullable=True
     )
-    margin_pln: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
+    margin_pln: Mapped[Optional[Decimal]] = mapped_column(Numeric(15, 3), nullable=True)
     margin_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(7, 2), nullable=True)
 
     # Nazwy pól zmienionych RĘCZNIE po imporcie. Dwa zastosowania:

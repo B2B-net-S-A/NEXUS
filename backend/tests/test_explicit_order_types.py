@@ -62,6 +62,14 @@ def _shared_line(contract_id: int) -> dict:
     }
 
 
+def _md_line(contract_id: int, md: int = 80) -> dict:
+    return {
+        **_shared_line(contract_id),
+        "input_mode": "md",
+        "input_value": md,
+    }
+
+
 def test_explicit_group_schema_derives_one_unambiguous_type():
     from pydantic import ValidationError
 
@@ -80,10 +88,18 @@ def test_explicit_group_schema_derives_one_unambiguous_type():
         order_number="MD-1",
         start_date=_TODAY,
         order_type=OrderType.md,
-        md_budget_total=Decimal("20"),
     )
     assert md.is_cost_based is False
-    assert md.is_md_budget_based is True
+    assert md.is_md_budget_based is False
+
+    shared_md = OrderGroupCreate(
+        order_number="MD-SHARED-1",
+        start_date=_TODAY,
+        order_type=OrderType.md,
+        is_md_budget_based=True,
+        md_budget_total=Decimal("20"),
+    )
+    assert shared_md.is_md_budget_based is True
 
     with pytest.raises(ValidationError, match="sprzeczny z flagą"):
         OrderGroupCreate(
@@ -144,14 +160,15 @@ async def test_generic_client_can_mix_new_types_and_get_history_suggestion(
             "order_number": "MD-NOWY",
             "start_date": (_TODAY - timedelta(days=4)).isoformat(),
             "order_type": "md",
-            "md_budget_total": 80,
-            "lines": [_shared_line(contracts[1])],
+            "lines": [_md_line(contracts[1])],
         },
         headers=app_auth_headers,
     )
     assert md.status_code == 201, md.text
     assert md.json()["order_type"] == "md"
-    assert md.json()["is_md_budget_based"] is True
+    assert md.json()["is_md_budget_based"] is False
+    assert md.json()["md_budget_total"] is None
+    assert md.json()["lines"][0]["md_total"] == 80
     md_line_id = md.json()["lines"][0]["id"]
 
     after_md = await app_client.get(url, headers=app_auth_headers)
@@ -208,6 +225,80 @@ async def test_generic_client_legacy_group_request_stays_rejected(
         headers=app_auth_headers,
     )
     assert response.status_code == 422, response.text
+
+    explicit_shared = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": "MD-SHARED-GENERIC",
+            "start_date": _TODAY.isoformat(),
+            "order_type": "md",
+            "is_md_budget_based": True,
+            "md_budget_total": 20,
+            "lines": [],
+        },
+        headers=app_auth_headers,
+    )
+    assert explicit_shared.status_code == 422, explicit_shared.text
+    assert "Cyfrowego Polsatu i Lotte Wedel" in explicit_shared.text
+
+
+@pytest.mark.asyncio
+async def test_empty_explicit_md_has_no_group_bar_and_first_line_gets_own_budget(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+):
+    client_id, contracts = await _seed_client_with_contracts(1)
+    url = f"/api/clients/{client_id}/order-groups"
+
+    created = await app_client.post(
+        url,
+        json={
+            "order_number": "MD-BEZ-OBSADY",
+            "start_date": (_TODAY - timedelta(days=2)).isoformat(),
+            "order_type": "md",
+            "lines": [],
+        },
+        headers=app_auth_headers,
+    )
+    assert created.status_code == 201, created.text
+    group = created.json()
+    assert group["lines"] == []
+    assert group["is_md_budget_based"] is False
+    assert group["md_budget_total"] is None
+    assert group["md_budget_used"] is None
+    assert group["md_budget_remaining"] is None
+
+    missing_line_budget = await app_client.post(
+        f"{url}/{group['id']}/lines",
+        json=_shared_line(contracts[0]),
+        headers=app_auth_headers,
+    )
+    assert missing_line_budget.status_code == 422, missing_line_budget.text
+    assert "Podaj budżet konsultanta" in missing_line_budget.text
+
+    added = await app_client.post(
+        f"{url}/{group['id']}/lines",
+        json=_md_line(contracts[0], md=60),
+        headers=app_auth_headers,
+    )
+    assert added.status_code == 201, added.text
+    assert added.json()["md_total"] == 60
+    assert added.json()["md_remaining"] == 60
+
+
+def test_shared_md_pool_predicate_ignores_generic_flag_even_with_lines(monkeypatch):
+    from app.services import lotte_wedel_orders
+    from app.services.shared_md_orders import uses_shared_md_pool
+
+    monkeypatch.setattr(lotte_wedel_orders, "LOTTE_WEDEL_CLIENT_ID", 155)
+
+    generic = SimpleNamespace(client_id=999, is_md_budget_based=True, lines=[object()])
+    cyfrowy_polsat = SimpleNamespace(client_id=38339, is_md_budget_based=True)
+    lotte_wedel = SimpleNamespace(client_id=155, is_md_budget_based=True)
+
+    assert uses_shared_md_pool(generic) is False
+    assert uses_shared_md_pool(cyfrowy_polsat) is True
+    assert uses_shared_md_pool(lotte_wedel) is True
 
 
 @pytest.mark.asyncio
@@ -310,19 +401,18 @@ async def test_reading_legacy_order_does_not_backfill_its_type(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("order_type", "budget_field", "budget_value", "group_budget_field"),
+    ("order_type", "budget_field", "budget_value"),
     [
-        ("cost", "total_value", 50000, "budget_amount"),
-        ("md", "md_quantity", 75, "md_budget_total"),
+        ("cost", "total_value", 50000),
+        ("md", "md_quantity", 75),
     ],
 )
-async def test_completing_typed_draft_materializes_shared_budget_group(
+async def test_completing_typed_draft_materializes_budget_at_the_correct_scope(
     app_client: AsyncClient,
     app_auth_headers: dict,
     order_type: str,
     budget_field: str,
     budget_value: int,
-    group_budget_field: str,
 ):
     client_id, contracts = await _seed_client_with_contracts(1)
     created = await app_client.post(
@@ -361,8 +451,14 @@ async def test_completing_typed_draft_materializes_shared_budget_group(
     assert groups.json()["total_groups"] == 1
     group = groups.json()["groups"][0]
     assert group["order_type"] == order_type
-    assert group[group_budget_field] == budget_value
     assert [line["id"] for line in group["lines"]] == [order_id]
+    if order_type == "cost":
+        assert group["budget_amount"] == budget_value
+        assert group["is_cost_based"] is True
+    else:
+        assert group["is_md_budget_based"] is False
+        assert group["md_budget_total"] is None
+        assert group["lines"][0]["md_total"] == budget_value
 
 
 @pytest.mark.asyncio

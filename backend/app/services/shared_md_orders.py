@@ -10,12 +10,13 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Protocol
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.client_order import ClientOrder
 from app.models.client_order_group import (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_EXHAUSTED,
@@ -23,11 +24,74 @@ from app.models.client_order_group import (
     ClientOrderGroupMdConsumption,
 )
 from app.services.cost_orders import lock_group_for_settlement
+from app.services.cyfrowy_polsat_orders import (
+    is_cyfrowy_polsat_order_types_client,
+)
+from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 from app.services.multi_consultant_orders import quantize_md
 
 
 ZERO = Decimal("0.000000")
 _PERIOD_MONTH_RE = re.compile(r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+
+
+class SharedMdPoolGroup(Protocol):
+    client_id: int | None
+    is_md_budget_based: bool
+
+
+def client_uses_shared_md_pool(client_id: int | None) -> bool:
+    """Whether this client uses the deliberate group-level MD variant."""
+
+    return bool(
+        is_cyfrowy_polsat_order_types_client(client_id)
+        or is_lotte_wedel_order_types_client(client_id)
+    )
+
+
+def uses_shared_md_pool(group: SharedMdPoolGroup) -> bool:
+    """Whether this group is one of the two deliberate shared-MD variants.
+
+    Revision 0246 inferred ``is_md_budget_based`` from every explicit ``md``
+    type.  The flag alone is therefore not authoritative: generic MD orders
+    remain per consultant even if a stale row still carries it.
+    """
+
+    return bool(
+        group.is_md_budget_based and client_uses_shared_md_pool(group.client_id)
+    )
+
+
+async def normalize_empty_generic_explicit_md_group(
+    db: AsyncSession, group: ClientOrderGroup
+) -> bool:
+    """Heal a phantom 0246 pool only when no consultant data can be touched.
+
+    Migration 0251 is ``NOT VALID`` but PostgreSQL still checks a legacy row
+    on its next UPDATE. Empty generic MD groups have no line consumption to
+    preserve, so normal writes may safely clear their inferred group fields.
+    A group with any line fails closed and remains untouched.
+    """
+
+    if (
+        group.order_type != "md"
+        or not group.is_md_budget_based
+        or client_uses_shared_md_pool(group.client_id)
+    ):
+        return False
+    existing_line_id = await db.scalar(
+        select(ClientOrder.id)
+        .where(ClientOrder.order_group_id == group.id)
+        .order_by(ClientOrder.id)
+        .limit(1)
+    )
+    if existing_line_id is not None:
+        return False
+    group.is_md_budget_based = False
+    group.md_budget_total = None
+    group.md_budget_remaining = None
+    group.md_budget_manual_adjustment = ZERO
+    return True
 
 
 async def shared_md_used_total(db: AsyncSession, group_id: int) -> Decimal:
@@ -73,7 +137,11 @@ async def settle_shared_md_group(db: AsyncSession, group: ClientOrderGroup) -> D
 
     group = await lock_group_for_settlement(db, group, flush_local_changes=True)
 
-    if not group.is_md_budget_based or group.md_budget_total is None:
+    if not uses_shared_md_pool(group):
+        raise ValueError(
+            "Wspólna pula MD jest dostępna tylko dla Cyfrowego Polsatu i Lotte Wedel"
+        )
+    if group.md_budget_total is None:
         group.md_budget_remaining = None
         return ZERO
 
@@ -107,7 +175,7 @@ async def upsert_shared_md_consumption(
 ) -> tuple[ClientOrderGroupMdConsumption, Decimal]:
     """Idempotentnie zapisz miesiąc grupy i od razu przelicz pozostałość."""
 
-    if not group.is_md_budget_based:
+    if not uses_shared_md_pool(group):
         raise ValueError("Konsumpcję wspólnej puli MD można zapisać tylko dla typu MD")
     if not _PERIOD_MONTH_RE.fullmatch(period_month):
         raise ValueError("Miesiąc musi mieć format YYYY-MM")

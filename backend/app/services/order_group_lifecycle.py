@@ -31,8 +31,14 @@ from app.models.client_order_group import (
     GROUP_STATUS_SCHEDULED,
     ClientOrderGroup,
 )
+from app.models.contract import Contract
 from app.services.client_order_lines import record_event
+from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.multi_consultant_orders import EVENT_ORDER_CLOSED
+from app.services.shared_md_orders import (
+    normalize_empty_generic_explicit_md_group,
+    uses_shared_md_pool,
+)
 
 
 def _family_root(group: ClientOrderGroup, by_id: dict[int, ClientOrderGroup]) -> int:
@@ -93,7 +99,7 @@ async def _predecessor_still_has_md(
         return False
     if predecessor.is_cost_based:
         return False
-    if predecessor.is_md_budget_based:
+    if uses_shared_md_pool(predecessor):
         return Decimal(str(predecessor.md_budget_remaining or 0)) > Decimal("0")
     left = await _md_budget_left(db, predecessor.id)
     return left is not None and left > Decimal("0")
@@ -156,6 +162,7 @@ async def materialize_scheduled_order_groups(
         # Gdy proces nie działał przez kilka dat startu, aktywujemy najnowszą
         # już obowiązującą wersję. Starsze due trafiają wprost do historii.
         current = max(due, key=lambda item: (item.start_date, item.id))
+        await normalize_empty_generic_explicit_md_group(db, current)
         current.status = GROUP_STATUS_ACTIVE
         current.closure_date = None
         current.closure_reason = None
@@ -175,6 +182,16 @@ async def materialize_scheduled_order_groups(
                 line.status = ClientOrderStatus.active
                 if line.filled_at is None:
                     line.filled_at = now
+                contract = await db.get(Contract, line.contract_id)
+                if contract is not None:
+                    await sync_contract_to_live_order(
+                        db,
+                        contract,
+                        order_start=line.start_date,
+                        order_end=line.end_date,
+                        actor_id=None,
+                        today=boundary_day,
+                    )
 
         history_boundary = current.start_date - timedelta(days=1)
         for previous in family:
@@ -186,6 +203,7 @@ async def materialize_scheduled_order_groups(
             )
             if not should_close:
                 continue
+            await normalize_empty_generic_explicit_md_group(db, previous)
             previous.status = GROUP_STATUS_COMPLETED
             previous.closure_date = history_boundary
             previous.closure_reason = (

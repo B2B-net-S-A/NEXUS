@@ -36,6 +36,7 @@ import {
   effectiveGroupOrderType,
   flattenOrderGroupIds,
   sortOrderLinesByConsultant,
+  usesSharedMdPool,
 } from "@/lib/client-order-list";
 import { countPl } from "@/lib/plural-pl";
 import { formatDate, formatPLN } from "@/types/client-profile";
@@ -203,8 +204,7 @@ function BudgetBar({ group }: { group: OrderGroupRead }) {
   );
 }
 
-/** Wspólna pula MD Cyfrowego Polsatu/Lotte Wedel. Pozostałość jest prezentowana z
- *  podłogą 0 — przekroczenie nie może zamienić limitu w liczbę ujemną. */
+/** Klientowo ograniczona wspólna pula MD Cyfrowego Polsatu i Lotte Wedel. */
 function SharedMdBudgetBar({ group }: { group: OrderGroupRead }) {
   const total = group.md_budget_total ?? 0;
   const used = Math.max(0, group.md_budget_used ?? 0);
@@ -275,6 +275,7 @@ function OrderLineRow({
 }: OrderLineRowProps) {
   const pendingOffboarding = line.offboarding_case?.status === "pending";
   const completedCostLine = group.is_cost_based && !line.is_active;
+  const sharedMd = usesSharedMdPool(group);
 
   return (
     <li
@@ -391,7 +392,7 @@ function OrderLineRow({
               : formatPLN(line.invoiced_total)}
           </p>
         </div>
-      ) : group.is_md_budget_based ? (
+      ) : sharedMd ? (
         <div className="ml-auto min-w-[8rem] text-right">
           <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             Budżet MD
@@ -557,7 +558,7 @@ function FutureOrders({
               ) : null}
             </div>
 
-            {future.is_md_budget_based ? (
+            {usesSharedMdPool(future) ? (
               <div className="mt-2">
                 <SharedMdBudgetBar group={future} />
               </div>
@@ -565,7 +566,7 @@ function FutureOrders({
 
             {future.lines.length === 0 ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                Brak przypisanych konsultantów.
+                To zamówienie nie ma jeszcze konsultantów.
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-border/70">
@@ -592,14 +593,20 @@ function FutureOrders({
                         ? "—"
                         : `${formatPLN(line.rate_revenue)}/MD`}
                     </span>
-                    <span className="text-muted-foreground">
+                    <div className="text-muted-foreground">
                       <span className="block text-[10px] uppercase tracking-wide">
-                        {future.is_md_budget_based ? "budżet MD" : "liczba MD"}
+                        Budżet MD
                       </span>
-                      {future.is_md_budget_based
-                        ? "wspólna pula"
-                        : formatMd(line.md_total)}
-                    </span>
+                      {usesSharedMdPool(future) ? (
+                        "wspólna pula"
+                      ) : (
+                        <MdBudgetBar
+                          remaining={line.md_remaining}
+                          total={line.md_total}
+                          className="mt-1 gap-2"
+                        />
+                      )}
+                    </div>
                     {canManage ? (
                       <button
                         type="button"
@@ -806,7 +813,7 @@ export function OrderGroupCard({
             </div>
           ) : null}
 
-          {group.is_md_budget_based ? (
+          {usesSharedMdPool(group) ? (
             <div className="mb-4">
               <SharedMdBudgetBar group={group} />
               {group.status === "exhausted" ||
