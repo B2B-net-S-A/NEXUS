@@ -220,7 +220,7 @@ async def emit_md_consultant_ended(
         message=(
             f"{consultant_name} zakończył(a) współpracę {effective_date.isoformat()} "
             f"na zamówieniu {number}. {pool_detail} Otwórz zamówienie i wybierz "
-            "usunięcie albo przeniesienie."
+            "usunięcie, przeniesienie albo przywrócenie konsultanta."
         ),
         link=(f"/clients/{client_id}?tab=zamowienia&offboardingCase={case_id}"),
         payload={

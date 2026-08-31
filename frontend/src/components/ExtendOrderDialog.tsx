@@ -128,6 +128,10 @@ export function ExtendOrderDialog({
   // Oryginalna stawka za 1 MD z dokumentu (Bank Pocztowy) — pokazywana obok
   // pola stawki; samo pole niesie już wartość przeliczoną na zł/h (MD ÷ 8).
   const [rateMdOriginal, setRateMdOriginal] = useState<string | null>(null);
+  // Numer ID konsultanta z dokumentu (polityka BNP) — PDF-y tego klienta nie
+  // niosą imienia ani nazwiska, więc to jedyny ślad tożsamości w pliku.
+  // Pokazywany do wzrokowego potwierdzenia, że dokument dotyczy tej osoby.
+  const [consultantRef, setConsultantRef] = useState<string | null>(null);
   const [grossConversion, setGrossConversion] = useState<{
     gross: string;
     net: string;
@@ -195,6 +199,8 @@ export function ExtendOrderDialog({
     // budżetu MD. Klienci MD (BIK/Polkomtel/BNP) mają własny widok i własne
     // „Dodaj przedłużenie" (`ExtendOrderGroupModal`), gdzie liczba MD trafia
     // na linię konsultanta. Pole tutaj nie miałoby gdzie się zapisać.
+    // Poza blokiem `canManageFinance` — numer ID nie jest kwotą.
+    setConsultantRef(d.consultant_ref ?? null);
     setCheckData(Boolean(d.uncertain));
     setCheckReasons(d.uncertain_reasons ?? []);
   };
@@ -296,6 +302,17 @@ export function ExtendOrderDialog({
               )}
             </div>
           </div>
+        )}
+
+        {consultantRef !== null && (
+          <p
+            role="status"
+            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+          >
+            Numer ID konsultanta z dokumentu:{" "}
+            <span className="font-semibold">{consultantRef}</span> — potwierdź,
+            że dokument dotyczy tej osoby.
+          </p>
         )}
 
         <label className="block">
@@ -502,6 +519,7 @@ export function ExtendOrderDialog({
               setCheckData(false);
               setCheckReasons([]);
               setTitleCheck(false);
+              setConsultantRef(null);
               setRateMdOriginal(null);
               setGrossConversion(null);
               setUnitChangeNotice(null);
@@ -538,6 +556,7 @@ export function ExtendOrderDialog({
                     setCheckData(false);
                     setCheckReasons([]);
                     setTitleCheck(false);
+                    setConsultantRef(null);
                     setRateMdOriginal(null);
                     setGrossConversion(null);
                     setUnitChangeNotice(null);

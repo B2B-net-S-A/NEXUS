@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -292,6 +293,56 @@ if settings.SENTRY_DSN:
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("Sentry init failed: %s", e)
+
+
+# ── Nieobsłużony wyjątek → 500 Z nagłówkami CORS ───────────────────────────
+class UnhandledErrorMiddleware(BaseHTTPMiddleware):
+    """Zamień nieobsłużony wyjątek na JSON-owe 500, ZANIM minie CORS.
+
+    Bez tego wyjątek z handlera leci PONAD całym stosem middleware do
+    starlette'owego ``ServerErrorMiddleware``, które odpowiada gołym 500 —
+    bez ``Access-Control-Allow-Origin``. Przeglądarka blokuje wtedy odpowiedź
+    i frontend widzi wyłącznie **„Network Error"**: bez statusu, bez treści,
+    bez śladu, czego dotyczyła awaria. Dokładnie to zgłosili użytkownicy przy
+    zapisie zamówienia, ale objaw jest ogólnosystemowy — każdy nieobsłużony
+    błąd w tej aplikacji wygląda dla użytkownika jak zerwane połączenie,
+    a dla nas w zgłoszeniu jak nic.
+
+    To middleware siedzi NAJGŁĘBIEJ w stosie (dodane jako pierwsze, więc
+    ``CORSMiddleware`` je opakowuje). Odpowiedź, którą zwraca, przechodzi
+    więc normalną drogą przez CORS i dostaje komplet nagłówków — użytkownik
+    widzi prawdziwy status 500 i komunikat po polsku, a nie awarię sieci.
+
+    Treść odpowiedzi jest CELOWO ogólna (bez typu wyjątku, bez ścieżek,
+    bez SQL-a): szczegóły idą do logu i do Sentry, klientowi wystarczy
+    informacja, że zapis się nie powiódł. Wyjątek jest re-raise'owany do
+    Sentry jawnym ``capture_exception``, bo przechwycenie go tutaj kończy
+    jego wędrówkę — bez tego integracja przestałaby raportować 500-ki.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as exc:  # noqa: BLE001 - to jest sieć bezpieczeństwa
+            logger.exception(
+                "Unhandled error on %s %s", request.method, request.url.path
+            )
+            try:
+                import sentry_sdk
+
+                sentry_sdk.capture_exception(exc)
+            except Exception:  # noqa: BLE001 - brak Sentry nie może maskować 500
+                pass
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "detail": (
+                        "Wystąpił nieoczekiwany błąd serwera. Zmiana nie została "
+                        "zapisana — spróbuj ponownie, a jeśli błąd się powtarza, "
+                        "zgłoś go z podaniem godziny."
+                    )
+                },
+            )
 
 
 # ── Security headers middleware ────────────────────────────────────────────
@@ -710,6 +761,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# KOLEJNOŚĆ MA ZNACZENIE: `add_middleware` dokłada na zewnątrz, więc dodane
+# jako PIERWSZE jest najgłębiej. `UnhandledErrorMiddleware` musi być pod
+# `CORSMiddleware`, żeby zwrócone przez nie 500 przeszło przez CORS i dotarło
+# do przeglądarki z nagłówkami (inaczej wraca „Network Error" — patrz docstring).
+app.add_middleware(UnhandledErrorMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
 

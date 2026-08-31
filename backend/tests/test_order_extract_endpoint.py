@@ -813,3 +813,111 @@ async def test_candidate_order_documents_dl_not_assigned_sees_nothing(
     # do którego DL nie jest przypisany → pusto (nie leak).
     assert resp.status_code == 200, resp.text
     assert resp.json()["documents"] == []
+
+
+async def test_bnp_endpoint_reads_a_document_without_a_consultant_name(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """REGRESJA ZGŁOSZENIA: dla BNP odczyt nie dawał ani stawki, ani MD.
+
+    PDF-y BNP nie zawierają imienia ani nazwiska — niosą wyłącznie numer ID
+    konsultanta. Generyczny matcher jest fail-closed po nazwisku, więc przy
+    podanym ``candidate_id`` czyścił stawkę i liczbę MD przy KAŻDYM odczycie.
+    Dokument tego klienta jest z definicji jednoosobowy, więc parser nie
+    dostaje nazwiska, a bramka bezpieczeństwa matchera jest pomijana.
+    """
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("BNP Paribas Bank Polska S.A.")
+    candidate_id = await _seed_candidate(
+        "Damian", "Krawczyk", contract_client_id=client_id
+    )
+    monkeypatch.setenv("BNP_ORDER_EXTRACTION_CLIENT_IDS", f"999999,{client_id}")
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        lambda path, filename: (
+            "Zamówienie nr 3728_2026\n"
+            "Konsultant ID: 4711\n"
+            "Okres realizacji: 08-2026 do 12-2026\n"
+            "Cena netto: 1 040,00 PLN\n"
+            "Szt.: 105\n"
+        ),
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        data={"candidate_id": str(candidate_id)},
+        files={"file": ("bnp.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Bez poprawki oba pola wracały jako `null`.
+    assert Decimal(str(data["rate_client"])) == Decimal("1040.00")
+    assert data["rate_unit"] == "day"
+    assert Decimal(str(data["md_total"])) == Decimal("105")
+    assert data["start_date"] == "2026-08-01"
+    # Ostatni dzień miesiąca, nie pierwszy i nie „31" na sztywno.
+    assert data["end_date"] == "2026-12-31"
+    assert data["consultant_ref"] == "4711"
+
+
+async def test_bnp_consultant_ref_survives_finance_redaction(
+    app_client: AsyncClient, monkeypatch
+):
+    """Numer ID nie jest kwotą — rola bez VIEW_FINANCE też musi go zobaczyć.
+
+    To jedyny ślad tożsamości w dokumencie BNP; ukrycie go zostawiłoby
+    operatora bez możliwości potwierdzenia, czyjego zamówienia dotyczy plik.
+    """
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("BNP Paribas Bank Polska S.A.")
+    monkeypatch.setenv("BNP_ORDER_EXTRACTION_CLIENT_IDS", str(client_id))
+    hor_headers = await _hor_headers(app_client)
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        lambda path, filename: (
+            "Konsultant ID: 4711\n08-2026 do 12-2026\nCena netto: 1 040,00\nSzt.: 105\n"
+        ),
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("bnp.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=hor_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["consultant_ref"] == "4711"
+    assert data["rate_client"] is None
+    # Liczba MD jest operacyjna, nie finansowa — zostaje.
+    assert Decimal(str(data["md_total"])) == Decimal("105")
+
+
+async def test_bnp_policy_does_not_leak_to_other_clients(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Bramka po ID: klient spoza listy zachowuje dotychczasowe zachowanie."""
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("Inny Bank S.A.")
+    monkeypatch.setenv("BNP_ORDER_EXTRACTION_CLIENT_IDS", "999999")
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        lambda path, filename: "Konsultant ID: 4711\nCena netto: 1 040,00\nSzt.: 105\n",
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("other.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["consultant_ref"] is None

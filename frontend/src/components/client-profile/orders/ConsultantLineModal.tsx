@@ -211,6 +211,13 @@ export function ConsultantLineModal({
   const [fileError, setFileError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
+  // Numer ID konsultanta z dokumentu (polityka BNP). PDF-y tego klienta
+  // nie niosą imienia ani nazwiska, więc to JEDYNY ślad tożsamości
+  // w pliku — pokazujemy go do wzrokowego potwierdzenia, że dokument
+  // dotyczy wybranej osoby. Nexus nie przechowuje identyfikatorów
+  // nadanych przez klienta, więc nie ma tego z czym zestawić
+  // automatycznie i pole jest świadomie informacyjne.
+  const [consultantRef, setConsultantRef] = useState<string | null>(null);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
   const [unitChangeNotice, setUnitChangeNotice] = useState<string | null>(null);
@@ -360,6 +367,7 @@ export function ConsultantLineModal({
     // targetu i zostać potwierdzone dla nowego konsultanta.
     setCheckData(false);
     setCheckReasons([]);
+    setConsultantRef(null);
     setUnitChangeNotice(null);
     setGrossConversion(null);
     setConflicts([]);
@@ -425,6 +433,7 @@ export function ConsultantLineModal({
     setExtractError(null);
     setCheckData(false);
     setCheckReasons([]);
+    setConsultantRef(null);
     setUnitChangeNotice(null);
     setGrossConversion(null);
     setConflicts([]);
@@ -664,6 +673,7 @@ export function ConsultantLineModal({
           "Nie znaleziono jednostki stawki przychodowej — wpisz ją ręcznie",
         );
       }
+      setConsultantRef(data.consultant_ref ?? null);
       setCheckData(Boolean(data.uncertain) || invalidRateUnit);
       setCheckReasons(reasons);
       if (found.length > 0) {
@@ -1024,6 +1034,17 @@ export function ConsultantLineModal({
           </div>
         ) : null}
 
+        {consultantRef !== null ? (
+          <p
+            role="status"
+            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+          >
+            Numer ID konsultanta z dokumentu:{" "}
+            <span className="font-semibold">{consultantRef}</span> — potwierdź,
+            że dokument dotyczy tej osoby.
+          </p>
+        ) : null}
+
         {checkData ? (
           <div
             role="alert"
@@ -1062,6 +1083,7 @@ export function ConsultantLineModal({
               setExtractError(null);
               setCheckData(false);
               setCheckReasons([]);
+              setConsultantRef(null);
               setUnitChangeNotice(null);
               setGrossConversion(null);
               setConflicts([]);

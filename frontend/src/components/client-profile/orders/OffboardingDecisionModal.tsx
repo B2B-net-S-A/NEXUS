@@ -41,10 +41,17 @@ export function OffboardingDecisionModal({
   error,
   onSubmit,
 }: Props) {
-  const [action, setAction] = useState<"remove" | "transfer">("remove");
+  const [action, setAction] = useState<"remove" | "transfer" | "restore">(
+    "remove",
+  );
   const [targetOrderId, setTargetOrderId] = useState("");
   const [rateBasis, setRateBasis] =
     useState<OrderOffboardingRateBasis>("departing");
+  // Data, do której współpraca trwa po przywróceniu. Oryginalna data końca
+  // linii przepadła przy offboardingu (sprawa snapshotuje pulę i stawki, nie
+  // okres), więc to jest DECYZJA operatora, nie odtworzenie — dlatego pole
+  // jest puste, a nie „przywrócone".
+  const [restoreEndDate, setRestoreEndDate] = useState("");
 
   const offboardingCase = line?.offboarding_case ?? null;
   const recipients = useMemo(
@@ -58,23 +65,49 @@ export function OffboardingDecisionModal({
     [group, line],
   );
 
+  // Zamówienie z datą końca wymaga daty także od linii — pusta znaczyłaby
+  // „bezterminowo", czyli linia przeżywająca własne zamówienie. Serwer to
+  // odrzuca; formularz nie może więc pozwolić wysłać takiego żądania.
+  const groupEndDate = group?.end_date ?? null;
+  const restoreEndRequired = groupEndDate !== null;
+
   useEffect(() => {
     if (!open) return;
     setAction("remove");
     setTargetOrderId("");
     setRateBasis("departing");
-  }, [open, offboardingCase?.id]);
+    // Podpowiedź = koniec zamówienia. Operator może ją skrócić; nie może jej
+    // wydłużyć poza zamówienie (walidacja niżej i po stronie serwera).
+    setRestoreEndDate(group?.end_date ?? "");
+  }, [open, offboardingCase?.id, group?.end_date]);
+
+  const restoreEndTooLate =
+    groupEndDate !== null &&
+    restoreEndDate !== "" &&
+    restoreEndDate > groupEndDate;
 
   const canSubmit =
     !submitting &&
     offboardingCase?.status === "pending" &&
-    (action === "remove" || targetOrderId !== "");
+    (action === "remove" ||
+      (action === "transfer" && targetOrderId !== "") ||
+      (action === "restore" &&
+        !restoreEndTooLate &&
+        (!restoreEndRequired || restoreEndDate !== "")));
 
   function submit() {
     if (!offboardingCase || !canSubmit) return;
     if (action === "remove") {
       onSubmit({
         action: "remove",
+        expected_version: offboardingCase.version,
+      });
+      return;
+    }
+    if (action === "restore") {
+      onSubmit({
+        action: "restore",
+        restore_end_date: restoreEndDate || null,
         expected_version: offboardingCase.version,
       });
       return;
@@ -145,7 +178,7 @@ export function OffboardingDecisionModal({
 
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Co zrobić z pozostałą pulą
+            Decyzja po zakończeniu współpracy
           </legend>
           <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-3">
             <input
@@ -181,6 +214,25 @@ export function OffboardingDecisionModal({
               </span>
               <span className="block text-xs text-muted-foreground">
                 Wskaż aktywną osobę z tego samego zamówienia i podstawę stawki.
+              </span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border px-3 py-3">
+            <input
+              type="radio"
+              name="offboarding-action"
+              value="restore"
+              checked={action === "restore"}
+              onChange={() => setAction("restore")}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                Przywróć jako aktywne
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Współpraca trwa dalej. Osoba wraca na aktywną obsadę, pula MD
+                zostaje nienaruszona, a zakończony kontrakt wraca do aktywnych.
               </span>
             </span>
           </label>
@@ -237,7 +289,42 @@ export function OffboardingDecisionModal({
           </div>
         ) : null}
 
-        {offboardingCase?.uses_shared_md_pool ? (
+        {action === "restore" ? (
+          <div>
+            <label
+              htmlFor="offboarding-restore-end"
+              className="mb-1 block text-xs font-semibold text-muted-foreground"
+            >
+              Współpraca trwa do{restoreEndRequired ? " *" : ""}
+            </label>
+            <input
+              id="offboarding-restore-end"
+              type="date"
+              value={restoreEndDate}
+              max={groupEndDate ?? undefined}
+              onChange={(event) => setRestoreEndDate(event.target.value)}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {restoreEndRequired
+                ? `Zamówienie kończy się ${formatDate(groupEndDate)} — linia nie może trwać dłużej.`
+                : "Puste = bezterminowo. Zamówienie nie ma daty zakończenia."}
+            </p>
+            {restoreEndTooLate ? (
+              <p role="alert" className="mt-1 text-xs text-destructive">
+                Data wykracza poza zamówienie.
+              </p>
+            ) : null}
+            {restoreEndRequired && restoreEndDate === "" ? (
+              <p role="alert" className="mt-1 text-xs text-destructive">
+                Podaj datę — to zamówienie ma swój koniec, więc linia nie może
+                być bezterminowa.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {offboardingCase?.uses_shared_md_pool && action !== "restore" ? (
           <p
             role="status"
             className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground"

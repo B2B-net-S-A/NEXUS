@@ -77,6 +77,30 @@ def md_rate_from_order_rate(rate: Optional[Decimal]) -> Optional[Decimal]:
     return Decimal(str(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+#: ``client_orders.rate_client`` / ``rate_candidate`` = Numeric(12, 3).
+_ORDER_RATE_MAX = Decimal("999999999.999")
+
+
+def _assert_fits_order_rate_column(value: Optional[Decimal], label: str) -> None:
+    """Odmów PRZED zapisem, gdy stawka nie mieści się w kolumnie zamówienia.
+
+    ``ValueError`` — jak każda inna odmowa w tym module. Wołający
+    (``_materialize_group_after_activation``) zamienia go na 422 z tą treścią;
+    gdyby poleciał dalej, wpadłby w ``UnhandledErrorMiddleware`` i użytkownik
+    zobaczyłby ogólne „nieoczekiwany błąd serwera" zamiast nazwy pola do
+    poprawienia. Serwis NIE rzuca ``HTTPException`` sam: nie importuje FastAPI
+    i jest wołany także spoza warstwy HTTP.
+    """
+
+    if value is None:
+        return
+    if abs(Decimal(str(value))) > _ORDER_RATE_MAX:
+        raise ValueError(
+            f"Stawka {label} ({value}) przekracza zakres pola zamówienia — "
+            "popraw kwotę przed aktywacją."
+        )
+
+
 def group_number_from_order(order: ClientOrder) -> Optional[str]:
     """Numer grupy z pola „numer zamówienia" szkicu; ``None`` gdy placeholder.
 
@@ -335,6 +359,14 @@ async def materialize_group_for_activated_order(
     # Od tej chwili rekord jest linią grupową, której kanoniczną jednostką jest
     # PLN/MD. Zachowanie surowych warunków wejściowych należy do eventu/grupy;
     # relabeling bez konwersji był dotychczas źródłem błędu ×8 i EUR→PLN.
+    #
+    # Kolumny są WĘŻSZE po stronie zamówienia niż po stronie linii MD:
+    # ``md_rate_*`` to Numeric(12,2) (10 cyfr całkowitych), a ``rate_*``
+    # Numeric(12,3) (9 cyfr). Przepisanie bez sprawdzenia zakresu kończyło się
+    # ``NumericValueOutOfRangeError`` przy commicie, czyli 500 bez nagłówków
+    # CORS — u użytkownika „Network Error" w środku aktywacji zamówienia.
+    _assert_fits_order_rate_column(order.md_rate_cost, "kosztowa")
+    _assert_fits_order_rate_column(order.md_rate_revenue, "przychodowa")
     order.rate_candidate = order.md_rate_cost
     order.rate_client = order.md_rate_revenue
     order.rate_unit = RateUnit.daily

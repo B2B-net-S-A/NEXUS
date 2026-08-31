@@ -194,6 +194,13 @@ export interface OrderExtractionResult {
    *  pokazuje przy polu numeru komunikat „Sprawdź numer zamówienia".
    *  Opcjonalne — starszy backend pola nie wysyła. */
   title_needs_review?: boolean;
+  /** Numer ID konsultanta odczytany z dokumentu (polityka BNP) — w PDF-ach
+   *  tego klienta nie ma imienia i nazwiska, jest wyłącznie ten numer.
+   *  Nexus nie przechowuje identyfikatorów nadanych przez klienta, więc pole
+   *  służy WZROKOWEMU potwierdzeniu, że dokument dotyczy osoby, z której karty
+   *  uruchomiono odczyt. Nie jest kwotą — dociera też do ról bez uprawnień
+   *  finansowych. Opcjonalne — starszy backend pola nie wysyła. */
+  consultant_ref?: string | null;
   source: string; // "claude" | "regex" | "none"
 }
 

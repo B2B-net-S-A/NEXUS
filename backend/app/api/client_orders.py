@@ -96,8 +96,10 @@ from app.services.order_types import (
     should_process_active_standalone_order,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
+from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
     apply_bank_pocztowy_order_policy,
+    apply_bnp_order_policy,
     apply_credit_agricole_order_policy,
     apply_erste_order_policy,
     apply_orlen_order_policy,
@@ -183,6 +185,35 @@ async def _read_upload_within_limit(file: UploadFile) -> bytes:
     return payload
 
 
+#: ``client_orders.filename`` to ``VARCHAR(255)``.
+_FILENAME_COLUMN_LIMIT = 255
+
+
+def _fit_filename_column(filename: str) -> str:
+    """Przytnij nazwę pliku do szerokości kolumny, zachowując rozszerzenie.
+
+    Nazwa szła do bazy SUROWA, mimo że na dysk zapisywana jest już
+    sanityzowana i obcięta (``storage_service._sanitize_filename``). Realna
+    polska nazwa PO banku bez trudu przekracza 255 znaków, a wtedy
+    ``StringDataRightTruncationError`` przy commicie jest wyjątkiem
+    NIEOBSŁUŻONYM: 500 bez nagłówków CORS, czyli u użytkownika „Network
+    Error" i utracony upload — mimo że plik leży już na dysku.
+
+    Rozszerzenie zostaje na końcu, bo po nim front rozpoznaje typ pliku
+    w liście dokumentów; ucinamy środek nazwy, nie ogon.
+    """
+
+    if len(filename) <= _FILENAME_COLUMN_LIMIT:
+        return filename
+    stem, dot, ext = filename.rpartition(".")
+    if not dot or len(ext) > 16:
+        # Brak rozszerzenia albo „kropka" wewnątrz zdania — nie ma czego
+        # chronić, więc zwykłe obcięcie.
+        return filename[:_FILENAME_COLUMN_LIMIT]
+    keep = _FILENAME_COLUMN_LIMIT - len(ext) - 1
+    return f"{stem[:keep]}.{ext}"
+
+
 def _attach_po_bytes(
     order: ClientOrder,
     *,
@@ -208,7 +239,7 @@ def _attach_po_bytes(
     rel_path, size = storage_service.save_client_order_po(
         order_id=order.id, upload_filename=filename, source=io.BytesIO(payload)
     )
-    order.filename = filename
+    order.filename = _fit_filename_column(filename)
     order.file_path = rel_path
     order.content_type = content_type
     order.size_bytes = size
@@ -240,6 +271,16 @@ _BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV = "BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS
 # „Wynagrodzenie za 1MD (8h) (PLN netto)", liczba MD wyłącznie z „Szacowana
 # ilość MD"). Ta sama mechanika bramki co wyżej.
 _CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV = "CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS"
+
+
+# CSV z `client_id` klientów objętych polityką ekstrakcji BNP
+# (`apply_bnp_order_policy`: dokument JEDNOOSOBOWY, konsultant rozpoznawany po
+# numerze ID zamiast po nazwisku, „Cena netto" → stawka za 1 MD, „Szt." →
+# liczba MD, okres „MM-RRRR do MM-RRRR" → pierwszy/ostatni dzień miesiąca).
+# Ta sama mechanika bramki co wyżej — i ten sam powód, dla którego to ID,
+# a nie nazwa: „BNP" jako podciąg wciąga też „BNP Paribas Bank Polska",
+# odrębnego klienta (patrz `GET /api/admin/client-mixups`).
+_BNP_ORDER_CLIENT_IDS_ENV = "BNP_ORDER_EXTRACTION_CLIENT_IDS"
 
 
 # CSV z `client_id` klientów, u których stawka w dokumencie jest BRUTTO
@@ -329,6 +370,17 @@ def _is_credit_agricole_order_client(client_id: Optional[int]) -> bool:
     if client_id is None:
         return False
     return client_id in _client_ids_from_env(_CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV)
+
+
+def _is_bnp_order_client(client_id: Optional[int]) -> bool:
+    """Czy dokumenty tego klienta są JEDNOOSOBOWE i bez nazwiska konsultanta.
+
+    Bramka po ID z env, fail-closed — jak sąsiednie. Aktywacja na prodzie
+    = ustawienie `BNP_ORDER_EXTRACTION_CLIENT_IDS` w Coolify.
+    """
+    if client_id is None:
+        return False
+    return client_id in _client_ids_from_env(_BNP_ORDER_CLIENT_IDS_ENV)
 
 
 def _is_erste_gross_rate_client(client_id: Optional[int]) -> bool:
@@ -594,6 +646,17 @@ def _apply_md_order_quantity(order: ClientOrder, quantity: Optional[Decimal]) ->
     order.md_input_mode = INPUT_MODE_MD
     order.md_input_value = qty
     order.md_total = qty
+    # Pozostałość TYMCZASOWA, ale KONIECZNA: ``ck_client_orders_md_coherence``
+    # wymaga ``md_remaining`` razem z ``md_total``, a autorytatywną wartość
+    # liczy dopiero ``recompute_remaining`` — która potrzebuje ``order.id``,
+    # czyli flushu, czyli wiersza, który musi już przejść CHECK. Bez tej linii
+    # POST zakładający zamówienie z budżetem MD wywracał się na INSERT
+    # nieobsłużonym IntegrityError (500 bez CORS = „Network Error" u
+    # użytkownika, zero wierszy w bazie). Dla nowego zamówienia ta wartość JEST
+    # ostateczna (zero zużycia), dla istniejącego nadpisze ją przeliczenie.
+    order.md_remaining = quantize_md(
+        qty + Decimal(str(order.md_manual_adjustment or 0))
+    )
 
 
 def _refresh_md_rate_mirror(order: ClientOrder, *, explicit_fields: set[str]) -> None:
@@ -1695,6 +1758,12 @@ async def create_order_extension(
     db.add(order)
     if order_type == OrderType.md:
         _apply_md_order_quantity(order, md_quantity)
+        # Autorytatywne przeliczenie pozostałości JEST tu zbędne i celowo go
+        # nie ma: nowe zamówienie nie ma jeszcze ani jednego wiersza zużycia,
+        # więc ``md_remaining`` ustawione przez helper to już wartość końcowa,
+        # a ``recompute_remaining`` wymagałaby wcześniejszego flushu — czyli
+        # INSERT-u wiersza, który musi PRZEJŚĆ CHECK spójności budżetu.
+        # (Ścieżka PATCH przelicza pozostałość, bo tam zużycie już istnieje.)
     elif md_quantity is not None:
         raise HTTPException(422, detail="Budżet MD dotyczy tylko zamówienia typu MD")
     if payload_bytes is not None:
@@ -1749,7 +1818,7 @@ async def create_order_extension(
     )
     await db.flush()
     await db.refresh(order)
-    await db.commit()
+    await commit_order_write(db)
     return _order_response_for_user(
         await _order_to_read(db, order), user, can_finance=can_finance
     )
@@ -1879,7 +1948,17 @@ async def extract_order_pdf(
             },
         ) from exc
 
-    if target_consultant and (
+    # BNP: dokument jest z definicji JEDNOOSOBOWY i nie zawiera imienia ani
+    # nazwiska — wyłącznie numer ID konsultanta. Nazwisko podane matcherowi nie
+    # miałoby więc czego dopasować, a matcher jest fail-closed: KAŻDY odczyt
+    # kończyłby się wyczyszczeniem stawki i liczby MD (to jest zgłoszona
+    # awaria). Parser dostaje sam tekst, a tożsamość rozstrzyga karta, z której
+    # operator uruchomił odczyt.
+    bnp_single_consultant = _is_bnp_order_client(client_id)
+
+    if bnp_single_consultant:
+        extraction = await parse_order_document(text)
+    elif target_consultant and (
         _is_pfron_order_client(client_id) or _is_erste_gross_rate_client(client_id)
     ):
         # PFRON i Erste deklarują stawkę przychodową zawsze godzinowo.
@@ -1909,6 +1988,8 @@ async def extract_order_pdf(
         extraction = apply_bank_pocztowy_order_policy(extraction, text)
     if _is_credit_agricole_order_client(client_id):
         extraction = apply_credit_agricole_order_policy(extraction, text)
+    if bnp_single_consultant:
+        extraction = apply_bnp_order_policy(extraction, text)
     # Orlen i PFRON są rozłączne, twardo bramkowane po client_id. Orlen może
     # zaakceptować dwie pozycje tej samej osoby tylko przy IDENTYCZNEJ stawce,
     # ale zawsze usuwa MD; PFRON opiera okres wyłącznie o konkretną datę i
@@ -1931,8 +2012,10 @@ async def extract_order_pdf(
         extraction = apply_erste_order_policy(extraction, text)
 
     # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
-    # ale nie mogą utworzyć stawki/MD bez dowodu z wiersza tej osoby.
-    if target_consultant:
+    # ale nie mogą utworzyć stawki/MD bez dowodu z wiersza tej osoby. U BNP nie
+    # ma wierszy do dopasowania — cały dokument JEST pozycją jednej osoby —
+    # więc bramka jest tam pominięta świadomie, a nie przez przeoczenie.
+    if target_consultant and not bnp_single_consultant:
         extraction = enforce_consultant_policy_safety(extraction)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
@@ -1984,6 +2067,9 @@ async def extract_order_pdf(
         fields_confidence=confidence,
         # Numer nie jest kwotą — flaga przeżywa redakcję finansową.
         title_needs_review=extraction.title_needs_review,
+        # ID konsultanta (BNP) też nie jest kwotą — służy potwierdzeniu
+        # tożsamości osoby, więc musi dotrzeć także do ról bez VIEW_FINANCE.
+        consultant_ref=extraction.consultant_ref,
         source=extraction.source,
     )
 
@@ -2113,6 +2199,48 @@ async def update_order(
         data["rate_candidate_currency"] = _normalize_contract_currency(
             data.get("rate_candidate_currency"), "rate_candidate_currency"
         )
+    # Klucze obce lecą przez ślepy ``setattr`` niżej, więc nieistniejąca
+    # rekrutacja albo umowa ramowa kończyła się ForeignKeyViolationError przy
+    # commicie — czyli 500 bez CORS („Network Error"), zamiast odmowy, którą
+    # da się przeczytać. ``create_order_extension`` sprawdza umowę ramową od
+    # początku; PATCH tej pary nie miał. Oba pola muszą też należeć do TEGO
+    # klienta — samo istnienie wiersza pozwalałoby podpiąć cudzą rekrutację.
+    #
+    # 422, nie 400: to jest walidacja PAYLOADU, a każda inna bramka w tym
+    # handlerze (typ zamówienia, część umowy, liczba MD, komplet pól do
+    # aktywacji) odpowiada 422. ``create_order_extension`` zwraca dla umowy
+    # ramowej 400 i tak ZOSTAJE — zmiana statusu na istniejącym endpointcie
+    # jest zmianą kontraktu API, której ten ticket nie dotyczy.
+    if data.get("framework_contract_id") is not None:
+        framework_ok = await db.scalar(
+            select(ClientFrameworkContract.id).where(
+                ClientFrameworkContract.id == data["framework_contract_id"],
+                ClientFrameworkContract.client_id == client_id,
+            )
+        )
+        if framework_ok is None:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Wskazana umowa ramowa nie istnieje albo należy do innego "
+                    "klienta (framework_contract_id)."
+                ),
+            )
+    if data.get("job_id") is not None:
+        job_ok = await db.scalar(
+            select(Job.id).where(
+                Job.id == data["job_id"],
+                Job.client_id == client_id,
+            )
+        )
+        if job_ok is None:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Wskazana rekrutacja nie istnieje albo należy do innego "
+                    "klienta (job_id)."
+                ),
+            )
     if "project_part" in data:
         # Edycja/uzupełnienie draftu: wartość ze słownika albo NULL; u klientów
         # innych niż e-Zdrowie pole pozostaje zabronione (ticket #3).
@@ -2210,7 +2338,7 @@ async def update_order(
             },
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(order)
     return _order_response_for_user(
         await _order_to_read(db, order), user, can_finance=can_finance
@@ -2251,7 +2379,7 @@ async def delete_order(
             details={"order_id": order_id},
         )
     )
-    await db.commit()
+    await commit_order_write(db)
 
 
 # ── PO file ─────────────────────────────────────────────────────────────────
@@ -2523,7 +2651,7 @@ async def create_contract_with_order(
 
     await db.flush()
     await db.refresh(order)
-    await db.commit()
+    await commit_order_write(db)
 
     # Callers without finance access never receive a computed/inferred value.
     monthly_margin: Optional[Decimal | int] = None
@@ -2613,7 +2741,7 @@ async def replace_order_po(
             },
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     # Stary blob zwalniamy DOPIERO gdy nowy wiersz jest utrwalony. Przy
     # nieudanym commicie zostaje osierocony plik (do posprzątania), a nie baza
     # wskazująca na dokument, którego już nie ma.
@@ -2668,7 +2796,7 @@ async def delete_order_po(
             details={"order_id": order_id, "filename": previous_filename},
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     # Najpierw commit metadanych, potem zwolnienie blobu: awaria dysku nie może
     # cofnąć poprawnego usunięcia z formularza ani zostawić bazy wskazującej na
     # nieistniejący plik.
