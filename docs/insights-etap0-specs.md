@@ -386,3 +386,81 @@ Równolegle bezpiecznie: **1 ∥ G**, potem **2 ∥ 3**, potem **6 ∥ 7**. Wiel
 10. **Nie robimy `DROP` na 58 tabelach `dr_*`** — memory `dr-tables-drop-classification` odradza wprost; `DYNAREPORTER_MODE=read_only` już je zamraża.
 11. **Nie dodajemy tieru „ten sam localpart, dowolna domena, auto-akceptowany"** do dopasowania tożsamości — `users` zawiera obce domeny z importu Traffita (`importer.py:1425-1428`) i taki tier potrafi przypiąć urlop jednej osoby do drugiej na raporcie z nazwiskami.
 12. **Nie ruszamy `dashboard:kpis` ani `capabilities.ts:154`** — klucz cache'u rozgałęzia się po capability, a nie po userze (`backend/app/api/dashboard.py:68-71`).
+---
+
+## G. Bramka pomiarowa D5 — WYNIK (zmierzone 2026-08-31)
+
+Zmierzone bezpośrednio: COMPASS przez Supabase (projekt `shduiynzemftkqqefscd`),
+NEXUS przez `/api/admin/users` na sesji admina. **Werdykt: GO, ale częściowe.**
+
+### G.1 Join po e-mailu DZIAŁA — obawa o rozjazd domen jest obalona
+
+| | wynik |
+|---|---|
+| Profile w COMPASSIE | **46, wszystkie `@b2bnetwork.pl`** (zero innych domen) |
+| Użytkownicy NEXUSA | 240: `b2bnetwork.pl` 167 · `inframinds.eu` 61 · `b2bnet.pl` 8 · reszta 4 |
+| Rekruterzy/sourcerzy/TAC — wszyscy | 196: `b2bnetwork.pl` 140 · **`inframinds.eu` 51** · inne 5 |
+| Rekruterzy/sourcerzy/TAC — **AKTYWNI** | **25, wszyscy `@b2bnetwork.pl`** |
+
+Weryfikacja adwersarialna zakładała, że konta `@inframinds.eu` są tymi żywymi
+i że join po e-mailu przypnie urlopy do martwego konta legacy. **Jest dokładnie
+odwrotnie:** wszystkie 51 kont rekruterskich na `@inframinds.eu` jest
+**nieaktywnych**, a cała żywa populacja — ta, która generuje dzisiejsze
+`candidate_stages.moved_by` — siedzi na `@b2bnetwork.pl`, czyli na tej samej
+domenie co COMPASS. Prosty `lower(email) = lower(email)` jest poprawny.
+
+**Ale nie zapisuj tego jako założenia na zawsze.** Migracja domenowa jest
+w toku (`team_structure.py:572-575`); w dniu, w którym aktywne konta przejdą na
+`@inframinds.eu`, ten join zacznie po cichu nie trafiać. Sync musi raportować
+liczbę niedopasowanych w OBIE strony i alarmować, gdy wzrośnie — brak
+dopasowania nie może wyglądać jak „ta osoba nie brała urlopu".
+
+### G.2 Pokrycie: 72% — wystarczające, ale nie pełne
+
+| | osób | % z 25 aktywnych |
+|---|---|---|
+| Ma profil w COMPASSIE | **18** | 72% |
+| Złożyło zatwierdzony wniosek w 12 mies. | **16** | 64% |
+| Wniosków łącznie | 55 | — |
+| **Bez profilu w COMPASSIE** | **7** | **28%** |
+
+Te 7 osób zostaje `not_assessable` z jawną etykietą. To jest uczciwe i **nadal
+ściśle lepsze niż stan sprzed PR #1310**, gdzie 100% dostawało zmyślony
+mianownik 5 i imienną ocenę.
+
+Szersza populacja COMPASSA (nie tylko rekruterzy): **33 z 46 osób** złożyło
+wniosek w 12 mies. Obawa weryfikatora, że wniosek złożą wyłącznie role
+`admin`/`internal`, nie potwierdziła się w danych — `finanse` (3/3),
+`talent_community` (4/5) i `manager` (3/4) też mają wnioski.
+
+### G.3 Czego w COMPASSIE NIE MA — i co to znaczy dla mianownika
+
+Rozkład zatwierdzonych wniosków z 12 miesięcy:
+
+| typ zatrudnienia | rodzaje | wniosków |
+|---|---|---|
+| `b2b` | `vacation` 69 · `unpaid_leave` 2 | 71 |
+| `zlecenie` | `vacation` 35 · `unpaid_leave` 2 | 37 |
+| `uop` | `vacation` 23 · `holiday_in_lieu` 2 · `childcare` 2 · `on_demand` 1 | 28 |
+
+**Chorobowego (`sick_leave`) nie ma ANI JEDNEGO wiersza.** Dla `b2b`/`zlecenie`
+trigger Phase 29 (`20260530000001_phase29_b2b_zlecenie_vacation_only.sql:38-90`)
+w ogóle na to nie pozwala, a rekruterzy są w większości B2B.
+
+**Konsekwencja dla nazewnictwa — nie do pominięcia:** liczba, którą policzymy,
+to **„dni robocze minus zatwierdzony urlop"**, a NIE „dni faktycznie
+przepracowane". Osoba chora przez tydzień będzie miała pełny mianownik i wyjdzie
+na leniwą. Kafel musi być podpisany tym, czym jest — inaczej odtwarzamy defekt
+z PR #1310 na innym poziomie.
+
+`half_day` istnieje jako kolumna, ale żaden zatwierdzony wniosek z tego okna jej
+nie używa (w UI widać `½ rano` na wnioskach odrzuconych). Licznik i tak musi być
+ułamkowy (`NUMERIC`), bo pierwszy zatwierdzony półdniowy wniosek nie może
+zaokrąglić się po cichu.
+
+### G.4 Co to zmienia w kolejności
+
+PR **8** i **9** (§E) są **odblokowane** — z trzema poprawkami do specyfikacji:
+`lower(email)` wystarczy jako klucz (bez tieru „ten sam localpart, dowolna
+domena", którego §F.11 słusznie zakazuje); sync raportuje niedopasowania w obie
+strony; kafel nazywa się „dni robocze minus urlop", nie „dni przepracowane".
