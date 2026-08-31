@@ -25,7 +25,6 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.contract import Contract, ContractStatus
-from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -1762,6 +1761,10 @@ async def report_board(
 # leadership-level insight.
 
 from app.api.deps import require_roles  # noqa: E402
+from app.services.insights_invite_links import (  # noqa: E402
+    compute_invite_link_channels,
+    count_invite_link_candidates,
+)
 
 
 @router.get("/invite-links")
@@ -1784,66 +1787,39 @@ async def report_invite_links(
         return cached
 
     start = _period_start(period)
-    created_at_filter = (
-        [CandidateInviteLink.created_at >= start] if period != "all" else []
-    )
+    # Okno kroczące bez sufitu — tak liczy ta powierzchnia od zawsze i zmiana
+    # semantyki byłaby zmianą liczb u konsumentów, którzy o nią nie prosili.
+    # `period='all'` = brak dolnej granicy.
+    since = start if period != "all" else None
 
-    # Per-channel rollup straight from the invite-link table. `use_count`
-    # is incremented on every successful apply (see public_share.py), so
-    # sum(use_count) == total applications through that label. Revoked links
-    # are excluded — they're "cofnięte" and shouldn't dilute channel KPIs.
-    rollup_stmt = (
-        select(
-            CandidateInviteLink.label.label("channel"),
-            func.count(CandidateInviteLink.token).label("links_count"),
-            func.coalesce(func.sum(CandidateInviteLink.use_count), 0).label(
-                "applications"
-            ),
-            func.max(CandidateInviteLink.last_used_at).label("last_used_at"),
-        )
-        .where(
-            CandidateInviteLink.revoked.is_(False),
-            *created_at_filter,
-        )
-        .group_by(CandidateInviteLink.label)
-        .order_by(func.coalesce(func.sum(CandidateInviteLink.use_count), 0).desc())
-    )
-    rollup_rows = (await db.execute(rollup_stmt)).all()
+    # Liczenie mieszka w `app/services/insights_invite_links.py` — ten sam
+    # rollup pokazuje `/api/insights/recruitment/invite-links` (D7). Procenty
+    # ZOSTAJĄ tutaj: legacy liczy je `_safe_pct` (0.0 przy zerowym mianowniku),
+    # a `/insights` `_ratio` (None) — serwis zwraca surowe liczniki, żeby żadna
+    # z tych konwencji nie wyciekła do drugiej powierzchni.
+    rollup_rows = await compute_invite_link_channels(db, since=since)
 
     channels: list[dict] = []
     totals_links = 0
     totals_applications = 0
-    for channel, links_count, applications, last_used_at in rollup_rows:
-        links_count = int(links_count or 0)
-        applications = int(applications or 0)
-        totals_links += links_count
-        totals_applications += applications
+    for row in rollup_rows:
+        totals_links += row.links_count
+        totals_applications += row.applications
         channels.append(
             {
                 # NULL labels surface as "Bez etykiety" so the UI has a
                 # single bucket for unlabelled links rather than an empty row.
-                "channel": channel or "Bez etykiety",
-                "links_count": links_count,
-                "applications": applications,
-                "conversion_pct": _safe_pct(applications, links_count),
-                "last_used_at": last_used_at.isoformat() if last_used_at else None,
+                "channel": row.channel or "Bez etykiety",
+                "links_count": row.links_count,
+                "applications": row.applications,
+                "conversion_pct": _safe_pct(row.applications, row.links_count),
+                "last_used_at": row.last_used_at.isoformat()
+                if row.last_used_at
+                else None,
             }
         )
 
-    # Distinct candidates — best-effort. `Candidate.source` uses the
-    # `invite_link:<prefix>` convention from public_share.py; a LIKE over
-    # the indexed `source` column is cheap and good enough to surface the
-    # "unique applicants" KPI without another JSON lookup.
-    candidate_source_filter = [Candidate.source.like("invite_link:%")]
-    if period != "all":
-        candidate_source_filter.append(Candidate.created_at >= start)
-    distinct_candidates = (
-        await db.execute(
-            select(func.count(func.distinct(Candidate.id))).where(
-                *candidate_source_filter
-            )
-        )
-    ).scalar() or 0
+    distinct_candidates = await count_invite_link_candidates(db, since=since)
 
     result_data = {
         "period": period,
@@ -1862,7 +1838,15 @@ async def report_invite_links(
 # ── Power Calling (cotygodniowy wymóg 3 wer/dzień roboczy) ─────────────────
 
 POWER_CALLING_TARGET_PER_DAY = 3
-POWER_CALLING_WORKDAYS = 5
+
+# UWAGA: NIE dodawaj tu stalej liczby dni roboczych. Do 2026-08-31 stalo tu
+# POWER_CALLING_WORKDAYS = 5 i kazdy tydzien byl dzielony przez te piatke —
+# przez co osoba na urlopie lądowała na imiennej liscie "ponizej progu".
+# NEXUS nie zna nieobecnosci (`days_worked` istnieje wylacznie w martwym
+# dr_kpi_body_leasing), wiec mianownika dziennego NIE MA. Dopoki go nie ma,
+# raport podaje liczby bezwzgledne i kwalifikuje ludzi jako `not_assessable`.
+# Ciche podstawienie innej stalej (21, 20, kalendarzowe dni robocze) to ten
+# sam defekt z wieksza liczba. Patrz docs/insights-etap0-specs.md §A.
 
 
 def _iso_week_bounds(
@@ -1903,11 +1887,15 @@ async def report_power_calling(
         description="0 = bieżący tydzień, 1 = poprzedni (InfraReporter default)",
     ),
 ):
-    """Power Calling — wymóg: min. 3 weryfikacji/dzień roboczy (15/tydzień).
+    """Power Calling — suma weryfikacji tygodniowo per sourcer/TAC/rekruter.
 
-    Zwraca listę sourcerów/TAC/rekruterów z sumą weryfikacji (CandidateStage
-    new + screening + prep_call) w tygodniu, obliczonym rate per dzień i
-    flagą meets_target."""
+    Weryfikacja = CandidateStage w etapie new + screening + prep_call.
+
+    NIE zwraca oceny "spełnia/nie spełnia progu dziennego". NEXUS nie zna
+    nieobecności, więc mianownika dziennego nie ma — `per_day`, `workdays`,
+    `progress_pct` i `meets_target` są `None`, a wszyscy trafiają do
+    `not_assessable`. Ocena wróci dopiero z realnym źródłem dni roboczych
+    (D5 w docs/insights-etap0-specs.md), nie z kolejną stałą."""
     start, end, iso_week, iso_year = _iso_week_bounds(offset_weeks)
 
     # Count weryfikacji per user w tygodniu.
@@ -1972,10 +1960,15 @@ async def report_power_calling(
                 )
         cat_map = {uid: payload[1] for uid, payload in best.items()}
 
+    # Prog TYGODNIOWY jest jedyna uczciwa miara bez danych o nieobecnosciach:
+    # 3 weryfikacje/dzien x 5 dni = 15/tydzien. Zwracamy go jako liczbe
+    # bezwzgledna, bez nazywania nikogo "ponizej progu" — tydzien urlopu daje
+    # zero i wyglada identycznie jak tydzien lenistwa.
+    weekly_target = POWER_CALLING_TARGET_PER_DAY * 5
+
     entries = []
     for r in rows:
         cnt = int(r.cnt)
-        per_day = round(cnt / POWER_CALLING_WORKDAYS, 2)
         entries.append(
             {
                 "user_id": r.id,
@@ -1983,18 +1976,14 @@ async def report_power_calling(
                 "role": r.role.value if hasattr(r.role, "value") else str(r.role),
                 "primary_category": cat_map.get(r.id),
                 "verifications_week": cnt,
-                "per_day": per_day,
-                "workdays": POWER_CALLING_WORKDAYS,
-                "meets_target": per_day >= POWER_CALLING_TARGET_PER_DAY,
-                "progress_pct": min(
-                    100,
-                    round(
-                        (per_day / POWER_CALLING_TARGET_PER_DAY) * 100
-                        if POWER_CALLING_TARGET_PER_DAY
-                        else 0,
-                        0,
-                    ),
-                ),
+                # None, nie 0 i nie False — nie wiemy, a nie "wiemy, ze slabo".
+                "per_day": None,
+                "workdays": None,
+                "workdays_source": "unavailable",
+                "meets_target": None,
+                "progress_pct": None,
+                "weekly_target": weekly_target,
+                "reason": "no_workday_data",
             }
         )
 
@@ -2005,12 +1994,22 @@ async def report_power_calling(
         "date_from": start.date().isoformat(),
         "date_to": (end - timedelta(days=1)).date().isoformat(),
         "target_per_day": POWER_CALLING_TARGET_PER_DAY,
-        "workdays": POWER_CALLING_WORKDAYS,
+        "weekly_target": weekly_target,
+        "workdays": None,
+        "workdays_source": "unavailable",
         "requirement_text": (
-            f"Wymóg: min. {POWER_CALLING_TARGET_PER_DAY} weryfikacji / "
-            "dzień roboczy w poprzednim tygodniu"
+            f"Wymóg: min. {weekly_target} weryfikacji tygodniowo "
+            f"({POWER_CALLING_TARGET_PER_DAY}/dzień × 5 dni). "
+            "Mianownik dzienny niedostępny — brak danych o nieobecnościach."
         ),
         "entries": entries,
-        "meets_target_count": sum(1 for e in entries if e["meets_target"]),
+        # Dopoki nie znamy nieobecnosci, NIKT nie jest oceniony. Trzy listy
+        # zamiast jednej, zeby konsument nie mogl przypadkiem wyrenderowac
+        # `not_assessable` na czerwono jako "ponizej progu".
+        "below_target": [],
+        "met_target": [],
+        "not_assessable": entries,
+        "meets_target_count": None,
+        "not_assessable_count": len(entries),
         "total_count": len(entries),
     }

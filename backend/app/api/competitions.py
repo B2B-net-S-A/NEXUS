@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import OperationalUser, AdminUser, CurrentUser
+from app.api.deps import AdminUser, CurrentUser, OperationalUser
 from app.core.database import get_db
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.user import User
@@ -33,9 +33,19 @@ def _parse_type(type_str: str) -> CompetitionType:
         )
 
 
+# D7 (Artur, 2026-08-31): odczyty konkursow sa otwarte dla KAZDEJ zalogowanej
+# roli — Liga Mistrzow, wyscigi i Hall of Fame sa czescia /insights.
+#
+# To jedyny wspoldzielony endpoint, ktory wolno bylo poszerzyc NA MIEJSCU:
+# jego jedynym konsumentem we froncie jest ChampionsSection.tsx, czyli sama
+# powierzchnia Insights (`grep -rn "/api/competitions" frontend/src`), a
+# `/my-position` juz stalo na CurrentUser. Pozostale powierzchnie (/api/reports/*,
+# /api/admin/clients-overview, /api/dashboard/v2/*) sa wspoldzielone z INNYMI
+# stronami — tam Insights dostaje wlasne /api/insights/*, zamiast poszerzac cudzy
+# guard. Zapisy (freeze) zostaja na AdminUser.
 @router.get("/current")
 async def get_current(
-    _user: OperationalUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     type: str = Query(..., description="CompetitionType value"),
     period: Optional[str] = Query(
@@ -140,7 +150,7 @@ async def get_current(
 
 @router.get("/monthly-races")
 async def monthly_races(
-    _user: OperationalUser,
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     period: Optional[str] = None,
 ):
@@ -155,6 +165,11 @@ async def monthly_races(
 
 @router.get("/history")
 async def get_history(
+    # Swiadomie NIE poszerzone razem z /current i /monthly-races: /history nie
+    # ma dzis zadnego konsumenta we froncie (ChampionsSection wola wylacznie
+    # /current), wiec poszerzenie byloby nieuzasadniona zmiana guardu na
+    # wspoldzielonym routerze. Gdy Hall of Fame trafi do /insights, przyjdzie
+    # jako konsument wlasnej trasy /api/insights/*, jak kazda inna sekcja.
     _user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     type: str = Query(...),
