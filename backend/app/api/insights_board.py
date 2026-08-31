@@ -70,9 +70,9 @@ Czego świadomie NIE ma:
   dokładamy tutaj po cichu.
 """
 
-# UWAGA: BEZ `from __future__ import annotations`. Moduł nie ma dziś
-# `@limiter.limit`, ale gdy ktoś go dołoży, ten import zamienia `Annotated`
-# w parametry Query (PEP 563 + slowapi #579) i poprawne żądanie dostaje 422.
+# UWAGA: BEZ `from __future__ import annotations`. Moduł UŻYWA `@limiter.limit`,
+# a ten import zamieniłby `Annotated` w parametry Query (PEP 563 + slowapi #579)
+# i poprawne żądanie dostawałoby 422.
 
 import logging
 from dataclasses import dataclass
@@ -81,7 +81,7 @@ from decimal import Decimal
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -96,6 +96,7 @@ from app.analytics.periods import (
 from app.api.deps import CurrentUser
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.contract import Contract
 from app.services.contract_rates import (
     RATE_SCHEDULE_LOADS,
@@ -360,7 +361,17 @@ def _delta(current, previous) -> dict:
 
 
 @router.get("/board")
+# Najdroższy endpoint tej powierzchni: ładuje WSZYSTKIE kontrakty aktywne
+# w 13-miesięcznym oknie z trzema eager-loadowanymi harmonogramami stawek,
+# a potem liczy kursy NBP dla maks. 13 dat wyceny.
+#
+# Cache (5 min) jest per OKNO, więc nie broni: rotowanie `offset=-1,-2,-3…`
+# albo dowolnego `date_from`/`date_to` generuje nowy klucz przy każdym żądaniu
+# i omija go w całości. Po D7 endpoint jest otwarty dla każdej zalogowanej roli,
+# więc próg musi stać na poziomie żądania, nie cache'u.
+@limiter.limit("30/minute")
 async def insights_board(
+    request: Request,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),

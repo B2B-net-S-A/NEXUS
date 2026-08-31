@@ -346,6 +346,19 @@ async def insights_clients_hit_ratio(
 
     at_risk: list[dict] = []
     not_comparable = 0
+    # Świadomie iterujemy `all_rows`, a NIE przefiltrowaną `rows`.
+    #
+    # `min_closed` jest filtrem WIDOKU (co pokazać w tabeli), a
+    # `at_risk_min_closed` progiem OSTRZEŻENIA. Gdyby ostrzeżenia liczyły się
+    # z przefiltrowanej listy, zawężenie tabeli po cichu WYGASZAŁOBY alerty —
+    # użytkownik przesuwa suwak i ryzyko znika z ekranu, choć nie zniknęło
+    # z rzeczywistości. Ukrywanie ostrzeżenia na podstawie preferencji
+    # wyświetlania jest gorsze niż rozjazd zakresów.
+    #
+    # Rozjazd rozwiązujemy jawnie: koperta niesie `scope` i licznik klientów
+    # zagrożonych, którzy NIE mieszczą się w widocznej tabeli, żeby UI mogło
+    # to napisać zamiast zostawiać czytelnika z „1 zagrożony, ale nie widzę go
+    # na liście".
     for curr in all_rows:
         if curr.closed_jobs < at_risk_min_closed or curr.hit_ratio is None:
             continue
@@ -369,6 +382,11 @@ async def insights_clients_hit_ratio(
             )
     at_risk.sort(key=lambda r: r["delta_pp"])  # największy spadek u góry
 
+    visible_ids = {r.client_id for r in rows}
+    at_risk_outside_table = sum(
+        1 for r in at_risk if r.get("client_id") not in visible_ids
+    )
+
     result = {
         "period": resolved.as_payload(),
         # Wypisane wprost, żeby konsument nie musiał zgadywać, którą z trzech
@@ -380,6 +398,12 @@ async def insights_clients_hit_ratio(
         "clients": [_hit_ratio_payload(r) for r in _sorted(rows, sort)],
         "overall": overall,
         "at_risk": {
+            # Zakres ostrzeżeń jest SZERSZY niż tabela — patrz komentarz przy
+            # pętli wyżej. `outside_visible_table` mówi wprost, ilu klientów
+            # zagrożonych nie mieści się w widocznej liście, żeby UI nie
+            # zostawiło czytelnika z „1 zagrożony, ale nie widzę go na liście".
+            "scope": "all_clients",
+            "outside_visible_table": at_risk_outside_table,
             "previous_period": previous.as_payload(),
             "drop_threshold_pp": drop_pp,
             "min_closed": at_risk_min_closed,
