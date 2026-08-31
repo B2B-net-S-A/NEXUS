@@ -255,6 +255,7 @@ const PUBLIC_PATHS = [
   "/preview/dl-alerts",
   "/preview/contracts-consolidation",
   "/preview/procedure-help",
+  "/preview/cv-generator-client-rules",
 ];
 
 function isPublicPath(pathname: string): boolean {

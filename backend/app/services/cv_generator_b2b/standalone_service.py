@@ -52,6 +52,11 @@ from app.services.cv_generator_b2b.champion_builder import (
     from_nexus_job,
     parse_champion_from_docx_bytes,
 )
+from app.services.cv_generator_b2b.client_rules import (
+    CvRuleSnapshot,
+    build_filename as build_client_filename,
+    rule_reminders,
+)
 from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
@@ -177,6 +182,13 @@ class UploadGenerationInput:
     # brak pliku championa = link classic-only (jak dotąd).
     must_requirements: str = ""
     nice_requirements: str = ""
+    # Reguły klienta wybranego w formularzu. Snapshot (nie wiersz ORM), bo ten
+    # payload przechodzi do synchronicznego pipeline'u w threadpoolu.
+    client_rule: CvRuleSnapshot | None = None
+    # Upload nie ma joba, więc stanowisko i numer projektu — jedyne źródła
+    # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy — podaje rekruter.
+    position: str = ""
+    project_ref: str = ""
 
 
 @dataclass(frozen=True)
@@ -212,6 +224,11 @@ class RecruitmentReadiness:
     has_champion: bool
     has_notes: bool
     has_cv: bool
+    # Klient tej rekrutacji — front pokazuje go przy wyborze procesu, żeby
+    # rekruter WIDZIAŁ, czyje reguły (nazwa pliku, język) zaraz zadziałają.
+    # Wyprowadzany z oferty, nigdy nie wybierany ręcznie w tym trybie.
+    client_id: int | None = None
+    client_name: str | None = None
 
     @property
     def ready(self) -> bool:
@@ -1333,6 +1350,9 @@ def _run_generation_pipeline(
     job_id: int | None = None,
     job_title: str | None = None,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
+    position_ref: str | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1486,11 +1506,33 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_name = str(candidate_data.get("name") or fallback_name or "Kandydat")
-    filename = _build_download_filename(role_title, candidate_name)
+
+    # Nazwa pliku wg wzoru klienta (sekcja „7. STANDARDY REKRUTACJI KLIENTA"
+    # jego Profilu Championa). Reguła niezatwierdzona nigdy tu nie dociera —
+    # odsiewa ją `resolve_client_rule` w warstwie API. Bez reguły zostaje
+    # dotychczasowa, globalna nazwa, więc klient bez reguł nic nie odczuwa.
+    # `position_ref` obsługuje tryb upload, gdzie joba nie ma, a stanowisko
+    # podaje rekruter w formularzu. Świadomie NIE wpisujemy go do
+    # `considered_for` — ta linia w dokumencie oznacza rolę z rekrutacji
+    # w bazie, a nie tekst wpisany ręcznie na potrzeby nazwy pliku.
+    rule_warnings: list[str] = []
+    rule_result = build_client_filename(
+        client_rule,
+        position=(position_ref or "").strip() or role_title,
+        candidate_name=candidate_name,
+        project=project_ref,
+    )
+    if rule_result is not None:
+        filename = rule_result.filename
+        rule_warnings.extend(rule_result.warnings)
+    else:
+        filename = _build_download_filename(role_title, candidate_name)
+    rule_warnings.extend(rule_reminders(client_rule))
 
     duration_ms = int((time.time() - started_at) * 1000)
     warnings = [str(w) for w in candidate_data.get("warnings") or [] if w]
     warnings.extend(guard_warnings)
+    warnings.extend(rule_warnings)
 
     logger.info(
         "[cv_b2b][%s] OK candidate=%s lang=%s blind=%s warnings=%d "
@@ -1550,7 +1592,9 @@ async def list_recruitments_with_readiness(
 
     stages_q = (
         select(CandidateStage)
-        .options(selectinload(CandidateStage.job))
+        # `Job.client` doładowany jawnie: pipeline jest async, więc sięgnięcie
+        # po relację bez eager-loadu kończy się MissingGreenlet, a nie None.
+        .options(selectinload(CandidateStage.job).selectinload(Job.client))
         .where(CandidateStage.candidate_id == candidate_id)
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
@@ -1639,6 +1683,12 @@ async def list_recruitments_with_readiness(
                 has_champion=has_champion,
                 has_notes=has_notes,
                 has_cv=has_cv,
+                client_id=job.client_id if job else None,
+                client_name=(
+                    ((job.client.display_name or "").strip() or job.client.name)
+                    if job is not None and job.client is not None
+                    else None
+                ),
             )
         )
 
@@ -1658,6 +1708,8 @@ async def generate_cv_for_candidate(
     language: Language = "pl",
     blind_cv: bool = False,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_rule: CvRuleSnapshot | None = None,
+    project_ref: str | None = None,
 ) -> GenerationResult:
     """Generate the B2B-formatted CV for ``candidate_id`` using the champion
     + notes context tied to the given ``stage_id``.
@@ -1889,6 +1941,8 @@ async def generate_cv_for_candidate(
             job_id=job.id,
             job_title=job.title,
             content_mode=effective_mode,
+            client_rule=client_rule,
+            project_ref=project_ref,
         )
     )
 
@@ -1977,15 +2031,16 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
                 message=f"Nie udało się odczytać Profilu Championa: {err}",
             ) from err
 
-    # LUKA ŚWIADOMA — sufit per klient NIE obowiązuje na tej ścieżce.
-    # Tryb upload z założenia nie dotyka DB (brak stage'a, joba i klienta), więc
-    # nie ma z czego odczytać `Client.cv_content_mode_cap`. Rekruter generujący
-    # z wgranych plików + własnego DOCX-a championa może dostać "tailored" nawet
-    # dla klienta z sufitem "basic". Gwarancja sufitu obowiązuje WYŁĄCZNIE dla
-    # generacji z profilu kandydata (`generate_cv_for_candidate`).
-    # Zamknięcie tej ścieżki wymaga kontekstu klienta w trybie upload i jest
-    # zaplanowane razem z bramką dowodową — do tego czasu nie wolno twierdzić
-    # wobec klienta, że sufit jest nieobchodzalny.
+    # Sufit `Client.cv_content_mode_cap` obowiązuje teraz TAKŻE tutaj — ale
+    # nakłada go warstwa API (`generate-upload`), zanim zbuduje ten payload,
+    # bo ta funkcja z założenia nie dotyka bazy. `payload.content_mode` jest
+    # więc już przycięty.
+    #
+    # RESZTKA LUKI: gdy rekruter NIE wskaże klienta, nie ma czego przyciąć.
+    # Wyboru klienta nie da się uczynić obowiązkowym — generator służy też do
+    # CV robionych poza konkretnym zleceniem — więc wobec klienta z sufitem
+    # nadal nie wolno twierdzić, że jest nieobchodzalny; można powiedzieć, że
+    # obowiązuje zawsze, gdy generacja jest przypisana do jego nazwy.
     return _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
@@ -1997,6 +2052,9 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
         fallback_name=None,
         started_at=started_at,
         content_mode=payload.content_mode,
+        client_rule=payload.client_rule,
+        project_ref=payload.project_ref or None,
+        position_ref=payload.position or None,
     )
 
 

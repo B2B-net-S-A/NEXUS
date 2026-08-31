@@ -73,11 +73,16 @@ from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
+from app.services.cv_generator_b2b.client_rules import (
+    resolve_client_rule,
+    snapshot_rule,
+)
 from app.services.cv_generator_b2b.standalone_service import (
     DEFAULT_CONTENT_MODE,
     ContentMode,
     StandaloneGenerationError,
     UploadGenerationInput,
+    apply_content_mode_cap,
     ascii_filename_fallback,
     generate_cv_for_candidate,
     generate_cv_from_uploads,
@@ -115,11 +120,22 @@ class RecruitmentOption(BaseModel):
     has_notes: bool
     has_cv: bool
     ready: bool
+    # Klient wyprowadzony z oferty — w tym trybie NIE jest wybierany ręcznie.
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
 
 
 class GenerateRequest(BaseModel):
     candidate_id: int = Field(..., ge=1)
     stage_id: int = Field(..., ge=1)
+    # Klient jest wyprowadzany z rekrutacji; jawna wartość służy wyłącznie do
+    # sprawdzenia, że front i serwer mówią o tym samym. Rozjazd = 422, bo
+    # cicha wygrana którejkolwiek strony oznaczałaby zastosowanie reguł
+    # (nazwa pliku, język) innego klienta niż widzi rekruter.
+    client_id: Optional[int] = Field(default=None, ge=1)
+    # Numer/nazwa projektu do tokenu {PROJEKT} we wzorze nazwy pliku
+    # (ENERGA, ORLEN, PKO BP). Nie da się go wyprowadzić z oferty.
+    project_ref: str = Field(default="", max_length=120)
     language: Literal["pl", "en"] = "pl"
     blind_cv: bool = False
     # Defaults to "polished", never "tailored": the most-positioned variant has
@@ -133,6 +149,8 @@ class GeneratedCvItem(BaseModel):
     id: int
     candidate_id: Optional[int] = None
     job_id: Optional[int] = None
+    client_id: Optional[int] = None
+    client_name: Optional[str] = None
     candidate_name: str
     position: Optional[str] = None
     language: str
@@ -233,6 +251,29 @@ def _build_docx_response(
     )
 
 
+def _enforce_client_language(rule, requested_language: str) -> None:
+    """422, gdy klient wymaga innego języka CV niż wybrany w formularzu.
+
+    Odmowa jest jawna, a nie ciche przestawienie języka: rekruter, który
+    świadomie wybrał polski, ma zobaczyć powód, a nie dostać angielski
+    dokument bez wyjaśnienia. Reguła bez `cv_language` (m.in. czterej klienci
+    wymagający OBU wersji) nie ogranicza niczego.
+    """
+    if rule is None or not rule.cv_language:
+        return
+    if rule.cv_language == requested_language:
+        return
+    wanted = "polskim" if rule.cv_language == "pl" else "angielskim"
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"Ten klient wymaga CV w języku {wanted} "
+            f"({rule.cv_language.upper()}). Zmień język generacji albo zdejmij "
+            f"wymóg w regułach CV klienta."
+        ),
+    )
+
+
 async def _create_pending_row(
     db: AsyncSession,
     *,
@@ -244,6 +285,7 @@ async def _create_pending_row(
     blind_cv: bool,
     user_id: int,
     content_mode: str,
+    client_id: int | None = None,
 ) -> int:
     """Insert a „processing" placeholder so the CV shows on the list the moment
     generation is enqueued — the recruiter can then close the tab while the
@@ -256,6 +298,7 @@ async def _create_pending_row(
     row = CvGeneratedDocument(
         candidate_id=candidate_id,
         job_id=None,
+        client_id=client_id,
         candidate_name=candidate_name or "Generowanie…",
         position=position,
         language=language,
@@ -378,10 +421,16 @@ async def _run_generate_new_job(
     blind_cv: bool,
     user_id: int,
     content_mode: ContentMode = DEFAULT_CONTENT_MODE,
+    client_id: int | None = None,
+    project_ref: str = "",
 ) -> None:
     """Background worker for New-mode (DB-backed) generation."""
     async with AsyncSessionLocal() as db:
         try:
+            # Regułę czytamy w SESJI TEGO ZADANIA i od razu zamrażamy do
+            # snapshotu — pipeline jest synchroniczny i leci w threadpoolu,
+            # gdzie dostęp do atrybutu wiersza ORM kończy się MissingGreenlet.
+            rule = await resolve_client_rule(db, client_id)
             result = await generate_cv_for_candidate(
                 db,
                 candidate_id=candidate_id,
@@ -389,6 +438,8 @@ async def _run_generate_new_job(
                 language=language,
                 blind_cv=blind_cv,
                 content_mode=content_mode,
+                client_rule=snapshot_rule(rule),
+                project_ref=project_ref or None,
             )
         except StandaloneGenerationError as err:
             await _finalize_failure(db, generated_id, err.message)
@@ -672,6 +723,8 @@ async def list_candidate_recruitments(
             has_notes=r.has_notes,
             has_cv=r.has_cv,
             ready=r.ready,
+            client_id=r.client_id,
+            client_name=r.client_name,
         )
         for r in readiness
     ]
@@ -700,10 +753,35 @@ async def generate(
     notes present) is validated inside the background job and any failure is
     written onto that row.
     """
-    await _charge_cv_generation_quota(db, current_user.id)
     candidate = await db.get(Candidate, payload.candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
+
+    # Klienta wyprowadza SERWER z rekrutacji — front go nie wybiera. Jawna
+    # wartość w żądaniu jest tylko asercją; rozjazd oznacza, że rekruter widzi
+    # inne reguły (nazwa pliku, język), niż zostałyby zastosowane.
+    client_id = (
+        await db.execute(
+            select(Job.client_id)
+            .join(CandidateStage, CandidateStage.job_id == Job.id)
+            .where(CandidateStage.id == payload.stage_id)
+        )
+    ).scalar_one_or_none()
+    if payload.client_id is not None and payload.client_id != client_id:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Klient wskazany w żądaniu nie zgadza się z klientem tej "
+                "rekrutacji. Odśwież stronę i spróbuj ponownie."
+            ),
+        )
+
+    rule = await resolve_client_rule(db, client_id)
+    _enforce_client_language(snapshot_rule(rule), payload.language)
+
+    # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
+    # rekrutera limitu, którego nie zużyło.
+    await _charge_cv_generation_quota(db, current_user.id)
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
     generated_id = await _create_pending_row(
@@ -716,6 +794,7 @@ async def generate(
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
         content_mode=payload.content_mode,
+        client_id=client_id,
     )
     # Commit before scheduling/returning so the row is visible to both the poll
     # and the background job (which opens its own session).
@@ -730,6 +809,8 @@ async def generate(
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
         content_mode=payload.content_mode,
+        client_id=client_id,
+        project_ref=payload.project_ref or "",
     )
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=candidate_name
@@ -750,6 +831,14 @@ async def generate_from_upload(
     # so this multipart marker resolves correctly even under the slowapi
     # `@limiter.limit` wrapper. Annotated form is the FastAPI-recommended style.
     cv_file: Annotated[UploadFile, File(description="Plik CV (PDF / DOCX)")],
+    # Klient, pod którego idzie to CV. OPCJONALNY — generator służy też do CV
+    # robionych poza konkretnym zleceniem, a wymuszony wybór zamieniłby brak
+    # wiedzy w zgadywanie. Bez klienta wszystko działa jak dotąd.
+    client_id: Optional[int] = Form(None),
+    # Upload nie ma oferty, więc stanowisko i numer projektu — jedyne źródła
+    # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy pliku — podaje rekruter.
+    position: str = Form("", max_length=300),
+    project_ref: str = Form("", max_length=120),
     language: Literal["pl", "en"] = Form("pl"),
     blind_cv: bool = Form(False),
     content_mode: Literal["basic", "polished", "tailored"] = Form(DEFAULT_CONTENT_MODE),
@@ -774,6 +863,23 @@ async def generate_from_upload(
     wynik ląduje na liście „Wygenerowane CV". Poza wpisem audytowym nic nie
     trafia do NEXUS DB.
     """
+    # Sufit trybu treści obowiązuje teraz TAKŻE w uploadzie — o ile rekruter
+    # wskazał klienta. Do tej pory ta ścieżka (99,9% ruchu) omijała go zawsze,
+    # więc obietnica złożona klientowi działała dla 0,1% generacji.
+    effective_mode: ContentMode = content_mode
+    rule = None
+    if client_id is not None:
+        client = await db.get(Client, client_id)
+        if client is None:
+            raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        effective_mode, _capped = apply_content_mode_cap(
+            content_mode, client.cv_content_mode_cap
+        )
+        rule = await resolve_client_rule(db, client_id)
+        _enforce_client_language(snapshot_rule(rule), language)
+
+    # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
+    # rekrutera limitu, którego nie zużyło.
     await _charge_cv_generation_quota(db, current_user.id)
     cv_bytes = await cv_file.read()
     champion_bytes: bytes | None = None
@@ -790,9 +896,12 @@ async def generate_from_upload(
         screening_notes=screening_notes or "",
         champion_bytes=champion_bytes,
         champion_filename=champion_filename,
-        content_mode=content_mode,
+        content_mode=effective_mode,
         must_requirements=must_requirements or "",
         nice_requirements=nice_requirements or "",
+        client_rule=snapshot_rule(rule),
+        position=position or "",
+        project_ref=project_ref or "",
     )
 
     # Provisional label until Claude parses the real name out of the CV.
@@ -802,11 +911,12 @@ async def generate_from_upload(
         mode="upload",
         candidate_id=None,
         candidate_name=provisional,
-        position=None,
+        position=position or None,
         language=language,
         blind_cv=blind_cv,
         user_id=current_user.id,
-        content_mode=content_mode,
+        content_mode=effective_mode,
+        client_id=client_id,
     )
     await db.commit()
 
@@ -839,10 +949,19 @@ async def list_generated_cvs(
     ``can_delete`` whether the current user may remove the row (author or admin).
     """
     is_admin = current_user.has_role(UserRole.admin)
+    # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
+    # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
     rows = (
         await db.execute(
-            select(CvGeneratedDocument, User.name)
+            select(
+                CvGeneratedDocument,
+                User.name,
+                func.coalesce(
+                    func.nullif(func.trim(Client.display_name), ""), Client.name
+                ),
+            )
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
+            .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
             .order_by(CvGeneratedDocument.created_at.desc())
             .limit(limit)
         )
@@ -852,6 +971,8 @@ async def list_generated_cvs(
             id=r.id,
             candidate_id=r.candidate_id,
             job_id=r.job_id,
+            client_id=r.client_id,
+            client_name=client_name,
             candidate_name=r.candidate_name,
             position=r.position,
             language=r.language,
@@ -867,7 +988,7 @@ async def list_generated_cvs(
             can_download=r.status == "ready" and r.render_payload is not None,
             can_delete=is_admin or r.created_by == current_user.id,
         )
-        for r, creator_name in rows
+        for r, creator_name, client_name in rows
     ]
 
 

@@ -44,6 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -56,6 +57,14 @@ import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareMo
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
 import {
+  ClientSinglePicker,
+  type ClientRef,
+} from "@/components/clients/ClientSinglePicker";
+import {
+  ClientCvRuleBanner,
+  useClientCvRule,
+} from "@/components/v2/cv-generator/ClientCvRuleBanner";
+import {
   type CvContentMode,
   type RecruitmentOption,
   CHAMPION_ACCEPT,
@@ -65,6 +74,7 @@ import {
   downloadBlob,
   extractErrorDetail,
   fileValidationError,
+  isCertainWarning,
 } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
@@ -85,6 +95,8 @@ type GeneratedCvItem = {
   id: number;
   candidate_id?: number | null;
   job_id?: number | null;
+  client_id?: number | null;
+  client_name?: string | null;
   candidate_name: string;
   position?: string | null;
   language: string;
@@ -145,8 +157,18 @@ export function CVGeneratorStandaloneV2() {
   const [mustRequirements, setMustRequirements] = useState("");
   const [niceRequirements, setNiceRequirements] = useState("");
 
+  // ── Klient + pola, których upload nie ma skąd wziąć ─────────────────────
+  // W trybie „new" klienta wyprowadza SERWER z rekrutacji, a ten stan służy
+  // tylko do pokazania go i pobrania reguł. W trybie upload rekruter wybiera
+  // go sam — wybór jest OPCJONALNY, bo CV powstają też poza konkretnym
+  // zleceniem, a wymuszony wybór zamieniłby brak wiedzy w zgadywanie.
+  const [uploadClient, setUploadClient] = useState<ClientRef | null>(null);
+  const [position, setPosition] = useState("");
+  const [projectRef, setProjectRef] = useState("");
+
   // ── Shared options ──────────────────────────────────────────────────────
   const [language, setLanguage] = useState<"pl" | "en">("pl");
+
   const [blindCv, setBlindCv] = useState(false);
   const [contentMode, setContentMode] = useState<CvContentMode>(
     DEFAULT_CV_CONTENT_MODE,
@@ -211,6 +233,23 @@ export function CVGeneratorStandaloneV2() {
     );
   }, [recruitmentsQuery.data, stageId]);
 
+  // Klient obowiązujący dla TEJ generacji. W trybie „new" pochodzi z wybranej
+  // rekrutacji (serwer i tak liczy go sam), w uploadzie — z pickera.
+  const effectiveClientId =
+    mode === "new" ? (selectedRecruitment?.client_id ?? null) : (uploadClient?.id ?? null);
+  const cvRuleQuery = useClientCvRule(effectiveClientId);
+  const activeRule = cvRuleQuery.data?.is_active ? cvRuleQuery.data : undefined;
+  const forcedLanguage = activeRule?.cv_language ?? null;
+
+  // Reguła klienta WYMUSZA język: front go ustawia i blokuje kafelki, backend
+  // odrzuca rozjazd (422). Bez tego Nordea — jedyny klient wymagający wyłącznie
+  // angielskiego — dostawałaby domyślnie polskie CV przy każdej generacji.
+  useEffect(() => {
+    if (forcedLanguage && forcedLanguage !== language) {
+      setLanguage(forcedLanguage);
+    }
+  }, [forcedLanguage, language]);
+
   const canSubmitNew =
     !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
   const canSubmitOld = !!cvFile;
@@ -229,6 +268,11 @@ export function CVGeneratorStandaloneV2() {
         {
           candidate_id: candidate.id,
           stage_id: selectedRecruitment.stage_id,
+          // Asercja, nie wybór: serwer i tak bierze klienta z rekrutacji,
+          // a rozjazd odrzuca 422 — dzięki temu rekruter nigdy nie dostanie
+          // reguł innego klienta niż ten pokazany na ekranie.
+          client_id: selectedRecruitment.client_id ?? null,
+          project_ref: projectRef.trim(),
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
@@ -256,6 +300,9 @@ export function CVGeneratorStandaloneV2() {
       if (!cvFile) throw new Error("CV file required");
       const fd = new FormData();
       fd.append("cv_file", cvFile);
+      if (uploadClient) fd.append("client_id", String(uploadClient.id));
+      if (position.trim()) fd.append("position", position.trim());
+      if (projectRef.trim()) fd.append("project_ref", projectRef.trim());
       fd.append("language", language);
       fd.append("blind_cv", String(blindCv));
       fd.append("content_mode", contentMode);
@@ -288,6 +335,10 @@ export function CVGeneratorStandaloneV2() {
       setChampionFile(null);
       setChampionError(null);
       setScreeningNotes("");
+      // Klient, stanowisko i numer projektu ZOSTAJĄ — rekruter zwykle robi
+      // kilka CV pod ten sam wakat, a kasowanie ich zmuszałoby do wybierania
+      // klienta od nowa przy każdym kandydacie (i zapraszało do pominięcia
+      // wyboru, czyli do pliku z ogólną nazwą).
       toast.showSuccess(
         "Generacja ruszyła w tle — CV pojawi się na liście poniżej. Formularz wyczyszczony — możesz wgrać kolejne CV.",
       );
@@ -501,6 +552,88 @@ export function CVGeneratorStandaloneV2() {
           <CardTitle>Opcje</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label className="block">Klient</Label>
+            {mode === "new" ? (
+              // W tym trybie klient WYNIKA z rekrutacji — pokazujemy go, ale
+              // nie pozwalamy wybrać. Możliwość rozjazdu z ofertą oznaczałaby
+              // zastosowanie reguł innego klienta, niż widać na ekranie.
+              <p className="text-sm">
+                {selectedRecruitment?.client_name ? (
+                  <span className="font-medium">
+                    {selectedRecruitment.client_name}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {selectedRecruitment
+                      ? "Ta rekrutacja nie ma przypisanego klienta."
+                      : "Wybierz rekrutację, żeby zobaczyć klienta."}
+                  </span>
+                )}
+              </p>
+            ) : (
+              <>
+                <ClientSinglePicker
+                  value={uploadClient}
+                  onChange={setUploadClient}
+                  queryKey="clients-lookup-cv-generator"
+                  placeholder="Bez klienta (nazwa i język ogólne)"
+                  allowClear
+                />
+                <p className="text-xs text-muted-foreground">
+                  Opcjonalne. Wybór klienta włącza jego reguły: nazwę pliku CV
+                  i wymagany język.
+                </p>
+              </>
+            )}
+            <ClientCvRuleBanner
+              clientId={effectiveClientId}
+              rule={cvRuleQuery.data}
+              isLoading={cvRuleQuery.isLoading}
+              isError={cvRuleQuery.isError}
+            />
+          </div>
+
+          {mode === "old" && (
+            <div>
+              <Label className="mb-2 block" htmlFor="cvgen-position">
+                Stanowisko
+              </Label>
+              <Input
+                id="cvgen-position"
+                value={position}
+                onChange={(e) => setPosition(e.target.value)}
+                placeholder="np. Analityk Biznesowy"
+                maxLength={300}
+                className="sm:max-w-md"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Wchodzi w nazwę pliku u klientów, których wzór jej wymaga.
+                W tym trybie nie ma rekrutacji, z której dałoby się ją odczytać.
+              </p>
+            </div>
+          )}
+
+          {activeRule?.filename_pattern?.includes("{PROJEKT}") && (
+            <div>
+              <Label className="mb-2 block" htmlFor="cvgen-project">
+                Numer / nazwa projektu
+              </Label>
+              <Input
+                id="cvgen-project"
+                value={projectRef}
+                onChange={(e) => setProjectRef(e.target.value)}
+                placeholder="np. 4521"
+                maxLength={120}
+                className="sm:max-w-md"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Wzór nazwy pliku tego klienta zawiera numer projektu. Bez niego
+                plik dostanie nazwę bez tego członu.
+              </p>
+            </div>
+          )}
+
           <div>
             <Label className="mb-2 block">Obróbka treści</Label>
             <ContentModeTiles value={contentMode} onChange={setContentMode} />
@@ -508,11 +641,20 @@ export function CVGeneratorStandaloneV2() {
 
           <div>
             <Label className="mb-2 block">Język CV</Label>
-            <LanguageTiles
-              value={language}
-              onChange={setLanguage}
-              className="sm:max-w-md"
-            />
+            <div className={forcedLanguage ? "pointer-events-none opacity-60" : undefined}>
+              <LanguageTiles
+                value={language}
+                onChange={setLanguage}
+                className="sm:max-w-md"
+              />
+            </div>
+            {forcedLanguage ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ten klient wymaga CV w języku{" "}
+                {forcedLanguage === "en" ? "angielskim" : "polskim"} — wybór
+                jest zablokowany. Zmienisz to w regułach CV klienta.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex items-center justify-between gap-4">
@@ -1110,8 +1252,18 @@ function GeneratedCvRow({
   onShare,
   onDelete,
 }: GeneratedCvRowProps) {
-  const [showWarnings, setShowWarnings] = useState(false);
   const warnings = item.warnings ?? [];
+  // Ostrzeżenia klasy „BRAK POKRYCIA" (treść bez pokrycia w źródłowym CV)
+  // rozwijają się SAME, gdy dokument powstał pod konkretnego klienta.
+  // Dziesięć z czternastu szablonów Championa prosi wprost: „sprawdzajcie, czy
+  // AI nie namieszało — porównujcie z oryginalnym CV". Zwinięty licznik
+  // spełniał tę prośbę tylko dla kogoś, kto i tak kliknie; dla wysyłki do
+  // klienta to za mało. Bez blokowania pobrania — blokada nauczyłaby ludzi
+  // obchodzić narzędzie, a deadline'y i wyjątki są realne.
+  const hasCertainWarnings = warnings.some(isCertainWarning);
+  const [showWarnings, setShowWarnings] = useState(
+    () => hasCertainWarnings && item.client_id != null,
+  );
 
   return (
     <li className="py-2">

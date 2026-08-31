@@ -33,6 +33,13 @@ class CvGeneratedDocument(Base, TimestampMixin):
     job_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True
     )
+    # Klient, pod którego CV powstało. W trybie "new" wynika z `jobs.client_id`,
+    # ale trzymamy go WPROST, bo tryb "upload" (99,9% ruchu) nie ma joba —
+    # bez tej kolumny nie dałoby się ani zastosować reguł klienta, ani później
+    # odpowiedzieć na pytanie, ile CV poszło pod kogo.
+    client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Zdenormalizowane do listy (działa też dla Old mode bez kandydata w DB).
     candidate_name: Mapped[str] = mapped_column(String(300), nullable=False)
     position: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)

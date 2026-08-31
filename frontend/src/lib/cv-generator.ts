@@ -15,6 +15,11 @@ export type RecruitmentOption = {
   has_notes: boolean;
   has_cv: boolean;
   ready: boolean;
+  // Klient tej rekrutacji — wyprowadzany z oferty po stronie serwera. Front go
+  // POKAZUJE, nigdy nie wybiera: możliwość rozjazdu z ofertą oznaczałaby
+  // zastosowanie reguł (nazwa pliku, język) innego klienta niż widać na ekranie.
+  client_id?: number | null;
+  client_name?: string | null;
 };
 
 export const CV_ACCEPT = ".pdf,.docx";
