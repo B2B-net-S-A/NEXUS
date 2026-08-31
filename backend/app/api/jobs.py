@@ -1,7 +1,7 @@
 import enum
 import logging
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 import httpx
 
@@ -69,12 +69,14 @@ from app.api.deps import (
     OperationalUser,
     RecruiterPlus,
     TacPlus,
+    require_roles,
 )
 from app.services.auto_assign_owners import resolve_default_owners
 from app.api.notifications import create_notification
 from app.api.recruitment_access import (
     assert_delivery_lead_job_visible,
     delivery_lead_job_pairs,
+    ensure_champion_job_read_visible,
     ensure_delivery_lead_job_visible,
 )
 from app.api.ws import manager as ws_manager
@@ -102,6 +104,20 @@ from app.models.proposal_snapshot import SOURCE_HANDOFF
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# GET-only recruitment history/Champion surfaces. Finance gains organization-
+# wide business read without inheriting any DeliveryLeadPlus mutations.
+RecruitmentHistoryReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.finance,
+        )
+    ),
+]
 
 
 # Moved to `app.api.recruitment_access` so surfaces outside this router — a
@@ -2071,7 +2087,7 @@ async def update_champion_verification(
 @router.get("/{job_id}/champion-profile/consultant-suggestions")
 async def champion_consultant_suggestions(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     """Our consultants currently working at this job's client.
@@ -2084,7 +2100,7 @@ async def champion_consultant_suggestions(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    await ensure_champion_job_read_visible(job, current_user, db)
 
     later_stage = aliased(CandidateStage)
     no_later_move = ~(
@@ -2675,7 +2691,7 @@ async def generate_champion_from_history(
 @router.get("/{job_id}/champion-profile/historical-matches")
 async def get_champion_historical_matches(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     top_k: int = Query(default=5, ge=1, le=15),
     cross_client: bool = Query(default=False),
@@ -2700,7 +2716,7 @@ async def get_champion_historical_matches(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
-    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    await ensure_champion_job_read_visible(job, current_user, db)
     _assert_delivery_lead_cross_client_disabled(cross_client, delivery_lead_pairs)
 
     matches = await find_similar_historical_jobs(
@@ -2753,7 +2769,7 @@ async def get_champion_historical_matches(
 
 @router.post("/champion-profile/historical-matches")
 async def preview_historical_matches_for_new_role(
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
 ):
@@ -2852,7 +2868,7 @@ def _split_entries(entries):
 @router.get("/{job_id}/request-history")
 async def get_request_history(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     top_k: int = Query(default=10, ge=1, le=30),
     cross_client: bool = Query(default=False),
@@ -2882,7 +2898,7 @@ async def get_request_history(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
-    _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    await ensure_champion_job_read_visible(job, current_user, db)
     _assert_delivery_lead_cross_client_disabled(cross_client, delivery_lead_pairs)
 
     entries = await find_similar_requests(
@@ -2947,7 +2963,7 @@ async def get_request_history(
 
 @router.post("/request-history/preview")
 async def preview_request_history(
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
 ):
@@ -3113,7 +3129,7 @@ async def add_candidate_from_history(
 @router.get("/{job_id}/champion-profile/suggestions")
 async def list_champion_suggestions(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: RecruitmentHistoryReadUser,
     db: AsyncSession = Depends(get_db),
     status_filter: Optional[str] = Query(default=None, alias="status"),
     limit: int = Query(default=20, ge=1, le=100),
@@ -3132,7 +3148,7 @@ async def list_champion_suggestions(
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    await ensure_champion_job_read_visible(job, current_user, db)
 
     stmt = select(ChampionProfileSuggestion).where(
         ChampionProfileSuggestion.job_id == job_id

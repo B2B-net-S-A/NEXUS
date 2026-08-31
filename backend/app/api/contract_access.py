@@ -20,10 +20,10 @@ delivery ``recruiter``/``sourcer`` personas — do things they must not:
 - ``contract_templates`` ``GET .../render`` rendered any template + Contract.
 
 **Fix:** legal surfaces use the same authoritative client relationship graph as
-``client_access.can_view_legal_documents``. Admin/Head of Recruitment keep
-organization oversight. Delivery Lead and TAC require an explicit assignment
-for the concrete client; an empty graph is deny-all. Recruiter/Sourcer,
-Finance, and the legacy viewer are excluded from legal PII.
+``client_access.can_view_legal_documents``. Admin/Head of Recruitment and
+Finance keep organization-wide read oversight. Delivery Lead and TAC require
+an explicit assignment for the concrete client; an empty graph is deny-all.
+Recruiter/Sourcer and the legacy viewer are excluded from legal PII.
 
 Owner/admin checks that already gate mutating ``generated`` rows
 (PATCH/DELETE) stay in place as a second layer; this guard only ensures the
@@ -61,6 +61,11 @@ CONTRACT_LEGAL_ROLES: tuple[UserRole, ...] = (
     UserRole.tac,
 )
 
+CONTRACT_LEGAL_READ_ROLES: tuple[UserRole, ...] = (
+    *CONTRACT_LEGAL_ROLES,
+    UserRole.finance,
+)
+
 
 def user_is_contract_legal_team(user: User) -> bool:
     """Role-only preflight; entity authorization still requires DB scope."""
@@ -77,6 +82,17 @@ async def require_contract_legal_access(
     if client_ids is None or client_ids:
         return current_user
     raise deny("dostęp prawny wymaga jawnego przypisania klienta")
+
+
+async def require_contract_legal_read_access(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Read-only legal-document gate with organization-wide Finance access."""
+
+    if current_user.has_role(UserRole.finance):
+        return current_user
+    return await require_contract_legal_access(current_user, db)
 
 
 async def assert_contract_legal_client_access(
@@ -116,10 +132,17 @@ async def apply_contract_legal_client_scope(
     return statement.where(client_column.in_(sorted(client_ids) or [-1]))
 
 
-# Read + generate + render + download of B2B contracts, contract templates and
-# their legal numbers. Excludes Finance/viewer/recruiter/sourcer and an
-# unassigned DL/TAC before the endpoint body runs.
+# Write/render/generate tools keep their historical legal-team gate. Finance's
+# organization-wide authority is deliberately provided only by the GET alias
+# below, never through this mutation-capable dependency.
 ContractLegalAccess = Annotated[User, Depends(require_contract_legal_access)]
+
+# GET-only counterpart.  Never use this alias on render/generate/mutation
+# commands; entity writes still resolve ``can_edit_legal_documents``.
+ContractLegalReadAccess = Annotated[
+    User,
+    Depends(require_contract_legal_read_access),
+]
 
 
 # Every role except Delivery Lead, admitted unconditionally by

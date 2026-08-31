@@ -281,13 +281,23 @@ const EXPECTED: Record<
 
 /**
  * Reguła dla `finance` (decyzja produktowa Artura 19.08 — pełny dostęp
- * operacyjny): finance ma DOKŁADNIE to co recruiter, plus własny moduł
- * `nav.finance`. Wyliczana z macierzy, nie ręczna lista — dzięki temu nowa
- * capability przyznana recruiterowi automatycznie obejmuje finance, a
+ * operacyjny): Finance ma tier recruitera, własny moduł oraz jawne moduły
+ * business-read kontraktów, klientów i Cortex. Wyliczana z macierzy, nie ręczna
+ * lista — dzięki temu nowa capability przyznana recruiterowi automatycznie obejmuje finance, a
  * odstępstwo od reguły wymaga świadomej zmiany tej funkcji.
  */
 function financeExpected(capability: Capability): boolean {
-  if (capability === "nav.finance") return true;
+  if (
+    [
+      "nav.finance",
+      "nav.my_clients",
+      "nav.my_relationships",
+      "nav.contracts",
+      "nav.cortex",
+    ].includes(capability)
+  ) {
+    return true;
+  }
   return EXPECTED[capability].recruiter;
 }
 
@@ -370,7 +380,7 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("rola `finance` = tier recruitera + własny moduł (decyzja 19.08)", () => {
+  it("rola `finance` = tier recruitera + business-read + własny moduł", () => {
     for (const capability of ALL_CAPABILITIES) {
       expect(hasCapability(mkUser("finance"), capability)).toBe(
         financeExpected(capability),
@@ -378,6 +388,10 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
     expect(hasCapability(mkUser("finance"), "nav.finance")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.candidates")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.my_clients")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.my_relationships")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.contracts")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.cortex")).toBe(true);
   });
 });
 
@@ -522,6 +536,7 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
 
 const BACKEND_FILES = {
   deps: "backend/app/api/deps.py",
+  contracts: "backend/app/api/contracts.py",
   candidateAccess: "backend/app/api/candidate_access.py",
   recruitmentAccess: "backend/app/api/recruitment_access.py",
   clientAccess: "backend/app/services/client_access.py",
@@ -650,13 +665,13 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "nav.clients": { guards: [["deps", "OperationalUser"]] },
   "nav.my_clients": {
     productDecision:
-      "GET /api/my-clients stoi na CurrentUser i zawęża wynik w handlerze (DL widzi swoje, admin/HoR wszystko). Lista ról w UI to zawężenie UX, nie lustro strażnika.",
+      "GET /api/my-clients i /api/my-clients/{id}/dashboard dają Finance organizacyjny odczyt; UI wpuszcza Finance bez dodawania capability zapisu.",
   },
   "nav.my_relationships": {
     productDecision:
-      "GET /api/my-relationships stoi na CurrentUser i zawęża wynik w handlerze — jak /my-clients.",
+      "GET /api/my-relationships daje Finance organizacyjny odczyt, a pozostałe role zachowują dotychczasowy self/management scope.",
   },
-  "nav.contracts": { guards: [["deps", "TacPlus"]] },
+  "nav.contracts": { guards: [["contracts", "ContractReadUser"]] },
   "nav.cortex": { guards: [["cortex", "CortexUser"]] },
   "nav.manager": { guards: [["deps", "DeliveryLeadPlus"]] },
   "nav.finance": { guards: [["deps", "FinanceModuleUser"]] },

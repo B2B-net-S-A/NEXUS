@@ -231,15 +231,21 @@ export function hasMinRole(
 
 /**
  * Czy user ma dostęp do danego modułu DynaReportera (migracja 0112).
- * `admin` Nexusowy automatycznie ma dostęp do wszystkiego (override). Reszta
- * userów musi mieć sekcję jawnie wpisaną w `allowed_sections` przez admina.
+ * `admin` Nexusowy automatycznie ma dostęp do wszystkiego (override). Finance
+ * ma wszystkie odczytowe raporty biznesowe, ale nigdy sekcję `admin`. Płatna
+ * sekcja akcji MINDY nadal wymaga jawnego wpisu w `allowed_sections`. Reszta
+ * userów także korzysta z tej allowlisty.
  */
 export function hasSection(
-  user: Pick<User, "role" | "allowed_sections"> | null | undefined,
+  user: Pick<User, "role" | "roles" | "allowed_sections"> | null | undefined,
   section: DynaReporterSection
 ): boolean {
   if (!user) return false
-  if (user.role === "admin") return true
+  if (hasRole(user, "admin")) return true
+  if (hasRole(user, "finance")) {
+    if (section === "admin") return false
+    if (section !== "mindy") return true
+  }
   return (user.allowed_sections ?? []).includes(section)
 }
 
@@ -277,6 +283,25 @@ export function canManageCandidateFinance(
   return (
     hasRole(user, "admin") &&
     hasAnalyticsCapability(user, "manage_finance")
+  )
+}
+
+/**
+ * Candidate-bearing contract/order resources may expose rates to Finance for
+ * business analysis, but Finance must never inherit the mutation capability.
+ * Admin keeps its normal read access; Finance additionally needs the
+ * backend-issued view_finance capability. Old cached users fail closed.
+ */
+export function canViewCandidateFinance(
+  user:
+    | Pick<User, "role" | "roles" | "analytics_capabilities" | "capabilities">
+    | null
+    | undefined
+): boolean {
+  return (
+    hasRole(user, "admin") ||
+    (hasRole(user, "finance") &&
+      hasAnalyticsCapability(user, "view_finance"))
   )
 }
 

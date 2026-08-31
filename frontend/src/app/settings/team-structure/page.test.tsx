@@ -147,6 +147,29 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
     mocks.post.mockResolvedValue({ data: { ok: true } })
   })
 
+  it("Finance widzi pełne przypisania read-only bez katalogów i mutacji", async () => {
+    mocks.authUser = {
+      id: 44,
+      name: "Finance",
+      role: "finance",
+      roles: ["finance"],
+    }
+
+    renderPage()
+
+    expect(await screen.findByText("Kompetencje zespołu")).toBeInTheDocument()
+    expect(screen.getByText("Engineering")).toBeInTheDocument()
+    expect(screen.getAllByText("Anna TAC")).toHaveLength(2)
+    expect(screen.getByText("Klienci Delivery Leadów")).toBeInTheDocument()
+    expect(screen.getByText("Dorota DL")).toBeInTheDocument()
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /zapisz/i })).not.toBeInTheDocument()
+    expect(mocks.put).not.toHaveBeenCalled()
+    expect(mocks.post).not.toHaveBeenCalled()
+    expect(mocks.get).not.toHaveBeenCalledWith(expect.stringMatching(/^\/api\/users/))
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/clients")
+  })
+
   it("pokazuje kompetencje per osoba i odtwarza główną oraz dodatkowe", async () => {
     renderPage()
 

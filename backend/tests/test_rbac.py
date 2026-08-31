@@ -30,6 +30,7 @@ ROLES = [
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
+    UserRole.finance,
     UserRole.user,
 ]
 
@@ -144,10 +145,10 @@ TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
     ("POST", "/api/contracts"),
     ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
-    # R0: odczyt listy kontraktów = TacPlus (kwoty redagowane per VIEW_FINANCE,
-    # M5 PR-01d). Faktury zeszły na DL+ w M5 PR-01c (patrz niżej).
-    ("GET", "/api/contracts"),
 ]
+
+# Organization-wide contract reads add Finance without widening TacPlus writes.
+CONTRACT_READ_ENDPOINTS = [("GET", "/api/contracts")]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):
 RECRUITER_PLUS_ENDPOINTS = [
@@ -188,6 +189,7 @@ ROLE_SETS = {
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
+        UserRole.finance,
     },
     # R0: operacyjni = wszyscy poza read-only viewerem `user` (z HoR).
     "operational": {
@@ -197,12 +199,14 @@ ROLE_SETS = {
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
+        UserRole.finance,
     },
     # R0: VIEW_TEAM_KPI — cudze KPI.
     "team_kpi": {
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.finance,
     },
     "legacy_organization_dashboard": {
         UserRole.admin,
@@ -214,6 +218,13 @@ ROLE_SETS = {
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
+        UserRole.finance,
+    },
+    "contract_read": {
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.finance,
     },
     "all": set(ROLES),
 }
@@ -367,6 +378,27 @@ async def test_tac_plus_endpoints_reject_below_tac(
             f"[{role.value}] {method} {path} returned {resp.status_code} — "
             "5xx nie jest akceptowalną odpowiedzią (R0)"
         )
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", CONTRACT_READ_ENDPOINTS)
+async def test_contract_reads_add_finance_without_widening_tac_plus(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["contract_read"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should be allowed"
+        )
+        assert resp.status_code < 500
     else:
         assert resp.status_code == 403, (
             f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
@@ -647,22 +679,21 @@ async def test_activity_stats_foreign_user_requires_team_kpi(
         "/api/dynareporter/board/months",
     ],
 )
-async def test_dynareporter_finance_fail_closed_without_section(
+async def test_dynareporter_finance_bypasses_business_section_narrowing(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """Finansowe sekcje Dyna: bez allowed_sections nawet DL dostaje 403.
+    """Finance widzi sekcje biznesowe bez niemożliwej dla tej roli allowlisty.
 
-    Seedowani userzy mają allowed_sections=[] — przechodzi WYŁĄCZNIE admin
-    (bez zawężenia sekcyjnego). Sekcja nigdy nie poszerza roli, a rola bez
-    sekcji nie wystarcza (capability ∩ sections).
+    Pozostałe role nadal wymagają capability oraz wpisu w ``allowed_sections``;
+    admin i Finance przechodzą bez zawężenia dopiero po capability checku.
     """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
-    if role is UserRole.admin:
+    if role in {UserRole.admin, UserRole.finance}:
         assert resp.status_code != 403, (
-            f"[admin] GET {path} got 403 but should be allowed"
+            f"[{role.value}] GET {path} got 403 but should be allowed"
         )
         assert resp.status_code < 500
     else:
@@ -695,14 +726,9 @@ async def test_dynareporter_section_does_not_widen_role(rbac_client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_dynareporter_finance_with_section_allowed(rbac_client: AsyncClient):
-    """Finance z sekcją clients-mrr przechodzi (VIEW_FINANCE ∩ sekcja)."""
+async def test_dynareporter_finance_without_section_allowed(rbac_client: AsyncClient):
+    """Finance nie potrzebuje ``allowed_sections``, których nie może dostać."""
     email, password = await _seed_user(UserRole.finance)
-    async with AsyncSessionLocal() as db:
-        u = await db.scalar(select(User).where(User.email == email))
-        u.allowed_sections = ["clients-mrr"]
-        await db.commit()
-
     headers = await _login(rbac_client, email, password)
     resp = await rbac_client.get(
         "/api/dynareporter/clients-mrr/summary", headers=headers
@@ -794,7 +820,7 @@ async def test_rekrutacja_dashboard_requires_ranking_capability(
 ):
     """P0.2: imienny dashboard rekrutacji → VIEW_RECRUITMENT_RANKING (bez sekcji).
 
-    My Work, HoR i Admin przechodzą; Delivery Lead, Finance i legacy viewer
+    My Work, HoR, Finance i Admin przechodzą; Delivery Lead i legacy viewer
     dostają 403 także przez direct API. Sekcja nie poszerza capability.
     """
     role, headers = role_headers
@@ -829,7 +855,7 @@ async def test_board_dashboard_monthly_requires_view_finance(
     resp = await rbac_client.get(
         "/api/dynareporter/board-dashboard/monthly", headers=headers
     )
-    if role is UserRole.admin:
+    if role in {UserRole.admin, UserRole.finance}:
         assert resp.status_code != 403, (
             f"[{role.value}] board-dashboard got 403 but should be allowed"
         )
@@ -848,20 +874,20 @@ async def test_board_dashboard_monthly_requires_view_finance(
     "path",
     ["/api/admin/clients-overview", "/api/admin/clients-overview/by-dl"],
 )
-async def test_clients_overview_admin_only(
+async def test_clients_overview_requires_view_finance(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """P0.1: globalny revenue/marża per klient i DL → AdminUser.
+    """P0.1: globalny revenue/marża per klient i DL → Finance/Admin.
 
     HoR traci dostęp (dotąd HeadOfRecruitmentPlus — HoR widział lifetime revenue
     mimo braku VIEW_FINANCE).
     """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
-    if role is UserRole.admin:
-        assert resp.status_code != 403, f"[admin] {path} got 403 but should pass"
+    if role in {UserRole.admin, UserRole.finance}:
+        assert resp.status_code != 403, f"[{role.value}] {path} got 403 but should pass"
         assert resp.status_code < 500
     else:
         assert resp.status_code == 403, (
@@ -884,15 +910,14 @@ async def test_dyna_section_gated_routers_fail_closed_without_section(
 ):
     """P0.2: sales-mgmt/competitions egzekwują sekcję backendowo (GET).
 
-    Seeded userzy mają allowed_sections=[] → przechodzi tylko admin (bez
-    zawężenia sekcyjnego). Dotąd goły CurrentUser wpuszczał każdego zalogowanego
-    przez direct API, mimo że frontend wymaga hasSection.
+    Seeded userzy mają allowed_sections=[] → przechodzą admin i Finance.
+    Pozostałe role nadal nie omijają allowlisty przez direct API.
     """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
-    if role is UserRole.admin:
+    if role in {UserRole.admin, UserRole.finance}:
         assert resp.status_code != 403, (
-            f"[admin] GET {path} got 403 but should be allowed"
+            f"[{role.value}] GET {path} got 403 but should be allowed"
         )
         assert resp.status_code < 500, (
             f"[admin] GET {path} returned {resp.status_code} — 5xx (R0)"
@@ -918,8 +943,8 @@ async def test_mindy_commentary_requires_section_non_admin(
     mógł palić tokeny).
     """
     role, headers = role_headers
-    if role is UserRole.admin:
-        pytest.skip("admin przechodzi guard → realne wywołanie LLM (poza zakresem)")
+    if role in {UserRole.admin, UserRole.finance}:
+        pytest.skip("rola przechodzi guard → realne wywołanie LLM (poza zakresem)")
     resp = await rbac_client.post(
         "/api/dynareporter/mindy/commentary", headers=headers, json={}
     )

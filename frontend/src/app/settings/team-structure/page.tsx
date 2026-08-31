@@ -510,12 +510,92 @@ function DlClientsSection({
   )
 }
 
+function TeamStructureReadOnly({
+  summary,
+}: {
+  summary: TeamStructureSummary | undefined
+}) {
+  if (!summary) {
+    return <div className="text-sm text-muted-foreground">Ładowanie struktury…</div>
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Kompetencje zespołu</CardTitle>
+          <CardDescription>
+            Kategorie oraz osoby przypisane w pierwszym i drugim priorytecie.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {summary.categories.map((row) => (
+            <div key={row.category.id} className="rounded-lg border border-border p-3">
+              <div className="font-medium">{row.category.name_pl}</div>
+              <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+                <div>
+                  <div className="text-xs text-muted-foreground">Pierwszy priorytet</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {row.first_priority.length > 0 ? row.first_priority.map((operator) => (
+                      <Badge key={operator.user_id} size="sm" variant="soft">
+                        {operator.name}
+                      </Badge>
+                    )) : <span className="text-muted-foreground">—</span>}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Drugi priorytet</div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {row.second_priority.length > 0 ? row.second_priority.map((operator) => (
+                      <Badge key={operator.user_id} size="sm" variant="outline">
+                        {operator.name}
+                      </Badge>
+                    )) : <span className="text-muted-foreground">—</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Klienci Delivery Leadów</CardTitle>
+          <CardDescription>
+            Pełne przypisanie klientów, z oznaczeniem Head DL.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {summary.dl_clients.map((row) => (
+            <div key={row.delivery_lead.id} className="rounded-lg border border-border p-3">
+              <div className="font-medium">{row.delivery_lead.name}</div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {row.clients.length > 0 ? row.clients.map((client) => (
+                  <Badge
+                    key={client.id}
+                    size="sm"
+                    variant={client.is_head ? "success" : "soft"}
+                  >
+                    {client.name}{client.is_head ? " · Head DL" : ""}
+                  </Badge>
+                )) : <span className="text-sm text-muted-foreground">Brak przypisań</span>}
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────────────
 
 export default function AdminTeamStructurePage() {
   const user = useAuthStore((state) => state.user)
   const hydrated = useAuthStore((state) => state.hydrated)
-  const isAllowed = hasRole(user, "admin", "head_of_recruitment")
+  const canEdit = hasRole(user, "admin", "head_of_recruitment")
+  const isAllowed = canEdit || hasRole(user, "finance")
 
   const { data: summary } = useQuery<TeamStructureSummary>({
     queryKey: ["admin-team-structure-summary"],
@@ -530,7 +610,7 @@ export default function AdminTeamStructurePage() {
       DIRECTORY_ROLES.forEach((role) => params.append("roles", role))
       return api.get(`/api/users?${params.toString()}`).then((r) => r.data)
     },
-    enabled: hydrated && isAllowed,
+    enabled: hydrated && canEdit,
   })
 
   const { data: clients = [] } = useQuery<ClientBrief[]>({
@@ -539,7 +619,7 @@ export default function AdminTeamStructurePage() {
       api
         .get("/api/clients", { params: { limit: 500 } })
         .then((r) => (Array.isArray(r.data) ? r.data : r.data.items ?? [])),
-    enabled: hydrated && isAllowed,
+    enabled: hydrated && canEdit,
   })
 
   if (!hydrated) {
@@ -580,14 +660,21 @@ export default function AdminTeamStructurePage() {
           Kompetencje i odpowiedzialności
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Zarządzaj kompetencjami osób oraz przypisaniami Delivery Leadów do
-          klientów.
+          {canEdit
+            ? "Zarządzaj kompetencjami osób oraz przypisaniami Delivery Leadów do klientów."
+            : "Podgląd kompetencji zespołu oraz przypisań Delivery Leadów do klientów."}
         </p>
       </div>
 
-      <OperatorCompetencesSection summary={summary} operators={operators} />
-      <DeliveryLeadReportingInfo />
-      <DlClientsSection summary={summary} dls={dls} clients={clients} />
+      {canEdit ? (
+        <>
+          <OperatorCompetencesSection summary={summary} operators={operators} />
+          <DeliveryLeadReportingInfo />
+          <DlClientsSection summary={summary} dls={dls} clients={clients} />
+        </>
+      ) : (
+        <TeamStructureReadOnly summary={summary} />
+      )}
     </div>
   )
 }

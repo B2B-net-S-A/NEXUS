@@ -40,7 +40,7 @@ from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
 )
-from app.api.deps import DlAssignedOrAdmin, TacPlus, require_roles
+from app.api.deps import DlAssignedOrAdmin, require_roles
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -864,7 +864,7 @@ async def _dl_assigned_to_client(db: AsyncSession, user, client_id: int) -> bool
 
 
 def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
-    """Kto widzi i zapisuje kwoty na zamówieniach TEGO klienta.
+    """Kto zapisuje kwoty na zamówieniach TEGO klienta.
 
     Admin zawsze; Delivery Lead WYŁĄCZNIE na kliencie, do którego jest jawnie
     przypisany. To rozszerzenie pierwotnej reguły „tylko admin" (F-13/P0.12):
@@ -878,8 +878,8 @@ def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
     Reguła „ktokolwiek przeszedł guard" po cichu dałaby HoR zapis stawek
     u wszystkich klientów. TAC, HoR, recruiter, sourcer: zawsze False.
 
-    Zakres jest lokalny dla tej powierzchni. `contracts.py` zachowuje własną,
-    węższą bramkę (admin-only) — tam kwoty jadą w ~20 innych odpowiedziach.
+    Odczyt ma osobny predykat ``_order_finance_visible``: Finance widzi kwoty
+    przez ``VIEW_FINANCE``, ale nie przechodzi przez ten guard zapisu.
     """
 
     if user.has_role(UserRole.admin):
@@ -1183,23 +1183,6 @@ async def list_contractors_with_orders(
 
     UI: tab "Zamówienia & Kontrakty" pokazuje listę kart (1 karta = 1 kontraktor).
     """
-    # Finance zachowuje dotychczasowy dostęp do person-free kart grupowych,
-    # ale nie dostaje danych kandydatów z legacy `/orders`. Zwracamy pustą,
-    # poprawną część wspólnego źródła zamiast 403, żeby jeden widok mógł nadal
-    # załadować grupy. HoR przechodzi pełny resolver nadzorczy; DL/TAC nadal
-    # wymagają jawnego przypisania.
-    finance_only = user.has_role(UserRole.finance) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.head_of_recruitment,
-        UserRole.delivery_lead,
-        UserRole.tac,
-    )
-    if finance_only:
-        await _assert_client(db, client_id)
-        return ClientOrdersGroupedResponse(
-            contractors=[], total_contractors=0, can_manage_finance=False
-        )
-
     await _require_client_order_read(db, user, client_id)
 
     contracts = list(
@@ -1357,13 +1340,14 @@ async def export_client_orders(
 
     orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
     if not unified or requested_order_ids:
-        # Do not let the broader group-export dependency widen access to the
-        # standalone contractor/order surface for Finance. HoR already passes
-        # the same global supervisory resolver as the unified GET list.
+        # Standalone order rows use the same business-read audience as the
+        # unified order list. Finance is organization-wide; DL/TAC still pass
+        # their normal client-assignment resolver inside the list handler.
         if not user.has_any_role(
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.finance,
             UserRole.tac,
         ):
             raise HTTPException(
@@ -1480,7 +1464,7 @@ async def export_client_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
@@ -1502,7 +1486,7 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_client_order_read(db, user, client_id)
@@ -2277,7 +2261,7 @@ async def delete_order(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_client_order_read(db, user, client_id)
@@ -2329,7 +2313,7 @@ def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
 )
 async def list_contract_order_documents(
     contract_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
@@ -2366,7 +2350,7 @@ async def list_contract_order_documents(
 )
 async def list_candidate_order_documents(
     candidate_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y wszystkich zamówień osoby/kontraktora — sekcja „Dokumenty

@@ -41,6 +41,7 @@ import { celebrate } from "@/lib/celebrate";
 import { getAccessToken } from "@/lib/session";
 import {
   canManageCandidateFinance,
+  canViewCandidateFinance,
   hasRole,
   useAuthStore,
 } from "@/store/auth";
@@ -424,6 +425,7 @@ export default function ContractDetailPage() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const canManageFinance = canManageCandidateFinance(user);
+  const canViewFinance = canViewCandidateFinance(user);
   const isAdmin = hasRole(user, "admin");
   const id = Number(params.id);
 
@@ -464,7 +466,7 @@ export default function ContractDetailPage() {
     queryKey: ["contract-rate-history", id],
     queryFn: () => contractsApi.rateHistory(id).then((r) => r.data),
     enabled:
-      canManageFinance &&
+      canViewFinance &&
       !Number.isNaN(id) &&
       activeTab === "rateHistory",
   });
@@ -756,7 +758,7 @@ export default function ContractDetailPage() {
 
   const visibleTabs = TABS.filter(
     (tab) =>
-      canManageFinance ||
+      canViewFinance ||
       (tab.key !== "invoices" && tab.key !== "rateHistory"),
   );
 
@@ -1082,7 +1084,7 @@ export default function ContractDetailPage() {
                 <InfoRow icon={FileEdit} label="Typ kontraktu">
                   {TYPE_LABELS[contract.contract_type] ?? contract.contract_type}
                 </InfoRow>
-                {canManageFinance &&
+                {canViewFinance &&
                   (contract.target_rate_min || contract.target_rate_max) && (
                   <InfoRow icon={TrendingUp} label="Widełki docelowe stawki">
                     {contract.target_rate_min != null
@@ -1104,7 +1106,7 @@ export default function ContractDetailPage() {
             )}
 
             {/* Rate benchmark card — compare vs internal avg + market */}
-            {!editing && canManageFinance && (
+            {!editing && canViewFinance && (
               <ContractRateBenchmarkCard
                 contractId={id}
                 currency={contract.rate_client_currency ?? contract.currency ?? "PLN"}
@@ -1983,7 +1985,7 @@ export default function ContractDetailPage() {
 
           {/* Right sidebar: rates & margin */}
           <div className="space-y-4">
-            {canManageFinance && <FinancialRatesCard contract={contract} />}
+            {canViewFinance && <FinancialRatesCard contract={contract} />}
 
             <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-xs text-muted-foreground dark:text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>
@@ -2005,7 +2007,10 @@ export default function ContractDetailPage() {
       {/* Tab: Sprzęt */}
       {activeTab === "equipment" && (
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
-          <ContractEquipmentTab contractId={id} />
+          <ContractEquipmentTab
+            contractId={id}
+            readOnly={hasRole(user, "finance")}
+          />
         </div>
       )}
 
@@ -2017,12 +2022,12 @@ export default function ContractDetailPage() {
       )}
 
       {/* Tab: Faktury */}
-      {canManageFinance && activeTab === "invoices" && (
-        <ContractInvoicesTab contractId={id} />
+      {canViewFinance && activeTab === "invoices" && (
+        <ContractInvoicesTab contractId={id} readOnly={!canManageFinance} />
       )}
 
       {/* Tab: Rate history */}
-      {canManageFinance && activeTab === "rateHistory" && (
+      {canViewFinance && activeTab === "rateHistory" && (
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
           {!rateHistory || rateHistory.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">

@@ -18,7 +18,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.client import (
     AnyClientResponse,
     ClientCreate,
@@ -184,13 +184,17 @@ def _recruiter_brief(user: Optional[User]) -> Optional[RecruiterBrief]:
 
 
 def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResponse]:
-    """Pełna projekcja (dane prawne + notatki) dla admin/HoR/DL/TAC (PR 1/7).
+    """Pełna projekcja dla zespołu klienta i Finance business read.
 
     Pozostałe role (recruiter/sourcer/viewer) dostają ``ClientSafeResponse``
     bez ``legal_name``/``nip``/``regon``/``notes`` — pola nie występują
     w odpowiedzi (nie są ``null``).
     """
-    if user.has_any_role(*ADMIN_LIKE_ROLES, *CLIENT_TEAM_ROLES):
+    if user.has_any_role(
+        *ADMIN_LIKE_ROLES,
+        *CLIENT_TEAM_ROLES,
+        UserRole.finance,
+    ):
         return ClientResponse
     return ClientSafeResponse
 

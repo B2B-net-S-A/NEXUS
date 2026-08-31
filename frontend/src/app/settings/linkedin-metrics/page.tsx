@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Save } from"lucide-react"
 import api from"@/lib/api"
 import { Button } from"@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card"
-import { useAuthStore } from"@/store/auth"
+import { hasRole, useAuthStore } from"@/store/auth"
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -61,7 +61,8 @@ function fmtDay(d: Date) {
 export default function AdminLinkedInMetricsPage() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
- const isAllowed = !!user && (user.role === "admin" || user.role === "head_of_recruitment")
+ const canEdit = hasRole(user,"admin","head_of_recruitment")
+ const isAllowed = canEdit || hasRole(user,"finance")
  const qc = useQueryClient()
 
  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
@@ -137,6 +138,7 @@ export default function AdminLinkedInMetricsPage() {
  })
 
  const handleSave = () => {
+ if (!canEdit) return
  // Zapisuj tylko komórki które mają >0 lub zmieniły się względem oryginału.
  const payload: Array<{ user_id: number; report_date: string } & CellDraft> = []
  for (const [key, draft] of Object.entries(drafts)) {
@@ -172,14 +174,15 @@ export default function AdminLinkedInMetricsPage() {
  <div className="max-w-[1400px] mx-auto space-y-5 p-4 md:p-6">
  <div>
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- Admin · LinkedIn metrics (ręczne)
+ {canEdit ? "Admin · LinkedIn metrics (ręczne)" : "Finanse · LinkedIn metrics (podgląd)"}
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">
- Aktywność LinkedIn — bulk edit
+ Aktywność LinkedIn — {canEdit ? "bulk edit" : "podgląd"}
  </h1>
  <p className="text-sm text-muted-foreground mt-1">
- Wpisz dzienne liczby dla każdego TAC/recruiter/sourcer. Wiersze zerowe
- nie są zapisywane.
+ {canEdit
+ ? "Wpisz dzienne liczby dla każdego TAC/recruiter/sourcer. Wiersze zerowe nie są zapisywane."
+ : "Dzienne liczby CV, wiadomości i odpowiedzi dla całego zespołu."}
  </p>
  </div>
 
@@ -213,14 +216,14 @@ export default function AdminLinkedInMetricsPage() {
  Bieżący tydzień
  </Button>
  <div className="flex-1" />
- <Button
+ {canEdit && <Button
  onClick={handleSave}
  disabled={saveMutation.isPending}
  >
  <Save className="h-4 w-4" />
  {saveMutation.isPending ?"Zapisuję…" :"Zapisz wszystkie"}
- </Button>
- {saveMutation.isSuccess && (
+ </Button>}
+ {canEdit && saveMutation.isSuccess && (
  <span className="text-xs text-[#1d5e31]">
  Zapisano {saveMutation.data?.saved ?? 0} wierszy.
  </span>
@@ -296,6 +299,7 @@ export default function AdminLinkedInMetricsPage() {
  <input
  type="number"
  min="0"
+ disabled={!canEdit}
  value={draft.cv_added}
  onChange={(e) =>
  setCell(
@@ -310,6 +314,7 @@ export default function AdminLinkedInMetricsPage() {
  <input
  type="number"
  min="0"
+ disabled={!canEdit}
  value={draft.messages_sent}
  onChange={(e) =>
  setCell(
@@ -324,6 +329,7 @@ export default function AdminLinkedInMetricsPage() {
  <input
  type="number"
  min="0"
+ disabled={!canEdit}
  value={draft.responses_received}
  onChange={(e) =>
  setCell(

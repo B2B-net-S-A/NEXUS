@@ -37,6 +37,7 @@ const OPERATIONS_ROLES = [
   "delivery_lead",
   "tac",
   "head_of_recruitment",
+  "finance",
 ] as const;
 
 export default function ContractsPage() {

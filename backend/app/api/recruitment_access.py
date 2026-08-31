@@ -312,6 +312,32 @@ async def ensure_job_membership(
     )
 
 
+async def ensure_job_read_access(
+    db: AsyncSession,
+    user: User,
+    job_id: int,
+    *,
+    oversight_bypass: bool = True,
+) -> None:
+    """Resource scope for business-data reads.
+
+    Finance is an organization-wide business reader, but it is deliberately
+    not added to :func:`ensure_job_membership`: that helper also protects
+    pipeline moves, feedback edits and other commands.  Keeping a separate
+    read guard prevents a read-policy change from granting ownership or write
+    authority over every recruitment.
+    """
+
+    if oversight_bypass and user.has_role(UserRole.finance):
+        return
+    await ensure_job_membership(
+        db,
+        user,
+        job_id,
+        oversight_bypass=oversight_bypass,
+    )
+
+
 async def ensure_optional_job_membership(
     db: AsyncSession, user: User, job_id: Optional[int]
 ) -> None:
@@ -330,6 +356,25 @@ async def ensure_optional_job_membership(
     if job_id is None:
         return
     await ensure_job_membership(db, user, job_id)
+
+
+async def ensure_optional_job_read_access(
+    db: AsyncSession,
+    user: User,
+    job_id: Optional[int],
+    *,
+    oversight_bypass: bool = True,
+) -> None:
+    """Read-only counterpart for resources whose ``job_id`` is nullable."""
+
+    if job_id is None:
+        return
+    await ensure_job_read_access(
+        db,
+        user,
+        job_id,
+        oversight_bypass=oversight_bypass,
+    )
 
 
 def job_scope_clause(
@@ -433,6 +478,23 @@ def job_scope_clause(
         )
 
     return or_(*scope_clauses)
+
+
+def job_read_scope_clause(
+    user: User,
+    job_id_col: ColumnElement,
+    *,
+    oversight_bypass: bool = True,
+) -> ColumnElement:
+    """List-query scope for business reads without widening command scope."""
+
+    if oversight_bypass and user.has_role(UserRole.finance):
+        return true()
+    return job_scope_clause(
+        user,
+        job_id_col,
+        oversight_bypass=oversight_bypass,
+    )
 
 
 # ── Delivery Lead resource scope ─────────────────────────────────────────────
@@ -544,6 +606,18 @@ async def ensure_champion_job_visible(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Job is outside the caller's Champion scope",
     )
+
+
+async def ensure_champion_job_read_visible(
+    job: Job,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Read-only Champion scope with organization-wide Finance oversight."""
+
+    if current_user.has_role(UserRole.finance):
+        return
+    await ensure_champion_job_visible(job, current_user, db)
 
 
 async def ensure_delivery_lead_job_visible(

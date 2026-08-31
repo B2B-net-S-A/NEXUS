@@ -35,13 +35,25 @@ export function KlienciPanel() {
   // lifetime/active revenue i marżę per klient/DL → tylko admin (backend
   // /api/admin/clients-overview = AdminUser). HoR nie ma VIEW_FINANCE, więc
   // traci revenue — wcześniej UI + backend wpuszczały go (split-brain).
-  const canSeeClientFinance = hasRole(user, "admin");
+  const canSeeClientFinance = hasRole(user, "admin", "finance");
   // Hiring managers to dane operacyjne (kontakty klienta), nie finanse — HoR
   // zachowuje dostęp, spójnie z middleware /settings/hiring-managers.
-  const canSeeHiringManagers = hasRole(user, "admin", "head_of_recruitment");
+  const canSeeHiringManagers = hasRole(
+    user,
+    "admin",
+    "head_of_recruitment",
+    "finance",
+  );
   // R0: SalesOverview pokazuje revenue/margin/MRR — TAC bez finansów.
-  const canSeeSales = hasRole(user, "admin");
-  const canSeeHitRatio = hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac");
+  const canSeeSales = hasRole(user, "admin", "finance");
+  const canSeeHitRatio = hasRole(
+    user,
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+    "finance",
+  );
 
   return (
     <div className="space-y-6">

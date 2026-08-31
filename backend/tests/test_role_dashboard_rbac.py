@@ -158,12 +158,13 @@ async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
         UserRole.head_of_recruitment,
         UserRole.tac,
         UserRole.recruiter,
+        UserRole.finance,
         UserRole.sourcer,
     ):
         user = _user(role)
         assert await _recruitment_ranking_guard(current_user=user) is user
 
-    for role in (UserRole.delivery_lead, UserRole.finance, UserRole.user):
+    for role in (UserRole.delivery_lead, UserRole.user):
         with pytest.raises(HTTPException) as exc:
             await _recruitment_ranking_guard(current_user=_user(role))
         assert exc.value.status_code == 403

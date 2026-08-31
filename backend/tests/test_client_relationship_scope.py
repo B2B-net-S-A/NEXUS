@@ -170,13 +170,31 @@ async def test_job_assigned_recruitment_operator_can_read_client_materials(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
-async def test_finance_and_viewer_cannot_open_mixed_client_surface(
-    role: UserRole,
-) -> None:
+async def test_finance_has_organization_wide_client_read_without_edit() -> None:
     db = SimpleNamespace(scalars=AsyncMock(), execute=AsyncMock())
 
-    access = await resolve_client_access(db, _user(role), client_id=77)
+    access = await resolve_client_access(db, _user(UserRole.finance), client_id=77)
+
+    assert access.is_organization_reader
+    assert access.can_view_contacts
+    assert access.can_view_knowledge
+    assert access.can_view_materials
+    assert access.can_view_legal_documents
+    assert access.can_view_financials
+    assert not access.can_edit_contacts
+    assert not access.can_edit_knowledge
+    assert not access.can_edit_materials
+    assert not access.can_edit_legal_documents
+    assert not access.can_manage_client
+    db.scalars.assert_not_awaited()
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_open_mixed_client_surface() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(), execute=AsyncMock())
+
+    access = await resolve_client_access(db, _user(UserRole.user), client_id=77)
 
     assert not access.can_view_contacts
     assert not access.can_view_materials

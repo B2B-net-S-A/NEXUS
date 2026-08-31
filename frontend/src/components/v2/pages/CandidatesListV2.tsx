@@ -2204,7 +2204,7 @@ export function CandidatesListV2() {
  </PopoverTrigger>
  <PopoverContent align="end" className="w-56 p-1">
  {/* Eksport: capability TAC+ (audyt M2 PR1) — backend zwraca 403 poniżej. */}
- <RequireRole minRole="tac">
+ <RequireRole roles={["admin", "delivery_lead", "tac", "finance"]}>
  <button
  onClick={() => doExport("csv", "filtered")}
  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
@@ -3353,7 +3353,7 @@ export function CandidatesListV2() {
  >
  <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
  </Button>
- <RequireRole minRole="tac">
+ <RequireRole roles={["admin", "delivery_lead", "tac", "finance"]}>
  <Button
  size="sm"
  variant="ghost"

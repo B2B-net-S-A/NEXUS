@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.contract_access import (
-    ContractLegalAccess,
+    ContractLegalReadAccess,
     assert_contract_legal_client_access,
 )
 from app.api.deps import AdminUser
@@ -235,7 +235,7 @@ def _contract_vars(contract: Contract) -> dict:
 
 @router.get("", response_model=List[TemplateResponse])
 async def list_templates(
-    current_user: ContractLegalAccess,
+    current_user: ContractLegalReadAccess,
     db: AsyncSession = Depends(get_db),
     contract_type: Optional[str] = Query(None),
 ):
@@ -268,7 +268,7 @@ async def create_template(
 @router.get("/{template_id}", response_model=TemplateResponse)
 async def get_template(
     template_id: int,
-    current_user: ContractLegalAccess,
+    current_user: ContractLegalReadAccess,
     db: AsyncSession = Depends(get_db),
 ):
     tpl = await db.scalar(
@@ -321,7 +321,7 @@ async def delete_template(
 @router.get("/{template_id}/render", response_class=HTMLResponse)
 async def render_template_for_contract(
     template_id: int,
-    current_user: ContractLegalAccess,
+    current_user: ContractLegalReadAccess,
     db: AsyncSession = Depends(get_db),
     contract_id: int = Query(...),
 ):

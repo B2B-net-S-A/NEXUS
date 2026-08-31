@@ -151,7 +151,7 @@ from app.api.financial_access import (
 from app.api.recruitment_access import (
     RecruitmentRateEditAccess,
     ensure_job_membership,
-    job_scope_clause,
+    job_read_scope_clause,
 )
 from app.services import candidate_audit
 from app.services.candidate_audit import candidate_subject_reference
@@ -3401,7 +3401,7 @@ async def get_candidate_history(
             RejectionReason.id == CandidateStage.rejection_reason_id,
         )
         .where(CandidateStage.candidate_id == candidate_id)
-        .where(job_scope_clause(current_user, CandidateStage.job_id))
+        .where(job_read_scope_clause(current_user, CandidateStage.job_id))
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
     )
 
@@ -3483,7 +3483,7 @@ async def get_candidate_history(
         select(Contract, client_display_name_expression().label("client_name"))
         .join(Client, Contract.client_id == Client.id)
         .where(Contract.candidate_id == candidate_id)
-        .where(job_scope_clause(current_user, Contract.job_id))
+        .where(job_read_scope_clause(current_user, Contract.job_id))
         .order_by(Contract.start_date.desc())
     )
     contracts_history = []

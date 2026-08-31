@@ -16,8 +16,8 @@ recruiting intel to the read-only viewer role ``user`` (QC / client persona):
 - **candidate conflicts** (``GET /api/candidates/{candidate_id}/conflicts``) —
   candidate↔client conflict linkage (``client_id`` + free-text ``reason``),
   candidate+client PII. Its finance-read sibling ``list_rate_history`` uses
-  ``CandidateFinanceAccess`` (#839); mirrored here so the read matches the
-  write siblings' ``ManagerOrAdmin`` sensitivity.
+  ``CandidateFinanceReadAccess``; Finance may read it organization-wide while
+  write siblings keep their narrower mutation guards.
 
 Pattern follows ``test_candidate_module_access.py``: status-code asymmetry —
 denied roles must get exactly 403; allowed roles must get *not* 403 (404/422
@@ -59,8 +59,8 @@ OPERATIONAL_ROLES = {
     UserRole.sourcer,
 }
 
-# CandidateFinanceAccess is Admin-only: Finance must not receive candidate PII.
-FINANCE_ROLES = {UserRole.admin}
+# CandidateFinanceReadAccess: Admin and Finance; mutation guards stay narrower.
+FINANCE_ROLES = {UserRole.admin, UserRole.finance}
 
 
 async def _seed_user(role: UserRole) -> tuple[str, str]:
@@ -139,7 +139,7 @@ async def test_champion_profile_role_matrix(
             )
 
 
-# ── Candidate conflicts read — CandidateFinanceAccess (below-finance 403) ────
+# ── Candidate conflicts read — CandidateFinanceReadAccess ───────────────────
 
 
 async def test_list_conflicts_requires_finance_capability(

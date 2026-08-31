@@ -1,4 +1,4 @@
-"""Router `/api/admin/clients-overview` — przekrojowe widoki finansowe (admin).
+"""Router `/api/admin/clients-overview` — przekrojowe widoki finansowe.
 
 GET `/` — wszyscy klienci z agregatami (rank po revenue desc).
 GET `/by-dl` — KPI per DL (suma revenue z managed clients).
@@ -6,8 +6,9 @@ GET `/by-dl` — KPI per DL (suma revenue z managed clients).
 Audyt M7 PR-01 (P0.1): oba endpointy zwracają lifetime/active revenue i marżę
 per klient oraz per DL — to dane ``VIEW_FINANCE``. Head of recruitment NIE ma
 tej capability (analytics/capabilities.py §4.3), dlatego guard zszedł z
-``HeadOfRecruitmentPlus`` na ``AdminUser`` (globalny przekrój wszystkich klientów
-i DL to widok zarządczy; per-client scope dla DL to osobna decyzja — §31/Fala C).
+``HeadOfRecruitmentPlus`` na globalny read dla Admin/Finance (przekrój wszystkich
+klientów i DL to widok zarządczy; per-client scope dla DL to osobna decyzja —
+§31/Fala C).
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import AdminUser
+from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -109,7 +110,7 @@ async def _margin_lookup_pln(
 
 @router.get("", response_model=list[OverviewRow])
 async def clients_overview(
-    _user: AdminUser,
+    _user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     # Nazwa prezentowana + tylko widoczne wiersze — ta sama para reguł co
@@ -281,7 +282,7 @@ async def clients_overview(
 
 @router.get("/by-dl", response_model=list[DlKpiRow])
 async def kpi_by_dl(
-    _user: AdminUser,
+    _user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Leaderboard DL — agregaty po klientach gdzie DL ma assignment."""

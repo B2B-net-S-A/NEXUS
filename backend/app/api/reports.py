@@ -870,7 +870,11 @@ async def _compute_dl_metrics(
 @router.get("/delivery-leads")
 async def report_delivery_leads(
     current_user: User = Depends(
-        require_roles(UserRole.admin, UserRole.head_of_recruitment)
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.finance,
+        )
     ),
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
@@ -896,7 +900,11 @@ async def report_delivery_leads(
 async def report_delivery_lead_trend(
     dl_id: int,
     current_user: User = Depends(
-        require_roles(UserRole.admin, UserRole.head_of_recruitment)
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.finance,
+        )
     ),
     db: AsyncSession = Depends(get_db),
     months: int = Query(6, ge=1, le=24),
@@ -981,6 +989,7 @@ _ClientsReportViewer = Annotated[
             UserRole.delivery_lead,
             UserRole.tac,
             UserRole.head_of_recruitment,
+            UserRole.finance,
         )
     ),
 ]
@@ -1762,6 +1771,7 @@ async def report_invite_links(
             UserRole.admin,
             UserRole.delivery_lead,
             UserRole.head_of_recruitment,
+            UserRole.finance,
         )
     ),
     db: AsyncSession = Depends(get_db),
@@ -1882,6 +1892,7 @@ async def report_power_calling(
             UserRole.recruiter,
             UserRole.sourcer,
             UserRole.head_of_recruitment,
+            UserRole.finance,
         )
     ),
     db: AsyncSession = Depends(get_db),

@@ -70,6 +70,13 @@ async def _require_member(db: AsyncSession, user: User, job_id: int) -> None:
         )
 
 
+async def _require_read_access(db: AsyncSession, user: User, job_id: int) -> None:
+    """GET-only organization oversight for Finance; membership for everyone else."""
+    if user.has_role(UserRole.finance):
+        return
+    await _require_member(db, user, job_id)
+
+
 def _user_to_mini(user: Optional[User]) -> Optional[ChatUserMini]:
     if user is None:
         return None
@@ -165,7 +172,7 @@ async def list_messages(
     - `search`: PG FTS po `search_vector` (`plainto_tsquery('simple', q)`).
     - Zwracamy DESC po `created_at, id` — frontend renderuje od dołu.
     """
-    await _require_member(db, current_user, job_id)
+    await _require_read_access(db, current_user, job_id)
 
     q = select(JobChatMessage).where(JobChatMessage.job_id == job_id)
     if before_id is not None:
@@ -496,7 +503,7 @@ async def list_pinned(
     db: AsyncSession = Depends(get_db),
 ) -> list[ChatMessageResponse]:
     """Lista przypiętych wiadomości (max 3) — w kolejności od najstarszego pin."""
-    await _require_member(db, current_user, job_id)
+    await _require_read_access(db, current_user, job_id)
     rows = (
         (
             await db.execute(
@@ -567,7 +574,7 @@ async def unread_count(
     db: AsyncSession = Depends(get_db),
 ) -> ChatUnreadCount:
     """Liczba wiadomości nowszych od `last_read_message_id` (poza własnymi)."""
-    await _require_member(db, current_user, job_id)
+    await _require_read_access(db, current_user, job_id)
 
     state = (
         await db.execute(
@@ -606,7 +613,7 @@ async def list_members(
     db: AsyncSession = Depends(get_db),
 ) -> list[ChatUserMini]:
     """Lista członków projektu (do autocomplete @mention'a w UI)."""
-    await _require_member(db, current_user, job_id)
+    await _require_read_access(db, current_user, job_id)
     members = await list_job_members(db, job_id)
     return [_user_to_mini(u) for u in members if u is not None]
 
@@ -741,7 +748,7 @@ async def message_read_by(
 
     Derived z `job_chat_read_state.last_read_message_id >= msg_id`.
     """
-    await _require_member(db, current_user, job_id)
+    await _require_read_access(db, current_user, job_id)
     msg = await db.get(JobChatMessage, msg_id)
     if msg is None or msg.job_id != job_id:
         raise HTTPException(status_code=404, detail="Wiadomość nie znaleziona.")

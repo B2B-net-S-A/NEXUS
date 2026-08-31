@@ -10,7 +10,7 @@ the join and exposes it as a dedicated listing so backoffice can:
   a date window shared with the register, not the raw stored ContractStatus.ending)
 
 Role scoping:
-- admin / delivery_lead / tac / head_of_recruitment → sees everyone
+- admin / delivery_lead / tac / head_of_recruitment / finance → sees everyone
 - recruiter / sourcer → sees only candidates they added (Candidate.created_by)
 - user (read-only viewer) → 403 (the roster carries candidate PII + rates)
 
@@ -56,6 +56,7 @@ _FULL_VISIBILITY_ROLES = {
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.tac,
+    UserRole.finance,
 }
 
 

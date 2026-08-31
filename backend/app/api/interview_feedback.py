@@ -24,8 +24,9 @@ from app.api.recruitment_access import (
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
     ensure_job_membership,
+    ensure_optional_job_read_access,
     ensure_optional_job_membership,
-    job_scope_clause,
+    job_read_scope_clause,
 )
 from app.core.database import get_db
 from app.models.calendar_event import CalendarEvent
@@ -241,7 +242,7 @@ async def list_feedback(
     # z ofert, do których wołający nie należy. Zawężamy zapytanie zamiast
     # odrzucać request, żeby trasa dalej działała dla swoich rekrutacji.
     stmt = select(InterviewFeedback).where(
-        job_scope_clause(current_user, InterviewFeedback.job_id)
+        job_read_scope_clause(current_user, InterviewFeedback.job_id)
     )
     if calendar_event_id is not None:
         stmt = stmt.where(InterviewFeedback.calendar_event_id == calendar_event_id)
@@ -266,7 +267,7 @@ async def get_feedback(
     fb = await db.get(InterviewFeedback, feedback_id)
     if fb is None:
         raise HTTPException(status_code=404, detail="Feedback nie istnieje")
-    await ensure_optional_job_membership(db, current_user, fb.job_id)
+    await ensure_optional_job_read_access(db, current_user, fb.job_id)
     return _to_out(fb)
 
 

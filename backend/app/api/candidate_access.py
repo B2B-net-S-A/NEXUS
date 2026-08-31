@@ -9,7 +9,8 @@ candidate-related mutation (notes, source events, talent pools, tags).
 These dependencies replace bare ``CurrentUser`` on candidate-module routes.
 Every guard evaluates the union of primary ``User.role`` and secondary
 ``User.roles`` via ``has_any_role`` — a hybrid delivery_lead+TAC persona passes
-both capability sets — while explicitly rejecting Finance/viewer identities.
+both capability sets. The external ``user`` viewer remains rejected; Finance
+has the organization-wide business reads described below.
 
 Capability → allowed roles:
 
@@ -18,18 +19,16 @@ Capability → allowed roles:
   ``user`` is excluded everywhere.
 - **write** (profile fields, notes, source events, talent pools, tags) —
   parity with the existing ``RecruiterPlus`` contract (admin, delivery_lead,
-  tac, recruiter, sourcer).
-- **export** — admin, head_of_recruitment, delivery_lead, tac. Recruiter and
-  sourcer intentionally lose bulk export (matrix section 9 of the audit:
+  tac, recruiter, finance, sourcer).
+- **export** — admin, head_of_recruitment, delivery_lead, tac, finance. Recruiter
+  and sourcer intentionally lose bulk export (matrix section 9 of the audit:
   "domyślnie nie recruiter"); exports are audited via ``candidate_audit``.
-- **candidate finance** (candidate-specific pricing and conflict history) —
-  admin only. The Finance persona deliberately has no candidate/recruitment
-  PII access and uses aggregate/client finance endpoints instead.
-  Delivery/recruitment roles keep their operational candidate access, but
-  cannot read or mutate sell/cost rates. The candidate's own global B2B
-  profile rate is a separate typed-fact capability available to all internal
-  operational roles; it does not widen client sell-rate or contract
-  permissions.
+- **candidate finance read** (candidate-specific pricing and conflict history)
+  — admin and Finance; mutations remain admin only. Delivery/recruitment roles
+  keep their operational candidate access, but cannot read or mutate
+  sell/cost rates. The candidate's own global B2B profile rate is a separate
+  typed-fact capability available to all internal operational roles; it does
+  not widen client sell-rate or contract permissions.
 - **privacy execute** (anonymize / erase / hard delete) — NOBODY until the
   PR 2 privacy executor lands. Endpoints answer 409 with a clear message;
   see ``privacy_workflow_unavailable``.
@@ -80,8 +79,13 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
+    UserRole.finance,
 )
 
+CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.finance,
+)
 CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
 
 # Global Talent 360 facts are a deliberately broader write capability than
@@ -184,7 +188,7 @@ def privacy_workflow_unavailable(operation: str) -> HTTPException:
 
 
 def require_candidate_roles(*roles: UserRole):
-    """Candidate-domain role guard with explicit Finance/viewer denial.
+    """Candidate-domain role guard with explicit viewer denial.
 
     The generic ``require_roles`` correctly treats Admin as a superuser, but
     its union semantics would also let a malformed historical Finance+Admin or
@@ -234,9 +238,15 @@ CandidateWriteAccess = Annotated[
     User, Depends(require_candidate_roles(*CANDIDATE_WRITE_ROLES))
 ]
 
-# Bulk exports (CSV/XLSX) — audited, TAC and up.
+# Bulk exports (CSV/XLSX) — audited, management roles plus Finance business read.
 CandidateExportAccess = Annotated[
     User, Depends(require_candidate_roles(*CANDIDATE_EXPORT_ROLES))
+]
+
+# Candidate-specific pricing/conflict reads.  Mutations keep the narrower alias
+# below so Finance cannot write candidate rates by gaining read access.
+CandidateFinanceReadAccess = Annotated[
+    User, Depends(require_candidate_roles(*CANDIDATE_FINANCE_READ_ROLES))
 ]
 
 # Client-facing pricing mutations („stawka do klienta").

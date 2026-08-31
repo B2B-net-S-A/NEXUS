@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, RecruiterPlus
-from app.api.recruitment_access import ensure_job_membership
+from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -111,11 +111,10 @@ async def get_latest_proposal(
     never had a snapshot (e.g. legacy jobs created before Phase 13).
     """
     await _ensure_job_exists(db, job_id)
-    # Same resource scope as the write paths (regenerate uses this too): the
-    # snapshot hydrates candidate PII, so a delivery_lead outside the job's
-    # client scope must not read it. ensure_job_membership bypasses admin/HoR
-    # and grants owner/DL-by-client/TAC/collaborator/assigned-recruiter.
-    await ensure_job_membership(db, current_user, job_id)
+    # Read scope preserves the normal membership boundary for operational
+    # roles and adds Finance's organization-wide business-data view. The
+    # regenerate command below deliberately keeps ensure_job_membership.
+    await ensure_job_read_access(db, current_user, job_id)
     snap = await db.scalar(
         select(ProposalSnapshot)
         .where(ProposalSnapshot.job_id == job_id)
@@ -157,9 +156,9 @@ async def list_proposals(
 ):
     """Paginated history of proposal snapshots for `job_id`."""
     await _ensure_job_exists(db, job_id)
-    # Same resource scope as latest/regenerate — no PII here (counts only), but
-    # the job↔snapshot history still honours the DL client boundary (RBAC #1031).
-    await ensure_job_membership(db, current_user, job_id)
+    # Same read scope as latest: Finance is organization-wide, while other
+    # roles still honour the job/client boundary (RBAC #1031).
+    await ensure_job_read_access(db, current_user, job_id)
 
     base_query = select(ProposalSnapshot).where(ProposalSnapshot.job_id == job_id)
     total = (

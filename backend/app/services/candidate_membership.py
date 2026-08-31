@@ -27,9 +27,11 @@ async def is_member_of_candidate_chat(
     db: AsyncSession, user: User, candidate_id: int
 ) -> bool:
     """True if user can read/post in chat for this candidate."""
-    # Membership rows are historical data, not an authorization grant.
-    # Finance/viewer (and deactivated accounts) stay excluded even if their id
-    # still appears as creator, owner or collaborator.
+    # Membership rows are historical data, not an authorization grant. Viewer
+    # and deactivated accounts stay excluded even if their id still appears as
+    # creator, owner or collaborator. Finance's organization-wide GET oversight
+    # is enforced separately in the chat router and never becomes membership
+    # for mutations.
     if not user_can_access_candidate_domain(user):
         return False
     if user.has_role(UserRole.admin):

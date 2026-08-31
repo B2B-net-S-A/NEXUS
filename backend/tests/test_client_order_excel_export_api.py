@@ -203,10 +203,10 @@ async def test_unified_excel_export_rejects_duplicate_and_foreign_items(
     assert foreign.status_code == 404, foreign.text
 
 
-async def test_unified_export_keeps_group_and_standalone_permissions_separate(
+async def test_finance_unified_export_includes_group_and_standalone_orders(
     app_client: AsyncClient,
 ):
-    client_id, order_id, _, _ = await _seed_order("Eksport Uprawnienia")
+    client_id, order_id, _, consultant = await _seed_order("Eksport Uprawnienia")
     group_id = await _seed_md_group(client_id, "MD-FINANCE")
     headers = await _finance_headers(app_client)
 
@@ -222,4 +222,7 @@ async def test_unified_export_keeps_group_and_standalone_permissions_separate(
         headers=headers,
         json={"items": [{"kind": "order", "id": order_id}]},
     )
-    assert standalone.status_code == 403, standalone.text
+    assert standalone.status_code == 200, standalone.text
+    sheet = load_workbook(io.BytesIO(standalone.content)).active
+    assert sheet.max_row == 2
+    assert sheet["A2"].value == consultant

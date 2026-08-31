@@ -280,7 +280,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  const user = useAuthStore((state) => state.user);
  const canSeeFinance =
  hasRole(user, "admin") || hasAnalyticsCapability(user, "view_finance");
- const canSeeContractAnalytics = hasRole(user, "admin");
+ const canSeeContractAnalytics = hasRole(user, "admin", "finance");
  // Queryless `/contracts` is a fresh module entry (Active by default). Every
  // in-module change is encoded back into the URL, including an explicit
  // `status=all`, so a return from details can never be confused with a new
