@@ -118,6 +118,16 @@ def _detach_lotte_wedel_client_gate(monkeypatch):
     monkeypatch.setattr("app.services.lotte_wedel_orders.LOTTE_WEDEL_CLIENT_ID", -2)
 
 
+# ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _detach_polkomtel_finance_matching_gate(monkeypatch):
+    """A serial test client must not accidentally become Polkomtel (id 15)."""
+
+    monkeypatch.setattr("app.services.finance_order_matching.POLKOMTEL_CLIENT_ID", -3)
+
+
 # ── Ticket 29.08: stałe ID polityki typów zamówień vs sekwencja testowa ─────
 
 

@@ -128,6 +128,19 @@ export function sortOrderLinesByConsultant(
   );
 }
 
+const SHARED_MD_POOL_CLIENT_IDS = new Set([155, 38339]);
+
+export function clientUsesSharedMdPool(clientId: number): boolean {
+  return SHARED_MD_POOL_CLIENT_IDS.has(clientId);
+}
+
+/** Deliberate shared-MD variant limited to Lotte Wedel and Cyfrowy Polsat. */
+export function usesSharedMdPool(
+  group: Pick<OrderGroupRead, "client_id" | "is_md_budget_based">,
+): boolean {
+  return group.is_md_budget_based && clientUsesSharedMdPool(group.client_id);
+}
+
 export interface OrderGroupMetrics {
   totalMd: number | null;
   averageCost: number | null;
@@ -143,7 +156,8 @@ function average(values: Array<number | null>): number | null {
 
 export function orderGroupMetrics(group: OrderGroupRead): OrderGroupMetrics {
   const mdLines = group.lines.filter((line) => line.md_total !== null);
-  const totalMd = group.is_md_budget_based
+  const sharedMd = usesSharedMdPool(group);
+  const totalMd = sharedMd
     ? group.md_budget_total
     : mdLines.length > 0
       ? mdLines.reduce((sum, line) => sum + (line.md_total ?? 0), 0)
@@ -156,7 +170,7 @@ export function orderGroupMetrics(group: OrderGroupRead): OrderGroupMetrics {
   ) {
     budgetUsage = (group.budget_used ?? 0) / group.budget_amount;
   } else if (
-    group.is_md_budget_based &&
+    sharedMd &&
     group.md_budget_total !== null &&
     group.md_budget_total > 0
   ) {

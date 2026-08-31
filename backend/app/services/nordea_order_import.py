@@ -314,6 +314,31 @@ def _order_snapshot(order: Any) -> dict[str, Any]:
     }
 
 
+def _live_order_horizon(
+    orders: list[Any], *, today: date
+) -> Optional[tuple[date, Optional[date]]]:
+    """Widest horizon of standalone active orders covering ``today``."""
+
+    live = [
+        order
+        for order in orders
+        if order.order_group_id is None
+        and _status_value(order.status) == "active"
+        and order.start_date is not None
+        and order.start_date <= today
+        and (order.end_date is None or order.end_date >= today)
+    ]
+    if not live:
+        return None
+    start = min(order.start_date for order in live)
+    end = (
+        None
+        if any(order.end_date is None for order in live)
+        else max(order.end_date for order in live)
+    )
+    return start, end
+
+
 async def import_nordea_orders(
     db: AsyncSession,
     *,
@@ -329,6 +354,7 @@ async def import_nordea_orders(
     from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.contract import Contract
     from app.models.contract_framework_rate import ContractFrameworkRate
+    from app.services.contract_lifecycle import sync_contract_to_live_order
     from app.services.order_rate_snapshots import inherited_order_rate_fields
 
     client_label = client.display_name or client.legal_name or client.name
@@ -513,6 +539,23 @@ async def import_nordea_orders(
                 contract.framework_rate_schedule.append(step)
                 counters["framework_created"] += 1
 
+        # Import jest pełnoprawnym writerem zamówień, a nie tylko
+        # uzupełnieniem stawek. Synchronizujemy RAZ po wszystkich wierszach
+        # osoby: pierwszy chronologicznie order nie może aktywować kontraktu z
+        # krótszym końcem i sprawić, że kolejne (po zmianie statusu na active)
+        # staną się no-op. Bezterminowy order wygrywa; w pozostałych przypadkach
+        # kontrakt dostaje najdalszy koniec wszystkich bieżących zamówień.
+        horizon = _live_order_horizon(contract.client_orders, today=today)
+        if horizon is not None and await sync_contract_to_live_order(
+            db,
+            contract,
+            order_start=horizon[0],
+            order_end=horizon[1],
+            actor_id=user_id,
+            today=today,
+        ):
+            counters["contracts_revived"] += 1
+
         contract.framework_rate = contract.effective_framework_rate(today)
 
     nexus_only = [
@@ -534,6 +577,7 @@ async def import_nordea_orders(
         "orders_created": counters["orders_created"],
         "orders_updated": counters["orders_updated"],
         "orders_unchanged": counters["orders_unchanged"],
+        "contracts_revived": counters["contracts_revived"],
         "framework_created": counters["framework_created"],
         "framework_updated": counters["framework_updated"],
         "framework_unchanged": counters["framework_unchanged"],

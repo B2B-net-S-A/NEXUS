@@ -558,6 +558,6 @@ async def test_import_entry_names_the_order_and_the_counter(
         if e["event_type"] == "import_md"
     )
     assert group["order_number"] in entry["description"]
-    assert "wykorzystano 20.00 / pozostało 30.00 MD" in entry["description"]
+    assert "wykorzystano 20.000 / pozostało 30.000 MD" in entry["description"]
     # Miesiąc słownie, nie „2026-07" — wpis czyta człowiek.
     assert _PERIOD not in entry["description"]

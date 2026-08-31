@@ -178,7 +178,7 @@ class ClientOrder(Base, TimestampMixin):
     )
 
     total_value: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(12, 2), nullable=True
+        Numeric(13, 3), nullable=True
     )
     """Całkowita wartość kontraktu (rate_client × długość okresu) — calculated
     lub manualnie wpisane."""

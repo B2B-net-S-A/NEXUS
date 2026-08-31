@@ -33,7 +33,7 @@ class ClientOrderCreate(BaseModel):
     """Może być różny od Contract.rate_client (przedłużenie z podwyżką)."""
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = Field(None, ge=1)
-    total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
+    total_value: Optional[Decimal] = Field(None, ge=0, max_digits=13, decimal_places=3)
     currency: Optional[str] = Field(None, max_length=3)
     rate_client_currency: Optional[str] = Field(None, max_length=3)
     rate_candidate_currency: Optional[str] = Field(None, max_length=3)
@@ -60,7 +60,7 @@ class ClientOrderUpdate(BaseModel):
     rate_client: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=3)
     rate_unit: Optional[RateUnit] = None
     billing_hours_per_month: Optional[int] = Field(None, ge=1)
-    total_value: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
+    total_value: Optional[Decimal] = Field(None, ge=0, max_digits=13, decimal_places=3)
     currency: Optional[str] = Field(None, max_length=3)
     rate_client_currency: Optional[str] = Field(None, max_length=3)
     rate_candidate_currency: Optional[str] = Field(None, max_length=3)

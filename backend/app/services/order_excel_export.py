@@ -14,6 +14,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from app.services.shared_md_orders import uses_shared_md_pool
+
 if TYPE_CHECKING:
     from app.schemas.client_order_group import OrderGroupRead
 
@@ -63,6 +65,7 @@ def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
     """Build workbook rows at the correct group/consultant granularity."""
 
     rows: list[OrderExportRow] = []
+    shared_md = uses_shared_md_pool(group)
     if group.is_cost_based and group.lines:
         # A cost group's amount is one shared pool.  Repeating it per person
         # makes spreadsheet sums grow with the number of consultants.
@@ -78,7 +81,7 @@ def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
                 consumption=None,
             )
         )
-    if group.is_md_budget_based and group.lines:
+    if shared_md and group.lines:
         rows.append(
             OrderExportRow(
                 consultant_name=MD_GROUP_TOTAL_LABEL,
@@ -104,12 +107,10 @@ def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
                     group.budget_amount
                     if group.is_cost_based
                     else group.md_budget_total
-                    if group.is_md_budget_based
+                    if shared_md
                     else None
                 ),
-                consumption=(
-                    group.md_budget_used if group.is_md_budget_based else None
-                ),
+                consumption=(group.md_budget_used if shared_md else None),
             )
         )
         return rows
@@ -117,7 +118,7 @@ def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
         consumption: Optional[Decimal]
         if group.is_cost_based:
             consumption = line.invoiced_total
-        elif group.is_md_budget_based:
+        elif shared_md:
             consumption = None
         elif line.md_total is None:
             consumption = None
@@ -136,9 +137,7 @@ def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
                 start_date=group.start_date,
                 end_date=group.end_date,
                 allocation=(
-                    None
-                    if group.is_cost_based or group.is_md_budget_based
-                    else line.md_total
+                    None if group.is_cost_based or shared_md else line.md_total
                 ),
                 consumption=consumption,
             )

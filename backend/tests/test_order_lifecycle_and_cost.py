@@ -736,7 +736,7 @@ async def test_two_rows_for_one_person_are_summed_not_overwritten(
         [_cost_line(contracts[0])],
         order_number="4500719652",
         is_cost_based=True,
-        budget_amount=50000,
+        budget_amount=50000.5,
     )
     finance = await _finance_headers(app_client)
 
@@ -745,8 +745,8 @@ async def test_two_rows_for_one_person_are_summed_not_overwritten(
         finance,
         _sheet(
             [
-                (names[0], 5, "SAP 4500719652", 10000),
-                (names[0], 5, "SAP 4500719652", 5000),
+                (names[0], 5, "SAP 4500719652", 10000.125),
+                (names[0], 5, "SAP 4500719652", 5000.25),
             ]
         ),
     )
@@ -755,8 +755,8 @@ async def test_two_rows_for_one_person_are_summed_not_overwritten(
         f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
     )
     body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
-    assert body["budget_remaining"] == pytest.approx(35000.0)
-    assert body["lines"][0]["invoiced_total"] == pytest.approx(15000.0)
+    assert body["budget_remaining"] == pytest.approx(35000.125)
+    assert body["lines"][0]["invoiced_total"] == pytest.approx(15000.375)
 
 
 async def test_budget_floors_at_zero_and_names_who_was_short(
@@ -1326,9 +1326,8 @@ async def test_scanner_closes_by_date_everything_except_md_lines(
         app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
     )
     md_line_id = group["lines"][0]["id"]
-    # Dwa dni, nie jeden: skaner liczy granicę `date.today()` (UTC kontenera),
-    # a plik dniem biznesowym — wieczorem te dwie daty różnią się o dobę i
-    # „wczoraj" wg firmy byłoby jeszcze „dziś" wg skanera.
+    # Dwa dni zamiast jednego zachowują test z dala od inkluzywnej granicy:
+    # zamówienie kończące się dzisiaj pozostaje aktywne do końca dnia.
     past = _TODAY - timedelta(days=2)
 
     async with AsyncSessionLocal() as db:
@@ -1448,9 +1447,7 @@ async def test_reopen_brings_back_consultants_with_budget_left(
         f"/api/clients/{client_id}/order-groups/{group['id']}/events",
         headers=app_auth_headers,
     )
-    reopened = [
-        e for e in events.json()["events"] if e["event_type"] == "przywrocenie"
-    ]
+    reopened = [e for e in events.json()["events"] if e["event_type"] == "przywrocenie"]
     assert reopened and reopened[0]["payload"]["lines_reopened"] == 1
 
 
@@ -1703,7 +1700,9 @@ async def test_cost_family_continuation_still_promotes_on_the_start_date(
         headers=app_auth_headers,
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "active", "kontynuacja kosztowa nie ruszyła w dniu startu"
+    assert resp.json()["status"] == "active", (
+        "kontynuacja kosztowa nie ruszyła w dniu startu"
+    )
 
     old = await _card(app_client, app_auth_headers, client_id, group["id"])
     assert old["status"] == "completed"

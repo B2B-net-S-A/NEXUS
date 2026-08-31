@@ -70,13 +70,13 @@ export function formatMoney(value: number | null): string {
   if (value == null) return "—";
   return `${value.toLocaleString("pl-PL", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   })} zł`;
 }
 
 function formatNumber(value: number | null): string {
   if (value == null) return "—";
-  return value.toLocaleString("pl-PL", { maximumFractionDigits: 2 });
+  return value.toLocaleString("pl-PL", { maximumFractionDigits: 3 });
 }
 
 function formatPct(value: number | null): string {
