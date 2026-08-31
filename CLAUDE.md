@@ -1122,7 +1122,7 @@ Przegląd zakończony wnioskiem „ta zmiana nie dotyczy instrukcji" jest w peł
 poprawny i też kończy się przestemplowaniem — to nie jest obejście.
 
 - **Treść jest w repo, nie tylko w bazie.** Jedno źródło (`.md`) czytają OBA
-  kanały zasiewu: migracja `0253_orders_procedure_seed` i `_seed_repo_procedures`
+  kanały zasiewu: migracja `0254_orders_procedure_seed` i `_seed_repo_procedures`
   w `entrypoint.sh` (prod alembic bywa osierocony). Nie przepisuj treści do
   migracji — 40 KB w trzech miejscach rozjeżdża się przy pierwszej poprawce.
 - **Zasiew jest UPSERT-em z warunkiem `procedures.updated_by IS NULL`.** Wdrożenie

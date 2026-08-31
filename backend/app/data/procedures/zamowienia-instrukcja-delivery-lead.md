@@ -122,6 +122,8 @@ zakłada **jednocześnie umowę i pierwsze zamówienie**. Pola:
 * **My płacimy kontraktorowi \*** — stawka kosztowa
 * **Godziny / mc** — aktywne tylko przy stawce **godzinowej**
 * **Notatki**
+* **PDF zamówienia od klienta** — `.pdf`, `.docx` albo `.doc`, z przyciskiem
+  **Zczytaj dane z dokumentu** obok
 
 Zapisujesz przyciskiem **Stwórz Contract + Order**.
 
@@ -134,8 +136,9 @@ Zapisujesz przyciskiem **Stwórz Contract + Order**.
 > **Umowa powstaje jako szkic** i tym formularzem jej nie domkniesz — zrobisz to
 > w rejestrze umów. Dopóki jest szkicem, ta osoba nie liczy się do przychodów.
 >
-> **Ten formularz nie ma pola na plik.** PDF zamówienia dokładasz dopiero po
-> zapisie, przez **Uzupełnij zamówienie** na powstałej karcie.
+> **Jeżeli zapis zwróci błąd pliku, kontraktor i zamówienie i tak powstały.**
+> Plik idzie osobnym żądaniem, więc komunikat mówi wprost, żeby wgrać go
+> ponownie przez **Uzupełnij zamówienie** — a nie zakładać wszystkiego drugi raz.
 
 ### Kiedy zamówienie przestaje być szkicem
 
@@ -291,7 +294,12 @@ zostanie odczytane.
   ma dostęp do kwot** — pozostali dostają jedno ogólne zdanie „Sprawdź odczytane
   dane przed zapisem.",
 * **osobne, czerwone ostrzeżenie przy polu numeru** — to inne miejsce niż baner,
-  więc brak banera nie znaczy, że numer jest w porządku. Sprawdź oba.
+  więc brak banera nie znaczy, że numer jest w porządku. Sprawdź oba,
+* **informację, która reguła klienta zadziałała** — „Zastosowano reguły odczytu:
+  …" albo „Dla tego klienta nie ma jeszcze własnych reguł odczytu PDF — pola
+  wypełnił odczyt ogólny". To jest odpowiedź na pytanie „czy u tego klienta
+  reguła w ogóle jest włączona": jeżeli spodziewasz się reguły z sekcji poniżej,
+  a ten komunikat mówi „nie ma", zgłoś to administratorowi.
 
 **Uwaga na różnicę w nadpisywaniu:**
 
@@ -594,9 +602,20 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * Jeden numer, kilku konsultantów, **budżet dni przy każdej osobie**. Zużycie
   schodzi z miesięcznego importu z Finansów, dopasowywanego po imieniu
   i nazwisku.
-* Odczyt awaryjny (gdy AI nie zadziała) rozpoznaje charakterystyczny dla BNP
-  zapis okresu typu „mc 06-2026_12-2026" i rozwija go na pierwszy i ostatni
-  dzień miesiąca.
+* **BNP ma własną regułę odczytu dokumentu.** Dokument jest jednoosobowy, więc
+  wszystko, co w nim stoi, dotyczy osoby, z której karty uruchamiasz odczyt:
+  * **okres** czytany jest z zapisu **MM-RRRR do MM-RRRR** i rozwijany na
+    pierwszy i ostatni dzień miesiąca,
+  * **stawka** wchodzi z pola **„Cena netto"** i jest traktowana jako kwota
+    **za 1 MD** — jednostka zostaje ustawiona na MD niezależnie od tego, co
+    odczytał model,
+  * **liczba MD** wchodzi z pola **„Szt."**,
+  * **konsultanta dokument identyfikuje NUMEREM ID**, nie imieniem i nazwiskiem
+    — system go odczytuje, ale nie ma jak sam sprawdzić, czy to ta osoba.
+    **Potwierdzenie należy do Ciebie.**
+* Gdy któregoś z tych pól w dokumencie nie ma, system o tym powie i zostawi
+  pole do ręcznego wpisania. Zgłosi też **nietypową stawkę za 1 MD** poza
+  spodziewanym zakresem — to sygnał, że kwotę odczytano z innej kolumny.
 * **Powiadomienia:** standardowe, plus alert **„mało MD"**, gdy konsultantowi
   zostanie 15 dni lub mniej.
 
@@ -665,7 +684,10 @@ Dwa mechanizmy, które łatwo pomylić.
 
 **1. Reguła numeru zamówienia przy odczycie PDF-a.** Po odczycie system nadpisuje
 numer twardą regułą: bierze **wyłącznie** wartość spod etykiety **„Call Off
-Agreement number"**. Jeżeli tej etykiety w dokumencie nie ma, **system nie poda
+Agreement"** (rozpoznaje też pisownię „Call-Off" i „Calloff" oraz zakończenia
+„number", „no.", „nr" i „#"). **Numeru umowy ramowej („Frame Agreement number")
+nie weźmie nigdy**, nawet gdy stoi w dokumencie wyżej — to była przyczyna
+zgłoszenia „system wpisuje zły numer". Jeżeli tej etykiety w dokumencie nie ma, **system nie poda
 żadnego numeru** — nigdy nie podstawi numeru oferty ani projektu. Dostaniesz
 o tym komunikat w banerze — ale **pole numeru nie zostanie wyczyszczone**: jeżeli
 coś już w nim stało (numer z poprzedniego zamówienia albo wartość zastępcza ze

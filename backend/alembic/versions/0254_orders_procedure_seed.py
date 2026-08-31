@@ -1,7 +1,7 @@
 """Pomoc → Procedury: instrukcja obsługi zamówień dla Delivery Leada.
 
-Revision ID: 0253_orders_procedure_seed
-Revises: 0252_md_cost_result_precision3
+Revision ID: 0254_orders_procedure_seed
+Revises: 0253_offboarding_restore_resolution
 
 Treść NIE jest przepisana do tej migracji, tylko czytana z
 ``app/data/procedures/zamowienia-instrukcja-delivery-lead.md``. Instrukcja ma
@@ -37,8 +37,8 @@ from alembic import op
 
 from app.data.procedures import ORDERS_PROCEDURE
 
-revision = "0253_orders_procedure_seed"
-down_revision = "0252_md_cost_result_precision3"
+revision = "0254_orders_procedure_seed"
+down_revision = "0253_offboarding_restore_resolution"
 branch_labels = None
 depends_on = None
 
