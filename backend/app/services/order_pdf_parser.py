@@ -109,6 +109,15 @@ class OrderExtraction:
     zapisaną stawkę z tym, co widzi w PDF. Kwota FINANSOWA: podlega tej samej
     redakcji co ``rate_client``."""
 
+    consultant_ref: Optional[str] = None
+    """Numer ID konsultanta odczytany z dokumentu (polityka BNP).
+
+    W PDF-ach BNP nie ma imienia i nazwiska — jest wyłącznie ten numer. Nexus
+    nie przechowuje identyfikatorów nadanych przez klienta, więc pole służy
+    WZROKOWEMU potwierdzeniu przez operatora, że dokument dotyczy osoby,
+    z której karty uruchomił odczyt. Nie jest kwotą, więc przeżywa redakcję
+    finansową."""
+
     title_needs_review: bool = False
     """Klientowa polityka numeru zamówienia nie znalazła numeru w dokumencie —
     front pokazuje przy polu numeru komunikat „Sprawdź numer zamówienia".
@@ -1117,6 +1126,257 @@ def apply_credit_agricole_order_policy(
 
     kept = [r for r in result.uncertain_reasons if "stawk" not in r.lower()]
     result.uncertain_reasons = kept + policy_reasons
+    result.uncertain = bool(result.uncertain_reasons)
+    return result
+
+
+# ── BNP: zamówienie JEDNOOSOBOWE, konsultant po numerze ID, nie po nazwisku ─
+#
+# Zgłoszenie: dla BNP odczyt nie dawał ani stawki, ani liczby MD. Przyczyna nie
+# leży w modelu, tylko w tożsamości: PDF BNP **nie zawiera imienia i nazwiska**
+# konsultanta — niesie wyłącznie jego numer ID. Generyczny matcher
+# (``apply_consultant_row_match`` + ``enforce_consultant_policy_safety``) jest
+# fail-closed po nazwisku, więc dla takiego dokumentu KAŻDY odczyt kończył się
+# wyczyszczeniem stawki i MD. To poprawne zachowanie dla dokumentu
+# wielopozycyjnego i błędne dla BNP, bo tam **cały PDF to zamówienie jednej
+# osoby** — tej, z której karty operator uruchomił odczyt.
+#
+# Stąd polityka klientowa (deterministyczna, po odpowiedzi LLM, jak u Nordei
+# i Banku Pocztowego), a w endpointcie: dla BNP parser NIE dostaje nazwiska
+# i NIE przechodzi przez bramkę bezpieczeństwa matchera.
+#
+#  * okres: „MM-RRRR do MM-RRRR" → start = PIERWSZY dzień miesiąca
+#    początkowego, koniec = OSTATNI dzień miesiąca końcowego (faktyczna liczba
+#    dni, ``calendar.monthrange``). Świadomie osobne wyrażenie od
+#    ``_PERIOD_MC_RE``: tamto wymaga prefiksu „mc" i nie zna separatora „do";
+#  * „Cena netto" → stawka za 1 MD (``rate_unit="day"``);
+#  * „Szt." → liczba MD zamówienia;
+#  * numer ID konsultanta → ``consultant_ref``, pokazywany operatorowi obok
+#    pól. Nie ma go czym dopasować w bazie (Nexus nie przechowuje identyfikatora
+#    nadanego przez klienta — ``candidates.external_id`` to ID z Traffita),
+#    więc służy WYŁĄCZNIE wzrokowemu potwierdzeniu, że PDF dotyczy tej osoby,
+#    której karta jest otwarta. Brak numeru w dokumencie jest sygnalizowany.
+#
+# Etykieta wygrywa z odczytem modelu, ale jej BRAK nie czyści pola (inaczej niż
+# w Credit Agricole): tam kasowanie było odpowiedzią na udokumentowaną pomyłkę
+# dwóch sąsiednich etykiet, tu takiego incydentu nie ma, a wyczyszczenie
+# zostawiłoby operatora BNP dokładnie z tym, na co się skarży — z pustym
+# formularzem. Wartość modelu zostaje więc, ale zawsze z komunikatem „sprawdź".
+
+_BNP_MONTH_RANGE_RE = re.compile(
+    # MM-RRRR … MM-RRRR. Lookbehind/lookahead odcinają ŚRODEK pełnej daty:
+    # „01.08.2026 do 31.12.2026" nie może zostać odczytane jako 08-2026 →
+    # 12-2026, bo przed miesiącem stoi wtedy separator daty. Separatorem
+    # okresu bywa słowo „do" albo dowolna kreska; separatorem wewnątrz
+    # MM-RRRR bywa „-", „." albo „/" (ekstrakcja z PDF nie jest stała).
+    r"(?<![\d.,/\-])(\d{1,2})\s*[-./]\s*(\d{4})"
+    r"\s*(?:do\b|[-–—_])\s*"
+    r"(\d{1,2})\s*[-./]\s*(\d{4})(?![\d.,/\-])",
+    re.IGNORECASE,
+)
+
+# „Cena netto" / „Cena jedn. netto" / „Cena jednostkowa netto" — wypełniacz
+# między etykietą a liczbą jest ten sam co w Credit Agricole (zjada nawiasy
+# w całości, więc „(PLN)" nie podstawi się za wartość, a jakiekolwiek inne
+# SŁOWO — np. „Wartość" — dopasowanie przerywa).
+_BNP_NET_PRICE_LABEL = r"Cena(?:\s+jedn(?:\.|ostkowa)?)?\s+netto"
+
+# Ilość: najpierw postać „105 szt." — liczba PRZED jednostką, bo tak zapisuje
+# ją większość polskich zamówień, a jednostka jest kotwicą MOCNIEJSZĄ niż
+# kolejność kolumn. Dwie rzeczy w tym wyrażeniu są obroną przed cichą pomyłką
+# i nie wolno ich rozluźnić:
+#
+#  * ``[^\S\n]*`` zamiast ``\s*`` — zwykłe ``\s*`` przechodzi przez ZNAK
+#    NOWEJ LINII, więc kwota z wiersza wyżej („Cena netto: 1 040,00") sklejała
+#    się z „Szt." z wiersza niżej i do liczby MD trafiała STAWKA;
+#  * brak spacji w klasie cyfr — liczba MD jest z natury mała, więc spacja
+#    jako separator tysięcy jest tu wyłącznie sposobem na sklejenie numeru
+#    porządkowego z ilością („1 105 szt." → 1105 zamiast 105).
+_BNP_QUANTITY_BEFORE_UNIT_RE = re.compile(
+    r"(?<![\d.,])(\d{1,4}(?:[.,]\d{1,3})?)[^\S\n]*szt\.?(?!\w)",
+    re.IGNORECASE,
+)
+# Fallback etykietowy WYMAGA jawnego separatora („Szt.: 105"). Bez niego
+# „pierwsza liczba za etykietą" w wierszu tabeli trafia w sąsiednią kolumnę.
+_BNP_QUANTITY_LABEL = r"(?:Ilo[śs][ćc]|Szt)\.?\s*[:=]"
+
+# Numer ID konsultanta. Sam „Nr" jest w dokumencie wszędzie (numer zamówienia,
+# numer pozycji), więc wymagamy słowa opisującego OSOBĘ w bezpośrednim
+# sąsiedztwie — inaczej pierwszy z brzegu numer udawałby identyfikator.
+_BNP_CONSULTANT_REF_RE = re.compile(
+    r"(?:(?:ID|Nr\.?|Numer|Identyfikator)\s+)?"
+    r"(?:konsultant|pracownik|specjalist|wykonawc)\w*\s*"
+    r"(?:ID|nr\.?|numer|identyfikator)?\s*[:#\-]?\s*"
+    r"([A-Za-z0-9][A-Za-z0-9._/\-]{0,31})",
+    re.IGNORECASE,
+)
+
+# Widełki sanity-check stawki za 1 MD (PLN netto, włącznie) — te same co
+# w Credit Agricole. Liczba porządkowa albo ilość omyłkowo wzięta za kwotę
+# ląduje grubo poniżej dolnej granicy.
+_BNP_MD_RATE_MIN = Decimal(200)
+_BNP_MD_RATE_MAX = Decimal(5000)
+
+
+def _bnp_labels_share_a_line(text: str) -> bool:
+    """Czy „Cena netto" i „Szt." stoją w JEDNYM wierszu (nagłówek tabeli).
+
+    Ta sama pułapka co w Credit Agricole: w takim układzie wartości leżą
+    w wierszu NIŻEJ, w kolumnach, a ekstrakcja tekstu z PDF gubi wyrównanie —
+    „pierwsza liczba za etykietą" trafia wtedy w liczbę porządkową albo
+    w sąsiednią kolumnę. Tu nie zgadujemy: zostawiamy odczyt modelu (który
+    widzi tabelę jako całość) i mówimy operatorowi, żeby sprawdził.
+    """
+    price_re = re.compile(_BNP_NET_PRICE_LABEL, re.IGNORECASE)
+    qty_re = re.compile(r"\bszt\.?\b", re.IGNORECASE)
+    return any(
+        price_re.search(line) and qty_re.search(line)
+        for line in (text or "").splitlines()
+    )
+
+
+def bnp_order_period(text: str) -> Optional[tuple[str, str]]:
+    """Okres „MM-RRRR do MM-RRRR" → (pierwszy dzień, OSTATNI dzień) w ISO."""
+    for match in _BNP_MONTH_RANGE_RE.finditer(text or ""):
+        start_month, start_year = int(match.group(1)), match.group(2)
+        end_month, end_year = int(match.group(3)), match.group(4)
+        if not (1 <= start_month <= 12 and 1 <= end_month <= 12):
+            continue
+        start = _normalize_date(f"{start_year}-{start_month:02d}", end=False)
+        end = _normalize_date(f"{end_year}-{end_month:02d}", end=True)
+        if start and end and start <= end:
+            return start, end
+    return None
+
+
+def bnp_net_md_rate(text: str) -> Optional[Decimal]:
+    """Kwota z pola „Cena netto" — stawka za 1 MD konsultanta."""
+    if _bnp_labels_share_a_line(text):
+        return None
+    return _labelled_amount(_BNP_NET_PRICE_LABEL, text)
+
+
+def bnp_md_quantity(text: str) -> Optional[Decimal]:
+    """Liczba z pola „Szt." — liczba MD objęta zamówieniem.
+
+    Postać „105 szt." działa TAKŻE w wierszu tabeli, bo kotwicą jest sama
+    jednostka stojąca tuż za liczbą, a nie kolejność kolumn. Dopiero gdy
+    dokument jej nie ma, schodzimy do etykiety — a tam układ tabelaryczny
+    znów jest pułapką, więc obowiązuje odmowa (jak przy cenie).
+    """
+    match = _BNP_QUANTITY_BEFORE_UNIT_RE.search(text or "")
+    if match:
+        value = _normalize_amount(match.group(1))
+        if value is not None:
+            return value
+    if _bnp_labels_share_a_line(text):
+        return None
+    return _labelled_amount(_BNP_QUANTITY_LABEL, text)
+
+
+def bnp_consultant_ref(text: str) -> Optional[str]:
+    """Numer ID konsultanta z dokumentu; ``None`` gdy nie ma go w tekście."""
+    for match in _BNP_CONSULTANT_REF_RE.finditer(text or ""):
+        value = match.group(1).strip().rstrip(".,;:")
+        # Identyfikator zawsze niesie cyfrę; sama etykieta („konsultanta:
+        # Delivery") nie. Bez tego guardu pierwsze słowo po etykiecie
+        # udawałoby numer.
+        if value and any(ch.isdigit() for ch in value):
+            return value[:64]
+    return None
+
+
+def apply_bnp_order_policy(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Nadpisz wynik parsera twardą polityką BNP (opis wyżej).
+
+    Dokument jest z założenia JEDNOOSOBOWY, więc wszystko, co w nim stoi,
+    należy do konsultanta, z którego karty uruchomiono odczyt. Polityka
+    ustawia dlatego ``consultant_*_matched`` — wołający pomija dla BNP
+    bramkę ``enforce_consultant_policy_safety``, ale flagi zostają spójne
+    na wypadek, gdyby ktoś kiedyś wpiął tę politykę w tor z matcherem.
+    """
+
+    policy_reasons: list[str] = []
+
+    # 1) Okres: MM-RRRR do MM-RRRR → pierwszy/ostatni dzień miesiąca.
+    period = bnp_order_period(document_text)
+    if period is not None:
+        result.start_date, result.end_date = period
+        result.confidence["start_date"] = 1.0
+        result.confidence["end_date"] = 1.0
+    elif not result.start_date or not result.end_date:
+        policy_reasons.append(
+            "Nie znaleziono okresu zamówienia w formacie MM-RRRR do MM-RRRR — "
+            "sprawdź daty"
+        )
+
+    # 2) „Cena netto" → stawka za 1 MD. Jednostka jest u BNP stałą klientową,
+    #    więc ustawiamy ją także wtedy, gdy kwota pochodzi z odczytu modelu:
+    #    „hour"/„month" z LLM opisywałoby inny dokument niż ten.
+    md_rate = bnp_net_md_rate(document_text)
+    if md_rate is not None:
+        result.rate_client = md_rate
+        result.confidence["rate_client"] = 1.0
+    elif result.rate_client is not None:
+        policy_reasons.append(
+            "Nie znaleziono pola „Cena netto” — sprawdź stawkę za 1 MD"
+        )
+    else:
+        policy_reasons.append(
+            "Nie znaleziono pola „Cena netto” — wpisz stawkę za 1 MD ręcznie"
+        )
+    if result.rate_client is not None:
+        result.rate_unit = "day"
+        result.confidence["rate_unit"] = 1.0
+        if (
+            result.rate_client < _BNP_MD_RATE_MIN
+            or result.rate_client > _BNP_MD_RATE_MAX
+        ):
+            policy_reasons.append(
+                f"Nietypowa stawka za 1 MD: {result.rate_client} zł (poza zakresem "
+                f"{_BNP_MD_RATE_MIN}–{_BNP_MD_RATE_MAX} zł/MD) — sprawdź, czy nie "
+                "została odczytana z niewłaściwej kolumny."
+            )
+    else:
+        result.rate_unit = None
+        result.confidence.pop("rate_unit", None)
+
+    # 3) „Szt." → liczba MD zamówienia.
+    quantity = bnp_md_quantity(document_text)
+    if quantity is not None and quantity > 0:
+        result.md_total = quantity
+        result.confidence["md_total"] = 1.0
+    elif result.md_total is not None:
+        policy_reasons.append("Nie znaleziono pola „Szt.” — sprawdź liczbę MD")
+    else:
+        policy_reasons.append("Nie znaleziono pola „Szt.” — wpisz liczbę MD ręcznie")
+
+    # 4) Tożsamość: numer ID konsultanta zamiast imienia i nazwiska.
+    result.consultant_ref = bnp_consultant_ref(document_text)
+    if result.consultant_ref is None:
+        policy_reasons.append(
+            "Nie znaleziono numeru ID konsultanta — potwierdź, że dokument "
+            "dotyczy tej osoby"
+        )
+
+    # Dokument jednoosobowy: wartości pochodzą z jedynej pozycji, więc nie ma
+    # czego dopasowywać po nazwisku.
+    result.consultant_rate_matched = result.rate_client is not None
+    result.consultant_md_matched = result.md_total is not None
+
+    # Komunikaty modelu o jednostce/przeliczeniu przestały opisywać wynik —
+    # jednostka jest tu regułą klientową, nie interpretacją.
+    kept = [
+        reason
+        for reason in result.uncertain_reasons
+        if "jednost" not in _fold_policy_text(reason)
+        and "przeliczenie" not in _fold_policy_text(reason)
+    ]
+    result.uncertain_reasons = kept + [
+        reason for reason in policy_reasons if reason not in kept
+    ]
     result.uncertain = bool(result.uncertain_reasons)
     return result
 

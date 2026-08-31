@@ -62,6 +62,7 @@ from app.models.client_order_group import (
 from app.models.client_order_offboarding import (
     OFFBOARDING_RATE_BASIS_DEPARTING,
     OFFBOARDING_RESOLUTION_REMOVE,
+    OFFBOARDING_RESOLUTION_RESTORE,
     OFFBOARDING_RESOLUTION_TRANSFER,
     OFFBOARDING_STATUS_PENDING,
     OFFBOARDING_STATUS_RESOLVED,
@@ -132,6 +133,7 @@ from app.services.multi_consultant_orders import (
     EVENT_MANUAL_EDIT,
     EVENT_MD_TRANSFER,
     EVENT_MD_OFFBOARDING_REMOVED,
+    EVENT_MD_OFFBOARDING_RESTORED,
     EVENT_MD_OFFBOARDING_TRANSFERRED,
     EVENT_ORDER_CLOSED,
     EVENT_ORDER_CREATED,
@@ -148,6 +150,7 @@ from app.services.multi_consultant_orders import (
     swap_md_total,
 )
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
+from app.services.order_write_errors import commit_order_write
 from app.services.order_types import (
     assert_order_type_allowed,
     effective_group_order_type,
@@ -369,6 +372,119 @@ def _reduce_legacy_md_budget(order: ClientOrder, remaining: Decimal) -> None:
     elif order.md_input_mode == INPUT_MODE_MD:
         order.md_input_mode = INPUT_MODE_MD
         order.md_input_value = new_total
+
+
+async def _restore_offboarded_line(
+    db: AsyncSession,
+    *,
+    case: ClientOrderOffboardingCase,
+    group: ClientOrderGroup,
+    source: ClientOrder,
+    requested_end_date: Optional[date],
+    actor_id: Optional[int],
+) -> tuple[Optional[date], bool]:
+    """Przywróć linię na aktywną obsadę. Zwraca (nowa data końca, czy wskrzeszono kontrakt).
+
+    Symetryczne odwrócenie tego, co ``apply_contract_order_offboarding`` zrobiło
+    linii MD w dniu terminacji: tamto ustawiło ``end_date`` na dzień
+    zakończenia i status na ``completed``. Odwracamy DOKŁADNIE te dwie rzeczy —
+    puli MD nie ruszamy, bo nikt jej nie rozdysponował.
+
+    Data końca NIE jest odtwarzana, tylko podejmowana na nowo: sprawa
+    offboardingu snapshotuje pulę, stawki i numer zamówienia, ale nie okres,
+    więc oryginalna data końca linii nie istnieje już nigdzie w bazie. Serwer
+    nie ma jej skąd wziąć, a zgadnięcie („do końca zamówienia") wpisywałoby do
+    przychodu horyzont, którego nikt nie zatwierdził — dlatego przy zamówieniu
+    z datą końca pole jest WYMAGANE, a przy bezterminowym puste znaczy
+    „bezterminowo".
+
+    Kontrakt wraca razem z linią. Bez tego konsultant zostaje w zakładce
+    „Zakończeni" mimo aktywnej linii, a razem z pigułką milczą MRR, rejestr
+    umów i skaner wygasania — ta sama klasa awarii, którą naprawiał
+    ``sync_contract_to_live_order`` przy przedłużeniach zamówień.
+    """
+
+    # Import lokalny — `client_orders` sięga po `client_order_groups` w ciele
+    # swoich funkcji, więc import na poziomie modułu domykałby cykl. To jest
+    # ta sama konwencja, tylko w drugą stronę.
+    from app.api.client_orders import _sync_contract_after_order_extension
+
+    if group.status not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "order_group_not_open",
+                "message": (
+                    "To zamówienie jest zamknięte — najpierw przywróć samo "
+                    "zamówienie, potem konsultanta."
+                ),
+            },
+        )
+
+    today = business_today()
+    if group.end_date is not None:
+        if requested_end_date is None:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Podaj datę, do której współpraca trwa — to zamówienie ma "
+                    "datę zakończenia, więc linia nie może być bezterminowa."
+                ),
+            )
+        if requested_end_date > group.end_date:
+            raise HTTPException(
+                422,
+                detail=(
+                    "Data zakończenia nie może wykraczać poza zamówienie "
+                    f"(kończy się {group.end_date.isoformat()})."
+                ),
+            )
+    if requested_end_date is not None:
+        if requested_end_date < today:
+            # Data z przeszłości nie przywraca niczego: nocny
+            # `_promote_statuses` domknąłby taką linię jeszcze tej nocy
+            # (linie ze WSPÓLNĄ pulą mają `md_total IS NULL`, więc wyjątek dla
+            # zamówień MD ich nie obejmuje), a decyzja skasowałaby samą siebie.
+            raise HTTPException(
+                422,
+                detail=(
+                    "Data zakończenia musi być dzisiejsza albo późniejsza — "
+                    "wcześniejsza nie przywraca współpracy."
+                ),
+            )
+        if source.start_date is not None and requested_end_date < source.start_date:
+            raise HTTPException(
+                422,
+                detail="Data zakończenia jest wcześniejsza niż start linii.",
+            )
+
+    if not case.uses_shared_md_pool and source.md_total is not None:
+        # Pula per linia, wyczerpana: przywrócenie nie miałoby czego kontynuować,
+        # a `sync_md_line_status` domknąłby linię z powrotem przy najbliższym
+        # przeliczeniu — decyzja wyglądałaby na zapisaną i nie robiła nic.
+        current_remaining = await recompute_remaining(db, source)
+        if current_remaining <= Decimal("0"):
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "md_pool_exhausted",
+                    "message": (
+                        "Linia nie ma już pozostałej puli MD — najpierw uzupełnij "
+                        "budżet zamówienia, potem przywróć konsultanta."
+                    ),
+                },
+            )
+
+    source.end_date = requested_end_date
+    source.status = ClientOrderStatus.active
+
+    contract_reopened = False
+    contract = source.contract
+    if contract is not None:
+        contract_reopened = await _sync_contract_after_order_extension(
+            db, source, contract, actor_id=actor_id
+        )
+    return requested_end_date, contract_reopened
 
 
 # Role uprawnione do CYKLU ŻYCIA zamówienia (usuń / zakończ / przywróć /
@@ -1600,7 +1716,7 @@ async def replace_order_group_file(
             details={"group_id": group.id, "filename": filename},
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     if previous_master and previous_master != master_path:
         storage_service.delete_client_order_group_po(previous_master)
     for path in superseded_paths:
@@ -1660,7 +1776,7 @@ async def delete_order_group_file(
             details={"group_id": group.id},
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     storage_service.delete_client_order_group_po(master_path)
     for path in contract_paths:
         storage_service.delete_contract_document(path)
@@ -1812,7 +1928,7 @@ async def create_order_group(
             },
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
 
@@ -1972,7 +2088,7 @@ async def update_order_group(
     # przemianowuje historycznej kopii PDF w kontrakcie. Kopię aktualizuje
     # wyłącznie jawne podmienienie pliku przez endpoint PUT .../file.
     await materialize_scheduled_order_groups(db, client_id=client_id)
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
 
@@ -2029,7 +2145,7 @@ async def delete_order_group(
             },
         )
     )
-    await db.commit()
+    await commit_order_write(db)
     # Automatyczne kopie na kontraktach są osobnymi plikami i pozostają jako
     # zapis historyczny (FK źródła przechodzi na NULL). Master należący do
     # usuniętej grupy nie ma już konsumenta, więc można go bezpiecznie zwolnić.
@@ -2131,7 +2247,7 @@ async def delete_line(
             },
         )
     )
-    await db.commit()
+    await commit_order_write(db)
 
 
 @router.post(
@@ -2224,7 +2340,7 @@ async def close_order_group(
         },
         user_id=user.id,
     )
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
 
@@ -2299,7 +2415,7 @@ async def reopen_order_group(
         },
         user_id=user.id,
     )
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
 
@@ -2434,7 +2550,7 @@ async def extend_order_group(
         )
     )
     await materialize_scheduled_order_groups(db, client_id=client_id)
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(group)
     return await _group_to_read(db, group, with_finance=_can_see_finance(user))
 
@@ -2494,7 +2610,7 @@ async def add_line(
         user_id=user.id,
     )
     superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
-    await db.commit()
+    await commit_order_write(db)
     for path in superseded_paths:
         storage_service.delete_contract_document(path)
 
@@ -2644,7 +2760,7 @@ async def update_line(
             },
             user_id=user.id,
         )
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(line)
     return _line_to_read(line, with_finance=_can_see_finance(user))
 
@@ -2804,10 +2920,32 @@ async def resolve_md_offboarding_case(
                 )
             await recompute_remaining(db, target)
 
+    restored_end_date: Optional[date] = None
+    contract_reopened = False
+    if payload.action == OFFBOARDING_RESOLUTION_RESTORE:
+        restored_end_date, contract_reopened = await _restore_offboarded_line(
+            db,
+            case=case,
+            group=group,
+            source=source,
+            requested_end_date=payload.restore_end_date,
+            actor_id=user.id,
+        )
+
     # A legacy line's unused pool is removed from its signed value. Consumption
     # stays untouched; cards and exports now show the reduced total instead of
     # pretending the forfeited/transferred remainder was consumed.
-    if not case.uses_shared_md_pool and source.md_total is not None and remaining > 0:
+    #
+    # ``restore`` jest tu WYKLUCZONE, i to jest cała jego istota: pula nie
+    # została ani przekazana, ani utracona — współpraca trwa dalej, więc
+    # zdjęcie jej z wartości zamówienia byłoby zapisaniem faktu, który się nie
+    # wydarzył (i zabraniem konsultantowi budżetu, na którym właśnie pracuje).
+    if (
+        payload.action != OFFBOARDING_RESOLUTION_RESTORE
+        and not case.uses_shared_md_pool
+        and source.md_total is not None
+        and remaining > 0
+    ):
         _reduce_legacy_md_budget(source, remaining)
         await recompute_remaining(db, source)
 
@@ -2827,10 +2965,35 @@ async def resolve_md_offboarding_case(
         "target_rate_revenue": None if target_rate is None else str(target_rate),
         "target_order_id": target.id if target is not None else None,
         "target_consultant": target_name,
+        # Horyzont przywrócenia i to, czy trzeba było wskrzesić kontrakt —
+        # jedyny trwały ślad tej decyzji poza wpisem w historii. Oryginalna
+        # data końca linii przepadła przy offboardingu (case snapshotuje pulę
+        # i stawki, nie okres), więc nowa data JEST decyzją, nie odtworzeniem.
+        "restored_end_date": (
+            None if restored_end_date is None else restored_end_date.isoformat()
+        ),
+        "contract_reopened": contract_reopened,
     }
 
     source_name = consultant_display_name(source)
-    if payload.action == OFFBOARDING_RESOLUTION_REMOVE:
+    if payload.action == OFFBOARDING_RESOLUTION_RESTORE:
+        event_type = EVENT_MD_OFFBOARDING_RESTORED
+        horizon = (
+            "bezterminowo"
+            if restored_end_date is None
+            else f"do {restored_end_date.isoformat()}"
+        )
+        description = (
+            f"{source_name} — współpraca trwa dalej: linia wróciła na aktywną "
+            f"obsadę ({horizon}); "
+            + (
+                "wspólna pula MD zamówienia pozostała bez zmian."
+                if case.uses_shared_md_pool
+                else f"pozostałe {format_md(remaining)} MD zostają na linii."
+            )
+            + (" Kontrakt wrócił do aktywnych." if contract_reopened else "")
+        )
+    elif payload.action == OFFBOARDING_RESOLUTION_REMOVE:
         event_type = EVENT_MD_OFFBOARDING_REMOVED
         description = f"{source_name} — zakończenie współpracy obsłużone: " + (
             "linia usunięta z aktywnej obsady; wspólna pula MD zamówienia "
@@ -2867,7 +3030,7 @@ async def resolve_md_offboarding_case(
     await handle_offboarding_case_alerts(
         db, case_id=case.id, handled_by_user_id=user.id, now=now
     )
-    await db.commit()
+    await commit_order_write(db)
     await db.refresh(case)
     return _offboarding_case_to_read(case, with_finance=_can_see_finance(user))
 
@@ -3087,7 +3250,7 @@ async def swap_consultant(
         )
     )
     superseded_paths = await _sync_group_pdf_for_new_line(db, group=group, user=user)
-    await db.commit()
+    await commit_order_write(db)
     for path in superseded_paths:
         storage_service.delete_contract_document(path)
 

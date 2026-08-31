@@ -283,9 +283,19 @@ class OrderLineSwapRequest(BaseModel):
 class OrderOffboardingResolutionRequest(BaseModel):
     """Delivery Lead decision for one pending MD offboarding case."""
 
-    action: Literal["remove", "transfer"]
+    action: Literal["remove", "transfer", "restore"]
     target_order_id: Optional[int] = Field(None, gt=0)
     rate_basis: Optional[Literal["departing", "recipient"]] = None
+    restore_end_date: Optional[date] = None
+    """Do kiedy współpraca trwa po przywróceniu. Puste = bezterminowo.
+
+    Pole jest wyłącznie dla ``restore``. Data zakończenia linii została przy
+    offboardingu ucięta do dnia terminacji i NIGDZIE nie jest zachowywana
+    w oryginale (``ClientOrderOffboardingCase`` snapshotuje pulę i stawki, nie
+    okres), więc przywrócenie musi ten horyzont dostać od operatora — sam
+    serwer nie ma go skąd odtworzyć, a zgadnięcie „do końca zamówienia"
+    wpisywałoby do przychodu datę, której nikt nie zatwierdził."""
+
     expected_version: int = Field(..., ge=1)
 
     @model_validator(mode="after")
@@ -297,7 +307,11 @@ class OrderOffboardingResolutionRequest(BaseModel):
                 raise ValueError("Przeniesienie wymaga wyboru stawki")
         elif self.target_order_id is not None or self.rate_basis is not None:
             raise ValueError(
-                "Usunięcie puli nie przyjmuje konsultanta ani podstawy stawki"
+                "Ta decyzja nie przyjmuje konsultanta docelowego ani podstawy stawki"
+            )
+        if self.action != "restore" and self.restore_end_date is not None:
+            raise ValueError(
+                "Data zakończenia dotyczy wyłącznie przywrócenia konsultanta"
             )
         return self
 
@@ -326,7 +340,7 @@ class OrderOffboardingCaseRead(BaseModel):
     currency_snapshot: Optional[str] = None
     order_number_snapshot: Optional[str] = None
 
-    resolution: Optional[Literal["remove", "transfer"]] = None
+    resolution: Optional[Literal["remove", "transfer", "restore"]] = None
     target_order_id: Optional[int] = None
     rate_basis: Optional[Literal["departing", "recipient"]] = None
     resolution_payload: Optional[dict[str, Any]] = None

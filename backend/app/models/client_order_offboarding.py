@@ -41,9 +41,15 @@ OFFBOARDING_STATUSES: tuple[str, ...] = (
 
 OFFBOARDING_RESOLUTION_REMOVE = "remove"
 OFFBOARDING_RESOLUTION_TRANSFER = "transfer"
+OFFBOARDING_RESOLUTION_RESTORE = "restore"
+"""Wspolpraca jednak trwa: linia wraca do aktywnej obsady, a pula MD zostaje
+nienaruszona.  Rozstrzygniecie tej samej sprawy co ``remove``/``transfer``,
+ale jedyne, ktore NIE dysponuje pula — bo nie ma czego rozdysponowac."""
+
 OFFBOARDING_RESOLUTIONS: tuple[str, ...] = (
     OFFBOARDING_RESOLUTION_REMOVE,
     OFFBOARDING_RESOLUTION_TRANSFER,
+    OFFBOARDING_RESOLUTION_RESTORE,
 )
 
 OFFBOARDING_RATE_BASIS_DEPARTING = "departing"
@@ -75,7 +81,7 @@ class ClientOrderOffboardingCase(Base, TimestampMixin):
             name="ck_client_order_offboarding_status",
         ),
         CheckConstraint(
-            "resolution IS NULL OR resolution IN ('remove', 'transfer')",
+            "resolution IS NULL OR resolution IN ('remove', 'transfer', 'restore')",
             name="ck_client_order_offboarding_resolution",
         ),
         CheckConstraint(
@@ -97,6 +103,14 @@ class ClientOrderOffboardingCase(Base, TimestampMixin):
             "resolution IS DISTINCT FROM 'remove' "
             "OR (target_order_id IS NULL AND rate_basis IS NULL)",
             name="ck_client_order_offboarding_remove_target",
+        ),
+        # Osobne ograniczenie zamiast poszerzenia tego wyzej: nazwa ma nadal
+        # mowic, ktorej decyzji pilnuje.  ``restore`` nie rozdysponowuje puli,
+        # wiec nie ma ani odbiorcy, ani podstawy stawki.
+        CheckConstraint(
+            "resolution IS DISTINCT FROM 'restore' "
+            "OR (target_order_id IS NULL AND rate_basis IS NULL)",
+            name="ck_client_order_offboarding_restore_target",
         ),
         CheckConstraint("version >= 1", name="ck_client_order_offboarding_version"),
         CheckConstraint(

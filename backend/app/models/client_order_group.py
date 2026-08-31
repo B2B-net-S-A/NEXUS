@@ -343,7 +343,8 @@ class ClientOrderGroupEvent(Base):
             "'zamiana_kontraktora', 'edycja_reczna', 'zakonczenie', "
             "'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur', "
             "'transfer_md', 'zakonczenie_konsultanta', 'decyzja_md_wymagana', "
-            "'usuniecie_puli_md', 'przeniesienie_puli_md')",
+            "'usuniecie_puli_md', 'przeniesienie_puli_md', "
+            "'przywrocenie_konsultanta')",
             name="ck_client_order_group_events_type",
         ),
         Index("ix_client_order_group_events_group", "group_id"),

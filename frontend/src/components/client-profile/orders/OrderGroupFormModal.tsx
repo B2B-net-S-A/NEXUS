@@ -83,6 +83,10 @@ export function OrderGroupFormModal({
   const [extractError, setExtractError] = useState<string | null>(null);
   const [checkData, setCheckData] = useState(false);
   const [checkReasons, setCheckReasons] = useState<string[]>([]);
+  // Numer ID konsultanta z dokumentu (polityka BNP) — PDF-y tego klienta
+  // nie niosą imienia ani nazwiska. Informacyjnie, do potwierdzenia
+  // przez operatora; Nexus nie przechowuje identyfikatorów klienta.
+  const [consultantRef, setConsultantRef] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<ExtractionConflict[]>([]);
   const [pendingApply, setPendingApply] = useState<null | (() => void)>(null);
 
@@ -100,6 +104,7 @@ export function OrderGroupFormModal({
     setExtractError(null);
     setCheckData(false);
     setCheckReasons([]);
+    setConsultantRef(null);
     setConflicts([]);
     setPendingApply(null);
   }, [open, group]);
@@ -161,6 +166,7 @@ export function OrderGroupFormModal({
             ]
           : []),
       ]);
+      setConsultantRef(data.consultant_ref ?? null);
       setCheckData(Boolean(data.uncertain));
       setCheckReasons(data.uncertain_reasons ?? []);
       if (found.length > 0) {
@@ -272,6 +278,16 @@ export function OrderGroupFormModal({
           allowedTypes={allowedOrderTypes}
           disabled={editing}
         />
+
+        {consultantRef !== null ? (
+          <p
+            role="status"
+            className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground"
+          >
+            Numer ID konsultanta z dokumentu:{" "}
+            <span className="font-semibold">{consultantRef}</span>
+          </p>
+        ) : null}
 
         {checkData ? (
           <div
@@ -493,6 +509,7 @@ export function OrderGroupFormModal({
               setExtractError(null);
               setCheckData(false);
               setCheckReasons([]);
+              setConsultantRef(null);
             }}
             onError={setFileError}
             error={fileError ?? extractError}
@@ -523,6 +540,7 @@ export function OrderGroupFormModal({
                   setExtractError(null);
                   setCheckData(false);
                   setCheckReasons([]);
+                  setConsultantRef(null);
                 }}
                 className="rounded-md border border-destructive/40 p-2 text-destructive hover:bg-destructive/10"
               >

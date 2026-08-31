@@ -232,6 +232,14 @@ class OrderExtractionResult(BaseModel):
     wpisać do formularza. Ukrycie ich zostawiłoby go z pustym polem tam, gdzie
     ma coś uzupełnić."""
 
+    consultant_ref: Optional[str] = None
+    """Numer ID konsultanta odczytany z dokumentu (polityka BNP) — w PDF-ach
+    tego klienta nie ma imienia i nazwiska, jest wyłącznie ten numer. Nexus
+    nie przechowuje identyfikatorów nadanych przez klienta, więc pole służy
+    operatorowi do wzrokowego potwierdzenia, że dokument dotyczy osoby, z
+    której karty uruchomił odczyt. Nie jest kwotą — przeżywa redakcję
+    finansową, tak samo jak ``title_needs_review``."""
+
     uncertain: bool = True
     uncertain_reasons: list[str] = Field(default_factory=list)
     fields_confidence: dict[str, float] = Field(default_factory=dict)
