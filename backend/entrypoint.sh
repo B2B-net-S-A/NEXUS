@@ -2740,6 +2740,47 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_cv_share_chat_token_created "
     "ON cv_share_chat_messages (share_token, created_at)",
+    # 0255: reguły CV per klient (nazwa pliku, język, blok zgody RODO).
+    # CREATE TABLE idzie TU, a nie przez `Base.metadata.create_all` — tamten
+    # blok to jedna transakcja i na prodzie potrafi paść w całości (incydent
+    # Cortex, PR #664), zabierając ze sobą wszystkie pozostałe tabele.
+    """CREATE TABLE IF NOT EXISTS client_cv_rules (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL
+            REFERENCES clients(id) ON DELETE CASCADE,
+        filename_pattern VARCHAR(300),
+        spaces_to_underscores BOOLEAN NOT NULL DEFAULT FALSE,
+        cv_language VARCHAR(8),
+        requires_en_copy BOOLEAN NOT NULL DEFAULT FALSE,
+        requires_rodo_consent_block BOOLEAN NOT NULL DEFAULT FALSE,
+        notes TEXT,
+        seed_key VARCHAR(64),
+        confirmed_at TIMESTAMPTZ,
+        confirmed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_cv_rules_client "
+    "ON client_cv_rules (client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_cv_rules_seed_key "
+    "ON client_cv_rules (seed_key)",
+    "CREATE INDEX IF NOT EXISTS ix_client_cv_rules_confirmed_at "
+    "ON client_cv_rules (confirmed_at)",
+    # Bez tego więzu ręczny UPDATE mógłby wpisać dowolny łańcuch jako język,
+    # a walidacja generatora porównywałaby żądanie z wartością, której nie
+    # umie wymusić — 422 na poprawnym żądaniu albo cicha zgoda na zły język.
+    """DO $$ BEGIN
+        ALTER TABLE client_cv_rules
+            ADD CONSTRAINT ck_client_cv_rules_language
+            CHECK (cv_language IS NULL OR cv_language IN ('pl', 'en'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0255: klient wprost na wygenerowanym dokumencie. Tryb "upload" (99,9%
+    # generacji) nie ma joba, więc bez tej kolumny klienta nie da się ani
+    # zastosować, ani później odtworzyć.
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_cv_generated_documents_client_id "
+    "ON cv_generated_documents (client_id)",
     # 0206: typed candidate profile facts. Existing candidate rows need OCC
     # counters even when orphaned Alembic skipped the migration; create_all
     # cannot add columns to an existing table.
@@ -4783,6 +4824,72 @@ _DATA_STATEMENTS = [
            'Wersja angielska oświadczenia o niekaralności (KRK 2024)', FALSE, 120, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
+    # 0255: propozycje reguł CV per klient, wyprowadzone z sekcji „7. STANDARDY
+    # REKRUTACJI KLIENTA" szablonów zasianych wyżej. Lustro seeda z migracji
+    # 0255 — zmieniasz tu, zmień też tam.
+    #
+    # `confirmed_at` zostaje NULL, bo dopasowanie szablonu do wiersza w
+    # `clients` NIE jest 1:1 (samych bytów „BNP" jest siedem). Wiersz powstaje
+    # wyłącznie przy DOKŁADNIE JEDNYM żywym trafieniu nazwy, a i tak nie
+    # obowiązuje, dopóki człowiek go nie zatwierdzi w Ustawieniach. Dlatego
+    # dopasowanie po nazwie jest tu dopuszczalne mimo reguły „bramki idą po
+    # client_id" — nic z niego nie wchodzi w życie samo z siebie.
+    """INSERT INTO client_cv_rules
+           (client_id, filename_pattern, spaces_to_underscores, cv_language,
+            requires_en_copy, requires_rodo_consent_block, seed_key,
+            confirmed_at, created_at, updated_at)
+       SELECT c.id, s.filename_pattern, s.spaces_to_underscores, s.cv_language,
+              s.requires_en_copy, s.requires_rodo, s.seed_key,
+              NULL, now(), now()
+       FROM (VALUES
+           ('profil-championa-wzor-alior-docx', '%alior%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, NULL::varchar, TRUE, FALSE),
+           ('profil-championa-wzor-bik-docx', '%informacji kredytowej%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, NULL::varchar, TRUE, FALSE),
+           ('profil-championa-wzor-bnp-paribas-docx', '%bnp%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, NULL::varchar, TRUE, FALSE),
+           ('profil-championa-wzor-santander-docx', '%santander%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, NULL::varchar, TRUE, FALSE),
+           ('profil-championa-wzor-nordea-docx', '%nordea%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, 'en', FALSE, FALSE),
+           ('profil-championa-wzor-pfron-docx', '%pfron%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-kir-docx', '%krajowa izba rozliczeniowa%',
+            'B2B_{STANOWISKO}_{IMIE_NAZWISKO}', TRUE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-bank-pocztowy-docx', '%pocztow%',
+            'Bank_Pocztowy_{STANOWISKO}_{IMIE_NAZWISKO}', TRUE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-credit-agricole-docx', '%credit agricole%',
+            'B2B.NET_{STANOWISKO}_{IMIE_NAZWISKO}_{DATA}', TRUE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-pansa-docx', '%pansa%',
+            'B2B_PANSA_{STANOWISKO}_{IMIE_NAZWISKO}', TRUE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-tauron-docx', '%tauron%',
+            'B2B_Tauron_{STANOWISKO}_{IMIE_NAZWISKO}', TRUE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-energa-docx', '%energa%',
+            'ENERGA_{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-orlen-docx', '%orlen%',
+            'ORLEN_{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, 'pl', FALSE, FALSE),
+           ('profil-championa-wzor-pko-bp-docx', '%pko%',
+            'ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}', FALSE, 'pl', FALSE, TRUE)
+       ) AS s(seed_key, name_pattern, filename_pattern, spaces_to_underscores,
+              cv_language, requires_en_copy, requires_rodo)
+       JOIN clients c
+         ON lower(c.name) LIKE s.name_pattern
+        AND c.hidden = FALSE
+        AND c.merged_into_client_id IS NULL
+       WHERE (SELECT count(*) FROM clients c2
+               WHERE lower(c2.name) LIKE s.name_pattern
+                 AND c2.hidden = FALSE
+                 AND c2.merged_into_client_id IS NULL) = 1
+       ON CONFLICT (client_id) DO NOTHING""",
+    # 0255: klient na historycznych generacjach z trybu "new" — wyprowadzalny
+    # z oferty. Bez tego lista „Wygenerowane CV" pokazałaby „—" przy
+    # dokumentach, które klienta miały od zawsze.
+    """UPDATE cv_generated_documents d
+          SET client_id = j.client_id
+         FROM jobs j
+        WHERE d.job_id = j.id
+          AND d.client_id IS NULL
+          AND j.client_id IS NOT NULL""",
     # 0229 — szablon zaproszenia na spotkanie przygotowujące. Jedyny wiersz bez
     # `url`: to nie plik w SharePoincie, tylko TREŚĆ, którą rekruter wkleja do
     # Outlooka. `\n` rozwija Python (nie-raw string), więc do SQL-a trafiają
