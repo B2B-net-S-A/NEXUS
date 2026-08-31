@@ -176,6 +176,7 @@ async def test_shared_md_continuation_waits_for_the_group_budget():
 
     predecessor = SimpleNamespace(
         id=41,
+        client_id=CYFROWY_POLSAT_CLIENT_ID,
         status=GROUP_STATUS_ACTIVE,
         is_cost_based=False,
         is_md_budget_based=True,

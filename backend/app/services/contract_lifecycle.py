@@ -470,23 +470,39 @@ async def sync_contract_to_live_order(
     """
     # Serialize against terminal-state writers before reading any lifecycle
     # field. A caller may hold an identity-map object loaded before a concurrent
-    # ``void`` commit; ``populate_existing`` refreshes that same instance after
-    # the lock wait, so terminal ``void`` always wins. Suppress autoflush here:
+    # ``void`` commit; the locked scalar projection reads the committed state
+    # after the lock wait, so terminal ``void`` always wins. Suppress autoflush:
     # Nordea and order routes can have unrelated pending Order/rate changes in
     # the same transaction, and acquiring this parent lock must not publish
     # those changes early merely as a side effect of the SELECT.
     if contract.id is None:
         return False
     with db.no_autoflush:
-        locked_contract = await db.scalar(
-            select(Contract)
-            .where(Contract.id == contract.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    if locked_contract is None:
+        locked_row = (
+            await db.execute(
+                select(
+                    Contract.status,
+                    Contract.end_date,
+                    Contract.client_order_end_date,
+                )
+                .where(Contract.id == contract.id)
+                .with_for_update()
+            )
+        ).one_or_none()
+    if locked_row is None:
         return False
-    contract = locked_contract
+
+    # Copy only the lifecycle scalars read under the row lock. Refreshing the
+    # ORM entity with ``populate_existing`` expires eager-loaded relationships
+    # (candidate/framework-rate schedule); touching them later in an async
+    # writer then attempts forbidden implicit IO and raises MissingGreenlet.
+    # A scalar projection preserves those relationships and every unrelated
+    # pending field while still making a concurrent terminal ``void`` win.
+    (
+        contract.status,
+        contract.end_date,
+        contract.client_order_end_date,
+    ) = locked_row
 
     # WYŁĄCZNIE kontrakt zakończony/kończący się. Trzy powody, każdy osobny:
     #

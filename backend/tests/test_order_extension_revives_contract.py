@@ -224,6 +224,13 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
                 )
             )
 
+        def one_or_none(self):
+            return (
+                missed_contract.status,
+                missed_contract.end_date,
+                missed_contract.client_order_end_date,
+            )
+
     class _FakeDb:
         def __init__(self):
             self.added = []
@@ -239,9 +246,6 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
 
         async def execute(self, statement):
             return _Rows()
-
-        async def scalar(self, statement):
-            return missed_contract
 
         def add(self, value):
             self.added.append(value)
@@ -269,29 +273,25 @@ async def test_live_order_sync_refreshes_under_lock_and_preserves_concurrent_voi
         status=ContractStatus.ended,
         end_date=original_end,
     )
+    loaded_candidate = Candidate(name="Lock", lastname="Preserved")
+    stale.candidate = loaded_candidate
 
     class _RefreshToVoidDb:
         def __init__(self):
             self.no_autoflush = nullcontext()
             self.sql = ""
-            self.populate_existing = False
             self.added = []
 
-        async def scalar(self, statement):
+        async def execute(self, statement):
             self.sql = str(
                 statement.compile(
                     dialect=postgresql.dialect(),
                     compile_kwargs={"literal_binds": True},
                 )
             )
-            self.populate_existing = bool(
-                statement.get_execution_options().get("populate_existing")
+            return SimpleNamespace(
+                one_or_none=lambda: (ContractStatus.void, original_end, None)
             )
-            # Mimic SQLAlchemy refreshing the existing identity-map instance
-            # after waiting for the concurrent void transaction.
-            stale.status = ContractStatus.void
-            stale.voided_at = None
-            return stale
 
         def add(self, value):
             self.added.append(value)
@@ -308,9 +308,10 @@ async def test_live_order_sync_refreshes_under_lock_and_preserves_concurrent_voi
 
     assert changed is False
     assert "FOR UPDATE" in db.sql
-    assert db.populate_existing is True
+    assert "contracts.candidate_id" not in db.sql
     assert stale.status == ContractStatus.void
     assert stale.end_date == original_end
+    assert stale.candidate is loaded_candidate
     assert db.added == []
 
 
@@ -327,8 +328,16 @@ async def test_live_order_sync_noops_for_missing_or_fresh_draft_contract():
             self.no_autoflush = nullcontext()
             self.added = []
 
-        async def scalar(self, statement):
-            return self.result
+        async def execute(self, statement):
+            if self.result is None:
+                row = None
+            else:
+                row = (
+                    self.result.status,
+                    self.result.end_date,
+                    self.result.client_order_end_date,
+                )
+            return SimpleNamespace(one_or_none=lambda: row)
 
         def add(self, value):
             self.added.append(value)

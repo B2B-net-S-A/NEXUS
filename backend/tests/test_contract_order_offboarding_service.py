@@ -26,6 +26,7 @@ from app.models.dl_alert import DL_ALERT_STATUS_NEW, DlAlert
 from app.schemas.client_order_group import OrderOffboardingResolutionRequest
 from app.services import contract_order_offboarding as offboarding
 from app.services import dl_alerts
+from app.services.cyfrowy_polsat_orders import CYFROWY_POLSAT_CLIENT_ID
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ENDED,
     EVENT_MD_OFFBOARDING_PENDING,
@@ -222,6 +223,16 @@ async def test_effective_offboarding_branches_by_type_and_keeps_shared_pool(
     legacy_md.md_total = Decimal("50")
     legacy_md.md_remaining = Decimal("50")
     shared_md = _order(4, contract=contract, order_type="md", group=shared_md_group)
+
+    # CP is the deliberate shared-pool variant. Keep the per-line MD fixture
+    # in its genuinely legacy (pre explicit-type) shape while making the
+    # shared group/client relationship coherent with the production policy.
+    contract.client_id = CYFROWY_POLSAT_CLIENT_ID
+    legacy_md_group.order_type = None
+    for group in (cost_group, legacy_md_group, shared_md_group):
+        group.client_id = CYFROWY_POLSAT_CLIENT_ID
+    for order in (periodic, cost, legacy_md, shared_md):
+        order.client_id = CYFROWY_POLSAT_CLIENT_ID
     db = _FakeDb([], [periodic, cost, legacy_md, shared_md])
 
     async def recompute(_db, order):
