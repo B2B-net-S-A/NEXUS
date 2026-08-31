@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -45,14 +46,22 @@ from app.api.financial_access import FinanceManageUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
-from app.models.client_order_group import GROUP_STATUS_EXHAUSTED, ClientOrderGroup
-from app.models.contract import Contract
+from app.models.client_order_group import (
+    GROUP_STATUS_ACTIVE,
+    GROUP_STATUS_COMPLETED,
+    GROUP_STATUS_EXHAUSTED,
+    ClientOrderGroup,
+    ClientOrderGroupMdConsumption,
+)
+from app.models.contract import Contract, ContractStatus
 from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
+    ClientOrderMdConsumption,
     COST_ROW_APPLIED,
     COST_ROW_STATUS_LABELS,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_UNMATCHED_NUMBER,
+    CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_STATUS_LABELS,
@@ -67,7 +76,11 @@ from app.schemas.md_consumption import (
     ImportRowRead,
     ImportSummary,
     LineOption,
+    PolkomtelReprocessRequest,
+    PolkomtelReprocessResponse,
+    PolkomtelReprocessTarget,
 )
+from app.services import finance_order_matching
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
@@ -76,9 +89,13 @@ from app.services.client_order_lines import (
     active_shared_md_lines,
     apply_md_consumption,
     describe_import,
+    historical_cost_lines,
+    historical_md_lines,
+    historical_shared_md_lines,
     match_by_name,
     month_bounds,
     record_event,
+    successor_line_for,
 )
 from app.services.cost_orders import (
     describe_invoice_import,
@@ -103,6 +120,7 @@ from app.services.multi_consultant_orders import (
 from app.services.shared_md_orders import (
     shared_md_used_total,
     upsert_shared_md_consumption,
+    uses_shared_md_pool,
 )
 
 router = APIRouter()
@@ -256,6 +274,7 @@ async def _apply_to_line(
     md_reported,
     import_id: int,
     user_id: int,
+    historical_reprocess: bool = False,
 ) -> None:
     """Zapisz MD na linii i dopisz jeden wpis do historii jej zamówienia.
 
@@ -275,9 +294,33 @@ async def _apply_to_line(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    first, last = month_bounds(period_month)
+    historical_target_is_valid = (
+        historical_reprocess
+        and locked_order is not None
+        and locked_order.status
+        in (ClientOrderStatus.active, ClientOrderStatus.completed)
+        and locked_order.contract is not None
+        and locked_order.contract.status != ContractStatus.void
+        and locked_order.order_group is not None
+        and locked_order.order_group.status
+        in (GROUP_STATUS_ACTIVE, GROUP_STATUS_COMPLETED, GROUP_STATUS_EXHAUSTED)
+        and locked_order.order_group.start_date <= last
+        and (
+            locked_order.order_group.end_date is None
+            or locked_order.order_group.end_date >= first
+        )
+        and (locked_order.start_date is None or locked_order.start_date <= last)
+        and (locked_order.end_date is None or locked_order.end_date >= first)
+    )
+    target_is_valid = historical_target_is_valid or (
+        not historical_reprocess
+        and locked_order is not None
+        and locked_order.status == ClientOrderStatus.active
+    )
     if (
         locked_order is None
-        or locked_order.status != ClientOrderStatus.active
+        or not target_is_valid
         or locked_order.order_group_id != expected_group_id
     ):
         # The match was computed before this transaction acquired the line.
@@ -301,6 +344,7 @@ async def _apply_to_line(
         md_reported=md_reported,
         import_id=import_id,
         user_id=user_id,
+        allow_successor_transfer=not historical_reprocess,
     )
     if locked_group is not None:
         record_event(
@@ -329,6 +373,130 @@ async def _apply_to_line(
             },
             user_id=user_id,
         )
+
+
+async def _lock_finance_target_orders(
+    db: AsyncSession, order_ids: set[int]
+) -> dict[int, ClientOrder]:
+    """Lock every target line once, globally ordered by primary key."""
+
+    if not order_ids:
+        return {}
+    ordered_ids = sorted(order_ids)
+    result = await db.execute(
+        select(ClientOrder)
+        .options(
+            selectinload(ClientOrder.contract).selectinload(Contract.candidate),
+            selectinload(ClientOrder.order_group),
+        )
+        .where(ClientOrder.id.in_(ordered_ids))
+        .order_by(ClientOrder.id.asc())
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    locked = {order.id: order for order in result.scalars()}
+    if set(locked) != set(ordered_ids):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Jedna z linii zmieniła się podczas rozliczania importu.",
+        )
+    return locked
+
+
+async def _lock_finance_target_groups(
+    db: AsyncSession, groups: dict[int, ClientOrderGroup]
+) -> dict[int, ClientOrderGroup]:
+    """Lock every target group after lines, globally ordered by primary key."""
+
+    locked: dict[int, ClientOrderGroup] = {}
+    for group_id in sorted(groups):
+        locked[group_id] = await lock_group_for_settlement(
+            db,
+            groups[group_id],
+            flush_local_changes=False,
+        )
+    return locked
+
+
+def _ordinary_locked_target_is_valid(
+    *,
+    kind: str,
+    order: ClientOrder,
+    group: ClientOrderGroup,
+    rows: list[MdConsumptionImportRow],
+    expected_client_id: int,
+    period_month: str,
+) -> bool:
+    """Re-match persisted spreadsheet evidence after line/group lock waits.
+
+    Candidate selection happens before the importer can acquire its locks.  A
+    concurrent group PATCH may therefore rename or move the period of an order
+    while this transaction is waiting.  Rechecking only status/type would then
+    apply the old spreadsheet row to the newly named order.  Keep the original
+    row evidence and prove the same name, client, period and (where routing
+    requires it) order number against the refreshed ORM objects.
+    """
+
+    contract = order.contract
+    candidate = contract.candidate if contract else None
+    consultant_name = (
+        f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+        if candidate
+        else ""
+    )
+    current_match = LineMatch(order, group, consultant_name)
+    first, last = month_bounds(period_month)
+    if (
+        not rows
+        or order.order_group_id != group.id
+        or order.client_id != expected_client_id
+        or group.client_id != expected_client_id
+        or contract is None
+        or contract.client_id != expected_client_id
+        or contract.status == ContractStatus.void
+        or (order.start_date is not None and order.start_date > last)
+        or (order.end_date is not None and order.end_date < first)
+    ):
+        return False
+
+    if kind == "md_line":
+        if order.status != ClientOrderStatus.active or order.md_total is None:
+            return False
+    elif kind == "shared_md":
+        if (
+            order.status != ClientOrderStatus.active
+            or group.status != GROUP_STATUS_ACTIVE
+            or not uses_shared_md_pool(group)
+        ):
+            return False
+    elif kind == "cost":
+        if (
+            order.status not in (ClientOrderStatus.active, ClientOrderStatus.draft)
+            or group.status != GROUP_STATUS_ACTIVE
+            or not group.is_cost_based
+        ):
+            return False
+    else:
+        return False
+
+    for row in rows:
+        if match_by_name([current_match], row.consultant_name) != [current_match]:
+            return False
+        hints = extract_order_number_candidates(row.notes_raw)
+        number_is_evidence = kind in ("shared_md", "cost") or (
+            expected_client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
+            and bool(hints)
+        )
+        if (
+            number_is_evidence
+            and not finance_order_matching.finance_order_number_matches(
+                client_id=group.client_id,
+                order_number=group.order_number,
+                numeric_hints=hints,
+            )
+        ):
+            return False
+    return True
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -396,8 +564,12 @@ async def create_import(
     # żadnego sygnału.
     pending_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     md_orders: dict[int, tuple[ClientOrder, ClientOrderGroup]] = {}
+    md_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
     pending_shared_md: dict[int, Decimal] = defaultdict(lambda: Decimal("0"))
     shared_md_groups: dict[int, ClientOrderGroup] = {}
+    shared_md_orders: dict[int, ClientOrder] = {}
+    shared_md_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
+    cost_rows: dict[int, list[MdConsumptionImportRow]] = defaultdict(list)
 
     for parsed_row in parsed.rows:
         row = MdConsumptionImportRow(
@@ -420,15 +592,26 @@ async def create_import(
             shared_md_candidates=shared_md_candidates,
             pending_shared_md=pending_shared_md,
             shared_md_groups=shared_md_groups,
+            shared_md_orders=shared_md_orders,
         )
+        if (
+            consultant_in_shared_md
+            and row.status == IMPORT_ROW_APPLIED
+            and row.matched_order_id is not None
+        ):
+            shared_md_rows[row.matched_order_id].append(row)
         if not consultant_in_shared_md:
-            matches = match_by_name(candidates, parsed_row.consultant_name)
+            matches = _match_per_consultant_md_row(
+                parsed_row=parsed_row,
+                candidates=candidates,
+            )
             if len(matches) == 1:
                 match = matches[0]
                 row.status = IMPORT_ROW_APPLIED
                 row.matched_order_id = match.order.id
                 pending_md[match.order.id] += parsed_row.md_reported
                 md_orders[match.order.id] = (match.order, match.group)
+                md_rows[match.order.id].append(row)
             elif len(matches) > 1:
                 row.status = IMPORT_ROW_NEEDS_ASSIGNMENT
                 row.candidate_order_ids = [m.order.id for m in matches]
@@ -439,7 +622,7 @@ async def create_import(
         # rozłączne, więc taki wiersz kończy routing na ścieżce shared-MD.
         shared_md_applied = consultant_in_shared_md and row.status == IMPORT_ROW_APPLIED
         if not shared_md_applied:
-            _match_cost_row(
+            cost_match = _match_cost_row(
                 row,
                 parsed_row=parsed_row,
                 cost_candidates=cost_candidates,
@@ -447,7 +630,112 @@ async def create_import(
                 invoice_orders=invoice_orders,
                 touched_groups=touched_groups,
             )
+            if cost_match is not None:
+                cost_rows[cost_match.order.id].append(row)
         db.add(row)
+
+    # One lock protocol for every Finance writer: all lines (ascending), then
+    # all groups (ascending), only then monthly rows/upserts.  Offboarding and
+    # group edits already use line -> group; reversing that order here could
+    # deadlock when an invoice FK waits on a line held by those workflows.
+    expected_group_by_order: dict[int, int] = {
+        order_id: group.id for order_id, (_, group) in md_orders.items()
+    }
+    expected_group_by_order.update(
+        {
+            order_id: order.order_group_id
+            for order_id, order in shared_md_orders.items()
+            if order.order_group_id is not None
+        }
+    )
+    expected_client_by_order: dict[int, int] = {
+        order_id: group.client_id for order_id, (_, group) in md_orders.items()
+    }
+    expected_client_by_order.update(
+        {order_id: order.client_id for order_id, order in shared_md_orders.items()}
+    )
+    expected_client_by_order.update(
+        {order_id: order.client_id for order_id, order in invoice_orders.items()}
+    )
+    expected_group_by_order.update(
+        {
+            order_id: order.order_group_id
+            for order_id, order in invoice_orders.items()
+            if order.order_group_id is not None
+        }
+    )
+    locked_orders = await _lock_finance_target_orders(db, set(expected_group_by_order))
+    for order_id, expected_group_id in expected_group_by_order.items():
+        if locked_orders[order_id].order_group_id != expected_group_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    "Obsada zamówienia zmieniła się podczas importu. "
+                    "Odśwież dane i ponów import."
+                ),
+            )
+
+    target_groups = (
+        {group.id: group for _, group in md_orders.values()}
+        | shared_md_groups
+        | touched_groups
+    )
+    locked_groups = await _lock_finance_target_groups(db, target_groups)
+
+    for order_id, (_, group) in list(md_orders.items()):
+        md_orders[order_id] = (locked_orders[order_id], locked_groups[group.id])
+    for group_id in list(shared_md_groups):
+        shared_md_groups[group_id] = locked_groups[group_id]
+    for order_id in list(invoice_orders):
+        invoice_orders[order_id] = locked_orders[order_id]
+    for group_id in list(touched_groups):
+        touched_groups[group_id] = locked_groups[group_id]
+
+    for order_id, rows in md_rows.items():
+        order = locked_orders[order_id]
+        group = locked_groups[expected_group_by_order[order_id]]
+        if not _ordinary_locked_target_is_valid(
+            kind="md_line",
+            order=order,
+            group=group,
+            rows=rows,
+            expected_client_id=expected_client_by_order[order_id],
+            period_month=period_month,
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="Linia MD zmieniła się podczas importu.",
+            )
+    for order_id, rows in shared_md_rows.items():
+        order = locked_orders[order_id]
+        group = locked_groups[expected_group_by_order[order_id]]
+        if not _ordinary_locked_target_is_valid(
+            kind="shared_md",
+            order=order,
+            group=group,
+            rows=rows,
+            expected_client_id=expected_client_by_order[order_id],
+            period_month=period_month,
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="Wspólna pula MD zmieniła się podczas importu.",
+            )
+    for order_id, rows in cost_rows.items():
+        order = locked_orders[order_id]
+        group = locked_groups[expected_group_by_order[order_id]]
+        if not _ordinary_locked_target_is_valid(
+            kind="cost",
+            order=order,
+            group=group,
+            rows=rows,
+            expected_client_id=expected_client_by_order[order_id],
+            period_month=period_month,
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="Zamówienie kosztowe zmieniło się podczas importu.",
+            )
 
     for order_id in sorted(pending_md):
         md_total = pending_md[order_id]
@@ -462,8 +750,6 @@ async def create_import(
             user_id=user.id,
         )
 
-    # Stała kolejność blokad grup — dwa równoległe raporty obejmujące te same
-    # zamówienia w innej kolejności wierszy nie mogą zakleszczyć transakcji.
     for group_id in sorted(pending_shared_md):
         await _settle_shared_md_and_record(
             db,
@@ -474,7 +760,8 @@ async def create_import(
             user_id=user.id,
         )
 
-    for order_id, amount in pending_invoices.items():
+    for order_id in sorted(pending_invoices):
+        amount = pending_invoices[order_id]
         await upsert_invoice(
             db,
             order=invoice_orders[order_id],
@@ -502,6 +789,42 @@ async def create_import(
     return await _detail(db, batch, parsed_sheet=parsed)
 
 
+def _match_per_consultant_md_row(*, parsed_row, candidates: list[LineMatch]):
+    """Preserve name matching, but use Polkomtel's explicit SAP number.
+
+    Historical MD imports are name-only.  When a row carries a number that
+    matches a Polkomtel ``SAP`` order, using it resolves the reported bug and
+    prevents a same-name row from landing on another order.  Once an explicit
+    hint is present beside a Polkomtel candidate, a mismatch is authoritative
+    and returns no Polkomtel line instead of falling back to name-only.
+
+    Rows without a Polkomtel candidate (or without a numeric hint) retain the
+    old BIK/BNP name-only behavior.  Exact numbered matches from neighbouring
+    clients remain in the narrowed set, so a genuine cross-client collision is
+    still ambiguous and never guessed.
+    """
+
+    named = match_by_name(candidates, parsed_row.consultant_name)
+    if not named:
+        return []
+    hints = extract_order_number_candidates(parsed_row.notes_raw)
+    has_polkomtel_candidate = any(
+        match.group.client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
+        for match in named
+    )
+    if not has_polkomtel_candidate or not hints:
+        return named
+    return [
+        match
+        for match in named
+        if finance_order_matching.finance_order_number_matches(
+            client_id=match.group.client_id,
+            order_number=match.group.order_number,
+            numeric_hints=hints,
+        )
+    ]
+
+
 def _match_shared_md_row(
     row: MdConsumptionImportRow,
     *,
@@ -509,6 +832,7 @@ def _match_shared_md_row(
     shared_md_candidates: list[LineMatch],
     pending_shared_md: dict[int, Decimal],
     shared_md_groups: dict[int, ClientOrderGroup],
+    shared_md_orders: dict[int, ClientOrder],
 ) -> bool:
     """Dopasuj wspólną pulę MD po konsultancie ORAZ numerze zamówienia.
 
@@ -522,7 +846,15 @@ def _match_shared_md_row(
         return False
 
     hints = extract_order_number_candidates(parsed_row.notes_raw)
-    numbered = [match for match in named if match.group.order_number.strip() in hints]
+    numbered = [
+        match
+        for match in named
+        if finance_order_matching.finance_order_number_matches(
+            client_id=match.group.client_id,
+            order_number=match.group.order_number,
+            numeric_hints=hints,
+        )
+    ]
     if len(numbered) != 1:
         # Status pozostaje `unmatched`; ręczne przypisanie historycznej linii
         # zapisuje budżet per konsultant, więc nie jest bezpieczną ścieżką dla
@@ -536,6 +868,7 @@ def _match_shared_md_row(
     row.order_number_hint = match.group.order_number.strip()
     pending_shared_md[match.group.id] += parsed_row.md_reported
     shared_md_groups[match.group.id] = match.group
+    shared_md_orders[match.order.id] = match.order
     return True
 
 
@@ -547,7 +880,7 @@ def _match_cost_row(
     pending_invoices: dict[int, Decimal],
     invoice_orders: dict[int, ClientOrder],
     touched_groups: dict[int, ClientOrderGroup],
-) -> None:
+) -> Optional[LineMatch]:
     """Dopasuj wiersz do zamówienia kosztowego po numerze z „Uwag".
 
     Wiersz wchodzi na tę ścieżkę tylko wtedy, gdy ma OBIE rzeczy: numer
@@ -563,7 +896,7 @@ def _match_cost_row(
     hints = extract_order_number_candidates(parsed_row.notes_raw)
     amount = parsed_row.invoice_amount
     if not hints or amount is None or quantize_money(amount) <= Decimal("0"):
-        return
+        return None
 
     # Numer zamówienia nie jest globalnie unikalny (ani w bazie, ani między
     # klientami), więc nie wolno zwijać kandydatów do słownika po samym
@@ -572,11 +905,17 @@ def _match_cost_row(
     # „445" u Polkomtela, Cyfrowego Polsatu i Lotte Wedel nie nadpisują się zależnie od
     # kolejności wyniku zapytania.
     numbered = [
-        match for match in cost_candidates if match.group.order_number.strip() in hints
+        match
+        for match in cost_candidates
+        if finance_order_matching.finance_order_number_matches(
+            client_id=match.group.client_id,
+            order_number=match.group.order_number,
+            numeric_hints=hints,
+        )
     ]
     if not numbered:
         row.cost_status = COST_ROW_UNMATCHED_NUMBER
-        return
+        return None
 
     named = match_by_name(numbered, parsed_row.consultant_name)
     if len(named) != 1:
@@ -584,7 +923,7 @@ def _match_cost_row(
         # zgaduje. Kwota trafiłaby wtedy na cudzą linię, a „Zafakturowano"
         # przy konsultancie przestałoby zgadzać się z jego fakturami.
         row.cost_status = COST_ROW_UNMATCHED_CONSULTANT
-        return
+        return None
 
     match = named[0]
     group = match.group
@@ -595,6 +934,409 @@ def _match_cost_row(
     pending_invoices[order.id] += quantize_money(amount)
     invoice_orders[order.id] = order
     touched_groups[group.id] = group
+    return match
+
+
+# ── Safe reprocessing of an already uploaded Polkomtel batch ───────────────
+
+_REPROCESS_MD_LINE = "md_line"
+_REPROCESS_SHARED_MD = "shared_md"
+_REPROCESS_COST = "cost"
+
+
+@dataclass
+class _PolkomtelReprocessPlan:
+    kind: str
+    match: LineMatch
+    rows: list[MdConsumptionImportRow]
+    rows_to_update: list[MdConsumptionImportRow]
+    expected_value: Decimal
+    current_value: Optional[Decimal] = None
+    write_required: bool = True
+
+
+def _single_polkomtel_numbered_match(
+    candidates: list[LineMatch], row: MdConsumptionImportRow
+) -> tuple[Optional[LineMatch], bool]:
+    """Return one Polkomtel match only when it is unique across clients."""
+
+    named = match_by_name(candidates, row.consultant_name)
+    hints = extract_order_number_candidates(row.notes_raw)
+    numbered = [
+        match
+        for match in named
+        if finance_order_matching.finance_order_number_matches(
+            client_id=match.group.client_id,
+            order_number=match.group.order_number,
+            numeric_hints=hints,
+        )
+    ]
+    polkomtel = [
+        match
+        for match in numbered
+        if match.group.client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
+    ]
+    if not polkomtel:
+        return None, False
+    if len(numbered) == 1:
+        return polkomtel[0], False
+    return None, True
+
+
+def _build_polkomtel_reprocess_plan(
+    rows: list[MdConsumptionImportRow],
+    *,
+    md_candidates: list[LineMatch],
+    shared_md_candidates: list[LineMatch],
+    cost_candidates: list[LineMatch],
+) -> tuple[list[_PolkomtelReprocessPlan], list[str]]:
+    """Plan only newly provable Polkomtel matches; never rewrite a decision.
+
+    Every target aggregates *all* matching rows from the batch, not only rows
+    whose status changes.  The monthly consumption has a single upsert key, so
+    writing only the newly matched row would overwrite and lose an amount that
+    was already applied from the same spreadsheet.
+    """
+
+    buckets: dict[tuple[str, int], _PolkomtelReprocessPlan] = {}
+    conflicts: list[str] = []
+
+    def add_md(*, kind: str, match: LineMatch, row: MdConsumptionImportRow) -> None:
+        key_id = match.group.id if kind == _REPROCESS_SHARED_MD else match.order.id
+        key = (kind, key_id)
+        plan = buckets.setdefault(
+            key,
+            _PolkomtelReprocessPlan(
+                kind=kind,
+                match=match,
+                rows=[],
+                rows_to_update=[],
+                expected_value=Decimal("0"),
+            ),
+        )
+        plan.rows.append(row)
+        plan.expected_value += Decimal(str(row.md_reported))
+
+        already_different = row.matched_order_id not in (None, match.order.id) or (
+            kind == _REPROCESS_SHARED_MD
+            and row.matched_group_id not in (None, match.group.id)
+        )
+        if row.status == IMPORT_ROW_APPLIED and already_different:
+            conflicts.append(
+                f"Wiersz {row.id}: MD jest już przypisane do innego zamówienia."
+            )
+            return
+        if (
+            row.status != IMPORT_ROW_APPLIED
+            or row.matched_order_id != match.order.id
+            or (kind == _REPROCESS_SHARED_MD and row.matched_group_id != match.group.id)
+        ):
+            plan.rows_to_update.append(row)
+
+    def add_cost(match: LineMatch, row: MdConsumptionImportRow) -> None:
+        key = (_REPROCESS_COST, match.order.id)
+        plan = buckets.setdefault(
+            key,
+            _PolkomtelReprocessPlan(
+                kind=_REPROCESS_COST,
+                match=match,
+                rows=[],
+                rows_to_update=[],
+                expected_value=Decimal("0"),
+            ),
+        )
+        plan.rows.append(row)
+        plan.expected_value += Decimal(str(row.invoice_amount or 0))
+        if row.cost_status == COST_ROW_APPLIED and row.matched_group_id not in (
+            None,
+            match.group.id,
+        ):
+            conflicts.append(
+                f"Wiersz {row.id}: kwota jest już przypisana do innego zamówienia."
+            )
+            return
+        if (
+            row.cost_status != COST_ROW_APPLIED
+            or row.matched_group_id != match.group.id
+        ):
+            plan.rows_to_update.append(row)
+
+    for row in rows:
+        shared_match, shared_ambiguous = _single_polkomtel_numbered_match(
+            shared_md_candidates, row
+        )
+        if shared_ambiguous:
+            conflicts.append(
+                f"Wiersz {row.id}: numer i konsultant pasują do więcej niż "
+                "jednej wspólnej puli MD."
+            )
+        if shared_match is not None:
+            add_md(kind=_REPROCESS_SHARED_MD, match=shared_match, row=row)
+        else:
+            line_match, line_ambiguous = _single_polkomtel_numbered_match(
+                md_candidates, row
+            )
+            if line_ambiguous:
+                conflicts.append(
+                    f"Wiersz {row.id}: numer i konsultant pasują do więcej "
+                    "niż jednej linii MD."
+                )
+            if line_match is not None:
+                add_md(kind=_REPROCESS_MD_LINE, match=line_match, row=row)
+
+        # Shared-MD is a terminal route in the ordinary importer too.  A row
+        # applied to that pool must not additionally subtract an invoice.
+        amount = row.invoice_amount
+        if (
+            shared_match is None
+            and amount is not None
+            and quantize_money(amount) > Decimal("0")
+        ):
+            cost_match, cost_ambiguous = _single_polkomtel_numbered_match(
+                cost_candidates, row
+            )
+            if cost_ambiguous:
+                conflicts.append(
+                    f"Wiersz {row.id}: numer i konsultant pasują do więcej "
+                    "niż jednej linii kosztowej."
+                )
+            if cost_match is not None:
+                add_cost(cost_match, row)
+
+    plans: list[_PolkomtelReprocessPlan] = []
+    for plan in buckets.values():
+        if not plan.rows_to_update:
+            continue
+        if plan.kind == _REPROCESS_COST:
+            plan.expected_value = quantize_money(plan.expected_value)
+        else:
+            plan.expected_value = quantize_md(plan.expected_value)
+        plans.append(plan)
+    # Mirror the ordinary importer: a shared pool is terminal; otherwise MD is
+    # resolved first and the cost route may then own ``matched_group_id``.
+    kind_order = {
+        _REPROCESS_SHARED_MD: 0,
+        _REPROCESS_MD_LINE: 1,
+        _REPROCESS_COST: 2,
+    }
+    plans.sort(
+        key=lambda plan: (
+            kind_order[plan.kind],
+            plan.match.group.id,
+            plan.match.order.id,
+        )
+    )
+    return plans, list(dict.fromkeys(conflicts))
+
+
+async def _protect_newer_or_manual_consumption(
+    db: AsyncSession,
+    *,
+    batch: MdConsumptionImport,
+    plan: _PolkomtelReprocessPlan,
+    lock: bool,
+) -> Optional[str]:
+    """Prevent a July correction from overwriting newer/manual truth."""
+
+    if plan.kind == _REPROCESS_SHARED_MD:
+        current_query = select(ClientOrderGroupMdConsumption).where(
+            ClientOrderGroupMdConsumption.group_id == plan.match.group.id,
+            ClientOrderGroupMdConsumption.period_month == batch.period_month,
+        )
+        if lock:
+            current_query = current_query.with_for_update()
+        current = await db.scalar(
+            current_query.execution_options(populate_existing=True)
+        )
+        if current is None:
+            return None
+        current_value = quantize_md(current.md_reported)
+        plan.current_value = current_value
+        if current.source == CONSUMPTION_SOURCE_MANUAL:
+            return (
+                f"Zamówienie {plan.match.group.order_number}: istnieje ręczna "
+                "korekta wspólnej puli MD za ten miesiąc."
+            )
+        if current_value == plan.expected_value:
+            plan.write_required = False
+            return None
+        # Shared-MD rows predate an import_id column, so ownership cannot be
+        # proven.  Refuse to replace a different imported value.
+        return (
+            f"Zamówienie {plan.match.group.order_number}: istnieje inne "
+            "rozliczenie wspólnej puli MD za ten miesiąc."
+        )
+
+    model = (
+        ClientOrderInvoiceConsumption
+        if plan.kind == _REPROCESS_COST
+        else ClientOrderMdConsumption
+    )
+    value_column = (
+        model.invoice_amount if plan.kind == _REPROCESS_COST else model.md_reported
+    )
+    current_query = select(model).where(
+        model.order_id == plan.match.order.id,
+        model.period_month == batch.period_month,
+    )
+    if lock:
+        current_query = current_query.with_for_update()
+    current = await db.scalar(current_query.execution_options(populate_existing=True))
+    if current is None:
+        return None
+    current_value = (
+        quantize_money(getattr(current, value_column.key))
+        if plan.kind == _REPROCESS_COST
+        else quantize_md(getattr(current, value_column.key))
+    )
+    plan.current_value = current_value
+    if current.source == CONSUMPTION_SOURCE_MANUAL:
+        return (
+            f"Zamówienie {plan.match.group.order_number}: istnieje ręczne "
+            "rozliczenie za ten miesiąc."
+        )
+    if current_value == plan.expected_value:
+        plan.write_required = False
+        return None
+    if current.import_id == batch.id:
+        return None
+    if current.import_id is None:
+        return (
+            f"Zamówienie {plan.match.group.order_number}: istnieje inne "
+            "rozliczenie bez możliwej do potwierdzenia partii źródłowej."
+        )
+    other_batch = await db.get(MdConsumptionImport, current.import_id)
+    if other_batch is None or other_batch.created_at >= batch.created_at:
+        return (
+            f"Zamówienie {plan.match.group.order_number}: istnieje rozliczenie "
+            "z nowszego importu; starsza partia nie może go nadpisać."
+        )
+    return None
+
+
+async def _lock_polkomtel_reprocess_targets(
+    db: AsyncSession,
+    plans: list[_PolkomtelReprocessPlan],
+    *,
+    period_month: str,
+) -> None:
+    """Serialize replay with every ordinary writer before protection checks.
+
+    An existing monthly row is locked separately in
+    ``_protect_newer_or_manual_consumption``.  For an absent row there is
+    nothing PostgreSQL can row-lock, so replay first locks every target line,
+    then every target group.  This mirrors group edits/offboarding and the
+    ordinary Finance importer, preventing an order -> group / group -> order
+    cycle.
+    """
+
+    expected_group_by_order = {
+        plan.match.order.id: plan.match.group.id for plan in plans
+    }
+    locked_orders = await _lock_finance_target_orders(db, set(expected_group_by_order))
+    for order_id, group_id in expected_group_by_order.items():
+        if locked_orders[order_id].order_group_id != group_id:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="Obsada zamówienia zmieniła się podczas przeliczenia.",
+            )
+
+    target_groups = {plan.match.group.id: plan.match.group for plan in plans}
+    locked_groups = await _lock_finance_target_groups(db, target_groups)
+    for plan in plans:
+        locked_order = locked_orders[plan.match.order.id]
+        locked_group = locked_groups[plan.match.group.id]
+        plan.match = LineMatch(
+            order=locked_order,
+            group=locked_group,
+            consultant_name=(
+                f"{locked_order.contract.candidate.name or ''} "
+                f"{locked_order.contract.candidate.lastname or ''}"
+            ).strip()
+            if locked_order.contract and locked_order.contract.candidate
+            else "",
+        )
+
+    for plan in plans:
+        if not _historical_reprocess_match_is_valid(plan, period_month=period_month):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    "Cel zmienił się podczas ponownego przeliczenia; wykonaj "
+                    "ponownie dry-run."
+                ),
+            )
+
+
+def _historical_reprocess_match_is_valid(
+    plan: _PolkomtelReprocessPlan, *, period_month: str
+) -> bool:
+    """Revalidate the exact Polkomtel target after action-time locks."""
+
+    order = plan.match.order
+    group = plan.match.group
+    first, last = month_bounds(period_month)
+    contract = order.contract
+    if (
+        order.client_id != finance_order_matching.POLKOMTEL_CLIENT_ID
+        or group.client_id != finance_order_matching.POLKOMTEL_CLIENT_ID
+        or order.order_group_id != group.id
+        or order.status not in (ClientOrderStatus.active, ClientOrderStatus.completed)
+        or contract is None
+        or contract.status == ContractStatus.void
+        or contract.client_id != order.client_id
+        or group.status
+        not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_COMPLETED, GROUP_STATUS_EXHAUSTED)
+        or group.start_date > last
+        or (group.end_date is not None and group.end_date < first)
+        or (order.start_date is not None and order.start_date > last)
+        or (order.end_date is not None and order.end_date < first)
+    ):
+        return False
+    if plan.kind == _REPROCESS_MD_LINE and order.md_total is None:
+        return False
+    if plan.kind == _REPROCESS_SHARED_MD and not uses_shared_md_pool(group):
+        return False
+    if plan.kind == _REPROCESS_COST and not group.is_cost_based:
+        return False
+    return all(
+        _single_polkomtel_numbered_match([plan.match], row) == (plan.match, False)
+        for row in plan.rows
+    )
+
+
+async def _polkomtel_reprocess_successor_conflicts(
+    db: AsyncSession, plans: list[_PolkomtelReprocessPlan]
+) -> list[str]:
+    """Fail closed when replay could split/clear MD on a successor line."""
+
+    conflicts: list[str] = []
+    for plan in plans:
+        if plan.kind != _REPROCESS_MD_LINE:
+            continue
+        successor, successor_group = await successor_line_for(db, plan.match.order)
+        if successor is None or successor_group is None:
+            continue
+        conflicts.append(
+            f"Zamówienie {plan.match.group.order_number}: linia MD ma kontynuację "
+            f"{successor_group.order_number}; ponowne przeliczenie wymaga "
+            "ręcznej weryfikacji podziału MD."
+        )
+    return conflicts
+
+
+def _reprocess_target_read(plan: _PolkomtelReprocessPlan) -> PolkomtelReprocessTarget:
+    return PolkomtelReprocessTarget(
+        kind=plan.kind,
+        order_id=(None if plan.kind == _REPROCESS_SHARED_MD else plan.match.order.id),
+        group_id=plan.match.group.id,
+        order_number=plan.match.group.order_number,
+        row_ids=sorted(row.id for row in plan.rows),
+        row_ids_to_update=sorted(row.id for row in plan.rows_to_update),
+        current_value=plan.current_value,
+        expected_value=plan.expected_value,
+        write_required=plan.write_required,
+    )
 
 
 async def _settle_shared_md_and_record(
@@ -780,6 +1522,161 @@ async def get_import(
     return await _detail(db, batch)
 
 
+@router.post(
+    "/imports/{import_id}/reprocess-polkomtel",
+    response_model=PolkomtelReprocessResponse,
+)
+async def reprocess_polkomtel_import(
+    import_id: int,
+    payload: PolkomtelReprocessRequest,
+    user: FinanceManageUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-match one stored batch after the Polkomtel SAP-prefix fix.
+
+    The endpoint consumes the persisted import rows, so the original workbook
+    is not needed.  It is a dry-run unless the caller explicitly sends
+    ``{"apply": true}``.  Scope is hard-pinned to canonical Polkomtel and
+    existing manual/newer monthly consumptions are protected from overwrite.
+    """
+
+    batch_query = select(MdConsumptionImport).where(MdConsumptionImport.id == import_id)
+    if payload.apply:
+        batch_query = batch_query.with_for_update()
+    batch = await db.scalar(batch_query)
+    if batch is None:
+        raise HTTPException(404, detail="Import nie istnieje")
+
+    rows_query = (
+        select(MdConsumptionImportRow)
+        .where(MdConsumptionImportRow.import_id == batch.id)
+        .order_by(MdConsumptionImportRow.row_number.asc())
+    )
+    if payload.apply:
+        rows_query = rows_query.with_for_update()
+    rows = list((await db.execute(rows_query)).scalars())
+
+    # A July order can be completed or exhausted today.  Replays therefore
+    # select by the batch month, while ordinary uploads above deliberately keep
+    # using today's active-only candidates.
+    md_candidates = await historical_md_lines(db, batch.period_month)
+    shared_md_candidates = await historical_shared_md_lines(db, batch.period_month)
+    cost_candidates = await historical_cost_lines(db, batch.period_month)
+    plans, conflicts = _build_polkomtel_reprocess_plan(
+        rows,
+        md_candidates=md_candidates,
+        shared_md_candidates=shared_md_candidates,
+        cost_candidates=cost_candidates,
+    )
+    if payload.apply:
+        await _lock_polkomtel_reprocess_targets(
+            db,
+            plans,
+            period_month=batch.period_month,
+        )
+    conflicts.extend(await _polkomtel_reprocess_successor_conflicts(db, plans))
+    cost_groups_to_settle: dict[int, ClientOrderGroup] = {}
+    for plan in plans:
+        conflict = await _protect_newer_or_manual_consumption(
+            db,
+            batch=batch,
+            plan=plan,
+            lock=payload.apply,
+        )
+        if conflict is not None:
+            conflicts.append(conflict)
+    conflicts = list(dict.fromkeys(conflicts))
+
+    row_ids_to_update = {row.id for plan in plans for row in plan.rows_to_update}
+    response = PolkomtelReprocessResponse(
+        import_id=batch.id,
+        period_month=batch.period_month,
+        client_id=finance_order_matching.POLKOMTEL_CLIENT_ID,
+        applied=False,
+        rows_scanned=len(rows),
+        rows_to_update=len(row_ids_to_update),
+        targets_to_recalculate=sum(plan.write_required for plan in plans),
+        conflicts=conflicts,
+        targets=[_reprocess_target_read(plan) for plan in plans],
+    )
+    if not payload.apply:
+        return response
+    if conflicts:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "polkomtel_reprocess_conflict",
+                "conflicts": conflicts,
+            },
+        )
+
+    # Data writes use the same idempotent upsert/settlement functions as a new
+    # upload.  One event is produced per changed target; a second APPLY sees no
+    # rows to update and produces neither writes nor duplicate history.
+    for plan in plans:
+        if not plan.write_required:
+            continue
+        if plan.kind == _REPROCESS_MD_LINE:
+            await _apply_to_line(
+                db,
+                match_order=plan.match.order,
+                group=plan.match.group,
+                period_month=batch.period_month,
+                md_reported=plan.expected_value,
+                import_id=batch.id,
+                user_id=user.id,
+                historical_reprocess=True,
+            )
+        elif plan.kind == _REPROCESS_SHARED_MD:
+            await _settle_shared_md_and_record(
+                db,
+                group=plan.match.group,
+                period_month=batch.period_month,
+                md_reported=plan.expected_value,
+                import_id=batch.id,
+                user_id=user.id,
+            )
+        else:
+            await upsert_invoice(
+                db,
+                order=plan.match.order,
+                period_month=batch.period_month,
+                invoice_amount=plan.expected_value,
+                import_id=batch.id,
+                user_id=user.id,
+            )
+            cost_groups_to_settle[plan.match.group.id] = plan.match.group
+
+    for group_id in sorted(cost_groups_to_settle):
+        group = cost_groups_to_settle[group_id]
+        await _settle_and_record(
+            db,
+            group=group,
+            period_month=batch.period_month,
+            import_id=batch.id,
+            user_id=user.id,
+        )
+
+    for plan in plans:
+        for row in plan.rows_to_update:
+            row.order_number_hint = plan.match.group.order_number.strip()
+            if plan.kind == _REPROCESS_COST:
+                row.matched_group_id = plan.match.group.id
+                row.cost_status = COST_ROW_APPLIED
+            else:
+                row.status = IMPORT_ROW_APPLIED
+                row.matched_order_id = plan.match.order.id
+                row.candidate_order_ids = None
+                if plan.kind == _REPROCESS_SHARED_MD:
+                    row.matched_group_id = plan.match.group.id
+
+    await db.flush()
+    await _recount(db, batch)
+    await db.commit()
+    response.applied = True
+    return response
+
+
 @router.post("/imports/{import_id}/rows/{row_id}/assign", response_model=ImportRowRead)
 async def assign_row(
     import_id: int,
@@ -789,11 +1686,26 @@ async def assign_row(
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczne rozstrzygnięcie wiersza „Wymaga przypisania"."""
+    # The reprocessor uses the same batch -> row -> order lock order.  Reading
+    # status before those locks allowed a concurrent assignment to resume on a
+    # stale ``needs_assignment`` snapshot and overwrite replay's decision.
+    batch = await db.scalar(
+        select(MdConsumptionImport)
+        .where(MdConsumptionImport.id == import_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if batch is None:
+        raise HTTPException(404, detail="Import nie istnieje")
+
     row = await db.scalar(
-        select(MdConsumptionImportRow).where(
+        select(MdConsumptionImportRow)
+        .where(
             MdConsumptionImportRow.id == row_id,
             MdConsumptionImportRow.import_id == import_id,
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if row is None:
         raise HTTPException(404, detail="Wiersz importu nie istnieje")
@@ -812,12 +1724,6 @@ async def assign_row(
             422,
             detail="To zamówienie nie jest jednym z dopasowań tego wiersza.",
         )
-
-    batch = await db.scalar(
-        select(MdConsumptionImport).where(MdConsumptionImport.id == import_id)
-    )
-    if batch is None:
-        raise HTTPException(404, detail="Import nie istnieje")
 
     order = await db.scalar(
         select(ClientOrder)

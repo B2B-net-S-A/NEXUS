@@ -42,6 +42,7 @@ from app.services.order_types import (
     effective_group_order_type,
     effective_standalone_order_type,
 )
+from app.services.shared_md_orders import uses_shared_md_pool
 
 
 _OPEN_ORDER_STATUSES: tuple[ClientOrderStatus, ...] = (
@@ -335,7 +336,7 @@ async def apply_contract_order_offboarding(
             # leave an alert that has no resolve route or UI destination.
             order.status = ClientOrderStatus.completed
             continue
-        uses_shared_pool = bool(group and group.is_md_budget_based)
+        uses_shared_pool = bool(group and uses_shared_md_pool(group))
         if uses_shared_pool:
             remaining = _ZERO_MD
         elif order.md_total is not None:

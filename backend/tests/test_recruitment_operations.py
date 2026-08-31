@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import Integer, column, create_engine, select, table
 from sqlalchemy.dialects import postgresql
 
 from app.api import dashboard_v2 as dashboard_api
@@ -90,6 +90,7 @@ async def _authorized(*_args: Any, **_kwargs: Any) -> None:
         (UserRole.admin, "admin-ops"),
         (UserRole.head_of_recruitment, "head-of-recruitment"),
         (UserRole.delivery_lead, "delivery-lead"),
+        (UserRole.finance, "finance"),
         (UserRole.tac, "my-work"),
         (UserRole.recruiter, "my-work"),
         (UserRole.sourcer, "my-work"),
@@ -114,9 +115,9 @@ async def test_operations_guard_allows_operational_roles(
     assert response.json()["detail"] == "authorized"
 
 
-@pytest.mark.parametrize("role", [UserRole.finance, UserRole.user])
+@pytest.mark.parametrize("role", [UserRole.user])
 @pytest.mark.asyncio
-async def test_operations_guard_excludes_finance_and_viewer(
+async def test_operations_guard_excludes_viewer(
     operations_client: tuple[AsyncClient, dict[str, User]],
     monkeypatch: pytest.MonkeyPatch,
     role: UserRole,
@@ -168,6 +169,25 @@ async def test_detail_runs_membership_guard_before_service(
 
 
 @pytest.mark.asyncio
+async def test_finance_detail_uses_org_wide_service_scope_without_membership_guard(
+    operations_client: tuple[AsyncClient, dict[str, User]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, context = operations_client
+    context["user"] = _user(UserRole.finance)
+    membership = AsyncMock()
+    monkeypatch.setattr(dashboard_api, "ensure_job_membership", membership)
+    monkeypatch.setattr(dashboard_api, "get_recruitment_operation_detail", _authorized)
+
+    response = await client.get(
+        "/api/dashboard/v2/recruitment-operations/91?preset=finance"
+    )
+
+    assert response.status_code == 418
+    membership.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_favorite_route_runs_membership_guard_before_service(
     operations_client: tuple[AsyncClient, dict[str, User]],
     monkeypatch: pytest.MonkeyPatch,
@@ -192,6 +212,28 @@ async def test_favorite_route_runs_membership_guard_before_service(
 
 
 @pytest.mark.asyncio
+async def test_finance_favorite_route_defers_to_command_policy_not_membership(
+    operations_client: tuple[AsyncClient, dict[str, User]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, context = operations_client
+    context["user"] = _user(UserRole.finance)
+    membership = AsyncMock()
+    monkeypatch.setattr(dashboard_api, "ensure_job_membership", membership)
+    monkeypatch.setattr(
+        dashboard_api, "set_recruitment_operation_favorite", _authorized
+    )
+
+    response = await client.put(
+        "/api/dashboard/v2/recruitment-operations/91/favorite?preset=finance",
+        json={"candidate_id": None},
+    )
+
+    assert response.status_code == 418
+    membership.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_preset_is_required(
     operations_client: tuple[AsyncClient, dict[str, User]],
 ) -> None:
@@ -208,6 +250,7 @@ async def test_preset_is_required(
     [
         (UserRole.admin, "admin-ops", 418),
         (UserRole.admin, "delivery-lead", 418),
+        (UserRole.admin, "finance", 418),
         (UserRole.admin, "head-of-recruitment", 418),
         (UserRole.admin, "my-work", 418),
         (UserRole.head_of_recruitment, "admin-ops", 403),
@@ -216,6 +259,9 @@ async def test_preset_is_required(
         (UserRole.head_of_recruitment, "my-work", 403),
         (UserRole.delivery_lead, "delivery-lead", 418),
         (UserRole.delivery_lead, "my-work", 403),
+        (UserRole.finance, "finance", 418),
+        (UserRole.finance, "admin-ops", 403),
+        (UserRole.finance, "my-work", 403),
         (UserRole.recruiter, "my-work", 418),
         (UserRole.recruiter, "head-of-recruitment", 403),
     ],
@@ -333,6 +379,25 @@ def test_hybrid_hor_my_work_scope_does_not_compile_to_global() -> None:
     assert "job_collaborators" not in oversight_sql
 
 
+def test_finance_scope_is_org_wide_and_keeps_published_only() -> None:
+    finance_sql = str(
+        service.select(Job.id)
+        .where(
+            *service._job_filters(
+                _user(UserRole.finance),
+                scope=service._RecruitmentOperationsScope(preset="finance"),
+            )
+        )
+        .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+
+    assert "jobs.status = 'published'" in finance_sql
+    assert "jobs.recruiter_id =" not in finance_sql
+    assert "jobs.tac_id =" not in finance_sql
+    assert "jobs.delivery_lead_id =" not in finance_sql
+    assert "job_collaborators" not in finance_sql
+
+
 def test_delivery_lead_scope_uses_exact_client_tac_pairs_only() -> None:
     user = _user(UserRole.delivery_lead)
     allowed_scope = service._RecruitmentOperationsScope(
@@ -406,6 +471,17 @@ def test_candidate_overlap_excludes_hired_and_negative_latest_stages() -> None:
     assert service._overlap_candidate_ids(rows) == {1}
 
 
+def test_visible_process_stages_retain_hired_as_finalization_outcome() -> None:
+    rows = [
+        service._LatestStage(1, 7, PipelineStage.client_interview),
+        service._LatestStage(2, 7, PipelineStage.hired),
+        service._LatestStage(3, 7, PipelineStage.rejected),
+        service._LatestStage(4, 7, PipelineStage.withdrawn),
+    ]
+
+    assert [row.candidate_id for row in service._visible_process_stages(rows)] == [1, 2]
+
+
 class _ListResult:
     def __init__(self, *, one: object | None = None, rows: list[object] | None = None):
         self._one = one
@@ -425,8 +501,25 @@ class _ListDb:
         self.scalar_statements: list[object] = []
         self._execute_results = [
             _ListResult(one=SimpleNamespace(total=4, category_total=2)),
-            _ListResult(one=SimpleNamespace(active_candidates=9, active_favorites=2)),
-            _ListResult(rows=[]),
+            _ListResult(
+                one=SimpleNamespace(
+                    active_candidates=9,
+                    active_favorites=2,
+                    shared_candidates=3,
+                    processes_with_shared_candidates=2,
+                )
+            ),
+            _ListResult(
+                rows=[
+                    SimpleNamespace(
+                        competence_category_id=7,
+                        name_pl="Backend",
+                        total=3,
+                        shared_candidates=2,
+                        processes_with_shared_candidates=2,
+                    )
+                ]
+            ),
             _ListResult(rows=[]),
         ]
         self._scalar_results = [1]
@@ -460,7 +553,18 @@ async def test_summary_and_categories_ignore_item_filters() -> None:
         "competence_categories": 2,
         "active_candidates": 9,
         "processes_without_favorite": 2,
+        "shared_candidates": 3,
+        "processes_with_shared_candidates": 2,
     }
+    assert [category.model_dump() for category in response.categories] == [
+        {
+            "id": 7,
+            "name": "Backend",
+            "total": 3,
+            "shared_candidates": 2,
+            "processes_with_shared_candidates": 2,
+        }
+    ]
     summary_sql = str(db.execute_statements[0])
     category_sql = str(db.execute_statements[2])
     page_sql = str(db.execute_statements[3])
@@ -473,6 +577,116 @@ async def test_summary_and_categories_ignore_item_filters() -> None:
     assert "lower(jobs.title) LIKE lower" in page_sql
     assert "jobs.competence_category_id =" in filtered_total_sql
     assert "jobs.competence_category_id =" in page_sql
+
+
+def test_shared_candidate_read_models_stay_inside_my_work_scope() -> None:
+    user = _user(UserRole.recruiter)
+    scoped_jobs = (
+        select(
+            Job.id.label("job_id"),
+            Job.competence_category_id.label("competence_category_id"),
+            Job.favorite_candidate_id.label("favorite_candidate_id"),
+        )
+        .where(
+            *service._job_filters(
+                user,
+                scope=service._RecruitmentOperationsScope(preset="my-work"),
+            )
+        )
+        .subquery()
+    )
+
+    read_models = service._shared_candidate_read_models(scoped_jobs)
+    sql = str(
+        select(read_models.process_counts).compile(
+            dialect=postgresql.dialect(),
+            compile_kwargs={"literal_binds": True},
+        )
+    )
+
+    assert "analytics_current_pipeline" in sql
+    assert "jobs.status = 'published'" in sql
+    assert "jobs.recruiter_id = 11" in sql
+    assert "job_collaborators" in sql
+    assert "HAVING count(distinct" in sql
+    assert "rejected" in sql
+    assert "withdrawn" in sql
+    assert "hired" in sql
+
+
+def test_category_shared_candidates_include_cross_category_memberships() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    scoped_fixture = table(
+        "scoped_jobs_fixture",
+        column("job_id", Integer),
+        column("competence_category_id", Integer),
+    )
+    scoped_jobs = select(
+        scoped_fixture.c.job_id,
+        scoped_fixture.c.competence_category_id,
+    ).subquery()
+    read_models = service._shared_candidate_read_models(scoped_jobs)
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE scoped_jobs_fixture "
+            "(job_id INTEGER NOT NULL, competence_category_id INTEGER)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE analytics_current_pipeline "
+            "(candidate_id INTEGER NOT NULL, job_id INTEGER NOT NULL, stage TEXT)"
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO scoped_jobs_fixture VALUES (?, ?)",
+            [(1, 7), (2, 8), (3, 7)],
+        )
+        connection.exec_driver_sql(
+            "INSERT INTO analytics_current_pipeline VALUES (?, ?, ?)",
+            [
+                (101, 1, "verified"),
+                (101, 2, "cv_sent"),
+                (102, 3, "verified"),
+                (103, 1, "hired"),
+                (103, 2, "verified"),
+            ],
+        )
+        category_rows = connection.execute(
+            select(
+                read_models.category_counts.c.competence_category_id,
+                read_models.category_counts.c.shared_candidates,
+                read_models.category_counts.c.processes_with_shared_candidates,
+            ).order_by(read_models.category_counts.c.competence_category_id)
+        ).all()
+        process_rows = connection.execute(
+            select(
+                read_models.process_counts.c.job_id,
+                read_models.process_counts.c.shared_candidate_count,
+            ).order_by(read_models.process_counts.c.job_id)
+        ).all()
+
+    assert [tuple(row) for row in category_rows] == [(7, 1, 1), (8, 1, 1)]
+    assert [tuple(row) for row in process_rows] == [(1, 1), (2, 1)]
+
+
+def test_process_mapping_exposes_only_shared_candidate_count() -> None:
+    row = SimpleNamespace(
+        id=9,
+        title="Backend",
+        client_id=4,
+        client_name="Client A",
+        competence_category_id=7,
+        competence_category_name="Software Development",
+        recruiter_id=11,
+        tac_id=12,
+        delivery_lead_id=13,
+        favorite_candidate_id=None,
+        shared_candidate_count=3,
+    )
+
+    record = service._record_from_mapping(row)
+
+    assert record.shared_candidate_count == 3
+    assert not hasattr(record, "shared_candidate_ids")
 
 
 class _FavoriteDb:
@@ -621,6 +835,50 @@ def test_plain_sourcer_cannot_write_favorite_even_when_stored_as_owner() -> None
     with pytest.raises(HTTPException) as exc:
         service._ensure_favorite_write_access(sourcer, job)
     assert exc.value.status_code == 403
+
+
+def test_finance_org_wide_read_does_not_grant_favorite_write() -> None:
+    finance = _user(UserRole.finance, user_id=55)
+    job = Job(
+        id=7,
+        title="Backend",
+        client_id=4,
+        recruiter_id=11,
+        status=JobStatus.published,
+    )
+
+    assert service._can_edit_favorite(finance, job) is False
+    with pytest.raises(HTTPException) as exc:
+        service._ensure_favorite_write_access(finance, job)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_finance_favorite_write_is_denied_after_org_wide_job_lookup() -> None:
+    job = Job(
+        id=7,
+        title="Backend",
+        client_id=4,
+        recruiter_id=11,
+        status=JobStatus.published,
+    )
+    db = _FavoriteDb(job=job)
+
+    with pytest.raises(HTTPException) as exc:
+        await service.set_recruitment_operation_favorite(
+            db,  # type: ignore[arg-type]
+            _user(UserRole.finance),
+            job.id,
+            None,
+            preset="finance",
+        )
+
+    assert exc.value.status_code == 403
+    assert db.added == []
+    assert db.commits == 0
+    lookup_sql = str(db.scalar_statements[0])
+    assert "jobs.recruiter_id =" not in lookup_sql
+    assert "job_collaborators" not in lookup_sql
 
 
 def test_degraded_similarity_is_not_flattened_to_empty() -> None:

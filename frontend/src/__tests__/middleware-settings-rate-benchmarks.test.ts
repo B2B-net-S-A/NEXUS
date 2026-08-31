@@ -1,10 +1,9 @@
 /**
  * `/settings/rate-benchmarks` — bramka routingu.
  *
- * Kafelek „Stawki rynkowe" w Ustawieniach → Zaawansowane deklaruje
- * `["admin", "delivery_lead"]`, a strona wpuszcza wyłącznie admina (jak zapisy
- * w backendzie: `AdminUser` na POST/PATCH/DELETE/import). Dopóki trasa nie
- * miała wpisu w middleware, Delivery Lead klikający własny kafelek dostawał
+ * Finance ma dostęp do odczytu, ale zapisy pozostają na `AdminUser`
+ * (POST/PATCH/DELETE/import). Dopóki trasa nie miała wpisu w middleware,
+ * Delivery Lead klikający własny kafelek dostawał
  * powłokę aplikacji z PUSTYM obszarem treści — stan nieodróżnialny od zwiechy,
  * zgłaszany jako „aplikacja się wysypała", a nie „nie mam uprawnień".
  *
@@ -51,6 +50,12 @@ describe("middleware — /settings/rate-benchmarks", () => {
     expect(destination("/settings/rate-benchmarks", token("admin"))).toBe("pass")
   })
 
+  it("wpuszcza Finance do widoku read-only", () => {
+    expect(destination("/settings/rate-benchmarks", token("finance"))).toBe(
+      "pass",
+    )
+  })
+
   it("odbija Delivery Leada na /403, a nie na pusty ekran", () => {
     expect(destination("/settings/rate-benchmarks", token("delivery_lead"))).toBe(
       "/403",
@@ -58,7 +63,7 @@ describe("middleware — /settings/rate-benchmarks", () => {
   })
 
   it("odbija pozostałe role operacyjne", () => {
-    for (const role of ["recruiter", "tac", "finance", "head_of_recruitment"]) {
+    for (const role of ["recruiter", "tac", "head_of_recruitment"]) {
       expect(destination("/settings/rate-benchmarks", token(role)), role).toBe(
         "/403",
       )

@@ -7,7 +7,6 @@ import {
 export type { DashboardPreset } from "@/store/auth"
 
 export type DashboardPeriod = "day" | "week" | "month" | "quarter" | "year"
-export type DashboardTab = "kpi" | "processes"
 
 export interface DashboardPresetDefinition {
   label: string
@@ -53,7 +52,7 @@ export const DASHBOARD_PRESETS: Record<
     label: "Finanse",
     shortLabel: "Finanse",
     title: "Finanse",
-    description: "Operacje finansowe i widok zarządczy, bez danych rekrutacyjnych PII.",
+    description: "Pełny widok procesów rekrutacyjnych, etapów, właścicieli i faworytów.",
     defaultPeriod: "quarter",
   },
 }
@@ -66,7 +65,6 @@ const PERIOD_VALUES: DashboardPeriod[] = [
   "quarter",
   "year",
 ]
-const TAB_VALUES: DashboardTab[] = ["kpi", "processes"]
 
 export function isDashboardPreset(value: string | null): value is DashboardPreset {
   return value !== null && PRESET_VALUES.includes(value as DashboardPreset)
@@ -74,10 +72,6 @@ export function isDashboardPreset(value: string | null): value is DashboardPrese
 
 export function isDashboardPeriod(value: string | null): value is DashboardPeriod {
   return value !== null && PERIOD_VALUES.includes(value as DashboardPeriod)
-}
-
-export function isDashboardTab(value: string | null): value is DashboardTab {
-  return value !== null && TAB_VALUES.includes(value as DashboardTab)
 }
 
 /**
@@ -154,6 +148,5 @@ export function dashboardHref(
   const preset = getDefaultDashboardPreset(user)
   if (!preset) return "/dashboard"
   const period = DASHBOARD_PRESETS[preset].defaultPeriod
-  const tab = preset === "finance" ? "" : "&tab=processes"
-  return `/dashboard?preset=${preset}&period=${period}${tab}`
+  return `/dashboard?preset=${preset}&period=${period}`
 }

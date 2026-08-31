@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import AdminUser
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.activity import Activity
+from app.models.app_setting import AppSetting
 from app.models.client import Client
 from app.services.nordea_order_import import (
     MAX_NORDEA_IMPORT_BYTES,
@@ -91,6 +92,14 @@ class TaskStatus(BaseModel):
     finished_at: Optional[str] = None
     progress: dict
     error: Optional[str] = None
+
+
+class LiveOrderContractRepairAudit(BaseModel):
+    """Read-only receipt written by migration 0250."""
+
+    key: str
+    value: dict
+    updated_at: datetime
 
 
 # ── Background runner ───────────────────────────────────────────────────────
@@ -209,6 +218,27 @@ async def list_import_tasks(_admin: AdminUser):
     ]
 
 
+@router.get(
+    "/admin/audits/live-order-contract-repair",
+    response_model=LiveOrderContractRepairAudit,
+)
+async def get_live_order_contract_repair_audit(
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the targeted repair's wider, read-only production audit."""
+
+    key = "0250_live_order_contract_repair"
+    row = await db.get(AppSetting, key)
+    if row is None:
+        raise HTTPException(404, detail="Audyt nie został jeszcze wykonany")
+    return LiveOrderContractRepairAudit(
+        key=row.key,
+        value=row.value,
+        updated_at=row.updated_at,
+    )
+
+
 @router.post("/admin/clients/{client_id}/nordea-orders/import")
 async def import_nordea_client_orders(
     client_id: int,
@@ -274,6 +304,7 @@ async def import_nordea_client_orders(
                             "orders_created",
                             "orders_updated",
                             "orders_unchanged",
+                            "contracts_revived",
                             "framework_created",
                             "framework_updated",
                             "framework_unchanged",

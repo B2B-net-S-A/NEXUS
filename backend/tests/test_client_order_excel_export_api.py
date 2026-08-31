@@ -74,10 +74,7 @@ async def _seed_md_group(client_id: int, order_number: str) -> int:
             status="active",
             order_type="md",
             is_cost_based=False,
-            is_md_budget_based=True,
-            md_budget_total=Decimal("80"),
-            md_budget_remaining=Decimal("80"),
-            md_budget_manual_adjustment=Decimal("0"),
+            is_md_budget_based=False,
         )
         db.add(group)
         await db.commit()
@@ -172,7 +169,8 @@ async def test_unified_excel_export_preserves_mixed_item_order_and_columns(
     ]
     assert sheet.max_row == 3
     assert sheet["B2"].value == "MD-2026"
-    assert sheet["F2"].value == 80
+    # A generic MD order without consultants has no aggregate budget.
+    assert sheet["F2"].value is None
     assert sheet["H2"].value == "MD"
     assert sheet["A3"].value == consultant
     assert sheet["H3"].value == "Okresowe"
@@ -205,10 +203,10 @@ async def test_unified_excel_export_rejects_duplicate_and_foreign_items(
     assert foreign.status_code == 404, foreign.text
 
 
-async def test_unified_export_keeps_group_and_standalone_permissions_separate(
+async def test_finance_unified_export_includes_group_and_standalone_orders(
     app_client: AsyncClient,
 ):
-    client_id, order_id, _, _ = await _seed_order("Eksport Uprawnienia")
+    client_id, order_id, _, consultant = await _seed_order("Eksport Uprawnienia")
     group_id = await _seed_md_group(client_id, "MD-FINANCE")
     headers = await _finance_headers(app_client)
 
@@ -224,4 +222,7 @@ async def test_unified_export_keeps_group_and_standalone_permissions_separate(
         headers=headers,
         json={"items": [{"kind": "order", "id": order_id}]},
     )
-    assert standalone.status_code == 403, standalone.text
+    assert standalone.status_code == 200, standalone.text
+    sheet = load_workbook(io.BytesIO(standalone.content)).active
+    assert sheet.max_row == 2
+    assert sheet["A2"].value == consultant

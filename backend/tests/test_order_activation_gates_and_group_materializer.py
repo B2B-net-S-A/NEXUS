@@ -245,8 +245,17 @@ class _FakeSession:
         group_id = stmt.whereclause.right.value
         return _Result([ln for ln in self.lines if ln.order_group_id == group_id])
 
+    async def scalar(self, stmt):
+        group_id = stmt.whereclause.right.value
+        return next((ln.id for ln in self.lines if ln.order_group_id == group_id), None)
+
     def add(self, obj):
         self.added.append(obj)
+
+    async def get(self, _model, _identity):
+        # These lifecycle-shape tests do not seed Contract objects; the
+        # production session may load one and apply the additional invariant.
+        return None
 
     async def flush(self):
         self.flushes += 1
@@ -269,6 +278,7 @@ def _line(lid, gid, *, status, end=None, md_total=None, md_remaining=None):
     line = ClientOrder(
         client_id=1, contract_id=1, order_group_id=gid, title=f"L{lid}", status=status
     )
+    line.id = lid
     line.end_date = end
     # `md_total` jest dyskryminatorem „to jest linia MD" w całym module —
     # bez niego rodzina zachowuje się czysto datowo.
@@ -404,6 +414,46 @@ async def test_md_family_promotes_once_the_budget_is_gone():
     assert previous.status == GROUP_STATUS_COMPLETED
     assert current.status == GROUP_STATUS_ACTIVE
     assert lines[1].status == ClientOrderStatus.active
+
+
+@pytest.mark.asyncio
+async def test_scheduled_promotion_self_heals_an_empty_generic_phantom_pool():
+    """A NOT VALID 0251 check still validates every later status UPDATE."""
+
+    current = _group(1, status=GROUP_STATUS_SCHEDULED, start=_TODAY)
+    current.order_type = "md"
+    current.is_md_budget_based = True
+    current.md_budget_total = Decimal("60")
+    current.md_budget_remaining = Decimal("60")
+    db = _FakeSession([current], [])
+
+    assert await materialize_scheduled_order_groups(db, today=_TODAY) == 1
+    assert current.status == GROUP_STATUS_ACTIVE
+    assert current.is_md_budget_based is False
+    assert current.md_budget_total is None
+    assert current.md_budget_remaining is None
+
+
+@pytest.mark.asyncio
+async def test_generic_phantom_pool_with_a_line_is_never_rewritten():
+    """Write-time repair is fail-closed when consultant history exists."""
+
+    from app.services.shared_md_orders import (
+        normalize_empty_generic_explicit_md_group,
+    )
+
+    group = _group(1, status=GROUP_STATUS_ACTIVE, start=_TODAY)
+    group.order_type = "md"
+    group.is_md_budget_based = True
+    group.md_budget_total = Decimal("60")
+    group.md_budget_remaining = Decimal("42")
+    line = _line(10, 1, status=ClientOrderStatus.active)
+    db = _FakeSession([group], [line])
+
+    assert await normalize_empty_generic_explicit_md_group(db, group) is False
+    assert group.is_md_budget_based is True
+    assert group.md_budget_total == Decimal("60")
+    assert group.md_budget_remaining == Decimal("42")
 
 
 @pytest.mark.asyncio
@@ -722,9 +772,10 @@ class _DraftMaterializerSession:
     dla świeżego szkicu zawsze zero.
     """
 
-    def __init__(self, *, group=None, candidate=None):
+    def __init__(self, *, group=None, candidate=None, line_id=1):
         self._group = group
         self._candidate = candidate
+        self._line_id = line_id
         self.added = []
         self.flushes = 0
 
@@ -739,6 +790,8 @@ class _DraftMaterializerSession:
             return None
         if entity is _Candidate:
             return self._candidate
+        if entity is ClientOrder:
+            return self._line_id
         return 0
 
     def add(self, obj):
@@ -817,13 +870,80 @@ async def test_explicit_md_materialization_overwrites_temporary_mirror_with_pln_
         db, order, actor_id=7, candidate_rate=Decimal("50")
     )
 
-    assert group is not None and group.is_md_budget_based is True
+    assert group is not None and group.is_md_budget_based is False
+    assert group.md_budget_total is None
+    assert order.md_total == Decimal("20")
+    assert order.md_remaining == Decimal("20.000000")
     assert order.md_rate_revenue == Decimal("3200.00")
     assert order.md_rate_cost == Decimal("1600.00")
     assert order.rate_client == Decimal("3200.00")
     assert order.rate_candidate == Decimal("1600.00")
     assert order.rate_unit == RateUnit.daily
     assert order.currency == "PLN"
+
+
+@pytest.mark.asyncio
+async def test_cp_standalone_md_materializes_the_required_shared_group_pool():
+    """Draft activation cannot bypass the CP/Lotte group-level MD policy."""
+
+    db = _DraftMaterializerSession(
+        candidate=_Candidate(name="Jan", lastname="Kowalski")
+    )
+    order = _activated_standalone_order(38339)
+    order.order_type = "md"
+    order.md_input_mode = "md"
+    order.md_input_value = Decimal("20")
+    order.md_total = Decimal("20")
+    order.md_remaining = Decimal("20")
+
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=Decimal("50")
+    )
+
+    assert group is not None
+    assert group.client_id == 38339
+    assert group.order_type == "md"
+    assert group.is_md_budget_based is True
+    assert group.md_budget_total == Decimal("20")
+    assert group.md_budget_remaining == Decimal("20")
+    assert order.md_input_mode is None
+    assert order.md_input_value is None
+    assert order.md_total is None
+    assert order.md_remaining is None
+
+
+@pytest.mark.asyncio
+async def test_first_materialized_line_self_heals_empty_explicit_shared_md_group(
+    monkeypatch,
+):
+    existing = _group(55, status=GROUP_STATUS_ACTIVE, start=_TODAY)
+    existing.order_number = "445/2026"
+    existing.order_type = "md"
+    existing.is_md_budget_based = True
+    existing.md_budget_total = Decimal("60")
+    existing.md_budget_remaining = Decimal("60")
+    db = _DraftMaterializerSession(
+        group=existing,
+        candidate=_Candidate(name="Jan", lastname="Kowalski"),
+        line_id=None,
+    )
+    order = _activated_standalone_order(99)
+    order.order_type = "md"
+    order.md_input_mode = "md"
+    order.md_input_value = Decimal("20")
+    order.md_total = Decimal("20")
+    order.md_remaining = Decimal("20")
+
+    group = await materialize_group_for_activated_order(
+        db, order, actor_id=7, candidate_rate=Decimal("50")
+    )
+
+    assert group is existing
+    assert group.is_md_budget_based is False
+    assert group.md_budget_total is None
+    assert group.md_budget_remaining is None
+    assert order.md_total == Decimal("20")
+    assert order.md_remaining == Decimal("20.000000")
 
 
 @pytest.mark.asyncio

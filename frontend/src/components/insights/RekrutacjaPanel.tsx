@@ -40,7 +40,8 @@ export function RekrutacjaPanel() {
     "delivery_lead",
     "tac",
     "recruiter",
-    "sourcer"
+    "sourcer",
+    "finance",
   );
 
   return (

@@ -5,7 +5,8 @@ Lifecycle:
 1. ``ClientFrameworkContract``: status=active, expiry_date<today → status=expired
 2. ``ClientOrder``: status=active, end_date<today → status=completed
    (POZA liniami MD — te kończy budżet, nie kalendarz; patrz ``_promote_statuses``)
-3. Dispatch notyfikacji expiry:
+3. ``Contract``: ended/ending + aktywny Order obejmujący dziś → active
+4. Dispatch notyfikacji expiry:
    - 30/14/7 dni przed ``ClientFrameworkContract.expiry_date`` (status=active)
    - 30/14/7 dni przed ``ClientOrder.end_date`` (status=active)
 
@@ -25,6 +26,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -36,6 +38,9 @@ from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.contract_lifecycle import (
+    reconcile_contracts_to_live_orders,
+)
 from app.services.client_identity import client_display_name_expression
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 
@@ -96,9 +101,11 @@ async def _already_notified(
     return res.scalar_one_or_none() is not None
 
 
-async def _promote_statuses(db: AsyncSession) -> tuple[int, int, int]:
+async def _promote_statuses(
+    db: AsyncSession, *, business_day: date | None = None
+) -> tuple[int, int, int, int]:
     """Materializuj dzienne przejścia FC, Order i przyszłych grup."""
-    today = date.today()
+    today = business_day or business_today()
 
     fc_expired = await db.execute(
         update(ClientFrameworkContract)
@@ -128,10 +135,15 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int, int]:
         .values(status=ClientOrderStatus.completed)
     )
     groups_promoted = await materialize_scheduled_order_groups(db, today=today)
+    contracts_reconciled = await reconcile_contracts_to_live_orders(
+        db,
+        today=today,
+    )
     return (
         fc_expired.rowcount or 0,
         order_completed.rowcount or 0,
         groups_promoted,
+        contracts_reconciled,
     )
 
 
@@ -249,7 +261,12 @@ async def run_once() -> dict:
     """Uruchom scan + status promotions raz; zwraca summary dict."""
     async with AsyncSessionLocal() as db:
         try:
-            fc_expired, order_completed, groups_promoted = await _promote_statuses(db)
+            (
+                fc_expired,
+                order_completed,
+                groups_promoted,
+                contracts_reconciled,
+            ) = await _promote_statuses(db)
             fc_alerts = await _scan_framework_contracts(db)
             order_alerts = await _scan_orders(db)
             await db.commit()
@@ -261,6 +278,7 @@ async def run_once() -> dict:
         "fc_expired": fc_expired,
         "orders_completed": order_completed,
         "order_groups_promoted": groups_promoted,
+        "contracts_reconciled": contracts_reconciled,
         "fc_alerts_dispatched": fc_alerts,
         "order_alerts_dispatched": order_alerts,
     }

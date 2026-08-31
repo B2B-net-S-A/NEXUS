@@ -1,28 +1,33 @@
 """Endpoints for reviewing & applying Champion Profile AI suggestions.
 
-All endpoints require TacPlus (admin + delivery_lead + tac). Matching router
-prefix is `/champion-suggestions` — the suggestions carry their own `job_id` so
-operations do not need to walk through the Jobs router.
+Write endpoints require TacPlus (admin + delivery_lead + tac). Finance receives
+GET-only organization oversight. Matching router prefix is
+`/champion-suggestions` — the suggestions carry their own `job_id` so operations
+do not need to walk through the Jobs router.
 
-Rola nie wystarcza za zakres: `ensure_champion_job_visible` zawęża Delivery Leada
-do jego par klient×TAC, a TAC-a do ofert, w których `Job.tac_id` wskazuje na
-niego. Persona spoza tej listy dostaje odmowę, a nie „bez ograniczeń".
+Rola nie wystarcza za zakres zapisu: `ensure_champion_job_visible` zawęża
+Delivery Leada do jego par klient×TAC, a TAC-a do ofert, w których `Job.tac_id`
+wskazuje na niego. Osobny read guard omija ten membership wyłącznie dla Finance.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TacPlus
-from app.api.recruitment_access import ensure_champion_job_visible
+from app.api.deps import TacPlus, require_roles
+from app.api.recruitment_access import (
+    ensure_champion_job_read_visible,
+    ensure_champion_job_visible,
+)
 from app.core.database import get_db
 from app.models.champion_suggestion import ChampionProfileSuggestion
 from app.models.job import Job
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.champion_suggestion import (
     ApplyPayload,
     ChampionProfileSuggestionOut,
@@ -36,6 +41,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/champion-suggestions", tags=["champion-suggestions"])
 
 
+ChampionSuggestionReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.tac,
+            UserRole.finance,
+        )
+    ),
+]
+
+
 def _to_out(suggestion: ChampionProfileSuggestion) -> ChampionProfileSuggestionOut:
     out = ChampionProfileSuggestionOut.model_validate(suggestion)
     out.patches = patches_from_payload(suggestion.payload or {})
@@ -43,7 +61,11 @@ def _to_out(suggestion: ChampionProfileSuggestion) -> ChampionProfileSuggestionO
 
 
 async def _load_scoped_suggestion(
-    db: AsyncSession, suggestion_id: int, current_user: User
+    db: AsyncSession,
+    suggestion_id: int,
+    current_user: User,
+    *,
+    read_only: bool = False,
 ) -> ChampionProfileSuggestion:
     """Load a suggestion and verify the caller may see ITS JOB.
 
@@ -76,7 +98,10 @@ async def _load_scoped_suggestion(
     if job is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
     try:
-        await ensure_champion_job_visible(job, current_user, db)
+        if read_only:
+            await ensure_champion_job_read_visible(job, current_user, db)
+        else:
+            await ensure_champion_job_visible(job, current_user, db)
     except HTTPException as exc:
         if exc.status_code == 403:
             raise HTTPException(status_code=404, detail="Suggestion not found") from exc
@@ -87,10 +112,15 @@ async def _load_scoped_suggestion(
 @router.get("/{suggestion_id}", response_model=ChampionProfileSuggestionOut)
 async def get_suggestion(
     suggestion_id: int,
-    current_user: TacPlus,
+    current_user: ChampionSuggestionReadUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
-    suggestion = await _load_scoped_suggestion(db, suggestion_id, current_user)
+    suggestion = await _load_scoped_suggestion(
+        db,
+        suggestion_id,
+        current_user,
+        read_only=True,
+    )
     return _to_out(suggestion)
 
 

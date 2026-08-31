@@ -39,6 +39,7 @@ from sqlalchemy import ColumnElement, and_, not_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.app_setting import AppSetting
 from app.models.contract import Contract, ContractStatus
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.services.contract_service import validate_ready_for_activation
@@ -450,15 +451,15 @@ async def sync_contract_to_live_order(
 ) -> bool:
     """Dopasuj kontrakt do zamówienia, które WŁAŚNIE TRWA. Zwraca True przy zmianie.
 
-    Trzecia — i do tej pory jedyna pominięta — ścieżka przedłużania współpracy.
-    Aneks (``/amendments``) i ``/bulk-extend`` przesuwają ``end_date``
-    i wołają :func:`reopen_contract`; dodanie zamówienia pod istniejący
-    kontrakt nie robiło ani jednego, ani drugiego. Skutek zgłoszony przez
-    użytkownika: przedłużenie dodane do kontraktora z zakładki „Zakończeni”
-    zostawiało go w „Zakończonych”, mimo że okres nowego zamówienia obejmuje
-    dziś. Pigułka czyta ``contract_status``, więc dopóki kontrakt jest
-    ``ended``, żadna zmiana po stronie zamówień tego nie ruszy — a razem
-    z pigułką milczą MRR, rejestr umów i skaner wygasania.
+    Kanoniczny niezmiennik dla KAŻDEGO writera żywego zamówienia. Aneks
+    (``/amendments``) i ``/bulk-extend`` przesuwają ``end_date`` i wołają
+    :func:`reopen_contract`; zwykły POST zamówienia deleguje tutaj. Regresja
+    powstała, gdy późniejsze writery — import Nordea, PATCH kompletujący draft
+    oraz linie zamówień grupowych — zaczęły tworzyć taki sam stan ``active``,
+    ale nie użyły tego serwisu. Pigułka czyta ``contract_status``, więc dopóki
+    kontrakt jest ``ended``, sama zmiana po stronie zamówień nie przenosi osoby
+    z „Zakończonych”; razem z pigułką milczą MRR, rejestr umów i skaner
+    wygasania.
 
     Decyduje WYŁĄCZNIE porównanie dat z dniem dzisiejszym, nie to, z której
     zakładki operator kliknął. Przedłużenie zaczynające się w przyszłości nie
@@ -467,6 +468,42 @@ async def sync_contract_to_live_order(
     zdemotowałby wskrzeszony kontrakt z powrotem do ``ended`` jeszcze tej nocy
     i poprawka kasowałaby samą siebie.
     """
+    # Serialize against terminal-state writers before reading any lifecycle
+    # field. A caller may hold an identity-map object loaded before a concurrent
+    # ``void`` commit; the locked scalar projection reads the committed state
+    # after the lock wait, so terminal ``void`` always wins. Suppress autoflush:
+    # Nordea and order routes can have unrelated pending Order/rate changes in
+    # the same transaction, and acquiring this parent lock must not publish
+    # those changes early merely as a side effect of the SELECT.
+    if contract.id is None:
+        return False
+    with db.no_autoflush:
+        locked_row = (
+            await db.execute(
+                select(
+                    Contract.status,
+                    Contract.end_date,
+                    Contract.client_order_end_date,
+                )
+                .where(Contract.id == contract.id)
+                .with_for_update()
+            )
+        ).one_or_none()
+    if locked_row is None:
+        return False
+
+    # Copy only the lifecycle scalars read under the row lock. Refreshing the
+    # ORM entity with ``populate_existing`` expires eager-loaded relationships
+    # (candidate/framework-rate schedule); touching them later in an async
+    # writer then attempts forbidden implicit IO and raises MissingGreenlet.
+    # A scalar projection preserves those relationships and every unrelated
+    # pending field while still making a concurrent terminal ``void`` win.
+    (
+        contract.status,
+        contract.end_date,
+        contract.client_order_end_date,
+    ) = locked_row
+
     # WYŁĄCZNIE kontrakt zakończony/kończący się. Trzy powody, każdy osobny:
     #
     #  * ``void`` jest TERMINALNY (soft-delete zachowujący dokumenty i hashe
@@ -492,6 +529,7 @@ async def sync_contract_to_live_order(
         return False
 
     changed = False
+    previous_end = contract.end_date
     # Horyzont kontraktu musi sięgać co najmniej tak daleko jak zamówienie.
     # Zamówienie bezterminowe czyni bezterminowym także kontrakt — to jest
     # dosłownie to, co mówią dane, a od sierpnia 2026 taki kontrakt jest
@@ -504,9 +542,139 @@ async def sync_contract_to_live_order(
         contract.end_date = order_end
         changed = True
 
+    if contract.end_date != previous_end:
+        # ``client_order_end_date`` is an optional, explicitly tracked mirror
+        # of the client-order horizon.  Keep NULL as "not tracked" instead of
+        # inventing a date, but never leave a past date next to a revived,
+        # longer (or indefinite) contract.  This used to live in the
+        # ``client_orders`` route adapter, which meant service-level writers
+        # such as the Nordea CSV import and scheduled group materializer could
+        # not reuse the complete invariant without importing the API layer.
+        if contract.end_date is None:
+            contract.client_order_end_date = None
+        elif contract.client_order_end_date is not None:
+            contract.client_order_end_date = contract.end_date
+
     if await reopen_contract(db, contract, actor_id=actor_id):
         changed = True
     return changed
+
+
+_LIVE_ORDER_REPAIR_MARKER = "0250_live_order_contract_repair"
+
+
+def _live_order_reconcile_window(
+    receipt: object, *, today: date
+) -> tuple[date, frozenset[int]]:
+    """Resolve the safe catch-up window persisted by migration 0250.
+
+    The migration receipt is the boundary between the deliberately read-only
+    historical audit and orders whose future start must be materialized by the
+    daily lifecycle.  Contracts already present in that audit remain excluded
+    on the cut-over day itself; a later-starting order for the same contract is
+    still a new temporal transition and therefore remains eligible.
+
+    Missing or malformed evidence fails closed to the original one-day window.
+    """
+
+    if not isinstance(receipt, dict):
+        return today, frozenset()
+    raw_day = receipt.get("business_day")
+    raw_audited_ids = receipt.get("audited_contract_ids")
+    if not isinstance(raw_day, str) or not isinstance(raw_audited_ids, list):
+        return today, frozenset()
+    try:
+        cutover_day = date.fromisoformat(raw_day)
+    except ValueError:
+        return today, frozenset()
+    if cutover_day > today or any(
+        not isinstance(contract_id, int) or isinstance(contract_id, bool)
+        for contract_id in raw_audited_ids
+    ):
+        return today, frozenset()
+    return cutover_day, frozenset(raw_audited_ids)
+
+
+async def reconcile_contracts_to_live_orders(
+    db: AsyncSession,
+    *,
+    today: date,
+) -> int:
+    """Heal contracts when any previously future active order starts.
+
+    Writer-time synchronization intentionally ignores a future order: it is
+    not evidence that the consultant works today.  Without the complementary
+    daily transition, however, an ``ended`` contract would stay ended after
+    that order's start date arrived.  This reconciliation covers that temporal
+    edge and delegates every mutation and audit row to
+    :func:`sync_contract_to_live_order`.
+
+    Every active order which started between the 0250 deployment watermark and
+    ``today`` qualifies, whether it is standalone or a line in a
+    multi-consultant group.  The latter matters for add/swap lines which may
+    begin after their already-active group.  This bounded catch-up survives a
+    missed daily run without silently repairing the historical backlog.  The
+    migration receipt's audited contracts remain excluded on the cut-over day
+    itself; historical analogues stay audit-only and the explicit repair
+    migration owns its narrow approved target set.
+
+    Draft, paused, completed, cancelled, future, expired and pre-cut-over legacy
+    orders are excluded by the query.  The group materializer may
+    synchronize the same line first; this pass remains idempotent because a
+    healed contract no longer has an ``ended``/``ending`` status.  When one
+    contract has several eligible orders, the open-ended or latest-ending one is
+    processed first so the single reopening also captures the widest horizon.
+    """
+
+    # Local import keeps the contract state machine independent from the order
+    # model during application bootstrap while still putting the invariant in
+    # the reusable lifecycle layer rather than in a task-only helper.
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    marker = await db.get(AppSetting, _LIVE_ORDER_REPAIR_MARKER)
+    cutover_day, audited_on_cutover = _live_order_reconcile_window(
+        marker.value if marker is not None else None,
+        today=today,
+    )
+    result = await db.execute(
+        select(ClientOrder, Contract)
+        .join(Contract, Contract.id == ClientOrder.contract_id)
+        .where(
+            ClientOrder.status == ClientOrderStatus.active,
+            ClientOrder.start_date.between(cutover_day, today),
+            or_(ClientOrder.end_date.is_(None), ClientOrder.end_date >= today),
+            ClientOrder.client_id == Contract.client_id,
+            Contract.status.in_([ContractStatus.ended, ContractStatus.ending]),
+        )
+        .order_by(
+            Contract.id.asc(),
+            ClientOrder.end_date.desc().nullsfirst(),
+            ClientOrder.id.desc(),
+        )
+        # Wait for the short writer transaction and serialize the canonical
+        # sync.  Avoiding SKIP LOCKED also means the first catch-up pass does not
+        # need another day to observe a row concurrently edited at scan time.
+        .with_for_update(of=[ClientOrder, Contract])
+    )
+
+    reconciled = 0
+    seen_contract_ids: set[int] = set()
+    for order, contract in result:
+        if order.start_date == cutover_day and contract.id in audited_on_cutover:
+            continue
+        if contract.id in seen_contract_ids:
+            continue
+        seen_contract_ids.add(contract.id)
+        if await sync_contract_to_live_order(
+            db,
+            contract,
+            order_start=order.start_date,
+            order_end=order.end_date,
+            actor_id=None,
+            today=today,
+        ):
+            reconciled += 1
+    return reconciled
 
 
 async def void_contract(

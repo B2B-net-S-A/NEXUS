@@ -39,6 +39,16 @@ type UserRole =
 
 const COOKIE_NAME = "nexus_access";
 
+const NON_FINANCE_ROLES: UserRole[] = [
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "tac",
+  "recruiter",
+  "sourcer",
+  "user",
+];
+
 // Trasy wymagające KONKRETNYCH ról. Każda inna (niepubliczna) trasa wymaga
 // wyłącznie ważnego tokenu — patrz deny-by-default w nagłówku pliku.
 // Kolejność prefixów nie ma znaczenia — dopasowywany jest najdłuższy pasujący
@@ -57,31 +67,51 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/dynareporter", roles: null },
   // Granularne podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
-  { prefix: "/settings/chats", roles: ["admin"] },
+  { prefix: "/settings/chats", roles: ["admin", "finance"] },
+  // Finance has a read-only settings landing page. Direct technical/config
+  // editors stay unavailable even if their URL is pasted manually.
+  { prefix: "/settings/ai", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/api-integration", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/diagnostics", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/dictionaries", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/entity-fields", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/pipeline-templates", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/scoring", roles: NON_FINANCE_ROLES },
+  { prefix: "/settings/templates", roles: NON_FINANCE_ROLES },
   {
     prefix: "/settings/team-structure",
-    roles: ["admin", "head_of_recruitment"],
+    roles: ["admin", "head_of_recruitment", "finance"],
   },
-  { prefix: "/settings/linkedin-metrics", roles: ["admin"] },
-  // Benchmarki stawek rynkowych. Kafelek w Ustawieniach → Zaawansowane
-  // deklaruje `["admin", "delivery_lead"]`, ale strona (i zapisy w backendzie:
-  // POST/PATCH/DELETE/import na `AdminUser`) wpuszczają wyłącznie admina. Bez
-  // tego wpisu wejście z paska adresu nie kończyło się nawet na /403 — samo
-  // `RequireRole` bez fallbacku dawało pusty obszar treści.
-  { prefix: "/settings/rate-benchmarks", roles: ["admin"] },
-  // Audyt M7 PR-01 (P0.1): clients-overview pokazuje lifetime/active revenue —
-  // dane finansowe (VIEW_FINANCE). HoR nie ma tej capability → admin-only,
-  // spójnie z backendem /api/admin/clients-overview (AdminUser).
-  { prefix: "/settings/clients-overview", roles: ["admin"] },
+  {
+    prefix: "/settings/linkedin-metrics",
+    roles: ["admin", "head_of_recruitment", "finance"],
+  },
+  // Benchmarki stawek rynkowych: Admin ma CRUD, Finance pełny odczyt.
+  // POST/PATCH/DELETE/import pozostają po stronie API na `AdminUser`.
+  { prefix: "/settings/rate-benchmarks", roles: ["admin", "finance"] },
+  // Clients overview pokazuje lifetime/active revenue. Finance ma organizacyjny
+  // odczyt, spójnie z backendowym `FinanceReadUser`.
+  { prefix: "/settings/clients-overview", roles: ["admin", "finance"] },
   {
     prefix: "/settings/hiring-managers",
-    roles: ["admin", "head_of_recruitment"],
+    roles: ["admin", "head_of_recruitment", "finance"],
+  },
+  { prefix: "/settings/contract-templates", roles: ["admin", "finance"] },
+  {
+    prefix: "/settings/client-portfolio-preview",
+    roles: ["admin", "finance"],
   },
   // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym
   // CortexUser i zakładką Insights → Klienci & Delivery).
   {
     prefix: "/cortex",
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+    roles: [
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "finance",
+    ],
   },
   // Wykonywanie telefonów jest ograniczone do ról operacyjnych (lustro
   // backendowego `ContactCaller`); sama strona odbija resztę własnym

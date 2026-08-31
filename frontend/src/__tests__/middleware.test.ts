@@ -39,6 +39,11 @@ const validRecruiter = makeToken({
   roles: ["recruiter"],
   exp: now() + HOUR,
 })
+const validFinance = makeToken({
+  role: "finance",
+  roles: ["finance"],
+  exp: now() + HOUR,
+})
 const validHeadOfRecruitment = makeToken({
   role: "head_of_recruitment",
   roles: ["head_of_recruitment"],
@@ -224,15 +229,61 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/manager", validAdmin)).toBe("pass")
   })
 
+  it("Moi klienci wpuszczają Finance do odczytu bez zawężania dotychczasowej trasy", () => {
+    expect(destination("/my-clients", validFinance)).toBe("pass")
+    expect(destination("/my-clients/123", validFinance)).toBe("pass")
+    expect(destination("/my-clients", validRecruiter)).toBe("pass")
+    expect(destination("/my-clients", validViewer)).toBe("pass")
+  })
+
   it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {
     expect(destination("/candidates/contact-queue", validRecruiter)).toBe("pass")
     expect(destination("/candidates/contact-queue", validAdmin)).toBe("/403")
     expect(destination("/candidates/contact-queue", validViewer)).toBe("/403")
   })
 
-  it("najdłuższy pasujący prefix wygrywa (settings/chats → admin-only)", () => {
+  it("najdłuższy pasujący prefix wygrywa (settings/chats → business-read)", () => {
     expect(destination("/settings/chats", validViewer)).toBe("/403")
     expect(destination("/settings/chats", validAdmin)).toBe("pass")
+    expect(destination("/settings/chats", validFinance)).toBe("pass")
+  })
+
+  it("Finance wchodzi do wszystkich biznesowych modułów odczytu", () => {
+    for (const route of [
+      "/jobs",
+      "/candidates",
+      "/clients",
+      "/my-clients",
+      "/contracts",
+      "/cortex",
+      "/insights",
+      "/settings/rate-benchmarks",
+      "/settings/contract-templates",
+      "/settings/team-structure",
+      "/settings/linkedin-metrics",
+      "/settings/clients-overview",
+      "/settings/client-portfolio-preview",
+      "/settings/hiring-managers",
+    ]) {
+      expect(destination(route, validFinance), route).toBe("pass")
+    }
+  })
+
+  it("Finance nie wchodzi do technicznych ustawień ani modułów mutacyjnych", () => {
+    for (const route of [
+      "/manager",
+      "/candidates/contact-queue",
+      "/settings/ai",
+      "/settings/api-integration",
+      "/settings/diagnostics",
+      "/settings/dictionaries",
+      "/settings/entity-fields",
+      "/settings/pipeline-templates",
+      "/settings/scoring",
+      "/settings/templates",
+    ]) {
+      expect(destination(route, validFinance), route).toBe("/403")
+    }
   })
 
   it("Head of Recruitment zarządza strukturą także jako rola dodatkowa", () => {

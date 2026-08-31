@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Target } from "lucide-react"
 
+import { StatCard } from "@/components/ds"
 import { KpiProgressBar } from "@/components/v2/kpi/KpiProgressBar"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -20,20 +21,46 @@ const STATE_COPY: Record<KpiResult["state"], string> = {
 }
 
 function formatHours(hours: number): string {
-  if (hours <= 0) return "Dzień zakończony"
-  if (hours < 1) return "Mniej niż godzina do końca dnia"
+  if (hours <= 0) return "Dzień pracy zakończony"
+  if (hours < 1) return "Mniej niż godzina do końca dnia pracy"
   const rounded = Math.ceil(hours)
-  return `${rounded} h do końca dnia`
+  return `${rounded} h do końca dnia pracy`
 }
 
-export function DailyRecruiterKpi() {
+interface DailyRecruiterKpiProps {
+  variant?: "full" | "compact"
+  fallbackOpenProcesses?: number
+}
+
+export function DailyRecruiterKpi({
+  variant = "full",
+  fallbackOpenProcesses,
+}: DailyRecruiterKpiProps = {}) {
   const query = useMyKpis()
 
   if (query.isLoading) {
-    return <Skeleton className="h-48 w-full rounded-xl" />
+    return (
+      <Skeleton
+        className={cn(
+          "w-full rounded-xl",
+          variant === "compact" ? "h-32" : "h-48",
+        )}
+      />
+    )
   }
 
   if (query.isError) {
+    if (variant === "compact") {
+      return (
+        <StatCard
+          label="Twój cel na dziś"
+          value="—"
+          icon={Target}
+          sub="Cel jest chwilowo niedostępny"
+        />
+      )
+    }
+
     return (
       <Card className="border-destructive/30">
         <CardContent className="flex items-center justify-between gap-4 p-5">
@@ -58,16 +85,84 @@ export function DailyRecruiterKpi() {
   }
 
   const kpi = query.data?.find((item) => item.kpi_id === DAILY_TARGET_ID)
-  if (!kpi) return null
+  if (!kpi) {
+    if (variant === "compact" && fallbackOpenProcesses !== undefined) {
+      return (
+        <StatCard
+          label="Otwarte rekrutacje"
+          value={fallbackOpenProcesses}
+          icon={Target}
+          sub="W Twoim zakresie"
+        />
+      )
+    }
+    return null
+  }
 
   const remaining = Math.max(kpi.target - kpi.current, 0)
   const completed = remaining === 0
+
+  if (variant === "compact") {
+    return (
+      <Card
+        className={cn(
+          "p-5 transition-shadow duration-200 hover:shadow-xs",
+          completed && "border-success/30 bg-success-muted/40",
+        )}
+        data-testid="daily-recruiter-kpi"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "flex h-7 w-7 items-center justify-center rounded-md",
+                completed
+                  ? "bg-success-muted text-success-muted-foreground"
+                  : "bg-primary/10 text-primary",
+              )}
+            >
+              {completed ? (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : (
+                <Target className="h-3.5 w-3.5" />
+              )}
+            </span>
+            <span className="text-[13px] font-medium text-muted-foreground">
+              Twój cel na dziś
+            </span>
+          </div>
+          <span className="text-xs font-medium tabular-nums text-muted-foreground">
+            {Math.round(kpi.progress_pct)}%
+          </span>
+        </div>
+
+        <div className="mt-4 flex items-baseline gap-2">
+          <span className="text-[32px] font-semibold leading-none tracking-tight tabular-nums text-foreground">
+            {kpi.current} / {kpi.target}
+          </span>
+          <span className="text-xs text-muted-foreground">weryfikacji</span>
+        </div>
+        <KpiProgressBar
+          id={kpi.kpi_id}
+          progressPct={kpi.progress_pct}
+          state={kpi.state}
+          label={`${Math.round(kpi.progress_pct)}%`}
+          variant="full"
+          className="mt-4"
+        />
+        <p className="mt-2.5 text-xs text-muted-foreground">
+          {completed ? STATE_COPY[kpi.state] : `Pozostało: ${remaining}`} ·{" "}
+          {formatHours(kpi.deadline_hours_left)}
+        </p>
+      </Card>
+    )
+  }
 
   return (
     <Card
       className={cn(
         "overflow-hidden border-primary/20",
-        completed && "border-emerald-500/30 bg-emerald-500/5",
+        completed && "border-success/30 bg-success-muted/40",
       )}
       data-testid="daily-recruiter-kpi"
     >
@@ -76,7 +171,7 @@ export function DailyRecruiterKpi() {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               {completed ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <CheckCircle2 className="h-4 w-4 text-success" />
               ) : (
                 <Target className="h-4 w-4 text-primary" />
               )}

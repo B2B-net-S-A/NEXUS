@@ -126,6 +126,7 @@ def test_md_order_keeps_the_budget_per_consultant():
 
 def test_shared_md_order_amount_and_usage_appear_once_for_the_group():
     group = _group(
+        client_id=38339,
         is_md_budget_based=True,
         md_budget_total=Decimal("80"),
         md_budget_used=Decimal("35"),
@@ -142,6 +143,32 @@ def test_shared_md_order_amount_and_usage_appear_once_for_the_group():
     assert total_row.consumption == Decimal("35")
     assert [row.allocation for row in consultants] == [None, None]
     assert [row.consumption for row in consultants] == [None, None]
+
+
+def test_generic_explicit_md_ignores_a_stale_shared_flag_in_export():
+    """XLSX must follow the same client-scoped semantics as API and UI."""
+
+    group = _group(
+        client_id=999,
+        order_type="md",
+        is_md_budget_based=True,
+        md_budget_total=Decimal("60"),
+        md_budget_used=Decimal("9"),
+        lines=[
+            _line(
+                "Anna Kowalska",
+                md_total=Decimal("25"),
+                md_remaining=Decimal("16"),
+            )
+        ],
+    )
+
+    rows = export_rows_for_group(group)
+
+    assert len(rows) == 1
+    assert rows[0].consultant_name == "Anna Kowalska"
+    assert rows[0].allocation == Decimal("25")
+    assert rows[0].consumption == Decimal("9")
 
 
 def test_cost_order_without_consultants_still_carries_the_amount():

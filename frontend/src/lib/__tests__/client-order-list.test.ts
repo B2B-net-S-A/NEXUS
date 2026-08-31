@@ -19,6 +19,7 @@ import {
   flattenOrderGroupIds,
   orderGroupMatchesPill,
   sortOrderLinesByConsultant,
+  usesSharedMdPool,
 } from "@/lib/client-order-list";
 
 function line(
@@ -204,8 +205,9 @@ describe("client order list filters", () => {
     expect(result.map((item) => item.id)).toEqual([1]);
   });
 
-  it("filtr 80% korzysta ze wspólnego budżetu MD grupy, nie z linii", () => {
+  it("generic explicit MD z linią ignoruje błędną pulę grupową", () => {
     const near = group(1, "CP-MD-NEAR", {
+      order_type: "md",
       is_md_budget_based: true,
       md_budget_total: 100,
       md_budget_used: 80,
@@ -220,6 +222,7 @@ describe("client order list filters", () => {
       ],
     });
     const below = group(2, "CP-MD-BELOW", {
+      order_type: "md",
       is_md_budget_based: true,
       md_budget_total: 100,
       md_budget_used: 79,
@@ -234,14 +237,73 @@ describe("client order list filters", () => {
       ],
     });
 
+    expect(usesSharedMdPool(near)).toBe(false);
     expect(
       filterAndSortOrderGroups(
         [below, near],
         "",
         { ...DEFAULT_ORDER_LIST_FILTERS, nearBudget: true },
         "2026-08-21",
-      ).map((item) => item.id),
-    ).toEqual([1]);
+      ),
+    ).toEqual([]);
+  });
+
+  it.each(
+    [
+      [38339, "Cyfrowy Polsat"],
+      [155, "Lotte Wedel"],
+    ] as const,
+  )(
+    "filtr 80%% zachowuje specjalną pulę MD klienta %s (%s)",
+    (clientId, _clientLabel) => {
+      const near = group(1, "SHARED-MD-NEAR", {
+        client_id: clientId,
+        order_type: "md",
+        is_md_budget_based: true,
+        md_budget_total: 100,
+        md_budget_used: 80,
+        md_budget_remaining: 20,
+        lines: [
+          line(1, "A B", {
+            input_mode: null,
+            input_value: null,
+            md_total: null,
+            md_remaining: null,
+          }),
+        ],
+      });
+
+      expect(usesSharedMdPool(near)).toBe(true);
+      expect(
+        filterAndSortOrderGroups(
+          [near],
+          "",
+          { ...DEFAULT_ORDER_LIST_FILTERS, nearBudget: true },
+          "2026-08-21",
+        ).map((item) => item.id),
+      ).toEqual([1]);
+    },
+  );
+
+  it("jawne MD bez linii ignoruje błędną pulę grupową", () => {
+    const empty = group(1, "MD-EMPTY", {
+      order_type: "md",
+      is_md_budget_based: true,
+      md_budget_total: 100,
+      md_budget_used: 99,
+      md_budget_remaining: 1,
+      lines: [],
+      active_consultants: 0,
+    });
+
+    expect(
+      filterAndSortOrderGroups(
+        [empty],
+        "",
+        { ...DEFAULT_ORDER_LIST_FILTERS, nearBudget: true },
+        "2026-08-21",
+      ),
+    ).toEqual([]);
   });
 
   it("sorts groups by average consultant rate and lines alphabetically", () => {

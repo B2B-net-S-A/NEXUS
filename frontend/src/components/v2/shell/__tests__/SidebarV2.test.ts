@@ -20,18 +20,25 @@ describe("visibleNavSections", () => {
   // (Dashboard · Finanse · Pomoc · Ustawienia), mimo że każda lista `roles`
   // w `NAV_SECTIONS` już ją wymienia — menu było jedyną warstwą odcinającą
   // rolę, którą backend przepuszcza wszędzie tam, gdzie recruitera.
-  it("finance ma menu recruitera + własny moduł Finanse (decyzja 19.08)", () => {
+  it("finance ma pełne moduły business-read i własny moduł Finanse", () => {
     const finance = hrefs("finance");
     const recruiter = hrefs("recruiter");
 
     expect(finance).toEqual(
-      [...new Set([...recruiter, "/finance"])].sort(),
+      expect.arrayContaining([
+        "/candidates",
+        "/jobs",
+        "/clients",
+        "/my-clients",
+        "/my-relationships",
+        "/contracts",
+        "/cortex",
+        "/insights",
+        "/finance",
+      ]),
     );
-    // Trzy pozycje wprost z ticketu — czerwone przed zmianą.
-    expect(finance).toContain("/candidates");
-    expect(finance).toContain("/jobs");
-    expect(finance).toContain("/clients");
-    expect(finance).toContain("/finance");
+    expect(recruiter).not.toContain("/contracts");
+    expect(recruiter).not.toContain("/cortex");
   });
 
   it("moduł Finanse zostaje zamknięty przed rolami operacyjnymi", () => {

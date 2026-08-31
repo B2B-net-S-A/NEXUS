@@ -87,6 +87,8 @@ async def test_shared_md_settlement_locks_before_reading_consumption(
     from app.models.client_order_group import ClientOrderGroup
     from app.services import shared_md_orders
 
+    _enable_lotte_wedel(monkeypatch, LOTTE_WEDEL_CLIENT_ID)
+
     group = ClientOrderGroup(
         id=99155,
         client_id=LOTTE_WEDEL_CLIENT_ID,
@@ -130,6 +132,8 @@ async def test_shared_md_upsert_locks_group_before_month_row(
         ClientOrderGroupMdConsumption,
     )
     from app.services import shared_md_orders
+
+    _enable_lotte_wedel(monkeypatch, LOTTE_WEDEL_CLIENT_ID)
 
     group = ClientOrderGroup(
         id=99156,

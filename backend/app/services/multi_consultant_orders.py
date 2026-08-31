@@ -22,9 +22,9 @@ Arytmetyka MD i precyzja
 ``md_calkowite = kwota / stawka_przychodowa`` bywa ułamkiem nieskończonym
 (10 000 / 3), więc „bez zaokrąglenia" jest fizycznie nieosiągalne w typie
 stałoprzecinkowym. Nośnikiem jest ``Numeric(16, 6)``: sześć miejsc po przecinku
-to zapas rzędu czterech miejsc ponad prezentację (2 miejsca), więc kolejne
+to zapas rzędu trzech miejsc ponad prezentację (3 miejsca), więc kolejne
 importy i zamiany kontraktora nie kumulują błędu widocznego dla użytkownika.
-Zaokrąglenie do 2 miejsc następuje WYŁĄCZNIE przy wyświetlaniu — nigdy przed
+Zaokrąglenie do 3 miejsc następuje WYŁĄCZNIE przy wyświetlaniu — nigdy przed
 zapisem i nigdy przed kolejnym działaniem.
 """
 
@@ -44,7 +44,8 @@ from app.services.lotte_wedel_orders import is_lotte_wedel_order_types_client
 MD_SCALE = Decimal("0.000001")
 
 # Zaokrąglenie prezentacyjne (UI, treść wpisów w historii). NIE zapisywane.
-MD_DISPLAY_SCALE = Decimal("0.01")
+# Pełne sześć miejsc MD pozostaje w bazie i obliczeniach.
+MD_DISPLAY_SCALE = Decimal("0.001")
 
 # Tryb wprowadzania budżetu linii konsultanta.
 INPUT_MODE_MD = "md"
@@ -155,7 +156,7 @@ def quantize_md(value: Decimal | int | float | str) -> Decimal:
 
 
 def format_md(value: Decimal | int | float | None) -> str:
-    """Prezentacja MD — 2 miejsca po przecinku (patrz docstring modułu)."""
+    """Prezentacja MD — 3 miejsca po przecinku (patrz docstring modułu)."""
     if value is None:
         return "—"
     return str(Decimal(str(value)).quantize(MD_DISPLAY_SCALE))

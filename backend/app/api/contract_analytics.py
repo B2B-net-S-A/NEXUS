@@ -20,7 +20,6 @@ from sqlalchemy import case, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, PlainSerializer
 
-from app.api.deps import AdminUser
 from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -151,9 +150,7 @@ class RevenueForecast(BaseModel):
 
 @router.get("/margin-by-contractor", response_model=List[MarginByContractor])
 async def margin_by_contractor(
-    # Contains candidate identity next to rate/margin values. Finance is
-    # intentionally excluded from this PII-bearing projection.
-    current_user: AdminUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
@@ -328,7 +325,7 @@ async def margin_by_client(
 
 @router.get("/utilization", response_model=UtilizationStats)
 async def utilization(
-    current_user: AdminUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     active_rows = (
@@ -571,7 +568,7 @@ class RoleClientMix(BaseModel):
 
 @router.get("/role-client-mix", response_model=RoleClientMix)
 async def role_client_mix(
-    current_user: AdminUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Count unique active people bucketed by role × client.
@@ -683,7 +680,7 @@ class LocationDistribution(BaseModel):
 
 @router.get("/location-distribution", response_model=LocationDistribution)
 async def location_distribution(
-    current_user: AdminUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     active_only: bool = Query(
         True, description="If true, only count candidates with an active contract"
@@ -761,7 +758,7 @@ class TerminationAnalysis(BaseModel):
 
 @router.get("/termination-analysis", response_model=TerminationAnalysis)
 async def termination_analysis(
-    current_user: AdminUser,
+    current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
     window_months: int = Query(
         12, ge=1, le=36, description="Look-back window in months"

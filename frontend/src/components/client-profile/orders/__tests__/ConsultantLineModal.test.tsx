@@ -137,7 +137,7 @@ function renderModal(
       <ConsultantLineModal
         open
         onOpenChange={vi.fn()}
-        clientId={7}
+        clientId={group.client_id}
         group={group}
         line={line}
         submitting={false}
@@ -1332,6 +1332,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       "ze wspólną pulą MD",
       {
         ...GROUP,
+        client_id: 38339,
         is_md_budget_based: true,
         md_budget_total: 100,
         md_budget_used: 20,
@@ -1383,9 +1384,29 @@ describe("ConsultantLineModal — odczyt PDF", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("wspólna pula MD nie tworzy osobnego budżetu przy konsultancie", async () => {
+  it("jawne zamówienie MD bez linii wymaga budżetu pierwszego konsultanta", () => {
     renderModal(vi.fn(), {
       ...GROUP,
+      order_type: "md",
+      is_md_budget_based: true,
+      md_budget_total: 60,
+      md_budget_used: 0,
+      md_budget_remaining: 60,
+      lines: [],
+    });
+
+    expect(
+      screen.getByRole("textbox", { name: "Liczba MD" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/wspólną pulę MD dla wszystkich konsultantów/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("klientowa wspólna pula MD nie tworzy osobnego budżetu przy konsultancie", async () => {
+    renderModal(vi.fn(), {
+      ...GROUP,
+      client_id: 38339,
       is_md_budget_based: true,
       md_budget_total: 100,
       md_budget_used: 20,
@@ -1418,6 +1439,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
       "ze wspólną pulą MD",
       {
         ...GROUP,
+        client_id: 38339,
         is_md_budget_based: true,
         md_budget_total: 100,
         md_budget_used: 20,

@@ -163,15 +163,29 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.talent_radar": ALL_ROLES,
   "nav.sourcing": OPERATIONAL,
   "nav.clients": OPERATIONAL,
-  "nav.my_clients": ["admin", "head_of_recruitment", "delivery_lead"],
+  "nav.my_clients": [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "finance",
+  ],
   "nav.my_relationships": [
     "admin",
     "head_of_recruitment",
     "delivery_lead",
     "tac",
+    "finance",
   ],
-  "nav.contracts": TAC_PLUS,
-  "nav.cortex": ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+  // Odczyt kontraktów jest szerszy niż `contract.create`: Finance ma pełny
+  // business-read, ale nie dziedziczy przez to mutacji z `TAC_PLUS`.
+  "nav.contracts": ["admin", "delivery_lead", "tac", "finance"],
+  "nav.cortex": [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "tac",
+    "finance",
+  ],
   "nav.manager": ["admin", "delivery_lead"],
   // /api/finance/* → FinanceModuleUser = require_roles(admin, finance)
   // (backend/app/api/deps.py). Rola `finance` jest WYŁĄCZNA (CHECK

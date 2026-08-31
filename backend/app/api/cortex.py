@@ -50,6 +50,7 @@ CortexUser = Annotated[
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.tac,
+            UserRole.finance,
         )
     ),
 ]

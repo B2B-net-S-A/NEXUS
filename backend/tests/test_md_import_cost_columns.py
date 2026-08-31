@@ -61,6 +61,7 @@ def test_no_digits_means_no_candidate():
 
 def test_polish_money_formatting_is_understood():
     assert parse_money_value("20 900,00 zł") == Decimal("20900.00")
+    assert parse_money_value("20 900,125 zł") == Decimal("20900.125")
     assert parse_money_value("1234.50") == Decimal("1234.50")
     assert parse_money_value("20\xa0900,00 PLN") == Decimal("20900.00")
 

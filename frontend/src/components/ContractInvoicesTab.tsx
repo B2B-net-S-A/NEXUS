@@ -60,7 +60,13 @@ function emptyForm() {
   };
 }
 
-export function ContractInvoicesTab({ contractId }: { contractId: number }) {
+export function ContractInvoicesTab({
+  contractId,
+  readOnly = false,
+}: {
+  contractId: number;
+  readOnly?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -101,116 +107,118 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
 
   return (
     <div className="space-y-4">
-      <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-        {!showForm ? (
-          <button
-            onClick={() => {
-              // Data wystawienia liczona przy OTWARCIU formularza, nie przy
-              // montażu karty — inaczej długo otwarta zakładka podpowiada dzień
-              // swojego otwarcia (ten sam defekt co zamrożone `paid_date`).
-              setForm(emptyForm());
-              setShowForm(true);
-            }}
-            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" /> Dodaj fakturę
-          </button>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              createMutation.mutate({
-                ...form,
-                amount: Number(form.amount) || 0,
-                due_date: form.due_date || null,
-              });
-            }}
-            className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <label className="block">
-                <span className="block text-xs text-muted-foreground mb-1">Kierunek</span>
-                <select
-                  value={form.direction}
-                  onChange={(e) => setForm({ ...form, direction: e.target.value })}
-                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+      {!readOnly && (
+        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+          {!showForm ? (
+            <button
+              onClick={() => {
+                // Data wystawienia liczona przy OTWARCIU formularza, nie przy
+                // montażu karty — inaczej długo otwarta zakładka podpowiada dzień
+                // swojego otwarcia (ten sam defekt co zamrożone `paid_date`).
+                setForm(emptyForm());
+                setShowForm(true);
+              }}
+              className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" /> Dodaj fakturę
+            </button>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                createMutation.mutate({
+                  ...form,
+                  amount: Number(form.amount) || 0,
+                  due_date: form.due_date || null,
+                });
+              }}
+              className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="block">
+                  <span className="block text-xs text-muted-foreground mb-1">Kierunek</span>
+                  <select
+                    value={form.direction}
+                    onChange={(e) => setForm({ ...form, direction: e.target.value })}
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                  >
+                    <option value="to_client">Do klienta</option>
+                    <option value="from_contractor">Od kontraktora</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-xs text-muted-foreground mb-1">Numer</span>
+                  <input
+                    value={form.invoice_number}
+                    onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                    placeholder="FV/2026/04/001"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs text-muted-foreground mb-1">Kwota</span>
+                  <input
+                    type="number"
+                    value={form.amount}
+                    onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs text-muted-foreground mb-1">Waluta</span>
+                  <select
+                    value={form.currency}
+                    onChange={(e) => setForm({ ...form, currency: e.target.value })}
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                  >
+                    <option>PLN</option>
+                    <option>EUR</option>
+                    <option>USD</option>
+                    <option>GBP</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-xs text-muted-foreground mb-1">Data wystawienia</span>
+                  <input
+                    type="date"
+                    value={form.issue_date}
+                    onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                  />
+                </label>
+                <label className="block">
+                  <span className="block text-xs text-muted-foreground mb-1">Termin płatności</span>
+                  <input
+                    type="date"
+                    value={form.due_date}
+                    onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                  />
+                </label>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setForm(emptyForm());
+                  }}
+                  className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
                 >
-                  <option value="to_client">Do klienta</option>
-                  <option value="from_contractor">Od kontraktora</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="block text-xs text-muted-foreground mb-1">Numer</span>
-                <input
-                  value={form.invoice_number}
-                  onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
-                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
-                  placeholder="FV/2026/04/001"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs text-muted-foreground mb-1">Kwota</span>
-                <input
-                  type="number"
-                  value={form.amount}
-                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs text-muted-foreground mb-1">Waluta</span>
-                <select
-                  value={form.currency}
-                  onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+                  Anuluj
+                </button>
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  className="bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
                 >
-                  <option>PLN</option>
-                  <option>EUR</option>
-                  <option>USD</option>
-                  <option>GBP</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="block text-xs text-muted-foreground mb-1">Data wystawienia</span>
-                <input
-                  type="date"
-                  value={form.issue_date}
-                  onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
-                />
-              </label>
-              <label className="block">
-                <span className="block text-xs text-muted-foreground mb-1">Termin płatności</span>
-                <input
-                  type="date"
-                  value={form.due_date}
-                  onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
-                />
-              </label>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowForm(false);
-                  setForm(emptyForm());
-                }}
-                className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
-              >
-                Anuluj
-              </button>
-              <button
-                type="submit"
-                disabled={createMutation.isPending}
-                className="bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-              >
-                {createMutation.isPending ? "Zapisywanie…" : "Zapisz"}
-              </button>
-            </div>
-          </form>
-        )}
-      </RequireRole>
+                  {createMutation.isPending ? "Zapisywanie…" : "Zapisz"}
+                </button>
+              </div>
+            </form>
+          )}
+        </RequireRole>
+      )}
 
       {isLoading ? (
         <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -231,7 +239,7 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                 <th className="text-left px-3 py-2">Termin</th>
                 <th className="text-right px-3 py-2">Kwota</th>
                 <th className="text-left px-3 py-2">Status</th>
-                <th className="text-right px-3 py-2"></th>
+                {!readOnly && <th className="text-right px-3 py-2"></th>}
               </tr>
             </thead>
             <tbody>
@@ -262,32 +270,34 @@ export function ContractInvoicesTab({ contractId }: { contractId: number }) {
                         {inv.status}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-                        <div className="inline-flex gap-1">
-                          {inv.status !== "paid" && (
+                    {!readOnly && (
+                      <td className="px-3 py-2 text-right">
+                        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+                          <div className="inline-flex gap-1">
+                            {inv.status !== "paid" && (
+                              <button
+                                onClick={() => markPaidMutation.mutate(inv.id)}
+                                disabled={markPaidMutation.isPending}
+                                title="Oznacz jako zapłacone"
+                                className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
-                              onClick={() => markPaidMutation.mutate(inv.id)}
-                              disabled={markPaidMutation.isPending}
-                              title="Oznacz jako zapłacone"
-                              className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600"
+                              onClick={() => {
+                                if (window.confirm(`Usunąć fakturę ${inv.invoice_number}?`)) {
+                                  deleteMutation.mutate(inv.id);
+                                }
+                              }}
+                              className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
                             >
-                              <Check className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
-                          )}
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Usunąć fakturę ${inv.invoice_number}?`)) {
-                                deleteMutation.mutate(inv.id);
-                              }
-                            }}
-                            className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </RequireRole>
-                    </td>
+                          </div>
+                        </RequireRole>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

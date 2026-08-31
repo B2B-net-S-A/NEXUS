@@ -39,9 +39,8 @@ from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
-    _synced_client_order_end,
 )
-from app.api.deps import DlAssignedOrAdmin, TacPlus, require_roles
+from app.api.deps import DlAssignedOrAdmin, require_roles
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -468,10 +467,10 @@ async def _sync_contract_after_order_extension(
 ) -> bool:
     """Zamówienie, które JUŻ TRWA, wskrzesza zakończony kontrakt.
 
-    Cienki adapter na ``contract_lifecycle.sync_contract_to_live_order`` —
-    dokłada wyłącznie to, czego tamta warstwa nie zna: synchronizację
-    „Końca zamówienia u klienta" (ta sama reguła co przy aneksie
-    i ``/bulk-extend``, patrz ``_synced_client_order_end``).
+    Cienki adapter na ``contract_lifecycle.sync_contract_to_live_order``.
+    Cały niezmiennik — status, horyzont kontraktu i opcjonalny
+    ``client_order_end_date`` — mieszka w serwisie, bo tę samą operację
+    wykonują także import Nordea i linie zamówień grupowych.
 
     Zamówienia ``draft``/``cancelled`` są POMIJANE: szkic nie jest
     zobowiązaniem, a anulowane nie obowiązuje — żadne z nich nie jest dowodem,
@@ -479,8 +478,7 @@ async def _sync_contract_after_order_extension(
     """
     if order.status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled):
         return False
-    before_end = contract.end_date
-    changed = await sync_contract_to_live_order(
+    return await sync_contract_to_live_order(
         db,
         contract,
         order_start=order.start_date,
@@ -488,29 +486,22 @@ async def _sync_contract_after_order_extension(
         actor_id=actor_id,
         today=business_today(),
     )
-    if changed and contract.end_date != before_end:
-        if contract.end_date is None:
-            # Zamówienie bezterminowe uczyniło bezterminowym także kontrakt,
-            # więc „Koniec zamówienia u klienta" z PRZESZŁĄ datą przestał
-            # cokolwiek opisywać. Profil kontraktu renderuje tę wartość jako
-            # osobny wiersz („Koniec zamówienia u klienta"), więc obok „Okres:
-            # … – bezterminowo" stałaby data z przeszłości — dwa sprzeczne
-            # zdania o tej samej współpracy.
-            #
-            # Alert `_client_orders_ending` (contract_alerts) tego NIE
-            # wychwyci: jego predykat wymaga `client_order_end_date >= today`,
-            # więc przeszła data po prostu wypada z okna. To czyni rozjazd
-            # GORSZYM, nie lepszym — nic go nie zgłosi.
-            #
-            # Migracja 0243 zeruje tę kolumnę dla wierszy historycznych
-            # (`has_open_ended → NULL`); bez tej gałęzi ścieżka runtime
-            # rozjeżdżałaby się z własną migracją.
-            contract.client_order_end_date = None
-        else:
-            contract.client_order_end_date = _synced_client_order_end(
-                contract.client_order_end_date, contract.end_date
-            )
-    return changed
+
+
+def _patch_requires_contract_sync(
+    order: ClientOrder,
+    *,
+    previous_status: ClientOrderStatus,
+    previous_start_date: Optional[date],
+    previous_end_date: Optional[date],
+) -> bool:
+    """Czy PATCH jest rzeczywistym writerem cyklu życia aktywnego Orderu."""
+
+    return order.status == ClientOrderStatus.active and (
+        previous_status != ClientOrderStatus.active
+        or order.start_date != previous_start_date
+        or order.end_date != previous_end_date
+    )
 
 
 async def _materialize_group_after_activation(
@@ -873,7 +864,7 @@ async def _dl_assigned_to_client(db: AsyncSession, user, client_id: int) -> bool
 
 
 def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
-    """Kto widzi i zapisuje kwoty na zamówieniach TEGO klienta.
+    """Kto zapisuje kwoty na zamówieniach TEGO klienta.
 
     Admin zawsze; Delivery Lead WYŁĄCZNIE na kliencie, do którego jest jawnie
     przypisany. To rozszerzenie pierwotnej reguły „tylko admin" (F-13/P0.12):
@@ -887,8 +878,8 @@ def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
     Reguła „ktokolwiek przeszedł guard" po cichu dałaby HoR zapis stawek
     u wszystkich klientów. TAC, HoR, recruiter, sourcer: zawsze False.
 
-    Zakres jest lokalny dla tej powierzchni. `contracts.py` zachowuje własną,
-    węższą bramkę (admin-only) — tam kwoty jadą w ~20 innych odpowiedziach.
+    Odczyt ma osobny predykat ``_order_finance_visible``: Finance widzi kwoty
+    przez ``VIEW_FINANCE``, ale nie przechodzi przez ten guard zapisu.
     """
 
     if user.has_role(UserRole.admin):
@@ -1192,23 +1183,6 @@ async def list_contractors_with_orders(
 
     UI: tab "Zamówienia & Kontrakty" pokazuje listę kart (1 karta = 1 kontraktor).
     """
-    # Finance zachowuje dotychczasowy dostęp do person-free kart grupowych,
-    # ale nie dostaje danych kandydatów z legacy `/orders`. Zwracamy pustą,
-    # poprawną część wspólnego źródła zamiast 403, żeby jeden widok mógł nadal
-    # załadować grupy. HoR przechodzi pełny resolver nadzorczy; DL/TAC nadal
-    # wymagają jawnego przypisania.
-    finance_only = user.has_role(UserRole.finance) and not user.has_any_role(
-        UserRole.admin,
-        UserRole.head_of_recruitment,
-        UserRole.delivery_lead,
-        UserRole.tac,
-    )
-    if finance_only:
-        await _assert_client(db, client_id)
-        return ClientOrdersGroupedResponse(
-            contractors=[], total_contractors=0, can_manage_finance=False
-        )
-
     await _require_client_order_read(db, user, client_id)
 
     contracts = list(
@@ -1366,13 +1340,14 @@ async def export_client_orders(
 
     orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
     if not unified or requested_order_ids:
-        # Do not let the broader group-export dependency widen access to the
-        # standalone contractor/order surface for Finance. HoR already passes
-        # the same global supervisory resolver as the unified GET list.
+        # Standalone order rows use the same business-read audience as the
+        # unified order list. Finance is organization-wide; DL/TAC still pass
+        # their normal client-assignment resolver inside the list handler.
         if not user.has_any_role(
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.finance,
             UserRole.tac,
         ):
             raise HTTPException(
@@ -1397,7 +1372,10 @@ async def export_client_orders(
             _require_group_read,
         )
         from app.services.order_types import effective_group_order_type
-        from app.services.shared_md_orders import shared_md_used_totals
+        from app.services.shared_md_orders import (
+            shared_md_used_totals,
+            uses_shared_md_pool,
+        )
 
         await _require_group_read(db, user, client_id)
         group_models = list(
@@ -1415,7 +1393,7 @@ async def export_client_orders(
             raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
 
         shared_md_used_by_group = await shared_md_used_totals(
-            db, (group.id for group in group_models if group.is_md_budget_based)
+            db, (group.id for group in group_models if uses_shared_md_pool(group))
         )
         for group_id in requested_group_ids:
             group_model = group_models_by_id[group_id]
@@ -1425,7 +1403,7 @@ async def export_client_orders(
                 with_finance=_can_see_finance(user),
                 precomputed_md_budget_used=(
                     shared_md_used_by_group[group_id]
-                    if group_model.is_md_budget_based
+                    if uses_shared_md_pool(group_model)
                     else None
                 ),
             )
@@ -1486,7 +1464,7 @@ async def export_client_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
@@ -1508,7 +1486,7 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_client_order_read(db, user, client_id)
@@ -2059,7 +2037,15 @@ async def update_order(
         raise HTTPException(404, detail="Order not found")
     await _assert_no_pending_group_line_offboarding(db, order)
 
-    was_active = order.status == ClientOrderStatus.active
+    # PATCH może nieść wyłącznie notatkę, plik albo stawkę. Zachowujemy stan
+    # cyklu życia sprzed ``setattr``, żeby taka techniczna edycja istniejącego
+    # aktywnego zamówienia nie stała się ukrytym backfillem historycznego
+    # ``ended`` Contract. Synchronizacja niżej jest uzasadniona wyłącznie przy
+    # wejściu do ``active`` albo rzeczywistej zmianie okresu aktywnego Orderu.
+    previous_status = order.status
+    previous_start_date = order.start_date
+    previous_end_date = order.end_date
+    was_active = previous_status == ClientOrderStatus.active
     data = payload.model_dump(exclude_unset=True)
     requested_type = data.pop("order_type", None)
     if "order_type" in payload.model_fields_set:
@@ -2205,6 +2191,26 @@ async def update_order(
                 )
             await _materialize_group_after_activation(db, order, actor_id=user.id)
 
+    # PATCH jest osobną ścieżką wejścia do ``active``: widok inline najpierw
+    # zakłada niepełny draft, a kolejne zapisy uzupełniają numer/okres/stawki.
+    # Do tej pory tylko POST „Dodaj przedłużenie" wołał synchronizację, więc
+    # dokładnie ten zwykły flow zostawiał kontrakt ``ended`` mimo żywego
+    # zamówienia. Już aktywny Order woła ją ponownie tylko po realnej zmianie
+    # okresu; notes/title/rate-only PATCH nie może po cichu naprawiać rekordów,
+    # które migracja 0250 celowo zostawiła audit-only. Sam serwis pozostaje
+    # idempotentnym no-opem dla przyszłego okresu i innych statusów Contract.
+    contract_revived = False
+    patch_requires_contract_sync = _patch_requires_contract_sync(
+        order,
+        previous_status=previous_status,
+        previous_start_date=previous_start_date,
+        previous_end_date=previous_end_date,
+    )
+    if order.contract is not None and patch_requires_contract_sync:
+        contract_revived = await _sync_contract_after_order_extension(
+            db, order, order.contract, actor_id=user.id
+        )
+
     db.add(
         Activity(
             entity_type="client",
@@ -2215,6 +2221,7 @@ async def update_order(
                 "order_id": order_id,
                 "changed": sorted(payload.model_fields_set),
                 "auto_activated": auto_activated,
+                "contract_revived": contract_revived,
             },
         )
     )
@@ -2269,7 +2276,7 @@ async def delete_order(
 async def download_order_po(
     client_id: int,
     order_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     await _require_client_order_read(db, user, client_id)
@@ -2321,7 +2328,7 @@ def _order_to_document_item(order: ClientOrder) -> OrderDocumentItem:
 )
 async def list_contract_order_documents(
     contract_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y zamówień danego kontraktu — sekcja „Dokumenty zamówień" w
@@ -2358,7 +2365,7 @@ async def list_contract_order_documents(
 )
 async def list_candidate_order_documents(
     candidate_id: int,
-    user: TacPlus,
+    user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
     """PO PDF-y wszystkich zamówień osoby/kontraktora — sekcja „Dokumenty

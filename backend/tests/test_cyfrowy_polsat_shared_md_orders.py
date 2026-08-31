@@ -81,6 +81,7 @@ async def _create_shared_group(
         json={
             "order_number": f"CP-{uuid.uuid4().hex[:8]}",
             "start_date": (_TODAY - timedelta(days=10)).isoformat(),
+            "order_type": "md",
             "is_md_budget_based": True,
             "md_budget_total": total,
             "lines": [_shared_line(contract_id)],
@@ -89,6 +90,28 @@ async def _create_shared_group(
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+@pytest.mark.asyncio
+async def test_explicit_cp_md_cannot_bypass_the_shared_pool_policy(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+):
+    await _seed_cyfrowy_polsat_contracts(0)
+
+    response = await app_client.post(
+        f"/api/clients/{CYFROWY_POLSAT_CLIENT_ID}/order-groups",
+        json={
+            "order_number": f"CP-MD-MISSING-{uuid.uuid4().hex[:8]}",
+            "start_date": _TODAY.isoformat(),
+            "order_type": "md",
+            "lines": [],
+        },
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert "wymaga wspólnego budżetu MD" in response.text
 
 
 def test_cyfrowy_polsat_capabilities_do_not_disable_standard_order_policy(
@@ -153,6 +176,7 @@ async def test_shared_md_continuation_waits_for_the_group_budget():
 
     predecessor = SimpleNamespace(
         id=41,
+        client_id=CYFROWY_POLSAT_CLIENT_ID,
         status=GROUP_STATUS_ACTIVE,
         is_cost_based=False,
         is_md_budget_based=True,

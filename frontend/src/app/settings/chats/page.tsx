@@ -13,12 +13,14 @@ import {
 
 import { adminChatsApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 type ChatTypeFilter = "all" | "job" | "candidate";
 
 export default function AdminGlobalChatsPage() {
   const user = useAuthStore((s) => s.user);
+  const hydrated = useAuthStore((s) => s.hydrated);
+  const isAllowed = hasRole(user, "admin", "finance");
   const [search, setSearch] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
   const [filter, setFilter] = useState<ChatTypeFilter>("all");
@@ -34,12 +36,17 @@ export default function AdminGlobalChatsPage() {
       return (await adminChatsApi.listGlobal(params)).data;
     },
     refetchInterval: 30_000,
+    enabled: hydrated && isAllowed,
   });
 
-  if (user?.role !== "admin") {
+  if (!hydrated) {
+    return <div className="p-8 text-center text-muted-foreground">Ładowanie…</div>;
+  }
+
+  if (!isAllowed) {
     return (
       <div className="p-8 text-center text-muted-foreground">
-        Tylko administrator może oglądać globalny widok czatów.
+        Globalny widok czatów jest dostępny dla administratora i Finance.
       </div>
     );
   }

@@ -73,6 +73,7 @@ EXPORT_ROLES = {
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
+    UserRole.finance,
 }
 FINANCE_ROLES = {UserRole.admin}
 

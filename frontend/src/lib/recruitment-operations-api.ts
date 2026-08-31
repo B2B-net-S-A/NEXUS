@@ -1,7 +1,7 @@
 import api from "@/lib/api"
 import type { DashboardPreset } from "@/lib/dashboard-presets"
 
-export type RecruitmentDashboardPreset = Exclude<DashboardPreset, "finance">
+export type RecruitmentDashboardPreset = DashboardPreset
 
 export interface RecruitmentOperationsPerson {
   id: number
@@ -40,6 +40,7 @@ export interface RecruitmentOperationsProcess {
   client: RecruitmentOperationsLookup
   competence_category: RecruitmentOperationsLookup | null
   candidate_count: number
+  shared_candidate_count: number
   stage_counts: RecruitmentOperationsStageCounts
   favorite_candidate: RecruitmentOperationsFavorite | null
   owners: RecruitmentOperationsOwners
@@ -51,12 +52,16 @@ export interface RecruitmentOperationsSummary {
   competence_categories: number
   active_candidates: number
   processes_without_favorite: number
+  shared_candidates: number
+  processes_with_shared_candidates: number
 }
 
 export interface RecruitmentOperationsCategory {
   id: number | null
   name: string
   total: number
+  shared_candidates: number
+  processes_with_shared_candidates: number
 }
 
 export interface RecruitmentOperationsListResponse {

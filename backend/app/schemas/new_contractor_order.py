@@ -62,7 +62,7 @@ class NewContractorOrderRequest(BaseModel):
     rate_client_currency: Optional[str] = Field(None, max_length=3)
     rate_candidate_currency: Optional[str] = Field(None, max_length=3)
 
-    total_value: Optional[float] = None
+    total_value: Optional[Decimal] = Field(None, ge=0, max_digits=13, decimal_places=3)
     """Total value pierwszego Orderu (rate_client × długość okresu) — opcjonalne."""
 
     notes: Optional[str] = None

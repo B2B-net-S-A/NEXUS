@@ -19,6 +19,10 @@ import {
   openAuthenticatedFile,
 } from "@/lib/authenticated-files";
 import type { OrderGroupInput, OrderGroupRead } from "@/lib/api/orderGroups";
+import {
+  clientUsesSharedMdPool,
+  usesSharedMdPool,
+} from "@/lib/client-order-list";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   extractionErrorMessage,
@@ -73,7 +77,10 @@ export function OrderGroupFormModal({
   const [budgetAmount, setBudgetAmount] = useState("");
   const [mdBudgetTotal, setMdBudgetTotal] = useState("");
   const isCostBased = orderType === "cost";
-  const isMdBudgetBased = orderType === "md";
+  const isMdOrder = orderType === "md";
+  const sharedMd =
+    isMdOrder &&
+    (group ? usesSharedMdPool(group) : clientUsesSharedMdPool(clientId));
 
   const [file, setFile] = useState<File | null>(null);
   const [hasExistingFile, setHasExistingFile] = useState(false);
@@ -117,7 +124,7 @@ export function OrderGroupFormModal({
         if (isCostBased && data.total_value != null) {
           setBudgetAmount(String(data.total_value));
         }
-        if (isMdBudgetBased && data.md_total != null) {
+        if (sharedMd && data.md_total != null) {
           setMdBudgetTotal(String(data.md_total));
         }
       };
@@ -150,7 +157,7 @@ export function OrderGroupFormModal({
               },
             ]
           : []),
-        ...(isMdBudgetBased
+        ...(sharedMd
           ? [
               {
                 key: "md_total" as const,
@@ -181,7 +188,7 @@ export function OrderGroupFormModal({
 
   const budgetMissing =
     (isCostBased && (parseDecimalInput(budgetAmount) ?? 0) <= 0) ||
-    (isMdBudgetBased && (parseDecimalInput(mdBudgetTotal) ?? 0) <= 0);
+    (sharedMd && (parseDecimalInput(mdBudgetTotal) ?? 0) <= 0);
   const canSubmit =
     !submitting && orderNumber.trim() !== "" && startDate !== "" && !budgetMissing;
 
@@ -230,21 +237,23 @@ export function OrderGroupFormModal({
                 end_date: endDate || null,
                 notes: notes.trim() || null,
                 // Typ rozliczenia jest wybierany PRZY ZAKŁADANIU i nie zmienia
-                // się później: zamówienie z rozliczonymi fakturami, które
-                // nagle staje się MD-owe, zostawia kwoty bez puli, z której
-                // zeszły. Przy edycji wysyłamy więc tylko budżet właściwego
-                // typu, bez flag zmieniających sposób rozliczenia.
+                // się później. Zwykłe MD ma budżet przy liniach, a świadome
+                // warianty CP/Lotte wysyłają jedną pulę MD na grupie.
                 ...(editing
                   ? {}
                   : {
                       order_type: orderType,
-                      is_cost_based: isCostBased,
-                      is_md_budget_based: isMdBudgetBased,
+                      ...(sharedMd
+                        ? {
+                            is_cost_based: false,
+                            is_md_budget_based: true,
+                          }
+                        : {}),
                     }),
                 ...(isCostBased
                   ? { budget_amount: parseDecimalInput(budgetAmount) }
                   : {}),
-                ...(isMdBudgetBased
+                ...(sharedMd
                   ? { md_budget_total: parseDecimalInput(mdBudgetTotal) }
                   : {}),
               }, file)
@@ -310,11 +319,13 @@ export function OrderGroupFormModal({
 
         <div className="rounded-md border border-border bg-muted/30 p-3">
           <p className="mt-1 text-xs text-muted-foreground">
-            {isMdBudgetBased
+            {sharedMd
               ? "Wspólna pula MD dla całego zamówienia, bez dzielenia budżetu na konsultantów."
-              : editing
-                ? "Typu rozliczenia nie zmienia się po założeniu zamówienia."
-                : "Rozliczane ustaloną kwotą, z której schodzą faktury — zamiast liczby MD per konsultant."}
+              : isMdOrder
+                ? "Budżet MD ustawiasz osobno przy każdym konsultancie po utworzeniu zamówienia."
+                : editing
+                  ? "Typu rozliczenia nie zmienia się po założeniu zamówienia."
+                  : "Rozliczane ustaloną kwotą, z której schodzą faktury — zamiast liczby MD per konsultant."}
           </p>
 
           {isCostBased ? (
@@ -348,7 +359,7 @@ export function OrderGroupFormModal({
             </div>
           ) : null}
 
-          {isMdBudgetBased ? (
+          {sharedMd ? (
             <div className="mt-3">
               <label htmlFor="group-md-budget" className={labelClass}>
                 Budżet w MD *
@@ -364,9 +375,8 @@ export function OrderGroupFormModal({
                 placeholder="100"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Automatyczne pomniejszanie działa dla obecnie rozpoznawanego
-                formatu MD z raportu Finansów. Finalny szczegółowy raport
-                godzin/MD może wymagać dostosowania mapowania.
+                Automatyczne pomniejszanie działa dla klientowego wariantu
+                wspólnej puli MD.
               </p>
               <label htmlFor="group-md-used" className={`${labelClass} mt-3`}>
                 Wykorzystano MD

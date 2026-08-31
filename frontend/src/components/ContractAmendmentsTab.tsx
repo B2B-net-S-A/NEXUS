@@ -7,6 +7,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
 import {
   canManageCandidateFinance,
+  canViewCandidateFinance,
   useAuthStore,
 } from "@/store/auth";
 import {
@@ -76,6 +77,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const canManageFinance = canManageCandidateFinance(user);
+  const canViewFinance = canViewCandidateFinance(user);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [error, setError] = useState("");
@@ -137,7 +139,7 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
 
   const amendments = (data ?? []).filter(
     (amendment) =>
-      canManageFinance || amendment.amendment_type !== "rate_change",
+      canViewFinance || amendment.amendment_type !== "rate_change",
   );
 
   return (
