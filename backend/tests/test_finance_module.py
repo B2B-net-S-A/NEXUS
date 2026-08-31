@@ -459,6 +459,15 @@ async def test_failed_import_leaves_no_orphan_file(
     Plik musi trafić na dysk przed wstawieniem wiersza (`file_path` jest NOT
     NULL), więc jedyną obroną jest sprzątanie przy wyjątku. Przy 15 MB na plik
     osierocone kopie zbierałyby się cicho i bezterminowo.
+
+    Test asertuje SKUTEK DLA UŻYTKOWNIKA (HTTP 500), a nie wyjątek wyrzucony
+    z klienta ASGI. Ta druga postać była artefaktem harnessu: `ASGITransport`
+    domyślnie re-raise'uje to, co złapało starlette'owe `ServerErrorMiddleware`.
+    Na produkcji wyjątek NIGDY nie docierał do klienta — użytkownik zawsze
+    dostawał 500. Od czasu `UnhandledErrorMiddleware` (app/main.py) to 500 ma
+    nagłówki CORS i treść po polsku, więc jest widoczne także w przeglądarce;
+    ceną jest to, że nie propaguje się już do testu. Sprawdzana gwarancja —
+    brak osieroconego pliku — jest tu nietknięta i to ona jest sednem testu.
     """
     from app.api import finance as finance_api
 
@@ -487,9 +496,9 @@ async def test_failed_import_leaves_no_orphan_file(
 
     monkeypatch.setattr(finance_api, "_persist_import", _boom)
 
-    with pytest.raises(RuntimeError):
-        await _import(app_client, app_auth_headers, year=year, month=month)
+    response = await _import(app_client, app_auth_headers, year=year, month=month)
 
+    assert response.status_code == 500, response.text
     assert saved, "plik nie został w ogóle zapisany — test nie sprawdza tego, co miał"
     assert deleted == saved, (
         f"osierocony plik po nieudanym imporcie: {set(saved) - set(deleted)}"

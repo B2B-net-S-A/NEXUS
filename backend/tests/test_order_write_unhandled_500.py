@@ -201,6 +201,35 @@ async def test_a_very_long_pdf_name_does_not_break_the_upload(
     assert stored.endswith(".pdf")
 
 
+async def test_a_rate_too_wide_for_the_column_is_a_readable_refusal(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Materializacja przepisuje stawkę do WĘŻSZEJ kolumny zamówienia.
+
+    ``md_rate_*`` to Numeric(12,2) (10 cyfr całkowitych), a ``rate_*``
+    Numeric(12,3) (9 cyfr) — przy jednostce godzinowej konwersja ×8 mogła
+    wyjść poza zakres i wywalić commit nieobsłużonym błędem sterownika.
+    Odmowa musi paść PRZED zapisem i nazwać pole, a nie wrócić jako ogólne
+    „nieoczekiwany błąd serwera".
+    """
+    client_id, contract_id, _ = await _seed_client_with_contract()
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data=_md_order_form(
+            contract_id,
+            rate_unit="hourly",
+            rate_client="999999999.999",
+            rate_candidate="999999999.999",
+            md_quantity="10",
+        ),
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "przekracza zakres" in resp.text
+
+
 # ── 3. Klucze obce w PATCH ──────────────────────────────────────────────────
 
 

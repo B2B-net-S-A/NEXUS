@@ -1218,6 +1218,13 @@ _BNP_MD_RATE_MIN = Decimal(200)
 _BNP_MD_RATE_MAX = Decimal(5000)
 
 
+# Skan wierszowy szuka OBU etykiet w jednej linii, więc wzorce są kompilowane
+# raz, na poziomie modułu — funkcja niżej biegnie dwa razy na każdy odczyt PDF
+# (z ceny i z ilości).
+_BNP_PRICE_LINE_RE = re.compile(_BNP_NET_PRICE_LABEL, re.IGNORECASE)
+_BNP_QTY_LINE_RE = re.compile(r"\bszt\.?\b", re.IGNORECASE)
+
+
 def _bnp_labels_share_a_line(text: str) -> bool:
     """Czy „Cena netto" i „Szt." stoją w JEDNYM wierszu (nagłówek tabeli).
 
@@ -1227,10 +1234,8 @@ def _bnp_labels_share_a_line(text: str) -> bool:
     w sąsiednią kolumnę. Tu nie zgadujemy: zostawiamy odczyt modelu (który
     widzi tabelę jako całość) i mówimy operatorowi, żeby sprawdził.
     """
-    price_re = re.compile(_BNP_NET_PRICE_LABEL, re.IGNORECASE)
-    qty_re = re.compile(r"\bszt\.?\b", re.IGNORECASE)
     return any(
-        price_re.search(line) and qty_re.search(line)
+        _BNP_PRICE_LINE_RE.search(line) and _BNP_QTY_LINE_RE.search(line)
         for line in (text or "").splitlines()
     )
 

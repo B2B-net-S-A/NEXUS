@@ -78,7 +78,15 @@ _ORDER_RATE_MAX = Decimal("999999999.999")
 
 
 def _assert_fits_order_rate_column(value: Optional[Decimal], label: str) -> None:
-    """Odmów PRZED zapisem, gdy stawka nie mieści się w kolumnie zamówienia."""
+    """Odmów PRZED zapisem, gdy stawka nie mieści się w kolumnie zamówienia.
+
+    ``ValueError`` — jak każda inna odmowa w tym module. Wołający
+    (``_materialize_group_after_activation``) zamienia go na 422 z tą treścią;
+    gdyby poleciał dalej, wpadłby w ``UnhandledErrorMiddleware`` i użytkownik
+    zobaczyłby ogólne „nieoczekiwany błąd serwera" zamiast nazwy pola do
+    poprawienia. Serwis NIE rzuca ``HTTPException`` sam: nie importuje FastAPI
+    i jest wołany także spoza warstwy HTTP.
+    """
 
     if value is None:
         return
