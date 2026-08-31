@@ -501,6 +501,74 @@ async def test_finance_draft_preview_does_not_persist_lazy_initialization(monkey
     assert contract.draft_updated_by is None
 
 
+@pytest.mark.asyncio
+async def test_finance_draft_print_preview_does_not_persist_default_template(
+    monkeypatch,
+):
+    finance = _user(UserRole.finance)
+    contract = SimpleNamespace(
+        id=17,
+        contract_type="b2b",
+        draft_content_html=None,
+        draft_template_id=None,
+        draft_updated_at=None,
+        draft_updated_by=None,
+        candidate=SimpleNamespace(name="Jan", lastname="Kowalski"),
+    )
+    template = SimpleNamespace(
+        id=8,
+        name="B2B default",
+        contract_type="b2b",
+        content_jinja="<p>template</p>",
+        is_default=True,
+    )
+
+    async def load_contract(*_args, **_kwargs):
+        return contract
+
+    async def list_templates(*_args, **_kwargs):
+        return [template]
+
+    class ReadOnlyDb:
+        def add(self, *_args, **_kwargs):
+            raise AssertionError("Finance print GET must not add ORM rows")
+
+        async def flush(self):
+            raise AssertionError("Finance print GET must not flush writes")
+
+        async def commit(self):
+            raise AssertionError("Finance print GET must not commit writes")
+
+        async def refresh(self, *_args, **_kwargs):
+            raise AssertionError("Finance print GET must not refresh ORM rows")
+
+        async def scalar(self, *_args, **_kwargs):
+            raise AssertionError(
+                "Finance print GET must not query outside read helpers"
+            )
+
+    monkeypatch.setattr(contracts, "_load_contract_with_relations", load_contract)
+    monkeypatch.setattr(
+        contracts,
+        "_list_templates_for_contract_type",
+        list_templates,
+    )
+    monkeypatch.setattr(
+        contracts,
+        "_render_draft_body",
+        lambda *_args: "<p>Finance print preview</p>",
+    )
+
+    response = await contracts.render_draft_for_print(17, finance, ReadOnlyDb())
+
+    assert response.status_code == 200
+    assert b"Finance print preview" in response.body
+    assert contract.draft_content_html is None
+    assert contract.draft_template_id is None
+    assert contract.draft_updated_at is None
+    assert contract.draft_updated_by is None
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [

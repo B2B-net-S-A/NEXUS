@@ -19,9 +19,9 @@ Capability → allowed roles:
   ``user`` is excluded everywhere.
 - **write** (profile fields, notes, source events, talent pools, tags) —
   parity with the existing ``RecruiterPlus`` contract (admin, delivery_lead,
-  tac, recruiter, sourcer).
-- **export** — admin, head_of_recruitment, delivery_lead, tac. Recruiter and
-  sourcer intentionally lose bulk export (matrix section 9 of the audit:
+  tac, recruiter, finance, sourcer).
+- **export** — admin, head_of_recruitment, delivery_lead, tac, finance. Recruiter
+  and sourcer intentionally lose bulk export (matrix section 9 of the audit:
   "domyślnie nie recruiter"); exports are audited via ``candidate_audit``.
 - **candidate finance read** (candidate-specific pricing and conflict history)
   — admin and Finance; mutations remain admin only. Delivery/recruitment roles
