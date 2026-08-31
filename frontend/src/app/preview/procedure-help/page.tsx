@@ -81,38 +81,48 @@ sekcjach zabierałby więcej miejsca, niż oszczędza przewijania.
 `;
 
 export default function ProcedureHelpPreview() {
+  // Układ powłoki odtworzony CELOWO: w aplikacji treść procedury przewija się
+  // w zagnieżdżonym `<main class="overflow-y-auto">` wewnątrz przodków
+  // z `overflow: hidden`, a nie w oknie. Ta różnica nie jest kosmetyczna —
+  // w takim kontenerze Chrome cicho pomija płynne przewijanie, więc harness
+  // przewijający okno pokazywał działający skok tam, gdzie na produkcji
+  // czytelnik zostawał w miejscu.
   return (
-    <main className="mx-auto max-w-5xl space-y-8 p-6">
-      <header>
-        <h1 className="text-xl font-semibold text-foreground">
-          Harness: treść procedury (Pomoc → Procedury)
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Mocki, zero zapytań do API.
-        </p>
-      </header>
+    <div className="flex h-screen overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="mx-auto max-w-5xl flex-1 space-y-8 overflow-y-auto p-6">
+          <header>
+            <h1 className="text-xl font-semibold text-foreground">
+              Harness: treść procedury (Pomoc → Procedury)
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Mocki, zero zapytań do API.
+            </p>
+          </header>
 
-      <section className="rounded-lg border border-border bg-card">
-        <ProcedureContent
-          procedure={procedure({ content: LONG })}
-          isAdmin={false}
-          onEdit={() => {}}
-          onDelete={() => {}}
-        />
-      </section>
+          <section className="rounded-lg border border-border bg-card">
+            <ProcedureContent
+              procedure={procedure({ content: LONG })}
+              isAdmin={false}
+              onEdit={() => {}}
+              onDelete={() => {}}
+            />
+          </section>
 
-      <section className="rounded-lg border border-border bg-card">
-        <ProcedureContent
-          procedure={procedure({
-            id: 2,
-            title: "Krótka procedura (bez spisu treści)",
-            content: SHORT,
-          })}
-          isAdmin
-          onEdit={() => {}}
-          onDelete={() => {}}
-        />
-      </section>
-    </main>
+          <section className="rounded-lg border border-border bg-card">
+            <ProcedureContent
+              procedure={procedure({
+                id: 2,
+                title: "Krótka procedura (bez spisu treści)",
+                content: SHORT,
+              })}
+              isAdmin
+              onEdit={() => {}}
+              onDelete={() => {}}
+            />
+          </section>
+        </main>
+      </div>
+    </div>
   );
 }
