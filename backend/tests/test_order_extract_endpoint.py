@@ -813,3 +813,59 @@ async def test_candidate_order_documents_dl_not_assigned_sees_nothing(
     # do którego DL nie jest przypisany → pusto (nie leak).
     assert resp.status_code == 200, resp.text
     assert resp.json()["documents"] == []
+
+
+async def test_extraction_reports_which_client_policy_applied(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Nazwa reguły klientowej wraca w odpowiedzi odczytu.
+
+    Bez tego niewłączona bramka klienta jest NIEWIDOCZNA: odczyt „działa" (model
+    coś wypełnia), a jedynym objawem jest numer zamówienia wzięty z niewłaściwego
+    pola dokumentu — dokładnie objaw zgłoszony dla Nordei.
+    """
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("Nordea Bank Abp SA")
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", f"999999,{client_id}")
+    monkeypatch.setattr(
+        co,
+        "extract_text",
+        lambda path, filename: (
+            "Frame Agreement number: FA-4400011111\n"
+            "Call Off Agreement number: COA-4500030222\n"
+        ),
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("nordea.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["client_policy"] == "Nordea"
+    # Numer UMOWY RAMOWEJ nie może wygrać z numerem zamówienia.
+    assert data["title"] == "COA-4500030222"
+
+
+async def test_extraction_says_when_a_client_has_no_rules_yet(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Brak reguł to INFORMACJA, nie błąd — odczyt ogólny nadal działa."""
+    from app.api import client_orders as co
+
+    client_id = await _seed_client("Klient Bez Regul S.A.")
+    monkeypatch.setattr(
+        co, "extract_text", lambda path, filename: "Zamówienie nr 445/2026\n"
+    )
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("inny.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["client_policy"] is None

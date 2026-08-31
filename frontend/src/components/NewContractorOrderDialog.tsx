@@ -2,11 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { AlertTriangle, FileSearch, Search } from "lucide-react";
+import { FileDropZone } from "@/components/ds/FileDropZone";
 import { OrderTypeSwitch } from "@/components/orders/OrderTypeSwitch";
 import {
   OrderCurrencySelect,
   OrderRateUnitToggle,
+  convertRateInput,
+  extractionRateUnit,
 } from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
@@ -18,6 +21,7 @@ import {
   normalizeDateInput,
 } from "@/lib/dateInput";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
+import { extractionErrorMessage } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import {
   canManageCandidateFinance,
@@ -107,6 +111,126 @@ export function NewContractorOrderDialog({
   const ezdrowie = isEzdrowieClient(clientId);
   const [projectPart, setProjectPart] = useState<string>("");
 
+  // ── PDF od klienta + odczyt ────────────────────────────────────────────
+  //
+  // Odczyt jest tą SAMĄ funkcją i tym samym endpointem co w „Uzupełnij
+  // zamówienie" (`dlPortalApi.extractOrderPdf`), więc reguły klientowe
+  // (Nordea, Bank Pocztowy, BNP…) obowiązują tu bez żadnej dodatkowej
+  // konfiguracji. Klienta NIE czytamy z dokumentu — wynika z profilu, z
+  // którego formularz został otwarty.
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [checkData, setCheckData] = useState(false);
+  const [checkReasons, setCheckReasons] = useState<string[]>([]);
+  // `null` = odczytu jeszcze nie było. Pusty string = odczyt był, ale ten
+  // klient nie ma własnych reguł — komunikat mówi to wprost, zamiast zostawiać
+  // operatora z przekonaniem, że numer przyszedł z właściwego pola dokumentu.
+  const [clientPolicy, setClientPolicy] = useState<string | null>(null);
+
+  function resetExtraction() {
+    setCheckData(false);
+    setCheckReasons([]);
+    setClientPolicy(null);
+  }
+
+  /** Wypełnia pola z odczytu.
+   *
+   *  `overwrite=false` (odczyt automatyczny po wgraniu pliku) uzupełnia
+   *  WYŁĄCZNIE puste pola — nie kasuje niczego, co operator zdążył wpisać.
+   *  `overwrite=true` (przycisk „Zczytaj dane z dokumentu") nadpisuje, bo to
+   *  świadoma prośba o ponowny odczyt. Reguła repo „dodanie pliku samo z siebie
+   *  nie zmienia pól" broni ręcznej pracy; tutaj formularz startuje pusty, więc
+   *  jej sens spełnia wariant „tylko puste pola".
+   */
+  function applyExtraction(
+    data: Awaited<ReturnType<typeof dlPortalApi.extractOrderPdf>>["data"],
+    { overwrite }: { overwrite: boolean },
+  ) {
+    const fill = (
+      current: string,
+      incoming: string | null | undefined,
+      setter: (value: string) => void,
+    ) => {
+      if (incoming == null || incoming === "") return;
+      if (!overwrite && current.trim() !== "") return;
+      setter(incoming);
+    };
+
+    fill(title, data.title, setTitle);
+    fill(
+      orderStart,
+      data.start_date ? normalizeDateInput(data.start_date) : null,
+      setOrderStart,
+    );
+    fill(
+      orderEnd,
+      data.end_date ? normalizeDateInput(data.end_date) : null,
+      setOrderEnd,
+    );
+    // Kontrakt zaczyna się razem z zamówieniem, dopóki operator nie powie
+    // inaczej — to pole jest wymagane, a jego brak blokuje zapis.
+    fill(
+      contractStart,
+      data.start_date ? normalizeDateInput(data.start_date) : null,
+      setContractStart,
+    );
+    if (canManageFinance) {
+      const detectedUnit = extractionRateUnit(data.rate_unit);
+      if (detectedUnit && detectedUnit !== rateUnit) {
+        // Jednostka z dokumentu przelicza to, co JUŻ jest w polach — inaczej
+        // kwota zostałaby przeetykietowana bez konwersji (błąd ×8 / ×22).
+        setRateClient(
+          convertRateInput(
+            rateClient,
+            rateUnit,
+            detectedUnit,
+            Number(billingHours) || 160,
+          ),
+        );
+        setRateCandidate(
+          convertRateInput(
+            rateCandidate,
+            rateUnit,
+            detectedUnit,
+            Number(billingHours) || 160,
+          ),
+        );
+        setRateUnit(detectedUnit);
+      }
+      // Dokument opisuje pozycję PRZYCHODOWĄ klienta. Stawka kosztowa
+      // kontraktora nie wynika z niego i zostaje do wpisania ręcznie.
+      fill(
+        rateClient,
+        data.rate_client == null ? null : String(data.rate_client),
+        setRateClient,
+      );
+      if (data.currency) setRateClientCurrency(data.currency.toUpperCase());
+    }
+    setClientPolicy(data.client_policy ?? "");
+    setCheckData(Boolean(data.uncertain));
+    setCheckReasons(data.uncertain_reasons ?? []);
+  }
+
+  async function runExtraction(picked: File, options: { overwrite: boolean }) {
+    setExtracting(true);
+    setFileError(null);
+    try {
+      const { data } = await dlPortalApi.extractOrderPdf(
+        clientId,
+        picked,
+        selectedCandidate?.id ?? null,
+      );
+      applyExtraction(data, options);
+    } catch (err: unknown) {
+      setFileError(
+        extractionErrorMessage(err, "Nie udało się odczytać danych z dokumentu."),
+      );
+    } finally {
+      setExtracting(false);
+    }
+  }
+
   // Debounce candidate search (300ms — same as AddCandidateToJobModal)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(candidateQuery.trim()), 300);
@@ -192,14 +316,26 @@ export function NewContractorOrderDialog({
       }
       return dlPortalApi.createContractWithOrder(clientId, payload);
     },
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       const marginSuffix =
         res.data.monthly_margin == null
           ? ""
           : ` (marża ${res.data.monthly_margin}/mc)`;
+      // PDF idzie DRUGIM żądaniem, bo `contract-with-order` jest atomowym
+      // zapisem JSON. Nieudany upload nie może cofnąć utworzonego kontraktu:
+      // mówimy o tym wprost i zostawiamy plik do wgrania w „Uzupełnij
+      // zamówienie", zamiast udawać, że nic się nie stało.
+      let fileNote = "";
+      if (file) {
+        try {
+          await dlPortalApi.replaceOrderPo(clientId, res.data.order_id, file);
+        } catch {
+          fileNote = " — PDF NIE został zapisany, wgraj go ponownie";
+        }
+      }
       showToast(
-        `Kontrakt #${res.data.contract_id} + Order #${res.data.order_id} utworzone${marginSuffix}`,
-        "success",
+        `Kontrakt #${res.data.contract_id} + Order #${res.data.order_id} utworzone${marginSuffix}${fileNote}`,
+        fileNote ? "error" : "success",
       );
       onCreated();
     },
@@ -400,6 +536,72 @@ export function NewContractorOrderDialog({
             )}
           </label>
         )}
+
+        {/* PDF od klienta — widoczny OD RAZU i dla KAŻDEGO klienta.
+            Formularz działa dalej bez pliku: wgranie jest skrótem, nie
+            warunkiem. */}
+        <div className="space-y-2">
+          <FileDropZone
+            inputId="new-order-po"
+            file={file}
+            onPick={(picked) => {
+              setFile(picked);
+              setFileError(null);
+              resetExtraction();
+              // Formularz startuje pusty, więc odczyt po wgraniu wypełnia go
+              // od razu — ale WYŁĄCZNIE puste pola (patrz `applyExtraction`).
+              if (picked) void runExtraction(picked, { overwrite: false });
+            }}
+            onError={setFileError}
+            error={fileError}
+            accept=".pdf,.docx,.doc"
+            maxBytes={25 * 1024 * 1024}
+            label="PDF zamówienia od klienta"
+            hint=".pdf / .docx · przeciągnij plik tutaj lub wybierz z dysku · maks. 25 MB"
+          />
+          <button
+            type="button"
+            onClick={() => file && void runExtraction(file, { overwrite: true })}
+            disabled={!file || extracting}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-orange-500 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50"
+          >
+            <FileSearch className="h-4 w-4" aria-hidden />
+            {extracting ? "Odczytywanie…" : "Zczytaj dane z dokumentu"}
+          </button>
+
+          {clientPolicy !== null && (
+            <p
+              role="status"
+              className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-foreground"
+            >
+              {clientPolicy
+                ? `Zastosowano reguły odczytu: ${clientPolicy}.`
+                : "Dla tego klienta nie ma jeszcze własnych reguł odczytu PDF — pola wypełnił odczyt ogólny. Sprawdź je przed zapisem."}
+            </p>
+          )}
+
+          {checkData && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900"
+            >
+              <AlertTriangle
+                className="mt-0.5 h-4 w-4 shrink-0 text-orange-500"
+                aria-hidden
+              />
+              <div>
+                <p className="font-semibold">Sprawdź dane!</p>
+                {checkReasons.length > 0 && (
+                  <ul className="mt-1 list-disc pl-4">
+                    {checkReasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         <label className="block">
           {/* Ta wartość jest wyświetlana na karcie klienta jako „Numer

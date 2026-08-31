@@ -772,9 +772,28 @@ _MD_COUNT_RE = re.compile(
 # referencje), ale numerem zamówienia jest WYŁĄCZNIE wartość pola
 # ``Call Off Agreement number``. Reguła jest deterministyczna i stosowana po
 # odpowiedzi LLM, żeby model nie mógł wybrać atrakcyjniejszego numeru z innej
-# części dokumentu.
+# części dokumentu — a wybierze, bo prompt dopuszcza „a similar document
+# reference", a ``Frame Agreement number`` stoi w tych dokumentach wyżej
+# i wygląda równie oficjalnie.
+#
+# Zapis samej etykiety NIE jest stały: dokumenty Nordei mieszają „Call Off",
+# „Call-Off" i „Calloff", a po etykiecie bywa „number", „no.", „nr" albo „#".
+# Wąskie ``Call\\s+Off … (?:number|no\\.?)`` wypadało na każdym z tych
+# wariantów, a wtedy polityka CZYŚCIŁA numer (fail-closed) i operator wpisywał
+# go ręcznie — albo, przy niewłączonej bramce klienta, zostawał numer wybrany
+# przez model, czyli zwykle właśnie „Frame Agreement".
 _NORDEA_CALL_OFF_NUMBER_RE = re.compile(
-    r"Call\s+Off\s+Agreement\s+(?:number|no\.?)\s*[:#\-]?\s*"
+    r"Call[\s\-]*Off\s*Agreement\s*(?:number|no\.?|nr\.?|#)?\s*[:#\-–—]?\s*"
+    r"([A-Z0-9][A-Z0-9._/\-]*)",
+    re.IGNORECASE,
+)
+
+# Kontrola negatywna: „Frame Agreement number" to numer UMOWY RAMOWEJ, nie
+# zamówienia. Nie służy do wyboru numeru — służy do udowodnienia (testem), że
+# wyrażenie wyżej nigdy go nie łapie, także wtedy gdy stoi w dokumencie przed
+# właściwą etykietą.
+_NORDEA_FRAME_NUMBER_RE = re.compile(
+    r"Frame\s*Agreement\s*(?:number|no\.?|nr\.?|#)?\s*[:#\-–—]?\s*"
     r"([A-Z0-9][A-Z0-9._/\-]*)",
     re.IGNORECASE,
 )
@@ -784,6 +803,13 @@ def nordea_call_off_agreement_number(text: str) -> Optional[str]:
     """Zwróć numer z etykiety Nordea, nigdy inny numer z dokumentu."""
 
     match = _NORDEA_CALL_OFF_NUMBER_RE.search(text or "")
+    return match.group(1).strip() if match else None
+
+
+def nordea_frame_agreement_number(text: str) -> Optional[str]:
+    """Numer umowy ramowej — WYŁĄCZNIE do kontroli, nigdy jako numer zamówienia."""
+
+    match = _NORDEA_FRAME_NUMBER_RE.search(text or "")
     return match.group(1).strip() if match else None
 
 

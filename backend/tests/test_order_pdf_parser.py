@@ -143,6 +143,43 @@ class TestNordeaCallOffNumber:
         assert enforced.uncertain is True
         assert any("Call Off Agreement number" in r for r in enforced.uncertain_reasons)
 
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Call Off Agreement number:",
+            "Call-Off Agreement number:",
+            "Call-off agreement no.",
+            "Calloff Agreement nr",
+            "Call Off Agreement #",
+            "Call Off Agreement:",
+            "Call Off Agreement number",
+        ],
+    )
+    def test_label_spelling_variants_are_all_recognised(self, label):
+        """Zapis etykiety nie jest stały, a jej niedopasowanie ma cichy koszt.
+
+        Polityka jest fail-closed: nierozpoznana etykieta CZYŚCI numer. Przy
+        niewłączonej bramce klienta zostaje wtedy numer wybrany przez model —
+        czyli zwykle „Frame Agreement number", bo stoi w dokumencie wyżej
+        i wygląda równie oficjalnie. Dokładnie to zgłosił użytkownik.
+        """
+        assert (
+            m.nordea_call_off_agreement_number(f"{label} COA-4500030222")
+            == "COA-4500030222"
+        )
+
+    def test_frame_agreement_number_never_becomes_the_order_number(self):
+        """Numer UMOWY RAMOWEJ nie jest numerem zamówienia — nigdy."""
+        text = """
+        Frame Agreement number: FA-4400011111
+        Call Off Agreement number: COA-4500030222
+        """
+        assert m.nordea_call_off_agreement_number(text) == "COA-4500030222"
+        # Kontrola negatywna: sam Frame Agreement nie daje numeru w ogóle,
+        # więc polityka czyści pole i prosi o ręczne uzupełnienie.
+        assert m.nordea_call_off_agreement_number("Frame Agreement number: FA-1") is None
+        assert m.nordea_frame_agreement_number("Frame Agreement number: FA-1") == "FA-1"
+
 
 class TestBankPocztowyOrderNumber:
     def test_numer_pisma_wins_over_zamowienie_nr(self):
