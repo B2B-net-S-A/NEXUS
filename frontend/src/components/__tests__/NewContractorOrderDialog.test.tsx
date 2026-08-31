@@ -23,6 +23,8 @@ vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
     dlPortalApi: {
       ...actual.dlPortalApi,
       createContractWithOrder: vi.fn(),
+      extractOrderPdf: vi.fn(),
+      replaceOrderPo: vi.fn(),
     },
   };
 });
@@ -30,6 +32,41 @@ vi.mock("@/lib/api/dlPortal", async (importOriginal) => {
 import api from "@/lib/api";
 
 const createContractWithOrder = vi.mocked(dlPortalApi.createContractWithOrder);
+const extractOrderPdf = vi.mocked(dlPortalApi.extractOrderPdf);
+const replaceOrderPo = vi.mocked(dlPortalApi.replaceOrderPo);
+
+function extraction(overrides: Record<string, unknown> = {}) {
+  return {
+    data: {
+      title: "COA-4500030222",
+      start_date: "2026-09-01",
+      end_date: "2026-12-31",
+      rate_client: 1640,
+      rate_unit: "day",
+      total_value: null,
+      currency: "PLN",
+      md_total: null,
+      uncertain: false,
+      uncertain_reasons: [],
+      fields_confidence: {},
+      client_policy: "Nordea",
+      source: "claude",
+      ...overrides,
+    },
+  };
+}
+
+/** Wgranie pliku do dropzone'y formularza nowego zamówienia. */
+async function uploadPdf(user: ReturnType<typeof userEvent.setup>) {
+  const input = document.querySelector<HTMLInputElement>("#new-order-po");
+  expect(input).not.toBeNull();
+  await user.upload(
+    input as HTMLInputElement,
+    new File([new Uint8Array([1, 2, 3])], "zamowienie.pdf", {
+      type: "application/pdf",
+    }),
+  );
+}
 
 function financeAdmin(): User {
   return {
@@ -111,6 +148,8 @@ beforeEach(() => {
       monthly_margin: null,
     },
   } as never);
+  extractOrderPdf.mockResolvedValue(extraction() as never);
+  replaceOrderPo.mockResolvedValue({ data: {} } as never);
 });
 
 afterEach(() => {
@@ -266,5 +305,109 @@ describe("NewContractorOrderDialog — jednostka i waluta zamówienia", () => {
     expect(createContractWithOrder.mock.calls[0]?.[1]).not.toHaveProperty(
       "currency",
     );
+  });
+});
+
+
+describe("NewContractorOrderDialog — PDF od klienta", () => {
+  it("dropzone jest widoczna od razu, dla każdego klienta", () => {
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    expect(screen.getByText("PDF zamówienia od klienta")).toBeInTheDocument();
+    // Przycisk jest WIDOCZNY (nieukryty), tylko nieaktywny do czasu wgrania
+    // pliku — ticket wprost zabrania chowania go klientom bez reguł.
+    expect(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("wgranie PDF uzupełnia pola i nie prosi o wskazanie klienta", async () => {
+    const user = userEvent.setup();
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    await uploadPdf(user);
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("COA-4500030222")).toBeInTheDocument(),
+    );
+    // Klient wynika z profilu, z którego formularz otwarto — endpoint dostaje
+    // `clientId`, a nie wartość odczytaną z dokumentu.
+    expect(extractOrderPdf).toHaveBeenCalledWith(11, expect.any(File), null);
+    // `normalizeDateInput` zostawia ISO w postaci ISO — pola dat przyjmują
+    // oba zapisy, a odczyt zwraca właśnie ISO.
+    expect(screen.getAllByDisplayValue("2026-09-01").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("2026-12-31")).toBeInTheDocument();
+  });
+
+  it("odczyt automatyczny NIE kasuje tego, co operator już wpisał", async () => {
+    const user = userEvent.setup();
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    const number = screen.getByRole("textbox", { name: /Numer zamówienia/ });
+    await user.type(number, "MOJ-NUMER");
+    await uploadPdf(user);
+
+    await waitFor(() => expect(extractOrderPdf).toHaveBeenCalled());
+    expect(number).toHaveValue("MOJ-NUMER");
+  });
+
+  it("jawny przycisk odczytu nadpisuje wpisane wartości", async () => {
+    const user = userEvent.setup();
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    const number = screen.getByRole("textbox", { name: /Numer zamówienia/ });
+    await user.type(number, "MOJ-NUMER");
+    await uploadPdf(user);
+    await waitFor(() => expect(extractOrderPdf).toHaveBeenCalled());
+
+    await user.click(
+      screen.getByRole("button", { name: /Zczytaj dane z dokumentu/ }),
+    );
+
+    await waitFor(() => expect(number).toHaveValue("COA-4500030222"));
+  });
+
+  it("mówi wprost, gdy klient nie ma jeszcze własnych reguł odczytu", async () => {
+    const user = userEvent.setup();
+    extractOrderPdf.mockResolvedValue(
+      extraction({ client_policy: null }) as never,
+    );
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    await uploadPdf(user);
+
+    expect(
+      await screen.findByText(/nie ma jeszcze własnych reguł odczytu PDF/),
+    ).toBeInTheDocument();
+  });
+
+  it("nazywa regułę klientową, gdy została zastosowana", async () => {
+    const user = userEvent.setup();
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    await uploadPdf(user);
+
+    expect(
+      await screen.findByText(/Zastosowano reguły odczytu: Nordea/),
+    ).toBeInTheDocument();
+  });
+
+  it("awaria odczytu jest komunikatem, nie cichym niepowodzeniem", async () => {
+    const user = userEvent.setup();
+    extractOrderPdf.mockRejectedValue(new Error("boom"));
+    mockApi(() => Promise.resolve({ data: [] }));
+    renderDialog();
+
+    await uploadPdf(user);
+
+    expect(
+      await screen.findByText(/Nie udało się odczytać danych z dokumentu/),
+    ).toBeInTheDocument();
   });
 });

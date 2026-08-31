@@ -1982,13 +1982,23 @@ async def extract_order_pdf(
     else:
         # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
         extraction = await parse_order_document(text)
+    # Nazwy zastosowanych polityk jadą do odpowiedzi. Bez tego niewłączona
+    # bramka klienta jest NIEWIDOCZNA: odczyt „działa" (model coś wypełnia),
+    # a jedynym objawem jest numer zamówienia wzięty z niewłaściwego pola —
+    # dokładnie objaw zgłoszony dla Nordei. Nazwa polityki zamienia cichą
+    # różnicę w zdanie, które operator widzi przy odczycie.
+    applied_policies: list[str] = []
     if _is_nordea_order_number_client(client_id):
+        applied_policies.append("Nordea")
         extraction = enforce_nordea_order_number(extraction, text)
     if _is_bank_pocztowy_order_client(client_id):
+        applied_policies.append("Bank Pocztowy")
         extraction = apply_bank_pocztowy_order_policy(extraction, text)
     if _is_credit_agricole_order_client(client_id):
+        applied_policies.append("Credit Agricole")
         extraction = apply_credit_agricole_order_policy(extraction, text)
     if bnp_single_consultant:
+        applied_policies.append("BNP")
         extraction = apply_bnp_order_policy(extraction, text)
     # Orlen i PFRON są rozłączne, twardo bramkowane po client_id. Orlen może
     # zaakceptować dwie pozycje tej samej osoby tylko przy IDENTYCZNEJ stawce,
@@ -1996,6 +2006,7 @@ async def extract_order_pdf(
     # sam wykonuje brutto→netto. Obie polityki działają po matcherze, bo nie
     # mogą zgadywać tożsamości konsultanta.
     if _is_orlen_order_client(client_id) and target_consultant:
+        applied_policies.append("Orlen")
         extraction = apply_orlen_order_policy(
             extraction,
             text,
@@ -2003,12 +2014,14 @@ async def extract_order_pdf(
             consultant_given_names=target_given_names,
         )
     if _is_pfron_order_client(client_id):
+        applied_policies.append("PFRON")
         extraction = apply_pfron_order_policy(extraction, text)
 
     # Erste jako OSTATNIA (PFRON jest rozłączny i już przeliczył własną stawkę):
     # wrapper przelicza kwotę po innych politykach. Odwrotna kolejność mogłaby
     # podzielić wartość, którą kolejna polityka zaraz nadpisze.
     if _is_erste_gross_rate_client(client_id) and not _is_pfron_order_client(client_id):
+        applied_policies.append("Erste Bank Polska")
         extraction = apply_erste_order_policy(extraction, text)
 
     # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
@@ -2070,6 +2083,9 @@ async def extract_order_pdf(
         # ID konsultanta (BNP) też nie jest kwotą — służy potwierdzeniu
         # tożsamości osoby, więc musi dotrzeć także do ról bez VIEW_FINANCE.
         consultant_ref=extraction.consultant_ref,
+        # Nazwa reguły klientowej też nie jest kwotą; `None` znaczy „ten klient
+        # nie ma jeszcze własnych reguł", a nie „odczyt się nie udał".
+        client_policy=" + ".join(applied_policies) or None,
         source=extraction.source,
     )
 

@@ -240,6 +240,18 @@ class OrderExtractionResult(BaseModel):
     której karty uruchomił odczyt. Nie jest kwotą — przeżywa redakcję
     finansową, tak samo jak ``title_needs_review``."""
 
+    client_policy: Optional[str] = None
+    """Nazwa reguły odczytu zastosowanej dla TEGO klienta, albo ``None``.
+
+    Odczyt ogólny (sam model) działa u każdego klienta, ale klienci z własnym
+    formatem dokumentu mają dodatkowo politykę deterministyczną — i to ONA
+    decyduje o numerze zamówienia, stawce i okresie. Front pokazuje tę nazwę
+    przy odczycie, a jej BRAK komunikuje wprost: bez tego niewłączona bramka
+    klienta (np. `NORDEA_ORDER_NUMBER_CLIENT_IDS`) jest niewidoczna, a jedynym
+    objawem jest numer zamówienia wzięty z niewłaściwego pola dokumentu.
+
+    Nie jest kwotą — przeżywa redakcję finansową, jak ``title_needs_review``."""
+
     uncertain: bool = True
     uncertain_reasons: list[str] = Field(default_factory=list)
     fields_confidence: dict[str, float] = Field(default_factory=dict)

@@ -201,6 +201,15 @@ export interface OrderExtractionResult {
    *  uruchomiono odczyt. Nie jest kwotą — dociera też do ról bez uprawnień
    *  finansowych. Opcjonalne — starszy backend pola nie wysyła. */
   consultant_ref?: string | null;
+  /** Nazwa reguły odczytu zastosowanej dla TEGO klienta, albo `null`.
+   *
+   *  Odczyt ogólny (sam model) działa u każdego klienta; klienci z własnym
+   *  formatem dokumentu mają dodatkowo politykę deterministyczną i to ONA
+   *  decyduje o numerze zamówienia, stawce i okresie. Brak nazwy jest
+   *  informacją dla operatora, a nie błędem — bez niego niewłączona bramka
+   *  klienta jest niewidoczna, a jedynym objawem jest numer wzięty
+   *  z niewłaściwego pola dokumentu. Opcjonalne — starszy backend go nie wysyła. */
+  client_policy?: string | null;
   source: string; // "claude" | "regex" | "none"
 }
 
