@@ -81,6 +81,7 @@ from app.api.recruitment_access import (
 )
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
+from app.schemas.champion import ChampionProfile
 from app.services import champion_view
 from app.services.champion_profile_events import (
     diff_champion_profile,
@@ -1622,6 +1623,31 @@ async def publish_job(
 # ── Champion Profile (Phase 10) ─────────────────────────────────────────────
 
 
+def _champion_response(profile: dict | None) -> dict:
+    """Profil Championa W NOWYM KSZTAŁCIE, niezależnie od tego, co leży w bazie.
+
+    Front zna wyłącznie siedem sekcji (`basics`, `search`, `stack`, `project`,
+    `screening_questions`, `client`, `documents`). Zwrócenie mu surowego JSONB
+    sprzed 09.2026 daje **pusty formularz na wypełnionym profilu**: edytor robi
+    `{...EMPTY_CHAMPION_PROFILE, ...loaded}`, a stary kształt nie ma żadnego
+    z nowych kluczy — przeżywa tylko `screening_questions`, bo nazwa się nie
+    zmieniła.
+
+    To nie jest usterka kosmetyczna. Zapis z takiego pustego formularza nakłada
+    puste sekcje na zmigrowany profil i **kasuje treść**, którą migracja właśnie
+    poprawnie odczytała. Wykryte na produkcji (oferta 408936: `role_name`,
+    `rate_value` 122.5, `seniority_min_years` 10 i opis projektu obecne w bazie,
+    a wszystkie pola w UI puste).
+
+    Dlatego normalizacja siedzi na KAŻDYM wyjściu profilu do frontu, nie tylko
+    na jednym: `GET`, `PUT`, weryfikacja, briefing, rekomendowane wyszukiwania
+    i podgląd sugestii zwracają ten sam kształt.
+    """
+    if not profile:
+        return {}
+    return ChampionProfile.model_validate(profile).model_dump(mode="json")
+
+
 @router.get("/{job_id}/champion-profile")
 async def get_champion_profile(
     job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
@@ -1655,7 +1681,7 @@ async def get_champion_profile(
     return {
         "job_id": job.id,
         "job_title": job.title,
-        "champion_profile": job.champion_profile or {},
+        "champion_profile": _champion_response(job.champion_profile),
     }
 
 
@@ -1761,7 +1787,10 @@ async def update_champion_profile(
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
     if not fields_changed:
-        return {"job_id": job.id, "champion_profile": job.champion_profile or {}}
+        return {
+            "job_id": job.id,
+            "champion_profile": _champion_response(job.champion_profile),
+        }
 
     job.champion_profile = new_profile
     db.add(
@@ -1845,7 +1874,10 @@ async def update_champion_profile(
                 e,
             )
 
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 # ── "Przekaż do searchu" — DL handoff that starts matching (P0-A) ────────────
@@ -2129,7 +2161,10 @@ async def update_champion_verification(
     )
     await db.commit()
     await db.refresh(job)
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 @router.get("/{job_id}/champion-profile/consultant-suggestions")
@@ -2381,7 +2416,7 @@ async def set_champion_briefing(
 
     return {
         "job_id": job.id,
-        "champion_profile": job.champion_profile,
+        "champion_profile": _champion_response(job.champion_profile),
         "suggestion_id": suggestion_id,
     }
 
@@ -2423,7 +2458,10 @@ async def clear_champion_briefing(
     )
     await db.commit()
     await db.refresh(job)
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 @router.get("/{job_id}/champion-profile/briefing/audio-url")
@@ -2499,7 +2537,7 @@ async def generate_recommended_searches_endpoint(
             status_code=502,
             detail="Nie udało się wygenerować propozycji wyszukiwań — spróbuj ponownie.",
         ) from exc
-    return {"job_id": job_id, "champion_profile": profile}
+    return {"job_id": job_id, "champion_profile": _champion_response(profile)}
 
 
 @router.post("/{job_id}/champion-profile/recommended-searches/decision")
@@ -2599,7 +2637,10 @@ async def decide_recommended_search(
     )
     await db.commit()
     await db.refresh(job)
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 # ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────

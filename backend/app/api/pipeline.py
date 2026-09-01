@@ -1246,11 +1246,19 @@ async def get_stage_screening(
     if not stage:
         raise HTTPException(status_code=404, detail="Stage not found")
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    # Import lokalny: `jobs` i `pipeline` dziś się nie importują wzajemnie, ale
+    # oba są rejestrowane w tym samym routerze i wiązanie ich na poziomie modułu
+    # zamieniłoby przyszły import w cykl wykrywany dopiero przy starcie.
+    from app.api.jobs import _champion_response
+
     return {
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
         "job_id": stage.job_id,
-        "champion_profile": (job.champion_profile if job else None) or {},
+        # Ten sam kontrakt co `/jobs/{id}/champion-profile`: front zna wyłącznie
+        # siedem sekcji, a surowy kształt sprzed 09.2026 pokazałby mu pustkę na
+        # wypełnionym profilu.
+        "champion_profile": _champion_response(job.champion_profile if job else None),
         "screening_answers": stage.screening_answers or None,
     }
 
