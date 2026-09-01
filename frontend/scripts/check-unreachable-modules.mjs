@@ -78,11 +78,6 @@ const EXTRA_ENTRIES = new Set([
 const BASELINE = new Set([
   // Moduł poczty (4 pliki): kompletna powierzchnia bez trasy. Do włączenia albo
   // do usunięcia razem z decyzją, czy NEXUS ma własnego klienta mailowego.
-  "components/emails/EmailBulkActionBar.tsx",
-  "components/emails/EmailCompose.tsx",
-  "components/emails/EmailThreadList.tsx",
-  "components/emails/EmailThreadView.tsx",
-  "lib/email-threading.ts",
   // Stary dashboard Delivery Leada: `app/dashboard/delivery-lead/page.tsx` to
   // dziś samo przekierowanie na `/dashboard?preset=delivery-lead`, więc cały
   // katalog `_components` jest martwy. Usuwać osobną partią (13 plików).
@@ -119,7 +114,6 @@ const BASELINE = new Set([
   // Wspólne zależności powyższej, zachowanej sekcji statystyk. Nie są
   // niezależnymi funkcjami do ponownego montowania na uproszczonym dashboardzie.
   "components/v2/dashboard/StatsBoundary.tsx",
-  "lib/dashboard-v2-api.ts",
   "lib/stats-api.ts",
   // Zakładka powiadomień profilu klienta — odmontowana, nie zweryfikowano czy
   // świadomie; wymaga sprawdzenia z produktem przed usunięciem.
