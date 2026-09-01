@@ -1,4 +1,5 @@
 """Tests for candidates API."""
+
 from httpx import AsyncClient
 
 

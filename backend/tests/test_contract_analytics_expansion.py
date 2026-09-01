@@ -7,9 +7,7 @@ from decimal import Decimal
 from httpx import AsyncClient
 
 
-async def test_role_client_mix_shape(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_role_client_mix_shape(app_client: AsyncClient, app_auth_headers: dict):
     resp = await app_client.get(
         "/api/contract-analytics/role-client-mix", headers=app_auth_headers
     )
@@ -118,26 +116,33 @@ async def test_contract_analytics_use_canonical_client_display_name(
         headers=app_auth_headers,
     )
     assert margin.status_code == 200, margin.text
-    assert next(r for r in margin.json() if r["client_id"] == client_id)[
-        "client_name"
-    ] == canonical_name
+    assert (
+        next(r for r in margin.json() if r["client_id"] == client_id)["client_name"]
+        == canonical_name
+    )
 
     role_mix = await app_client.get(
         "/api/contract-analytics/role-client-mix",
         headers=app_auth_headers,
     )
     assert role_mix.status_code == 200, role_mix.text
-    assert next(r for r in role_mix.json()["rows"] if r["client_id"] == client_id)[
-        "client_name"
-    ] == canonical_name
+    assert (
+        next(r for r in role_mix.json()["rows"] if r["client_id"] == client_id)[
+            "client_name"
+        ]
+        == canonical_name
+    )
 
     termination = await app_client.get(
         "/api/contract-analytics/termination-analysis?window_months=24",
         headers=app_auth_headers,
     )
     assert termination.status_code == 200, termination.text
-    assert next(
-        r
-        for r in termination.json()["client_retention"]
-        if r["client_id"] == client_id
-    )["client_name"] == canonical_name
+    assert (
+        next(
+            r
+            for r in termination.json()["client_retention"]
+            if r["client_id"] == client_id
+        )["client_name"]
+        == canonical_name
+    )

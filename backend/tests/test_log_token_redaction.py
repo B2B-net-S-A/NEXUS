@@ -17,7 +17,7 @@ from app.core.logging_config import redact_sensitive
 
 
 def test_signature_link_token_is_masked() -> None:
-    line = 'GET /sign/aB3xK9mQqP7wZ2tokenvalue1234 HTTP/1.1 200'
+    line = "GET /sign/aB3xK9mQqP7wZ2tokenvalue1234 HTTP/1.1 200"
     out = redact_sensitive(line)
     assert "aB3xK9m" not in out
     assert "[redacted-token]" in out
@@ -65,4 +65,6 @@ def test_short_segment_after_prefix_is_left_alone() -> None:
     # `/cv/list` or `/apply/new` — a short human-readable segment is not a
     # token (min length 8), so it must not be masked.
     assert redact_sensitive("GET /cv/list HTTP/1.1 200") == "GET /cv/list HTTP/1.1 200"
-    assert redact_sensitive("GET /apply/new HTTP/1.1 200") == "GET /apply/new HTTP/1.1 200"
+    assert (
+        redact_sensitive("GET /apply/new HTTP/1.1 200") == "GET /apply/new HTTP/1.1 200"
+    )

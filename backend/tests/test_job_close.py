@@ -96,9 +96,7 @@ async def test_close_job_invalid_reason(
 
 
 async def test_close_without_auth(app_client: AsyncClient) -> None:
-    resp = await app_client.post(
-        "/api/jobs/1/close", json={"reason": "budget"}
-    )
+    resp = await app_client.post("/api/jobs/1/close", json={"reason": "budget"})
     assert resp.status_code in (401, 403)
 
 

@@ -200,9 +200,7 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
 
     async def fake_bulk(job_arg, candidates, db, *, similarity_map, profile):
         scored.extend(candidates)
-        return [
-            SimpleNamespace(candidate_id=c.id, total=90.0) for c in candidates
-        ]
+        return [SimpleNamespace(candidate_id=c.id, total=90.0) for c in candidates]
 
     monkeypatch.setattr(
         "app.services.retrieval_pool.retrieve_candidate_pool", fake_pool

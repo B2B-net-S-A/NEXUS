@@ -6,9 +6,7 @@ import ast
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = (
-    BACKEND / "alembic" / "versions" / "0239_bik_contract_order_backfill.py"
-)
+MIGRATION = BACKEND / "alembic" / "versions" / "0239_bik_contract_order_backfill.py"
 ENTRYPOINT = BACKEND / "entrypoint.sh"
 
 

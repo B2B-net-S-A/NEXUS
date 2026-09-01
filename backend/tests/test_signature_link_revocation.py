@@ -46,7 +46,9 @@ BACKEND = Path(__file__).resolve().parents[1]
         SignatureStatus.failed,
     ],
 )
-async def test_finalize_rejects_non_inflight_signature(bad_status: SignatureStatus) -> None:
+async def test_finalize_rejects_non_inflight_signature(
+    bad_status: SignatureStatus,
+) -> None:
     """finalize must 409 for any non-in-flight status, before any side effect."""
     sig = SimpleNamespace(status=bad_status, provider="in_house", contract_id=1)
     db = AsyncMock()  # must never be reached — the guard fires first
@@ -65,7 +67,10 @@ def _function_source(module_rel: str, func_name: str) -> str:
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text)
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == func_name
+        ):
             return ast.get_source_segment(text, node) or ""
     raise AssertionError(f"{func_name} not found in {module_rel}")
 

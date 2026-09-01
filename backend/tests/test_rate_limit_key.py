@@ -52,9 +52,7 @@ def test_takes_rightmost_entry_not_client_spoofable_left():
 def test_spoofed_header_cannot_forge_another_users_key():
     """Podszycie się pod cudzy klucz przez lewy wpis nie działa."""
     victim = client_ip_key(_request({"x-forwarded-for": "203.0.113.7"}))
-    attacker = client_ip_key(
-        _request({"x-forwarded-for": "203.0.113.7, 198.51.100.9"})
-    )
+    attacker = client_ip_key(_request({"x-forwarded-for": "203.0.113.7, 198.51.100.9"}))
 
     assert victim != attacker
 

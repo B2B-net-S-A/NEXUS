@@ -37,9 +37,9 @@ def test_merge_basics_replaces_non_null_fields():
         "language": None,
     }
     proposed = {
-        "onsite_days_per_week": None,       # should not overwrite
+        "onsite_days_per_week": None,  # should not overwrite
         "candidate_location_pref": "Kraków",  # should overwrite
-        "language": "PL, EN B2+",           # should set
+        "language": "PL, EN B2+",  # should set
     }
     merged = _merge_basics(current, proposed)
     assert merged["onsite_days_per_week"] == 2
@@ -85,13 +85,9 @@ def test_merge_screening_questions_appends_with_dedup():
 
 def test_merge_section_dispatch_for_strings():
     # Non-empty proposed string replaces current.
-    assert (
-        _merge_section("historical_client_questions", "", "Nowy opis") == "Nowy opis"
-    )
+    assert _merge_section("historical_client_questions", "", "Nowy opis") == "Nowy opis"
     # Empty proposed keeps current.
-    assert (
-        _merge_section("historical_client_questions", "Obecny", "") == "Obecny"
-    )
+    assert _merge_section("historical_client_questions", "Obecny", "") == "Obecny"
 
 
 def test_payload_from_profile_builds_confidence_per_section():
@@ -266,7 +262,9 @@ async def test_apply_rejects_when_not_pending(
     resp = await app_client.post(
         f"/api/jobs/{job_id}/champion-profile/generate-from-jd",
         headers=app_auth_headers,
-        json={"raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."},
+        json={
+            "raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."
+        },
     )
     sid = resp.json()["id"]
 
@@ -297,15 +295,15 @@ class _FakeClient:
 
 
 class _FakeJob:
-    def __init__(self, id: int, title: str, client: _FakeClient | None, status="published"):
+    def __init__(
+        self, id: int, title: str, client: _FakeClient | None, status="published"
+    ):
         self.id = id
         self.title = title
         self.client = client
         from app.models.job import JobStatus
 
-        self.status = (
-            JobStatus.draft if status == "draft" else JobStatus.published
-        )
+        self.status = JobStatus.draft if status == "draft" else JobStatus.published
 
 
 def test_token_set_ratio_is_order_insensitive():
@@ -383,7 +381,9 @@ async def test_regenerate_supersedes_previous_pending(
     app_client, app_auth_headers, _patch_anthropic
 ):
     job_id = await _create_job(app_client, app_auth_headers)
-    body = {"raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."}
+    body = {
+        "raw_description": "Opis stanowiska wystarczająco długi do walidacji przez Pydantic min_length=50."
+    }
 
     r1 = await app_client.post(
         f"/api/jobs/{job_id}/champion-profile/generate-from-jd",

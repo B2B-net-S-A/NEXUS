@@ -133,9 +133,7 @@ async def _cleanup(
             await db.execute(delete(Contract).where(Contract.candidate_id == cid))
             await db.execute(delete(Candidate).where(Candidate.id == cid))
         for jid in job_ids or []:
-            await db.execute(
-                delete(CandidateStage).where(CandidateStage.job_id == jid)
-            )
+            await db.execute(delete(CandidateStage).where(CandidateStage.job_id == jid))
             await db.execute(delete(Job).where(Job.id == jid))
         for cli in client_ids or []:
             await db.execute(delete(Client).where(Client.id == cli))
@@ -174,9 +172,7 @@ async def test_at_client_includes_currently_hired(
         assert match["employment"]["client_name"] == client_name
         assert match["employment"]["client_id"] == client_id
     finally:
-        await _cleanup(
-            candidate_ids=[hired], job_ids=[job_id], client_ids=[client_id]
-        )
+        await _cleanup(candidate_ids=[hired], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio
@@ -189,9 +185,7 @@ async def test_at_client_excludes_moved_past_hired(
     former = await _seed_candidate(name_suffix="-F")
     base = datetime.now(timezone.utc) - timedelta(days=10)
     await _seed_stage(former, job_id, "hired", moved_at=base)
-    await _seed_stage(
-        former, job_id, "rejected", moved_at=base + timedelta(days=1)
-    )
+    await _seed_stage(former, job_id, "rejected", moved_at=base + timedelta(days=1))
     try:
         at_client = await app_client.get(
             "/api/candidates?employment=at_client&page_size=100",
@@ -209,9 +203,7 @@ async def test_at_client_excludes_moved_past_hired(
         assert avail_match is not None, "moved-past-hired belongs in available"
         assert avail_match["employment"]["state"] == "on_bench"
     finally:
-        await _cleanup(
-            candidate_ids=[former], job_ids=[job_id], client_ids=[client_id]
-        )
+        await _cleanup(candidate_ids=[former], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio
@@ -231,9 +223,7 @@ async def test_at_client_excludes_never_hired(
         ids = [it["id"] for it in r.json()["items"]]
         assert fresh not in ids
     finally:
-        await _cleanup(
-            candidate_ids=[fresh], job_ids=[job_id], client_ids=[client_id]
-        )
+        await _cleanup(candidate_ids=[fresh], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio
@@ -254,9 +244,7 @@ async def test_available_excludes_currently_hired(
         ids = [it["id"] for it in r.json()["items"]]
         assert hired not in ids
     finally:
-        await _cleanup(
-            candidate_ids=[hired], job_ids=[job_id], client_ids=[client_id]
-        )
+        await _cleanup(candidate_ids=[hired], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio

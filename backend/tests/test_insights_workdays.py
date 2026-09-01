@@ -179,3 +179,47 @@ async def test_missing_person_has_no_default_denominator():
             db, [user_id], date(1999, 1, 1), date(1999, 1, 31)
         )
     assert got == {}
+
+
+@pytest.mark.asyncio
+async def test_week_boundaries_match_what_power_calling_asks_for():
+    """Granice tygodnia MUSZĄ się zgadzać między zapisem a odczytem.
+
+    `working_days_for` dopasowuje okno DOKŁADNIE (`period_start` i `period_end`).
+    Gdyby COMPASS zapisał tydzień jako pon–niedz, a Power Calling pytał o pon–sob,
+    słownik byłby pusty dla WSZYSTKICH — nieodróżnialnie od wyłączonej integracji.
+    Ten test przypina obie strony do tej samej pary dat.
+    """
+    from datetime import timedelta
+
+    from app.api.reports import _iso_week_bounds
+
+    start, end, _week, _year = _iso_week_bounds(1)
+    week_start = start.date()
+    week_end = (end - timedelta(days=1)).date()
+
+    # Power Calling pyta o poniedziałek..niedzielę.
+    assert week_start.isoweekday() == 1
+    assert week_end.isoweekday() == 7
+    # COMPASS zapisuje `period_end = period_start + 6 dni` — ta sama para.
+    assert week_end == week_start + timedelta(days=6)
+
+    user_id = await _seed_user(f"wd-bound-{uuid.uuid4().hex[:8]}@b2bnetwork.pl")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            UserWorkdayPeriod(
+                user_id=user_id,
+                period_start=week_start,
+                period_end=week_end,
+                business_days=5,
+                absence_days=1,
+                working_days=4,
+            )
+        )
+        await db.commit()
+
+        got = await insights_workdays.working_days_for(
+            db, [user_id], week_start, week_end
+        )
+
+    assert got == {user_id: 4.0}

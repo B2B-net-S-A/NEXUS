@@ -74,7 +74,11 @@ async def test_client_verification_requires_delta_or_confirmation(
         f"/api/jobs/{job_id}/champion-profile/verification",
         json={
             "side": "client",
-            "client": {"method": "call", "key_corrections": "  ", "confirmed_as_is": False},
+            "client": {
+                "method": "call",
+                "key_corrections": "  ",
+                "confirmed_as_is": False,
+            },
         },
         headers=app_auth_headers,
     )
@@ -121,9 +125,7 @@ async def test_consultant_skip_requires_reason(app_client, app_auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_consultant_verification_requires_insights(
-    app_client, app_auth_headers
-):
+async def test_consultant_verification_requires_insights(app_client, app_auth_headers):
     _, job_id = await _seed_client_and_job()
     resp = await app_client.post(
         f"/api/jobs/{job_id}/champion-profile/verification",
@@ -167,7 +169,11 @@ async def test_put_profile_preserves_verification(app_client, app_auth_headers):
         f"/api/jobs/{job_id}/champion-profile/verification",
         json={
             "side": "client",
-            "client": {"method": "call", "key_corrections": "x", "confirmed_as_is": True},
+            "client": {
+                "method": "call",
+                "key_corrections": "x",
+                "confirmed_as_is": True,
+            },
         },
         headers=app_auth_headers,
     )
@@ -178,10 +184,23 @@ async def test_put_profile_preserves_verification(app_client, app_auth_headers):
     put = await app_client.put(
         f"/api/jobs/{job_id}/champion-profile",
         json={
-            "sourcing": {"sources": ["linkedin"], "keywords": "kafka", "target_companies": "", "notes": ""},
+            "sourcing": {
+                "sources": ["linkedin"],
+                "keywords": "kafka",
+                "target_companies": "",
+                "notes": "",
+            },
             "verification": {
-                "client": {"status": "pending", "key_corrections": "", "confirmed_as_is": False},
-                "consultant": {"status": "verified", "insights": "forged", "skip_reason": ""},
+                "client": {
+                    "status": "pending",
+                    "key_corrections": "",
+                    "confirmed_as_is": False,
+                },
+                "consultant": {
+                    "status": "verified",
+                    "insights": "forged",
+                    "skip_reason": "",
+                },
             },
         },
         headers=app_auth_headers,
@@ -194,7 +213,9 @@ async def test_put_profile_preserves_verification(app_client, app_auth_headers):
     got = await app_client.get(
         f"/api/jobs/{job_id}/champion-profile", headers=app_auth_headers
     )
-    assert got.json()["champion_profile"]["verification"]["client"]["status"] == "verified"
+    assert (
+        got.json()["champion_profile"]["verification"]["client"]["status"] == "verified"
+    )
 
 
 @pytest.mark.asyncio
@@ -204,7 +225,11 @@ async def test_verification_reset(app_client, app_auth_headers):
         f"/api/jobs/{job_id}/champion-profile/verification",
         json={
             "side": "client",
-            "client": {"method": "call", "key_corrections": "y", "confirmed_as_is": False},
+            "client": {
+                "method": "call",
+                "key_corrections": "y",
+                "confirmed_as_is": False,
+            },
         },
         headers=app_auth_headers,
     )

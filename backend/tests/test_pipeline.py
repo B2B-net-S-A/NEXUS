@@ -1,4 +1,5 @@
 """Tests for pipeline API — runs against live backend."""
+
 import pytest
 from httpx import AsyncClient
 
@@ -81,13 +82,17 @@ async def test_move_candidate(client: AsyncClient, auth_headers: dict):
             break
     assert candidate_id is not None
 
-    resp = await client.post("/api/pipeline/move", headers=auth_headers, json={
-        "candidate_id": candidate_id,
-        "job_id": job_id,
-        "stage": "screening",
-        "notes": "Test move",
-        "rating": 4,
-    })
+    resp = await client.post(
+        "/api/pipeline/move",
+        headers=auth_headers,
+        json={
+            "candidate_id": candidate_id,
+            "job_id": job_id,
+            "stage": "screening",
+            "notes": "Test move",
+            "rating": 4,
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["stage"] == "screening"
@@ -105,7 +110,9 @@ async def test_stage_history(client: AsyncClient, auth_headers: dict):
             candidate_id = col["items"][0]["candidate_id"]
             break
 
-    resp = await client.get(f"/api/pipeline/history/{candidate_id}/{job_id}", headers=auth_headers)
+    resp = await client.get(
+        f"/api/pipeline/history/{candidate_id}/{job_id}", headers=auth_headers
+    )
     assert resp.status_code == 200
     assert len(resp.json()) >= 1
 
@@ -136,11 +143,15 @@ async def test_bulk_move(client: AsyncClient, auth_headers: dict):
     if len(candidate_ids) < 2:
         return  # Not enough data
 
-    resp = await client.post("/api/pipeline/bulk-move", headers=auth_headers, json={
-        "candidate_ids": candidate_ids,
-        "job_id": job_id,
-        "stage": "interview",
-        "notes": "Bulk move test",
-    })
+    resp = await client.post(
+        "/api/pipeline/bulk-move",
+        headers=auth_headers,
+        json={
+            "candidate_ids": candidate_ids,
+            "job_id": job_id,
+            "stage": "interview",
+            "notes": "Bulk move test",
+        },
+    )
     assert resp.status_code == 200
     assert resp.json()["moved"] == 2

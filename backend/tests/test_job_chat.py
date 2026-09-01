@@ -195,10 +195,14 @@ async def test_mention_creates_notification(app_client: AsyncClient, chat_setup)
     # Sprawdź notyfikacje persistent dla peer'a
     async with AsyncSessionLocal() as db:
         notifs = (
-            await db.execute(
-                select(Notification).where(Notification.user_id == peer_id)
+            (
+                await db.execute(
+                    select(Notification).where(Notification.user_id == peer_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         types = {n.notification_type for n in notifs}
         assert NotificationType.job_chat_mention in types
         assert NotificationType.job_chat_message in types

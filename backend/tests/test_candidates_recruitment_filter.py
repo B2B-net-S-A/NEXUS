@@ -73,7 +73,9 @@ async def _seed_stage(candidate_id: int, job_id: int, stage_value: str) -> None:
         await db.commit()
 
 
-async def _cleanup(*, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]) -> None:
+async def _cleanup(
+    *, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]
+) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
@@ -189,7 +191,7 @@ async def test_assigned_or_combines_multiple_recruitments(
 async def test_assigned_counts_terminal_stage(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """"Assigned" means present in the pipeline at ANY stage — a candidate whose
+    """ "Assigned" means present in the pipeline at ANY stage — a candidate whose
     only stage is terminal (`rejected`) still counts (unlike employment=at_client)."""
     job_id, client_id = await _seed_job()
     rejected = await _seed_candidate(name_suffix="-R")

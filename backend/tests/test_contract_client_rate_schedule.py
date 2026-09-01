@@ -101,6 +101,7 @@ def test_future_client_rate_change_keeps_old_rate_and_margin_today():
 
 from tests._contract_parties import pick_parties as _pick_parties
 
+
 async def test_future_rate_change_defers_client_rate(
     app_client: AsyncClient, app_auth_headers: dict
 ):

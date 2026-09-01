@@ -16,26 +16,17 @@ from app.services.cv_parser import (
 
 def test_extract_linkedin_canonical() -> None:
     cv = "Name: Jane Doe\nhttps://linkedin.com/in/jane-doe\nEmail: jane@x.pl"
-    assert (
-        _extract_linkedin_from_text(cv)
-        == "https://linkedin.com/in/jane-doe"
-    )
+    assert _extract_linkedin_from_text(cv) == "https://linkedin.com/in/jane-doe"
 
 
 def test_extract_linkedin_with_www_and_trailing_slash() -> None:
     cv = "Check my profile: https://www.linkedin.com/in/john-smith/"
-    assert (
-        _extract_linkedin_from_text(cv)
-        == "https://www.linkedin.com/in/john-smith/"
-    )
+    assert _extract_linkedin_from_text(cv) == "https://www.linkedin.com/in/john-smith/"
 
 
 def test_extract_linkedin_with_regional_prefix() -> None:
     cv = "pl.linkedin.com/in/jan-kowalski/ and other stuff"
-    assert (
-        _extract_linkedin_from_text(cv)
-        == "pl.linkedin.com/in/jan-kowalski/"
-    )
+    assert _extract_linkedin_from_text(cv) == "pl.linkedin.com/in/jan-kowalski/"
 
 
 def test_extract_linkedin_case_insensitive() -> None:

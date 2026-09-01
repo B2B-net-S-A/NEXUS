@@ -27,7 +27,9 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 
 def _request_with(tasks: dict) -> SimpleNamespace:
-    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(background_tasks=tasks)))
+    return SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(background_tasks=tasks))
+    )
 
 
 @pytest.mark.asyncio
@@ -63,8 +65,7 @@ async def test_crashed_is_separated_from_a_clean_kill_switch_exit() -> None:
     assert status["crashed"] == 1
     assert "dead" in status["crashed_tasks"]
     assert "RuntimeError" in status["crashed_tasks"]["dead"], (
-        "repr wyjątku musi wyjść na zewnątrz — inaczej operator wie tylko, "
-        "że COŚ padło"
+        "repr wyjątku musi wyjść na zewnątrz — inaczej operator wie tylko, że COŚ padło"
     )
 
 

@@ -24,7 +24,9 @@ from app.services.proxycurl.diff import (
 )
 
 
-def _profile(company: str | None, title: str | None, started: date | None) -> ProxycurlProfile:
+def _profile(
+    company: str | None, title: str | None, started: date | None
+) -> ProxycurlProfile:
     return ProxycurlProfile(
         raw={},
         current_company=company,

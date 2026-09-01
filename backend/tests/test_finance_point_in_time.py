@@ -58,7 +58,8 @@ def test_finance_as_of_never_in_the_future() -> None:
     period = Period(
         kind=PeriodKind.custom,
         start=datetime(today.year, today.month, today.day, tzinfo=_TZ),
-        end=datetime(today.year, today.month, today.day, tzinfo=_TZ) + timedelta(days=30),
+        end=datetime(today.year, today.month, today.day, tzinfo=_TZ)
+        + timedelta(days=30),
     )
     assert finance_as_of(period) == today
 
@@ -97,7 +98,9 @@ async def test_active_contracts_is_point_in_time() -> None:
         after = await _active_contracts(db, client_id=cid, on=date(2030, 1, 1))
         before = await _active_contracts(db, client_id=cid, on=date(2024, 1, 1))
     assert len(during) == 1, "contract must be active mid-term"
-    assert len(after) == 0, "contract ended 2025-06-30 — not active in 2030 (was 'today')"
+    assert len(after) == 0, (
+        "contract ended 2025-06-30 — not active in 2030 (was 'today')"
+    )
     assert len(before) == 0, "contract not started in 2024"
 
 
@@ -106,5 +109,7 @@ async def test_client_finance_point_in_time_mrr() -> None:
     async with AsyncSessionLocal() as db:
         during, _, _ = await client_finance(db, cid, as_of=date(2025, 3, 15))
         after, _, _ = await client_finance(db, cid, as_of=date(2030, 1, 1))
-    assert during["active_contracts"] == 1 and Decimal(during["mrr"]) == Decimal("10000")
+    assert during["active_contracts"] == 1 and Decimal(during["mrr"]) == Decimal(
+        "10000"
+    )
     assert after["active_contracts"] == 0 and Decimal(after["mrr"]) == Decimal("0")

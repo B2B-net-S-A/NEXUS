@@ -51,7 +51,8 @@ from app.services.candidate_stage_cv_service import (
 
 
 async def _seed_candidate_with_cv(
-    *, cv_bytes: bytes | None = b"%PDF-1.4 fake-pdf-bytes",
+    *,
+    cv_bytes: bytes | None = b"%PDF-1.4 fake-pdf-bytes",
     cv_filename: str | None = "candidate_cv.pdf",
 ) -> int:
     unique = uuid.uuid4().hex[:6]
@@ -108,17 +109,13 @@ async def test_service_creates_snapshot_with_cv_bytes():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         csv = await create_original_cv_snapshot(db, stage)
         await db.commit()
 
     async with AsyncSessionLocal() as db:
         fresh = await db.scalar(
-            select(CandidateStageCV).where(
-                CandidateStageCV.candidate_stage_id == sid
-            )
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
         )
         assert fresh is not None
         assert fresh.original_cv_content == b"%PDF-1.4 fake-pdf-bytes"
@@ -136,17 +133,13 @@ async def test_service_handles_candidate_without_cv():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         csv = await create_original_cv_snapshot(db, stage)
         await db.commit()
 
     async with AsyncSessionLocal() as db:
         fresh = await db.scalar(
-            select(CandidateStageCV).where(
-                CandidateStageCV.candidate_stage_id == sid
-            )
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
         )
         assert fresh is not None
         assert fresh.original_cv_content is None
@@ -162,16 +155,12 @@ async def test_service_idempotent():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         first = await create_original_cv_snapshot(db, stage)
         await db.commit()
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         second = await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -185,9 +174,7 @@ async def test_service_logs_activity():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         csv = await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -216,9 +203,7 @@ async def test_subsequent_candidate_cv_change_does_not_affect_snapshot():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -234,9 +219,7 @@ async def test_subsequent_candidate_cv_change_does_not_affect_snapshot():
     # Snapshot dalej ma stare bytes.
     async with AsyncSessionLocal() as db:
         snap = await db.scalar(
-            select(CandidateStageCV).where(
-                CandidateStageCV.candidate_stage_id == sid
-            )
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
         )
         assert snap.original_cv_content == b"V1-original-CV-bytes"
         assert snap.original_cv_filename == "candidate_cv.pdf"
@@ -277,14 +260,10 @@ async def test_two_stages_for_same_candidate_have_independent_snapshots():
 
     async with AsyncSessionLocal() as db:
         snap_a = await db.scalar(
-            select(CandidateStageCV).where(
-                CandidateStageCV.candidate_stage_id == sid_a
-            )
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid_a)
         )
         snap_b = await db.scalar(
-            select(CandidateStageCV).where(
-                CandidateStageCV.candidate_stage_id == sid_b
-            )
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid_b)
         )
         assert snap_a.original_cv_content == b"CV-version-A"
         assert snap_b.original_cv_content == b"CV-version-B"
@@ -300,9 +279,7 @@ async def test_refresh_overwrites_with_current_cv():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -320,9 +297,7 @@ async def test_refresh_overwrites_with_current_cv():
 
     async with AsyncSessionLocal() as db:
         snap = await db.scalar(
-            select(CandidateStageCV).where(
-                CandidateStageCV.candidate_stage_id == sid
-            )
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
         )
         assert snap.original_cv_content == b"NEW"
         assert snap.original_cv_filename == "new.pdf"
@@ -336,9 +311,7 @@ async def test_refresh_raises_when_candidate_has_no_cv():
     sid = await _seed_stage(cid, jid)
 
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -379,9 +352,7 @@ async def test_get_original_endpoint_returns_metadata(
     jid = await _seed_job()
     sid = await _seed_stage(cid, jid)
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -407,9 +378,7 @@ async def test_download_endpoint_returns_bytes(
     jid = await _seed_job()
     sid = await _seed_stage(cid, jid)
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -431,9 +400,7 @@ async def test_download_404_when_no_snapshot(
     jid = await _seed_job()
     sid = await _seed_stage(cid, jid)
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -462,9 +429,7 @@ async def test_refresh_endpoint_updates_snapshot(
     jid = await _seed_job()
     sid = await _seed_stage(cid, jid)
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
@@ -494,17 +459,13 @@ async def test_refresh_endpoint_422_when_candidate_has_no_cv(
     jid = await _seed_job()
     sid = await _seed_stage(cid, jid)
     async with AsyncSessionLocal() as db:
-        stage = await db.scalar(
-            select(CandidateStage).where(CandidateStage.id == sid)
-        )
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
         await create_original_cv_snapshot(db, stage)
         await db.commit()
 
     async with AsyncSessionLocal() as db:
         await db.execute(
-            update(Candidate)
-            .where(Candidate.id == cid)
-            .values(cv_file_content=None)
+            update(Candidate).where(Candidate.id == cid).values(cv_file_content=None)
         )
         await db.commit()
 

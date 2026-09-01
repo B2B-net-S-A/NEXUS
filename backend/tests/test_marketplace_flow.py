@@ -86,9 +86,7 @@ class _FakeBreakdown:
 async def _cleanup_marketplace_data(db) -> None:
     # Usuń wszystkie test-utworzone marketplace artefakty.
     pool = (
-        await db.execute(
-            select(TalentPool).where(TalentPool.is_marketplace.is_(True))
-        )
+        await db.execute(select(TalentPool).where(TalentPool.is_marketplace.is_(True)))
     ).scalar_one_or_none()
     if pool is not None:
         await db.execute(
@@ -178,9 +176,7 @@ async def _seed_job(
 # ── Testy ──────────────────────────────────────────────────────────────────
 
 
-async def test_full_flow_creates_notifications_for_both_owners(
-    monkeypatch, fresh_db
-):
+async def test_full_flow_creates_notifications_for_both_owners(monkeypatch, fresh_db):
     db = fresh_db
 
     recruiter_cand = await _seed_user(db, name="OwnerCand")
@@ -196,7 +192,9 @@ async def test_full_flow_creates_notifications_for_both_owners(
     async def fake_search_candidates(*args, **kwargs):
         return [{"candidate_id": cand.id, "score": 0.92, "payload": {}}]
 
-    async def fake_score(candidate, job_obj, db_, *, semantic_similarity=None, profile=None):
+    async def fake_score(
+        candidate, job_obj, db_, *, semantic_similarity=None, profile=None
+    ):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
@@ -209,9 +207,7 @@ async def test_full_flow_creates_notifications_for_both_owners(
         "app.services.embedding_service.search_candidates_semantic",
         fake_search_candidates,
     )
-    monkeypatch.setattr(
-        "app.services.scoring_service.score_candidate_job", fake_score
-    )
+    monkeypatch.setattr("app.services.scoring_service.score_candidate_job", fake_score)
 
     result = await scan_job_for_marketplace_matches(job.id, db)
     await db.commit()
@@ -222,13 +218,17 @@ async def test_full_flow_creates_notifications_for_both_owners(
 
     # Alert log: dokładnie jeden wpis dla (cand, job).
     logs = (
-        await db.execute(
-            select(MarketplaceAlertLog).where(
-                MarketplaceAlertLog.candidate_id == cand.id,
-                MarketplaceAlertLog.job_id == job.id,
+        (
+            await db.execute(
+                select(MarketplaceAlertLog).where(
+                    MarketplaceAlertLog.candidate_id == cand.id,
+                    MarketplaceAlertLog.job_id == job.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(logs) == 1
     assert float(logs[0].score) >= 70.0
     assert logs[0].notified_candidate_owner_id == recruiter_cand.id
@@ -236,15 +236,20 @@ async def test_full_flow_creates_notifications_for_both_owners(
 
     # Notyfikacje: dwie (cand-owner + job-owner).
     notifs = (
-        await db.execute(
-            select(Notification).where(
-                Notification.notification_type == NotificationType.marketplace_match,
-                Notification.related_entity_id == job.id,
-                Notification.related_entity_type == "job",
-                Notification.user_id.in_([recruiter_cand.id, recruiter_job.id]),
+        (
+            await db.execute(
+                select(Notification).where(
+                    Notification.notification_type
+                    == NotificationType.marketplace_match,
+                    Notification.related_entity_id == job.id,
+                    Notification.related_entity_type == "job",
+                    Notification.user_id.in_([recruiter_cand.id, recruiter_job.id]),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     user_ids = {n.user_id for n in notifs}
     assert user_ids == {recruiter_cand.id, recruiter_job.id}
 
@@ -261,7 +266,9 @@ async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
     async def fake_search_candidates(*args, **kwargs):
         return [{"candidate_id": cand.id, "score": 0.92, "payload": {}}]
 
-    async def fake_score(candidate, job_obj, db_, *, semantic_similarity=None, profile=None):
+    async def fake_score(
+        candidate, job_obj, db_, *, semantic_similarity=None, profile=None
+    ):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
@@ -274,9 +281,7 @@ async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
         "app.services.embedding_service.search_candidates_semantic",
         fake_search_candidates,
     )
-    monkeypatch.setattr(
-        "app.services.scoring_service.score_candidate_job", fake_score
-    )
+    monkeypatch.setattr("app.services.scoring_service.score_candidate_job", fake_score)
 
     r1 = await scan_job_for_marketplace_matches(job.id, db)
     await db.commit()
@@ -288,13 +293,17 @@ async def test_dedup_second_scan_creates_no_new_alert(monkeypatch, fresh_db):
 
     # Jeden wpis w logu.
     logs = (
-        await db.execute(
-            select(MarketplaceAlertLog).where(
-                MarketplaceAlertLog.candidate_id == cand.id,
-                MarketplaceAlertLog.job_id == job.id,
+        (
+            await db.execute(
+                select(MarketplaceAlertLog).where(
+                    MarketplaceAlertLog.candidate_id == cand.id,
+                    MarketplaceAlertLog.job_id == job.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(logs) == 1
 
 
@@ -310,7 +319,9 @@ async def test_owner_equal_single_notification(monkeypatch, fresh_db):
     async def fake_search_candidates(*args, **kwargs):
         return [{"candidate_id": cand.id, "score": 0.9, "payload": {}}]
 
-    async def fake_score(candidate, job_obj, db_, *, semantic_similarity=None, profile=None):
+    async def fake_score(
+        candidate, job_obj, db_, *, semantic_similarity=None, profile=None
+    ):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
@@ -323,22 +334,25 @@ async def test_owner_equal_single_notification(monkeypatch, fresh_db):
         "app.services.embedding_service.search_candidates_semantic",
         fake_search_candidates,
     )
-    monkeypatch.setattr(
-        "app.services.scoring_service.score_candidate_job", fake_score
-    )
+    monkeypatch.setattr("app.services.scoring_service.score_candidate_job", fake_score)
 
     await scan_job_for_marketplace_matches(job.id, db)
     await db.commit()
 
     notifs = (
-        await db.execute(
-            select(Notification).where(
-                Notification.notification_type == NotificationType.marketplace_match,
-                Notification.related_entity_id == job.id,
-                Notification.user_id == owner.id,
+        (
+            await db.execute(
+                select(Notification).where(
+                    Notification.notification_type
+                    == NotificationType.marketplace_match,
+                    Notification.related_entity_id == job.id,
+                    Notification.user_id == owner.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(notifs) == 1
 
 
@@ -353,7 +367,9 @@ async def test_score_below_threshold_no_alert(monkeypatch, fresh_db):
     async def fake_search_candidates(*args, **kwargs):
         return [{"candidate_id": cand.id, "score": 0.3, "payload": {}}]
 
-    async def fake_score(candidate, job_obj, db_, *, semantic_similarity=None, profile=None):
+    async def fake_score(
+        candidate, job_obj, db_, *, semantic_similarity=None, profile=None
+    ):
         return _FakeBreakdown(
             candidate_id=candidate.id,
             job_id=job_obj.id,
@@ -366,9 +382,7 @@ async def test_score_below_threshold_no_alert(monkeypatch, fresh_db):
         "app.services.embedding_service.search_candidates_semantic",
         fake_search_candidates,
     )
-    monkeypatch.setattr(
-        "app.services.scoring_service.score_candidate_job", fake_score
-    )
+    monkeypatch.setattr("app.services.scoring_service.score_candidate_job", fake_score)
 
     result = await scan_job_for_marketplace_matches(job.id, db)
     await db.commit()

@@ -139,9 +139,7 @@ async def _cleanup(*, candidate_ids: list[int], job_ids: list[int]) -> None:
                 )
             )
         if candidate_ids:
-            await db.execute(
-                delete(Candidate).where(Candidate.id.in_(candidate_ids))
-            )
+            await db.execute(delete(Candidate).where(Candidate.id.in_(candidate_ids)))
         if job_ids:
             await db.execute(delete(Job).where(Job.id.in_(job_ids)))
         await db.commit()
@@ -250,9 +248,7 @@ async def test_jobs_include_stage_counts(
             headers=app_auth_headers,
         )
         assert resp.status_code == 200, resp.text
-        item = next(
-            (i for i in resp.json()["items"] if i["id"] == job_id), None
-        )
+        item = next((i for i in resp.json()["items"] if i["id"] == job_id), None)
         assert item is not None
         breakdown = item.get("stage_breakdown", {})
         # Latest stage per kandydat: A=hired, B=screening
@@ -269,13 +265,9 @@ async def test_jobs_without_include_stage_counts_omits_breakdown(
     """Bez `include_stage_counts` response nie ma klucza `stage_breakdown` (backward compat)."""
     job_id = await _seed_job(status="published")
     try:
-        resp = await app_client.get(
-            "/api/jobs?page_size=100", headers=app_auth_headers
-        )
+        resp = await app_client.get("/api/jobs?page_size=100", headers=app_auth_headers)
         assert resp.status_code == 200
-        item = next(
-            (i for i in resp.json()["items"] if i["id"] == job_id), None
-        )
+        item = next((i for i in resp.json()["items"] if i["id"] == job_id), None)
         assert item is not None
         assert "stage_breakdown" not in item
     finally:

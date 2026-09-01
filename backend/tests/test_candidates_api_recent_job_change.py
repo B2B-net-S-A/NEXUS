@@ -140,9 +140,7 @@ async def test_detail_exposes_linkedin_fields_and_snapshots(
             )
             await db.commit()
 
-        resp = await app_client.get(
-            f"/api/candidates/{cid}", headers=app_auth_headers
-        )
+        resp = await app_client.get(f"/api/candidates/{cid}", headers=app_auth_headers)
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["linkedin_sync_status"] == "ok"

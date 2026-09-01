@@ -258,9 +258,7 @@ async def test_find_meeting_recording_rejects_naive_event_end() -> None:
     naive = datetime(2026, 5, 14, 10, 0)  # tz-less
     gc = _gc_with({"value": []})
     assert (
-        await find_meeting_recording(
-            gc, online_meeting_url=None, event_end_at=naive
-        )
+        await find_meeting_recording(gc, online_meeting_url=None, event_end_at=naive)
         is None
     )
     gc.get.assert_not_called()
@@ -285,9 +283,7 @@ async def test_find_meeting_recording_falls_back_to_time_when_no_id() -> None:
             ]
         }
     )
-    url = await find_meeting_recording(
-        gc, online_meeting_url=None, event_end_at=end_at
-    )
+    url = await find_meeting_recording(gc, online_meeting_url=None, event_end_at=end_at)
     assert url == "https://onedrive/close.mp4"
 
 
@@ -298,7 +294,8 @@ def _make_event(
     *,
     eid: int = 1,
     user_id: int | None = 1,
-    online_meeting_url: str | None = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_TOKEN%40thread.v2/0",
+    online_meeting_url: str
+    | None = "https://teams.microsoft.com/l/meetup-join/19%3ameeting_TOKEN%40thread.v2/0",
     end_time: datetime | None = None,
 ) -> SimpleNamespace:
     """Minimal stand-in for the CalendarEvent model."""
@@ -308,8 +305,7 @@ def _make_event(
         online_meeting_url=online_meeting_url,
         recording_url=None,
         recording_discovered_at=None,
-        end_time=end_time
-        or (datetime.now(timezone.utc) - timedelta(hours=2)),
+        end_time=end_time or (datetime.now(timezone.utc) - timedelta(hours=2)),
     )
 
 

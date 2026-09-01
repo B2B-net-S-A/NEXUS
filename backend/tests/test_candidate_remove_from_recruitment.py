@@ -76,9 +76,7 @@ async def _seed_stage(candidate_id: int, job_id: int, stage_value: str) -> int:
 async def _history_job_ids(
     app_client: AsyncClient, headers: dict, candidate_id: int
 ) -> list[int]:
-    r = await app_client.get(
-        f"/api/candidates/{candidate_id}/history", headers=headers
-    )
+    r = await app_client.get(f"/api/candidates/{candidate_id}/history", headers=headers)
     assert r.status_code == 200, r.text
     return [j["job_id"] for j in r.json()["jobs"]]
 
@@ -113,9 +111,7 @@ async def test_remove_from_recruitment_deletes_all_stages(
     await _seed_stage(candidate_id, job_id, "interview")
 
     # Precondition: the recruitment shows up in the candidate's history.
-    assert job_id in await _history_job_ids(
-        app_client, app_auth_headers, candidate_id
-    )
+    assert job_id in await _history_job_ids(app_client, app_auth_headers, candidate_id)
 
     r = await app_client.delete(
         f"/api/candidates/{candidate_id}/recruitments/{job_id}",

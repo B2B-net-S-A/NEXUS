@@ -1,8 +1,10 @@
 """Tests for contracts API."""
+
 from httpx import AsyncClient
 
 
 # Legacy live-server smoke tests (skipped unless RUN_LIVE_TESTS=1)
+
 
 async def test_list_contracts(client: AsyncClient, auth_headers: dict):
     resp = await client.get("/api/contracts", headers=auth_headers)
@@ -30,16 +32,13 @@ async def test_contracts_unauthorized(client: AsyncClient):
 
 # In-process tests (run always, no rate-limit issues)
 
-async def test_get_contract_detail_404(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+
+async def test_get_contract_detail_404(app_client: AsyncClient, app_auth_headers: dict):
     resp = await app_client.get("/api/contracts/999999", headers=app_auth_headers)
     assert resp.status_code == 404
 
 
-async def test_contract_activities_404(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_contract_activities_404(app_client: AsyncClient, app_auth_headers: dict):
     resp = await app_client.get(
         "/api/contracts/999999/activities", headers=app_auth_headers
     )
@@ -55,9 +54,7 @@ async def test_contract_rate_history_404(
     assert resp.status_code == 404
 
 
-async def test_contract_detail_shape(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_contract_detail_shape(app_client: AsyncClient, app_auth_headers: dict):
     """If any contracts exist, GET detail must include denormalized names."""
     list_resp = await app_client.get("/api/contracts", headers=app_auth_headers)
     items = list_resp.json().get("items", [])
@@ -180,9 +177,7 @@ async def test_contract_document_upload_download_delete(
     assert dele.status_code == 204
 
 
-async def test_contract_document_404(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_contract_document_404(app_client: AsyncClient, app_auth_headers: dict):
     resp = await app_client.get(
         "/api/contracts/999999/documents", headers=app_auth_headers
     )
@@ -193,9 +188,7 @@ async def test_contract_alerts_run_admin_only(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """POST /contracts/alerts/run requires admin; returns stats dict."""
-    resp = await app_client.post(
-        "/api/contracts/alerts/run", headers=app_auth_headers
-    )
+    resp = await app_client.post("/api/contracts/alerts/run", headers=app_auth_headers)
     # Default test user is admin — should return 200 with stats dict.
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -222,11 +215,15 @@ async def test_contract_rate_unit_round_trip(
     """Creating a contract with rate_unit=hourly persists it."""
     # Find an existing candidate and client to reuse
     cands = (
-        await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers)
-    ).json().get("items", [])
+        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
+        .json()
+        .get("items", [])
+    )
     clients = (
-        await app_client.get("/api/clients?page_size=1", headers=app_auth_headers)
-    ).json().get("items", [])
+        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
+        .json()
+        .get("items", [])
+    )
     if not cands or not clients:
         return
     payload = {
@@ -251,9 +248,7 @@ async def test_contract_rate_unit_round_trip(
     # Margin auto-computed = 50
     assert body["margin"] == 50
     # Clean up
-    await app_client.delete(
-        f"/api/contracts/{body['id']}", headers=app_auth_headers
-    )
+    await app_client.delete(f"/api/contracts/{body['id']}", headers=app_auth_headers)
 
 
 async def test_contract_register_fields_round_trip(
@@ -262,11 +257,15 @@ async def test_contract_register_fields_round_trip(
     """Per-klient rejestr (migracja 0138): project_code, prolongation_status,
     engagement_model=hours_pool + pula godzin round-trip + inline PATCH."""
     cands = (
-        await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers)
-    ).json().get("items", [])
+        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
+        .json()
+        .get("items", [])
+    )
     clients = (
-        await app_client.get("/api/clients?page_size=1", headers=app_auth_headers)
-    ).json().get("items", [])
+        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
+        .json()
+        .get("items", [])
+    )
     if not cands or not clients:
         return
     client_id = clients[0]["id"]
@@ -360,11 +359,15 @@ async def test_contract_order_consumption_round_trip(
     """Zużycie zamówienia (migracja 0144): ilość + jednostka RBH/MD round-trip
     przez create (formularz "Nowy kontrakt") + zmiana jednostki przez PATCH."""
     cands = (
-        await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers)
-    ).json().get("items", [])
+        (await app_client.get("/api/candidates?page_size=1", headers=app_auth_headers))
+        .json()
+        .get("items", [])
+    )
     clients = (
-        await app_client.get("/api/clients?page_size=1", headers=app_auth_headers)
-    ).json().get("items", [])
+        (await app_client.get("/api/clients?page_size=1", headers=app_auth_headers))
+        .json()
+        .get("items", [])
+    )
     if not cands or not clients:
         return
     payload = {

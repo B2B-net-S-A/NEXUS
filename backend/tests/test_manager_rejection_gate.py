@@ -268,9 +268,7 @@ async def test_internal_move_still_works(
     assert resp.status_code == 200, resp.text
 
 
-async def test_hired_is_never_blocked(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_hired_is_never_blocked(app_client: AsyncClient, app_auth_headers: dict):
     """The manager just accepted them — blocking that would be absurd."""
     world = await _seed_vetoed_candidate()
     await _place_in_target(world, stage="negotiation")
@@ -301,7 +299,7 @@ async def test_candidate_can_always_be_closed_out(
 async def test_add_from_history_is_blocked(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """"Dodaj championa z historii" is the flow that resurrects rejected people."""
+    """ "Dodaj championa z historii" is the flow that resurrects rejected people."""
     world = await _seed_vetoed_candidate()
 
     resp = await app_client.post(

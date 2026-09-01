@@ -49,9 +49,7 @@ async def _cleanup(ids: list[int]) -> None:
         await db.commit()
 
 
-async def _sorted_ids(
-    app_client: AsyncClient, headers: dict, scope: str
-) -> list[int]:
+async def _sorted_ids(app_client: AsyncClient, headers: dict, scope: str) -> list[int]:
     resp = await app_client.get(
         "/api/candidates",
         params={"location": scope, "sort": "name", "page": 1, "page_size": 50},
@@ -87,7 +85,9 @@ async def test_sort_name_orders_by_lastname_not_first_name(
     scope = uuid.uuid4().hex[:12]
     # Imiona w kolejności ODWROTNEJ do nazwisk — jeśli sortowanie idzie po
     # imieniu, wynik wyjdzie odwrotny.
-    zeta_abramczyk = await _seed(name="Zenon", lastname=f"Abramczyk-{scope}", scope=scope)
+    zeta_abramczyk = await _seed(
+        name="Zenon", lastname=f"Abramczyk-{scope}", scope=scope
+    )
     adam_borowski = await _seed(name="Adam", lastname=f"Borowski-{scope}", scope=scope)
     try:
         ids = await _sorted_ids(app_client, app_auth_headers, scope)

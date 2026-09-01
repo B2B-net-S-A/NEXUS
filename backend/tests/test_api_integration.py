@@ -95,7 +95,9 @@ async def test_pipeline_templates_list(app_client: AsyncClient, app_auth_headers
     )
 
 
-async def test_pipeline_stages_endpoint(app_client: AsyncClient, app_auth_headers: dict):
+async def test_pipeline_stages_endpoint(
+    app_client: AsyncClient, app_auth_headers: dict
+):
     r = await app_client.get("/api/pipeline/stages", headers=app_auth_headers)
     assert r.status_code == 200
     stages = r.json()

@@ -34,9 +34,7 @@ async def _create_client(app_client: AsyncClient, headers: dict) -> int:
     return resp.json()["id"]
 
 
-async def test_list_one_pagers_empty(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_list_one_pagers_empty(app_client: AsyncClient, app_auth_headers: dict):
     client_id = await _create_client(app_client, app_auth_headers)
     resp = await app_client.get(
         f"/api/clients/{client_id}/one-pagers", headers=app_auth_headers
@@ -45,9 +43,7 @@ async def test_list_one_pagers_empty(
     assert resp.json() == []
 
 
-async def test_upload_one_pager_pdf(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_upload_one_pager_pdf(app_client: AsyncClient, app_auth_headers: dict):
     client_id = await _create_client(app_client, app_auth_headers)
     resp = await app_client.post(
         f"/api/clients/{client_id}/one-pagers",
@@ -73,7 +69,11 @@ async def test_upload_one_pager_rejects_exe(
         f"/api/clients/{client_id}/one-pagers",
         headers=app_auth_headers,
         files={
-            "file": ("payload.exe", io.BytesIO(b"MZ\x90\x00"), "application/x-msdownload")
+            "file": (
+                "payload.exe",
+                io.BytesIO(b"MZ\x90\x00"),
+                "application/x-msdownload",
+            )
         },
         data={"title": "zły plik"},
     )
@@ -101,9 +101,7 @@ async def test_upload_one_pager_rejects_oversize(
     assert list_resp.json() == []
 
 
-async def test_download_one_pager(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_download_one_pager(app_client: AsyncClient, app_auth_headers: dict):
     client_id = await _create_client(app_client, app_auth_headers)
     create = await app_client.post(
         f"/api/clients/{client_id}/one-pagers",
@@ -142,9 +140,7 @@ async def test_delete_one_pager_removes_row_and_file(
     from app.models.client_one_pager import ClientOnePager
 
     async with AsyncSessionLocal() as db:
-        op = await db.scalar(
-            select(ClientOnePager).where(ClientOnePager.id == opid)
-        )
+        op = await db.scalar(select(ClientOnePager).where(ClientOnePager.id == opid))
         assert op is not None
         rel_path = op.file_path
 
@@ -165,9 +161,7 @@ async def test_delete_one_pager_removes_row_and_file(
     assert list_resp.json() == []
 
 
-async def test_get_contract_terms_none(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_get_contract_terms_none(app_client: AsyncClient, app_auth_headers: dict):
     client_id = await _create_client(app_client, app_auth_headers)
     resp = await app_client.get(
         f"/api/clients/{client_id}/contract-terms", headers=app_auth_headers

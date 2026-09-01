@@ -78,6 +78,7 @@ def test_no_hand_written_freshness_predicate_anywhere_in_app():
         + ", ".join(offenders)
     )
 
+
 def test_freshness_rule_lives_in_exactly_one_function_of_the_cache_module():
     """Reguła świeżości ma JEDNĄ implementację — także w Pythonie, nie tylko w SQL.
 
@@ -99,9 +100,7 @@ def test_freshness_rule_lives_in_exactly_one_function_of_the_cache_module():
             continue
         if node.name == "fresh_score_conditions":
             continue
-        names = {
-            n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)
-        } | {
+        names = {n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)} | {
             n.id for n in ast.walk(node) if isinstance(n, ast.Name)
         }
         if "stale" in names and "scoring_algorithm_version" in names:

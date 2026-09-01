@@ -22,48 +22,111 @@ from app.services.job_to_pool import (
 CATALOGUE: frozenset[str] = frozenset(
     {
         # data & ai
-        "AI Engineer", "BIG DATA (Hadoop)", "Data Architect", "Data Engineer",
-        "Data Scientist", "ML Infrastructure Engineer", "MLOps Engineer",
+        "AI Engineer",
+        "BIG DATA (Hadoop)",
+        "Data Architect",
+        "Data Engineer",
+        "Data Scientist",
+        "ML Infrastructure Engineer",
+        "MLOps Engineer",
         # infrastructure & operations
-        "Cloud Architect", "Cloud Engineer", "DevOps Engineer - Azure",
-        "DevOps Engineer AWS", "Helpdesk L1", "Helpdesk L2", "Helpdesk L3",
-        "Infrastructure Engineer", "Linux Admin", "MS DBA", "Mainframe",
-        "NOC Engineer", "Network Administrator", "Network Architect",
-        "Network Engineer", "Oracle DBA", "Platform Engineer",
-        "SRE/DevOps (bez chmury)", "Service Desk", "Virtualization Engineer",
+        "Cloud Architect",
+        "Cloud Engineer",
+        "DevOps Engineer - Azure",
+        "DevOps Engineer AWS",
+        "Helpdesk L1",
+        "Helpdesk L2",
+        "Helpdesk L3",
+        "Infrastructure Engineer",
+        "Linux Admin",
+        "MS DBA",
+        "Mainframe",
+        "NOC Engineer",
+        "Network Administrator",
+        "Network Architect",
+        "Network Engineer",
+        "Oracle DBA",
+        "Platform Engineer",
+        "SRE/DevOps (bez chmury)",
+        "Service Desk",
+        "Virtualization Engineer",
         "Windows Admin",
         # management & delivery
-        "Business Analyst - Financial Crime / AML", "Business Analyst - General",
-        "Business Analyst - Mortgage / Credit", "Business Analyst - Payments",
-        "Business Analyst - Regulatory / Compliance", "Change Manager",
-        "Compliance Specialist", "DORA Specialist", "IT Analyst - Business Focus",
-        "IT Analyst - Data Focus", "IT Analyst - Systems / Integration Focus",
-        "IT Project Manager", "Lead IT Analyst", "Migration Manager", "PM", "PMO",
-        "Product Owner", "Program Manager", "Project Assistant",
-        "RTE - Release Train Engineer", "Risk / GRC Manager",
-        "Rollout / Release Manager", "Scrum Master / Agile Coach",
-        "Service Manager", "Transition Manager",
+        "Business Analyst - Financial Crime / AML",
+        "Business Analyst - General",
+        "Business Analyst - Mortgage / Credit",
+        "Business Analyst - Payments",
+        "Business Analyst - Regulatory / Compliance",
+        "Change Manager",
+        "Compliance Specialist",
+        "DORA Specialist",
+        "IT Analyst - Business Focus",
+        "IT Analyst - Data Focus",
+        "IT Analyst - Systems / Integration Focus",
+        "IT Project Manager",
+        "Lead IT Analyst",
+        "Migration Manager",
+        "PM",
+        "PMO",
+        "Product Owner",
+        "Program Manager",
+        "Project Assistant",
+        "RTE - Release Train Engineer",
+        "Risk / GRC Manager",
+        "Rollout / Release Manager",
+        "Scrum Master / Agile Coach",
+        "Service Manager",
+        "Transition Manager",
         # security & quality
         "IAM Engineer, Vulnerability Management",
-        "Manual Tester (web, mob, sys (bankowość)", "Manual Tester - bazy danych",
+        "Manual Tester (web, mob, sys (bankowość)",
+        "Manual Tester - bazy danych",
         "Pentester (blue+red)",
-        "Performance Tester (jMeter, Loadrunner, Gatling)", "SOC",
-        "Security Engineer", "Test Architect", "Test Lead", "Test Manager",
+        "Performance Tester (jMeter, Loadrunner, Gatling)",
+        "SOC",
+        "Security Engineer",
+        "Test Architect",
+        "Test Lead",
+        "Test Manager",
         "Tester Automatyzujący (C#, Selenium)",
         "Tester Automatyzujący (Cypress, JavaScript)",
         "Tester Automatyzujący (ETL, bazy danych)",
         "Tester Automatyzujący (Java, Selenium)",
         "Tester Automatyzujący (Playwright, TypeScript)",
         "Tester Automatyzujący (Python, PyTest)",
-        "Tester Automatyzujący (Python, Robot Framework)", "Tester embedded",
+        "Tester Automatyzujący (Python, Robot Framework)",
+        "Tester embedded",
         # software development
-        ".NET (C#)", "ABAP DEV", "Android", "Angular", "C/C++", "COBOL", "ERP",
-        "Enterprise Architect", "FullStack .NET", "FullStack JS", "FullStack Java",
-        "GO", "Java", "Low Code", "Node.Js", "PEGA", "PHP",
-        "Powerapps (Power Platform, Dynamics)", "Python", "RPA", "React",
-        "SAP Consultant", "System Architect", "UX/UI", "Vue.js", "iOS",
+        ".NET (C#)",
+        "ABAP DEV",
+        "Android",
+        "Angular",
+        "C/C++",
+        "COBOL",
+        "ERP",
+        "Enterprise Architect",
+        "FullStack .NET",
+        "FullStack JS",
+        "FullStack Java",
+        "GO",
+        "Java",
+        "Low Code",
+        "Node.Js",
+        "PEGA",
+        "PHP",
+        "Powerapps (Power Platform, Dynamics)",
+        "Python",
+        "RPA",
+        "React",
+        "SAP Consultant",
+        "System Architect",
+        "UX/UI",
+        "Vue.js",
+        "iOS",
         # cc-null buckets
-        "Architekci", "Data Engineers", "POWER CALLING",
+        "Architekci",
+        "Data Engineers",
+        "POWER CALLING",
         "Subject Matter Expert (SME)",
     }
 )
@@ -92,35 +155,63 @@ TITLE_CASES: tuple[tuple[str, str | None, str | None], ...] = (
     # precision skip rather than guessing.
     ("Programista Javascript PKO BP ZOB-1933", None, None),
     ("Regular Angular Developer - Corporate Netbank (31073)", None, "Angular"),
-    ("Bank Pocztowy: Programista PowerApps", None, "Powerapps (Power Platform, Dynamics)"),
+    (
+        "Bank Pocztowy: Programista PowerApps",
+        None,
+        "Powerapps (Power Platform, Dynamics)",
+    ),
     # ── QA / security ──────────────────────────────────────────────────────
     (
         "Manual Tester for SD Consumer Finance & Technology (41370)",
         None,
         "Manual Tester (web, mob, sys (bankowość)",
     ),
-    ("IT Tester for NCS - TP 1338 (29995)", None, "Manual Tester (web, mob, sys (bankowość)"),
+    (
+        "IT Tester for NCS - TP 1338 (29995)",
+        None,
+        "Manual Tester (web, mob, sys (bankowość)",
+    ),
     ("E2E Test Lead / Lead Tester for CT QA (40168)", None, "Test Lead"),
     ("Test Manager - TP 5254 (30299)", None, "Test Manager"),
-    ("ON HOLD_Rozwój Departamentu Bezpieczeństwa - Pentesterzy", None, "Pentester (blue+red)"),
+    (
+        "ON HOLD_Rozwój Departamentu Bezpieczeństwa - Pentesterzy",
+        None,
+        "Pentester (blue+red)",
+    ),
     ("Cybersecurity", None, "Security Engineer"),
-    ("Senior Security Firewall Architect Zero Trust Initative (28228)", None, "Security Engineer"),
+    (
+        "Senior Security Firewall Architect Zero Trust Initative (28228)",
+        None,
+        "Security Engineer",
+    ),
     # ── Infrastructure ─────────────────────────────────────────────────────
     ("DevOps Cloud", None, "SRE/DevOps (bez chmury)"),
-    ("Senior DevOps Engineer - Azure - Data Hub (42077)", None, "DevOps Engineer - Azure"),
+    (
+        "Senior DevOps Engineer - Azure - Data Hub (42077)",
+        None,
+        "DevOps Engineer - Azure",
+    ),
     ("Linux expert developer (41431)", None, "Linux Admin"),
     ("User Support Specialist", None, "Service Desk"),
     # ── Management & delivery ──────────────────────────────────────────────
     ("Analityk Systemowy", None, "IT Analyst - Systems / Integration Focus"),
     ("Business Analyst-PEP4304 (30394)", None, "Business Analyst - General"),
     ("Kierownik Projektu IT/Scrum Master", None, "Scrum Master / Agile Coach"),
-    ("Nordea: Change Manager, CA Software Exit Programme (41659)", None, "Change Manager"),
+    (
+        "Nordea: Change Manager, CA Software Exit Programme (41659)",
+        None,
+        "Change Manager",
+    ),
     ("PL - Release Manager - XBAS (37907)", None, "Rollout / Release Manager"),
     ("PMO Specialist for Information Security Risk Reduction (40764)", None, "PMO"),
     ("Project Manager (projekt tradingowy)", None, "IT Project Manager"),
     # ── Data & AI ──────────────────────────────────────────────────────────
     ("Data Scientist", None, "Data Scientist"),
-    ("KYC Big Data Developer to Backend Application team (33798)", None, "BIG DATA (Hadoop)"),
+    (
+        "KYC Big Data Developer to Backend Application team (33798)",
+        None,
+        "BIG DATA (Hadoop)",
+    ),
     # ── Ambiguous title alone → None (precision); skills recover the variant ─
     ("Front-end Developer", None, None),
     ("Front-end Developer", "React, Redux, TypeScript", "React"),
@@ -129,9 +220,17 @@ TITLE_CASES: tuple[tuple[str, str | None, str | None], ...] = (
     ("Software Developer RITM03554491", None, None),
     ("Software Developer RITM0355", "Spring Boot, Java, Hibernate", "Java"),
     ("Test automation engineer - TP 6564 (30559)", None, None),
-    ("Test automation engineer", "Cypress, JavaScript, Playwright", "Tester Automatyzujący (Cypress, JavaScript)"),
+    (
+        "Test automation engineer",
+        "Cypress, JavaScript, Playwright",
+        "Tester Automatyzujący (Cypress, JavaScript)",
+    ),
     ("QA Test Engineer Senior (automation) (36061)", None, None),
-    ("QA Test Engineer Senior (automation)", "Selenium, Java, TestNG", "Tester Automatyzujący (Java, Selenium)"),
+    (
+        "QA Test Engineer Senior (automation)",
+        "Selenium, Java, TestNG",
+        "Tester Automatyzujący (Java, Selenium)",
+    ),
     # ── Non-role buckets → None ────────────────────────────────────────────
     ("ITVM-3331 Usługi kontraktorów na potrzeby TRIBE Rebel", None, None),
     ("Samodzielna Księgowa Senior i Junior", None, None),
@@ -144,7 +243,9 @@ def test_title_to_pool_expectations() -> None:
     for title, skills, expected in TITLE_CASES:
         got = classify_role_to_pool_name(title, skill_text=skills)
         if got != expected:
-            failures.append(f"{title!r} (skills={skills!r}) -> {got!r}, expected {expected!r}")
+            failures.append(
+                f"{title!r} (skills={skills!r}) -> {got!r}, expected {expected!r}"
+            )
     assert not failures, "title→pool mismatches:\n" + "\n".join(failures)
 
 
@@ -156,7 +257,10 @@ def test_clear_title_not_overridden_by_unrelated_skills() -> None:
         classify_role_to_pool_name("Manual Tester", skill_text="Selenium, Java")
         == "Manual Tester (web, mob, sys (bankowość)"
     )
-    assert classify_role_to_pool_name("Java Developer", skill_text="Python, Django") == "Java"
+    assert (
+        classify_role_to_pool_name("Java Developer", skill_text="Python, Django")
+        == "Java"
+    )
 
 
 def test_javascript_does_not_match_java() -> None:

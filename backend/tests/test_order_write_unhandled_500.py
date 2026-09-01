@@ -24,7 +24,8 @@ _TODAY = date.today()
 
 
 async def _seed_client_with_contract(
-    *, client_name: str | None = None,
+    *,
+    client_name: str | None = None,
 ) -> tuple[int, int, int]:
     """Klient + kandydat + aktywny kontrakt. Zwraca (client_id, contract_id, candidate_id)."""
     from app.core.database import AsyncSessionLocal
@@ -251,9 +252,7 @@ async def test_patch_with_an_unknown_job_is_refused_not_crashed(
 ):
     """``job_id`` leciał ślepym ``setattr`` prosto do commitu (FK violation)."""
     client_id, contract_id, _ = await _seed_client_with_contract()
-    order_id = await _create_order(
-        app_client, app_auth_headers, client_id, contract_id
-    )
+    order_id = await _create_order(app_client, app_auth_headers, client_id, contract_id)
 
     resp = await app_client.patch(
         f"/api/clients/{client_id}/orders/{order_id}",
@@ -269,9 +268,7 @@ async def test_patch_with_an_unknown_framework_contract_is_refused(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     client_id, contract_id, _ = await _seed_client_with_contract()
-    order_id = await _create_order(
-        app_client, app_auth_headers, client_id, contract_id
-    )
+    order_id = await _create_order(app_client, app_auth_headers, client_id, contract_id)
 
     resp = await app_client.patch(
         f"/api/clients/{client_id}/orders/{order_id}",

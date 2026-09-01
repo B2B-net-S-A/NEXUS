@@ -44,8 +44,11 @@ async def _seed_job_with_custom_terminal(term: TerminalType) -> dict:
     u = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         user = User(
-            email=f"wf-{u}@example.com", password_hash=hash_password("x"),
-            name="Rec", role=UserRole.recruiter, is_active=True,
+            email=f"wf-{u}@example.com",
+            password_hash=hash_password("x"),
+            name="Rec",
+            role=UserRole.recruiter,
+            is_active=True,
         )
         client = Client(name=f"WF {u}")
         cand = Candidate(name="Cust", lastname=f"Stage-{u}")
@@ -75,8 +78,11 @@ async def _seed_job_with_custom_terminal(term: TerminalType) -> dict:
         db.add(job)
         await db.commit()
         return {
-            "cand": cand.id, "job": job.id, "stage_def": stage.id,
-            "user_id": user.id, "client": client.id,
+            "cand": cand.id,
+            "job": job.id,
+            "stage_def": stage.id,
+            "user_id": user.id,
+            "client": client.id,
         }
 
 
@@ -90,7 +96,11 @@ async def test_custom_hired_stage_maps_to_hire_and_creates_contract() -> None:
     user = await _current_user(ids["user_id"])
     async with AsyncSessionLocal() as db:
         await move_candidate(
-            StageMove(candidate_id=ids["cand"], job_id=ids["job"], stage_def_id=ids["stage_def"]),
+            StageMove(
+                candidate_id=ids["cand"],
+                job_id=ids["job"],
+                stage_def_id=ids["stage_def"],
+            ),
             current_user=user,
             db=db,
         )
@@ -124,7 +134,9 @@ async def test_custom_rejected_stage_maps_to_rejected() -> None:
         with pytest.raises(HTTPException) as exc:
             await move_candidate(
                 StageMove(
-                    candidate_id=ids["cand"], job_id=ids["job"], stage_def_id=ids["stage_def"]
+                    candidate_id=ids["cand"],
+                    job_id=ids["job"],
+                    stage_def_id=ids["stage_def"],
                 ),
                 current_user=user,
                 db=db,
@@ -140,16 +152,22 @@ async def test_clone_template_copies_scorecard_schema() -> None:
     rubric = {"criteria": [{"name": "Culture fit", "weight": 3}]}
     async with AsyncSessionLocal() as db:
         admin = User(
-            email=f"wfa-{u}@example.com", password_hash=hash_password("x"),
-            name="Adm", role=UserRole.admin, is_active=True,
+            email=f"wfa-{u}@example.com",
+            password_hash=hash_password("x"),
+            name="Adm",
+            role=UserRole.admin,
+            is_active=True,
         )
         tpl = PipelineTemplate(name=f"Src {u}")
         db.add_all([admin, tpl])
         await db.flush()
         db.add(
             PipelineStageDef(
-                template_id=tpl.id, name=f"Interview-{u}", order=1,
-                category=StageCategoryEnum.internal, scorecard_schema=rubric,
+                template_id=tpl.id,
+                name=f"Interview-{u}",
+                order=1,
+                category=StageCategoryEnum.internal,
+                scorecard_schema=rubric,
             )
         )
         await db.commit()
@@ -164,12 +182,16 @@ async def test_clone_template_copies_scorecard_schema() -> None:
             select(PipelineTemplate).where(PipelineTemplate.name == f"Copy {u}")
         )
         stages = (
-            await db.execute(
-                select(PipelineStageDef).where(
-                    PipelineStageDef.template_id == cloned.id
+            (
+                await db.execute(
+                    select(PipelineStageDef).where(
+                        PipelineStageDef.template_id == cloned.id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert stages and stages[0].scorecard_schema == rubric, (
         "clone_template dropped scorecard_schema (M4-P0.2)"
     )

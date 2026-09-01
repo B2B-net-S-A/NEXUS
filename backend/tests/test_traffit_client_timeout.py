@@ -59,9 +59,7 @@ async def test_get_raw_retries_transport_error_then_succeeds(monkeypatch) -> Non
         _preauth(client)
         client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         try:
-            resp = await client._get_raw(
-                "/employees/activities", page=1, page_size=100
-            )
+            resp = await client._get_raw("/employees/activities", page=1, page_size=100)
         finally:
             await client._http.aclose()
             client._http = None

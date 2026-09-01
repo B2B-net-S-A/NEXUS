@@ -97,7 +97,9 @@ def test_from_record_flag_off_preserves_legacy_budget(monkeypatch):
     p = ss.WeightProfile.from_record(_record(LEGACY_FIVE))
     # Legacy behaviour: champion defaults to the full 10 → budget overshoots 100.
     assert p.champion_fit == ss.CHAMPION_FIT_MAX
-    budget = p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    budget = (
+        p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    )
     assert budget == 110.0
 
 
@@ -106,7 +108,9 @@ def test_from_record_flag_on_normalises_budget_to_100(monkeypatch):
     p = ss.WeightProfile.from_record(_record(LEGACY_FIVE))
     # Champion absorbs the unallocated budget (here 0) → exactly 100.
     assert p.champion_fit == 0.0
-    budget = p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    budget = (
+        p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    )
     assert budget == 100.0
 
 
@@ -114,10 +118,20 @@ def test_from_record_flag_on_with_headroom(monkeypatch):
     monkeypatch.setattr(settings, "AI_SCORING_CONTRACT_V2", True)
     # Five layers sum to 85 → champion takes the remaining 15.
     p = ss.WeightProfile.from_record(
-        _record({"semantic": 35, "skills": 25, "salary": 15, "location": 5, "availability": 5})
+        _record(
+            {
+                "semantic": 35,
+                "skills": 25,
+                "salary": 15,
+                "location": 5,
+                "availability": 5,
+            }
+        )
     )
     assert p.champion_fit == 15.0
-    total = p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    total = (
+        p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    )
     assert total == 100.0
 
 
@@ -199,7 +213,9 @@ def test_unknown_neutral_fraction_default_matches_config():
 
 def test_weights_payload_accepts_legacy_five(monkeypatch):
     # champion_fit omitted → defaults to 0; the five must still sum to 100.
-    payload = WeightsPayload(semantic=40, skills=30, salary=15, location=10, availability=5)
+    payload = WeightsPayload(
+        semantic=40, skills=30, salary=15, location=10, availability=5
+    )
     assert payload.champion_fit == 0
 
 
@@ -213,5 +229,10 @@ def test_weights_payload_accepts_six():
 def test_weights_payload_rejects_bad_sum():
     with pytest.raises(ValueError):
         WeightsPayload(
-            semantic=40, skills=30, salary=15, location=10, availability=5, champion_fit=10
+            semantic=40,
+            skills=30,
+            salary=15,
+            location=10,
+            availability=5,
+            champion_fit=10,
         )  # sums to 110

@@ -165,9 +165,7 @@ async def _line_state(line_id: int) -> dict:
             "end_date": line.end_date,
             "md_total": None if line.md_total is None else Decimal(str(line.md_total)),
             "md_remaining": (
-                None
-                if line.md_remaining is None
-                else Decimal(str(line.md_remaining))
+                None if line.md_remaining is None else Decimal(str(line.md_remaining))
             ),
         }
 

@@ -277,7 +277,9 @@ def test_frontend_sources_are_watched_too() -> None:
     o wiele łatwiejsza do przeoczenia, bo „to tylko tekst”.
     """
     frontend_entries = [
-        relative for relative in ORDERS_LOGIC_SOURCES if relative.startswith("frontend/")
+        relative
+        for relative in ORDERS_LOGIC_SOURCES
+        if relative.startswith("frontend/")
     ]
     assert frontend_entries, (
         "Z listy zniknęły wszystkie pliki frontendowe — instrukcja przestałaby "

@@ -144,9 +144,7 @@ async def seeded_entities():
 
     async with AsyncSessionLocal() as db:
         await db.execute(
-            text(
-                "DELETE FROM scheduled_rejection_emails WHERE candidate_id = :cid"
-            ),
+            text("DELETE FROM scheduled_rejection_emails WHERE candidate_id = :cid"),
             {"cid": ids["candidate_id"]},
         )
         await db.execute(
@@ -239,7 +237,11 @@ async def test_schedules_when_previous_stage_is_cv_sent(seeded_entities):
         )
         assert scheduled is not None
         assert scheduled.status == RejectionEmailStatus.pending
-        assert scheduled.to_email == f"cand-{ids['recruiter_email'].split('-')[1].split('@')[0]}@example.com" or scheduled.to_email.endswith("@example.com")
+        assert (
+            scheduled.to_email
+            == f"cand-{ids['recruiter_email'].split('-')[1].split('@')[0]}@example.com"
+            or scheduled.to_email.endswith("@example.com")
+        )
         assert scheduled.recruiter_id == ids["recruiter_id"]
         # Scheduled 15 minutes out (±1 minute tolerance)
         delta = scheduled.scheduled_at - datetime.now(timezone.utc)

@@ -102,9 +102,9 @@ def test_empty_candidate_rate_does_not_persist_a_default_currency():
 
 
 def test_entrypoint_guards_profile_rate_type_conversion_with_catalog_and_timeouts():
-    entrypoint = (
-        Path(__file__).resolve().parents[1] / "entrypoint.sh"
-    ).read_text(encoding="utf-8")
+    entrypoint = (Path(__file__).resolve().parents[1] / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert '_PROFILE_RATE_TARGET_TYPE = "numeric(10,2)"' in entrypoint
     assert "format_type(attribute.atttypid, attribute.atttypmod)" in entrypoint
@@ -136,9 +136,9 @@ async def test_profile_rate_schema_assertion_accepts_only_exact_numeric_contract
 
 
 def test_lifespan_refuses_traffic_before_saved_search_sweep_on_schema_mismatch():
-    main_source = (
-        Path(__file__).resolve().parents[1] / "app" / "main.py"
-    ).read_text(encoding="utf-8")
+    main_source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(
+        encoding="utf-8"
+    )
 
     schema_assertion = main_source.index(
         "await assert_candidate_profile_rate_schema(_profile_rate_schema_conn)"
@@ -347,9 +347,7 @@ def test_foreign_legacy_rate_is_not_comparable_and_scored_neutrally():
     assert result.status == "not_comparable"
     # P0-A: a non-canonical currency is scored with the neutral fraction (not
     # full) — an unverifiable rate must not inflate the composite.
-    assert result.points == pytest.approx(
-        result.max_points * UNKNOWN_NEUTRAL_FRACTION
-    )
+    assert result.points == pytest.approx(result.max_points * UNKNOWN_NEUTRAL_FRACTION)
     assert result.points < result.max_points
     assert "50" not in result.reason
     assert "EUR" not in result.reason

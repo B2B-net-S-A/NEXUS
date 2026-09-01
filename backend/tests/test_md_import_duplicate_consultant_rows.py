@@ -187,9 +187,7 @@ async def test_two_md_rows_for_one_person_are_summed(
     )
     finance = await _finance_headers(app_client)
 
-    detail = await _import(
-        app_client, finance, _sheet([(names[0], 15), (names[0], 5)])
-    )
+    detail = await _import(app_client, finance, _sheet([(names[0], 15), (names[0], 5)]))
     assert detail["rows_applied"] == 2, detail
 
     body = await _group(app_client, app_auth_headers, client_id, group["id"])
@@ -223,9 +221,7 @@ async def test_manual_assignment_adds_to_the_row_already_applied(
     Zapis idzie po kluczu (linia, miesiąc) i NADPISUJE, więc wysłanie samego
     ``row.md_reported`` kasowałoby MD wiersza rozstrzygniętego wcześniej.
     """
-    client_id, contracts, names = await _seed_client_with_contracts(
-        2, same_name=True
-    )
+    client_id, contracts, names = await _seed_client_with_contracts(2, same_name=True)
     _enable_multi(monkeypatch, client_id)
     group = await _create_group(
         app_client,
@@ -235,9 +231,7 @@ async def test_manual_assignment_adds_to_the_row_already_applied(
     )
     finance = await _finance_headers(app_client)
 
-    detail = await _import(
-        app_client, finance, _sheet([(names[0], 15), (names[0], 5)])
-    )
+    detail = await _import(app_client, finance, _sheet([(names[0], 15), (names[0], 5)]))
     assert detail["rows_ambiguous"] == 2, detail
 
     target = group["lines"][0]["id"]
@@ -339,12 +333,8 @@ async def test_md_beyond_the_budget_flows_onto_the_continuation(
     detail = await _import(app_client, finance, _sheet([(names[0], 30)]))
     assert detail["rows_applied"] == 1, detail
 
-    current_line = await _line_of(
-        app_client, app_auth_headers, client_id, group["id"]
-    )
-    next_line = await _line_of(
-        app_client, app_auth_headers, client_id, successor["id"]
-    )
+    current_line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
+    next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
     assert current_line["md_remaining"] == pytest.approx(0.0)
     assert current_line["is_active"] is False
     assert next_line["md_remaining"] == pytest.approx(40.0)
@@ -357,9 +347,7 @@ async def test_md_beyond_the_budget_flows_onto_the_continuation(
     ]
     theirs = [
         e
-        for e in await _events(
-            app_client, app_auth_headers, client_id, successor["id"]
-        )
+        for e in await _events(app_client, app_auth_headers, client_id, successor["id"])
         if e["event_type"] == "transfer_md"
     ]
     assert len(ours) == 1 and len(theirs) == 1, "podział ma ślad po OBU stronach"
@@ -407,9 +395,7 @@ async def test_reimporting_the_split_month_does_not_move_md_twice(
     await _import(app_client, finance, payload)
     await _import(app_client, finance, payload)
 
-    next_line = await _line_of(
-        app_client, app_auth_headers, client_id, successor["id"]
-    )
+    next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
     assert next_line["md_remaining"] == pytest.approx(40.0)
 
 
@@ -443,9 +429,9 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     finance = await _finance_headers(app_client)
     payload = _sheet([(names[0], 30)])
     await _import(app_client, finance, payload)
-    assert (
-        await _line_of(app_client, app_auth_headers, client_id, successor["id"])
-    )["md_remaining"] == pytest.approx(40.0)
+    assert (await _line_of(app_client, app_auth_headers, client_id, successor["id"]))[
+        "md_remaining"
+    ] == pytest.approx(40.0)
 
     raised = await app_client.patch(
         f"/api/clients/{client_id}/order-groups/{group['id']}"
@@ -456,12 +442,8 @@ async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     assert raised.status_code == 200, raised.text
     await _import(app_client, finance, payload)
 
-    current_line = await _line_of(
-        app_client, app_auth_headers, client_id, group["id"]
-    )
-    next_line = await _line_of(
-        app_client, app_auth_headers, client_id, successor["id"]
-    )
+    current_line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
+    next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
     assert current_line["md_remaining"] == pytest.approx(20.0)
     assert next_line["md_remaining"] == pytest.approx(50.0)
 
@@ -530,9 +512,7 @@ async def test_manual_assignment_splits_the_same_way_as_the_batch_import(
     )
     assert resp.status_code == 200, resp.text
 
-    next_line = await _line_of(
-        app_client, app_auth_headers, client_id, successor["id"]
-    )
+    next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
     assert next_line["md_remaining"] == pytest.approx(40.0)
 
 

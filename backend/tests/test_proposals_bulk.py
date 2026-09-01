@@ -39,9 +39,7 @@ class TestRequestValidation:
 
     def test_caps_tags_at_20(self):
         with pytest.raises(ValidationError):
-            BulkProposalsRequest(
-                candidate_ids=[1], tags=[f"tag{i}" for i in range(21)]
-            )
+            BulkProposalsRequest(candidate_ids=[1], tags=[f"tag{i}" for i in range(21)])
 
     def test_caps_note_at_2000_chars(self):
         with pytest.raises(ValidationError):

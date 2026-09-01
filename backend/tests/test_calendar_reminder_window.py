@@ -95,4 +95,4 @@ def test_cycle_handler_reports_at_error_level() -> None:
     przychodzić."""
     body = _loop_source()
     assert "logger.exception(" in body
-    assert "logger.warning(f\"Calendar reminder loop error" not in body
+    assert 'logger.warning(f"Calendar reminder loop error' not in body

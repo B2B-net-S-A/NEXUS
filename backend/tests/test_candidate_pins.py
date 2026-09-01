@@ -48,9 +48,7 @@ async def seeded_candidate() -> AsyncIterator[int]:
         # CandidatePin rows cascade via FK ondelete=CASCADE when we delete
         # the candidate. Belt-and-suspenders: also explicit-delete any pins
         # we may have created so a partial test failure doesn't leave rows.
-        await db.execute(
-            delete(CandidatePin).where(CandidatePin.candidate_id == cid)
-        )
+        await db.execute(delete(CandidatePin).where(CandidatePin.candidate_id == cid))
         await db.execute(delete(Candidate).where(Candidate.id == cid))
         await db.commit()
 

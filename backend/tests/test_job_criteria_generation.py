@@ -148,7 +148,9 @@ def test_fallback_splits_must_then_nice():
 
 
 def test_fallback_dedupes_repeated_tokens():
-    job = Job(title="Python dev", description="Python Python python", requirements="Python")
+    job = Job(
+        title="Python dev", description="Python Python python", requirements="Python"
+    )
     result = _fallback_criteria_from_text(job)
     all_names = [s["name"] for s in result["must_skills"] + result["nice_skills"]]
     assert len(all_names) == 1  # de-duplicated case-insensitively

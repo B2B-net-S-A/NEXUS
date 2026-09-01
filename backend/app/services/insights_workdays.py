@@ -232,4 +232,20 @@ async def working_days_for(
             )
         )
     ).all()
-    return {uid: float(days) for uid, days in rows}
+    found = {uid: float(days) for uid, days in rows}
+
+    if not found:
+        # Bez tego logu pusty wynik jest NIEODRÓŻNIALNY od wyłączonej
+        # integracji: raport w obu przypadkach mówi „nie wiem", ale w jednym
+        # jest to prawda, a w drugim rozjazd granic okna (COMPASS zwraca
+        # domknięty [start, end], Power Calling liczy tydzień ISO) albo
+        # nieudany sync. Cisza w takiej sytuacji to ta sama klasa błędu,
+        # którą ten moduł naprawia.
+        logger.info(
+            "workdays_lookup_empty users=%s window=%s..%s "
+            "(sprawdź granice okna i status syncu)",
+            len(user_ids),
+            period_start,
+            period_end,
+        )
+    return found

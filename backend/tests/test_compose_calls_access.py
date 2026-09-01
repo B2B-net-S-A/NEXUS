@@ -96,9 +96,7 @@ async def test_viewer_cannot_send_or_read_calls(cc_client: AsyncClient):
     calls = await cc_client.get(f"/api/candidates/{cand_id}/calls", headers=h)
     assert calls.status_code == 403
 
-    log = await cc_client.post(
-        "/api/calls", headers=h, json={"candidate_id": cand_id}
-    )
+    log = await cc_client.post("/api/calls", headers=h, json={"candidate_id": cand_id})
     assert log.status_code == 403
 
     bulk = await cc_client.post(
@@ -119,9 +117,7 @@ async def test_recruiter_passes_the_gate(cc_client: AsyncClient):
     calls = await cc_client.get(f"/api/candidates/{cand_id}/calls", headers=h)
     assert calls.status_code == 200
 
-    log = await cc_client.post(
-        "/api/calls", headers=h, json={"candidate_id": cand_id}
-    )
+    log = await cc_client.post("/api/calls", headers=h, json={"candidate_id": cand_id})
     assert log.status_code == 201
 
     # Compose passes the role gate; it then fails only because the recruiter has

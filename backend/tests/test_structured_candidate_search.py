@@ -394,7 +394,9 @@ def _maximal_request() -> CandidateSearchRequest:
 
 def test_every_filter_group_declares_a_null_policy():
     missing = [
-        g.key for g in build_filter_groups(_maximal_request()) if g.key not in NULL_POLICY
+        g.key
+        for g in build_filter_groups(_maximal_request())
+        if g.key not in NULL_POLICY
     ]
     assert not missing, (
         f"Filter group(s) {missing} declare no NULL policy. Add an entry to "
@@ -448,9 +450,7 @@ def _is_null_tolerant(clause) -> bool:
         if isinstance(node, BooleanClauseList):
             return any(_has_is_null(c) for c in node.clauses)
         try:
-            return "IS NULL" in str(
-                node.compile(dialect=postgresql.dialect())
-            ).upper()
+            return "IS NULL" in str(node.compile(dialect=postgresql.dialect())).upper()
         except Exception:
             return False
 
@@ -504,7 +504,11 @@ def test_experience_soft_rank_rewards_a_stated_matching_range():
     expr = experience_soft_rank(
         CandidateSearchRequest(experience_years_min=2, experience_years_max=6)
     )
-    sql = str(expr.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    sql = str(
+        expr.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
     # Must require a stated value: NULL scores 0, not 1, or the ranking is a
     # no-op and the 45 real matches stay buried among 11 046 unknowns.
     assert "IS NOT NULL" in sql
@@ -512,8 +516,14 @@ def test_experience_soft_rank_rewards_a_stated_matching_range():
 
 
 def test_location_soft_rank_counts_matching_cities():
-    expr = location_soft_rank(CandidateSearchRequest(location_cities=["Kraków", "Wrocław"]))
-    sql = str(expr.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+    expr = location_soft_rank(
+        CandidateSearchRequest(location_cities=["Kraków", "Wrocław"])
+    )
+    sql = str(
+        expr.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
     assert sql.count("CASE") == 2
 
 

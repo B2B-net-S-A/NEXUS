@@ -115,6 +115,7 @@ def test_same_date_candidate_amendment_updates_margin():
 
 from tests._contract_parties import pick_parties as _pick_parties
 
+
 async def test_expiring_serializes_schedule_field(
     app_client: AsyncClient, app_auth_headers: dict
 ):
@@ -252,9 +253,7 @@ async def test_patch_replaces_schedule_with_progressive_steps(
         # Re-PATCH REPLACES the schedule wholesale (single step now).
         patch2 = await app_client.patch(
             f"/api/contracts/{cid}",
-            json={
-                "candidate_rate_schedule": [{"rate": 150, "effective_from": past}]
-            },
+            json={"candidate_rate_schedule": [{"rate": 150, "effective_from": past}]},
             headers=app_auth_headers,
         )
         assert patch2.status_code == 200, patch2.text

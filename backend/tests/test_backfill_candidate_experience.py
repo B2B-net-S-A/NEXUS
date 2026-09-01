@@ -69,9 +69,24 @@ def test_parse_tr_string_full_work_history():
 def test_parse_tr_string_sort_finished_by_end_desc():
     payload = {
         "work_history": [
-            {"role": "A", "company": "X", "start_date": "2015-01", "end_date": "2018-01"},
-            {"role": "B", "company": "Y", "start_date": "2018-01", "end_date": "2022-12"},
-            {"role": "C", "company": "Z", "start_date": "2010-01", "end_date": "2014-01"},
+            {
+                "role": "A",
+                "company": "X",
+                "start_date": "2015-01",
+                "end_date": "2018-01",
+            },
+            {
+                "role": "B",
+                "company": "Y",
+                "start_date": "2018-01",
+                "end_date": "2022-12",
+            },
+            {
+                "role": "C",
+                "company": "Z",
+                "start_date": "2010-01",
+                "end_date": "2014-01",
+            },
         ]
     }
     experience, lcc = bf.parse_tr_string(json.dumps(payload))
@@ -94,9 +109,23 @@ def test_parse_tr_string_current_first_even_without_dates():
 def test_parse_tr_string_dedupe_by_company_role_start():
     payload = {
         "work_history": [
-            {"role": "Dev", "company": "Acme", "start_date": "2020-01", "end_date": "2022-01"},
-            {"role": "dev", "company": "ACME", "start_date": "2020-01", "end_date": "2022-01"},
-            {"role": "Dev", "company": "Acme", "start_date": "2023-01"},  # different start, keep
+            {
+                "role": "Dev",
+                "company": "Acme",
+                "start_date": "2020-01",
+                "end_date": "2022-01",
+            },
+            {
+                "role": "dev",
+                "company": "ACME",
+                "start_date": "2020-01",
+                "end_date": "2022-01",
+            },
+            {
+                "role": "Dev",
+                "company": "Acme",
+                "start_date": "2023-01",
+            },  # different start, keep
         ]
     }
     experience, _ = bf.parse_tr_string(json.dumps(payload))

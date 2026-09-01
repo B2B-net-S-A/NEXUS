@@ -96,7 +96,7 @@ def test_pdf_renderer_wires_deny_all_url_fetcher() -> None:
     )
     assert wired, "WeasyPrint HTML() has no url_fetcher — SSRF open (M5-P0.10)"
     # And the deny function raises for anything that isn't data:.
-    assert "startswith(\"data:\")" in src or "startswith('data:')" in src
+    assert 'startswith("data:")' in src or "startswith('data:')" in src
     assert "raise" in src
 
 

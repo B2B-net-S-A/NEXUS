@@ -11,6 +11,7 @@ Te testy pilnują obu stron kontraktu:
   • włączona   → działają normalnie (żeby killswitch nie zepsuł CI ani
                  drogi awaryjnej, gdy Azure padnie).
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -62,9 +63,7 @@ async def test_login_break_glass_email_bypasses_disabled_flag(
     sprawdzenia poświadczeń — tu 401 (brak takiego konta w DB), NIE 503.
     """
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
-    monkeypatch.setattr(
-        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
-    )
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
         "/api/auth/login", json={"email": "admin@x.com", "password": "cokolwiek"}
     )
@@ -77,9 +76,7 @@ async def test_login_break_glass_is_case_insensitive(
 ):
     """Dopasowanie po znormalizowanym (lowercase) adresie — wielkość liter nieistotna."""
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
-    monkeypatch.setattr(
-        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "Admin@X.com"
-    )
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "Admin@X.com")
     resp = await app_client.post(
         "/api/auth/login", json={"email": "admin@x.com", "password": "cokolwiek"}
     )
@@ -91,9 +88,7 @@ async def test_login_non_break_glass_email_still_503_when_disabled(
 ):
     """Adres spoza listy dalej dostaje 503 — wyjątek jest wąski, nie globalny."""
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
-    monkeypatch.setattr(
-        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
-    )
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
         "/api/auth/login", json={"email": "other@x.com", "password": "cokolwiek"}
     )
@@ -121,9 +116,7 @@ async def test_forgot_password_break_glass_bypasses_disabled_flag(
     admin nie mógłby nawet poprosić o link resetowy.
     """
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
-    monkeypatch.setattr(
-        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
-    )
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
         "/api/auth/forgot-password", json={"email": "admin@x.com"}
     )
@@ -134,9 +127,7 @@ async def test_forgot_password_non_break_glass_still_503(
     app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
-    monkeypatch.setattr(
-        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
-    )
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
         "/api/auth/forgot-password", json={"email": "other@x.com"}
     )
@@ -152,9 +143,7 @@ async def test_reset_password_break_glass_defers_gate(
     dowód, że bramka „flag off → 503" została odroczona za rozpoznanie konta.
     """
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
-    monkeypatch.setattr(
-        settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com"
-    )
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
         "/api/auth/reset-password",
         json={"token": "a" * 64, "new_password": "NoweHaslo123!@#"},

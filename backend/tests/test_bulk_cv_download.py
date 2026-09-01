@@ -139,7 +139,9 @@ async def test_bulk_cv_download_happy_path(
             # 2 CVs + manifest
             assert len(names) == 3
             # Filenames follow Lastname_Firstname_ID.pdf
-            assert any(n.startswith("Kowalska_Anna_") and n.endswith(".pdf") for n in names)
+            assert any(
+                n.startswith("Kowalska_Anna_") and n.endswith(".pdf") for n in names
+            )
             assert any(n.startswith("Nowak_Jan_") and n.endswith(".pdf") for n in names)
             manifest = zf.read("_manifest.txt").decode("utf-8")
             assert manifest.count("\tincluded") == 2
@@ -183,9 +185,7 @@ async def test_bulk_cv_download_mixed_sources_and_missing(
             assert "skipped_not_found" in manifest
             assert manifest.count("\tincluded") == 2
             # DB-only content made it in
-            db_entry = next(
-                n for n in names if n.startswith("Candidate_DB_")
-            )
+            db_entry = next(n for n in names if n.startswith("Candidate_DB_"))
             assert zf.read(db_entry) == b"%PDF-db"
     finally:
         await _delete_candidate(disk_id, "on-disk.pdf")

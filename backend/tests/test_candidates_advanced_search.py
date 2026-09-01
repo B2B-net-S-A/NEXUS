@@ -88,9 +88,7 @@ async def test_q_any_or(app_client: AsyncClient, app_auth_headers: dict):
 
 
 @pytest.mark.asyncio
-async def test_q_any_groups_and_of_ors(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_q_any_groups_and_of_ors(app_client: AsyncClient, app_auth_headers: dict):
     """Multiple ANY OR-groups AND together: (python OR java) AND (react OR spring).
 
     Seed bodies:
@@ -181,9 +179,7 @@ async def test_combination_all_and_none(
 
 
 @pytest.mark.asyncio
-async def test_multi_word_phrase(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_multi_word_phrase(app_client: AsyncClient, app_auth_headers: dict):
     ids = await _seed_four()
     try:
         r = await app_client.get(
@@ -193,7 +189,9 @@ async def test_multi_word_phrase(
         assert r.status_code == 200, r.text
         result_ids = {item["id"] for item in r.json()["items"]}
         assert ids["D"] in result_ids
-        assert ids["A"] not in result_ids  # "python react developer" — no "react native"
+        assert (
+            ids["A"] not in result_ids
+        )  # "python react developer" — no "react native"
     finally:
         await _cleanup(list(ids.values()))
 
@@ -260,9 +258,7 @@ async def test_like_metacharacters_are_escaped(
 
 
 @pytest.mark.asyncio
-async def test_dedupe_case_insensitive(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_dedupe_case_insensitive(app_client: AsyncClient, app_auth_headers: dict):
     # Supplying the same phrase with different casing should not over-constrain.
     ids = await _seed_four()
     try:
@@ -279,9 +275,7 @@ async def test_dedupe_case_insensitive(
 
 
 @pytest.mark.asyncio
-async def test_tags_field_is_searched(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_tags_field_is_searched(app_client: AsyncClient, app_auth_headers: dict):
     a = await _seed_candidate(raw_cv="generic cv body", tags=["kubernetes", "aws"])
     b = await _seed_candidate(raw_cv="generic cv body", tags=["gcp"])
     try:

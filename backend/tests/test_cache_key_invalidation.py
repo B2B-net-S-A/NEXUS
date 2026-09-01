@@ -77,8 +77,9 @@ async def test_mark_stale_for_profile_flips_only_that_profile() -> None:
 
         rows = (
             await db.execute(
-                select(CandidateJobMatchScore.profile_id, CandidateJobMatchScore.stale)
-                .where(CandidateJobMatchScore.candidate_id == cand.id)
+                select(
+                    CandidateJobMatchScore.profile_id, CandidateJobMatchScore.stale
+                ).where(CandidateJobMatchScore.candidate_id == cand.id)
             )
         ).all()
     by_pid = {r.profile_id: r.stale for r in rows}
@@ -87,6 +88,7 @@ async def test_mark_stale_for_profile_flips_only_that_profile() -> None:
 
 
 from tests._ast_calls import calls_in as _calls_in
+
 
 def test_update_and_delete_profile_invalidate_cache() -> None:
     for func in ("update_profile", "delete_profile"):

@@ -40,7 +40,13 @@ SEED_CCS = [
         slug="software_development",
         name_pl="Rozwój Oprogramowania",
         keywords=[
-            "react", "java", "spring", "python", "typescript", "backend", "frontend",
+            "react",
+            "java",
+            "spring",
+            "python",
+            "typescript",
+            "backend",
+            "frontend",
         ],
     ),
     FakeCc(
@@ -53,7 +59,14 @@ SEED_CCS = [
         id=4,
         slug="security_quality",
         name_pl="Bezpieczeństwo i Jakość",
-        keywords=["qa", "pentester", "owasp", "selenium", "playwright", "cybersecurity"],
+        keywords=[
+            "qa",
+            "pentester",
+            "owasp",
+            "selenium",
+            "playwright",
+            "cybersecurity",
+        ],
     ),
     FakeCc(
         id=5,
@@ -96,6 +109,7 @@ def db():
 @pytest.fixture(autouse=True)
 def _no_qdrant(monkeypatch):
     """Skip Qdrant in all tests — rely on keyword scoring alone."""
+
     async def fake_embed(_vec):
         return {}
 
@@ -172,20 +186,35 @@ async def test_senior_devops_maps_to_infrastructure_operations(db):
 async def test_confidence_band_mapping():
     # Synthetic score → band
     score_high = cc_classifier.CcScore(
-        cc_id=1, slug="x", name_pl="x",
-        score=0.75, keyword_ratio=0.0, embedding_score=0.0, keywords_matched=[],
+        cc_id=1,
+        slug="x",
+        name_pl="x",
+        score=0.75,
+        keyword_ratio=0.0,
+        embedding_score=0.0,
+        keywords_matched=[],
     )
     assert score_high.confidence_band == "high"
 
     score_med = cc_classifier.CcScore(
-        cc_id=1, slug="x", name_pl="x",
-        score=0.50, keyword_ratio=0.0, embedding_score=0.0, keywords_matched=[],
+        cc_id=1,
+        slug="x",
+        name_pl="x",
+        score=0.50,
+        keyword_ratio=0.0,
+        embedding_score=0.0,
+        keywords_matched=[],
     )
     assert score_med.confidence_band == "medium"
 
     score_low = cc_classifier.CcScore(
-        cc_id=1, slug="x", name_pl="x",
-        score=0.20, keyword_ratio=0.0, embedding_score=0.0, keywords_matched=[],
+        cc_id=1,
+        slug="x",
+        name_pl="x",
+        score=0.20,
+        keyword_ratio=0.0,
+        embedding_score=0.0,
+        keywords_matched=[],
     )
     assert score_low.confidence_band == "low"
 

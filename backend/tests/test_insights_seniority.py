@@ -446,7 +446,7 @@ async def test_envelope_carries_the_rule_so_the_ui_can_write_it_out(
     fx_client: AsyncClient,
 ):
     """Progi i okno wychodzą na zewnątrz — pasek postępu nie mówi, ile trzeba."""
-    await cache_invalidate("insights:recruitment:seniority:*")
+    await cache_invalidate("insights:recruitment:seniority:")
     headers = await _login_headers(fx_client, UserRole.admin)
 
     resp = await fx_client.get(

@@ -42,8 +42,11 @@ async def _seed_verified(db, *, salary_max: int) -> tuple[int, int, User, int]:
     client = Client(name=f"Rate {u}")
     cand = Candidate(name="Rate", lastname=f"Gate-{u}")
     user = User(
-        email=f"rate-{u}@example.com", password_hash=hash_password("x"),
-        name="R", role=UserRole.recruiter, is_active=True,
+        email=f"rate-{u}@example.com",
+        password_hash=hash_password("x"),
+        name="R",
+        role=UserRole.recruiter,
+        is_active=True,
     )
     db.add_all([client, cand, user])
     await db.flush()
@@ -114,7 +117,9 @@ async def test_non_pln_rate_is_non_comparable_so_pending() -> None:
             cid,
             jid,
             ClientRateUpdate(
-                rate_value=Decimal("100"), rate_unit=RateUnit.monthly, rate_currency="EUR"
+                rate_value=Decimal("100"),
+                rate_unit=RateUnit.monthly,
+                rate_currency="EUR",
             ),
             current_user=actor,
             db=db,

@@ -15,9 +15,7 @@ pytestmark = pytest.mark.asyncio
 async def test_list_competence_categories_returns_seed(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    resp = await app_client.get(
-        "/api/competence-categories", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/competence-categories", headers=app_auth_headers)
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
@@ -43,9 +41,7 @@ async def test_list_competence_categories_returns_seed(
 async def test_cc_list_sorted_by_display_order(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    resp = await app_client.get(
-        "/api/competence-categories", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/competence-categories", headers=app_auth_headers)
     data = resp.json()
     orders = [cc["display_order"] for cc in data]
     assert orders == sorted(orders)

@@ -72,14 +72,13 @@ def test_effective_to_is_advisory_and_does_not_gate_resolution():
 
 from tests._contract_parties import pick_parties as _pick_parties
 
+
 async def test_list_serializes_framework_schedule_field(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """The contract list serializes `framework_rate_schedule` — must not trip an
     async lazy-load on the relationship."""
-    resp = await app_client.get(
-        "/api/contracts?page_size=5", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/contracts?page_size=5", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     for item in resp.json().get("items", []):
         assert "framework_rate_schedule" in item

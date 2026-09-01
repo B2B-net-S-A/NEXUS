@@ -144,23 +144,17 @@ async def test_clients_hit_ratio_happy_path(rep_client: AsyncClient):
 
     filled_jobs = []
     for _ in range(3):
-        jid = await _seed_closed_job(
-            client_id=client_id, closed_at=recent, headcount=1
-        )
+        jid = await _seed_closed_job(client_id=client_id, closed_at=recent, headcount=1)
         cand = await _seed_candidate()
         await _seed_hired_stage(cand, jid)
         filled_jobs.append(jid)
     for _ in range(2):
-        await _seed_closed_job(
-            client_id=client_id, closed_at=recent, headcount=1
-        )
+        await _seed_closed_job(client_id=client_id, closed_at=recent, headcount=1)
 
     _, email, password = await _seed_user(UserRole.admin, "happy")
     headers = await _login(rep_client, email, password)
 
-    resp = await rep_client.get(
-        "/api/reports/clients?period=month", headers=headers
-    )
+    resp = await rep_client.get("/api/reports/clients?period=month", headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     row = next((c for c in data["clients"] if c["client_id"] == client_id), None)
@@ -179,9 +173,7 @@ async def test_clients_fill_rate_handles_multi_seat(rep_client: AsyncClient):
     now = datetime.now(timezone.utc)
     recent = now - timedelta(days=2)
 
-    jid = await _seed_closed_job(
-        client_id=client_id, closed_at=recent, headcount=3
-    )
+    jid = await _seed_closed_job(client_id=client_id, closed_at=recent, headcount=3)
     for _ in range(2):
         cand = await _seed_candidate()
         await _seed_hired_stage(cand, jid)
@@ -189,13 +181,9 @@ async def test_clients_fill_rate_handles_multi_seat(rep_client: AsyncClient):
     _, email, password = await _seed_user(UserRole.admin, "multiseat")
     headers = await _login(rep_client, email, password)
 
-    resp = await rep_client.get(
-        "/api/reports/clients?period=month", headers=headers
-    )
+    resp = await rep_client.get("/api/reports/clients?period=month", headers=headers)
     assert resp.status_code == 200, resp.text
-    row = next(
-        (c for c in resp.json()["clients"] if c["client_id"] == client_id), None
-    )
+    row = next((c for c in resp.json()["clients"] if c["client_id"] == client_id), None)
     assert row is not None
     assert row["closed_jobs"] == 1
     assert row["filled_jobs"] == 1  # 1 job with ≥1 hire
@@ -217,13 +205,9 @@ async def test_clients_zero_hires(rep_client: AsyncClient):
     _, email, password = await _seed_user(UserRole.admin, "zero")
     headers = await _login(rep_client, email, password)
 
-    resp = await rep_client.get(
-        "/api/reports/clients?period=month", headers=headers
-    )
+    resp = await rep_client.get("/api/reports/clients?period=month", headers=headers)
     assert resp.status_code == 200, resp.text
-    row = next(
-        (c for c in resp.json()["clients"] if c["client_id"] == client_id), None
-    )
+    row = next((c for c in resp.json()["clients"] if c["client_id"] == client_id), None)
     assert row is not None
     assert row["closed_jobs"] == 4
     assert row["filled_jobs"] == 0
@@ -250,13 +234,9 @@ async def test_clients_period_filter_excludes_old_jobs(rep_client: AsyncClient):
     _, email, password = await _seed_user(UserRole.admin, "time")
     headers = await _login(rep_client, email, password)
 
-    resp = await rep_client.get(
-        "/api/reports/clients?period=year", headers=headers
-    )
+    resp = await rep_client.get("/api/reports/clients?period=year", headers=headers)
     assert resp.status_code == 200, resp.text
-    row = next(
-        (c for c in resp.json()["clients"] if c["client_id"] == client_id), None
-    )
+    row = next((c for c in resp.json()["clients"] if c["client_id"] == client_id), None)
     assert row is not None
     assert row["closed_jobs"] == 1  # only the recent one
 
@@ -337,9 +317,7 @@ async def test_clients_rbac_allows_head_of_recruitment(rep_client: AsyncClient):
     _, email, password = await _seed_user(UserRole.head_of_recruitment, "rbac-hor")
     headers = await _login(rep_client, email, password)
 
-    resp = await rep_client.get(
-        "/api/reports/clients?period=year", headers=headers
-    )
+    resp = await rep_client.get("/api/reports/clients?period=year", headers=headers)
     assert resp.status_code == 200
     assert "clients" in resp.json() and "overall" in resp.json()
 

@@ -147,9 +147,7 @@ async def test_a_pending_event_does_not_count_as_indexed():
                 entity_type=outbox.CANDIDATE,
                 entity_id=cand.id,
                 entity_revision=1,
-                desired_hash=outbox.desired_state(
-                    outbox.CANDIDATE, cand
-                ).desired_hash,
+                desired_hash=outbox.desired_state(outbox.CANDIDATE, cand).desired_hash,
                 operation="upsert",
                 status="pending",
             )

@@ -96,7 +96,10 @@ async def test_emits_no_row_data(
 
     seeded_email = app_client.headers.get("X-Test-Admin-Email")
     bearer = app_auth_headers["Authorization"].split(" ", 1)[1]
-    for label, leaked in (("seeded admin e-mail", seeded_email), ("caller JWT", bearer)):
+    for label, leaked in (
+        ("seeded admin e-mail", seeded_email),
+        ("caller JWT", bearer),
+    ):
         if leaked:
             assert leaked not in payload, f"report leaked the {label}"
 
@@ -115,7 +118,10 @@ def test_module_does_not_touch_deletion() -> None:
     import ast
 
     path = (
-        Path(__file__).resolve().parents[1] / "app" / "api" / "admin_candidate_pii_orphans.py"
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "api"
+        / "admin_candidate_pii_orphans.py"
     )
     tree = ast.parse(path.read_text(encoding="utf-8"))
 
@@ -130,6 +136,6 @@ def test_module_does_not_touch_deletion() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
             if node.func.id in {"delete", "update", "insert"}:
                 offenders.append(f"line {node.lineno}: {node.func.id}(")
-    assert not offenders, (
-        "read-only report calls a mutation primitive: " + "; ".join(offenders)
+    assert not offenders, "read-only report calls a mutation primitive: " + "; ".join(
+        offenders
     )

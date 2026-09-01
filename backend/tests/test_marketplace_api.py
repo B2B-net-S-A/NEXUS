@@ -79,14 +79,10 @@ async def seeded_candidate():
     async with AsyncSessionLocal() as db:
         # cleanup: memberships, alerts, candidate
         await db.execute(
-            delete(TalentPoolMembership).where(
-                TalentPoolMembership.candidate_id == cid
-            )
+            delete(TalentPoolMembership).where(TalentPoolMembership.candidate_id == cid)
         )
         await db.execute(
-            delete(MarketplaceAlertLog).where(
-                MarketplaceAlertLog.candidate_id == cid
-            )
+            delete(MarketplaceAlertLog).where(MarketplaceAlertLog.candidate_id == cid)
         )
         cand = await db.get(Candidate, cid)
         if cand is not None:
@@ -97,9 +93,7 @@ async def seeded_candidate():
 async def test_get_pool_returns_singleton(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    resp = await app_client.get(
-        "/api/marketplace/pool", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/marketplace/pool", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["is_marketplace"] is True

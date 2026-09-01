@@ -187,6 +187,7 @@ async def test_rate_change_requires_at_least_one_field(
 
 from tests._contract_parties import pick_parties as _pick_parties
 
+
 async def test_extension_syncs_client_order_end_date(
     app_client: AsyncClient, app_auth_headers: dict
 ):

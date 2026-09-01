@@ -138,24 +138,31 @@ async def test_post_note_creates_mention_and_notification(
 
     async with AsyncSessionLocal() as db:
         mentions = (
-            await db.execute(
-                select(NoteMention).where(NoteMention.note_id == note_id)
+            (
+                await db.execute(
+                    select(NoteMention).where(NoteMention.note_id == note_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(mentions) == 1
         assert mentions[0].user_id == target_id
 
         notifs = (
-            await db.execute(
-                select(Notification)
-                .where(Notification.user_id == target_id)
-                .where(
-                    Notification.notification_type
-                    == NotificationType.note_mention
+            (
+                await db.execute(
+                    select(Notification)
+                    .where(Notification.user_id == target_id)
+                    .where(
+                        Notification.notification_type == NotificationType.note_mention
+                    )
+                    .where(Notification.related_entity_id == note_id)
                 )
-                .where(Notification.related_entity_id == note_id)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(notifs) == 1
         assert notifs[0].related_entity_type == "note"
 
@@ -183,10 +190,14 @@ async def test_post_note_does_not_email_self(app_client: AsyncClient, setup_user
 
     async with AsyncSessionLocal() as db:
         mentions = (
-            await db.execute(
-                select(NoteMention).where(NoteMention.note_id == note_id)
+            (
+                await db.execute(
+                    select(NoteMention).where(NoteMention.note_id == note_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     assert mentions == []
     smtp_mock.assert_not_called()
 
@@ -264,8 +275,7 @@ async def test_patch_note_only_emails_new_mentions(
             headers=headers,
             json={
                 "content": (
-                    f"@{setup_users['target_email']} 1st "
-                    f"+ @{target2_email} added"
+                    f"@{setup_users['target_email']} 1st + @{target2_email} added"
                 )
             },
         )
@@ -278,10 +288,14 @@ async def test_patch_note_only_emails_new_mentions(
 
     async with AsyncSessionLocal() as db:
         mentions = (
-            await db.execute(
-                select(NoteMention).where(NoteMention.note_id == note_id)
+            (
+                await db.execute(
+                    select(NoteMention).where(NoteMention.note_id == note_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     user_ids = {m.user_id for m in mentions}
     assert setup_users["target_id"] in user_ids
     assert target2_id in user_ids
@@ -328,17 +342,25 @@ async def test_post_note_with_job_filters_to_members(
 
     async with AsyncSessionLocal() as db:
         mentions = (
-            await db.execute(
-                select(NoteMention).where(NoteMention.note_id == note_id)
-            )
-        ).scalars().all()
-        notifs = (
-            await db.execute(
-                select(Notification).where(
-                    Notification.user_id == non_member_id,
-                    Notification.related_entity_id == note_id,
+            (
+                await db.execute(
+                    select(NoteMention).where(NoteMention.note_id == note_id)
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
+        notifs = (
+            (
+                await db.execute(
+                    select(Notification).where(
+                        Notification.user_id == non_member_id,
+                        Notification.related_entity_id == note_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
     assert mentions == [], "non-member nie powinien dostać NoteMention"
     assert notifs == [], "non-member nie powinien dostać Notification"

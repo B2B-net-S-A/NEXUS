@@ -57,9 +57,7 @@ async def _seed_stages_no_csv(*, with_cv: int, without_cv: int) -> list[int]:
         await db.flush()
         for i in range(with_cv + without_cv):
             cv_bytes = (
-                f"PDF-bytes-{unique}-{i}".encode("utf-8")
-                if i < with_cv
-                else None
+                f"PDF-bytes-{unique}-{i}".encode("utf-8") if i < with_cv else None
             )
             cand = Candidate(
                 name="BF",
@@ -106,9 +104,7 @@ async def _run_backfill(batch_size: int) -> int:
     inserted_total = 0
     async with AsyncSessionLocal() as db:
         while True:
-            res = await db.execute(
-                text(_BACKFILL_SQL), {"batch_size": batch_size}
-            )
+            res = await db.execute(text(_BACKFILL_SQL), {"batch_size": batch_size})
             count = res.rowcount or 0
             inserted_total += count
             await db.commit()

@@ -112,9 +112,7 @@ async def _cleanup(
 
     async with AsyncSessionLocal() as db:
         for cid in candidate_ids or []:
-            await db.execute(
-                delete(Contract).where(Contract.candidate_id == cid)
-            )
+            await db.execute(delete(Contract).where(Contract.candidate_id == cid))
             await db.execute(
                 delete(CandidateConflict).where(CandidateConflict.candidate_id == cid)
             )
@@ -311,9 +309,7 @@ async def test_filter_past_company_excludes_current(
 
 
 @pytest.mark.asyncio
-async def test_filter_current_title(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_filter_current_title(app_client: AsyncClient, app_auth_headers: dict):
     senior = await _seed_candidate_with_experience(
         [{"company": "X", "role": "Senior Software Engineer"}]
     )
@@ -487,9 +483,7 @@ async def test_combined_current_company_and_title(
 
 
 @pytest.mark.asyncio
-async def test_companies_suggest_basic(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_companies_suggest_basic(app_client: AsyncClient, app_auth_headers: dict):
     a = await _seed_candidate_with_experience(
         [{"company": "Google Poland", "role": "SWE"}]
     )
@@ -499,9 +493,7 @@ async def test_companies_suggest_basic(
             {"company": "Allegro", "role": "Dev"},
         ]
     )
-    c = await _seed_candidate_with_experience(
-        [{"company": "Allegro", "role": "PM"}]
-    )
+    c = await _seed_candidate_with_experience([{"company": "Allegro", "role": "PM"}])
     try:
         r = await app_client.get(
             "/api/candidates/companies/suggest?q=goog&limit=10",
@@ -522,12 +514,8 @@ async def test_companies_suggest_basic(
 async def test_companies_suggest_empty_query_returns_top_n(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    a = await _seed_candidate_with_experience(
-        [{"company": "ZZZ Popular", "role": "X"}]
-    )
-    b = await _seed_candidate_with_experience(
-        [{"company": "ZZZ Popular", "role": "Y"}]
-    )
+    a = await _seed_candidate_with_experience([{"company": "ZZZ Popular", "role": "X"}])
+    b = await _seed_candidate_with_experience([{"company": "ZZZ Popular", "role": "Y"}])
     try:
         r = await app_client.get(
             "/api/candidates/companies/suggest?limit=50",

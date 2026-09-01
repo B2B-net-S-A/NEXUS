@@ -736,7 +736,7 @@ async def test_hiring_managers_window_filters_jobs_by_creation_date(
     Legacy liczy CAŁĄ historię i nie zna okresu w ogóle — to jest regresja na
     tę różnicę. Okno jest półotwarte `[start, end)`.
     """
-    await cache_invalidate("insights:clients:hiring-managers:*")
+    await cache_invalidate("insights:clients:hiring-managers:")
     year = 1600 + int(uuid.uuid4().hex[:6], 16) % 90
     inside_id, _ = await _seed_hiring_manager(
         job_created_at=datetime(year, 4, 10, tzinfo=timezone.utc)
@@ -816,7 +816,7 @@ async def test_hiring_managers_reports_how_many_rows_the_limit_cut(
     fx_client: AsyncClient,
 ):
     """Przycięta lista bez licznika czyta się jako komplet."""
-    await cache_invalidate("insights:clients:hiring-managers:*")
+    await cache_invalidate("insights:clients:hiring-managers:")
     year = 1900 + int(uuid.uuid4().hex[:6], 16) % 90
     for _ in range(3):
         await _seed_hiring_manager(

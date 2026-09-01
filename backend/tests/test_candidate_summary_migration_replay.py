@@ -68,9 +68,7 @@ async def test_0206_replays_after_fallback_with_two_scopes_for_one_candidate():
         transaction = await connection.begin()
         try:
             await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-            await connection.execute(
-                text(f'SET LOCAL search_path TO "{schema}"')
-            )
+            await connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
             await connection.execute(
                 text(
                     """
@@ -187,9 +185,7 @@ async def test_0206_replays_after_fallback_with_two_scopes_for_one_candidate():
             original_op = migration.op
 
             def run_upgrade(sync_connection) -> None:
-                migration.op = Operations(
-                    MigrationContext.configure(sync_connection)
-                )
+                migration.op = Operations(MigrationContext.configure(sync_connection))
                 try:
                     migration.upgrade()
                 finally:

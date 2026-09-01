@@ -1,13 +1,17 @@
 """Tests for auth API — runs against live backend."""
+
 import pytest
 from httpx import AsyncClient
 
 
 async def test_login_success(client: AsyncClient):
-    resp = await client.post("/api/auth/login", json={
-        "email": "artur@b2bnet.pl",
-        "password": "admin123",
-    })
+    resp = await client.post(
+        "/api/auth/login",
+        json={
+            "email": "artur@b2bnet.pl",
+            "password": "admin123",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
@@ -15,18 +19,24 @@ async def test_login_success(client: AsyncClient):
 
 
 async def test_login_wrong_password(client: AsyncClient):
-    resp = await client.post("/api/auth/login", json={
-        "email": "artur@b2bnet.pl",
-        "password": "wrong",
-    })
+    resp = await client.post(
+        "/api/auth/login",
+        json={
+            "email": "artur@b2bnet.pl",
+            "password": "wrong",
+        },
+    )
     assert resp.status_code == 401
 
 
 async def test_login_nonexistent_user(client: AsyncClient):
-    resp = await client.post("/api/auth/login", json={
-        "email": "nobody@test.pl",
-        "password": "test123",
-    })
+    resp = await client.post(
+        "/api/auth/login",
+        json={
+            "email": "nobody@test.pl",
+            "password": "test123",
+        },
+    )
     assert resp.status_code == 401
 
 

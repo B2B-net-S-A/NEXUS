@@ -464,7 +464,7 @@ def test_only_surviving_set_null_children_are_allowed():
     }
     assert correction_service._dependency_row_ids(allowed) == {
         "public.client_order_offboarding_cases.target_order_id": {7: [93]},
-        "public.dl_alerts.order_id": {7: [91]}
+        "public.dl_alerts.order_id": {7: [91]},
     }
 
 

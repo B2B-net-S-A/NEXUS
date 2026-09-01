@@ -46,13 +46,10 @@ async def test_list_jobs_excludes_null_client_id(
     NOT NULL since migration 0120. To prove the defensive filter still
     works, we list jobs and assert *every* returned item has client_id.
     """
-    resp = await app_client.get(
-        "/api/jobs?page_size=100", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/jobs?page_size=100", headers=app_auth_headers)
     assert resp.status_code == 200, resp.text
     items = resp.json()["items"]
     for item in items:
         assert item.get("client_id") is not None, (
-            f"Job {item.get('id')} leaked through list filter with "
-            f"client_id=None"
+            f"Job {item.get('id')} leaked through list filter with client_id=None"
         )

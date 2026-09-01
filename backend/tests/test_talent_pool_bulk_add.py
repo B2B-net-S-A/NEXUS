@@ -56,9 +56,7 @@ async def _cleanup(candidate_ids: list[int], pool_id: int | None) -> None:
 
 
 @pytest.mark.asyncio
-async def test_bulk_add_happy_path(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_bulk_add_happy_path(app_client: AsyncClient, app_auth_headers: dict):
     pool_id = await _seed_pool()
     a, b = await _seed_candidate(), await _seed_candidate()
     try:

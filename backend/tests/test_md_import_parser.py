@@ -20,7 +20,9 @@ from app.services.md_import_parser import (
 )
 
 
-def _book(rows: list[list], *, title_sheet: bool = False, sheet_name: str = "Arkusz") -> bytes:
+def _book(
+    rows: list[list], *, title_sheet: bool = False, sheet_name: str = "Arkusz"
+) -> bytes:
     wb = Workbook()
     if title_sheet:
         wb.active.title = "Tytul"

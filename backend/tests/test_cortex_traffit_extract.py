@@ -99,12 +99,16 @@ async def test_traffit_backfill_upserts_facts_idempotently(app_client: AsyncClie
 
         async with AsyncSessionLocal() as db:
             count = (
-                await db.execute(
-                    select(CortexSkillFact).where(
-                        CortexSkillFact.candidate_id == candidate_id
+                (
+                    await db.execute(
+                        select(CortexSkillFact).where(
+                            CortexSkillFact.candidate_id == candidate_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert len(count) == 1
 
             term_row = (
@@ -136,9 +140,7 @@ async def test_traffit_backfill_upserts_facts_idempotently(app_client: AsyncClie
                 )
             )
             await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
-            await db.execute(
-                delete(SkillAlias).where(SkillAlias.skill_id == skill_id)
-            )
+            await db.execute(delete(SkillAlias).where(SkillAlias.skill_id == skill_id))
             await db.execute(delete(Skill).where(Skill.id == skill_id))
             await db.commit()
 
@@ -170,12 +172,16 @@ async def test_traffit_backfill_reconciles_removed_skills(app_client: AsyncClien
             await run_traffit_backfill(db, limit=None)
         async with AsyncSessionLocal() as db:
             facts = (
-                await db.execute(
-                    select(CortexSkillFact).where(
-                        CortexSkillFact.candidate_id == candidate_id
+                (
+                    await db.execute(
+                        select(CortexSkillFact).where(
+                            CortexSkillFact.candidate_id == candidate_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert {f.skill_id for f in facts} == {a_id, b_id}
 
         # Usuń skill B ze źródła → reconcile ma go skasować.
@@ -187,12 +193,16 @@ async def test_traffit_backfill_reconciles_removed_skills(app_client: AsyncClien
             await run_traffit_backfill(db, limit=None)
         async with AsyncSessionLocal() as db:
             facts = (
-                await db.execute(
-                    select(CortexSkillFact).where(
-                        CortexSkillFact.candidate_id == candidate_id
+                (
+                    await db.execute(
+                        select(CortexSkillFact).where(
+                            CortexSkillFact.candidate_id == candidate_id
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             assert {f.skill_id for f in facts} == {a_id}
     finally:
         async with AsyncSessionLocal() as db:
