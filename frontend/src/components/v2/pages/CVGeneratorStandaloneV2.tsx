@@ -53,6 +53,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
+import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import api from "@/lib/api";
@@ -240,6 +241,11 @@ export function CVGeneratorStandaloneV2() {
   const cvRuleQuery = useClientCvRule(effectiveClientId);
   const activeRule = cvRuleQuery.data?.is_active ? cvRuleQuery.data : undefined;
   const forcedLanguage = activeRule?.cv_language ?? null;
+  // Zrzut zgody kandydata — wymagany u klientów z `requires_rodo_consent_block`
+  // (dziś PKO BP). `activeRule`, nie surowe `cvRuleQuery.data`: propozycja
+  // z seeda nie obowiązuje i serwer też jej nie stosuje.
+  const [consentKey, setConsentKey] = useState<string | null>(null);
+  const consentRequired = !!activeRule?.requires_rodo_consent_block;
 
   // Reguła klienta WYMUSZA język: front go ustawia i blokuje kafelki, backend
   // odrzuca rozjazd (422). Bez tego Nordea — jedyny klient wymagający wyłącznie
@@ -253,7 +259,9 @@ export function CVGeneratorStandaloneV2() {
   const canSubmitNew =
     !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
   const canSubmitOld = !!cvFile;
-  const canSubmit = mode === "new" ? canSubmitNew : canSubmitOld;
+  const canSubmit =
+    (mode === "new" ? canSubmitNew : canSubmitOld) &&
+    (!consentRequired || !!consentKey);
 
   // ── New mode mutation ───────────────────────────────────────────────────
   // Enqueues background generation (202) and returns immediately — the recruiter
@@ -276,6 +284,7 @@ export function CVGeneratorStandaloneV2() {
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
+          consent_screenshot_key: consentKey ?? "",
         },
         { timeout: 30_000 },
       );
@@ -312,6 +321,7 @@ export function CVGeneratorStandaloneV2() {
       if (niceRequirements.trim())
         fd.append("nice_requirements", niceRequirements);
       if (championFile) fd.append("champion_file", championFile);
+      if (consentKey) fd.append("consent_screenshot_key", consentKey);
       const res = await api.post<EnqueuedResponse>(
         "/api/cv-generator/generate-upload",
         fd,
@@ -656,6 +666,13 @@ export function CVGeneratorStandaloneV2() {
               </p>
             ) : null}
           </div>
+
+          <ConsentScreenshotField
+            value={consentKey}
+            onChange={(key: string | null) => setConsentKey(key)}
+            required={consentRequired}
+            disabled={generateMut.isPending || uploadMut.isPending}
+          />
 
           <div className="flex items-center justify-between gap-4">
             <div>

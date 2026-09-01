@@ -226,10 +226,13 @@ def rule_reminders(rule: Optional[CvRuleSnapshot]) -> tuple[str, ...]:
         return ()
     out: list[str] = []
     if rule.requires_rodo_consent_block:
+        # Od 09.2026 zrzut wgrywa rekruter przy generacji i renderer wkleja go
+        # sam, więc to ostrzeżenie NIE mówi już „zrób to ręcznie" — mówi „sprawdź,
+        # czy się wkleiło". Zostaje, bo wstawienie obrazu jest fail-soft:
+        # nieczytelny plik daje CV bez zrzutu zamiast wywalonej generacji.
         out.append(
-            "WERYFIKUJ: ten klient wymaga wklejenia na dole CV zrzutu ekranu "
-            "maila ze zgodą kandydata na przetwarzanie danych — uzupełnij "
-            "dokument przed wysyłką."
+            "WERYFIKUJ: ten klient wymaga zrzutu ekranu ze zgodą kandydata na "
+            "dole CV — sprawdź, czy jest widoczny w pobranym dokumencie."
         )
     if rule.requires_en_copy:
         out.append(

@@ -331,6 +331,48 @@ Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
   konsumenta (`client-profile/SummaryBar`) — nie mylić z `components/ds/StatCard`,
   który ma sześć miejsc użycia i którego zmiana dotyka dwóch dashboardów i Cortexu.
 
+## Zrzut zgody RODO na końcu CV (wymóg PKO BP)
+
+PKO BP wymaga, żeby pod treścią CV był widoczny **zrzut ekranu maila**, w którym
+kandydat zgadza się na przetwarzanie danych przez bank. Do 09.2026 generator
+tylko OSTRZEGAŁ rekrutera, żeby wkleił go ręcznie przed wysyłką — nie miał skąd
+wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
+
+- **Sterowane regułą klienta, nie nazwą.** `ClientCvRule.requires_rodo_consent_block`
+  (dziś wyłącznie PKO BP) — ten sam przełącznik, który wcześniej włączał samo
+  ostrzeżenie. Reguła musi być **zatwierdzona**: `resolve_client_rule` pomija
+  propozycje z seeda, a front sprawdza `is_active`. Rozjazd tych dwóch warunków
+  dałby przycisk zablokowany regułą, której serwer nie stosuje.
+- **W `render_payload` ląduje SAM KLUCZ z magazynu, nie obraz.** DOCX jest
+  re-renderowany przy KAŻDYM pobraniu (`rerender_docx_from_payload`), więc zrzut
+  musi być trwały — ale zrzut maila waży setki kilobajtów i w JSONB puchłby przy
+  każdym odczycie wiersza. Bajty doczytuje `hydrate_consent_screenshot`, na
+  KOPII payloadu: zapisany wiersz nie może utyć o obraz.
+- **Renderer zostaje czystą funkcją** — nie sięga do magazynu. Bajty wstrzykuje
+  wołający pod `consent_screenshot._bytes`. Dzięki temu testy i ponowny render
+  działają bez sieci.
+- **Osobny endpoint uploadu** (`POST /api/cv-generator/consent-screenshot`),
+  a nie pole w `/generate`: tamta ścieżka przyjmuje JSON, więc obraz w base64
+  puchnie o jedną trzecią i ląduje w logach requestów. Przy okazji obie ścieżki
+  generacji (JSON `/generate` i multipart `/generate-upload`) mają JEDEN
+  mechanizm zamiast dwóch, które by się rozjechały.
+- **Odmowa jest twarda (422) i pada PRZED naliczeniem kwoty AI.** Dla PKO BP CV
+  bez zrzutu jest dokumentem, którego i tak nie da się wysłać — ostrzeżenie
+  znaczyłoby „wygenerowaliśmy Ci plik do wyrzucenia", a generacja to najdroższe
+  wywołanie modelu w produkcie. Kolejności pilnuje test czytający źródło
+  (sprawdzony mutacją).
+- **Wstawianie obrazu jest fail-soft.** Nieczytelny plik albo padnięty magazyn
+  dają CV BEZ zrzutu, nie wywaloną generację — wyjątek zabrałby też to, za co
+  już zapłacono. Dlatego ostrzeżenie „sprawdź, czy zrzut jest widoczny"
+  ZOSTAJE w `client_rules`, choć nie mówi już „wklej ręcznie".
+- **W normalnym przepływie, nie jako pływak.** Klauzula RODO niżej jest
+  kotwiczona do dolnej krawędzi ostatniej strony z oblewaniem „góra i dół",
+  więc treść pod nią przechodzi na kolejną stronę zamiast się nakładać. Obraz
+  jako drugi pływak nie miałby tej gwarancji i mógłby przykryć klauzulę.
+- **Poza zakresem świadomie:** publiczny link do CV (`/cv/i/{token}`) i eksport
+  HTML nie niosą zrzutu. Wymóg dotyczy dokumentu wysyłanego do banku, a obraz
+  niesie adres e-mail kandydata — inny kanał to osobna decyzja.
+
 ## Profil Championa — siedem sekcji (przebudowa 09.2026)
 
 Szablon skrócony do siedmiu sekcji: **1. Podstawowe informacje · 2. Co wpisać
