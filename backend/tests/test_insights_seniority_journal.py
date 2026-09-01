@@ -372,6 +372,63 @@ async def test_endpoint_reports_journal_freshness(jnl_client: AsyncClient) -> No
 
 
 @pytest.mark.asyncio
+async def test_freshness_failure_does_not_discard_regressions(
+    jnl_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Padnięte zapytanie o ŚWIEŻOŚĆ nie może wyrzucić regresji, które mamy.
+
+    Podprzypadek z recenzji #1325. Wspólny blok `try` zerował listę regresji,
+    gdy padało drugie zapytanie — czyli chował realny spadek poziomu za
+    komunikatem „nie wiadomo", mimo że dane były już w ręku.
+    """
+    from app.api import insights_recruitment as api_module
+
+    user_id = await _seed_recruiter()
+    stage_ids = await _seed_placements(user_id, [4, 10])
+    await _observe()
+    await _drop_placements(stage_ids[:1])
+    await _observe()
+
+    async def _boom(_db):
+        raise RuntimeError("statement timeout")
+
+    monkeypatch.setattr(api_module, "load_journal_status", _boom, raising=True)
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"jnl-fresh-boom-{unique}@example.com"
+    password = f"T3st_{unique}!Jnl"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                name=f"Journal fresh boom {unique}",
+                password_hash=hash_password(password),
+                role=UserRole.recruiter,
+                is_active=True,
+            )
+        )
+        await db.commit()
+    login = await jnl_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+
+    resp = await jnl_client.get(
+        "/api/insights/recruitment/seniority",
+        params={"as_of": date(SEED_YEAR, 12, 31).isoformat()},
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Świeżość nieznana...
+    assert body["journal"] is None
+    # ...ale regresja, którą już odczytaliśmy, ZOSTAJE.
+    assert body["regressions"] is not None
+    mine = next((r for r in body["regressions"] if r["user_id"] == user_id), None)
+    assert mine is not None, body["regressions"]
+
+
+@pytest.mark.asyncio
 async def test_unreadable_journal_gives_null_not_empty_list(
     jnl_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

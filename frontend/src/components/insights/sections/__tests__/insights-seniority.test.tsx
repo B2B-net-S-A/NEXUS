@@ -265,6 +265,46 @@ describe("InsightsSeniority", () => {
     expect(await screen.findByText("historia przypisań")).toBeInTheDocument();
   });
 
+  it("znany spadek renderuje się, nawet gdy świeżość dziennika jest nieznana", async () => {
+    // Podprzypadek z recenzji #1325: odczyt regresji się udał, a zapytanie
+    // o świeżość padło. Konkretny spadek jest informacją MOCNIEJSZĄ niż
+    // niepewność co do daty przebiegu — ukrycie go za „nie wiadomo” gubi to,
+    // co już wiemy.
+    respond({
+      ...BODY,
+      journal: null,
+      regressions: [
+        {
+          user_id: 2,
+          name: "Bogna Ekspertka",
+          level: "senior",
+          previous_level: "expert",
+          total_placements: 9,
+          previous_total_placements: 14,
+          observed_at: "2026-08-30T02:00:00+00:00",
+          thresholds_fingerprint: "6-6-12-6-12-12-24-12",
+        },
+      ],
+    });
+    renderSection();
+
+    expect(await screen.findByText(/Jednej osobie spadł poziom/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/nie wykonał jeszcze żadnej obserwacji/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("pusta lista przy nieznanej świeżości też NIE milczy", async () => {
+    // Drugi podprzypadek: gdyby rozbić try/except bez zmiany frontu, wróciłaby
+    // cisza — czyli dokładnie wada, którą ten PR naprawia.
+    respond({ ...BODY, journal: null, regressions: [] });
+    renderSection();
+
+    expect(
+      await screen.findByText(/nie wykonał jeszcze żadnej obserwacji/),
+    ).toBeInTheDocument();
+  });
+
   it("dziennik bez ani jednej obserwacji NIE udaje „brak regresji”", async () => {
     // `regressions: []` przy `last_observed_at: null` to nie odpowiedź, tylko
     // jej brak: pętla dobowa nigdy nic nie zapisała, więc nie ma z czym

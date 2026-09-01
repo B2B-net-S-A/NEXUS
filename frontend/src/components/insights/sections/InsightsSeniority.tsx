@@ -263,10 +263,16 @@ function SeniorityRegressions({
       </div>
     );
   }
-  // Pusta lista NIE jest odpowiedzią, dopóki dziennik czegokolwiek nie
-  // zaobserwował. Bez tego rozróżnienia zepsuta pętla dobowa w nieskończoność
-  // wygląda jak „nikomu nic nie spadło”.
-  if (journal && journal.last_observed_at === null) {
+  // Znane regresje renderujemy ZAWSZE, także gdy świeżość dziennika jest
+  // nieznana: konkretny spadek jest informacją mocniejszą niż niepewność co do
+  // daty ostatniego przebiegu, a ukrycie go za „nie wiadomo” gubi to, co już
+  // wiemy.
+  //
+  // Dopiero PUSTA lista wymaga potwierdzenia, że dziennik cokolwiek
+  // zaobserwował. `journal === null` (padło zapytanie o świeżość) znaczy tu to
+  // samo co brak obserwacji: nie mamy podstaw, żeby milczeć. Bez tego zepsuta
+  // pętla dobowa w nieskończoność wygląda jak „nikomu nic nie spadło”.
+  if (rows.length === 0 && (journal === null || journal.last_observed_at === null)) {
     return (
       <div className="mb-4 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
         Dziennik poziomów nie wykonał jeszcze żadnej obserwacji, więc nie ma
