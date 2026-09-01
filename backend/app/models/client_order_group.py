@@ -69,13 +69,23 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_order_type",
         ),
         CheckConstraint(
+            # Schemat pilnuje spójności typu z flagami i NIC WIĘCEJ. Do 0263
+            # ten więz kodował też `client_id IN (155, 38339)`, czyli
+            # rozstrzygał w bazie, kto jest Lotte Wedel i Cyfrowym Polsatem —
+            # a tożsamość tych klientów aplikacja traktuje jako podmienialną
+            # (autouse fixture w `tests/conftest.py` odpina bramki, żeby
+            # 155. testowy klient nie dostał cudzej polityki). Baza nie
+            # widziała tej podmiany, więc oba źródła prawdy się rozjeżdżały
+            # i zapis kończył się 500 w środku aktywacji szkicu.
+            #
+            # Reguła „wspólną pulę MD mają wyłącznie CP i Lotte Wedel" żyje
+            # w aplikacji, w obu miejscach zapisu: dwa jawne 422
+            # w `api/client_order_groups.py` oraz wyprowadzenie flagi
+            # z `client_uses_shared_md_pool` w `order_group_materializer`.
             "order_type IS NULL OR "
             "(order_type = 'cost' AND is_cost_based = TRUE "
             "AND is_md_budget_based = FALSE) OR "
-            "(order_type = 'md' AND is_cost_based = FALSE "
-            "AND ((client_id IN (155, 38339) AND is_md_budget_based = TRUE) "
-            "OR (client_id NOT IN (155, 38339) "
-            "AND is_md_budget_based = FALSE)))",
+            "(order_type = 'md' AND is_cost_based = FALSE)",
             name="ck_client_order_groups_explicit_type_coherence",
         ),
         CheckConstraint(
