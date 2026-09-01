@@ -292,3 +292,40 @@ async def test_freeze_stays_admin_only(comp_client: AsyncClient):
     )
     assert resp.status_code in (403, 404, 405, 422), resp.text
     assert resp.status_code != 200
+
+
+@pytest.mark.asyncio
+async def test_hall_of_fame_cannot_be_frozen_even_by_admin(comp_client: AsyncClient):
+    """Hall of Fame NIE MA okresu do zamknięcia — i broni tego API, nie baza.
+
+    `POST /freeze` przyjmuje dowolny `CompetitionType`, a
+    `competition_winners.competition_type` to `String(50)` BEZ CHECK-a, więc
+    baza tego nie zatrzyma. Bez tej bramki jeden admin z curl-em zapisuje
+    wiersze z `prize_pln = 0`, których nie da się usunąć (write-once), a
+    `/history` podaje je potem KAŻDEJ zalogowanej roli jako „zamknięty okres".
+
+    Test celowo loguje ADMINA: `test_freeze_stays_admin_only` obok sprawdza
+    tylko, że nie-admin nie przejdzie — czyli przeszedłby także wtedy, gdyby
+    tej bramki w ogóle nie było.
+    """
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(comp_client, email, password)
+
+    resp = await comp_client.post(
+        "/api/competitions/freeze",
+        headers=headers,
+        params={"type": "hall_of_fame", "period": "all_time"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "nie ma okresu do zamknięcia" in resp.json()["detail"]
+
+    # I NIC nie wylądowało w tabeli nagród — bramka ma zatrzymać zapis,
+    # a nie tylko zwrócić błąd po jego wykonaniu.
+    history = await comp_client.get(
+        "/api/competitions/history",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["periods"] == []
