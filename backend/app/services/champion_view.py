@@ -41,6 +41,7 @@ __all__ = [
     "hourly_rate",
     "seniority_min_years",
     "disqualifiers",
+    "api_response",
 ]
 
 # Pola, które w starym kształcie leżały na wierzchu dokumentu, a w nowym
@@ -291,3 +292,35 @@ def embedding_parts(source: Any) -> list[str]:
         parts.append(selling)
 
     return [p for p in parts if p and p.strip()]
+
+
+def api_response(profile: Any) -> dict:
+    """Profil W NOWYM KSZTAŁCIE do odesłania frontowi — jedyne wyjście na zewnątrz.
+
+    Front zna wyłącznie siedem sekcji (`basics`, `search`, `stack`, `project`,
+    `screening_questions`, `client`, `documents`). Zwrócenie mu surowego JSONB
+    sprzed 09.2026 daje **pusty formularz na wypełnionym profilu**: edytor składa
+    stan jako `{...EMPTY_CHAMPION_PROFILE, ...loaded}`, a stary kształt nie ma
+    żadnego z nowych kluczy — przeżywa tylko `screening_questions`, bo jako
+    jedyny nie zmienił nazwy.
+
+    To nie jest usterka kosmetyczna: zapis z takiego pustego formularza nakłada
+    puste sekcje na zmigrowany profil i **kasuje treść**, którą migracja właśnie
+    poprawnie odczytała. Wykryte na produkcji (oferta 408936: `role_name`,
+    `rate_value` 122.5, `seniority_min_years` 10 i opis projektu obecne w bazie,
+    a wszystkie pola w UI puste).
+
+    Ta funkcja jako JEDYNA w module używa Pydantica — reszta to celowo tanie
+    operacje na słownikach, bo woła je pętla scoringu (patrz docstring modułu).
+    Tu jest inaczej i słusznie: to granica API, wołana raz na żądanie, a
+    rekonstrukcja przez model jest tym, co gwarantuje kompletny kształt zamiast
+    „tego, co akurat było w bazie".
+
+    Import `ChampionProfile` jest lokalny, żeby moduł czytany w pętli scoringu
+    nie ciągnął za sobą schematów przy każdym starcie.
+    """
+    if not profile:
+        return {}
+    from app.schemas.champion import ChampionProfile
+
+    return ChampionProfile.model_validate(profile).model_dump(mode="json")

@@ -372,7 +372,9 @@ def test_explicit_stack_does_not_depend_on_the_skill_taxonomy() -> None:
     try:
         scoring_service.ALIAS_MAP.clear()
         scoring_service._CHAMPION_ALIAS_PATTERN = None
-        found = [item["name"] for item in scoring_service._extract_skills_from_champion(job)]
+        found = [
+            item["name"] for item in scoring_service._extract_skills_from_champion(job)
+        ]
     finally:
         scoring_service.ALIAS_MAP.update(original)
         scoring_service._CHAMPION_ALIAS_PATTERN = None
@@ -417,3 +419,85 @@ def test_empty_stack_falls_back_to_narrative_extraction() -> None:
 
     # Z prozy starego profilu (`sourcing.keywords` = "java, kafka, spring").
     assert found == {"Java", "Kafka"}
+
+
+# ── kontrakt API: front dostaje NOWY kształt, zawsze ────────────────────────
+
+
+def test_api_returns_the_new_shape_for_a_legacy_profile() -> None:
+    """`GET /champion-profile` nie może oddać frontowi surowego starego JSONB.
+
+    Edytor buduje stan jako `{...EMPTY_CHAMPION_PROFILE, ...loaded}`, a kształt
+    sprzed 09.2026 nie ma ŻADNEGO z siedmiu kluczy sekcji — przeżywa wyłącznie
+    `screening_questions`, bo nazwa się nie zmieniła. Delivery Lead widzi więc
+    **pusty formularz na wypełnionym profilu**.
+
+    To nie jest usterka kosmetyczna: zapis z takiego formularza nakłada puste
+    sekcje na zmigrowany profil i kasuje treść, którą migracja poprawnie
+    odczytała. Wykryte NA PRODUKCJI, nie w testach — oferta 408936 miała w bazie
+    `role_name`, `rate_value` 122.5, `seniority_min_years` 10 i opis projektu,
+    a wszystkie pola w UI były puste. Testy lokalne tego nie widziały, bo
+    harness podglądowy zasiewał cache profilem JUŻ zmigrowanym.
+    """
+    from app.services.champion_view import api_response
+
+    out = api_response(LEGACY_PROFILE)
+
+    # Sekcje wypełnione danymi ze starego kształtu.
+    assert out["basics"]["role_name"] == "Senior Java Developer"
+    assert out["basics"]["rate_value"] == 122.50
+    assert out["basics"]["seniority_min_years"] == 10
+    assert out["search"]["keywords"] == "java, kafka, spring"
+    assert out["project"]["about"] == "Rozbudowa platformy płatności."
+    assert out["client"]["consultant_insight"] == "Zespół rozproszony, dużo spotkań"
+    assert len(out["screening_questions"]) == 1
+
+    # Stare klucze NIE wychodzą — front ma dostać jeden kształt, nie dwa naraz.
+    for legacy_key in ("project_context", "sourcing", "client_standards"):
+        assert legacy_key not in out
+
+    # Brak profilu to pusty słownik, nie wyjątek i nie szkielet z pustymi polami:
+    # `{}` odróżnia „oferta nie ma Championa" od „ma, ale pusty".
+    assert api_response(None) == {}
+    assert api_response({}) == {}
+
+
+def test_every_champion_exit_to_the_frontend_goes_through_the_normaliser() -> None:
+    """Żadne wyjście profilu do frontu nie może omijać `_champion_response`.
+
+    Normalizacja na jednym endpoincie nie wystarcza: profil wraca do frontu
+    także z weryfikacji, briefingu, rekomendowanych wyszukiwań i podglądu
+    sugestii. Endpoint, który ją ominie, przywraca dokładnie ten defekt —
+    i tylko na swojej ścieżce, więc objaw wygląda na losowy.
+    """
+    import pathlib
+    import re
+
+    # `public_share.py` też jest skanowany, mimo że ma WŁASNY normalizator:
+    # `_public_champion_projection` celowo zwraca węższy wycinek (bez naszej
+    # stawki i firm docelowych), bo odbiorcą tamtego linku jest strona trzecia.
+    # Pominięcie tego pliku w strażniku znaczyłoby, że przyszłe wyjście dopisane
+    # tam wymyka się kontroli — a to jest akurat najgorsze miejsce na przeciek.
+    for name in ("jobs.py", "pipeline.py", "public_share.py"):
+        src = (
+            pathlib.Path(__file__).resolve().parents[1] / "app" / "api" / name
+        ).read_text(encoding="utf-8")
+        # Wartość wyciągana i sprawdzana JAWNIE, nie lookaheadem: `\s*` cofa się
+        # do zera znaków, więc `(?!...)` sprawdzałby pozycję spacji i przepuszczał
+        # dokładnie te wywołania, których szuka.
+        # Trzy dozwolone wywołania: alias routera, pełna ścieżka do
+        # `champion_view.api_response` oraz węższa projekcja publiczna.
+        allowed = (
+            "_champion_response",
+            "champion_view.api_response",
+            "_public_champion_projection",
+        )
+        raw = [
+            value.strip()
+            for value in re.findall(r'"champion_profile":\s*([^\n]+)', src)
+            if not value.strip().startswith(allowed)
+        ]
+        assert not raw, (
+            f"{name}: profil Championa wychodzi do frontu z pominięciem "
+            f"`_champion_response`: {raw}"
+        )
