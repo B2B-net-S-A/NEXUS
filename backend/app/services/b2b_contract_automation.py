@@ -33,6 +33,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
+from app.services.order_engagement_separation import has_open_group_line
 from app.services.order_rate_snapshots import inherited_order_rate_fields
 from app.services.order_types import suggested_order_type
 from app.services.priority_work_policy import PriorityWorkLocked
@@ -383,12 +384,22 @@ async def _ensure_open_order(
     # tej samej osoby, co u Polkomtela jest legalne).
     if not should_auto_create_order(job.client_id):
         return None, False
+    # Osoba obsadzona na żywej linii zamówienia MD/kosztowego JEST już opisana
+    # zamówieniem u tego klienta. Auto-szkic okresowy byłby drugim zapisem tej
+    # samej współpracy na tym samym kontrakcie — a wtedy zakończenie jednego
+    # domyka drugie (zgłoszenie BNP/Polkomtel/BIK/Wedel). Cicho, nie 409:
+    # zatrudnienie nie może się wywrócić przez zamówienie, które już jest.
+    if await has_open_group_line(db, contract.id):
+        return None, False
     orders = list(
         (
             await db.execute(
                 select(ClientOrder)
                 .where(
                     ClientOrder.contract_id == contract.id,
+                    # Linie grup mają własny rejestr i własny cykl życia —
+                    # hook standardowego zamówienia nigdy ich nie adoptuje.
+                    ClientOrder.order_group_id.is_(None),
                     ClientOrder.status.in_(_OPEN_ORDER_STATUSES),
                 )
                 .order_by(ClientOrder.created_at.desc(), ClientOrder.id.desc())

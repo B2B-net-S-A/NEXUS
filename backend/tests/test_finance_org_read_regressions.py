@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from inspect import getsource
 from types import SimpleNamespace
@@ -166,16 +166,22 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
+    # Eksport bierze wyłącznie zamówienia OBOWIĄZUJĄCE w dniu pobrania (jeden
+    # wiersz na konsultanta), więc atrapa musi nieść status i okres obejmujący
+    # dziś — inaczej test sprawdzałby wyłącznie pusty arkusz.
+    today = date.today()
     order = SimpleNamespace(
         id=7,
         title="PO-7",
+        status="active",
         rate_candidate=None,
         rate_client=Decimal("150"),
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 1, 31),
+        start_date=today - timedelta(days=30),
+        end_date=today + timedelta(days=30),
         order_type="md",
     )
     contractor = SimpleNamespace(
+        contract_id=77,
         candidate_name="Jan Kowalski",
         rate_candidate=Decimal("100"),
         orders=[order],

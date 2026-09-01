@@ -90,18 +90,33 @@ async def _pending_cases(
 
 
 async def _open_orders(db: AsyncSession, contract_id: int) -> list[ClientOrder]:
+    """Otwarte zamówienia TEGO kontraktu i TEGO SAMEGO klienta.
+
+    Warunek ``ClientOrder.client_id == Contract.client_id`` nie jest
+    tautologią: ``client_orders.client_id`` to własna kolumna, a baza nie ma
+    więzu wiążącego ją z klientem kontraktu (rozjazd zna też
+    ``contract_merge``, który jawnie go szuka). Bez tego złączenia jeden
+    rozjechany wiersz sprawiał, że zakończenie współpracy u jednego klienta
+    domykało zamówienie u DRUGIEGO — zgłoszony objaw „zamknęło kontrakt
+    u innego klienta". Wiersz rozjechany zostaje nietknięty i widać go
+    w audycie ``GET /api/admin/cross-client-order-links``; cicha zmiana
+    czyjegoś stanu na podstawie niespójnych danych jest gorsza niż jej brak.
+    """
+
     result = await db.execute(
         select(ClientOrder)
+        .join(Contract, Contract.id == ClientOrder.contract_id)
         .options(
             selectinload(ClientOrder.order_group),
             selectinload(ClientOrder.contract).selectinload(Contract.candidate),
         )
         .where(
             ClientOrder.contract_id == contract_id,
+            ClientOrder.client_id == Contract.client_id,
             ClientOrder.status.in_(_OPEN_ORDER_STATUSES),
         )
         .order_by(ClientOrder.id.asc())
-        .with_for_update()
+        .with_for_update(of=ClientOrder)
     )
     return list(result.scalars().unique().all())
 

@@ -42,6 +42,7 @@ from app.api.contracts import (
 )
 from app.api.deps import DlAssignedOrAdmin, require_roles
 from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
@@ -61,6 +62,7 @@ from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.user import User, UserRole
 from app.schemas.client_order import (
+    ClientOrderClose,
     ClientOrderExportRequest,
     ClientOrderRead,
     ClientOrdersGroupedResponse,
@@ -112,6 +114,7 @@ from app.services.order_excel_export import (
     OrderExportRow,
     build_orders_workbook,
     export_rows_for_group,
+    is_current_order_period,
     order_type_export_label,
     orders_export_filename,
 )
@@ -1426,7 +1429,7 @@ async def export_client_orders(
             raise HTTPException(404, detail="Nie znaleziono zamówienia u tego klienta")
 
     group_models_by_id: dict[int, ClientOrderGroup] = {}
-    group_rows_by_id: dict[int, list[OrderExportRow]] = {}
+    group_reads_by_id: dict[int, tuple[object, str]] = {}
     if requested_group_ids:
         # Imported lazily to keep the two routers independently importable.
         from app.api.client_order_groups import (
@@ -1473,17 +1476,80 @@ async def export_client_orders(
             type_label = order_type_export_label(
                 effective_group_order_type(group_model)
             )
-            group_rows_by_id[group_id] = [
-                replace(row, order_type=type_label)
-                for row in export_rows_for_group(group)
-            ]
+            group_reads_by_id[group_id] = (group, type_label)
+
+    # Arkusz opisuje stan NA DZIŚ: jeden wiersz na konsultanta, z zamówieniem,
+    # które właśnie obowiązuje. Historia i zamówienia jeszcze nierozpoczęte
+    # wchodziły do pliku razem z bieżącym, więc ta sama osoba pojawiała się
+    # w nim tyle razy, ile zamówień przewinęło się przez jej kontrakt.
+    # Deduplikacja idzie po KONTRAKCIE, nie po imieniu: imiona się powtarzają,
+    # a ta sama osoba u tego samego klienta ma dokładnie jeden kontrakt.
+    today = business_today()
+    exported_contract_ids: set[int] = set()
+
+    # Status i okres muszą zgodzić się OBA. Linia domknięta bez daty („zakończ"
+    # bez wpisanej daty końca) przechodzi test okresu, a zamówienie z datą
+    # w przyszłości bywa jeszcze szkicem — każde z tych kryteriów osobno
+    # wpuszcza do arkusza kogoś, kto dziś u klienta nie pracuje.
+    closed_statuses = {
+        ClientOrderStatus.completed.value,
+        ClientOrderStatus.cancelled.value,
+    }
+
+    def _status_value(raw: object) -> str:
+        # `ClientOrderStatus(str, Enum)` — `str(...)` daje „ClientOrderStatus.
+        # completed", nie „completed", więc porównanie po `str()` NIGDY by nie
+        # trafiło i filtr statusu byłby martwy. Linie grup niosą już czysty str.
+        return str(getattr(raw, "value", raw))
+
+    def _group_line_filter(group: object):
+        """Filtr obsady JEDNEJ grupy — okres linii, a w jego braku okres grupy.
+
+        Linie zwykle nie niosą własnych dat i dziedziczą okres zamówienia (tak
+        też renderuje je arkusz). Filtr czytający wyłącznie kolumny linii
+        przepuszczałby więc CAŁĄ obsadę zamówienia zakończonego rok temu.
+        """
+
+        group_start = getattr(group, "start_date", None)
+        group_end = getattr(group, "end_date", None)
+
+        def _take(line: object) -> bool:
+            if _status_value(getattr(line, "status", "")) in closed_statuses:
+                return False
+            start = getattr(line, "start_date", None) or group_start
+            end = getattr(line, "end_date", None) or group_end
+            if not is_current_order_period(start, end, today):
+                return False
+            contract_id = getattr(line, "contract_id", None)
+            if contract_id is None:
+                return True
+            if contract_id in exported_contract_ids:
+                return False
+            exported_contract_ids.add(contract_id)
+            return True
+
+        return _take
 
     rows: list[OrderExportRow] = []
     for kind, item_id in requested:
         if kind == "group":
-            rows.extend(group_rows_by_id[item_id])
+            group, type_label = group_reads_by_id[item_id]
+            rows.extend(
+                replace(row, order_type=type_label)
+                for row in export_rows_for_group(
+                    group,  # type: ignore[arg-type]
+                    include_line=_group_line_filter(group),
+                )
+            )
             continue
         contractor, order = orders_by_id[item_id]
+        if _status_value(order.status) in closed_statuses:
+            continue
+        if not is_current_order_period(order.start_date, order.end_date, today):
+            continue
+        if contractor.contract_id in exported_contract_ids:
+            continue
+        exported_contract_ids.add(contractor.contract_id)
         rows.append(
             OrderExportRow(
                 consultant_name=contractor.candidate_name,
@@ -1651,6 +1717,13 @@ async def create_order_extension(
         raise HTTPException(
             400, detail="contract_id must reference a Contract of this client"
         )
+    # Zamówienie okresowe obok żywej linii MD to drugi, równoległy zapis tej
+    # samej współpracy — a oba wiszą na TYM SAMYM kontrakcie, więc zakończenie
+    # jednego domykało drugie. Bramka stoi tylko przy typie okresowym: szkic
+    # kosztowy/MD z tego formularza materializuje się w linię grupy, więc
+    # niczego nie dubluje.
+    if order_type == OrderType.periodic:
+        await assert_no_open_md_group_line(db, contract.id)
 
     effective = effective_rate_fields(contract, start_date or business_today())
     resolved_unit = rate_unit or contract.rate_unit
@@ -2356,6 +2429,125 @@ async def update_order(
     )
     await commit_order_write(db)
     await db.refresh(order)
+    return _order_response_for_user(
+        await _order_to_read(db, order), user, can_finance=can_finance
+    )
+
+
+@router.post(
+    "/{client_id}/orders/{order_id}/close",
+    response_model=ClientOrderRead,
+)
+async def close_order(
+    client_id: int,
+    order_id: int,
+    payload: ClientOrderClose,
+    user: DlAssignedOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Zakończ JEDNO zamówienie — bez dotykania umowy i pozostałych zamówień.
+
+    Do sierpnia 2026 jedyną drogą „zakończenia zamówienia" z karty kontraktora
+    było wypowiedzenie CAŁEJ umowy (``POST /api/contracts/{id}/terminate``), a
+    ono domyka wszystkie zamówienia tego kontraktu — także linię rozliczaną
+    w MD, która opisuje zupełnie inną, trwającą współpracę. Stąd zgłoszenie
+    „zakończenie zamówienia okresowego skasowało zamówienie MD".
+
+    Zakres jest wąski i to jest cała jego wartość: zmienia się data końca
+    i status TEGO wiersza. Umowa (``Contract.status``/``end_date``) zostaje
+    nietknięta — jej zakończenie jest osobną decyzją z własnym powodem
+    i audytem.
+
+    Linie zamówień grupowych są odrzucane (409): grupa ma własne
+    zakończenie (``POST /order-groups/{id}/close``), które prowadzi budżet,
+    historię i sprawy offboardingowe. Dwie drogi do jednego wiersza rozjechałyby
+    się przy pierwszej zmianie którejkolwiek.
+
+    Data WSTECZ jest dozwolona i to jest świadome — tak samo jak w
+    ``/contracts/{id}/terminate`` i w zakończeniu grupy. Zamówienia domyka się
+    nagminnie po fakcie (dokument od klienta przychodzi z opóźnieniem), a jedyne
+    ograniczenie z sensem biznesowym to początek samego zamówienia. Rekordy
+    historyczne często nie mają ``start_date`` i wtedy nie ma się do czego
+    odnieść — sztywny limit „nie dalej niż rok wstecz" byłby regułą, której
+    nikt nie ustalił, a która zablokowałaby porządkowanie starych danych.
+    """
+
+    await _assert_client(db, client_id)
+    order = await db.scalar(
+        select(ClientOrder)
+        .options(selectinload(ClientOrder.contract))
+        .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)
+        .with_for_update()
+    )
+    if order is None:
+        raise HTTPException(404, detail="Order not found")
+    if order.order_group_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "order_belongs_to_group",
+                "message": (
+                    "To jest linia zamówienia grupowego — zakończ ją przez "
+                    "zamówienie, do którego należy."
+                ),
+                "order_group_id": order.order_group_id,
+            },
+        )
+    if order.status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "order_already_closed",
+                "message": "To zamówienie jest już zakończone.",
+                "status": order.status.value,
+            },
+        )
+    if order.start_date is not None and payload.closure_date < order.start_date:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Data zakończenia jest wcześniejsza niż początek zamówienia "
+                f"({order.start_date.isoformat()})."
+            ),
+        )
+
+    # Lustro `close_order_group` i syncu terminacji umowy: data zapisuje się
+    # zawsze, ale status `completed` dostaje wyłącznie zamówienie, którego
+    # dzień zakończenia już nadszedł. Zakończenie zaplanowane na przyszłość nie
+    # może wyłączyć zamówienia, które dziś jeszcze obowiązuje — resztę
+    # materializuje dzienny `dl_portal_expiry_scanner`.
+    today = business_today()
+    if order.end_date is None or order.end_date > payload.closure_date:
+        order.end_date = payload.closure_date
+    if payload.closure_date <= today:
+        order.status = ClientOrderStatus.completed
+
+    db.add(
+        Activity(
+            entity_type="client_order",
+            entity_id=order.id,
+            action="order_closed",
+            user_id=user.id,
+            details={
+                "client_id": client_id,
+                "contract_id": order.contract_id,
+                "closure_date": payload.closure_date.isoformat(),
+                "closure_reason": payload.closure_reason,
+                "status": order.status.value,
+            },
+        )
+    )
+    # `flush` + `refresh` PRZED commitem — tak jak na ścieżce tworzenia
+    # zamówienia. `updated_at` ma serwerowy `onupdate`, więc po UPDATE atrybut
+    # jest wygasły niezależnie od `expire_on_commit=False`; sięgnięcie po niego
+    # przy budowaniu odpowiedzi to w sesji async `MissingGreenlet`, czyli 500
+    # bez nagłówków CORS (w przeglądarce „Network Error" bez wskazówki).
+    await db.flush()
+    await db.refresh(order)
+    await commit_order_write(db)
+    can_finance = _can_manage_order_finance(
+        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
+    )
     return _order_response_for_user(
         await _order_to_read(db, order), user, can_finance=can_finance
     )

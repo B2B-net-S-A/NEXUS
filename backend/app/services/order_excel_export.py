@@ -8,7 +8,7 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -54,6 +54,28 @@ ORDER_TYPE_LABELS = {
 }
 
 
+def is_current_order_period(
+    start_date: Optional[date], end_date: Optional[date], today: date
+) -> bool:
+    """Czy okres zamówienia OBOWIĄZUJE dziś — jedna reguła dla całego eksportu.
+
+    Eksport odpowiada na pytanie „kto i na jakich warunkach pracuje u tego
+    klienta DZIŚ". Zamówienia zakończone i jeszcze nierozpoczęte wchodziły do
+    arkusza razem z bieżącym, więc ten sam konsultant pojawiał się w pliku
+    tyle razy, ile zamówień przewinęło się przez jego kontrakt.
+
+    Brak daty końca = „bezterminowo" (sięga w prawo bez granicy); brak daty
+    startu = zamówienie już obowiązuje — wiersz bez daty rozpoczęcia jest
+    w tym module normą historyczną, a wykluczenie go zabierałoby z arkusza
+    czyjąś realną, trwającą współpracę. Zamówienie „kończące się" mieści się
+    w tej regule i ma się w eksporcie znaleźć.
+    """
+
+    if start_date is not None and start_date > today:
+        return False
+    return end_date is None or end_date >= today
+
+
 def order_type_export_label(value: object) -> str:
     """Polish workbook label for an explicit/effective order type."""
 
@@ -61,8 +83,18 @@ def order_type_export_label(value: object) -> str:
     return ORDER_TYPE_LABELS.get(str(raw), str(raw))
 
 
-def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
-    """Build workbook rows at the correct group/consultant granularity."""
+def export_rows_for_group(
+    group: OrderGroupRead,
+    *,
+    include_line: Optional[Callable[[object], bool]] = None,
+) -> list[OrderExportRow]:
+    """Build workbook rows at the correct group/consultant granularity.
+
+    ``include_line`` zawęża obsadę do wierszy, które mają trafić do
+    arkusza (eksport bierze wyłącznie aktualnych konsultantów). Wiersz
+    zbiorczy grupy zostaje niezależnie od filtra: opisuje CAŁE zamówienie,
+    a nie osobę.
+    """
 
     rows: list[OrderExportRow] = []
     shared_md = uses_shared_md_pool(group)
@@ -115,6 +147,8 @@ def export_rows_for_group(group: OrderGroupRead) -> list[OrderExportRow]:
         )
         return rows
     for line in group.lines:
+        if include_line is not None and not include_line(line):
+            continue
         consumption: Optional[Decimal]
         if group.is_cost_based:
             consumption = line.invoiced_total

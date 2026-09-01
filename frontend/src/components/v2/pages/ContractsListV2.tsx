@@ -50,6 +50,7 @@ import {
  type ContractTypeValue,
 } from"@/lib/filter-options";
 import {
+ DEFAULT_CONTRACT_STATUS_FILTER,
  buildContractDetailHref,
  buildContractsListUrl,
  parseContractsListState,
@@ -167,6 +168,11 @@ function hasComparableRateCurrencies(row: RateCurrencyRow): boolean {
 
 // Polish plural for "kontrakt" + matching verb (1 / 2–4 / 0,5+ forms), so the
 // banner reads correctly whether 1 or 45 contracts are expiring.
+/** Statusy, w których umowa DZIŚ obowiązuje — „kończąca się" też. */
+const RUNNING_CONTRACT_STATUSES: ReadonlySet<ContractStatusValue> = new Set(
+ DEFAULT_CONTRACT_STATUS_FILTER,
+);
+
 function expiringBannerText(n: number): string {
  const m10 = n % 10;
  const m100 = n % 100;
@@ -472,7 +478,15 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  const contractsTotal = data?.contracts_total ?? total;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
- const activeOnly = statusFilter.length === 1 && statusFilter[0] === "active";
+ // Etykieta licznika ma opisywać widok, który użytkownik ma przed sobą.
+ // Domyślny widok to „obowiązujące dziś" = Aktywne + Kończące się
+ // (`DEFAULT_CONTRACT_STATUS_FILTER`), a kontrakt kończący się nadal jest
+ // aktywny — to premisa tej zmiany. Warunek „dokładnie jeden status =
+ // active" cofałby licznik do generycznego „osób / kontraktów" właśnie
+ // przy domyślnym wejściu do modułu.
+ const activeOnly =
+ statusFilter.length > 0 &&
+ statusFilter.every((value) => RUNNING_CONTRACT_STATUSES.has(value));
 
  // 403 (stawki = TacPlus na backendzie) i 5xx NIE mogą renderować się jako
  // „Brak kontraktów spełniających kryteria" (audyt F-20).

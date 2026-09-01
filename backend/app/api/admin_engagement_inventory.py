@@ -47,7 +47,7 @@ router = APIRouter()
 
 # Bump przy każdej zmianie definicji zapytań — raporty porównujemy tylko
 # w obrębie tej samej wersji.
-QUERY_VERSION = "m5-pr00-v1"
+QUERY_VERSION = "m5-pr00-v2"
 
 SAMPLE_LIMIT = 20
 CHECK_TIMEOUT_SECONDS = 20.0
@@ -184,6 +184,52 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         ) o ON o.contract_id = c.id
         WHERE c.client_order_end_date IS NOT NULL
           AND c.client_order_end_date <> o.max_end
+        ORDER BY c.id DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    (
+        "order_client_mismatch",
+        "P0",
+        "client_orders.client_id różni się od client_id kontraktu, na którym "
+        "zamówienie wisi — jeden wiersz spina DWÓCH klientów, więc zakończenie "
+        "współpracy u jednego dotykało zamówienia u drugiego.",
+        """
+        SELECT o.id AS order_id, o.contract_id, o.client_id,
+               COUNT(*) OVER () AS total_count
+        FROM client_orders o
+        JOIN contracts c ON c.id = o.contract_id
+        WHERE o.client_id <> c.client_id
+        ORDER BY o.id DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    (
+        "periodic_duplicates_group_line",
+        "P0",
+        "Kontrakt ma jednocześnie OTWARTE zamówienie okresowe (samodzielne) "
+        "i OTWARTĄ linię zamówienia grupowego (MD/kosztowego) — dwa równoległe "
+        "zapisy tej samej współpracy; zakończenie jednego domykało drugie.",
+        """
+        SELECT c.id AS contract_id, c.candidate_id, c.client_id,
+               standalone.id AS order_id,
+               COUNT(*) OVER () AS total_count
+        FROM contracts c
+        JOIN LATERAL (
+            SELECT o.id
+            FROM client_orders o
+            WHERE o.contract_id = c.id
+              AND o.order_group_id IS NULL
+              AND o.status IN ('draft', 'active', 'paused')
+            ORDER BY o.id
+            LIMIT 1
+        ) standalone ON TRUE
+        WHERE EXISTS (
+            SELECT 1 FROM client_orders g
+            WHERE g.contract_id = c.id
+              AND g.order_group_id IS NOT NULL
+              AND g.status IN ('draft', 'active', 'paused')
+        )
         ORDER BY c.id DESC
         LIMIT :sample_limit
         """,
