@@ -90,9 +90,32 @@ function AllTimeBlock() {
         <Trophy className="h-4 w-4 text-warning" aria-hidden="true" />
         Wszech czasów — placementy
       </h3>
+      {/* Trzy rzeczy, które ten podpis MUSI powiedzieć, bo inaczej lista
+          kłamie w sposób niewidoczny:
+
+          1. To TOP 5, nie pełny ranking. Serwer tnie zbiór do pięciu wierszy
+             (`comp_service.hall_of_fame(db, limit=5)`), a lista bez tej
+             informacji czyta się jako komplet — osoba na szóstym miejscu
+             widzi, że „jej nie ma w rankingu".
+          2. Placement jest tu przypisany WERYFIKATOROWI. Dwie sekcje niżej
+             „Analiza placementów" liczy tę samą rzecz przez
+             `analytics_first_milestones.first_moved_by`, więc na jednym
+             ekranie stoją dwie liczby podpisane „plac." policzone dwiema
+             różnymi regułami. Bez tego zdania różnica wygląda jak błąd.
+          3. Lista obejmuje wyłącznie osoby wciąż zatrudnione — zapytanie
+             filtruje `u.is_active IS TRUE`, a tabela zespołu obok świadomie
+             ZOSTAWIA byłych pracowników z chipem. Sprzeczna reguła o tych
+             samych ludziach musi być nazwana, dopóki nie zostanie ujednolicona
+             (to zmiana na współdzielonym `/api/competitions/current`, więc
+             dotyka też dashboardu — osobna decyzja, nie cichy refaktor). */}
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Ranking żywy, liczony z całej historii. To NIE jest lista zwycięzców —
-        nagrodę przyznaje dopiero zamknięcie okresu.
+        Ranking żywy, <strong>TOP 5</strong>, liczony z całej historii. To NIE
+        jest lista zwycięzców — nagrodę przyznaje dopiero zamknięcie okresu.
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        Placement liczony <strong>weryfikatorowi</strong> (nie osobie, która
+        przesunęła etap) — dlatego liczby mogą różnić się od „Analizy
+        placementów". Lista obejmuje osoby obecnie zatrudnione.
       </p>
 
       <div className="mt-3">

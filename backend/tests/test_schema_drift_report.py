@@ -25,6 +25,7 @@ Three things are pinned here:
 from __future__ import annotations
 
 from httpx import AsyncClient
+from sqlalchemy import text
 
 
 def test_schema_drift_route_is_gated() -> None:
@@ -185,3 +186,45 @@ async def test_alembic_singular_head_resolves(
         "disaster-recovery drill stops verifying the restore path."
     )
     assert alembic["singular_head_resolves"] is True
+
+
+async def test_failed_check_returns_200_not_500(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], monkeypatch
+) -> None:
+    """Diagnostyka NIE MOŻE 500-kować — także wtedy, gdy jej własny check padnie.
+
+    Raport, którego jedynym zadaniem jest powiedzieć, co jest nie tak z bazą,
+    nie może wywalać się dokładnie wtedy, gdy z bazą jest coś nie tak.
+    Podmieniony `_run_checks` wykonuje zapytanie, które Postgres odrzuca, więc
+    transakcja jest NAPRAWDĘ zerwana (samo `raise` przed dotknięciem bazy
+    zostawiłoby sesję czystą i test nie mierzyłby niczego — patrz
+    `faked-commit-failure-does-not-poison-the-session`).
+
+    ZAKRES: to jest test KONTRAKTU odpowiedzi (200 + `error` + sekcja
+    `alembic`), a nie dowód na konkretną linijkę. Sprawdzone wprost: po
+    usunięciu WSZYSTKICH `await db.rollback()` z handlera ten test nadal
+    przechodzi — `get_db` commituje tę sesję bez `PendingRollbackError`.
+    Rollbacki w handlerze zostają jako zabezpieczenie ścieżki TIMEOUTU, gdzie
+    `asyncio.wait_for` anuluje zapytanie w locie (tego ten test nie symuluje,
+    bo wymagałoby to sterowania czasem po stronie serwera bazy). Nie pisz więc
+    w opisie zmiany, że ten test broni rollbacków — broni odpowiedzi.
+    """
+    from app.api import admin_schema_drift
+
+    async def _boom(db):
+        # Transakcja jest po tym NAPRAWDĘ zepsuta — każde kolejne zapytanie
+        # w tej sesji dostanie `InFailedSqlTransaction`.
+        await db.execute(text("SELECT 1 FROM tabela_ktorej_nie_ma"))
+
+    monkeypatch.setattr(admin_schema_drift, "_run_checks", _boom)
+
+    resp = await app_client.get("/api/admin/schema-drift", headers=app_auth_headers)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # Błąd ma być RAPORTOWANY, a nie zamiatany — 200 z pustym raportem
+    # twierdziłoby, że baza jest w porządku.
+    assert body["error"] in {"ProgrammingError", "DBAPIError"}, body
+    # Alembic czytamy z osobnej transakcji, więc musi przeżyć awarię checków —
+    # inaczej jeden padnięty SELECT zabiera całą resztę odpowiedzi.
+    assert body["alembic"]["code_head_count"] >= 1

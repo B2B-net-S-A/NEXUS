@@ -440,6 +440,16 @@ describe("InsightsHallOfFame", () => {
     expect(
       screen.getByText(/To NIE jest lista zwycięzców/),
     ).toBeInTheDocument();
+    // Serwer tnie ten ranking do PIĘCIU wierszy. Lista bez tej informacji
+    // czyta się jako komplet, więc osoba na szóstym miejscu widzi, że „jej
+    // nie ma w rankingu" — to ta sama klasa kłamstwa co przycięta lista
+    // hiring managerów obok.
+    expect(screen.getByText("TOP 5")).toBeInTheDocument();
+    // Ten ranking przypisuje placement WERYFIKATOROWI, a „Analiza
+    // placementów" dwie sekcje niżej — osobie, która przesunęła etap.
+    // Dwie liczby podpisane „plac." na jednym ekranie muszą powiedzieć,
+    // czym się różnią.
+    expect(screen.getByText("weryfikatorowi")).toBeInTheDocument();
   });
 
   it("pusta historia mówi, że nikt nie zamknął okresu — nie udaje awarii", async () => {

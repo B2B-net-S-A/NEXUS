@@ -38,6 +38,7 @@ from sqlalchemy import (
     Integer,
     String,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -73,7 +74,14 @@ class RecruitmentCampaign(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     # Cel NETTO (placementy − rezygnacje). `Integer`, bo cel jest liczbą osób.
-    target_net: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # `server_default` obok `default`, tak jak `is_active` niżej: bez niego
+    # tabela założona awaryjnie przez `Base.metadata.create_all` nie dostanie
+    # `DEFAULT 0`, więc INSERT pomijający kolumnę odbije się od `NOT NULL`.
+    # `test_schema_drift_report` tego nie złapie — raport porównuje tabele,
+    # kolumny, nullability, enumy, indeksy i FK, ale NIE defaulty.
+    target_net: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

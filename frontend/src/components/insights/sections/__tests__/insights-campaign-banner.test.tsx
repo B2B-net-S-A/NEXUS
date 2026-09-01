@@ -54,7 +54,7 @@ const CAMPAIGN: InsightsCampaign = {
   placements_definition: "first_hired_per_candidate_job",
   placements_definition_note:
     "Placement = PIERWSZE wejście na etap „Zatrudniony” dla pary (kandydat, rekrutacja).",
-  resignations_definition: "ended_engagement_by_effective_end_date",
+  resignations_definition: "ended_engagement_by_effective_end_date_v2",
   resignations_definition_note:
     "Rezygnacja = kontrakt, którego dzień faktycznego zakończenia wypada w oknie kampanii.",
   net_definition_note: "netto = placementy − rezygnacje",

@@ -1224,6 +1224,28 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
 - **Domyślny okres to `offset = -1` (poprzedni pełny miesiąc)**, nie bieżący.
   Pierwszego dnia miesiąca `offset=0` znaczy jeden dzień danych i cały ekran
   pokazuje zera, które wyglądają jak awaria.
+- **Kampania: `active`/`ending` liczą się jako rezygnacja DOPIERO od dnia,
+  w którym ich data końca nadeszła** (`ended` — zawsze, bo status jest
+  stwierdzeniem faktu). Te dwa statusy są w katalogu po to, żeby złapać
+  kontrakty przed nocnym `_promote_statuses`; bez sufitu ta sama reguła
+  wciągała każdą PRZYSZŁĄ datę końca w oknie, więc trzymiesięczna kampania
+  miała pierwszego dnia policzone odejścia z miesiąca drugiego i trzeciego.
+  Sufit to `business_today()`, nie `CURRENT_DATE`, i wchodzi w klucz cache'u.
+  Slug definicji zbumpowany do `..._v2` — baner drukuje notatkę DOSŁOWNIE,
+  więc definicja, która zmieniła znaczenie pod tym samym kluczem, byłaby
+  niewykrywalna dla konsumenta.
+- **Hall of Fame to TOP 5, liczony INNĄ regułą niż „Analiza placementów"**
+  (weryfikator vs osoba przesuwająca etap) i obejmuje wyłącznie osoby wciąż
+  zatrudnione (`u.is_active IS TRUE`), podczas gdy tabela zespołu obok
+  świadomie zostawia byłych pracowników z chipem. Wszystkie trzy różnice są
+  WYPISANE pod nagłówkiem sekcji — dopóki nie zostaną ujednolicone, bo
+  `/api/competitions/current` jest współdzielone z dashboardem.
+- **`/api/admin/schema-drift` robi `rollback()` w każdej gałęzi błędu** —
+  zabezpieczenie ścieżki TIMEOUTU, gdzie `asyncio.wait_for` anuluje zapytanie
+  w locie i zostawia sesję w zepsutej transakcji. Uwaga na zakres dowodu:
+  po usunięciu wszystkich rollbacków test kontraktowy nadal przechodzi
+  (`get_db` commituje taką sesję bez `PendingRollbackError`), więc guard broni
+  KSZTAŁTU ODPOWIEDZI (200 + `error` + `alembic`), a nie tych linijek.
 - **Fixture'y testowe nie mogą stać na stałym roku.** Baza testowa jest wspólna
   dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
   jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:

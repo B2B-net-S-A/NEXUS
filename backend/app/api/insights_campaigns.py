@@ -90,14 +90,20 @@ PLACEMENTS_DEFINITION_NOTE = (
 #       nie została policzona jako przyjście.
 # Kontrakty bezterminowe (`end_date IS NULL` i bez `terminated_at`) odpadają
 # same — `COALESCE` daje NULL, a NULL nie mieści się w żadnym oknie.
-RESIGNATIONS_DEFINITION = "ended_engagement_by_effective_end_date"
+# Slug zbumpowany razem z sufitem na dziś (patrz `_count_window`). Definicja,
+# która zmieniła znaczenie pod tym samym kluczem, jest niewykrywalna dla
+# konsumenta — a baner drukuje notatkę DOSŁOWNIE, więc rozjazd między nią
+# a zapytaniem to definicja, której system nie stosuje.
+RESIGNATIONS_DEFINITION = "ended_engagement_by_effective_end_date_v2"
 RESIGNATIONS_DEFINITION_NOTE = (
     "Rezygnacja = kontrakt, którego dzień faktycznego zakończenia "
     "(data rozwiązania, a gdy jej brak — data końca) wypada w oknie kampanii. "
-    "Liczą się kontrakty aktywne, kończące się i zakończone; NIE liczą się "
-    "szkice, oczekujące na podpis ani anulowane. Powód zakończenia nie ma "
-    "znaczenia: projekt zakończony u klienta zabiera kontraktora ze stanu tak "
-    "samo jak odejście na własną prośbę."
+    "Kontrakty zakończone liczą się zawsze; aktywne i kończące się — dopiero "
+    "od dnia, w którym ich data końca nadeszła, więc odejście zaplanowane na "
+    "przyszły miesiąc nie zaniża dzisiejszego wyniku. NIE liczą się szkice, "
+    "oczekujące na podpis ani anulowane. Powód zakończenia nie ma znaczenia: "
+    "projekt zakończony u klienta zabiera kontraktora ze stanu tak samo jak "
+    "odejście na własną prośbę."
 )
 
 # `ended` liczy się BEZ sufitu na dziś — status jest stwierdzeniem faktu,
@@ -107,8 +113,6 @@ _RESIGNATION_STATUSES_FACT = ["ended"]
 # `_promote_statuses` jeszcze nie przestemplował — ale ich data końca bywa
 # PLANEM, a nie faktem, więc liczą się dopiero, gdy ten dzień nadszedł.
 _RESIGNATION_STATUSES_PENDING = ["active", "ending"]
-
-_RESIGNATION_STATUSES = _RESIGNATION_STATUSES_FACT + _RESIGNATION_STATUSES_PENDING
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -476,8 +480,13 @@ async def update_campaign(
 
     # Okno walidujemy po ZŁOŻENIU zmiany ze stanem bieżącym: przesunięcie samej
     # daty startu poza datę końca inaczej przeszłoby bez słowa.
-    new_start = fields.get("start_date", campaign.start_date)
-    new_end = fields.get("end_date", campaign.end_date)
+    # `or`, nie `fields.get(klucz, domyślna)`: `model_dump(exclude_unset=True)`
+    # ZACHOWUJE pole ustawione JAWNIE na `null`, więc klucz JEST w słowniku
+    # i wartość domyślna nigdy nie wchodzi w grę. `_validate_window(None, end)`
+    # robi wtedy `end < None` → `TypeError` → nieobsłużone 500 zamiast 422
+    # (a przy CORS przeglądarka pokazuje samo „Network Error").
+    new_start = fields.get("start_date") or campaign.start_date
+    new_end = fields.get("end_date") or campaign.end_date
     _validate_window(new_start, new_end)
 
     if "name" in fields and fields["name"] is not None:

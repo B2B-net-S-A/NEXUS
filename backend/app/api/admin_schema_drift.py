@@ -423,8 +423,18 @@ async def schema_drift(
             or checks["missing_enum_values"]
         )
     except asyncio.TimeoutError:
+        # `wait_for` anuluje zapytanie W LOCIE, więc sesja zostaje w zepsutej
+        # transakcji. Bez rollbacku handler wraca normalnie, a `get_db` woła
+        # `commit()` na martwej sesji — `PendingRollbackError` ląduje POZA tym
+        # blokiem i endpoint kończy się 500. Czyli diagnostyka, której cały
+        # kontrakt brzmi „nigdy nie 500-kuje", wywala się dokładnie wtedy,
+        # gdy jest potrzebna: przy obciążonej bazie.
+        await db.rollback()
         out["error"] = "timeout"
     except Exception as exc:  # noqa: BLE001 — diagnostic must not 500
+        # Ta sama pułapka: nieudany SELECT przerywa transakcję, a kolejne
+        # zapytanie (`alembic_version` niżej) i tak by się o nią odbiło.
+        await db.rollback()
         out["error"] = type(exc).__name__
 
     # Alembic bookkeeping, so one call answers both "is the schema OK" and
@@ -438,6 +448,7 @@ async def schema_drift(
         )
         alembic["db_versions"] = list(rows)
     except Exception as exc:  # noqa: BLE001
+        await db.rollback()
         alembic["db_error"] = type(exc).__name__
     out["alembic"] = alembic
 

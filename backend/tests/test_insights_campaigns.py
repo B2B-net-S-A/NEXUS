@@ -382,7 +382,9 @@ async def test_resignation_uses_terminated_at_over_end_date(camp_client: AsyncCl
     )
     assert body["resignations"] == 1, body
     assert body["net"] == -1
-    assert body["resignations_definition"] == "ended_engagement_by_effective_end_date"
+    assert (
+        body["resignations_definition"] == "ended_engagement_by_effective_end_date_v2"
+    )
     assert "rezygnacja" in body["resignations_definition_note"].lower()
 
 
