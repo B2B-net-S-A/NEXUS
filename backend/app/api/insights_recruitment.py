@@ -780,7 +780,23 @@ async def insights_seniority(
     # pętla dobowa; gdyby ostrzeżenie siedziało pod tym samym TTL co wyliczenia,
     # nocna regresja byłaby niewidoczna aż do wygaśnięcia cache'u — a to jest
     # dokładnie ta informacja, która nie może się spóźnić.
-    regressions = await load_open_regressions(db)
+    # `None` (a NIE pusta lista) gdy dziennika nie da się odczytać. Trzy stany
+    # muszą być rozróżnialne: „brak regresji", „są regresje" i „nie wiem".
+    # Pusta lista przy awarii to awaria udająca wynik — czytelnik zobaczyłby
+    # ciszę i przeczytał ją jako „nikomu nic nie spadło".
+    #
+    # Wyjątek jest ŁAPANY, a nie propagowany: ostrzeżenie jest poboczne wobec
+    # tabeli poziomów i nie ma powodu, żeby brak jednej tabeli (prodowy alembic
+    # bywa osierocony) gasił CAŁĄ sekcję, która działała bez tego dziennika.
+    try:
+        regressions: list[dict] | None = await load_open_regressions(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("nie udało się odczytać dziennika seniority")
+        # Sesja jest po nieudanym zapytaniu w stanie „aborted"; bez rollbacku
+        # KAŻDE kolejne zapytanie w tym żądaniu pada na InFailedSqlTransaction,
+        # czyli poprawka wywracałaby to, co miała uratować.
+        await db.rollback()
+        regressions = None
 
     cached = await cache_get(cache_key)
     if cached is not None:

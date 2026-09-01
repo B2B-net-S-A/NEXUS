@@ -319,6 +319,59 @@ async def jnl_client() -> AsyncClient:
 
 
 @pytest.mark.asyncio
+async def test_unreadable_journal_gives_null_not_empty_list(
+    jnl_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Awaria dziennika NIE gasi sekcji i NIE udaje braku regresji.
+
+    Dwie rzeczy naraz. Po pierwsze: brak jednej tabeli (prodowy alembic bywa
+    osierocony) nie może wywalać CAŁEJ Ścieżki rozwoju, która działała bez tego
+    dziennika — ostrzeżenie jest wobec tabeli poziomów poboczne.
+
+    Po drugie: `[]` w tym miejscu byłoby awarią udającą wynik — czytelnik
+    zobaczyłby ciszę i przeczytał ją jako „nikomu nic nie spadło". Dlatego
+    `null`, który front renderuje jako zdanie o niewiedzy.
+    """
+    from app.api import insights_recruitment as api_module
+
+    async def _boom(_db, **_kwargs):
+        raise RuntimeError("relation insights_seniority_snapshots does not exist")
+
+    monkeypatch.setattr(api_module, "load_open_regressions", _boom, raising=True)
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"jnl-boom-{unique}@example.com"
+    password = f"T3st_{unique}!Jnl"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                name=f"Journal boom {unique}",
+                password_hash=hash_password(password),
+                role=UserRole.recruiter,
+                is_active=True,
+            )
+        )
+        await db.commit()
+    login = await jnl_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+
+    resp = await jnl_client.get(
+        "/api/insights/recruitment/seniority",
+        params={"as_of": date(SEED_YEAR, 12, 31).isoformat()},
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["regressions"] is None, body["regressions"]
+    # Tabela poziomów MUSI dojechać — to jest właściwa treść sekcji.
+    assert "entries" in body and "thresholds" in body
+
+
+@pytest.mark.asyncio
 async def test_endpoint_carries_regressions(jnl_client: AsyncClient) -> None:
     """`/api/insights/recruitment/seniority` niesie otwarte regresje, a nie tylko poziomy.
 

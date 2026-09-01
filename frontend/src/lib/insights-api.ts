@@ -313,9 +313,12 @@ export interface SeniorityResponse {
    * jest jedynym miejscem, w którym taka zmiana jest widoczna: przy odczycie
    * widać wyłącznie stan bieżący, a poprzedni nie istnieje nigdzie indziej.
    *
-   * Pusta tablica to normalny, spodziewany stan.
+   * Pusta tablica to normalny, spodziewany stan. `null` znaczy co INNEGO:
+   * dziennika nie dało się odczytać, więc nie wiemy, czy komuś spadł poziom.
+   * Renderowanie `null` jako ciszy zamieniłoby awarię w odpowiedź „nikomu nic
+   * nie spadło" — trzy stany muszą być rozróżnialne na ekranie.
    */
-  regressions: SeniorityRegression[];
+  regressions: SeniorityRegression[] | null;
 }
 
 export interface SeniorityRegression {

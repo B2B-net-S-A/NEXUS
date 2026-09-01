@@ -264,6 +264,20 @@ describe("InsightsSeniority", () => {
     expect(await screen.findByText("historia przypisań")).toBeInTheDocument();
   });
 
+  it("`null` mówi, że NIE WIADOMO — nie renderuje ciszy", async () => {
+    // `null` znaczy „dziennika nie dało się odczytać". Cisza w tym miejscu
+    // czyta się jako „nikomu nic nie spadło", czyli awaria udająca wynik.
+    // Tabela poziomów ma przy tym dojechać — to właściwa treść sekcji.
+    respond({ ...BODY, regressions: null });
+    renderSection();
+
+    expect(
+      await screen.findByText(/Nie udało się sprawdzić, czy komuś spadł poziom/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Anna Kowalska")).toBeInTheDocument();
+    expect(screen.queryByText(/Spadek poziomu/)).not.toBeInTheDocument();
+  });
+
   it("bez regresji nie renderuje pustego ostrzeżenia", async () => {
     // Pusta ramka „0 spadków” uczy ignorować to miejsce, więc gdy spadek
     // naprawdę wystąpi, nikt go nie zauważy.

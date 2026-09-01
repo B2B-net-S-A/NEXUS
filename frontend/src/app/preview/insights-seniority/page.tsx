@@ -16,6 +16,9 @@
  *    („14 → 9”). Samo „spadł na seniora” nie mówi, o ile.
  * 3. **Kilka osób naraz** — tak wygląda skutek importu, który przepisał
  *    atrybucję hurtem. To jest typowa, a nie brzegowa sytuacja.
+ * 4. **Nie da się sprawdzić** (`regressions: null`) — zdanie o niewiedzy, a nie
+ *    cisza. Cisza jest nieodróżnialna od „nikomu nic nie spadło", czyli awaria
+ *    czytałaby się jako uspokajający wynik.
  *
  * Kontrast jest tu rzeczą do OBEJRZENIA: ostrzeżenie stoi na parze
  * `bg-warning-muted` / `text-warning-muted-foreground`, a nie na `bg-warning`
@@ -151,7 +154,7 @@ function Preview({
 }: {
   title: string;
   why: string;
-  regressions: SeniorityRegression[];
+  regressions: SeniorityRegression[] | null;
 }) {
   const queryClient = useMemo(() => {
     const qc = new QueryClient({
@@ -211,6 +214,12 @@ export default function InsightsSeniorityPreview() {
         title="Kilka osób naraz"
         why="Tak wygląda skutek importu, który przepisał atrybucję hurtem. Sytuacja typowa, nie brzegowa."
         regressions={MANY}
+      />
+
+      <Preview
+        title="Nie da się sprawdzić (dziennik niedostępny)"
+        why="Zdanie o niewiedzy, nie cisza — cisza jest nieodróżnialna od „nikomu nic nie spadło”. Tabela poziomów pod spodem dojeżdża normalnie."
+        regressions={null}
       />
     </main>
   );

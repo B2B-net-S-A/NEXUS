@@ -244,7 +244,22 @@ function SeniorityTable({ data }: { data: SeniorityResponse }) {
  * cofnięta atrybucja bywa POPRAWKĄ (import naprawił błędne przypisanie), a
  * bywa awarią. Rozstrzyga człowiek.
  */
-function SeniorityRegressions({ rows }: { rows: SeniorityRegression[] }) {
+function SeniorityRegressions({
+  rows,
+}: {
+  rows: SeniorityRegression[] | null;
+}) {
+  // `null` = dziennika nie dało się odczytać. Cisza w tym miejscu czyta się
+  // jako „nikomu nic nie spadło", więc niewiedza musi być NAPISANA.
+  if (rows === null) {
+    return (
+      <div className="mb-4 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        Nie udało się sprawdzić, czy komuś spadł poziom — dziennik obserwacji
+        jest chwilowo niedostępny. Poziomy w tabeli poniżej są policzone
+        normalnie.
+      </div>
+    );
+  }
   if (rows.length === 0) return null;
   return (
     <div className="mb-4 rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
@@ -334,7 +349,7 @@ export function InsightsSeniority() {
         </p>
       )}
 
-      {data && <SeniorityRegressions rows={data.regressions ?? []} />}
+      {data && <SeniorityRegressions rows={data.regressions ?? null} />}
 
       {viewState === "loading" ? (
         <div className="py-8 flex items-center justify-center">
