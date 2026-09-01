@@ -33,6 +33,15 @@ import {
   type PerformanceFlagTypeMeta,
 } from "@/lib/insights-flags-api";
 
+/** Treść błędu z serwera albo zapasowe zdanie po polsku. */
+function errorText(error: unknown, fallback: string): string {
+  const detail = (
+    error as { response?: { data?: { detail?: unknown } } } | undefined
+  )?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  return fallback;
+}
+
 interface Props {
   userId: number;
   /** Nazwisko do etykiet dostępności — wiersz bez konta ma `null`. */
@@ -58,6 +67,7 @@ export function InsightsFlagAdmin({ userId, userName, flags, types }: Props) {
 
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const invalidate = () =>
@@ -72,14 +82,23 @@ export function InsightsFlagAdmin({ userId, userName, flags, types }: Props) {
       }),
     onSuccess: () => {
       setNote("");
+      setError(null);
       setOpen(false);
       invalidate();
     },
+    // Bez tej gałęzi nieudane nadanie plakietki nie robi NIC widocznego:
+    // panel zostaje otwarty i pusty, więc odmowa serwera czyta się jako
+    // „przycisk nie działa".
+    onError: (e) => setError(errorText(e, "Nie udało się nadać ostrzeżenia.")),
   });
 
   const clearMutation = useMutation({
     mutationFn: (flagId: number) => insightsFlagsApi.clear(flagId),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setError(null);
+      invalidate();
+    },
+    onError: (e) => setError(errorText(e, "Nie udało się zdjąć ostrzeżenia.")),
   });
 
   if (!isAdmin) return null;
@@ -151,6 +170,12 @@ export function InsightsFlagAdmin({ userId, userName, flags, types }: Props) {
                 ))}
               </div>
             </>
+          )}
+
+          {error && (
+            <p role="alert" className="text-[11px] text-destructive">
+              {error}
+            </p>
           )}
         </div>
       )}

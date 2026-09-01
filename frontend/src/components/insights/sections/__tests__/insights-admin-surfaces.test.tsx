@@ -177,7 +177,9 @@ describe("InsightsFlagAdmin", () => {
     renderWithClient(
       <InsightsFlagAdmin userId={42} userName="Jan" flags={[]} types={TYPES} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Zarządzaj ostrzeżeniami/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Zarządzaj ostrzeżeniami/ }),
+    );
     fireEvent.click(
       await screen.findByRole("button", { name: /Nadaj: Słabe wyniki/ }),
     );
@@ -198,7 +200,9 @@ describe("InsightsFlagAdmin", () => {
         types={TYPES}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Zarządzaj ostrzeżeniami/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Zarządzaj ostrzeżeniami/ }),
+    );
 
     expect(
       await screen.findByRole("button", { name: /Nadaj: Procedury/ }),
@@ -217,7 +221,9 @@ describe("InsightsFlagAdmin", () => {
         types={TYPES}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Zarządzaj ostrzeżeniami/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Zarządzaj ostrzeżeniami/ }),
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Zdejmij" }));
 
     await waitFor(() => expect(mocks.patch).toHaveBeenCalled());
@@ -237,5 +243,65 @@ describe("InsightsFlagAdmin", () => {
     expect(assignableTypes(TYPES, [FLAG]).map((t) => t.value)).toEqual([
       "procedures",
     ]);
+  });
+});
+
+describe("Awaria zapisu nie moze wygladac jak brak reakcji", () => {
+  it("nieudane przelaczenie banera mowi, ze serwer odmowil", async () => {
+    mocks.get.mockResolvedValue({
+      data: {
+        campaigns: [
+          {
+            id: 3,
+            name: "Jesienna",
+            emoji: null,
+            start_date: "2026-09-01",
+            end_date: "2026-10-31",
+            target_net: 40,
+            is_active: false,
+            created_at: null,
+          },
+        ],
+      },
+    });
+    mocks.patch.mockRejectedValue({
+      response: { data: { detail: "Kampania zostala usunieta." } },
+    });
+
+    renderWithClient(<InsightsCampaignAdmin />);
+    fireEvent.click(screen.getByRole("button", { name: /Kampanie/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Pokaz baner|Pokaż baner/ }),
+    );
+
+    // Bez tej galezi panel wyglada dokladnie tak jak przed klikiem, wiec
+    // odmowa serwera czyta sie jako „przycisk nie dziala".
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Kampania zostala usunieta/,
+    );
+  });
+
+  it("nieudane nadanie plakietki mowi, ze serwer odmowil", async () => {
+    mocks.post.mockRejectedValue({
+      response: { data: { detail: "Ta osoba ma juz to ostrzezenie." } },
+    });
+
+    renderWithClient(
+      <InsightsFlagAdmin userId={42} userName="Jan" flags={[]} types={TYPES} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Zarzadzaj ostrzezeniami|Zarządzaj ostrzeżeniami/,
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Nadaj: Slabe wyniki|Nadaj: Słabe wyniki/,
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Ta osoba ma juz to ostrzezenie/,
+    );
   });
 });

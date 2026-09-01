@@ -115,18 +115,32 @@ export function InsightsCampaignAdmin() {
       setFormError(errorText(error, "Nie udało się zapisać kampanii.")),
   });
 
+  // Obie mutacje raportują błąd w to samo miejsce co formularz. Bez tego
+  // nieudane przełączenie banera nie robi NIC widocznego — panel wygląda
+  // dokładnie tak jak przed kliknięciem, więc awaria czyta się jako
+  // „przycisk nie działa", a nie jako „serwer odmówił".
   const toggleMutation = useMutation({
     mutationFn: (campaign: InsightsCampaignListItem) =>
       insightsCampaignApi.update(campaign.id, {
         is_active: !campaign.is_active,
       }),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setFormError(null);
+      invalidate();
+    },
+    onError: (error) =>
+      setFormError(errorText(error, "Nie udało się przełączyć banera.")),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (campaign: InsightsCampaignListItem) =>
       insightsCampaignApi.remove(campaign.id),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setFormError(null);
+      invalidate();
+    },
+    onError: (error) =>
+      setFormError(errorText(error, "Nie udało się usunąć kampanii.")),
   });
 
   const viewState = resolveViewState({
