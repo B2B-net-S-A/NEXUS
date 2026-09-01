@@ -1622,6 +1622,12 @@ async def publish_job(
 # ── Champion Profile (Phase 10) ─────────────────────────────────────────────
 
 
+# Alias na `champion_view.api_response` — normalizacja profilu do siedmiu sekcji
+# mieszka tam, gdzie reszta wiedzy o obu kształtach, a nie w routerze. Nazwa
+# zostaje krótka, bo pojawia się w dziewięciu miejscach tego pliku.
+_champion_response = champion_view.api_response
+
+
 @router.get("/{job_id}/champion-profile")
 async def get_champion_profile(
     job_id: int, current_user: OperationalUser, db: AsyncSession = Depends(get_db)
@@ -1655,7 +1661,7 @@ async def get_champion_profile(
     return {
         "job_id": job.id,
         "job_title": job.title,
-        "champion_profile": job.champion_profile or {},
+        "champion_profile": _champion_response(job.champion_profile),
     }
 
 
@@ -1761,7 +1767,10 @@ async def update_champion_profile(
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
     if not fields_changed:
-        return {"job_id": job.id, "champion_profile": job.champion_profile or {}}
+        return {
+            "job_id": job.id,
+            "champion_profile": _champion_response(job.champion_profile),
+        }
 
     job.champion_profile = new_profile
     db.add(
@@ -1845,7 +1854,10 @@ async def update_champion_profile(
                 e,
             )
 
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 # ── "Przekaż do searchu" — DL handoff that starts matching (P0-A) ────────────
@@ -2129,7 +2141,10 @@ async def update_champion_verification(
     )
     await db.commit()
     await db.refresh(job)
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 @router.get("/{job_id}/champion-profile/consultant-suggestions")
@@ -2381,7 +2396,7 @@ async def set_champion_briefing(
 
     return {
         "job_id": job.id,
-        "champion_profile": job.champion_profile,
+        "champion_profile": _champion_response(job.champion_profile),
         "suggestion_id": suggestion_id,
     }
 
@@ -2423,7 +2438,10 @@ async def clear_champion_briefing(
     )
     await db.commit()
     await db.refresh(job)
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 @router.get("/{job_id}/champion-profile/briefing/audio-url")
@@ -2499,7 +2517,7 @@ async def generate_recommended_searches_endpoint(
             status_code=502,
             detail="Nie udało się wygenerować propozycji wyszukiwań — spróbuj ponownie.",
         ) from exc
-    return {"job_id": job_id, "champion_profile": profile}
+    return {"job_id": job_id, "champion_profile": _champion_response(profile)}
 
 
 @router.post("/{job_id}/champion-profile/recommended-searches/decision")
@@ -2599,7 +2617,10 @@ async def decide_recommended_search(
     )
     await db.commit()
     await db.refresh(job)
-    return {"job_id": job.id, "champion_profile": job.champion_profile}
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
 
 
 # ── Champion Profile AI Intake (Phase 14) ───────────────────────────────────

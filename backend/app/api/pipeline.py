@@ -22,6 +22,7 @@ from app.models.recruitment_priority import PriorityChannel
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
+from app.services import champion_view
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -1250,7 +1251,12 @@ async def get_stage_screening(
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
         "job_id": stage.job_id,
-        "champion_profile": (job.champion_profile if job else None) or {},
+        # Ten sam kontrakt co `/jobs/{id}/champion-profile`: front zna wyłącznie
+        # siedem sekcji, a surowy kształt sprzed 09.2026 pokazałby mu pustkę na
+        # wypełnionym profilu.
+        "champion_profile": champion_view.api_response(
+            job.champion_profile if job else None
+        ),
         "screening_answers": stage.screening_answers or None,
     }
 
