@@ -508,16 +508,44 @@ strony; kafel nazywa się „dni robocze minus urlop", nie „dni przepracowane"
 
 ### H.3 Zostaje do zrobienia
 
-Stan na **2026-09-01**. Trzy pozycje z poprzedniej wersji tej tabeli są zamknięte
-— zostały niżej, w H.4, razem z tym, co się przy nich okazało.
+Stan na **2026-09-01, 14:00**. Została **jedna** pozycja i nie jest techniczna.
 
 | Rzecz | Dlaczego nie teraz |
 |---|---|
-| **Sekrety D5 na produkcji** | Kod po OBU stronach jest wdrożony (COMPASS #356, NEXUS gotowy), a sekret współdzielony jest już w sekretach obu repo. Zostało JEDNO uruchomienie „Coolify set env" w każdym repo — akcja zmieniająca konfigurację produkcji, więc wymaga człowieka. Do tego czasu `/api/internal/workdays` zwraca **503 „Not configured"** (fail-closed z założenia), a Power Calling raportuje `not_assessable` — mówi wprost, że nie wie, zamiast zgadywać. |
-| **Uzupełnienie kursów EUR** | Endpoint `POST /api/fx/backfill?currency=EUR` jest na produkcji (#1319) i jest to wywołanie **tylko dla admina**. Do czasu wywołania zakładka Zarząd raportuje `degraded`: kwoty w EUR są POMIJANE w sumach, siedem miesięcy serii (2025-10 … 2026-04) niepełnych. Działa zgodnie z projektem (brak FX → jawna degradacja, nie ciche zero). |
-| **Brak założonej kampanii** | Panel zakładania jest na produkcji i działa; baner pozostaje niewidoczny, dopóki ktoś nie utworzy pierwszej kampanii. **Decyzja produktowa** — nazwa i cel kampanii to komunikat do całego zespołu, nie parametr techniczny. |
+| **Brak założonej kampanii** | Panel zakładania działa na produkcji; baner pozostaje niewidoczny, dopóki ktoś nie utworzy pierwszej kampanii. **Decyzja produktowa** — nazwa i cel to komunikat do całego zespołu, nie parametr techniczny. |
 
 ### H.4 Zamknięte 2026-09-01 — i czego uczą
+
+**Dni robocze z COMPASSA (D5) — URUCHOMIONE.** `workdays_source` przeszło
+z `"unavailable"` na `"compass"`, `not_assessable_count` z **16 na 0**,
+`per_day` z `null` na realne liczby, 14 z 16 osób spełnia próg. Zniknął tym
+samym mianownik-stała `5`, przez który osoba na urlopie trafiała na imienną
+listę „poniżej progu". Koperta nadal ma `workdays: null` i to jest **celowe**:
+mianownik jest indywidualny, bo urlop jest indywidualny — jedna liczba dla
+całego zespołu to była właśnie ta stała.
+
+Sekret współdzielony wjechał przez `value_from_secret`, nie przez `value`:
+`workflow_dispatch` pokazuje inputy w podsumowaniu runa NA STAŁE, a
+`::add-mask::` chroni log, nie metadane uruchomienia. Compass wymagał
+`redeploy=true` (Next.js czyta `process.env` przy żądaniu, ale środowisko
+KONTENERA jest ustalone przy starcie) — bez przerwy w działaniu. NEXUS
+restartowany workflowem `Deploy`, nie `redeploy=true`; przerwa **~60 s**,
+czyli normalne okno podmiany przy jednym kontenerze bez replik.
+
+Pułapka przy ręcznej sondzie: `?from=2026-07&to=2026-08&bucket=month` zwraca
+PUSTĄ listę, a `from=2026-07-01&to=2026-09-01` — 131 wierszy. Zakres musi
+obejmować pełne miesiące; pętla używa `_first_of_month`, więc jej to nie
+dotyczy, ale ręczne sprawdzenie potrafi tak skłamać „nie ma danych".
+
+**Kursy EUR — UZUPEŁNIONE.** `POST /api/fx/backfill?currency=EUR`: 503
+pobrane, **424 zapisane**, zero nieudanych zakresów (79 już było — idempotencja
+działa). Blok `degraded` zniknął ze WSZYSTKICH dwunastu ostatnich miesięcy,
+sprawdzone offset po offsecie.
+
+**`/my-position` — potwierdzone na produkcji.** `total` = **59**, dokładnie
+tyle, ile `scope.ranked_people` pod TOP 5. Przed poprawką ta sama liczba
+wynosiła 50, bo opisywała długość przyciętej listy.
+
 
 **Dziennik `insights_seniority_snapshots` — ZBUDOWANY** (#1320). Poziom nadal
 liczy się przy odczycie; tabela jest dziennikiem OBSERWACJI, nie źródłem prawdy.
