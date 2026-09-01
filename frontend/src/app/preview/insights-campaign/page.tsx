@@ -14,12 +14,14 @@
  *
  * 1. **Brak kampanii → NIC.** Nie pusta ramka „0 / 0", która twierdziłaby,
  *    że kampania trwa i idzie fatalnie.
- * 2. **Awaria ≠ pustka.** 500 renderuje `SectionError`, a nie zniknięcie
- *    baneru — inaczej niedziałający serwer wygląda jak „odwołali kampanię".
- * 3. **Cel przekroczony pokazuje >100%**, a pasek dociera do końca toru —
+ * 2. **Cel przekroczony pokazuje >100%**, a pasek dociera do końca toru —
  *    przycięta liczba zamieniłaby najlepszy wynik w „dokładnie wystarczający".
- * 4. **Cel zerowy daje „—", nie „0%"** — nie da się policzyć procentu, a zero
+ * 3. **Cel zerowy daje „—", nie „0%"** — nie da się policzyć procentu, a zero
  *    twierdziłoby, że policzyliśmy i wyszło zero.
+ * 4. **Kampania jeszcze nieodpalona** — licznik dni nie schodzi poniżej zera.
+ *
+ * Gałęzi AWARII tu NIE MA i to jest decyzja, nie przeoczenie — patrz komentarz
+ * na dole pliku.
  *
  * Kontrast jest tu rzeczą do OBEJRZENIA, nie do przeczytania: baner stał
  * wcześniej na `bg-warning` + `text-warning-foreground`, czyli bieli na
@@ -69,10 +71,7 @@ const BASE: InsightsCampaign = {
   net_definition_note: "netto = placementy − rezygnacje",
 };
 
-type Case =
-  | { kind: "data"; campaign: InsightsCampaign }
-  | { kind: "none" }
-  | { kind: "error" };
+type Case = { kind: "data"; campaign: InsightsCampaign } | { kind: "none" };
 
 function Preview({
   title,
@@ -89,38 +88,18 @@ function Preview({
         queries: { staleTime: Infinity, retry: false, refetchOnMount: false },
       },
     });
-    if (scenario.kind === "data") {
-      qc.setQueryData(insightsCampaignQueryKeys.active(), scenario.campaign);
-    } else if (scenario.kind === "none") {
-      // `null` = nie ma aktywnej kampanii. To NIE jest to samo co awaria.
-      qc.setQueryData(insightsCampaignQueryKeys.active(), null);
-    }
-    // Gałąź awarii świadomie NIE zasiewa klucza — zamiast tego podaje
-    // odrzucający `queryFn`, żeby stan błędu był prawdziwy, a nie udawany.
+    // KAŻDY przypadek zasiewa klucz. Niezasiany klucz nie ma `dataUpdatedAt`,
+    // więc `staleTime: Infinity` go NIE powstrzymuje — poleciałoby prawdziwe
+    // zapytanie do API. Na wdrożonym środowisku wróciłoby 401, a globalny
+    // interceptor axiosa przerzuciłby CAŁĄ stronę na /login: publiczny podgląd
+    // wylogowałby oglądającego. `null` jest tu PRAWIDŁOWĄ daną („nie ma
+    // aktywnej kampanii"), a nie brakiem danych.
+    qc.setQueryData(
+      insightsCampaignQueryKeys.active(),
+      scenario.kind === "data" ? scenario.campaign : null,
+    );
     return qc;
   }, [scenario]);
-
-  if (scenario.kind === "error") {
-    const qc = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-          queryFn: () => Promise.reject(new Error("500")),
-        },
-      },
-    });
-    return (
-      <section className="flex flex-col gap-2">
-        <div>
-          <h2 className="text-sm font-semibold">{title}</h2>
-          <p className="text-xs text-muted-foreground">{why}</p>
-        </div>
-        <QueryClientProvider client={qc}>
-          <InsightsCampaignBanner />
-        </QueryClientProvider>
-      </section>
-    );
-  }
 
   return (
     <section className="flex flex-col gap-2">
@@ -195,10 +174,38 @@ export default function InsightsCampaignPreview() {
       />
 
       <Preview
-        title="Awaria (500)"
-        why="Komunikat z ponowieniem, a nie zniknięcie baneru — inaczej niedziałający serwer wygląda jak „odwołali kampanię”."
-        scenario={{ kind: "error" }}
+        title="Kampania jeszcze nieodpalona"
+        why="Licznik dni nie schodzi poniżej zera, a „0 / 60” jest tu prawdą — kampania po prostu się nie zaczęła."
+        scenario={{
+          kind: "data",
+          campaign: {
+            ...BASE,
+            name: "Jesienna ofensywa",
+            emoji: "🍂",
+            has_started: false,
+            days_remaining: 0,
+            placements: 0,
+            resignations: 0,
+            net: 0,
+            progress_pct: 0,
+            remaining_to_target: 60,
+          },
+        }}
       />
+
+      {/* Gałęzi AWARII nie da się tu pokazać bez wykonania zapytania, a to
+          jest dokładnie to, czego publiczny podgląd robić nie może:
+          `InsightsCampaignBanner` przekazuje własne `queryFn` (jawne wygrywa
+          z domyślnym), a wpisanie stanu błędu wprost do cache'u nie
+          powstrzymuje pierwszego pobrania. Pierwsza wersja tej strony miała
+          taki kafelek — sprawdzone w przeglądarce: leciało SZEŚĆ zapytań na
+          `/api/insights/campaigns/active`. Na wdrożonym środowisku wróciłoby
+          401, a interceptor axiosa przerzuciłby całą stronę na /login.
+
+          Rozróżnienie „awaria ≠ pustka" jest bronione testem
+          `insights-campaign-banner.test.tsx` → „awaria renderuje komunikat,
+          a nie zniknięcie baneru". Lepszy test niż kafelek, który kosztuje
+          wylogowanie. Ta sama decyzja co w `/preview/dl-alerts`. */}
     </main>
   );
 }
