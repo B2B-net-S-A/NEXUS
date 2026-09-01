@@ -63,6 +63,29 @@ function ruleSentence(placements: number, months: number): string {
   return `${placementsPl(placements)} w ${monthsPl(months)}`;
 }
 
+/**
+ * Każdy poziom ma DWIE alternatywne reguły połączone przez LUB. Opis wyłącznie
+ * podstawowej kazałby ludziom mierzyć się do progu, którego nie muszą
+ * osiągnąć — a to jest komunikat o awansie, więc ma być prawdziwy.
+ * Reguła wyłączona w konfiguracji znika z opisu zamiast krzyczeć „wyłączona":
+ * jedna działająca reguła to poprawny, celowy stan.
+ */
+function levelRuleSentence(
+  placements: number,
+  months: number,
+  altPlacements: number,
+  altMonths: number,
+): string {
+  const parts = [
+    [placements, months] as const,
+    [altPlacements, altMonths] as const,
+  ]
+    .filter(([p, m]) => p > 0 && m > 0)
+    .map(([p, m]) => ruleSentence(p, m));
+  if (parts.length === 0) return "reguła wyłączona w konfiguracji";
+  return parts.join(" lub ");
+}
+
 function ProgressBar({ pct }: { pct: number | null }) {
   // `null` to brak progu, nie zero. Pasek o zerowej szerokości czytałby się
   // jako „policzone i wyszło zero”, czyli jako ocena.
@@ -134,6 +157,17 @@ function SeniorityTable({ data }: { data: SeniorityResponse }) {
                   >
                     {LEVEL_LABEL[e.level]}
                   </span>
+                  {/* Data awansu na seniora jest KOTWICĄ zegara eksperta —
+                      do wyższego poziomu liczą się wyłącznie placementy od
+                      tego miesiąca w górę. Bez niej kolumna „w oknie eksperta"
+                      wygląda na zaniżoną wobec sumy obok. */}
+                  {e.senior_since && (
+                    <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                      {e.expert_since
+                        ? `expert od ${e.expert_since}`
+                        : `senior od ${e.senior_since}`}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 text-right tabular-nums">
                   {e.total_placements}
@@ -225,14 +259,18 @@ export function InsightsSeniority() {
       {data && (
         <p className="text-xs text-muted-foreground mb-4">
           Awans na <strong>Seniora</strong>:{" "}
-          {ruleSentence(
+          {levelRuleSentence(
             data.thresholds.senior_placements,
             data.thresholds.senior_window_months,
+            data.thresholds.senior_alt_placements,
+            data.thresholds.senior_alt_window_months,
           )}
           . Awans na <strong>Eksperta</strong>:{" "}
-          {ruleSentence(
+          {levelRuleSentence(
             data.thresholds.expert_placements,
             data.thresholds.expert_window_months,
+            data.thresholds.expert_alt_placements,
+            data.thresholds.expert_alt_window_months,
           )}
           . Poziom raz osiągnięty <strong>zostaje</strong> — okno służy do
           awansu, nie do cofania, więc pusty licznik bieżącego okna przy wyższym

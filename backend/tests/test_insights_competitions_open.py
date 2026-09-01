@@ -4,8 +4,8 @@ Liga Mistrzów, wyścigi miesięczne i Hall of Fame są częścią /insights, a 
 powierzchnia została jawnie otwarta decyzją Artura z 2026-08-31.
 
 Dlaczego akurat TEN endpoint wolno było poszerzyć na miejscu, a innych nie:
-jego jedynym konsumentem we froncie jest `ChampionsSection.tsx`, czyli sama
-zakładka Insights. `/api/reports/*`, `/api/admin/clients-overview` i
+jego konsumenci we froncie to `ChampionsSection.tsx` i `InsightsHallOfFame.tsx`,
+czyli sama zakładka Insights. `/api/reports/*`, `/api/admin/clients-overview` i
 `/api/dashboard/v2/*` są współdzielone z innymi stronami — tam poszerzenie
 guardu otworzyłoby powierzchnie, na które nikt nie dawał zgody, więc Insights
 dostaje własne `/api/insights/*`.
@@ -102,14 +102,17 @@ async def test_every_role_reads_races_and_history(
     races = await comp_client.get("/api/competitions/monthly-races", headers=headers)
     assert races.status_code == 200, races.text
 
-    # /history swiadomie NIE zostalo poszerzone — nie ma konsumenta we froncie,
-    # wiec byloby to nieuzasadnione ruszenie guardu na wspoldzielonym routerze.
+    # /history poszerzone do CurrentUser 2026-09-01, gdy powstal jego pierwszy
+    # konsument: sekcja „Hall of Fame" na /insights (InsightsHallOfFame.tsx).
+    # Asercja jest TWARDA (== 200), a nie „200 albo 403": luzna przepuszczala
+    # cichy powrot weszego guardu, po ktorym sekcja renderowalaby komunikat
+    # o braku uprawnien zamiast zamknietych okresow.
     history = await comp_client.get(
         "/api/competitions/history",
         headers=headers,
         params={"type": "quarterly_champions_recruiter"},
     )
-    assert history.status_code in (200, 403), history.text
+    assert history.status_code == 200, f"{role.value}: {history.text}"
 
 
 @pytest.mark.asyncio

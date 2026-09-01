@@ -1028,6 +1028,52 @@ _COLUMN_STATEMENTS = [
     "ON user_workday_periods (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_user_workday_periods_window "
     "ON user_workday_periods (period_start, period_end)",
+    # 0258: plakietki ostrzezen przy osobie („slabe wyniki", „procedury").
+    # Wygaszamy, nie kasujemy — CHECK spojnosci jest tu, bo to on, a nie kod,
+    # trzyma niezmiennik: aktywna plakietka NIE ma daty zdjecia, a zdjeta MA.
+    # Bez tabeli caly panel plakietek zwracalby 500 na kazdym odczycie.
+    """CREATE TABLE IF NOT EXISTS user_performance_flags (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        flag_type VARCHAR(32) NOT NULL,
+        note TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        cleared_at TIMESTAMPTZ,
+        cleared_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        CONSTRAINT ck_user_performance_flags_type
+            CHECK (flag_type IN ('weak_results', 'procedures')),
+        CONSTRAINT ck_user_performance_flags_clear_coherence
+            CHECK ((is_active AND cleared_at IS NULL AND cleared_by IS NULL)
+                   OR (NOT is_active AND cleared_at IS NOT NULL))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_user_performance_flags_user_id "
+    "ON user_performance_flags (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_user_performance_flags_active "
+    "ON user_performance_flags (user_id, is_active)",
+    # Unikalnosc CZESCIOWA: jedna AKTYWNA plakietka danego typu na osobe.
+    # Pelny UNIQUE zablokowalby historie — druga plakietka po zdjeciu
+    # pierwszej jest normalnym biegiem rzeczy.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_performance_flags_active_type "
+    "ON user_performance_flags (user_id, flag_type) WHERE is_active",
+    # 0259: baner kampanii rekrutacyjnej. CHECK na oknie, bo okno odwrocone
+    # daje pusty przedzial — baner pokazalby „0 z N" i „0 dni do konca",
+    # czyli liczby poprawne arytmetycznie, opisujace nieistniejaca kampanie.
+    """CREATE TABLE IF NOT EXISTS recruitment_campaigns (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(200) NOT NULL,
+        emoji VARCHAR(16),
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        target_net INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT false,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_recruitment_campaigns_window CHECK (end_date >= start_date)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_recruitment_campaigns_active "
+    "ON recruitment_campaigns (is_active, start_date)",
     # 0199: archiwum historii rekrutacji usuniętej korekcyjnie. Musi istnieć
     # ZANIM ktokolwiek wywoła DELETE /candidates/{id}/recruitments/{job_id} —
     # brak tabeli zamieniłby archiwizację w błąd, a alternatywą byłby powrót do
@@ -3881,8 +3927,23 @@ _DATA_STATEMENTS = [
            ('seniority_senior_placements', 6),
            ('seniority_senior_window_months', 6),
            ('seniority_expert_placements', 12),
-           ('seniority_expert_window_months', 12)
+           ('seniority_expert_window_months', 6),
+           ('seniority_senior_alt_placements', 12),
+           ('seniority_senior_alt_window_months', 12),
+           ('seniority_expert_alt_placements', 24),
+           ('seniority_expert_alt_window_months', 12)
        ON CONFLICT (key) DO NOTHING""",
+    # 0260: korekta okna Eksperta 12 -> 6 miesięcy. Seed wyżej NIE naprawi
+    # istniejącej instalacji (`DO NOTHING` omija wiersz zasiany przez 0256),
+    # a ten blok biegnie przy każdym starcie, więc warunek musi odróżnić
+    # „nasza stara wartość domyślna" od strojenia człowieka — stąd
+    # `updated_by IS NULL` obok porównania wartości. Bez tego każdy deploy
+    # cofałby świadomą zmianę admina.
+    """UPDATE insights_scoring_config
+          SET value = 6
+        WHERE key = 'seniority_expert_window_months'
+          AND value = 12
+          AND updated_by IS NULL""",
     # 0248: stare kontrakty miały jedną walutę dla obu stawek. Nie
     # nadpisujemy już uzupełnionej strony, więc safety-net jest idempotentny
     # także po utworzeniu kontraktu mieszanego.

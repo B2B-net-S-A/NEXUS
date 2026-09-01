@@ -13,6 +13,20 @@ import api from "@/lib/api";
 export type InsightsPeriodKind =
   "day" | "week" | "month" | "quarter" | "year" | "custom";
 
+/**
+ * Domyślnie pokazujemy POPRZEDNI ZAMKNIĘTY okres, nie bieżący.
+ *
+ * Bieżący okres jest prawie pusty przez większość swojego trwania: pierwszego
+ * dnia miesiąca „ten miesiąc" to jeden dzień danych, a w poniedziałek „ten
+ * tydzień" to jeden dzień. Ekran pełen zer czyta się jako „nic się nie dzieje",
+ * a znaczy „okres się dopiero zaczął" — i to jest ta sama klasa pomyłki, co
+ * awaria renderowana jako brak danych.
+ *
+ * DynaReporter robił to tak samo (`kpi.ts:38-42` domyślnie brał poprzedni,
+ * zamknięty tydzień). Użytkownik nadal może przejść na bieżący strzałką.
+ */
+export const DEFAULT_INSIGHTS_OFFSET = -1;
+
 export interface InsightsPeriodParams {
   period: InsightsPeriodKind;
   /** 0 = bieżący okres, -1 = poprzedni zamknięty. */
@@ -223,6 +237,15 @@ export interface SeniorityThresholds {
   senior_window_months: number;
   expert_placements: number;
   expert_window_months: number;
+  /**
+   * Alternatywna, wolniejsza ścieżka — na każdym poziomie obowiązuje reguła
+   * podstawowa LUB ta. Pominięcie jej w opisie kazałoby ludziom mierzyć się
+   * do progu, którego wcale nie muszą osiągnąć.
+   */
+  senior_alt_placements: number;
+  senior_alt_window_months: number;
+  expert_alt_placements: number;
+  expert_alt_window_months: number;
 }
 
 export interface SeniorityWindow {
@@ -250,6 +273,14 @@ export interface SeniorityEntry {
   placements_to_next_level: number | null;
   /** `null` = brak progu. Nigdy nie mylić z 0. Nie jest przycięty do 100. */
   progress_pct: number | null;
+  /**
+   * 'YYYY-MM' pierwszego miesiąca, w którym reguła danego poziomu została
+   * spełniona. `senior_since` jest KOTWICĄ zegara eksperta: do wyższego
+   * poziomu liczą się wyłącznie placementy od tego miesiąca w górę. Bez tej
+   * daty w wierszu `placements_in_expert_window` wygląda na zaniżony.
+   */
+  senior_since: string | null;
+  expert_since: string | null;
 }
 
 export interface SeniorityResponse {

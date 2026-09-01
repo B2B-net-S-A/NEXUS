@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import AdminUser, CurrentUser, OperationalUser
+from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.services.insights_scoring_config import (
     get_scoring_config,
@@ -181,12 +181,24 @@ async def monthly_races(
 
 @router.get("/history")
 async def get_history(
-    # Swiadomie NIE poszerzone razem z /current i /monthly-races: /history nie
-    # ma dzis zadnego konsumenta we froncie (ChampionsSection wola wylacznie
-    # /current), wiec poszerzenie byloby nieuzasadniona zmiana guardu na
-    # wspoldzielonym routerze. Gdy Hall of Fame trafi do /insights, przyjdzie
-    # jako konsument wlasnej trasy /api/insights/*, jak kazda inna sekcja.
-    _user: OperationalUser,
+    # D7, 2026-09-01: poszerzone do `CurrentUser` razem z /current
+    # i /monthly-races. Poprzedni komentarz odmawial poszerzenia z JEDNEGO
+    # powodu — „/history nie ma dzis zadnego konsumenta we froncie" — i ten
+    # powod wlasnie wygasl: sekcja „Hall of Fame" na /insights
+    # (InsightsHallOfFame.tsx) czyta wlasnie te trase.
+    #
+    # Alternatywa rozwazana i odrzucona: wlasna trasa /api/insights/hall-of-fame.
+    # Byloby to opakowanie tego samego SELECT-a z `competition_winners` po to
+    # tylko, zeby ominac guard — a `/history` nie jest wspoldzielone z zadna
+    # inna strona (`grep -rn "/api/competitions/history" frontend/src`), wiec
+    # poszerzenie nie zmienia widocznosci zadnej istniejacej powierzchni.
+    # To ta sama sytuacja co /current, ktory poszerzono NA MIEJSCU.
+    #
+    # Co ta trasa oddaje: nazwiska podium i kwoty juz PRZYZNANYCH nagrod.
+    # /current i /monthly-races oddaja ten sam material na zywo, wiec zamkniety
+    # snapshot nie jest wezszy niz to, co kazda zalogowana rola widzi obok.
+    # Zapis (POST /freeze) zostaje na AdminUser.
+    _user: CurrentUser,
     db: AsyncSession = Depends(get_db),
     type: str = Query(...),
     limit: int = Query(10, ge=1, le=100),

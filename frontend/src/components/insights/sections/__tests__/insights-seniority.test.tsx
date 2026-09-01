@@ -62,7 +62,11 @@ const BODY: SeniorityResponse = {
     senior_placements: 6,
     senior_window_months: 6,
     expert_placements: 12,
-    expert_window_months: 12,
+    expert_window_months: 6,
+    senior_alt_placements: 12,
+    senior_alt_window_months: 12,
+    expert_alt_placements: 24,
+    expert_alt_window_months: 12,
   },
   window: {
     senior: { months: 6, start_month: "2026-04", end_month: "2026-09" },
@@ -81,6 +85,8 @@ const BODY: SeniorityResponse = {
       placements_in_senior_window: 0,
       placements_in_expert_window: 0,
       placements_to_next_level: 12,
+      senior_since: null,
+      expert_since: null,
       progress_pct: 0,
     },
     {
@@ -94,6 +100,8 @@ const BODY: SeniorityResponse = {
       placements_in_expert_window: 14,
       // Expert nie ma następnego poziomu — obie wartości to `null`.
       placements_to_next_level: null,
+      senior_since: "2025-03",
+      expert_since: "2025-09",
       progress_pct: null,
     },
     {
@@ -107,6 +115,8 @@ const BODY: SeniorityResponse = {
       placements_in_senior_window: 0,
       placements_in_expert_window: 0,
       placements_to_next_level: 6,
+      senior_since: "2026-01",
+      expert_since: null,
       progress_pct: 0,
     },
   ],
@@ -129,10 +139,19 @@ describe("InsightsSeniority", () => {
 
     // Bez tego zdania „6” obok nazwiska nie ma znaczenia — pasek nie mówi,
     // ile trzeba, a osoba oceniana ma prawo znać regułę.
+    //
+    // Każdy poziom ma DWIE alternatywne drogi. Opis wyłącznie tej krótszej
+    // kazałby ludziom mierzyć się do progu, którego nie muszą osiągnąć.
     expect(
-      await screen.findByText(/6 placementów w 6 miesięcy/),
+      await screen.findByText(
+        /6 placementów w 6 miesięcy lub 12 placementów w 12 miesięcy/,
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText(/12 placementów w 12 miesięcy/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /12 placementów w 6 miesięcy lub 24 placementy w 12 miesięcy/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("mówi wprost, że poziom nie spada", async () => {

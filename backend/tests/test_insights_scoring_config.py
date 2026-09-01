@@ -1,7 +1,8 @@
 """Konfigurowalna punktacja Ligi i progi seniority (decyzja D3/D6).
 
 Domyślne wartości żyją w TRZECH kopiach: `SCORING_DEFAULTS` w kodzie, seed
-w migracji `0256` i lustro DDL w `entrypoint.sh`. Migracje nie mogą importować
+w migracjach (`0256` zakłada tabelę, `0260` dosiewa alternatywne progi
+i poprawia okno Eksperta) i lustro DDL w `entrypoint.sh`. Migracje nie mogą importować
 kodu aplikacji (uruchamiają się też na starym obrazie), więc duplikat jest
 konieczny — ale rozjazd między nimi zmieniłby formułę rozdzielającą nagrody
 5000/3000/2000 PLN, i to bez żadnego błędu. Ten plik jest strażnikiem, na
@@ -25,16 +26,18 @@ from app.models.user import User, UserRole
 from app.services.insights_scoring_config import SCORING_DEFAULTS
 
 _BACKEND = Path(__file__).resolve().parents[1]
-_MIGRATION = _BACKEND / "alembic" / "versions" / "0256_insights_scoring_config.py"
+_VERSIONS = _BACKEND / "alembic" / "versions"
+_MIGRATION = _VERSIONS / "0256_insights_scoring_config.py"
+_MIGRATION_ALT = _VERSIONS / "0260_seniority_alternative_thresholds.py"
 _ENTRYPOINT = _BACKEND / "entrypoint.sh"
 
 
 # ── Trzy kopie domyślnych muszą się zgadzać ────────────────────────────────
 
 
-def _defaults_from_migration() -> dict[str, int]:
-    """Wyłuskaj listę `(klucz, wartość)` z migracji, bez importowania jej."""
-    tree = ast.parse(_MIGRATION.read_text(encoding="utf-8"))
+def _literal(path: Path, target: str) -> object:
+    """Wartość stałej modułowej z pliku migracji, bez importowania go."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         # `_DEFAULTS: list[tuple[str, int]] = [...]` to AnnAssign, nie Assign —
         # obsługujemy oba, żeby test nie pękł przy zdjęciu adnotacji.
@@ -46,13 +49,32 @@ def _defaults_from_migration() -> dict[str, int]:
             node_value = node.value
         else:
             continue
-        if name != "_DEFAULTS" or node_value is None:
+        if name != target or node_value is None:
             continue
-        value = ast.literal_eval(node_value)
-        if isinstance(value, dict):
-            return {str(k): int(v) for k, v in value.items()}
-        return {str(k): int(v) for k, v in value}
-    raise AssertionError("Nie znalazłem `_DEFAULTS` w migracji 0256")
+        return ast.literal_eval(node_value)
+    raise AssertionError(f"Nie znalazłem `{target}` w {path.name}")
+
+
+def _as_mapping(value: object) -> dict[str, int]:
+    if isinstance(value, dict):
+        return {str(k): int(v) for k, v in value.items()}
+    return {str(k): int(v) for k, v in value}  # type: ignore[union-attr]
+
+
+def _defaults_from_migration() -> dict[str, int]:
+    """Stan, w jakim migracje zostawiają świeżą bazę.
+
+    Seed jest rozłożony na DWA pliki, bo 0256 jest już na produkcji: 0260
+    dosiewa alternatywne progi i poprawia okno Eksperta. Czytanie samego 0256
+    dawałoby strażnika, który przestał pilnować połowy kluczy — i to bez
+    czerwieni, bo brakujący klucz wygląda jak „obowiązuje domyślna".
+    """
+    seeded = _as_mapping(_literal(_MIGRATION, "_DEFAULTS"))
+    seeded.update(_as_mapping(_literal(_MIGRATION_ALT, "_NEW_DEFAULTS")))
+    seeded[str(_literal(_MIGRATION_ALT, "_EXPERT_WINDOW_KEY"))] = int(
+        _literal(_MIGRATION_ALT, "_EXPERT_WINDOW_NEW")  # type: ignore[arg-type]
+    )
+    return seeded
 
 
 def test_migration_seed_matches_code_defaults():

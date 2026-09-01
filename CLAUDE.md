@@ -1152,3 +1152,79 @@ zgłoszeniach tej samej pomyłki (BNP Paribas Cardif ↔ CARDIF - ASSURANCES…)
 - **Zero mutacji.** Podobna nazwa bywa naprawdę innym klientem; rozstrzyga
   człowiek. Uwaga: `ContractUpdate` NIE ma `client_id`, więc przepięcia
   kontraktu na innego klienta nie da się dziś zrobić z interfejsu w ogóle.
+
+## Insights (`/insights`) — parytet z DynaReporterem na danych NEXUSA
+
+`/insights` odtwarza raporty DynaReportera (`infrareporter.onrender.com`)
+**licząc je od zera z operacyjnych danych NEXUSA**, a nie z wchłoniętych tabel
+`dr_*` (te są zamrożone: `dr_*` stanęły na tygodniu 21/2026, `clients-mrr` jest
+puste, a finanse zarządu mają `0.0` we wszystkich 36 miesiącach). Zakres:
+Rekrutacja · Liga Mistrzów · Delivery Lead · Klienci/MRR · Zarząd. **Poza
+zakresem świadomie:** Sales, AI Analytics, Przetargi, Premie (moduł sprzedaży).
+Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-plan.md`
+§0 oraz `docs/insights-etap0-specs.md`.
+
+- **`/api/insights/*` jest ODDZIELNĄ powierzchnią od `/api/reports/*`
+  i `/api/admin/*`.** Tamte trasy są współdzielone z innymi stronami, więc
+  poszerzenie ich guardu (D7) albo zmiana semantyki okresu zmieniałaby po cichu
+  liczby i widoczność gdzie indziej. Kopiowanie SQL-a też nie: logika wspólna
+  z zakładką Klienci mieszka w `services/insights_clients.py`.
+- **Placement = D2: PIERWSZE `hired` dla pary (kandydat, oferta)**, czytane
+  z widoku `analytics_first_milestones`. `candidate_stages` nie ma unikalności
+  na `(candidate_id, job_id, stage)`, a import Traffita dopisuje wiersz na każde
+  zdarzenie — liczenie surowych wierszy dubluje powroty na etap.
+- **`analytics_first_milestones` niesie DOKŁADNIE SZEŚĆ etapów**
+  (`verified`, `cv_sent`, `interview`, `client_interview`, `acceptance`,
+  `hired`). Reszta lejka idzie z `candidate_stages`. Lejek trzyma **dwie
+  niezależne flagi** (`in_milestones`, `mapped_from_traffit`), bo mylą się
+  w obie strony: `new`/`screening` NIE są w widoku, ale są mapowane z Traffita,
+  a `acceptance`/`client_interview` są w widoku i z Traffita nie przychodzą.
+  Test porównujący dwa pola TEJ SAMEJ odpowiedzi przechodzi niezależnie od tego,
+  czy odpowiedź jest prawdziwa — tak ten defekt przeżył pierwsze podejście.
+- **Zero mianownika to `None`, nigdy `0.0`, i nigdy nie przycinamy do 100%.**
+  „Nie da się policzyć" i „policzone, wyszło zero" to dwa różne zdania
+  o zespole; konwersja powyżej stu procent jest sygnałem o kolejności etapów
+  w imporcie, a sufit osi go chowa.
+- **Awaria NIE MOŻE renderować się jako pustka** (`resolveViewState`
+  z `isSuccess`). Bez tego przerwa między ponowieniami react-query pokazuje
+  awarię jako „brak danych". Dotyczy też 403: pustka czyta się jak utrata
+  danych, nie jak brak uprawnień.
+- **D7: `/insights` widzi KAŻDA zalogowana rola.** Guard rolowy zdjęty
+  z sześciu luster; `ROLE_CAPABILITIES` i middleware nietknięte. Poszerzone do
+  `CurrentUser`: `/api/competitions/current`, `/monthly-races` oraz `/history`
+  (ta ostatnia dopiero wtedy, gdy zyskała konsumenta — sekcję „Hall of Fame").
+  Zapisy zostają wąskie: CRUD kampanii i nadawanie plakietek to `AdminUser`.
+- **Ścieżka rozwoju (D6) liczy się PRZY ODCZYCIE, zero mutacji w GET.** Każdy
+  poziom ma DWA alternatywne progi połączone przez LUB („6 placementów w 6
+  miesięcy **lub** 12 w 12"), a **zegar eksperta jest kotwiczony na dacie awansu
+  na seniora** — bez tej kotwicy jedna dobra passa kupuje oba awanse naraz
+  i „ścieżka" staje się jednym progiem z dwiema nazwami. Poziom jest ZAPADKĄ:
+  cichy kwartał go nie odbiera. Progi są konfigurowalne
+  (`insights_scoring_config`), więc żyją w TRZECH kopiach — kod, migracje
+  (`0256` + `0260`), lustro w `entrypoint.sh` — pilnowanych przez
+  `test_insights_scoring_config.py`.
+- **Dni robocze (D5) idą z COMPASSA** (`nexus_workdays_export` →
+  `/api/internal/workdays` → `user_workday_periods`). Metryka to **dni robocze
+  minus zatwierdzony urlop**, NIE „dni przepracowane" — chorobowego w źródle nie
+  ma (trigger B2B go blokuje). Bez sekretów (`WORKDAYS_EXPORT_SECRET`,
+  `COMPASS_WORKDAYS_*`) endpoint zwraca 503, a Power Calling raportuje
+  `not_assessable` — mówi wprost, że nie wie, zamiast dzielić przez zmyśloną
+  stałą (usunięte `POWER_CALLING_WORKDAYS = 5` stawiało osoby na urlopie
+  na imiennej liście „poniżej progu").
+- **Plakietki wygaszamy, nie kasujemy** (`user_performance_flags`, 0258):
+  `is_active=false` + data i autor. Jedna AKTYWNA plakietka danego typu na osobę
+  — częściowy UNIQUE `WHERE is_active`, bo pełny zablokowałby historię.
+  Kontrolka admina renderuje się TAKŻE przy zerze plakietek; inaczej pierwszego
+  ostrzeżenia nie da się nadać nikomu.
+- **Kampania: brak kampanii → baner renderuje NIC**, nie pustą ramkę „0/0"
+  (ta twierdziłaby, że kampania trwa i idzie fatalnie). Okno odwrócone odbija
+  CHECK `ck_recruitment_campaigns_window` — pusty przedział dałby „0 z N"
+  i „0 dni do końca", czyli liczby poprawne arytmetycznie, opisujące
+  nieistniejącą kampanię.
+- **Domyślny okres to `offset = -1` (poprzedni pełny miesiąc)**, nie bieżący.
+  Pierwszego dnia miesiąca `offset=0` znaczy jeden dzień danych i cały ekran
+  pokazuje zera, które wyglądają jak awaria.
+- **Fixture'y testowe nie mogą stać na stałym roku.** Baza testowa jest wspólna
+  dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik wraca
+  jako „regresja" w kodzie, którym nikt nie ruszał. Zanim wybierzesz rok:
+  `grep -rhoE 'datetime\((1[89][0-9]{2}|20[0-9]{2})|date\((1[89][0-9]{2}|20[0-9]{2})|"(1[89][0-9]{2}|20[0-9]{2})-' backend/tests/ | grep -oE '(1[89][0-9]{2}|20[0-9]{2})' | sort -u`

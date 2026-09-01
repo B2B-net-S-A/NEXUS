@@ -155,11 +155,51 @@ SCORING_FIELDS: tuple[ScoringField, ...] = (
     ),
     ScoringField(
         key="seniority_expert_window_months",
-        default=12,
+        default=6,
         minimum=1,
         maximum=24,
         group="seniority",
         label="Ścieżka rozwoju — okno dla Eksperta",
+        unit="miesięcy",
+    ),
+    # Ścieżka rozwoju ma na każdym poziomie DWA alternatywne progi połączone
+    # przez LUB — tak jak w oryginale („6 placementów w 6 miesięcy LUB 12 w 12").
+    # Wolniejsze, ale dłuższe tempo też prowadzi do awansu; jeden próg wycinałby
+    # osoby, które dowożą stabilnie zamiast zrywami.
+    ScoringField(
+        key="seniority_senior_alt_placements",
+        default=12,
+        minimum=0,
+        maximum=200,
+        group="seniority",
+        label="Ścieżka rozwoju — alternatywny próg na Seniora",
+        unit="placementów",
+    ),
+    ScoringField(
+        key="seniority_senior_alt_window_months",
+        default=12,
+        minimum=1,
+        maximum=36,
+        group="seniority",
+        label="Ścieżka rozwoju — alternatywne okno dla Seniora",
+        unit="miesięcy",
+    ),
+    ScoringField(
+        key="seniority_expert_alt_placements",
+        default=24,
+        minimum=0,
+        maximum=200,
+        group="seniority",
+        label="Ścieżka rozwoju — alternatywny próg na Eksperta",
+        unit="placementów",
+    ),
+    ScoringField(
+        key="seniority_expert_alt_window_months",
+        default=12,
+        minimum=1,
+        maximum=36,
+        group="seniority",
+        label="Ścieżka rozwoju — alternatywne okno dla Eksperta",
         unit="miesięcy",
     ),
 )

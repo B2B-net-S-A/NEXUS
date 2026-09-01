@@ -264,6 +264,10 @@ export function Degraded({
 const NOT_ASSESSABLE_REASON: Record<string, string> = {
   no_workday_data:
     "Brak danych o nieobecnościach — nie ma z czego policzyć dziennego mianownika.",
+  // Zero dni roboczych w oknie to najczęściej URLOP. Dzielenie przez zero nie
+  // jest oceną, więc ten wiersz nie może trafić do „poniżej progu”.
+  zero_workdays:
+    "Zero dni roboczych w tym oknie (np. urlop) — nie ma czego dzielić, więc nie oceniamy.",
   no_compass_profile:
     "Brak powiązanego profilu w COMPASSIE — nie znamy dni roboczych tej osoby.",
   calendar_gap:
