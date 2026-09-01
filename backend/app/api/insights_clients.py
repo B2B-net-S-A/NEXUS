@@ -28,14 +28,12 @@ i zasila OBIE powierzchnie. Cztery reguły, które ten moduł utrzymuje:
 """
 
 import logging
-from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import (
-    ANALYTICS_TIMEZONE,
     Period,
     PeriodError,
     PeriodKind,
@@ -44,6 +42,7 @@ from app.analytics.periods import (
 from app.api.deps import CurrentUser
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.job import JobCloseReason
 from app.schemas.money import to_whole_pln
 from app.services.insights_clients import (
@@ -81,25 +80,28 @@ def _resolve(
         ) from exc
 
 
-def _valuation_date(period: Period) -> date:
+def _valuation_date(period: Period, today: date | None = None) -> date:
     """Dzień, na który wyceniamy stawki i kursy: ostatni dzień okna lub dziś.
 
     Okno jest półotwarte, więc ostatni dzień NALEŻĄCY do okresu to ``end - 1``.
     Przyszłość przycinamy do dziś: przyszłych kursów NBP nie ma, a wycena kroku
     harmonogramu, który jeszcze nie obowiązuje, pokazywałaby marżę, której nikt
     dziś nie fakturuje.
+
+    „Dziś" bierzemy z `business_today()`, czyli z kalendarza Europe/Warsaw —
+    TEGO SAMEGO, w którym `resolve_period` liczy granice okna. `date.today()`
+    czyta zegar kontenera (na prodzie UTC), a między północą UTC a północą
+    warszawską obie odpowiedzi się różnią. W tym oknie `min(last_day, today)`
+    przycinał BIEŻĄCY i POPRZEDNI okres do tej samej daty, więc ranking
+    bieżącego miesiąca wyceniał się ostatnim dniem miesiąca poprzedniego —
+    innym krokiem harmonogramu i innym kursem NBP. Objaw jest cichy: liczba
+    jest prawidłowa, tylko opisuje inny dzień.
+
+    ``today`` jest wstrzykiwalne wyłącznie po to, żeby dało się przypiąć zegar
+    w teście — spójnie z `resolve_period(now=...)` i `business_today()`.
     """
     last_day = (period.end - timedelta(days=1)).date()
-    # „Dziś" MUSI być w tej samej strefie co okno. `date.today()` czyta zegar
-    # systemowy (na prodzie UTC), a okna liczy `resolve_period` w Europe/Warsaw
-    # — więc przez ~2 godziny każdej doby (00:00-02:00 CEST) UTC jest jeszcze
-    # w dniu poprzednim. Skutek: pierwszego dnia miesiąca ranking BIEZĄCEGO
-    # okna wyceniał się ostatnim dniem miesiąca POPRZEDNIEGO, czyli innym
-    # krokiem harmonogramu i innym kursem NBP. Ta sama data trafia do klucza
-    # cache'u pośrednio (przez wycenę), więc dwa różne okna potrafiły wyjść
-    # z identycznymi liczbami.
-    today = datetime.now(ZoneInfo(ANALYTICS_TIMEZONE)).date()
-    return min(last_day, today)
+    return min(last_day, today if today is not None else business_today())
 
 
 def _money(value) -> int | None:

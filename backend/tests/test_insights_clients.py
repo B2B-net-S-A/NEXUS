@@ -840,3 +840,103 @@ async def test_hiring_managers_reports_how_many_rows_the_limit_cut(
 
     assert len(body["managers"]) == 2
     assert body["truncated"] == 1
+
+
+# ── Regresja: wycena musi iść kalendarzem Warszawy, nie zegarem kontenera ──
+
+
+def test_valuation_date_uses_warsaw_calendar_in_the_utc_midnight_window():
+    """Między północą UTC a północną warszawską obie daty się różnią.
+
+    To jest regresja na defekt, który przez ~2 godziny KAŻDEJ doby wyceniał
+    ranking BIEŻĄCEGO miesiąca ostatnim dniem miesiąca POPRZEDNIEGO — innym
+    krokiem harmonogramu stawek i innym kursem NBP. Objaw był cichy: liczba
+    poprawna, tylko opisująca inny dzień.
+
+    Test przypina zegar wprost, zamiast liczyć na to, że przebieg CI trafi
+    w to okno. Poprzednia wersja pilnowała tego pośrednio (przez klucz cache'u)
+    i failowała wyłącznie wtedy, gdy akurat trafiła — czyli w praktyce nigdy.
+    """
+    from datetime import date as _date
+    from datetime import datetime as _datetime
+    from datetime import timezone as _timezone
+    from zoneinfo import ZoneInfo as _ZoneInfo
+
+    from app.api.insights_clients import _valuation_date
+    from app.analytics.periods import resolve_period
+
+    # 2026-08-31 22:30 UTC = 2026-09-01 00:30 w Warszawie (CEST, UTC+2).
+    utc_moment = _datetime(2026, 8, 31, 22, 30, tzinfo=_timezone.utc)
+    warsaw_day = utc_moment.astimezone(_ZoneInfo("Europe/Warsaw")).date()
+    utc_day = utc_moment.date()
+
+    # Założenie testu: kalendarze NAPRAWDĘ się w tej chwili różnią.
+    assert warsaw_day == _date(2026, 9, 1)
+    assert utc_day == _date(2026, 8, 31)
+
+    wrzesien = resolve_period("month", now=utc_moment)
+    sierpien = resolve_period("month", offset=-1, now=utc_moment)
+
+    # Bieżący (wrzesień) wycenia się DNIEM WARSZAWSKIM, nie ostatnim dniem
+    # sierpnia — inaczej wrześniowy ranking niesie sierpniowe stawki.
+    assert _valuation_date(wrzesien, today=warsaw_day) == _date(2026, 9, 1)
+
+    # Poprzedni (sierpień) wycenia się swoim ostatnim dniem.
+    assert _valuation_date(sierpien, today=warsaw_day) == _date(2026, 8, 31)
+
+    # I przede wszystkim: dwa różne okna NIE MOGĄ dzielić daty wyceny.
+    assert _valuation_date(wrzesien, today=warsaw_day) != _valuation_date(
+        sierpien, today=warsaw_day
+    )
+
+
+def test_valuation_date_with_utc_clock_would_collapse_both_windows():
+    """Dowód, że defekt był realny, a nie teoretyczny.
+
+    Gdyby „dziś" brać z zegara kontenera (UTC), obie daty wyceny zlewają się
+    w jedną — i właśnie dlatego ten test przypina zegar zamiast go czytać.
+    """
+    from datetime import date as _date
+    from datetime import datetime as _datetime
+    from datetime import timezone as _timezone
+
+    from app.api.insights_clients import _valuation_date
+    from app.analytics.periods import resolve_period
+
+    utc_moment = _datetime(2026, 8, 31, 22, 30, tzinfo=_timezone.utc)
+    utc_day = utc_moment.date()  # 2026-08-31 — o dzień z tyłu
+
+    wrzesien = resolve_period("month", now=utc_moment)
+    sierpien = resolve_period("month", offset=-1, now=utc_moment)
+
+    assert _valuation_date(wrzesien, today=utc_day) == _date(2026, 8, 31)
+    assert _valuation_date(sierpien, today=utc_day) == _date(2026, 8, 31)
+    assert _valuation_date(wrzesien, today=utc_day) == _valuation_date(
+        sierpien, today=utc_day
+    )
+
+
+def test_valuation_date_defaults_to_the_warsaw_business_day():
+    """Bez wstrzyknięcia MUSI pytać `business_today()`, nie `date.today()`.
+
+    Strażnik na wypadek, gdyby ktoś „uprościł" wywołanie z powrotem do zegara
+    systemowego — wtedy oba testy wyżej dalej by przechodziły, bo wstrzykują
+    datę jawnie, a produkcja znów kłamałaby przez dwie godziny na dobę.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from app.api import insights_clients
+
+    # Docstring tej funkcji CYTUJE `date.today()`, żeby wytłumaczyć defekt,
+    # więc surowy `getsource` zawsze by go zawierał. Patrzymy na samo CIAŁO.
+    tree = ast.parse(
+        textwrap.dedent(inspect.getsource(insights_clients._valuation_date))
+    )
+    fn = tree.body[0]
+    body = fn.body[1:] if ast.get_docstring(fn) else fn.body
+    code = "\n".join(ast.unparse(node) for node in body)
+
+    assert "business_today()" in code
+    assert "date.today()" not in code
