@@ -21,6 +21,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -116,6 +117,161 @@ async def test_every_role_reads_races_and_history(
 
 
 @pytest.mark.asyncio
+async def test_hall_of_fame_sql_actually_runs_against_the_real_schema(
+    comp_client: AsyncClient,
+):
+    """Zapytanie Hall of Fame WYKONUJE się na prawdziwym schemacie.
+
+    Testy jednostkowe tej funkcji podmieniają `db.execute` i asertują KSZTAŁT
+    SQL-a — nigdy go nie uruchamiają. Po przepisaniu atrybucji z
+    `VERIFIER_ANCHORED_CTE` na `analytics_first_milestones` (2026-09-01) taki
+    komplet byłby zielony także wtedy, gdyby nowe zapytanie miało literówkę
+    w nazwie kolumny albo odwoływało się do widoku, którego na migrowanej
+    bazie nie ma: 500 zobaczyłby dopiero użytkownik.
+
+    Ten test przechodzi CAŁĄ ścieżkę: router -> serwis -> Postgres, i dotyka
+    OBU zapytań (ranking + `hall_of_fame_scope`), bo `/current` liczy je razem.
+    """
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(comp_client, email, password)
+
+    resp = await comp_client.get(
+        "/api/competitions/current",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body["full_ranking"], list)
+
+    # `scope` to jedyne miejsce, z którego UI wie, ile dorobku stoi POZA
+    # rankingiem. Bez niego lista przycięta do TOP 5 czyta się jako komplet.
+    scope = body["scope"]
+    assert scope is not None, "Hall of Fame bez `scope` — TOP 5 udaje całość"
+    # DOKŁADNIE ten sam kod co w /placement-analysis — własny wariant
+    # („..._by_mover") dawałby maszynowo „różne" tam, gdzie reguła jest ta sama.
+    assert scope["attribution"] == "first_hired_per_candidate_job"
+    for key in (
+        "ranked_placements",
+        "outside_role_placements",
+        "unattributed_placements",
+        # Mianownik dla „TOP 5" — bez niego lista pięciu wierszy stoi nad
+        # liczbą, której te wiersze nie sumują.
+        "ranked_people",
+    ):
+        assert isinstance(scope[key], int), key
+    # Zakres ról jest CZĘŚCIĄ kontraktu: to on, a nie atrybucja, oddziela
+    # „kto dowiózł" od „kto masowo domknął pipeline".
+    assert "admin" not in scope["roles"]
+    assert "delivery_lead" in scope["roles"]
+
+    # Trzy kubełki MUSZĄ domykać się do wszystkich placementów. Pierwsza
+    # wersja liczyła „poza rankingiem" jako `NOT (predykat ról)`, więc kamień
+    # przypisany do konta, którego już nie ma w `users`, wypadał z obu
+    # kubełków przez trójwartościową logikę — a repo zna ten przypadek
+    # (tabela zespołu opisuje go wprost). Zdanie „poza rankingiem: N" było
+    # wtedy po cichu zaniżone.
+    #
+    # Sumę czytamy WPROST z widoku, a nie z drugiego endpointu: ten drugi ma
+    # własny sufit okna (`MAX_CUSTOM_PERIOD_DAYS`), więc porównanie przez
+    # niego albo pomijałoby się po cichu przy 422, albo mierzyło inne okno.
+    async with AsyncSessionLocal() as db:
+        total = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM analytics_first_milestones "
+                    "WHERE stage::text = 'hired'"
+                )
+            )
+        ).scalar_one()
+
+    assert (
+        scope["ranked_placements"]
+        + scope["outside_role_placements"]
+        + scope["unattributed_placements"]
+    ) == int(total), "suma kubełków `scope` nie domyka się do wszystkich placementów"
+
+
+@pytest.mark.asyncio
+async def test_hall_of_fame_agrees_with_placement_analysis_number_by_number(
+    comp_client: AsyncClient,
+):
+    """Zgodność z sąsiadem jest DOWODZONA, nie deklarowana.
+
+    Hall of Fame i „Analiza placementów" liczą tę samą rzecz, ale robią to
+    DWOMA osobnymi zapytaniami w dwóch plikach. Sam wspólny kod definicji
+    (`placements_definition`) jest obietnicą — i wystarczy jedna literówka
+    w predykacie, żeby obie powierzchnie rozjechały się cicho, nadal
+    deklarując tę samą regułę.
+
+    Ten test bierze te same dane z jednego i drugiego SQL-a i porównuje je
+    LICZBA PO LICZBIE dla osób, które wchodzą do obu populacji.
+    """
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(comp_client, email, password)
+
+    hof = await comp_client.get(
+        "/api/competitions/current",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+    assert hof.status_code == 200, hof.text
+    hof_body = hof.json()
+
+    # Kod definicji MUSI być identyczny — inaczej maszynowe porównanie da
+    # „różne" tam, gdzie reguła jest ta sama.
+    analysis = await comp_client.get(
+        "/api/insights/charts/placement-analysis",
+        headers=headers,
+        params={"period": "year", "offset": 0},
+    )
+    assert analysis.status_code == 200, analysis.text
+    assert (
+        hof_body["scope"]["attribution"] == analysis.json()["placements_definition"]
+    ), "Hall of Fame i Analiza placementów deklarują RÓŻNE definicje placementu"
+
+    # Ranking HoF jest all-time, a analiza okresowa — więc porównujemy to, co
+    # porównywalne: liczba z HoF nie może być MNIEJSZA niż liczba tej samej
+    # osoby w oknie zawartym w all-time. Stara, verifier-anchored reguła
+    # liczyła per PRÓBĘ PROCESU, więc potrafiła dać liczbę wyższą niż suma
+    # placementów firmy; po przejściu na D2 taki wiersz jest niemożliwy.
+    per_person = {
+        row["user_id"]: row["placements"]
+        for row in analysis.json()["by_person"]
+        if row.get("attributed") and row.get("user_id") is not None
+    }
+    for entry in hof_body["full_ranking"]:
+        in_window = per_person.get(entry["user_id"])
+        if in_window is None:
+            continue
+        assert entry["metric_value"] >= in_window, (
+            f"{entry['name']}: all-time ({entry['metric_value']}) < okno "
+            f"({in_window}) — dwa zapytania liczą różnie"
+        )
+
+
+@pytest.mark.asyncio
+async def test_other_competition_types_have_no_scope(comp_client: AsyncClient):
+    """`scope` opisuje WYŁĄCZNIE Hall of Fame.
+
+    Pozostałe rankingi są okresowe i mają własny warunek udziału
+    w `requirement`. Gdyby `scope` wyciekł na nie, front pokazałby pod
+    wyścigiem zdanie o wykluczonych rolach, którego ten wyścig nie stosuje.
+    """
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(comp_client, email, password)
+
+    resp = await comp_client.get(
+        "/api/competitions/current",
+        headers=headers,
+        params={"type": "monthly_placements"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["scope"] is None
+
+
+@pytest.mark.asyncio
 async def test_reads_still_require_a_session(comp_client: AsyncClient):
     """„Wszyscy" znaczy „każdy ZALOGOWANY", nie „każdy z internetu"."""
     resp = await comp_client.get(
@@ -136,3 +292,40 @@ async def test_freeze_stays_admin_only(comp_client: AsyncClient):
     )
     assert resp.status_code in (403, 404, 405, 422), resp.text
     assert resp.status_code != 200
+
+
+@pytest.mark.asyncio
+async def test_hall_of_fame_cannot_be_frozen_even_by_admin(comp_client: AsyncClient):
+    """Hall of Fame NIE MA okresu do zamknięcia — i broni tego API, nie baza.
+
+    `POST /freeze` przyjmuje dowolny `CompetitionType`, a
+    `competition_winners.competition_type` to `String(50)` BEZ CHECK-a, więc
+    baza tego nie zatrzyma. Bez tej bramki jeden admin z curl-em zapisuje
+    wiersze z `prize_pln = 0`, których nie da się usunąć (write-once), a
+    `/history` podaje je potem KAŻDEJ zalogowanej roli jako „zamknięty okres".
+
+    Test celowo loguje ADMINA: `test_freeze_stays_admin_only` obok sprawdza
+    tylko, że nie-admin nie przejdzie — czyli przeszedłby także wtedy, gdyby
+    tej bramki w ogóle nie było.
+    """
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(comp_client, email, password)
+
+    resp = await comp_client.post(
+        "/api/competitions/freeze",
+        headers=headers,
+        params={"type": "hall_of_fame", "period": "all_time"},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "nie ma okresu do zamknięcia" in resp.json()["detail"]
+
+    # I NIC nie wylądowało w tabeli nagród — bramka ma zatrzymać zapis,
+    # a nie tylko zwrócić błąd po jego wykonaniu.
+    history = await comp_client.get(
+        "/api/competitions/history",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["periods"] == []

@@ -424,9 +424,24 @@ describe("InsightsHallOfFame", () => {
     period: "all_time",
     top3: [],
     full_ranking: [
-      { user_id: 1, name: "Marlena Rosół", metric_value: 23 },
-      { user_id: 2, name: "Michał Walasek", metric_value: 22 },
+      { user_id: 1, name: "Marlena Rosół", metric_value: 23, is_active: true },
+      { user_id: 2, name: "Michał Walasek", metric_value: 22, is_active: true },
+      { user_id: 3, name: "Elza Grabińska", metric_value: 6, is_active: false },
     ],
+    scope: {
+      ranked_placements: 167,
+      outside_role_placements: 147,
+      unattributed_placements: 0,
+      ranked_people: 12,
+      roles: [
+        "sourcer",
+        "tac",
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+      ],
+      attribution: "first_hired_per_candidate_job",
+    },
   };
 
   it("pokazuje ranking all-time i podpisuje go jako NIE-listę zwycięzców", async () => {
@@ -445,11 +460,64 @@ describe("InsightsHallOfFame", () => {
     // nie ma w rankingu" — to ta sama klasa kłamstwa co przycięta lista
     // hiring managerów obok.
     expect(screen.getByText("TOP 5")).toBeInTheDocument();
-    // Ten ranking przypisuje placement WERYFIKATOROWI, a „Analiza
-    // placementów" dwie sekcje niżej — osobie, która przesunęła etap.
-    // Dwie liczby podpisane „plac." na jednym ekranie muszą powiedzieć,
-    // czym się różnią.
-    expect(screen.getByText("weryfikatorowi")).toBeInTheDocument();
+    // Ten ranking liczy TAK SAMO jak „Analiza placementów" (definicja D2),
+    // ale INACZEJ niż „Wyścig Placementów" obok, który wypłaca nagrodę.
+    // Dwie sąsiadujące tabele z inną regułą muszą to powiedzieć — inaczej
+    // różnica wygląda na błąd jednej z nich.
+    expect(
+      screen.getByText(/tak samo jak w „Analizie placementów"/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("inaczej")).toBeInTheDocument();
+  });
+
+  it("zostawia byłego pracownika w rankingu, ale go OZNACZA", async () => {
+    respond({
+      [CURRENT]: allTime,
+      [HISTORY]: { type: "monthly_recommendations", periods: [] },
+    });
+    renderWithClient(<InsightsHallOfFame />);
+
+    // Ranking WSZECH CZASÓW — odejście z firmy nie cofa tego, co ktoś
+    // osiągnął. Wycięcie wiersza kasowałoby dorobek wstecz, a wiersz bez
+    // chipa sugerowałby, że ta osoba wciąż tu pracuje. Ta sama reguła co
+    // w tabeli „Performance per osoba" dwie sekcje wyżej.
+    expect(await screen.findByText("Elza Grabińska")).toBeInTheDocument();
+    expect(screen.getByText("były pracownik")).toBeInTheDocument();
+  });
+
+  it("mówi, ile placementów stoi POZA rankingiem", async () => {
+    respond({
+      [CURRENT]: allTime,
+      [HISTORY]: { type: "monthly_recommendations", periods: [] },
+    });
+    renderWithClient(<InsightsHallOfFame />);
+
+    // Bez tego zdania TOP 5 czyta się jako całość bazy. Po przejściu na
+    // atrybucję D2 poza rankingiem zostaje WIĘKSZOŚĆ placementów — domknięta
+    // przez konta administracyjne, które nie rekrutują.
+    await screen.findByText("Marlena Rosół");
+    expect(screen.getByText("147")).toBeInTheDocument();
+    expect(
+      screen.getByText(/domkniętych spoza tych ról/),
+    ).toBeInTheDocument();
+  });
+
+  it("nie dopisuje zdania o wykluczonych, gdy nic nie odpada", async () => {
+    respond({
+      [CURRENT]: {
+        ...allTime,
+        scope: { ...allTime.scope, outside_role_placements: 0 },
+      },
+      [HISTORY]: { type: "monthly_recommendations", periods: [] },
+    });
+    renderWithClient(<InsightsHallOfFame />);
+
+    // Zero to nie jest informacja — zdanie „poza rankingiem: 0" dokładałoby
+    // szumu tam, gdzie nie ma czego wyjaśniać.
+    await screen.findByText("Marlena Rosół");
+    expect(
+      screen.queryByText(/domkniętych spoza tych ról/),
+    ).toBeNull();
   });
 
   it("pusta historia mówi, że nikt nie zamknął okresu — nie udaje awarii", async () => {

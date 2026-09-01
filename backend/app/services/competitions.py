@@ -697,37 +697,202 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
     )
 
 
-async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
-    """All-time placements with the canonical first-verifier attribution."""
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+# Role, które WCHODZĄ do Hall of Fame. Świadomie SZERSZE niż w wyścigach
+# (`_rank_recruiters_by_stage`: sourcer/tac/recruiter): po przejściu na
+# atrybucję D2 placement przypisuje się osobie, która PRZESUNĘŁA etap, a etap
+# „Zatrudniony" domyka w tej firmie także delivery. Wąski filtr wycinałby
+# 69 z 314 placementów ostatniego roku (10 osób delivery z 2186 weryfikacjami)
+# — czyli ludzi, którzy tę pracę realnie wykonali.
+#
+# Konta ADMINISTRACYJNE zostają poza rankingiem i to jest cała różnica między
+# „kto dowiózł" a „kto kliknął": w ostatnim roku 5 kont `admin` zebrało
+# 147 z 314 placementów przy CZTERECH weryfikacjach łącznie. To podpis
+# masowego domykania pipeline'u, a nie dorobku rekrutacyjnego — dokładnie ta
+# patologia, przed którą broni verifier-anchored atrybucja w wyścigach
+# (patrz docstring `_rank_recruiters_by_stage`). Tutaj zamyka ją filtr ról,
+# bo Hall of Fame nie wypłaca nagród i może pozwolić sobie na prostszą regułę.
+# Kod definicji w odpowiedzi — DOKŁADNIE ten sam string co
+# `placements_definition` w `/api/insights/charts/placement-analysis`,
+# `/api/insights/board` i banerze kampanii. Cały sens tego pola polega na tym,
+# że konsument może PORÓWNAĆ dwa kody i dostać odpowiedź „ta sama reguła".
+# Własny wariant („..._by_mover") wyglądałby na precyzyjniejszy, a dawałby
+# maszynowo „różne" tam, gdzie reguła jest identyczna — czyli odwrotność tego,
+# do czego to pole służy. Rozjazdu pilnuje test.
+HALL_OF_FAME_ATTRIBUTION = "first_hired_per_candidate_job"
 
+
+HALL_OF_FAME_ROLES = [
+    "sourcer",
+    "tac",
+    "recruiter",
+    "delivery_lead",
+    "head_of_recruitment",
+]
+
+
+@dataclass
+class HallOfFameScope:
+    """Ile dorobku stoi POZA rankingiem — lista bez tego czyta się jak komplet."""
+
+    ranked_placements: int
+    outside_role_placements: int
+    unattributed_placements: int
+    # Mianownik dla „TOP 5". Bez niego pod listą pięciu wierszy stoi liczba
+    # placementów, której te wiersze NIE sumują — czyli ten sam defekt co
+    # „donut nie sumuje się do kafla nad nim".
+    ranked_people: int
+    roles: list[str]
+
+    def to_dict(self) -> dict:
+        return {
+            "ranked_placements": self.ranked_placements,
+            "outside_role_placements": self.outside_role_placements,
+            "unattributed_placements": self.unattributed_placements,
+            "ranked_people": self.ranked_people,
+            "roles": self.roles,
+            "attribution": HALL_OF_FAME_ATTRIBUTION,
+        }
+
+
+# Wspólny predykat ról — jeden literał dla rankingu i dla licznika „poza
+# rankingiem". Rozjazd między nimi dałby sumę, która się nie domyka.
+_HOF_ROLE_PREDICATE = """
+    (
+        u.role::text = ANY(:roles)
+        OR u.roles ?| :roles
+    )
+"""
+
+
+async def hall_of_fame_with_scope(
+    db: AsyncSession, limit: int = 5
+) -> tuple[list[RankedUser], HallOfFameScope]:
+    """Ranking wszech czasów wg definicji D2 — jak „Analiza placementów".
+
+    ATRYBUCJA: `analytics_first_milestones.first_moved_by`, czyli osoba, która
+    przesunęła parę (kandydat, oferta) na etap „Zatrudniony" PIERWSZY raz.
+    Ta sama reguła, którą stosuje `/api/insights/charts/placement-analysis`
+    i tabela „Performance per osoba" — dzięki temu trzy liczby podpisane
+    „placementy" na jednym ekranie znaczą to samo.
+
+    ŚWIADOMA RÓŻNICA WOBEC WYŚCIGÓW. `monthly_most_placements` i mistrzowie
+    kwartału liczą verifier-anchored (`_rank_recruiters_by_stage`) i tak
+    zostaje: tamte WYPŁACAJĄ nagrody (1500 zł / 10 000 zł) i mają zamrożoną
+    historię, więc zmiana ich formuły przesuwałaby pieniądze. Hall of Fame nie
+    ma puli nagród ani ani jednego zamrożonego okresu, więc może iść za
+    kanoniczną definicją D2. UI mówi o tej różnicy wprost.
+
+    BEZ FILTRA `is_active`. Ranking WSZECH CZASÓW mówi, co ktoś osiągnął —
+    odejście z firmy tego nie cofa. Zgodnie z tabelą „Performance per osoba"
+    obok, która zostawia byłych pracowników z chipem. `is_active` wraca
+    w `extras`, żeby UI mogło ich oznaczyć zamiast ukryć.
+
+    JEDNO ZAPYTANIE na listę I liczniki. Dwa osobne skany widoku biegłyby
+    w READ COMMITTED na DWÓCH snapshotach, więc zapis między nimi rozjeżdżałby
+    listę z podpisem pod nią — a podpis mówi właśnie, ile placementów ta lista
+    obejmuje. To ta sama reguła, przez którą kafle w innych sekcjach są foldem
+    po tej samej liście, którą renderują, a nie drugim zapytaniem.
+    """
     rows = (
         await db.execute(
             text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                SELECT u.id, u.name, count(*) AS cnt
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.stage = 'hired'
-                  AND (
-                      u.role::text IN ('sourcer', 'tac', 'recruiter')
-                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
-                  )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name
-                -- Tie-break po `u.id`, nie po nazwie — jak w pozostałych
-                -- rankingach; porządek bajtowy pod musl nie jest neutralny.
-                ORDER BY count(*) DESC, u.id ASC
-                LIMIT :limit
+                f"""
+                WITH hired AS (
+                    SELECT fm.first_moved_by AS uid
+                    FROM analytics_first_milestones fm
+                    WHERE fm.stage::text = 'hired'
+                ),
+                classified AS (
+                    SELECT h.uid,
+                           u.id   AS user_id,
+                           u.name AS name,
+                           u.is_active,
+                           -- `COALESCE(..., FALSE)`, nie `NOT (predykat)`:
+                           -- kamień przypisany do konta, którego JUŻ NIE MA
+                           -- w `users`, ma predykat NULL i wypadałby z OBU
+                           -- kubełków przez trójwartościową logikę. Suma
+                           -- trzech liczb ma się domykać do wszystkich
+                           -- placementów, bo inaczej podpis „poza rankingiem"
+                           -- jest po cichu zaniżony.
+                           COALESCE({_HOF_ROLE_PREDICATE}, FALSE) AS in_scope
+                    FROM hired h
+                    LEFT JOIN users u ON u.id = h.uid
+                ),
+                totals AS (
+                    SELECT
+                        count(*) FILTER (WHERE in_scope)              AS ranked,
+                        count(*) FILTER (
+                            WHERE uid IS NOT NULL AND NOT in_scope
+                        )                                            AS outside_role,
+                        count(*) FILTER (WHERE uid IS NULL)          AS unattributed,
+                        count(DISTINCT user_id) FILTER (WHERE in_scope)
+                                                                     AS ranked_people
+                    FROM classified
+                ),
+                ranking AS (
+                    SELECT user_id, name, is_active, count(*) AS cnt
+                    FROM classified
+                    WHERE in_scope
+                    GROUP BY user_id, name, is_active
+                    -- Tie-break po `user_id`, nie po nazwie — jak w pozostałych
+                    -- rankingach; porządek bajtowy pod musl nie jest neutralny.
+                    ORDER BY count(*) DESC, user_id ASC
+                    LIMIT :limit
+                )
+                SELECT r.user_id, r.name, r.is_active, r.cnt,
+                       t.ranked, t.outside_role, t.unattributed, t.ranked_people
+                FROM totals t
+                LEFT JOIN ranking r ON TRUE
+                ORDER BY r.cnt DESC NULLS LAST, r.user_id ASC
                 """
             ),
-            {"limit": limit},
+            {"limit": limit, "roles": HALL_OF_FAME_ROLES},
         )
     ).all()
-    return [
-        RankedUser(user_id=r.id, name=r.name, metric_value=int(r.cnt)) for r in rows
+
+    # `totals` to agregat bez GROUP BY, więc zawsze daje dokładnie jeden
+    # wiersz, a `LEFT JOIN ranking ON TRUE` go zachowuje — nawet gdy ranking
+    # jest pusty (wtedy `user_id IS NULL`). Pusty wynik znaczy więc, że
+    # zapytanie przestało mieć ten kształt.
+    #
+    # Podnosimy błąd zamiast zwracać zera: zera wyrenderowałyby się jako
+    # „nikt nie ma placementu", czyli awaria udająca wynik. Sekcja pokazuje
+    # wtedy komunikat z ponowieniem — to jest uczciwa odpowiedź.
+    if not rows:
+        raise RuntimeError(
+            "hall_of_fame: zapytanie nie zwróciło wiersza `totals` — "
+            "kształt SQL-a przestał gwarantować agregat bez GROUP BY"
+        )
+    head = rows[0]
+    scope = HallOfFameScope(
+        ranked_placements=int(head.ranked or 0),
+        outside_role_placements=int(head.outside_role or 0),
+        unattributed_placements=int(head.unattributed or 0),
+        ranked_people=int(head.ranked_people or 0),
+        roles=list(HALL_OF_FAME_ROLES),
+    )
+    ranked = [
+        RankedUser(
+            user_id=r.user_id,
+            name=r.name,
+            metric_value=int(r.cnt),
+            extras={"is_active": bool(r.is_active)},
+        )
+        for r in rows
+        if r.user_id is not None
     ]
+    return ranked, scope
+
+
+async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
+    """Sam ranking — dla konsumentów, którzy nie renderują podpisu o zakresie.
+
+    Cienka nakładka na `hall_of_fame_with_scope`: JEDNO zapytanie i jedna
+    definicja w całym repo. Osobny SQL „tylko na listę" byłby drugim miejscem,
+    w którym trzeba pamiętać o filtrze ról.
+    """
+    ranked, _scope = await hall_of_fame_with_scope(db, limit=limit)
+    return ranked
 
 
 async def compose_monthly_races(

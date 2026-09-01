@@ -136,20 +136,84 @@ async def test_champions_weights_change_the_ranking() -> None:
     assert recommendation_heavy[0].user_id == 1  # A wygrywa na rekomendacjach
 
 
-async def test_hall_of_fame_uses_verifier_anchored_placements() -> None:
-    rows = [SimpleNamespace(id=7, name="Verifier", cnt=12)]
+async def test_hall_of_fame_counts_placements_like_placement_analysis() -> None:
+    """Hall of Fame liczy wg D2, tak samo jak „Analiza placementów".
+
+    Do 2026-09-01 ta funkcja stała na `VERIFIER_ANCHORED_CTE`, przez co dwie
+    sąsiadujące sekcje jednego ekranu podpisane „placementy" pokazywały liczby
+    policzone dwiema regułami. Teraz obie czytają
+    `analytics_first_milestones.first_moved_by` — czyli PIERWSZE wejście pary
+    (kandydat, oferta) na etap „Zatrudniony", przypisane osobie, która ten
+    etap przesunęła.
+
+    Wyścigi (`_rank_recruiters_by_stage`) świadomie ZOSTAJĄ przy atrybucji
+    verifier-anchored: wypłacają nagrody i mają zamrożoną historię.
+    """
+    # Kształt wiersza z JEDNEGO zapytania: ranking i liczniki lecą razem,
+    # więc każdy wiersz niesie też kubełki `scope`.
+    rows = [
+        SimpleNamespace(
+            user_id=7,
+            name="Mover",
+            is_active=True,
+            cnt=12,
+            ranked=12,
+            outside_role=3,
+            unattributed=0,
+            ranked_people=1,
+        )
+    ]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
 
     ranked = await competitions.hall_of_fame(db, limit=5)
 
     statement, params = db.execute.await_args.args
     sql = str(statement)
-    assert "FROM credited c" in sql
-    assert "c.stage = 'hired'" in sql
-    assert "CandidateStage.moved_by" not in sql
-    assert params == {"limit": 5}
+    assert "analytics_first_milestones" in sql
+    assert "fm.first_moved_by" in sql
+    # Stara atrybucja NIE MOŻE wrócić bocznymi drzwiami.
+    assert "credited" not in sql
+    assert "fm.stage::text = 'hired'" in sql
+    # Lista i liczniki z JEDNEGO skanu — dwa osobne zapytania biegłyby na
+    # dwóch snapshotach i rozjeżdżałyby ranking z podpisem pod nim.
+    assert "WITH hired AS" in sql
+    # Ranking WSZECH CZASÓW nie wycina byłych pracowników — odejście z firmy
+    # nie cofa tego, co ktoś osiągnął.
+    assert "is_active IS TRUE" not in sql
+    assert params == {"limit": 5, "roles": competitions.HALL_OF_FAME_ROLES}
     assert ranked[0].user_id == 7
     assert ranked[0].metric_value == 12
+    # `is_active` w extras — UI oznacza byłych pracowników chipem zamiast ich
+    # ukrywać; bez tego pola wiersz sugeruje, że osoba wciąż tu pracuje.
+    assert ranked[0].extras == {"is_active": True}
+
+
+async def test_hall_of_fame_excludes_admin_accounts_but_keeps_delivery() -> None:
+    """Zakres ról to jedyne, co dzieli „kto dowiózł" od „kto kliknął".
+
+    Zmierzone na produkcji (ostatnie 366 dni, 314 placementów): pięć kont
+    `admin` zebrało 147 placementów przy CZTERECH weryfikacjach łącznie —
+    podpis masowego domykania pipeline'u. Delivery w tym samym oknie: 69
+    placementów przy 2186 weryfikacjach, czyli realna praca, którą wąski filtr
+    wyścigów (sourcer/tac/recruiter) wycinałby z rankingu.
+    """
+    assert "admin" not in competitions.HALL_OF_FAME_ROLES
+    assert "finance" not in competitions.HALL_OF_FAME_ROLES
+    for role in ("sourcer", "tac", "recruiter", "delivery_lead", "head_of_recruitment"):
+        assert role in competitions.HALL_OF_FAME_ROLES
+
+    # Wyścigi zostają przy SWOIM, węższym zakresie — mają własną atrybucję
+    # i wypłacają nagrody. Zlanie obu list byłoby cichą zmianą regulaminu.
+    db = SimpleNamespace(execute=AsyncMock(return_value=_Result([])))
+    await competitions._rank_recruiters_by_stage(
+        db,
+        stage=competitions.PipelineStage.hired,
+        start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+    )
+    race_sql = str(db.execute.await_args.args[0])
+    assert "credited" in race_sql, "wyścig zgubił atrybucję konkursową"
+    assert "delivery_lead" not in race_sql
 
 
 def _race_row(
@@ -353,7 +417,16 @@ def test_business_day_counter_skips_polish_public_holidays() -> None:
 
 # Miesiąc daleko w przyszłości — żadna inna suita nie seeduje tam milestone'ów,
 # więc ranking liczony globalnie nie łapie cudzych danych.
-_RACE_MONTH = datetime(2033, 5, 2, 9, 0, tzinfo=timezone.utc)
+# Miesiąc LOSOWANY PER PROCES, nie zabetonowany. Ranking ma `LIMIT 10`,
+# a testowa baza NIE jest czyszczona między przebiegami — na stałym „2033-05"
+# każde uruchomienie dokładało dwóch rekruterów, aż nowo zasiana para wypadała
+# poza czołówkę i test padał z `ValueError: <id> is not in list`. Zmierzone:
+# po dwunastu przebiegach w tym miesiącu siedziały 24 osoby i 108 ruchów.
+# Objaw był mylący — wyglądał na regresję w kodzie rankingu, a był zderzeniem
+# okien. Ta sama pułapka co ze stałym rokiem w `test_insights_charts.py`.
+_RACE_YEAR = 2100 + int(uuid.uuid4().hex[:4], 16) % 500
+_RACE_MONTH = datetime(_RACE_YEAR, 5, 2, 9, 0, tzinfo=timezone.utc)
+_RACE_PERIOD = f"{_RACE_YEAR}-05"
 
 
 async def _seed_race_recruiter(db, *, name: str, verified: int, cv_sent: int) -> int:
@@ -421,7 +494,7 @@ async def test_monthly_race_sql_ranks_unqualified_and_awards_only_qualified(
         precise_id = await _seed_race_recruiter(
             db, name="Fewer but precise", verified=4, cv_sent=4
         )
-        ranked = await competitions.monthly_most_recommendations(db, "2033-05")
+        ranked = await competitions.monthly_most_recommendations(db, _RACE_PERIOD)
 
     order = [item.user_id for item in ranked]
     assert order.index(loud_id) < order.index(precise_id), (

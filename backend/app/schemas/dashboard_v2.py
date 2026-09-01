@@ -396,6 +396,11 @@ class CompetitionRankingEntry(DashboardModel):
     precision_pct: float | None = None
     required_verifications: int | None = None
     disqualification_reasons: list[str] = Field(default_factory=list)
+    # Hall of Fame jest rankingiem WSZECH CZASÓW i świadomie zostawia byłych
+    # pracowników — odejście z firmy nie cofa tego, co ktoś osiągnął. Bez tego
+    # pola widget nie ma jak ich oznaczyć i wiersz kłamie przez przemilczenie.
+    # `None` = ranking, który tego nie rozróżnia (konkursy okresowe).
+    is_active: bool | None = None
 
 
 class RecruitmentQuarterlyLeague(DashboardModel):

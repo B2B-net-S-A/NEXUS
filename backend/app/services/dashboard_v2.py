@@ -1616,6 +1616,7 @@ def _competition_entry(
         prize_pln=raw.get("prize_pln", prize_pln),
         excluded=bool(raw.get("excluded", False)),
         qualified=raw.get("qualified"),
+        is_active=raw.get("is_active"),
         placements=raw.get("placements"),
         interviews=raw.get("interviews"),
         recommendations=raw.get("recommendations"),

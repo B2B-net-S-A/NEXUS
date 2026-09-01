@@ -14,7 +14,7 @@ import {
   type CompetitionTypeKey,
   type HallOfFameResponse,
 } from "@/lib/insights-races-api";
-import { count, money } from "./InsightsFormat";
+import { count, definitionText, DefinitionNote, money } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
 /**
@@ -90,32 +90,33 @@ function AllTimeBlock() {
         <Trophy className="h-4 w-4 text-warning" aria-hidden="true" />
         Wszech czasów — placementy
       </h3>
-      {/* Trzy rzeczy, które ten podpis MUSI powiedzieć, bo inaczej lista
-          kłamie w sposób niewidoczny:
+      {/* Podpis MUSI unieść trzy rzeczy, bo bez nich lista kłamie
+          w sposób niewidoczny:
 
-          1. To TOP 5, nie pełny ranking. Serwer tnie zbiór do pięciu wierszy
-             (`comp_service.hall_of_fame(db, limit=5)`), a lista bez tej
-             informacji czyta się jako komplet — osoba na szóstym miejscu
-             widzi, że „jej nie ma w rankingu".
-          2. Placement jest tu przypisany WERYFIKATOROWI. Dwie sekcje niżej
-             „Analiza placementów" liczy tę samą rzecz przez
-             `analytics_first_milestones.first_moved_by`, więc na jednym
-             ekranie stoją dwie liczby podpisane „plac." policzone dwiema
-             różnymi regułami. Bez tego zdania różnica wygląda jak błąd.
-          3. Lista obejmuje wyłącznie osoby wciąż zatrudnione — zapytanie
-             filtruje `u.is_active IS TRUE`, a tabela zespołu obok świadomie
-             ZOSTAWIA byłych pracowników z chipem. Sprzeczna reguła o tych
-             samych ludziach musi być nazwana, dopóki nie zostanie ujednolicona
-             (to zmiana na współdzielonym `/api/competitions/current`, więc
-             dotyka też dashboardu — osobna decyzja, nie cichy refaktor). */}
+          1. To TOP 5, nie pełny ranking (`hall_of_fame(db, limit=5)`).
+             Lista bez tej informacji czyta się jako komplet, a osoba na
+             szóstym miejscu widzi, że „jej nie ma w rankingu".
+          2. Poza rankingiem stoi realny kawał dorobku — konta
+             administracyjne, które domykają pipeline masowo. Liczba przychodzi
+             z serwera (`scope`), a nie jest tu wpisana: wpisana rozjechałaby
+             się przy pierwszej zmianie w bazie.
+          3. Ten ranking liczy TAK SAMO jak „Analiza placementów"
+             (definicja D2), ale INACZEJ niż „Wyścig Placementów" obok, który
+             wypłaca nagrodę i dlatego został przy atrybucji konkursowej.
+             Dwie sąsiadujące tabele z inną regułą muszą to powiedzieć, bo
+             inaczej różnica wygląda na błąd jednej z nich. */}
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Ranking żywy, <strong>TOP 5</strong>, liczony z całej historii. To NIE
-        jest lista zwycięzców — nagrodę przyznaje dopiero zamknięcie okresu.
+        Ranking żywy, <strong>TOP 5</strong>
+        {data?.scope ? ` z ${count(data.scope.ranked_people)} osób` : ""},
+        liczony z całej historii. To NIE jest lista zwycięzców — nagrodę
+        przyznaje dopiero zamknięcie okresu.
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Placement liczony <strong>weryfikatorowi</strong> (nie osobie, która
-        przesunęła etap) — dlatego liczby mogą różnić się od „Analizy
-        placementów". Lista obejmuje osoby obecnie zatrudnione.
+        Placement liczony <strong>tak samo jak w „Analizie placementów"</strong>{" "}
+        — pierwsze wejście pary (kandydat, rekrutacja) na etap „Zatrudniony",
+        przypisane osobie, która ten etap przesunęła. „Wyścig Placementów" obok
+        liczy <strong>inaczej</strong> (atrybucja konkursowa), bo wypłaca
+        nagrodę.
       </p>
 
       <div className="mt-3">
@@ -147,6 +148,16 @@ function AllTimeBlock() {
                 <RankBadge rank={index + 1} />
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                   {entry.name}
+                  {/* Ranking WSZECH CZASÓW zostawia byłych pracowników —
+                      odejście z firmy nie cofa tego, co ktoś osiągnął — ale
+                      wiersz bez chipa sugerowałby, że ta osoba wciąż tu
+                      pracuje. Ta sama reguła co w tabeli „Performance per
+                      osoba" dwie sekcje wyżej. */}
+                  {entry.is_active === false && (
+                    <span className="ml-2 rounded-full border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      były pracownik
+                    </span>
+                  )}
                 </span>
                 <span className="shrink-0 text-sm font-extrabold text-foreground">
                   {count(entry.metric_value)}
@@ -159,6 +170,38 @@ function AllTimeBlock() {
           </ol>
         )}
       </div>
+
+      {/* Ile dorobku stoi POZA rankingiem. Bez tego zdania TOP 5 czyta się
+          jako całość bazy, a po przejściu na atrybucję D2 poza rankingiem
+          zostaje ponad połowa placementów.
+
+          Sformułowanie jest CELOWO szersze niż „konta administracyjne":
+          `outside_role_placements` obejmuje każdą rolę spoza zakresu (także
+          `finance`) ORAZ placementy przypisane do kont, których już nie ma
+          w `users`. Węższe zdanie byłoby nieprawdziwe akurat w przypadkach
+          brzegowych, czyli tam, gdzie ktoś by je sprawdzał. */}
+      {data?.scope && data.scope.outside_role_placements > 0 && (
+        <p className="mt-3 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+          W rankingu {count(data.scope.ranked_placements)} placementów ról
+          rekrutacyjnych i delivery. Poza nim:{" "}
+          <strong>{count(data.scope.outside_role_placements)}</strong>{" "}
+          domkniętych spoza tych ról — głównie przez konta administracyjne
+          {data.scope.unattributed_placements > 0 && (
+            <> — i {count(data.scope.unattributed_placements)} bez autora</>
+          )}
+          .
+        </p>
+      )}
+
+      {/* Nota definicji z TEJ SAMEJ mapy, z której korzysta „Analiza
+          placementów" — to jedyny mechanizm, który sam wykryje kolejny
+          rozjazd: gdyby kody przestały być identyczne, pod obiema sekcjami
+          stanęłyby różne zdania. */}
+      {data?.scope && (
+        <DefinitionNote>
+          {definitionText(data.scope.attribution)}
+        </DefinitionNote>
+      )}
     </div>
   );
 }
