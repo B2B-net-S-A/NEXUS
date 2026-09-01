@@ -6369,7 +6369,7 @@ asyncio.run(run())
 PY
 
 # Rozdzielenie zamówień MD i okresowych — jednorazowa naprawa danych
-# (safety-net dla migracji 0261, gdy alembic na prodzie stoi na starszej
+# (safety-net dla migracji 0262, gdy alembic na prodzie stoi na starszej
 # rewizji). Blok SQL jest ten sam co w migracji — jedno źródło w
 # `app/services/order_separation_repair.py` — i jest idempotentny: advisory
 # lock serializuje równoległe deploye, a marker w `app_settings` sprawia, że

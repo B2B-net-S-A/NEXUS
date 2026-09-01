@@ -404,7 +404,7 @@ export function orderGroupContractIds(
  * Warunkiem jest brak ŻYWEGO zamówienia samodzielnego, a nie brak zamówień
  * w ogóle. Osoba obsadzona na zamówieniu MD, której został po historii wyłącznie
  * wiersz zakończony albo anulowany (np. duplikat sprzątnięty przez migrację
- * 0261), pokazywała się na liście DWA razy: raz jako linia grupy, raz jako
+ * 0262), pokazywała się na liście DWA razy: raz jako linia grupy, raz jako
  * własna karta z martwym zamówieniem. Kontraktor z realnym, otwartym
  * zamówieniem okresowym obok linii MD nadal ma obie pozycje — to dwa różne
  * zaangażowania i właśnie o ich rozdzielenie chodzi.

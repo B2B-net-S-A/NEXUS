@@ -1,7 +1,7 @@
 """Rozdziel zamówienia MD/kosztowe od okresowych i cofnij ich skutki uboczne.
 
-Revision ID: 0261_separate_md_periodic
-Revises: 0260_seniority_alt_thresholds
+Revision ID: 0262_separate_md_periodic
+Revises: 0261_insights_seniority_snapshots
 
 Zgłoszenie (BNP Paribas, Polkomtel, BIK, Lotte Wedel): u konsultantów
 obsadzonych na zamówieniu rozliczanym w MD powstały RÓWNOLEGLE zamówienia
@@ -39,8 +39,8 @@ from alembic import op
 
 from app.services.order_separation_repair import SEPARATE_MD_PERIODIC_SQL
 
-revision = "0261_separate_md_periodic"
-down_revision = "0260_seniority_alt_thresholds"
+revision = "0262_separate_md_periodic"
+down_revision = "0261_insights_seniority_snapshots"
 branch_labels = None
 depends_on = None
 

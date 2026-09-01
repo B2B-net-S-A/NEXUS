@@ -1,7 +1,7 @@
 """Jednorazowa naprawa danych po rozdzieleniu zamówień MD i okresowych.
 
 SQL mieszka TUTAJ, a nie w migracji, bo ma DWÓCH wołających: migrację
-``0261_separate_md_periodic`` oraz safety-net w ``entrypoint.sh`` (alembic na
+``0262_separate_md_periodic`` oraz safety-net w ``entrypoint.sh`` (alembic na
 produkcji bywa osierocony, a ta naprawa jest treścią ticketu, nie kosmetyką).
 Dwie kopie tego samego bloku rozjechałyby się przy pierwszej poprawce.
 
@@ -13,7 +13,7 @@ natychmiast. Dlatego wołanie go przy każdym starcie kontenera jest bezpieczne.
 from __future__ import annotations
 
 
-SEPARATE_MD_PERIODIC_MARKER = "0261_separate_md_periodic"
+SEPARATE_MD_PERIODIC_MARKER = "0262_separate_md_periodic"
 _MARKER = SEPARATE_MD_PERIODIC_MARKER
 
 SEPARATE_MD_PERIODIC_SQL = rf"""

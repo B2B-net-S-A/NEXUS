@@ -31,7 +31,7 @@ wszystkie zamówienia kontraktu, w tym linię MD.
   Współistnienie z zamówieniem KOSZTOWYM zostaje (dwa modele rozliczenia
   u jednego klienta to wspierany scenariusz; ticket mówi o MD).
 
-**Dane.** Migracja `0261_separate_md_periodic` + lustro w `entrypoint.sh`
+**Dane.** Migracja `0262_separate_md_periodic` + lustro w `entrypoint.sh`
 (jedno źródło SQL: `app/services/order_separation_repair.py`). Reguła, **zero
 `client_id` w SQL-u** — czterej klienci ze zgłoszenia są przypadkiem reguły.
 Puste zaślepki kasowane, pozostałe duplikaty ANULOWANE (mogą nieść numer i PDF,
@@ -101,7 +101,7 @@ workflow „Coolify set env"; ID klienta:
 * Backend, realny Postgres: `tests/test_md_periodic_order_separation.py`
   (8 testów) + przebieg celowany-szeroki po 53 plikach dotykających zmienionych
   modułów — **987 passed**, po korekcie dwóch atrap **194 passed** w podzbiorze.
-* Migracja `0261` zaaplikowana na świeżej bazie (`alembic upgrade heads`, exit 0).
+* Migracja `0262` zaaplikowana na świeżej bazie (`alembic upgrade heads`, exit 0).
 * Frontend: `tsc --noEmit` czysto, `next lint` czysto, vitest (client-order-list,
   contracts-list-navigation, OrdersAndContractsTab, harnessy zamówień) zielone.
 * Przeglądarka, pełny flow na lokalnym stacku (kontrakt 434, klient 391):
@@ -121,4 +121,4 @@ workflow „Coolify set env"; ID klienta:
 * Migracja nie ma dostępu do produkcji z tej sesji — liczby duplikatów
   u BNP / Polkomtel / BIK / Wedel będą znane z paragonu w `app_settings`
   po wdrożeniu (`SELECT value FROM app_settings WHERE key =
-  '0261_separate_md_periodic';`).
+  '0262_separate_md_periodic';`).

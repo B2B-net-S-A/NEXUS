@@ -751,7 +751,7 @@ zamówienie. U klientów wielo-konsultantowych ta sama osoba bywa więc opisana
 dwa razy: linią grupy MD/kosztowej (`ClientOrder.order_group_id IS NOT NULL`)
 i samodzielnym zamówieniem okresowym. Zgłoszenie z sierpnia 2026
 (BNP / Polkomtel / BIK / Lotte Wedel): zakończenie tego drugiego kasowało
-budżet MD tej samej osoby. Migracja `0261_separate_md_periodic`.
+budżet MD tej samej osoby. Migracja `0262_separate_md_periodic`.
 
 - **Przyczyna była DWUCZĘŚCIOWA i obie połowy trzeba było zamknąć.** Hook
   zatrudnienia (`_ensure_open_order`) zakłada szkic-zaślepkę „(bez numeru)"
@@ -802,7 +802,7 @@ budżet MD tej samej osoby. Migracja `0261_separate_md_periodic`.
   w `GET /api/admin/engagement-inventory` (checki `order_client_mismatch`
   i `periodic_duplicates_group_line`). Cicha zmiana czyjegoś stanu na podstawie
   niespójnych danych jest gorsza niż jej brak — dlatego audyt, nie automat.
-- **Naprawa danych: migracja `0261` + lustro w `entrypoint.sh`** (prod alembic
+- **Naprawa danych: migracja `0262` + lustro w `entrypoint.sh`** (prod alembic
   bywa osierocony, a ta naprawa jest treścią ticketu). SQL ma JEDNO źródło:
   `app/services/order_separation_repair.py`. Jest jednorazowy (advisory lock +
   marker w `app_settings`) i regułowy — **ani jednego `client_id` w SQL-u**.

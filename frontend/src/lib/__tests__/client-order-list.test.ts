@@ -530,7 +530,7 @@ describe("client order list filters", () => {
 
   it("chowa kartę kontraktora, po której został wyłącznie martwy duplikat", () => {
     // Zamówienie zakończone/anulowane nie jest osobnym zaangażowaniem — po
-    // sprzątnięciu duplikatu (migracja 0261) osoba ma być na liście RAZ,
+    // sprzątnięciu duplikatu (migracja 0262) osoba ma być na liście RAZ,
     // jako linia zamówienia MD.
     const md = group(1, "MD", {
       lines: [line(11, "Jarosław Suchanek", { contract_id: 11 })],
