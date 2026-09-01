@@ -1151,7 +1151,25 @@ async def _build_line(
     # współpracy. Zostawiony na kontrakcie sprawiał, że wypowiedzenie z karty
     # okresowej domykało również tę linię (patrz
     # `order_engagement_separation`).
-    await absorb_auto_draft_shells(db, contract.id)
+    #
+    # Ślad w `activities` jest OBOWIĄZKOWY i ma ten sam kształt co wpis migracji
+    # 0261: kasowanie wiersza, którego nikt nie widzi w historii, jest dla
+    # operatora nieodróżnialne od danych, które zniknęły same.
+    for removed_order_id in await absorb_auto_draft_shells(db, contract.id):
+        db.add(
+            Activity(
+                entity_type="client_order",
+                entity_id=removed_order_id,
+                action="order_deleted",
+                user_id=user.id,
+                details={
+                    "contract_id": contract.id,
+                    "client_id": group.client_id,
+                    "order_group_id": group.id,
+                    "reason": "absorbed_auto_draft_shell",
+                },
+            )
+        )
     if payload.job_id is not None:
         owns_job = await db.scalar(
             select(Job.id).where(

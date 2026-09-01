@@ -2462,6 +2462,14 @@ async def close_order(
     zakończenie (``POST /order-groups/{id}/close``), które prowadzi budżet,
     historię i sprawy offboardingowe. Dwie drogi do jednego wiersza rozjechałyby
     się przy pierwszej zmianie którejkolwiek.
+
+    Data WSTECZ jest dozwolona i to jest świadome — tak samo jak w
+    ``/contracts/{id}/terminate`` i w zakończeniu grupy. Zamówienia domyka się
+    nagminnie po fakcie (dokument od klienta przychodzi z opóźnieniem), a jedyne
+    ograniczenie z sensem biznesowym to początek samego zamówienia. Rekordy
+    historyczne często nie mają ``start_date`` i wtedy nie ma się do czego
+    odnieść — sztywny limit „nie dalej niż rok wstecz" byłby regułą, której
+    nikt nie ustalił, a która zablokowałaby porządkowanie starych danych.
     """
 
     await _assert_client(db, client_id)

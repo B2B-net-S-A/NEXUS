@@ -230,6 +230,25 @@ async def test_adding_a_group_line_absorbs_the_auto_draft_shell(
     assert shell_id not in remaining
     assert kept_id in remaining
 
+    # Kasowanie wiersza, którego nikt nie widzi w historii, jest dla operatora
+    # nieodróżnialne od danych, które zniknęły same. Ten sam kształt wpisu ma
+    # migracja 0261.
+    from app.models.activity import Activity
+
+    async with AsyncSessionLocal() as db:
+        audit = (
+            await db.execute(
+                select(Activity).where(
+                    Activity.entity_type == "client_order",
+                    Activity.entity_id == shell_id,
+                    Activity.action == "order_deleted",
+                )
+            )
+        ).scalars().all()
+    assert len(audit) == 1
+    assert audit[0].details["reason"] == "absorbed_auto_draft_shell"
+    assert audit[0].details["contract_id"] == contracts[0]
+
 
 # ── Kontrakt nie dziedziczy daty końca zamówienia ───────────────────────────
 
