@@ -26,11 +26,12 @@ import { cn } from "@/lib/utils";
 
 const SECTION_LABELS: Record<ChampionSectionName, string> = {
   basics: "1. Podstawowe informacje",
-  project_context: "2. Kontekst projektu",
-  screening_questions: "3. Pytania screeningowe",
-  historical_client_questions: "4. Historyczne pytania klienta",
-  internal_consultant_insight: "5. Insight konsultanta",
-  sourcing: "6. Strategia sourcingowa",
+  search: "2. Co wpisać (search)",
+  stack: "3. Stack technologiczny",
+  project: "4. O projekcie",
+  screening_questions: "5. Pytania screeningowe",
+  client: "6. O kliencie",
+  documents: "7. Dokumenty",
 };
 
 interface ChampionProfileSuggestionReviewProps {
@@ -270,7 +271,7 @@ function RatingBar({ suggestion }: { suggestion: ChampionProfileSuggestion }) {
         <textarea
           value={comment}
           onChange={(e) => setComment(e.target.value)}
-          placeholder="np. trzeba było mocno przeredagować project_context"
+          placeholder="np. trzeba było mocno przeredagować sekcję O projekcie"
           className="w-full px-2 py-1 text-xs border border-border dark:border-border rounded bg-card dark:bg-card min-h-[60px]"
           maxLength={2000}
         />

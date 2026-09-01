@@ -8,13 +8,18 @@ which top-level sections changed (payload for WS event).
 from typing import Any, Iterable
 
 
+# Siedem sekcji szablonu (09.2026). Bloki server-stamped (`verification`,
+# `briefing`, `recommended_searches`) świadomie POZA listą: mają własne
+# endpointy i własne powiadomienia, a zwykły zapis profilu ich nie dotyka —
+# gdyby tu były, każdy zapis raportowałby zmianę czegoś, czego nie zmienił.
 _SECTIONS: tuple[str, ...] = (
     "basics",
-    "project_context",
+    "search",
+    "stack",
+    "project",
     "screening_questions",
-    "sourcing",
-    "historical_client_questions",
-    "internal_consultant_insight",
+    "client",
+    "documents",
 )
 
 
@@ -63,12 +68,13 @@ def diff_champion_profile(old: dict | None, new: dict | None) -> list[str]:
 def summarize_sections(sections: Iterable[str]) -> str:
     """Polish human-readable summary for notification message."""
     labels = {
-        "basics": "podstawy",
-        "project_context": "kontekst projektu",
+        "basics": "podstawowe informacje",
+        "search": "co wpisać w wyszukiwarkę",
+        "stack": "stack technologiczny",
+        "project": "opis projektu",
         "screening_questions": "pytania screeningowe",
-        "sourcing": "strategię sourcingu",
-        "historical_client_questions": "pytania klienta",
-        "internal_consultant_insight": "insight konsultanta",
+        "client": "informacje o kliencie",
+        "documents": "dokumenty",
     }
     named = [labels.get(s, s) for s in sections]
     if not named:

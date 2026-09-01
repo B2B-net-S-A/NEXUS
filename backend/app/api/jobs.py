@@ -81,6 +81,7 @@ from app.api.recruitment_access import (
 )
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
+from app.services import champion_view
 from app.services.champion_profile_events import (
     diff_champion_profile,
     summarize_sections,
@@ -1700,7 +1701,39 @@ async def update_champion_profile(
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
     old_profile = dict(job.champion_profile) if job.champion_profile else {}
-    profile = ChampionProfile.model_validate(payload or {})
+
+    # Merge NA STARYM PROFILU, nie na samym payloadzie.
+    #
+    # Do 09.2026 walidacja szła wprost z payloadu, a `ChampionProfile` nie
+    # deklarowało kluczy, które zapisuje parser dokumentu (`rate_value`,
+    # `seniority_min_years`, `disqualifiers`, `client_standards`, `sectors`,
+    # `role_name`, `work_mode`, `start_date`, `contract_length`, `rate_raw`).
+    # Przy domyślnym `extra="ignore"` Pydantic je po cichu wyrzucał, więc
+    # PIERWSZY zapis z edytora kasował 12 z 16 pól sparsowanego profilu —
+    # w tym twardy sufit stawki i próg seniority, oba z realnym wpływem na
+    # ranking. Nowy schemat zna wszystkie te pola, ale edytor nadal nie wysyła
+    # każdego z nich, więc payload nakładamy NA zapisany profil.
+    #
+    # Stary profil najpierw MIGRUJEMY, potem nakładamy payload. Kolejność jest
+    # nieprzypadkowa: gdyby scalać wprost, w bazie zostałyby obok siebie klucze
+    # obu kształtów, a migracja uzupełnia puste pole nowej sekcji wartością ze
+    # starego klucza — więc wyczyszczenie pola w edytorze nigdy by się nie
+    # zapisało (kasujesz `search.keywords`, migracja wpisuje je z powrotem
+    # z `sourcing.keywords`). Po normalizacji stare klucze już nie istnieją.
+    normalized_old = (
+        ChampionProfile.model_validate(old_profile).model_dump() if old_profile else {}
+    )
+    merged = dict(normalized_old)
+    for key, value in (payload or {}).items():
+        # Scalanie o jeden poziom w głąb: edytor wysyła komplet sekcji, ale
+        # klient API może przysłać samo `{"basics": {"language": "EN"}}`.
+        # Podmiana całej sekcji zgubiłaby wtedy stawkę i próg seniority —
+        # dokładnie te pola, których utratę ten handler ma powstrzymać.
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    profile = ChampionProfile.model_validate(merged)
     new_profile = profile.model_dump()
 
     # Verification, briefing and recommended searches are server-stamped via
@@ -1710,7 +1743,23 @@ async def update_champion_profile(
         if old_profile.get(protected) is not None:
             new_profile[protected] = old_profile[protected]
 
-    fields_changed = diff_champion_profile(old_profile, new_profile)
+    # Sekcja 3 „Stack technologiczny" jest jedynym miejscem w profilu, które ma
+    # odpowiednik w KOLUMNACH oferty. Kolumny wygrywają wszędzie indziej
+    # (scoring, `requirement_map`, filtry wyszukiwarki), a są puste na ~88%
+    # ofert — więc nie zsynchronizowany stack byłby wpisany i niewidoczny dla
+    # wszystkiego, co naprawdę go czyta.
+    stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
+    stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
+    if stack_must:
+        job.must_skills = stack_must
+    if stack_nice:
+        job.nice_skills = stack_nice
+
+    # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
+    # przebudowy z kształtem po niej zgłosiłoby zmianę każdej sekcji przy
+    # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
+    # Lead zmienił profil" o zmianie, której nie było.
+    fields_changed = diff_champion_profile(normalized_old, new_profile)
     if not fields_changed:
         return {"job_id": job.id, "champion_profile": job.champion_profile or {}}
 
@@ -1818,8 +1867,7 @@ def _compute_job_readiness(job: Job) -> list[str]:
         blockers.append("Przypisz klienta do rekrutacji.")
 
     cp = job.champion_profile if isinstance(job.champion_profile, dict) else {}
-    pc = cp.get("project_context")
-    pc = pc if isinstance(pc, dict) else {}
+    pc = champion_view.project(cp)
     has_context = bool((pc.get("about") or "").strip()) or bool(
         pc.get("responsibilities")
     )

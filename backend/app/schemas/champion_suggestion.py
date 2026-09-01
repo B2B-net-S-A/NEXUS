@@ -14,11 +14,12 @@ from app.schemas.champion import ChampionProfile
 # Section names that correspond to ChampionProfile top-level fields.
 VALID_SECTIONS: tuple[str, ...] = (
     "basics",
-    "project_context",
+    "search",
+    "stack",
+    "project",
     "screening_questions",
-    "historical_client_questions",
-    "internal_consultant_insight",
-    "sourcing",
+    "client",
+    "documents",
 )
 
 
