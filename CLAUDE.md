@@ -1259,6 +1259,14 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   weryfikacjach, czyli praca, którą wąski filtr wyścigów by wyciął.
   Odpowiedź niesie `scope` (ile w rankingu, ile poza nim), bo TOP 5 bez tej
   liczby czyta się jako całość bazy.
+- **Kod definicji jest DOKŁADNIE ten sam string** co w `/placement-analysis`,
+  `/insights/board` i banerze kampanii: `first_hired_per_candidate_job`.
+  Własny wariant („..._by_mover") wygląda precyzyjniej, a daje maszynowo
+  „różne" tam, gdzie reguła jest identyczna — czyli odwrotność tego, do czego
+  to pole służy. Dwie powierzchnie liczą to jednak DWOMA osobnymi
+  zapytaniami, więc wspólny kod jest tylko obietnicą: pilnuje jej test, który
+  porównuje obie odpowiedzi liczba po liczbie
+  (`test_hall_of_fame_agrees_with_placement_analysis_number_by_number`).
 - **Hall of Fame NIE filtruje `is_active`.** Ranking wszech czasów mówi, co
   ktoś osiągnął — odejście z firmy tego nie cofa. Byli pracownicy zostają
   z chipem, tak jak w tabeli „Performance per osoba" na tym samym ekranie.

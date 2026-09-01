@@ -74,11 +74,11 @@ async def get_current(
 
     hof_scope = None
     if ctype == CompetitionType.hall_of_fame:
-        ranked = await comp_service.hall_of_fame(db, limit=5)
-        # Ile dorobku stoi POZA rankingiem. Lista przycięta do TOP 5 bez tej
-        # liczby czyta się jako komplet — a po przejściu na atrybucję D2 poza
-        # rankingiem zostaje realny kawał bazy (konta administracyjne).
-        hof_scope = (await comp_service.hall_of_fame_scope(db)).to_dict()
+        # Lista i podpis pod nią z JEDNEGO zapytania — dwa osobne biegłyby
+        # na dwóch snapshotach (READ COMMITTED), więc zapis między nimi
+        # rozjeżdżałby ranking z liczbą, która go opisuje.
+        ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=5)
+        hof_scope = scope.to_dict()
     else:
         ranked = await comp_service.compute_live(db, ctype, period)
 
@@ -252,6 +252,21 @@ async def freeze(
 ):
     """Zamyka okres — pierwszy zapis TOP 3 jest niezmiennym snapshotem."""
     ctype = _parse_type(type)
+    # Hall of Fame NIE MA okresu do zamknięcia: jest rankingiem żywym, liczonym
+    # z całej historii, i nie ma puli nagród. Bez tej bramki jeden admin
+    # z curl-em zapisuje do `competition_winners` wiersze z `prize_pln = 0`,
+    # których nie da się usunąć (write-once), a `/history` podaje je potem
+    # KAŻDEJ zalogowanej roli jako „zamknięty okres". Kolumna
+    # `competition_type` to `String(50)` bez CHECK-a, więc baza tego nie
+    # zatrzyma — musi to zrobić API.
+    if ctype == CompetitionType.hall_of_fame:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Hall of Fame to ranking żywy, liczony z całej historii — "
+                "nie ma okresu do zamknięcia."
+            ),
+        )
     created = await comp_service.freeze_competition(db, ctype, period)
     # `len(created)` to rozmiar podium, nie liczba ZAPISANYCH wierszy — przy
     # ponownym zamrożeniu okresu serwis zwraca istniejący snapshot bez zapisu,

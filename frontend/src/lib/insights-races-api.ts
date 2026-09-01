@@ -130,6 +130,8 @@ export interface HallOfFameScope {
   ranked_placements: number;
   outside_role_placements: number;
   unattributed_placements: number;
+  /** Mianownik dla „TOP 5" — bez niego lista nie mówi, z ilu osób wybrano. */
+  ranked_people: number;
   roles: string[];
   /** Kod definicji — ten sam kontrakt co `placements_definition` w wykresach. */
   attribution: string;

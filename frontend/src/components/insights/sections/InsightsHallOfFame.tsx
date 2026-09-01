@@ -14,7 +14,7 @@ import {
   type CompetitionTypeKey,
   type HallOfFameResponse,
 } from "@/lib/insights-races-api";
-import { count, money } from "./InsightsFormat";
+import { count, definitionText, DefinitionNote, money } from "./InsightsFormat";
 import { SectionError } from "./_shared";
 
 /**
@@ -106,8 +106,10 @@ function AllTimeBlock() {
              Dwie sąsiadujące tabele z inną regułą muszą to powiedzieć, bo
              inaczej różnica wygląda na błąd jednej z nich. */}
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Ranking żywy, <strong>TOP 5</strong>, liczony z całej historii. To NIE
-        jest lista zwycięzców — nagrodę przyznaje dopiero zamknięcie okresu.
+        Ranking żywy, <strong>TOP 5</strong>
+        {data?.scope ? ` z ${count(data.scope.ranked_people)} osób` : ""},
+        liczony z całej historii. To NIE jest lista zwycięzców — nagrodę
+        przyznaje dopiero zamknięcie okresu.
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">
         Placement liczony <strong>tak samo jak w „Analizie placementów"</strong>{" "}
@@ -171,20 +173,34 @@ function AllTimeBlock() {
 
       {/* Ile dorobku stoi POZA rankingiem. Bez tego zdania TOP 5 czyta się
           jako całość bazy, a po przejściu na atrybucję D2 poza rankingiem
-          zostaje ponad połowa placementów — domkniętych przez konta
-          administracyjne, które nie rekrutują. Liczby z serwera; gdy nic nie
-          odpada, zdanie się nie renderuje (zero to nie jest informacja). */}
+          zostaje ponad połowa placementów.
+
+          Sformułowanie jest CELOWO szersze niż „konta administracyjne":
+          `outside_role_placements` obejmuje każdą rolę spoza zakresu (także
+          `finance`) ORAZ placementy przypisane do kont, których już nie ma
+          w `users`. Węższe zdanie byłoby nieprawdziwe akurat w przypadkach
+          brzegowych, czyli tam, gdzie ktoś by je sprawdzał. */}
       {data?.scope && data.scope.outside_role_placements > 0 && (
         <p className="mt-3 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
           W rankingu {count(data.scope.ranked_placements)} placementów ról
           rekrutacyjnych i delivery. Poza nim:{" "}
           <strong>{count(data.scope.outside_role_placements)}</strong>{" "}
-          domkniętych przez konta administracyjne
+          domkniętych spoza tych ról — głównie przez konta administracyjne
           {data.scope.unattributed_placements > 0 && (
-            <> i {count(data.scope.unattributed_placements)} bez autora</>
+            <> — i {count(data.scope.unattributed_placements)} bez autora</>
           )}
           .
         </p>
+      )}
+
+      {/* Nota definicji z TEJ SAMEJ mapy, z której korzysta „Analiza
+          placementów" — to jedyny mechanizm, który sam wykryje kolejny
+          rozjazd: gdyby kody przestały być identyczne, pod obiema sekcjami
+          stanęłyby różne zdania. */}
+      {data?.scope && (
+        <DefinitionNote>
+          {definitionText(data.scope.attribution)}
+        </DefinitionNote>
       )}
     </div>
   );

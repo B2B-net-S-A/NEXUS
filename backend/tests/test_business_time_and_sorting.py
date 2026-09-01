@@ -144,11 +144,34 @@ async def test_stage_ranking_and_hall_of_fame_tie_break_is_id_not_name():
     # Hall of Fame stoi od 2026-09-01 na innej atrybucji (D2, jak „Analiza
     # placementów"), ale remis rozstrzyga TAK SAMO — pierwszy wiersz rankingu
     # to nazwisko na tablicy, a porządek bajtowy pod musl nie jest neutralny.
-    db = SimpleNamespace(execute=AsyncMock(return_value=_Rows([])))
+    # Jeden wiersz, nie pusta lista: `totals` jest agregatem bez GROUP BY,
+    # więc realne zapytanie ZAWSZE go zwraca, a serwis traktuje pustkę jako
+    # sygnał, że SQL zmienił kształt (i podnosi błąd zamiast udawać zera).
+    db = SimpleNamespace(
+        execute=AsyncMock(
+            return_value=_Rows(
+                [
+                    SimpleNamespace(
+                        user_id=1,
+                        name="Ktoś",
+                        is_active=True,
+                        cnt=1,
+                        ranked=1,
+                        outside_role=0,
+                        unattributed=0,
+                        ranked_people=1,
+                    )
+                ]
+            )
+        )
+    )
     await competitions.hall_of_fame(db)
     hof_sql = str(db.execute.await_args.args[0])
-    assert "ORDER BY count(*) DESC, u.id ASC" in hof_sql
-    assert "u.name ASC" not in hof_sql
+    # Po scaleniu listy i liczników w jedno zapytanie ranking liczy się
+    # w CTE `ranking`, gdzie kolumna nazywa się `user_id`, nie `u.id` —
+    # ale REGUŁA remisu jest ta sama i to jej pilnujemy.
+    assert "ORDER BY count(*) DESC, user_id ASC" in hof_sql
+    assert "name ASC" not in hof_sql
 
 
 # ── 3. Alerty kontraktowe i KPI liczą dzień firmy, nie dzień UTC ────────────

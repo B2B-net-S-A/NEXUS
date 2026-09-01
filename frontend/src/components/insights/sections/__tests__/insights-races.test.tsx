@@ -432,6 +432,7 @@ describe("InsightsHallOfFame", () => {
       ranked_placements: 167,
       outside_role_placements: 147,
       unattributed_placements: 0,
+      ranked_people: 12,
       roles: [
         "sourcer",
         "tac",
@@ -439,7 +440,7 @@ describe("InsightsHallOfFame", () => {
         "delivery_lead",
         "head_of_recruitment",
       ],
-      attribution: "first_hired_per_candidate_job_by_mover",
+      attribution: "first_hired_per_candidate_job",
     },
   };
 
@@ -497,7 +498,7 @@ describe("InsightsHallOfFame", () => {
     await screen.findByText("Marlena Rosół");
     expect(screen.getByText("147")).toBeInTheDocument();
     expect(
-      screen.getByText(/domkniętych przez konta administracyjne/),
+      screen.getByText(/domkniętych spoza tych ról/),
     ).toBeInTheDocument();
   });
 
@@ -515,7 +516,7 @@ describe("InsightsHallOfFame", () => {
     // szumu tam, gdzie nie ma czego wyjaśniać.
     await screen.findByText("Marlena Rosół");
     expect(
-      screen.queryByText(/domkniętych przez konta administracyjne/),
+      screen.queryByText(/domkniętych spoza tych ról/),
     ).toBeNull();
   });
 
