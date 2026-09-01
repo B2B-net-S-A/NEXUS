@@ -12,7 +12,14 @@ from app.services.champion_profile_ingest import (
 )
 
 
-def test_champion_dict_shape_matches_august_import():
+def test_champion_dict_shape_is_the_seven_sections():
+    """Parser produkuje siedem sekcji szablonu 09.2026.
+
+    Wejście jest CELOWO w kształcie v3 (płaskie `rate_value`, `must_skills`):
+    dokument sparsowany starszym promptem musi trafić do właściwych sekcji, bo
+    inaczej ponowne przetworzenie któregokolwiek z 1095 plików importu
+    sierpniowego gubiłoby stawkę i listę technologii.
+    """
     parsed = {
         "role_name": "Analityk",
         "rate_value": 145.0,
@@ -21,12 +28,23 @@ def test_champion_dict_shape_matches_august_import():
         "must_skills": [{"name": "SQL"}],
     }
     d = build_champion_dict(parsed, 262275)
-    assert d["rate_value"] == 145.0
+    assert d["basics"]["rate_value"] == 145.0
+    assert d["basics"]["role_name"] == "Analityk"
     assert d["basics"]["candidate_location_pref"] == "Warszawa"
+    assert d["stack"]["must"] == [{"name": "SQL"}]
     assert d["_source"] == "traffit_recruitment_file:262275"
-    assert d["_parser"].startswith("champion_parse:v3")
-    # Klucze czytane przez scoring/uzasadnienia muszą istnieć zawsze:
-    for key in ("project_context", "screening_questions", "sourcing", "sectors"):
+    assert d["_parser"].startswith("champion_parse:v4")
+    # Wszystkie siedem sekcji istnieje ZAWSZE — konsument czytający brakującą
+    # sekcję dostałby pustkę nie do odróżnienia od „nie ma takich danych".
+    for key in (
+        "basics",
+        "search",
+        "stack",
+        "project",
+        "screening_questions",
+        "client",
+        "documents",
+    ):
         assert key in d
 
 
@@ -167,7 +185,7 @@ async def test_ingest_writes_empty_fields_and_marks_stale(monkeypatch):
     )
     assert out["outcome"] == "ok"
     assert out["champion_written"] and out["must_written"] and out["nice_written"]
-    assert job.champion_profile["role_name"] == "DevOps"
+    assert job.champion_profile["basics"]["role_name"] == "DevOps"
     assert job.must_skills == [{"name": "AWS", "level": None}], "puste name odpada"
     assert committed["n"] == 1
     assert calls["stale"] == [9], "cache MUSI dostać stale (outbox nie robi ofert)"

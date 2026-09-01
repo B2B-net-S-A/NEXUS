@@ -34,6 +34,7 @@ from app.core.config import settings
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
+from app.services import champion_view
 from app.services.location_utils import location_tokens, tokens_overlap
 
 logger = logging.getLogger(__name__)
@@ -626,6 +627,7 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
     """Return [{name: canonical}, ...] derived from job narrative text.
 
     Fallback chain (first hit wins):
+      0. `champion_profile.stack.must` — wymagania PODANE WPROST (sekcja 3)
       1. `job.champion_profile` — Traffit-style curated profile (highest signal)
       2. `job.requirements` + `job.description` — narrative from JD itself
 
@@ -637,6 +639,33 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
     Pattern matching uses the seed taxonomy (153 canonical skills + 277
     aliases). Word-boundary regex avoids false hits like "java" in "javascript".
     """
+    # Tier 0: sekcja 3 „Stack technologiczny" — wymagania PODANE WPROST.
+    #
+    # Cała reszta tej funkcji zgaduje: przepuszcza prozę przez regex aliasów i
+    # bierze, co się trafi. Zgadywanie było jedynym wyjściem, dopóki Champion
+    # nie miał pola na listę technologii — i to ono kazało trzymać w profilu
+    # długie opowiadanie, bo im więcej prozy, tym więcej trafień. Gdy sekcja 3
+    # jest wypełniona, nie ma czego zgadywać, więc krótkie „O projekcie" nie
+    # kosztuje już ani jednego skilla.
+    #
+    # Nazwy spoza taksonomii przechodzą DALEJ, surowe: alias map zna 153
+    # kanoniczne skille i 277 aliasów, a Delivery Lead wpisujący technologię,
+    # której tam nie ma, opisuje realne wymaganie, nie literówkę. Odsianie ich
+    # tutaj zamieniłoby jawnie podane wymaganie w ciszę.
+    stack_names: list[str] = []
+    for item in champion_view.stack(job).get("must") or []:
+        name = item.get("name") if isinstance(item, dict) else item
+        if isinstance(name, str) and name.strip():
+            stack_names.append(ALIAS_MAP.get(name.strip().lower(), name.strip()))
+    if stack_names:
+        seen: set[str] = set()
+        unique = [n for n in stack_names if not (n in seen or seen.add(n))]
+        return [{"name": n} for n in unique]
+
+    # Dopiero TERAZ wymagamy taksonomii — i ani chwili wcześniej. Tier 0 czyta
+    # listę wpisaną ręcznie, więc regex aliasów nie jest mu do niczego potrzebny;
+    # bramka postawiona nad nim kasowałaby jawnie podane wymagania wszędzie tam,
+    # gdzie `ALIAS_MAP` nie zdążył się załadować.
     pattern = _alias_pattern()
     if pattern is None:
         return []
@@ -644,32 +673,8 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
     parts: list[str] = []
 
     # Tier 1: Champion Profile narrative (when populated by recruiter).
-    champion = getattr(job, "champion_profile", None)
-    if isinstance(champion, dict) and champion:
-        ctx = champion.get("project_context") or {}
-        if isinstance(ctx, dict):
-            for k in ("about", "responsibilities", "selling_points"):
-                v = ctx.get(k)
-                if isinstance(v, str):
-                    parts.append(v)
-        questions = champion.get("screening_questions") or []
-        if isinstance(questions, list):
-            for q in questions:
-                if isinstance(q, dict):
-                    for k in ("question", "ideal_answer", "deal_breaker"):
-                        v = q.get(k)
-                        if isinstance(v, str):
-                            parts.append(v)
-        sourcing = champion.get("sourcing") or {}
-        if isinstance(sourcing, dict):
-            for k in ("keywords", "target_companies", "notes"):
-                v = sourcing.get(k)
-                if isinstance(v, str):
-                    parts.append(v)
-        for k in ("historical_client_questions", "internal_consultant_insight"):
-            v = champion.get(k)
-            if isinstance(v, str):
-                parts.append(v)
+    # `champion_view` czyta i stary, i nowy kształt profilu.
+    parts.extend(champion_view.narrative_parts(job))
 
     # Tier 2: JD text (when Champion not yet populated — current prod state).
     if not parts:
@@ -944,7 +949,11 @@ def _champion_hourly_rate(job: Job) -> Optional[float]:
 
     if not _champion_signals_enabled():
         return None
-    value = _champion_dict(job).get("rate_value")
+    # Przez `champion_view`, bo od 09.2026 `rate_value` mieszka w sekcji
+    # `basics`, a 949 ofert z importu 08.2026 nadal trzyma je płasko na
+    # wierzchu dokumentu. Odczyt wprost widziałby tylko jeden z tych kształtów
+    # — i to ten, którego akurat nie ma w bazie po pierwszym zapisie z UI.
+    value = champion_view.basics(job).get("rate_value")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value) if 0 < float(value) < 2000 else None
@@ -1179,7 +1188,7 @@ def _champion_seniority_factor(
 
     if not _seniority_penalty_enabled():
         return 1.0, None
-    required = _champion_dict(job).get("seniority_min_years")
+    required = champion_view.basics(job).get("seniority_min_years")
     if isinstance(required, bool) or not isinstance(required, (int, float)):
         return 1.0, None
     years = getattr(candidate, "years_it_experience", None)

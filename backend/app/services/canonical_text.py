@@ -23,6 +23,8 @@ from __future__ import annotations
 import hashlib
 import re
 
+from app.services import champion_view
+
 TEXT_SCHEMA_V1 = "text-v1-legacy"
 TEXT_SCHEMA_V2 = "text-v2-canonical"
 TEXT_SCHEMA_V3 = "text-v3-cv-notes"
@@ -318,13 +320,13 @@ def build_job_text_v2(job) -> str:
     if reqs:
         sections.append("[REQUIREMENTS] " + _clean(reqs)[:1200])
 
-    champion = getattr(job, "champion_profile", None)
-    if isinstance(champion, dict) and champion:
-        ctx = champion.get("project_context") or {}
-        if isinstance(ctx, dict):
-            for key in ("about", "responsibilities", "selling_points"):
-                v = ctx.get(key)
-                if isinstance(v, str) and v.strip():
-                    sections.append(f"[CHAMPION] {_clean(v)[:800]}")
+    # Champion — przez `champion_view`, więc czytany niezależnie od tego, czy
+    # oferta ma kształt sprzed czy po przebudowie szablonu (09.2026).
+    #
+    # `embedding_parts`, NIE `narrative_parts`: dla profilu w starym kształcie
+    # zwraca dokładnie te same trzy pola co dotąd, więc tekst kanoniczny 949
+    # istniejących ofert nie drgnie i indeks nie wymaga przeliczenia.
+    for part in champion_view.embedding_parts(job):
+        sections.append(f"[CHAMPION] {_clean(part)[:800]}")
 
     return "\n".join(sections)

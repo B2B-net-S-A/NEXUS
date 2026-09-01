@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.core.config import settings
+from app.services import champion_view
 
 logger = logging.getLogger(__name__)
 
@@ -997,58 +998,61 @@ def _build_job_text_v1(job) -> str:
     # Champion Profile narrative (Item 9 — Champion-driven matching).
     # Stored as JSONB in jobs.champion_profile, follows ChampionProfile schema
     # (backend/app/schemas/champion.py).
+    #
+    # Czytane przez `champion_view`, więc niezależnie od tego, czy profil ma
+    # kształt sprzed czy po przebudowie szablonu (09.2026). KOLEJNOŚĆ i LIMITY
+    # znaków są celowo nietknięte: to jest tekst idący do wektora, a jego zmiana
+    # unieważniłaby indeks 949 ofert i wmieszała zmianę retrievalu w przebudowę
+    # formularza. Dla starego profilu wynik jest bajt w bajt taki jak dotąd.
+    #
+    # Stack (sekcja 3) świadomie NIE dochodzi tutaj osobno — `PUT` synchronizuje
+    # go do `Job.must_skills`/`nice_skills`, które i tak dopisują się niżej.
+    # Dodanie go tu dałoby te same nazwy dwa razy.
     champion = getattr(job, "champion_profile", None)
     if isinstance(champion, dict) and champion:
-        ctx = champion.get("project_context") or {}
-        if isinstance(ctx, dict):
-            for key in ("about", "responsibilities", "selling_points"):
-                v = ctx.get(key)
-                if isinstance(v, str) and v.strip():
-                    parts.append(v[:1000])
+        proj = champion_view.project(champion)
+        cli = champion_view.client(champion)
+        for value in (
+            proj.get("about"),
+            proj.get("responsibilities"),
+            cli.get("selling_points"),
+        ):
+            if isinstance(value, str) and value.strip():
+                parts.append(value[:1000])
 
         # Screening questions encode the recruiter's mental model of the
         # ideal candidate — ideal_answer is exactly what we want to match.
-        questions = champion.get("screening_questions") or []
-        if isinstance(questions, list):
-            for q in questions[:10]:
-                if not isinstance(q, dict):
-                    continue
-                ideal = q.get("ideal_answer")
-                if isinstance(ideal, str) and ideal.strip():
-                    parts.append(ideal[:400])
-                qtext = q.get("question")
-                if isinstance(qtext, str) and qtext.strip():
-                    parts.append(qtext[:200])
+        for q in champion_view.screening_questions(champion)[:10]:
+            if not isinstance(q, dict):
+                continue
+            ideal = q.get("ideal_answer")
+            if isinstance(ideal, str) and ideal.strip():
+                parts.append(ideal[:400])
+            qtext = q.get("question")
+            if isinstance(qtext, str) and qtext.strip():
+                parts.append(qtext[:200])
 
         # Free-text recruiter notes — strongest semantic signal for niche roles
-        for key in (
-            "historical_client_questions",
-            "internal_consultant_insight",
+        for value in (
+            cli.get("historical_questions"),
+            cli.get("consultant_insight"),
         ):
-            v = champion.get(key)
-            if isinstance(v, str) and v.strip():
-                parts.append(v[:600])
+            if isinstance(value, str) and value.strip():
+                parts.append(value[:600])
 
-        sourcing = champion.get("sourcing") or {}
-        if isinstance(sourcing, dict):
-            kw = sourcing.get("keywords")
-            if isinstance(kw, str) and kw.strip():
-                parts.append(kw[:500])
-            tc = sourcing.get("target_companies")
-            if isinstance(tc, str) and tc.strip():
-                parts.append(tc[:500])
-            notes = sourcing.get("notes")
-            if isinstance(notes, str) and notes.strip():
-                parts.append(notes[:500])
+        srch = champion_view.search(champion)
+        for key in ("keywords", "target_companies", "notes"):
+            value = srch.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(value[:500])
 
-        basics = champion.get("basics") or {}
-        if isinstance(basics, dict):
-            lang = basics.get("language")
-            if isinstance(lang, str) and lang.strip():
-                parts.append(f"język: {lang}")
-            loc = basics.get("candidate_location_pref")
-            if isinstance(loc, str) and loc.strip():
-                parts.append(f"lokalizacja: {loc}")
+        basics = champion_view.basics(champion)
+        lang = basics.get("language")
+        if isinstance(lang, str) and lang.strip():
+            parts.append(f"język: {lang}")
+        loc = basics.get("candidate_location_pref")
+        if isinstance(loc, str) and loc.strip():
+            parts.append(f"lokalizacja: {loc}")
 
     # Must / nice skills names
     for bucket_name, bucket in (("must", job.must_skills), ("nice", job.nice_skills)):

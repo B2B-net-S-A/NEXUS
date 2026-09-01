@@ -3623,12 +3623,68 @@ export const scoringWeightsApi = {
 
 // ── Champion Profile (Phase 10) ─────────────────────────────────────────────
 
+/** Sekcja 1 — podstawowe informacje. */
 export interface ChampionBasics {
+  role_name?: string | null;
+  seniority_min_years?: number | null;
+  /** PLN/h DLA KANDYDATA — zasila twardy sufit stawki w filtrach. */
+  rate_value?: number | null;
+  rate_raw?: string | null;
+  work_mode?: string | null;
   onsite_days_per_week?: number | null;
   candidate_location_pref?: string | null;
   language?: string | null;
+  start_date?: string | null;
+  contract_length?: string | null;
 }
 
+/** Sekcja 2 — co wpisać w wyszukiwarkę. */
+export interface ChampionSearch {
+  keywords: string;
+  target_companies: string;
+  disqualifiers: string[];
+  notes: string;
+  /** Kanały ze starego szablonu — bez UI, trzymane dla zgodności danych. */
+  sources?: Array<"internal_base" | "linkedin" | "ad" | "referrals" | "other">;
+}
+
+export interface StackItem {
+  name: string;
+}
+
+/** Sekcja 3 — stack technologiczny. Zapis synchronizuje go do must/nice oferty. */
+export interface ChampionStack {
+  must: StackItem[];
+  nice: StackItem[];
+  notes: string;
+}
+
+/** Sekcja 4 — o projekcie (2 zdania) + obowiązki. */
+export interface ChampionProject {
+  about: string;
+  responsibilities: string;
+}
+
+/** Sekcja 6 — o kliencie. */
+export interface ChampionClient {
+  about: string;
+  selling_points: string;
+  priority_rules: string;
+  offlimit?: boolean | null;
+  contract_type?: string | null;
+  cv_language?: string | null;
+  consultant_insight: string;
+  historical_questions: string;
+  sectors: string[];
+}
+
+/** Sekcja 7 — dokumenty. Wskaźnik na SharePoint, nie plik w NEXUSIE. */
+export interface ChampionDocument {
+  name: string;
+  url: string;
+}
+
+/** @deprecated Kształt sprzed 09.2026 — migrowany po stronie serwera przy odczycie. */
 export interface ChampionProjectContext {
   about: string;
   responsibilities: string;
@@ -3694,25 +3750,54 @@ export interface ChampionBriefing {
 
 export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
 
+/**
+ * Profil Championa — siedem sekcji szablonu (09.2026).
+ *
+ * `verification`, `briefing` i `recommended_searches` NIE są sekcjami: serwer
+ * stempluje je własnymi endpointami, a zwykły zapis profilu ich nie dotyka.
+ */
 export interface ChampionProfile {
   basics: ChampionBasics;
-  project_context: ChampionProjectContext;
+  search: ChampionSearch;
+  stack: ChampionStack;
+  project: ChampionProject;
   screening_questions: ScreeningQuestion[];
-  historical_client_questions: string;
-  internal_consultant_insight: string;
-  sourcing: SourcingStrategy;
+  client: ChampionClient;
+  documents: ChampionDocument[];
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
   recommended_searches?: RecommendedSearch[];
 }
 
 export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
-  basics: { onsite_days_per_week: null, candidate_location_pref: null, language: null },
-  project_context: { about: "", responsibilities: "", selling_points: "" },
+  basics: {
+    role_name: null,
+    seniority_min_years: null,
+    rate_value: null,
+    rate_raw: null,
+    work_mode: null,
+    onsite_days_per_week: null,
+    candidate_location_pref: null,
+    language: null,
+    start_date: null,
+    contract_length: null,
+  },
+  search: { keywords: "", target_companies: "", disqualifiers: [], notes: "" },
+  stack: { must: [], nice: [], notes: "" },
+  project: { about: "", responsibilities: "" },
   screening_questions: [],
-  historical_client_questions: "",
-  internal_consultant_insight: "",
-  sourcing: { sources: [], keywords: "", target_companies: "", notes: "" },
+  client: {
+    about: "",
+    selling_points: "",
+    priority_rules: "",
+    offlimit: null,
+    contract_type: null,
+    cv_language: null,
+    consultant_insight: "",
+    historical_questions: "",
+    sectors: [],
+  },
+  documents: [],
   verification: EMPTY_CHAMPION_VERIFICATION,
   briefing: EMPTY_CHAMPION_BRIEFING,
 };
@@ -3840,21 +3925,24 @@ export type ChampionSuggestionStatus =
   | "partially_accepted"
   | "superseded";
 
+/** Siedem sekcji szablonu — musi zgadzać się z `VALID_SECTIONS` po stronie backendu. */
 export type ChampionSectionName =
   | "basics"
-  | "project_context"
+  | "search"
+  | "stack"
+  | "project"
   | "screening_questions"
-  | "historical_client_questions"
-  | "internal_consultant_insight"
-  | "sourcing";
+  | "client"
+  | "documents";
 
 export const CHAMPION_SECTIONS: ChampionSectionName[] = [
   "basics",
-  "project_context",
+  "search",
+  "stack",
+  "project",
   "screening_questions",
-  "historical_client_questions",
-  "internal_consultant_insight",
-  "sourcing",
+  "client",
+  "documents",
 ];
 
 export interface ChampionSectionPatch {

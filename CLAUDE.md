@@ -331,6 +331,89 @@ Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
   konsumenta (`client-profile/SummaryBar`) — nie mylić z `components/ds/StatCard`,
   który ma sześć miejsc użycia i którego zmiana dotyka dwóch dashboardów i Cortexu.
 
+## Profil Championa — siedem sekcji (przebudowa 09.2026)
+
+Szablon skrócony do siedmiu sekcji: **1. Podstawowe informacje · 2. Co wpisać
+(search) · 3. Stack technologiczny · 4. O projekcie · 5. Pytania screeningowe ·
+6. O kliencie · 7. Dokumenty**. Powód: Delivery Leadowie opisywali 80% starego
+profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
+`app/services/champion_view.py`, wzór Word `scripts/generate_champion_template.py`.
+
+- **Skrócenie „O projekcie" do 2 zdań jest bezpieczne WYŁĄCZNIE dzięki sekcji 3.**
+  Do 09.2026 jedynym maszynowym sygnałem wymagań dla oferty z Championem był
+  `_extract_skills_from_champion` — regex po prozie, szukający 153 kanonicznych
+  skilli i 277 aliasów. Im mniej tekstu, tym mniej trafień, więc samo skrócenie
+  narracji byłoby regresem retrievalu (Champion ma zmierzony wpływ: P@5 +67%,
+  R@20n +87%, 15.08). Strukturalny stack usuwa zgadywanie: `_extract_skills_from_champion`
+  ma teraz **Tier 0**, który zwraca `stack.must` wprost i nie dotyka regexa.
+  **Nie skracaj sekcji 4 w oderwaniu od wypełnionej sekcji 3.**
+- **Nazwy spoza taksonomii przechodzą surowe.** Delivery Lead wpisujący technologię,
+  której nie ma w alias mapie, opisuje realne wymaganie, nie literówkę — odsianie
+  jej zamieniłoby jawnie podane wymaganie w ciszę.
+- **`PUT .../champion-profile` synchronizuje stack do `Job.must_skills`/`nice_skills`.**
+  Kolumny wygrywają wszędzie indziej (scoring, `requirement_map` = kafelki
+  interaktywnego CV, filtry wyszukiwarki) i są puste na ~88% ofert. Stack wpisany
+  i niezsynchronizowany byłby niewidoczny dla wszystkiego, co go naprawdę czyta.
+- **Zapis z UI kasował 12 z 16 pól sparsowanego dokumentu** — do 09.2026
+  `ChampionProfile` nie deklarowało kluczy zapisywanych przez parser, a Pydantic
+  z domyślnym `extra="ignore"` wyrzucał je przy `model_dump()`. Ginęły m.in.
+  `rate_value` (twardy sufit stawki w `dealbreaker_filters`) i `seniority_min_years`
+  (kara seniority, zmierzona +4% P@5). Objaw był **niewidoczny**: profil dalej się
+  otwierał, tylko dwa filtry cicho przestawały działać. Nowy schemat zna wszystkie
+  te pola, a handler dodatkowo scala payload NA zapisanym profilu.
+- **Migracja jest LENIWA, przy odczycie** (`model_validator(mode="before")`), nie
+  jednorazowym przepisaniem JSONB. 949 ofert niesie stary kształt; przepisanie
+  wsadowe jest odwracalne tylko z kopii, której off-site nie mamy.
+- **Kolejność w `PUT` jest load-bearing: NAJPIERW normalizacja starego profilu,
+  POTEM nałożenie payloadu.** Migracja uzupełnia PUSTE pole nowej sekcji wartością
+  ze starego klucza — to jej sens. Gdyby scalać wprost na surowym profilu,
+  wyczyszczenie frazy w edytorze nigdy by się nie zapisało, bo migracja wpisywałaby
+  ją z powrotem z `sourcing.keywords`. Scalanie jest o jeden poziom w głąb: klient
+  API wysyłający samo `{"basics": {"language": "EN"}}` nie może zgubić stawki.
+- **Konsumenci czytają WYŁĄCZNIE przez `champion_view`** (scoring, `canonical_text`,
+  `embedding_service`, generator CV, Talent Radar, uzasadnienia dopasowań,
+  `champion_draft_service`). Odczyt wprost widzi jeden kształt — ten, którego akurat
+  nie ma w bazie — i zwraca pustkę nie do odróżnienia od „nie ma takich danych".
+- **`embedding_parts` jest CELOWO węższe niż `narrative_parts`.** Dla starego profilu
+  zwraca dokładnie `about` + `responsibilities` + `selling_points`, czyli bit w bit
+  to samo co przed przebudową: wektory 949 ofert nie drgnęły, indeks nie wymaga
+  przeliczenia, a przebudowa formularza nie miesza się w pomiarze ze zmianą
+  retrievalu. **Rozszerzenie tego zakresu (o pytania screeningowe, słowa kluczowe)
+  jest osobną zmianą jakości wyszukiwania i wymaga własnego A/B** — pilnuje tego
+  `test_embedding_text_for_legacy_profile_is_unchanged`.
+- **Parser dokumentu rozpoznaje sekcje po NAZWACH nagłówków, nie po numeracji**
+  (`_NUM` jest opcjonalne). Przenumerowanie jest bezpieczne, **przemianowanie nie**.
+  Stare nagłówki ZOSTAJĄ obok nowych („Pytania od Delivery Leada" wystąpiło w 783
+  z 1095 sparsowanych dokumentów, a po firmie krąży kilkaset kopii starego wzoru).
+  Zdjęcie któregokolwiek zamieniłoby te pliki w CV bez sekcji — po cichu, bo brak
+  sekcji jest u nas poprawnym wynikiem, nie błędem. Pilnuje tego
+  `test_champion_template_agenda.py` czytający tytuły WPROST z generatora wzoru.
+- **Prompt parsera to v4** (`champion_parse:v4:haiku-4.5`) i opisuje nagłówki OBU
+  szablonów. `ingest_parsed_profile` czyta skille z `stack.must` **oraz** z płaskiego
+  `must_skills` — czytanie jednego kształtu zepsułoby albo każdy nowy dokument, albo
+  każde ponowne przetworzenie starego, a objaw byłby ten sam i cichy.
+- **Publiczna karta Championa dostaje WĄSKĄ projekcję**, nie surowy JSONB
+  (`_public_champion_projection`). Do 09.2026 endpoint zwracał cały profil, więc
+  każdy z linkiem miał w JSON-ie także NASZĄ stawkę dla kandydata, firmy docelowe,
+  dyskwalifikatory i reguły priorytetu klienta — niewidoczne na ekranie, ale obecne
+  w odpowiedzi, a odbiorcą linku jest strona trzecia.
+- **Weryfikacja dwustronna, briefing DL i rekomendowane wyszukiwania NIE są
+  sekcjami** — mają własne endpointy, są server-stamped i zwykły zapis profilu ich
+  nie dotyka. Trzymanie ich poza siódemką jest decyzją produktową (19.08→09.2026),
+  nie przeoczeniem.
+- **Wzory Word leżą na SharePoincie, nie w repo** — NEXUS trzyma do nich wyłącznie
+  linki (`help_materials`, migracja 0219: 1 ogólny + 14 per klient). Wszystkie 15
+  podmieniono 01.09.2026 w `.../02_Rekrutacja i HR/Wzory/Profil Championa/`;
+  biblioteka ma wersjonowanie (limit 500), więc poprzednie wersje są w historii.
+  Generator: `scripts/generate_champion_template.py --all`.
+- **Treść kliencka wzorów jest w repo, nie tylko w Wordzie.**
+  `scripts/champion_template_clients.json` trzyma to, co odróżniało 14 wzorów per
+  klient: KPI czasu na kandydata, konwencję nazwy pliku CV, język CV, reguły
+  priorytetu i wymagane dokumenty z linkami. Bez tego pliku regeneracja wzoru
+  produkuje generyk i **kasuje wiedzę, której nie ma nigdzie indziej** — sekcje
+  6 i 7 starych dokumentów były jedynym jej nośnikiem. Zmieniasz wzór u klienta:
+  najpierw zaktualizuj JSON, potem regeneruj.
+
 ## Interaktywne CV (publiczny link do wygenerowanego CV)
 
 Generator CV B2B ma ścieżkę do klienta: rekruter tworzy token-link

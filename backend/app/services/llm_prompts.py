@@ -322,39 +322,60 @@ CHAMPION_PROFILE_FROM_JD = PromptTemplate(
         "ale mogą być puste):\n"
         "{{\n"
         '  "basics": {{\n'
+        '    "role_name": str|null,\n'
+        '    "seniority_min_years": int|null,\n'
+        '    "rate_value": float|null,\n'
+        '    "work_mode": "stacjonarnie"|"hybrydowo"|"zdalnie"|null,\n'
         '    "onsite_days_per_week": int|null,\n'
         '    "candidate_location_pref": str|null,\n'
-        '    "language": str|null\n'
+        '    "language": str|null,\n'
+        '    "start_date": str|null,\n'
+        '    "contract_length": str|null\n'
         "  }},\n"
-        '  "project_context": {{\n'
-        '    "about": "cel projektu, zespół, harmonogram (po polsku)",\n'
-        '    "responsibilities": "obowiązki stanowiska (po polsku)",\n'
-        '    "selling_points": "co przekona kandydata (po polsku)"\n'
+        '  "search": {{\n'
+        '    "keywords": "frazy DOKŁADNIE tak, jak wpisuje się je w wyszukiwarkę",\n'
+        '    "target_companies": "firmy skąd warto sourcować",\n'
+        '    "disqualifiers": [],\n'
+        '    "notes": ""\n'
+        "  }},\n"
+        '  "stack": {{\n'
+        '    "must": [{{"name": "Java"}}],\n'
+        '    "nice": [{{"name": "Kafka"}}],\n'
+        '    "notes": "niuanse wersji/zakresu"\n'
+        "  }},\n"
+        '  "project": {{\n'
+        '    "about": "cel i charakter projektu — MAKSYMALNIE 2 ZDANIA (po polsku)",\n'
+        '    "responsibilities": "obowiązki stanowiska (po polsku)"\n'
         "  }},\n"
         '  "screening_questions": [\n'
         '    {{"id": "q1", "question": "...", "ideal_answer": "...", "deal_breaker": ""}}\n'
         "  ],\n"
-        '  "historical_client_questions": "",\n'
-        '  "internal_consultant_insight": "",\n'
-        '  "sourcing": {{\n'
-        '    "sources": ["internal_base"|"linkedin"|"ad"|"referrals"|"other"],\n'
-        '    "keywords": "słowa kluczowe do search",\n'
-        '    "target_companies": "firmy skąd warto sourcować",\n'
-        '    "notes": ""\n'
+        '  "client": {{\n'
+        '    "about": "",\n'
+        '    "selling_points": "co przekona kandydata (po polsku)",\n'
+        '    "priority_rules": "",\n'
+        '    "consultant_insight": "",\n'
+        '    "historical_questions": "",\n'
+        '    "sectors": []\n'
         "  }},\n"
+        '  "documents": [],\n'
         '  "_confidence": {{\n'
         '    "basics": 0.0,\n'
-        '    "project_context": 0.0,\n'
+        '    "search": 0.0,\n'
+        '    "stack": 0.0,\n'
+        '    "project": 0.0,\n'
         '    "screening_questions": 0.0,\n'
-        '    "historical_client_questions": 0.0,\n'
-        '    "internal_consultant_insight": 0.0,\n'
-        '    "sourcing": 0.0\n'
+        '    "client": 0.0,\n'
+        '    "documents": 0.0\n'
         "  }}\n"
         "}}\n\n"
         "Limity: screening_questions max 8 pozycji, każda z krótkim ideal_answer; "
         "deal_breaker wypełnij TYLKO gdy klient wyraźnie wskazał dyskwalifikator. "
-        "W polu sourcing.sources zaznacz TYLKO kanały EXPLICIT sugerowane w opisie — "
-        "jeśli brak wzmianki, zostaw []. "
+        "project.about MUSI zmieścić się w 2 zdaniach — nadmiar POMIŃ, nie przenoś "
+        "do innych pól. "
+        'stack.must/nice to POJEDYNCZE technologie ("Java", "Kubernetes"), nie '
+        "całe wymagania zdaniami. "
+        "documents zostaw [] — opis stanowiska nie zawiera linków do dokumentów. "
         "Confidence: 0.0 gdy sekcja pusta, 0.3–0.6 gdy wywnioskowane, "
         "0.8–1.0 gdy explicit w opisie."
     ),
@@ -391,11 +412,11 @@ CHAMPION_PROFILE_ENRICH_FROM_MEETING = PromptTemplate(
         "Zwróć delta-patch JSON — tylko sekcje do aktualizacji:\n"
         "{{\n"
         '  "basics": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
-        '  "project_context": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
+        '  "search": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "stack": {{ "value": {{"must": [{{"name": "..."}}], "nice": []}}|null, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "project": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "cytat" }},\n'
         '  "screening_questions": {{ "value": [{{...}}]|null, "confidence": 0..1, "rationale": "..." }},\n'
-        '  "historical_client_questions": {{ "value": "..."|null, "confidence": 0..1, "rationale": "..." }},\n'
-        '  "internal_consultant_insight": {{ "value": "..."|null, "confidence": 0..1, "rationale": "..." }},\n'
-        '  "sourcing": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "..." }}\n'
+        '  "client": {{ "value": {{...}}|null, "confidence": 0..1, "rationale": "..." }}\n'
         "}}\n\n"
         "Dla sekcji których NIE chcesz aktualizować — pomiń całkowicie. "
         "rationale = krótki cytat/fragment z transkryptu uzasadniający zmianę "
@@ -451,12 +472,14 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
         "tę historię, aby wygenerować DRAFT profilu dla nowej roli. "
         "NAJWAŻNIEJSZE REGUŁY: "
         "(1) PREFERUJ DOSŁOWNE KOPIOWANIE (verbatim) tekstu z najbliższego "
-        "matcha dla pól narracyjnych (project_context.about, selling_points, "
-        "responsibilities). Nie przepisuj — Delivery Lead musi rozpoznać "
-        "źródło. W `rationale` ZAWSZE wpisz: 'skopiowano z Job #<id> "
+        "matcha dla pól narracyjnych (project.about, client.selling_points, "
+        "project.responsibilities). Nie przepisuj — Delivery Lead musi rozpoznać "
+        "źródło. `project.about` skróć jednak do MAKSYMALNIE 2 ZDAŃ, nawet gdy "
+        "źródło jest dłuższe. W `rationale` ZAWSZE wpisz: 'skopiowano z Job #<id> "
         "(<klient> — <tytuł>, podobieństwo <score>)'. "
-        "(2) Dla `sourcing.keywords` i `sourcing.target_companies` zrób UNION "
-        "wartości z top-K matches + deduplikację. "
+        "(2) Dla `search.keywords` i `search.target_companies` zrób UNION "
+        "wartości z top-K matches + deduplikację. Dla `stack.must`/`stack.nice` "
+        "użyj skill frequency (consistent_must / consistent_nice), nie prozy. "
         "(3) Dla `screening_questions` wybierz 3-5 pytań które pojawiają się "
         "najczęściej (dosłownie lub bardzo podobnie) w historycznych rolach. "
         "W `rationale` wpisz 'użyte w X/Y podobnych rolach'. "
@@ -488,11 +511,11 @@ CHAMPION_PROFILE_FROM_HISTORICAL_JOBS = PromptTemplate(
         "jednoznaczny sygnał. Format identyczny jak dla enrichment:\n"
         "{{\n"
         '  "basics": {{ "value": {{...}}, "confidence": 0..1, "rationale": "..." }},\n'
-        '  "project_context": {{ "value": {{...}}, "confidence": 0..1, "rationale": "skopiowano z Job #..." }},\n'
+        '  "project": {{ "value": {{...}}, "confidence": 0..1, "rationale": "skopiowano z Job #..." }},\n'
+        '  "stack": {{ "value": {{"must": [{{"name": "..."}}], "nice": []}}, "confidence": 0..1, "rationale": "skill frequency" }},\n'
         '  "screening_questions": {{ "value": [{{...}}], "confidence": 0..1, "rationale": "użyte w X/Y podobnych rolach" }},\n'
-        '  "historical_client_questions": {{ "value": "...", "confidence": 0..1, "rationale": "..." }},\n'
-        '  "internal_consultant_insight": {{ "value": "...", "confidence": 0..1, "rationale": "..." }},\n'
-        '  "sourcing": {{ "value": {{...}}, "confidence": 0..1, "rationale": "union top-K" }}\n'
+        '  "client": {{ "value": {{...}}, "confidence": 0..1, "rationale": "..." }},\n'
+        '  "search": {{ "value": {{...}}, "confidence": 0..1, "rationale": "union top-K" }}\n'
         "}}\n\n"
         "Dla sekcji których NIE uzupełniasz — pomiń klucz całkowicie. "
         "Confidence: 0.8-1.0 dla verbatim copy z pojedynczego matcha o "
