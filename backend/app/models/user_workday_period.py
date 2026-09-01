@@ -26,6 +26,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Date,
+    Index,
     DateTime,
     ForeignKey,
     Integer,
@@ -47,19 +48,26 @@ class UserWorkdayPeriod(Base):
         UniqueConstraint(
             "user_id", "period_start", "period_end", name="uq_user_workday_period"
         ),
+        # Indeksy deklarowane WPROST, dokładnie tak jak tworzy je migracja 0257.
+        # `index=True` na kolumnach dałoby DWA indeksy jednokolumnowe zamiast
+        # jednego złożonego — i właśnie taki rozjazd łapie
+        # `test_schema_drift_report`. Model i migracja muszą mówić to samo,
+        # inaczej „dryf" rośnie przy każdym takim skrócie.
+        Index("ix_user_workday_periods_user_id", "user_id"),
+        Index("ix_user_workday_periods_window", "period_start", "period_end"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     # Okno DOMKNIĘTE [start, end] — tak, jak zwraca je COMPASS. Świadomie NIE
     # sam miesiąc: Power Calling raportuje TYDZIEŃ ISO, a wskaźniki MD miesiąc,
     # więc jedna tabela musi udźwignąć obie granulacje. Przybliżanie tygodnia
     # z miesięcznej średniej byłoby zgadywaniem — czyli tym samym defektem
     # co dzielenie przez sztywne 5, tylko z ładniejszym mianownikiem.
-    period_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    period_end: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    period_end: Mapped[date] = mapped_column(Date, nullable=False)
 
     business_days: Mapped[int] = mapped_column(Integer, nullable=False)
     # NUMERIC, nie INTEGER: COMPASS dopuszcza pół dnia urlopu (`half_day`),
