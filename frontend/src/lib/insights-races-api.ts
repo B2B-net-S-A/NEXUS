@@ -111,6 +111,28 @@ export interface HallOfFameEntry {
   user_id: number;
   name: string;
   metric_value: number;
+  /**
+   * `false` = były pracownik. Ranking WSZECH CZASÓW świadomie go zostawia —
+   * odejście z firmy nie cofa tego, co ktoś osiągnął — więc wiersz musi dać
+   * się OZNACZYĆ. `null`/brak = ranking, który tego nie rozróżnia.
+   */
+  is_active?: boolean | null;
+}
+
+/**
+ * Ile dorobku stoi POZA rankingiem i wg jakiej reguły.
+ *
+ * Bez tego lista przycięta do TOP 5 czyta się jako komplet, a po przejściu
+ * na atrybucję D2 poza rankingiem zostaje realny kawał bazy: placementy
+ * domknięte przez konta administracyjne.
+ */
+export interface HallOfFameScope {
+  ranked_placements: number;
+  outside_role_placements: number;
+  unattributed_placements: number;
+  roles: string[];
+  /** Kod definicji — ten sam kontrakt co `placements_definition` w wykresach. */
+  attribution: string;
 }
 
 export interface HallOfFameResponse {
@@ -118,6 +140,8 @@ export interface HallOfFameResponse {
   period: string;
   top3: Array<HallOfFameEntry & { rank?: number; prize_pln?: number | null }>;
   full_ranking: HallOfFameEntry[];
+  /** `null` dla pozostałych typów konkursów — one są okresowe. */
+  scope?: HallOfFameScope | null;
 }
 
 /** Typy konkursów rozpoznawane przez `/history` (lustro `CompetitionType`). */

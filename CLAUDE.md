@@ -1234,12 +1234,41 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   Slug definicji zbumpowany do `..._v2` — baner drukuje notatkę DOSŁOWNIE,
   więc definicja, która zmieniła znaczenie pod tym samym kluczem, byłaby
   niewykrywalna dla konsumenta.
-- **Hall of Fame to TOP 5, liczony INNĄ regułą niż „Analiza placementów"**
-  (weryfikator vs osoba przesuwająca etap) i obejmuje wyłącznie osoby wciąż
-  zatrudnione (`u.is_active IS TRUE`), podczas gdy tabela zespołu obok
-  świadomie zostawia byłych pracowników z chipem. Wszystkie trzy różnice są
-  WYPISANE pod nagłówkiem sekcji — dopóki nie zostaną ujednolicone, bo
-  `/api/competitions/current` jest współdzielone z dashboardem.
+- **Hall of Fame liczy TAK SAMO jak „Analiza placementów" (D2), ale INACZEJ
+  niż wyścigi, które płacą.** Od 2026-09-01 `competitions.hall_of_fame` czyta
+  `analytics_first_milestones.first_moved_by` — pierwsze wejście pary
+  (kandydat, oferta) na etap „Zatrudniony", przypisane osobie, która ten etap
+  przesunęła. `monthly_most_placements` i mistrzowie kwartału ZOSTAJĄ przy
+  `_rank_recruiters_by_stage` (verifier-anchored): wypłacają 1500 zł i
+  10 000 zł, mają zamrożoną historię, a ich docstring mówi wprost, po co ta
+  atrybucja istnieje — „pozwalało osobie klikającej końcowy etap przejąć
+  credit pierwszego verifiera". **Nie reużywaj `_rank_recruiters_by_stage`
+  w Hall of Fame i nie ruszaj `VERIFIER_ANCHORED_CTE` „przy okazji"** — to
+  jedyne dwie ścieżki, którymi ta zmiana mogłaby ruszyć pieniądze. Hall of
+  Fame ich nie rusza: `_prize_for` daje mu 0, autofreeze go nie zna
+  (`competition_autofreeze.py` mrozi cztery inne typy), żaden ekran nie woła
+  `POST /freeze`, a `competition_winners` dla `hall_of_fame` jest puste
+  (sprawdzone na produkcji 2026-09-01).
+- **Zakres ról jest tym, co oddziela „kto dowiózł" od „kto kliknął".**
+  `HALL_OF_FAME_ROLES` = sourcer, tac, recruiter, delivery_lead,
+  head_of_recruitment — świadomie SZERSZY niż w wyścigach (te trzymają się
+  sourcer/tac/recruiter i nie wolno ich zlać w jedną listę). Konta `admin`
+  zostają poza rankingiem, bo w ostatnim roku pięć z nich zebrało **147 z 314
+  placementów przy CZTERECH weryfikacjach łącznie** — to podpis masowego
+  domykania pipeline'u. Delivery w tym samym oknie: 69 placementów przy 2186
+  weryfikacjach, czyli praca, którą wąski filtr wyścigów by wyciął.
+  Odpowiedź niesie `scope` (ile w rankingu, ile poza nim), bo TOP 5 bez tej
+  liczby czyta się jako całość bazy.
+- **Hall of Fame NIE filtruje `is_active`.** Ranking wszech czasów mówi, co
+  ktoś osiągnął — odejście z firmy tego nie cofa. Byli pracownicy zostają
+  z chipem, tak jak w tabeli „Performance per osoba" na tym samym ekranie.
+  `is_active` jedzie w `extras` i przez `CompetitionRankingEntry`, żeby dało
+  się ich OZNACZYĆ zamiast ukryć.
+- **Testy jednostkowe `hall_of_fame` mockują `db.execute` i asertują KSZTAŁT
+  SQL-a — nigdy go nie uruchamiają.** Literówka w nazwie kolumny przeszłaby
+  przez nie na zielono, a 500 zobaczyłby użytkownik. Dlatego
+  `test_insights_competitions_open.py` ma test, który przechodzi całą ścieżkę
+  router → serwis → Postgres.
 - **`/api/admin/schema-drift` robi `rollback()` w każdej gałęzi błędu** —
   zabezpieczenie ścieżki TIMEOUTU, gdzie `asyncio.wait_for` anuluje zapytanie
   w locie i zostawia sesję w zepsutej transakcji. Uwaga na zakres dowodu:

@@ -21,6 +21,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
@@ -113,6 +114,98 @@ async def test_every_role_reads_races_and_history(
         params={"type": "quarterly_champions_recruiter"},
     )
     assert history.status_code == 200, f"{role.value}: {history.text}"
+
+
+@pytest.mark.asyncio
+async def test_hall_of_fame_sql_actually_runs_against_the_real_schema(
+    comp_client: AsyncClient,
+):
+    """Zapytanie Hall of Fame WYKONUJE się na prawdziwym schemacie.
+
+    Testy jednostkowe tej funkcji podmieniają `db.execute` i asertują KSZTAŁT
+    SQL-a — nigdy go nie uruchamiają. Po przepisaniu atrybucji z
+    `VERIFIER_ANCHORED_CTE` na `analytics_first_milestones` (2026-09-01) taki
+    komplet byłby zielony także wtedy, gdyby nowe zapytanie miało literówkę
+    w nazwie kolumny albo odwoływało się do widoku, którego na migrowanej
+    bazie nie ma: 500 zobaczyłby dopiero użytkownik.
+
+    Ten test przechodzi CAŁĄ ścieżkę: router -> serwis -> Postgres, i dotyka
+    OBU zapytań (ranking + `hall_of_fame_scope`), bo `/current` liczy je razem.
+    """
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(comp_client, email, password)
+
+    resp = await comp_client.get(
+        "/api/competitions/current",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert isinstance(body["full_ranking"], list)
+
+    # `scope` to jedyne miejsce, z którego UI wie, ile dorobku stoi POZA
+    # rankingiem. Bez niego lista przycięta do TOP 5 czyta się jako komplet.
+    scope = body["scope"]
+    assert scope is not None, "Hall of Fame bez `scope` — TOP 5 udaje całość"
+    assert scope["attribution"] == "first_hired_per_candidate_job_by_mover"
+    for key in (
+        "ranked_placements",
+        "outside_role_placements",
+        "unattributed_placements",
+    ):
+        assert isinstance(scope[key], int), key
+    # Zakres ról jest CZĘŚCIĄ kontraktu: to on, a nie atrybucja, oddziela
+    # „kto dowiózł" od „kto masowo domknął pipeline".
+    assert "admin" not in scope["roles"]
+    assert "delivery_lead" in scope["roles"]
+
+    # Trzy kubełki MUSZĄ domykać się do wszystkich placementów. Pierwsza
+    # wersja liczyła „poza rankingiem" jako `NOT (predykat ról)`, więc kamień
+    # przypisany do konta, którego już nie ma w `users`, wypadał z obu
+    # kubełków przez trójwartościową logikę — a repo zna ten przypadek
+    # (tabela zespołu opisuje go wprost). Zdanie „poza rankingiem: N" było
+    # wtedy po cichu zaniżone.
+    #
+    # Sumę czytamy WPROST z widoku, a nie z drugiego endpointu: ten drugi ma
+    # własny sufit okna (`MAX_CUSTOM_PERIOD_DAYS`), więc porównanie przez
+    # niego albo pomijałoby się po cichu przy 422, albo mierzyło inne okno.
+    async with AsyncSessionLocal() as db:
+        total = (
+            await db.execute(
+                text(
+                    "SELECT count(*) FROM analytics_first_milestones "
+                    "WHERE stage::text = 'hired'"
+                )
+            )
+        ).scalar_one()
+
+    assert (
+        scope["ranked_placements"]
+        + scope["outside_role_placements"]
+        + scope["unattributed_placements"]
+    ) == int(total), "suma kubełków `scope` nie domyka się do wszystkich placementów"
+
+
+@pytest.mark.asyncio
+async def test_other_competition_types_have_no_scope(comp_client: AsyncClient):
+    """`scope` opisuje WYŁĄCZNIE Hall of Fame.
+
+    Pozostałe rankingi są okresowe i mają własny warunek udziału
+    w `requirement`. Gdyby `scope` wyciekł na nie, front pokazałby pod
+    wyścigiem zdanie o wykluczonych rolach, którego ten wyścig nie stosuje.
+    """
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(comp_client, email, password)
+
+    resp = await comp_client.get(
+        "/api/competitions/current",
+        headers=headers,
+        params={"type": "monthly_placements"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["scope"] is None
 
 
 @pytest.mark.asyncio

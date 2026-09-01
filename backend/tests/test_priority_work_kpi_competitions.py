@@ -136,20 +136,68 @@ async def test_champions_weights_change_the_ranking() -> None:
     assert recommendation_heavy[0].user_id == 1  # A wygrywa na rekomendacjach
 
 
-async def test_hall_of_fame_uses_verifier_anchored_placements() -> None:
-    rows = [SimpleNamespace(id=7, name="Verifier", cnt=12)]
+async def test_hall_of_fame_counts_placements_like_placement_analysis() -> None:
+    """Hall of Fame liczy wg D2, tak samo jak „Analiza placementów".
+
+    Do 2026-09-01 ta funkcja stała na `VERIFIER_ANCHORED_CTE`, przez co dwie
+    sąsiadujące sekcje jednego ekranu podpisane „placementy" pokazywały liczby
+    policzone dwiema regułami. Teraz obie czytają
+    `analytics_first_milestones.first_moved_by` — czyli PIERWSZE wejście pary
+    (kandydat, oferta) na etap „Zatrudniony", przypisane osobie, która ten
+    etap przesunęła.
+
+    Wyścigi (`_rank_recruiters_by_stage`) świadomie ZOSTAJĄ przy atrybucji
+    verifier-anchored: wypłacają nagrody i mają zamrożoną historię.
+    """
+    rows = [SimpleNamespace(id=7, name="Mover", is_active=True, cnt=12)]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
 
     ranked = await competitions.hall_of_fame(db, limit=5)
 
     statement, params = db.execute.await_args.args
     sql = str(statement)
-    assert "FROM credited c" in sql
-    assert "c.stage = 'hired'" in sql
-    assert "CandidateStage.moved_by" not in sql
-    assert params == {"limit": 5}
+    assert "analytics_first_milestones" in sql
+    assert "fm.first_moved_by" in sql
+    # Stara atrybucja NIE MOŻE wrócić bocznymi drzwiami.
+    assert "credited" not in sql
+    assert "fm.stage::text = 'hired'" in sql
+    # Ranking WSZECH CZASÓW nie wycina byłych pracowników — odejście z firmy
+    # nie cofa tego, co ktoś osiągnął.
+    assert "is_active IS TRUE" not in sql
+    assert params == {"limit": 5, "roles": competitions.HALL_OF_FAME_ROLES}
     assert ranked[0].user_id == 7
     assert ranked[0].metric_value == 12
+    # `is_active` w extras — UI oznacza byłych pracowników chipem zamiast ich
+    # ukrywać; bez tego pola wiersz sugeruje, że osoba wciąż tu pracuje.
+    assert ranked[0].extras == {"is_active": True}
+
+
+async def test_hall_of_fame_excludes_admin_accounts_but_keeps_delivery() -> None:
+    """Zakres ról to jedyne, co dzieli „kto dowiózł" od „kto kliknął".
+
+    Zmierzone na produkcji (ostatnie 366 dni, 314 placementów): pięć kont
+    `admin` zebrało 147 placementów przy CZTERECH weryfikacjach łącznie —
+    podpis masowego domykania pipeline'u. Delivery w tym samym oknie: 69
+    placementów przy 2186 weryfikacjach, czyli realna praca, którą wąski filtr
+    wyścigów (sourcer/tac/recruiter) wycinałby z rankingu.
+    """
+    assert "admin" not in competitions.HALL_OF_FAME_ROLES
+    assert "finance" not in competitions.HALL_OF_FAME_ROLES
+    for role in ("sourcer", "tac", "recruiter", "delivery_lead", "head_of_recruitment"):
+        assert role in competitions.HALL_OF_FAME_ROLES
+
+    # Wyścigi zostają przy SWOIM, węższym zakresie — mają własną atrybucję
+    # i wypłacają nagrody. Zlanie obu list byłoby cichą zmianą regulaminu.
+    db = SimpleNamespace(execute=AsyncMock(return_value=_Result([])))
+    await competitions._rank_recruiters_by_stage(
+        db,
+        stage=competitions.PipelineStage.hired,
+        start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        end=datetime(2026, 9, 1, tzinfo=timezone.utc),
+    )
+    race_sql = str(db.execute.await_args.args[0])
+    assert "credited" in race_sql, "wyścig zgubił atrybucję konkursową"
+    assert "delivery_lead" not in race_sql
 
 
 def _race_row(

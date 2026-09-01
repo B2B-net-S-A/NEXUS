@@ -141,6 +141,9 @@ async def test_stage_ranking_and_hall_of_fame_tie_break_is_id_not_name():
     assert "ORDER BY count(*) DESC, u.id ASC" in stage_sql
     assert "u.name ASC" not in stage_sql
 
+    # Hall of Fame stoi od 2026-09-01 na innej atrybucji (D2, jak „Analiza
+    # placementów"), ale remis rozstrzyga TAK SAMO — pierwszy wiersz rankingu
+    # to nazwisko na tablicy, a porządek bajtowy pod musl nie jest neutralny.
     db = SimpleNamespace(execute=AsyncMock(return_value=_Rows([])))
     await competitions.hall_of_fame(db)
     hof_sql = str(db.execute.await_args.args[0])

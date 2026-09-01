@@ -1,17 +1,17 @@
-"use client"
+"use client";
 
-import { Medal } from "lucide-react"
+import { Medal } from "lucide-react";
 
-import { Podium } from "@/components/ds"
-import { HeroLigaMistrzow } from "@/components/v2/gamification/HeroLigaMistrzow"
-import type { HeroPodiumEntry } from "@/components/v2/gamification/HeroLigaMistrzow"
-import { RaceCard } from "@/components/v2/gamification/RaceCard"
+import { Podium } from "@/components/ds";
+import { HeroLigaMistrzow } from "@/components/v2/gamification/HeroLigaMistrzow";
+import type { HeroPodiumEntry } from "@/components/v2/gamification/HeroLigaMistrzow";
+import { RaceCard } from "@/components/v2/gamification/RaceCard";
 import type {
   CompetitionRankingEntry,
   RecruitmentHallOfFame,
   RecruitmentMonthlyRaces,
   RecruitmentQuarterlyLeague,
-} from "@/lib/dashboard-v2-api"
+} from "@/lib/dashboard-v2-api";
 
 // Blok rywalizacji sekcji „Statystyki rekrutacji" — czysta kompozycja
 // gotowych rendererów (HeroLigaMistrzow / RaceCard / ds Podium) z danych
@@ -31,7 +31,7 @@ function toHeroEntry(entry: CompetitionRankingEntry): HeroPodiumEntry {
     interviews: entry.interviews ?? undefined,
     recommendations: entry.recommendations ?? undefined,
     excluded: entry.excluded,
-  }
+  };
 }
 
 function toRaceEntry(entry: CompetitionRankingEntry) {
@@ -49,7 +49,7 @@ function toRaceEntry(entry: CompetitionRankingEntry) {
       qualified: entry.qualified,
       disqualification_reasons: entry.disqualification_reasons,
     },
-  }
+  };
 }
 
 export function RecruitmentCompetitions({
@@ -58,16 +58,16 @@ export function RecruitmentCompetitions({
   hallOfFame,
   highlightUserId,
 }: {
-  league: RecruitmentQuarterlyLeague | null
-  races: RecruitmentMonthlyRaces | null
-  hallOfFame: RecruitmentHallOfFame | null
-  highlightUserId: number | null
+  league: RecruitmentQuarterlyLeague | null;
+  races: RecruitmentMonthlyRaces | null;
+  hallOfFame: RecruitmentHallOfFame | null;
+  highlightUserId: number | null;
 }) {
-  const prizes: Record<number, number> = {}
+  const prizes: Record<number, number> = {};
   for (const [rank, amount] of Object.entries(league?.prizes_pln ?? {})) {
-    prizes[Number(rank)] = amount
+    prizes[Number(rank)] = amount;
   }
-  const formula = league?.points_formula
+  const formula = league?.points_formula;
 
   return (
     <div className="space-y-4">
@@ -130,17 +130,31 @@ export function RecruitmentCompetitions({
             />
           </>
         ) : (
-          <UnavailableCard label="Wyścigi miesięczne" className="lg:col-span-2" />
+          <UnavailableCard
+            label="Wyścigi miesięczne"
+            className="lg:col-span-2"
+          />
         )}
       </div>
 
       {hallOfFame ? (
         <div className="grid gap-4 lg:grid-cols-2">
+          {/* Hall of Fame liczy od 2026-09-01 wg definicji D2 (pierwsze
+              „Zatrudniony" pary kandydat × rekrutacja, przypisane osobie,
+              która przesunęła etap) — tak samo jak „Analiza placementów"
+              w /insights. Wyścigi WYŻEJ w tym samym komponencie zostają przy
+              atrybucji konkursowej, bo wypłacają nagrody; dlatego podium
+              all-time może pokazywać inne nazwiska niż wyścig placementów
+              obok. Były pracownik ZOSTAJE w rankingu wszech czasów (odejście
+              nie cofa dorobku), więc wiersz musi go oznaczyć. */}
           <Podium
             title="Hall of Fame — placementy all-time"
             entries={hallOfFame.all_time.slice(0, 3).map((entry) => ({
               rank: entry.rank,
-              name: entry.name,
+              name:
+                entry.is_active === false
+                  ? `${entry.name} (były pracownik)`
+                  : entry.name,
               points: entry.metric_value,
               me: entry.user_id === highlightUserId,
             }))}
@@ -191,15 +205,15 @@ export function RecruitmentCompetitions({
         <UnavailableCard label="Hall of Fame" />
       )}
     </div>
-  )
+  );
 }
 
 function UnavailableCard({
   label,
   className,
 }: {
-  label: string
-  className?: string
+  label: string;
+  className?: string;
 }) {
   return (
     <div
@@ -207,7 +221,7 @@ function UnavailableCard({
     >
       {label}: dane chwilowo niedostępne (to NIE jest zero).
     </div>
-  )
+  );
 }
 
-export default RecruitmentCompetitions
+export default RecruitmentCompetitions;

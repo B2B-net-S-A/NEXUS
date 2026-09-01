@@ -697,37 +697,159 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
     )
 
 
-async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
-    """All-time placements with the canonical first-verifier attribution."""
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+# Role, które WCHODZĄ do Hall of Fame. Świadomie SZERSZE niż w wyścigach
+# (`_rank_recruiters_by_stage`: sourcer/tac/recruiter): po przejściu na
+# atrybucję D2 placement przypisuje się osobie, która PRZESUNĘŁA etap, a etap
+# „Zatrudniony" domyka w tej firmie także delivery. Wąski filtr wycinałby
+# 69 z 314 placementów ostatniego roku (10 osób delivery z 2186 weryfikacjami)
+# — czyli ludzi, którzy tę pracę realnie wykonali.
+#
+# Konta ADMINISTRACYJNE zostają poza rankingiem i to jest cała różnica między
+# „kto dowiózł" a „kto kliknął": w ostatnim roku 5 kont `admin` zebrało
+# 147 z 314 placementów przy CZTERECH weryfikacjach łącznie. To podpis
+# masowego domykania pipeline'u, a nie dorobku rekrutacyjnego — dokładnie ta
+# patologia, przed którą broni verifier-anchored atrybucja w wyścigach
+# (patrz docstring `_rank_recruiters_by_stage`). Tutaj zamyka ją filtr ról,
+# bo Hall of Fame nie wypłaca nagród i może pozwolić sobie na prostszą regułę.
+# Kod definicji w odpowiedzi — ta sama konwencja co `placements_definition`
+# w /api/insights/charts/placement-analysis. Konsument ma jak SPRAWDZIĆ, że
+# obie powierzchnie liczą to samo, zamiast zakładać to z podobnej etykiety.
+HALL_OF_FAME_ATTRIBUTION = "first_hired_per_candidate_job_by_mover"
 
+
+HALL_OF_FAME_ROLES = [
+    "sourcer",
+    "tac",
+    "recruiter",
+    "delivery_lead",
+    "head_of_recruitment",
+]
+
+
+@dataclass
+class HallOfFameScope:
+    """Ile dorobku stoi POZA rankingiem — lista bez tego czyta się jak komplet."""
+
+    ranked_placements: int
+    outside_role_placements: int
+    unattributed_placements: int
+    roles: list[str]
+
+    def to_dict(self) -> dict:
+        return {
+            "ranked_placements": self.ranked_placements,
+            "outside_role_placements": self.outside_role_placements,
+            "unattributed_placements": self.unattributed_placements,
+            "roles": self.roles,
+            "attribution": HALL_OF_FAME_ATTRIBUTION,
+        }
+
+
+# Wspólny predykat ról — jeden literał dla rankingu i dla licznika „poza
+# rankingiem". Rozjazd między nimi dałby sumę, która się nie domyka.
+_HOF_ROLE_PREDICATE = """
+    (
+        u.role::text = ANY(:roles)
+        OR u.roles ?| :roles
+    )
+"""
+
+
+async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
+    """Ranking wszech czasów wg definicji D2 — jak „Analiza placementów".
+
+    ATRYBUCJA: `analytics_first_milestones.first_moved_by`, czyli osoba, która
+    przesunęła parę (kandydat, oferta) na etap „Zatrudniony" PIERWSZY raz.
+    Ta sama reguła, którą stosuje `/api/insights/charts/placement-analysis`
+    i tabela „Performance per osoba" — dzięki temu trzy liczby podpisane
+    „placementy" na jednym ekranie znaczą to samo.
+
+    ŚWIADOMA RÓŻNICA WOBEC WYŚCIGÓW. `monthly_most_placements` i mistrzowie
+    kwartału liczą verifier-anchored (`_rank_recruiters_by_stage`) i tak
+    zostaje: tamte WYPŁACAJĄ nagrody (1500 zł / 10 000 zł) i mają zamrożoną
+    historię, więc zmiana ich formuły przesuwałaby pieniądze. Hall of Fame nie
+    ma puli nagród ani ani jednego zamrożonego okresu
+    (`competition_winners` dla `hall_of_fame` jest puste), więc może iść za
+    kanoniczną definicją D2. UI mówi o tej różnicy wprost.
+
+    BEZ FILTRA `is_active`. Ranking WSZECH CZASÓW mówi, co ktoś osiągnął —
+    odejście z firmy tego nie cofa. Zgodnie z tabelą „Performance per osoba"
+    obok, która zostawia byłych pracowników z chipem. `is_active` wraca
+    w `extras`, żeby UI mogło ich oznaczyć zamiast ukryć.
+    """
     rows = (
         await db.execute(
             text(
-                VERIFIER_ANCHORED_CTE
-                + """
-                SELECT u.id, u.name, count(*) AS cnt
-                FROM credited c
-                JOIN users u ON u.id = c.credit_user
-                WHERE c.stage = 'hired'
-                  AND (
-                      u.role::text IN ('sourcer', 'tac', 'recruiter')
-                      OR u.roles ?| ARRAY['sourcer', 'tac', 'recruiter']
-                  )
-                  AND u.is_active IS TRUE
-                GROUP BY u.id, u.name
+                f"""
+                SELECT u.id,
+                       u.name,
+                       u.is_active,
+                       count(*) AS cnt
+                FROM analytics_first_milestones fm
+                JOIN users u ON u.id = fm.first_moved_by
+                WHERE fm.stage::text = 'hired'
+                  AND {_HOF_ROLE_PREDICATE}
+                GROUP BY u.id, u.name, u.is_active
                 -- Tie-break po `u.id`, nie po nazwie — jak w pozostałych
                 -- rankingach; porządek bajtowy pod musl nie jest neutralny.
                 ORDER BY count(*) DESC, u.id ASC
                 LIMIT :limit
                 """
             ),
-            {"limit": limit},
+            {"limit": limit, "roles": HALL_OF_FAME_ROLES},
         )
     ).all()
     return [
-        RankedUser(user_id=r.id, name=r.name, metric_value=int(r.cnt)) for r in rows
+        RankedUser(
+            user_id=r.id,
+            name=r.name,
+            metric_value=int(r.cnt),
+            extras={"is_active": bool(r.is_active)},
+        )
+        for r in rows
     ]
+
+
+async def hall_of_fame_scope(db: AsyncSession) -> HallOfFameScope:
+    """Ile placementów jest W rankingu, a ile poza nim i dlaczego.
+
+    Lista przycięta do TOP N bez tej informacji czyta się jako komplet —
+    ta sama reguła, przez którą „Analiza placementów" zwija ogon w koszyk
+    „Pozostali" zamiast go uciąć po cichu.
+    """
+    row = (
+        await db.execute(
+            text(
+                f"""
+                SELECT
+                    count(*) FILTER (WHERE COALESCE({_HOF_ROLE_PREDICATE}, FALSE))
+                        AS ranked,
+                    -- Dopełnienie, nie `NOT (predykat)`. Kamień przypisany do
+                    -- konta, którego JUŻ NIE MA w `users` (LEFT JOIN daje
+                    -- NULL-e), wypadał z obu kubełków przez trójwartościową
+                    -- logikę — a repo zna ten przypadek: tabela zespołu
+                    -- opisuje go wprost. Suma trzech liczb ma się domykać
+                    -- do wszystkich placementów, bo inaczej zdanie „poza
+                    -- rankingiem: N" jest po cichu zaniżone.
+                    count(*) FILTER (
+                        WHERE fm.first_moved_by IS NOT NULL
+                          AND NOT COALESCE({_HOF_ROLE_PREDICATE}, FALSE)
+                    ) AS outside_role,
+                    count(*) FILTER (WHERE fm.first_moved_by IS NULL) AS unattributed
+                FROM analytics_first_milestones fm
+                LEFT JOIN users u ON u.id = fm.first_moved_by
+                WHERE fm.stage::text = 'hired'
+                """
+            ),
+            {"roles": HALL_OF_FAME_ROLES},
+        )
+    ).one()
+    return HallOfFameScope(
+        ranked_placements=int(row.ranked or 0),
+        outside_role_placements=int(row.outside_role or 0),
+        unattributed_placements=int(row.unattributed or 0),
+        roles=list(HALL_OF_FAME_ROLES),
+    )
 
 
 async def compose_monthly_races(

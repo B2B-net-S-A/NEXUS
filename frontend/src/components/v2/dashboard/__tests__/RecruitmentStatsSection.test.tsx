@@ -1,21 +1,22 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RecruitmentStatsSection } from "@/components/v2/dashboard/RecruitmentStatsSection"
+import { RecruitmentStatsSection } from "@/components/v2/dashboard/RecruitmentStatsSection";
 import {
   getRecruitmentStats,
   type DashboardKpi,
   type RecruitmentStatsResponse,
-} from "@/lib/dashboard-v2-api"
-import { useAuthStore, type User } from "@/store/auth"
+} from "@/lib/dashboard-v2-api";
+import { useAuthStore, type User } from "@/store/auth";
 
 vi.mock("@/lib/dashboard-v2-api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/dashboard-v2-api")>()
-  return { ...actual, getRecruitmentStats: vi.fn() }
-})
+  const actual =
+    await importOriginal<typeof import("@/lib/dashboard-v2-api")>();
+  return { ...actual, getRecruitmentStats: vi.fn() };
+});
 
-const getStats = vi.mocked(getRecruitmentStats)
+const getStats = vi.mocked(getRecruitmentStats);
 
 const kpi = (value: number | null, quality = "complete"): DashboardKpi => ({
   value,
@@ -25,7 +26,7 @@ const kpi = (value: number | null, quality = "complete"): DashboardKpi => ({
   comparison: null,
   definition: "Definicja KPI.",
   drilldown_href: null,
-})
+});
 
 function user(role: User["role"], roles?: User["roles"]): User {
   return {
@@ -49,7 +50,7 @@ function user(role: User["role"], roles?: User["roles"]): User {
       allowed_operator_user_ids: [7],
       allowed_client_tac_pairs: [],
     },
-  }
+  };
 }
 
 function fullResponse(): RecruitmentStatsResponse {
@@ -69,7 +70,11 @@ function fullResponse(): RecruitmentStatsResponse {
       warnings: [],
       source_watermarks: {},
       sections: {
-        team_funnel: { status: "complete", warnings: [], source_watermarks: {} },
+        team_funnel: {
+          status: "complete",
+          warnings: [],
+          source_watermarks: {},
+        },
       },
     },
     data: {
@@ -129,66 +134,68 @@ function fullResponse(): RecruitmentStatsResponse {
       linkedin: null,
       trend: null,
     },
-  }
+  };
 }
 
 function renderSection() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  })
+  });
   return render(
     <QueryClientProvider client={queryClient}>
       <RecruitmentStatsSection />
     </QueryClientProvider>,
-  )
+  );
 }
 
 describe("RecruitmentStatsSection", () => {
   beforeEach(() => {
-    getStats.mockReset()
-  })
+    getStats.mockReset();
+  });
 
   afterEach(() => {
     act(() => {
-      useAuthStore.setState({ user: null, hydrated: true })
-    })
-  })
+      useAuthStore.setState({ user: null, hydrated: true });
+    });
+  });
 
   it("renders 5 tiles (including Akceptacje) and the named team table for a recruiter", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
-    })
-    getStats.mockResolvedValue(fullResponse())
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    });
+    getStats.mockResolvedValue(fullResponse());
 
-    renderSection()
+    renderSection();
 
     // „Akceptacje"/„Weryfikacje"/… występują jako label kafla ORAZ nagłówek
     // kolumny tabeli — stąd *AllByText.
-    expect((await screen.findAllByText("Akceptacje")).length).toBeGreaterThan(0)
-    expect(screen.getAllByText("Weryfikacje").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("Rekomendacje").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("Interviews").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("Placements").length).toBeGreaterThan(0)
+    expect((await screen.findAllByText("Akceptacje")).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("Weryfikacje").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Rekomendacje").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Interviews").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Placements").length).toBeGreaterThan(0);
     // Kafle = totals tabeli.
-    expect(screen.getAllByText("132").length).toBeGreaterThan(0)
-    expect(screen.getAllByText("12").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("132").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("12").length).toBeGreaterThan(0);
     // Pełna tabela imienna widoczna dla zwykłego rekrutera.
-    expect(screen.getByText("Marlena Testowa")).toBeInTheDocument()
-    expect(screen.getByText(/Razem \(1\)/)).toBeInTheDocument()
+    expect(screen.getByText("Marlena Testowa")).toBeInTheDocument();
+    expect(screen.getByText(/Razem \(1\)/)).toBeInTheDocument();
     // Default = miesiąc.
-    expect(getStats).toHaveBeenCalledWith("month")
-  })
+    expect(getStats).toHaveBeenCalledWith("month");
+  });
 
   it("does not mount at all for the legacy viewer role", () => {
     act(() => {
-      useAuthStore.setState({ user: user("user"), hydrated: true })
-    })
+      useAuthStore.setState({ user: user("user"), hydrated: true });
+    });
 
-    const { container } = renderSection()
+    const { container } = renderSection();
 
-    expect(container).toBeEmptyDOMElement()
-    expect(getStats).not.toHaveBeenCalled()
-  })
+    expect(container).toBeEmptyDOMElement();
+    expect(getStats).not.toHaveBeenCalled();
+  });
 
   // Regresja ODWROTNA (zmiana polityki, nie przypadek): finance ma tier
   // operacyjny od 19.08, a backendowy OperationalUser (dashboard_v2.py)
@@ -197,21 +204,21 @@ describe("RecruitmentStatsSection", () => {
   // jest gorsza niż jej brak: wygląda jak „nie ma danych".
   it("mounts for finance (tier operacyjny, decyzja 19.08)", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("finance"), hydrated: true })
-    })
-    getStats.mockResolvedValue(fullResponse())
+      useAuthStore.setState({ user: user("finance"), hydrated: true });
+    });
+    getStats.mockResolvedValue(fullResponse());
 
-    renderSection()
+    renderSection();
 
-    expect(await screen.findByText("Marlena Testowa")).toBeInTheDocument()
-    expect(getStats).toHaveBeenCalledWith("month")
-  })
+    expect(await screen.findByText("Marlena Testowa")).toBeInTheDocument();
+    expect(getStats).toHaveBeenCalledWith("month");
+  });
 
   it("renders dashes (never zeros) when the funnel source is unavailable", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
-    })
-    const degraded = fullResponse()
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    });
+    const degraded = fullResponse();
     degraded.data_quality = {
       status: "partial",
       warnings: ["team_funnel: RuntimeError"],
@@ -223,48 +230,48 @@ describe("RecruitmentStatsSection", () => {
           source_watermarks: {},
         },
       },
-    }
+    };
     degraded.data.kpis = {
       verifications: kpi(null, "unavailable"),
       recommendations: kpi(null, "unavailable"),
       interviews: kpi(null, "unavailable"),
       acceptances: kpi(null, "unavailable"),
       placements: kpi(null, "unavailable"),
-    }
-    degraded.data.team_table = null
-    degraded.data.conversions = null
-    getStats.mockResolvedValue(degraded)
+    };
+    degraded.data.team_table = null;
+    degraded.data.conversions = null;
+    getStats.mockResolvedValue(degraded);
 
-    renderSection()
+    renderSection();
 
-    expect(await screen.findByText("Dane częściowe")).toBeInTheDocument()
-    const dashes = screen.getAllByText("—")
-    expect(dashes.length).toBeGreaterThanOrEqual(5)
-    expect(screen.queryByText("0")).not.toBeInTheDocument()
+    expect(await screen.findByText("Dane częściowe")).toBeInTheDocument();
+    const dashes = screen.getAllByText("—");
+    expect(dashes.length).toBeGreaterThanOrEqual(5);
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
     expect(
       screen.getByText(/Dane zespołu są chwilowo niedostępne/),
-    ).toBeInTheDocument()
-  })
+    ).toBeInTheDocument();
+  });
 
   it("shows the error boundary (no zeros) when the request fails", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
-    })
-    getStats.mockRejectedValue(new Error("boom"))
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    });
+    getStats.mockRejectedValue(new Error("boom"));
 
-    renderSection()
+    renderSection();
 
     expect(
       await screen.findByText("Nie udało się załadować danych."),
-    ).toBeInTheDocument()
-    expect(screen.queryByText("0")).not.toBeInTheDocument()
-  })
+    ).toBeInTheDocument();
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
 
   it("renders competitions, hall of fame, linkedin and trend from the full payload", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
-    })
-    const full = fullResponse()
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    });
+    const full = fullResponse();
     const entry = (rank: number, name: string, metric: number) => ({
       rank,
       user_id: rank,
@@ -282,7 +289,11 @@ describe("RecruitmentStatsSection", () => {
       precision_pct: 80,
       required_verifications: 40,
       disqualification_reasons: [],
-    })
+      // Backend wysyła to pole zawsze (`bool | None`), więc fixture też musi —
+      // opcjonalne w typie przepuszczałoby wiersz bez informacji o tym, czy
+      // osoba wciąż tu pracuje, a Hall of Fame na tym stoi.
+      is_active: true,
+    });
     full.data.quarterly_league = {
       period: "Q3 2026",
       days_remaining: 54,
@@ -291,7 +302,7 @@ describe("RecruitmentStatsSection", () => {
       requirement: "Wymagane minimum 3 placementów w kwartale.",
       top3: [entry(1, "Liga Lider", 980)],
       full_ranking: [entry(1, "Liga Lider", 980)],
-    }
+    };
     full.data.monthly_races = {
       period: "2026-08",
       days_remaining: 24,
@@ -309,7 +320,7 @@ describe("RecruitmentStatsSection", () => {
         excluded_user_ids: [],
         qualified_leader_user_id: 1,
       },
-    }
+    };
     full.data.hall_of_fame = {
       all_time: [entry(1, "Legenda Wszechczasów", 31)],
       history: [
@@ -327,7 +338,7 @@ describe("RecruitmentStatsSection", () => {
           ],
         },
       ],
-    }
+    };
     full.data.linkedin = {
       date_from: "2026-08-01",
       date_to: "2026-08-31",
@@ -352,7 +363,7 @@ describe("RecruitmentStatsSection", () => {
         cv_response_rate: 37.5,
         active_users: 11,
       },
-    }
+    };
     full.data.trend = {
       months: [
         {
@@ -372,56 +383,56 @@ describe("RecruitmentStatsSection", () => {
           placements: 7,
         },
       ],
-    }
-    getStats.mockResolvedValue(full)
+    };
+    getStats.mockResolvedValue(full);
 
-    renderSection()
+    renderSection();
 
-    expect(await screen.findByText("Liga Mistrzów")).toBeInTheDocument()
-    expect(screen.getByText("Wyścig Rekomendacji")).toBeInTheDocument()
-    expect(screen.getByText("Wyścig Placementów")).toBeInTheDocument()
+    expect(await screen.findByText("Liga Mistrzów")).toBeInTheDocument();
+    expect(screen.getByText("Wyścig Rekomendacji")).toBeInTheDocument();
+    expect(screen.getByText("Wyścig Placementów")).toBeInTheDocument();
     expect(
       screen.getByText("Hall of Fame — placementy all-time"),
-    ).toBeInTheDocument()
-    expect(screen.getByText(/Zamrożona Zwyciężczyni/)).toBeInTheDocument()
-    expect(screen.getByText("LinkedIn Performance")).toBeInTheDocument()
-    expect(screen.getByText("Linkedinowa Osoba")).toBeInTheDocument()
-    expect(screen.getByText("Trend 12 miesięcy")).toBeInTheDocument()
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Zamrożona Zwyciężczyni/)).toBeInTheDocument();
+    expect(screen.getByText("LinkedIn Performance")).toBeInTheDocument();
+    expect(screen.getByText("Linkedinowa Osoba")).toBeInTheDocument();
+    expect(screen.getByText("Trend 12 miesięcy")).toBeInTheDocument();
     expect(
       screen.getByText("Efektywność lejka (wybrany okres)"),
-    ).toBeInTheDocument()
-  })
+    ).toBeInTheDocument();
+  });
 
   it("renders unavailable notices (never zeros) when optional blocks are null", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
-    })
-    getStats.mockResolvedValue(fullResponse()) // bloki opcjonalne = null
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    });
+    getStats.mockResolvedValue(fullResponse()); // bloki opcjonalne = null
 
-    renderSection()
+    renderSection();
 
-    await screen.findAllByText("Akceptacje")
+    await screen.findAllByText("Akceptacje");
     expect(
       screen.getByText(/Liga Mistrzów: dane chwilowo niedostępne/),
-    ).toBeInTheDocument()
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/LinkedIn: dane chwilowo niedostępne/),
-    ).toBeInTheDocument()
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/Trend: dane chwilowo niedostępne/),
-    ).toBeInTheDocument()
-  })
+    ).toBeInTheDocument();
+  });
 
   it("refetches with the chosen period when the section toggle changes", async () => {
     act(() => {
-      useAuthStore.setState({ user: user("recruiter"), hydrated: true })
-    })
-    getStats.mockResolvedValue(fullResponse())
+      useAuthStore.setState({ user: user("recruiter"), hydrated: true });
+    });
+    getStats.mockResolvedValue(fullResponse());
 
-    renderSection()
-    await screen.findAllByText("Akceptacje")
+    renderSection();
+    await screen.findAllByText("Akceptacje");
 
-    fireEvent.click(screen.getByRole("button", { name: "Kwartał" }))
-    expect(getStats).toHaveBeenLastCalledWith("quarter")
-  })
-})
+    fireEvent.click(screen.getByRole("button", { name: "Kwartał" }));
+    expect(getStats).toHaveBeenLastCalledWith("quarter");
+  });
+});

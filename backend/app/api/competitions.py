@@ -72,8 +72,13 @@ async def get_current(
         else:
             period = comp_service.current_month_period()
 
+    hof_scope = None
     if ctype == CompetitionType.hall_of_fame:
         ranked = await comp_service.hall_of_fame(db, limit=5)
+        # Ile dorobku stoi POZA rankingiem. Lista przycięta do TOP 5 bez tej
+        # liczby czyta się jako komplet — a po przejściu na atrybucję D2 poza
+        # rankingiem zostaje realny kawał bazy (konta administracyjne).
+        hof_scope = (await comp_service.hall_of_fame_scope(db)).to_dict()
     else:
         ranked = await comp_service.compute_live(db, ctype, period)
 
@@ -161,6 +166,9 @@ async def get_current(
             )
             else None
         ),
+        # `null` dla wszystkich typów poza Hall of Fame — pozostałe rankingi są
+        # okresowe i mają własny warunek udziału w `requirement`.
+        "scope": hof_scope,
     }
 
 
