@@ -112,13 +112,40 @@ workflow „Coolify set env"; ID klienta:
   rozwija się do `?status=active&status=ending`, licznik „289 kontraktorów /
   310 aktywnych kontraktów".
 
+## Co migracja zrobiła na produkcji (paragon, 2026-09-01 14:37 UTC)
+
+Odczytane kanałem `Coolify Ops → action=migration-receipts`
+(`receipt_key=0262_separate_md_periodic`):
+
+| pozycja | wynik |
+|---|---|
+| anulowane duplikaty zamówień okresowych | **6** — BNP Paribas (12): 1, Polkomtel (15): 4, BIK (18): 1 |
+| usunięte puste zaślepki „(bez numeru)" | 0 — wszystkie sześć niosło numer albo PDF, więc poszły gałęzią ostrożną (anulowanie, nie kasowanie) |
+| umowy odbezterminowione (wyczyszczona data końca) | **32** |
+| umowy wskrzeszone z `ending`/`ended` na `active` | 1 |
+
+Lotte Wedel nie miał ani jednego duplikatu.
+
+**Zgłoszony przypadek zweryfikowany na produkcji.** Kontrakt 502 (BNP Paribas,
+J. Suchanek) jest na liście odbezterminowanych, a jego dwa zamówienia rozeszły
+się dokładnie tak, jak wymaga ticket:
+
+* `order=124` — duplikat `ZAM_1453_2026`, samodzielny (`group=None`) →
+  **cancelled**,
+* `order=125` — linia zamówienia MD `1453_2026` (`group=31`) → **active**,
+  nietknięta.
+
 ## Znane ograniczenia
 
 * Rozjechane wiersze `client_orders.client_id ≠ contracts.client_id` są
   **raportowane, nie naprawiane**. Nie da się z samych danych rozstrzygnąć,
   która strona jest prawdziwa, a cicha zmiana czyjegoś stanu na podstawie
   niespójnych danych jest gorsza niż jej brak.
-* Migracja nie ma dostępu do produkcji z tej sesji — liczby duplikatów
-  u BNP / Polkomtel / BIK / Wedel będą znane z paragonu w `app_settings`
-  po wdrożeniu (`SELECT value FROM app_settings WHERE key =
-  '0262_separate_md_periodic';`).
+* **Bramka ręcznego zakładania zamówienia okresowego jest węższa niż zakres
+  sprzątania.** Migracja anulowała duplikaty obok linii MD *i* kosztowych
+  (tak żąda ticket, stąd cztery wiersze u Polkomtela), a bramka przy RĘCZNYM
+  tworzeniu blokuje wyłącznie sąsiedztwo linii MD. Ścieżka automatyczna (hook
+  zatrudnienia) jest zablokowana dla obu typów — to ona robiła duplikaty.
+  Współistnienie zamówienia kosztowego i okresowego zostaje możliwe świadomie:
+  to dwa modele rozliczenia, a po rozdzieleniu akcji „Zakończ" nie jest już
+  groźne.
