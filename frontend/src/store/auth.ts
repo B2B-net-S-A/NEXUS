@@ -340,6 +340,41 @@ export function canManageMultiConsultantOrders(
   return hasRole(user, "admin", "delivery_lead")
 }
 
+/**
+ * Kwoty JEDNEGO klienta: przychód, marża, stawki (profil klienta + zakładka
+ * Analityka, zasilana przez `/api/my-clients/{id}/dashboard`).
+ *
+ * Lustro backendowego `can_read_client_finance` (`api/financial_access.py`):
+ * capability `view_finance` ALBO Delivery Lead w granicach WŁASNEGO portfela.
+ * Granicę bierzemy z `data_scope`, bo backend liczy ją z tego samego źródła
+ * (`resolve_dashboard_scope` w GET /api/auth/me) — to nie jest zgadywanie po
+ * roli, tylko ta sama lista klientów.
+ *
+ * Dlaczego nie sam `hasRole(user, "delivery_lead")`: hybryda
+ * `head_of_recruitment + delivery_lead` dostaje zakres `recruitment_org`, czyli
+ * nadzór nieoskopowany — test roli rozdałby jej kwoty u WSZYSTKICH klientów,
+ * a backend i tak odpowie bez nich. Rozjazd tych dwóch list kończy się kafelkiem,
+ * który obiecuje liczbę i pokazuje pustkę.
+ *
+ * Fail-closed: brak `data_scope` (stary cache localStorage) = false.
+ */
+export function canViewClientFinance(
+  user:
+    | Pick<
+        User,
+        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
+      >
+    | null
+    | undefined,
+  clientId: number
+): boolean {
+  if (!user) return false
+  if (hasAnalyticsCapability(user, "view_finance")) return true
+  const scope = user.data_scope
+  if (!scope || scope.kind !== "delivery_clients") return false
+  return (scope.allowed_client_ids ?? []).includes(clientId)
+}
+
 // ── Store ───────────────────────────────────────────────────────────────────
 
 interface AuthState {

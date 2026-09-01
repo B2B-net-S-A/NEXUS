@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
 from app.api.deps import CurrentUser, require_dl_assigned_or_admin
-from app.api.financial_access import has_financial_access
+from app.api.financial_access import can_read_client_finance, has_financial_access
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -35,6 +35,7 @@ from app.schemas.my_clients import (
     ExpiringAlert,
     MyClientRow,
 )
+from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -178,6 +179,9 @@ async def list_my_clients(
         clients = list((await db.execute(clients_stmt)).scalars())
         client_ids = [c.id for c in clients]
         head_lookup: dict[int, bool] = {}
+        # Odczyt organizacyjny: lista obejmuje KAŻDEGO klienta, także tych,
+        # z którymi ten odbiorca nie ma nic wspólnego.
+        rows_are_callers_own_portfolio = False
     else:
         if not user.has_role(UserRole.delivery_lead):
             raise HTTPException(
@@ -205,6 +209,10 @@ async def list_my_clients(
         )
         client_ids = [a.client_id for a in assignments]
         head_lookup = {a.client_id: a.is_head for a in assignments}
+        # Zapytanie wyżej filtruje po WŁASNYCH przypisaniach tego DL, więc każdy
+        # wiersz tej listy jest jego klientem. To jest ta sama granica, którą
+        # `can_read_client_finance` sprawdza per klient na dashboardzie.
+        rows_are_callers_own_portfolio = True
         clients = []
         if client_ids:
             clients = list(
@@ -223,7 +231,12 @@ async def list_my_clients(
     if not client_ids:
         return []
 
-    finance_ok = has_financial_access(user)
+    # Delivery Lead widzi kwoty WŁASNEGO portfela, mimo że nie ma
+    # ``VIEW_FINANCE`` — patrz `can_read_client_finance`. Flaga, a nie test roli:
+    # hybryda `head_of_recruitment + delivery_lead` wchodzi tu gałęzią
+    # organizacyjną (widzi WSZYSTKICH klientów), więc sam `has_role` rozdałby
+    # jej przychody całej firmy.
+    finance_ok = has_financial_access(user) or rows_are_callers_own_portfolio
 
     # Aktywne ordery — licznik jest operacyjny i pozostaje dostępny dla DL/HoR.
     active_order_counts = {
@@ -382,7 +395,14 @@ async def client_dashboard(
     if not is_client_visible(client):
         raise HTTPException(404, detail="Client not found")
 
-    finance_ok = has_financial_access(user)
+    # Ta sama reguła co na profilu klienta: role z ``VIEW_FINANCE`` oraz
+    # Delivery Lead w granicach własnego portfela. Granica liczona PO
+    # rozwiązaniu merge redirectu wyżej, więc `client_id` jest już kanoniczny.
+    finance_ok = can_read_client_finance(
+        user,
+        client_id=client_id,
+        delivery_lead_client_ids=await resolve_delivery_lead_client_ids(user, db),
+    )
 
     # Status counts are operational. They deliberately do not select any order
     # value, rate or currency.
