@@ -177,6 +177,123 @@ async def _fetch_and_store_nbp_today() -> int:
     return inserted
 
 
+# Historyczna seria JEDNEJ waluty. Tabela A ma osobny endpoint na zakres dat;
+# `NBP_URL` (cała tabela) zwraca wyłącznie NAJNOWSZE notowanie, więc luk
+# w przeszłości nie da się nim zasypać — a to właśnie ich dotyczy `degraded.fx`
+# w kokpicie zarządu.
+NBP_SERIES_URL = (
+    "https://api.nbp.pl/api/exchangerates/rates/a/{currency}/{start}/{end}/"
+)
+
+# NBP odmawia (400) zakresom dłuższym niż 367 dni, więc dzielimy na kawałki.
+NBP_MAX_RANGE_DAYS = 300
+
+
+async def backfill_nbp_rates(currency: str, start: date, end: date) -> dict:
+    """Dociągnij historyczne kursy JEDNEJ waluty i wstaw brakujące wiersze.
+
+    Powstało, bo `fetch_and_store_nbp_today` pobiera WYŁĄCZNIE dzisiejszą
+    tabelę, a `rates_to_pln_by_date` szuka „najnowszego kursu nie później niż
+    dana data". Miesiąc bez ani jednego notowania w cache'u przed swoją
+    granicą nie ma więc czym być wyceniony i wypada z sum — dokładnie to
+    widać było na produkcji: siedem kolejnych miesięcy (2025-10 … 2026-04)
+    z kwotami EUR POMINIĘTYMI, przy komunikacie podpowiadającym
+    `POST /api/fx/refresh`, który tego nie naprawia.
+
+    Idempotentne: `ON CONFLICT DO NOTHING` na `(effective_date, currency)`,
+    ten sam arbiter co przy odświeżaniu dziennym. Dni bez notowania (weekendy,
+    święta) po prostu nie istnieją w odpowiedzi NBP i nie są błędem.
+
+    Zwraca licznik wstawionych wierszy ORAZ zakresy, które NBP odrzucił —
+    cichy `inserted: 0` nie odróżniałby „wszystko już było" od „nie pobrano nic".
+    """
+    code = (currency or "").upper()
+    if len(code) != 3 or not code.isalpha():
+        raise ValueError(f"Nieprawidłowy kod waluty: {currency!r}")
+    if start > end:
+        raise ValueError("Data początkowa jest późniejsza niż końcowa")
+
+    inserted = 0
+    fetched = 0
+    failed_chunks: list[str] = []
+
+    chunks: list[tuple[date, date]] = []
+    cursor = start
+    while cursor <= end:
+        chunk_end = min(cursor + timedelta(days=NBP_MAX_RANGE_DAYS - 1), end)
+        chunks.append((cursor, chunk_end))
+        cursor = chunk_end + timedelta(days=1)
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        for chunk_start, chunk_end in chunks:
+            url = NBP_SERIES_URL.format(
+                currency=code.lower(),
+                start=chunk_start.isoformat(),
+                end=chunk_end.isoformat(),
+            )
+            try:
+                resp = await client.get(url, params={"format": "json"})
+            except Exception as exc:  # noqa: BLE001
+                failed_chunks.append(f"{chunk_start}..{chunk_end}: {exc!r}")
+                continue
+            # 404 = NBP nie ma notowań w tym zakresie (np. przyszłość albo
+            # okres sprzed publikacji). To informacja, nie awaria.
+            if resp.status_code == 404:
+                continue
+            if resp.status_code != 200:
+                failed_chunks.append(
+                    f"{chunk_start}..{chunk_end}: HTTP {resp.status_code}"
+                )
+                continue
+            payload = resp.json()
+            rows_to_insert = []
+            for r in payload.get("rates", []):
+                eff = r.get("effectiveDate")
+                mid = r.get("mid")
+                if not eff or mid is None:
+                    continue
+                rows_to_insert.append(
+                    {
+                        "effective_date": date.fromisoformat(eff),
+                        "currency": code,
+                        "rate_to_pln": Decimal(str(mid)),
+                        "source": "NBP",
+                    }
+                )
+            fetched += len(rows_to_insert)
+            if not rows_to_insert:
+                continue
+            async with AsyncSessionLocal() as db:
+                stmt = (
+                    pg_insert(FxRate)
+                    .values(rows_to_insert)
+                    .on_conflict_do_nothing(
+                        index_elements=[FxRate.effective_date, FxRate.currency]
+                    )
+                    .returning(FxRate.id)
+                )
+                inserted += len((await db.execute(stmt)).scalars().all())
+                await db.commit()
+
+    logger.info(
+        "NBP backfill %s %s..%s: pobrano %d notowań, wstawiono %d, nieudanych zakresów %d",
+        code,
+        start,
+        end,
+        fetched,
+        inserted,
+        len(failed_chunks),
+    )
+    return {
+        "currency": code,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "fetched": fetched,
+        "inserted": inserted,
+        "failed_ranges": failed_chunks,
+    }
+
+
 async def get_rate_to_pln(
     db: AsyncSession, currency: str, on: Optional[date] = None
 ) -> tuple[Decimal, bool]:

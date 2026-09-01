@@ -765,7 +765,7 @@ _HOF_ROLE_PREDICATE = """
 
 
 async def hall_of_fame_with_scope(
-    db: AsyncSession, limit: int = 5
+    db: AsyncSession, limit: int | None = 5
 ) -> tuple[list[RankedUser], HallOfFameScope]:
     """Ranking wszech czasów wg definicji D2 — jak „Analiza placementów".
 
@@ -793,6 +793,11 @@ async def hall_of_fame_with_scope(
     obejmuje. To ta sama reguła, przez którą kafle w innych sekcjach są foldem
     po tej samej liście, którą renderują, a nie drugim zapytaniem.
     """
+    # `limit=None` = PEŁNY ranking. Potrzebny `/my-position`: przy sztywnym
+    # LIMIT-cie osoba poniżej progu dostawała „nie ma cię w rankingu", mimo że
+    # ma placementy, a `total` w odpowiedzi opisywał długość przyciętej listy,
+    # nie liczbę osób w rankingu. Ten sam idiom co w `_rank_recruiters_by_stage`.
+    hof_limit_sql = "LIMIT :limit" if limit else ""
     rows = (
         await db.execute(
             text(
@@ -837,7 +842,7 @@ async def hall_of_fame_with_scope(
                     -- Tie-break po `user_id`, nie po nazwie — jak w pozostałych
                     -- rankingach; porządek bajtowy pod musl nie jest neutralny.
                     ORDER BY count(*) DESC, user_id ASC
-                    LIMIT :limit
+                    {hof_limit_sql}
                 )
                 SELECT r.user_id, r.name, r.is_active, r.cnt,
                        t.ranked, t.outside_role, t.unattributed, t.ranked_people
@@ -884,7 +889,7 @@ async def hall_of_fame_with_scope(
     return ranked, scope
 
 
-async def hall_of_fame(db: AsyncSession, limit: int = 5) -> list[RankedUser]:
+async def hall_of_fame(db: AsyncSession, limit: int | None = 5) -> list[RankedUser]:
     """Sam ranking — dla konsumentów, którzy nie renderują podpisu o zakresie.
 
     Cienka nakładka na `hall_of_fame_with_scope`: JEDNO zapytanie i jedna

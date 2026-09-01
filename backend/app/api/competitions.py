@@ -300,8 +300,15 @@ async def my_position(
         else:
             period = comp_service.current_month_period()
 
+    hof_total: int | None = None
     if ctype == CompetitionType.hall_of_fame:
-        ranked = await comp_service.hall_of_fame(db, limit=50)
+        # PEŁNY ranking, nie `limit=50`. Hall of Fame liczy dziś 59 osób, więc
+        # sztywne 50 odpowiadało 51. osobie „nie ma cię w rankingu", mimo że ma
+        # placementy — a `total` opisywał długość PRZYCIĘTEJ listy, nie liczbę
+        # osób w rankingu. Odpowiedź o własnej pozycji nie może zależeć od tego,
+        # gdzie ktoś postawił limit prezentacyjny.
+        ranked, scope = await comp_service.hall_of_fame_with_scope(db, limit=None)
+        hof_total = scope.ranked_people
     else:
         ranked = await comp_service.compute_live(db, ctype, period)
 
@@ -315,7 +322,7 @@ async def my_position(
             "rank": None,
             "me": None,
             "context": [],
-            "total": len(ranked),
+            "total": hof_total if hof_total is not None else len(ranked),
         }
 
     # Kontekst: ja ± 2 pozycje.
@@ -332,5 +339,5 @@ async def my_position(
         "rank": my_idx + 1,
         "me": ranked[my_idx].to_dict(),
         "context": context,
-        "total": len(ranked),
+        "total": hof_total if hof_total is not None else len(ranked),
     }

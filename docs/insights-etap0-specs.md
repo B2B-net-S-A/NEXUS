@@ -488,6 +488,7 @@ strony; kafel nazywa się „dni robocze minus urlop", nie „dni przepracowane"
 | **D6 — Ścieżka rozwoju** | Poziom liczony przy ODCZYCIE z osi czasu placementów, zero mutacji w GET. Progi konfigurowalne, DWA alternatywne na poziom (LUB), zegar eksperta kotwiczony na dacie awansu na seniora. |
 | **D3 — konfigurowalne wagi Ligi** | `insights_scoring_config` jako jedyne źródło; `POINTS_FORMULA` usunięta razem z obydwoma jej czytelnikami. |
 | **Parytet z DR** | Kafle KPI nad lejkiem, „Performance per osoba" + plakietki ostrzeżeń, baner kampanii, wyścigi miesiąca + Hall of Fame, wykresy roczne (progress zespołu, efektywność lejka), analiza placementów, Power Calling i LinkedIn. |
+| **Hall of Fame na D2** (#1317) | `competitions.hall_of_fame` czyta `analytics_first_milestones.first_moved_by` — ta sama definicja co „Analiza placementów", ten sam kod (`first_hired_per_candidate_job`). Wyścigi ZOSTAJĄ przy verifier-anchored, bo wypłacają 1500 zł / 10 000 zł i mają zamrożoną historię. Zakres ról bez kont administracyjnych (147 z 314 placementów przy 4 weryfikacjach — masowe domykanie pipeline'u), byli pracownicy zostają z chipem. `scope` w odpowiedzi mówi, ile stoi poza rankingiem. `POST /freeze?type=hall_of_fame` → 422. |
 | **RBAC D7** | Lustra list ról zdjęte; `/api/competitions/current`, `/monthly-races` i `/history` poszerzone do `CurrentUser` (ostatnia dopiero wtedy, gdy zyskała konsumenta w /insights). `ROLE_CAPABILITIES` i middleware nietknięte. |
 | **Wycięte** | `SalesOverview`, `TendersSection` (poza zakresem), `FunnelSection` (czwarta definicja lejka), `TimeToHireSection` (zaniżał), `SLAAlertsSection` (zero alertów — żaden etap nie ma SLA). |
 
@@ -507,8 +508,56 @@ strony; kafel nazywa się „dni robocze minus urlop", nie „dni przepracowane"
 
 ### H.3 Zostaje do zrobienia
 
+Stan na **2026-09-01**. Trzy pozycje z poprzedniej wersji tej tabeli są zamknięte
+— zostały niżej, w H.4, razem z tym, co się przy nich okazało.
+
 | Rzecz | Dlaczego nie teraz |
 |---|---|
-| **Sekrety D5 na produkcji** | `WORKDAYS_EXPORT_SECRET` (COMPASS) i `COMPASS_WORKDAYS_*` (NEXUS) ustawia człowiek. Do tego czasu `/api/internal/workdays` zwraca 503, a Power Calling raportuje `not_assessable` — czyli mówi wprost, że nie wie, zamiast zgadywać. |
-| **Dziennik `insights_seniority_snapshots`** | Zaprojektowany w §B.2 (wykrywanie cichej zmiany poziomu po zmianie atrybucji historycznej). Wymaga własnego nocnego taska; poziom liczy się poprawnie bez niego. |
-| **Sprzątanie osieroconych sekcji** | Wyliczone w BASELINE `check-unreachable-modules.mjs`. Kasowanie razem z testami to osobny, mechaniczny PR. |
+| **Sekrety D5 na produkcji** | Kod po OBU stronach jest wdrożony (COMPASS #356, NEXUS gotowy), a sekret współdzielony jest już w sekretach obu repo. Zostało JEDNO uruchomienie „Coolify set env" w każdym repo — akcja zmieniająca konfigurację produkcji, więc wymaga człowieka. Do tego czasu `/api/internal/workdays` zwraca **503 „Not configured"** (fail-closed z założenia), a Power Calling raportuje `not_assessable` — mówi wprost, że nie wie, zamiast zgadywać. |
+| **Uzupełnienie kursów EUR** | Endpoint `POST /api/fx/backfill?currency=EUR` jest na produkcji (#1319) i jest to wywołanie **tylko dla admina**. Do czasu wywołania zakładka Zarząd raportuje `degraded`: kwoty w EUR są POMIJANE w sumach, siedem miesięcy serii (2025-10 … 2026-04) niepełnych. Działa zgodnie z projektem (brak FX → jawna degradacja, nie ciche zero). |
+| **Brak założonej kampanii** | Panel zakładania jest na produkcji i działa; baner pozostaje niewidoczny, dopóki ktoś nie utworzy pierwszej kampanii. **Decyzja produktowa** — nazwa i cel kampanii to komunikat do całego zespołu, nie parametr techniczny. |
+
+### H.4 Zamknięte 2026-09-01 — i czego uczą
+
+**Dziennik `insights_seniority_snapshots` — ZBUDOWANY** (#1320). Poziom nadal
+liczy się przy odczycie; tabela jest dziennikiem OBSERWACJI, nie źródłem prawdy.
+Wiersz powstaje TYLKO przy zmianie (codzienny wiersz na osobę to ~22 tys.
+rekordów rocznie, w których kilkanaście istotnych zdarzeń jest nie do
+znalezienia), pierwsza obserwacja ma `previous_level = NULL` (start od „junior"
+zamieniłby pierwsze uruchomienie w falę fałszywych awansów dla całego zespołu),
+a odcisk progów na wierszu odróżnia decyzję operatora („podniosłem poprzeczkę")
+od cofniętej atrybucji. Spadek renderuje się NAD tabelą, bo podważa to, co jest
+pod nim. Podgląd bez logowania: `/preview/insights-seniority`.
+
+**Sprzątanie osieroconych sekcji — NIEAKTUALNE.** Sekcje, które osierocił
+przepisany `/insights` (`BoardKPI`, `ClientsRanking`, `ClientsHitRatio`,
+`DLRevenueLeaderboard`, `FunnelSection`, `TimeToHireSection`, `SLAAlertsSection`,
+`PeriodSelector`, `SalesOverview`, `TendersSection`, `ActivityHeatmap`), zostały
+usunięte razem z tamtą zmianą — ta pozycja opisywała dług, którego już nie było.
+Przy okazji przycięto SZEŚĆ nieaktualnych wpisów w BASELINE bramki sierot
+(#1319): pliki, które gate od dawna raportował jako osiągalne. Wpis w BASELINE
+ma NAZYWAĆ dług; wpis opisujący dług nieistniejący uczy czytać całą listę jako
+nieaktualną. To, co w BASELINE zostaje (poczta, stary dashboard DL, DynaReporter,
+CloudTalk, legacy statystyk rekrutacji), czeka na decyzje spoza tego zakresu.
+
+**„Uzupełnij przez `POST /api/fx/refresh`" było instrukcją, która NIE MOGŁA
+zadziałać.** `/refresh` pobiera tabelę A z DZIŚ, więc żadne jej wywołanie nie
+wypełni luki sprzed miesięcy — a komunikat degradacji podpowiadał właśnie ją.
+To gorsze niż brak podpowiedzi: wygląda na rozwiązanie i nim nie jest. Stąd
+`POST /api/fx/backfill` na serii historycznej NBP (#1319), z cięciem zakresu na
+kawałki po 300 dni (API odrzuca dłuższe okna), traktowaniem 404 jako BRAKU
+NOTOWAŃ (weekend nie ma kursu — inaczej backfill kończyłby się na pierwszej
+sobocie) i jawną listą `failed_ranges` (samo `inserted: 0` nie odróżnia
+„wszystko już było" od „nic nie pobrano"). Podpowiedź w komunikacie jest teraz
+WARUNKOWA i kieruje na właściwy endpoint.
+
+**`/my-position` nie zgadzał się z podium, które właśnie ujednolicono** (#1322).
+Endpoint brał `hall_of_fame(db, limit=50)` przy 59 osobach w rankingu: mianownik
+był zaniżony dla każdego czytelnika, a 51. osoba dostawała „nie ma cię
+w rankingu" mimo posiadanych placementów. Nie zgłosił tego nikt, bo endpoint
+nie ma dziś ani jednego konsumenta we froncie — ale jest żywy i uwierzytelniony.
+Przy okazji dwie lekcje o testach: `LIMIT NULL` w Postgresie znaczy „bez
+limitu", więc podmiana SQL-a na warunkowy fragment nic nie naprawiała ani nie
+psuła (prawdziwą zmianą był argument w warstwie API), a pierwsza wersja testu
+przechodziła RÓWNIEŻ z błędem, bo baza testowa nie ma 50 osób w rankingu.
+Test, który został, jest białoskrzynkowy i sprawdzony kontrolą negatywną.
