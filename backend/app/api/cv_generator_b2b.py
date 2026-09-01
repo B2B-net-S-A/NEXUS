@@ -775,6 +775,26 @@ CONSENT_SCREENSHOT_MAX_BYTES = 8 * 1024 * 1024
 CONSENT_SCREENSHOT_TYPES = ("image/png", "image/jpeg", "image/webp")
 
 
+def _sniff_image_type(content: bytes) -> Optional[str]:
+    """Rozpoznaj format po SYGNATURZE BAJTÓW, nie po nagłówku żądania.
+
+    `UploadFile.content_type` przychodzi od klienta i można w nim napisać
+    cokolwiek — `image/png` na SVG z JavaScriptem albo na HTML-u. Renderowanie
+    DOCX jest wprawdzie fail-soft (nieczytelny plik daje CV bez zrzutu), ale bez
+    tej kontroli dowolny plik ląduje najpierw w magazynie obiektów, a magazyn
+    trzyma dokumenty kandydatów.
+
+    Zwraca `None`, gdy sygnatura nie pasuje do żadnego dozwolonego formatu.
+    """
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if content[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 class ConsentScreenshotResponse(BaseModel):
     storage_key: str
     filename: str
@@ -805,10 +825,14 @@ async def upload_consent_screenshot(
                 f"{CONSENT_SCREENSHOT_MAX_BYTES // (1024 * 1024)} MB)."
             ),
         )
-    if (file.content_type or "") not in CONSENT_SCREENSHOT_TYPES:
+    sniffed = _sniff_image_type(content)
+    if sniffed is None:
         raise HTTPException(
             status_code=422,
-            detail="Dozwolone formaty zrzutu: PNG, JPEG, WEBP.",
+            detail=(
+                "To nie wygląda na obraz PNG, JPEG ani WEBP — sprawdź, czy "
+                "wgrywasz zrzut ekranu."
+            ),
         )
     if not object_storage.is_available():
         raise HTTPException(
@@ -821,13 +845,25 @@ async def upload_consent_screenshot(
 
     filename = file.filename or "zgoda.png"
     key = await run_in_threadpool(
-        object_storage.upload_cv, content, filename, file.content_type
+        # Typ ROZPOZNANY, nie deklarowany przez klienta — inaczej magazyn
+        # serwowałby plik z `Content-Type`, którego nikt nie zweryfikował.
+        object_storage.upload_cv,
+        content,
+        filename,
+        sniffed,
     )
     return ConsentScreenshotResponse(storage_key=key, filename=filename)
 
 
-def _consent_payload(storage_key: str, filename: str = "") -> dict:
-    return {"storage_key": storage_key, "filename": filename}
+def _consent_payload(storage_key: str) -> dict:
+    """Kształt zapisywany w `render_payload` — SAM klucz magazynu.
+
+    Bez osobnego `filename`: klucz i tak niesie nazwę pliku
+    (`cv/RRRR/MM/<uuid>-zgoda.png`), a pole dublujące ją było puste na ścieżce
+    `/generate`, bo front przesyła tam wyłącznie klucz. Pole, które w połowie
+    wywołań kłamie, jest gorsze niż jego brak.
+    """
+    return {"storage_key": storage_key}
 
 
 def _require_consent_screenshot(rule, storage_key: str) -> None:

@@ -1075,6 +1075,13 @@ def add_horizontal_line(doc: Any) -> Any:
 # węższy zostaje w swoim rozmiarze, bo zrzut maila rozciągnięty na siłę robi
 # się nieczytelny.
 _CONSENT_MAX_WIDTH_IN = 6.3
+# Sufit wysokości — użyteczna wysokość A4 przy marginesach szablonu, minus
+# zapas na nagłówek sekcji. Bez niego wąski, długi zrzut z telefonu (np. 300×900)
+# zostaje w swojej szerokości i wychodzi na 12 cali wysokości, czyli poza stronę:
+# Word przycina go w połowie, a dowód zgody staje się nieczytelny. Ten sufit
+# wychodzi na jaw dopiero, gdy przestaniemy rozciągać obrazy do szerokości
+# kolumny — samo skalowanie w dół po szerokości go nie łapie.
+_CONSENT_MAX_HEIGHT_IN = 8.5
 
 
 def add_consent_screenshot(doc: Any, image_bytes: bytes, heading: str) -> bool:
@@ -1110,7 +1117,23 @@ def add_consent_screenshot(doc: Any, image_bytes: bytes, heading: str) -> bool:
         stream = io.BytesIO(image_bytes)
         picture_para = doc.add_paragraph()
         picture_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        picture_para.add_run().add_picture(stream, width=Inches(_CONSENT_MAX_WIDTH_IN))
+        picture = picture_para.add_run().add_picture(stream)
+
+        # Skalujemy WYŁĄCZNIE w dół. Podanie `width=` od razu przy wstawianiu
+        # rozciągałoby też obrazy węższe niż kolumna tekstu — a zrzut z telefonu
+        # rozdmuchany do 6,3" robi się rozmyty i nieczytelny, czyli dokładnie
+        # bezużyteczny w roli dowodu zgody.
+        max_width = Inches(_CONSENT_MAX_WIDTH_IN)
+        max_height = Inches(_CONSENT_MAX_HEIGHT_IN)
+        # Jeden współczynnik dla obu wymiarów — skalowanie osobno po szerokości
+        # i wysokości zniekształciłoby proporcje zrzutu.
+        ratio = min(
+            max_width / picture.width if picture.width > max_width else 1.0,
+            max_height / picture.height if picture.height > max_height else 1.0,
+        )
+        if ratio < 1.0:
+            picture.width = int(picture.width * ratio)
+            picture.height = int(picture.height * ratio)
         return True
     except Exception:  # noqa: BLE001 — patrz docstring: brak zrzutu > brak CV
         logger.warning(

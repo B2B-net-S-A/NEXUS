@@ -17,6 +17,7 @@ Testy pilnują trzech rzeczy, z których każda po cichu zabrałaby zrzut z plik
 
 from __future__ import annotations
 
+import io
 from types import SimpleNamespace
 
 import pytest
@@ -198,3 +199,89 @@ def test_consent_heading_exists_in_both_languages() -> None:
 
     for lang in ("pl", "en"):
         assert TRANSLATIONS[lang]["consent_heading"].strip()
+
+
+# ── skalowanie obrazu (uwagi z review PR #1335) ────────────────────────────
+
+
+def _png(width: int, height: int) -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), "white").save(buf, "PNG")
+    return buf.getvalue()
+
+
+EMU_PER_INCH = 914400
+
+
+@pytest.mark.parametrize(
+    ("size", "opis"),
+    [((300, 900), "wąski-długi-z-telefonu"), ((2400, 800), "szeroki"), ((400, 200), "mały")],
+)
+def test_screenshot_always_fits_the_page(size: tuple[int, int], opis: str) -> None:
+    """Zrzut mieści się w kolumnie tekstu I na stronie, z proporcjami.
+
+    Dwie pułapki, które wyszły dopiero na review:
+
+    * Podanie `width=` przy wstawianiu rozciąga TAKŻE obrazy węższe niż kolumna
+      — zrzut z telefonu rozdmuchany do 6,3" jest rozmyty, czyli bezużyteczny
+      jako dowód zgody.
+    * Samo skalowanie po szerokości nie łapie obrazu wąskiego i DŁUGIEGO: 300×900
+      zostaje w swojej szerokości i wychodzi na 12 cali wysokości, poza stronę,
+      gdzie Word przycina go w połowie.
+    """
+    doc = Document()
+    assert add_consent_screenshot(doc, _png(*size), "Zgoda") is True
+
+    pic = doc.inline_shapes[0]
+    assert pic.width <= 6.3 * EMU_PER_INCH + 1
+    assert pic.height <= 8.5 * EMU_PER_INCH + 1
+    # Proporcje nietknięte — skalowanie osobno po każdej osi zniekształciłoby zrzut.
+    assert pic.width / pic.height == pytest.approx(size[0] / size[1], rel=0.01)
+
+
+def test_small_screenshot_is_not_upscaled() -> None:
+    """Mały zrzut zostaje mały — skalujemy WYŁĄCZNIE w dół."""
+    doc = Document()
+    add_consent_screenshot(doc, _png(400, 200), "Zgoda")
+    pic = doc.inline_shapes[0]
+    assert pic.width < 6.3 * EMU_PER_INCH
+
+
+# ── walidacja formatu (uwaga z review PR #1335) ────────────────────────────
+
+
+def test_image_type_is_sniffed_from_bytes_not_from_the_client_header() -> None:
+    """Format rozpoznajemy z SYGNATURY, bo nagłówek żądania pisze klient.
+
+    `Content-Type: image/png` na SVG z JavaScriptem albo na HTML-u przechodziłby
+    kontrolę opartą o nagłówek, a plik lądowałby w magazynie dokumentów
+    kandydatów bez sprawdzenia zawartości.
+    """
+    from app.api.cv_generator_b2b import _sniff_image_type
+
+    assert _sniff_image_type(TINY_PNG) == "image/png"
+    assert _sniff_image_type(b"\xff\xd8\xff\xe0garbage") == "image/jpeg"
+    assert _sniff_image_type(b"RIFF????WEBPVP8 ") == "image/webp"
+
+    for hostile in (
+        b"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>",
+        b"<!DOCTYPE html><html><body>nie obraz</body></html>",
+        b"%PDF-1.7",
+        b"",
+    ):
+        assert _sniff_image_type(hostile) is None
+
+
+def test_payload_carries_only_the_storage_key() -> None:
+    """Bez osobnego `filename` — klucz i tak niesie nazwę pliku.
+
+    Pole dublujące ją było PUSTE na ścieżce `/generate` (front przesyła tam sam
+    klucz), a pole, które w połowie wywołań kłamie, jest gorsze niż jego brak.
+    """
+    from app.api.cv_generator_b2b import _consent_payload
+
+    assert _consent_payload("cv/2026/09/abc-zgoda.png") == {
+        "storage_key": "cv/2026/09/abc-zgoda.png"
+    }
