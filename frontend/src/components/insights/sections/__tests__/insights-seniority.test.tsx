@@ -127,6 +127,7 @@ const BODY: SeniorityResponse = {
     note: "Poziom liczymy wyłącznie z placementów przypisanych do aktywnych kont.",
   },
   regressions: [],
+  journal: { last_observed_at: "2026-08-31T02:00:00+00:00", observations: 25 },
 };
 
 beforeEach(() => {
@@ -262,6 +263,24 @@ describe("InsightsSeniority", () => {
       await screen.findByText(/Poziom nie spada z upływem czasu/),
     ).toBeInTheDocument();
     expect(await screen.findByText("historia przypisań")).toBeInTheDocument();
+  });
+
+  it("dziennik bez ani jednej obserwacji NIE udaje „brak regresji”", async () => {
+    // `regressions: []` przy `last_observed_at: null` to nie odpowiedź, tylko
+    // jej brak: pętla dobowa nigdy nic nie zapisała, więc nie ma z czym
+    // porównać dzisiejszych poziomów. Cisza w tym miejscu znaczyłaby
+    // „sprawdzono, jest dobrze” i zepsuta pętla wyglądałaby tak w nieskończoność.
+    respond({
+      ...BODY,
+      regressions: [],
+      journal: { last_observed_at: null, observations: 0 },
+    });
+    renderSection();
+
+    expect(
+      await screen.findByText(/nie wykonał jeszcze żadnej obserwacji/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Anna Kowalska")).toBeInTheDocument();
   });
 
   it("`null` mówi, że NIE WIADOMO — nie renderuje ciszy", async () => {

@@ -39,7 +39,10 @@ from app.services.insights_invite_links import (
     count_invite_link_candidates,
 )
 from app.services.insights_seniority import compute_seniority, load_thresholds
-from app.services.insights_seniority_journal import load_open_regressions
+from app.services.insights_seniority_journal import (
+    load_journal_status,
+    load_open_regressions,
+)
 from app.services.insights_team_activity import compute_team_activity
 
 logger = logging.getLogger(__name__)
@@ -788,8 +791,13 @@ async def insights_seniority(
     # Wyjątek jest ŁAPANY, a nie propagowany: ostrzeżenie jest poboczne wobec
     # tabeli poziomów i nie ma powodu, żeby brak jednej tabeli (prodowy alembic
     # bywa osierocony) gasił CAŁĄ sekcję, która działała bez tego dziennika.
+    journal_status: dict | None
     try:
         regressions: list[dict] | None = await load_open_regressions(db)
+        # Pusta lista regresji NIE dowodzi, że pętla działa — dowodzi tego
+        # dopiero data ostatniej obserwacji. Bez niej cisza na ekranie znaczy
+        # naraz „sprawdzono, jest dobrze" i „nigdy nie sprawdzono".
+        journal_status = await load_journal_status(db)
     except Exception:  # noqa: BLE001
         logger.exception("nie udało się odczytać dziennika seniority")
         # Sesja jest po nieudanym zapytaniu w stanie „aborted"; bez rollbacku
@@ -797,10 +805,11 @@ async def insights_seniority(
         # czyli poprawka wywracałaby to, co miała uratować.
         await db.rollback()
         regressions = None
+        journal_status = None
 
     cached = await cache_get(cache_key)
     if cached is not None:
-        return {**cached, "regressions": regressions}
+        return {**cached, "regressions": regressions, "journal": journal_status}
 
     computed = await compute_seniority(db, as_of=effective_as_of, thresholds=thresholds)
 
@@ -842,6 +851,10 @@ async def insights_seniority(
         # normalnym przebiegiem kariery i musi być widoczny, a nie tylko
         # możliwy do wygrzebania z bazy.
         "regressions": regressions,
+        # `last_observed_at: null` = pętla dobowa nigdy nic nie zapisała.
+        # Front musi to POWIEDZIEĆ, bo inaczej niedziałający dziennik wygląda
+        # identycznie jak dziennik bez regresji.
+        "journal": journal_status,
     }
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result

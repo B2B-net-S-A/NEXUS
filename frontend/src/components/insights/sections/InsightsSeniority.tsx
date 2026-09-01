@@ -6,6 +6,7 @@ import {
   insightsApi,
   type SeniorityEntry,
   type SeniorityLevel,
+  type SeniorityJournalStatus,
   type SeniorityRegression,
   type SeniorityResponse,
 } from "@/lib/insights-api";
@@ -246,8 +247,10 @@ function SeniorityTable({ data }: { data: SeniorityResponse }) {
  */
 function SeniorityRegressions({
   rows,
+  journal,
 }: {
   rows: SeniorityRegression[] | null;
+  journal: SeniorityJournalStatus | null;
 }) {
   // `null` = dziennika nie dało się odczytać. Cisza w tym miejscu czyta się
   // jako „nikomu nic nie spadło", więc niewiedza musi być NAPISANA.
@@ -257,6 +260,18 @@ function SeniorityRegressions({
         Nie udało się sprawdzić, czy komuś spadł poziom — dziennik obserwacji
         jest chwilowo niedostępny. Poziomy w tabeli poniżej są policzone
         normalnie.
+      </div>
+    );
+  }
+  // Pusta lista NIE jest odpowiedzią, dopóki dziennik czegokolwiek nie
+  // zaobserwował. Bez tego rozróżnienia zepsuta pętla dobowa w nieskończoność
+  // wygląda jak „nikomu nic nie spadło”.
+  if (journal && journal.last_observed_at === null) {
+    return (
+      <div className="mb-4 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+        Dziennik poziomów nie wykonał jeszcze żadnej obserwacji, więc nie ma
+        z czym porównać dzisiejszych poziomów. Spadek zostanie wykryty dopiero
+        po pierwszym nocnym przebiegu.
       </div>
     );
   }
@@ -349,7 +364,12 @@ export function InsightsSeniority() {
         </p>
       )}
 
-      {data && <SeniorityRegressions rows={data.regressions ?? null} />}
+      {data && (
+        <SeniorityRegressions
+          rows={data.regressions ?? null}
+          journal={data.journal ?? null}
+        />
+      )}
 
       {viewState === "loading" ? (
         <div className="py-8 flex items-center justify-center">

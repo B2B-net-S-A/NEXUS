@@ -160,6 +160,40 @@ async def record_seniority_observations(
     }
 
 
+async def load_journal_status(db: AsyncSession) -> dict:
+    """Czy dziennik w ogóle KIEDYKOLWIEK coś zaobserwował.
+
+    Bez tego pusta lista regresji znaczy DWIE różne rzeczy naraz: „sprawdzono
+    i nikomu nic nie spadło" oraz „pętla nigdy nie wystartowała". Front
+    renderowałby oba przypadki jako ciszę, więc zepsuta pętla w nieskończoność
+    mówiłaby „wszystko w porządku" — dokładnie ten tryb awarii, przed którym
+    broni `regressions: null` na ścieżce ODCZYTU.
+
+    Sonda w `/api/health/deep` tego nie łapie: sprawdza, że tabela istnieje,
+    a pusta tabela istnieje tak samo dobrze jak zapełniona.
+    """
+    row = (
+        (
+            await db.execute(
+                text(
+                    """
+                SELECT max(observed_at) AS last_observed_at,
+                       count(*)         AS observations
+                FROM insights_seniority_snapshots
+                """
+                )
+            )
+        )
+        .mappings()
+        .one()
+    )
+    last = row["last_observed_at"]
+    return {
+        "last_observed_at": last.isoformat() if last else None,
+        "observations": int(row["observations"] or 0),
+    }
+
+
 async def load_open_regressions(db: AsyncSession, *, limit: int = 25) -> list[dict]:
     """Osoby, których OSTATNIA obserwacja jest spadkiem poziomu.
 
