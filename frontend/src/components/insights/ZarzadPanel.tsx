@@ -4,17 +4,24 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
+import {
+  readPeriodFromParams,
+  writePeriodToParams,
+} from "@/lib/insights-period-url";
+import { buildBoardCsvExport } from "@/lib/insights-csv";
 import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
 import { InsightsBoardKPI } from "@/components/insights/sections/InsightsBoardKPI";
 import { InsightsInviteLinks } from "@/components/insights/sections/InsightsInviteLinks";
 import {
   insightsBoardApi,
   insightsQueryKeys,
-  type InsightsPeriodKind,
   type InsightsPeriodParams,
 } from "@/lib/insights-api";
 
-const KINDS: InsightsPeriodKind[] = ["week", "month", "quarter", "year"];
+// Domyślne okno zakładki — JEDNA stała dla odczytu z URL-a i dla „Resetu".
+// Zarząd patrzy KWARTAŁAMI; wspólna stała dla trzech zakładek cofałaby go
+// w miejsce, od którego nigdy nie zaczyna.
+const DEFAULT_PERIOD: InsightsPeriodParams = { period: "quarter", offset: 0 };
 
 export function ZarzadPanel() {
   // URL jest jedynym źródłem prawdy okresu — jak w `RekrutacjaPanel`. Dawny
@@ -22,24 +29,18 @@ export function ZarzadPanel() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rawKind = searchParams.get("period");
-  const rawOffset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
-
+  // Odczyt i zapis okresu żyją w JEDNYM module dla trzech zakładek —
+  // trzy kopie tej logiki zgubiły wcześniej daty granulacji „Wszystko".
+  // Domyślne (kwartał, bieżący) zostają takie jak były: Zarząd patrzy
+  // kwartałami i ujednolicenie ich tutaj byłoby cichą zmianą jego widoku.
   const period: InsightsPeriodParams = useMemo(
-    () => ({
-      period: (KINDS.includes(rawKind as InsightsPeriodKind)
-        ? rawKind
-        : "quarter") as InsightsPeriodKind,
-      offset: Number.isFinite(rawOffset) ? rawOffset : 0,
-    }),
-    [rawKind, rawOffset],
+    () => readPeriodFromParams(searchParams, DEFAULT_PERIOD),
+    [searchParams],
   );
 
   const setPeriod = useCallback(
     (next: InsightsPeriodParams) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("period", next.period);
-      params.set("offset", String(next.offset ?? 0));
+      const params = writePeriodToParams(searchParams, next);
       router.push(`/insights?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
@@ -61,7 +62,9 @@ export function ZarzadPanel() {
         <PeriodPicker
           value={period}
           onChange={setPeriod}
+          defaultValue={DEFAULT_PERIOD}
           resolved={board?.period ?? null}
+          csv={buildBoardCsvExport(board)}
         />
       </div>
 

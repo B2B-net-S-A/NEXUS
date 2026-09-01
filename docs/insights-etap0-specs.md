@@ -467,35 +467,48 @@ strony; kafel nazywa się „dni robocze minus urlop", nie „dni przepracowane"
 
 ---
 
-## H. Stan wykonania (aktualizowane w trakcie PR #1314)
+## H. Stan wykonania
+
+> Aktualizowane w trakcie trzech PR-ów: #1314 (Etap 0 + RBAC), #1315 (D5/D6/D3),
+> a następnie PR parytetu wizualnego z DynaReporterem (plakietki, kampania,
+> wyścigi, wykresy roczne, tabela per osoba).
 
 ### H.1 Zrobione
 
 | Obszar | Co dokładnie |
 |---|---|
-| **Power Calling** | Usunięty zmyślony dzielnik `POWER_CALLING_WORKDAYS = 5`. `per_day`/`meets_target`/`progress_pct` → `None`, wszyscy w `not_assessable`, próg tygodniowy jako liczba bezwzględna. Test-strażnik blokuje powrót jakiejkolwiek stałej. |
+| **Power Calling** | Usunięty zmyślony dzielnik `POWER_CALLING_WORKDAYS = 5`. Mianownik to realne dni robocze z COMPASSA; bez nich osoba ląduje w `not_assessable`, a nie na imiennej liście „poniżej progu". Test-strażnik blokuje powrót jakiejkolwiek stałej. |
 | **Kontrakt okresu** | `resolve_period(kind, *, offset, anchor)` + `Period.cache_suffix`. `offset=0` ≡ dotychczasowe zachowanie, więc zmiana niezrywająca. `offset`/`anchor` przy `custom` → 422, nie ciche zignorowanie. |
 | **Kontrakt pustki** | `resolveViewState` przyjmuje `isSuccess`; bez niego przerwa między ponowieniami react-query renderowała AWARIĘ jako „brak danych". |
-| **`/api/insights/recruitment`** | `funnel` (dwa źródła, jawnie oznaczone), `conversions`, `time-to-hire` (od prawdziwego początku procesu), `available-periods`. |
+| **`/api/insights/recruitment`** | `funnel` (dwa źródła, jawnie oznaczone), `conversions`, `time-to-hire` (od prawdziwego początku procesu), `available-periods`, `seniority`, `team-activity`, `invite-links`. |
 | **`/api/insights/board`** | Placementy wg D2, `placements_definition` w odpowiedzi, uczciwy `hit_ratio`, brak FX → jawny `degraded`, przetargi wycięte. |
-| **`/api/insights/clients`** | `ranking` + `hit-ratio`; kwoty z harmonogramów, logika współdzielona z `/api/admin/clients-overview` przez `services/insights_clients.py` (bez kopiowania SQL-a, bez ruszania tamtego guardu). |
-| **`/api/insights/delivery-leads`** | Ranking, trend (każdy miesiąc we WŁASNYM oknie — naprawa martwego kodu z `reports.py:913-916`), `placements-by-client`. Nazwy klientów kanonizowane jak w zakładce Klienci. |
-| **RBAC D7** | Sześć luster listy ról zdjętych, w tym cztery gołe `hasRole` w ciele `KlienciPanel`. `ROLE_CAPABILITIES` i middleware nietknięte. `/api/competitions/current` i `/monthly-races` poszerzone (jedyny router z konsumentem wyłącznie w /insights); `/history` świadomie NIE. |
+| **`/api/insights/clients`** | `ranking` + `hit-ratio`; kwoty z harmonogramów, logika współdzielona z `/api/admin/clients-overview` przez `services/insights_clients.py`. |
+| **`/api/insights/delivery-leads`** | Ranking, trend (każdy miesiąc we WŁASNYM oknie), `placements-by-client`. |
+| **D5 — dni robocze z COMPASSA** | RPC `nexus_workdays_export` + `/api/internal/workdays` po stronie COMPASSA, `user_workday_periods` + `compass_workdays_sync` po stronie NEXUSA. Metryka to **dni robocze minus zatwierdzony urlop**, nie „dni przepracowane" — chorobowego w źródle nie ma. |
+| **D6 — Ścieżka rozwoju** | Poziom liczony przy ODCZYCIE z osi czasu placementów, zero mutacji w GET. Progi konfigurowalne, DWA alternatywne na poziom (LUB), zegar eksperta kotwiczony na dacie awansu na seniora. |
+| **D3 — konfigurowalne wagi Ligi** | `insights_scoring_config` jako jedyne źródło; `POINTS_FORMULA` usunięta razem z obydwoma jej czytelnikami. |
+| **Parytet z DR** | Kafle KPI nad lejkiem, „Performance per osoba" + plakietki ostrzeżeń, baner kampanii, wyścigi miesiąca + Hall of Fame, wykresy roczne (progress zespołu, efektywność lejka), analiza placementów, Power Calling i LinkedIn. |
+| **RBAC D7** | Lustra list ról zdjęte; `/api/competitions/current`, `/monthly-races` i `/history` poszerzone do `CurrentUser` (ostatnia dopiero wtedy, gdy zyskała konsumenta w /insights). `ROLE_CAPABILITIES` i middleware nietknięte. |
 | **Wycięte** | `SalesOverview`, `TendersSection` (poza zakresem), `FunnelSection` (czwarta definicja lejka), `TimeToHireSection` (zaniżał), `SLAAlertsSection` (zero alertów — żaden etap nie ma SLA). |
 
-### H.2 Dwa defekty złapane przez przegląd adwersarialny, nie przez testy
+### H.2 Defekty złapane przez przegląd adwersarialny, nie przez testy
 
-**Lejek listował 13 etapów jako pochodzące z `analytics_first_milestones`.** Widok niesie **dokładnie sześć** (`pg_get_viewdef`: `verified`, `cv_sent`, `interview`, `client_interview`, `acceptance`, `hired`). Efekt był dokładnie tym defektem, przed którym broni docstring modułu, tylko odwrócony: „Nowi", „Screening", „Odrzucony" i „Wycofany" miały `mapped_from_traffit=True`, więc API twierdziło, że ich twarde zero to **obserwacja** — a `client_interview` i `acceptance`, które w widoku SĄ i mają realne liczby, były oznaczone jako nieodnotowywane.
+**Lejek listował 13 etapów jako pochodzące z `analytics_first_milestones`.** Widok niesie **dokładnie sześć** (`pg_get_viewdef`: `verified`, `cv_sent`, `interview`, `client_interview`, `acceptance`, `hired`). Flagi były odwrócone: „Nowi", „Screening", „Odrzucony" i „Wycofany" miały `mapped_from_traffit=True`, więc API twierdziło, że ich twarde zero to **obserwacja** — a `client_interview` i `acceptance`, które w widoku SĄ, były oznaczone jako nieodnotowywane. Pierwotny test tego nie łapał, bo porównywał **dwa pola tej samej odpowiedzi**.
 
-Pierwotny test tego nie łapał, bo asertował zgodność `stages[].mapped_from_traffit` z `coverage.stages_not_mapped_from_traffit` — czyli **dwóch pól tej samej odpowiedzi**. Test, który porównuje odpowiedź sama ze sobą, przechodzi niezależnie od tego, czy jest prawdziwa.
+**Otwarte zakładki wołały wciąż wąskie endpointy.** Sweep RBAC zdjął bramki z zakładek Klienci i Zarząd, ale ich sekcje nadal szły na `/api/admin/clients-overview` i `/api/reports/board` (`FinanceReadUser`) — otwarty ekran bez danych.
 
-**Otwarte zakładki wołały wciąż wąskie endpointy.** Sweep RBAC zdjął bramki z zakładek Klienci i Zarząd, ale ich sekcje nadal szły na `/api/admin/clients-overview` (`FinanceReadUser`) i `/api/reports/board` (`FinanceReadUser`) — więc dla większości ról otwarta zakładka kończyła się czerwonym „Błąd ładowania" bez ponowienia. To jest split-brain w drugą stronę niż #1215: nie menu bez dostępu, tylko dostęp bez danych.
+**`POINTS_FORMULA` usunięta, ale wciąż czytana w dwóch miejscach.** Aplikacja wstawała normalnie i wywracała się `AttributeError` przy pierwszym żądaniu Ligi. Zielony import nie jest dowodem, że symbol ma czytelników.
+
+**Progi D6 rozjechały się z oryginałem.** DynaReporter ma na każdym poziomie DWA progi połączone przez LUB („6 w 6 miesięcy lub 12 w 12") i kotwiczy zegar eksperta na dacie awansu na seniora. Pierwsze podejście miało jedną regułę na poziom i żadnej kotwicy — czyli jedna dobra passa kupowała oba awanse naraz, a osoba dowożąca stabilnie przez rok nie awansowała nigdy.
+
+**Fixture'y testowe na stałych latach.** `test_insights_charts.py` stał na 2009–2011; 2010 i 2011 są zajęte przez cztery inne pliki, a baza testowa nie jest czyszczona między biegami — asercja „ten rok ma być pusty" padała jako regresja w kodzie, którym nikt nie ruszał.
+
+**Selektor testowy, który nic nie znajdował.** Test „oś konwersji nie ma sufitu 100%" czytał `.recharts-cartesian-axis-tick-value` — klasy nieistniejącej w tej wersji rechartsa. `[].some(...)` to `false`, więc test padał na poprawnie narysowanej osi. Asercja o niepustej liście jest teraz częścią testu.
 
 ### H.3 Zostaje do zrobienia
 
-| Rzecz | Dlaczego nie w tym PR |
+| Rzecz | Dlaczego nie teraz |
 |---|---|
-| **D5 — dni robocze z COMPASSA** | Bramka pomiarowa przeszła (§G), ale integracja to praca po OBU stronach repo — endpoint push w COMPASSIE + konsument w NEXUSIE. Osobny PR, po obu stronach. |
-| **D6 — seniority z placementów** | Weryfikacja adwersarialna wykazała, że `import_users` zakłada konta niedopasowanych operatorów Traffita z rolą domyślną `recruiter` i robi to w NOCNYM syncu — więc regułą „N placementów w oknie" awansowałyby konta-widma. Wymaga najpierw rozstrzygnięcia, kto jest realnym rekruterem. |
-| **D3 — konfigurowalne wagi Ligi** | Zmiana formuły przesuwa podium, a podium ma kwoty. Osobny PR z wypisaniem starego i nowego podium obok siebie PRZED merge'em. |
-| **Sprzątanie osieroconych sekcji** | `BoardKPI`, `ClientsRanking`, `ClientsHitRatio`, `DLRevenueLeaderboard` nie mają już konsumenta. Kasowanie to Etap 7. |
+| **Sekrety D5 na produkcji** | `WORKDAYS_EXPORT_SECRET` (COMPASS) i `COMPASS_WORKDAYS_*` (NEXUS) ustawia człowiek. Do tego czasu `/api/internal/workdays` zwraca 503, a Power Calling raportuje `not_assessable` — czyli mówi wprost, że nie wie, zamiast zgadywać. |
+| **Dziennik `insights_seniority_snapshots`** | Zaprojektowany w §B.2 (wykrywanie cichej zmiany poziomu po zmianie atrybucji historycznej). Wymaga własnego nocnego taska; poziom liczy się poprawnie bez niego. |
+| **Sprzątanie osieroconych sekcji** | Wyliczone w BASELINE `check-unreachable-modules.mjs`. Kasowanie razem z testami to osobny, mechaniczny PR. |

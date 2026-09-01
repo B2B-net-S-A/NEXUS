@@ -61,11 +61,17 @@ from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.models.user_workday_period import UserWorkdayPeriod
+from app.models.user_performance_flag import UserPerformanceFlag
+from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
 from app.api import insights_board
 from app.api import insights_clients
 from app.api import insights_delivery_leads
 from app.api import insights_scoring
+from app.api import insights_campaigns
+from app.api import insights_charts
+from app.api import insights_performance_flags
+from app.api import insights_team
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
@@ -1067,6 +1073,33 @@ app.include_router(
 app.include_router(
     insights_scoring.router,
     prefix="/api/insights/scoring-config",
+    tags=["insights"],
+)
+# Tabela „Performance per osoba" i wykresy roczne. Prefiks `/api/insights`
+# (nie `/api/insights/recruitment`), bo obie powierzchnie opisują ZESPÓŁ,
+# a nie pojedynczy lejek — `/recruitment/*` jest zarezerwowane dla metryk
+# procesu (funnel, time-to-hire, konwersje).
+app.include_router(
+    insights_team.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+app.include_router(
+    insights_charts.router,
+    prefix="/api/insights/charts",
+    tags=["insights"],
+)
+# Plakietki ostrzeżeń i baner kampanii — obie powierzchnie mają ODCZYT dla
+# każdego zalogowanego (D7) i ZAPIS zawężony wewnątrz modułu. Ostrzeżenie
+# widoczne tylko dla wystawiającego nie zmienia niczyjego zachowania.
+app.include_router(
+    insights_performance_flags.router,
+    prefix="/api/insights/performance-flags",
+    tags=["insights"],
+)
+app.include_router(
+    insights_campaigns.router,
+    prefix="/api/insights/campaigns",
     tags=["insights"],
 )
 app.include_router(
@@ -2210,6 +2243,12 @@ async def api_health_deep_check():
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
+        # 0258/0259: plakietki ostrzeżeń i baner kampanii. Bez tych sond
+        # zielony deploy nic nie mówi o tym, czy tabele powstały — a brak
+        # którejkolwiek wywala CAŁĄ zakładkę Rekrutacja na UndefinedTable
+        # (obie są czytane bezwarunkowo przy wejściu na stronę).
+        ("user_performance_flags", UserPerformanceFlag),
+        ("recruitment_campaigns", RecruitmentCampaign),
     ]
 
     checks: dict[str, str] = {}

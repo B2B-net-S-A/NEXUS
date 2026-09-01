@@ -208,11 +208,38 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # /api/reports/* i /api/admin/*: tamte są współdzielone z innymi stronami.
     # Zawężenie tych tras wymaga zmiany decyzji D7, nie edycji tej listy.
     ("GET", "/api/competitions/current"),
+    # Zamrozone podia z `competition_winners` — sekcja „Hall of Fame" na
+    # /insights. Poszerzone z `OperationalUser` do `CurrentUser` 2026-09-01:
+    # ta trasa oddaje nazwiska podium i kwoty JUZ PRZYZNANYCH nagrod, czyli ten
+    # sam material, ktory /current i /monthly-races oddaja obok na zywo dla
+    # kazdej zalogowanej roli. Zapis (POST /freeze) zostaje na AdminUser.
+    ("GET", "/api/competitions/history"),
     ("GET", "/api/competitions/monthly-races"),
     ("GET", "/api/insights/board"),
+    # Baner kampanii: cel firmowy jest OGŁOSZENIEM dla całego zespołu,
+    # a liczniki są zagregowane (zero nazwisk, zero kwot). Baner, którego
+    # nie widzi połowa firmy, nie jest kampanią. CRUD kampanii stoi na
+    # `AdminUser`, więc do baseline nie trafia.
+    ("GET", "/api/insights/campaigns/active"),
+    # Wykresy roczne i analiza placementów (zakładka Rekrutacja). Ta sama
+    # decyzja D7 co reszta bloku: `/yearly-stats` niesie wyłącznie liczniki
+    # etapów, a `/placement-analysis` — imiona osób, którym przypisano
+    # placement, świadomie i zgodnie z §0 D7.
+    ("GET", "/api/insights/charts/placement-analysis"),
+    ("GET", "/api/insights/charts/yearly-stats"),
+    # Plakietki ostrzezen: ODCZYT dla kazdej zalogowanej roli, bo ostrzezenie
+    # widoczne tylko dla wystawiajacego nie zmienia niczyjego zachowania —
+    # a plakietka „procedury" ma byc sygnalem dla zespolu, nie notatka
+    # w szufladzie. ZAPIS (POST/PATCH) i historia stoja na `AdminUser`
+    # i do tej listy nie trafiaja.
+    ("GET", "/api/insights/performance-flags"),
     ("GET", "/api/insights/clients/hiring-managers"),
     ("GET", "/api/insights/clients/hit-ratio"),
     ("GET", "/api/insights/clients/ranking"),
+    # „Performance per osoba" — cztery liczby przy nazwisku w oknie okresu.
+    # Ta sama decyzja D7 co reszta bloku /api/insights/*: imienny ranking
+    # rekrutacyjny jest jawny dla calego zespolu.
+    ("GET", "/api/insights/team-table"),
     ("GET", "/api/insights/delivery-leads"),
     ("GET", "/api/insights/delivery-leads/placements-by-client"),
     ("GET", "/api/insights/delivery-leads/{dl_id}/trend"),

@@ -37,12 +37,9 @@ from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.insights_seniority import (
-    CONFIG_KEY_EXPERT_PLACEMENTS,
-    CONFIG_KEY_EXPERT_WINDOW,
-    CONFIG_KEY_SENIOR_PLACEMENTS,
-    CONFIG_KEY_SENIOR_WINDOW,
     DEFAULT_THRESHOLDS,
     SeniorityThresholds,
+    _progress_pct,
     compute_seniority,
 )
 
@@ -50,11 +47,18 @@ from app.services.insights_seniority import (
 # Test ma sprawdzać ARYTMETYKĘ okna, nie wysokość progu; przy produkcyjnych
 # wartościach każdy przypadek wymagałby dwukrotnie więcej seedu, a zmiana
 # progu przez admina wywracałaby zielony test bez żadnej regresji w kodzie.
+# Alternatywne progi celowo NIEOSIĄGALNE (999) — te przypadki badają regułę
+# podstawową, a alternatywna, gdyby dała się spełnić, cicho podniosłaby poziom
+# i test przestałby mierzyć to, co opisuje. Regułę LUB sprawdza osobny test.
 TEST_THRESHOLDS = SeniorityThresholds(
     senior_placements=3,
     senior_window_months=6,
     expert_placements=5,
     expert_window_months=12,
+    senior_alt_placements=999,
+    senior_alt_window_months=24,
+    expert_alt_placements=999,
+    expert_alt_window_months=24,
 )
 
 # Rok, w którym seedujemy. Musi być ROKIEM NIEUŻYWANYM PRZEZ ŻADEN INNY TEST
@@ -350,6 +354,10 @@ async def test_zero_threshold_yields_null_progress_and_promotes_nobody():
                 senior_window_months=6,
                 expert_placements=0,
                 expert_window_months=12,
+                senior_alt_placements=0,
+                senior_alt_window_months=12,
+                expert_alt_placements=0,
+                expert_alt_window_months=12,
             ),
         )
     row = next((r for r in result.rows if r.user_id == user_id), None)
@@ -361,32 +369,170 @@ async def test_zero_threshold_yields_null_progress_and_promotes_nobody():
 
 
 @pytest.mark.asyncio
-async def test_progress_is_not_clipped_at_one_hundred_percent():
-    """Przekroczenie progu ma być widoczne, nie schowane pod 100%."""
-    user_id = await _seed_user(UserRole.recruiter, "over")
-    await _seed_placements(user_id, [8, 9, 10, 11])  # 4 przy progu eksperta 5
+def test_progress_is_not_clipped_at_one_hundred_percent():
+    """Przekroczenie progu ma być widoczne, nie schowane pod 100%.
+
+    Test jednostkowy, nie na zasianych danych: przy zapadce awansu wiersz,
+    który przekroczył próg, ma już WYŻSZY poziom, więc przez ścieżkę
+    integracyjną tej wartości nie da się dziś zobaczyć. Strażnik i tak jest
+    potrzebny — `min(100, ...)` „dla estetyki paska" to jednolinijkowa zmiana,
+    która skasowałaby informację o dwukrotnym przekroczeniu progu.
+    """
+    assert _progress_pct(15, 10) == 150.0
+    assert _progress_pct(0, 10) == 0.0
+    # Zero progu to BRAK reguły, a nie „jesteś na zerze".
+    assert _progress_pct(3, 0) is None
+
+
+@pytest.mark.asyncio
+async def test_progress_to_expert_counts_only_placements_after_the_promotion():
+    """Licznik do eksperta ma być liczony z tej samej puli co awans.
+
+    Osoba awansowana na seniora w miesiącu M ma do eksperta wyłącznie to, co
+    zrobiła OD M. Pokazanie surowej sumy okna dałoby pasek wyższy niż prawda
+    i „brakuje N", które nie zgadza się z regułą obok.
+    """
+    user_id = await _seed_user(UserRole.recruiter, "anchprog")
+    # Senior wpada w miesiącu 10 (8,9,10 = 3 przy progu 3 w 6 miesiącach).
+    # Do eksperta liczą się wtedy tylko miesiące 10 i 11 — czyli 2 z 5.
+    await _seed_placements(user_id, [8, 9, 10, 11])
 
     _, row = await _row_for(user_id)
 
     assert row is not None
     assert row.level == "senior"
-    # 4/5 do eksperta — a senior został osiągnięty z zapasem (4 > 3).
-    assert row.placements_to_next_level == 1
-    assert row.progress_pct == 80.0
+    assert row.senior_since == f"{SEED_YEAR}-10"
+    assert row.expert_since is None
+    assert row.placements_in_expert_window == 2, (
+        "licznik do eksperta liczy placementy sprzed awansu na seniora"
+    )
+    assert row.placements_to_next_level == 3
+    assert row.progress_pct == 40.0
+
+
+@pytest.mark.asyncio
+async def test_expert_clock_is_anchored_at_the_senior_promotion():
+    """Jedna passa nie kupuje dwóch awansów naraz.
+
+    Pięć placementów w pięciu miesiącach spełnia w tym samym oknie regułę
+    seniora (3 w 6) I regułę eksperta (5 w 12). Bez kotwicy zegara eksperta
+    na dacie awansu na seniora „ścieżka rozwoju" przestaje być ścieżką
+    i staje się jednym progiem z dwiema nazwami — dokładnie to robił
+    oryginalny port, zanim wróciła semantyka DynaReportera.
+    """
+    burst = await _seed_user(UserRole.recruiter, "burst")
+    await _seed_placements(burst, [4, 5, 6, 7, 8])
+
+    _, row = await _row_for(burst)
+
+    assert row is not None
+    # Senior od miesiąca 6 (4,5,6 = 3). Po kotwicy zostają miesiące 6-8 = 3,
+    # a próg eksperta to 5 — więc NIE ekspert.
+    assert row.level == "senior"
+    assert row.senior_since == f"{SEED_YEAR}-06"
 
 
 @pytest.mark.asyncio
 async def test_expert_row_has_no_next_level():
     """Expert nie ma dokąd awansować — 0 czytałoby się jako „tuż-tuż"."""
     user_id = await _seed_user(UserRole.recruiter, "expert")
-    await _seed_placements(user_id, [4, 5, 6, 7, 8])  # 5 = próg eksperta
+    # Senior od miesiąca 3 (1,2,3 = 3). Od miesiąca 3 w górę jest 6
+    # placementów — powyżej progu eksperta (5 w 12).
+    await _seed_placements(user_id, [1, 2, 3, 4, 5, 6, 7, 8])
 
     _, row = await _row_for(user_id)
 
     assert row is not None
     assert row.level == "expert"
+    assert row.senior_since == f"{SEED_YEAR}-03"
+    assert row.expert_since == f"{SEED_YEAR}-07"
     assert row.placements_to_next_level is None
     assert row.progress_pct is None
+
+
+# ── Reguła LUB: dwa alternatywne progi na poziom ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_slower_but_longer_pace_also_promotes():
+    """Awans wolniejszym tempem — oryginał ma „6 w 6 msc LUB 12 w 12".
+
+    Osoba dowożąca stabilnie przez rok nie mieści się w krótkim oknie, ale
+    ma poziom Seniora. Jeden próg wycinałby ją bezterminowo: liczba w oknie
+    6-miesięcznym nigdy nie urośnie, bo tempo się nie zmienia.
+    """
+    user_id = await _seed_user(UserRole.recruiter, "orpath")
+    # Po jednym placemencie na kwartał: 2 w ostatnich 6 miesiącach (< 3),
+    # ale 4 w ostatnich 12 (>= alternatywny próg).
+    await _seed_placements(user_id, [2, 5, 8, 11])
+
+    base = dict(
+        senior_placements=3,
+        senior_window_months=6,
+        expert_placements=5,
+        expert_window_months=6,
+    )
+    unreachable_alt = dict(
+        senior_alt_placements=999,
+        senior_alt_window_months=24,
+        expert_alt_placements=999,
+        expert_alt_window_months=24,
+    )
+
+    async with AsyncSessionLocal() as db:
+        # Sama reguła podstawowa: krótkie okno widzi tylko 2 → junior.
+        without_alt = await compute_seniority(
+            db,
+            as_of=AS_OF,
+            thresholds=SeniorityThresholds(**base, **unreachable_alt),
+        )
+        # Ta sama historia z żywą regułą alternatywną → senior.
+        with_alt = await compute_seniority(
+            db,
+            as_of=AS_OF,
+            thresholds=SeniorityThresholds(
+                **base,
+                senior_alt_placements=4,
+                senior_alt_window_months=12,
+                expert_alt_placements=999,
+                expert_alt_window_months=24,
+            ),
+        )
+
+    row_without = next(r for r in without_alt.rows if r.user_id == user_id)
+    row_with = next(r for r in with_alt.rows if r.user_id == user_id)
+
+    # Bez tej asercji test przechodziłby też po usunięciu reguły LUB.
+    assert row_without.level == "junior"
+    assert row_with.level == "senior"
+
+
+def test_alternative_thresholds_reach_the_cache_key():
+    """Zmiana progu bez zmiany klucza cache serwuje STARE poziomy.
+
+    Progi są konfigurowalne przez admina, a odpowiedź jest cache'owana —
+    klucz musi zależeć od kompletu progów, nie od jego wycinka.
+    """
+    base = dict(
+        senior_placements=6,
+        senior_window_months=6,
+        expert_placements=12,
+        expert_window_months=6,
+        senior_alt_placements=12,
+        senior_alt_window_months=12,
+        expert_alt_placements=24,
+        expert_alt_window_months=12,
+    )
+    original = SeniorityThresholds(**base)
+
+    for field in (
+        "senior_alt_placements",
+        "senior_alt_window_months",
+        "expert_alt_placements",
+        "expert_alt_window_months",
+    ):
+        changed = SeniorityThresholds(**{**base, field: base[field] + 1})
+        assert changed.cache_suffix != original.cache_suffix, field
 
 
 # ── Anty-dryf domyślnych progów ──────────────────────────────────────────────
@@ -399,14 +545,18 @@ def test_defaults_mirror_the_scoring_config_source_of_truth():
     moduł trzyma własną kopię wyłącznie jako zabezpieczenie przed brakiem
     klucza — ale kopia, która się rozjedzie, jest gorsza niż jej brak.
     """
-    from app.services.insights_scoring_config import SCORING_DEFAULTS
+    from app.services.insights_scoring_config import SCORING_DEFAULTS, SCORING_FIELDS
 
-    for key in (
-        CONFIG_KEY_SENIOR_PLACEMENTS,
-        CONFIG_KEY_SENIOR_WINDOW,
-        CONFIG_KEY_EXPERT_PLACEMENTS,
-        CONFIG_KEY_EXPERT_WINDOW,
-    ):
+    # Lista kluczy WYPROWADZONA z konfiguracji, nie wpisana ręcznie: ręczna
+    # przechodzi dalej w dniu, w którym dojdzie nowy próg (tak właśnie
+    # przeoczono alternatywne progi przy pierwszym podejściu).
+    seniority_keys = {f.key for f in SCORING_FIELDS if f.group == "seniority"}
+    assert seniority_keys, "grupa `seniority` zniknęła z konfiguracji"
+
+    assert seniority_keys == set(DEFAULT_THRESHOLDS), (
+        "komplet progów w `insights_seniority` rozjechał się z konfiguracją"
+    )
+    for key in sorted(seniority_keys):
         assert DEFAULT_THRESHOLDS[key] == SCORING_DEFAULTS[key], key
 
 
@@ -458,11 +608,18 @@ async def test_envelope_carries_the_rule_so_the_ui_can_write_it_out(
     body = resp.json()
 
     assert body["as_of"] == AS_OF.isoformat()
+    # Komplet progów, nie wycinek: UI wypisuje regułę słowami („X w Y LUB
+    # Z w W"), więc brak alternatywnego progu w kopercie kazałby ludziom
+    # mierzyć się do progu, którego wcale nie muszą osiągnąć.
     for key in (
         "senior_placements",
         "senior_window_months",
         "expert_placements",
         "expert_window_months",
+        "senior_alt_placements",
+        "senior_alt_window_months",
+        "expert_alt_placements",
+        "expert_alt_window_months",
     ):
         assert isinstance(body["thresholds"][key], int), key
 

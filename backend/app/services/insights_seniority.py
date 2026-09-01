@@ -80,7 +80,7 @@ LEVEL_ORDER: tuple[str, ...] = (LEVEL_JUNIOR, LEVEL_SENIOR, LEVEL_EXPERT)
 
 # Klucze w `insights_scoring_config`. Defaulty w kodzie, jak w
 # `kpi_panel.py:54-56` — brak wiersza w konfiguracji nie może oznaczać
-# „próg zero", bo próg zero NIE awansowałby nikogo (patrz `_rule_met`),
+# „próg zero", bo próg zero NIE awansowałby nikogo (patrz `_first_qualifying_month`),
 # czyli ścieżka rozwoju cicho przestałaby działać.
 #
 # Te wartości są LUSTREM `SCORING_DEFAULTS` z `insights_scoring_config`.
@@ -91,23 +91,48 @@ CONFIG_KEY_SENIOR_PLACEMENTS = "seniority_senior_placements"
 CONFIG_KEY_SENIOR_WINDOW = "seniority_senior_window_months"
 CONFIG_KEY_EXPERT_PLACEMENTS = "seniority_expert_placements"
 CONFIG_KEY_EXPERT_WINDOW = "seniority_expert_window_months"
+# Alternatywne progi — oryginał ma na każdym poziomie DWA warunki połączone
+# przez LUB („6 placementów w 6 miesięcy LUB 12 w 12").
+CONFIG_KEY_SENIOR_ALT_PLACEMENTS = "seniority_senior_alt_placements"
+CONFIG_KEY_SENIOR_ALT_WINDOW = "seniority_senior_alt_window_months"
+CONFIG_KEY_EXPERT_ALT_PLACEMENTS = "seniority_expert_alt_placements"
+CONFIG_KEY_EXPERT_ALT_WINDOW = "seniority_expert_alt_window_months"
 
+# Wartości muszą pokrywać się z `ScoringField.default` w
+# `insights_scoring_config.py` — te tutaj są awaryjne (baza bez wiersza
+# konfiguracji), tamte są prawdą dla operatora. Rozjazd dałby dwa różne
+# poziomy dla tej samej osoby w zależności od tego, czy konfigurację
+# kiedykolwiek zapisano. Pilnuje tego test spójności defaultów.
 DEFAULT_THRESHOLDS: dict[str, int] = {
     CONFIG_KEY_SENIOR_PLACEMENTS: 6,
     CONFIG_KEY_SENIOR_WINDOW: 6,
     CONFIG_KEY_EXPERT_PLACEMENTS: 12,
-    CONFIG_KEY_EXPERT_WINDOW: 12,
+    CONFIG_KEY_EXPERT_WINDOW: 6,
+    CONFIG_KEY_SENIOR_ALT_PLACEMENTS: 12,
+    CONFIG_KEY_SENIOR_ALT_WINDOW: 12,
+    CONFIG_KEY_EXPERT_ALT_PLACEMENTS: 24,
+    CONFIG_KEY_EXPERT_ALT_WINDOW: 12,
 }
 
 
 @dataclass(frozen=True)
 class SeniorityThresholds:
-    """Progi awansu — jedno okno kroczące na poziom."""
+    """Progi awansu — DWA alternatywne okna na poziom, połączone przez LUB.
+
+    Oryginał (DynaReporter) stosuje „6 placementów w 6 miesięcy LUB 12 w 12"
+    i analogicznie dla eksperta. Jeden próg wycinałby osoby, które dowożą
+    stabilnie zamiast zrywami — wolniejsze, ale dłuższe tempo też prowadzi
+    do awansu.
+    """
 
     senior_placements: int
     senior_window_months: int
     expert_placements: int
     expert_window_months: int
+    senior_alt_placements: int
+    senior_alt_window_months: int
+    expert_alt_placements: int
+    expert_alt_window_months: int
 
     def as_payload(self) -> dict:
         return {
@@ -115,6 +140,10 @@ class SeniorityThresholds:
             "senior_window_months": self.senior_window_months,
             "expert_placements": self.expert_placements,
             "expert_window_months": self.expert_window_months,
+            "senior_alt_placements": self.senior_alt_placements,
+            "senior_alt_window_months": self.senior_alt_window_months,
+            "expert_alt_placements": self.expert_alt_placements,
+            "expert_alt_window_months": self.expert_alt_window_months,
         }
 
     @property
@@ -128,6 +157,8 @@ class SeniorityThresholds:
         return (
             f"{self.senior_placements}-{self.senior_window_months}"
             f"-{self.expert_placements}-{self.expert_window_months}"
+            f"-{self.senior_alt_placements}-{self.senior_alt_window_months}"
+            f"-{self.expert_alt_placements}-{self.expert_alt_window_months}"
         )
 
 
@@ -146,6 +177,12 @@ class SeniorityRow:
     placements_in_expert_window: int
     placements_to_next_level: int | None
     progress_pct: float | None
+    # 'YYYY-MM' miesiąca, w którym reguła seniora została spełniona po raz
+    # PIERWSZY. To jest kotwica zegara eksperta (patrz `_resolve_levels`), więc
+    # bez niej wiersz nie tłumaczy, dlaczego licznik do eksperta jest niższy
+    # niż suma placementów w tym samym oknie.
+    senior_since: str | None
+    expert_since: str | None
 
     def as_payload(self) -> dict:
         return {
@@ -159,6 +196,8 @@ class SeniorityRow:
             "placements_in_expert_window": self.placements_in_expert_window,
             "placements_to_next_level": self.placements_to_next_level,
             "progress_pct": self.progress_pct,
+            "senior_since": self.senior_since,
+            "expert_since": self.expert_since,
         }
 
 
@@ -216,28 +255,32 @@ def _window_sum(counts: dict[int, int], end_month: int, window_months: int) -> i
     return sum(n for m, n in counts.items() if start_month <= m <= end_month)
 
 
-def _best_window_sum(counts: dict[int, int], window_months: int) -> int:
-    """Najlepsze okno w CAŁEJ historii — to ono decyduje o awansie.
+def _first_qualifying_month(
+    counts: dict[int, int], rules: tuple[tuple[int, int], ...]
+) -> int | None:
+    """PIERWSZY miesiąc, w którym którakolwiek z reguł została spełniona.
 
-    Wystarczy sprawdzić okna kończące się w miesiącach, w których jakiś
-    placement w ogóle był: przesunięcie końca okna na pusty miesiąc może
-    wyłącznie wypchnąć z okna wcześniejszy miesiąc i nie dokłada niczego, więc
-    maksimum zawsze wypada na miesiącu obecnym w danych. Dzięki temu nie
-    trzeba iterować po każdym miesiącu osi czasu.
+    Zwraca miesiąc, a nie `bool`, bo sama odpowiedź „tak, kiedyś" nie wystarcza:
+    zegar eksperta jest kotwiczony na dacie awansu na seniora (patrz
+    `_resolve_levels`), więc potrzebna jest DATA, nie fakt.
+
+    Wystarczy sprawdzić miesiące, w których jakiś placement w ogóle był. Okno
+    kończące się na pustym miesiącu obejmuje podzbiór tego, co okno kończące
+    się na ostatnim niepustym miesiącu przed nim — więc jeśli kwalifikuje puste,
+    kwalifikował już wcześniejszy niepusty. Iterujemy rosnąco, więc pierwsze
+    trafienie jest najwcześniejsze.
+
+    Reguły z progiem albo oknem <= 0 są WYŁĄCZONE, nie „spełnione przez
+    każdego" — pusty wiersz konfiguracji nie może awansować całego zespołu.
     """
-    if window_months <= 0 or not counts:
-        return 0
-    return max(_window_sum(counts, m, window_months) for m in counts)
-
-
-def _rule_met(counts: dict[int, int], required: int, window_months: int) -> bool:
-    """Czy reguła awansu została KIEDYKOLWIEK spełniona (zapadka, bez degradacji)."""
-    if required <= 0 or window_months <= 0:
-        # Próg zero to konfiguracja BEZ reguły, a nie reguła spełniona przez
-        # każdego. Gdyby zwracać tu True, pusty wiersz konfiguracji awansowałby
-        # cały zespół — łącznie z osobami bez ani jednego placementu.
-        return False
-    return _best_window_sum(counts, window_months) >= required
+    active = [(req, win) for req, win in rules if req > 0 and win > 0]
+    if not active or not counts:
+        return None
+    for month in sorted(counts):
+        for required, window_months in active:
+            if _window_sum(counts, month, window_months) >= required:
+                return month
+    return None
 
 
 def _progress_pct(current: int, required: int) -> float | None:
@@ -252,19 +295,76 @@ def _progress_pct(current: int, required: int) -> float | None:
     return round(current / required * 100, 1)
 
 
-def _resolve_level(counts: dict[int, int], thresholds: SeniorityThresholds) -> str:
-    """Najwyższy poziom, którego reguła została kiedykolwiek spełniona.
+def _next_level_progress(
+    counts: dict[int, int],
+    current_month: int,
+    rules: tuple[tuple[int, int], ...],
+) -> tuple[int | None, float | None]:
+    """Postęp do NAJBLIŻSZEJ z alternatywnych reguł awansu.
 
-    Poziom eksperta NIE wymaga wcześniejszego przejścia przez seniora: obie
-    reguły czytamy z konfiguracji niezależnie, więc źle ustawiony próg seniora
-    (np. absurdalnie wysoki) nie może po cichu zablokować eksperta komuś, kto
-    jego regułę spełnił.
+    Poziom zdobywa się spełniając którąkolwiek z dwóch reguł, więc „ile
+    brakuje" musi odpowiadać tej, do której jest bliżej. Liczone wyłącznie
+    z reguły podstawowej, pasek pokazywałby dystans do drogi, którą ta osoba
+    i tak nie pójdzie — np. „brakuje 4" komuś, komu do progu rocznego brakuje
+    jednego.
     """
-    if _rule_met(counts, thresholds.expert_placements, thresholds.expert_window_months):
-        return LEVEL_EXPERT
-    if _rule_met(counts, thresholds.senior_placements, thresholds.senior_window_months):
-        return LEVEL_SENIOR
-    return LEVEL_JUNIOR
+    best: tuple[int, float | None] | None = None
+    for required, window_months in rules:
+        if required <= 0 or window_months <= 0:
+            # Reguła wyłączona — patrz `_first_qualifying_month`.
+            continue
+        current = _window_sum(counts, current_month, window_months)
+        remaining = max(0, required - current)
+        pct = _progress_pct(current, required)
+        if best is None or remaining < best[0]:
+            best = (remaining, pct)
+    if best is None:
+        return None, None
+    return best
+
+
+def _senior_rules(t: SeniorityThresholds) -> tuple[tuple[int, int], ...]:
+    return (
+        (t.senior_placements, t.senior_window_months),
+        (t.senior_alt_placements, t.senior_alt_window_months),
+    )
+
+
+def _expert_rules(t: SeniorityThresholds) -> tuple[tuple[int, int], ...]:
+    return (
+        (t.expert_placements, t.expert_window_months),
+        (t.expert_alt_placements, t.expert_alt_window_months),
+    )
+
+
+def _resolve_levels(
+    counts: dict[int, int], thresholds: SeniorityThresholds
+) -> tuple[str, int | None, int | None]:
+    """Poziom + miesiące obu awansów. Zegar eksperta kotwiczony na seniorze.
+
+    Ekspert liczy się WYŁĄCZNIE z placementów od miesiąca awansu na seniora
+    w górę — tak jak w oryginale. Bez tej kotwicy jedna dobra passa kupuje oba
+    awanse naraz: kto zrobił 12 placementów w sześć miesięcy, spełnia w tym
+    samym oknie regułę seniora i eksperta, więc „ścieżka rozwoju" przestaje
+    być ścieżką i staje się jednym progiem z dwiema nazwami.
+
+    Zwracamy trójkę zamiast samego poziomu, bo obie daty są potrzebne dalej:
+    `senior_since` do przycięcia licznika postępu, a obie do wiersza, który
+    ma się umieć wytłumaczyć.
+
+    Funkcja jest ZAPADKĄ: obie daty to minima po całej historii, więc kolejne
+    miesiące mogą je najwyżej przesunąć wcześniej. Cichy kwartał nie odbiera
+    poziomu — poziom mówi, co ktoś osiągnął, a nie jak mu idzie teraz.
+    """
+    senior_since = _first_qualifying_month(counts, _senior_rules(thresholds))
+    if senior_since is None:
+        return LEVEL_JUNIOR, None, None
+
+    after_senior = {m: n for m, n in counts.items() if m >= senior_since}
+    expert_since = _first_qualifying_month(after_senior, _expert_rules(thresholds))
+    if expert_since is None:
+        return LEVEL_SENIOR, senior_since, None
+    return LEVEL_EXPERT, senior_since, expert_since
 
 
 # ── Konfiguracja ─────────────────────────────────────────────────────────────
@@ -288,7 +388,7 @@ async def load_thresholds(db: AsyncSession) -> SeniorityThresholds:
 
     Brakujący klucz spada na default — świeża instalacja bez zaseedowanej
     konfiguracji ma mieć DZIAŁAJĄCĄ regułę, a nie regułę zerową (patrz
-    `_rule_met`).
+    `_first_qualifying_month`).
     """
     config = await get_scoring_config(db)
     return SeniorityThresholds(
@@ -307,6 +407,22 @@ async def load_thresholds(db: AsyncSession) -> SeniorityThresholds:
         expert_window_months=_as_int(
             config.get(CONFIG_KEY_EXPERT_WINDOW),
             DEFAULT_THRESHOLDS[CONFIG_KEY_EXPERT_WINDOW],
+        ),
+        senior_alt_placements=_as_int(
+            config.get(CONFIG_KEY_SENIOR_ALT_PLACEMENTS),
+            DEFAULT_THRESHOLDS[CONFIG_KEY_SENIOR_ALT_PLACEMENTS],
+        ),
+        senior_alt_window_months=_as_int(
+            config.get(CONFIG_KEY_SENIOR_ALT_WINDOW),
+            DEFAULT_THRESHOLDS[CONFIG_KEY_SENIOR_ALT_WINDOW],
+        ),
+        expert_alt_placements=_as_int(
+            config.get(CONFIG_KEY_EXPERT_ALT_PLACEMENTS),
+            DEFAULT_THRESHOLDS[CONFIG_KEY_EXPERT_ALT_PLACEMENTS],
+        ),
+        expert_alt_window_months=_as_int(
+            config.get(CONFIG_KEY_EXPERT_ALT_WINDOW),
+            DEFAULT_THRESHOLDS[CONFIG_KEY_EXPERT_ALT_WINDOW],
         ),
     )
 
@@ -396,9 +512,21 @@ async def compute_seniority(
     rows: list[SeniorityRow] = []
     for user_id, (name, role) in pool.items():
         counts = per_user.get(user_id, {})
-        level = _resolve_level(counts, thresholds)
+        level, senior_since, expert_since = _resolve_levels(counts, thresholds)
         in_senior = _window_sum(counts, current_month, thresholds.senior_window_months)
-        in_expert = _window_sum(counts, current_month, thresholds.expert_window_months)
+        # Licznik do EKSPERTA liczy się z tej samej puli, z której liczy się
+        # awans — czyli od miesiąca awansu na seniora w górę. Pokazanie tu
+        # surowej sumy okna dawałoby liczbę WIĘKSZĄ niż ta, którą system
+        # faktycznie porównuje z progiem: pasek stałby wyżej niż prawda,
+        # a „brakuje 2" nie zgadzałoby się z kolumną obok.
+        expert_pool = (
+            counts
+            if senior_since is None
+            else {m: n for m, n in counts.items() if m >= senior_since}
+        )
+        in_expert = _window_sum(
+            expert_pool, current_month, thresholds.expert_window_months
+        )
 
         if level == LEVEL_EXPERT:
             # Nie ma następnego poziomu — „ile brakuje" nie ma odpowiedzi,
@@ -406,19 +534,13 @@ async def compute_seniority(
             to_next: int | None = None
             progress: float | None = None
         elif level == LEVEL_SENIOR:
-            to_next = (
-                max(0, thresholds.expert_placements - in_expert)
-                if thresholds.expert_placements > 0
-                else None
+            to_next, progress = _next_level_progress(
+                expert_pool, current_month, _expert_rules(thresholds)
             )
-            progress = _progress_pct(in_expert, thresholds.expert_placements)
         else:
-            to_next = (
-                max(0, thresholds.senior_placements - in_senior)
-                if thresholds.senior_placements > 0
-                else None
+            to_next, progress = _next_level_progress(
+                counts, current_month, _senior_rules(thresholds)
             )
-            progress = _progress_pct(in_senior, thresholds.senior_placements)
 
         rows.append(
             SeniorityRow(
@@ -430,6 +552,8 @@ async def compute_seniority(
                 first_placement_month=_month_label(min(counts)) if counts else None,
                 placements_in_senior_window=in_senior,
                 placements_in_expert_window=in_expert,
+                senior_since=_month_label(senior_since) if senior_since else None,
+                expert_since=_month_label(expert_since) if expert_since else None,
                 placements_to_next_level=to_next,
                 progress_pct=progress,
             )

@@ -4,6 +4,11 @@ import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
+import {
+  readPeriodFromParams,
+  writePeriodToParams,
+} from "@/lib/insights-period-url";
+import { buildClientsCsvExport } from "@/lib/insights-csv";
 import { InsightsHiringManagers } from "@/components/insights/sections/InsightsHiringManagers";
 import { InsightsClientsHitRatio } from "@/components/insights/sections/InsightsClientsHitRatio";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
@@ -12,11 +17,11 @@ import { InsightsPlacementsByClient } from "@/components/insights/sections/Insig
 import {
   insightsBoardApi,
   insightsQueryKeys,
-  type InsightsPeriodKind,
   type InsightsPeriodParams,
 } from "@/lib/insights-api";
 
-const KINDS: InsightsPeriodKind[] = ["week", "month", "quarter", "year"];
+// Domyślne okno zakładki — JEDNA stała dla odczytu z URL-a i dla „Resetu".
+const DEFAULT_PERIOD: InsightsPeriodParams = { period: "month", offset: 0 };
 
 export function KlienciPanel() {
   // URL jest jedynym źródłem prawdy okresu — back/forward odtwarza wybór,
@@ -27,24 +32,16 @@ export function KlienciPanel() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rawKind = searchParams.get("period");
-  const rawOffset = Number.parseInt(searchParams.get("offset") ?? "0", 10);
-
+  // Odczyt i zapis okresu żyją w JEDNYM module dla trzech zakładek —
+  // trzy kopie tej logiki zgubiły wcześniej daty granulacji „Wszystko".
   const period: InsightsPeriodParams = useMemo(
-    () => ({
-      period: (KINDS.includes(rawKind as InsightsPeriodKind)
-        ? rawKind
-        : "month") as InsightsPeriodKind,
-      offset: Number.isFinite(rawOffset) ? rawOffset : 0,
-    }),
-    [rawKind, rawOffset],
+    () => readPeriodFromParams(searchParams, DEFAULT_PERIOD),
+    [searchParams],
   );
 
   const setPeriod = useCallback(
     (next: InsightsPeriodParams) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("period", next.period);
-      params.set("offset", String(next.offset ?? 0));
+      const params = writePeriodToParams(searchParams, next);
       router.push(`/insights?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
@@ -69,7 +66,9 @@ export function KlienciPanel() {
         <PeriodPicker
           value={period}
           onChange={setPeriod}
+          defaultValue={DEFAULT_PERIOD}
           resolved={ranking?.period ?? null}
+          csv={buildClientsCsvExport(ranking)}
         />
       </div>
 

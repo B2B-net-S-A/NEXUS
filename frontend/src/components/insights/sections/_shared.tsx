@@ -1,7 +1,12 @@
 "use client";
 
 import type { ElementType, ReactNode } from "react";
-import { AlertTriangle, HelpCircle, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  AlertTriangle,
+  HelpCircle,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import type { DashboardQualityStatus } from "@/lib/dashboard-v2-api";
@@ -28,11 +33,15 @@ export function fmtNumber(v: string | number | null | undefined): string {
 
 const KPI_COLOR_MAP = {
   blue: "bg-primary/10 text-primary border-primary/15",
-  green: "bg-green-50 text-green-600 border-green-100 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
-  purple: "bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800",
-  orange: "bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
+  green:
+    "bg-green-50 text-green-600 border-green-100 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
+  purple:
+    "bg-purple-50 text-purple-600 border-purple-100 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800",
+  orange:
+    "bg-orange-50 text-orange-600 border-orange-100 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
   red: "bg-destructive/10 text-destructive border-red-100 dark:bg-red-900/30 dark:text-destructive dark:border-red-800",
-  indigo: "bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800",
+  indigo:
+    "bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800",
 } as const;
 
 export type KpiColor = keyof typeof KPI_COLOR_MAP;
@@ -46,7 +55,14 @@ interface KpiCardProps {
   trend?: "up" | "down";
 }
 
-export function KpiCard({ label, value, sub, icon: Icon, color = "blue", trend }: KpiCardProps) {
+export function KpiCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  color = "blue",
+  trend,
+}: KpiCardProps) {
   return (
     <div className="bg-card rounded-xl border border-border p-5 shadow-xs">
       <div className="flex items-start justify-between mb-3">
@@ -90,7 +106,11 @@ export function HorizontalBar({
           style={{ width: `${pct}%` }}
         />
         <span className="absolute inset-0 flex items-center px-2 text-xs font-semibold text-foreground">
-          {suffix ? `${value}${suffix}` : typeof value === "number" && value > 1000 ? formatPLN(value) : value}
+          {suffix
+            ? `${value}${suffix}`
+            : typeof value === "number" && value > 1000
+              ? formatPLN(value)
+              : value}
         </span>
       </div>
       <div className="text-xs text-muted-foreground w-8 text-right">{pct}%</div>
@@ -107,7 +127,11 @@ interface DonutSegment {
 export function DonutChart({ segments }: { segments: DonutSegment[] }) {
   const total = segments.reduce((s, x) => s + x.value, 0);
   if (total === 0)
-    return <div className="text-sm text-muted-foreground text-center py-4">Brak danych</div>;
+    return (
+      <div className="text-sm text-muted-foreground text-center py-4">
+        Brak danych
+      </div>
+    );
 
   let accumulated = 0;
   const gradientParts = segments.map((seg) => {
@@ -124,7 +148,8 @@ export function DonutChart({ segments }: { segments: DonutSegment[] }) {
         style={{
           background: `conic-gradient(${gradientParts.join(", ")})`,
           mask: "radial-gradient(circle at center, transparent 40%, black 40%)",
-          WebkitMask: "radial-gradient(circle at center, transparent 40%, black 40%)",
+          WebkitMask:
+            "radial-gradient(circle at center, transparent 40%, black 40%)",
         }}
       />
       <div className="space-y-1.5">
@@ -236,12 +261,18 @@ export function Degraded({
     <div
       role="status"
       className={cn(
-        "flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900",
-        "dark:border-amber-800 dark:bg-amber-900/25 dark:text-amber-200",
-        className
+        // Tokeny, nie `amber-*`: te ostatnie znają wyłącznie motyw domyślny
+        // i ciemny, więc w paletach soft/kids stoją obok stokenizowanych
+        // bursztynów sąsiednich sekcji jako drugi, inny bursztyn. Para
+        // `warning-muted` przełącza się sama, więc blok `dark:` znika.
+        "flex items-start gap-2 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground",
+        className,
       )}
     >
-      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <AlertTriangle
+        className="mt-0.5 h-3.5 w-3.5 shrink-0"
+        aria-hidden="true"
+      />
       <div className="space-y-0.5">
         <p className="font-medium">{DEGRADED_TITLE[status]}</p>
         {reasons.map((r) => (
@@ -264,14 +295,17 @@ export function Degraded({
 const NOT_ASSESSABLE_REASON: Record<string, string> = {
   no_workday_data:
     "Brak danych o nieobecnościach — nie ma z czego policzyć dziennego mianownika.",
+  // Zero dni roboczych w oknie to najczęściej URLOP. Dzielenie przez zero nie
+  // jest oceną, więc ten wiersz nie może trafić do „poniżej progu”.
+  zero_workdays:
+    "Zero dni roboczych w tym oknie (np. urlop) — nie ma czego dzielić, więc nie oceniamy.",
   no_compass_profile:
     "Brak powiązanego profilu w COMPASSIE — nie znamy dni roboczych tej osoby.",
   calendar_gap:
     "Luka w kalendarzu dni roboczych — okres nie jest pokryty w całości.",
   stale_workday_data:
     "Dane o nieobecnościach starsze niż jeden interwał synchronizacji.",
-  no_data:
-    "Brak przypisanych placementów w NEXUSIE — poziom nie jest liczony.",
+  no_data: "Brak przypisanych placementów w NEXUSIE — poziom nie jest liczony.",
 };
 
 export interface NotAssessableRow {
@@ -304,7 +338,9 @@ export function NotAssessable({
 }) {
   // Wiersz bez nazwiska I bez powodu nie ma treści — pusty wiersz na takiej
   // liście czyta się jak błąd renderowania, nie jak informacja.
-  const visible = rows.filter((row) => row?.name?.trim() || row?.reason?.trim());
+  const visible = rows.filter(
+    (row) => row?.name?.trim() || row?.reason?.trim(),
+  );
   // Pusta lista = wszyscy są oceniani. Nagłówek nad zerem wierszy sugerowałby,
   // że dane się nie doczytały.
   if (visible.length === 0) return null;
@@ -312,9 +348,14 @@ export function NotAssessable({
   return (
     <div className="rounded-lg border border-dashed border-border p-4">
       <div className="mb-2 flex items-center gap-2">
-        <HelpCircle className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+        <HelpCircle
+          className="h-4 w-4 text-muted-foreground"
+          aria-hidden="true"
+        />
         <h3 className="text-sm font-medium text-foreground">{title}</h3>
-        <span className="ml-auto text-xs text-muted-foreground">{visible.length}</span>
+        <span className="ml-auto text-xs text-muted-foreground">
+          {visible.length}
+        </span>
       </div>
       <ul className="space-y-1.5">
         {visible.map((row, index) => {
@@ -325,13 +366,19 @@ export function NotAssessable({
             ? (NOT_ASSESSABLE_REASON[code] ?? `Powód: ${code}.`)
             : "Powód nieznany — dane wejściowe niekompletne.";
           return (
-            <li key={row.id ?? `${row.name ?? "?"}-${index}`} className="text-sm">
+            <li
+              key={row.id ?? `${row.name ?? "?"}-${index}`}
+              className="text-sm"
+            >
               <span className="text-foreground">
                 {row.name?.trim() || "Nieznany użytkownik"}
               </span>
               <span className="text-muted-foreground"> — {explanation}</span>
               {row.hint?.trim() ? (
-                <span className="text-xs text-muted-foreground"> ({row.hint.trim()})</span>
+                <span className="text-xs text-muted-foreground">
+                  {" "}
+                  ({row.hint.trim()})
+                </span>
               ) : null}
             </li>
           );

@@ -105,13 +105,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // CortexUser i zakładką Insights → Klienci & Delivery).
   {
     prefix: "/cortex",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "tac",
-      "finance",
-    ],
+    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "finance"],
   },
   // Wykonywanie telefonów jest ograniczone do ról operacyjnych (lustro
   // backendowego `ContactCaller`); sama strona odbija resztę własnym
@@ -253,6 +247,7 @@ const PUBLIC_PATHS = [
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
   "/preview/dl-alerts",
+  "/preview/insights-campaign",
   "/preview/contracts-consolidation",
   "/preview/procedure-help",
   "/preview/cv-generator-client-rules",

@@ -103,6 +103,11 @@ from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_cv_rule import ClientCvRule
 from app.models.insights_scoring_config import InsightsScoringConfig
 from app.models.user_workday_period import UserWorkdayPeriod
+from app.models.user_performance_flag import (  # noqa: F401
+    PerformanceFlagType,
+    UserPerformanceFlag,
+)
+from app.models.recruitment_campaign import RecruitmentCampaign
 from app.models.screening_note import ScreeningNote
 from app.models.contact import Contact, RelationshipStrength
 from app.models.talent_pool import TalentPool, TalentPoolMembership
@@ -376,6 +381,9 @@ __all__ = [
     "ClientCvRule",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
+    "UserPerformanceFlag",
+    "PerformanceFlagType",
+    "RecruitmentCampaign",
     "ScreeningNote",
     "Contact",
     "RelationshipStrength",
