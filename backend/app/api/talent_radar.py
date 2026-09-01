@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.api.deps import get_db
 from app.core.rate_limit import limiter
+from app.services import champion_view
 from app.services.talent_radar_search import (
     normalize_skill_names,
     shape_radar_candidate,
@@ -275,8 +276,10 @@ async def talent_radar_parse_champion(
     # ranking dalej wywodzi wymagania z prozy. Plakietka pozostaje więc
     # obietnicą na wyrost do czasu flipu; odpowiedź świadomie NIE niesie
     # pozycji flagi, żeby kształt tej odpowiedzi nie zależał od konfiguracji.
-    musts = normalize_skill_names(parsed.get("must_skills"))
-    nices = normalize_skill_names(parsed.get("nice_skills"))
+    _stack = parsed.get("stack") if isinstance(parsed.get("stack"), dict) else {}
+    musts = normalize_skill_names(_stack.get("must") or parsed.get("must_skills"))
+    nices = normalize_skill_names(_stack.get("nice") or parsed.get("nice_skills"))
+    _summary_basics = champion_view.basics(profile)
     return {
         "champion_profile": profile,
         "must_skills": musts,
@@ -288,8 +291,12 @@ async def talent_radar_parse_champion(
             # więcej wymagań, niż system faktycznie zna.
             "must_count": len(musts),
             "nice_count": len(nices),
-            "rate_value": parsed.get("rate_value"),
-            "location": parsed.get("location"),
-            "work_mode": parsed.get("work_mode"),
+            # Przez `champion_view.basics`, bo prompt v4 zwraca te trzy fakty
+            # w sekcji 1, a v3 kładł je płasko. Odczyt wprost pokazywałby
+            # w podsumowaniu „—" przy stawce, którą model właśnie odczytał.
+            "rate_value": _summary_basics.get("rate_value"),
+            "location": _summary_basics.get("candidate_location_pref")
+            or parsed.get("location"),
+            "work_mode": _summary_basics.get("work_mode"),
         },
     }

@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services import champion_view
 from app.models.match_justification import CandidateMatchJustification
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import MATCH_JUSTIFICATION
@@ -194,25 +195,28 @@ def _champion_context_text(job: Job) -> str:
     cp = job.champion_profile
     if not isinstance(cp, dict) or not cp:
         return "(brak profilu Championa)"
+    # Przez `champion_view` — profil w kształcie po przebudowie (09.2026) miałby
+    # inaczej „(brak profilu Championa)" i uzasadnienie dopasowania tłumaczyłoby
+    # wynik bez znajomości oferty, dla której go liczy.
     bits: list[str] = []
-    ctx = cp.get("project_context")
-    if isinstance(ctx, dict):
-        for key, label in (
-            ("about", "Projekt"),
-            ("responsibilities", "Obowiązki"),
-            ("selling_points", "Atuty"),
-        ):
-            val = (ctx.get(key) or "").strip() if isinstance(ctx.get(key), str) else ""
-            if val:
-                bits.append(f"{label}: {val}")
-    basics = cp.get("basics")
-    if isinstance(basics, dict):
-        loc = basics.get("candidate_location_pref")
-        onsite = basics.get("onsite_days_per_week")
-        if loc:
-            bits.append(f"Preferowana lokalizacja: {loc}")
-        if onsite is not None:
-            bits.append(f"Dni w biurze/tydz.: {onsite}")
+    proj = champion_view.project(cp)
+    cli = champion_view.client(cp)
+    for source, key, label in (
+        (proj, "about", "Projekt"),
+        (proj, "responsibilities", "Obowiązki"),
+        (cli, "selling_points", "Atuty"),
+    ):
+        raw = source.get(key)
+        val = raw.strip() if isinstance(raw, str) else ""
+        if val:
+            bits.append(f"{label}: {val}")
+    basics = champion_view.basics(cp)
+    loc = basics.get("candidate_location_pref")
+    onsite = basics.get("onsite_days_per_week")
+    if loc:
+        bits.append(f"Preferowana lokalizacja: {loc}")
+    if onsite is not None:
+        bits.append(f"Dni w biurze/tydz.: {onsite}")
     return _truncate("\n".join(bits), MAX_CHAMPION_CHARS) or "(brak profilu Championa)"
 
 

@@ -23,7 +23,8 @@ from app.services.champion_draft_service import (
     _merge_basics,
     _merge_screening_questions,
     _merge_section,
-    _merge_sourcing,
+    _merge_search,
+    _merge_stack,
 )
 
 
@@ -47,24 +48,40 @@ def test_merge_basics_replaces_non_null_fields():
     assert merged["language"] == "PL, EN B2+"
 
 
-def test_merge_sourcing_unions_sources_and_replaces_strings():
+def test_merge_search_unions_lists_and_replaces_strings():
     current = {
         "sources": ["linkedin"],
+        "disqualifiers": ["brak polskiego"],
         "keywords": "python",
         "target_companies": "",
         "notes": "existing note",
     }
     proposed = {
         "sources": ["referrals", "linkedin"],  # dedup
+        "disqualifiers": ["brak polskiego", "tylko juniorzy"],  # dedup
         "keywords": "python, fastapi",
         "target_companies": "Acme, Globex",
         "notes": "",  # empty → keep existing
     }
-    merged = _merge_sourcing(current, proposed)
+    merged = _merge_search(current, proposed)
     assert sorted(merged["sources"]) == ["linkedin", "referrals"]
+    assert sorted(merged["disqualifiers"]) == ["brak polskiego", "tylko juniorzy"]
     assert merged["keywords"] == "python, fastapi"
     assert merged["target_companies"] == "Acme, Globex"
     assert merged["notes"] == "existing note"
+
+
+def test_merge_stack_unions_technologies_without_dropping_manual_entries():
+    """Sugestia AI DOKŁADA technologie, nigdy nie kasuje wpisanych ręcznie.
+
+    Delivery Lead rozmawiał z klientem; model czytał opis. Podmiana listy
+    zamiast sumy oznaczałaby, że wygrywa ten, kto wie mniej.
+    """
+    current = {"must": [{"name": "Java"}], "nice": [], "notes": ""}
+    proposed = {"must": [{"name": "java"}, {"name": "Kafka"}], "nice": [{"name": "K8s"}]}
+    merged = _merge_stack(current, proposed)
+    assert [i["name"] for i in merged["must"]] == ["Java", "Kafka"]
+    assert [i["name"] for i in merged["nice"]] == ["K8s"]
 
 
 def test_merge_screening_questions_appends_with_dedup():
@@ -83,19 +100,35 @@ def test_merge_screening_questions_appends_with_dedup():
     assert merged[0]["question"] == "old q1"
 
 
-def test_merge_section_dispatch_for_strings():
-    # Non-empty proposed string replaces current.
-    assert _merge_section("historical_client_questions", "", "Nowy opis") == "Nowy opis"
-    # Empty proposed keeps current.
-    assert _merge_section("historical_client_questions", "Obecny", "") == "Obecny"
+def test_merge_section_dispatch_for_object_sections():
+    # Sekcja obiektowa: pole niepuste podmienia, puste zostawia obecne.
+    merged = _merge_section(
+        "client", {"about": "Obecny", "selling_points": "X"}, {"about": "Nowy opis"}
+    )
+    assert merged["about"] == "Nowy opis"
+    assert merged["selling_points"] == "X"
+
+
+def test_merge_section_documents_dedups_by_url():
+    """Dokumenty sumują się po URL-u — link wklejony ręcznie nie znika."""
+    merged = _merge_section(
+        "documents",
+        [{"name": "NDA", "url": "https://sp/nda"}],
+        [
+            {"name": "NDA (kopia)", "url": "https://sp/nda"},
+            {"name": "Wzór CV", "url": "https://sp/cv"},
+        ],
+    )
+    assert [d["url"] for d in merged] == ["https://sp/nda", "https://sp/cv"]
+    assert merged[0]["name"] == "NDA"
 
 
 def test_payload_from_profile_builds_confidence_per_section():
     profile = ChampionProfile()
-    profile.project_context.about = "cel projektu"
-    conf = {"project_context": 0.85, "basics": 0.0}
+    profile.project.about = "cel projektu"
+    conf = {"project": 0.85, "basics": 0.0}
     payload = payload_from_profile(profile, confidence=conf)
-    assert payload["project_context"]["confidence"] == 0.85
+    assert payload["project"]["confidence"] == 0.85
     assert payload["basics"]["confidence"] == 0.0
     assert set(payload.keys()) == set(VALID_SECTIONS)
 
@@ -120,10 +153,14 @@ SAMPLE_LLM_OUTPUT = {
         "candidate_location_pref": "Warszawa, PL remote",
         "language": "PL, EN B2+",
     },
-    "project_context": {
+    "project": {
         "about": "Zespół 10 osób buduje platformę fintech.",
         "responsibilities": "Projektowanie i implementacja mikroserwisów.",
-        "selling_points": "Nowy stack, wysoki wpływ, dobra kultura inżynierska.",
+    },
+    "stack": {
+        "must": [{"name": "Python"}, {"name": "FastAPI"}],
+        "nice": [{"name": "Kafka"}],
+        "notes": "",
     },
     "screening_questions": [
         {
@@ -133,21 +170,29 @@ SAMPLE_LLM_OUTPUT = {
             "deal_breaker": "mniej niż 3",
         }
     ],
-    "historical_client_questions": "",
-    "internal_consultant_insight": "",
-    "sourcing": {
-        "sources": ["linkedin"],
+    "client": {
+        "about": "",
+        "selling_points": "Nowy stack, wysoki wpływ, dobra kultura inżynierska.",
+        "priority_rules": "",
+        "consultant_insight": "",
+        "historical_questions": "",
+        "sectors": [],
+    },
+    "documents": [],
+    "search": {
         "keywords": "Python, FastAPI, event-driven",
         "target_companies": "Acme",
+        "disqualifiers": [],
         "notes": "",
     },
     "_confidence": {
         "basics": 0.8,
-        "project_context": 0.9,
+        "project": 0.9,
+        "stack": 0.85,
         "screening_questions": 0.75,
-        "historical_client_questions": 0.0,
-        "internal_consultant_insight": 0.0,
-        "sourcing": 0.6,
+        "client": 0.4,
+        "documents": 0.0,
+        "search": 0.6,
     },
 }
 
@@ -226,28 +271,28 @@ async def test_generate_and_apply_happy_path(
     assert suggestion["status"] == "pending"
     assert suggestion["source_type"] == "jd_paste"
     sections = {p["section"] for p in suggestion["patches"]}
-    assert {"basics", "project_context", "screening_questions"} <= sections
+    assert {"basics", "project", "stack", "screening_questions"} <= sections
 
     suggestion_id = suggestion["id"]
 
-    # Apply only project_context.
+    # Apply only project.
     apply_resp = await app_client.post(
         f"/api/champion-suggestions/{suggestion_id}/apply",
         headers=app_auth_headers,
-        json={"accepted_sections": ["project_context"]},
+        json={"accepted_sections": ["project"]},
     )
     assert apply_resp.status_code == 200, apply_resp.text
     body = apply_resp.json()
     assert body["status"] == "partially_accepted"
 
-    # Verify champion_profile got the project_context section.
+    # Verify champion_profile got the project section.
     prof_resp = await app_client.get(
         f"/api/jobs/{job_id}/champion-profile",
         headers=app_auth_headers,
     )
     assert prof_resp.status_code == 200
     profile = prof_resp.json()["champion_profile"]
-    assert profile["project_context"]["about"].startswith("Zespół 10 osób")
+    assert profile["project"]["about"].startswith("Zespół 10 osób")
     # basics stayed empty (we didn't accept it).
     assert profile["basics"]["onsite_days_per_week"] in (None, 0) or (
         profile["basics"]["candidate_location_pref"] in (None, "")
@@ -280,7 +325,7 @@ async def test_apply_rejects_when_not_pending(
     r2 = await app_client.post(
         f"/api/champion-suggestions/{sid}/apply",
         headers=app_auth_headers,
-        json={"accepted_sections": ["project_context"]},
+        json={"accepted_sections": ["project"]},
     )
     assert r2.status_code == 409, r2.text
 

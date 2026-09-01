@@ -214,7 +214,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
 //                  i wystawiło go publicznie.
 //   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`,
 //   `/preview/talent-radar`, `/preview/order-consultant-picker`,
-//   `/preview/procedure-help`
+//   `/preview/procedure-help`, `/preview/champion-profile`
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
 //                  Renderują wyłącznie zahardkodowane mocki i nie wołają
@@ -250,6 +250,7 @@ const PUBLIC_PATHS = [
   "/preview/insights-campaign",
   "/preview/contracts-consolidation",
   "/preview/procedure-help",
+  "/preview/champion-profile",
   "/preview/cv-generator-client-rules",
 ];
 

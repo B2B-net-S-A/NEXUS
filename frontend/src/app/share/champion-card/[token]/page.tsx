@@ -46,13 +46,17 @@ interface ShareResponse {
  location: string | null;
  seniority: string | null;
  };
+ // Wąska projekcja z `/api/public/champion-card/{token}` — serwer celowo NIE
+ // zwraca tu całego profilu (stawka, firmy docelowe, dyskwalifikatory zostają
+ // po naszej stronie). Kształt jest stabilny niezależnie od tego, czy oferta
+ // ma profil sprzed czy po przebudowie szablonu.
  champion_profile: {
  basics?: { onsite_days_per_week?: number | null; language?: string | null };
- project_context?: {
+ project?: {
  about?: string;
  responsibilities?: string;
- selling_points?: string;
  };
+ stack?: { must?: Array<{ name: string }> };
  screening_questions?: Question[];
  };
  screening_answers: {
@@ -187,29 +191,29 @@ export default async function PublicChampionCardPage({ params }: PageProps) {
  {/* Main content */}
  <main className="relative z-10 max-w-4xl mx-auto px-6 pb-12 space-y-5">
  {/* Project context */}
- {(data.champion_profile.project_context?.about ||
- data.champion_profile.project_context?.responsibilities) && (
+ {(data.champion_profile.project?.about ||
+ data.champion_profile.project?.responsibilities) && (
  <section className="rounded-xl bg-card border border-border shadow-md p-6 space-y-4">
  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
  Kontekst projektu
  </p>
- {data.champion_profile.project_context.about && (
+ {data.champion_profile.project.about && (
  <div>
  <h3 className="font-semibold text-lg text-foreground mb-1">
  O projekcie
  </h3>
  <p className="text-sm leading-relaxed whitespace-pre-line">
- {data.champion_profile.project_context.about}
+ {data.champion_profile.project.about}
  </p>
  </div>
  )}
- {data.champion_profile.project_context.responsibilities && (
+ {data.champion_profile.project.responsibilities && (
  <div>
  <h3 className="font-semibold text-lg text-foreground mb-1">
  Obowiązki
  </h3>
  <p className="text-sm leading-relaxed whitespace-pre-line">
- {data.champion_profile.project_context.responsibilities}
+ {data.champion_profile.project.responsibilities}
  </p>
  </div>
  )}

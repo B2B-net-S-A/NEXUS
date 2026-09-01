@@ -39,6 +39,7 @@ from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
 from app.services import object_storage
+from app.services import champion_view
 from app.services.cv_generator_b2b.ai_client import (
     CVGeneratorAIError,
     CVGeneratorOverloadedError,
@@ -316,18 +317,27 @@ def _champion_present(job: Job | None) -> bool:
         return False
     if job.must_skills or job.nice_skills:
         return True
+    # Przez `champion_view` — inaczej oferta z profilem w kształcie po
+    # przebudowie (09.2026) raportowałaby „brak Championa" i generator zszedłby
+    # na ścieżkę bez kontekstu, mimo że profil jest wypełniony.
     cp = job.champion_profile or {}
-    proj = cp.get("project_context") or {}
-    if any(
-        str(proj.get(k) or "").strip()
-        for k in ("about", "responsibilities", "selling_points")
-    ):
+    proj = champion_view.project(cp)
+    cli = champion_view.client(cp)
+    if any(str(proj.get(k) or "").strip() for k in ("about", "responsibilities")):
         return True
-    if cp.get("screening_questions"):
+    if str(cli.get("selling_points") or "").strip():
         return True
-    if str(cp.get("internal_consultant_insight") or "").strip():
+    if champion_view.screening_questions(cp):
         return True
-    if str(cp.get("historical_client_questions") or "").strip():
+    if str(cli.get("consultant_insight") or "").strip():
+        return True
+    if str(cli.get("historical_questions") or "").strip():
+        return True
+    # Sekcja 3: stack wpisany wprost też jest sygnałem Championa, nawet gdy
+    # cała reszta profilu jest pusta — a po przebudowie to najczęstszy przypadek
+    # profilu wypełnionego „tylko tym, co naprawdę ważne".
+    stack = champion_view.stack(cp)
+    if stack.get("must") or stack.get("nice"):
         return True
     return False
 

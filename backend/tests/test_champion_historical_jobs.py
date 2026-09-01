@@ -286,17 +286,27 @@ async def test_find_similar_answers_unknown_when_embedding_unavailable():
 # ── Async: generate_from_historical_jobs ────────────────────────────────────
 
 
+# Nazwy kluczy to SEKCJE szablonu (patrz `VALID_SECTIONS`) — nie kształt profilu.
+# Fixture'y ofert historycznych niżej celowo zostają w kształcie SPRZED 09.2026:
+# zamknięte oferty mają profile z importu sierpniowego i to właśnie na nich ta
+# ścieżka musi działać.
 HISTORICAL_LLM_OUTPUT: dict = {
-    "project_context": {
+    "project": {
         "value": {
             "about": "Zespół 8 osób buduje core banking dla Nordea ART Payments.",
             "responsibilities": "Projektowanie microserwisów + on-call.",
-            "selling_points": "Nowy stack, długoterminowy kontrakt, hybrid 2/5.",
         },
         "confidence": 0.92,
         "rationale": "skopiowano z Job #101 (Nordea — Senior Java, podobieństwo 0.91)",
     },
-    "sourcing": {
+    "client": {
+        "value": {
+            "selling_points": "Nowy stack, długoterminowy kontrakt, hybrid 2/5.",
+        },
+        "confidence": 0.7,
+        "rationale": "skopiowano z Job #101",
+    },
+    "search": {
         "value": {
             "sources": ["linkedin", "referrals"],
             "keywords": "Java, Spring, Kafka, AWS",
@@ -539,9 +549,9 @@ async def test_generate_from_history_happy_path(
     assert suggestion["source_type"] == "historical_jobs"
     assert suggestion["source_ref"] == "101,102"
     sections = {p["section"] for p in suggestion["patches"]}
-    assert "project_context" in sections
+    assert "project" in sections
     project_patch = next(
-        p for p in suggestion["patches"] if p["section"] == "project_context"
+        p for p in suggestion["patches"] if p["section"] == "project"
     )
     assert "skopiowano z Job" in project_patch["rationale"]
 
