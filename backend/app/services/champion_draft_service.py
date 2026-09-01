@@ -47,6 +47,7 @@ from app.models.champion_suggestion import (
 )
 from app.models.client import Client
 from app.models.job import Job
+from app.services import champion_view
 from app.schemas.champion import (
     ChampionBasics,
     ChampionProfile,
@@ -583,10 +584,15 @@ def _compact_historical_profiles(
 
     compact: list[dict[str, Any]] = []
     for match in matches:
+        # Przez `champion_view`: dopasowania historyczne to z definicji oferty
+        # ZAMKNIĘTE, więc prawie wszystkie mają profil w kształcie sprzed
+        # 09.2026. Czytanie samych nowych kluczy zwróciłoby tu puste sekcje —
+        # a to jest jedyne źródło wiedzy o tym, jak podobne role obsadzano.
         profile = match.champion_profile or {}
-        project_context = profile.get("project_context") or {}
-        sourcing = profile.get("sourcing") or {}
-        screening = profile.get("screening_questions") or []
+        project_context = champion_view.project(profile)
+        client_section = champion_view.client(profile)
+        search_section = champion_view.search(profile)
+        screening = champion_view.screening_questions(profile)
 
         def _cap(text: Any) -> str:
             if not isinstance(text, str):
@@ -601,23 +607,24 @@ def _compact_historical_profiles(
                 "similarity": match.similarity,
                 "closed_at": (match.closed_at.isoformat() if match.closed_at else None),
                 "seniority": match.seniority,
-                "project_context": {
+                "project": {
                     "about": _cap(project_context.get("about")),
                     "responsibilities": _cap(project_context.get("responsibilities")),
-                    "selling_points": _cap(project_context.get("selling_points")),
                 },
                 "screening_questions": screening[:8],
-                "sourcing": {
-                    "sources": sourcing.get("sources") or [],
-                    "keywords": _cap(sourcing.get("keywords")),
-                    "target_companies": _cap(sourcing.get("target_companies")),
+                "search": {
+                    "keywords": _cap(search_section.get("keywords")),
+                    "target_companies": _cap(search_section.get("target_companies")),
                 },
-                "historical_client_questions": _cap(
-                    profile.get("historical_client_questions")
-                ),
-                "internal_consultant_insight": _cap(
-                    profile.get("internal_consultant_insight")
-                ),
+                "client": {
+                    "selling_points": _cap(client_section.get("selling_points")),
+                    "historical_questions": _cap(
+                        client_section.get("historical_questions")
+                    ),
+                    "consultant_insight": _cap(
+                        client_section.get("consultant_insight")
+                    ),
+                },
                 "must_skills": [
                     s for s in (match.must_skills or []) if isinstance(s, (dict, str))
                 ][:20],
@@ -783,15 +790,14 @@ async def generate_from_historical_jobs(
 # ── Merge logic for apply ───────────────────────────────────────────────────
 
 
-def _merge_sourcing(
-    current: dict[str, Any], proposed: dict[str, Any]
-) -> dict[str, Any]:
-    """For sourcing: per-field merge. Lists unioned, strings replaced if non-empty."""
+def _merge_search(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str, Any]:
+    """Sekcja 2: scalanie pole po polu. Listy sumowane, napisy podmieniane, gdy niepuste."""
     merged = dict(current or {})
-    proposed_sources = proposed.get("sources") or []
-    if proposed_sources:
-        existing = set(merged.get("sources") or [])
-        merged["sources"] = sorted(existing.union(proposed_sources))
+    for list_field in ("sources", "disqualifiers"):
+        proposed_list = proposed.get(list_field) or []
+        if proposed_list:
+            existing = set(merged.get(list_field) or [])
+            merged[list_field] = sorted(existing.union(proposed_list))
     for field in ("keywords", "target_companies", "notes"):
         proposed_val = proposed.get(field)
         if proposed_val:
@@ -799,10 +805,49 @@ def _merge_sourcing(
     return merged
 
 
+def _merge_stack(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str, Any]:
+    """Sekcja 3: sumowanie list technologii po nazwie, bez duplikatów.
+
+    Suma, nie podmiana: sugestia AI dopisuje technologie, o których Delivery Lead
+    mógł nie pomyśleć, ale nie ma podstaw kasować tych, które wpisał ręcznie —
+    to on rozmawiał z klientem.
+    """
+    merged = dict(current or {})
+    for bucket in ("must", "nice"):
+        out = [i for i in (merged.get(bucket) or []) if isinstance(i, dict)]
+        seen = {str(i.get("name", "")).strip().lower() for i in out}
+        for item in proposed.get(bucket) or []:
+            name = item.get("name") if isinstance(item, dict) else item
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if name.strip().lower() in seen:
+                continue
+            seen.add(name.strip().lower())
+            out.append({"name": name.strip()})
+        merged[bucket] = out
+    if proposed.get("notes"):
+        merged["notes"] = proposed["notes"]
+    return merged
+
+
 def _merge_basics(current: dict[str, Any], proposed: dict[str, Any]) -> dict[str, Any]:
     """For basics: replace each non-null proposed field."""
     merged = dict(current or {})
-    for field in ("onsite_days_per_week", "candidate_location_pref", "language"):
+    # Pełna sekcja 1, nie trzy pola: od 09.2026 mieszkają tu też `rate_value`
+    # i `seniority_min_years`, czyli twardy sufit stawki i próg doświadczenia.
+    # Lista obcięta do trzech pól cicho odrzucałaby sugestie dotyczące obu.
+    for field in (
+        "role_name",
+        "seniority_min_years",
+        "rate_value",
+        "rate_raw",
+        "work_mode",
+        "onsite_days_per_week",
+        "candidate_location_pref",
+        "language",
+        "start_date",
+        "contract_length",
+    ):
         proposed_val = proposed.get(field)
         if proposed_val is not None and proposed_val != "":
             merged[field] = proposed_val
@@ -831,18 +876,33 @@ def _merge_section(section: str, current: Any, proposed: Any) -> Any:
     """Apply the section-specific merge rule. Raw dicts, no Pydantic objects."""
     if section == "basics":
         return _merge_basics(current or {}, proposed or {})
-    if section == "sourcing":
-        return _merge_sourcing(current or {}, proposed or {})
+    if section == "search":
+        return _merge_search(current or {}, proposed or {})
+    if section == "stack":
+        return _merge_stack(current or {}, proposed or {})
     if section == "screening_questions":
         return _merge_screening_questions(current or [], proposed or [])
-    # project_context: replace per-field (object-like, but treat as replace-on-non-empty)
-    if section == "project_context":
+    # project / client: replace per-field (object-like, replace-on-non-empty)
+    if section in ("project", "client"):
         merged = dict(current or {})
-        for field in ("about", "responsibilities", "selling_points"):
-            proposed_val = (proposed or {}).get(field)
-            if proposed_val:
+        for field, proposed_val in (proposed or {}).items():
+            if proposed_val not in (None, "", [], {}):
                 merged[field] = proposed_val
         return merged
+    if section == "documents":
+        # Dokumenty sumujemy po URL-u: sugestia dokłada linki, nie kasuje tych,
+        # które Delivery Lead wkleił ręcznie.
+        out = [d for d in (current or []) if isinstance(d, dict)]
+        seen = {str(d.get("url", "")).strip() for d in out}
+        for doc in proposed or []:
+            if not isinstance(doc, dict):
+                continue
+            url = str(doc.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            out.append(doc)
+        return out
     # scalar / string sections: replace on non-empty
     if proposed not in (None, "", [], {}):
         return proposed
@@ -1048,15 +1108,20 @@ async def generate_recommended_searches(
         client = await db.scalar(select(Client).where(Client.id == job.client_id))
         client_name = client.name if client else ""
 
-    profile: dict[str, Any] = dict(job.champion_profile or {})
+    # Znormalizowany, bo ~949 ofert trzyma jeszcze kształt sprzed 09.2026;
+    # czytanie samych nowych kluczy dałoby tam pusty wycinek i prompt bez
+    # jakiejkolwiek wiedzy o ofercie.
+    profile: dict[str, Any] = ChampionProfile.model_validate(
+        job.champion_profile or {}
+    ).model_dump(mode="json")
     champion_excerpt = {
         k: profile.get(k)
         for k in (
             "basics",
-            "project_context",
-            "sourcing",
-            "internal_consultant_insight",
-            "historical_client_questions",
+            "search",
+            "stack",
+            "project",
+            "client",
         )
         if profile.get(k)
     }
@@ -1199,7 +1264,8 @@ __all__ = [
     "_merge_section",
     "_merge_screening_questions",
     "_merge_basics",
-    "_merge_sourcing",
+    "_merge_search",
+    "_merge_stack",
 ]
 
 

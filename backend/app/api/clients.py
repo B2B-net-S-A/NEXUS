@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
+from app.api.financial_access import can_read_client_finance
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
@@ -458,10 +459,11 @@ async def get_client_profile(
     Contract model's own `monthly_rate_client` / `monthly_margin` properties
     so the math stays consistent with the Contracts module.
     """
-    assert_delivery_lead_client_visible(
-        client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
-    )
+    # Granica portfela DL jest potrzebna DWA razy: raz jako guard dostępu,
+    # a raz przy decyzji o finansach niżej — dlatego trzymana w zmiennej,
+    # a nie liczona ponownie.
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    assert_delivery_lead_client_visible(client_id, delivery_lead_client_ids)
     # 404 early so we don't hand back empty sections for a phantom client.
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
@@ -790,11 +792,20 @@ async def get_client_profile(
         historical=ClientProfileHistory(placements=placements, lost_jobs=lost_jobs),
     )
 
-    # R0 (plan 2026-07-16): stawki/marże/MRR/LTV tylko dla VIEW_FINANCE
-    # (delivery_lead, admin). Pozostałe role widzą profil operacyjny.
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    # R0 (plan 2026-07-16): stawki/marże/MRR/LTV dla ról z VIEW_FINANCE oraz
+    # dla Delivery Leada w granicach WŁASNEGO portfela (wspólna reguła
+    # `can_read_client_finance` w `api/financial_access.py` — ta sama, co
+    # w portalu DL). Pozostałe role widzą profil operacyjny.
+    #
+    # Redakcja jest CAŁOŚCIOWA albo żadna — częściowa rozjeżdża ten ekran ze
+    # sobą samym: kafel „Aktywne MRR" jest sumą kolumny „Marża" pod nim,
+    # a „Archiwum konsultantów" ma DOKŁADNIE te same trzy kolumny co
+    # „Obecni konsultanci" w zakładce obok.
+    if not can_read_client_finance(
+        current_user,
+        client_id=client_id,
+        delivery_lead_client_ids=delivery_lead_client_ids,
+    ):
         response.summary.active_mrr = None
         response.summary.ltv = None
         for job in response.open_jobs:

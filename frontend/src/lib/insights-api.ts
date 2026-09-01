@@ -319,6 +319,20 @@ export interface SeniorityResponse {
    * nie spadło" — trzy stany muszą być rozróżnialne na ekranie.
    */
   regressions: SeniorityRegression[] | null;
+  /**
+   * Świeżość DZIENNIKA, nie wyniku. `last_observed_at: null` znaczy, że pętla
+   * dobowa nigdy nic nie zapisała — a wtedy pusta lista regresji nie jest
+   * odpowiedzią „nikomu nic nie spadło", tylko brakiem odpowiedzi.
+   *
+   * Całość `null` = dziennika nie dało się odczytać (patrz `regressions`).
+   */
+  journal: SeniorityJournalStatus | null;
+}
+
+export interface SeniorityJournalStatus {
+  /** ISO 8601 ostatniej obserwacji albo `null`, gdy nie było żadnej. */
+  last_observed_at: string | null;
+  observations: number;
 }
 
 export interface SeniorityRegression {

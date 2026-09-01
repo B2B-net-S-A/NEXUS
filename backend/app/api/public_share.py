@@ -38,6 +38,7 @@ from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
+from app.services import champion_view
 from app.models.activity import Activity
 from app.models.application_submission import (
     ApplicationSubmission,
@@ -130,9 +131,51 @@ async def get_public_champion_card(
             "location": job.location if job else None,
             "seniority": job.seniority.value if job and job.seniority else None,
         },
-        "champion_profile": (job.champion_profile if job else None) or {},
+        "champion_profile": _public_champion_projection(job),
         "screening_answers": stage.screening_answers or None,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+    }
+
+
+def _public_champion_projection(job) -> dict:
+    """Wycinek Championa dla karty udostępnianej hiring managerowi.
+
+    Whitelist, nie surowy dokument. Do 09.2026 endpoint zwracał
+    `job.champion_profile` w całości, więc każdy z linkiem dostawał w JSON-ie
+    także rzeczy, których karta nigdy nie renderowała: NASZĄ stawkę dla
+    kandydata (`rate_value`), listę firm docelowych, dyskwalifikatory i reguły
+    priorytetu klienta. Niewidoczne na ekranie, ale obecne w odpowiedzi —
+    a odbiorcą tego linku jest strona trzecia.
+
+    Przy okazji stabilizuje kontrakt dla frontu: karta czyta jeden kształt
+    niezależnie od tego, czy oferta ma profil sprzed czy po przebudowie.
+    """
+    raw = (getattr(job, "champion_profile", None) if job else None) or {}
+    if not isinstance(raw, dict) or not raw:
+        return {}
+    basics = champion_view.basics(raw)
+    project = champion_view.project(raw)
+    stack = champion_view.stack(raw)
+    return {
+        # Świadomie BEZ `rate_value`, `role_name` i długości kontraktu — karta
+        # ma powiedzieć hiring managerowi, w jakim trybie pracuje kandydat,
+        # a nie ile nam płaci jego klient.
+        "basics": {
+            "onsite_days_per_week": basics.get("onsite_days_per_week"),
+            "language": basics.get("language"),
+        },
+        "project": {
+            "about": project.get("about") or "",
+            "responsibilities": project.get("responsibilities") or "",
+        },
+        "stack": {
+            "must": [
+                {"name": item.get("name")}
+                for item in (stack.get("must") or [])
+                if isinstance(item, dict) and item.get("name")
+            ],
+        },
+        "screening_questions": champion_view.screening_questions(raw),
     }
 
 

@@ -1,12 +1,23 @@
 "use client";
 
 /**
- * Profil Championa editor (Phase 10).
+ * Profil Championa editor.
  *
  * Used by Delivery Leads / admins on /jobs/[id] to capture the "idealny
- * kandydat" briefing before recruiters start shortlisting. Mirrors the
- * internal Word template (sections: basics, project context, screening Qs,
- * sourcing strategy).
+ * kandydat" briefing before recruiters start shortlisting. Mirrors the internal
+ * Word template, restructured 09.2026 into seven sections: podstawowe
+ * informacje, co wpisać (search), stack technologiczny, o projekcie, pytania
+ * screeningowe, o kliencie, dokumenty.
+ *
+ * Formularz jest krótszy niż poprzedni celowo — Delivery Leadowie opisywali 80%
+ * starego profilu jako szum. Skrócenie prozy jest jednak bezpieczne dla jakości
+ * dopasowań WYŁĄCZNIE dlatego, że sekcja 3 podaje wymagania wprost: wcześniej
+ * scoring wyciągał je regexem z narracji, więc im mniej tekstu, tym mniej
+ * znalezionych technologii. Nie skracaj sekcji 4 bez wypełnionej sekcji 3.
+ *
+ * Weryfikacja dwustronna, briefing DL i rekomendowane wyszukiwania NIE są
+ * sekcjami — serwer stempluje je własnymi endpointami i renderują się osobno
+ * nad formularzem.
  */
 
 import { useEffect, useState } from "react";
@@ -28,8 +39,10 @@ import {
   championApi,
   championSuggestionsApi,
   EMPTY_CHAMPION_PROFILE,
+  type ChampionDocument,
   type ChampionProfile,
   type ChampionProfileSuggestion,
+  type StackItem,
   type ScreeningQuestion,
 } from "@/lib/api";
 import {
@@ -42,17 +55,6 @@ import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionRevi
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 import { ChampionVerificationChecklist } from "./ChampionVerificationChecklist";
 import { ChampionRecommendedSearches } from "./ChampionRecommendedSearches";
-
-const SOURCES: Array<{
-  value: ChampionProfile["sourcing"]["sources"][number];
-  label: string;
-}> = [
-  { value: "internal_base", label: "Baza wewnętrzna" },
-  { value: "linkedin", label: "LinkedIn direct" },
-  { value: "ad", label: "Ogłoszenie" },
-  { value: "referrals", label: "Rekomendacje" },
-  { value: "other", label: "Inne" },
-];
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -174,15 +176,34 @@ export function ChampionProfileEditor({
       screening_questions: d.screening_questions.filter((_, idx) => idx !== i),
     }));
 
-  const toggleSource = (v: ChampionProfile["sourcing"]["sources"][number]) =>
+  // Patche sekcyjne. Każdy podmienia JEDNĄ sekcję, resztę zostawia — zapis i tak
+  // scala payload na zapisanym profilu po stronie serwera, więc sekcja, której
+  // edytor nie tknął, nie ma jak zniknąć.
+  const patchBasics = (patch: Partial<ChampionProfile["basics"]>) =>
+    setDraft((d) => ({ ...d, basics: { ...d.basics, ...patch } }));
+  const patchSearch = (patch: Partial<ChampionProfile["search"]>) =>
+    setDraft((d) => ({ ...d, search: { ...d.search, ...patch } }));
+  const patchStack = (patch: Partial<ChampionProfile["stack"]>) =>
+    setDraft((d) => ({ ...d, stack: { ...d.stack, ...patch } }));
+  const patchProject = (patch: Partial<ChampionProfile["project"]>) =>
+    setDraft((d) => ({ ...d, project: { ...d.project, ...patch } }));
+  const patchClient = (patch: Partial<ChampionProfile["client"]>) =>
+    setDraft((d) => ({ ...d, client: { ...d.client, ...patch } }));
+
+  const addDocument = () =>
+    setDraft((d) => ({ ...d, documents: [...d.documents, { name: "", url: "" }] }));
+
+  const updateDocument = (i: number, patch: Partial<ChampionDocument>) =>
+    setDraft((d) => {
+      const next = [...d.documents];
+      next[i] = { ...next[i], ...patch };
+      return { ...d, documents: next };
+    });
+
+  const removeDocument = (i: number) =>
     setDraft((d) => ({
       ...d,
-      sourcing: {
-        ...d.sourcing,
-        sources: d.sourcing.sources.includes(v)
-          ? d.sourcing.sources.filter((s) => s !== v)
-          : [...d.sourcing.sources, v],
-      },
+      documents: d.documents.filter((_, idx) => idx !== i),
     }));
 
   if (isLoading)
@@ -347,9 +368,64 @@ export function ChampionProfileEditor({
         />
       )}
 
-      {/* 1. Podstawy */}
+      {/* 1. Podstawowe informacje */}
       <Section title="1. Podstawowe informacje">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Labeled label="Nazwa roli">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.role_name ?? ""}
+              onChange={(e) => patchBasics({ role_name: e.target.value })}
+              placeholder="np. Senior Java Developer"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Min. lat doświadczenia">
+            <input
+              type="number"
+              min={0}
+              max={60}
+              disabled={disabled}
+              value={draft.basics.seniority_min_years ?? ""}
+              onChange={(e) =>
+                patchBasics({
+                  seniority_min_years:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              className={inputClass}
+            />
+          </Labeled>
+          {/* Ta stawka nie jest opisem — filtr odrzuca po niej kandydatów
+              powyżej progu, bez marginesu. Podpis mówi o tym wprost, bo pole
+              wyglądające jak notatka, a działające jak filtr, jest pułapką. */}
+          <Labeled label="Stawka kandydata (PLN/h) — twardy sufit">
+            <input
+              type="number"
+              min={0}
+              step="0.5"
+              disabled={disabled}
+              value={draft.basics.rate_value ?? ""}
+              onChange={(e) =>
+                patchBasics({
+                  rate_value: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              placeholder="np. 122.50"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Tryb pracy">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.work_mode ?? ""}
+              onChange={(e) => patchBasics({ work_mode: e.target.value })}
+              placeholder="stacjonarnie / hybrydowo / zdalnie"
+              className={inputClass}
+            />
+          </Labeled>
           <Labeled label="Dni stacjonarne / tydzień">
             <input
               type="number"
@@ -358,13 +434,10 @@ export function ChampionProfileEditor({
               disabled={disabled}
               value={draft.basics.onsite_days_per_week ?? ""}
               onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  basics: {
-                    ...d.basics,
-                    onsite_days_per_week: e.target.value === "" ? null : Number(e.target.value),
-                  },
-                }))
+                patchBasics({
+                  onsite_days_per_week:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
               }
               className={inputClass}
             />
@@ -375,10 +448,7 @@ export function ChampionProfileEditor({
               disabled={disabled}
               value={draft.basics.candidate_location_pref ?? ""}
               onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  basics: { ...d.basics, candidate_location_pref: e.target.value },
-                }))
+                patchBasics({ candidate_location_pref: e.target.value })
               }
               placeholder="np. Warszawa lub PL remote"
               className={inputClass}
@@ -389,66 +459,149 @@ export function ChampionProfileEditor({
               type="text"
               disabled={disabled}
               value={draft.basics.language ?? ""}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  basics: { ...d.basics, language: e.target.value },
-                }))
-              }
+              onChange={(e) => patchBasics({ language: e.target.value })}
               placeholder="np. PL, EN B2+"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Start">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.start_date ?? ""}
+              onChange={(e) => patchBasics({ start_date: e.target.value })}
+              placeholder="np. ASAP / 01.10.2026"
+              className={inputClass}
+            />
+          </Labeled>
+          <Labeled label="Długość kontraktu">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.contract_length ?? ""}
+              onChange={(e) => patchBasics({ contract_length: e.target.value })}
+              placeholder="np. 3-5 mies. z przedłużeniem"
               className={inputClass}
             />
           </Labeled>
         </div>
       </Section>
 
-      {/* 2. Kontekst */}
-      <Section title="2. Kontekst projektu">
+      {/* 2. Co wpisać (search) */}
+      <Section title="2. Co wpisać (search)">
         <div className="space-y-3">
-          <Labeled label="O projekcie (cel, harmonogram, zespół)">
+          <Labeled label="Frazy do wyszukiwarki — dokładnie tak, jak je wpisujesz">
             <textarea
               disabled={disabled}
-              value={draft.project_context.about}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  project_context: { ...d.project_context, about: e.target.value },
-                }))
-              }
-              rows={3}
+              value={draft.search.keywords}
+              onChange={(e) => patchSearch({ keywords: e.target.value })}
+              placeholder="java, spring boot, kafka, mikroserwisy"
+              rows={2}
+              className={textareaClass}
+              data-testid="champion-search-keywords"
+            />
+          </Labeled>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Labeled label="Firmy docelowe">
+              <textarea
+                disabled={disabled}
+                value={draft.search.target_companies}
+                onChange={(e) => patchSearch({ target_companies: e.target.value })}
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+            <Labeled label="Kogo odrzucamy od razu (jeden na linię)">
+              <textarea
+                disabled={disabled}
+                value={(draft.search.disqualifiers || []).join("\n")}
+                onChange={(e) =>
+                  patchSearch({ disqualifiers: splitLines(e.target.value) })
+                }
+                placeholder="brak polskiego&#10;bez doświadczenia w bankowości"
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+          </div>
+          <Labeled label="Uwagi / plan działania">
+            <textarea
+              disabled={disabled}
+              value={draft.search.notes}
+              onChange={(e) => patchSearch({ notes: e.target.value })}
+              placeholder="np. nie zawężamy do bankowości"
+              rows={2}
               className={textareaClass}
             />
           </Labeled>
+        </div>
+      </Section>
+
+      {/* 3. Stack technologiczny */}
+      <Section title="3. Stack technologiczny">
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Zapis przenosi te technologie do wymagań rekrutacji — to z nich liczy
+          się dopasowanie kandydatów. Oddzielaj przecinkiem lub nową linią.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <StackField
+            label="MUST-HAVE"
+            testId="champion-stack-must"
+            value={draft.stack.must}
+            disabled={disabled}
+            onChange={(items) => patchStack({ must: items })}
+          />
+          <StackField
+            label="NICE-TO-HAVE"
+            testId="champion-stack-nice"
+            value={draft.stack.nice}
+            disabled={disabled}
+            onChange={(items) => patchStack({ nice: items })}
+          />
+        </div>
+        <div className="mt-3">
+          <Labeled label="Niuanse wersji / zakresu">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.stack.notes}
+              onChange={(e) => patchStack({ notes: e.target.value })}
+              placeholder="np. Java 17+, Java 8 nie interesuje"
+              className={inputClass}
+            />
+          </Labeled>
+        </div>
+      </Section>
+
+      {/* 4. O projekcie */}
+      <Section title="4. O projekcie">
+        <div className="space-y-3">
+          <Labeled label="Czym jest projekt — maksymalnie 2 zdania">
+            <textarea
+              disabled={disabled}
+              value={draft.project.about}
+              onChange={(e) => patchProject({ about: e.target.value })}
+              placeholder="Cel i charakter projektu. Dwa zdania wystarczą."
+              rows={2}
+              className={textareaClass}
+              data-testid="champion-project-about"
+            />
+          </Labeled>
+          <p className="text-[11px] text-muted-foreground -mt-1">
+            {countSentences(draft.project.about)} zdania/zdań
+            {countSentences(draft.project.about) > 2 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {" "}
+                — dłużej niż zakłada szablon, skróć do tego, co naprawdę zmienia
+                decyzję kandydata
+              </span>
+            )}
+          </p>
           <Labeled label="Obowiązki na stanowisku">
             <textarea
               disabled={disabled}
-              value={draft.project_context.responsibilities}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  project_context: {
-                    ...d.project_context,
-                    responsibilities: e.target.value,
-                  },
-                }))
-              }
-              rows={3}
-              className={textareaClass}
-            />
-          </Labeled>
-          <Labeled label="Co przekona kandydata ? ">
-            <textarea
-              disabled={disabled}
-              value={draft.project_context.selling_points}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  project_context: {
-                    ...d.project_context,
-                    selling_points: e.target.value,
-                  },
-                }))
-              }
+              value={draft.project.responsibilities}
+              onChange={(e) => patchProject({ responsibilities: e.target.value })}
               rows={3}
               className={textareaClass}
             />
@@ -456,9 +609,9 @@ export function ChampionProfileEditor({
         </div>
       </Section>
 
-      {/* 3. Screening Questions */}
+      {/* 5. Pytania screeningowe */}
       <Section
-        title="3. Pytania screeningowe"
+        title="5. Pytania screeningowe"
         action={
           canEdit && (
             <button
@@ -529,110 +682,169 @@ export function ChampionProfileEditor({
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-          <Labeled label="Historyczne pytania klienta">
-            <textarea
+      </Section>
+
+
+      {/* 6. O kliencie */}
+      <Section title="6. O kliencie">
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Labeled label="Co powiedzieć o kliencie">
+              <textarea
+                disabled={disabled}
+                value={draft.client.about}
+                onChange={(e) => patchClient({ about: e.target.value })}
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+            <Labeled label="Co przekona kandydata do oferty">
+              <textarea
+                disabled={disabled}
+                value={draft.client.selling_points}
+                onChange={(e) => patchClient({ selling_points: e.target.value })}
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+            <Labeled label="Insight od naszego konsultanta u klienta">
+              <textarea
+                disabled={disabled}
+                value={draft.client.consultant_insight}
+                onChange={(e) => patchClient({ consultant_insight: e.target.value })}
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+            <Labeled label="Historyczne pytania klienta">
+              <textarea
+                disabled={disabled}
+                value={draft.client.historical_questions}
+                onChange={(e) => patchClient({ historical_questions: e.target.value })}
+                rows={3}
+                className={textareaClass}
+              />
+            </Labeled>
+          </div>
+          <Labeled label="Reguły priorytetu">
+            <input
+              type="text"
               disabled={disabled}
-              value={draft.historical_client_questions}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  historical_client_questions: e.target.value,
-                }))
-              }
-              rows={3}
-              className={textareaClass}
+              value={draft.client.priority_rules}
+              onChange={(e) => patchClient({ priority_rules: e.target.value })}
+              placeholder="np. kandydaci z bankowością w pierwszej kolejności"
+              className={inputClass}
             />
           </Labeled>
-          <Labeled label="Insight od konsultanta wewnętrznego">
-            <textarea
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Labeled label="Język CV">
+              <input
+                type="text"
+                disabled={disabled}
+                value={draft.client.cv_language ?? ""}
+                onChange={(e) => patchClient({ cv_language: e.target.value })}
+                placeholder="np. PL / EN"
+                className={inputClass}
+              />
+            </Labeled>
+            <Labeled label="Typ kontraktu">
+              <input
+                type="text"
+                disabled={disabled}
+                value={draft.client.contract_type ?? ""}
+                onChange={(e) => patchClient({ contract_type: e.target.value })}
+                placeholder="np. B2B"
+                className={inputClass}
+              />
+            </Labeled>
+            <Labeled label="Branże">
+              <input
+                type="text"
+                disabled={disabled}
+                value={(draft.client.sectors || []).join(", ")}
+                onChange={(e) =>
+                  patchClient({ sectors: splitList(e.target.value) })
+                }
+                placeholder="banking, fintech"
+                className={inputClass}
+              />
+            </Labeled>
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-foreground dark:text-foreground">
+            <input
+              type="checkbox"
               disabled={disabled}
-              value={draft.internal_consultant_insight}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  internal_consultant_insight: e.target.value,
-                }))
-              }
-              rows={3}
-              className={textareaClass}
+              checked={draft.client.offlimit === true}
+              onChange={(e) => patchClient({ offlimit: e.target.checked })}
+              className="rounded border-border"
             />
-          </Labeled>
+            Klient off-limits
+          </label>
         </div>
       </Section>
 
-      {/* 4. Sourcing */}
-      <Section title="4. Strategia sourcingu">
-        <Labeled label="Główne źródła kandydatów">
-          <div className="flex flex-wrap gap-2">
-            {SOURCES.map((s) => {
-              const active = draft.sourcing.sources.includes(s.value);
-              return (
-                <button
-                  key={s.value}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => toggleSource(s.value)}
-                  className={cn(
-                    "text-[11px] px-2 py-1 rounded-md border transition-colors",
-                    active
-                      ? "bg-primary border-primary text-white"
-                      : "bg-card dark:bg-muted border-border dark:border-border text-foreground dark:text-muted-foreground hover:bg-muted"
-                  )}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
+      {/* 7. Dokumenty */}
+      <Section
+        title="7. Dokumenty"
+        action={
+          canEdit && (
+            <button
+              type="button"
+              onClick={addDocument}
+              className="text-xs inline-flex items-center gap-1 text-primary hover:text-primary/80"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Dodaj dokument
+            </button>
+          )
+        }
+      >
+        {/* Linki, nie pliki: dokumenty żyją na SharePoincie, a kopia w NEXUSIE
+            byłaby drugim egzemplarzem do pilnowania i ścieżką retencji dla
+            danych, których nie jesteśmy właścicielem. */}
+        {draft.documents.length === 0 ? (
+          <div className="rounded border border-dashed border-border dark:border-border p-4 text-xs text-muted-foreground text-center">
+            Brak dokumentów. Wklej linki do SharePointa — NDA, wzór CV klienta,
+            klauzula RODO.
           </div>
-        </Labeled>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-          <Labeled label="Słowa kluczowe do wyszukiwania">
-            <textarea
-              disabled={disabled}
-              value={draft.sourcing.keywords}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  sourcing: { ...d.sourcing, keywords: e.target.value },
-                }))
-              }
-              rows={3}
-              placeholder="kafka, spring boot, aws…"
-              className={textareaClass}
-            />
-          </Labeled>
-          <Labeled label="Firmy docelowe">
-            <textarea
-              disabled={disabled}
-              value={draft.sourcing.target_companies}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  sourcing: { ...d.sourcing, target_companies: e.target.value },
-                }))
-              }
-              rows={3}
-              className={textareaClass}
-            />
-          </Labeled>
-        </div>
-        <div className="mt-3">
-          <Labeled label="Uwagi / plan działania">
-            <textarea
-              disabled={disabled}
-              value={draft.sourcing.notes}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  sourcing: { ...d.sourcing, notes: e.target.value },
-                }))
-              }
-              rows={3}
-              className={textareaClass}
-            />
-          </Labeled>
-        </div>
+        ) : (
+          <div className="space-y-2">
+            {draft.documents.map((doc, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2"
+                data-testid={`champion-document-${i}`}
+              >
+                <input
+                  type="text"
+                  disabled={disabled}
+                  value={doc.name}
+                  onChange={(e) => updateDocument(i, { name: e.target.value })}
+                  placeholder="Nazwa"
+                  className={cn(inputClass, "sm:w-1/3")}
+                />
+                <input
+                  type="url"
+                  disabled={disabled}
+                  value={doc.url}
+                  onChange={(e) => updateDocument(i, { url: e.target.value })}
+                  placeholder="https://b2bnetsa.sharepoint.com/…"
+                  className={inputClass}
+                />
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => removeDocument(i)}
+                    className="p-1 text-destructive hover:text-destructive"
+                    aria-label="Usuń dokument"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       {!canEdit && (
@@ -681,6 +893,92 @@ function Section({
       </header>
       {children}
     </section>
+  );
+}
+
+/** Rozbicie na listę po nowej linii — dla pól, gdzie jedna pozycja = jedna linia. */
+function splitLines(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** Rozbicie po przecinku LUB nowej linii — ludzie wpisują listy na oba sposoby. */
+function splitList(raw: string): string[] {
+  return raw
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Przybliżona liczba zdań — na potrzeby podpowiedzi „maksymalnie 2 zdania".
+ *
+ * Świadomie NIE blokuje zapisu: to podpowiedź redakcyjna, a nie reguła
+ * poprawności. Twardy limit odrzucałby też profil zaimportowany ze starego
+ * dokumentu, którego nikt w tej chwili nie redaguje.
+ */
+function countSentences(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/[.!?]+(?:\s|$)/).filter((part) => part.trim()).length;
+}
+
+/**
+ * Pole listy technologii: piszesz tekstem, widzisz chipy.
+ *
+ * Podgląd nie jest ozdobą — to jedyny moment, w którym widać, że „Java, Spring
+ * Boot" zostanie zapisane jako DWIE pozycje, a nie jedna fraza. Bez niego pole
+ * strukturalne wyglądałoby dokładnie jak pole tekstowe i wracalibyśmy do prozy,
+ * od której ta przebudowa odchodzi.
+ */
+function StackField({
+  label,
+  value,
+  disabled,
+  onChange,
+  testId,
+}: {
+  label: string;
+  value: StackItem[];
+  disabled: boolean;
+  onChange: (items: StackItem[]) => void;
+  testId: string;
+}) {
+  const asText = (value || []).map((item) => item.name).join(", ");
+  return (
+    <div>
+      <Labeled label={label}>
+        <textarea
+          disabled={disabled}
+          value={asText}
+          onChange={(e) =>
+            onChange(splitList(e.target.value).map((name) => ({ name })))
+          }
+          placeholder="Java, Spring Boot, Kubernetes"
+          rows={3}
+          className={textareaClass}
+          data-testid={testId}
+        />
+      </Labeled>
+      <div className="flex flex-wrap gap-1 mt-1.5" data-testid={`${testId}-chips`}>
+        {(value || []).length === 0 ? (
+          <span className="text-[10px] text-muted-foreground">
+            Brak pozycji — dopóki jest pusto, wymagania zgadywane są z opisu.
+          </span>
+        ) : (
+          (value || []).map((item, i) => (
+            <span
+              key={`${item.name}-${i}`}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-200 font-mono"
+            >
+              {item.name}
+            </span>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 

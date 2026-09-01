@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileText, TrendingUp, Users } from "lucide-react";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type { ClientDashboardResponse, ExpiringAlert } from "@/lib/api/dlPortal";
-import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 
 interface AnalyticsTabProps {
   clientId: number;
@@ -16,7 +16,11 @@ interface AnalyticsTabProps {
 
 export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
   const { user, hydrated } = useAuthStore();
-  const canSeeFinance = hasAnalyticsCapability(user, "view_finance");
+  // Lustro backendowego `can_read_client_finance`: `view_finance` ALBO
+  // Delivery Lead u klienta ze swojego portfela. Sam test capability
+  // chował te kafle przed DL, dla którego ten ekran powstał — i chował je
+  // nawet wtedy, gdy backend przysyłał już komplet liczb.
+  const canSeeFinance = canViewClientFinance(user, clientId);
   const scopeCacheKey = user?.data_scope
     ? JSON.stringify({
         kind: user.data_scope.kind,

@@ -14,6 +14,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from app.services import champion_view
 from app.services.cv_generator_b2b.text_extractor import extract_text_from_file
 from app.services.skill_normalize import iter_skill_names
 
@@ -128,11 +129,17 @@ def from_nexus_job(
     must = iter_skill_names(must_skills)
     nice = iter_skill_names(nice_skills)
 
+    # Przez `champion_view`, więc ta sama ścieżka obsługuje profil sprzed i po
+    # przebudowie szablonu (09.2026). Bez tego generator CV dla oferty zapisanej
+    # w nowym kształcie widziałby pusty `project_context` i po cichu produkował
+    # CV bez kontekstu projektu — dokument wygląda poprawnie, brakuje w nim
+    # tylko tego, po co był generowany.
     cp = champion_profile or {}
-    proj = cp.get("project_context") or {}
+    proj = champion_view.project(cp)
+    cli = champion_view.client(cp)
 
     about = str(proj.get("about") or "").strip()
-    selling = str(proj.get("selling_points") or "").strip()
+    selling = str(cli.get("selling_points") or "").strip()
     project_context_parts = [p for p in (about, selling) if p]
     project_context = "\n\n".join(project_context_parts)
 
@@ -140,7 +147,7 @@ def from_nexus_job(
     if not responsibilities and requirements:
         responsibilities = requirements.strip()
 
-    questions = cp.get("screening_questions") or []
+    questions = champion_view.screening_questions(cp)
     if isinstance(questions, list) and questions:
         lines: list[str] = []
         for q in questions:
@@ -161,8 +168,8 @@ def from_nexus_job(
     else:
         screening_str = ""
 
-    historical = str(cp.get("historical_client_questions") or "").strip()
-    insight = str(cp.get("internal_consultant_insight") or "").strip()
+    historical = str(cli.get("historical_questions") or "").strip()
+    insight = str(cli.get("consultant_insight") or "").strip()
 
     return ChampionProfileForPrompt(
         must_have=must,
@@ -262,8 +269,22 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     (rf"{_NUM}Obowiazk\w*\s+na\s+stanowisku\b[^\n:]*:?", "responsibilities"),
     # `Lead\w*`, not `Lead\b` — Polish inflects it ("Pytania od Delivery Leada").
     (rf"{_NUM}Pytani[ae]\s+od\s+Delivery\s+Lead\w*[^\n:]*:?", "screening_questions"),
+    # Szablon 09.2026 nazywa tę samą sekcję „5. Pytania screeningowe". Stary
+    # nagłówek ZOSTAJE obok: wystąpił w 783 z 1095 sparsowanych dokumentów, a
+    # w firmie krąży kilkaset kopii starego wzoru, które będą wgrywane jeszcze
+    # długo. Zdjęcie go zamieniłoby każdy z nich w CV bez sekcji screeningu —
+    # po cichu, bo brak sekcji jest u nas poprawnym wynikiem, nie błędem.
+    (rf"{_NUM}Pytania\s+screeningowe\b[^\n:]*:?", "screening_questions"),
     (rf"{_NUM}Historyczne\s+pytania\b[^\n:]*:?", "historical_questions"),
-    (rf"{_NUM}INSIGHT\s+OD\s+KONSULTANTA\b[^\n:]*:?", "consultant_insight"),
+    # `(?:NASZEGO\s+)?` — szablon 09.2026 pisze „Insight od NASZEGO konsultanta
+    # u klienta", stary „INSIGHT OD KONSULTANTA". Bez tego wariantu pole z nowego
+    # wzoru nie trafiałoby do promptu CV, a wykryć to można było wyłącznie
+    # puszczając wygenerowany plik przez ten parser — replika wyrażenia w teście
+    # sprawdzała same NAGŁÓWKI SEKCJI i tę lukę przepuszczała.
+    (
+        rf"{_NUM}INSIGHT\s+OD\s+(?:NASZEGO\s+)?KONSULTANTA\b[^\n:]*:?",
+        "consultant_insight",
+    ),
     # ── boundary-only: original external template ────────────────────────
     (rf"{_NUM}PODSTAWY\b[^\n]*", None),
     (rf"{_NUM}PROFIL\s+KANDYDATA\b[^\n]*", None),
@@ -289,6 +310,18 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     (rf"{_NUM}(?:Lokalizacja|Adresy)\s+biur\b[^\n]*", None),  # 350 + 104
     (rf"{_NUM}UWAGI[^\n:]*:", None),  # "Uwagi / plan działania:" 389+217+111
     (rf"{_NUM}OFFLIMIT\b[^\n]*", None),  # 372 + 108
+    # ── boundary-only: nagłówki szablonu 09.2026 ─────────────────────────
+    #
+    # Same w sobie nie niosą treści dla CV, ale MUSZĄ być granicami: bez nich
+    # sekcja poprzedzająca połyka je razem z całą swoją zawartością i do
+    # promptu trafia „O projekcie" zawierające pół dokumentu. „Stack
+    # technologiczny" jest tu, a nie wśród treściowych, bo skille siedzą w jego
+    # PODsekcjach MUST-HAVE / NICE-TO-HAVE, które mają własne wzorce wyżej.
+    (rf"{_NUM}Podstawowe\s+informacje\b[^\n]*", None),
+    (rf"{_NUM}Co\s+wpisac\b[^\n]*", None),
+    (rf"{_NUM}Stack\s+technologiczny\b[^\n]*", None),
+    (rf"{_NUM}O\s+kliencie\b[^\n]*", None),
+    (rf"{_NUM}Dokumenty\b[^\n]*", None),
 )
 #
 # DELIBERATELY NOT headings: "Pytanie 1:", "Idealna odpowiedź:", "Deal breaker:".
