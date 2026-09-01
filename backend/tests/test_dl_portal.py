@@ -36,16 +36,20 @@ pytestmark = pytest.mark.asyncio
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _new_user(role: UserRole) -> tuple[int, str, str]:
+async def _new_user(
+    role: UserRole, extra_roles: list[UserRole] | None = None
+) -> tuple[int, str, str]:
     suffix = uuid.uuid4().hex[:8]
     email = f"dlportal-{role.value}-{suffix}@example.com"
     password = f"T3st_{suffix}!Pass"
+    roles = [role.value] + [r.value for r in extra_roles or []]
     async with AsyncSessionLocal() as db:
         u = User(
             email=email,
             password_hash=hash_password(password),
             name=f"DL portal {role.value} {suffix}",
             role=role,
+            roles=roles,
             is_active=True,
             profile_completed=True,
         )
@@ -583,7 +587,13 @@ async def test_my_clients_admin_sees_all(
         await _cleanup([client_id], [], [candidate_id])
 
 
-async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
+async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient):
+    """Delivery Lead widzi kwoty WŁASNYCH klientów — mimo braku VIEW_FINANCE.
+
+    To jego portfel: przychód i marża są tym, za co odpowiada. Capability nie
+    jest nadana globalnie; wpuszcza go wąska reguła `can_read_client_finance`
+    (`api/financial_access.py`), ograniczona do granicy jego portfela.
+    """
     own = await _new_client()
     other = await _new_client()
     candidate_id = await _new_candidate()
@@ -596,7 +606,7 @@ async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
                 ClientOrder(
                     client_id=own,
                     contract_id=contract_id,
-                    title="DL redaction",
+                    title="DL widzi swoje kwoty",
                     status=ClientOrderStatus.active,
                     start_date=date.today(),
                     total_value=Decimal("25000.00"),
@@ -611,8 +621,83 @@ async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
         rows = resp.json()
         ids = [r["client_id"] for r in rows]
         assert own in ids
+        # Granica portfela zostaje granicą — obcy klient nie wchodzi na listę
+        # ani z kwotami, ani bez nich.
         assert other not in ids
         row = next(r for r in rows if r["client_id"] == own)
+        assert row["active_orders_count"] == 1
+        assert Decimal(str(row["total_revenue_all_time"])) == Decimal("25000.00")
+        assert Decimal(str(row["active_revenue"])) == Decimal("25000.00")
+
+        dashboard = await app_client.get(
+            f"/api/my-clients/{own}/dashboard",
+            headers=headers,
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        body = dashboard.json()
+        assert body["active_consultants"] == 1
+        assert body["active_orders_count"] == 1
+        assert Decimal(str(body["total_revenue_all_time"])) == Decimal("25000.00")
+        assert Decimal(str(body["active_revenue"])) == Decimal("25000.00")
+        assert body["currency_breakdown"]
+        # Marża = 15000 (klient) − 12000 (kandydat) z `_new_contract`.
+        assert Decimal(str(body["monthly_margin_total"])) == Decimal("3000")
+    finally:
+        await _cleanup([own, other], [dl_id], [candidate_id])
+
+
+async def test_my_clients_dashboard_denies_dl_outside_the_portfolio(
+    app_client: AsyncClient,
+):
+    """Kwoty DL kończą się na granicy jego portfela — i robi to trasa, nie redakcja."""
+    own = await _new_client()
+    other = await _new_client()
+    dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
+    await _assign_dl(dl_id, own)
+    try:
+        headers = await _login(app_client, dl_email, dl_pwd)
+        resp = await app_client.get(
+            f"/api/my-clients/{other}/dashboard", headers=headers
+        )
+        assert resp.status_code == 403, resp.text
+    finally:
+        await _cleanup([own, other], [dl_id], [])
+
+
+async def test_my_clients_hor_stays_without_money(app_client: AsyncClient):
+    """Head of Recruitment — także z rolą DL — NIE dostaje kwot.
+
+    HoR czyta ten moduł organizacyjnie: lista obejmuje WSZYSTKICH klientów,
+    a dashboard przepuszcza go bez przypisania. Test roli zamiast granicy
+    portfela rozdałby mu przychody całej firmy, a repo konsekwentnie trzyma HoR
+    poza powierzchniami finansowymi.
+    """
+    own = await _new_client()
+    candidate_id = await _new_candidate()
+    contract_id = await _new_contract(own, candidate_id)
+    hor_id, hor_email, hor_pwd = await _new_user(
+        UserRole.head_of_recruitment, [UserRole.delivery_lead]
+    )
+    await _assign_dl(hor_id, own)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientOrder(
+                    client_id=own,
+                    contract_id=contract_id,
+                    title="HoR redaction",
+                    status=ClientOrderStatus.active,
+                    start_date=date.today(),
+                    total_value=Decimal("25000.00"),
+                    currency="PLN",
+                )
+            )
+            await db.commit()
+
+        headers = await _login(app_client, hor_email, hor_pwd)
+        resp = await app_client.get("/api/my-clients", headers=headers)
+        assert resp.status_code == 200
+        row = next(r for r in resp.json() if r["client_id"] == own)
         assert row["active_orders_count"] == 1
         assert "total_revenue_all_time" not in row
         assert "active_revenue" not in row
@@ -623,7 +708,6 @@ async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
         )
         assert dashboard.status_code == 200, dashboard.text
         body = dashboard.json()
-        assert body["active_consultants"] == 1
         assert body["active_orders_count"] == 1
         for financial_key in (
             "total_revenue_all_time",
@@ -633,9 +717,9 @@ async def test_my_clients_dl_only_assigned(app_client: AsyncClient):
             "monthly_margin_total",
             "monthly_margin_pct",
         ):
-            assert financial_key not in body
+            assert financial_key not in body, financial_key
     finally:
-        await _cleanup([own, other], [dl_id], [candidate_id])
+        await _cleanup([own], [hor_id], [candidate_id])
 
 
 # ── Admin overview ──────────────────────────────────────────────────────────
