@@ -17,9 +17,11 @@ import {
   filterAndSortContractors,
   filterAndSortOrderGroups,
   flattenOrderGroupIds,
+  isCurrentOrder,
   orderGroupMatchesPill,
   sortOrderLinesByConsultant,
   usesSharedMdPool,
+  visibleLegacyOrderIds,
 } from "@/lib/client-order-list";
 
 function line(
@@ -463,6 +465,108 @@ describe("client order list filters", () => {
     const future = group(2, "FUTURE");
     const current = group(1, "CURRENT", { future_orders: [future] });
     expect(flattenOrderGroupIds([current])).toEqual([1, 2]);
+  });
+
+  it("eksportuje jedno, aktualne zamówienie na konsultanta", () => {
+    // Wcześniej szła tu cała historia kontraktora, więc ta sama osoba
+    // pojawiała się w arkuszu tyle razy, ile zamówień przewinęło się przez
+    // jej kontrakt — razem z zakończonymi i jeszcze nierozpoczętymi.
+    const today = "2026-09-01";
+    const rows = [
+      contractor(1, "Jarosław Suchanek", {
+        orders: [
+          clientOrder(10, "periodic", {
+            title: "PRZESZLE",
+            status: "completed",
+            start_date: "2025-01-01",
+            end_date: "2025-12-31",
+          }),
+          clientOrder(11, "periodic", {
+            title: "BIEZACE",
+            status: "active",
+            start_date: "2026-04-01",
+            end_date: "2026-09-30",
+          }),
+          clientOrder(12, "periodic", {
+            title: "PRZYSZLE",
+            status: "active",
+            start_date: "2026-11-01",
+            end_date: "2027-04-30",
+          }),
+        ],
+      }),
+    ];
+
+    expect(visibleLegacyOrderIds(rows, "", today)).toEqual([11]);
+  });
+
+  it("uznaje kończące się i bezterminowe zamówienie za aktualne", () => {
+    const today = "2026-09-01";
+    expect(
+      isCurrentOrder(
+        { status: "active", start_date: "2026-01-01", end_date: "2026-09-02" },
+        today,
+      ),
+    ).toBe(true);
+    expect(
+      isCurrentOrder(
+        { status: "active", start_date: "2026-01-01", end_date: null },
+        today,
+      ),
+    ).toBe(true);
+    expect(
+      isCurrentOrder(
+        { status: "completed", start_date: "2026-01-01", end_date: null },
+        today,
+      ),
+    ).toBe(false);
+    expect(
+      isCurrentOrder(
+        { status: "active", start_date: "2026-10-01", end_date: null },
+        today,
+      ),
+    ).toBe(false);
+  });
+
+  it("chowa kartę kontraktora, po której został wyłącznie martwy duplikat", () => {
+    // Zamówienie zakończone/anulowane nie jest osobnym zaangażowaniem — po
+    // sprzątnięciu duplikatu (migracja 0261) osoba ma być na liście RAZ,
+    // jako linia zamówienia MD.
+    const md = group(1, "MD", {
+      lines: [line(11, "Jarosław Suchanek", { contract_id: 11 })],
+    });
+
+    const result = filterMaterializedContractorShells(
+      [
+        contractor(11, "Jarosław Suchanek", {
+          orders: [
+            clientOrder(900, "periodic", {
+              title: "ZAM_1453_2026",
+              status: "cancelled",
+              end_date: "2026-09-30",
+            }),
+          ],
+        }),
+        contractor(12, "Osoba z żywym okresowym", {
+          orders: [
+            clientOrder(901, "periodic", {
+              title: "ZAM-OKRESOWE",
+              status: "active",
+              end_date: null,
+            }),
+          ],
+        }),
+      ],
+      [
+        md,
+        group(2, "MD-2", {
+          lines: [line(12, "Osoba z żywym okresowym", { contract_id: 12 })],
+        }),
+      ],
+      "2026-09-01",
+    );
+
+    expect(result.map((item) => item.contract_id)).toEqual([12]);
   });
 
   it("usuwa tylko puste shelle kontraktów obecnych w grupach, także przyszłych", () => {

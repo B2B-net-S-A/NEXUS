@@ -82,9 +82,23 @@ function positivePage(raw: string | null): number {
 }
 
 /**
+ * Domyślny widok modułu — kontrakty, które DZIŚ obowiązują.
+ *
+ * „Kończący się" to `active` z bliskim końcem, a nie osobny etap życia umowy:
+ * konsultant z takim kontraktem nadal pracuje. Domyślne `["active"]` chowało go
+ * przed wejściem do modułu, więc rejestr milczał dokładnie o tych umowach,
+ * którymi trzeba się zająć najpilniej.
+ */
+export const DEFAULT_CONTRACT_STATUS_FILTER: ContractStatusValue[] = [
+  "active",
+  "ending",
+];
+
+/**
  * Queryless `/contracts` is deliberately a fresh session and therefore starts
- * at Active. `status=all` is an explicit sentinel: without it an intentionally
- * cleared status filter would be indistinguishable from a new module entry.
+ * at the running set (Active + Ending). `status=all` is an explicit sentinel:
+ * without it an intentionally cleared status filter would be indistinguishable
+ * from a new module entry.
  */
 export function parseContractsListState(
   search: string,
@@ -110,7 +124,7 @@ export function parseContractsListState(
           ? validStatuses
           : endingSoon
             ? []
-            : ["active"],
+            : [...DEFAULT_CONTRACT_STATUS_FILTER],
       typeFilter: uniqueValues(
         params
           .getAll("contract_type")

@@ -183,6 +183,47 @@ class TestNordeaCallOffNumber:
         assert m.nordea_frame_agreement_number("Frame Agreement number: FA-1") == "FA-1"
 
 
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            # Wartość w tym samym wierszu, w następnym, z dodatkowymi spacjami.
+            ("Call Off Agreement number: 123456", "123456"),
+            ("Call-Off Agreement no.\n654321", "654321"),
+            ("Call off agreement number :\t 100200 \nInne pole", "100200"),
+            # Za etykietą stoi SŁOWO (drugi nagłówek kolumny, „nr"), a numer
+            # dopiero dalej. To jest zgłoszony objaw: „pobiera losowe słowa".
+            ("Call Off Agreement number  nr   345678", "345678"),
+            ("Call Off Agreement number\nNumer\n778899", "778899"),
+            # Data przechodzi test „zawiera cyfrę", a numerem nie jest.
+            ("Call Off Agreement number\nData 2026-04-01\n456789", "456789"),
+        ],
+    )
+    def test_value_must_contain_a_digit_and_may_sit_below_the_label(
+        self, text, expected
+    ):
+        """Numer to wartość pola, nie „pierwszy token za etykietą".
+
+        Poprzednia reguła brała dowolny token pasujący do klasy znaków
+        dopuszczalnych w numerze — a ta klasa z ``IGNORECASE`` pasuje też na
+        litery, więc do pola „numer zamówienia" trafiało zwykłe słowo
+        z dokumentu.
+        """
+
+        assert m.nordea_call_off_agreement_number(text) == expected
+
+    def test_two_column_header_layout_fails_closed(self):
+        """Nagłówki obok siebie, wartości pod nimi — nie da się przypisać.
+
+        W takim układzie pierwsza liczba za etykietą Call-Off należy do
+        SĄSIEDNIEJ kolumny. Reguła zostawia pole puste (operator dostaje
+        „sprawdź numer") zamiast wpisać numer umowy ramowej jako numer
+        zamówienia — czyli jako fakt, którego nikt nie potwierdził.
+        """
+
+        text = "Call Off Agreement number   Frame Agreement number\n111111   222222"
+        assert m.nordea_call_off_agreement_number(text) is None
+
+
 class TestBankPocztowyOrderNumber:
     def test_numer_pisma_wins_over_zamowienie_nr(self):
         text = """

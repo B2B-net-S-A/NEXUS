@@ -514,6 +514,22 @@ export const dlPortalApi = {
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
 
+  /** Zakończ JEDNO zamówienie okresowe — bez dotykania umowy.
+   *
+   *  Świadomie NIE `updateOrder({ status: "completed" })`: PATCH jest edycją
+   *  dowolnego pola i nie odróżnia „zakończ" od poprawki daty, więc nie ma jak
+   *  go zaudytować ani zabronić na linii grupy. Serwer domyka wyłącznie ten
+   *  wiersz — zamówienie MD tej samej osoby zostaje nietknięte. */
+  closeOrder: (
+    clientId: number,
+    orderId: number,
+    payload: { closure_date: string; closure_reason?: string | null },
+  ) =>
+    api.post<ClientOrderRead>(
+      `/api/clients/${clientId}/orders/${orderId}/close`,
+      payload,
+    ),
+
   // My clients
   listMyClients: () => api.get<MyClientRow[]>("/api/my-clients"),
 

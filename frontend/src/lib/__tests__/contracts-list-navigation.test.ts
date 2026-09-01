@@ -20,17 +20,29 @@ describe("contracts list navigation state", () => {
     window.history.replaceState({}, "", "/contracts");
   });
 
-  it("treats queryless /contracts as a fresh Active session", () => {
+  it("treats queryless /contracts as a fresh running-contracts session", () => {
+    // „Kończący się" to aktywny kontrakt z bliskim końcem — domyślny widok
+    // modułu musi go pokazywać razem z „Aktywnym", inaczej rejestr milczy
+    // dokładnie o tych umowach, które wymagają reakcji najpilniej.
     expect(parseContractsListState("")).toEqual({
       explicit: false,
       state: {
         search: "",
-        statusFilter: ["active"],
+        statusFilter: ["active", "ending"],
         typeFilter: [],
         endingSoon: false,
         page: 1,
       },
     });
+  });
+
+  it("keeps a single explicitly chosen status", () => {
+    expect(
+      parseContractsListState("status=ending").state.statusFilter,
+    ).toEqual(["ending"]);
+    expect(parseContractsListState("status=active").state.statusFilter).toEqual([
+      "active",
+    ]);
   });
 
   it("round-trips filters, page and an intentionally cleared status", () => {

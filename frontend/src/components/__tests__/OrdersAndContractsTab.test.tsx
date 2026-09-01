@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,6 +40,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
     listContractorsWithOrders: vi.fn(),
     updateOrder: vi.fn(),
     deleteOrder: vi.fn(),
+    closeOrder: vi.fn(),
     createOrderExtension: vi.fn(),
     extractOrderPdf: vi.fn(),
   },
@@ -446,7 +447,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(
       screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Zakończ$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Zakończ współpracę$/ })).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
@@ -482,7 +483,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(
       screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Zakończ$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Zakończ współpracę$/ })).toBeInTheDocument();
 
     await user.click(
       screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
@@ -1238,7 +1239,7 @@ describe("OrdersAndContractsTab — e-Zdrowie bez zamówienia", () => {
 
 // ── Przycisk „Zakończ" ───────────────────────────────────────────────────────
 
-describe("OrdersAndContractsTab — przycisk „Zakończ”", () => {
+describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Zakończ współpracę”", () => {
   /** Kontraktor o zadanym statusie kontraktu, z jednym aktywnym zamówieniem. */
   function withContractStatus(contract_status: string) {
     return {
@@ -1270,7 +1271,7 @@ describe("OrdersAndContractsTab — przycisk „Zakończ”", () => {
     } as never);
   }
 
-  it("kontrakt SZKICOWY z aktywnym zamówieniem MA „Zakończ”", async () => {
+  it("kontrakt SZKICOWY z aktywnym zamówieniem MA „Zakończ współpracę”", async () => {
     // Realny przypadek Banku Pocztowego: kontraktor pracuje, a kontrakt jest
     // szkicem, bo dialog „Nowy kontraktor" nie zbiera typu umowy ani trybu
     // pracy. Bramka na `active` chowała jedyną drogę rozstania z pracującym
@@ -1282,33 +1283,63 @@ describe("OrdersAndContractsTab — przycisk „Zakończ”", () => {
     renderTab();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
     expect(
-      screen.getByRole("button", { name: /^Zakończ$/ }),
+      screen.getByRole("button", { name: /^Zakończ współpracę$/ }),
     ).toBeInTheDocument();
   });
 
   it.each(["active", "ending", "ready_for_signature"])(
-    "kontrakt w stanie %s MA „Zakończ”",
+    "kontrakt w stanie %s MA „Zakończ współpracę”",
     async (status) => {
       mockContractor(status);
       renderTab();
       await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
       expect(
-        screen.getByRole("button", { name: /^Zakończ$/ }),
+        screen.getByRole("button", { name: /^Zakończ współpracę$/ }),
       ).toBeInTheDocument();
     },
   );
 
   it.each(["ended", "void"])(
-    "kontrakt w stanie terminalnym %s NIE MA „Zakończ”",
+    "kontrakt w stanie terminalnym %s NIE MA „Zakończ współpracę”",
     async (status) => {
       mockContractor(status);
       renderTab();
       await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
       expect(
-        screen.queryByRole("button", { name: /^Zakończ$/ }),
+        screen.queryByRole("button", { name: /^Zakończ współpracę$/ }),
       ).not.toBeInTheDocument();
     },
   );
+
+  it("„Zakończ zamówienie” woła wąski endpoint zamówienia, nie terminację umowy", async () => {
+    // Sedno ticketu: wypowiedzenie umowy domyka WSZYSTKIE zamówienia
+    // kontraktu, w tym linię rozliczaną w MD. Zakończenie zamówienia
+    // okresowego musi trafiać w jeden wiersz.
+    vi.mocked(dlPortalApi.closeOrder).mockResolvedValue({
+      data: { id: 61 },
+    } as never);
+    mockContractor("active");
+    renderTab();
+    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Zakończ zamówienie$/ }));
+    const dateInput = await screen.findByLabelText(
+      /Data zakończenia zamówienia/,
+    );
+    fireEvent.change(dateInput, { target: { value: "2026-09-30" } });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /^Zakończ zamówienie$/ }).at(-1)!,
+    );
+
+    await waitFor(() =>
+      expect(dlPortalApi.closeOrder).toHaveBeenCalledWith(
+        7,
+        61,
+        expect.objectContaining({ closure_date: "2026-09-30" }),
+      ),
+    );
+    expect(contractsApi.update).not.toHaveBeenCalled();
+  });
 });
 
 describe("canTerminateContractor", () => {
