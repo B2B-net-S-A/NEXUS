@@ -68,9 +68,7 @@ class TestSharesIdentityToken:
 
     def test_legal_form_alone_never_makes_a_family(self):
         """Bez odsiania form prawnych połowa bazy byłaby jedną rodziną."""
-        assert not shares_identity_token(
-            "Alfa Spółka Akcyjna", "Beta Spółka Akcyjna"
-        )
+        assert not shares_identity_token("Alfa Spółka Akcyjna", "Beta Spółka Akcyjna")
 
 
 # ── Integracja: raport na zaseedowanej parze ────────────────────────────────
@@ -80,7 +78,9 @@ async def _seed_confusable_pair() -> tuple[int, int, int]:
     """Dwa rekordy klienta o mylnie podobnych nazwach + kontrakt na złym z nich."""
     suffix = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
-        right = Client(name=f"CARDIF ASSURANCES {suffix} ODDZIAŁ W POLSCE", nip="5262561140")
+        right = Client(
+            name=f"CARDIF ASSURANCES {suffix} ODDZIAŁ W POLSCE", nip="5262561140"
+        )
         wrong = Client(name=f"BNP Paribas Cardif {suffix}", nip="6760111111")
         candidate = Candidate(name=f"Maciej{suffix}", lastname=f"Rogala{suffix}")
         db.add_all([right, wrong, candidate])

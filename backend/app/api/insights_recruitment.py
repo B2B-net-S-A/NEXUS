@@ -23,13 +23,14 @@ Trzy decyzje, które trzymają ten moduł uczciwym:
 """
 
 import logging
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analytics.periods import PeriodError, resolve_period
+from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
 from app.api.deps import CurrentUser
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
@@ -37,6 +38,7 @@ from app.services.insights_invite_links import (
     compute_invite_link_channels,
     count_invite_link_candidates,
 )
+from app.services.insights_seniority import compute_seniority, load_thresholds
 from app.services.insights_team_activity import compute_team_activity
 
 logger = logging.getLogger(__name__)
@@ -724,6 +726,91 @@ async def insights_invite_links(
                 "wnosi wszystkie swoje aplikacje — także sprzed granicy okna. "
                 "Oknem przycięta uczciwie jest wyłącznie liczba unikalnych "
                 "kandydatów."
+            ),
+        },
+    }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
+
+
+@router.get("/seniority")
+async def insights_seniority(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    as_of: date | None = Query(
+        None,
+        description=(
+            "Dzień, na który liczymy poziom (domyślnie dziś w Europe/Warsaw). "
+            "Placementy późniejsze są odcinane."
+        ),
+    ),
+):
+    """Ścieżka rozwoju: junior → senior → expert z liczby placementów.
+
+    Dostępne dla KAŻDEJ zalogowanej roli (decyzja D7,
+    docs/insights-dynareporter-migration-plan.md §0). Odpowiedź niesie DANE
+    IMIENNE — to jest świadome, tak samo jak w `/team-activity` obok.
+
+    Poziom jest LICZONY PRZY ODCZYCIE, nigdy przechowywany. Pełne uzasadnienie
+    (łącznie z tym, dlaczego nie ma degradacji i dlaczego konta-widma z importu
+    Traffita są odcinane przez `is_active`) siedzi w docstringu
+    `app/services/insights_seniority.py` — nie powielam go tutaj, żeby dwie
+    kopie tego samego wyjaśnienia nie rozjechały się przy pierwszej zmianie.
+
+    Konsekwencja do zapamiętania: poziom zmienia się wtedy, gdy zmienia się
+    HISTORIA ATRYBUCJI (np. import dopisze zaległe `hired` innej osobie), a nie
+    wtedy, gdy ktoś coś dziś zrobił.
+    """
+    # Domyślny dzień w kalendarzu analitycznym, nie w UTC. O 00:30 czasu
+    # polskiego `date.today()` w UTC pokazuje jeszcze wczoraj — a wtedy
+    # placement sprzed pół godziny wypadałby z okna.
+    effective_as_of = as_of or datetime.now(ZoneInfo(ANALYTICS_TIMEZONE)).date()
+
+    # Progi czytamy PRZED cache'em, bo wchodzą w klucz: inaczej zmiana progu
+    # przez admina byłaby niewidoczna przez cały TTL, a poziom jest z progu
+    # wyliczany (patrz `SeniorityThresholds.cache_suffix`).
+    thresholds = await load_thresholds(db)
+
+    cache_key = (
+        "insights:recruitment:seniority:v1"
+        f":{effective_as_of.isoformat()}:{thresholds.cache_suffix}"
+    )
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    computed = await compute_seniority(db, as_of=effective_as_of, thresholds=thresholds)
+
+    result = {
+        "as_of": computed.as_of.isoformat(),
+        # Progi wychodzą na zewnątrz, żeby UI napisał regułę słowami
+        # („6 placementów w 6 miesięcy"). Sam pasek postępu nie mówi, ile
+        # trzeba — a osoba, której to dotyczy, ma prawo znać regułę.
+        "thresholds": computed.thresholds.as_payload(),
+        "window": {
+            "senior": computed.senior_window.as_payload(),
+            "expert": computed.expert_window.as_payload(),
+        },
+        "entries": [row.as_payload() for row in computed.rows],
+        "totals": {
+            "users": len(computed.rows),
+            "levels": {
+                level: sum(1 for r in computed.rows if r.level == level)
+                for level in ("junior", "senior", "expert")
+            },
+        },
+        "coverage": {
+            # Placementy spoza tabeli. Bez tych dwóch liczb suma kolumny nie
+            # zgadza się z lejkiem i tabela czyta się jak zepsuta zamiast jak
+            # niekompletna (decyzja D1).
+            "unattributed_placements": computed.unattributed_placements,
+            "outside_pool_placements": computed.outside_pool_placements,
+            "note": (
+                "Poziom liczymy wyłącznie z placementów przypisanych do "
+                "aktywnych kont w rolach sourcer / TAC / rekruter. Placementy "
+                "bez przypisanego operatora oraz przypisane do kont spoza tej "
+                "puli (w tym kont założonych przez import Traffita dla "
+                "operatorów bez odpowiednika w NEXUSIE) są liczone osobno."
             ),
         },
     }

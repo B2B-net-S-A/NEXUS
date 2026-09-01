@@ -38,9 +38,7 @@ async def test_agents_auth_error_returns_503_not_502(
     "we're not configured" instead of "their gateway is broken".
     """
     monkeypatch.setattr("app.core.config.settings.CLOUDTALK_ENABLED", True)
-    monkeypatch.setattr(
-        "app.core.config.settings.CLOUDTALK_API_KEY_ID", "fake-id"
-    )
+    monkeypatch.setattr("app.core.config.settings.CLOUDTALK_API_KEY_ID", "fake-id")
     monkeypatch.setattr(
         "app.core.config.settings.CLOUDTALK_API_KEY_SECRET", "fake-secret"
     )
@@ -54,9 +52,7 @@ async def test_agents_auth_error_returns_503_not_502(
             side_effect=CloudTalkAuthError(401, "bad creds")
         )
         enter_mock.return_value = client_mock
-        resp = await app_client.get(
-            "/api/cloudtalk/agents", headers=app_auth_headers
-        )
+        resp = await app_client.get("/api/cloudtalk/agents", headers=app_auth_headers)
 
     assert resp.status_code == 503
     assert "not configured" in resp.json()["detail"].lower()
@@ -68,9 +64,7 @@ async def test_agents_generic_error_still_502(
 ):
     """Non-auth CloudTalk failures stay as 502 (gateway error)."""
     monkeypatch.setattr("app.core.config.settings.CLOUDTALK_ENABLED", True)
-    monkeypatch.setattr(
-        "app.core.config.settings.CLOUDTALK_API_KEY_ID", "fake-id"
-    )
+    monkeypatch.setattr("app.core.config.settings.CLOUDTALK_API_KEY_ID", "fake-id")
     monkeypatch.setattr(
         "app.core.config.settings.CLOUDTALK_API_KEY_SECRET", "fake-secret"
     )
@@ -84,8 +78,6 @@ async def test_agents_generic_error_still_502(
             side_effect=CloudTalkError(500, "upstream boom")
         )
         enter_mock.return_value = client_mock
-        resp = await app_client.get(
-            "/api/cloudtalk/agents", headers=app_auth_headers
-        )
+        resp = await app_client.get("/api/cloudtalk/agents", headers=app_auth_headers)
 
     assert resp.status_code == 502

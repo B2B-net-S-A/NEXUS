@@ -177,7 +177,9 @@ class TestNordeaCallOffNumber:
         assert m.nordea_call_off_agreement_number(text) == "COA-4500030222"
         # Kontrola negatywna: sam Frame Agreement nie daje numeru w ogóle,
         # więc polityka czyści pole i prosi o ręczne uzupełnienie.
-        assert m.nordea_call_off_agreement_number("Frame Agreement number: FA-1") is None
+        assert (
+            m.nordea_call_off_agreement_number("Frame Agreement number: FA-1") is None
+        )
         assert m.nordea_frame_agreement_number("Frame Agreement number: FA-1") == "FA-1"
 
 
@@ -1677,9 +1679,9 @@ class TestBnpOrderPolicy:
 
     def test_price_comes_from_its_own_label(self):
         assert m.bnp_net_md_rate("Cena netto: 1 040,00 PLN") == Decimal("1040.00")
-        assert m.bnp_net_md_rate(
-            "Cena jednostkowa netto (PLN): 1 040,00"
-        ) == Decimal("1040.00")
+        assert m.bnp_net_md_rate("Cena jednostkowa netto (PLN): 1 040,00") == Decimal(
+            "1040.00"
+        )
 
     def test_price_ignores_neighbouring_labels(self):
         assert m.bnp_net_md_rate("Wartość netto: 109 200,00") is None

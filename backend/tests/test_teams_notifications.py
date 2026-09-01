@@ -342,10 +342,7 @@ async def channel_author_id() -> AsyncIterator[int]:
     token = _uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         user_id = await db.scalar(
-            text(
-                "INSERT INTO users (email, name) VALUES (:email, :name) "
-                "RETURNING id"
-            ),
+            text("INSERT INTO users (email, name) VALUES (:email, :name) RETURNING id"),
             {"email": f"teamsauthor-{token}@example.com", "name": "Teams Author"},
         )
         await db.commit()
@@ -365,9 +362,7 @@ async def channel_author_id() -> AsyncIterator[int]:
                 ),
                 {"id": user_id},
             )
-            await db.execute(
-                text("DELETE FROM users WHERE id = :id"), {"id": user_id}
-            )
+            await db.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
             await db.commit()
 
 
@@ -498,9 +493,7 @@ async def test_delete_channel(
         },
     )
     cid = r.json()["id"]
-    r = await app_client.delete(
-        f"/api/teams-channels/{cid}", headers=app_auth_headers
-    )
+    r = await app_client.delete(f"/api/teams-channels/{cid}", headers=app_auth_headers)
     assert r.status_code == 204
 
 

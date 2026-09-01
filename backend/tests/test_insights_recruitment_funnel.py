@@ -136,7 +136,7 @@ async def test_window_is_half_open_and_excludes_the_next_period(
     Legacy `_period_start` nie miał górnej granicy — to jest regresja na
     dokładnie ten defekt.
     """
-    await cache_invalidate("insights:recruitment:funnel:*")
+    await cache_invalidate("insights:recruitment:funnel:")
     _, email, password = await _seed_user(UserRole.admin, "halfopen")
     headers = await _login(fx_client, email, password)
 
@@ -249,7 +249,7 @@ async def test_coverage_counts_manual_moves_by_external_source(
     Kolumna ma ORM-owy default 'manual', a importer wpisuje 'traffit' —
     liczenie po NULL dałoby zero ruchu własnego przy każdym pomiarze.
     """
-    await cache_invalidate("insights:recruitment:funnel:*")
+    await cache_invalidate("insights:recruitment:funnel:")
     # Okno UNIKALNE dla tego przebiegu. Baza testowa jest wspoldzielona miedzy
     # uruchomieniami, wiec staly miesiac zbieralby wiersze z poprzednich runow
     # i asercja na dokladna liczbe przestalaby byc prawdziwa przy drugim
@@ -341,7 +341,7 @@ async def test_time_to_hire_measures_from_the_real_process_start(
     oknem dostawał sztucznie krótki czas, i tym krótszy, im dłużej naprawdę
     trwał.
     """
-    await cache_invalidate("insights:recruitment:tth:*")
+    await cache_invalidate("insights:recruitment:tth:")
 
     async with AsyncSessionLocal() as db:
         cli = Client(name=f"TthCli-{uuid.uuid4().hex[:6]}")
@@ -503,7 +503,7 @@ async def test_team_activity_window_is_half_open(fx_client: AsyncClient):
     miesiąc" znaczy tam „od poprzedniego miesiąca do dziś". To jest regresja
     na tę właśnie różnicę.
     """
-    await cache_invalidate("insights:recruitment:team-activity:*")
+    await cache_invalidate("insights:recruitment:team-activity:")
     # Rok bez innych danych i unikalny per przebieg — baza testowa jest
     # współdzielona, więc stałe okno zbierałoby wiersze z poprzednich runów.
     year = 1300 + int(uuid.uuid4().hex[:6], 16) % 200
@@ -538,7 +538,7 @@ async def test_team_activity_window_is_half_open(fx_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_team_activity_counters_match_the_legacy_shape(fx_client: AsyncClient):
     """Te same liczniki co legacy — serwis jest jeden, nie dwa podobne SQL-e."""
-    await cache_invalidate("insights:recruitment:team-activity:*")
+    await cache_invalidate("insights:recruitment:team-activity:")
     year = 1500 + int(uuid.uuid4().hex[:6], 16) % 200
     actor_id, email, password = await _seed_user(UserRole.recruiter, "ta-shape")
     headers = await _login(fx_client, email, password)
@@ -688,7 +688,7 @@ async def test_invite_links_window_is_half_open_and_flags_unlabelled(
     Sam string „Bez etykiety" nie wystarcza — to jest legalna nazwa kanału
     i po samym tekście nie da się odróżnić kubełka od kanału tak nazwanego.
     """
-    await cache_invalidate("insights:recruitment:invite-links:*")
+    await cache_invalidate("insights:recruitment:invite-links:")
     year = 1700 + int(uuid.uuid4().hex[:6], 16) % 90
     creator_id, email, password = await _seed_user(UserRole.recruiter, "il-window")
     headers = await _login(fx_client, email, password)

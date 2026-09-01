@@ -4,9 +4,7 @@ from httpx import AsyncClient
 
 
 async def _any_candidate(app_client: AsyncClient, headers: dict):
-    res = await app_client.get(
-        "/api/candidates?page_size=1", headers=headers
-    )
+    res = await app_client.get("/api/candidates?page_size=1", headers=headers)
     items = res.json().get("items", [])
     return items[0] if items else None
 
@@ -85,6 +83,7 @@ async def test_engagement_patch_sets_open_to_timestamp(
     # Drugi PATCH z tą samą wartością — timestamp ma się odświeżyć (rekruter
     # „potwierdza" świeżość deklaracji).
     import asyncio
+
     await asyncio.sleep(0.05)
     res2 = await app_client.patch(
         f"/api/candidates/{cid}/engagement",

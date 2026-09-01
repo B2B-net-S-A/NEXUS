@@ -41,7 +41,9 @@ def test_schema_drift_route_is_gated() -> None:
         for dep in getattr(route.dependant, "dependencies", []):
             if dep.call is _snapshot_auth:
                 gated = True
-    assert gated, "schema-drift must depend on _snapshot_auth (admin JWT or snapshot token)"
+    assert gated, (
+        "schema-drift must depend on _snapshot_auth (admin JWT or snapshot token)"
+    )
 
 
 async def test_schema_drift_requires_auth(app_client: AsyncClient) -> None:
@@ -97,7 +99,9 @@ async def test_schema_drift_reports_only_known_drift(
     assert body["missing_tables"] == [], (
         f"tables missing after `alembic upgrade heads`: {body['missing_tables']}"
     )
-    assert summary["missing_columns"] == 0, f"columns missing: {body['missing_columns'][:5]}"
+    assert summary["missing_columns"] == 0, (
+        f"columns missing: {body['missing_columns'][:5]}"
+    )
     assert summary["missing_enum_types"] == 0, body["missing_enum_types"]
 
     # Foreign keys must be perfect — a missing one is silent integrity loss.
@@ -109,9 +113,13 @@ async def test_schema_drift_reports_only_known_drift(
     # No UNIQUE index may be missing: that is an integrity gap, not a
     # performance one, and duplicates may already have been written.
     missing_unique = [i for i in body["missing_indexes"] if i["unique"]]
-    assert missing_unique == [], f"UNIQUE indexes missing — duplicates possible: {missing_unique}"
+    assert missing_unique == [], (
+        f"UNIQUE indexes missing — duplicates possible: {missing_unique}"
+    )
 
-    observed_indexes = {(i["table"], tuple(i["columns"])) for i in body["missing_indexes"]}
+    observed_indexes = {
+        (i["table"], tuple(i["columns"])) for i in body["missing_indexes"]
+    }
     assert observed_indexes == _KNOWN_MISSING_INDEXES, (
         "index drift changed.\n"
         f"  new:   {sorted(observed_indexes - _KNOWN_MISSING_INDEXES)}\n"

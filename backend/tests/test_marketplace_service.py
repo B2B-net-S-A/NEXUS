@@ -134,9 +134,7 @@ async def _cleanup_marketplace(db) -> None:
     from sqlalchemy import delete, select
 
     pool = (
-        await db.execute(
-            select(TalentPool).where(TalentPool.is_marketplace.is_(True))
-        )
+        await db.execute(select(TalentPool).where(TalentPool.is_marketplace.is_(True)))
     ).scalar_one_or_none()
     if pool is not None:
         await db.execute(
@@ -302,15 +300,11 @@ async def test_remove_candidate_from_marketplace(clean_db):
     await auto_sync_marketplace_membership(clean_db)
     await clean_db.commit()
 
-    removed = await remove_candidate_from_marketplace(
-        clean_db, candidate_id=cand.id
-    )
+    removed = await remove_candidate_from_marketplace(clean_db, candidate_id=cand.id)
     await clean_db.commit()
     assert removed is True
 
     # Drugi remove → False.
-    removed2 = await remove_candidate_from_marketplace(
-        clean_db, candidate_id=cand.id
-    )
+    removed2 = await remove_candidate_from_marketplace(clean_db, candidate_id=cand.id)
     await clean_db.commit()
     assert removed2 is False

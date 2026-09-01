@@ -210,7 +210,7 @@ async def test_different_hiring_manager_does_not_veto():
 
 
 async def test_situational_reason_does_not_veto():
-    """"Za drogi" says nothing about the person — it must never block."""
+    """ "Za drogi" says nothing about the person — it must never block."""
     world = await _seed_world()
     await _reject_after_interview(world, reason_key="situational_reason_id")
 

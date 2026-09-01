@@ -48,9 +48,7 @@ def _preauth(client: TraffitClient) -> None:
 def _ok_page(items):
     # Total-pages header is authoritative for the stop decision, so a full first
     # page keeps pagination going to page 2 (where the fault is planted).
-    return httpx.Response(
-        200, json=items, headers={"X-Result-Total-Pages": "2"}
-    )
+    return httpx.Response(200, json=items, headers={"X-Result-Total-Pages": "2"})
 
 
 class _PageHandler:
@@ -87,7 +85,9 @@ async def _drain(bad: httpx.Response) -> list:
 
 @pytest.mark.asyncio
 async def test_bad_json_page_raises_instead_of_truncating_silently() -> None:
-    bad = httpx.Response(200, content=b"{not json", headers={"content-type": "application/json"})
+    bad = httpx.Response(
+        200, content=b"{not json", headers={"content-type": "application/json"}
+    )
 
     with pytest.raises(RuntimeError, match="Bad JSON"):
         await _drain(bad)

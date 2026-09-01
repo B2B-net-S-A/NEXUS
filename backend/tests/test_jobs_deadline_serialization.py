@@ -86,9 +86,7 @@ async def test_patch_job_with_deadline_persists(
         assert patch.status_code == 200, patch.text
         assert patch.json()["deadline"] == "2023-04-12"
 
-        get = await app_client.get(
-            f"/api/jobs/{job_id}", headers=app_auth_headers
-        )
+        get = await app_client.get(f"/api/jobs/{job_id}", headers=app_auth_headers)
         assert get.status_code == 200
         assert get.json()["deadline"] == "2023-04-12"
     finally:

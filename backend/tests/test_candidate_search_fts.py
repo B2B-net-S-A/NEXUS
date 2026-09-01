@@ -58,9 +58,7 @@ async def _cleanup(candidate_ids: list[int]) -> None:
         await db.commit()
 
 
-async def _search_ids(
-    app_client: AsyncClient, headers: dict, params: dict
-) -> set[int]:
+async def _search_ids(app_client: AsyncClient, headers: dict, params: dict) -> set[int]:
     params = {"page_size": 100, **params}
     r = await app_client.get("/api/candidates", params=params, headers=headers)
     assert r.status_code == 200, r.text
@@ -92,9 +90,7 @@ async def test_prefix_spans_longer_word(
     java = await _seed_candidate(raw_cv="java backend engineer spring")
     try:
         by_java = await _search_ids(app_client, app_auth_headers, {"q_all": "java"})
-        by_js = await _search_ids(
-            app_client, app_auth_headers, {"q_all": "javascript"}
-        )
+        by_js = await _search_ids(app_client, app_auth_headers, {"q_all": "javascript"})
         assert {js, java} <= by_java, "java prefix matches java AND javascript"
         assert java not in by_js
         assert js in by_js
@@ -161,7 +157,8 @@ async def test_fts_word_still_matches_in_notes(
     """Even on the FTS path, the notes branch stays substring — a word present
     only in a candidate note is still found."""
     cid = await _seed_candidate(
-        raw_cv="generic unrelated cv body", note="great fit for kubernetes platform work"
+        raw_cv="generic unrelated cv body",
+        note="great fit for kubernetes platform work",
     )
     try:
         ids = await _search_ids(app_client, app_auth_headers, {"q_all": "kubernetes"})
@@ -178,9 +175,7 @@ async def test_multiword_phrase_uses_substring_fallback(
     so an exact multi-word phrase still matches contiguously."""
     cid = await _seed_candidate(raw_cv="lead senior java architect")
     try:
-        ids = await _search_ids(
-            app_client, app_auth_headers, {"q_all": "senior java"}
-        )
+        ids = await _search_ids(app_client, app_auth_headers, {"q_all": "senior java"})
         assert cid in ids
     finally:
         await _cleanup([cid])

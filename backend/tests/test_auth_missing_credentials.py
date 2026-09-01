@@ -14,6 +14,7 @@ interceptor w ``frontend/src/lib/api.ts`` reaguje wyłącznie na 401.
 Te testy nie wymagają żywego serwera ani bazy — sprawdzają samą bramkę
 autoryzacji, więc łapią regresję nawet gdy ktoś przywróci ``auto_error=True``.
 """
+
 import pytest
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient

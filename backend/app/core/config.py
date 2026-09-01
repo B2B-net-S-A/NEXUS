@@ -941,6 +941,26 @@ class Settings(BaseSettings):
     #
     # Kill-switch: when False the loop exits immediately and POST
     # /api/admin/traffit/sync returns 503. Default OFF until activated.
+
+    # ── COMPASS: dni robocze (decyzja D5) ────────────────────────────────
+    # Mianownik wskaznikow „na dzien". Do 2026-08-31 Power Calling dzielil
+    # przez sztywne 5 i publikowal imienna liste „ponizej progu", wiec osoba
+    # na urlopie ladowala na niej pod nazwiskiem.
+    #
+    # SEKRET JEST WLASNY, NIE `CRON_SECRET` COMPASSA — tamten odblokowuje tez
+    # /api/migrate-compliance, czyli DDL na bazie COMPASSA.
+    #
+    # Domyslnie WYLACZONE: bez tych trzech ustawien sync konczy sie przed
+    # wyjsciem na siec, a Power Calling dalej mowi „nie wiem" zamiast zgadywac.
+    COMPASS_WORKDAYS_ENABLED: bool = False
+    COMPASS_WORKDAYS_URL: str = ""
+    COMPASS_WORKDAYS_SECRET: str = ""
+    # Ile miesiecy wstecz odswiezamy przy kazdym przebiegu. Wnioski urlopowe
+    # bywaja akceptowane wstecznie („urlop wypisany post factum" widnieje
+    # w produkcji COMPASSA), wiec sam biezacy miesiac by ich nie dogonil.
+    COMPASS_WORKDAYS_LOOKBACK_MONTHS: int = 3
+    COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
+
     TRAFFIT_SYNC_ENABLED: bool = False
     # Background loop wake cadence (how often it checks whether a run is due).
     # The actual import runs at most once/day (delta) + once/week (full),

@@ -154,9 +154,7 @@ async def test_invite_links_report_allows_head_of_recruitment(
     _, email, password = await _seed_user(UserRole.head_of_recruitment, "hr")
     headers = await _login(rep_client, email, password)
 
-    resp = await rep_client.get(
-        "/api/reports/invite-links?period=all", headers=headers
-    )
+    resp = await rep_client.get("/api/reports/invite-links?period=all", headers=headers)
     assert resp.status_code == 200
     body = resp.json()
     assert "channels" in body and "totals" in body

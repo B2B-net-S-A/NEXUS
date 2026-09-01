@@ -88,9 +88,7 @@ async def test_backfill_double_start_guard(app_client: AsyncClient, app_auth_hea
     # cortex_extraction_runs): wstaw aktywny run i sprawdź że POST → 409.
     # started_at=now() (server_default) → orphan reaper go nie sprzątnie.
     async with AsyncSessionLocal() as db:
-        run = CortexExtractionRun(
-            run_type="manual", source="traffit", status="running"
-        )
+        run = CortexExtractionRun(run_type="manual", source="traffit", status="running")
         db.add(run)
         await db.commit()
         run_id = run.id
@@ -109,9 +107,7 @@ async def test_backfill_double_start_guard(app_client: AsyncClient, app_auth_hea
 
 @pytest.mark.asyncio
 async def test_unmatched_terms_admin_only(app_client: AsyncClient, app_auth_headers):
-    resp = await app_client.get(
-        "/api/cortex/unmatched-terms", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/cortex/unmatched-terms", headers=app_auth_headers)
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
@@ -269,7 +265,9 @@ async def test_cortex_normalize_title(app_client: AsyncClient, app_auth_headers)
 
 
 @pytest.mark.asyncio
-async def test_cortex_cv_llm_gated_by_default(app_client: AsyncClient, app_auth_headers):
+async def test_cortex_cv_llm_gated_by_default(
+    app_client: AsyncClient, app_auth_headers
+):
     # CORTEX_CV_LLM_ENABLED domyślnie False → backfill zwraca 503.
     resp = await app_client.post(
         "/api/cortex/admin/backfill-cv-llm", headers=app_auth_headers

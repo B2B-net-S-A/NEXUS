@@ -222,7 +222,10 @@ async def test_auto_activate_complete_draft_including_future_start() -> None:
     db = _AuditOnlyDB()
 
     changed = await lifecycle.auto_activate_complete_draft(
-        db, contract, actor_id=123, status_explicit=False  # type: ignore[arg-type]
+        db,
+        contract,
+        actor_id=123,
+        status_explicit=False,  # type: ignore[arg-type]
     )
 
     assert changed is True
@@ -245,7 +248,10 @@ async def test_auto_activate_complete_draft_respects_explicit_status() -> None:
     db = SimpleNamespace(add=lambda _row: None)
 
     changed = await lifecycle.auto_activate_complete_draft(
-        db, contract, actor_id=123, status_explicit=True  # type: ignore[arg-type]
+        db,
+        contract,
+        actor_id=123,
+        status_explicit=True,  # type: ignore[arg-type]
     )
 
     assert changed is False
@@ -761,9 +767,7 @@ async def test_patch_ready_for_signature_never_auto_activates(
 ) -> None:
     """Only Draft participates; finalized contracts keep their explicit gate."""
 
-    cid = await _seed_contract(
-        status=ContractStatus.ready_for_signature, complete=True
-    )
+    cid = await _seed_contract(status=ContractStatus.ready_for_signature, complete=True)
     resp = await app_client.patch(
         f"/api/contracts/{cid}",
         json={"rate_client": 21000},

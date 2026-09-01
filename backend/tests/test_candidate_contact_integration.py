@@ -2861,7 +2861,9 @@ async def test_callback_requested_writes_no_reassignment_it_would_undo(
     successor = await contact_db.add_user(UserRole.recruiter, label="callback-next")
     candidate = await contact_db.add_candidate(label="callback-audit")
     owner_job = await contact_db.add_job(label="callback-owner-job", recruiter=owner)
-    other_job = await contact_db.add_job(label="callback-other-job", recruiter=successor)
+    other_job = await contact_db.add_job(
+        label="callback-other-job", recruiter=successor
+    )
 
     case = await ensure_contact_opportunity(
         contact_db.db,

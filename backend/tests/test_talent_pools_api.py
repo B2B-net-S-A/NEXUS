@@ -59,9 +59,7 @@ async def test_list_pools_returns_cc_slug_when_set(
         await db.commit()
 
     try:
-        resp = await app_client.get(
-            "/api/talent-pools", headers=app_auth_headers
-        )
+        resp = await app_client.get("/api/talent-pools", headers=app_auth_headers)
         assert resp.status_code == 200
         data = resp.json()
 

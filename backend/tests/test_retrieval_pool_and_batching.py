@@ -50,6 +50,7 @@ def test_pool_size_does_not_depend_on_top_k():
 
 from tests._ast_calls import calls_in as _calls_in
 
+
 def test_pool_scoring_builds_the_batched_context_once():
     """Without this, a cold pool of N costs 2N round-trips.
 

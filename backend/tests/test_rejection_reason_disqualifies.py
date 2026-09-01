@@ -145,8 +145,7 @@ async def test_clone_template_carries_the_flag(
     assert r.status_code == 201, r.text
 
     cloned = {
-        row["name"]: row["disqualifies_person"]
-        for row in r.json()["rejection_reasons"]
+        row["name"]: row["disqualifies_person"] for row in r.json()["rejection_reasons"]
     }
     assert cloned[blocking["name"]] is True
     assert cloned[situational["name"]] is False
@@ -191,12 +190,12 @@ def test_entrypoint_seed_is_guarded_and_matches_the_migration():
     for label, source in (("entrypoint", entrypoint), ("migration", migration)):
         shape = _sql_shape(source)
         assert SEED_MARKER_KEY in source, f"{label}: seed marker key missing"
-        assert (
-            "ON CONFLICT (key) DO NOTHING" in shape
-        ), f"{label}: marker insert is not idempotent"
-        assert (
-            "EXISTS (SELECT 1 FROM marker)" in shape
-        ), f"{label}: seed is not gated on the marker → redeploy resets admin intent"
+        assert "ON CONFLICT (key) DO NOTHING" in shape, (
+            f"{label}: marker insert is not idempotent"
+        )
+        assert "EXISTS (SELECT 1 FROM marker)" in shape, (
+            f"{label}: seed is not gated on the marker → redeploy resets admin intent"
+        )
 
     # Same reason names on both sides, or prod and a fresh DB disagree on which
     # reasons block.

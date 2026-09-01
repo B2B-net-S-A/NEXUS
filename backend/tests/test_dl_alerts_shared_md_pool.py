@@ -57,9 +57,7 @@ async def _seed_delivery_lead(client_id: int) -> int:
         return user.id
 
 
-async def _seed_group(
-    *, client_id: int, remaining: str, total: str = "100.000000"
-):
+async def _seed_group(*, client_id: int, remaining: str, total: str = "100.000000"):
     from app.core.database import AsyncSessionLocal
     from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
     from datetime import date

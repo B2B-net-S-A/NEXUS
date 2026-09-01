@@ -16,7 +16,9 @@ from pathlib import Path
 
 import pytest
 
-_MODULE_PATH = Path(__file__).resolve().parent.parent / "scripts" / "eval_candidate_search.py"
+_MODULE_PATH = (
+    Path(__file__).resolve().parent.parent / "scripts" / "eval_candidate_search.py"
+)
 _spec = importlib.util.spec_from_file_location("eval_candidate_search", _MODULE_PATH)
 assert _spec and _spec.loader
 ev = importlib.util.module_from_spec(_spec)

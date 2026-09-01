@@ -134,9 +134,7 @@ def test_structured_skills_reach_the_job_in_the_jsonb_shape(monkeypatch):
     """
     from app.services.scoring_service import canonical_skill_names
 
-    monkeypatch.setattr(
-        tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True
-    )
+    monkeypatch.setattr(tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True)
     job = build_ephemeral_job(
         RadarQuery(client_id=7, text="x", must_skills=["Python"], nice_skills=["Go"])
     )
@@ -163,9 +161,7 @@ def test_structured_skills_change_the_query_text_not_only_the_score(monkeypatch)
     query = RadarQuery(client_id=7, text="Zbudujemy platformę", must_skills=["Kafka"])
 
     off = _build_job_text(build_ephemeral_job(query))
-    monkeypatch.setattr(
-        tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True
-    )
+    monkeypatch.setattr(tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True)
     on = _build_job_text(build_ephemeral_job(query))
 
     assert "Kafka" not in off
@@ -246,6 +242,7 @@ def test_degraded_retrieval_is_reported_not_rendered_as_no_matches():
 
 
 from tests._ast_calls import calls_in as _calls_in
+
 
 def test_search_enforces_eligibility():
     assert "filter_eligible_candidates" in _calls_in(

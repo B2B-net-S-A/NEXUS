@@ -41,7 +41,9 @@ def test_hybrid_is_the_default_mode():
 def test_approved_search_survives_the_round_trip_into_a_saved_search():
     """`model_dump(exclude_none=True)` is what gets stored as SavedSearch.filters
     and spread into a CandidateSearchRequest — both fields must come through."""
-    params = RecommendedSearchParams(q="tester manualny, bankowość", search_mode="hybrid")
+    params = RecommendedSearchParams(
+        q="tester manualny, bankowość", search_mode="hybrid"
+    )
     dumped = params.model_dump(exclude_none=True)
     assert dumped["q"]
     assert dumped["search_mode"] == "hybrid"
@@ -162,7 +164,8 @@ def test_sparse_columns_are_flagged_and_dense_ones_are_not():
 
 def test_block_is_ordered_densest_first():
     rows = [
-        ln for ln in _prod_shaped_coverage().as_prompt_block().splitlines()
+        ln
+        for ln in _prod_shaped_coverage().as_prompt_block().splitlines()
         if "%" in ln and ln.startswith("  ")
     ]
     pcts = [float(ln.split("%")[0].split()[-1]) for ln in rows]

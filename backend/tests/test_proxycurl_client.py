@@ -66,7 +66,9 @@ class _ScriptedAsyncClient:
     async def get(self, url: str, *, params=None, headers=None) -> _FakeResponse:
         self.calls.append((url, params or {}))
         if not self._script:
-            raise AssertionError("stub exhausted — test did not script enough responses")
+            raise AssertionError(
+                "stub exhausted — test did not script enough responses"
+            )
         return self._script.pop(0)
 
     async def aclose(self) -> None:

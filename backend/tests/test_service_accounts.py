@@ -575,7 +575,9 @@ class TestAdminSurface:
             ("post", ACCOUNTS_URL),
             ("get", f"{ACCOUNTS_URL}/scopes"),
         ):
-            resp = await getattr(app_client, method)(url, headers={"X-API-Key": api_key})
+            resp = await getattr(app_client, method)(
+                url, headers={"X-API-Key": api_key}
+            )
             assert resp.status_code == 401, f"{method} {url} -> {resp.text}"
 
     async def test_admin_crud_requires_authentication(self, app_client: AsyncClient):
@@ -596,9 +598,7 @@ class TestAdminSurface:
         self, app_client: AsyncClient, app_auth_headers: dict
     ):
         """Zgaszenie konta nie może po drodze wyczyścić jego uprawnień."""
-        account = await _create_account(
-            app_client, app_auth_headers, ["traffit:read"]
-        )
+        account = await _create_account(app_client, app_auth_headers, ["traffit:read"])
         resp = await app_client.patch(
             f"{ACCOUNTS_URL}/{account['id']}",
             headers=app_auth_headers,
@@ -692,9 +692,7 @@ class TestAdminSurface:
     async def test_scopes_endpoint_lists_the_vocabulary(
         self, app_client: AsyncClient, app_auth_headers: dict
     ):
-        resp = await app_client.get(
-            f"{ACCOUNTS_URL}/scopes", headers=app_auth_headers
-        )
+        resp = await app_client.get(f"{ACCOUNTS_URL}/scopes", headers=app_auth_headers)
         assert resp.status_code == 200
         values = {item["value"] for item in resp.json()}
         assert values == {scope.value for scope in ServiceScope}

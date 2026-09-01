@@ -226,9 +226,7 @@ async def test_facade_without_bm25_query_does_not_feed_the_document(monkeypatch)
     job_id, candidate_id = await _seed()
     async with AsyncSessionLocal() as db:
         job = await db.scalar(select(Job).where(Job.id == job_id))
-        pool = await rp.retrieve_candidate_pool(
-            db, _build_job_text(job), top_k=100
-        )
+        pool = await rp.retrieve_candidate_pool(db, _build_job_text(job), top_k=100)
 
     assert candidate_id not in {row["candidate_id"] for row in pool}
 

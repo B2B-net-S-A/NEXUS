@@ -160,14 +160,14 @@ class TestAlreadyInJob:
 
 class TestExtractExcludedClientIds:
     def test_reads_int_list(self):
-        assert extract_excluded_client_ids({"excluded_clients": [1, 2, 3]}) == frozenset(
-            {1, 2, 3}
-        )
+        assert extract_excluded_client_ids(
+            {"excluded_clients": [1, 2, 3]}
+        ) == frozenset({1, 2, 3})
 
     def test_reads_digit_strings(self):
-        assert extract_excluded_client_ids({"excluded_clients": ["5", "7"]}) == frozenset(
-            {5, 7}
-        )
+        assert extract_excluded_client_ids(
+            {"excluded_clients": ["5", "7"]}
+        ) == frozenset({5, 7})
 
     def test_ignores_bools_and_junk(self):
         got = extract_excluded_client_ids(
@@ -292,6 +292,4 @@ class TestHiringManagerVeto:
         assert not d.assignment_allowed
         # ...and the soft signals ride along, minus the dominant one.
         assert EligibilityReason.client_current_employment in d.secondary_reasons
-        assert (
-            EligibilityReason.rejected_by_hiring_manager not in d.secondary_reasons
-        )
+        assert EligibilityReason.rejected_by_hiring_manager not in d.secondary_reasons

@@ -424,9 +424,7 @@ async def test_auto_add_heals_missing_cc_on_existing_pool(
         # 1st call — creates pool with CC=NULL
         async with AsyncSessionLocal() as db:
             job1 = await db.get(Job, job1_id)
-            await auto_add_on_cv_sent(
-                db=db, candidate_id=c1, job=job1, user_id=None
-            )
+            await auto_add_on_cv_sent(db=db, candidate_id=c1, job=job1, user_id=None)
             await db.commit()
 
         async with AsyncSessionLocal() as db:
@@ -438,9 +436,7 @@ async def test_auto_add_heals_missing_cc_on_existing_pool(
         # 2nd call — same pool, job has CC → heal
         async with AsyncSessionLocal() as db:
             job2 = await db.get(Job, job2_id)
-            await auto_add_on_cv_sent(
-                db=db, candidate_id=c2, job=job2, user_id=None
-            )
+            await auto_add_on_cv_sent(db=db, candidate_id=c2, job=job2, user_id=None)
             await db.commit()
 
         async with AsyncSessionLocal() as db:
@@ -480,17 +476,13 @@ async def test_auto_add_leaves_cc_untouched_when_job_has_no_cc(
         # 1st — pool gets CC
         async with AsyncSessionLocal() as db:
             job1 = await db.get(Job, job1_id)
-            await auto_add_on_cv_sent(
-                db=db, candidate_id=c1, job=job1, user_id=None
-            )
+            await auto_add_on_cv_sent(db=db, candidate_id=c1, job=job1, user_id=None)
             await db.commit()
 
         # 2nd — job has no CC; pool must keep its CC
         async with AsyncSessionLocal() as db:
             job2 = await db.get(Job, job2_id)
-            await auto_add_on_cv_sent(
-                db=db, candidate_id=c2, job=job2, user_id=None
-            )
+            await auto_add_on_cv_sent(db=db, candidate_id=c2, job=job2, user_id=None)
             await db.commit()
 
         async with AsyncSessionLocal() as db:
@@ -668,8 +660,6 @@ async def test_auto_add_accepts_extra_activity_details(
                 .scalars()
                 .all()
             )
-            assert any(
-                (a.details or {}).get("backfill") is True for a in activities
-            )
+            assert any((a.details or {}).get("backfill") is True for a in activities)
     finally:
         await _cleanup_pool_by_name(pool_name)

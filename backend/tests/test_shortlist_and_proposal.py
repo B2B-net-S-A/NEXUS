@@ -77,7 +77,9 @@ async def _seed_client() -> int:
         return client.id
 
 
-async def _cleanup(*, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]):
+async def _cleanup(
+    *, candidate_ids: list[int], job_ids: list[int], client_ids: list[int]
+):
     async with AsyncSessionLocal() as db:
         if job_ids:
             await db.execute(delete(Job).where(Job.id.in_(job_ids)))
@@ -201,9 +203,7 @@ async def test_client_proposal_happy_path(
         assert "Senior Python Engineer" in draft["subject"]
         assert "anonimowy" in draft["text_body"].lower()
     finally:
-        await _cleanup(
-            candidate_ids=[cid], job_ids=[job_id], client_ids=[client_id]
-        )
+        await _cleanup(candidate_ids=[cid], job_ids=[job_id], client_ids=[client_id])
 
 
 @pytest.mark.asyncio

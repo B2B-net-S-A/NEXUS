@@ -59,9 +59,9 @@ def test_day_bounds_from_utc_input_converts_correctly():
 @pytest.mark.parametrize(
     "iso_date,expected",
     [
-        ("2026-04-20", True),   # Mon
-        ("2026-04-21", True),   # Tue
-        ("2026-04-24", True),   # Fri
+        ("2026-04-20", True),  # Mon
+        ("2026-04-21", True),  # Tue
+        ("2026-04-24", True),  # Fri
         ("2026-04-25", False),  # Sat
         ("2026-04-26", False),  # Sun
     ],

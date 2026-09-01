@@ -198,16 +198,12 @@ async def test_disconnect_with_multiple_tabs_keeps_viewer(manager, user_a, user_
     await manager.subscribe(user_a, ws_a2, "candidate", 42)
     await manager.subscribe(user_b, ws_b, "candidate", 42)
 
-    prior_b_updates = len(
-        [m for m in ws_b.sent if m.get("type") == "presence:update"]
-    )
+    prior_b_updates = len([m for m in ws_b.sent if m.get("type") == "presence:update"])
 
     await manager.disconnect(user_a.id, ws_a1)
 
     # Viewer list didn't change — B should NOT receive a new broadcast
-    after_b_updates = len(
-        [m for m in ws_b.sent if m.get("type") == "presence:update"]
-    )
+    after_b_updates = len([m for m in ws_b.sent if m.get("type") == "presence:update"])
     assert after_b_updates == prior_b_updates
 
     snapshot = manager.get_viewers("candidate", 42)

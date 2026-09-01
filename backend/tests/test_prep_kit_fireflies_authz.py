@@ -28,7 +28,10 @@ def _function_source(module_rel: str, func_name: str) -> str:
     path = BACKEND / module_rel
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == func_name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == func_name
+        ):
             return ast.get_source_segment(path.read_text(encoding="utf-8"), node) or ""
     raise AssertionError(f"{func_name} not found in {module_rel}")
 
@@ -43,11 +46,7 @@ def test_prepkit_gates_client_knowledge_per_client() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
-    attrs = {
-        node.attr
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Attribute)
-    }
+    attrs = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
 
     assert "resolve_client_access" in called, (
         "prep-kit no longer resolves per-client access — client B's knowledge is "
@@ -76,9 +75,7 @@ def test_fireflies_sync_not_reachable_by_viewer() -> None:
         if path not in guarded_paths:
             continue
         seen.add(path)
-        dep_calls = [
-            dep.call for dep in getattr(route.dependant, "dependencies", [])
-        ]
+        dep_calls = [dep.call for dep in getattr(route.dependant, "dependencies", [])]
         assert get_current_user not in dep_calls, (
             f"{path} depends on get_current_user — a read-only viewer can reach a "
             "mutating Fireflies sync (M6-P0.11 regressed). Use OperationalUser."

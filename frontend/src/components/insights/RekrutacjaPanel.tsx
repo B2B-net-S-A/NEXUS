@@ -7,6 +7,7 @@ import { InsightsTeamActivity } from "@/components/insights/sections/InsightsTea
 import { RecruitmentFunnel } from "@/components/insights/sections/RecruitmentFunnel";
 import { RecruitmentConversions } from "@/components/insights/sections/RecruitmentConversions";
 import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
+import { InsightsSeniority } from "@/components/insights/sections/InsightsSeniority";
 import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import {
@@ -86,6 +87,12 @@ export function RekrutacjaPanel() {
           w dodatku przyjmuje TO SAMO okno co reszta zakładki — legacy liczył
           okno kroczące i ignorował `PeriodPicker`. */}
       <InsightsTeamActivity period={period} />
+
+      {/* Ścieżka rozwoju (D6) — poziom z liczby placementów, liczony przy
+          odczycie. Sekcja świadomie NIE przyjmuje `period`: poziom jest
+          funkcją CAŁEJ historii, a przycięcie jej oknem `PeriodPicker`a
+          zamieniłoby zapadkę awansu w licznik, który spada. */}
+      <InsightsSeniority />
 
       <SourcesFunnelSection />
     </div>

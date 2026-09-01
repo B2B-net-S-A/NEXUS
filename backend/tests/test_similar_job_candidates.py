@@ -135,7 +135,9 @@ class _FakeDb:
         return result
 
 
-def _refs_tier_a(job_ids: list[int], similarity: float = 0.80) -> list[sjc.SimilarJobRef]:
+def _refs_tier_a(
+    job_ids: list[int], similarity: float = 0.80
+) -> list[sjc.SimilarJobRef]:
     return [
         sjc.SimilarJobRef(
             job_id=jid, title=f"Job {jid}", similarity=similarity, tier="A"

@@ -33,7 +33,13 @@ def _cand(**kw) -> SimpleNamespace:
 
 def test_candidate_v2_excludes_pii():
     text = ct.build_candidate_text_v2(_cand())
-    for pii in ("Jan", "Kowalski", "jan.kowalski@example.com", "+48123456789", "Warszawa"):
+    for pii in (
+        "Jan",
+        "Kowalski",
+        "jan.kowalski@example.com",
+        "+48123456789",
+        "Warszawa",
+    ):
         assert pii not in text, f"PII leaked: {pii}"
 
 

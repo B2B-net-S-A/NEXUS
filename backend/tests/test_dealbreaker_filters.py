@@ -73,9 +73,7 @@ def test_resolve_budget_prefers_explicit_field(monkeypatch):
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "CHAMPION_MATCH_SIGNALS_ENABLED", True, raising=False)
-    job = SimpleNamespace(
-        rate_budget_hourly=140, champion_profile={"rate_value": 999}
-    )
+    job = SimpleNamespace(rate_budget_hourly=140, champion_profile={"rate_value": 999})
     assert resolve_job_budget_hourly(job) == 140.0
     fallback = SimpleNamespace(
         rate_budget_hourly=None, champion_profile={"rate_value": 120}
@@ -100,9 +98,7 @@ def test_apply_without_budget_is_noop():
 def test_explicit_opt_out_shows_over_budget():
     """Konsument może jawnie wyłączyć sufit (widok „pokaż wszystkich")."""
     over = _cand(expected_rate_hourly=999, expected_rate_currency="PLN")
-    res = apply_dealbreakers(
-        [over], exclude_over_budget=False, budget_hourly=100.0
-    )
+    res = apply_dealbreakers([over], exclude_over_budget=False, budget_hourly=100.0)
     assert res.kept == [over]
 
 

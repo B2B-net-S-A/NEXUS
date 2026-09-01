@@ -32,9 +32,7 @@ FAKE_PARSED = {
         {"name": "Python", "level": "senior", "years": 6},
         {"name": "FastAPI", "level": "senior", "years": 4},
     ],
-    "education": [
-        {"degree": "MSc", "field": "CS", "school": "PW", "year": 2017}
-    ],
+    "education": [{"degree": "MSc", "field": "CS", "school": "PW", "year": 2017}],
     "languages": [{"name": "English", "level": "C1"}],
     "companies": ["Acme Corp", "Globex"],
     "career_summary": "6 lat Pythona w fintechu.",
@@ -78,9 +76,7 @@ def _patch_parser_and_extractor(monkeypatch, parsed: dict):
 
     monkeypatch.setattr(cv_text_extractor, "extract_text", _fake_extract)
     # Patch parse_cv at the call-site (it's imported inside the endpoint fn).
-    monkeypatch.setattr(
-        "app.services.cv_parser.parse_cv", _fake_parse, raising=True
-    )
+    monkeypatch.setattr("app.services.cv_parser.parse_cv", _fake_parse, raising=True)
     monkeypatch.setattr(
         "app.services.embedding_service.embed_candidate",
         _fake_embed,
@@ -94,9 +90,7 @@ def _patch_parser_and_extractor(monkeypatch, parsed: dict):
 async def _cleanup_candidate(email: str) -> None:
     """Delete a candidate by email so re-runs stay green."""
     async with AsyncSessionLocal() as db:
-        row = await db.scalar(
-            select(Candidate).where(Candidate.email == email)
-        )
+        row = await db.scalar(select(Candidate).where(Candidate.email == email))
         if row:
             await db.delete(row)
             await db.commit()
@@ -214,9 +208,7 @@ async def test_from_cv_force_bypasses_dedup(
         # Cleanup all candidates with the shared email.
         async with AsyncSessionLocal() as db:
             for cid in created_ids:
-                row = await db.scalar(
-                    select(Candidate).where(Candidate.id == cid)
-                )
+                row = await db.scalar(select(Candidate).where(Candidate.id == cid))
                 if row:
                     await db.delete(row)
             await db.commit()
@@ -230,9 +222,7 @@ async def test_from_cv_rejects_empty_text(
     """CV that extracts to empty text must fail with 400 (no silent insert)."""
     from app.services import cv_text_extractor
 
-    monkeypatch.setattr(
-        cv_text_extractor, "extract_text", lambda *a, **k: ""
-    )
+    monkeypatch.setattr(cv_text_extractor, "extract_text", lambda *a, **k: "")
     files = {"file": ("blank.pdf", b"%PDF blank", "application/pdf")}
     resp = await app_client.post(
         "/api/candidates/from-cv",

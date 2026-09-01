@@ -146,9 +146,7 @@ async def test_recompute_scores_returns_200(
 async def test_viewer_cannot_read_ai_matches(
     app_client: AsyncClient, viewer_auth_headers: dict
 ):
-    resp = await app_client.get(
-        "/api/jobs/1/ai-matches", headers=viewer_auth_headers
-    )
+    resp = await app_client.get("/api/jobs/1/ai-matches", headers=viewer_auth_headers)
     assert resp.status_code == 403, resp.text
 
 

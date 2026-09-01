@@ -22,6 +22,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 from tests._ast_calls import calls_in as _calls_in
 
+
 def _endpoint_name(module_rel: str, path_fragment: str) -> str:
     """The handler decorated with a route containing `path_fragment`."""
     tree = ast.parse((BACKEND / module_rel).read_text(encoding="utf-8"))

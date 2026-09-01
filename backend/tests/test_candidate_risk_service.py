@@ -84,13 +84,9 @@ def test_categorize_post_accept_skipped_without_declined() -> None:
     """Wycofanie z acceptance bez 'declined' nie liczy się jako post_accept."""
     assert _categorize(PipelineStage.acceptance, None) is None
     assert (
-        _categorize(PipelineStage.acceptance, CandidateOfferResponse.accepted)
-        is None
+        _categorize(PipelineStage.acceptance, CandidateOfferResponse.accepted) is None
     )
-    assert (
-        _categorize(PipelineStage.acceptance, CandidateOfferResponse.pending)
-        is None
-    )
+    assert _categorize(PipelineStage.acceptance, CandidateOfferResponse.pending) is None
 
 
 def test_categorize_terminal_stages_are_none() -> None:

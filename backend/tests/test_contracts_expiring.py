@@ -184,7 +184,9 @@ def test_is_ending_soon_live_within_window():
 def test_is_ending_soon_boundaries_inclusive():
     assert is_ending_soon(_c(ContractStatus.active, 0)) is True
     assert is_ending_soon(_c(ContractStatus.active, ENDING_SOON_WINDOW_DAYS)) is True
-    assert is_ending_soon(_c(ContractStatus.active, ENDING_SOON_WINDOW_DAYS + 1)) is False
+    assert (
+        is_ending_soon(_c(ContractStatus.active, ENDING_SOON_WINDOW_DAYS + 1)) is False
+    )
 
 
 def test_is_ending_soon_excludes_non_live_and_edge_dates():

@@ -85,9 +85,7 @@ class _FakeTraffit:
     async def total_count(self, path):
         return 99999
 
-    async def get_pages(
-        self, path, *, page_size=100, filter_=None, start_page=1, **kw
-    ):
+    async def get_pages(self, path, *, page_size=100, filter_=None, start_page=1, **kw):
         self.start_pages.append(start_page)
         for page_no, items in self.pages:
             if page_no < start_page:

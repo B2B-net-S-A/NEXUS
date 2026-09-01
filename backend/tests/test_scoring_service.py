@@ -937,12 +937,24 @@ async def test_renormalisation_never_divides_by_zero(renormalising):
     """Every layer unjudgeable → 0, not a crash."""
     db = _FakeScalarDB(None)
     job = make_job(
-        id=1, location=None, deadline=None, salary_min=None, salary_max=None,
-        must_skills=[], nice_skills=[], client_id=None,
+        id=1,
+        location=None,
+        deadline=None,
+        salary_min=None,
+        salary_max=None,
+        must_skills=[],
+        nice_skills=[],
+        client_id=None,
     )
     cand = make_candidate(
-        id=1, skills=[], verified_tech=[], tags=[], location=None,
-        availability_date=None, expected_rate_hourly=None, preferences={},
+        id=1,
+        skills=[],
+        verified_tech=[],
+        tags=[],
+        location=None,
+        availability_date=None,
+        expected_rate_hourly=None,
+        preferences={},
     )
 
     b = await ss.score_candidate_job(cand, job, db, semantic_similarity=None)

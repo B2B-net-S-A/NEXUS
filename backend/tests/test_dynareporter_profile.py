@@ -39,17 +39,30 @@ async def test_profile_returns_user_info(
     assert "@" in body["email"]
     assert isinstance(body["full_name"], str) and body["full_name"]
     assert body["role"] in (
-        "admin", "head_of_recruitment", "delivery_lead",
-        "tac", "recruiter", "sourcer", "user",
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "tac",
+        "recruiter",
+        "sourcer",
+        "user",
     )
     # B.0 migration 0111 columns
     assert isinstance(body["allowed_sections"], list)
     # Test admin nie ma jeszcze sections (pre-ETL), więc lista pusta dopuszczalna
     for section in body["allowed_sections"]:
         assert section in (
-            "body-leasing", "sales", "delivery-lead", "placements",
-            "clients-mrr", "competitions", "przetargi", "board",
-            "sales-mgmt", "mindy", "admin",
+            "body-leasing",
+            "sales",
+            "delivery-lead",
+            "placements",
+            "clients-mrr",
+            "competitions",
+            "przetargi",
+            "board",
+            "sales-mgmt",
+            "mindy",
+            "admin",
         ), f"Unknown section: {section}"
     # dynareporter_legacy_id — None dla nexus-only userów (przed ETL)
     assert body["dynareporter_legacy_id"] is None or isinstance(

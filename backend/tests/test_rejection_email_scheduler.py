@@ -149,7 +149,9 @@ def _mk_job(title: str = "Senior Python Developer") -> SimpleNamespace:
     return SimpleNamespace(title=title)
 
 
-def _mk_recruiter(name: str = "Anna Nowak", email: str = "anna@co.pl") -> SimpleNamespace:
+def _mk_recruiter(
+    name: str = "Anna Nowak", email: str = "anna@co.pl"
+) -> SimpleNamespace:
     return SimpleNamespace(name=name, email=email)
 
 

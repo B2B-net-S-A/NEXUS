@@ -37,9 +37,7 @@ def test_extract_text_dispatches_to_pdfminer_for_pdf(monkeypatch):
 def test_extract_text_dispatches_to_docx_for_docx(monkeypatch):
     from app.services import cv_text_extractor as cte
 
-    monkeypatch.setattr(
-        cte, "_extract_docx", lambda _p: "Jan Kowalski\nLead Engineer"
-    )
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: "Jan Kowalski\nLead Engineer")
     with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
         path = f.name
     try:

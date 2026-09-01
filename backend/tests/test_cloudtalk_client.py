@@ -158,9 +158,7 @@ async def test_500_then_200_retries(monkeypatch) -> None:
     async def _instant(_: float) -> None:
         return None
 
-    monkeypatch.setattr(
-        "app.services.cloudtalk.client.asyncio.sleep", _instant
-    )
+    monkeypatch.setattr("app.services.cloudtalk.client.asyncio.sleep", _instant)
 
     state = {"calls": 0}
 

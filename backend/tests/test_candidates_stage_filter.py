@@ -157,9 +157,7 @@ async def _cleanup(
             )
             await db.execute(delete(Candidate).where(Candidate.id == cid))
         for jid in job_ids or []:
-            await db.execute(
-                delete(CandidateStage).where(CandidateStage.job_id == jid)
-            )
+            await db.execute(delete(CandidateStage).where(CandidateStage.job_id == jid))
             await db.execute(delete(Job).where(Job.id == jid))
         for uid in user_ids or []:
             await db.execute(delete(User).where(User.id == uid))
@@ -229,9 +227,7 @@ async def test_filter_stage_current_only_true_default(
     cand = await _seed_candidate()
     base = datetime.now(timezone.utc) - timedelta(days=10)
     await _seed_stage(cand, job_id, "screening", moved_at=base)
-    await _seed_stage(
-        cand, job_id, "rejected", moved_at=base + timedelta(days=1)
-    )
+    await _seed_stage(cand, job_id, "rejected", moved_at=base + timedelta(days=1))
     try:
         # Default behaviour — latest move is `rejected`, so `screening` query
         # must NOT include this candidate.
@@ -264,9 +260,7 @@ async def test_filter_stage_current_only_false_matches_history(
     cand = await _seed_candidate()
     base = datetime.now(timezone.utc) - timedelta(days=10)
     await _seed_stage(cand, job_id, "screening", moved_at=base)
-    await _seed_stage(
-        cand, job_id, "rejected", moved_at=base + timedelta(days=1)
-    )
+    await _seed_stage(cand, job_id, "rejected", moved_at=base + timedelta(days=1))
     try:
         r = await app_client.get(
             "/api/candidates?pipeline_stage=screening"
@@ -323,9 +317,7 @@ async def test_filter_invalid_stage_returns_422(
 
 
 @pytest.mark.asyncio
-async def test_filter_stage_moved_by(
-    app_client: AsyncClient, app_auth_headers: dict
-):
+async def test_filter_stage_moved_by(app_client: AsyncClient, app_auth_headers: dict):
     """`stage_moved_by=<user>` returns only candidates whose matched stage move
     was performed by that user."""
     job_id = await _seed_job()
@@ -495,9 +487,7 @@ async def test_filter_stage_moved_date_range(
         assert in_range in ids
         assert too_old not in ids
     finally:
-        await _cleanup(
-            candidate_ids=[in_range, too_old], job_ids=[job_id]
-        )
+        await _cleanup(candidate_ids=[in_range, too_old], job_ids=[job_id])
 
 
 @pytest.mark.asyncio
@@ -596,9 +586,7 @@ async def test_stage_moved_by_matches_after_candidate_progressed(
         ids = [item["id"] for item in r.json()["items"]]
         assert progressed in ids
     finally:
-        await _cleanup(
-            candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a]
-        )
+        await _cleanup(candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a])
 
 
 @pytest.mark.asyncio
@@ -690,9 +678,7 @@ async def test_stage_current_only_true_overrides_move_filter(
         ids = [item["id"] for item in r.json()["items"]]
         assert progressed not in ids
     finally:
-        await _cleanup(
-            candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a]
-        )
+        await _cleanup(candidate_ids=[progressed], job_ids=[job_id], user_ids=[mover_a])
 
 
 # ── active_recruitments enrichment: KTO i KIEDY przeniósł kandydata na ─────────
@@ -748,9 +734,7 @@ async def test_active_recruitments_includes_current_stage_mover(
         assert rec["moved_at"] is not None
         assert rec["moved_at"].startswith("2026-05-15")
     finally:
-        await _cleanup(
-            candidate_ids=[cand], job_ids=[job_id], user_ids=[mover_a]
-        )
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id], user_ids=[mover_a])
 
 
 @pytest.mark.asyncio

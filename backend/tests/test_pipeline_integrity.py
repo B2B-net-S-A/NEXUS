@@ -583,8 +583,9 @@ async def test_hard_delete_blocked_for_contract_pair(app_client: AsyncClient):
     from app.models.contract import Contract
 
     headers, actor_id = await _login_as(app_client, "recruiter")
-    cand, (job, client_id) = await _seed_candidate(), await _seed_job(
-        recruiter_id=actor_id
+    cand, (job, client_id) = (
+        await _seed_candidate(),
+        await _seed_job(recruiter_id=actor_id),
     )
     await _seed_stage(cand, job, "screening")
     async with AsyncSessionLocal() as db:
@@ -608,9 +609,7 @@ async def test_hard_delete_admin_override_and_plain_pair(
     assert r.status_code == 200, r.text
     # …a recruiter zwykłą parę bez hired/kontraktu.
     headers, actor_id = await _login_as(app_client, "recruiter")
-    cand2, (job2, _) = await _seed_candidate(), await _seed_job(
-        recruiter_id=actor_id
-    )
+    cand2, (job2, _) = await _seed_candidate(), await _seed_job(recruiter_id=actor_id)
     await _seed_stage(cand2, job2, "screening")
     r = await app_client.delete(
         f"/api/candidates/{cand2}/recruitments/{job2}", headers=headers

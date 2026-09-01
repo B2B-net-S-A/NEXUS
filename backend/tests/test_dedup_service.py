@@ -55,24 +55,17 @@ def test_name_none_returns_none():
 
 
 def test_linkedin_slug_from_full_url():
-    assert (
-        dd._linkedin_slug("https://linkedin.com/in/jan-kowalski/")
-        == "jan-kowalski"
-    )
+    assert dd._linkedin_slug("https://linkedin.com/in/jan-kowalski/") == "jan-kowalski"
 
 
 def test_linkedin_slug_preserves_trailing_slash_behavior():
     assert (
-        dd._linkedin_slug("https://www.linkedin.com/in/jan-kowalski")
-        == "jan-kowalski"
+        dd._linkedin_slug("https://www.linkedin.com/in/jan-kowalski") == "jan-kowalski"
     )
 
 
 def test_linkedin_slug_case_insensitive():
-    assert (
-        dd._linkedin_slug("https://linkedin.com/in/Jan-Kowalski")
-        == "jan-kowalski"
-    )
+    assert dd._linkedin_slug("https://linkedin.com/in/Jan-Kowalski") == "jan-kowalski"
 
 
 def test_linkedin_slug_empty_returns_none():

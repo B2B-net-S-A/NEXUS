@@ -120,9 +120,7 @@ async def test_recruiter_cannot_delete(proc_client, admin_headers, recruiter_hea
     )
     pid = created.json()["id"]
 
-    resp = await proc_client.delete(
-        f"/api/procedures/{pid}", headers=recruiter_headers
-    )
+    resp = await proc_client.delete(f"/api/procedures/{pid}", headers=recruiter_headers)
     assert resp.status_code == 403
 
 
@@ -177,14 +175,10 @@ async def test_admin_full_crud(proc_client, admin_headers):
     assert upd.json()["sort_order"] == 99
 
     # Delete
-    delete = await proc_client.delete(
-        f"/api/procedures/{pid}", headers=admin_headers
-    )
+    delete = await proc_client.delete(f"/api/procedures/{pid}", headers=admin_headers)
     assert delete.status_code == 204
 
-    missing = await proc_client.get(
-        f"/api/procedures/{pid}", headers=admin_headers
-    )
+    missing = await proc_client.get(f"/api/procedures/{pid}", headers=admin_headers)
     assert missing.status_code == 404
 
 
@@ -198,12 +192,18 @@ async def test_search_matches_title_and_content(proc_client, admin_headers):
     a = await proc_client.post(
         "/api/procedures",
         headers=admin_headers,
-        json={"title": f"Onboarding klienta {unique}", "content": "proces zielonego światła"},
+        json={
+            "title": f"Onboarding klienta {unique}",
+            "content": "proces zielonego światła",
+        },
     )
     b = await proc_client.post(
         "/api/procedures",
         headers=admin_headers,
-        json={"title": f"Procedura płatności {unique}", "content": f"magiczne-slowo-{unique} w środku"},
+        json={
+            "title": f"Procedura płatności {unique}",
+            "content": f"magiczne-slowo-{unique} w środku",
+        },
     )
     assert a.status_code == 201 and b.status_code == 201
 

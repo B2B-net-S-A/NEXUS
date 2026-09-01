@@ -84,7 +84,9 @@ async def owned_contract() -> AsyncIterator[dict]:
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(delete(Contract).where(Contract.id == ids["id"]))
-            await db.execute(delete(Candidate).where(Candidate.id == ids["candidate_id"]))
+            await db.execute(
+                delete(Candidate).where(Candidate.id == ids["candidate_id"])
+            )
             await db.execute(delete(Client).where(Client.id == ids["client_id"]))
             await db.commit()
 
@@ -235,9 +237,7 @@ async def test_contract_notes_timeline_shape(
     app_client: AsyncClient, app_auth_headers: dict, owned_contract: dict
 ):
     cid = owned_contract["id"]
-    res = await app_client.get(
-        f"/api/contracts/{cid}/notes", headers=app_auth_headers
-    )
+    res = await app_client.get(f"/api/contracts/{cid}/notes", headers=app_auth_headers)
     assert res.status_code == 200
     assert isinstance(res.json(), list)
     for item in res.json():

@@ -44,7 +44,9 @@ def test_load_dump_reads_features(tmp_path):
     assert (cid, gt) == (10, True)
     assert fr["title_match"] == 0.7
     # Starszy zrzut bez pola features → 0.0, nie wybuch.
-    _write_dump(p, [{k: v for k, v in _row(1, 10, True, 0.5, 0.7).items() if k != "features"}])
+    _write_dump(
+        p, [{k: v for k, v in _row(1, 10, True, 0.5, 0.7).items() if k != "features"}]
+    )
     jobs = load_dump(str(p), features=("title_match",))
     assert jobs[1][0][2]["title_match"] == 0.0
 

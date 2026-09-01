@@ -126,10 +126,14 @@ async def test_author_can_delete_own_note(app_client: AsyncClient, setup):
         assert await db.get(Note, note_id) is None
         # Kaskada — NoteMention rows znikają razem z notatką.
         mentions = (
-            await db.execute(
-                select(NoteMention).where(NoteMention.note_id == note_id)
+            (
+                await db.execute(
+                    select(NoteMention).where(NoteMention.note_id == note_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert mentions == []
 
 

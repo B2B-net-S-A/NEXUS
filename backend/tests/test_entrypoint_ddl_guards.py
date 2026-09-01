@@ -82,9 +82,7 @@ class _FakeConn:
 
 
 def _index_phase_start(executed: list[str]) -> int:
-    return next(
-        i for i, s in enumerate(executed) if "INDEX CONCURRENTLY" in s.upper()
-    )
+    return next(i for i, s in enumerate(executed) if "INDEX CONCURRENTLY" in s.upper())
 
 
 # ── Nazwy indeksów ──────────────────────────────────────────────────────────

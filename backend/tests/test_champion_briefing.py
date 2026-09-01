@@ -73,9 +73,7 @@ async def test_attach_briefing_happy_path(app_client, app_auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_attach_briefing_rejects_non_meeting_note(
-    app_client, app_auth_headers
-):
+async def test_attach_briefing_rejects_non_meeting_note(app_client, app_auth_headers):
     job_id = await _seed_job()
     note_id = await _seed_meeting_note(job_id, note_type="general")
     resp = await app_client.post(
@@ -87,9 +85,7 @@ async def test_attach_briefing_rejects_non_meeting_note(
 
 
 @pytest.mark.asyncio
-async def test_attach_briefing_rejects_other_jobs_note(
-    app_client, app_auth_headers
-):
+async def test_attach_briefing_rejects_other_jobs_note(app_client, app_auth_headers):
     job_a = await _seed_job("Job A")
     job_b = await _seed_job("Job B")
     note_id = await _seed_meeting_note(job_a)

@@ -15,7 +15,13 @@ async def test_diagnostics_shape(app_client: AsyncClient, app_auth_headers: dict
     body = resp.json()
 
     # All subsystem sections present.
-    for key in ("flags", "version_trace", "indexing_outbox", "telemetry", "score_cache"):
+    for key in (
+        "flags",
+        "version_trace",
+        "indexing_outbox",
+        "telemetry",
+        "score_cache",
+    ):
         assert key in body, f"missing section {key}"
 
     # Flags include the plan's kill-switches (default off in CI).

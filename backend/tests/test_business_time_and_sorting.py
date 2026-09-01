@@ -132,7 +132,10 @@ async def test_monthly_race_tie_break_is_id_not_name(monkeypatch):
 async def test_stage_ranking_and_hall_of_fame_tie_break_is_id_not_name():
     db = SimpleNamespace(execute=AsyncMock(return_value=_Rows([])))
     await competitions._rank_recruiters_by_stage(
-        db, stage=competitions.PipelineStage.hired, start=_utc(2026, 8, 1), end=_utc(2026, 9, 1)
+        db,
+        stage=competitions.PipelineStage.hired,
+        start=_utc(2026, 8, 1),
+        end=_utc(2026, 9, 1),
     )
     stage_sql = str(db.execute.await_args.args[0])
     assert "ORDER BY count(*) DESC, u.id ASC" in stage_sql
@@ -200,9 +203,7 @@ async def test_hired_this_month_binds_warsaw_month_as_timestamps(monkeypatch):
     z sierpnia po jednej stronie granicy i z września po drugiej — znikało
     z KPI na stałe. Samo `ENV TZ` tego nie naprawia.
     """
-    monkeypatch.setattr(
-        dashboard_metrics, "business_today", lambda: date(2026, 9, 15)
-    )
+    monkeypatch.setattr(dashboard_metrics, "business_today", lambda: date(2026, 9, 15))
 
     class _Scalar(_Rows):
         def scalar(self):

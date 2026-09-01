@@ -67,9 +67,11 @@ async def test_compute_breakdown_write_gate_follows_outage(
     monkeypatch.setattr(es, "_build_job_text", lambda _job: "job text")
 
     if raises:
+
         async def sim(*_a, **_k):
             raise RuntimeError("qdrant down")
     else:
+
         async def sim(_text, _ids):
             return {1: 0.83}
 
@@ -83,7 +85,9 @@ async def test_compute_breakdown_write_gate_follows_outage(
 
     monkeypatch.setattr(mjs, "get_cached_or_compute", fake_gcoc)
 
-    await mjs._compute_breakdown(SimpleNamespace(id=1), SimpleNamespace(id=2), AsyncMock())
+    await mjs._compute_breakdown(
+        SimpleNamespace(id=1), SimpleNamespace(id=2), AsyncMock()
+    )
 
     assert captured.get("allow_cache_write") is expected_allow_write, (
         f"outage={raises}: expected allow_cache_write={expected_allow_write}, "

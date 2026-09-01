@@ -129,9 +129,7 @@ async def test_put_role_specific_default_isolates_by_role(
         "/api/settings/candidates-columns", headers=recruiter_headers
     )
     assert resp.status_code == 200
-    assert resp.json() == {
-        "columns": ["candidate", "position", "match", "added_by"]
-    }
+    assert resp.json() == {"columns": ["candidate", "position", "match", "added_by"]}
 
     # Admin has no admin-specific default → falls back to global
     resp = await app_client.get(
@@ -167,18 +165,14 @@ async def test_get_all_returns_every_scope(
     assert body["delivery_lead"] is None
 
 
-async def test_get_all_is_admin_only(
-    app_client: AsyncClient, recruiter_headers: dict
-):
+async def test_get_all_is_admin_only(app_client: AsyncClient, recruiter_headers: dict):
     resp = await app_client.get(
         "/api/settings/candidates-columns/all", headers=recruiter_headers
     )
     assert resp.status_code == 403
 
 
-async def test_put_is_admin_only(
-    app_client: AsyncClient, recruiter_headers: dict
-):
+async def test_put_is_admin_only(app_client: AsyncClient, recruiter_headers: dict):
     resp = await app_client.put(
         "/api/settings/candidates-columns",
         headers=recruiter_headers,
@@ -229,9 +223,7 @@ async def test_put_role_specific_is_scoped_separately_from_global(
             select(AppSetting).where(AppSetting.key == "candidates_columns")
         )
         sourcer_row = await db.scalar(
-            select(AppSetting).where(
-                AppSetting.key == "candidates_columns:sourcer"
-            )
+            select(AppSetting).where(AppSetting.key == "candidates_columns:sourcer")
         )
         assert global_row is not None
         assert global_row.value == {"columns": ["candidate", "position"]}

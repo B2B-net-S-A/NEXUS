@@ -50,7 +50,9 @@ async def test_assert_host_is_public_rejects_private(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_assert_host_is_public_allows_public(monkeypatch):
-    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: _addrinfo("93.184.216.34"))
+    monkeypatch.setattr(
+        socket, "getaddrinfo", lambda *a, **k: _addrinfo("93.184.216.34")
+    )
     await ii._assert_host_is_public("example.com")  # must not raise
 
 

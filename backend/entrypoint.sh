@@ -1000,6 +1000,34 @@ _COLUMN_STATEMENTS = [
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )""",
+    # 0257: dni robocze uzytkownika w oknie czasu — mianownik wskaznikow
+    # „na dzien" (D5). Do 2026-08-31 Power Calling dzielil przez sztywne 5
+    # i publikowal imienna liste „ponizej progu", wiec osoba na urlopie
+    # ladowala na niej pod nazwiskiem.
+    #
+    # Trzymamy WYLACZNIE liczby dni — nigdy typu nieobecnosci ani notatki
+    # (dane o zdrowiu). Okno, nie miesiac: Power Calling raportuje tydzien ISO,
+    # a wskazniki MD miesiac; przyblizanie jednego z drugiego byloby zgadywaniem.
+    #
+    # Po dodaniu tabeli TUTAJ dopisz ja tez do `core_checks` (/api/health/deep) —
+    # prod alembic bywa osierocony, wiec to jest jedyny realny dowod wdrozenia.
+    """CREATE TABLE IF NOT EXISTS user_workday_periods (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        period_start DATE NOT NULL,
+        period_end DATE NOT NULL,
+        business_days INTEGER NOT NULL,
+        absence_days NUMERIC(5,1) NOT NULL,
+        working_days NUMERIC(5,1) NOT NULL,
+        basis VARCHAR(64) NOT NULL DEFAULT 'business_days_minus_approved_leave',
+        source VARCHAR(32) NOT NULL DEFAULT 'compass',
+        synced_at TIMESTAMPTZ DEFAULT now(),
+        CONSTRAINT uq_user_workday_period UNIQUE (user_id, period_start, period_end)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_user_workday_periods_user_id "
+    "ON user_workday_periods (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_user_workday_periods_window "
+    "ON user_workday_periods (period_start, period_end)",
     # 0199: archiwum historii rekrutacji usuniętej korekcyjnie. Musi istnieć
     # ZANIM ktokolwiek wywoła DELETE /candidates/{id}/recruitments/{job_id} —
     # brak tabeli zamieniłby archiwizację w błąd, a alternatywą byłby powrót do
@@ -2774,6 +2802,21 @@ _COLUMN_STATEMENTS = [
             ADD CONSTRAINT ck_client_cv_rules_language
             CHECK (cv_language IS NULL OR cv_language IN ('pl', 'en'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0256: konfigurowalna punktacja Insights (Liga Mistrzów + progi Ścieżki
+    # rozwoju). CREATE TABLE idzie TU, a nie przez `Base.metadata.create_all` —
+    # tamten blok to jedna transakcja i na prodzie potrafi paść w całości
+    # (incydent Cortex, PR #664), zabierając ze sobą wszystkie pozostałe tabele.
+    #
+    # Brak tej tabeli nie wywraca Ligi: `get_scoring_config` degraduje się do
+    # wartości domyślnych z kodu. Ale wtedy ekran ustawień przyjmuje zapis,
+    # który znika — czyli awaria najgorszego rodzaju, bo cicha. Sondą jest
+    # `insights_scoring_config` w `core_checks` (/api/health/deep).
+    """CREATE TABLE IF NOT EXISTS insights_scoring_config (
+        key VARCHAR(64) PRIMARY KEY,
+        value INTEGER NOT NULL,
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
     # 0255: klient wprost na wygenerowanym dokumencie. Tryb "upload" (99,9%
     # generacji) nie ma joba, więc bez tej kolumny klienta nie da się ani
     # zastosować, ani później odtworzyć.
@@ -3824,6 +3867,22 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
+    # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
+    # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie
+    # wag do domyślnych na każdym deployu.
+    """INSERT INTO insights_scoring_config (key, value) VALUES
+           ('league_points_placement', 150),
+           ('league_points_interview', 15),
+           ('league_points_recommendation', 5),
+           ('league_min_placements_month1', 1),
+           ('league_min_placements_month2', 2),
+           ('league_min_placements_month3', 3),
+           ('seniority_senior_placements', 6),
+           ('seniority_senior_window_months', 6),
+           ('seniority_expert_placements', 12),
+           ('seniority_expert_window_months', 12)
+       ON CONFLICT (key) DO NOTHING""",
     # 0248: stare kontrakty miały jedną walutę dla obu stawek. Nie
     # nadpisujemy już uzupełnionej strony, więc safety-net jest idempotentny
     # także po utworzeniu kontraktu mieszanego.

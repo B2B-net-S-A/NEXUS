@@ -32,8 +32,11 @@ from app.services.autenti.webhook_handler import handle_event
 async def _seed_signature(db, *, status: SignatureStatus) -> tuple[int, str]:
     u = uuid.uuid4().hex[:12]
     user = User(
-        email=f"autenti-{u}@example.com", password_hash=hash_password("x"),
-        name="Sender", role=UserRole.admin, is_active=True,
+        email=f"autenti-{u}@example.com",
+        password_hash=hash_password("x"),
+        name="Sender",
+        role=UserRole.admin,
+        is_active=True,
     )
     client = Client(name=f"Autenti {u}")
     cand = Candidate(name="Jan", lastname=f"Kowalski-{u}")

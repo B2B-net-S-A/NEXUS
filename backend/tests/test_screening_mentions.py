@@ -44,9 +44,7 @@ async def _new_user(db, role: UserRole) -> tuple[User, str]:
 
 async def _new_candidate(db) -> Candidate:
     suffix = uuid.uuid4().hex[:8]
-    c = Candidate(
-        name=f"Cand{suffix}", lastname="Scr", email=f"cand-{suffix}@x.com"
-    )
+    c = Candidate(name=f"Cand{suffix}", lastname="Scr", email=f"cand-{suffix}@x.com")
     db.add(c)
     await db.flush()
     return c
@@ -83,9 +81,7 @@ async def scr_setup(app_client: AsyncClient) -> dict[str, Any]:
         }
 
 
-async def test_screening_note_concats_three_fields(
-    app_client: AsyncClient, scr_setup
-):
+async def test_screening_note_concats_three_fields(app_client: AsyncClient, scr_setup):
     """Mention w 3 osobnych polach → 3 ScreeningNoteMention rows."""
     headers = await _login(
         app_client, scr_setup["author_email"], scr_setup["author_password"]
@@ -108,21 +104,29 @@ async def test_screening_note_concats_three_fields(
 
     async with AsyncSessionLocal() as db:
         mentions = (
-            await db.execute(
-                select(ScreeningNoteMention).where(
-                    ScreeningNoteMention.screening_note_id == note_id
+            (
+                await db.execute(
+                    select(ScreeningNoteMention).where(
+                        ScreeningNoteMention.screening_note_id == note_id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         notifs = (
-            await db.execute(
-                select(Notification).where(
-                    Notification.notification_type == NotificationType.note_mention,
-                    Notification.related_entity_type == "screening_note",
-                    Notification.related_entity_id == note_id,
+            (
+                await db.execute(
+                    select(Notification).where(
+                        Notification.notification_type == NotificationType.note_mention,
+                        Notification.related_entity_type == "screening_note",
+                        Notification.related_entity_id == note_id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     user_ids = {m.user_id for m in mentions}
     assert user_ids == {
@@ -133,9 +137,7 @@ async def test_screening_note_concats_three_fields(
     assert len(notifs) == 3
 
 
-async def test_screening_note_filters_self_mention(
-    app_client: AsyncClient, scr_setup
-):
+async def test_screening_note_filters_self_mention(app_client: AsyncClient, scr_setup):
     """Author oznacza siebie + t1 → tylko t1 dostaje mention."""
     headers = await _login(
         app_client, scr_setup["author_email"], scr_setup["author_password"]
@@ -147,8 +149,7 @@ async def test_screening_note_filters_self_mention(
             "candidate_id": scr_setup["candidate_id"],
             "screening_type": "initial_screening",
             "red_flags": (
-                f"@{scr_setup['author_email']} self + "
-                f"@{scr_setup['t1_email']} target"
+                f"@{scr_setup['author_email']} self + @{scr_setup['t1_email']} target"
             ),
             "salary_currency": "PLN",
             "salary_negotiable": False,
@@ -159,11 +160,15 @@ async def test_screening_note_filters_self_mention(
 
     async with AsyncSessionLocal() as db:
         mentions = (
-            await db.execute(
-                select(ScreeningNoteMention).where(
-                    ScreeningNoteMention.screening_note_id == note_id
+            (
+                await db.execute(
+                    select(ScreeningNoteMention).where(
+                        ScreeningNoteMention.screening_note_id == note_id
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     user_ids = {m.user_id for m in mentions}
     assert user_ids == {scr_setup["t1_id"]}

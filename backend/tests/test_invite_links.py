@@ -158,12 +158,11 @@ def _stub_external_services(monkeypatch):
     tests decide whether to capture/stub it, so we don't accidentally hide
     the behaviour a test is trying to verify.
     """
+
     async def _noop_embed(candidate_id, db):
         return True
 
-    monkeypatch.setattr(
-        "app.services.embedding_service.embed_candidate", _noop_embed
-    )
+    monkeypatch.setattr("app.services.embedding_service.embed_candidate", _noop_embed)
 
 
 @pytest.mark.asyncio
@@ -370,10 +369,7 @@ async def test_public_apply_duplicate_email_parks_submission_without_mutation(
             )
         )
         assert submission is not None
-        assert (
-            submission.status
-            == ApplicationSubmissionStatus.pending_review.value
-        )
+        assert submission.status == ApplicationSubmissionStatus.pending_review.value
         assert submission.submitted_first_name == "Attacker"
         assert submission.submitted_email == applicant_email
         assert submission.job_id == job_id
@@ -433,9 +429,7 @@ async def test_revoke_prevents_future_applications(inv_client: AsyncClient):
         )
     ).json()["token"]
 
-    rev = await inv_client.post(
-        f"/api/invite-links/{token}/revoke", headers=headers
-    )
+    rev = await inv_client.post(f"/api/invite-links/{token}/revoke", headers=headers)
     assert rev.status_code == 204
 
     meta = await inv_client.get(f"/api/public/apply/{token}")
@@ -474,18 +468,14 @@ async def test_public_apply_rejects_expired_link(inv_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_public_apply_schedules_enrichment(
-    inv_client: AsyncClient, monkeypatch
-):
+async def test_public_apply_schedules_enrichment(inv_client: AsyncClient, monkeypatch):
     """Successful apply schedules the post-apply pipeline for the new candidate."""
     scheduled: list[int] = []
 
     async def _capture(candidate_id: int) -> None:
         scheduled.append(candidate_id)
 
-    monkeypatch.setattr(
-        "app.api.public_share._invite_post_apply_task", _capture
-    )
+    monkeypatch.setattr("app.api.public_share._invite_post_apply_task", _capture)
 
     _, email, password = await _seed_user(UserRole.recruiter)
     headers = await _login(inv_client, email, password)
@@ -517,9 +507,7 @@ async def test_public_apply_schedules_enrichment(
 @pytest.mark.asyncio
 async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
     """GET /candidates/{id} surfaces label + recruiter name after invite apply."""
-    _, recruiter_email, recruiter_password = await _seed_user(
-        UserRole.recruiter, "src"
-    )
+    _, recruiter_email, recruiter_password = await _seed_user(UserRole.recruiter, "src")
     headers = await _login(inv_client, recruiter_email, recruiter_password)
     job_id = await _seed_job()
 
@@ -558,9 +546,7 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
         assert cand is not None
         cand_id = cand.id
 
-    detail = await inv_client.get(
-        f"/api/candidates/{cand_id}", headers=admin_headers
-    )
+    detail = await inv_client.get(f"/api/candidates/{cand_id}", headers=admin_headers)
     assert detail.status_code == 200, detail.text
     body = detail.json()
     assert body.get("invite_source") is not None
@@ -636,9 +622,7 @@ async def test_invite_source_label_resolves_on_encrypted_v2_path(
         assert cand is not None
         cand_id = cand.id
 
-    detail = await inv_client.get(
-        f"/api/candidates/{cand_id}", headers=admin_headers
-    )
+    detail = await inv_client.get(f"/api/candidates/{cand_id}", headers=admin_headers)
     assert detail.status_code == 200, detail.text
     assert detail.json()["invite_source"]["label"] == "v2 kampania"
 
@@ -747,9 +731,7 @@ async def test_post_apply_task_auto_assigns_competence_category(
     async def _noop_cv_enrich(candidate_id: int) -> None:
         return None
 
-    monkeypatch.setattr(
-        "app.api.candidates._enrich_candidate_cv_task", _noop_cv_enrich
-    )
+    monkeypatch.setattr("app.api.candidates._enrich_candidate_cv_task", _noop_cv_enrich)
 
     # Seed a CompetenceCategory the fake classifier can point at.
     cc_slug = f"backend-dev-{uuid.uuid4().hex[:6]}"

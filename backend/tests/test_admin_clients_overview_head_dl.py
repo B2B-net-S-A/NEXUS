@@ -74,9 +74,7 @@ async def test_head_dl_prefers_is_head_true(
     await _assign(dl_other, client_id, is_head=False)
     await _assign(dl_head, client_id, is_head=True)
 
-    resp = await app_client.get(
-        "/api/admin/clients-overview", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/admin/clients-overview", headers=app_auth_headers)
     assert resp.status_code == 200
     matching = [r for r in resp.json() if r["client_id"] == client_id]
     assert len(matching) == 1
@@ -95,9 +93,7 @@ async def test_head_dl_fallback_to_any_assigned_dl(
     client_id = await _seed_client(f"FallbackClient-{suffix}")
     await _assign(dl_id, client_id, is_head=False)
 
-    resp = await app_client.get(
-        "/api/admin/clients-overview", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/admin/clients-overview", headers=app_auth_headers)
     assert resp.status_code == 200
     matching = [r for r in resp.json() if r["client_id"] == client_id]
     assert len(matching) == 1
@@ -115,9 +111,7 @@ async def test_head_dl_none_when_no_assignment(
     suffix = uuid.uuid4().hex[:6]
     client_id = await _seed_client(f"NoDLClient-{suffix}")
 
-    resp = await app_client.get(
-        "/api/admin/clients-overview", headers=app_auth_headers
-    )
+    resp = await app_client.get("/api/admin/clients-overview", headers=app_auth_headers)
     assert resp.status_code == 200
     matching = [r for r in resp.json() if r["client_id"] == client_id]
     assert len(matching) == 1

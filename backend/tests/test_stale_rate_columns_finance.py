@@ -336,8 +336,6 @@ async def test_contractor_list_latest_order_margin_uses_the_scheduled_rate(
         f"/api/clients/{client_id}/orders", headers=app_auth_headers
     )
     assert resp.status_code == 200, resp.text
-    row = next(
-        c for c in resp.json()["contractors"] if c["contract_id"] == contract_id
-    )
+    row = next(c for c in resp.json()["contractors"] if c["contract_id"] == contract_id)
     assert Decimal(str(row["latest_order_monthly_margin"])) == Decimal(_P2_MARGIN)
     assert Decimal(str(row["orders"][0]["monthly_margin"])) == Decimal(_P2_MARGIN)

@@ -138,7 +138,10 @@ def _files_charging_without_declaring() -> set[str]:
         for node in ast.walk(tree):
             # Calls, not imports or mentions in comments/docstrings.
             if isinstance(node, ast.Call) and (
-                (isinstance(node.func, ast.Name) and node.func.id == "check_and_increment")
+                (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "check_and_increment"
+                )
                 or (
                     isinstance(node.func, ast.Attribute)
                     and node.func.attr == "check_and_increment"
@@ -282,6 +285,4 @@ def test_raw_client_baseline_has_no_stale_entries():
     """Guard the guard: a stale entry hides a file that was already migrated,
     and makes the baseline look larger than the real debt."""
     stale = _RAW_CLIENT_BASELINE - _files_constructing_a_raw_client()
-    assert not stale, (
-        f"already migrated, remove from the baseline: {sorted(stale)}"
-    )
+    assert not stale, f"already migrated, remove from the baseline: {sorted(stale)}"

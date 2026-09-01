@@ -37,6 +37,10 @@ from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services.insights_scoring_config import (
+    get_scoring_config,
+    league_points_formula,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +55,16 @@ QUARTERLY_PRIZES_PLN = {1: 5000, 2: 3000, 3: 2000}
 MONTHLY_RACE_PRIZE_PLN = 1500
 MONTHLY_RACE_PRIZE_NAME = "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)"
 
-# System punktowy Liga Mistrzów Rekrutacja (port z InfraReportera).
-# Marlena 5P/8I/22R = 5·150 + 8·15 + 22·5 = 980 pkt ✓
-POINTS_PER_PLACEMENT = 150
-POINTS_PER_INTERVIEW = 15
-POINTS_PER_RECOMMENDATION = 5
-
-POINTS_FORMULA = {
-    "placement": POINTS_PER_PLACEMENT,
-    "interview": POINTS_PER_INTERVIEW,
-    "recommendation": POINTS_PER_RECOMMENDATION,
-}
+# System punktowy Liga Mistrzów Rekrutacja — wagi i warunek udziału są
+# KONFIGUROWALNE (decyzja D3, tabela `insights_scoring_config`). Stałe zniknęły
+# stąd celowo: dopóki żyły w kodzie, każde strojenie formuły rozdzielającej
+# 5000/3000/2000 PLN wymagało deployu i nie zostawiało śladu, kto je zmienił.
+# Wartości domyślne (150/15/5) mieszkają w `SCORING_DEFAULTS` — jednym miejscu
+# na całe repozytorium.
+#
+# Progu DL (`QUARTERLY_MIN_PLACEMENTS`) to NIE dotyczy: liga Delivery Leadów
+# ma własny, dwuczłonowy warunek (hit ratio ≥ 30% ORAZ ≥ 3 placementy), nie ma
+# klucza w konfiguracji i D3 jej nie obejmuje.
 
 # Wymóg tygodniowej aktywności dla Wyścigu Rekomendacji.
 MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY = 4
@@ -225,10 +228,11 @@ async def _rank_recruiters_by_points(
     *,
     start: datetime,
     end: datetime,
+    weights: dict[str, int],
     min_placements: int = 0,
     limit: Optional[int] = None,
 ) -> list[RankedUser]:
-    """Ranking po systemie punktowym (placement=150, interview=15, rekomendacja=5).
+    """Ranking po systemie punktowym; wagi przychodzą z konfiguracji (D3).
 
     PR 4 (plan analytics §3.2): konkursy używają TEJ SAMEJ funkcji milestone
     i atrybucji co KPI — pierwsze osiągnięcie stage'a per (kandydat, job)
@@ -236,8 +240,16 @@ async def _rank_recruiters_by_points(
     `moved_by` liczonego per KAŻDY ruch. „Weryfikacje" = stage `verified`
     (wcześniej: new/screening — inna definicja niż wszędzie indziej).
 
+    **Niezakwalifikowani NIE wypadają z listy** — dostają `qualified=False`
+    i powód. Twardy `continue` sprawiał, że osoba bez wymaganego placementu
+    znikała z rankingu bez śladu, więc jedyną informacją, jaką dostawała, było
+    „nie ma cię tu". Oryginał (`competitions.ts:107-137`) pokazywał ją na
+    pomarańczowo z adnotacją „(brakuje placementu)". Nagrodę filtruje
+    `qualified_for_award`, wołane przy każdym wyprowadzeniu podium.
+
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
-    recommendations, verifications, role}."""
+    recommendations, verifications, role, qualified, required_placements,
+    disqualification_reasons}."""
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
     rows = (
@@ -272,7 +284,6 @@ async def _rank_recruiters_by_points(
                 "role": r.role,
                 "placements": 0,
                 "interviews": 0,
-                "client_interviews": 0,
                 "recommendations": 0,
                 "verifications": 0,
             },
@@ -280,8 +291,13 @@ async def _rank_recruiters_by_points(
         cnt = int(r.cnt)
         if r.stage == "hired":
             bucket["placements"] += cnt
-        elif r.stage == "client_interview":
-            bucket["client_interviews"] += cnt
+        elif r.stage == "interview":
+            # D3: składnik „interview" liczy stage `interview`, NIE
+            # `client_interview`. Import z Traffita nie mapuje
+            # `client_interview` na nic (`traffit/mappers.py:404-449`), więc
+            # ten składnik formuły był W PRAKTYCE ZAWSZE ZEROWY — przy
+            # nagrodach 5000/3000/2000 PLN liczonych z tej sumy.
+            bucket["interviews"] += cnt
         elif r.stage == "cv_sent":
             bucket["recommendations"] += cnt
         elif r.stage == "verified":
@@ -289,13 +305,14 @@ async def _rank_recruiters_by_points(
 
     ranked: list[RankedUser] = []
     for user_id, data in per_user.items():
-        if data["placements"] < min_placements:
-            continue
         points = (
-            data["placements"] * POINTS_PER_PLACEMENT
-            + data["client_interviews"] * POINTS_PER_INTERVIEW
-            + data["recommendations"] * POINTS_PER_RECOMMENDATION
+            data["placements"] * weights["placement"]
+            + data["interviews"] * weights["interview"]
+            + data["recommendations"] * weights["recommendation"]
         )
+        reasons: list[str] = []
+        if data["placements"] < min_placements:
+            reasons.append("MIN_PLACEMENTS_NOT_MET")
         ranked.append(
             RankedUser(
                 user_id=user_id,
@@ -304,14 +321,22 @@ async def _rank_recruiters_by_points(
                 extras={
                     "role": data["role"],
                     "placements": data["placements"],
-                    "interviews": data["client_interviews"],
+                    "interviews": data["interviews"],
                     "recommendations": data["recommendations"],
                     "verifications": data["verifications"],
+                    "qualified": not reasons,
+                    "required_placements": min_placements,
+                    "disqualification_reasons": reasons,
                 },
             )
         )
 
-    ranked.sort(key=lambda r: r.metric_value, reverse=True)
+    # Remis rozstrzyga `user_id`, jak w rankingach SQL-owych obok. Bez jawnego
+    # tie-breaku kolejność brała się z kolejności wierszy zwróconych przez bazę
+    # (zapytanie nie ma ORDER BY), więc przy równych punktach podium mogło się
+    # różnić między odczytami — a jego pierwszy wiersz to nazwisko przypisane
+    # do nagrody, potem zamrażane niezmiennie.
+    ranked.sort(key=lambda r: (-r.metric_value, r.user_id))
     if limit:
         ranked = ranked[:limit]
     return ranked
@@ -446,19 +471,60 @@ async def quarterly_champions_dl(db: AsyncSession, period: str) -> list[RankedUs
     return await _rank_dls_by_placements(db, start=start, end=end, limit=10)
 
 
+def required_placements_for_quarter(
+    year: int,
+    quarter: int,
+    config: dict[str, int],
+    today: Optional[date] = None,
+) -> int:
+    """Warunek udziału w Lidze — PROGRESYWNY wg miesiąca kwartału (D3).
+
+    Płaskie „3 placementy" znaczyło, że przez pierwsze dwa miesiące kwartału
+    ranking pokazywał podium wyliczone z warunku, którego przy tym tempie
+    nie dało się jeszcze spełnić — nikt nie kwalifikował się w styczniu, bo
+    styczeń nie zdążył dać trzech placementów. Oryginał
+    (`competitions.ts`, „Warunek udziału") liczy `monthInQuarter`: 1 / 2 / 3.
+
+    Kwartał ZAMKNIĘTY dostaje próg trzeciego miesiąca — pełny kwartał ocenia
+    się pełnym warunkiem, inaczej patrząc wstecz zobaczylibyśmy kwalifikacje
+    przyznane taryfą ulgową ze stycznia.
+    """
+    today = today or business_today()
+    current = ((today.month - 1) // 3 + 1, today.year)
+    if (quarter, year) == current:
+        month_in_quarter = ((today.month - 1) % 3) + 1
+    elif (year, quarter) < (today.year, current[0]):
+        month_in_quarter = 3
+    else:
+        # Kwartał, który się jeszcze nie zaczął: próg pierwszego miesiąca.
+        # Zero nie wchodzi w grę — brak warunku udziału to inna reguła gry,
+        # nie „warunek jeszcze nieosiągalny".
+        month_in_quarter = 1
+    return int(config[f"league_min_placements_month{month_in_quarter}"])
+
+
 async def quarterly_champions_recruiter(
     db: AsyncSession, period: str
 ) -> list[RankedUser]:
-    """Liga Mistrzów Rekrutacja — ranking po PUNKTACH (placement=150 + interview=15
-    + rekomendacja=5), min 3 placementy jako warunek udziału."""
+    """Liga Mistrzów Rekrutacja — ranking punktowy z wagami z konfiguracji.
+
+    Zwraca CAŁY ranking, także niezakwalifikowanych (`qualified=False`).
+    `limit=10` zniknęło świadomie: przy zachowanym limicie osoba z nagrodą
+    mogła wypaść z wyniku wypchnięta przez kogoś głośniejszego, kto warunku
+    udziału nie spełnia — dokładnie ten defekt, który w Wyścigu Rekomendacji
+    rozwiązuje podwójny ROW_NUMBER. Podium i tak tnie `qualified_for_award`,
+    a populacja to kilkadziesiąt osób, nie tysiące.
+    """
     year, q = parse_quarter(period)
     start, end = quarter_bounds(year, q)
+    config = await get_scoring_config(db)
     return await _rank_recruiters_by_points(
         db,
         start=start,
         end=end,
-        min_placements=QUARTERLY_MIN_PLACEMENTS,
-        limit=10,
+        weights=league_points_formula(config),
+        min_placements=required_placements_for_quarter(year, q, config),
+        limit=None,
     )
 
 
@@ -682,7 +748,13 @@ async def compose_monthly_races(
 
     # Wykluczenie: lider kwartalny (rank 1 w quarterly_champions_recruiter)
     # nie może wygrać wyścigu miesięcznego — ale z rankingu nie wypada.
-    quarterly = await quarterly_champions_recruiter(db, quarter_period)
+    # `qualified_for_award`, bo ranking kwartalny niesie teraz także
+    # niezakwalifikowanych. Bez tego filtra „lider kwartału" bywałby osobą,
+    # która nagrody kwartalnej nie dostanie — a wykluczenie z wyścigu
+    # miesięcznego istnieje wyłącznie po to, żeby ta sama osoba nie brała obu.
+    quarterly = qualified_for_award(
+        await quarterly_champions_recruiter(db, quarter_period)
+    )
     excluded_ids = {quarterly[0].user_id} if quarterly else set()
 
     days_left = days_left_in_month(business_today())
@@ -843,8 +915,17 @@ async def freeze_competition(
         return FrozenPodium(existing, already_frozen=True)
 
     ranked = await compute_live(db, type_, period)
-    if type_ == CompetitionType.monthly_recommendations:
-        ranked = qualified_for_award(ranked)
+    # Filtr kwalifikacji jest BEZWARUNKOWY, nie zawężony do jednego typu:
+    # `qualified_for_award` domyślnie przepuszcza wiersze bez flagi, więc
+    # rankingi, które jej nie ustawiają (DL, wyścig placementów), zachowują
+    # się dokładnie jak dotąd. Lista typów byłaby kolejnym miejscem do
+    # zaktualizowania przy każdym nowym warunku udziału — a pominięcie go
+    # znaczy nagrodę dla kogoś, kto warunku nie spełnił.
+    #
+    # Reszta `freeze_competition` jest NIETKNIĘTA: write-once zostaje, zamrożone
+    # podia nie są przeliczane, nowa formuła obowiązuje od najbliższego
+    # niezamkniętego kwartału (D3).
+    ranked = qualified_for_award(ranked)
     top3 = ranked[:3]
     full_snapshot = [r.to_dict() for r in ranked[:10]]
 

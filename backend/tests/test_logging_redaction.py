@@ -34,7 +34,9 @@ def test_redacts_email():
 
 
 def test_redacts_provider_key():
-    out = redact_sensitive("using key sk-notARealKeyPlaceholder0000 now")  # gitleaks:allow
+    out = redact_sensitive(
+        "using key sk-notARealKeyPlaceholder0000 now"
+    )  # gitleaks:allow
     assert "sk-notARealKeyPlaceholder0000" not in out
     assert "[redacted-key]" in out
 
@@ -46,9 +48,15 @@ def test_redacts_bearer_token():
 
 
 def test_redacts_labelled_secrets():
-    assert "[redacted]" in redact_sensitive("password=NotARealPasswordValue")  # gitleaks:allow
-    assert "[redacted]" in redact_sensitive('api_key: "NotARealApiKeyValue"')  # gitleaks:allow
-    assert "[redacted]" in redact_sensitive("token = NotARealTokenValue00")  # gitleaks:allow
+    assert "[redacted]" in redact_sensitive(
+        "password=NotARealPasswordValue"
+    )  # gitleaks:allow
+    assert "[redacted]" in redact_sensitive(
+        'api_key: "NotARealApiKeyValue"'
+    )  # gitleaks:allow
+    assert "[redacted]" in redact_sensitive(
+        "token = NotARealTokenValue00"
+    )  # gitleaks:allow
     # the label itself is preserved for debuggability
     out = redact_sensitive("password=NotARealPasswordValue")  # gitleaks:allow
     assert out.startswith("password")

@@ -222,7 +222,9 @@ def test_loop_retries_before_giving_up_for_the_day() -> None:
         "one transient S3 blip must not cost a whole day of backups; the run "
         "is attempted several times before the loop sleeps until tomorrow."
     )
-    assert "BACKUP_RETRY_DELAY_SECONDS" in loop, "retries must be spaced out, not immediate"
+    assert "BACKUP_RETRY_DELAY_SECONDS" in loop, (
+        "retries must be spaced out, not immediate"
+    )
 
 
 def test_backup_service_has_a_healthcheck() -> None:
@@ -258,7 +260,9 @@ def test_drill_restores_the_offsite_backup_not_the_legacy_vps_copy() -> None:
         "docs/disaster-recovery.md — restoring it proves nothing about the "
         "off-site backup this repository actually produces."
     )
-    assert "LATEST.json" in drill, "the drill must assert the backup is recent and clean"
+    assert "LATEST.json" in drill, (
+        "the drill must assert the backup is recent and clean"
+    )
 
 
 def test_drill_actually_decrypts() -> None:
@@ -389,9 +393,7 @@ def test_backup_hour_survives_every_value_a_human_may_type(
     w pole „godzina", więc to nie jest przypadek brzegowy.
     """
     src = (_REPO / "backup" / "loop.sh").read_text(encoding="utf-8")
-    m = re.search(
-        r'^HOUR="\$\{BACKUP_HOUR_UTC:-2\}".*?^fi$', src, re.S | re.M
-    )
+    m = re.search(r'^HOUR="\$\{BACKUP_HOUR_UTC:-2\}".*?^fi$', src, re.S | re.M)
     assert m, "nie znaleziono normalizacji HOUR — zmienił się kształt loop.sh"
     snippet = f'BACKUP_HOUR_UTC="{raw}"\n{m.group(0)}\necho "$HOUR"'
     got = _run_sh(snippet + "\n: $(( HOUR * 3600 ))")

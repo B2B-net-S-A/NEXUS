@@ -67,12 +67,8 @@ async def test_dl_clients_deduplicates_same_person_two_accounts(
     """Same display-name across @b2bnetwork.pl + @inframinds.eu → 1 row."""
     suffix = uuid.uuid4().hex[:6]
     name = f"DedupTest {suffix}"
-    legacy_id = await _seed_dl_user(
-        f"dedup-legacy-{suffix}@b2bnetwork.pl", name
-    )
-    new_id = await _seed_dl_user(
-        f"dedup-new-{suffix}@inframinds.eu", name
-    )
+    legacy_id = await _seed_dl_user(f"dedup-legacy-{suffix}@b2bnetwork.pl", name)
+    new_id = await _seed_dl_user(f"dedup-new-{suffix}@inframinds.eu", name)
 
     cli_a = await _seed_client(f"DedupClient-A-{suffix}")
     cli_b = await _seed_client(f"DedupClient-B-{suffix}")
@@ -105,12 +101,8 @@ async def test_dl_clients_dedup_preserves_is_head_or(
     """If any sibling has is_head=True for a shared client, merged row keeps it."""
     suffix = uuid.uuid4().hex[:6]
     name = f"HeadFlagTest {suffix}"
-    legacy_id = await _seed_dl_user(
-        f"head-legacy-{suffix}@b2bnetwork.pl", name
-    )
-    new_id = await _seed_dl_user(
-        f"head-new-{suffix}@inframinds.eu", name
-    )
+    legacy_id = await _seed_dl_user(f"head-legacy-{suffix}@b2bnetwork.pl", name)
+    new_id = await _seed_dl_user(f"head-new-{suffix}@inframinds.eu", name)
 
     cli = await _seed_client(f"SharedClient-{suffix}")
     # Same client assigned to BOTH accounts; head=True only on legacy.
@@ -151,9 +143,7 @@ async def test_dl_clients_normalizes_diacritics_and_dl_suffix(
     assert resp.status_code == 200
     # Both names should collapse — search for either base form.
     matching = [
-        r
-        for r in resp.json()
-        if r["delivery_lead"]["id"] in {legacy_id, new_id}
+        r for r in resp.json() if r["delivery_lead"]["id"] in {legacy_id, new_id}
     ]
     assert len(matching) == 1, (
         f"Expected 1 row after diacritic dedup, got {len(matching)}"

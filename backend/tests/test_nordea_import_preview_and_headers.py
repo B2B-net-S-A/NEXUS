@@ -156,7 +156,9 @@ def test_sole_order_match_is_flagged_as_a_guess():
     numer, okres i stawkę z historycznego wiersza pliku.
     """
 
-    contract = _FakeContract([_FakeOrder(7, "222", date(2026, 1, 1), date(2026, 12, 31))])
+    contract = _FakeContract(
+        [_FakeOrder(7, "222", date(2026, 1, 1), date(2026, 12, 31))]
+    )
     picked, kind = _pick_existing_order(
         contract,
         _row("279411", date(2026, 2, 25), date(2026, 8, 23)),
@@ -169,7 +171,9 @@ def test_sole_order_match_is_flagged_as_a_guess():
 def test_later_rows_never_fall_back_to_guessing():
     """Tylko pierwszy wiersz osoby wolno dopasować heurystyką."""
 
-    contract = _FakeContract([_FakeOrder(7, "222", date(2026, 1, 1), date(2026, 12, 31))])
+    contract = _FakeContract(
+        [_FakeOrder(7, "222", date(2026, 1, 1), date(2026, 12, 31))]
+    )
     picked, kind = _pick_existing_order(
         contract,
         _row("279411", date(2026, 2, 25), date(2026, 8, 23)),

@@ -92,9 +92,7 @@ def mock_email(monkeypatch):
     )
     monkeypatch.setattr(
         "app.api.auth.send_password_changed_notification",
-        lambda **kwargs: fake_send_email(
-            kwargs["to_email"], "Changed", "notify", None
-        ),
+        lambda **kwargs: fake_send_email(kwargs["to_email"], "Changed", "notify", None),
     )
     monkeypatch.setattr(
         "app.api.admin.send_password_reset_email",
@@ -127,19 +125,23 @@ async def test_forgot_password_creates_token_for_existing_user(
     # Token w DB
     async with AsyncSessionLocal() as db:
         tokens = (
-            await db.execute(
-                select(PasswordResetToken).where(
-                    PasswordResetToken.user_id == fresh_user["id"]
+            (
+                await db.execute(
+                    select(PasswordResetToken).where(
+                        PasswordResetToken.user_id == fresh_user["id"]
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(tokens) == 1
         assert tokens[0].used_at is None
 
     # Email wysłany
-    assert any(
-        e["to"] == fresh_user["email"] for e in mock_email
-    ), f"Expected email to {fresh_user['email']} in {mock_email}"
+    assert any(e["to"] == fresh_user["email"] for e in mock_email), (
+        f"Expected email to {fresh_user['email']} in {mock_email}"
+    )
 
 
 async def test_forgot_password_unknown_email_returns_200_no_token(
@@ -153,9 +155,7 @@ async def test_forgot_password_unknown_email_returns_200_no_token(
     assert resp.status_code == 200
 
     async with AsyncSessionLocal() as db:
-        tokens = (
-            await db.execute(select(PasswordResetToken))
-        ).scalars().all()
+        tokens = (await db.execute(select(PasswordResetToken))).scalars().all()
         # No tokens for this email — but we don't filter by user_id since
         # the user doesn't exist. Verify by looking at recent tokens.
         assert all(
@@ -176,12 +176,16 @@ async def test_forgot_password_invalidates_previous_active_tokens(
 
     async with AsyncSessionLocal() as db:
         tokens = (
-            await db.execute(
-                select(PasswordResetToken)
-                .where(PasswordResetToken.user_id == fresh_user["id"])
-                .order_by(PasswordResetToken.id)
+            (
+                await db.execute(
+                    select(PasswordResetToken)
+                    .where(PasswordResetToken.user_id == fresh_user["id"])
+                    .order_by(PasswordResetToken.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(tokens) == 2
         # Pierwszy invalidated, drugi active
         assert tokens[0].used_at is not None
@@ -315,13 +319,17 @@ async def test_admin_reset_sets_force_password_change_and_sends_notification(
 
         # Activity audit log
         activities = (
-            await db.execute(
-                select(Activity).where(
-                    Activity.entity_id == fresh_user["id"],
-                    Activity.action == "password_changed_by_admin",
+            (
+                await db.execute(
+                    select(Activity).where(
+                        Activity.entity_id == fresh_user["id"],
+                        Activity.action == "password_changed_by_admin",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(activities) >= 1
 
     # Email to user
@@ -343,12 +351,16 @@ async def test_admin_send_reset_link_creates_token_and_sends_email(
 
     async with AsyncSessionLocal() as db:
         tokens = (
-            await db.execute(
-                select(PasswordResetToken).where(
-                    PasswordResetToken.user_id == fresh_user["id"]
+            (
+                await db.execute(
+                    select(PasswordResetToken).where(
+                        PasswordResetToken.user_id == fresh_user["id"]
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(tokens) == 1
         assert tokens[0].used_at is None
         assert tokens[0].requested_by_admin_id is not None
