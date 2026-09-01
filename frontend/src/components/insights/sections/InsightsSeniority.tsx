@@ -20,10 +20,11 @@ const LEVEL_LABEL: Record<SeniorityLevel, string> = {
 
 const LEVEL_CLASS: Record<SeniorityLevel, string> = {
   junior: "bg-muted text-muted-foreground border-border",
-  senior:
-    "bg-primary/10 text-primary border-primary/20",
-  expert:
-    "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800",
+  senior: "bg-primary/10 text-primary border-primary/20",
+  // Tokeny zamiast `amber-*` — te ostatnie nie znają palet soft/kids,
+  // a plakietka „expert" stoi na tym samym ekranie co stokenizowane
+  // bursztyny wyścigów i ostrzeżeń.
+  expert: "bg-warning-muted text-warning-muted-foreground border-warning/25",
 };
 
 const ROLE_LABEL: Record<string, string> = {

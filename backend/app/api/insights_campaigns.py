@@ -100,7 +100,15 @@ RESIGNATIONS_DEFINITION_NOTE = (
     "samo jak odejście na własną prośbę."
 )
 
-_RESIGNATION_STATUSES = ["ended", "active", "ending"]
+# `ended` liczy się BEZ sufitu na dziś — status jest stwierdzeniem faktu,
+# więc data jest zapisem tego, co się wydarzyło.
+_RESIGNATION_STATUSES_FACT = ["ended"]
+# `active`/`ending` są tu po to, żeby złapać kontrakty, których nocny
+# `_promote_statuses` jeszcze nie przestemplował — ale ich data końca bywa
+# PLANEM, a nie faktem, więc liczą się dopiero, gdy ten dzień nadszedł.
+_RESIGNATION_STATUSES_PENDING = ["active", "ending"]
+
+_RESIGNATION_STATUSES = _RESIGNATION_STATUSES_FACT + _RESIGNATION_STATUSES_PENDING
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -138,7 +146,11 @@ def _campaign_window(campaign: RecruitmentCampaign) -> Period:
 
 async def _count_window(db: AsyncSession, window: Period) -> tuple[int, int]:
     """(placementy, rezygnacje) w oknie — z cache'em kluczowanym oknem."""
-    cache_key = f"{CACHE_PREFIX}:{window.cache_suffix}"
+    # Sufit odejść WCHODZI w klucz cache'u razem z oknem: dla trwającej
+    # kampanii wynik zależy od dnia odczytu, więc klucz bez dnia serwowałby
+    # jutro liczbę policzoną wczoraj przez cały TTL.
+    as_of = business_today()
+    cache_key = f"{CACHE_PREFIX}:{window.cache_suffix}:{as_of.isoformat()}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return int(cached["placements"]), int(cached["resignations"])
@@ -169,6 +181,24 @@ async def _count_window(db: AsyncSession, window: Period) -> tuple[int, int]:
     # Rezygnacje liczymy na DATACH (kolumny `Date`), a granice bierzemy z tego
     # samego `Period` — inaczej dwie połowy jednej liczby netto opisywałyby
     # dwa różne okna.
+    #
+    # SUFIT NA DZIŚ dotyczy WYŁĄCZNIE statusów `active`/`ending` i jest regułą
+    # poprawności, nie ostrożnością. Te dwa statusy są w katalogu po to, żeby
+    # złapać kontrakty, których nocny `_promote_statuses` jeszcze nie
+    # przestemplował — ale bez sufitu ta sama reguła wciąga KAŻDY kontrakt
+    # z datą końca w przyszłości mieszczącą się w oknie. Trzymiesięczna
+    # kampania miałaby więc pierwszego dnia policzone wszystkie odejścia
+    # z miesiąca drugiego i trzeciego, a baner pokazywałby netto systematycznie
+    # zaniżone — i to dokładnie wtedy, gdy zespół na niego patrzy.
+    #
+    # `ended` sufitu NIE dostaje: status jest stwierdzeniem faktu, więc jego
+    # data jest zapisem tego, co się wydarzyło, a nie planem. Objęcie go
+    # sufitem znaczyłoby, że kampania rozliczana wstecz gubi odejścia, które
+    # ktoś wprowadził z datą przyszłą i o których status już mówi „zakończone".
+    #
+    # `business_today()`, nie `CURRENT_DATE`: kontener chodzi w UTC, a okna
+    # są kalendarzowe w Europe/Warsaw — między 22:00 a północą UTC te dwie
+    # odpowiedzi to dwa różne dni.
     resignations = int(
         (
             await db.execute(
@@ -176,15 +206,23 @@ async def _count_window(db: AsyncSession, window: Period) -> tuple[int, int]:
                     """
                     SELECT count(*) AS cnt
                     FROM contracts c
-                    WHERE c.status::text = ANY(:statuses)
-                      AND COALESCE(c.terminated_at, c.end_date) >= :start_d
+                    WHERE COALESCE(c.terminated_at, c.end_date) >= :start_d
                       AND COALESCE(c.terminated_at, c.end_date) < :end_d
+                      AND (
+                            c.status::text = ANY(:fact_statuses)
+                         OR (
+                                c.status::text = ANY(:pending_statuses)
+                            AND COALESCE(c.terminated_at, c.end_date) <= :as_of
+                            )
+                          )
                     """
                 ),
                 {
-                    "statuses": _RESIGNATION_STATUSES,
+                    "fact_statuses": _RESIGNATION_STATUSES_FACT,
+                    "pending_statuses": _RESIGNATION_STATUSES_PENDING,
                     "start_d": window.start.date(),
                     "end_d": window.end.date(),
+                    "as_of": as_of,
                 },
             )
         ).scalar()

@@ -387,6 +387,54 @@ async def test_resignation_uses_terminated_at_over_end_date(camp_client: AsyncCl
 
 
 @pytest.mark.asyncio
+async def test_future_scheduled_end_is_not_a_resignation_yet(camp_client: AsyncClient):
+    """Zaplanowane odejście nie jest odejściem, dopóki dzień nie nadszedł.
+
+    `active`/`ending` są w katalogu rezygnacji po to, żeby złapać kontrakty,
+    których nocny `_promote_statuses` jeszcze nie przestemplował. Bez sufitu
+    na dziś ta sama reguła wciąga też kontrakty z datą końca w PRZYSZŁOŚCI —
+    a wtedy trzymiesięczna kampania ma pierwszego dnia policzone wszystkie
+    odejścia z miesiąca drugiego i trzeciego. Netto trwającej kampanii jest
+    wtedy systematycznie zaniżone, i to dokładnie wtedy, gdy zespół na baner
+    patrzy.
+
+    Okna testowe leżą w 2037 roku, czyli CAŁE w przyszłości — więc każdy
+    kontrakt `active` z datą końca w oknie jest tu z definicji planem.
+    """
+    await _deactivate_all_campaigns()
+    window_start, window_end = await _fresh_window()
+
+    # Plan: pracuje, koniec zaplanowany w oknie, ale dzień jeszcze nie nadszedł.
+    await _seed_contract(
+        status=ContractStatus.active,
+        start=window_start - timedelta(days=30),
+        end=window_start + timedelta(days=10),
+    )
+    # Fakt: status mówi „zakończony", więc data jest zapisem, nie planem —
+    # ten wiersz liczy się bez względu na sufit.
+    await _seed_contract(
+        status=ContractStatus.ended,
+        start=window_start - timedelta(days=30),
+        end=window_start + timedelta(days=11),
+    )
+
+    headers = await _admin_headers(camp_client)
+    body = await _create_campaign(
+        camp_client,
+        headers,
+        start=window_start.isoformat(),
+        end=window_end.isoformat(),
+        target_net=5,
+        name="Zaplanowane odejscie",
+    )
+    assert body["resignations"] == 1, (
+        "zaplanowane odejście policzyło się, zanim dzień nadszedł — netto "
+        f"trwającej kampanii jest zaniżone: {body}"
+    )
+    assert body["net"] == -1
+
+
+@pytest.mark.asyncio
 async def test_draft_and_void_are_not_resignations(camp_client: AsyncClient):
     """Szkic i anulowanie nie są odejściem.
 

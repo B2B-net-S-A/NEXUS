@@ -21,13 +21,11 @@ import { InsightsSeniority } from "@/components/insights/sections/InsightsSenior
 import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import {
-  DEFAULT_INSIGHTS_OFFSET,
-  insightsApi,
-  type InsightsPeriodKind,
-  type InsightsPeriodParams,
-} from "@/lib/insights-api";
-
-const KINDS: InsightsPeriodKind[] = ["week", "month", "quarter", "year"];
+  readPeriodFromParams,
+  writePeriodToParams,
+} from "@/lib/insights-period-url";
+import { buildFunnelCsvExport } from "@/lib/insights-csv";
+import { insightsApi, type InsightsPeriodParams } from "@/lib/insights-api";
 
 export function RekrutacjaPanel() {
   // URL jest jedynym źródłem prawdy okresu — back/forward odtwarza wybór,
@@ -35,28 +33,16 @@ export function RekrutacjaPanel() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rawKind = searchParams.get("period");
-  const rawOffsetParam = searchParams.get("offset");
-  const rawOffset =
-    rawOffsetParam === null
-      ? DEFAULT_INSIGHTS_OFFSET
-      : Number.parseInt(rawOffsetParam, 10);
-
+  // Odczyt i zapis okresu żyją w JEDNYM module dla trzech zakładek —
+  // trzy kopie tej logiki zgubiły wcześniej daty granulacji „Wszystko".
   const period: InsightsPeriodParams = useMemo(
-    () => ({
-      period: (KINDS.includes(rawKind as InsightsPeriodKind)
-        ? rawKind
-        : "month") as InsightsPeriodKind,
-      offset: Number.isFinite(rawOffset) ? rawOffset : DEFAULT_INSIGHTS_OFFSET,
-    }),
-    [rawKind, rawOffset],
+    () => readPeriodFromParams(searchParams),
+    [searchParams],
   );
 
   const setPeriod = useCallback(
     (next: InsightsPeriodParams) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("period", next.period);
-      params.set("offset", String(next.offset ?? 0));
+      const params = writePeriodToParams(searchParams, next);
       router.push(`/insights?${params.toString()}`, { scroll: false });
     },
     [router, searchParams],
@@ -73,13 +59,17 @@ export function RekrutacjaPanel() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Lejek, konwersje, time-to-hire, wyniki per osoba, wyścigi miesiąca
-          i źródła kandydatów.
+          Lejek, konwersje, time-to-hire, wyniki per osoba, wyścigi miesiąca i
+          źródła kandydatów.
         </p>
         <PeriodPicker
           value={period}
           onChange={setPeriod}
           resolved={funnel?.period ?? null}
+          // Bez tego propu przycisk „Eksportuj" nie renderuje się w ogóle —
+          // był zaimplementowany i przetestowany, ale jedynym miejscem
+          // w repo, które go podawało, był test pickera.
+          csv={buildFunnelCsvExport(funnel)}
         />
       </div>
 

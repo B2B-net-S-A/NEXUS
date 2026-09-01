@@ -120,8 +120,13 @@ export function InsightsCampaignBanner({ className }: Props) {
     <section
       aria-label={`Kampania: ${name}`}
       className={cn(
-        "rounded-xl border border-warning/40 bg-linear-to-r from-warning to-warning/85",
-        "p-5 text-warning-foreground shadow-xs",
+        // Tło `bg-warning` z `text-warning-foreground` daje w JASNYM motywie
+        // biel na bursztynie 50% L, czyli kontrast ok. 1,9:1 — poniżej progu
+        // AA (4,5:1) dla CAŁEJ treści baneru. Para `warning-muted` /
+        // `warning-muted-foreground` trzyma ok. 7:1 w obu motywach, a
+        // bursztynowy charakter niesie akcent na krawędzi.
+        "rounded-xl border border-warning/25 border-l-4 border-l-warning",
+        "bg-warning-muted p-5 text-warning-muted-foreground shadow-xs",
         className,
       )}
     >
@@ -129,7 +134,7 @@ export function InsightsCampaignBanner({ className }: Props) {
         {emoji ? (
           <span
             aria-hidden="true"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning-foreground/15 text-xl"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warning/20 text-xl"
           >
             {emoji}
           </span>
@@ -164,10 +169,10 @@ export function InsightsCampaignBanner({ className }: Props) {
         aria-valuemin={0}
         aria-valuemax={target_net}
         aria-valuetext={`${net} z ${target_net} (${pct(progress_pct)})`}
-        className="mt-2 h-5 w-full overflow-hidden rounded-full bg-warning-foreground/20"
+        className="mt-2 h-5 w-full overflow-hidden rounded-full bg-warning/25"
       >
         <div
-          className="h-5 rounded-full bg-warning-foreground/85 transition-all duration-500"
+          className="h-5 rounded-full bg-warning transition-all duration-500"
           style={{ width: `${barPct}%` }}
         />
       </div>
@@ -236,7 +241,7 @@ function CampaignTile({
   return (
     <div
       title={note}
-      className="rounded-lg border border-warning-foreground/20 bg-warning-foreground/10 p-3"
+      className="rounded-lg border border-warning/25 bg-warning/10 p-3"
     >
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide opacity-90">
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
