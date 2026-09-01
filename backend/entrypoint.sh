@@ -3632,6 +3632,29 @@ _COLUMN_STATEMENTS = [
     )""",
     "ALTER TABLE dl_alerts ADD COLUMN IF NOT EXISTS "
     "offboarding_case_id INTEGER NULL",
+    # Dziennik obserwacji poziomu seniority (0261). Lustro DDL, bo alembic na
+    # prodzie bywa osierocony — bez tego pętla dobowa wywalałaby się na
+    # nieistniejącej tabeli, a `/api/insights/seniority` oddawałby 500.
+    """CREATE TABLE IF NOT EXISTS insights_seniority_snapshots (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        observed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        level VARCHAR(16) NOT NULL,
+        previous_level VARCHAR(16) NULL,
+        total_placements INTEGER NOT NULL,
+        previous_total_placements INTEGER NULL,
+        senior_since VARCHAR(7) NULL,
+        expert_since VARCHAR(7) NULL,
+        thresholds_fingerprint VARCHAR(64) NOT NULL,
+        is_regression BOOLEAN NOT NULL DEFAULT FALSE,
+        CONSTRAINT ck_insights_seniority_snapshots_level
+            CHECK (level IN ('junior', 'senior', 'expert')),
+        CONSTRAINT ck_insights_seniority_snapshots_previous_level
+            CHECK (previous_level IS NULL
+                   OR previous_level IN ('junior', 'senior', 'expert'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_insights_seniority_snapshots_user_observed "
+    "ON insights_seniority_snapshots (user_id, observed_at DESC)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
