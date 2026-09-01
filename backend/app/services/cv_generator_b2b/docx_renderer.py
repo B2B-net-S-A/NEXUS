@@ -20,6 +20,7 @@ from xml.sax.saxutils import escape
 
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
@@ -990,6 +991,7 @@ TRANSLATIONS = {
         "considered_for": "Rozważany na stanowisko:",
         "responsibilities": "Zakres zadań:",
         "technologies": "Technologie:",
+        "consent_heading": "Zgoda kandydata na przetwarzanie danych przez Klienta",
         "rodo": (
             "Wyrażam zgodę na przetwarzanie moich danych osobowych zawartych w przekazanych "
             "przeze mnie dokumentach przez B2B.net S.A. w celach związanych z moim udziałem "
@@ -1023,6 +1025,7 @@ TRANSLATIONS = {
         "considered_for": "Considered for:",
         "responsibilities": "Tasks:",
         "technologies": "Technologies:",
+        "consent_heading": "Candidate's consent to data processing by the Client",
         "rodo": (
             "I hereby consent to the processing of my personal data contained in the documents "
             "submitted by me by B2B.net S.A. for purposes related to my participation in this "
@@ -1065,6 +1068,55 @@ def add_horizontal_line(doc: Any) -> Any:
     para.paragraph_format.space_before = Pt(4)
     para.paragraph_format.space_after = Pt(6)
     return para
+
+
+# Maksymalna szerokość obrazu zgody w calach — szerokość kolumny tekstu przy
+# marginesach szablonu. Obraz szerszy jest skalowany proporcjonalnie w dół;
+# węższy zostaje w swoim rozmiarze, bo zrzut maila rozciągnięty na siłę robi
+# się nieczytelny.
+_CONSENT_MAX_WIDTH_IN = 6.3
+
+
+def add_consent_screenshot(doc: Any, image_bytes: bytes, heading: str) -> bool:
+    """Dołącz na końcu CV zrzut ekranu ze zgodą kandydata. Zwraca, czy się udało.
+
+    Wymóg PKO BP: pod treścią CV ma być widoczny zrzut maila, w którym kandydat
+    zgadza się na przetwarzanie danych przez bank. Do 09.2026 generator tylko
+    OSTRZEGAŁ rekrutera, żeby wkleił go ręcznie przed wysyłką — bo nie miał
+    skąd wziąć obrazu.
+
+    Wstawiane w NORMALNYM przepływie, a nie jako pływak: klauzula RODO niżej
+    jest kotwiczona do dolnej krawędzi ostatniej strony z oblewaniem
+    „góra i dół", więc treść płynąca pod nią przechodzi na kolejną stronę
+    zamiast się z nią nakładać. Obraz wstawiony jako drugi pływak nie miałby
+    tej gwarancji i mógłby przykryć klauzulę.
+
+    Zwraca `False` zamiast rzucać, gdy obraz jest nieczytelny dla python-docx:
+    CV bez zrzutu to dokument do ręcznego uzupełnienia (stan sprzed tej zmiany),
+    a wyjątek tutaj wywróciłby CAŁĄ generację — łącznie z wywołaniem modelu,
+    które właśnie za nią zapłaciliśmy.
+    """
+    if not image_bytes:
+        return False
+
+    try:
+        doc.add_page_break()
+        head = doc.add_paragraph()
+        run = head.add_run(heading)
+        run.bold = True
+        run.font.size = Pt(11)
+        head.paragraph_format.space_after = Pt(6)
+
+        stream = io.BytesIO(image_bytes)
+        picture_para = doc.add_paragraph()
+        picture_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        picture_para.add_run().add_picture(stream, width=Inches(_CONSENT_MAX_WIDTH_IN))
+        return True
+    except Exception:  # noqa: BLE001 — patrz docstring: brak zrzutu > brak CV
+        logger.warning(
+            "consent screenshot: nie udało się wstawić obrazu", exc_info=True
+        )
+        return False
 
 
 def add_bottom_pinned_rodo(doc: Any, rodo_text: str) -> Any:
@@ -1572,6 +1624,16 @@ def render_cv_to_bytes(
     # (the file sent to the client), not in that preview. A page footer would be
     # visible in both but would repeat the clause on every page of a multi-page
     # CV, so the float — which lands once, on the last page only — is preferred.
+    # === ZRZUT ZGODY KANDYDATA (wymóg PKO BP) ===
+    # Bajty wstrzykuje WOŁAJĄCY pod `consent_screenshot._bytes` — renderer
+    # zostaje czystą funkcją i nie sięga do magazynu obiektów, dzięki czemu
+    # testy i ponowny render z zapisanego payloadu działają bez sieci.
+    # W samym `render_payload` zapisany jest wyłącznie klucz w magazynie:
+    # zrzut maila waży setki kilobajtów i w JSONB puchłby przy każdym pobraniu.
+    _consent = candidate_data.get("consent_screenshot")
+    if isinstance(_consent, dict) and _consent.get("_bytes"):
+        add_consent_screenshot(doc, _consent["_bytes"], t["consent_heading"])
+
     add_bottom_pinned_rodo(doc, t["rodo"])
 
     out = io.BytesIO()
