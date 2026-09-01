@@ -25,7 +25,18 @@ import {
   writePeriodToParams,
 } from "@/lib/insights-period-url";
 import { buildFunnelCsvExport } from "@/lib/insights-csv";
-import { insightsApi, type InsightsPeriodParams } from "@/lib/insights-api";
+import {
+  DEFAULT_INSIGHTS_OFFSET,
+  insightsApi,
+  type InsightsPeriodParams,
+} from "@/lib/insights-api";
+
+// Domyślne okno zakładki — JEDNA stała dla odczytu z URL-a i dla „Resetu".
+// Rozdzielone, „Reset" wracał do czegoś, od czego zakładka nigdy nie zaczyna.
+const DEFAULT_PERIOD: InsightsPeriodParams = {
+  period: "month",
+  offset: DEFAULT_INSIGHTS_OFFSET,
+};
 
 export function RekrutacjaPanel() {
   // URL jest jedynym źródłem prawdy okresu — back/forward odtwarza wybór,
@@ -36,7 +47,7 @@ export function RekrutacjaPanel() {
   // Odczyt i zapis okresu żyją w JEDNYM module dla trzech zakładek —
   // trzy kopie tej logiki zgubiły wcześniej daty granulacji „Wszystko".
   const period: InsightsPeriodParams = useMemo(
-    () => readPeriodFromParams(searchParams),
+    () => readPeriodFromParams(searchParams, DEFAULT_PERIOD),
     [searchParams],
   );
 
@@ -65,6 +76,7 @@ export function RekrutacjaPanel() {
         <PeriodPicker
           value={period}
           onChange={setPeriod}
+          defaultValue={DEFAULT_PERIOD}
           resolved={funnel?.period ?? null}
           // Bez tego propu przycisk „Eksportuj" nie renderuje się w ogóle —
           // był zaimplementowany i przetestowany, ale jedynym miejscem

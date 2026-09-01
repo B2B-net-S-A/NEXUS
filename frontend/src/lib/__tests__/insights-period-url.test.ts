@@ -84,12 +84,13 @@ describe("okres w URL-u", () => {
   });
 
   it("szanuje domyślne zakładki, bo trzy zakładki mają trzy różne", () => {
-    expect(
-      readPeriodFromParams(new URLSearchParams(), {
-        kind: "quarter",
-        offset: 0,
-      }),
-    ).toEqual({ period: "quarter", offset: 0 });
+    // Ten sam kształt co okres — panel podaje tu DOKŁADNIE tę stałą, którą
+    // przekazuje „Resetowi". Dwa kształty = dwie definicje jednej rzeczy,
+    // a wtedy „Reset" i odczyt z URL-a mogą wskazywać dwa różne okna.
+    const boardDefault = { period: "quarter" as const, offset: 0 };
+    expect(readPeriodFromParams(new URLSearchParams(), boardDefault)).toEqual(
+      boardDefault,
+    );
   });
 
   it("nieznana granulacja wraca na domyślną, nie wywraca odczytu", () => {
@@ -101,5 +102,33 @@ describe("okres w URL-u", () => {
 
   it("lista granulacji URL-a zawiera `custom` — to jej brak zabijał „Wszystko”", () => {
     expect(INSIGHTS_URL_KINDS).toContain("custom");
+  });
+});
+
+describe("Reset i odczyt z URL-a muszą wskazywać TO SAMO okno", () => {
+  /**
+   * `PeriodPicker` wraca „Resetem" do propa `defaultValue`, a panel czyta URL
+   * przez `readPeriodFromParams(searchParams, DEFAULT_PERIOD)`. Przez chwilę
+   * żaden panel nie podawał `defaultValue`, więc „Reset" lądował na wspólnym
+   * `month/-1` — a Zarząd zaczyna od KWARTAŁU. Przycisk „wróć do domyślnego"
+   * cofał go w miejsce, od którego ta zakładka nigdy nie startuje.
+   *
+   * Ten test pilnuje własności, na której to stoi: fallback podany do odczytu
+   * jest okresem gotowym do oddania „Resetowi" — bez tłumaczenia kształtów.
+   */
+  it.each([
+    ["Rekrutacja", { period: "month" as const, offset: -1 }],
+    ["Klienci", { period: "month" as const, offset: 0 }],
+    ["Zarząd", { period: "quarter" as const, offset: 0 }],
+  ])("%s: pusty URL daje dokładnie okno domyślne", (_name, fallback) => {
+    expect(readPeriodFromParams(new URLSearchParams(), fallback)).toEqual(
+      fallback,
+    );
+  });
+
+  it("okno domyślne przeżywa własny round-trip przez URL", () => {
+    const fallback = { period: "quarter" as const, offset: 0 };
+    const written = writePeriodToParams(new URLSearchParams(), fallback);
+    expect(readPeriodFromParams(written, fallback)).toEqual(fallback);
   });
 });

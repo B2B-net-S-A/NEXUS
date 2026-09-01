@@ -38,29 +38,31 @@ export const INSIGHTS_URL_KINDS: InsightsPeriodKind[] = [
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Domyślne okno zakładki, gdy URL nic nie mówi.
+ * Domyślne okno, gdy URL nic nie mówi.
  *
- * Parametryzowane, bo trzy zakładki mają różne domyślne i to NIE jest dług:
- * Zarząd patrzy kwartałami, Rekrutacja miesiącami. Ujednolicenie ich tutaj
- * byłoby cichą zmianą tego, co widzą trzy różne grupy odbiorców.
+ * Ten sam typ co okres, celowo: panel podaje tu DOKŁADNIE tę stałą, którą
+ * przekazuje „Resetowi" w `PeriodPicker`. Osobny kształt (`{kind, offset}`)
+ * byłby drugą definicją tej samej rzeczy — a wtedy „Reset" i odczyt z URL-a
+ * mogą po cichu wskazywać dwa różne okna.
+ *
+ * Trzy zakładki mają trzy różne domyślne i to NIE jest dług: Zarząd patrzy
+ * kwartałami, Rekrutacja miesiącami.
  */
-export interface InsightsPeriodDefaults {
-  kind?: InsightsPeriodKind;
-  offset?: number;
-}
+export const INSIGHTS_FALLBACK_PERIOD: InsightsPeriodParams = {
+  period: "month",
+  offset: DEFAULT_INSIGHTS_OFFSET,
+};
 
 /** Odczyt okresu z parametrów URL-a. Nigdy nie rzuca — zawsze da się renderować. */
 export function readPeriodFromParams(
   params: URLSearchParams,
-  defaults: InsightsPeriodDefaults = {},
+  fallback: InsightsPeriodParams = INSIGHTS_FALLBACK_PERIOD,
 ): InsightsPeriodParams {
-  const fallbackKind = defaults.kind ?? "month";
-  const fallbackOffset = defaults.offset ?? DEFAULT_INSIGHTS_OFFSET;
   const rawKind = params.get("period");
   const kind = (
     INSIGHTS_URL_KINDS.includes(rawKind as InsightsPeriodKind)
       ? rawKind
-      : fallbackKind
+      : fallback.period
   ) as InsightsPeriodKind;
 
   if (kind === "custom") {
@@ -72,10 +74,11 @@ export function readPeriodFromParams(
     }
     // Niekompletny `custom` to nie jest okres, tylko literówka w linku.
     // Renderujemy okno domyślne zamiast wysyłać żądanie pewne 422.
-    return { period: fallbackKind, offset: fallbackOffset };
+    return fallback;
   }
 
   const rawOffset = params.get("offset");
+  const fallbackOffset = fallback.offset ?? 0;
   const offset =
     rawOffset === null ? fallbackOffset : Number.parseInt(rawOffset, 10);
   return {

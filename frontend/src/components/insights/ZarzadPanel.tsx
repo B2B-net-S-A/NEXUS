@@ -18,6 +18,11 @@ import {
   type InsightsPeriodParams,
 } from "@/lib/insights-api";
 
+// Domyślne okno zakładki — JEDNA stała dla odczytu z URL-a i dla „Resetu".
+// Zarząd patrzy KWARTAŁAMI; wspólna stała dla trzech zakładek cofałaby go
+// w miejsce, od którego nigdy nie zaczyna.
+const DEFAULT_PERIOD: InsightsPeriodParams = { period: "quarter", offset: 0 };
+
 export function ZarzadPanel() {
   // URL jest jedynym źródłem prawdy okresu — jak w `RekrutacjaPanel`. Dawny
   // `useState` gubił wybór przy odświeżeniu i nie dawał się udostępnić linkiem.
@@ -29,7 +34,7 @@ export function ZarzadPanel() {
   // Domyślne (kwartał, bieżący) zostają takie jak były: Zarząd patrzy
   // kwartałami i ujednolicenie ich tutaj byłoby cichą zmianą jego widoku.
   const period: InsightsPeriodParams = useMemo(
-    () => readPeriodFromParams(searchParams, { kind: "quarter", offset: 0 }),
+    () => readPeriodFromParams(searchParams, DEFAULT_PERIOD),
     [searchParams],
   );
 
@@ -57,6 +62,7 @@ export function ZarzadPanel() {
         <PeriodPicker
           value={period}
           onChange={setPeriod}
+          defaultValue={DEFAULT_PERIOD}
           resolved={board?.period ?? null}
           csv={buildBoardCsvExport(board)}
         />

@@ -20,6 +20,9 @@ import {
   type InsightsPeriodParams,
 } from "@/lib/insights-api";
 
+// Domyślne okno zakładki — JEDNA stała dla odczytu z URL-a i dla „Resetu".
+const DEFAULT_PERIOD: InsightsPeriodParams = { period: "month", offset: 0 };
+
 export function KlienciPanel() {
   // URL jest jedynym źródłem prawdy okresu — back/forward odtwarza wybór,
   // a link da się udostępnić. Ten sam wzorzec co w `RekrutacjaPanel`; dawny
@@ -32,7 +35,7 @@ export function KlienciPanel() {
   // Odczyt i zapis okresu żyją w JEDNYM module dla trzech zakładek —
   // trzy kopie tej logiki zgubiły wcześniej daty granulacji „Wszystko".
   const period: InsightsPeriodParams = useMemo(
-    () => readPeriodFromParams(searchParams, { offset: 0 }),
+    () => readPeriodFromParams(searchParams, DEFAULT_PERIOD),
     [searchParams],
   );
 
@@ -63,6 +66,7 @@ export function KlienciPanel() {
         <PeriodPicker
           value={period}
           onChange={setPeriod}
+          defaultValue={DEFAULT_PERIOD}
           resolved={ranking?.period ?? null}
           csv={buildClientsCsvExport(ranking)}
         />
