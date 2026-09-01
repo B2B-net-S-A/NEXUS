@@ -523,3 +523,74 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
     matched_ids = {match.order.id for match in matches}
     assert explicit_line_id in matched_ids
     assert legacy_line_id not in matched_ids
+
+
+# ── Więz spójności typu NIE może kodować tożsamości klienta (0263) ───────────
+#
+# Do migracji 0263 `ck_client_order_groups_explicit_type_coherence` zawierał
+# `client_id IN (155, 38339)` — baza rozstrzygała, kto jest Lotte Wedel
+# i Cyfrowym Polsatem. Aplikacja traktuje tę tożsamość jako PODMIENIALNĄ:
+# `conftest.py` ma autouse fixture odpinającą bramki, żeby 155. testowy klient
+# nie dostał cudzej polityki. Monkeypatch nie sięga jednak więzu w bazie, więc
+# gdy `clients.id` dobił do 155, aplikacja zapisywała generyczne MD per
+# konsultant, a baza żądała wspólnej puli — 500 w środku aktywacji szkicu.
+
+
+@pytest.mark.asyncio
+async def test_type_coherence_constraint_does_not_encode_client_identity():
+    """Schemat pilnuje spójności typu z flagami — nie tego, KTO jest klientem.
+
+    Test celuje w KSZTAŁT więzu, nie w konkretne `clients.id`: asercja oparta
+    o wylosowany identyfikator przechodziłaby albo nie w zależności od stanu
+    sekwencji we współdzielonej bazie shardu, czyli mierzyłaby szczęście.
+    """
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        definition = await db.scalar(
+            text(
+                "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conname = 'ck_client_order_groups_explicit_type_coherence'"
+            )
+        )
+
+    assert definition is not None, "więz zniknął ze schematu"
+    assert "client_id" not in definition, (
+        "Więz znów koduje tożsamość klienta. Polityka „wspólną pulę MD mają "
+        "wyłącznie CP i Lotte Wedel\" należy do aplikacji — w bazie kolidowała "
+        "z serialem `clients.id` i wywracała aktywację szkicu 500-ką. "
+        f"Definicja: {definition}"
+    )
+    # Sam niezmiennik schematu ma zostać: typ zgadza się z flagami.
+    assert "is_cost_based" in definition and "is_md_budget_based" in definition
+
+
+@pytest.mark.asyncio
+async def test_generic_client_still_cannot_request_a_shared_md_pool(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+):
+    """Gwarancja przeniesiona z bazy do aplikacji nadal obowiązuje.
+
+    Więz przestał tego pilnować w 0263, więc bez tego testu zdjęcie go
+    oznaczałoby cichą utratę reguły — a nie jej przeprowadzkę.
+    """
+    client_id, contracts = await _seed_client_with_contracts(1)
+
+    response = await app_client.post(
+        f"/api/clients/{client_id}/order-groups",
+        json={
+            "order_number": f"GEN-MD-{uuid.uuid4().hex[:8]}",
+            "start_date": _TODAY.isoformat(),
+            "order_type": "md",
+            "is_md_budget_based": True,
+            "md_budget_total": 100,
+            "lines": [],
+        },
+        headers=app_auth_headers,
+    )
+
+    assert response.status_code == 422, response.text
+    assert "Wspólna pula MD" in response.text

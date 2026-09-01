@@ -5442,6 +5442,27 @@ _CONSTRAINT_STATEMENTS = [
                 )
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0263 — spójność typu z flagami, BEZ zaszytych ID klientów. Do 0263 więz
+    # kodował `client_id IN (155, 38339)`, czyli rozstrzygał w bazie, kto jest
+    # Lotte Wedel i Cyfrowym Polsatem; aplikacja traktuje tę tożsamość jako
+    # podmienialną, więc oba źródła prawdy się rozjeżdżały (500 w środku
+    # aktywacji szkicu). DROP przed ADD jest tu obowiązkowy: sam
+    # `EXCEPTION WHEN duplicate_object` zostawiłby stary, węższy kształt.
+    "ALTER TABLE client_order_groups "
+    "DROP CONSTRAINT IF EXISTS ck_client_order_groups_explicit_type_coherence",
+    """DO $$ BEGIN
+        ALTER TABLE client_order_groups
+            ADD CONSTRAINT ck_client_order_groups_explicit_type_coherence
+            CHECK (
+                order_type IS NULL
+                OR (
+                    order_type = 'cost'
+                    AND is_cost_based = TRUE
+                    AND is_md_budget_based = FALSE
+                )
+                OR (order_type = 'md' AND is_cost_based = FALSE)
+            ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE client_order_group_md_consumptions "
     "DROP CONSTRAINT IF EXISTS ck_group_md_consumptions_period",
     """DO $$ BEGIN
