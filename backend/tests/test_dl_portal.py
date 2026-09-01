@@ -847,3 +847,59 @@ async def test_recruiter_forbidden_from_admin_overview(app_client: AsyncClient):
         assert resp.status_code == 403
     finally:
         await _cleanup([], [rec_id])
+
+
+# ── Marża % ma mianownik w tej samej jednostce co licznik ────────────────────
+
+
+async def test_monthly_margin_pct_divides_by_monthly_revenue_not_order_value(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Procent marży to marża MIESIĘCZNA / przychód MIESIĘCZNY.
+
+    Do 09.2026 mianownikiem była suma ``ClientOrder.total_value`` — wartość
+    CAŁYCH zamówień — więc wskaźnik dzielił przepływ na miesiąc przez wartość
+    całkowitą. Na produkcji dawało to u Nordei 603,82%.
+
+    Test dobiera liczby tak, żeby obie definicje dały RÓŻNY wynik: istniejący
+    przypadek w `test_client_surfaces_split_currency` ma wartość zamówienia
+    równą przychodowi miesięcznemu, więc przechodzi przy jednej i drugiej —
+    i niczego nie rozstrzyga.
+    """
+    client_id = await _new_client()
+    candidate_id = await _new_candidate()
+    # 15 000 przychodu i 12 000 kosztu miesięcznie => marża 3 000/mc = 20%.
+    contract_id = await _new_contract(client_id, candidate_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientOrder(
+                    client_id=client_id,
+                    contract_id=contract_id,
+                    title="Zamówienie roczne",
+                    status=ClientOrderStatus.active,
+                    start_date=date.today(),
+                    # Wartość CAŁEGO zamówienia — dwunastokrotność miesiąca.
+                    # Stary mianownik dałby 3000/180000 = 1,67%.
+                    total_value=Decimal("180000.00"),
+                    currency="PLN",
+                )
+            )
+            await db.commit()
+
+        dashboard = await app_client.get(
+            f"/api/my-clients/{client_id}/dashboard", headers=app_auth_headers
+        )
+        assert dashboard.status_code == 200, dashboard.text
+        body = dashboard.json()
+
+        assert Decimal(str(body["monthly_margin_total"])) == Decimal("3000")
+        assert body["monthly_margin_pct"] == 20.0, (
+            "Procent liczony z niewłaściwego mianownika. 20% = 3000 marży "
+            "na 15 000 przychodu miesięcznego; 1,67% oznaczałoby dzielenie "
+            "przez wartość całego zamówienia (180 000)."
+        )
+        # Sama wartość zamówienia zostaje nietknięta — to osobna wielkość.
+        assert Decimal(str(body["active_revenue"])) == Decimal("180000.00")
+    finally:
+        await _cleanup([client_id], [], [candidate_id])
