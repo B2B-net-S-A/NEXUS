@@ -439,9 +439,9 @@ def test_api_returns_the_new_shape_for_a_legacy_profile() -> None:
     a wszystkie pola w UI były puste. Testy lokalne tego nie widziały, bo
     harness podglądowy zasiewał cache profilem JUŻ zmigrowanym.
     """
-    from app.api.jobs import _champion_response
+    from app.services.champion_view import api_response
 
-    out = _champion_response(LEGACY_PROFILE)
+    out = api_response(LEGACY_PROFILE)
 
     # Sekcje wypełnione danymi ze starego kształtu.
     assert out["basics"]["role_name"] == "Senior Java Developer"
@@ -458,8 +458,8 @@ def test_api_returns_the_new_shape_for_a_legacy_profile() -> None:
 
     # Brak profilu to pusty słownik, nie wyjątek i nie szkielet z pustymi polami:
     # `{}` odróżnia „oferta nie ma Championa" od „ma, ale pusty".
-    assert _champion_response(None) == {}
-    assert _champion_response({}) == {}
+    assert api_response(None) == {}
+    assert api_response({}) == {}
 
 
 def test_every_champion_exit_to_the_frontend_goes_through_the_normaliser() -> None:
@@ -473,14 +473,25 @@ def test_every_champion_exit_to_the_frontend_goes_through_the_normaliser() -> No
     import pathlib
     import re
 
-    for name in ("jobs.py", "pipeline.py"):
+    # `public_share.py` też jest skanowany, mimo że ma WŁASNY normalizator:
+    # `_public_champion_projection` celowo zwraca węższy wycinek (bez naszej
+    # stawki i firm docelowych), bo odbiorcą tamtego linku jest strona trzecia.
+    # Pominięcie tego pliku w strażniku znaczyłoby, że przyszłe wyjście dopisane
+    # tam wymyka się kontroli — a to jest akurat najgorsze miejsce na przeciek.
+    for name in ("jobs.py", "pipeline.py", "public_share.py"):
         src = (
             pathlib.Path(__file__).resolve().parents[1] / "app" / "api" / name
         ).read_text(encoding="utf-8")
         # Wartość wyciągana i sprawdzana JAWNIE, nie lookaheadem: `\s*` cofa się
         # do zera znaków, więc `(?!...)` sprawdzałby pozycję spacji i przepuszczał
         # dokładnie te wywołania, których szuka.
-        allowed = ("_champion_response", "_public_champion_projection")
+        # Trzy dozwolone wywołania: alias routera, pełna ścieżka do
+        # `champion_view.api_response` oraz węższa projekcja publiczna.
+        allowed = (
+            "_champion_response",
+            "champion_view.api_response",
+            "_public_champion_projection",
+        )
         raw = [
             value.strip()
             for value in re.findall(r'"champion_profile":\s*([^\n]+)', src)
