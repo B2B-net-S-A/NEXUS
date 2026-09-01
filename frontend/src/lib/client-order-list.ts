@@ -399,20 +399,34 @@ export function orderGroupContractIds(
 }
 
 /**
- * Po materializacji szkicu grupowego `/orders` może chwilowo zwrócić jeszcze
- * pusty shell kontraktora. Grupa jest już kanoniczną pozycją listy, więc taki
- * shell ukrywamy; pusty kontrakt bez żadnej linii grupowej pozostaje jako
- * prawidłowy workflow draftu do uzupełnienia.
+ * Ukryj kartę kontraktora, którą reprezentuje już linia zamówienia grupowego.
+ *
+ * Warunkiem jest brak ŻYWEGO zamówienia samodzielnego, a nie brak zamówień
+ * w ogóle. Osoba obsadzona na zamówieniu MD, której został po historii wyłącznie
+ * wiersz zakończony albo anulowany (np. duplikat sprzątnięty przez migrację
+ * 0262), pokazywała się na liście DWA razy: raz jako linia grupy, raz jako
+ * własna karta z martwym zamówieniem. Kontraktor z realnym, otwartym
+ * zamówieniem okresowym obok linii MD nadal ma obie pozycje — to dwa różne
+ * zaangażowania i właśnie o ich rozdzielenie chodzi.
+ *
+ * Kontrakt bez żadnej linii grupowej zostaje niezależnie od stanu zamówień —
+ * to prawidłowy workflow draftu do uzupełnienia.
  */
 export function filterMaterializedContractorShells(
   contractors: readonly ContractWithOrdersRead[],
   groups: readonly OrderGroupRead[],
+  todayIso = localTodayIso(),
 ): ContractWithOrdersRead[] {
   const groupedContractIds = orderGroupContractIds(groups);
   return contractors.filter(
     (contractor) =>
-      contractor.orders.length > 0 ||
-      !groupedContractIds.has(contractor.contract_id),
+      !groupedContractIds.has(contractor.contract_id) ||
+      contractor.orders.some(
+        (order) =>
+          order.status !== "completed" &&
+          order.status !== "cancelled" &&
+          (dateOnly(order.end_date) ?? "9999-12-31") >= todayIso,
+      ),
   );
 }
 
@@ -725,20 +739,57 @@ export function filterAndSortContractors(
 }
 
 /**
- * Eksport po nazwie konsultanta obejmuje wszystkie jego zamówienia. Gdy
- * trafienie pochodzi wyłącznie z numeru, wysyłamy tylko pasujące numery.
+ * Czy zamówienie OBOWIĄZUJE w danym dniu.
+ *
+ * Brak daty końca = bezterminowo; brak daty startu = już obowiązuje (rekordy
+ * historyczne nagminnie nie mają startu, a ich wykluczenie zabierałoby
+ * z arkusza czyjąś realną współpracę). Zamówienie „kończące się" mieści się
+ * w tej regule — dopóki data końca nie minęła, konsultant pracuje.
+ */
+export function isCurrentOrder(
+  order: Pick<ClientOrderRead, "status" | "start_date" | "end_date">,
+  todayIso = localTodayIso(),
+): boolean {
+  if (order.status === "completed" || order.status === "cancelled") return false;
+  const start = dateOnly(order.start_date);
+  if (start !== null && start > todayIso) return false;
+  const end = dateOnly(order.end_date);
+  return end === null || end >= todayIso;
+}
+
+/**
+ * Zamówienia do eksportu: DOKŁADNIE JEDNO na konsultanta i tylko takie, które
+ * obowiązuje dziś.
+ *
+ * Wcześniej szła tu cała historia kontraktora, więc ta sama osoba pojawiała się
+ * w arkuszu tyle razy, ile zamówień przewinęło się przez jej kontrakt — razem
+ * z zakończonymi i jeszcze nierozpoczętymi. Gdy trafienie wyszukiwania pochodzi
+ * wyłącznie z numeru zamówienia, zawężamy dodatkowo do pasujących numerów:
+ * inaczej eksport pokazywałby wiersz, którego na liście nie widać.
  */
 export function visibleLegacyOrderIds(
   contractors: readonly ContractWithOrdersRead[],
   query: string,
+  todayIso = localTodayIso(),
 ): number[] {
   const foldedQuery = foldText(query.trim());
   return contractors.flatMap((contractor) => {
-    if (!foldedQuery || consultantMatchesQuery(contractor.candidate_name, query)) {
-      return contractor.orders.map((order) => order.id);
-    }
-    return contractor.orders
-      .filter((order) => foldText(order.title).includes(foldedQuery))
-      .map((order) => order.id);
+    const matchesConsultant =
+      !foldedQuery || consultantMatchesQuery(contractor.candidate_name, query);
+    const candidates = contractor.orders.filter(
+      (order) =>
+        isCurrentOrder(order, todayIso) &&
+        (matchesConsultant || foldText(order.title).includes(foldedQuery)),
+    );
+    if (candidates.length === 0) return [];
+    // Kilka zamówień może obowiązywać jednocześnie (nakładające się okresy).
+    // Bierzemy to o najpóźniejszym starcie — najnowsze warunki są tym, co
+    // opisuje dzisiejszą współpracę.
+    const [current] = [...candidates].sort((left, right) =>
+      (dateOnly(right.start_date) ?? "").localeCompare(
+        dateOnly(left.start_date) ?? "",
+      ),
+    );
+    return [current.id];
   });
 }

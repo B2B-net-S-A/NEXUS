@@ -42,6 +42,19 @@ class ClientOrderCreate(BaseModel):
     notes: Optional[str] = None
 
 
+class ClientOrderClose(BaseModel):
+    """Zakończenie JEDNEGO zamówienia — bez dotykania umowy.
+
+    Osobny schemat, a nie `ClientOrderUpdate`: ten drugi jest częściowy
+    i pozwala zapisać dowolne pole, więc „zakończ" wyrażone przez niego byłoby
+    nieodróżnialne od zwykłej edycji daty. Powód jest opcjonalny — trafia do
+    audytu, nie do kolumny.
+    """
+
+    closure_date: date
+    closure_reason: Optional[str] = Field(None, max_length=500)
+
+
 class ClientOrderUpdate(BaseModel):
     """PATCH metadata orderu — plik wymaga osobnego PUT `/file`."""
 
