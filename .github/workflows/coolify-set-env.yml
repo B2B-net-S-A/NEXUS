@@ -10,8 +10,13 @@ on:
         description: "Env var name"
         required: true
       value:
-        description: "Env var value"
-        required: true
+        description: "Env var value (zostaw puste, gdy używasz value_from_secret)"
+        required: false
+        default: ""
+      value_from_secret:
+        description: "Nazwa sekretu repo, z którego wziąć wartość — użyj dla SEKRETÓW"
+        required: false
+        default: ""
       is_buildtime:
         description: "true if the value must be baked at build time (forces full rebuild)"
         required: false
@@ -38,11 +43,39 @@ jobs:
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
           KEY: ${{ inputs.key }}
-          VALUE: ${{ inputs.value }}
+          VALUE_PLAIN: ${{ inputs.value }}
+          # Indeksowanie kontekstu `secrets` nazwą z inputu jest jedynym sposobem,
+          # żeby wartość NIGDY nie przeszła przez `inputs` — te są widoczne na
+          # stałe w podsumowaniu runa, także po latach i dla każdego, kto ma
+          # odczyt repo. Maskowanie w logu (niżej) tego nie ratuje: chroni log,
+          # nie metadane uruchomienia.
+          VALUE_FROM_SECRET: ${{ inputs.value_from_secret }}
+          VALUE_SECRET: ${{ secrets[inputs.value_from_secret] }}
           IS_BUILDTIME: ${{ inputs.is_buildtime }}
           REDEPLOY: ${{ inputs.redeploy }}
         run: |
           set -euo pipefail
+
+          # Jedno źródło wartości. Podanie obu jest ODRZUCANE zamiast rozstrzygane:
+          # każde rozstrzygnięcie po cichu wpisałoby na produkcję coś innego, niż
+          # widział operator.
+          if [ -n "${VALUE_FROM_SECRET}" ]; then
+            if [ -n "${VALUE_PLAIN}" ]; then
+              echo "Podaj ALBO value, ALBO value_from_secret — nie oba naraz." >&2
+              exit 1
+            fi
+            VALUE="${VALUE_SECRET}"
+            if [ -z "${VALUE}" ]; then
+              # Nieistniejący sekret daje pusty string, nie błąd — bez tej bramki
+              # literówka w nazwie CICHO wyczyściłaby zmienną na produkcji.
+              echo "Sekret '${VALUE_FROM_SECRET}' jest pusty albo nie istnieje w tym repo." >&2
+              exit 1
+            fi
+            echo "źródło wartości: sekret repo '${VALUE_FROM_SECRET}'"
+          else
+            VALUE="${VALUE_PLAIN}"
+            echo "źródło wartości: input (jawny)"
+          fi
 
           # Zarejestruj wartość do maskowania ZANIM zrobi się cokolwiek innego.
           # `inputs.value` NIE jest sekretem GitHuba, więc nic go tu nie chroni

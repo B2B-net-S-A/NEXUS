@@ -64,6 +64,72 @@ async def _login(client: AsyncClient, email: str, password: str) -> dict[str, st
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+async def _seed_hall_of_fame_people(count: int) -> list[dict]:
+    """`count` rekruterów, każdy z jednym placementem (para kandydat × oferta).
+
+    Hall of Fame liczy z widoku `analytics_first_milestones`, więc wystarczy
+    jeden wiersz `hired` na osobę, żeby wpadła do rankingu.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus, RemotePolicy
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    people: list[dict] = []
+    async with AsyncSessionLocal() as db:
+        client_row = Client(name=f"HofCli-{uuid.uuid4().hex[:6]}")
+        db.add(client_row)
+        await db.commit()
+        await db.refresh(client_row)
+
+        for i in range(count):
+            unique = uuid.uuid4().hex[:8]
+            email = f"hof-{unique}@example.com"
+            password = f"T3st_{unique}!Hof"
+            user = User(
+                email=email,
+                name=f"Hof {unique}",
+                password_hash=hash_password(password),
+                role=UserRole.recruiter,
+                is_active=True,
+            )
+            job = Job(
+                title=f"Hof {uuid.uuid4().hex[:6]}",
+                location="Warszawa",
+                status=JobStatus.published,
+                remote_policy=RemotePolicy.hybrid,
+                client_id=client_row.id,
+            )
+            candidate = Candidate(
+                name=f"Hof-{uuid.uuid4().hex[:4]}",
+                lastname=f"Fame-{uuid.uuid4().hex[:4]}",
+                email=f"hof-cand-{uuid.uuid4().hex[:8]}@example.com",
+            )
+            db.add_all([user, job, candidate])
+            await db.commit()
+            await db.refresh(user)
+            await db.refresh(job)
+            await db.refresh(candidate)
+
+            # Rok nieużywany przez inne testy — baza jest wspólna, a te wiersze
+            # mają `moved_by`, więc wchodzą też do imiennych raportów sąsiadów.
+            db.add(
+                CandidateStage(
+                    candidate_id=candidate.id,
+                    job_id=job.id,
+                    stage=PipelineStage.hired,
+                    moved_at=datetime(2004, 6, 15, 12, 0, tzinfo=timezone.utc)
+                    + timedelta(days=i),
+                    moved_by=user.id,
+                )
+            )
+            await db.commit()
+            people.append({"id": user.id, "email": email, "password": password})
+    return people
+
+
 @pytest_asyncio.fixture
 async def comp_client() -> AsyncClient:
     from app.core.rate_limit import limiter as _limiter
@@ -249,6 +315,125 @@ async def test_hall_of_fame_agrees_with_placement_analysis_number_by_number(
             f"{entry['name']}: all-time ({entry['metric_value']}) < okno "
             f"({in_window}) — dwa zapytania liczą różnie"
         )
+
+
+@pytest.mark.asyncio
+async def test_my_position_ranks_below_the_presentation_limit(
+    comp_client: AsyncClient,
+):
+    """`total` opisuje RANKING, a nie długość listy, którą akurat pobrano.
+
+    `/my-position` brał `hall_of_fame(db, limit=50)` i zwracał `total:
+    len(ranked)`. Produkcyjny ranking ma dziś 59 osób, więc mianownik był
+    zaniżony dla KAŻDEGO czytelnika, a 51. osoba dostawała dodatkowo
+    `rank: None` — „nie ma cię w rankingu", mimo że ma placementy.
+
+    Test porównuje `total` z `scope.ranked_people` z `/current` — z liczbą,
+    którą UI renderuje pod TOP 5. Rozjazd znaczy, że jedna z nich opisuje inny
+    zbiór niż druga.
+
+    UWAGA na zakres dowodu: samego PRZYCIĘCIA ten test nie odtwarza, bo baza
+    testowa nie ma 51 osób w rankingu i `limit=50` zwróciłby tu wszystkich.
+    Decyzji „pytaj o pełną listę" broni `test_my_position_asks_for_the_whole_ranking`.
+    """
+    people = await _seed_hall_of_fame_people(3)
+    # Osoba z NAJMNIEJSZĄ liczbą placementów wśród zasianych — czyli ta, którą
+    # przycinanie listy odcina najpierw.
+    last = people[-1]
+    headers = await _login(comp_client, last["email"], last["password"])
+
+    current = await comp_client.get(
+        "/api/competitions/current",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+    assert current.status_code == 200, current.text
+    ranked_people = current.json()["scope"]["ranked_people"]
+
+    mine = await comp_client.get(
+        "/api/competitions/my-position",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+    assert mine.status_code == 200, mine.text
+    body = mine.json()
+
+    # Kontrakt: mianownik opisuje RANKING, nie długość przyciętej listy.
+    assert body["total"] == ranked_people, (
+        "`total` w /my-position opisuje inny zbiór niż mianownik pod TOP 5"
+    )
+    # Osoba z placementem MA pozycję. Bez tego poprzednia asercja przeszłaby
+    # także wtedy, gdyby endpoint przestał kogokolwiek znajdować.
+    assert body["rank"] is not None, body
+    assert 1 <= body["rank"] <= ranked_people
+
+
+@pytest.mark.asyncio
+async def test_my_position_asks_for_the_whole_ranking(
+    comp_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Endpoint prosi o PEŁNY ranking, nie o pierwsze N wierszy.
+
+    Test białoskrzynkowy i to jest świadome. Skutku przycięcia nie da się
+    odtworzyć czarnoskrzynkowo bez zasiania 51 osób z placementami w bazie
+    współdzielonej przez cały przebieg — a to zmieniłoby liczby w sąsiednich
+    testach imiennych raportów. Zamiast tego pilnujemy samej decyzji: dowolny
+    sufit prezentacyjny wstawiony tu z powrotem odpowiadałby komuś „nie ma cię
+    w rankingu" na pytanie o własną pozycję.
+    """
+    from app.api import competitions as comp_api
+
+    seen: list[object] = []
+    original = comp_api.comp_service.hall_of_fame_with_scope
+
+    async def _spy(db, limit=5):
+        seen.append(limit)
+        return await original(db, limit=limit)
+
+    monkeypatch.setattr(
+        comp_api.comp_service, "hall_of_fame_with_scope", _spy, raising=True
+    )
+
+    email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(comp_client, email, password)
+    resp = await comp_client.get(
+        "/api/competitions/my-position",
+        headers=headers,
+        params={"type": "hall_of_fame"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert seen == [None], f"/my-position pobrał ranking z limitem {seen}"
+
+
+@pytest.mark.asyncio
+async def test_hall_of_fame_without_limit_returns_the_whole_ranking(
+    comp_client: AsyncClient,
+):
+    """`limit=None` zwraca PEŁNY ranking, a `limit=1` naprawdę przycina.
+
+    Porównanie „pełna lista vs TOP 5" nic nie dowodzi na bazie testowej, gdzie
+    w rankingu bywa mniej niż pięć osób — obie listy byłyby wtedy identyczne.
+    Dlatego przycinamy do JEDNEGO wiersza i wymagamy, żeby lista bez limitu
+    była DŁUŻSZA; warunek jest spełnialny, bo test sam zasiewa trzy osoby.
+
+    Czego ten test NIE dowodzi: że `/my-position` prosi o pełną listę. To jest
+    osobna decyzja i broni jej `test_my_position_asks_for_the_whole_ranking`.
+    """
+    from app.services import competitions as comp_service
+
+    await _seed_hall_of_fame_people(3)
+
+    async with AsyncSessionLocal() as db:
+        top1, scope = await comp_service.hall_of_fame_with_scope(db, limit=1)
+        everyone, _ = await comp_service.hall_of_fame_with_scope(db, limit=None)
+
+    assert len(top1) == 1, "limit=1 nie przyciął listy"
+    assert scope.ranked_people >= 3, scope.ranked_people
+    # To jest zdanie, które pada w kodzie sprzed poprawki, gdy limit jest
+    # sztywny: pełna lista musi mieć tyle wierszy, ile mówi mianownik.
+    assert len(everyone) == scope.ranked_people
+    assert len(everyone) > len(top1)
 
 
 @pytest.mark.asyncio

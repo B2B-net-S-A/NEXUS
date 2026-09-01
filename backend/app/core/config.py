@@ -1180,6 +1180,17 @@ class Settings(BaseSettings):
     # Pusto = funkcja nieaktywna dla WSZYSTKICH (fail-closed).
     COST_ORDER_CLIENT_IDS: str = ""
 
+    # ── Dziennik obserwacji poziomu seniority ───────────────────────────────
+    # Poziom liczy się PRZY ODCZYCIE i tak zostaje. Ta pętla nie przechowuje
+    # poziomu — obserwuje go, żeby zmiana wynikająca z przepisanej historii
+    # atrybucji (import Traffita, przepięcie placementu) przestała być
+    # niewidoczna. `false` → pętla kończy się PRZED pętlą, trasa odczytu
+    # zostaje (dziennik historyczny musi dać się przeczytać).
+    INSIGHTS_SENIORITY_JOURNAL_ENABLED: bool = True
+    # Doba, bo mierzymy zdarzenie rzadkie i nienagłe. Krótszy odstęp nie
+    # wykryje niczego więcej — zapis powstaje wyłącznie przy ZMIANIE.
+    INSIGHTS_SENIORITY_JOURNAL_INTERVAL_HOURS: float = 24.0
+
     # ── Powiadomienia Delivery Leada ────────────────────────────────────────
     # Kill-switch całej sekcji: `false` → skaner kończy się przed pętlą, a
     # `emit` nie zapisuje niczego. Trasy odczytu zostają (log historyczny musi

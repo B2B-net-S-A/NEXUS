@@ -61,6 +61,7 @@ from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
 from app.models.user_workday_period import UserWorkdayPeriod
+from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
 from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
@@ -642,6 +643,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.signature_reconciler import signature_reconciler_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
+    from app.tasks.insights_seniority_journal import (
+        insights_seniority_journal_loop,
+    )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
@@ -691,6 +695,9 @@ async def lifespan(app: FastAPI):
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
         "dl_alerts": asyncio.create_task(dl_alerts_loop()),
+        "insights_seniority_journal": asyncio.create_task(
+            insights_seniority_journal_loop()
+        ),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
@@ -2249,6 +2256,11 @@ async def api_health_deep_check():
         # (obie są czytane bezwarunkowo przy wejściu na stronę).
         ("user_performance_flags", UserPerformanceFlag),
         ("recruitment_campaigns", RecruitmentCampaign),
+        # 0261: dziennik obserwacji poziomu seniority. Endpoint seniority
+        # czyta go BEZWARUNKOWO przy każdym wejściu na zakładkę, więc brak
+        # tabeli wywala całą sekcję Ścieżki rozwoju, a nie tylko ostrzeżenie
+        # o regresji.
+        ("insights_seniority_snapshots", InsightsSenioritySnapshot),
     ]
 
     checks: dict[str, str] = {}

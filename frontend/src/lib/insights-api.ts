@@ -304,6 +304,38 @@ export interface SeniorityResponse {
     outside_pool_placements: number;
     note: string;
   };
+  /**
+   * Osoby, którym poziom SPADŁ między obserwacjami dziennika.
+   *
+   * Poziom nie degraduje się upływem czasu (okno służy do awansu, nie do
+   * cofania), więc spadek zawsze oznacza, że zmieniła się HISTORIA ATRYBUCJI —
+   * import przepisał zaległe zatrudnienia, ktoś przepiął placement. Ta lista
+   * jest jedynym miejscem, w którym taka zmiana jest widoczna: przy odczycie
+   * widać wyłącznie stan bieżący, a poprzedni nie istnieje nigdzie indziej.
+   *
+   * Pusta tablica to normalny, spodziewany stan. `null` znaczy co INNEGO:
+   * dziennika nie dało się odczytać, więc nie wiemy, czy komuś spadł poziom.
+   * Renderowanie `null` jako ciszy zamieniłoby awarię w odpowiedź „nikomu nic
+   * nie spadło" — trzy stany muszą być rozróżnialne na ekranie.
+   */
+  regressions: SeniorityRegression[] | null;
+}
+
+export interface SeniorityRegression {
+  user_id: number;
+  name: string;
+  level: SeniorityLevel;
+  /** Poziom sprzed spadku. Nigdy `null` w tej liście — spadek ma poprzednika. */
+  previous_level: SeniorityLevel | null;
+  total_placements: number;
+  previous_total_placements: number | null;
+  /** ISO 8601 — kiedy dziennik ZAUWAŻYŁ spadek, nie kiedy on nastąpił. */
+  observed_at: string | null;
+  /**
+   * Odcisk progów z chwili obserwacji. Różny od bieżącego = poziom spadł, bo
+   * operator PODNIÓSŁ poprzeczkę, a nie dlatego, że cofnięto atrybucję.
+   */
+  thresholds_fingerprint: string;
 }
 
 export const insightsApi = {
