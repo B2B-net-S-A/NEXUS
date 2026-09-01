@@ -206,7 +206,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         terms_read=True,
         framework_read=True,
         legal_fields=True,
-        financials=False,
+        financials=True,
     ),
     "tac": dict(
         contacts_read=True,
@@ -272,7 +272,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         terms_read=True,
         framework_read=True,
         legal_fields=True,
-        financials=False,
+        financials=True,
     ),
 }
 
@@ -377,8 +377,15 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
                 assert field not in body, f"[{profile}] leaked legal field {field}"
 
     # Finanse w profilu klienta. Endpoint jest OperationalUser (R0) —
-    # viewer 403; redakcja finansów przez capability VIEW_FINANCE
-    # (Admin; wydzielona Finance nie korzysta z mieszanej powierzchni klienta).
+    # viewer 403; redakcja finansów przez `_can_see_client_profile_finance`:
+    # capability VIEW_FINANCE (Admin; wydzielona Finance nie korzysta
+    # z mieszanej powierzchni klienta) ALBO Delivery Lead w granicach
+    # własnego portfela — „Obecni konsultanci" to jego obsada, a stawka
+    # kosztowa/przychodowa i marża to kolumny tej tabeli.
+    #
+    # `hor` i `tac` ZOSTAJĄ na False i to nie jest przeoczenie: HoR przechodzi
+    # przez guardy klienta globalnie, bez przypisania (repo trzyma go poza
+    # finansami), a TAC widzi konsultantów, ale obsady nie prowadzi.
     resp = await cam_client.get(f"/api/clients/{client_id}/profile", headers=headers)
     if profile == "viewer":
         assert resp.status_code == 403

@@ -66,15 +66,39 @@ function financeAdmin(): User {
   };
 }
 
-function renderTab() {
+function renderTab(clientId = 10) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <AnalyticsTab clientId={10} />
+      <AnalyticsTab clientId={clientId} />
     </QueryClientProvider>,
   );
+}
+
+/** Payload z kompletem kwot — backend przysyła go każdemu, kto może je czytać. */
+function dashboardWithMoney() {
+  return {
+    data: {
+      client_id: 10,
+      client_name: "Acme",
+      total_revenue_all_time: 100_000,
+      active_revenue: 40_000,
+      completed_revenue: 60_000,
+      currency_breakdown: { PLN: 100_000 },
+      monthly_margin_total: 12_000,
+      monthly_margin_pct: 30,
+      active_consultants: 3,
+      active_contracts: 4,
+      completed_consultants: 2,
+      avg_days_to_fill: 18,
+      framework_contracts_count: 1,
+      active_orders_count: 4,
+      completed_orders_count: 5,
+      alerts: [],
+    },
+  } as unknown as Awaited<ReturnType<typeof dlPortalApi.getDashboard>>;
 }
 
 describe("AnalyticsTab finance redaction", () => {
@@ -88,9 +112,79 @@ describe("AnalyticsTab finance redaction", () => {
     });
   });
 
-  it("renders operational analytics when finance fields are omitted for a Delivery Lead", async () => {
+  it("pokazuje kwoty Delivery Leadowi u klienta z JEGO portfela", async () => {
+    // Lustro backendowego `can_read_client_finance`. Wcześniej gate pytał sam
+    // o capability `view_finance`, której DL nie ma — i chował te kafle nawet
+    // wtedy, gdy backend przysyłał komplet liczb.
     act(() => {
       useAuthStore.setState({ user: deliveryLead(), hydrated: true });
+    });
+    getDashboard.mockResolvedValue(dashboardWithMoney());
+
+    renderTab(10);
+
+    expect(await screen.findByText("Revenue lifetime (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Active revenue (PLN)")).toBeInTheDocument();
+    expect(screen.getByText("Marża/mc (PLN, gross)")).toBeInTheDocument();
+    expect(screen.getByText("Revenue per waluta")).toBeInTheDocument();
+  });
+
+  it("nie pokazuje kwot Delivery Leadowi poza jego portfelem", async () => {
+    // Backend odpowie tu 403, ale gate ma być fail-closed sam z siebie —
+    // inaczej pierwsza zmiana po stronie trasy cicho odsłoniłaby kwoty.
+    act(() => {
+      useAuthStore.setState({ user: deliveryLead(), hydrated: true });
+    });
+    getDashboard.mockResolvedValue(dashboardWithMoney());
+
+    renderTab(999);
+
+    expect(await screen.findByText("Acme — analityka")).toBeInTheDocument();
+    expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marża/mc (PLN, gross)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
+  });
+
+  it("nie pokazuje kwot hybrydzie head_of_recruitment + delivery_lead", async () => {
+    // Jej zakres to `recruitment_org` — nadzór nieoskopowany, więc „własny
+    // portfel" nie miałby czego zawęzić. Test roli zamiast granicy rozdałby
+    // jej kwoty u wszystkich klientów, a backend i tak odpowie bez nich.
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...deliveryLead(),
+          role: "head_of_recruitment",
+          roles: ["head_of_recruitment", "delivery_lead"],
+          data_scope: {
+            kind: "recruitment_org",
+            user_id: 17,
+            allowed_client_ids: [],
+            allowed_tac_user_ids: [21, 22],
+            allowed_operator_user_ids: [21, 22],
+            allowed_client_tac_pairs: [],
+          },
+        },
+        hydrated: true,
+      });
+    });
+    getDashboard.mockResolvedValue(dashboardWithMoney());
+
+    renderTab(10);
+
+    expect(await screen.findByText("Acme — analityka")).toBeInTheDocument();
+    expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marża/mc (PLN, gross)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
+  });
+
+  it("renderuje sekcje operacyjne, gdy backend pominął kwoty", async () => {
+    // Rola bez dostępu do kwot ma dostać działający ekran operacyjny,
+    // a nie pustkę.
+    act(() => {
+      useAuthStore.setState({
+        user: { ...deliveryLead(), data_scope: undefined },
+        hydrated: true,
+      });
     });
     getDashboard.mockResolvedValue({
       data: {
@@ -113,8 +207,6 @@ describe("AnalyticsTab finance redaction", () => {
     expect(screen.getByText("Konsultanci aktywni")).toBeInTheDocument();
     expect(screen.getByText("Completed orders")).toBeInTheDocument();
     expect(screen.queryByText("Revenue lifetime (PLN)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Marża/mc (PLN, gross)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
   });
 
   it("renders finance KPIs only for a caller with view_finance", async () => {
