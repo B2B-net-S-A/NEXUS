@@ -1,11 +1,12 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { GraduationCap, Loader2 } from "lucide-react";
+import { GraduationCap, Loader2, TrendingDown } from "lucide-react";
 import {
   insightsApi,
   type SeniorityEntry,
   type SeniorityLevel,
+  type SeniorityRegression,
   type SeniorityResponse,
 } from "@/lib/insights-api";
 import { cn } from "@/lib/utils";
@@ -230,6 +231,60 @@ function SeniorityTable({ data }: { data: SeniorityResponse }) {
  *    zdania pusty licznik bieżącego okna przy poziomie „Senior” wygląda na
  *    błąd, a jest poprawną odpowiedzią.
  */
+/**
+ * Osoby, którym poziom SPADŁ między obserwacjami dziennika.
+ *
+ * Musi stać NAD tabelą, bo podważa to, co jest pod nim: jeżeli komuś zabrano
+ * placementy, cała kolumna „poziom” opisuje inny stan świata niż wczoraj.
+ * Sekcja mówi obok, że „poziom raz osiągnięty zostaje” — spadek jest więc
+ * sprzeczny z regułą, którą czytelnik właśnie przeczytał, i nie może być
+ * schowany w rozwijanym szczególe.
+ *
+ * Nie proponuje żadnej akcji, bo żadna nie jest tu poprawna automatycznie:
+ * cofnięta atrybucja bywa POPRAWKĄ (import naprawił błędne przypisanie), a
+ * bywa awarią. Rozstrzyga człowiek.
+ */
+function SeniorityRegressions({ rows }: { rows: SeniorityRegression[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="mb-4 rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
+      <p className="flex items-center gap-2 text-xs font-semibold">
+        <TrendingDown className="h-4 w-4 shrink-0" />
+        {rows.length === 1
+          ? "Jednej osobie spadł poziom"
+          : `Spadek poziomu: ${rows.length} os.`}
+      </p>
+      <ul className="mt-2 space-y-1 text-xs">
+        {rows.map((row) => (
+          <li key={row.user_id}>
+            <strong>{row.name}</strong>: {LEVEL_LABEL[row.previous_level ?? "junior"]}{" "}
+            → {LEVEL_LABEL[row.level]}
+            {row.previous_total_placements !== null && (
+              <>
+                {" "}
+                ({row.previous_total_placements} → {row.total_placements}{" "}
+                placementów)
+              </>
+            )}
+            {row.observed_at && (
+              <span className="text-warning-muted-foreground/80">
+                {" "}
+                · zauważone {row.observed_at.slice(0, 10)}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-[11px] leading-relaxed">
+        Poziom nie spada z upływem czasu, więc spadek zawsze znaczy, że zmieniła
+        się <strong>historia przypisań</strong> — najczęściej po imporcie, który
+        przepisał zaległe zatrudnienia na inną osobę. To może być poprawka albo
+        błąd; system nie zgaduje, która to sytuacja.
+      </p>
+    </div>
+  );
+}
+
 export function InsightsSeniority() {
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
     queryKey: ["insights", "recruitment", "seniority"],
@@ -278,6 +333,8 @@ export function InsightsSeniority() {
           poziomie jest poprawną odpowiedzią, a nie błędem.
         </p>
       )}
+
+      {data && <SeniorityRegressions rows={data.regressions ?? []} />}
 
       {viewState === "loading" ? (
         <div className="py-8 flex items-center justify-center">

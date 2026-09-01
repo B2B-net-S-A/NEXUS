@@ -39,6 +39,7 @@ from app.services.insights_invite_links import (
     count_invite_link_candidates,
 )
 from app.services.insights_seniority import compute_seniority, load_thresholds
+from app.services.insights_seniority_journal import load_open_regressions
 from app.services.insights_team_activity import compute_team_activity
 
 logger = logging.getLogger(__name__)
@@ -775,9 +776,15 @@ async def insights_seniority(
         "insights:recruitment:seniority:v1"
         f":{effective_as_of.isoformat()}:{thresholds.cache_suffix}"
     )
+    # Regresje czytamy ZAWSZE, także przy trafieniu w cache. Dziennik zapisuje
+    # pętla dobowa; gdyby ostrzeżenie siedziało pod tym samym TTL co wyliczenia,
+    # nocna regresja byłaby niewidoczna aż do wygaśnięcia cache'u — a to jest
+    # dokładnie ta informacja, która nie może się spóźnić.
+    regressions = await load_open_regressions(db)
+
     cached = await cache_get(cache_key)
     if cached is not None:
-        return cached
+        return {**cached, "regressions": regressions}
 
     computed = await compute_seniority(db, as_of=effective_as_of, thresholds=thresholds)
 
@@ -813,6 +820,12 @@ async def insights_seniority(
                 "operatorów bez odpowiednika w NEXUSIE) są liczone osobno."
             ),
         },
+        # Osoby, którym poziom SPADŁ — czyli którym historia atrybucji zmieniła
+        # się pod nogami. Moduł liczący nie degraduje poziomu upływem czasu
+        # (patrz `insights_seniority`, decyzja 2), więc spadek nigdy nie jest
+        # normalnym przebiegiem kariery i musi być widoczny, a nie tylko
+        # możliwy do wygrzebania z bazy.
+        "regressions": regressions,
     }
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result

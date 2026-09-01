@@ -126,6 +126,7 @@ const BODY: SeniorityResponse = {
     outside_pool_placements: 7,
     note: "Poziom liczymy wyłącznie z placementów przypisanych do aktywnych kont.",
   },
+  regressions: [],
 };
 
 beforeEach(() => {
@@ -228,5 +229,49 @@ describe("InsightsSeniority", () => {
     expect(
       screen.queryByText(/Brak osób w rolach sourcer/),
     ).not.toBeInTheDocument();
+  });
+
+  it("wypisuje spadek poziomu NAD tabelą, z obiema wartościami", async () => {
+    // Sekcja mówi obok, że „poziom raz osiągnięty zostaje”. Spadek jest więc
+    // sprzeczny z regułą, którą czytelnik właśnie przeczytał — schowanie go
+    // pod tabelą albo w szczególe zostawiłoby na ekranie samą sprzeczność.
+    respond({
+      ...BODY,
+      regressions: [
+        {
+          user_id: 2,
+          name: "Bogna Ekspertka",
+          level: "senior",
+          previous_level: "expert",
+          total_placements: 9,
+          previous_total_placements: 14,
+          observed_at: "2026-08-30T02:00:00+00:00",
+          thresholds_fingerprint: "6-6-12-6-12-12-24-12",
+        },
+      ],
+    });
+    renderSection();
+
+    expect(await screen.findByText(/Jednej osobie spadł poziom/)).toBeInTheDocument();
+    // Obie liczby placementów, bo „spadł na seniora” bez nich nie mówi, o ile.
+    expect(await screen.findByText(/14 → 9 placementów/)).toBeInTheDocument();
+    // Dwie osobne asercje zamiast jednej po `textContent`: matcher czytający
+    // `textContent` trafia w KAŻDEGO przodka (body, div, sekcję), więc zwraca
+    // wiele elementów i wywala się na dobrze wyrenderowanym komunikacie.
+    expect(
+      await screen.findByText(/Poziom nie spada z upływem czasu/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("historia przypisań")).toBeInTheDocument();
+  });
+
+  it("bez regresji nie renderuje pustego ostrzeżenia", async () => {
+    // Pusta ramka „0 spadków” uczy ignorować to miejsce, więc gdy spadek
+    // naprawdę wystąpi, nikt go nie zauważy.
+    respond(BODY);
+    renderSection();
+
+    expect(await screen.findByText(/Ścieżka rozwoju/)).toBeInTheDocument();
+    expect(screen.queryByText(/spadł poziom/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Spadek poziomu/)).not.toBeInTheDocument();
   });
 });
