@@ -110,6 +110,7 @@ const BASE: SeniorityResponse = {
       "w rolach sourcer / TAC / rekruter.",
   },
   regressions: [],
+  journal: { last_observed_at: "2026-08-31T02:00:00+00:00", observations: 25 },
 };
 
 const ONE: SeniorityRegression = {
