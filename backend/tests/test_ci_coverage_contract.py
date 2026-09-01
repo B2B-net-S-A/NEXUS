@@ -223,8 +223,6 @@ _FAILING = {
     "test_champion_ai_intake.py",
     # 1 fail — parsed-CV dict gained current_position_started_at_precision.
     "test_cv_parser.py",
-    # 1 fail — fixture inserts client_orders without contract_id, now NOT NULL.
-    "test_dl_portal_scheduler.py",
     # 3 fails — two same-day notifications of one type hit ix_notif_dedup_daily.
     "test_marketplace_flow.py",
     # 2 fails — endpoint now validates and answers 422 where the test expects 201.
