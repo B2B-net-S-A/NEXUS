@@ -614,11 +614,23 @@ async def insights_board(
     if reasons:
         message_parts: list = []
         if missing_currencies:
+            # Podpowiedź MUSI zależeć od tego, gdzie leży luka. `refresh`
+            # pobiera wyłącznie DZISIEJSZĄ tabelę NBP, więc na brakujące
+            # miesiące historyczne nie działa — a to one wywołują ten
+            # komunikat najczęściej (na produkcji: siedem kolejnych miesięcy
+            # EUR przy kompletnym snapshocie na dziś). Podpowiedź, po której
+            # nic się nie zmienia, uczy ignorować cały komunikat.
+            waluty = ", ".join(sorted(missing_currencies))
+            if months_degraded:
+                fix = (
+                    "uzupełnij historię: POST /api/fx/backfill?currency="
+                    + sorted(missing_currencies)[0]
+                )
+            else:
+                fix = "uzupełnij: POST /api/fx/refresh"
             message_parts.append(
-                "Brak kursu NBP dla walut: "
-                + ", ".join(sorted(missing_currencies))
-                + " — kwoty w tych walutach są POMINIĘTE w sumach "
-                "(uzupełnij: POST /api/fx/refresh)."
+                f"Brak kursu NBP dla walut: {waluty} — kwoty w tych walutach "
+                f"są POMINIĘTE w sumach ({fix})."
             )
         if current_fold.without_cost_leg:
             message_parts.append(
