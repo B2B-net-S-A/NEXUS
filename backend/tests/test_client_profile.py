@@ -477,3 +477,164 @@ async def test_active_mrr_equals_the_sum_of_the_visible_margin_column(
     body = resp.json()
     widoczna_suma = sum(r["monthly_margin"] for r in body["active_consultants"])
     assert body["summary"]["active_mrr"] == widoczna_suma
+
+
+# ── Delivery Lead widzi finanse WŁASNEGO portfela ────────────────────────────
+#
+# „Obecni konsultanci" to obsada Delivery Leada, a stawka kosztowa,
+# przychodowa i marża to trzy z pięciu kolumn tej tabeli. DL nie ma capability
+# VIEW_FINANCE (steruje 40+ innymi powierzchniami, więc nie nadajemy jej
+# globalnie) i do czasu tej zmiany widział w nich wyłącznie „—".
+
+
+async def _seed_delivery_lead(
+    client_id: int | None,
+    *,
+    extra_roles: list[str] | None = None,
+    primary_role: str = "delivery_lead",
+) -> tuple[str, str]:
+    """Użytkownik z personą DL (+ opcjonalne przypisanie do klienta).
+
+    ``client_id=None`` = DL bez przypisania do TEGO klienta — granica portfela
+    zostaje pusta i trasa musi go odciąć.
+    """
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.user import User, UserRole
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"pytest-dl-{unique}@example.com"
+    password = f"T3st_{unique}!PassX"
+    roles = [primary_role] + list(extra_roles or [])
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name="Pytest Delivery Lead",
+            role=UserRole(primary_role),
+            roles=roles,
+            is_active=True,
+            # `delivery_lead` ma bramkę onboardingu — bez tego nie przejdzie
+            # nawet do redakcji, a test mierzyłby coś innego niż mierzy.
+            profile_completed=True,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        if client_id is not None:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=client_id,
+                )
+            )
+            await db.commit()
+    return email, password
+
+
+async def _login_headers(
+    app_client: AsyncClient, email: str, password: str
+) -> dict[str, str]:
+    resp = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+async def test_delivery_lead_sees_rates_and_margin_for_own_client(
+    app_client: AsyncClient,
+) -> None:
+    """Trzy kolumny finansowe „Obecnych konsultantów" dla przypisanego DL."""
+    client_id, contract_id = await _seed_scheduled_contract(ended=False)
+    email, password = await _seed_delivery_lead(client_id)
+    headers = await _login_headers(app_client, email, password)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(r for r in body["active_consultants"] if r["contract_id"] == contract_id)
+
+    assert row["monthly_rate_candidate"] == 12000, "brak stawki kosztowej dla DL"
+    assert row["monthly_rate_client"] == 18000, "brak stawki przychodowej dla DL"
+    # Marża = przychodowa − kosztowa, nie kolumna `contracts.margin` (ta niesie
+    # kwotę z ostatniego ZAPISU kontraktu, czyli tu przedawnione 5000).
+    assert row["monthly_margin"] == 6000
+    assert (
+        row["monthly_margin"]
+        == row["monthly_rate_client"] - row["monthly_rate_candidate"]
+    )
+    # Kafel jest sumą kolumny „Marża" pod nim — częściowa redakcja rozjeżdżałaby
+    # ten ekran ze sobą samym.
+    assert body["summary"]["active_mrr"] == 6000
+
+
+async def test_delivery_lead_sees_the_same_columns_in_the_archive(
+    app_client: AsyncClient,
+) -> None:
+    """„Archiwum konsultantów" ma DOKŁADNIE te same trzy kolumny co „Obecni".
+
+    Odsłonięcie jednej zakładki bez drugiej dałoby ten sam rozjazd co redakcja
+    tylko jednej z nich, w drugą stronę.
+    """
+    client_id, contract_id = await _seed_scheduled_contract(ended=True)
+    email, password = await _seed_delivery_lead(client_id)
+    headers = await _login_headers(app_client, email, password)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 200, resp.text
+    row = next(
+        r
+        for r in resp.json()["historical"]["placements"]
+        if r["contract_id"] == contract_id
+    )
+    assert row["monthly_rate_candidate"] == 12000
+    assert row["monthly_rate_client"] == 18000
+    assert row["monthly_margin"] == 6000
+
+
+async def test_delivery_lead_outside_the_portfolio_gets_403_not_rates(
+    app_client: AsyncClient,
+) -> None:
+    """Finanse DL kończą się na granicy JEGO portfela.
+
+    Trasa odcina obcego klienta wcześniej niż redakcja, więc to 403, nie
+    wyzerowane kwoty — ale granica musi być zmierzona, bo to na niej stoi
+    zawężenie zamiast globalnej capability.
+    """
+    client_id, _ = await _seed_scheduled_contract(ended=False)
+    email, password = await _seed_delivery_lead(None)
+    headers = await _login_headers(app_client, email, password)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 403, resp.text
+
+
+async def test_head_of_recruitment_with_dl_role_stays_redacted(
+    app_client: AsyncClient,
+) -> None:
+    """Hybryda HoR+DL NIE dostaje stawek u wszystkich klientów.
+
+    ``resolve_delivery_lead_client_ids`` zwraca dla niej ``None`` (nadzór HoR
+    jest nieoskopowany), więc zawężenie „własny portfel" nie miałoby czego
+    zawęzić. Repo konsekwentnie trzyma HoR poza powierzchniami finansowymi.
+    """
+    client_id, contract_id = await _seed_scheduled_contract(ended=False)
+    email, password = await _seed_delivery_lead(
+        client_id,
+        primary_role="head_of_recruitment",
+        extra_roles=["delivery_lead"],
+    )
+    headers = await _login_headers(app_client, email, password)
+
+    resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(r for r in body["active_consultants"] if r["contract_id"] == contract_id)
+    assert row["monthly_rate_candidate"] is None
+    assert row["monthly_rate_client"] is None
+    assert row["monthly_margin"] is None
+    assert body["summary"]["active_mrr"] is None

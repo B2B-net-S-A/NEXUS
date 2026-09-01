@@ -11,7 +11,7 @@ from app.analytics.capabilities import (
     require_capability,
     user_has_capability,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.candidate_audit import CLIENT_RATE_CHANGED
 
 
@@ -32,6 +32,60 @@ def has_financial_access(user: _RoleAwareUser) -> bool:
     """Return whether the effective policy grants financial read access."""
 
     return user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+
+
+def can_read_client_finance(
+    user: User,
+    *,
+    client_id: int,
+    delivery_lead_client_ids: frozenset[int] | None,
+) -> bool:
+    """Czy odbiorca widzi kwoty JEDNEGO klienta: stawki, marżę, przychód, MRR.
+
+    Role z ``VIEW_FINANCE`` — zawsze. Delivery Lead — **wyłącznie u klienta ze
+    swojego portfela**, mimo że tej capability nie ma. To delivery odpowiada za
+    obsadę i marżę swoich klientów, a bez tego wyjątku rola, dla której te
+    ekrany powstały, widziała w kolumnach finansowych same „—".
+
+    **Capability ZOSTAJE nienadana globalnie.** ``VIEW_FINANCE`` steruje 40+
+    powierzchniami (eksport kontraktów, ``/settings/clients-overview``,
+    dashboardy zarządcze), więc dopisanie jej roli ``delivery_lead``
+    w ``ROLE_CAPABILITIES`` otworzyłoby je wszystkie naraz. Ten sam kompromis
+    co ``_can_see_finance`` w module zamówień: wąska powierzchnia zamiast
+    szerokiej capability.
+
+    Zakres jest wąski i trzeba go pilnować:
+
+    * ``client_id`` musi leżeć w granicy portfela wyznaczonej przez
+      ``resolve_delivery_lead_client_ids``. Trasy i tak odrzucają klienta spoza
+      niej, ale finanse nie mogą wisieć na tym, że wcześniejsza linijka nie
+      rzuciła wyjątku,
+    * ``None`` jako granica znaczy „ten odbiorca NIE jest rządzony personą DL"
+      (admin, head_of_recruitment, rola nie-DL) i finansów stąd nie dostaje.
+      Dzięki temu multi-rola ``head_of_recruitment + delivery_lead`` nie dostaje
+      kwot u WSZYSTKICH klientów — jej nadzór jest nieoskopowany, a repo
+      konsekwentnie trzyma HoR poza finansami
+      (patrz ``/settings/clients-overview``),
+    * ``tac`` zostaje przy redakcji: jest w zespole klienta i widzi
+      konsultantów, ale obsady nie prowadzi, więc stawki go nie dotyczą.
+
+    Konsumenci: profil klienta (``api/clients.py``) i portal DL
+    (``api/my_clients.py``). Reguła mieszka tutaj, bo rozjazd dwóch kopii
+    kończy się ekranem, który sam sobie przeczy: te same kwoty tego samego
+    klienta widoczne w jednej zakładce i puste w drugiej.
+    """
+
+    if has_financial_access(user):
+        return True
+    if delivery_lead_client_ids is None:
+        return False
+    # Test roli jest redundantny wobec kontraktu
+    # ``resolve_delivery_lead_client_ids`` (niepusta granica = persona DL) —
+    # i ma taki zostać. Gdyby ta funkcja zaczęła kiedyś zwracać zbiór dla innej
+    # persony, sam warunek na granicy po cichu rozdałby jej kwoty.
+    return (
+        user.has_role(UserRole.delivery_lead) and client_id in delivery_lead_client_ids
+    )
 
 
 def require_financial_access(user: _RoleAwareUser) -> None:
