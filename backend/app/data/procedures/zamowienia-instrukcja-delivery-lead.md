@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-08-31
+> **Zgodność z systemem sprawdzona:** 2026-09-01
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -37,7 +37,11 @@ Nad listą masz:
 * wyszukiwarkę po numerze zamówienia albo imieniu i nazwisku konsultanta,
 * **Filtry i sortowanie** (zakresy dat, „Bliskie wyczerpania budżetu (≥80%)",
   „Kończące się w ciągu N dni"),
-* **Pobierz do Excela** — eksport tego, co aktualnie widzisz,
+* **Pobierz do Excela** — eksport tego, co aktualnie widzisz, **w stanie na
+  dziś**: plik bierze wyłącznie zamówienia obowiązujące w dniu pobrania i każdy
+  konsultant jest w nim **dokładnie raz**. Zamówienia zakończone i te, które
+  jeszcze się nie zaczęły, do arkusza nie wchodzą; „kończące się" wchodzi, bo
+  konsultant nadal pracuje,
 * przycisk **Nowe zamówienie**.
 
 Dwa filtry działają węziej, niż sugeruje nazwa, i warto o tym wiedzieć:
@@ -159,6 +163,33 @@ zamówienie ruszyło.
 > puste pole znaczy „nie ostrzegaj nigdy". Jeżeli dokument od klienta podaje datę
 > końca — wpisz ją. Zostaw puste pole tylko wtedy, gdy współpraca naprawdę jest
 > bezterminowa, i wtedy pilnuj terminu sam.
+
+### „Zakończ zamówienie" to co innego niż „Zakończ współpracę"
+
+Na karcie pojedynczego konsultanta są **dwa** przyciski i różnica między nimi
+jest istotna:
+
+* **Zakończ zamówienie** — domyka **to jedno zamówienie**. Umowa zostaje
+  aktywna, a wszystkie pozostałe zamówienia tej osoby (w tym linia na
+  zamówieniu MD u tego samego klienta) zostają **nietknięte**. Tego użyj, gdy
+  kończy się okres zamówienia, a współpraca trwa dalej.
+* **Zakończ współpracę** — wypowiada **umowę**. Domyka wszystkie zamówienia tego
+  kontraktu i — przy zamówieniach MD — otwiera decyzję o niewykorzystanych
+  dniach. Tego użyj, gdy konsultant naprawdę odchodzi od klienta.
+
+Data w przyszłości w obu przypadkach zapisuje się od razu, ale **nie wyłącza
+niczego dzisiaj** — zamówienie obowiązuje do jej nadejścia.
+
+### Jedna osoba nie ma dwóch równoległych zamówień na to samo
+
+Jeżeli konsultant jest już obsadzony na **zamówieniu MD** u tego klienta, system
+**odmówi** założenia mu dodatkowego zamówienia okresowego i powie o tym wprost.
+To nie jest ograniczenie na siłę: oba zapisy wiszą na tej samej umowie, więc
+duplikat mylił liczby i przy zakończeniu jednego znikał drugi. Gdy trzeba zmienić
+warunki — edytuj linię w zamówieniu zbiorczym.
+
+Zamówienie **kosztowe** i okresowe u tej samej osoby mogą istnieć obok siebie —
+to dwa różne modele rozliczenia i są od siebie niezależne.
 
 ---
 
@@ -685,9 +716,14 @@ Dwa mechanizmy, które łatwo pomylić.
 **1. Reguła numeru zamówienia przy odczycie PDF-a.** Po odczycie system nadpisuje
 numer twardą regułą: bierze **wyłącznie** wartość spod etykiety **„Call Off
 Agreement"** (rozpoznaje też pisownię „Call-Off" i „Calloff" oraz zakończenia
-„number", „no.", „nr" i „#"). **Numeru umowy ramowej („Frame Agreement number")
-nie weźmie nigdy**, nawet gdy stoi w dokumencie wyżej — to była przyczyna
-zgłoszenia „system wpisuje zły numer". Jeżeli tej etykiety w dokumencie nie ma, **system nie poda
+„number", „no.", „nr" i „#"). Wartość może stać **w tym samym wierszu co
+etykieta albo w następnym** i **musi zawierać cyfrę** — słowo stojące za
+etykietą (drugi nagłówek kolumny, „nr", nazwa pola) ani sama data nie zostaną
+wzięte za numer. **Numeru umowy ramowej („Frame Agreement number") nie weźmie
+nigdy**, nawet gdy stoi w dokumencie wyżej — to była przyczyna zgłoszenia
+„system wpisuje zły numer". Gdy dokument ma **dwa nagłówki obok siebie, a
+wartości pod nimi**, system woli zostawić pole puste, niż wpisać numer
+z sąsiedniej kolumny. Jeżeli tej etykiety w dokumencie nie ma, **system nie poda
 żadnego numeru** — nigdy nie podstawi numeru oferty ani projektu. Dostaniesz
 o tym komunikat w banerze — ale **pole numeru nie zostanie wyczyszczone**: jeżeli
 coś już w nim stało (numer z poprzedniego zamówienia albo wartość zastępcza ze

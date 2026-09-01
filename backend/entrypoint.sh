@@ -6368,6 +6368,34 @@ async def run():
 asyncio.run(run())
 PY
 
+# Rozdzielenie zamówień MD i okresowych — jednorazowa naprawa danych
+# (safety-net dla migracji 0262, gdy alembic na prodzie stoi na starszej
+# rewizji). Blok SQL jest ten sam co w migracji — jedno źródło w
+# `app/services/order_separation_repair.py` — i jest idempotentny: advisory
+# lock serializuje równoległe deploye, a marker w `app_settings` sprawia, że
+# drugie wywołanie kończy się natychmiast.
+echo "Separating MD and periodic client orders (one-shot, idempotent)..."
+python - <<'PY' || echo "md/periodic order separation skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.order_separation_repair import (
+    SEPARATE_MD_PERIODIC_MARKER,
+    SEPARATE_MD_PERIODIC_SQL,
+)
+
+async def repair():
+    async with engine.begin() as conn:
+        await conn.execute(text(SEPARATE_MD_PERIODIC_SQL))
+        receipt = await conn.scalar(
+            text("SELECT value::text FROM app_settings WHERE key = :key"),
+            {"key": SEPARATE_MD_PERIODIC_MARKER},
+        )
+    print(f"md/periodic separation: {receipt}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of

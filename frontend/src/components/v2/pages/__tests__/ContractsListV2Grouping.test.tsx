@@ -167,10 +167,10 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(call?.[1]).toMatchObject({
       params: expect.objectContaining({
         group_by_candidate: true,
-        status: ["active"],
+        status: ["active", "ending"],
       }),
     });
-    expect(window.location.search).toBe("?status=active");
+    expect(window.location.search).toBe("?status=active&status=ending");
   });
 
   it("koduje pełny return target w linkach do profilu", async () => {
@@ -187,7 +187,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     );
   });
 
-  it("resetuje filtr do Aktywnego przy ponownym wejściu queryless bez remountu", async () => {
+  it("resetuje filtr do obowiązujących przy ponownym wejściu queryless bez remountu", async () => {
     window.history.replaceState({}, "", "/contracts?status=draft");
     const view = renderList("status=draft");
     await waitFor(() =>
@@ -208,11 +208,13 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     await waitFor(() =>
       expect(
         getMock.mock.calls.some(
-          (call) => call[0] === "/api/contracts" && call[1]?.params?.status?.[0] === "active",
+          (call) =>
+            call[0] === "/api/contracts" &&
+            call[1]?.params?.status?.join(",") === "active,ending",
         ),
       ).toBe(true),
     );
-    expect(window.location.search).toBe("?status=active");
+    expect(window.location.search).toBe("?status=active&status=ending");
   });
 
   it("ma dokładnie 8 kolumn danych w kolejności priorytetu", async () => {

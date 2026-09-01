@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Calendar,
+  CalendarX,
   Download,
   FilePlus2,
   History,
@@ -52,6 +53,7 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
+import { CloseClientOrderModal } from "@/components/client-profile/orders/CloseClientOrderModal";
 import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
 import { OrderListControls } from "@/components/client-profile/orders/OrderListControls";
 import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
@@ -433,6 +435,11 @@ export function ContractorOrderCards({
     useState<ContractWithOrdersRead | null>(null);
   const [terminatingContract, setTerminatingContract] =
     useState<ContractWithOrdersRead | null>(null);
+  const [closingOrder, setClosingOrder] = useState<{
+    order: ClientOrderRead;
+    consultantName: string;
+  } | null>(null);
+  const [closeError, setCloseError] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<{
     order: ClientOrderRead | null;
     candidateId: number;
@@ -450,6 +457,34 @@ export function ContractorOrderCards({
     queryClient.invalidateQueries({ queryKey: ["order-documents"] });
   }
 
+  const closeOrder = useMutation({
+    mutationFn: async (values: {
+      orderId: number;
+      closure_date: string;
+      closure_reason: string | null;
+    }) =>
+      (
+        await dlPortalApi.closeOrder(clientId, values.orderId, {
+          closure_date: values.closure_date,
+          closure_reason: values.closure_reason,
+        })
+      ).data,
+    onSuccess: () => {
+      setClosingOrder(null);
+      setCloseError(null);
+      showToast("Zamówienie zakończone", "success");
+      refresh();
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: unknown } } })
+        ?.response?.data?.detail;
+      if (typeof detail === "string") setCloseError(detail);
+      else if (detail && typeof detail === "object" && "message" in detail)
+        setCloseError(String((detail as { message?: string }).message));
+      else setCloseError("Nie udało się zakończyć zamówienia.");
+    },
+  });
+
   return (
     <>
       <ul className="space-y-3">
@@ -465,6 +500,13 @@ export function ContractorOrderCards({
             searching={searching}
             onExtend={() => setExtendingContract(contractor)}
             onTerminate={() => setTerminatingContract(contractor)}
+            onCloseOrder={(order) => {
+              setCloseError(null);
+              setClosingOrder({
+                order,
+                consultantName: contractor.candidate_name,
+              });
+            }}
             onEditOrder={(order, createOrder) =>
               setEditingOrder({
                 order,
@@ -504,6 +546,24 @@ export function ContractorOrderCards({
           }}
         />
       ) : null}
+
+      <CloseClientOrderModal
+        open={closingOrder !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setClosingOrder(null);
+            setCloseError(null);
+          }
+        }}
+        order={closingOrder?.order ?? null}
+        consultantName={closingOrder?.consultantName ?? ""}
+        submitting={closeOrder.isPending}
+        error={closeError}
+        onSubmit={(values) => {
+          if (!closingOrder) return;
+          closeOrder.mutate({ orderId: closingOrder.order.id, ...values });
+        }}
+      />
 
       {terminatingContract ? (
         <TerminateContractModal
@@ -679,6 +739,8 @@ interface ContractorCardProps {
   searching: boolean;
   onExtend: () => void;
   onTerminate: () => void;
+  /** Zakończenie POJEDYNCZEGO zamówienia — bez wypowiadania umowy. */
+  onCloseOrder: (order: ClientOrderRead) => void;
   /** `order === null` → kontraktor nie ma jeszcze zamówienia (tryb tworzenia). */
   onEditOrder: (order: ClientOrderRead | null, createOrder: CreateDraftOrder) => void;
   onChange: () => void;
@@ -696,6 +758,7 @@ function ContractorCard({
   searching,
   onExtend,
   onTerminate,
+  onCloseOrder,
   onEditOrder,
   onChange,
   onError,
@@ -913,6 +976,13 @@ function ContractorCard({
     contractor.days_to_latest_end <= 30;
 
   const hasSection = futureOrders.length > 0 || historyOrders.length > 0;
+  // Zamknięte i anulowane nie mają czego kończyć. Linii grup ta karta nie
+  // renderuje (serwer wycina je z `/orders`), a gdyby kiedyś zaczęła —
+  // endpoint odrzuca je z 409, bo grupa ma własne zakończenie.
+  const canCloseActiveOrder =
+    activeOrder !== null &&
+    activeOrder.status !== "completed" &&
+    activeOrder.status !== "cancelled";
   const cardOrderType = activeOrder
     ? effectiveClientOrderType(activeOrder, legacyNullOrderType)
     : contractor.orders.length > 0
@@ -1145,15 +1215,30 @@ function ContractorCard({
               </button>
             </>
           ) : null}
-          {/* „Zakończ" (ticket #5 krok 3) — ukryte WYŁĄCZNIE w stanach
-              terminalnych; uzasadnienie przy `canTerminateContractor`. */}
+          {/* DWIE różne akcje, świadomie rozdzielone. „Zakończ zamówienie"
+              domyka JEDEN wiersz; „Zakończ współpracę" wypowiada UMOWĘ, a ta
+              niesie także linie rozliczane w MD tej samej osoby — właśnie
+              dlatego zakończenie zamówienia okresowego potrafiło skasować
+              zamówienie MD. Jeden przycisk o dwóch znaczeniach nie da się
+              opisać etykietą, więc są dwa. */}
+          {canManageOrders && activeOrder && canCloseActiveOrder && (
+            <button
+              onClick={() => onCloseOrder(activeOrder)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-foreground border border-border rounded hover:bg-muted"
+            >
+              <CalendarX className="w-4 h-4" />
+              Zakończ zamówienie
+            </button>
+          )}
+          {/* „Zakończ współpracę" — ukryte WYŁĄCZNIE w stanach terminalnych;
+              uzasadnienie przy `canTerminateContractor`. */}
           {canTerminateContractor(contractor.contract_status) && (
             <button
               onClick={onTerminate}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
             >
               <Trash2 className="w-4 h-4" />
-              Zakończ
+              Zakończ współpracę
             </button>
           )}
         </div>

@@ -125,6 +125,7 @@ from app.services.cost_orders import (
     settle_group,
 )
 from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.cyfrowy_polsat_orders import (
     is_cyfrowy_polsat_order_types_client,
 )
@@ -1052,7 +1053,6 @@ async def _contract_for_candidate(
     client_id: int,
     candidate_id: int,
     start_date: date,
-    end_date: Optional[date],
 ) -> tuple[Contract, Optional[Candidate], bool]:
     """Kontrakt u tego klienta dla osoby z bazy Nexus — istniejący albo nowy.
 
@@ -1097,7 +1097,13 @@ async def _contract_for_candidate(
         # podstawie formularza, który o umowie nie pyta.
         status=ContractStatus.draft,
         start_date=start_date,
-        end_date=end_date,
+        # BEZ `end_date`. Koniec ZAMÓWIENIA i koniec UMOWY to dwa różne fakty:
+        # zamówienie wygasa co pół roku, a umowa B2B jest bezterminowa aż do
+        # rozstania z konsultantem. Przepisanie tu daty z linii dawało umowie
+        # datę końca, której nikt nie zadeklarował — nocny `_promote_statuses`
+        # przestawiał ją na „Kończąca się", a potem „Zakończona", i konsultant
+        # znikał z rejestru mimo trwającego zamówienia. Datę zakończenia umowy
+        # ustawia wyłącznie człowiek (rejestr umów albo `/terminate`).
     )
     db.add(contract)
     await db.flush()
@@ -1116,17 +1122,17 @@ async def _resolve_line_person(
         return contract, contract.candidate, False
     # Schemat gwarantuje, że dokładnie jedno z pól jest ustawione.
     #
-    # Daty szkicu kontraktu są LUSTREM dat linii (a przy pustym końcu linii —
-    # końca całego zamówienia), bo tylko tyle wiadomo: formularz obsady nie
-    # pyta o okres umowy. Kto będzie ten kontrakt aktywował, MUSI je świadomie
-    # potwierdzić — to nie są daty przepisane z dokumentu, tylko z zamówienia,
-    # pod które osoba została dopisana.
+    # Data ROZPOCZĘCIA szkicu kontraktu jest lustrem daty linii, bo tylko tyle
+    # wiadomo: formularz obsady nie pyta o okres umowy. Data ZAKOŃCZENIA
+    # świadomie NIE jest kopiowana — patrz `_contract_for_candidate`. Kto
+    # będzie ten kontrakt aktywował, i tak musi datę startu potwierdzić: to nie
+    # jest data przepisana z umowy, tylko z zamówienia, pod które osoba została
+    # dopisana.
     return await _contract_for_candidate(
         db,
         client_id=group.client_id,
         candidate_id=payload.candidate_id,  # type: ignore[arg-type]
         start_date=payload.start_date,
-        end_date=payload.end_date or group.end_date,
     )
 
 
@@ -1140,6 +1146,30 @@ async def _build_line(
     contract, candidate, contract_created = await _resolve_line_person(
         db, group=group, payload=payload
     )
+    # Osoba wchodzi na linię grupy — pusty szkic-zaślepka po hooku zatrudnienia
+    # przestaje być „do uzupełnienia" i staje się DRUGIM zapisem tej samej
+    # współpracy. Zostawiony na kontrakcie sprawiał, że wypowiedzenie z karty
+    # okresowej domykało również tę linię (patrz
+    # `order_engagement_separation`).
+    #
+    # Ślad w `activities` jest OBOWIĄZKOWY i ma ten sam kształt co wpis migracji
+    # 0261: kasowanie wiersza, którego nikt nie widzi w historii, jest dla
+    # operatora nieodróżnialne od danych, które zniknęły same.
+    for removed_order_id in await absorb_auto_draft_shells(db, contract.id):
+        db.add(
+            Activity(
+                entity_type="client_order",
+                entity_id=removed_order_id,
+                action="order_deleted",
+                user_id=user.id,
+                details={
+                    "contract_id": contract.id,
+                    "client_id": group.client_id,
+                    "order_group_id": group.id,
+                    "reason": "absorbed_auto_draft_shell",
+                },
+            )
+        )
     if payload.job_id is not None:
         owns_job = await db.scalar(
             select(Job.id).where(

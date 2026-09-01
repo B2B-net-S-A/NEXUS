@@ -791,28 +791,93 @@ _MD_COUNT_RE = re.compile(
 # wariantów, a wtedy polityka CZYŚCIŁA numer (fail-closed) i operator wpisywał
 # go ręcznie — albo, przy niewłączonej bramce klienta, zostawał numer wybrany
 # przez model, czyli zwykle właśnie „Frame Agreement".
-_NORDEA_CALL_OFF_NUMBER_RE = re.compile(
-    r"Call[\s\-]*Off\s*Agreement\s*(?:number|no\.?|nr\.?|#)?\s*[:#\-–—]?\s*"
-    r"([A-Z0-9][A-Z0-9._/\-]*)",
+#
+# Etykieta i WARTOŚĆ są rozdzielone świadomie. Jedno wyrażenie „etykieta +
+# pierwszy token za nią" brało dowolny token — także zwykłe SŁOWO (drugi
+# nagłówek kolumny, „nr", nazwa pola), bo klasa ``[A-Z0-9…]`` z ``IGNORECASE``
+# pasuje na litery. Stąd zgłoszenie „do numeru zamówienia wpisują się losowe
+# słowa z dokumentu". Teraz wartość musi zawierać CYFRĘ i nie może być datą,
+# a okno wyszukiwania jest ucinane na kolejnej etykiecie.
+_NORDEA_CALL_OFF_LABEL_RE = re.compile(
+    r"Call[\s\-]*Off\s*Agreement\s*(?:number|no\.?|nr\.?|#)?",
     re.IGNORECASE,
 )
 
 # Kontrola negatywna: „Frame Agreement number" to numer UMOWY RAMOWEJ, nie
-# zamówienia. Nie służy do wyboru numeru — służy do udowodnienia (testem), że
-# wyrażenie wyżej nigdy go nie łapie, także wtedy gdy stoi w dokumencie przed
-# właściwą etykietą.
+# zamówienia. Nie służy do wyboru numeru — służy do (a) udowodnienia testem, że
+# reguła nigdy go nie łapie, także gdy stoi w dokumencie przed właściwą
+# etykietą, oraz (b) ucięcia okna wyszukiwania: gdy zaraz za etykietą
+# Call-Off zaczyna się KOLEJNA etykieta (układ dwukolumnowy, gdzie nagłówki
+# stoją w jednym wierszu, a wartości w następnym), pierwsza liczba za etykietą
+# należy już do sąsiedniej kolumny. Wtedy reguła zostawia pole puste, zamiast
+# wpisać numer umowy ramowej jako numer zamówienia.
 _NORDEA_FRAME_NUMBER_RE = re.compile(
     r"Frame\s*Agreement\s*(?:number|no\.?|nr\.?|#)?\s*[:#\-–—]?\s*"
     r"([A-Z0-9][A-Z0-9._/\-]*)",
     re.IGNORECASE,
 )
 
+# Lista jest WĄSKA i to jest celowe: ucięcie okna kończy się pustym numerem
+# (polityka jest fail-closed), więc każda nadmiarowa pozycja zamienia poprawny
+# odczyt w prośbę o ręczne uzupełnienie. Zostają tylko etykiety, które w tych
+# dokumentach naprawdę niosą INNY numer.
+_NORDEA_COMPETING_LABEL_RE = re.compile(
+    r"(?:Frame|Framework|Master)\s*Agreement|Umowa\s+ramowa|"
+    r"Offer\s*(?:number|no\.?)|Project\s*(?:number|no\.?)",
+    re.IGNORECASE,
+)
+
+# Kandydat na numer: ciąg znaków dopuszczalnych w numerze dokumentu. Sam
+# kształt NIE wystarcza — patrz `_is_nordea_number_token`.
+_NORDEA_TOKEN_RE = re.compile(r"[A-Z0-9][A-Z0-9._/\-]*", re.IGNORECASE)
+
+# Data zapisana kropkami/myślnikami przechodzi test „zawiera cyfrę", a numerem
+# zamówienia nie jest.
+_NORDEA_DATE_TOKEN_RE = re.compile(
+    r"\A(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}|\d{1,2}[-./]\d{1,2}[-./]\d{2,4})\Z"
+)
+
+# Ile znaków za etykietą wolno przeszukać. Wartość stoi w tym samym wierszu
+# albo w następnym; szersze okno zaczyna wciągać treść niezwiązaną z polem.
+_NORDEA_VALUE_WINDOW = 160
+
+
+def _is_nordea_number_token(token: str) -> bool:
+    """Czy token wygląda na numer dokumentu, a nie na słowo albo datę.
+
+    Wymóg CYFRY jest sednem poprawki. Wcześniejsze wyrażenie brało pierwszy
+    token po etykiecie, więc w układzie, w którym za nagłówkiem stoi kolejne
+    słowo (drugi nagłówek kolumny, „nr", nazwa pola), do pola „numer
+    zamówienia" trafiało po prostu SŁOWO z dokumentu — zgłoszony objaw
+    „pobiera losowe słowa".
+    """
+
+    if not any(character.isdigit() for character in token):
+        return False
+    return not _NORDEA_DATE_TOKEN_RE.match(token)
+
 
 def nordea_call_off_agreement_number(text: str) -> Optional[str]:
-    """Zwróć numer z etykiety Nordea, nigdy inny numer z dokumentu."""
+    """Zwróć numer z etykiety Nordea, nigdy inny numer ani słowo z dokumentu.
 
-    match = _NORDEA_CALL_OFF_NUMBER_RE.search(text or "")
-    return match.group(1).strip() if match else None
+    Etykieta nie ma jednego zapisu: dokumenty mieszają „Call Off", „Call-Off"
+    i „Calloff", a po niej bywa „number", „no.", „nr", „#" albo nic. Wartość
+    stoi raz w tym samym wierszu, raz w następnym. Dlatego reguła jest
+    dwuetapowa: najpierw etykieta, potem WYBÓR wartości w oknie za nią —
+    a nie jedno wyrażenie, które „bierze, co stoi dalej".
+    """
+
+    haystack = text or ""
+    for label in _NORDEA_CALL_OFF_LABEL_RE.finditer(haystack):
+        window = haystack[label.end() : label.end() + _NORDEA_VALUE_WINDOW]
+        competing = _NORDEA_COMPETING_LABEL_RE.search(window)
+        if competing is not None:
+            window = window[: competing.start()]
+        for token in _NORDEA_TOKEN_RE.finditer(window):
+            candidate = token.group(0).strip(".-/_")
+            if candidate and _is_nordea_number_token(candidate):
+                return candidate
+    return None
 
 
 def nordea_frame_agreement_number(text: str) -> Optional[str]:
