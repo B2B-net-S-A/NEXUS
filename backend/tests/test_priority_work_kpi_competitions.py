@@ -52,14 +52,21 @@ def _row(
     )
 
 
-async def test_champions_points_use_cv_sent_and_client_interview_only() -> None:
+async def test_champions_points_score_interview_not_client_interview() -> None:
+    """Skladnik „interview" punktuje `interview`, NIE `client_interview` (D3).
+
+    Odwrocenie wzgledem poprzedniego kontraktu jest swiadome. `client_interview`
+    NIE MA zadnego mapowania z Traffita (`traffit/mappers.py:404-449`), wiec ten
+    skladnik byl w praktyce ZAWSZE ZEROWY — a rozdzielal nagrody 5000/3000/2000 PLN.
+    Wiersz `client_interview` zostaje w tescie jako dowod, ze przestal punktowac.
+    """
     rows = [
         _row(user_id=1, stage="hired", count=5),
-        _row(user_id=1, stage="client_interview", count=8),
+        _row(user_id=1, stage="interview", count=8),
         _row(user_id=1, stage="cv_sent", count=22),
         _row(user_id=1, stage="verified", count=40),
-        # An internal interview is deliberately not a client-interview point.
-        _row(user_id=1, stage="interview", count=999),
+        # Martwy skladnik: obecny w danych, nieobecny w punktacji.
+        _row(user_id=1, stage="client_interview", count=999),
         _row(user_id=2, stage="hired", count=2, name="Below threshold"),
     ]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
@@ -67,17 +74,66 @@ async def test_champions_points_use_cv_sent_and_client_interview_only() -> None:
         db,
         start=datetime(2026, 7, 1, tzinfo=timezone.utc),
         end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+        weights={"placement": 150, "interview": 15, "recommendation": 5},
         min_placements=3,
     )
-    assert len(ranked) == 1
-    assert ranked[0].metric_value == 980
-    assert ranked[0].extras == {
-        "role": "recruiter",
-        "placements": 5,
-        "interviews": 8,
-        "recommendations": 22,
-        "verifications": 40,
-    }
+
+    # Niezakwalifikowani ZOSTAJA w rankingu z flaga (D3) zamiast znikac —
+    # wypadniecie z listy czytalo sie jak brak wyniku, a nie jak niespelniony prog.
+    assert len(ranked) == 2
+
+    top = ranked[0]
+    # 5*150 + 8*15 + 22*5 = 750 + 120 + 110 = 980.
+    # Gdyby punktowal `client_interview` (999), liczba bylaby zupelnie inna.
+    assert top.metric_value == 980
+    assert top.extras["placements"] == 5
+    assert top.extras["interviews"] == 8
+    assert top.extras["recommendations"] == 22
+    assert top.extras["qualified"] is True
+
+    below = ranked[1]
+    assert below.extras["qualified"] is False
+    assert "MIN_PLACEMENTS_NOT_MET" in below.extras["disqualification_reasons"]
+
+
+async def test_champions_weights_change_the_ranking() -> None:
+    """Sens D3: zmiana wag NAPRAWDE przestawia podium, a nie tylko napis.
+
+    Bez tego testu konfigurowalnosc bylaby deklaracja — formula moglaby czytac
+    stala, a endpoint konfiguracji zwracac cos innego, i nikt by nie zauwazyl.
+    """
+    rows = [
+        # A: duzo rekomendacji, malo placementow.
+        #   wagi placementowe (150/15/5): 3*150 + 50*5   =  650
+        #   wagi rekomendacyjne (1/1/100): 3*1  + 50*100 = 5003
+        _row(user_id=1, stage="hired", count=3, name="A"),
+        _row(user_id=1, stage="cv_sent", count=50, name="A"),
+        # B: odwrotnie.
+        #   wagi placementowe: 10*150 + 1*5   = 1505
+        #   wagi rekomendacyjne: 10*1  + 1*100 =  110
+        _row(user_id=2, stage="hired", count=10, name="B"),
+        _row(user_id=2, stage="cv_sent", count=1, name="B"),
+    ]
+
+    async def _rank(weights):
+        db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
+        return await competitions._rank_recruiters_by_points(
+            db,
+            start=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            end=datetime(2026, 10, 1, tzinfo=timezone.utc),
+            weights=weights,
+            min_placements=0,
+        )
+
+    placement_heavy = await _rank(
+        {"placement": 150, "interview": 15, "recommendation": 5}
+    )
+    recommendation_heavy = await _rank(
+        {"placement": 1, "interview": 1, "recommendation": 100}
+    )
+
+    assert placement_heavy[0].user_id == 2  # B wygrywa na placementach
+    assert recommendation_heavy[0].user_id == 1  # A wygrywa na rekomendacjach
 
 
 async def test_hall_of_fame_uses_verifier_anchored_placements() -> None:

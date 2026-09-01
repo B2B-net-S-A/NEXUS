@@ -101,6 +101,8 @@ from app.models.client_knowledge import ClientKnowledge
 from app.models.client_one_pager import ClientOnePager
 from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_cv_rule import ClientCvRule
+from app.models.insights_scoring_config import InsightsScoringConfig
+from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.screening_note import ScreeningNote
 from app.models.contact import Contact, RelationshipStrength
 from app.models.talent_pool import TalentPool, TalentPoolMembership
@@ -372,6 +374,8 @@ __all__ = [
     "ClientOnePager",
     "ClientContractTerms",
     "ClientCvRule",
+    "InsightsScoringConfig",
+    "UserWorkdayPeriod",
     "ScreeningNote",
     "Contact",
     "RelationshipStrength",

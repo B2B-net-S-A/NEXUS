@@ -73,15 +73,17 @@ async def test_power_calling_reports_no_daily_denominator(pc_client: AsyncClient
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    # Mianownika nie znamy — i mówimy to wprost, zamiast podstawiać liczbę.
+    # Wspólnego `workdays` NIE MA i nie będzie: mianownik jest INDYWIDUALNY,
+    # bo urlop jest indywidualny. Jedna liczba dla całego zespołu to była
+    # właśnie ta stała 5.
     assert body["workdays"] is None
-    assert body["workdays_source"] == "unavailable"
-    assert body["meets_target_count"] is None
 
-    # Nikt nie jest oceniony, więc obie listy ocen są puste.
-    assert body["below_target"] == []
-    assert body["met_target"] == []
-    assert body["not_assessable_count"] == len(body["entries"])
+    # Bez danych z COMPASSA nikt nie jest oceniony.
+    if body["workdays_source"] == "unavailable":
+        assert body["meets_target_count"] is None
+        assert body["below_target"] == []
+        assert body["met_target"] == []
+        assert body["not_assessable_count"] == len(body["entries"])
 
     # Próg zostaje, ale jako TYGODNIOWY (3/dzień x 5 dni) — jedyna uczciwa
     # miara bez danych o nieobecnościach.
@@ -104,18 +106,24 @@ async def test_power_calling_entries_are_not_assessable(pc_client: AsyncClient):
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
-    assert body["entries"] is body["not_assessable"] or (
-        body["entries"] == body["not_assessable"]
-    )
-    for entry in body["entries"]:
+    # Każdy wiersz jest w DOKŁADNIE jednej z trzech list.
+    buckets = body["below_target"] + body["met_target"] + body["not_assessable"]
+    assert len(buckets) == len(body["entries"])
+    for entry in body["not_assessable"]:
+        # „Nie wiemy" to NIE „wiemy, że słabo": None, nigdy 0 ani False.
         assert entry["per_day"] is None, entry
-        assert entry["workdays"] is None, entry
         assert entry["progress_pct"] is None, entry
         assert entry["meets_target"] is None, entry
-        assert entry["workdays_source"] == "unavailable", entry
-        assert entry["reason"] == "no_workday_data", entry
+        assert entry["reason"] in ("no_workday_data", "zero_workdays"), entry
         # Sama liczba weryfikacji zostaje — jest prawdziwa i policzalna.
         assert isinstance(entry["verifications_week"], int), entry
+
+    # Osoba z realnym mianownikiem MUSI mieć ocenę, a nie „nie wiem".
+    for entry in body["below_target"] + body["met_target"]:
+        assert entry["workdays"] and entry["workdays"] > 0, entry
+        assert entry["per_day"] is not None, entry
+        assert entry["meets_target"] in (True, False), entry
+        assert entry["workdays_source"] == "compass", entry
 
 
 @pytest.mark.asyncio
@@ -135,3 +143,5 @@ async def test_power_calling_module_has_no_fabricated_workday_constant():
     src = inspect.getsource(reports.report_power_calling)
     assert "/ 5" not in src
     assert "/ 21" not in src
+    # Mianownik MUSI pochodzić z danych o nieobecnościach, nie ze stałej.
+    assert "working_days_for" in src

@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser, OperationalUser
 from app.core.database import get_db
+from app.services.insights_scoring_config import (
+    get_scoring_config,
+    league_points_formula,
+)
 from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.user import User
 from app.services import competitions as comp_service
@@ -109,11 +113,23 @@ async def get_current(
                 "w kwartale."
             )
         else:
-            requirement = (
-                f"Wymagane minimum {comp_service.QUARTERLY_MIN_PLACEMENTS} "
-                "placementów w kwartale (łącznie 1 miesięcznie)."
+            # Wagi i próg z konfiguracji (D3). Stała `QUARTERLY_MIN_PLACEMENTS`
+            # została usunięta — sensem D3 jest JEDNO źródło reguły.
+            config = await get_scoring_config(db)
+            # Próg jest PROGRESYWNY (1/2/3 wg miesiąca kwartału), a napis musi
+            # mówić to samo, co kwalifikacja. Płaskie „3" oświadczało w styczniu
+            # wymóg, którego silnik wtedy nie stosuje — ekran opisywał regułę,
+            # której nie ma, i nie drgnąłby po zmianie progu przez admina.
+            _year, _quarter = comp_service.parse_quarter(period)
+            required = comp_service.required_placements_for_quarter(
+                _year, _quarter, config, today
             )
-            points_formula = comp_service.POINTS_FORMULA
+            requirement = (
+                f"Wymagane minimum {required} "
+                f"{'placement' if required == 1 else 'placementów'} "
+                "w kwartale (próg rośnie z każdym miesiącem kwartału)."
+            )
+            points_formula = league_points_formula(config)
     elif ctype in (
         CompetitionType.monthly_recommendations,
         CompetitionType.monthly_placements,

@@ -1,0 +1,213 @@
+/**
+ * Ścieżka rozwoju (D6) — sekcja `/insights` → Rekrutacja.
+ *
+ * Cztery reguły pod ochroną. Każda jest o tym, że liczba na ekranie znaczy
+ * co innego, niż wygląda:
+ *
+ * 1. **Reguła awansu wypisana SŁOWAMI.** Sam pasek postępu nie mówi, ile
+ *    trzeba — a to ekran, na którym ocenia się ludzi z imienia i nazwiska.
+ * 2. **Poziom nie spada.** Pusty licznik bieżącego okna przy poziomie „Senior”
+ *    musi być opisany jako poprawny, bo inaczej czyta się jak błąd.
+ * 3. **Zero PRZYPISANEJ historii ≠ zły wynik.** Osoba bez ani jednego
+ *    placementu w NEXUSIE nie może dostać paska „0/6” — to nie ocena, tylko
+ *    brak danych. Idzie na osobną listę.
+ * 4. **Awaria ≠ pustka.** 403 i 500 renderują się jako awaria, nigdy jako
+ *    „brak osób”.
+ */
+import * as React from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ get: vi.fn() }));
+
+vi.mock("@/lib/api", () => ({
+  default: { get: (...args: unknown[]) => mocks.get(...args) },
+  api: { get: (...args: unknown[]) => mocks.get(...args) },
+}));
+
+import { InsightsSeniority } from "@/components/insights/sections/InsightsSeniority";
+import type { SeniorityResponse } from "@/lib/insights-api";
+
+const URL = "/api/insights/recruitment/seniority";
+
+function httpError(status: number) {
+  return Object.assign(new Error(`HTTP ${status}`), { response: { status } });
+}
+
+function respond(value: unknown) {
+  mocks.get.mockImplementation((url: string) => {
+    if (url !== URL) {
+      return Promise.reject(new Error(`Nieoczekiwany URL w teście: ${url}`));
+    }
+    if (value instanceof Error) return Promise.reject(value);
+    return Promise.resolve({ data: value });
+  });
+}
+
+function renderSection() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <InsightsSeniority />
+    </QueryClientProvider>,
+  );
+}
+
+const BODY: SeniorityResponse = {
+  as_of: "2026-09-01",
+  thresholds: {
+    senior_placements: 6,
+    senior_window_months: 6,
+    expert_placements: 12,
+    expert_window_months: 12,
+  },
+  window: {
+    senior: { months: 6, start_month: "2026-04", end_month: "2026-09" },
+    expert: { months: 12, start_month: "2025-10", end_month: "2026-09" },
+  },
+  entries: [
+    {
+      user_id: 1,
+      name: "Anna Kowalska",
+      role: "recruiter",
+      level: "senior",
+      total_placements: 9,
+      first_placement_month: "2025-02",
+      // Osiągnęła poziom w oknie, które już minęło — licznik bieżącego okna
+      // jest zerem, a poziom zostaje. To jest reguła „bez degradacji”.
+      placements_in_senior_window: 0,
+      placements_in_expert_window: 0,
+      placements_to_next_level: 12,
+      progress_pct: 0,
+    },
+    {
+      user_id: 2,
+      name: "Bartosz Nowak",
+      role: "sourcer",
+      level: "expert",
+      total_placements: 14,
+      first_placement_month: "2024-06",
+      placements_in_senior_window: 8,
+      placements_in_expert_window: 14,
+      // Expert nie ma następnego poziomu — obie wartości to `null`.
+      placements_to_next_level: null,
+      progress_pct: null,
+    },
+    {
+      user_id: 3,
+      name: "Celina Widmo",
+      role: "tac",
+      level: "junior",
+      total_placements: 0,
+      // Zero PRZYPISANEJ historii — wiersz idzie na listę „nieoceniani”.
+      first_placement_month: null,
+      placements_in_senior_window: 0,
+      placements_in_expert_window: 0,
+      placements_to_next_level: 6,
+      progress_pct: 0,
+    },
+  ],
+  totals: { users: 3, levels: { junior: 1, senior: 1, expert: 1 } },
+  coverage: {
+    unattributed_placements: 41,
+    outside_pool_placements: 7,
+    note: "Poziom liczymy wyłącznie z placementów przypisanych do aktywnych kont.",
+  },
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe("InsightsSeniority", () => {
+  it("wypisuje regułę awansu słowami, nie tylko paskiem", async () => {
+    respond(BODY);
+    renderSection();
+
+    // Bez tego zdania „6” obok nazwiska nie ma znaczenia — pasek nie mówi,
+    // ile trzeba, a osoba oceniana ma prawo znać regułę.
+    expect(
+      await screen.findByText(/6 placementów w 6 miesięcy/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/12 placementów w 12 miesięcy/)).toBeInTheDocument();
+  });
+
+  it("mówi wprost, że poziom nie spada", async () => {
+    respond(BODY);
+    renderSection();
+
+    // Wiersz „Senior” z zerem w bieżącym oknie bez tego zdania wygląda na błąd.
+    expect(
+      await screen.findByText(/okno służy do\s+awansu, nie do cofania/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("zostaje")).toBeInTheDocument();
+  });
+
+  it("nie wystawia oceny osobie bez ani jednego przypisanego placementu", async () => {
+    respond(BODY);
+    renderSection();
+
+    expect(await screen.findByText("Anna Kowalska")).toBeInTheDocument();
+    // Osoba z zerem PRZYPISANEJ historii wychodzi z tabeli na osobną listę
+    // z powodem po polsku — zamiast dostać pasek „0/6”, który czyta się
+    // jak wynik pracy.
+    expect(screen.getByText("Bez przypisanych placementów")).toBeInTheDocument();
+    expect(screen.getByText("Celina Widmo")).toBeInTheDocument();
+    expect(
+      screen.getByText(/poziom nie jest liczony/i),
+    ).toBeInTheDocument();
+  });
+
+  it("pokazuje placementy spoza tabeli, żeby suma się zgadzała", async () => {
+    respond(BODY);
+    renderSection();
+
+    // Decyzja D1: dorobek nieprzypisany i przypisany do kont spoza puli musi
+    // być widoczny, inaczej tabela wygląda na zepsutą zamiast niekompletną.
+    expect(
+      await screen.findByText(/41 placementów bez przypisanego operatora/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/7 placementów przypisanych do kont spoza puli/),
+    ).toBeInTheDocument();
+  });
+
+  it("renderuje brak następnego poziomu jako „—”, nie jako zero", async () => {
+    respond(BODY);
+    renderSection();
+
+    await screen.findByText("Bartosz Nowak");
+    // `null` w „Do awansu” i w „Postęp” to brak następnego poziomu. Zero
+    // czytałoby się jako „awans tuż-tuż”.
+    const expertRow = screen.getByText("Bartosz Nowak").closest("tr");
+    expect(expertRow).not.toBeNull();
+    expect(expertRow!.textContent).toContain("—");
+  });
+
+  it("renderuje 403 jako brak uprawnień, nie jako pustkę", async () => {
+    respond(httpError(403));
+    renderSection();
+
+    // Kluczowe jest zdanie „Dane NIE są puste” — bez niego 403 czyta się jak
+    // informacja, że w firmie nie ma nikogo w tych rolach.
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.getByText(/Dane NIE są puste/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Brak osób w rolach sourcer/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renderuje 500 jako awarię, nie jako pustkę", async () => {
+    respond(httpError(500));
+    renderSection();
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText(/Dane mogą istnieć/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Brak osób w rolach sourcer/),
+    ).not.toBeInTheDocument();
+  });
+});

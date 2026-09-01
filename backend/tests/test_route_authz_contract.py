@@ -219,6 +219,11 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/insights/recruitment/available-periods"),
     ("GET", "/api/insights/recruitment/funnel"),
     ("GET", "/api/insights/recruitment/invite-links"),
+    ("GET", "/api/insights/recruitment/seniority"),
+    # Punktacja Ligi jest REGULA KONKURSU, nie danymi: ranking widoczny dla
+    # kazdej roli bez dostepu do formuly bylby wyrocznia. PATCH stoi na
+    # AdminUser, wiec do baseline nie trafia.
+    ("GET", "/api/insights/scoring-config"),
     ("GET", "/api/insights/recruitment/team-activity"),
     ("GET", "/api/insights/recruitment/time-to-hire"),
     # ── koniec bloku D7 ──────────────────────────────────────────────────────

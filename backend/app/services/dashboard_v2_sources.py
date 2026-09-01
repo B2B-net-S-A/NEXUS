@@ -494,18 +494,31 @@ async def load_quarterly_league(db: AsyncSession) -> dict[str, Any]:
     from datetime import date as _date
 
     from app.services import competitions as comp
+    from app.services.insights_scoring_config import (
+        get_scoring_config,
+        league_points_formula,
+    )
 
     period = comp.current_quarter_period()
     ranked = await comp.quarterly_champions_recruiter(db, period)
+    _config = await get_scoring_config(db)
+    _year, _quarter = comp.parse_quarter(period)
+    _required_placements = comp.required_placements_for_quarter(
+        _year, _quarter, _config
+    )
     return {
         "period": period,
         "days_remaining": comp.days_left_in_quarter(_date.today()),
-        "points_formula": dict(comp.POINTS_FORMULA),
+        "points_formula": league_points_formula(_config),
         "prizes_pln": {str(k): v for k, v in comp.QUARTERLY_PRIZES_PLN.items()},
         # Ten sam tekst co /api/competitions/current?type=quarterly_champions_recruiter.
+        # Prog jest PROGRESYWNY (1/2/3 wg miesiaca kwartalu) — napis musi mowic
+        # to samo, co kwalifikacja. Plaskie „3" oswiadczalo w styczniu wymog,
+        # ktorego silnik wtedy nie stosuje.
         "requirement": (
-            f"Wymagane minimum {comp.QUARTERLY_MIN_PLACEMENTS} "
-            "placementów w kwartale (łącznie 1 miesięcznie)."
+            f"Wymagane minimum {_required_placements} "
+            f"{'placement' if _required_placements == 1 else 'placementów'} "
+            "w kwartale (próg rośnie z każdym miesiącem kwartału)."
         ),
         "ranked": [r.to_dict() for r in ranked],
     }

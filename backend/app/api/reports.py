@@ -32,6 +32,7 @@ from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
+from app.services.insights_workdays import working_days_for
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
 logger = logging.getLogger(__name__)
@@ -1966,26 +1967,72 @@ async def report_power_calling(
     # zero i wyglada identycznie jak tydzien lenistwa.
     weekly_target = POWER_CALLING_TARGET_PER_DAY * 5
 
+    # Mianownik z COMPASSA (D5) — dla DOKLADNIE tego tygodnia ISO, nie
+    # przybliżony z miesięcznej średniej. Brak wpisu = brak klucza; nie ma
+    # żadnej wartości domyślnej, bo podstawienie stałej to dokładnie ten defekt,
+    # który ten raport miał przestać popełniać.
+    week_start = start.date()
+    week_end = (end - timedelta(days=1)).date()
+    workdays_by_user = await working_days_for(
+        db, [int(r.id) for r in rows], week_start, week_end
+    )
+
     entries = []
+    below_target: list[dict] = []
+    met_target: list[dict] = []
+    not_assessable: list[dict] = []
+
     for r in rows:
         cnt = int(r.cnt)
-        entries.append(
-            {
+        workdays = workdays_by_user.get(int(r.id))
+
+        if workdays is None or workdays <= 0:
+            # Nie wiemy — i mówimy to wprost. `False` znaczyłoby „sprawdziliśmy
+            # i nie spełnia", a my nie sprawdziliśmy niczego. Osoba, która
+            # przepracowała ZERO dni (cały tydzień urlopu), też tu trafia:
+            # dzielenie przez zero nie jest oceną.
+            entry = {
                 "user_id": r.id,
                 "name": r.name,
                 "role": r.role.value if hasattr(r.role, "value") else str(r.role),
                 "primary_category": cat_map.get(r.id),
                 "verifications_week": cnt,
-                # None, nie 0 i nie False — nie wiemy, a nie "wiemy, ze slabo".
                 "per_day": None,
-                "workdays": None,
-                "workdays_source": "unavailable",
+                "workdays": workdays,
+                "workdays_source": "unavailable" if workdays is None else "compass",
                 "meets_target": None,
                 "progress_pct": None,
                 "weekly_target": weekly_target,
-                "reason": "no_workday_data",
+                "reason": "no_workday_data" if workdays is None else "zero_workdays",
             }
-        )
+            not_assessable.append(entry)
+        else:
+            per_day = round(cnt / workdays, 2)
+            meets = per_day >= POWER_CALLING_TARGET_PER_DAY
+            entry = {
+                "user_id": r.id,
+                "name": r.name,
+                "role": r.role.value if hasattr(r.role, "value") else str(r.role),
+                "primary_category": cat_map.get(r.id),
+                "verifications_week": cnt,
+                "per_day": per_day,
+                "workdays": workdays,
+                # „dni robocze minus zatwierdzony urlop", NIE „dni przepracowane":
+                # chorobowe dla B2B jest w COMPASSIE niezapisywalne, a rekruterzy
+                # są w większości B2B. UI ma to napisać.
+                "workdays_source": "compass",
+                "workdays_basis": "business_days_minus_approved_leave",
+                "meets_target": meets,
+                "progress_pct": min(
+                    100,
+                    round((per_day / POWER_CALLING_TARGET_PER_DAY) * 100, 0),
+                ),
+                "weekly_target": weekly_target,
+                "reason": None,
+            }
+            (met_target if meets else below_target).append(entry)
+
+        entries.append(entry)
 
     return {
         "week_label": f"Tydz. {iso_week}/{iso_year}",
@@ -1995,9 +2042,19 @@ async def report_power_calling(
         "date_to": (end - timedelta(days=1)).date().isoformat(),
         "target_per_day": POWER_CALLING_TARGET_PER_DAY,
         "weekly_target": weekly_target,
+        # Wspólnego `workdays` NIE MA i nie będzie: mianownik jest INDYWIDUALNY,
+        # bo urlop jest indywidualny. Jedna liczba dla całego zespołu to była
+        # właśnie ta stała `5`.
         "workdays": None,
-        "workdays_source": "unavailable",
+        "workdays_source": "compass" if workdays_by_user else "unavailable",
         "requirement_text": (
+            f"Wymóg: min. {POWER_CALLING_TARGET_PER_DAY} weryfikacji na dzień "
+            f"roboczy ({weekly_target}/tydz. przy pełnym tygodniu). "
+            "Dni robocze = dni robocze minus zatwierdzony urlop (COMPASS); "
+            "chorobowe nie jest tam odnotowywane."
+        )
+        if workdays_by_user
+        else (
             f"Wymóg: min. {weekly_target} weryfikacji tygodniowo "
             f"({POWER_CALLING_TARGET_PER_DAY}/dzień × 5 dni). "
             "Mianownik dzienny niedostępny — brak danych o nieobecnościach."
@@ -2006,10 +2063,12 @@ async def report_power_calling(
         # Dopoki nie znamy nieobecnosci, NIKT nie jest oceniony. Trzy listy
         # zamiast jednej, zeby konsument nie mogl przypadkiem wyrenderowac
         # `not_assessable` na czerwono jako "ponizej progu".
-        "below_target": [],
-        "met_target": [],
-        "not_assessable": entries,
-        "meets_target_count": None,
-        "not_assessable_count": len(entries),
+        "below_target": below_target,
+        "met_target": met_target,
+        "not_assessable": not_assessable,
+        # None, gdy NIKT nie jest oceniony — zero znaczyłoby „sprawdziliśmy
+        # i nikt nie spełnił", a to co innego.
+        "meets_target_count": len(met_target) if workdays_by_user else None,
+        "not_assessable_count": len(not_assessable),
         "total_count": len(entries),
     }

@@ -206,6 +206,75 @@ function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
   return q;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Ścieżka rozwoju (D6) — `/api/insights/recruitment/seniority`.
+//
+// Poziom jest LICZONY PRZY ODCZYCIE z liczby placementów, nigdy przechowywany
+// (uzasadnienie: backend/app/services/insights_seniority.py). Konsekwencja dla
+// UI: poziom zmienia się, gdy zmienia się historia atrybucji, a nie gdy ktoś
+// coś dziś zrobił — dlatego wiersz niesie `first_placement_month`, żeby dało
+// się pokazać, na czym poziom stoi.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SeniorityLevel = "junior" | "senior" | "expert";
+
+export interface SeniorityThresholds {
+  senior_placements: number;
+  senior_window_months: number;
+  expert_placements: number;
+  expert_window_months: number;
+}
+
+export interface SeniorityWindow {
+  months: number;
+  /** 'YYYY-MM'. `null` = okno wyłączone (zerowa długość w konfiguracji). */
+  start_month: string | null;
+  end_month: string;
+}
+
+export interface SeniorityEntry {
+  user_id: number;
+  name: string;
+  role: string;
+  level: SeniorityLevel;
+  total_placements: number;
+  /**
+   * 'YYYY-MM' pierwszego PRZYPISANEGO placementu albo `null`. `null` znaczy
+   * „nie mamy w NEXUSIE ani jednego placementu tej osoby" — to NIE to samo co
+   * „ta osoba nic nie dowiozła", więc taki wiersz nie może dostać paska „0/6".
+   */
+  first_placement_month: string | null;
+  placements_in_senior_window: number;
+  placements_in_expert_window: number;
+  /** `null` = expert (nie ma następnego poziomu) albo próg wyłączony. */
+  placements_to_next_level: number | null;
+  /** `null` = brak progu. Nigdy nie mylić z 0. Nie jest przycięty do 100. */
+  progress_pct: number | null;
+}
+
+export interface SeniorityResponse {
+  /** Dzień, na który policzono poziom (YYYY-MM-DD). */
+  as_of: string;
+  thresholds: SeniorityThresholds;
+  window: { senior: SeniorityWindow; expert: SeniorityWindow };
+  entries: SeniorityEntry[];
+  totals: {
+    users: number;
+    levels: Record<SeniorityLevel, number>;
+  };
+  coverage: {
+    /** Placementy bez przypisanego operatora (import bez dopasowania). */
+    unattributed_placements: number;
+    /**
+     * Placementy przypisane do kont SPOZA puli — inne role oraz konta-widma
+     * (`is_active=false`) zakładane przez import Traffita. Muszą być widoczne,
+     * bo inaczej suma tabeli nie zgadza się z lejkiem.
+     */
+    outside_pool_placements: number;
+    note: string;
+  };
+}
+
 export const insightsApi = {
   recruitmentFunnel: (p: InsightsPeriodParams) =>
     api
@@ -258,6 +327,17 @@ export const insightsApi = {
     api
       .get<InviteLinksResponse>("/api/insights/recruitment/invite-links", {
         params: periodQuery(p),
+      })
+      .then((r) => r.data),
+
+  /**
+   * Ścieżka rozwoju (D6). Bez parametru okresu — poziom liczy się z CAŁEJ
+   * historii, a `as_of` służy wyłącznie do odtworzenia stanu na dany dzień.
+   */
+  seniority: (asOf?: string) =>
+    api
+      .get<SeniorityResponse>("/api/insights/recruitment/seniority", {
+        params: asOf ? { as_of: asOf } : undefined,
       })
       .then((r) => r.data),
 };

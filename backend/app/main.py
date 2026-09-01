@@ -60,10 +60,12 @@ from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
+from app.models.user_workday_period import UserWorkdayPeriod
 from app.api import insights_recruitment
 from app.api import insights_board
 from app.api import insights_clients
 from app.api import insights_delivery_leads
+from app.api import insights_scoring
 from app.api import client_knowledge
 from app.api import client_materials
 from app.api import client_framework_contracts
@@ -636,6 +638,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
+    from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
@@ -684,6 +687,10 @@ async def lifespan(app: FastAPI):
         "dl_alerts": asyncio.create_task(dl_alerts_loop()),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+        # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
+        # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
+        # tylko po to, zeby sprawdzic te sama flage.
+        "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
         "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
         "weekly_eval": asyncio.create_task(weekly_eval_loop()),
         "match_digest": asyncio.create_task(match_digest_loop()),
@@ -1053,6 +1060,13 @@ app.include_router(
 app.include_router(
     insights_delivery_leads.router,
     prefix="/api/insights/delivery-leads",
+    tags=["insights"],
+)
+# Konfigurowalna punktacja (D3): odczyt dla KAŻDEGO zalogowanego — kafel
+# „System punktowy" ma napisać, co się liczy — zapis wyłącznie dla admina.
+app.include_router(
+    insights_scoring.router,
+    prefix="/api/insights/scoring-config",
     tags=["insights"],
 )
 app.include_router(
@@ -2055,6 +2069,7 @@ async def api_health_deep_check():
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.client_cv_rule import ClientCvRule
+    from app.models.insights_scoring_config import InsightsScoringConfig
     from app.models.client_order_group import (
         ClientOrderGroup,
         ClientOrderGroupEvent,
@@ -2146,6 +2161,12 @@ async def api_health_deep_check():
         # deploy i pliki nazwane wzorem, którego klient nie akceptuje, wykryte
         # dopiero przez odbiorcę. Sonda jest jedynym dowodem, że tabela jest.
         ("client_cv_rules", ClientCvRule),
+        # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
+        # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
+        # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,
+        # który cicho znika. Zielony deploy i formuła, której admin nie
+        # jest w stanie zmienić, to najgorszy tryb awarii tej funkcji.
+        ("insights_scoring_config", InsightsScoringConfig),
         ("jobs", Job),
         # Pięć najgorętszych tabel produktu, których ta bramka nie obejmowała
         # do 2026-08-21 — czyli dokładnie te, na których rozjazd kolumny
@@ -2186,6 +2207,9 @@ async def api_health_deep_check():
         ("cortex_unmatched_terms", CortexUnmatchedTerm),
         ("cortex_unmatched_observations", CortexUnmatchedObservation),
         ("cortex_extraction_runs", CortexExtractionRun),
+        # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
+        # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
+        ("user_workday_periods", UserWorkdayPeriod),
     ]
 
     checks: dict[str, str] = {}
