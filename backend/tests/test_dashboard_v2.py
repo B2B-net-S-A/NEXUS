@@ -90,6 +90,11 @@ async def _authorized_builder(*_args: Any, **_kwargs: Any) -> None:
             UserRole.head_of_recruitment,
             "build_head_of_recruitment_dashboard",
         ),
+        (
+            "/head-of-recruitment",
+            UserRole.talent_community_manager,
+            "build_head_of_recruitment_dashboard",
+        ),
         ("/my-work", UserRole.sourcer, "build_my_work_dashboard"),
         ("/my-work", UserRole.tac, "build_my_work_dashboard"),
         ("/my-work", UserRole.recruiter, "build_my_work_dashboard"),
@@ -330,7 +335,11 @@ def test_non_admin_organization_scope_cannot_become_my_work() -> None:
 
 @pytest.mark.parametrize(
     "primary_role",
-    [UserRole.delivery_lead, UserRole.head_of_recruitment],
+    [
+        UserRole.delivery_lead,
+        UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+    ],
 )
 def test_multi_role_operator_can_narrow_oversight_scope_to_my_work(
     primary_role: UserRole,

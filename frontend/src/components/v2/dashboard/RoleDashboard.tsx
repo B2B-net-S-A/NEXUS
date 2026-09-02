@@ -45,7 +45,12 @@ const LEGACY_VIEW_PRESET: Partial<Record<string, DashboardPreset>> = {
 // Admin świadomie NIE jest na tej liście — swoją powierzchnią do kolejki ma
 // panel nadzoru niżej, a zamontowanie mu widgetu „moja kolejka" dałoby kartę
 // błędu 403 zamiast danych.
-const CONTACT_CALLER_ROLES: UserRole[] = ["recruiter", "sourcer", "tac"]
+const CONTACT_CALLER_ROLES: UserRole[] = [
+  "talent_community_manager",
+  "recruiter",
+  "sourcer",
+  "tac",
+]
 
 function OperationalTools({
   preset,
@@ -77,8 +82,12 @@ function OperationalTools({
 
   // Te narzędzia zachowujemy jako drugorzędne, zwijane wejścia. Ich własne
   // bramki ról i feature flagi nadal są źródłem prawdy.
+  const canUseRecruitmentOversight = roles.some((role) =>
+    (["admin", "head_of_recruitment"] as UserRole[]).includes(role),
+  )
   const oversight =
-    preset === "head-of-recruitment" || preset === "admin-ops" ? (
+    canUseRecruitmentOversight &&
+    (preset === "head-of-recruitment" || preset === "admin-ops") ? (
       <ContactOversightPanel />
     ) : null
   const myQueue =
@@ -87,7 +96,9 @@ function OperationalTools({
       <MyContactQueueWidget />
     ) : null
   const teamAllocation =
-    preset === "head-of-recruitment" ? <TeamAllocationBoard /> : null
+    canUseRecruitmentOversight && preset === "head-of-recruitment" ? (
+      <TeamAllocationBoard />
+    ) : null
   const priorityQueue = preset === "my-work" ? <MyPriorityQueue /> : null
 
   if (!oversight && !myQueue && !teamAllocation && !priorityQueue) return null
@@ -154,6 +165,23 @@ export function RoleDashboard() {
     () => getAvailableDashboardPresets(user),
     [user],
   )
+  const roles = useMemo(() => getUserRoles(user), [user])
+  const definitionOverrides = useMemo(() => {
+    if (
+      !roles.includes("talent_community_manager") ||
+      roles.includes("head_of_recruitment")
+    ) {
+      return undefined
+    }
+    return {
+      "head-of-recruitment": {
+        ...DASHBOARD_PRESETS["head-of-recruitment"],
+        label: "Talent Community Manager",
+        shortLabel: "TCM",
+        title: "Talent Community Manager",
+      },
+    }
+  }, [roles])
   const defaultPreset = getDefaultDashboardPreset(user)
   const requestedPreset = searchParams.get("preset")
   const legacyView = searchParams.get("view")
@@ -253,6 +281,7 @@ export function RoleDashboard() {
       preset={preset}
       period={period}
       availablePresets={availablePresets}
+      definitionOverrides={definitionOverrides}
       showPeriod={false}
       onPresetChange={(nextPreset) =>
         updateParams(
@@ -264,7 +293,7 @@ export function RoleDashboard() {
     >
       <RecruitmentDashboardContent
         preset={preset}
-        roles={getUserRoles(user)}
+        roles={roles}
       />
     </DashboardShell>
   )

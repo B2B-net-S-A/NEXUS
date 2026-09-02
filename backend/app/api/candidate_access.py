@@ -15,14 +15,16 @@ has the organization-wide business reads described below.
 Capability → allowed roles:
 
 - **read/search/PII/documents** — all internal operational roles
-  (admin, head_of_recruitment, delivery_lead, tac, recruiter, sourcer).
+  (admin, head_of_recruitment, delivery_lead, talent_community_manager, tac,
+  recruiter, finance, sourcer).
   ``user`` is excluded everywhere.
 - **write** (profile fields, notes, source events, talent pools, tags) —
   parity with the existing ``RecruiterPlus`` contract (admin, delivery_lead,
-  tac, recruiter, finance, sourcer).
-- **export** — admin, head_of_recruitment, delivery_lead, tac, finance. Recruiter
-  and sourcer intentionally lose bulk export (matrix section 9 of the audit:
-  "domyślnie nie recruiter"); exports are audited via ``candidate_audit``.
+  talent_community_manager, tac, recruiter, finance, sourcer).
+- **export** — admin, head_of_recruitment, delivery_lead,
+  talent_community_manager, tac, finance. Recruiter and sourcer intentionally
+  lose bulk export (matrix section 9 of the audit: "domyślnie nie recruiter");
+  exports are audited via ``candidate_audit``.
 - **candidate finance read** (candidate-specific pricing and conflict history)
   — admin and Finance; mutations remain admin only. Delivery/recruitment roles
   keep their operational candidate access, but cannot read or mutate
@@ -54,6 +56,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -68,6 +71,7 @@ CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -78,6 +82,7 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.finance,
 )

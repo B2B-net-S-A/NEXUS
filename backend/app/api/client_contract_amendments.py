@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import DlAssignedOrAdmin, get_current_user
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -31,7 +32,7 @@ from app.schemas.client_contract_amendment import ClientContractAmendmentRead
 from app.services import storage_service
 from app.services.client_access import deny, resolve_client_access
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -67,13 +68,14 @@ async def _require_amendment_legal_read(
     P0.6a containment: list/download były bare ``CurrentUser`` + tylko check
     istnienia client/framework, więc read-only viewer (``user``) oraz
     recruiter/sourcer mogli iterować i pobierać aneksy dowolnego klienta.
-    Mirrors ``client_framework_contracts._require_legal_docs_reader`` —
-    ``resolve_client_access.can_view_legal_documents`` (admin/HoR/DL/TAC).
+    Mirrors ``client_framework_contracts._require_legal_docs_reader`` — raw
+    legal content is limited to Admin, Finance and an assigned Delivery Lead.
+    TCM receives only structured, finance-redacted Delivery data.
     """
     await _assert_fc(db, client_id, fc_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("aneksy umowy ramowej klienta wymagają roli admin/HoR/DL/TAC")
+        raise deny("aneksy wymagają roli admin, finance lub przypisanego DL")
     return current_user
 
 

@@ -18,7 +18,8 @@ Capability → allowed roles:
   reports, screening notes, calendar, feedback, rejection-email timeline) —
   all internal operational roles; ``user`` (viewer) excluded everywhere.
 - **transition** (non-terminal stage moves) — parity with the existing
-  ``RecruiterPlus`` contract (admin, delivery_lead, tac, recruiter, sourcer).
+  ``RecruiterPlus`` contract (admin, delivery_lead,
+  talent_community_manager, tac, recruiter, finance, sourcer).
   Do not widen or narrow in a containment PR.
 - **terminal transition** (``hired``/``rejected``/``withdrawn`` or a
   stage-def with terminal semantics) — sourcer intentionally excluded
@@ -29,10 +30,10 @@ Capability → allowed roles:
   Sourcer intentionally excluded (audit P0.3: expected rate używa zbyt
   szerokiego CandidateWriteAccess obejmującego sourcera).
 - **assessment write** (scorecard answers, screening notes, interview
-  feedback) — RecruiterPlus parity (prep-call screening is sourcer work);
-  viewer excluded (was: bare ``CurrentUser``).
-- **calendar write** — RecruiterPlus parity; viewer excluded (was: bare
-  ``CurrentUser`` on create/update/delete/import).
+  feedback) — RecruiterPlus parity, w tym TCM (prep-call screening is sourcer
+  work); viewer excluded (was: bare ``CurrentUser``).
+- **calendar write** — RecruiterPlus parity, w tym TCM; viewer excluded (was:
+  bare ``CurrentUser`` on create/update/delete/import).
 - **rejection-email oversight** (read/cancel someone else's scheduled
   rejection email incl. recipient/subject/body/last_error) — admin,
   delivery_lead, head_of_recruitment; the owning recruiter always retains
@@ -84,6 +85,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -96,6 +98,7 @@ RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -109,6 +112,7 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
 RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -127,6 +131,7 @@ RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
 RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -136,6 +141,7 @@ RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
 CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.finance,
@@ -192,6 +198,8 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 _JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
 )
 
 
@@ -513,19 +521,22 @@ async def delivery_lead_job_pairs(
     *,
     head_of_recruitment_bypass: bool = True,
 ) -> frozenset[tuple[int, int]] | None:
-    """Resolve the exact legacy Job scope for a Delivery Lead.
+    """Resolve Job scope for either Pipeline or the explicit Delivery persona.
 
-    ``None`` means this caller uses an oversight or non-DL persona. An empty
-    set is deny-all and must never fall back to the organization. Callers that
-    bind behavior to the explicitly selected Delivery Lead preset pass
-    ``head_of_recruitment_bypass=False`` so a HoR+DL hybrid gets its exact
-    client/TAC pairs; the default preserves legacy oversight semantics.
+    Pipeline is organization-wide for HoR, DL and TCM, so the default returns
+    ``None`` for those roles. Callers bound to the Delivery Lead dashboard pass
+    ``head_of_recruitment_bypass=False`` and receive exact client/TAC pairs;
+    an empty set is then authoritative deny-all and never a global fallback.
     """
     from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 
     if current_user.has_role(UserRole.admin) or (
         head_of_recruitment_bypass
-        and current_user.has_role(UserRole.head_of_recruitment)
+        and current_user.has_any_role(
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
+        )
     ):
         return None
     if not current_user.has_role(UserRole.delivery_lead):

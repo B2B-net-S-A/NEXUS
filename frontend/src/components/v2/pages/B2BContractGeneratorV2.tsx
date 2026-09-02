@@ -93,12 +93,9 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
-// Cały router generatora (13 endpointów) jest zabramkowany jedną rolą —
-// `ContractLegalAccess` = admin/head_of_recruitment/delivery_lead/tac (PR #791,
-// containment M5 PR-01). Dla osoby spoza tego grona KAŻDY request tej strony
-// wraca 403, więc listy renderowały się jako puste: brak pozycji w „Obszar
-// usług" i „Brak wygenerowanych umów" — co czyta się jak skasowanie danych
-// (tak zostało zgłoszone). 403 musi być nazwany wprost, nie udawać pustki.
+// Router generatora ma szeroką bramkę Sourcing, ale operacje na rate-bearing
+// dokumentach mają dodatkowe guardy. Plain TCM dostaje wyłącznie bezpieczny,
+// pozbawiony finansów rejestr; 403 musi być nazwany wprost, nie udawać pustki.
 function isForbidden(error: unknown): boolean {
   return (
     (error as { response?: { status?: number } } | null)?.response?.status === 403
@@ -107,8 +104,8 @@ function isForbidden(error: unknown): boolean {
 
 const NO_ACCESS_TITLE = "Brak uprawnień do Generatora Umów B2B";
 const NO_ACCESS_DESC =
-  "Generator jest dostępny dla ról: administrator, head of recruitment, " +
-  "delivery lead, TAC. Poproś administratora o nadanie dostępu — " +
+  "Ta operacja wymaga dodatkowych uprawnień do dokumentów umownych. " +
+  "Poproś administratora o nadanie dostępu — " +
   "wygenerowane wcześniej umowy nie zostały usunięte, są tylko niewidoczne " +
   "bez uprawnień.";
 
@@ -441,6 +438,16 @@ const PHONE_PREFIXES = [
 export function B2BContractGeneratorV2() {
   const { user } = useAuthStore();
   const isAdmin = hasRole(user, "admin");
+  const canGenerate =
+    !hasRole(user, "talent_community_manager") ||
+    hasRole(
+      user,
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "tac",
+      "finance",
+    );
 
   return (
     // max-w-7xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
@@ -462,9 +469,11 @@ export function B2BContractGeneratorV2() {
         </div>
       </div>
 
-      <Tabs defaultValue="generator">
+      <Tabs defaultValue={canGenerate ? "generator" : "generated"}>
         <TabsList className="mb-4">
-          <TabsTrigger value="generator">Generator</TabsTrigger>
+          {canGenerate ? (
+            <TabsTrigger value="generator">Generator</TabsTrigger>
+          ) : null}
           <TabsTrigger value="generated">
             Umowy aktywne i w trakcie podpisu
           </TabsTrigger>
@@ -476,13 +485,15 @@ export function B2BContractGeneratorV2() {
         </TabsList>
         {/* forceMount: nie odmontowuj formularza przy przejściu na inną
             zakładkę — inaczej wpisane dane znikają (zgłoszone przez Artura). */}
-        <TabsContent
-          value="generator"
-          forceMount
-          className="data-[state=inactive]:hidden"
-        >
-          <GeneratorForm />
-        </TabsContent>
+        {canGenerate ? (
+          <TabsContent
+            value="generator"
+            forceMount
+            className="data-[state=inactive]:hidden"
+          >
+            <GeneratorForm />
+          </TabsContent>
+        ) : null}
         <TabsContent value="generated">
           <GeneratedContractsTab />
         </TabsContent>

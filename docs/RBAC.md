@@ -1,5 +1,67 @@
 # RBAC — Role-Based Access Control
 
+## Stan aktualny — macierz sekcji (2026-09-02)
+
+Źródłem prawdy backendu jest `backend/app/api/section_access.py`, a jego
+frontendowym lustrem `frontend/src/lib/section-access.ts`. Legenda: **RW** —
+odczyt i zapis, **R** — odczyt, **—** — brak dostępu. To maksymalny dostęp do
+sekcji; guard konkretnej akcji lub rekordu może go dodatkowo zawęzić.
+
+| Rola | Sourcing | Pipeline | Delivery | Insights | Finanse | Administracja techniczna |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| Administrator | RW | RW | RW | RW | RW | RW |
+| Finanse | RW | RW | RW* | R | RW | — |
+| Head of Recruitment | RW | RW | — | RW | — | — |
+| Delivery Lead | RW | RW | RW** | R | — | — |
+| Talent Community Manager | RW | RW | R*** | R | — | — |
+| TAC | RW | RW | — | R | — | — |
+| Rekruter | RW | RW | — | R | — | — |
+| Sourcer | RW | RW | — | R | — | — |
+| Viewer `user` (legacy) | R | R | — | R | — | — |
+
+\* Finanse zachowują istniejące procesy rozliczeniowe w Delivery, ale konkretne
+operacje nadal mają osobne guardy.
+
+\** Delivery Lead działa wyłącznie na klientach jawnie przypisanych w relacji
+DL→klient. Pusty portfel oznacza brak rekordów, a nie dostęp globalny.
+
+\*** Talent Community Manager ma globalny, bezpieczny odczyt operacyjny Delivery.
+
+### Kluczowe granice
+
+- **TCM:** pełny Sourcing i Pipeline, odczyt Insights oraz globalny odczyt
+  ustrukturyzowanych danych Delivery. W Delivery: bez zapisów, stawek, marż,
+  przychodu, surowych umów/aneksów/PO i rate-bearing eksportów. Nie ma dostępu
+  do modułu Finanse.
+- **Delivery Lead:** nie wchodzi do globalnego modułu Finanse. W swoim portfelu
+  Delivery widzi stawki i marże potrzebne do obsługi klienta. Wyjątek jest
+  liczony per klient i nie nadaje globalnej capability `view_finance`.
+- **Sourcer, Rekruter, TAC i HoR:** mają Sourcing, Pipeline i Insights, ale UI
+  nie pokazuje im Delivery/Finansów, a bezpośrednie wejście do API kończy się
+  `403`.
+- **Administracja techniczna:** użytkownicy/role, globalne AI, klucze
+  integracji, diagnostyka, słowniki systemowe i konfiguracja pól pozostają
+  Administrator-only. Ustawienia biznesowe mają własne jawne publiczności.
+- **Wielorola:** dostęp sekcyjny jest sumą ról, ale obecność roli Delivery Lead
+  nadal wymusza zakres przypisanych klientów (poza Administratorem). Rola
+  Finanse pozostaje ekskluzywna.
+- **Insights:** zachowuje osobną, istniejącą politykę transparentności D7 dla
+  całej firmy, również dla części kwot i danych imiennych. Brak dostępu do
+  modułu Finanse nie oznacza redakcji uzgodnionych metryk wewnątrz Insights.
+
+Autoryzacja działa warstwowo: bramka sekcji → guard akcji → scope rekordu →
+redakcja odpowiedzi. Middleware i sidebar są warstwą UX; backend pozostaje
+ostatecznym arbitrem. Nowa rola lub endpoint muszą zostać jawnie dopisane do
+obu macierzy, otrzymać guard akcji i test pełnej macierzy ról.
+
+---
+
+## Historyczna dokumentacja Phase 8
+
+Poniższa część opisuje pierwotny model Phase 8 i służy jako kontekst migracji.
+Nie jest aktualną macierzą uprawnień; w razie rozbieżności obowiązuje sekcja
+„Stan aktualny” powyżej oraz kod źródłowy wskazany w jej wstępie.
+
 **Status:** Phase 8 (2026-04)
 **Enum źródłowy:** `backend/app/models/user.py` → `UserRole`
 **Guardy backend:** `backend/app/api/deps.py`

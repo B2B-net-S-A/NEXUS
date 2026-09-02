@@ -104,6 +104,9 @@ export function getAvailableDashboardPresets(
 
   const fallback: DashboardPreset[] = []
   if (roles.has("head_of_recruitment")) fallback.push("head-of-recruitment")
+  else if (roles.has("talent_community_manager")) {
+    fallback.push("head-of-recruitment")
+  }
   if (roles.has("delivery_lead")) fallback.push("delivery-lead")
   if (
     roles.has("tac") ||

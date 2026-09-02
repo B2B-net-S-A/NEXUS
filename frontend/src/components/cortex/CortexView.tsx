@@ -21,16 +21,13 @@ import { SuccessorsPanel } from "@/components/cortex/SuccessorsPanel";
 import { SupplyDemandPanel } from "@/components/cortex/SupplyDemandPanel";
 import { CurationPanel } from "@/components/cortex/CurationPanel";
 import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
+import { rolesWithSectionAccess } from "@/lib/section-access";
 
 // RODO gate: widoki agregują dane kompetencyjne kandydatów — ten sam zestaw
 // ról co zakładka "Klienci & Delivery" w Insights i backendowy CortexUser.
-export const CORTEX_ROLES: UserRole[] = [
-  "admin",
-  "head_of_recruitment",
-  "delivery_lead",
-  "tac",
-  "finance",
-];
+export const CORTEX_ROLES: UserRole[] = rolesWithSectionAccess(
+  "insights",
+).filter((role) => role !== "user");
 
 type TabId =
   | "tech"

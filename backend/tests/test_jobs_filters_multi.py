@@ -184,29 +184,15 @@ async def test_jobs_status_filter_accepts_multiple_values(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_list_shows_jobs_outside_relationship_scope(
+async def test_delivery_lead_can_open_organization_jobs_in_pipeline(
     app_client: AsyncClient,
 ):
-    """Rejestr /jobs jest ogólnoorganizacyjny, a detal rekrutacji zostaje zakresowy.
+    """Pipeline is organization-wide for DL; only Delivery stays client-scoped.
 
-    UWAGA — to jest UTRWALONY STAN FAKTYCZNY, nie wzorzec do kopiowania.
-    Dla Delivery Leada bez ani jednego przypisania (`DeliveryLeadClientAssignment`
-    → `ClientTacAssignment`) `delivery_lead_job_pairs` zwraca PUSTY zbiór par,
-    a `assert_delivery_lead_job_visible` odrzuca wtedy KAŻDĄ rekrutację — nie
-    tylko tę „spoza zakresu". Rejestr pokazuje komplet, ale żaden wiersz się nie
-    otwiera: „Brak rekrutacji" zamieniło się w listę martwych linków. Dlatego
-    test nie poprzestaje na jednym 403, tylko mierzy, że żaden zwrócony wiersz
-    nie jest otwieralny — inaczej nazwa testu („outside scope") sugerowałaby
-    wyjątek tam, gdzie jest reguła.
-
-    Front obsługuje to poprawnie (403 → QueryStateNotice „Nie masz uprawnień do
-    tej rekrutacji"), więc to defekt uprawnień, a nie awaria udająca pustkę.
-
-    Domknięcie wymaga decyzji poza tym plikiem: albo uzupełnić przypisania
-    Delivery Leadom (naprawa danych, bez zmiany kodu), albo świadomie otworzyć
-    ODCZYT detalu z tą samą redakcją pól co lista
-    (`_strip_champion_payload_from_list_row`), zostawiając mutacje i pipeline na
-    `_ensure_delivery_lead_job_visible`.
+    The former relationship scope made every row in the organization-wide jobs
+    register a dead link for an unassigned Delivery Lead. The section policy
+    now makes both list and detail reachable while finance fields remain
+    redacted separately.
     """
 
     delivery_lead_id = await _seed_user(role="delivery_lead")
@@ -226,13 +212,11 @@ async def test_delivery_lead_list_shows_jobs_outside_relationship_scope(
         listed_ids = [item["id"] for item in listing.json()["items"]]
         assert {outside_job_id, other_job_id} <= set(listed_ids)
 
-        # Każdy widoczny wiersz, nie „ten jeden spoza zakresu".
+        # Every visible Pipeline row opens; client assignment is not a Pipeline
+        # boundary.
         for job_id in listed_ids:
             detail = await app_client.get(f"/api/jobs/{job_id}", headers=headers)
-            assert detail.status_code == 403, (
-                f"job {job_id}: detal przestał odmawiać — jeśli to zmiana "
-                "świadoma, ten test opisuje już nieistniejący stan"
-            )
+            assert detail.status_code == 200, f"job {job_id}: {detail.text}"
     finally:
         await _cleanup(
             job_ids=[outside_job_id, other_job_id], user_ids=[delivery_lead_id]

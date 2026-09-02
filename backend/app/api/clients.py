@@ -19,6 +19,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.schemas.client import (
     AnyClientResponse,
@@ -33,7 +34,6 @@ from app.services.access_scope import (
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
 )
-from app.services.client_access import ADMIN_LIKE_ROLES, CLIENT_TEAM_ROLES
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -59,8 +59,9 @@ from app.schemas.client_profile import (
 )
 from app.api.contracts import _effective_rate_fields
 from app.api.deps import AdminUser, OperationalUser, TacPlus
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 _RATE_NOT_PROVIDED = object()
 
 
@@ -192,8 +193,8 @@ def _client_schema_for(user: User) -> type[ClientResponse] | type[ClientSafeResp
     w odpowiedzi (nie są ``null``).
     """
     if user.has_any_role(
-        *ADMIN_LIKE_ROLES,
-        *CLIENT_TEAM_ROLES,
+        UserRole.admin,
+        UserRole.delivery_lead,
         UserRole.finance,
     ):
         return ClientResponse
@@ -408,6 +409,19 @@ async def create_client(
         source_system="manual",
     )
     db.add(scope)
+    # Delivery Lead may operate only its explicit portfolio. Without creating
+    # this relationship in the same transaction, a client created by a DL
+    # disappears from that user's list immediately after the POST succeeds.
+    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
+        UserRole.admin
+    ):
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=current_user.id,
+                client_id=client.id,
+                is_head=True,
+            )
+        )
     await db.flush()
     db.add(
         Activity(

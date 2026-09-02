@@ -10,8 +10,9 @@ zakresu danych; frontend wybiera wyłącznie spośród presetów zwróconych prz
 | Persona | Preset | Główny zakres | Najważniejsze elementy | Granice |
 | --- | --- | --- | --- | --- |
 | Admin | `admin-ops` | cała organizacja | gotowość systemu, drift schematu, workery, integracje, alerty i kolejka operacyjna | pełny dostęp administracyjny |
-| Delivery Lead | `delivery-lead` | przypisani klienci i pary klient–TAC | otwarte requesty/wakaty, SLA pierwszej rekomendacji, fill rate, placementy, tablica ryzyk | bez stawek, marży, faktur i innych danych finansowych |
+| Delivery Lead | `delivery-lead` | przypisani klienci i pary klient–TAC | otwarte requesty/wakaty, SLA pierwszej rekomendacji, fill rate, placementy, tablica ryzyk | stawki i marże tylko własnych klientów; bez globalnego modułu Finanse |
 | Head of Recruitment | `head-of-recruitment` | organizacja rekrutacyjna | priorytetowe wakaty, obciążenie, capacity, SLA, konwersja, placementy, tablica zespołu | bez finansów; zarządza kompetencjami i odpowiedzialnościami zespołu |
+| Talent Community Manager | `head-of-recruitment` | organizacja rekrutacyjna | bezpieczny widok operacyjny zespołu, sourcingu, pipeline i Delivery | Delivery tylko do odczytu, bez finansów i surowych dokumentów |
 | Sourcer / TAC / Rekruter | `my-work` | własna praca | realizacja planu, zaległe działania, telefony, weryfikacje, rekomendacje, placementy i kolejka działań | role pozostają technicznie odrębne; hybryda dostaje sumę capability |
 | Finanse | `finance` | dane finansowe organizacji | MRR, marża, należności, przeterminowania, forecast, wykorzystanie i wyjątki | rola ekskluzywna; bez danych kandydatów i PII rekrutacyjnego |
 
@@ -21,8 +22,10 @@ fałszywe zero.
 
 ## Reguły ról
 
-- `admin`, `head_of_recruitment`, `delivery_lead`, `tac`, `recruiter` i
-  `sourcer` mogą tworzyć persony hybrydowe; uprawnienia są sumą capability.
+- `admin`, `head_of_recruitment`, `delivery_lead`,
+  `talent_community_manager`, `tac`, `recruiter` i `sourcer` mogą tworzyć
+  persony hybrydowe; uprawnienia są sumą capability, ale zakres klientowy
+  Delivery Leada pozostaje autorytatywny.
 - `finance` jest zawsze rolą pojedynczą i ekskluzywną.
 - Legacy `user` nie może być już nadawany. Istniejące konta `user` przechodzą na
   `recruiter` i muszą ukończyć onboarding.

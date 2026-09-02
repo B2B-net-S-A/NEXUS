@@ -1,14 +1,12 @@
 """Kolejka zamówień z maila: lista, szczegół, PDF, „Zastosuj", „Odrzuć".
 
-Zakres widoczności = zakres portfela: admin / HoR / finance widzą wszystko,
-Delivery Lead wyłącznie klientów, do których jest przypisany (ta sama
-granica co ``require_dl_assigned_or_admin``). Kwoty REDAGOWANE tą samą regułą
-co endpoint odczytu (``_order_finance_visible``): rola bez prawa do finansów
-klienta widzi osoby, okres i powody, ale nie stawki — także w ``fields`` wiersza.
+To powierzchnia Delivery. Admin i Finance widzą organizację, Delivery Lead
+wyłącznie jawnie przypisany portfel, a Talent Community Manager globalną,
+bezpieczną projekcję bez kwot, surowego PDF-u i komunikatów mogących cytować
+stawki. Pozostałe role, w tym Head of Recruitment, odcina bramka sekcji.
 
-„Zastosuj" to zapis finansowy: wymaga ``_can_manage_order_finance`` (admin
-albo PRZYPISANY DL). HoR przechodzi ``DlAssignedOrAdmin`` w innych miejscach,
-ale tego NIE — przycisk jest dla niego ukryty, a endpoint odmawia.
+„Zastosuj" i „Odrzuć" wymagają zapisu Delivery oraz
+``_can_manage_order_finance``: Admina albo przypisanego Delivery Leada.
 """
 
 # Bez `from __future__ import annotations` (PEP 563 vs FastAPI/slowapi).
@@ -26,6 +24,7 @@ from app.api.client_orders import (
     _order_finance_visible,
 )
 from app.api.deps import require_roles
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.order_mail import (
@@ -35,12 +34,12 @@ from app.models.order_mail import (
     OUTCOMES,
     OrderMailDocument,
 )
-from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services import storage_service
+from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.order_mail_apply import apply_document
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 # Bramka klasy roli jako ZALEŻNOŚĆ (widoczna w grafie FastAPI i w kontrakcie
 # `test_route_authz_contract`), lustro sidebara/middleware `/order-mail`.
@@ -51,7 +50,18 @@ OrderMailUser = Annotated[
     Depends(
         require_roles(
             UserRole.admin,
-            UserRole.head_of_recruitment,
+            UserRole.finance,
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
+        )
+    ),
+]
+
+OrderMailFileUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
             UserRole.finance,
             UserRole.delivery_lead,
         )
@@ -65,7 +75,11 @@ _FINANCE_KEYS = (
     "total_value",
     "currency",
 )
-_ORG_WIDE_ROLES = {UserRole.admin, UserRole.head_of_recruitment, UserRole.finance}
+_ORG_WIDE_ROLES = {
+    UserRole.admin,
+    UserRole.finance,
+    UserRole.talent_community_manager,
+}
 
 
 def _user_roles(user) -> set:
@@ -78,20 +92,27 @@ def _user_roles(user) -> set:
     return roles
 
 
+def _is_read_only_tcm(user) -> bool:
+    """TCM ceiling for Delivery mail, irrespective of HoR/TAC secondary roles.
+
+    HoR and TAC do not independently enter Delivery, so only Admin, assigned
+    Delivery Lead, or Finance can supersede the TCM read-only projection here.
+    """
+
+    roles = _user_roles(user)
+    return UserRole.talent_community_manager in roles and not roles.intersection(
+        {UserRole.admin, UserRole.finance, UserRole.delivery_lead}
+    )
+
+
 async def _visible_client_ids(db: AsyncSession, user) -> Optional[set[int]]:
     """None = wszyscy klienci; zbiór = tylko ci; pusty zbiór = nic."""
+    delivery_client_ids = await resolve_delivery_lead_client_ids(user, db)
+    if delivery_client_ids is not None:
+        return set(delivery_client_ids)
     roles = _user_roles(user)
     if roles & _ORG_WIDE_ROLES:
         return None
-    if UserRole.delivery_lead in roles:
-        ids = (
-            await db.execute(
-                select(DeliveryLeadClientAssignment.client_id).where(
-                    DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
-                )
-            )
-        ).scalars()
-        return set(ids)
     return set()
 
 
@@ -102,7 +123,16 @@ def _redact_extraction(
         return extraction
     out = {k: (None if k in _FINANCE_KEYS else v) for k, v in extraction.items()}
     out["consultant_rows"] = [
-        {**r, "rate_client": None} for r in (extraction.get("consultant_rows") or [])
+        {
+            **r,
+            "rate_client": None,
+            "uncertain_reason": (
+                "Sprawdź odczytane dane przed zapisem."
+                if r.get("uncertain_reason")
+                else None
+            ),
+        }
+        for r in (extraction.get("consultant_rows") or [])
     ]
     out["confidence"] = {
         k: v
@@ -132,6 +162,7 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
     )
     can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
     show_finance = _order_finance_visible(user, can_finance=can_finance)
+    read_only_tcm = _is_read_only_tcm(user)
     # Nazwa klienta osobnym zapytaniem — relacja `doc.client` w sesji async to
     # lazy load, czyli MissingGreenlet i 500 bez CORS („Network Error").
     client_name = (
@@ -149,19 +180,31 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "client_id": doc.client_id,
         "client_name": client_name,
         "identification_method": doc.identification_method,
-        "identification_reason": doc.identification_reason,
+        "identification_reason": (
+            "Klient rozpoznany automatycznie."
+            if read_only_tcm and doc.identification_reason
+            else doc.identification_reason
+        ),
         "client_policy": doc.client_policy,
         "gate_verdict": doc.gate_verdict,
-        "gate_reasons": doc.gate_reasons or [],
+        "gate_reasons": (
+            ["Sprawdź odczytane dane przed zapisem."]
+            if read_only_tcm and doc.gate_reasons
+            else (doc.gate_reasons or [])
+        ),
         "document_meta": doc.document_meta,
         "extraction": _redact_extraction(doc.extraction, show_finance=show_finance),
         "proposal": _redact_proposal(doc.proposal, show_finance=show_finance),
         "applied_order_id": doc.applied_order_id,
         "applied_at": doc.applied_at.isoformat() if doc.applied_at else None,
         "reviewed_at": doc.reviewed_at.isoformat() if doc.reviewed_at else None,
-        "error": doc.error,
+        "error": (
+            "Przetwarzanie dokumentu zakończyło się błędem."
+            if read_only_tcm and doc.error
+            else doc.error
+        ),
         "can_apply": can_finance and doc.outcome == OUTCOME_NEEDS_REVIEW,
-        "has_file": bool(doc.storage_path),
+        "has_file": bool(doc.storage_path) and not read_only_tcm,
     }
 
 
@@ -232,7 +275,7 @@ async def get_queue_item(
 
 @router.get("/queue/{doc_id}/file")
 async def download_queue_file(
-    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: OrderMailFileUser, db: AsyncSession = Depends(get_db)
 ):
     doc = await _load_visible(db, doc_id, user)
     if not doc.storage_path:

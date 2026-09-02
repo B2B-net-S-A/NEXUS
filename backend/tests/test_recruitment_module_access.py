@@ -40,9 +40,11 @@ ROLES = [
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
+    UserRole.finance,
     UserRole.user,
 ]
 
@@ -50,21 +52,26 @@ OPERATIONAL_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
+    UserRole.finance,
 }
 TERMINAL_ROLES = {
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
 }
 RATE_EDIT_ROLES = {
     UserRole.admin,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
+    UserRole.finance,
 }
 
 

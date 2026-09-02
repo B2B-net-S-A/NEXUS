@@ -14,6 +14,7 @@ export default function CandidateContactQueuePage() {
 
   const canUseQueue = hasRole(
     user,
+    "talent_community_manager",
     "tac",
     "recruiter",
     "sourcer",

@@ -89,6 +89,7 @@ async def _authorized(*_args: Any, **_kwargs: Any) -> None:
     [
         (UserRole.admin, "admin-ops"),
         (UserRole.head_of_recruitment, "head-of-recruitment"),
+        (UserRole.talent_community_manager, "head-of-recruitment"),
         (UserRole.delivery_lead, "delivery-lead"),
         (UserRole.finance, "finance"),
         (UserRole.tac, "my-work"),
@@ -257,6 +258,8 @@ async def test_preset_is_required(
         (UserRole.head_of_recruitment, "delivery-lead", 403),
         (UserRole.head_of_recruitment, "head-of-recruitment", 418),
         (UserRole.head_of_recruitment, "my-work", 403),
+        (UserRole.talent_community_manager, "head-of-recruitment", 418),
+        (UserRole.talent_community_manager, "my-work", 403),
         (UserRole.delivery_lead, "delivery-lead", 418),
         (UserRole.delivery_lead, "my-work", 403),
         (UserRole.finance, "finance", 418),

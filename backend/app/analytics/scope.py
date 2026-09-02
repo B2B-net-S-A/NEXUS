@@ -102,6 +102,7 @@ async def ensure_client_scope(db: AsyncSession, user: User, client_id: int) -> S
     if user.has_any_role(
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.finance,
     ):
@@ -162,6 +163,7 @@ async def ensure_team_scope(db: AsyncSession, user: User) -> Scope:
     if user.has_any_role(
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.finance,
     ):
         return organization_scope()
@@ -209,6 +211,7 @@ async def ensure_recruitment_user_scope(
     if user.has_any_role(
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.finance,
     ):
         return Scope(kind=ScopeKind.user, user_id=target_user_id)

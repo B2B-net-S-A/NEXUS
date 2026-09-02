@@ -427,6 +427,10 @@ export default function ContractDetailPage() {
   const canManageFinance = canManageCandidateFinance(user);
   const canViewFinance = canViewCandidateFinance(user);
   const isAdmin = hasRole(user, "admin");
+  const isReadOnlyTcm =
+    hasRole(user, "talent_community_manager") &&
+    !hasRole(user, "admin", "delivery_lead", "finance");
+  const canViewContractDocuments = !isReadOnlyTcm;
   const id = Number(params.id);
 
   // A profile can be opened from many places (candidate, any contracts view,
@@ -475,7 +479,7 @@ export default function ContractDetailPage() {
   const { data: contractDocs } = useQuery<ContractDocument[]>({
     queryKey: ["contract-documents", id],
     queryFn: () => contractsApi.documents(id).then((r) => r.data),
-    enabled: !Number.isNaN(id),
+    enabled: !Number.isNaN(id) && canViewContractDocuments,
   });
   const complianceRisk = summariseComplianceRisk(contractDocs);
 
@@ -758,8 +762,9 @@ export default function ContractDetailPage() {
 
   const visibleTabs = TABS.filter(
     (tab) =>
-      canViewFinance ||
-      (tab.key !== "invoices" && tab.key !== "rateHistory"),
+      (!isReadOnlyTcm || tab.key !== "documents") &&
+      (canViewFinance ||
+        (tab.key !== "invoices" && tab.key !== "rateHistory")),
   );
 
   // Konsolidacja wieloklientowa: pozostałe kontrakty tej samej osoby.
@@ -840,7 +845,7 @@ export default function ContractDetailPage() {
           </p>
         </div>
 
-        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+        <RequireRole roles={["admin", "delivery_lead"]}>
           <div className="flex gap-2 flex-wrap">
             <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
             {contract.candidate_id != null && (
@@ -1999,17 +2004,27 @@ export default function ContractDetailPage() {
       {activeTab === "documents" && <ContractDocumentsTab contractId={id} />}
 
       {/* Tab: Aneksy */}
-      {activeTab === "amendments" && <ContractAmendmentsTab contractId={id} />}
+      {activeTab === "amendments" && (
+        <ContractAmendmentsTab
+          contractId={id}
+          readOnly={!hasRole(user, "admin", "delivery_lead")}
+        />
+      )}
 
       {/* Tab: Onboarding */}
-      {activeTab === "onboarding" && <ContractOnboardingTab contractId={id} />}
+      {activeTab === "onboarding" && (
+        <ContractOnboardingTab
+          contractId={id}
+          readOnly={!hasRole(user, "admin", "delivery_lead")}
+        />
+      )}
 
       {/* Tab: Sprzęt */}
       {activeTab === "equipment" && (
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           <ContractEquipmentTab
             contractId={id}
-            readOnly={hasRole(user, "finance")}
+            readOnly={hasRole(user, "finance") || isReadOnlyTcm}
           />
         </div>
       )}

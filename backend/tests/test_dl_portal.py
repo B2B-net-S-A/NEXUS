@@ -664,13 +664,14 @@ async def test_my_clients_dashboard_denies_dl_outside_the_portfolio(
         await _cleanup([own, other], [dl_id], [])
 
 
-async def test_my_clients_hor_stays_without_money(app_client: AsyncClient):
-    """Head of Recruitment — także z rolą DL — NIE dostaje kwot.
+async def test_my_clients_hor_with_dl_role_gets_scoped_delivery_money(
+    app_client: AsyncClient,
+):
+    """HoR+DL dziedziczy kwoty DL tylko dla przypisanego klienta.
 
-    HoR czyta ten moduł organizacyjnie: lista obejmuje WSZYSTKICH klientów,
-    a dashboard przepuszcza go bez przypisania. Test roli zamiast granicy
-    portfela rozdałby mu przychody całej firmy, a repo konsekwentnie trzyma HoR
-    poza powierzchniami finansowymi.
+    HoR bez DL pozostaje poza Delivery. Przy hybrydzie źródłem uprawnienia jest
+    rola Delivery Lead, więc lista i kwoty muszą respektować jej dokładny
+    portfel zamiast przechodzić na organizacyjny zakres HoR.
     """
     own = await _new_client()
     candidate_id = await _new_candidate()
@@ -699,8 +700,8 @@ async def test_my_clients_hor_stays_without_money(app_client: AsyncClient):
         assert resp.status_code == 200
         row = next(r for r in resp.json() if r["client_id"] == own)
         assert row["active_orders_count"] == 1
-        assert "total_revenue_all_time" not in row
-        assert "active_revenue" not in row
+        assert Decimal(str(row["total_revenue_all_time"])) == Decimal("25000.00")
+        assert Decimal(str(row["active_revenue"])) == Decimal("25000.00")
 
         dashboard = await app_client.get(
             f"/api/my-clients/{own}/dashboard",
@@ -709,15 +710,10 @@ async def test_my_clients_hor_stays_without_money(app_client: AsyncClient):
         assert dashboard.status_code == 200, dashboard.text
         body = dashboard.json()
         assert body["active_orders_count"] == 1
-        for financial_key in (
-            "total_revenue_all_time",
-            "active_revenue",
-            "completed_revenue",
-            "currency_breakdown",
-            "monthly_margin_total",
-            "monthly_margin_pct",
-        ):
-            assert financial_key not in body, financial_key
+        assert Decimal(str(body["total_revenue_all_time"])) == Decimal("25000.00")
+        assert Decimal(str(body["active_revenue"])) == Decimal("25000.00")
+        assert body["currency_breakdown"]
+        assert Decimal(str(body["monthly_margin_total"])) == Decimal("3000")
     finally:
         await _cleanup([own], [hor_id], [candidate_id])
 

@@ -689,7 +689,9 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  )}
  </div>
 
- {/* Bulk actions bar */}
+ {/* Bulk actions belong to the same effective Admin/DL audience as contract
+ creation. Read-only Delivery users must not be offered inert selectors. */}
+ {canCreateContract && (
  <ContractsBulkActionsBarV2
  selectedIds={selectedIds}
  onClear={() => setSelectedIds(new Set())}
@@ -705,6 +707,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  setSelectedIds(new Set());
  }}
  />
+ )}
 
  {/* Compact client-band table. One semantic row per contract keeps every
  client/date/rate/status tuple aligned; the candidate cell spans the group. */}
@@ -739,6 +742,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <TableRow>
  <TableHead className="px-2">
  <span className="flex items-center gap-2">
+ {canCreateContract && (
  <Checkbox
  checked={
  allVisibleSelected
@@ -752,6 +756,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  }
  aria-label="Zaznacz wszystkie"
  />
+ )}
  Kandydat
  </span>
  </TableHead>
@@ -858,6 +863,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  onClick={(e) => e.stopPropagation()}
  >
  <div className="flex min-w-0 items-start gap-2">
+ {canCreateContract && (
  <Checkbox
  checked={rowSelected}
  onCheckedChange={() => toggleIds(rowIds)}
@@ -867,6 +873,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  : `Zaznacz kontrakt ${c.id}`
  }
  />
+ )}
  <div className="min-w-0">
  <Link
  href={buildContractDetailHref(c.id, returnTarget)}

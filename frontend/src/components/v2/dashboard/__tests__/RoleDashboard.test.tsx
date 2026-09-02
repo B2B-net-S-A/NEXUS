@@ -108,6 +108,12 @@ describe("RoleDashboard — unified recruitment view", () => {
       "head-of-recruitment",
       "week",
     ],
+    [
+      "Talent Community Manager",
+      "talent_community_manager",
+      "head-of-recruitment",
+      "week",
+    ],
     ["My Work", "recruiter", "my-work", "day"],
     ["Finanse", "finance", "finance", "quarter"],
   ] as const)(
@@ -168,6 +174,28 @@ describe("RoleDashboard — unified recruitment view", () => {
       "/dashboard?preset=head-of-recruitment&period=week#nadzor-kontaktu",
     )
     expect(screen.getByText("contact-oversight")).toBeVisible()
+  })
+
+  it("TCM uses the recruitment overview without HoR-only management tools", () => {
+    act(() => {
+      useAuthStore.setState({
+        user: {
+          ...recruiter(),
+          role: "talent_community_manager",
+          roles: ["talent_community_manager"],
+          available_dashboard_presets: ["head-of-recruitment"],
+          default_dashboard_preset: "head-of-recruitment",
+        },
+        hydrated: true,
+      })
+    })
+    navigation.params = new URLSearchParams("preset=head-of-recruitment")
+
+    render(<RoleDashboard />)
+
+    expect(screen.getByText("recruitment-kpis")).toBeVisible()
+    expect(screen.queryByText("contact-oversight")).toBeNull()
+    expect(screen.queryByText("team-allocation")).toBeNull()
   })
 
   it("uses the shared recruitment dashboard for Finance and removes its legacy tab", () => {

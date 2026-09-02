@@ -5,7 +5,8 @@ DL który zaznaczył kontakty u różnych klientów jako `is_key_relationship=Tr
 posortowane po `last_personal_touchpoint_at` (najstarsze najpierw — do
 follow-up planning).
 
-Admin/HoR/Finance widzi wszystkie key relationships (bez filtra po owner_id).
+Admin/Finance oraz Talent Community Manager widzą wszystkie key relationships
+(TCM bez prywatnych notatek relacyjnych).
 """
 
 from __future__ import annotations
@@ -19,12 +20,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.contact import Contact, RelationshipStrength
 from app.models.user import UserRole
+from app.services.access_scope import resolve_delivery_lead_client_ids
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 class MyRelationshipRow(BaseModel):
@@ -53,12 +56,17 @@ async def list_my_key_relationships(
 ):
     """Lista key contactów DL'a cross-client, posortowane po stalności touchpoint'u.
 
-    Admin/HoR/Finance widzi wszystkie key contacts (management read view).
+    Admin/Finance/TCM widzi wszystkie key contacts (management read view).
     """
-    # Multi-role aware (M1-RBAC-02) — patrz my_clients.py.
-    is_organization_reader = user.has_any_role(
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(user, db)
+    is_delivery_scoped = delivery_lead_client_ids is not None
+    is_organization_reader = not is_delivery_scoped and user.has_any_role(
         UserRole.admin,
-        UserRole.head_of_recruitment,
+        UserRole.finance,
+        UserRole.talent_community_manager,
+    )
+    can_view_all_private_notes = user.has_any_role(
+        UserRole.admin,
         UserRole.finance,
     )
 
@@ -82,8 +90,13 @@ async def list_my_key_relationships(
     )
 
     if not is_organization_reader:
-        # DL widzi tylko swoje (gdzie sam zaznaczył jako owner)
-        stmt = stmt.where(Contact.key_relationship_owner_id == user.id)
+        # DL widzi tylko swoje relacje i tylko we własnym portfolio. Drugi
+        # warunek chroni przed starym ownerem pozostawionym po zmianie
+        # przypisania klienta.
+        stmt = stmt.where(
+            Contact.key_relationship_owner_id == user.id,
+            Contact.client_id.in_(sorted(delivery_lead_client_ids or ()) or [-1]),
+        )
 
     # Sort: NULLs first (nigdy nie było — pilna potrzeba), potem najstarsze
     stmt = stmt.order_by(Contact.last_personal_touchpoint_at.asc().nullsfirst())
@@ -111,7 +124,11 @@ async def list_my_key_relationships(
                 client_name=r.client_name,
                 is_decision_maker=r.is_decision_maker or False,
                 relationship_strength=r.relationship_strength,
-                relationship_notes=r.relationship_notes,
+                relationship_notes=(
+                    r.relationship_notes
+                    if can_view_all_private_notes or not is_organization_reader
+                    else None
+                ),
                 last_personal_touchpoint_at=r.last_personal_touchpoint_at,
                 last_contacted_at=r.last_contacted_at,
                 days_since_personal_touchpoint=days,

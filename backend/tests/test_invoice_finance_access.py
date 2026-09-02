@@ -16,6 +16,7 @@ INVOICES_URL = "/api/invoices"
 ALLOWED_ROLES = ["admin", "finance"]
 DENIED_ROLES = [
     "delivery_lead",
+    "talent_community_manager",
     "tac",
     "head_of_recruitment",
     "recruiter",

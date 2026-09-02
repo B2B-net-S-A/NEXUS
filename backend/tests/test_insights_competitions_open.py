@@ -31,10 +31,12 @@ _READ_ONLY_ROLES = [
     UserRole.sourcer,
     UserRole.recruiter,
     UserRole.tac,
+    UserRole.talent_community_manager,
     UserRole.finance,
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.admin,
+    UserRole.user,
 ]
 
 

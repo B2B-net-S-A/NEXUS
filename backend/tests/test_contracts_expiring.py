@@ -233,11 +233,21 @@ def test_contractor_access_denies_viewer():
 def test_contractor_access_allows_operational_roles():
     for role in (
         UserRole.admin,
-        UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.finance,
+        UserRole.talent_community_manager,
+    ):
+        # Resource scope and redaction are applied later inside the endpoint.
+        _require_contractor_access(_FakeUser(role))
+
+
+def test_contractor_access_denies_roles_outside_delivery():
+    for role in (
+        UserRole.head_of_recruitment,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
     ):
-        # Must not raise — recruiter/sourcer are scoped inside the endpoint.
-        _require_contractor_access(_FakeUser(role))
+        with pytest.raises(HTTPException) as exc:
+            _require_contractor_access(_FakeUser(role))
+        assert exc.value.status_code == 403

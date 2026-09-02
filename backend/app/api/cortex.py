@@ -6,7 +6,7 @@
 - ``POST /api/cortex/admin/backfill-traffit`` (+ ``/status``) — backfill faktów
   z ``traffit_technologie`` (cała baza, bez LLM)
 
-RBAC: widoki dla admin/head_of_recruitment/delivery_lead/tac (dane nazwiskowe
+RBAC: widoki dla wszystkich wewnętrznych ról operacyjnych (dane nazwiskowe
 kandydatów — RODO gate jak w Insights); backfill i kuracja — admin only.
 """
 
@@ -49,8 +49,11 @@ CortexUser = Annotated[
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.tac,
+            UserRole.recruiter,
             UserRole.finance,
+            UserRole.sourcer,
         )
     ),
 ]

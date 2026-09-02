@@ -3,14 +3,14 @@
 Do 2026-07 cały CRUD (łącznie z przepisaniem właściciela relacji) działał na
 samym ``CurrentUser`` — każdy aktywny użytkownik, także rola ``user``/viewer,
 mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
-``app.services.client_access.ClientAccess``:
+``app.services.client_access.ClientAccess`` i bramka sekcji:
 
-- odczyt listy: admin/HoR, DL/TAC, recruiter/sourcer przypisany do Joba klienta;
-- ``relationship_notes`` (dane prywatne) tylko admin/HoR + owner relacji —
+- odczyt listy jest współdzielony z Pipeline i zawężany grafem klient/Job;
+- ``relationship_notes`` (dane prywatne) tylko admin lub uprawniony owner —
   pozostali dostają projekcję BEZ tego pola (nie ``null``);
-- create/update/delete: admin/HoR + DL/TAC;
+- create/update/delete: admin lub przypisany Delivery Lead;
 - owner relacji może edytować pola relacyjne swojego kontaktu;
-- zmiana ``key_relationship_owner_id``: admin/HoR (wyjątek: claim None → self);
+- zmiana ``key_relationship_owner_id``: admin (wyjątek: claim None → self);
 - każda mutacja zostawia audit event w ``activities`` (bez wartości pól
   prywatnych — tylko nazwy pól).
 """
@@ -27,8 +27,14 @@ from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.contact import Contact, RelationshipStrength
 from app.models.client import Client
-from app.models.user import User
-from app.api.deps import CurrentUser, get_current_user
+from app.models.user import User, UserRole
+from app.api.deps import get_current_user
+from app.api.section_access import (
+    DeliverySectionUser,
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
     ClientAccess,
@@ -108,7 +114,7 @@ class ContactSafeResponse(BaseModel):
 
 
 class ContactResponse(ContactSafeResponse):
-    """Pełna projekcja — admin/HoR i właściciel danej relacji."""
+    """Pełna projekcja — admin i uprawniony właściciel danej relacji."""
 
     relationship_notes: Optional[str]
 
@@ -191,15 +197,19 @@ async def list_all_contacts(
     db: AsyncSession = Depends(get_db),
     search: Optional[str] = Query(None, alias="search"),
 ):
-    """Kontakty cross-client (globalna wyszukiwarka) — role zarządzające.
+    """Kontakty cross-client (globalna wyszukiwarka).
 
-    Admin/HoR widzą organizację. DL/TAC widzą wyłącznie jawnie przypisanych
-    klientów, a recruiter/sourcer wyłącznie klientów osiągalnych przez Job.
-    Pusty graf relacji jest deny-all.
+    Admin, HoR, Finance i TCM widzą organizację w zakresie swojej projekcji.
+    DL/TAC widzą jawne przypisania, a recruiter/sourcer klientów osiągalnych
+    przez Job. Pusty graf relacji jest deny-all.
     """
     current_user = scope.user
     visible_client_ids = scope.visible_client_ids
     is_admin_like = current_user.has_any_role(*ADMIN_LIKE_ROLES)
+    can_write_delivery = (
+        section_access_for_user(current_user, ProductSection.delivery)
+        >= SectionAccess.write
+    )
     client_team_ids = scope.client_team_ids
 
     query = (
@@ -221,15 +231,23 @@ async def list_all_contacts(
     contacts_out: list[AnyContactWithClientResponse] = []
     for contact, client_name in rows:
         # Ta sama reguła co ClientAccess.can_view_contact_private_notes:
-        # admin/HoR wszystko; owner swoje; nie-zaklaimowane (owner=None)
+        # Admin z zapisem Delivery widzi wszystko; uprawniony owner swoje;
+        # nie-zaklaimowane (owner=None)
         # widzą wyłącznie role edytujące przypisane do tego klienta.
         can_edit_client = (
             client_team_ids is None or contact.client_id in client_team_ids
         )
-        can_see_notes = (
-            is_admin_like
+        tcm_read_only = current_user.has_role(
+            UserRole.talent_community_manager
+        ) and not current_user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+        can_see_notes = not tcm_read_only and (
+            (is_admin_like and can_write_delivery)
             or contact.key_relationship_owner_id == current_user.id
-            or (contact.key_relationship_owner_id is None and can_edit_client)
+            or (
+                contact.key_relationship_owner_id is None
+                and can_write_delivery
+                and can_edit_client
+            )
         )
         model = (
             ContactWithClientResponse
@@ -270,19 +288,19 @@ async def list_client_contacts(
 )
 async def create_contact(
     data: ContactCreate,
-    current_user: CurrentUser,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     await assert_client_exists(db, data.client_id)
     access = await resolve_client_access(db, current_user, data.client_id)
     if not access.can_edit_contacts:
-        raise deny("tworzenie kontaktów wymaga roli admin/HoR/DL/TAC")
+        raise deny("tworzenie kontaktów wymaga roli admin lub przypisanego DL")
     if (
         data.key_relationship_owner_id is not None
         and data.key_relationship_owner_id != current_user.id
         and not access.can_reassign_relationship_owner
     ):
-        raise deny("ustawienie innego właściciela relacji wymaga roli admin/HoR")
+        raise deny("ustawienie innego właściciela relacji wymaga roli admin")
 
     contact = Contact(**data.model_dump())
     db.add(contact)
@@ -303,7 +321,7 @@ async def create_contact(
 async def update_contact(
     contact_id: int,
     data: ContactUpdate,
-    current_user: CurrentUser,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     contact = await _load_contact(db, contact_id)
@@ -325,7 +343,7 @@ async def update_contact(
         if not access.can_reassign_relationship_owner and not (
             is_self_claim and access.can_edit_contacts
         ):
-            raise deny("zmiana właściciela relacji wymaga roli admin/HoR")
+            raise deny("zmiana właściciela relacji wymaga roli admin")
 
     # 2. Kto może edytować pozostałe pola.
     if not access.can_edit_contacts:
@@ -341,7 +359,7 @@ async def update_contact(
                     f"swojego kontaktu (niedozwolone: {sorted(illegal)})"
                 )
         else:
-            raise deny("edycja kontaktu wymaga roli admin/HoR/DL/TAC")
+            raise deny("edycja kontaktu wymaga roli admin lub przypisanego DL")
 
     for k, v in payload.items():
         setattr(contact, k, v)
@@ -365,13 +383,13 @@ async def update_contact(
 @router.delete("/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact(
     contact_id: int,
-    current_user: CurrentUser,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     contact = await _load_contact(db, contact_id)
     access = await resolve_client_access(db, current_user, contact.client_id)
     if not access.can_edit_contacts:
-        raise deny("usunięcie kontaktu wymaga roli admin/HoR/DL/TAC")
+        raise deny("usunięcie kontaktu wymaga roli admin lub przypisanego DL")
 
     record_client_audit(
         db,

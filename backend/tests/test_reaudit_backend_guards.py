@@ -9,7 +9,7 @@ in-process surface):
 - **F-07** — ``GET /api/pipeline/overview`` is gated to ``OperationalUser``:
   the read-only ``user`` viewer gets 403; operational roles get 200.
 - **F-13** — the ``client_orders`` GET endpoints redact rate/margin fields for
-  callers without ``VIEW_FINANCE`` (only Finance/Admin have it), and
+  TCM, while assigned Delivery Leads retain their narrow client exception, and
   ``list_contracts`` ignores rate/margin FILTERS for non-finance callers so the
   filter cannot be used as an oracle to binary-search a hidden rate.
 
@@ -110,6 +110,8 @@ _OVERVIEW_ROLES = [
     "admin",
     "head_of_recruitment",
     "delivery_lead",
+    "talent_community_manager",
+    "finance",
     "tac",
     "recruiter",
     "sourcer",
@@ -119,6 +121,8 @@ _OVERVIEW_OPERATIONAL = {
     "admin",
     "head_of_recruitment",
     "delivery_lead",
+    "talent_community_manager",
+    "finance",
     "tac",
     "recruiter",
     "sourcer",
@@ -220,13 +224,9 @@ async def test_client_orders_list_redacted_for_non_finance(
     app_client: AsyncClient,
 ) -> None:
     client_id, _order_id, contract_id = await _seed_client_order()
-    tac = await _headers_for(
-        app_client,
-        "tac",
-        assigned_client_id=client_id,
-    )
+    tcm = await _headers_for(app_client, "talent_community_manager")
 
-    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=tac)
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=tcm)
     assert resp.status_code == 200, resp.text
     contractors = resp.json()["contractors"]
     row = next((c for c in contractors if c["contract_id"] == contract_id), None)
@@ -292,14 +292,10 @@ async def test_client_orders_hidden_from_unassigned_delivery_lead(
 
 async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
-    tac = await _headers_for(
-        app_client,
-        "tac",
-        assigned_client_id=client_id,
-    )
+    tcm = await _headers_for(app_client, "talent_community_manager")
 
     resp = await app_client.get(
-        f"/api/clients/{client_id}/orders/{order_id}", headers=tac
+        f"/api/clients/{client_id}/orders/{order_id}", headers=tcm
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -333,11 +329,9 @@ async def test_head_of_recruitment_never_gains_order_finance(
 ) -> None:
     """HoR nie zyskuje kwot ani ich zapisu przy poszerzeniu dla DL.
 
-    Regresja na konkretną pułapkę: guard trasy ``require_dl_assigned_or_admin``
-    przepuszcza head_of_recruitment GLOBALNIE, bez sprawdzania przypisania.
-    Gdyby predykat finansowy brzmiał „ktokolwiek przeszedł ten guard", HoR
-    dostałby po cichu zapis stawek u WSZYSTKICH klientów. Dlatego
-    ``_can_manage_order_finance`` sprawdza rolę i przypisanie niezależnie.
+    Sekcja Delivery odcina HoR przed handlerem, a lokalny predykat pozostaje
+    drugą warstwą: samo przekazanie ``dl_assigned=True`` nie może zmienić
+    innej persony w Delivery Leada.
     """
     from app.api import client_orders
     from app.models.user import UserRole as Role
@@ -427,44 +421,41 @@ async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
     )
 
 
-async def test_client_order_reads_require_explicit_dl_or_tac_assignment(
+async def test_client_order_reads_require_explicit_dl_assignment(
     app_client: AsyncClient,
 ) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
 
-    for role in ("delivery_lead", "tac"):
-        unassigned = await _headers_for(app_client, role)
-        for path in (
-            f"/api/clients/{client_id}/orders",
-            f"/api/clients/{client_id}/orders/{order_id}",
-            f"/api/clients/{client_id}/orders/{order_id}/file",
-        ):
-            denied = await app_client.get(path, headers=unassigned)
-            assert denied.status_code == 403, (
-                f"{role} without explicit client assignment read {path}: "
-                f"{denied.status_code} {denied.text}"
-            )
+    paths = (
+        f"/api/clients/{client_id}/orders",
+        f"/api/clients/{client_id}/orders/{order_id}",
+        f"/api/clients/{client_id}/orders/{order_id}/file",
+    )
+    unassigned = await _headers_for(app_client, "delivery_lead")
+    for path in paths:
+        denied = await app_client.get(path, headers=unassigned)
+        assert denied.status_code == 403, (
+            f"delivery_lead without explicit client assignment read {path}: "
+            f"{denied.status_code} {denied.text}"
+        )
 
-        assigned = await _headers_for(
-            app_client,
-            role,
-            assigned_client_id=client_id,
-        )
-        allowed_list = await app_client.get(
-            f"/api/clients/{client_id}/orders",
-            headers=assigned,
-        )
-        assert allowed_list.status_code == 200, allowed_list.text
-        allowed_detail = await app_client.get(
-            f"/api/clients/{client_id}/orders/{order_id}",
-            headers=assigned,
-        )
-        assert allowed_detail.status_code == 200, allowed_detail.text
-        missing_file = await app_client.get(
-            f"/api/clients/{client_id}/orders/{order_id}/file",
-            headers=assigned,
-        )
-        assert missing_file.status_code == 404, missing_file.text
+    assigned = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_client_id=client_id,
+    )
+    allowed_list = await app_client.get(paths[0], headers=assigned)
+    assert allowed_list.status_code == 200, allowed_list.text
+    allowed_detail = await app_client.get(paths[1], headers=assigned)
+    assert allowed_detail.status_code == 200, allowed_detail.text
+    missing_file = await app_client.get(paths[2], headers=assigned)
+    assert missing_file.status_code == 404, missing_file.text
+
+    # A legacy TAC-client relationship must not reopen the Delivery section.
+    tac = await _headers_for(app_client, "tac", assigned_client_id=client_id)
+    for path in paths:
+        denied = await app_client.get(path, headers=tac)
+        assert denied.status_code == 403, denied.text
 
 
 # ── F-13: list_contracts filters ignored for non-finance (no oracle) ─────────
@@ -506,19 +497,19 @@ async def _seed_contract_for_client() -> tuple[int, int]:
 async def test_list_contracts_rate_filter_ignored_for_non_finance(
     app_client: AsyncClient,
 ) -> None:
-    """A rate filter that would exclude the contract must be IGNORED for TAC.
+    """A rate filter must be ignored for TCM, which can read but not see rates.
 
-    Otherwise TAC can binary-search the hidden ``rate_client`` by watching which
+    Otherwise TCM can binary-search the hidden ``rate_client`` by watching which
     rows survive ``rate_client_min`` — the filter becomes an oracle.
     """
     client_id, contract_id = await _seed_contract_for_client()
-    tac = await _headers_for(app_client, "tac")
+    tcm = await _headers_for(app_client, "talent_community_manager")
 
     # rate_client_min far above the real rate (150): a finance caller would get
-    # zero rows, TAC must still see the contract because the filter is dropped.
+    # zero rows, TCM must still see the contract because the filter is dropped.
     resp = await app_client.get(
         f"/api/contracts?client_id={client_id}&rate_client_min=999999",
-        headers=tac,
+        headers=tcm,
     )
     assert resp.status_code == 200, resp.text
     ids = {c["id"] for c in resp.json()["items"]}

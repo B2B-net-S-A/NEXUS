@@ -4,9 +4,9 @@ Wpisy konsumują m.in. ai_writer, prep_kit i question_suggestions — zapis
 kontroluje więc kontekst podawany AI. Wcześniej create/delete działały na
 samym ``CurrentUser``; teraz:
 
-- odczyt: admin/HoR, DL/TAC, recruiter/sourcer przypisany do Joba klienta
-  (wiedza operacyjna jest potrzebna do prowadzenia rekrutacji);
-- create/delete: admin/HoR + DL/TAC;
+- odczyt: admin/Finance/TCM globalnie oraz DL przypisany do klienta;
+- create/delete: admin globalnie lub DL przypisany do klienta;
+- HoR/TAC/recruiter/sourcer są odcięci przez bramkę sekcji Delivery;
 - każda mutacja zostawia audit event (kategoria, id — bez treści wpisu).
 """
 
@@ -22,6 +22,7 @@ from app.core.database import get_db
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.user import User
 from app.api.deps import CurrentUser, get_current_user
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import (
     assert_client_exists,
     deny,
@@ -29,7 +30,7 @@ from app.services.client_access import (
     resolve_client_access,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 class ClientKnowledgeCreate(BaseModel):
@@ -87,7 +88,7 @@ async def create_client_knowledge(
     await assert_client_exists(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_edit_knowledge:
-        raise deny("dodawanie wiedzy klienta wymaga roli admin/HoR/DL/TAC")
+        raise deny("dodawanie wiedzy klienta wymaga roli admin lub przypisanego DL")
 
     entry = ClientKnowledge(
         client_id=client_id,
@@ -127,7 +128,7 @@ async def delete_client_knowledge(
 
     access = await resolve_client_access(db, current_user, entry.client_id)
     if not access.can_edit_knowledge:
-        raise deny("usuwanie wiedzy klienta wymaga roli admin/HoR/DL/TAC")
+        raise deny("usuwanie wiedzy klienta wymaga roli admin lub przypisanego DL")
 
     record_client_audit(
         db,

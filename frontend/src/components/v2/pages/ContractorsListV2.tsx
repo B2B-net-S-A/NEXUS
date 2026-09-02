@@ -83,7 +83,7 @@ export function ContractorsListV2() {
  const user = useAuthStore((state) => state.user);
  const canManageFinance = canManageCandidateFinance(user);
  const canViewFinance = canViewCandidateFinance(user);
- const canOperateContracts = hasRole(user,"admin","delivery_lead","tac");
+ const canOperateContracts = hasRole(user,"admin","delivery_lead");
  const searchParams = useSearchParams();
  const navigationSearch = searchParams.toString();
  const [initialListState] = useState(() => {

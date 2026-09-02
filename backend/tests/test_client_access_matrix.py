@@ -164,6 +164,7 @@ async def cam_client() -> AsyncClient:
 # Profile:
 #   admin / hor          — role administracyjne (pełny dostęp)
 #   dl / tac             — role zespołu klienta z jawnym przypisaniem
+#   tcm                  — globalny, bezpieczny odczyt Delivery
 #   recruiter_assigned   — recruiter z Jobem u tego klienta (odczyt operacyjny)
 #   recruiter            — recruiter bez przypisania
 #   sourcer              — sourcer bez przypisania
@@ -176,6 +177,7 @@ async def cam_client() -> AsyncClient:
 MATRIX: dict[str, dict[str, bool]] = {
     # profile:             contacts  create  knowledge_r  knowledge_w  materials  terms  framework
     "admin": dict(
+        client_read=True,
         contacts_read=True,
         contact_write=True,
         knowledge_read=True,
@@ -187,17 +189,19 @@ MATRIX: dict[str, dict[str, bool]] = {
         financials=True,
     ),
     "hor": dict(
+        client_read=False,
         contacts_read=True,
-        contact_write=True,
-        knowledge_read=True,
-        knowledge_write=True,
-        materials_read=True,
-        terms_read=True,
-        framework_read=True,
-        legal_fields=True,
+        contact_write=False,
+        knowledge_read=False,
+        knowledge_write=False,
+        materials_read=False,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
         financials=False,
     ),
     "dl": dict(
+        client_read=True,
         contacts_read=True,
         contact_write=True,
         knowledge_read=True,
@@ -209,17 +213,19 @@ MATRIX: dict[str, dict[str, bool]] = {
         financials=True,
     ),
     "tac": dict(
+        client_read=False,
         contacts_read=True,
-        contact_write=True,
-        knowledge_read=True,
-        knowledge_write=True,
-        materials_read=True,
-        terms_read=True,
-        framework_read=True,
-        legal_fields=True,
+        contact_write=False,
+        knowledge_read=False,
+        knowledge_write=False,
+        materials_read=False,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
         financials=False,
     ),
-    "recruiter_assigned": dict(
+    "tcm": dict(
+        client_read=True,
         contacts_read=True,
         contact_write=False,
         knowledge_read=True,
@@ -230,7 +236,32 @@ MATRIX: dict[str, dict[str, bool]] = {
         legal_fields=False,
         financials=False,
     ),
+    "finance": dict(
+        client_read=True,
+        contacts_read=True,
+        contact_write=False,
+        knowledge_read=True,
+        knowledge_write=False,
+        materials_read=True,
+        terms_read=True,
+        framework_read=True,
+        legal_fields=True,
+        financials=True,
+    ),
+    "recruiter_assigned": dict(
+        client_read=False,
+        contacts_read=True,
+        contact_write=False,
+        knowledge_read=False,
+        knowledge_write=False,
+        materials_read=False,
+        terms_read=False,
+        framework_read=False,
+        legal_fields=False,
+        financials=False,
+    ),
     "recruiter": dict(
+        client_read=False,
         contacts_read=False,
         contact_write=False,
         knowledge_read=False,
@@ -242,6 +273,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         financials=False,
     ),
     "sourcer": dict(
+        client_read=False,
         contacts_read=False,
         contact_write=False,
         knowledge_read=False,
@@ -253,6 +285,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         financials=False,
     ),
     "viewer": dict(
+        client_read=False,
         contacts_read=False,
         contact_write=False,
         knowledge_read=False,
@@ -264,6 +297,7 @@ MATRIX: dict[str, dict[str, bool]] = {
         financials=False,
     ),
     "multi_dl": dict(
+        client_read=True,
         contacts_read=True,
         contact_write=True,
         knowledge_read=True,
@@ -280,6 +314,8 @@ _PROFILE_ROLE: dict[str, tuple[UserRole, list[str] | None]] = {
     "admin": (UserRole.admin, None),
     "hor": (UserRole.head_of_recruitment, None),
     "dl": (UserRole.delivery_lead, None),
+    "tcm": (UserRole.talent_community_manager, None),
+    "finance": (UserRole.finance, None),
     "tac": (UserRole.tac, None),
     "recruiter_assigned": (UserRole.recruiter, None),
     "recruiter": (UserRole.recruiter, None),
@@ -363,8 +399,8 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
     # Projekcja klienta — pola prawne. Detal/lista są OperationalUser
     # (R0 2026-07-16): viewer w ogóle nie przechodzi (403).
     resp = await cam_client.get(f"/api/clients/{client_id}", headers=headers)
-    if profile == "viewer":
-        assert resp.status_code == 403, "[viewer] client detail should be 403 (R0)"
+    if not expected["client_read"]:
+        assert resp.status_code == 403, f"[{profile}] client detail should be 403"
     else:
         assert resp.status_code == 200, f"[{profile}] client detail failed"
         body = resp.json()
@@ -387,7 +423,7 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
     # przez guardy klienta globalnie, bez przypisania (repo trzyma go poza
     # finansami), a TAC widzi konsultantów, ale obsady nie prowadzi.
     resp = await cam_client.get(f"/api/clients/{client_id}/profile", headers=headers)
-    if profile == "viewer":
+    if not expected["client_read"]:
         assert resp.status_code == 403
     else:
         assert resp.status_code == 200, f"[{profile}] profile failed"
@@ -400,12 +436,42 @@ async def test_access_matrix(cam_client: AsyncClient, profile: str) -> None:
             assert summary["ltv"] is None, f"[{profile}] leaked ltv"
 
 
+@pytest.mark.asyncio
+async def test_delivery_lead_created_client_joins_own_portfolio(
+    cam_client: AsyncClient,
+) -> None:
+    dl_id, email, password = await _seed_user(UserRole.delivery_lead)
+    headers = await _login(cam_client, email, password)
+    name = f"CAM DL-created {uuid.uuid4().hex[:8]}"
+
+    created = await cam_client.post(
+        "/api/clients",
+        headers=headers,
+        json={"name": name},
+    )
+
+    assert created.status_code == 201, created.text
+    client_id = created.json()["id"]
+    detail = await cam_client.get(f"/api/clients/{client_id}", headers=headers)
+    assert detail.status_code == 200, detail.text
+
+    async with AsyncSessionLocal() as db:
+        assignment = await db.scalar(
+            select(DeliveryLeadClientAssignment).where(
+                DeliveryLeadClientAssignment.delivery_lead_user_id == dl_id,
+                DeliveryLeadClientAssignment.client_id == client_id,
+            )
+        )
+    assert assignment is not None
+    assert assignment.is_head is True
+
+
 # ── Prywatne notatki relacyjne ───────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_private_relationship_notes_projection(cam_client: AsyncClient) -> None:
-    """`relationship_notes` widzi tylko admin/HoR + owner; pole nie jest null-owane
+    """`relationship_notes` widzi tylko Admin/owner/Delivery writer; pole nie jest null-owane
     tylko całkiem znika z odpowiedzi."""
     client_id = await _seed_client()
     owner_id, owner_email, owner_pass = await _seed_user(UserRole.delivery_lead)
@@ -442,6 +508,31 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     # Pozostałe pola relacyjne (operacyjne) zostają
     assert body["is_key_relationship"] is True
 
+    # Finance preserves its established organization-wide read, including
+    # private relationship notes, while remaining unable to edit contacts.
+    _, finance_email, finance_pass = await _seed_user(UserRole.finance)
+    finance_headers = await _login(cam_client, finance_email, finance_pass)
+    resp = await cam_client.get(
+        f"/api/clients/{client_id}/contacts", headers=finance_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()[0].get("relationship_notes") == "Sekret: urodziny 1 maja"
+
+    # TCM reads contacts organization-wide, but never another person's private
+    # relationship notes.
+    tcm_id, tcm_email, tcm_pass = await _seed_user(UserRole.talent_community_manager)
+    await _seed_contact(
+        client_id,
+        owner_id=tcm_id,
+        notes="TCM nie może odczytać nawet własnej notatki prywatnej",
+    )
+    tcm_headers = await _login(cam_client, tcm_email, tcm_pass)
+    resp = await cam_client.get(
+        f"/api/clients/{client_id}/contacts", headers=tcm_headers
+    )
+    assert resp.status_code == 200
+    assert all("relationship_notes" not in item for item in resp.json())
+
     # Recruiter z Jobem u klienta (odczyt operacyjny, bez prawa edycji) —
     # nie widzi także notatek NIE-zaklaimowanych
     r_id, r_email, r_pass = await _seed_user(UserRole.recruiter)
@@ -453,10 +544,10 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     for item in resp.json():
         assert "relationship_notes" not in item
 
-    # ...ale TAC (rola edytująca) widzi nie-zaklaimowane notatki — inaczej
+    # ...ale przypisany DL widzi nie-zaklaimowane notatki — inaczej
     # KeyRelationshipDialog pokazywałby pustkę i przy zapisie wymazał treść
     resp = await cam_client.get(
-        f"/api/clients/{client_id}/contacts", headers=tac_headers
+        f"/api/clients/{client_id}/contacts", headers=owner_headers
     )
     assert resp.status_code == 200
     unowned = [c for c in resp.json() if c.get("key_relationship_owner_id") is None]
@@ -469,7 +560,7 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
 
 
 @pytest.mark.asyncio
-async def test_owner_can_edit_relationship_fields_only(
+async def test_relationship_owner_without_delivery_write_cannot_mutate(
     cam_client: AsyncClient,
 ) -> None:
     client_id = await _seed_client()
@@ -477,15 +568,13 @@ async def test_owner_can_edit_relationship_fields_only(
     contact_id = await _seed_contact(client_id, owner_id=owner_id)
     headers = await _login(cam_client, owner_email, owner_pass)
 
-    # Pola relacyjne swojego kontaktu — OK
+    # Ownership does not reopen Delivery for a recruitment-only role.
     resp = await cam_client.put(
         f"/api/contacts/{contact_id}",
         headers=headers,
         json={"relationship_strength": "strong", "relationship_notes": "nowe"},
     )
-    assert resp.status_code == 200, resp.text
-    # Owner widzi własne notatki w odpowiedzi
-    assert resp.json()["relationship_notes"] == "nowe"
+    assert resp.status_code == 403
 
     # Pola tożsamościowe — 403
     resp = await cam_client.put(
@@ -562,11 +651,18 @@ async def test_contact_delete_matrix(cam_client: AsyncClient) -> None:
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=r_headers)
     assert resp.status_code == 403
 
-    # TAC — 204
+    # TAC nie ma już sekcji Delivery — 403 nawet przy przypisaniu klienta.
     tac_id, t_email, t_pass = await _seed_user(UserRole.tac)
     await _assign_client(tac_id, client_id, UserRole.tac)
     t_headers = await _login(cam_client, t_email, t_pass)
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=t_headers)
+    assert resp.status_code == 403
+
+    # Delivery Lead przypisany do klienta może usunąć kontakt.
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
+    dl_headers = await _login(cam_client, dl_email, dl_pass)
+    resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=dl_headers)
     assert resp.status_code == 204
 
 
@@ -690,9 +786,9 @@ async def test_knowledge_mutations_leave_audit_events(
     cam_client: AsyncClient,
 ) -> None:
     client_id = await _seed_client()
-    tac_id, tac_email, tac_pass = await _seed_user(UserRole.tac)
-    await _assign_client(tac_id, client_id, UserRole.tac)
-    headers = await _login(cam_client, tac_email, tac_pass)
+    dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
+    await _assign_client(dl_id, client_id, UserRole.delivery_lead)
+    headers = await _login(cam_client, dl_email, dl_pass)
 
     resp = await cam_client.post(
         f"/api/clients/{client_id}/knowledge",
@@ -768,10 +864,15 @@ async def test_client_list_projection_per_role(cam_client: AsyncClient) -> None:
     _, r_email, r_pass = await _seed_user(UserRole.recruiter)
     r_headers = await _login(cam_client, r_email, r_pass)
     resp = await cam_client.get("/api/clients?page_size=5", headers=r_headers)
+    assert resp.status_code == 403
+
+    _, tcm_email, tcm_pass = await _seed_user(UserRole.talent_community_manager)
+    tcm_headers = await _login(cam_client, tcm_email, tcm_pass)
+    resp = await cam_client.get("/api/clients?page_size=5", headers=tcm_headers)
     assert resp.status_code == 200
     for item in resp.json()["items"]:
         for field in ("nip", "regon", "legal_name", "notes"):
-            assert field not in item, f"leaked {field} in list for recruiter"
+            assert field not in item, f"leaked {field} in list for TCM"
 
     _, a_email, a_pass = await _seed_user(UserRole.admin)
     a_headers = await _login(cam_client, a_email, a_pass)

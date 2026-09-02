@@ -562,6 +562,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  "admin",
  "head_of_recruitment",
  "delivery_lead",
+ "talent_community_manager",
  "tac",
  "recruiter",
  "sourcer",
@@ -1089,7 +1090,13 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  )}
  {candidate.phone &&
  contactCaseQuery.data &&
- hasRole(currentUser, "tac", "recruiter", "sourcer") &&
+ hasRole(
+ currentUser,
+ "talent_community_manager",
+ "tac",
+ "recruiter",
+ "sourcer",
+ ) &&
  contactCaseQuery.data.owner?.id === currentUser?.id &&
  ["queued", "callback_due"].includes(contactCaseQuery.data.status) ? (
  <Button

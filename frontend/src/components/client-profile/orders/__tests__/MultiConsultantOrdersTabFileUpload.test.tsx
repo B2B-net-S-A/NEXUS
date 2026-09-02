@@ -25,6 +25,8 @@ vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
   ) => selector({ user: { role: "admin", capabilities: ["manage_finance"] } }),
+  hasRole: (user: { role?: string } | null, ...roles: string[]) =>
+    roles.includes(user?.role ?? ""),
   canManageMultiConsultantOrders: () => true,
   canManageOrderLifecycle: () => true,
   canManageCandidateFinance: () => true,

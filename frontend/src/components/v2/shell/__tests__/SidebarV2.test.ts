@@ -30,6 +30,7 @@ describe("visibleNavSections", () => {
         "/jobs",
         "/clients",
         "/my-clients",
+        "/order-mail",
         "/my-relationships",
         "/contracts",
         "/cortex",
@@ -38,7 +39,7 @@ describe("visibleNavSections", () => {
       ]),
     );
     expect(recruiter).not.toContain("/contracts");
-    expect(recruiter).not.toContain("/cortex");
+    expect(recruiter).toContain("/cortex");
   });
 
   it("moduł Finanse zostaje zamknięty przed rolami operacyjnymi", () => {
@@ -48,11 +49,67 @@ describe("visibleNavSections", () => {
     expect(hrefs("admin")).toContain("/finance");
   });
 
+  it.each([
+    "sourcer",
+    "recruiter",
+    "tac",
+    "head_of_recruitment",
+  ] as UserRole[])("%s nie widzi sekcji Delivery ani Finansów", (role) => {
+    const visible = hrefs(role);
+    expect(visible).toEqual(
+      expect.arrayContaining(["/candidates", "/jobs", "/insights", "/cortex"]),
+    );
+    for (const route of [
+      "/clients",
+      "/my-clients",
+      "/order-mail",
+      "/my-relationships",
+      "/contracts",
+      "/finance",
+    ]) {
+      expect(visible).not.toContain(route);
+    }
+  });
+
+  it("TCM widzi biznes bez Finansów, a Delivery bez akcji zapisu", () => {
+    const tcm = hrefs("talent_community_manager");
+    expect(tcm).toEqual(
+      expect.arrayContaining([
+        "/candidates",
+        "/jobs",
+        "/clients",
+        "/my-clients",
+        "/order-mail",
+        "/my-relationships",
+        "/contracts",
+        "/insights",
+        "/cortex",
+      ]),
+    );
+    expect(tcm).not.toContain("/finance");
+  });
+
+  it("Delivery Lead widzi Delivery, ale nie globalny moduł Finansów", () => {
+    const dl = hrefs("delivery_lead");
+    expect(dl).toEqual(
+      expect.arrayContaining([
+        "/clients",
+        "/my-clients",
+        "/order-mail",
+        "/contracts",
+      ]),
+    );
+    expect(dl).not.toContain("/finance");
+  });
+
   it("viewer `user` nie dostaje powierzchni kandydackich", () => {
     const viewer = hrefs("user");
 
     expect(viewer).not.toContain("/candidates");
     expect(viewer).not.toContain("/clients");
+    expect(viewer).toContain("/jobs");
+    expect(viewer).toContain("/insights");
+    expect(viewer).not.toContain("/cortex");
     expect(viewer).not.toContain("/finance");
   });
 
@@ -74,6 +131,14 @@ describe("visibleNavSections", () => {
     ).flatMap((s) => s.items.map((i) => i.href));
 
     expect(withQueue).toContain("/candidates/contact-queue");
+    const tcmWithQueue = visibleNavSections(
+      {
+        role: "talent_community_manager",
+        roles: ["talent_community_manager"],
+      },
+      { contactQueueEnabled: true },
+    ).flatMap((s) => s.items.map((i) => i.href));
+    expect(tcmWithQueue).toContain("/candidates/contact-queue");
     expect(hrefs("recruiter")).not.toContain("/candidates/contact-queue");
   });
 });

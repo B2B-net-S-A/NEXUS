@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_roles
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.dl_alert import (
     DL_ALERT_STATUS_HANDLED,
@@ -49,7 +50,7 @@ from app.services.client_identity import client_display_name
 from app.schemas.dl_alert import DlAlertListResponse, DlAlertRead
 from app.services.dl_alerts import format_reaction, reaction_seconds
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 #: Bramka ZALEŻNOŚCIOWA, nie tylko filtr w ciele handlera.
 #:

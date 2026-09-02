@@ -126,28 +126,49 @@ from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus, require_roles
 from app.api.financial_access import (
     FinanceReadUser,
+    can_read_client_finance,
     redact_feed_activity,
     redact_financial_fields,
 )
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
-# Existing contract readers (Admin/DL/TAC) plus the organization-wide Finance
-# business reader.  This alias is used only by GET handlers; contract commands
-# keep their existing ``TacPlus``/``AdminUser`` dependencies.
+# Structured contract readers admitted by the Delivery section. TCM receives a
+# finance-redacted projection; the organization-wide Finance business reader
+# keeps its existing access. This alias is used only by GET handlers; contract
+# commands keep their existing ``TacPlus``/``AdminUser`` dependencies and the
+# section-level write gate narrows their effective audience to Admin/DL.
 ContractReadUser = Annotated[
     User,
     Depends(
         require_roles(
             UserRole.admin,
             UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.tac,
+            UserRole.finance,
+        )
+    ),
+]
+
+# Contract drafts and uploaded files are opaque legal artefacts: their HTML or
+# binary content can contain rates even when the structured API response is
+# redacted. TCM may read the operational Delivery register, but cannot cross
+# the Finance boundary through an unstructured document. Delivery Lead keeps
+# document access and is scoped to assigned clients by the existing resolver.
+ContractDocumentReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
             UserRole.finance,
         )
     ),
@@ -975,10 +996,28 @@ async def _ensure_delivery_lead_contract_visible(
     contract: Contract,
     current_user: User,
     db: AsyncSession,
-) -> None:
+) -> frozenset[int] | None:
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     assert_delivery_lead_client_visible(
         contract.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        delivery_lead_client_ids,
+    )
+    return delivery_lead_client_ids
+
+
+async def _can_read_contract_finance(
+    contract: Contract,
+    current_user: User,
+    db: AsyncSession,
+) -> bool:
+    """Apply the narrow Delivery Lead finance exception to one contract."""
+
+    return can_read_client_finance(
+        current_user,
+        client_id=contract.client_id,
+        delivery_lead_client_ids=await resolve_delivery_lead_client_ids(
+            current_user, db
+        ),
     )
 
 
@@ -1051,9 +1090,15 @@ async def list_contracts(
     ),
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    # Every DL row below is already constrained to ``allowed_client_ids``. The
+    # role may therefore use financial filters and see rates on that bounded
+    # result set without receiving the global VIEW_FINANCE capability.
+    finance_ok = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    ) or (
+        allowed_client_ids is not None and current_user.has_role(UserRole.delivery_lead)
+    )
     if not finance_ok:
         # F-13: the amount fields are redacted from the response below. The
         # rate/margin FILTERS must be ignored too — otherwise a non-finance
@@ -1061,7 +1106,6 @@ async def list_contracts(
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
 
-    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     filter_kwargs = dict(
         q=q,
         status=status,
@@ -1458,8 +1502,8 @@ async def export_contracts(
 # Odr\u0119bny od finansowego /export: kolumny widocznej tabeli rejestru klienta
 # (ClientContractRegister) + \u201ePodkategoria" (Job.subcategory powi\u0105zanej oferty)
 # na ko\u0144cu jako jedyna kolumna wykraczaj\u0105ca poza ekran \u2014 na \u017cyczenie do analizy.
-# BEZ stawek/mar\u017cy, wi\u0119c dost\u0119pny dla ca\u0142ego audytorium rejestru (TacPlus +
-# Delivery Lead), nie tylko Admina. Zawsze zaw\u0119\u017cony do jednego klienta ("brak
+# BEZ stawek/mar\u017cy, wi\u0119c dost\u0119pny dla ca\u0142ego audytorium bezpiecznego
+# rejestru, nie tylko Admina. Zawsze zaw\u0119\u017cony do jednego klienta ("brak
 # klienta = brak sensu eksportu"). \u201ePodkategoria" dopisana po \u201eStatus" (koniec
 # wiersza), \u017ceby zachowa\u0107 kolejno\u015b\u0107 7 kolumn widocznej tabeli.
 _REGISTER_EXPORT_COLUMNS = [
@@ -1561,8 +1605,8 @@ async def export_client_register(
     Honoruje te same filtry co lista rejestru (``q``, ``status``, \u201eOkres" overlap,
     podkategoria oferty), wi\u0119c \u201eeksportuj to, co widz\u0119" jest zawsze prawdziwe;
     pomija paginacj\u0119 (wszystkie pasuj\u0105ce wiersze do ``limit``). Bez stawek/mar\u017cy \u2192
-    dost\u0119pny dla TacPlus, nie tylko Admina. Delivery Lead widzi wy\u0142\u0105cznie swoich
-    klient\u00f3w (scope jak na li\u015bcie).
+    dost\u0119pny dla bezpiecznych czytelnik\u00f3w Delivery, nie tylko Admina. Delivery
+    Lead widzi wy\u0142\u0105cznie swoich klient\u00f3w (scope jak na li\u015bcie).
     """
     query = select(Contract).options(
         selectinload(Contract.candidate),
@@ -1997,11 +2041,9 @@ async def create_contract(
     )
     detail = _to_detail(result.scalar_one())
     detail.draft_order_id = draft_order.id if draft_order is not None else None
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    # Operacyjny create bez pól finansowych nie grantuje ich odczytu; odpowiedź
-    # pozostaje redagowana dla ról bez VIEW_FINANCE.
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    # Operacyjny create bez pól finansowych nie grantuje ich odczytu. Wyjątkiem
+    # pozostaje DL u przypisanego klienta; globalnej capability nadal nie ma.
+    if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail
 
@@ -2153,10 +2195,11 @@ async def expiring_contracts(
             selectinload(Contract.framework_rate_schedule),
         )
     )
+    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     expiring_query = apply_delivery_lead_client_scope(
         expiring_query,
         Contract.client_id,
-        await resolve_delivery_lead_client_ids(current_user, db),
+        allowed_client_ids,
     )
     result = await db.execute(expiring_query)
     today = date.today()
@@ -2178,11 +2221,14 @@ async def expiring_contracts(
         )
         for c in result.scalars().all()
     ]
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    # P0.12: the expiry banner is operational — TAC sees which contracts end, but
-    # not the rates/margin (mirrors list_contracts + get_contract redaction).
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    # Banner is operational. TCM sees dates without rates; DL sees finance only
+    # because all rows above are constrained to the assigned-client boundary.
+    finance_ok = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    ) or (
+        allowed_client_ids is not None and current_user.has_role(UserRole.delivery_lead)
+    )
+    if not finance_ok:
         for item in items:
             _redact_contract_finance(item)
     return items
@@ -2208,13 +2254,15 @@ async def get_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    delivery_lead_client_ids = await _ensure_delivery_lead_contract_visible(
+        contract, current_user, db
+    )
     detail = _to_detail(contract)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    can_view_finance = user_has_capability(
-        current_user, AnalyticsCapability.VIEW_FINANCE
+    can_view_finance = can_read_client_finance(
+        current_user,
+        client_id=contract.client_id,
+        delivery_lead_client_ids=delivery_lead_client_ids,
     )
     contract_currencies = {
         contract.resolved_rate_client_currency,
@@ -2290,14 +2338,17 @@ async def contract_activities(
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    delivery_lead_client_ids = await _ensure_delivery_lead_contract_visible(
+        contract, current_user, db
+    )
 
-    # P0.12: a contract ``updated`` audit row carries the changed rate fields
-    # (rate_candidate/rate_client/margin) in ``details`` — strip them for
-    # non-VIEW_FINANCE readers (TAC), mirroring `_redact_contract_finance`.
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    # An ``updated`` row can carry rates. DL sees them only for an assigned
+    # client; TCM and other non-finance readers receive the redacted feed.
+    finance_ok = can_read_client_finance(
+        current_user,
+        client_id=contract.client_id,
+        delivery_lead_client_ids=delivery_lead_client_ids,
+    )
 
     result = await db.execute(
         select(Activity, User.email)
@@ -2341,7 +2392,9 @@ async def contract_rate_history(
     contract = contract_result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    delivery_lead_client_ids = await _ensure_delivery_lead_contract_visible(
+        contract, current_user, db
+    )
 
     history_query = select(RateHistory).where(
         RateHistory.candidate_id == contract.candidate_id
@@ -2352,11 +2405,11 @@ async def contract_rate_history(
     )
     history_query = history_query.order_by(RateHistory.start_date.desc())
 
-    # P0.12: rate amounts are finance data — redacted (None) for non-VIEW_FINANCE
-    # readers (TAC), the same gate the contract list/detail rate reads use.
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    finance_ok = can_read_client_finance(
+        current_user,
+        client_id=contract.client_id,
+        delivery_lead_client_ids=delivery_lead_client_ids,
+    )
 
     result = await db.execute(history_query)
     return [
@@ -2573,11 +2626,9 @@ async def update_contract(
     else:
         await db.refresh(contract)
         detail = _to_detail(contract)
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    # Operacyjny PATCH bez pól finansowych pozostaje dostępny, a odpowiedź jest
-    # redagowana dla ról bez VIEW_FINANCE.
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    # Operacyjny PATCH bez pól finansowych pozostaje dostępny. Kwoty z
+    # odpowiedzi widzi tylko globalna rola finansowa albo DL tego klienta.
+    if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail
 
@@ -2637,9 +2688,7 @@ async def activate_contract(
     await db.flush()
     await db.refresh(contract)
     detail = _to_detail(contract)
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
 
     # Outbox/side-effects AFTER the activation commit — the `contract_signed`
@@ -2784,7 +2833,7 @@ def _draft_response(
 @router.get("/{contract_id}/draft", response_model=ContractDraftResponse)
 async def get_contract_draft(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return draft state for a contract.
@@ -2921,7 +2970,7 @@ async def update_contract_draft(
 @router.get("/{contract_id}/draft/render-pdf", response_class=HTMLResponse)
 async def render_draft_for_print(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Return the draft body wrapped in a printable HTML page.
@@ -3090,9 +3139,7 @@ async def reopen_contract_endpoint(
     await db.flush()
     await db.refresh(contract)
     detail = _to_detail(contract)
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail
 
@@ -3129,9 +3176,7 @@ async def void_contract_endpoint(
     await db.flush()
     await db.refresh(contract)
     detail = _to_detail(contract)
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail
 
@@ -3206,11 +3251,12 @@ async def _assert_contract(
     db: AsyncSession,
     contract_id: int,
     current_user: User,
-) -> None:
+) -> Contract:
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    return contract
 
 
 async def _document_to_response(
@@ -3241,7 +3287,7 @@ async def _document_to_response(
 )
 async def list_contract_documents(
     contract_id: int,
-    current_user: ContractReadUser,
+    current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -3348,7 +3394,7 @@ async def update_contract_document(
 async def download_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: ContractReadUser,
+    current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -3451,14 +3497,14 @@ async def list_contract_amendments(
     current_user: ContractReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
     result = await db.execute(
         select(ContractAmendment)
         .where(ContractAmendment.contract_id == contract_id)
         .order_by(ContractAmendment.created_at.desc())
     )
     amendments = list(result.scalars().all())
-    finance_ok = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    finance_ok = await _can_read_contract_finance(contract, current_user, db)
     return [
         await _amendment_to_response(db, a, finance_ok=finance_ok) for a in amendments
     ]
@@ -3673,7 +3719,7 @@ async def create_contract_amendment(
     return await _amendment_to_response(
         db,
         amendment,
-        finance_ok=user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE),
+        finance_ok=await _can_read_contract_finance(contract, current_user, db),
     )
 
 
@@ -3968,12 +4014,7 @@ async def terminate_contract(
             actor_id=current_user.id,
         )
         detail = _to_detail(contract)
-        from app.analytics.capabilities import (
-            AnalyticsCapability,
-            user_has_capability,
-        )
-
-        if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+        if not await _can_read_contract_finance(contract, current_user, db):
             _redact_contract_finance(detail)
         return detail
 
@@ -4039,9 +4080,7 @@ async def terminate_contract(
     await db.flush()
     await db.refresh(contract)
     detail = _to_detail(contract)
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
+    if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail
 

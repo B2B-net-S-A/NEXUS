@@ -73,7 +73,13 @@ const EMPTY: FormState = {
   new_team_name: "",
 };
 
-export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
+export function ContractAmendmentsTab({
+  contractId,
+  readOnly = false,
+}: {
+  contractId: number;
+  readOnly?: boolean;
+}) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const canManageFinance = canManageCandidateFinance(user);
@@ -144,9 +150,10 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
 
   return (
     <div className="space-y-4">
-      <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-        {!showForm && (
-          <div className="flex flex-wrap gap-2">
+      {!readOnly && (
+        <RequireRole roles={["admin", "delivery_lead"]}>
+          {!showForm && (
+            <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
                 setForm({ ...EMPTY, amendment_type: "extension" });
@@ -185,11 +192,12 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
             >
               <StopIcon className="w-4 h-4" /> Zakończ wcześniej
             </button>
-          </div>
-        )}
-      </RequireRole>
+            </div>
+          )}
+        </RequireRole>
+      )}
 
-      {showForm && (
+      {!readOnly && showForm && (
         <form
           onSubmit={handleSubmit}
           className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3 border border-primary/20 dark:border-primary/10"
@@ -341,9 +349,15 @@ export function ContractAmendmentsTab({ contractId }: { contractId: number }) {
         </div>
       ) : amendments.length === 0 ? (
         <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-xs">
-          Brak aneksów — użyj przycisków powyżej, żeby przedłużyć,
-          {canManageFinance ? " zmienić stawkę," : ""} zmienić zakres lub
-          zakończyć kontrakt wcześniej.
+          {readOnly ? (
+            "Brak aneksów."
+          ) : (
+            <>
+              Brak aneksów — użyj przycisków powyżej, żeby przedłużyć,
+              {canManageFinance ? " zmienić stawkę," : ""} zmienić zakres lub
+              zakończyć kontrakt wcześniej.
+            </>
+          )}
         </div>
       ) : (
         <ol className="space-y-3">

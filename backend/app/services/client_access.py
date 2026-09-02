@@ -8,10 +8,13 @@ zamiast utrzymywać lokalne warunki.
 
 Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
 
-- ``admin`` / ``head_of_recruitment`` — pełny dostęp.
+- ``admin`` — pełna powierzchnia Delivery.
+- ``head_of_recruitment`` / ``tac`` — zachowują historyczny graf potrzebny
+  współdzielonym narzędziom Sourcing/Pipeline, ale bramka sekcji odcina ich od
+  endpointów Delivery.
 - ``delivery_lead`` — zarządzanie kontaktami/wiedzą i wgląd w dokumenty
   prawne wyłącznie klienta z jawnym ``DeliveryLeadClientAssignment``.
-- ``tac`` — ten sam zakres wyłącznie klienta z jawnym
+- ``tac`` — ten sam resolver wyłącznie klienta z jawnym
   ``ClientTacAssignment``. Brak przypisań jest prawdziwym deny-all, nigdy
   fallbackiem do całej organizacji.
 - ``recruiter`` / ``sourcer`` — tylko odczyt bezpiecznej projekcji i tylko
@@ -19,10 +22,13 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
   delivery_lead_id / tac_id / created_by / JobCollaborator).
 - ``user`` (viewer, np. QC/klient) — brak dostępu do kontaktów, wiedzy,
   materiałów, dokumentów i finansów.
+- ``talent_community_manager`` — organizacyjny odczyt bez dokumentów
+  prawnych, prywatnych notatek relacyjnych i finansów; zapis blokuje granica
+  sekcji Delivery.
 - Właściciel relacji (``Contact.key_relationship_owner_id``) — może czytać
   prywatne notatki i edytować pola relacyjne SWOJEGO kontaktu, ale nie może
   sam przepisać ownera.
-- Zmiana ownera relacji — wyłącznie admin/HoR; wyjątek: użytkownik z prawem
+- Zmiana ownera relacji — wyłącznie admin; wyjątek: użytkownik z prawem
   edycji może "zaklaimować" pustego ownera na siebie (None → self).
 - Finanse — istniejący helper capability z ``app.api.financial_access``;
   wydzielona persona Finance korzysta z person-free API i nie otwiera przez
@@ -39,6 +45,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.api.financial_access import has_financial_access
+from app.api.section_access import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -51,12 +62,17 @@ from app.models.team_structure import (
 )
 from app.models.user import User, UserRole
 
-# Role "administracyjne" — pełny dostęp do modułu klienta.
+# Historyczny graf organizacyjny używany również przez współdzielone narzędzia
+# Pipeline. Prawa Delivery wynikają dodatkowo z centralnej bramki sekcji.
 ADMIN_LIKE_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
-# Role zaufane klientowo — zarządzają kontaktami/wiedzą/dokumentami.
+# Historyczny graf zespołu klienta; zapis Delivery ma osobny section ceiling.
 CLIENT_TEAM_ROLES = (UserRole.delivery_lead, UserRole.tac)
 # Role operacyjne delivery — odczyt w kontekście przypisanego stanowiska.
 DELIVERY_ROLES = (UserRole.recruiter, UserRole.sourcer)
+ORGANIZATION_READ_ROLES = (
+    UserRole.finance,
+    UserRole.talent_community_manager,
+)
 
 # Stabilny kod błędu w response 403 (kryterium akceptacji PR1) — frontend
 # i monitoring mogą filtrować po prefiksie zamiast po polskim tekście.
@@ -85,9 +101,10 @@ class ClientAccess:
     can_edit_legal_documents: bool
     can_view_financials: bool
     can_manage_client: bool
+    private_contact_notes_allowed: bool
 
     def can_view_contact_private_notes(self, contact: Contact) -> bool:
-        """Prywatne notatki relacyjne: admin/HoR + właściciel danej relacji.
+        """Prywatne notatki relacyjne: admin/owner z właściwym ceilingiem.
 
         Zawierają dane osobiste (urodziny, rodzina, hobby) — domyślnie
         widzi je tylko owner i administracja (rekomendacja audytu, pkt 19.4).
@@ -97,7 +114,14 @@ class ClientAccess:
         DL/TAC, który sam je zapisał, dostawałby pusty formularz i przy
         zapisie po cichu WYMAZAŁ istniejącą treść (dialog odsyła całość).
         """
-        if self.is_admin_like or self.is_organization_reader:
+        if not self.private_contact_notes_allowed:
+            return False
+        # Finance keeps its established organization-wide read of client
+        # contacts, including private relationship notes, without gaining any
+        # contact write capability. TCM is stopped by the guard above.
+        if self.is_organization_reader or (
+            self.is_admin_like and self.can_edit_contacts
+        ):
             return True
         if contact.key_relationship_owner_id is None:
             return self.can_edit_contacts
@@ -182,14 +206,18 @@ async def resolve_client_team_client_ids(
 ) -> frozenset[int] | None:
     """Resolve the explicit client graph for DL/TAC client-team capabilities.
 
-    ``None`` means unrestricted Admin/Head of Recruitment oversight. Every
-    other caller receives a concrete set: a Delivery Lead contributes only
-    ``DeliveryLeadClientAssignment`` rows, a TAC only ``ClientTacAssignment``
-    rows, and a valid hybrid receives the union of its two explicit graphs.
-    An empty set is authoritative deny-all.
+    ``None`` means unrestricted Admin or plain Head of Recruitment oversight.
+    Every account holding Delivery Lead receives only its
+    ``DeliveryLeadClientAssignment`` rows, even when it also has TAC/HoR/TCM.
+    That keeps the Delivery persona inside its own client portfolio. A plain
+    TAC receives its ``ClientTacAssignment`` rows. An empty set is
+    authoritative deny-all.
     """
 
-    if user.has_any_role(*ADMIN_LIKE_ROLES):
+    if user.has_role(UserRole.admin) or (
+        user.has_role(UserRole.head_of_recruitment)
+        and not user.has_role(UserRole.delivery_lead)
+    ):
         return None
 
     client_ids: set[int] = set()
@@ -203,6 +231,7 @@ async def resolve_client_team_client_ids(
                 )
             ).all()
         )
+        return frozenset(int(client_id) for client_id in client_ids)
     if user.has_role(UserRole.tac):
         client_ids.update(
             (
@@ -222,13 +251,19 @@ async def resolve_client_visible_client_ids(
 ) -> frozenset[int] | None:
     """Resolve all clients whose operational surface the user may read.
 
-    Admin/HoR and Finance business read remain unrestricted. DL/TAC contribute
+    Admin/HoR and organization readers remain unrestricted. DL/TAC contribute
     only explicit relationship assignments. Recruiter/Sourcer contribute only
-    clients reached through their exact Job or JobCollaborator membership.
+    clients reached through their exact Job or JobCollaborator membership,
+    unless the account also holds Delivery Lead — then the DL portfolio is the
+    authoritative ceiling.
     Empty is authoritative deny-all and never means organization-wide fallback.
     """
 
-    if user.has_role(UserRole.finance):
+    delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    )
+    if user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped:
         return None
 
     client_ids = await resolve_client_team_client_ids(db, user)
@@ -236,7 +271,7 @@ async def resolve_client_visible_client_ids(
         return None
 
     visible = set(client_ids)
-    if user.has_any_role(*DELIVERY_ROLES):
+    if not delivery_scoped and user.has_any_role(*DELIVERY_ROLES):
         visible.update(await _job_assigned_client_ids(db, user.id))
     return frozenset(visible)
 
@@ -245,13 +280,26 @@ async def resolve_client_access(
     db: AsyncSession, user: User, client_id: int
 ) -> ClientAccess:
     """Zbuduj decyzję dostępu. Zakłada, że klient istnieje (404 wcześniej)."""
-    is_admin_like = user.has_any_role(*ADMIN_LIKE_ROLES)
-    is_organization_reader = user.has_role(UserRole.finance)
+    delivery_scoped = user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    )
+    is_admin_like = user.has_any_role(*ADMIN_LIKE_ROLES) and not delivery_scoped
+    is_organization_reader = (
+        user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped
+    )
+    is_finance_reader = user.has_role(UserRole.finance)
+    is_read_only_tcm = user.has_role(
+        UserRole.talent_community_manager
+    ) and not user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+    has_delivery_write = (
+        section_access_for_user(user, ProductSection.delivery) >= SectionAccess.write
+    )
     client_team_client_ids = await resolve_client_team_client_ids(db, user)
     is_client_team = (
         client_team_client_ids is None or client_id in client_team_client_ids
     )
-    is_delivery = user.has_any_role(*DELIVERY_ROLES)
+    is_delivery = user.has_any_role(*DELIVERY_ROLES) and not delivery_scoped
 
     # Query o przypisanie do Joba tylko gdy może zmienić decyzję.
     is_job_assigned = False
@@ -261,7 +309,7 @@ async def resolve_client_access(
     can_view_team_surfaces = (
         is_admin_like or is_organization_reader or is_client_team or is_job_assigned
     )
-    can_edit = is_admin_like or is_client_team
+    can_edit = has_delivery_write and (is_admin_like or is_client_team)
 
     return ClientAccess(
         user_id=user.id,
@@ -272,7 +320,7 @@ async def resolve_client_access(
         is_job_assigned=is_job_assigned,
         can_view_contacts=can_view_team_surfaces,
         can_edit_contacts=can_edit,
-        can_reassign_relationship_owner=is_admin_like,
+        can_reassign_relationship_owner=is_admin_like and has_delivery_write,
         can_view_knowledge=can_view_team_surfaces,
         can_edit_knowledge=can_edit,
         # Materiały klienta są częścią jego powierzchni operacyjnej. Recruiter
@@ -280,11 +328,13 @@ async def resolve_client_access(
         can_view_materials=can_view_team_surfaces,
         can_edit_materials=can_edit,
         can_view_legal_documents=(
-            is_admin_like or is_organization_reader or is_client_team
+            not is_read_only_tcm
+            and (is_admin_like or is_finance_reader or is_client_team)
         ),
         can_edit_legal_documents=can_edit,
         can_view_financials=can_view_team_surfaces and has_financial_access(user),
-        can_manage_client=is_admin_like,
+        can_manage_client=is_admin_like and has_delivery_write,
+        private_contact_notes_allowed=not is_read_only_tcm,
     )
 
 

@@ -39,11 +39,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
+from app.models.contract import Contract
 from app.models.user import User, UserRole
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
@@ -118,6 +120,28 @@ async def assert_contract_legal_client_access(
         raise deny(f"{operation} dokumentu wymaga jawnego przypisania klienta")
 
 
+async def assert_contract_legal_contract_access(
+    db: AsyncSession,
+    user: User,
+    contract_id: int,
+    *,
+    write: bool = False,
+) -> None:
+    """Resolve a contract id to its client before authorizing legal content."""
+
+    client_id = await db.scalar(
+        select(Contract.client_id).where(Contract.id == contract_id)
+    )
+    if client_id is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    await assert_contract_legal_client_access(
+        db,
+        user,
+        client_id,
+        write=write,
+    )
+
+
 async def apply_contract_legal_client_scope(
     statement,
     client_column,
@@ -145,8 +169,8 @@ ContractLegalReadAccess = Annotated[
 ]
 
 
-# Every role except Delivery Lead, admitted unconditionally by
-# ``require_b2b_generator_access`` (20.08 product decision). Explicit tuple
+# Every current role except Delivery Lead admitted unconditionally to the
+# sourcing-side generator. Explicit tuple
 # rather than an implicit "everyone else" fallthrough — a bare `return
 # current_user` default would silently hand full generator access to any
 # *future* UserRole the moment it's added to the enum, with no callsite
@@ -164,6 +188,7 @@ ContractLegalReadAccess = Annotated[
 B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.finance,
     UserRole.recruiter,
@@ -187,26 +212,17 @@ async def require_b2b_generator_access(
     visible-link-but-403 gap already fixed once for Talent Radar: recruiter,
     sourcer, finance and the legacy `user` role saw the link and got 403.
 
-    Delivery Lead keeps its original fail-closed contract: an empty DL client
-    graph is still denied, so this change does not widen the Delivery Lead
-    persona — it operates its own client portfolio, not the whole base. Every
-    other *current* role passes unconditionally via
-    ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` (see ``_generator_unscoped`` in
-    ``b2b_contract_generator`` for the matching full-access — not merely
-    auth-passing — behaviour those roles need, since they have no
-    ``ClientTacAssignment``/``DeliveryLeadClientAssignment`` row to be scoped
-    by). A role that isn't Delivery Lead and isn't in that tuple is denied —
-    today that only means a role added to the system after this function was
-    last touched.
+    Delivery Lead keeps its established fail-closed contract: an empty DL
+    client graph is denied, and concrete entities stay inside its portfolio.
+    Talent Community Manager enters the global catalog, but rate-bearing
+    generation/render/download commands have an additional explicit denial in
+    ``b2b_contract_generator``. Its generated contract register remains
+    non-financial and read-only for plain TCM.
     """
 
     if current_user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES):
         return current_user
     if current_user.has_role(UserRole.delivery_lead):
-        # Delivery Lead stays fail-closed: it needs a non-empty explicit client
-        # graph. ``resolve_client_team_client_ids`` only returns ``None`` for
-        # admin-like roles, so for a DL it is always a concrete set here — an
-        # empty one is an authoritative deny.
         client_ids = await resolve_client_team_client_ids(db, current_user)
         if client_ids:
             return current_user
@@ -220,8 +236,8 @@ async def require_b2b_generator_access(
 # Entry gate for the B2B generator surfaces. Every role in
 # ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` passes unconditionally; Delivery Lead
 # still needs a non-empty client graph; anything else (a future role not yet
-# triaged here) fails closed. Client-level scoping of individual entities/
-# lists is intentionally disabled for every non-DL role inside
+# triaged here) fails closed. Client-level scoping of individual entities/lists
+# is intentionally disabled for the unconditional roles inside
 # ``b2b_contract_generator`` (full-access tool, see ``_generator_unscoped``)
 # — otherwise roles with no client-assignment graph at all
 # (recruiter/sourcer/finance/user) would pass this gate and then hit a

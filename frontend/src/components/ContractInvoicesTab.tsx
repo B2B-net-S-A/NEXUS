@@ -108,7 +108,7 @@ export function ContractInvoicesTab({
   return (
     <div className="space-y-4">
       {!readOnly && (
-        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+        <RequireRole roles={["admin", "delivery_lead"]}>
           {!showForm ? (
             <button
               onClick={() => {
@@ -272,7 +272,7 @@ export function ContractInvoicesTab({
                     </td>
                     {!readOnly && (
                       <td className="px-3 py-2 text-right">
-                        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+                        <RequireRole roles={["admin", "delivery_lead"]}>
                           <div className="inline-flex gap-1">
                             {inv.status !== "paid" && (
                               <button

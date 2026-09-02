@@ -115,7 +115,15 @@ function fileIcon(filename: string) {
 
 type SubTab = "one_pagers" | "required_docs" | "contract_terms";
 
-export function MaterialsTab({ clientId }: { clientId: number }) {
+export function MaterialsTab({
+  clientId,
+  readOnly = false,
+  showContractTerms = true,
+}: {
+  clientId: number;
+  readOnly?: boolean;
+  showContractTerms?: boolean;
+}) {
   const [active, setActive] = useState<SubTab>("one_pagers");
 
   return (
@@ -131,18 +139,24 @@ export function MaterialsTab({ clientId }: { clientId: number }) {
           onClick={() => setActive("required_docs")}
           label="Wymagane dokumenty"
         />
-        <SubTabButton
-          active={active === "contract_terms"}
-          onClick={() => setActive("contract_terms")}
-          label="Warunki kontraktowe"
-        />
+        {showContractTerms && (
+          <SubTabButton
+            active={active === "contract_terms"}
+            onClick={() => setActive("contract_terms")}
+            label="Warunki kontraktowe"
+          />
+        )}
       </div>
 
-      {active === "one_pagers" && <OnePagersSection clientId={clientId} />}
-      {active === "required_docs" && (
-        <RequiredDocumentsSection clientId={clientId} />
+      {active === "one_pagers" && (
+        <OnePagersSection clientId={clientId} readOnly={readOnly} />
       )}
-      {active === "contract_terms" && <ContractTermsSection clientId={clientId} />}
+      {active === "required_docs" && (
+        <RequiredDocumentsSection clientId={clientId} readOnly={readOnly} />
+      )}
+      {showContractTerms && active === "contract_terms" && (
+        <ContractTermsSection clientId={clientId} readOnly={readOnly} />
+      )}
     </div>
   );
 }
@@ -172,7 +186,13 @@ function SubTabButton({
 
 // ── Section A: One-pagers ────────────────────────────────────────────────────
 
-function OnePagersSection({ clientId }: { clientId: number }) {
+function OnePagersSection({
+  clientId,
+  readOnly,
+}: {
+  clientId: number;
+  readOnly: boolean;
+}) {
   const qc = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [showUpload, setShowUpload] = useState(false);
@@ -224,19 +244,23 @@ function OnePagersSection({ clientId }: { clientId: number }) {
             Materiały sprzedażowe (PDF/DOCX) przypięte do tego klienta
           </p>
         </div>
-        <button
-          onClick={() => setShowUpload(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Dodaj
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setShowUpload(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Dodaj
+          </button>
+        )}
       </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Ładowanie…</p>
       ) : pagers.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-sm">
-          Brak one-pagerów. Dodaj pierwszy, aby zacząć.
+          {readOnly
+            ? "Brak one-pagerów."
+            : "Brak one-pagerów. Dodaj pierwszy, aby zacząć."}
         </div>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -284,14 +308,16 @@ function OnePagersSection({ clientId }: { clientId: number }) {
                 >
                   <Download className="w-4 h-4" />
                 </button>
-                <DeleteButton onConfirm={() => deleteMutation.mutate(p.id)} />
+                {!readOnly && (
+                  <DeleteButton onConfirm={() => deleteMutation.mutate(p.id)} />
+                )}
               </div>
             </li>
           ))}
         </ul>
       )}
 
-      {showUpload && (
+      {!readOnly && showUpload && (
         <UploadSheet
           clientId={clientId}
           onClose={() => setShowUpload(false)}
@@ -534,7 +560,13 @@ const STATUS_META: Record<
   },
 };
 
-function RequiredDocumentsSection({ clientId }: { clientId: number }) {
+function RequiredDocumentsSection({
+  clientId,
+  readOnly,
+}: {
+  clientId: number;
+  readOnly: boolean;
+}) {
   const qc = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [showApply, setShowApply] = useState(false);
@@ -570,19 +602,23 @@ function RequiredDocumentsSection({ clientId }: { clientId: number }) {
             NDA, RODO, klauzule off-limits — wymogi przed startem współpracy
           </p>
         </div>
-        <button
-          onClick={() => setShowApply(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Z szablonu
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => setShowApply(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Z szablonu
+          </button>
+        )}
       </div>
 
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Ładowanie…</p>
       ) : docs.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground text-sm">
-          Brak wymogów. Kliknij &bdquo;Z szablonu&rdquo;, aby zaaplikować NDA / RODO / off-limits / warunki płatności.
+          {readOnly
+            ? "Brak wymaganych dokumentów."
+            : "Brak wymogów. Kliknij „Z szablonu”, aby zaaplikować NDA / RODO / off-limits / warunki płatności."}
         </div>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -591,6 +627,7 @@ function RequiredDocumentsSection({ clientId }: { clientId: number }) {
               key={d.id}
               clientId={clientId}
               doc={d}
+              readOnly={readOnly}
               onEdit={() => setEditing(d)}
               onDelete={() => deleteMutation.mutate(d.id)}
             />
@@ -598,7 +635,7 @@ function RequiredDocumentsSection({ clientId }: { clientId: number }) {
         </ul>
       )}
 
-      {showApply && (
+      {!readOnly && showApply && (
         <ApplyTemplatesDialog
           clientId={clientId}
           existingTemplateIds={new Set(
@@ -619,7 +656,7 @@ function RequiredDocumentsSection({ clientId }: { clientId: number }) {
         />
       )}
 
-      {editing && (
+      {!readOnly && editing && (
         <EditDocDialog
           clientId={clientId}
           doc={editing}
@@ -640,11 +677,13 @@ function RequiredDocumentsSection({ clientId }: { clientId: number }) {
 function RequiredDocRow({
   clientId,
   doc,
+  readOnly,
   onEdit,
   onDelete,
 }: {
   clientId: number;
   doc: RequiredDoc;
+  readOnly: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -727,49 +766,58 @@ function RequiredDocRow({
               wymagany
             </span>
           )}
-          <Popover open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                disabled={statusMutation.isPending}
-                title="Zmień status"
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text} hover:ring-1 hover:ring-purple-400/40 transition disabled:opacity-50`}
-              >
-                {meta.icon}
-                {meta.label}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="p-1 min-w-40">
-              {(["pending", "uploaded", "signed", "n_a"] as DocStatus[]).map(
-                (s) => {
-                  const m = STATUS_META[s];
-                  const isCurrent = doc.status === s;
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => {
-                        if (!isCurrent) statusMutation.mutate(s);
-                        else setStatusMenuOpen(false);
-                      }}
-                      disabled={statusMutation.isPending}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-left transition-colors ${
-                        isCurrent
-                          ? "bg-muted text-foreground font-medium"
-                          : "hover:bg-muted text-foreground"
-                      }`}
-                    >
-                      <span className={`inline-flex ${m.text}`}>{m.icon}</span>
-                      <span className="flex-1">{m.label}</span>
-                      {isCurrent && (
-                        <CheckCircle2 className="w-3.5 h-3.5 text-purple-600" />
-                      )}
-                    </button>
-                  );
-                }
-              )}
-            </PopoverContent>
-          </Popover>
+          {readOnly ? (
+            <span
+              className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text}`}
+            >
+              {meta.icon}
+              {meta.label}
+            </span>
+          ) : (
+            <Popover open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  disabled={statusMutation.isPending}
+                  title="Zmień status"
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${meta.bg} ${meta.text} hover:ring-1 hover:ring-purple-400/40 transition disabled:opacity-50`}
+                >
+                  {meta.icon}
+                  {meta.label}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="p-1 min-w-40">
+                {(["pending", "uploaded", "signed", "n_a"] as DocStatus[]).map(
+                  (s) => {
+                    const m = STATUS_META[s];
+                    const isCurrent = doc.status === s;
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          if (!isCurrent) statusMutation.mutate(s);
+                          else setStatusMenuOpen(false);
+                        }}
+                        disabled={statusMutation.isPending}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded-md text-left transition-colors ${
+                          isCurrent
+                            ? "bg-muted text-foreground font-medium"
+                            : "hover:bg-muted text-foreground"
+                        }`}
+                      >
+                        <span className={`inline-flex ${m.text}`}>{m.icon}</span>
+                        <span className="flex-1">{m.label}</span>
+                        {isCurrent && (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-purple-600" />
+                        )}
+                      </button>
+                    );
+                  },
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
         {doc.description && (
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
@@ -811,22 +859,26 @@ function RequiredDocRow({
             <Download className="w-4 h-4" />
           </button>
         )}
-        <label className="p-1.5 text-muted-foreground hover:text-purple-600 transition-colors cursor-pointer" title="Wgraj plik">
-          <Upload className="w-4 h-4" />
-          <input
-            type="file"
-            className="hidden"
-            onChange={handleUpload}
-            disabled={uploading}
-          />
-        </label>
-        <button
-          onClick={onEdit}
-          className="px-2 py-1 text-xs text-muted-foreground hover:text-purple-600 transition-colors"
-        >
-          Edytuj
-        </button>
-        <DeleteButton onConfirm={onDelete} />
+        {!readOnly && (
+          <>
+            <label className="p-1.5 text-muted-foreground hover:text-purple-600 transition-colors cursor-pointer" title="Wgraj plik">
+              <Upload className="w-4 h-4" />
+              <input
+                type="file"
+                className="hidden"
+                onChange={handleUpload}
+                disabled={uploading}
+              />
+            </label>
+            <button
+              onClick={onEdit}
+              className="px-2 py-1 text-xs text-muted-foreground hover:text-purple-600 transition-colors"
+            >
+              Edytuj
+            </button>
+            <DeleteButton onConfirm={onDelete} />
+          </>
+        )}
       </div>
     </li>
   );
@@ -1115,7 +1167,13 @@ function EditDocDialog({
 
 // ── Section B: Contract terms ────────────────────────────────────────────────
 
-function ContractTermsSection({ clientId }: { clientId: number }) {
+function ContractTermsSection({
+  clientId,
+  readOnly,
+}: {
+  clientId: number;
+  readOnly: boolean;
+}) {
   const qc = useQueryClient();
   const { showSuccess, showError } = useToast();
 
@@ -1152,6 +1210,7 @@ function ContractTermsSection({ clientId }: { clientId: number }) {
       initial={terms ?? EMPTY_TERMS}
       onSave={(payload) => mutation.mutate(payload)}
       saving={mutation.isPending}
+      readOnly={readOnly}
     />
   );
 }
@@ -1160,9 +1219,10 @@ interface TermsEditorProps {
   initial: ContractTerms;
   onSave: (payload: Partial<ContractTerms>) => void;
   saving: boolean;
+  readOnly: boolean;
 }
 
-function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
+function TermsEditor({ initial, onSave, saving, readOnly }: TermsEditorProps) {
   const [form, setForm] = useState<ContractTerms>(initial);
 
   function update<K extends keyof ContractTerms>(key: K, value: ContractTerms[K]) {
@@ -1210,29 +1270,35 @@ function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
         </div>
       </div>
 
-      {/* Off-limits */}
-      <FieldGroup title="Off-limits (ochrona pracowników klienta)">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <NumberField
-            label="Okres (miesiące)"
-            value={form.off_limits_months}
-            onChange={(v) => update("off_limits_months", v)}
-            placeholder="12"
+      {readOnly && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+          Widok tylko do odczytu.
+        </p>
+      )}
+      <fieldset disabled={readOnly} className="contents">
+        {/* Off-limits */}
+        <FieldGroup title="Off-limits (ochrona pracowników klienta)">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <NumberField
+              label="Okres (miesiące)"
+              value={form.off_limits_months}
+              onChange={(v) => update("off_limits_months", v)}
+              placeholder="12"
+            />
+            <TextField
+              label="Zakres"
+              value={form.off_limits_scope}
+              onChange={(v) => update("off_limits_scope", v)}
+              placeholder="cała grupa kapitałowa"
+            />
+          </div>
+          <TextareaField
+            label="Notatki"
+            value={form.off_limits_notes}
+            onChange={(v) => update("off_limits_notes", v)}
+            rows={2}
           />
-          <TextField
-            label="Zakres"
-            value={form.off_limits_scope}
-            onChange={(v) => update("off_limits_scope", v)}
-            placeholder="cała grupa kapitałowa"
-          />
-        </div>
-        <TextareaField
-          label="Notatki"
-          value={form.off_limits_notes}
-          onChange={(v) => update("off_limits_notes", v)}
-          rows={2}
-        />
-      </FieldGroup>
+        </FieldGroup>
 
       {/* Internalization */}
       <FieldGroup title="Internalizacja (klient bierze kontraktora na etat)">
@@ -1346,16 +1412,19 @@ function TermsEditor({ initial, onSave, saving }: TermsEditorProps) {
         />
       </FieldGroup>
 
-      <div className="flex items-center justify-end gap-2 pt-4 border-t border-border dark:border-border">
-        <button
-          type="submit"
-          disabled={saving}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
-        >
-          <Save className="w-4 h-4" />
-          {saving ? "Zapisywanie…" : "Zapisz"}
-        </button>
-      </div>
+        {!readOnly && (
+          <div className="flex items-center justify-end gap-2 pt-4 border-t border-border dark:border-border">
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-sm font-medium transition-colors"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? "Zapisywanie…" : "Zapisz"}
+            </button>
+          </div>
+        )}
+      </fieldset>
     </form>
   );
 }

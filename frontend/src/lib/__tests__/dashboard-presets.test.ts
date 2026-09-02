@@ -73,6 +73,16 @@ describe("dashboard presets — legacy session fallback", () => {
     ])
   })
 
+  it("Talent Community Manager receives the recruitment overview without Finance", () => {
+    const user = legacyUser("talent_community_manager")
+    expect(getAvailableDashboardPresets(user)).toEqual([
+      "head-of-recruitment",
+    ])
+    expect(dashboardHref(user)).toBe(
+      "/dashboard?preset=head-of-recruitment&period=week",
+    )
+  })
+
   it("TAC, Recruiter and Sourcer converge on My Work", () => {
     for (const role of ["tac", "recruiter", "sourcer"] as UserRole[]) {
       expect(getAvailableDashboardPresets(legacyUser(role))).toEqual([

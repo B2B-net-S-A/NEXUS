@@ -95,6 +95,16 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
         }
     ),
+    UserRole.talent_community_manager: frozenset(
+        {
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI,
+            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
+            AnalyticsCapability.VIEW_TEAM_KPI,
+            AnalyticsCapability.VIEW_CLIENT_OPERATIONS,
+            AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
+        }
+    ),
     UserRole.head_of_recruitment: frozenset(
         {
             AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,

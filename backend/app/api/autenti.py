@@ -25,7 +25,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.contract_access import assert_contract_legal_contract_access
 from app.api.deps import CurrentUser, TacPlus, require_roles
+from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -49,6 +51,10 @@ from app.services.autenti.webhook_verify import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_DELIVERY_SECTION_DEPENDENCIES = [
+    Depends(require_section_access(ProductSection.delivery))
+]
+
 
 ContractSignatureReadUser = Annotated[
     User,
@@ -56,7 +62,6 @@ ContractSignatureReadUser = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.delivery_lead,
-            UserRole.tac,
             UserRole.finance,
         )
     ),
@@ -76,6 +81,7 @@ def _require_enabled() -> None:
     "/contracts/{contract_id}/send",
     response_model=AutentiSendResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def send_contract_for_signature(
     contract_id: int,
@@ -90,6 +96,9 @@ async def send_contract_for_signature(
     which transitions ``status=draft → sending → sent`` (or ``failed``).
     """
     _require_enabled()
+    await assert_contract_legal_contract_access(
+        db, current_user, contract_id, write=True
+    )
     sig = await prepare_send(
         db,
         contract_id=contract_id,
@@ -109,6 +118,7 @@ async def send_contract_for_signature(
 @router.get(
     "/contracts/{contract_id}/signatures",
     response_model=list[DocumentSignatureResponse],
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def list_signatures_for_contract(
     contract_id: int,
@@ -121,6 +131,7 @@ async def list_signatures_for_contract(
     failed → "Wyślij ponownie" creates a new row. The UI renders them as a
     timeline so the recruiter can audit history.
     """
+    await assert_contract_legal_contract_access(db, current_user, contract_id)
     result = await db.execute(
         select(DocumentSignature)
         .where(DocumentSignature.contract_id == contract_id)
@@ -132,6 +143,7 @@ async def list_signatures_for_contract(
 @router.get(
     "/signatures/{signature_id}",
     response_model=DocumentSignatureDetailResponse,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def get_signature_detail(
     signature_id: int,
@@ -146,12 +158,14 @@ async def get_signature_detail(
     )
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
+    await assert_contract_legal_contract_access(db, current_user, sig.contract_id)
     return sig
 
 
 @router.post(
     "/signatures/{signature_id}/withdraw",
     response_model=DocumentSignatureResponse,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def withdraw_signature(
     signature_id: int,
@@ -165,6 +179,9 @@ async def withdraw_signature(
     )
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
+    await assert_contract_legal_contract_access(
+        db, current_user, sig.contract_id, write=True
+    )
     if sig.status not in (
         SignatureStatus.sent,
         SignatureStatus.in_progress,
@@ -211,6 +228,7 @@ async def withdraw_signature(
 @router.post(
     "/signatures/{signature_id}/remind",
     response_model=DocumentSignatureResponse,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def remind_signer(
     signature_id: int,
@@ -224,6 +242,9 @@ async def remind_signer(
     )
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
+    await assert_contract_legal_contract_access(
+        db, current_user, sig.contract_id, write=True
+    )
     if sig.status not in (
         SignatureStatus.sent,
         SignatureStatus.in_progress,

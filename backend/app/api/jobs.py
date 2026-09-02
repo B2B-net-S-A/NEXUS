@@ -176,10 +176,13 @@ def _assert_delivery_lead_finance_write(
     fields_set: set[str],
     current_user: User,
 ) -> None:
-    """Delivery Leads may never create or mutate recruitment budget fields."""
+    """DL/TCM may never create or mutate recruitment budget fields."""
 
     if (
-        current_user.has_role(UserRole.delivery_lead)
+        current_user.has_any_role(
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
+        )
         and not current_user.has_role(UserRole.admin)
         and {"salary_min", "salary_max"} & fields_set
     ):
@@ -190,11 +193,12 @@ def _assert_delivery_lead_finance_write(
 
 
 def _redact_delivery_lead_job_finance(payload: dict, current_user: User) -> dict:
-    """Remove recruitment budget fields from every non-Admin DL projection."""
+    """Remove recruitment budget fields from every non-Admin DL/TCM view."""
 
-    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
-        UserRole.admin
-    ):
+    if current_user.has_any_role(
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    ) and not current_user.has_role(UserRole.admin):
         payload["salary_min"] = None
         payload["salary_max"] = None
     return payload

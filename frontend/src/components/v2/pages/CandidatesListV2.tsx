@@ -550,6 +550,7 @@ const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = 
  { value: "admin", label: `Dla: ${ROLE_LABELS.admin}` },
  { value: "head_of_recruitment", label: `Dla: ${ROLE_LABELS.head_of_recruitment}` },
  { value: "delivery_lead", label: `Dla: ${ROLE_LABELS.delivery_lead}` },
+ { value: "talent_community_manager", label: `Dla: ${ROLE_LABELS.talent_community_manager}` },
  { value: "tac", label: `Dla: ${ROLE_LABELS.tac}` },
  { value: "recruiter", label: `Dla: ${ROLE_LABELS.recruiter}` },
  { value: "sourcer", label: `Dla: ${ROLE_LABELS.sourcer}` },

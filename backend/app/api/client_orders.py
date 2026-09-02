@@ -41,6 +41,7 @@ from app.api.contracts import (
     _raise_currency_conflict,
 )
 from app.api.deps import DlAssignedOrAdmin, require_roles
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.core.database import get_db
@@ -119,12 +120,12 @@ from app.services.order_excel_export import (
     orders_export_filename,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
-# The combined export can contain group cards, whose established read audience
-# also includes HoR and Finance.  Standalone order items still pass their own
-# narrower role + client-assignment guards inside the handler below.
+# The combined export can contain group cards. The section gate narrows this
+# legacy role alias to Admin, Finance and Delivery Lead; standalone order items
+# still pass their own client-assignment guards inside the handler below.
 UnifiedOrderExportReader = Annotated[
     User,
     Depends(
@@ -132,6 +133,23 @@ UnifiedOrderExportReader = Annotated[
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.finance,
+            UserRole.tac,
+        )
+    ),
+]
+
+# Structured GET responses are finance-redacted below and may be shown to TCM.
+# Keep this distinct from ``UnifiedOrderExportReader``: exports and PO files are
+# opaque rate-bearing artefacts and deliberately do not admit TCM.
+OrderSafeReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.finance,
             UserRole.tac,
         )
@@ -165,12 +183,25 @@ async def _require_client_order_read(
     user,
     client_id: int,
 ) -> None:
-    """Require an explicit DL/TAC relationship for candidate-bearing orders."""
+    """Require Finance access or an explicit DL relationship for raw orders."""
 
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają jawnego przypisania DL/TAC")
+        raise deny("zamówienia klienta wymagają roli Finance lub przypisanego DL")
+
+
+async def _require_safe_client_order_read(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+) -> None:
+    """Authorize the structured, finance-redacted Delivery order projection."""
+
+    await _assert_client(db, client_id)
+    access = await resolve_client_access(db, user, client_id)
+    if not access.can_view_knowledge:
+        raise deny("zamówienia klienta wymagają dostępu operacyjnego do klienta")
 
 
 async def _read_upload_within_limit(file: UploadFile) -> bytes:
@@ -716,11 +747,9 @@ def _apply_candidate_rate(
     contract.margin = contract.calculate_margin()
 
 
-# F-13 / P0.12: kwoty (stawki, marża, wartość zamówienia) widzą tylko role z
-# VIEW_FINANCE. TAC i Delivery Lead zachowują operacyjny widok zamówień i
-# kontraktorów, ale bez kwot — spójne z redakcją w contracts.py
-# (`_redact_contract_finance`) i clients.py. Waluta również znika, żeby nie
-# zdradzać sposobu rozliczenia ukrytej kwoty.
+# F-13 / P0.12: globalnie kwoty widzą role z VIEW_FINANCE. Przypisany Delivery
+# Lead ma wąski wyjątek dla zamówień swojego klienta. TCM zachowuje bezpieczny
+# widok operacyjny bez kwot i bez metadanych rate-bearing plików PO.
 _ORDER_FINANCE_FIELDS = (
     "rate_candidate",
     "rate_client",
@@ -809,11 +838,9 @@ def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
     odsyłanie każdej stawki do admina zamieniało rejestr w prośbę o czynność,
     której adresat nie mógł wykonać.
 
-    Predykat CELOWO sprawdza rolę i przypisanie niezależnie, zamiast ufać temu,
-    że request przeszedł ``DlAssignedOrAdmin``: tamten guard przepuszcza
-    ``head_of_recruitment`` GLOBALNIE, bez patrzenia na przypisanie (deps.py).
-    Reguła „ktokolwiek przeszedł guard" po cichu dałaby HoR zapis stawek
-    u wszystkich klientów. TAC, HoR, recruiter, sourcer: zawsze False.
+    Predykat CELOWO sprawdza rolę i przypisanie niezależnie, zamiast ufać
+    wyłącznie zewnętrznemu guardowi trasy. TAC, HoR, TCM, recruiter i sourcer:
+    zawsze False.
 
     Odczyt ma osobny predykat ``_order_finance_visible``: Finance widzi kwoty
     przez ``VIEW_FINANCE``, ale nie przechodzi przez ten guard zapisu.
@@ -989,6 +1016,30 @@ def _redact_order_finance(order: ClientOrderRead) -> ClientOrderRead:
     return order
 
 
+def _is_read_only_tcm(user: User) -> bool:
+    """TCM ceiling for Delivery orders, irrespective of HoR/TAC secondary roles.
+
+    HoR and TAC do not independently enter Delivery, so only Admin, assigned
+    Delivery Lead, or Finance can supersede the TCM read-only projection here.
+    """
+
+    return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.finance,
+    )
+
+
+def _redact_order_document_metadata(order: ClientOrderRead) -> ClientOrderRead:
+    """Hide affordances for PO files that the TCM role cannot download."""
+
+    order.filename = None
+    order.has_file = False
+    order.content_type = None
+    order.size_bytes = None
+    return order
+
+
 def _redact_contractor_finance(item: ContractWithOrdersRead) -> ContractWithOrdersRead:
     for field in _CONTRACTOR_FINANCE_FIELDS:
         setattr(item, field, None)
@@ -1005,6 +1056,8 @@ def _order_response_for_user(
 ) -> ClientOrderRead:
     if not _order_finance_visible(user, can_finance=can_finance):
         _redact_order_finance(order)
+    if _is_read_only_tcm(user):
+        _redact_order_document_metadata(order)
     return order
 
 
@@ -1113,14 +1166,14 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
 async def list_contractors_with_orders(
     client_id: int,
-    user: UnifiedOrderExportReader,
+    user: OrderSafeReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zwraca listę kontraktorów (per Contract) z historią Orderów per Contract.
 
     UI: tab "Zamówienia & Kontrakty" pokazuje listę kart (1 karta = 1 kontraktor).
     """
-    await _require_client_order_read(db, user, client_id)
+    await _require_safe_client_order_read(db, user, client_id)
 
     contracts = list(
         (
@@ -1230,6 +1283,10 @@ async def list_contractors_with_orders(
     if not _order_finance_visible(user, can_finance=can_finance):
         for item in items:
             _redact_contractor_finance(item)
+    if _is_read_only_tcm(user):
+        for item in items:
+            for order in item.orders:
+                _redact_order_document_metadata(order)
 
     return ClientOrdersGroupedResponse(
         contractors=items,
@@ -1269,7 +1326,7 @@ async def export_client_orders(
 
     if unified and not requested:
         # Pusty arkusz nadal jest odczytem zasobu klienta. Nie pozwalamy, by
-        # `{items: []}` omijało przypisanie DL/TAC tylko dlatego, że nie ma ID,
+        # `{items: []}` omijało przypisanie DL tylko dlatego, że nie ma ID,
         # po którym późniejsze gałęzie wykonałyby właściwy guard.
         from app.api.client_order_groups import _require_group_read
 
@@ -1278,8 +1335,8 @@ async def export_client_orders(
     orders_by_id: dict[int, tuple[ContractWithOrdersRead, ClientOrderRead]] = {}
     if not unified or requested_order_ids:
         # Standalone order rows use the same business-read audience as the
-        # unified order list. Finance is organization-wide; DL/TAC still pass
-        # their normal client-assignment resolver inside the list handler.
+        # unified order list. Finance is organization-wide; Delivery Lead still
+        # passes the normal client-assignment resolver inside the list handler.
         if not user.has_any_role(
             UserRole.admin,
             UserRole.head_of_recruitment,
@@ -1464,7 +1521,7 @@ async def export_client_orders(
 )
 async def list_active_contracts_for_extension(
     client_id: int,
-    user: UnifiedOrderExportReader,
+    user: OrderSafeReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Lista aktywnych Contractów + ich latest Order — dla autocomplete w
@@ -1486,10 +1543,10 @@ async def list_active_contracts_for_extension(
 async def get_order(
     client_id: int,
     order_id: int,
-    user: UnifiedOrderExportReader,
+    user: OrderSafeReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_client_order_read(db, user, client_id)
+    await _require_safe_client_order_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract))
@@ -1506,6 +1563,8 @@ async def get_order(
     )
     if not _order_finance_visible(user, can_finance=can_finance):
         _redact_order_finance(result)
+    if _is_read_only_tcm(user):
+        _redact_order_document_metadata(result)
     return result
 
 
@@ -2531,7 +2590,7 @@ async def list_candidate_order_documents(
 
     Poufność: PO zawiera stawki, więc filtrujemy po dostępie do klienta —
     pokazujemy tylko zamówienia klientów, których użytkownik może czytać
-    (admin/head_of_recruitment = wszystkie, Delivery Lead = przypisane). Spójne
+    (admin/Finance = wszystkie, Delivery Lead = przypisane). Spójne
     z ``_require_client_order_read``. Osoby może dotyczyć wielu klientów."""
     exists = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
     if exists is None:

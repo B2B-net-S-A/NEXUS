@@ -4,6 +4,24 @@ import { describe, expect, it, vi } from "vitest";
 import { UserModal } from "./UserModal";
 
 describe("UserModal — exclusive personas", () => {
+  it("offers Talent Community Manager as a provisionable role", () => {
+    render(
+      <UserModal
+        initial={{ role: "recruiter", roles: ["recruiter"] }}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        loading={false}
+      />,
+    );
+
+    expect(
+      screen.getByRole("option", { name: "Talent Community Manager" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Talent Community Manager" }),
+    ).toBeInTheDocument();
+  });
+
   it("clears operational roles when Finance becomes primary", () => {
     const onSave = vi.fn();
     render(

@@ -21,12 +21,13 @@ from app.api.contract_access import (
     assert_contract_legal_client_access,
 )
 from app.api.deps import AdminUser
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.contract_template import ContractTemplate
 from app.models.b2b_contract_detail import B2BContractDetail
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 # ── Pydantic DTOs ────────────────────────────────────────────────────────────

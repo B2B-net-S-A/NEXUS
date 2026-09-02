@@ -851,7 +851,7 @@ async def test_directory_export_hides_legal_columns_for_non_privileged_role(
     app_client: AsyncClient,
 ) -> None:
     seed = await _seed_directory()
-    user_id, headers = await _seed_role_user(UserRole.recruiter)
+    user_id, headers = await _seed_role_user(UserRole.talent_community_manager)
     try:
         response = await app_client.get(
             "/api/clients/directory/export",

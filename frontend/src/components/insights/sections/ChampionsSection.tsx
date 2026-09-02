@@ -144,6 +144,7 @@ const ROLE_LABEL: Record<string, string> = {
   recruiter: "Rekruter",
   delivery_lead: "Delivery Lead",
   head_of_recruitment: "Head of Recruitment",
+  talent_community_manager: "Talent Community Manager",
   admin: "Admin",
 };
 

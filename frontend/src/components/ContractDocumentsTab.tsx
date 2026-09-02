@@ -190,7 +190,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
 
   return (
     <div className="space-y-4">
-      <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+      <RequireRole roles={["admin", "delivery_lead"]}>
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <div>
@@ -345,7 +345,7 @@ export function ContractDocumentsTab({ contractId }: Props) {
                             <Download className="w-4 h-4" />
                           )}
                         </button>
-                        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+                        <RequireRole roles={["admin", "delivery_lead"]}>
                           <button
                             onClick={() => handleDelete(d)}
                             disabled={deleteMutation.isPending}

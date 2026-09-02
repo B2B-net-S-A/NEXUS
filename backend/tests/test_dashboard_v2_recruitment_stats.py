@@ -88,6 +88,7 @@ async def test_every_operational_role_can_read_finance_and_viewer_cannot(
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.finance,

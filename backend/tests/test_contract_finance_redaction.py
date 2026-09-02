@@ -1,12 +1,9 @@
-"""P0.12 — stawki/marże kontraktu tylko dla VIEW_FINANCE (M5 PR-01d).
+"""Kwoty Delivery: globalne Finance albo DL u przypisanego klienta.
 
-Lista kontraktów, detal, lista kontraktorów i eksport ujawniały
-``rate_candidate``/``rate_client``/``margin`` (+ harmonogramy) każdej roli z
-``TacPlus`` — więc role bez VIEW_FINANCE widziały finanse niezgodnie z
-kanoniczną polityką NEXUS. Na candidate-bearing kontraktach kwoty widzi Admin;
-Finance używa bezosobowych endpointów. Pozostali, w tym Delivery Lead,
-zachowują widok operacyjny (rekordy są, kwoty = None), a eksport zawierający
-tożsamość kandydata jest Admin-only.
+TCM zachowuje globalny, bezpieczny odczyt operacyjny z redakcją stawek,
+harmonogramów i marży. Delivery Lead nie dostaje globalnego ``VIEW_FINANCE``,
+ale w rejestrze, detalu i rosterze widzi kwoty klientów należących do jego
+jawnego portfela. Eksport finansowy pozostaje zamknięty dla obu ról.
 """
 
 from __future__ import annotations
@@ -309,10 +306,10 @@ async def test_pln_detail_has_no_nbp_conversion_and_does_not_resolve_fx(
     assert response.json()["eur_pln_rate"] is None
 
 
-async def test_tac_gets_redacted_detail(app_client: AsyncClient):
+async def test_tcm_gets_redacted_detail(app_client: AsyncClient):
     await _seed_today_eur_rate()
     cid = await _seed_contract(currency="EUR")
-    headers = await _headers_for(app_client, "tac")
+    headers = await _headers_for(app_client, "talent_community_manager")
     r = await app_client.get(f"/api/contracts/{cid}", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
@@ -331,7 +328,7 @@ async def test_tac_gets_redacted_detail(app_client: AsyncClient):
     assert body["eur_pln_rate"] is None
 
 
-async def test_delivery_lead_gets_redacted_detail(app_client: AsyncClient):
+async def test_delivery_lead_sees_assigned_client_rates(app_client: AsyncClient):
     cid = await _seed_contract()
     headers = await _headers_for(
         app_client,
@@ -341,14 +338,12 @@ async def test_delivery_lead_gets_redacted_detail(app_client: AsyncClient):
     response = await app_client.get(f"/api/contracts/{cid}", headers=headers)
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["rate_candidate"] is None
-    assert body["rate_client"] is None
-    assert body["margin"] is None
-    assert body["currency"] is None
-    assert body["rate_client_currency"] is None
-    assert body["rate_candidate_currency"] is None
-    assert body["rate_unit"] is None
-    assert body["billing_hours_per_month"] is None
+    assert body["rate_candidate"] == 100.0
+    assert body["rate_client"] == 150.0
+    assert body["margin"] == 50.0
+    assert body["currency"] == "PLN"
+    assert body["rate_client_currency"] == "PLN"
+    assert body["rate_candidate_currency"] == "PLN"
 
 
 async def test_delivery_lead_cannot_read_unassigned_client_contract(
@@ -364,8 +359,11 @@ async def test_delivery_lead_cannot_read_unassigned_client_contract(
 
 async def test_export_requires_finance(app_client: AsyncClient, app_auth_headers: dict):
     tac = await _headers_for(app_client, "tac")
+    tcm = await _headers_for(app_client, "talent_community_manager")
     r_tac = await app_client.get("/api/contracts/export?format=csv", headers=tac)
     assert r_tac.status_code == 403, r_tac.text
+    r_tcm = await app_client.get("/api/contracts/export?format=csv", headers=tcm)
+    assert r_tcm.status_code == 403, r_tcm.text
     r_admin = await app_client.get(
         "/api/contracts/export?format=csv", headers=app_auth_headers
     )
@@ -405,9 +403,9 @@ async def _find_contractor_row(
         page += 1
 
 
-async def test_tac_gets_redacted_contractor_list(app_client: AsyncClient):
+async def test_tcm_gets_redacted_contractor_list(app_client: AsyncClient):
     cid = await _seed_contract()
-    headers = await _headers_for(app_client, "tac")
+    headers = await _headers_for(app_client, "talent_community_manager")
     row = await _find_contractor_row(app_client, headers, cid)
     assert row is not None, "seeded contractor not in list"
     assert row["rate_candidate"] is None
@@ -418,7 +416,26 @@ async def test_tac_gets_redacted_contractor_list(app_client: AsyncClient):
     assert row["rate_unit"] is None
 
 
-async def test_tac_cannot_create_contract_with_finance_fields(
+async def test_delivery_lead_sees_rates_in_assigned_contractor_row(
+    app_client: AsyncClient,
+):
+    cid = await _seed_contract()
+    headers = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_contract_id=cid,
+    )
+
+    row = await _find_contractor_row(app_client, headers, cid)
+
+    assert row is not None, "assigned contractor not in Delivery Lead list"
+    assert row["rate_candidate"] == 100.0
+    assert row["rate_client"] == 150.0
+    assert row["margin"] == 50.0
+    assert row["currency"] == "PLN"
+
+
+async def test_tac_cannot_enter_delivery_to_create_contract(
     app_client: AsyncClient,
 ):
     """Redaction is not authorization: hidden rates must never be persisted."""
@@ -435,13 +452,13 @@ async def test_tac_cannot_create_contract_with_finance_fields(
     }
     r = await app_client.post("/api/contracts", json=body, headers=tac)
     assert r.status_code == 403, r.text
-    assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+    assert r.json()["detail"]["code"] == "section_access_denied"
 
 
-async def test_tac_expiring_list_redacted(app_client: AsyncClient):
+async def test_tcm_expiring_list_redacted(app_client: AsyncClient):
     cid = await _seed_contract()  # end_date = today + 90, status active
-    tac = await _headers_for(app_client, "tac")
-    r = await app_client.get("/api/contracts/expiring?days=90", headers=tac)
+    tcm = await _headers_for(app_client, "talent_community_manager")
+    r = await app_client.get("/api/contracts/expiring?days=90", headers=tcm)
     assert r.status_code == 200, r.text
     row = next((i for i in r.json() if i["id"] == cid), None)
     assert row is not None, "seeded contract missing from expiring list"
@@ -463,7 +480,7 @@ async def test_admin_expiring_list_shows_rates(
     assert row["rate_client"] is not None
 
 
-async def test_tac_cannot_patch_finance_fields(
+async def test_tac_cannot_enter_delivery_to_patch_finance_fields(
     app_client: AsyncClient,
     app_auth_headers: dict,
 ):
@@ -473,7 +490,7 @@ async def test_tac_cannot_patch_finance_fields(
         f"/api/contracts/{cid}", json={"rate_client": 321.0}, headers=tac
     )
     assert r.status_code == 403, r.text
-    assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+    assert r.json()["detail"]["code"] == "section_access_denied"
 
     currency_write = await app_client.patch(
         f"/api/contracts/{cid}",
@@ -481,7 +498,7 @@ async def test_tac_cannot_patch_finance_fields(
         headers=tac,
     )
     assert currency_write.status_code == 403, currency_write.text
-    assert currency_write.json()["detail"]["code"] == "finance_fields_forbidden"
+    assert currency_write.json()["detail"]["code"] == "section_access_denied"
 
     unchanged = await app_client.get(f"/api/contracts/{cid}", headers=app_auth_headers)
     assert unchanged.status_code == 200, unchanged.text

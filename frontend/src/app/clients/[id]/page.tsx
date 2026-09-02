@@ -53,6 +53,7 @@ import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
 
@@ -486,8 +487,8 @@ function ContactsTab({ clientId }: { clientId: number }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts
-  // (admin/HoR/DL/TAC). Recruiter i sourcer mają dostęp do klienta, ale nie
-  // do edycji kontaktów — bez bramki widzieli przycisk wiodący w 403 (F-19).
+  // przecięte z zapisem sekcji Delivery. Zostają Admin i przypisany DL;
+  // pozostali czytelnicy nie dostają formularza prowadzącego w 403 (F-19).
   const canCreateContact = useCapability("contact.create");
 
   const { data: rawContacts = [] } = useQuery<Contact[]>({
@@ -750,6 +751,17 @@ function ContactsTab({ clientId }: { clientId: number }) {
 
 export default function ClientDetailPage() {
   const { id } = useParams();
+  const user = useAuthStore((state) => state.user);
+  const isReadOnlyTcm =
+    hasRole(user, "talent_community_manager") &&
+    !hasRole(user, "admin", "delivery_lead", "finance");
+  const canEditDelivery = hasRole(user, "admin", "delivery_lead");
+  const canViewDeliveryLegal = hasRole(
+    user,
+    "admin",
+    "delivery_lead",
+    "finance",
+  );
   // `?tab=` NIE jest ozdobnikiem — trzy źródła powiadomień linkują wprost do
   // zakładki, w której jest sprawa do załatwienia: skaner alertów Delivery
   // Leada (`dl_alerts_scanner.py`), skaner wygasania zamówień
@@ -767,6 +779,12 @@ export default function ClientDetailPage() {
   // PATCH /api/clients/{id} → TacPlus. Bez bramki nie-TAC widział "Edytuj"
   // i dostawał 403 dopiero na zapisie (czytało się jak "zapis nie działa").
   const canUpdateClient = useCapability("client.update");
+
+  useEffect(() => {
+    if (isReadOnlyTcm && activeTab === "umowy-ramowe") {
+      setActiveTab("profil");
+    }
+  }, [activeTab, isReadOnlyTcm, setActiveTab]);
 
   const {
     data: client,
@@ -817,7 +835,7 @@ export default function ClientDetailPage() {
       </div>
     );
 
-  const TABS: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
+  const allTabs: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
@@ -826,6 +844,9 @@ export default function ClientDetailPage() {
     { key: "umowy-ramowe", label: "Umowy", icon: <FileText className="w-4 h-4" /> },
     { key: "analityka", label: "Analityka", icon: <LayoutDashboard className="w-4 h-4" /> },
   ];
+  const TABS = allTabs.filter(
+    (tab) => !isReadOnlyTcm || tab.key !== "umowy-ramowe",
+  );
 
   return (
     <div className="space-y-4">
@@ -959,7 +980,11 @@ export default function ClientDetailPage() {
                 icon={<FolderOpen className="w-4 h-4 text-muted-foreground" />}
                 title="Materiały sprzedażowe"
               >
-                <MaterialsTab clientId={Number(id)} />
+                <MaterialsTab
+                  clientId={Number(id)}
+                  readOnly={!canEditDelivery}
+                  showContractTerms={canViewDeliveryLegal}
+                />
               </LazyDetails>
             </div>
           )}
@@ -968,7 +993,7 @@ export default function ClientDetailPage() {
 
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
 
-          {activeTab === "umowy-ramowe" && (
+          {canViewDeliveryLegal && activeTab === "umowy-ramowe" && (
             <div className="space-y-4">
               <FrameworkContractsTab clientId={Number(id)} />
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import {
   DASHBOARD_PRESETS,
+  type DashboardPresetDefinition,
   type DashboardPeriod,
   type DashboardPreset,
 } from "@/lib/dashboard-presets"
@@ -26,6 +27,9 @@ interface DashboardShellProps {
   onPresetChange: (preset: DashboardPreset) => void
   onPeriodChange: (period: DashboardPeriod) => void
   showPeriod?: boolean
+  definitionOverrides?: Partial<
+    Record<DashboardPreset, DashboardPresetDefinition>
+  >
   children: ReactNode
 }
 
@@ -36,9 +40,10 @@ export function DashboardShell({
   onPresetChange,
   onPeriodChange,
   showPeriod = true,
+  definitionOverrides,
   children,
 }: DashboardShellProps) {
-  const definition = DASHBOARD_PRESETS[preset]
+  const definition = definitionOverrides?.[preset] ?? DASHBOARD_PRESETS[preset]
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 p-4 md:p-6">
@@ -65,7 +70,7 @@ export function DashboardShell({
                 onClick={() => onPresetChange(candidate)}
                 className="shrink-0"
               >
-                {DASHBOARD_PRESETS[candidate].label}
+                {(definitionOverrides?.[candidate] ?? DASHBOARD_PRESETS[candidate]).label}
               </Button>
             ))}
           </nav>

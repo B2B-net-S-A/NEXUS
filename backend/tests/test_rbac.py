@@ -27,6 +27,7 @@ ROLES = [
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,
@@ -135,20 +136,34 @@ OPERATIONAL_ENDPOINTS = [
     # Audyt M2 PR1: cały moduł kandydatów odcięty od roli `user` — pełna
     # macierz w tests/test_candidate_module_access.py.
     ("GET", "/api/candidates"),
-    ("GET", "/api/clients"),
     ("GET", "/api/activities/feed"),
     ("GET", "/api/dashboard/recent-activity"),
 ]
 
-# Endpointy wymagające TacPlus (admin/delivery_lead/tac):
+# Pipeline endpoints requiring TacPlus (admin/delivery_lead/tac):
 TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
-    ("POST", "/api/contracts"),
-    ("POST", "/api/clients"),  # PR #17 — było CurrentUser, teraz TacPlus
 ]
 
-# Organization-wide contract reads add Finance without widening TacPlus writes.
-CONTRACT_READ_ENDPOINTS = [("GET", "/api/contracts")]
+# Delivery mutations additionally pass through the section boundary. Tac loses
+# this section even though the legacy endpoint-level alias is still TacPlus.
+DELIVERY_WRITE_ENDPOINTS = [
+    ("POST", "/api/contracts"),
+    ("POST", "/api/clients"),
+]
+
+# Delivery reads: TCM and Finance are organization-wide, while DL is narrowed
+# to explicit client assignments by resource-level guards.
+DELIVERY_READ_ENDPOINTS = [
+    ("GET", "/api/clients"),
+    ("GET", "/api/contracts"),
+]
+
+# Opaque legal artefacts are narrower than TCM's safe Delivery projection.
+DELIVERY_LEGAL_READ_ENDPOINTS = [
+    ("GET", "/api/contracts/99999999/documents"),
+    ("GET", "/api/signing/contracts/99999999/signatures"),
+]
 
 # Endpointy wymagające RecruiterPlus (wszyscy poza `user`):
 RECRUITER_PLUS_ENDPOINTS = [
@@ -186,6 +201,7 @@ ROLE_SETS = {
     "recruiter_plus": {
         UserRole.admin,
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
@@ -196,6 +212,7 @@ ROLE_SETS = {
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
@@ -206,6 +223,7 @@ ROLE_SETS = {
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.finance,
     },
     "legacy_organization_dashboard": {
@@ -215,15 +233,21 @@ ROLE_SETS = {
     "recruitment_ranking": {
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
         UserRole.finance,
     },
-    "contract_read": {
+    "delivery_read": {
         UserRole.admin,
         UserRole.delivery_lead,
-        UserRole.tac,
+        UserRole.talent_community_manager,
+        UserRole.finance,
+    },
+    "delivery_legal_read": {
+        UserRole.admin,
+        UserRole.delivery_lead,
         UserRole.finance,
     },
     "all": set(ROLES),
@@ -385,8 +409,8 @@ async def test_tac_plus_endpoints_reject_below_tac(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method,path", CONTRACT_READ_ENDPOINTS)
-async def test_contract_reads_add_finance_without_widening_tac_plus(
+@pytest.mark.parametrize("method,path", DELIVERY_READ_ENDPOINTS)
+async def test_delivery_reads_follow_section_policy(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
     method: str,
@@ -394,7 +418,49 @@ async def test_contract_reads_add_finance_without_widening_tac_plus(
 ):
     role, headers = role_headers
     resp = await rbac_client.request(method, path, headers=headers)
-    if role in ROLE_SETS["contract_read"]:
+    if role in ROLE_SETS["delivery_read"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should be allowed"
+        )
+        assert resp.status_code < 500
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", DELIVERY_LEGAL_READ_ENDPOINTS)
+async def test_delivery_legal_reads_exclude_tcm_and_recruitment_roles(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers)
+    if role in ROLE_SETS["delivery_legal_read"]:
+        assert resp.status_code != 403, (
+            f"[{role.value}] {method} {path} got 403 but should reach resource scope"
+        )
+        assert resp.status_code < 500
+    else:
+        assert resp.status_code == 403, (
+            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method,path", DELIVERY_WRITE_ENDPOINTS)
+async def test_delivery_writes_require_delivery_write_section(
+    rbac_client: AsyncClient,
+    role_headers: tuple[UserRole, dict[str, str]],
+    method: str,
+    path: str,
+):
+    role, headers = role_headers
+    resp = await rbac_client.request(method, path, headers=headers, json={})
+    if role in ROLE_SETS["delivery_lead_plus"]:
         assert resp.status_code != 403, (
             f"[{role.value}] {method} {path} got 403 but should be allowed"
         )
@@ -776,10 +842,56 @@ async def test_me_returns_analytics_capabilities(
         assert caps, f"[{role.value}] expected at least one capability"
     if role is UserRole.admin:
         assert "view_finance" in caps and "admin_analytics" in caps
-    if role is UserRole.tac:
+    if role in {
+        UserRole.tac,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    }:
         assert "view_finance" not in caps
-    if role is UserRole.head_of_recruitment:
-        assert "view_finance" not in caps
+
+
+@pytest.mark.asyncio
+async def test_me_hybrid_tcm_delivery_lead_exposes_assigned_delivery_scope(
+    rbac_client: AsyncClient,
+):
+    """TCM+DL keeps the TCM dashboard and a strict assigned-client boundary."""
+    from app.models.client import Client
+    from app.models.team_structure import DeliveryLeadClientAssignment
+
+    email, password = await _seed_user(UserRole.talent_community_manager)
+    async with AsyncSessionLocal() as db:
+        user = await db.scalar(select(User).where(User.email == email))
+        assert user is not None
+        user.roles = [
+            UserRole.talent_community_manager.value,
+            UserRole.delivery_lead.value,
+        ]
+        client = Client(name=f"RBAC hybrid client {uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.flush()
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=user.id,
+                client_id=client.id,
+            )
+        )
+        expected_client_id = client.id
+        await db.commit()
+
+    headers = await _login(rbac_client, email, password)
+    response = await rbac_client.get("/api/auth/me", headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["available_dashboard_presets"] == [
+        "head-of-recruitment",
+        "delivery-lead",
+    ]
+    assert body["default_dashboard_preset"] == "head-of-recruitment"
+    assert body["data_scope"]["kind"] == "delivery_clients"
+    assert body["data_scope"]["allowed_client_ids"] == [expected_client_id]
+    assert "view_finance" not in body["capabilities"]
 
 
 # ── R0: multi-role — secondary admin przechodzi guardy adminowe ──────────────

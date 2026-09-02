@@ -163,8 +163,20 @@ async def test_status_promotion_active_to_expired():
 
 
 async def test_alert_dispatch_30d_to_dl_and_admin():
-    """30d before expiry → notification do każdego DL z assignmentem + admin."""
+    """30d before expiry → assigned DL + admin, but never HoR."""
     admin_id, dl_id, client_id = await _setup_dl_with_client()
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        hor = User(
+            email=f"sched-hor-{suffix}@example.com",
+            password_hash=hash_password("x"),
+            name=f"HoR {suffix}",
+            role=UserRole.head_of_recruitment,
+            is_active=True,
+        )
+        db.add(hor)
+        await db.commit()
+        hor_id = hor.id
     try:
         async with AsyncSessionLocal() as db:
             fc = ClientFrameworkContract(
@@ -198,8 +210,9 @@ async def test_alert_dispatch_30d_to_dl_and_admin():
             # weryfikujemy tylko że nasze targety są w secie)
             assert dl_id in recipient_ids
             assert admin_id in recipient_ids
+            assert hor_id not in recipient_ids
     finally:
-        await _cleanup(client_id, [admin_id, dl_id])
+        await _cleanup(client_id, [admin_id, dl_id, hor_id])
 
 
 async def test_alert_dedup_no_duplicate_on_second_run():

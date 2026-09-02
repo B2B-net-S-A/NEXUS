@@ -16,7 +16,6 @@ from app.api.recruitment_access import ensure_job_membership
 from app.api.deps import (
     AdminUser,
     DeliveryLeadPlus,
-    HeadOfRecruitmentPlus,
     OperationalUser,
     require_roles,
 )
@@ -64,6 +63,16 @@ MyWorkUser = Annotated[
         )
     ),
 ]
+HeadOfRecruitmentDashboardUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
+        )
+    ),
+]
 FinanceUser = Annotated[
     User,
     Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
@@ -75,6 +84,7 @@ RecruitmentOperationsUser = Annotated[
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.tac,
             UserRole.recruiter,
             UserRole.finance,
@@ -89,7 +99,10 @@ _RECRUITMENT_OPERATIONS_PRESET_ROLES: dict[
     "admin-ops": (),  # Empty means admin-only; the shortcut below handles admins.
     "delivery-lead": (UserRole.delivery_lead,),
     "finance": (UserRole.finance,),
-    "head-of-recruitment": (UserRole.head_of_recruitment,),
+    "head-of-recruitment": (
+        UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+    ),
     "my-work": (UserRole.recruiter, UserRole.tac, UserRole.sourcer),
 }
 
@@ -154,7 +167,7 @@ async def delivery_lead_dashboard(
     response_model=HeadOfRecruitmentDashboardResponse,
 )
 async def head_of_recruitment_dashboard(
-    current_user: HeadOfRecruitmentPlus,
+    current_user: HeadOfRecruitmentDashboardUser,
     db: Database,
     period: DashboardPeriod,
 ) -> HeadOfRecruitmentDashboardResponse:

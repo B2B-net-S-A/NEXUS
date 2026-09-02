@@ -10,9 +10,10 @@ the join and exposes it as a dedicated listing so backoffice can:
   a date window shared with the register, not the raw stored ContractStatus.ending)
 
 Role scoping:
-- admin / delivery_lead / tac / head_of_recruitment / finance → sees everyone
-- recruiter / sourcer → sees only candidates they added (Candidate.created_by)
-- user (read-only viewer) → 403 (the roster carries candidate PII + rates)
+- admin / finance → sees the whole organization with financial fields
+- talent_community_manager → sees the whole organization without financial fields
+- delivery_lead → sees assigned clients with their financial fields
+- every other role → 403 at the Delivery section boundary
 
 The "incomplete drafts" subcount drives the dashboard widget
 ("Drafty do uzupełnienia (N)").
@@ -26,6 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser
+from app.api.financial_access import can_read_client_finance
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
@@ -44,20 +47,40 @@ from app.services.contract_service import (
 )
 from app.services.client_identity import client_display_name
 from app.services.contractor_identity import count_unique_contractors
+from app.services.access_scope import (
+    apply_delivery_lead_client_scope,
+    resolve_delivery_lead_client_ids,
+)
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
-# Roles that see every contractor. Anyone else gets scoped to their own
-# Candidate.created_by set (matches the "recruiter ownership" convention
-# used across the candidates module).
+# Organization-wide readers. Delivery Lead is handled first and always stays
+# inside its assigned-client portfolio unless the account is Admin/Finance.
 _FULL_VISIBILITY_ROLES = {
     UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.head_of_recruitment,
-    UserRole.tac,
     UserRole.finance,
+    UserRole.talent_community_manager,
 }
+
+
+async def _apply_contractor_scope(query, current_user, db):  # type: ignore[no-untyped-def]
+    """Keep every contractor query inside the Delivery Lead client portfolio."""
+
+    if current_user.has_role(UserRole.delivery_lead) and not current_user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    ):
+        return apply_delivery_lead_client_scope(
+            query,
+            Contract.client_id,
+            await resolve_delivery_lead_client_ids(current_user, db),
+        )
+    if current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
+        return query
+    return query.join(Candidate, Contract.candidate_id == Candidate.id).where(
+        Candidate.created_by == current_user.id
+    )
 
 
 _PENDING_STATUSES = (
@@ -73,24 +96,18 @@ _LIST_STATUSES = (
 )
 
 
-# Roles allowed to reach the contractor roster at all. Everyone else — notably
-# UserRole.user (the read-only viewer / QC / client persona) — is refused: the
-# payload carries candidate PII + rates/margins, so the FE hiding the operations
-# mode must not be the only gate. recruiter/sourcer pass here but are further
-# scoped to their own candidates (Candidate.created_by) in the query below.
+# Defense in depth underneath the section dependency. Only these Delivery
+# personas may reach the roster; TCM is redacted and DL is client-scoped below.
 _CONTRACTOR_ALLOWED_ROLES = (
     UserRole.admin,
-    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.tac,
-    UserRole.recruiter,
     UserRole.finance,
-    UserRole.sourcer,
+    UserRole.talent_community_manager,
 )
 
 
 def _require_contractor_access(current_user) -> None:  # type: ignore[no-untyped-def]
-    """Fail closed for passive viewer accounts while preserving multi-role."""
+    """Fail closed if this function is called outside FastAPI dependencies."""
     if not current_user.has_any_role(*_CONTRACTOR_ALLOWED_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -145,7 +162,7 @@ async def list_contractors(
     """List contractors (Contracts with status in draft/active/ending).
 
     `status` query param narrows to a single status; default is all three.
-    Role-scoped: non-privileged roles see only candidates they added.
+    Delivery Lead rows are client-scoped; TCM rows are finance-redacted.
     """
     _require_contractor_access(current_user)
 
@@ -183,12 +200,8 @@ async def list_contractors(
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
-        # Join Candidate for ownership scoping. Using join (not selectinload
-        # chain) so the WHERE can reference Candidate.created_by.
-        query = query.join(Candidate, Contract.candidate_id == Candidate.id).where(
-            Candidate.created_by == current_user.id
-        )
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    query = await _apply_contractor_scope(query, current_user, db)
 
     # Ordering: drafts first (they need attention), then by start_date desc
     # so newest active contractors surface at the top.
@@ -213,12 +226,14 @@ async def list_contractors(
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
     items = [_to_item(c) for c in contracts]
-    # Stawki, marża i parametry interpretacji kwoty tylko dla VIEW_FINANCE.
-    # Pozostali zachowują listę operacyjną bez finansów.
-    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-
-    if not user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE):
-        for item in items:
+    # TCM widzi globalny roster bez finansów. DL widzi stawki tylko w wierszach
+    # należących do przypisanego portfela; zapytanie wyżej ma ten sam scope.
+    for item in items:
+        if not can_read_client_finance(
+            current_user,
+            client_id=item.client_id,
+            delivery_lead_client_ids=delivery_lead_client_ids,
+        ):
             item.rate_candidate = None
             item.rate_client = None
             item.margin = None
@@ -250,10 +265,7 @@ async def contractor_stats(
     query = query.where(Contract.candidate_id.is_not(None))
     query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    if not current_user.has_any_role(*_FULL_VISIBILITY_ROLES):
-        query = query.join(Candidate, Contract.candidate_id == Candidate.id).where(
-            Candidate.created_by == current_user.id
-        )
+    query = await _apply_contractor_scope(query, current_user, db)
 
     result = await db.execute(query)
     contracts = list(result.scalars().all())

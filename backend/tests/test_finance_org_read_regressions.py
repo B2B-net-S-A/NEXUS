@@ -218,7 +218,7 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_consultant_options_preserve_legacy_scope_and_add_only_finance():
+async def test_consultant_options_preserve_dl_scope_and_add_finance():
     class AssignedResult:
         def scalar_one_or_none(self):
             return object()
@@ -235,14 +235,13 @@ async def test_consultant_options_preserve_legacy_scope_and_add_only_finance():
         is finance
     )
 
-    for role in (UserRole.admin, UserRole.head_of_recruitment):
-        user = _user(role)
-        assert (
-            await client_order_groups.require_consultant_options_reader(
-                client_id=5, current_user=user, db=SimpleNamespace()
-            )
-            is user
+    admin = _user(UserRole.admin)
+    assert (
+        await client_order_groups.require_consultant_options_reader(
+            client_id=5, current_user=admin, db=SimpleNamespace()
         )
+        is admin
+    )
 
     delivery_lead = _user(UserRole.delivery_lead)
     assert (
@@ -268,7 +267,12 @@ async def test_consultant_options_preserve_legacy_scope_and_add_only_finance():
         )
     assert exc_info.value.status_code == 403
 
-    for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer):
+    for role in (
+        UserRole.head_of_recruitment,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    ):
         with pytest.raises(HTTPException) as exc_info:
             await client_order_groups.require_consultant_options_reader(
                 client_id=5,

@@ -35,8 +35,7 @@ type ViewMode = "operations" | "register";
 const OPERATIONS_ROLES = [
   "admin",
   "delivery_lead",
-  "tac",
-  "head_of_recruitment",
+  "talent_community_manager",
   "finance",
 ] as const;
 

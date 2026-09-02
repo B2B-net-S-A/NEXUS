@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
+import {
+  rolesWithSectionAccess,
+  type SectionAccess,
+} from "@/lib/section-access";
+import type { UserRole } from "@/store/auth";
 
 /**
  * Next.js middleware — gate routing based on role-based access control (RBAC).
@@ -27,27 +32,33 @@ import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
  * arbitrem — middleware blokuje tylko nawigację do UI, nie chroni API.
  */
 
-type UserRole =
-  | "admin"
-  | "finance"
-  | "head_of_recruitment"
-  | "delivery_lead"
-  | "tac"
-  | "recruiter"
-  | "sourcer"
-  | "user";
-
 const COOKIE_NAME = "nexus_access";
 
 const NON_FINANCE_ROLES: UserRole[] = [
   "admin",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
   "sourcer",
   "user",
 ];
+
+const sectionRoles = (
+  section: Parameters<typeof rolesWithSectionAccess>[0],
+  required: Exclude<SectionAccess, "none"> = "read",
+) => rolesWithSectionAccess(section, required);
+
+const SOURCING_ROLES = sectionRoles("sourcing");
+const SOURCING_OPERATIONAL_ROLES = SOURCING_ROLES.filter(
+  (role) => role !== "user",
+);
+const PIPELINE_ROLES = sectionRoles("pipeline");
+const DELIVERY_ROLES = sectionRoles("delivery");
+const INSIGHTS_ROLES = sectionRoles("insights");
+const SYSTEM_ADMIN_ROLES = sectionRoles("system_admin");
+const CORTEX_ROLES = INSIGHTS_ROLES.filter((role) => role !== "user");
 
 // Trasy wymagające KONKRETNYCH ról. Każda inna (niepubliczna) trasa wymaga
 // wyłącznie ważnego tokenu — patrz deny-by-default w nagłówku pliku.
@@ -55,14 +66,25 @@ const NON_FINANCE_ROLES: UserRole[] = [
 // prefix (patrz resolveAllowedRoles).
 const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   { prefix: "/manager", roles: ["admin", "delivery_lead"] },
+  // Longest-prefix exceptions must precede only conceptually; resolver sorts
+  // them. B2B Generator belongs to Sourcing despite living under /contracts.
+  { prefix: "/contracts/b2b-generator", roles: SOURCING_ROLES },
+  { prefix: "/contracts/analytics", roles: ["admin", "finance"] },
+  { prefix: "/contractors", roles: DELIVERY_ROLES },
+  { prefix: "/contracts", roles: DELIVERY_ROLES },
+  { prefix: "/my-relationships", roles: DELIVERY_ROLES },
+  { prefix: "/my-clients", roles: DELIVERY_ROLES },
+  { prefix: "/clients", roles: DELIVERY_ROLES },
+  { prefix: "/jobs", roles: PIPELINE_ROLES },
+  { prefix: "/calendar", roles: PIPELINE_ROLES },
   // Moduł „Finanse" — wyniki miesięczne kontraktorów, Archiwum importów oraz
   // import zużycia MD. Lustro backendowych `FinanceModuleUser` /
   // `FinanceManageUser` (oba: admin + rola Finanse). Bramka po stronie UI to
   // UX; ten wpis pilnuje, żeby wejście z paska adresu kończyło się /403,
   // a nie pustym ekranem.
   { prefix: "/finance", roles: ["admin", "finance"] },
-  // Zamówienia z maila — kolejka weryfikacji; zakres portfela wylicza backend.
-  { prefix: "/order-mail", roles: ["admin", "head_of_recruitment", "finance", "delivery_lead"] },
+  // Zamówienia z maila są powierzchnią Delivery; scope rekordu liczy backend.
+  { prefix: "/order-mail", roles: DELIVERY_ROLES },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
   // middleware nie ma dostępu do user object, tylko JWT payload).
@@ -70,15 +92,18 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // Granularne podstrony settings (defense in depth) — kolejność nie ma
   // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
   { prefix: "/settings/chats", roles: ["admin", "finance"] },
-  // Finance has a read-only settings landing page. Direct technical/config
-  // editors stay unavailable even if their URL is pasted manually.
-  { prefix: "/settings/ai", roles: NON_FINANCE_ROLES },
-  { prefix: "/settings/api-integration", roles: NON_FINANCE_ROLES },
-  { prefix: "/settings/diagnostics", roles: NON_FINANCE_ROLES },
-  { prefix: "/settings/dictionaries", roles: NON_FINANCE_ROLES },
-  { prefix: "/settings/entity-fields", roles: NON_FINANCE_ROLES },
-  { prefix: "/settings/pipeline-templates", roles: NON_FINANCE_ROLES },
-  { prefix: "/settings/scoring", roles: NON_FINANCE_ROLES },
+  // Techniczna administracja jest osobną sekcją i zostaje Admin-only.
+  // Ustawienia biznesowe niżej zachowują własne, węższe publiczności.
+  { prefix: "/settings/ai", roles: SYSTEM_ADMIN_ROLES },
+  { prefix: "/settings/api-integration", roles: SYSTEM_ADMIN_ROLES },
+  { prefix: "/settings/diagnostics", roles: SYSTEM_ADMIN_ROLES },
+  { prefix: "/settings/dictionaries", roles: SYSTEM_ADMIN_ROLES },
+  { prefix: "/settings/entity-fields", roles: SYSTEM_ADMIN_ROLES },
+  {
+    prefix: "/settings/pipeline-templates",
+    roles: ["admin", "delivery_lead"],
+  },
+  { prefix: "/settings/scoring", roles: ["admin", "delivery_lead"] },
   { prefix: "/settings/templates", roles: NON_FINANCE_ROLES },
   {
     prefix: "/settings/team-structure",
@@ -107,7 +132,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // CortexUser i zakładką Insights → Klienci & Delivery).
   {
     prefix: "/cortex",
-    roles: ["admin", "head_of_recruitment", "delivery_lead", "tac", "finance"],
+    roles: CORTEX_ROLES,
   },
   // Wykonywanie telefonów jest ograniczone do ról operacyjnych (lustro
   // backendowego `ContactCaller`); sama strona odbija resztę własnym
@@ -128,7 +153,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // Zmieniając tę listę ról, przemieć też tamten `href`.
   {
     prefix: "/candidates/contact-queue",
-    roles: ["tac", "recruiter", "sourcer"],
+    roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
   },
   // Moduł kandydatów (audyt M2 PR1): rola `user` = read-only viewer/klient
   // NIE ma dostępu do bazy kandydatów, talentów ani targu — backend zwraca
@@ -136,27 +161,11 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // przekierowując na /403 zamiast pokazywać puste ekrany z błędami.
   {
     prefix: "/candidates",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    roles: SOURCING_OPERATIONAL_ROLES,
   },
   {
     prefix: "/talents",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    roles: SOURCING_OPERATIONAL_ROLES,
   },
   // `/talent-radar` CELOWO nie ma wpisu: radar i powiązane funkcje są
   // dostępne dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08),
@@ -164,15 +173,7 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // Backend lustrzanie: oba endpointy radaru na CurrentUser.
   {
     prefix: "/sourcing",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    roles: SOURCING_OPERATIONAL_ROLES,
   },
   // Kolejka zgłoszeń z publicznych aplikacji — dane osobowe aplikanta
   // (imię, e-mail, telefon, LinkedIn, CV). Backend gatuje ją przez
@@ -180,19 +181,10 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // viewer dostał /403 zamiast pustego ekranu z błędem z API.
   {
     prefix: "/applications",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    roles: SOURCING_OPERATIONAL_ROLES,
   },
-  // `/jobs`, `/contracts`, `/clients`, `/calendar`, `/profile`, `/insights`,
-  // `/settings` (i każda inna trasa) nie muszą tu być — deny-by-default już
-  // wymaga od nich zalogowania. Dopisuj tutaj WYŁĄCZNIE zawężenia ról.
+  // `/profile`, `/insights`, `/settings` (i każda inna trasa bez wpisu) nie
+  // potrzebują osobnej bramki rolowej — deny-by-default już wymaga logowania.
 ];
 
 // Ścieżki jawnie publiczne — jedyne, które przechodzą bez tokenu.
