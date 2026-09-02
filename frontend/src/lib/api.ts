@@ -3632,9 +3632,13 @@ export interface ChampionBasics {
   rate_raw?: string | null;
   work_mode?: string | null;
   onsite_days_per_week?: number | null;
+  /** LOKALIZACJA BIURA — gdzie jest praca. Nazwa klucza jest historyczna. */
   candidate_location_pref?: string | null;
+  /** JĘZYK PRACY wymagany od kandydata. Język dokumentu CV to `ClientCvRule.cv_language`. */
   language?: string | null;
   start_date?: string | null;
+  /** Termin na dostarczenie kandydatów do TEJ oferty. */
+  deadline?: string | null;
   contract_length?: string | null;
 }
 
@@ -3780,6 +3784,7 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
     candidate_location_pref: null,
     language: null,
     start_date: null,
+    deadline: null,
     contract_length: null,
   },
   search: { keywords: "", target_companies: "", disqualifiers: [], notes: "" },

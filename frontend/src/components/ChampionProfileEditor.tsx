@@ -50,6 +50,7 @@ import {
   type ChampionProfileChangedEventDetail,
 } from "@/hooks/useNotifications";
 import { useAuthStore } from "@/store/auth";
+import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { cn } from "@/lib/utils";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
@@ -86,6 +87,13 @@ export function ChampionProfileEditor({
     at: number;
   } | null>(null);
   const currentUserId = useAuthStore((s) => s.user?.id);
+  // Język dokumentu CV pochodzi z REGUŁY KLIENTA, nie z profilu: to jego słucha
+  // generator (Nordea tylko EN, PFRON tylko PL). `is_active`, bo propozycja
+  // z seeda nie obowiązuje i serwer też jej nie stosuje.
+  const cvRuleQuery = useClientCvRule(clientId ?? null);
+  const cvLanguage = cvRuleQuery.data?.is_active
+    ? (cvRuleQuery.data.cv_language ?? null)
+    : null;
 
   // AI Intake (Phase 14)
   const [showIntake, setShowIntake] = useState(false);
@@ -442,7 +450,7 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Lokalizacja kandydata">
+          <Labeled label="Lokalizacja biura">
             <input
               type="text"
               disabled={disabled}
@@ -450,11 +458,11 @@ export function ChampionProfileEditor({
               onChange={(e) =>
                 patchBasics({ candidate_location_pref: e.target.value })
               }
-              placeholder="np. Warszawa lub PL remote"
+              placeholder="np. Warszawa, Al. Jerozolimskie / PL remote"
               className={inputClass}
             />
           </Labeled>
-          <Labeled label="Język">
+          <Labeled label="Język pracy (od kandydata)">
             <input
               type="text"
               disabled={disabled}
@@ -473,6 +481,34 @@ export function ChampionProfileEditor({
               placeholder="np. ASAP / 01.10.2026"
               className={inputClass}
             />
+          </Labeled>
+          <Labeled label="Deadline na kandydatów">
+            <input
+              type="text"
+              disabled={disabled}
+              value={draft.basics.deadline ?? ""}
+              onChange={(e) => patchBasics({ deadline: e.target.value })}
+              placeholder="np. 12.09.2026"
+              className={inputClass}
+            />
+          </Labeled>
+          {/* Język CV — TYLKO DO ODCZYTU, z reguł CV klienta.
+              To jedyna wartość, której słucha generator; edytowalne pole obok
+              niej byłoby drugim źródłem prawdy, które przy pierwszej zmianie
+              zaczęłoby kłamać. Pusto = klient nie stawia wymogu. */}
+          <Labeled label="Język CV (z reguł klienta)">
+            <div
+              className={cn(inputClass, "flex items-center bg-muted/60")}
+              data-testid="champion-cv-language"
+            >
+              {cvLanguage ? (
+                <span className="uppercase">{cvLanguage}</span>
+              ) : (
+                <span className="text-muted-foreground">
+                  {clientId ? "klient nie wymusza" : "wybierz klienta"}
+                </span>
+              )}
+            </div>
           </Labeled>
           <Labeled label="Długość kontraktu">
             <input
@@ -736,17 +772,11 @@ export function ChampionProfileEditor({
               className={inputClass}
             />
           </Labeled>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Labeled label="Język CV">
-              <input
-                type="text"
-                disabled={disabled}
-                value={draft.client.cv_language ?? ""}
-                onChange={(e) => patchClient({ cv_language: e.target.value })}
-                placeholder="np. PL / EN"
-                className={inputClass}
-              />
-            </Labeled>
+          {/* Język CV celowo NIE jest tu edytowalny — pokazuje go sekcja 1,
+              z reguł klienta, bo to ich słucha generator. Wartość sparsowana
+              ze starego dokumentu zostaje w danych, ale nie jest przepisywana
+              ręcznie, żeby nie powstały dwie prawdy o jednym fakcie. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Labeled label="Typ kontraktu">
               <input
                 type="text"

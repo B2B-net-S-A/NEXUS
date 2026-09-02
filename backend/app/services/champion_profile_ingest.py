@@ -47,7 +47,7 @@ PARSE_MODEL = "claude-haiku-4-5-20251001"
 # poprawny wynik, nie błąd.
 #
 # Zmiana treści = inne wyniki parsowania; bump wersji w _parser przy każdej edycji.
-PARSER_VERSION = "champion_parse:v4:haiku-4.5"
+PARSER_VERSION = "champion_parse:v5:haiku-4.5"
 
 PROMPT = """Z dokumentu "Profil Championa" (opis idealnego kandydata uzgodniony z klientem) wyciągnij DOKŁADNIE tę strukturę JSON.
 
@@ -63,8 +63,9 @@ Dokument może być w jednym z dwóch układów:
    "rate_raw": str|null,                   // stawka dokładnie jak w dokumencie
    "work_mode": "stacjonarnie"|"hybrydowo"|"zdalnie"|null,
    "onsite_days_per_week": int|null,
-   "candidate_location_pref": str|null,    // lokalizacja kandydata/biura
-   "language": str|null,
+   "candidate_location_pref": str|null,    // LOKALIZACJA BIURA (gdzie jest praca); stary wzór nazywał to „Lokalizacja kandydata"
+   "language": str|null,                   // JĘZYK PRACY wymagany od kandydata, NIE język dokumentu CV
+   "deadline": str|null,                   // termin na dostarczenie kandydatów do TEJ oferty
    "start_date": str|null,
    "contract_length": str|null             // np. "3-5 miesięcy z możliwością przedłużenia"
  },
@@ -233,6 +234,7 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
             or parsed.get("location"),
             "language": basics.get("language"),
             "start_date": basics.get("start_date") or parsed.get("start_date"),
+            "deadline": basics.get("deadline") or parsed.get("deadline"),
             "contract_length": basics.get("contract_length")
             or parsed.get("contract_length"),
         },

@@ -443,6 +443,22 @@ profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
   sekcjami** — mają własne endpointy, są server-stamped i zwykły zapis profilu ich
   nie dotyka. Trzymanie ich poza siódemką jest decyzją produktową (19.08→09.2026),
   nie przeoczeniem.
+- **Etykiety pól mówią to, co robi kod (rewizja 09.2026).** „Lokalizacja biura",
+  nie „kandydata" — `scoring_service._score_location` porównuje
+  `basics.candidate_location_pref` z miastem KANDYDATA, więc pole od zawsze
+  znaczyło „dokąd trzeba dojechać", a stara etykieta mówiła coś odwrotnego.
+  **Klucz w JSONB zostaje historyczny**: przemianowanie to migracja 949 profili
+  i ośmiu konsumentów po to, żeby użytkownik zobaczył dokładnie to samo.
+- **Dwa różne języki, dwa pola.** `basics.language` to JĘZYK PRACY wymagany od
+  kandydata (zasila wektor oferty); `ClientCvRule.cv_language` to język
+  DOKUMENTU CV — per klient i to jego słucha generator. W edytorze język CV jest
+  **tylko do odczytu**, bo edytowalne pole obok reguły klienta byłoby drugim
+  źródłem prawdy, które przy pierwszej zmianie zaczyna kłamać.
+- **Standardy klienta stoją w ramce POD TYTUŁEM wzoru**, nie na końcu sekcji 6:
+  KPI czasu na kandydata, język i konwencja nazwy pliku CV to jedyne fakty,
+  które rekruter musi znać ZANIM zacznie pracę. Na końcu czytał je już po
+  podjęciu decyzji, których dotyczą. Delivery Lead ich nie pisze — wstrzykiwane
+  per klient z `champion_template_clients.json`.
 - **Wzory Word leżą na SharePoincie, nie w repo** — NEXUS trzyma do nich wyłącznie
   linki (`help_materials`, migracja 0219: 1 ogólny + 14 per klient). Wszystkie 15
   podmieniono 01.09.2026 w `.../02_Rekrutacja i HR/Wzory/Profil Championa/`;

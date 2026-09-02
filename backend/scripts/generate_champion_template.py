@@ -146,6 +146,16 @@ def build(client: str | None, client_data: dict | None) -> Document:
         [("Opracowano na podstawie rozmowy z", "[Manager] oraz [Konsultant wewnętrzny]")],
     )
 
+    # ── Standardy klienta: RAMKA NA GÓRZE, nie na końcu ──────────────────
+    #
+    # To jedyne fakty w dokumencie, które rekruter musi znać ZANIM zacznie
+    # cokolwiek robić: ile ma dni na kandydata, w jakim języku ma być CV, jak
+    # nazwać plik. Na końcu sekcji 6 czytał je już po podjęciu decyzji, których
+    # dotyczą. Delivery Lead ich NIE pisze — są wstrzykiwane per klient.
+    standards = data.get("standardy", [])
+    if standards:
+        _block_table(doc, [("STANDARDY TEGO KLIENTA:", "\n".join(standards))])
+
     _hint(
         doc,
         "Wypełniaj TYLKO to, co naprawdę zmienia decyzję o kandydacie. Puste pole "
@@ -163,9 +173,16 @@ def build(client: str | None, client_data: dict | None) -> Document:
             ("Stawka kandydata (PLN/h)", ""),
             ("Tryb pracy", "[ ] Stacjonarnie   [ ] Hybrydowo   [ ] Zdalnie"),
             ("Dni pracy stacjonarnej", "___ dni / tydzień"),
-            ("Lokalizacja kandydata", ""),
-            ("Język", ""),
+            # „Lokalizacja biura", nie „kandydata": scoring porównuje tę wartość
+            # z miastem KANDYDATA, więc pole od zawsze znaczyło „dokąd trzeba
+            # dojechać". Stara etykieta mówiła coś odwrotnego do zachowania.
+            ("Lokalizacja biura", ""),
+            # Dwa różne języki, dwa wiersze. „Pracy" to wymaganie wobec
+            # kandydata; język dokumentu CV stoi niżej i pochodzi z reguł
+            # klienta, więc tutaj jest tylko do odczytu.
+            ("Język pracy (wymagany od kandydata)", ""),
             ("Start", ""),
+            ("Deadline na kandydatów", ""),
             ("Długość kontraktu", ""),
         ],
     )
@@ -248,7 +265,8 @@ def build(client: str | None, client_data: dict | None) -> Document:
         doc,
         [
             ("Co powiedzieć o Kliencie:", "\n".join(data.get("o_kliencie", []))),
-            ("Standardy rekrutacji klienta:", "\n".join(data.get("standardy", []))),
+            # Standardy rekrutacji przeniesione do ramki pod tytułem — tutaj
+            # zostaje to, co rekruter mówi kandydatowi o kliencie.
             ("Reguły priorytetu:", ""),
         ],
     )

@@ -21,10 +21,53 @@ Testy pilnują trzech rzeczy, z których każda już raz zawiodła po cichu:
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.schemas.champion import ChampionProfile
 from app.services import champion_view
+
+
+def _generator():
+    """Moduł generatora wzoru — mieszka w `scripts/`, więc poza pakietem app."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import generate_champion_template  # noqa: PLC0415
+
+    return generate_champion_template
+
+
+def _template_text(doc) -> str:
+    """Cały widoczny tekst dokumentu — akapity ORAZ komórki tabel.
+
+    Sam `doc.paragraphs` nie wystarcza: wzór jest tabelkowy, więc wszystkie
+    etykiety pól siedzą w komórkach i test czytający tylko akapity przechodziłby
+    niezależnie od tego, co w tych polach naprawdę jest.
+
+    Idziemy po CIELE dokumentu w kolejności, a nie `doc.paragraphs` + `doc.tables`
+    osobno: tamto zwraca najpierw wszystkie akapity, potem wszystkie tabele, więc
+    pozycje w wyniku nie mają nic wspólnego z układem strony — a asercja
+    o kolejności („standardy nad sekcją 1") byłaby wtedy pusta.
+    """
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    parts: list[str] = []
+    for block in doc.element.body:
+        tag = block.tag.split("}")[-1]
+        if tag == "p":
+            parts.append(Paragraph(block, doc).text)
+        elif tag == "tbl":
+            for row in Table(block, doc).rows:
+                seen: set[str] = set()
+                for cell in row.cells:
+                    if cell.text not in seen:
+                        seen.add(cell.text)
+                        parts.append(cell.text)
+    return "\n".join(parts)
 
 
 # Kształt 1:1 z tym, co ``build_champion_dict`` zapisywał w imporcie 08.2026
@@ -501,3 +544,75 @@ def test_every_champion_exit_to_the_frontend_goes_through_the_normaliser() -> No
             f"{name}: profil Championa wychodzi do frontu z pominięciem "
             f"`_champion_response`: {raw}"
         )
+
+
+# ── Etykiety pól: wzór Word musi mówić to, co robi kod ──────────────────────
+
+
+def test_location_label_says_office_not_candidate() -> None:
+    """Wiersz lokalizacji nazywa się „Lokalizacja biura", nie „kandydata".
+
+    `scoring_service._score_location` porównuje `basics.candidate_location_pref`
+    z miastem KANDYDATA — czyli pole od zawsze znaczyło „dokąd trzeba dojechać".
+    Stara etykieta mówiła coś dokładnie odwrotnego do zachowania systemu, więc
+    Delivery Lead wpisujący tam miasto zamieszkania kandydata psuł dopasowania,
+    robiąc dokładnie to, o co prosił formularz.
+    """
+    text = _template_text(_generator().build(None, None))
+    assert "Lokalizacja biura" in text
+    assert "Lokalizacja kandydata" not in text
+
+
+def test_two_distinct_language_rows() -> None:
+    """Język PRACY i język CV to dwa różne fakty i wzór musi je rozdzielać.
+
+    `basics.language` to wymaganie wobec kandydata i zasila wektor oferty;
+    język dokumentu CV stoi w `ClientCvRule.cv_language`, jest per klient i to
+    jego słucha generator. Jedna etykieta „Język" kazała zgadywać, a zgadnięcie
+    źle znaczyło albo CV w złym języku, albo utracone wymaganie językowe.
+    """
+    text = _template_text(_generator().build(None, None))
+    assert "Język pracy" in text
+    # Samo „Język" bez doprecyzowania nie może zostać jako osobny wiersz.
+    assert "\nJęzyk\n" not in text
+
+
+def test_deadline_row_is_back() -> None:
+    """Termin na kandydatów wrócił — zgubiony przy przebudowie na 7 sekcji.
+
+    Nie da się go wyprowadzić z niczego innego: KPI klienta („5 dni roboczych")
+    opisuje TEMPO, a nie datę tej konkretnej rekrutacji.
+    """
+    assert "Deadline na kandydatów" in _template_text(_generator().build(None, None))
+
+
+def test_client_standards_sit_above_the_first_section() -> None:
+    """Standardy klienta w ramce POD TYTUŁEM, nie na końcu dokumentu.
+
+    KPI czasu na kandydata, język i konwencja nazwy pliku CV to jedyne fakty,
+    które rekruter musi znać ZANIM cokolwiek zrobi. Na końcu sekcji 6 czytał je
+    już po podjęciu decyzji, których dotyczą.
+    """
+    gen = _generator()
+    clients = json.loads(gen.CLIENTS_FILE.read_text(encoding="utf-8"))
+    doc = gen.build("Nordea", clients["Nordea"])
+    text = _template_text(doc)
+
+    standards_at = text.find("STANDARDY TEGO KLIENTA")
+    section_one_at = text.find("1. PODSTAWOWE INFORMACJE")
+    client_section_at = text.find("6. O KLIENCIE")
+
+    assert standards_at != -1, "brak ramki ze standardami"
+    assert standards_at < section_one_at, "standardy muszą stać nad sekcją 1"
+    # I nie mogą zostać zdublowane na dole — jedna prawda, jedno miejsce.
+    assert text.count("KPI: Mamy 5 dni roboczych") == 1
+    assert client_section_at > standards_at
+
+
+def test_client_description_stays_in_section_six() -> None:
+    """Przeniesienie standardów NIE zabrało opisu klienta z sekcji 6."""
+    gen = _generator()
+    clients = json.loads(gen.CLIENTS_FILE.read_text(encoding="utf-8"))
+    text = _template_text(gen.build("Nordea", clients["Nordea"]))
+    assert "Co powiedzieć o Kliencie" in text
+    assert "Collaboration, Ownership, Passion, Courage" in text

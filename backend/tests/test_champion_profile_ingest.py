@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.champion_profile_ingest import (
+    PARSER_VERSION,
     ALLOWED_EXTENSIONS,
     MAX_FILE_BYTES,
     build_champion_dict,
@@ -33,7 +34,11 @@ def test_champion_dict_shape_is_the_seven_sections():
     assert d["basics"]["candidate_location_pref"] == "Warszawa"
     assert d["stack"]["must"] == [{"name": "SQL"}]
     assert d["_source"] == "traffit_recruitment_file:262275"
-    assert d["_parser"].startswith("champion_parse:v4")
+    # Wersja czytana Z MODUŁU, nie przybita literałem: bump promptu jest
+    # normalną zmianą (v3 → v4 → v5), a test ma pilnować, że stempel W OGÓLE
+    # trafia do profilu — bo bez niego nie da się odróżnić dokumentu
+    # sparsowanego starym promptem od nowego.
+    assert d["_parser"] == PARSER_VERSION
     # Wszystkie siedem sekcji istnieje ZAWSZE — konsument czytający brakującą
     # sekcję dostałby pustkę nie do odróżnienia od „nie ma takich danych".
     for key in (
