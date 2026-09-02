@@ -247,6 +247,7 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
 ):
     async with AsyncSessionLocal() as db:
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.identification_reason = "NIP z dokumentu wskazuje klienta Bank Apply"
         doc.gate_reasons = ["Stawka 950 odbiega od obowiązującej 700"]
         doc.error = "Nie udało się zapisać stawki 950"
         doc.extraction = {
