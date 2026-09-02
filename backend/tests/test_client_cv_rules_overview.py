@@ -163,7 +163,7 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
         assert body["confirmed_by_name"] == "CV rules delivery_lead"
         assert body["generator_instructions"] == "Bez sekcji zainteresowań."
         assert body["client_policy"] == (
-            "nazwa pliku, język PL, instrukcje dla generatora"
+            "nazwa pliku, język PL, instrukcje dla generatora, notatka DL"
         )
         assert body["filename_preview"] == "B2B_Analityk_Biznesowy_Jan_Kowalski.docx"
         assert await _rule_is_active_in_db(other) is True

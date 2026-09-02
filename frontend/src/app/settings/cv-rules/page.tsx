@@ -28,8 +28,9 @@
  * z `isSuccess`, więc przerwa między ponowieniami też nie udaje pustki.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -56,27 +57,20 @@ import {
   ClientSinglePicker,
   type ClientRef,
 } from "@/components/clients/ClientSinglePicker";
-import {
-  ClientCvRulesSection,
-  type ClientCvRuleResponse,
-} from "@/components/clients/ClientCvRulesSection";
+import { CvRuleEditor } from "@/components/cv-rules/CvRuleEditor";
+import type {
+  ClientCvRule,
+  ClientCvRuleListItem,
+  CvRulesOverview,
+} from "@/lib/cv-rules";
+import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 
-export interface CvRuleRow extends ClientCvRuleResponse {
-  template_label: string | null;
-  template_url: string | null;
-  updated_at: string | null;
-}
+export type CvRuleRow = ClientCvRuleListItem;
+export type { CvRulesOverview };
 
-export interface UnassignedTemplate {
-  seed_key: string;
-  label: string;
-  template_url: string | null;
-}
-
-export interface CvRulesOverview {
-  rules: CvRuleRow[];
-  unassigned_templates: UnassignedTemplate[];
-}
+const MODE_LABEL: Record<string, string> = Object.fromEntries(
+  CV_CONTENT_MODES.map((m) => [m.value, m.label]),
+);
 
 type StateFilter = "all" | "active" | "proposed";
 
@@ -151,6 +145,11 @@ export default function CvRulesSettingsPage() {
   const hydrated = useAuthStore((s) => s.hydrated);
   const canEdit = useCapability("cv_rule.manage");
   const queryClient = useQueryClient();
+  // `?client=<id>` — link z okna „Edytuj firmę" otwiera edytor tego klienta
+  // od razu. Czytane przez efekt, nie w inicjalizatorze stanu: miękka
+  // nawigacja App Routera nie odmontowuje strony.
+  const searchParams = useSearchParams();
+  const deepLinkClient = searchParams.get("client");
 
   // Portfel Delivery Leada z `data_scope` — liczy go backend w GET /api/auth/me
   // z tego samego `resolve_dashboard_scope`, którego używają trasy DL. Nie
@@ -196,7 +195,7 @@ export default function CvRulesSettingsPage() {
   const confirmMutation = useMutation({
     mutationFn: async (clientId: number) =>
       (
-        await api.post<ClientCvRuleResponse>(
+        await api.post<ClientCvRule>(
           `/api/clients/${clientId}/cv-rule/confirm`,
         )
       ).data,
@@ -223,6 +222,14 @@ export default function CvRulesSettingsPage() {
   const rows = useMemo(() => query.data?.rules ?? [], [query.data]);
   const unassigned = query.data?.unassigned_templates ?? [];
   const activeCount = rows.filter((r) => r.is_active).length;
+
+  useEffect(() => {
+    if (!deepLinkClient || !canEdit) return;
+    const id = Number.parseInt(deepLinkClient, 10);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const row = rows.find((r) => r.client_id === id);
+    setEditor({ clientId: id, clientName: row?.client_name ?? `#${id}` });
+  }, [deepLinkClient, canEdit, rows]);
 
   const filtered = useMemo(() => {
     const q = fold(search.trim());
@@ -409,7 +416,20 @@ export default function CvRulesSettingsPage() {
                       !row.requires_rodo_consent_block &&
                       !row.spaces_to_underscores &&
                       !row.notes?.trim() &&
-                      !row.generator_instructions?.trim();
+                      !row.generator_instructions?.trim() &&
+                      !row.generator_instructions_en?.trim() &&
+                      !(row.content_mode && row.content_mode_locked) &&
+                      !row.require_screening_notes_min_chars &&
+                      !row.require_project_ref &&
+                      !row.require_position &&
+                      !row.require_champion &&
+                      !row.omit_sections?.length &&
+                      !row.max_roles &&
+                      !row.max_bullets_per_role &&
+                      !row.max_bullet_chars &&
+                      !row.why_points_max &&
+                      !row.date_format &&
+                      !row.glossary?.length;
                     return (
                       <tr key={row.client_id} className="border-t align-top">
                         <td className="p-3">
@@ -478,9 +498,40 @@ export default function CvRulesSettingsPage() {
                             {row.notes?.trim() ? (
                               <Chip title={row.notes}>notatka</Chip>
                             ) : null}
-                            {row.generator_instructions?.trim() ? (
-                              <Chip title={row.generator_instructions}>
+                            {row.generator_instructions?.trim() ||
+                            row.generator_instructions_en?.trim() ? (
+                              <Chip
+                                title={
+                                  row.generator_instructions ??
+                                  row.generator_instructions_en ??
+                                  undefined
+                                }
+                              >
                                 instrukcje AI
+                              </Chip>
+                            ) : null}
+                            {row.content_mode && row.content_mode_locked ? (
+                              <Chip title="Tryb obróbki treści zablokowany przez Delivery Leada">
+                                tryb: {MODE_LABEL[row.content_mode] ?? row.content_mode}
+                              </Chip>
+                            ) : null}
+                            {row.require_screening_notes_min_chars ||
+                            row.require_project_ref ||
+                            row.require_position ||
+                            row.require_champion ? (
+                              <Chip title="Generacja odmawia bez wymaganych wejść">
+                                wymagane wejścia
+                              </Chip>
+                            ) : null}
+                            {row.omit_sections?.length ||
+                            row.max_roles ||
+                            row.max_bullets_per_role ||
+                            row.max_bullet_chars ||
+                            row.why_points_max ||
+                            row.date_format ||
+                            row.glossary?.length ? (
+                              <Chip title="Polityka prezentacji egzekwowana w kodzie">
+                                polityka treści
                               </Chip>
                             ) : null}
                             {noRequirements ? (
@@ -490,6 +541,9 @@ export default function CvRulesSettingsPage() {
                         </td>
                         <td className="p-3">
                           <StateBadge active={row.is_active} />
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            wersja {row.version}
+                          </p>
                         </td>
                         <td className="p-3 text-xs text-muted-foreground">
                           {row.confirmed_at
@@ -611,7 +665,7 @@ export default function CvRulesSettingsPage() {
         }}
         title="Nowa reguła CV"
         description="Wybierz klienta, a potem wpisz jego wymagania. „Zapisz i zatwierdź” włącza regułę od razu."
-        size="lg"
+        size="xl"
       >
         <div className="space-y-4">
           <ClientSinglePicker
@@ -627,7 +681,7 @@ export default function CvRulesSettingsPage() {
                   Ten klient ma już regułę — edytujesz istniejącą.
                 </p>
               ) : null}
-              <ClientCvRulesSection
+              <CvRuleEditor
                 clientId={addClient.id}
                 allowDelete
                 onChanged={(rule) => invalidate(rule.client_id)}
@@ -647,10 +701,10 @@ export default function CvRulesSettingsPage() {
           if (!open) closeEditor();
         }}
         title={editor ? `Reguły CV — ${editor.clientName}` : "Reguły CV"}
-        size="lg"
+        size="xl"
       >
         {editor ? (
-          <ClientCvRulesSection
+          <CvRuleEditor
             clientId={editor.clientId}
             allowDelete
             onChanged={(rule) => invalidate(rule.client_id)}

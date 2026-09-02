@@ -5,6 +5,7 @@ import {
   ClientCvRuleBanner,
   type ClientCvRule,
 } from "@/components/v2/cv-generator/ClientCvRuleBanner";
+import { makeCvRule } from "@/test/fixtures/cv-rule";
 
 vi.mock("@/lib/api", () => ({
   default: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn() },
@@ -19,23 +20,10 @@ vi.mock("@/lib/api", () => ({
  * i wychodzi to dopiero u odbiorcy CV.
  */
 
-const ACTIVE: ClientCvRule = {
-  client_id: 1,
-  client_name: "Nordea Bank Abp",
-  filename_pattern: "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
-  spaces_to_underscores: false,
-  cv_language: "en",
-  requires_en_copy: false,
-  requires_rodo_consent_block: false,
-  notes: null,
-  generator_instructions: null,
+const ACTIVE: ClientCvRule = makeCvRule({
   seed_key: null,
-  confirmed_at: "2026-08-31T10:00:00Z",
-  confirmed_by_name: "Artur",
-  is_active: true,
-  client_policy: "nazwa pliku, język EN",
   filename_preview: "B2B_Analityk_Jan Kowalski.docx",
-};
+});
 
 describe("ClientCvRuleBanner", () => {
   it("pokazuje notatkę Delivery Leada tylko przy regule, która obowiązuje", () => {
@@ -91,6 +79,27 @@ describe("ClientCvRuleBanner", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("Bez sekcji zainteresowań. Opisy do 2 zdań."),
+    ).toBeInTheDocument();
+  });
+
+  it("mówi rekruterowi o zablokowanym trybie i automatycznej drugiej wersji", () => {
+    render(
+      <ClientCvRuleBanner
+        clientId={1}
+        rule={{
+          ...ACTIVE,
+          content_mode: "basic",
+          content_mode_locked: true,
+          requires_en_copy: true,
+          auto_second_language: true,
+        }}
+        isLoading={false}
+        isError={false}
+      />,
+    );
+    expect(screen.getByText(/Tryb obróbki treści: Przepisanie/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/druga wersja wygeneruje się automatycznie/),
     ).toBeInTheDocument();
   });
 

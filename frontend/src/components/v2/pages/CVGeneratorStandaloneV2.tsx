@@ -166,6 +166,16 @@ export function CVGeneratorStandaloneV2() {
   const [uploadClient, setUploadClient] = useState<ClientRef | null>(null);
   const [position, setPosition] = useState("");
   const [projectRef, setProjectRef] = useState("");
+  // Kandydat z bazy w trybie upload (0267) — WYŁĄCZNIE po to, żeby podpowiedzieć
+  // klienta z jego aktywnego procesu. Plik CV nadal wgrywa rekruter; nic
+  // z bazy kandydata nie idzie do modelu tą ścieżką.
+  const [uploadCandidate, setUploadCandidate] = useState<CandidateOption | null>(null);
+  const [uploadCandidateOpen, setUploadCandidateOpen] = useState(false);
+  const [uploadCandidateQuery, setUploadCandidateQuery] = useState("");
+  // Generacja bez klienta wymaga jawnego potwierdzenia — bez klienta ŻADNA
+  // reguła nie działa, a to była największa dziura: rekruter „zapominał"
+  // wybrać klienta i dostawał plik z ogólną nazwą i bez blokad.
+  const [outsideAssignment, setOutsideAssignment] = useState(false);
 
   // ── Shared options ──────────────────────────────────────────────────────
   const [language, setLanguage] = useState<"pl" | "en">("pl");
@@ -234,6 +244,50 @@ export function CVGeneratorStandaloneV2() {
     );
   }, [recruitmentsQuery.data, stageId]);
 
+  // ── Upload: klient podpowiadany z aktywnego procesu kandydata ───────────
+  const debouncedUploadCandidateQuery = useDebouncedValue(uploadCandidateQuery, 300);
+  const uploadCandidatesQuery = useQuery({
+    queryKey: ["cv-gen-candidates", debouncedUploadCandidateQuery],
+    queryFn: async () => {
+      const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
+        params: { q: debouncedUploadCandidateQuery, limit: 20 },
+      });
+      return res.data;
+    },
+    enabled: uploadCandidateOpen && mode === "old",
+    staleTime: 30_000,
+  });
+  const uploadRecruitmentsQuery = useQuery({
+    queryKey: ["cv-gen-recruitments", uploadCandidate?.id],
+    queryFn: async () => {
+      if (!uploadCandidate) return [] as RecruitmentOption[];
+      const res = await api.get<RecruitmentOption[]>(
+        `/api/cv-generator/candidates/${uploadCandidate.id}/recruitments`,
+      );
+      return res.data;
+    },
+    enabled: !!uploadCandidate && mode === "old",
+  });
+  const uploadClientOptions = useMemo<ClientRef[]>(() => {
+    const seen = new Map<number, ClientRef>();
+    for (const r of uploadRecruitmentsQuery.data ?? []) {
+      if (r.client_id && !seen.has(r.client_id)) {
+        seen.set(r.client_id, { id: r.client_id, name: r.client_name ?? `#${r.client_id}` });
+      }
+    }
+    return [...seen.values()];
+  }, [uploadRecruitmentsQuery.data]);
+  useEffect(() => {
+    // Dokładnie jeden klient w procesach kandydata = wybieramy go sami. Przy
+    // kilku decyduje rekruter (przyciski niżej); przy zerze nie zgadujemy.
+    if (mode === "old" && uploadCandidate && uploadClientOptions.length === 1) {
+      setUploadClient(uploadClientOptions[0]);
+    }
+  }, [mode, uploadCandidate, uploadClientOptions]);
+  useEffect(() => {
+    if (uploadClient) setOutsideAssignment(false);
+  }, [uploadClient]);
+
   // Klient obowiązujący dla TEJ generacji. W trybie „new" pochodzi z wybranej
   // rekrutacji (serwer i tak liczy go sam), w uploadzie — z pickera.
   const effectiveClientId =
@@ -256,12 +310,67 @@ export function CVGeneratorStandaloneV2() {
     }
   }, [forcedLanguage, language]);
 
+  // ── Blokada trybu obróbki treści (0267) ─────────────────────────────────
+  // Zablokowany tryb: kafelki wyłączone, wartość wymuszona (serwer i tak
+  // nadpisuje). Domyślny tryb: zaznaczany RAZ przy zmianie klienta — potem
+  // rekruter może go zmienić.
+  const lockedMode = activeRule?.content_mode_locked
+    ? activeRule.content_mode
+    : null;
+  const defaultMode = activeRule?.content_mode ?? null;
+  const ruleClientId = activeRule?.client_id ?? null;
+  const lastDefaultedClient = useRef<number | null>(null);
+  useEffect(() => {
+    if (lockedMode && lockedMode !== contentMode) setContentMode(lockedMode);
+  }, [lockedMode, contentMode]);
+  useEffect(() => {
+    if (ruleClientId === null || lastDefaultedClient.current === ruleClientId) return;
+    lastDefaultedClient.current = ruleClientId;
+    if (defaultMode && !lockedMode) setContentMode(defaultMode);
+  }, [ruleClientId, defaultMode, lockedMode]);
+
+  // ── Wymagane wejścia (0267) — te same komunikaty, które zwróci 422 ───────
+  const hasChampionInput =
+    mode === "new"
+      ? !!selectedRecruitment?.has_champion
+      : !!championFile || !!mustRequirements.trim() || !!niceRequirements.trim();
+  const notesChars =
+    mode === "new" ? (selectedRecruitment?.notes_chars ?? 0) : screeningNotes.trim().length;
+  const requirementProblems = useMemo(() => {
+    if (!activeRule) return [] as string[];
+    const problems: string[] = [];
+    const min = activeRule.require_screening_notes_min_chars ?? 0;
+    if (min > 0 && notesChars < min) {
+      problems.push(
+        `Ten klient wymaga notatek ze screeningu o długości co najmniej ${min} znaków — jest ${notesChars}.`,
+      );
+    }
+    if (activeRule.require_project_ref && !projectRef.trim()) {
+      problems.push("Ten klient wymaga numeru projektu — uzupełnij pole „Numer / nazwa projektu”.");
+    }
+    if (activeRule.require_position && mode === "old" && !position.trim()) {
+      problems.push("Ten klient wymaga stanowiska — uzupełnij pole „Stanowisko”.");
+    }
+    if (activeRule.require_champion && !hasChampionInput) {
+      problems.push(
+        mode === "new"
+          ? "Ten klient wymaga Profilu Championa — uzupełnij go na karcie rekrutacji przed generacją."
+          : "Ten klient wymaga wymagań z Profilu Championa — wgraj plik championa albo wpisz wymagania must-have / nice-to-have.",
+      );
+    }
+    return problems;
+  }, [activeRule, notesChars, projectRef, position, mode, hasChampionInput]);
+  const showRequirementProblems =
+    requirementProblems.length > 0 &&
+    (mode === "new" ? !!selectedRecruitment : !!uploadClient);
+
   const canSubmitNew =
     !!candidate && !!selectedRecruitment && selectedRecruitment.ready;
-  const canSubmitOld = !!cvFile;
+  const canSubmitOld = !!cvFile && (!!uploadClient || outsideAssignment);
   const canSubmit =
     (mode === "new" ? canSubmitNew : canSubmitOld) &&
-    (!consentRequired || !!consentKey);
+    (!consentRequired || !!consentKey) &&
+    requirementProblems.length === 0;
 
   // ── New mode mutation ───────────────────────────────────────────────────
   // Enqueues background generation (202) and returns immediately — the recruiter
@@ -583,17 +692,71 @@ export function CVGeneratorStandaloneV2() {
               </p>
             ) : (
               <>
+                <UploadCandidatePicker
+                  candidate={uploadCandidate}
+                  open={uploadCandidateOpen}
+                  query={uploadCandidateQuery}
+                  candidatesQuery={uploadCandidatesQuery}
+                  setCandidate={setUploadCandidate}
+                  setOpen={setUploadCandidateOpen}
+                  setQuery={setUploadCandidateQuery}
+                />
+                {uploadCandidate && uploadClientOptions.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      Kandydat jest w procesach kilku klientów — wybierz:
+                    </span>
+                    {uploadClientOptions.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setUploadClient(c)}
+                        className={
+                          uploadClient?.id === c.id
+                            ? "rounded-full bg-primary px-2 py-0.5 text-primary-foreground"
+                            : "rounded-full border px-2 py-0.5 hover:bg-muted"
+                        }
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {uploadCandidate &&
+                uploadRecruitmentsQuery.isSuccess &&
+                uploadClientOptions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Ten kandydat nie ma procesu z przypisanym klientem — wybierz
+                    klienta ręcznie.
+                  </p>
+                ) : null}
                 <ClientSinglePicker
                   value={uploadClient}
                   onChange={setUploadClient}
                   queryKey="clients-lookup-cv-generator"
-                  placeholder="Bez klienta (nazwa i język ogólne)"
+                  placeholder="Wybierz klienta…"
                   allowClear
                 />
                 <p className="text-xs text-muted-foreground">
-                  Opcjonalne. Wybór klienta włącza jego reguły: nazwę pliku CV
-                  i wymagany język.
+                  Klient włącza jego reguły: nazwę pliku, język, blokady i
+                  instrukcje Delivery Leada. Wskaż kandydata z bazy, a klient
+                  podpowie się z jego procesu.
                 </p>
+                {!uploadClient ? (
+                  <label className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-800 dark:text-amber-300">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={outsideAssignment}
+                      onChange={(e) => setOutsideAssignment(e.target.checked)}
+                    />
+                    <span>
+                      Generuję CV poza zleceniem — bez klienta nie zadziała żadna
+                      reguła (nazwa pliku i język będą ogólne, bez blokad i
+                      instrukcji Delivery Leada).
+                    </span>
+                  </label>
+                ) : null}
               </>
             )}
             <ClientCvRuleBanner
@@ -624,7 +787,8 @@ export function CVGeneratorStandaloneV2() {
             </div>
           )}
 
-          {activeRule?.filename_pattern?.includes("{PROJEKT}") && (
+          {(activeRule?.filename_pattern?.includes("{PROJEKT}") ||
+            activeRule?.require_project_ref) && (
             <div>
               <Label className="mb-2 block" htmlFor="cvgen-project">
                 Numer / nazwa projektu
@@ -646,7 +810,15 @@ export function CVGeneratorStandaloneV2() {
 
           <div>
             <Label className="mb-2 block">Obróbka treści</Label>
-            <ContentModeTiles value={contentMode} onChange={setContentMode} />
+            <div className={lockedMode ? "pointer-events-none opacity-60" : undefined}>
+              <ContentModeTiles value={contentMode} onChange={setContentMode} />
+            </div>
+            {lockedMode ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Tryb ustalony przez Delivery Leada dla tego klienta — wybór jest
+                zablokowany. Zmienisz to w regułach CV klienta.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -706,6 +878,21 @@ export function CVGeneratorStandaloneV2() {
           className="mt-6"
           title="Wygenerujesz CV bez Profilu Championa"
           description="Technologie klienta nie zostaną wytłuszczone, a lista brakujących wymagań nie powstanie. Popraw plik w kroku 2 albo generuj świadomie."
+        />
+      )}
+
+      {showRequirementProblems && (
+        <Alert
+          variant="warning"
+          className="mt-6"
+          title="Klient wymaga uzupełnienia danych przed generacją"
+          description={
+            <ul className="list-disc space-y-1 pl-4">
+              {requirementProblems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          }
         />
       )}
 
@@ -975,6 +1162,107 @@ function NewModeForm({
         </Card>
       )}
     </>
+  );
+}
+
+// ── Upload: kandydat z bazy (podpowiedź klienta) ───────────────────────────
+
+type UploadCandidatePickerProps = {
+  candidate: CandidateOption | null;
+  open: boolean;
+  query: string;
+  candidatesQuery: { data?: CandidateOption[]; isLoading: boolean };
+  setCandidate: (c: CandidateOption | null) => void;
+  setOpen: (v: boolean) => void;
+  setQuery: (v: string) => void;
+};
+
+function UploadCandidatePicker({
+  candidate,
+  open,
+  query,
+  candidatesQuery,
+  setCandidate,
+  setOpen,
+  setQuery,
+}: UploadCandidatePickerProps) {
+  return (
+    <div className="flex items-center gap-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            aria-label="Kandydat z bazy"
+            className="w-full justify-between font-normal"
+          >
+            <span className="flex items-center gap-2 truncate">
+              <UserSearch className="h-4 w-4 text-muted-foreground" />
+              {candidate ? (
+                <span className="truncate">{candidate.full_name}</span>
+              ) : (
+                <span className="text-muted-foreground">
+                  Kandydat z bazy (opcjonalnie) — podpowie klienta z procesu
+                </span>
+              )}
+            </span>
+            <ChevronsUpDown className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
+          <Command shouldFilter={false}>
+            <div className="flex items-center border-b border-border px-3">
+              <Search className="mr-2 h-4 w-4 text-muted-foreground" />
+              <CommandInput
+                placeholder="Szukaj kandydata…"
+                value={query}
+                onValueChange={setQuery}
+                className="h-10 border-0"
+              />
+            </div>
+            <CommandList>
+              {candidatesQuery.isLoading && (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  Ładowanie…
+                </div>
+              )}
+              <CommandEmpty>Brak wyników.</CommandEmpty>
+              <CommandGroup>
+                {(candidatesQuery.data ?? []).map((c) => (
+                  <CommandItem
+                    key={c.id}
+                    value={String(c.id)}
+                    onSelect={() => {
+                      setCandidate(c);
+                      setOpen(false);
+                    }}
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium">{c.full_name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {[c.position, c.email].filter(Boolean).join(" · ")}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+      {candidate ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="Wyczyść kandydata"
+          onClick={() => setCandidate(null)}
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

@@ -71,6 +71,11 @@ class AIFeatureKey(str, enum.Enum):
     # funkcji, a `/commentary` odpala się sam przy montowaniu strony, więc to
     # ten sam strumień wydatku co czat.
     mindy_chat = "mindy_chat"
+    # Lint instrukcji klienta dla generatora CV przy zapisie reguły (0267):
+    # tani model ocenia każdą linię — prezentacja czy dopisywanie faktów.
+    # Osobny kubełek: inny strumień wydatku niż generacja, inna osoba płaci
+    # (Delivery Lead przy setupie, nie rekruter przy każdym CV).
+    cv_rule_lint = "cv_rule_lint"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -89,6 +94,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.champion_profile_parse: "Odczyt profili Championa (Traffit)",
     AIFeatureKey.cv_generator: "Generator CV B2B",
     AIFeatureKey.mindy_chat: "MINDY — komentarz i czat (DynaReporter)",
+    AIFeatureKey.cv_rule_lint: "Reguły CV klienta — lint instrukcji dla generatora",
 }
 
 
@@ -142,6 +148,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Agregaty KPI rozmówcy (placementy, leady, oferty)",
         "Imię i e-mail rozmówcy",
         "Treść pytań zadanych MINDY",
+    ],
+    AIFeatureKey.cv_rule_lint: [
+        "Treść instrukcji Delivery Leada dla generatora CV (bez danych kandydatów)",
     ],
     AIFeatureKey.cv_requirement_map: [
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
