@@ -47,6 +47,9 @@ logger = logging.getLogger(__name__)
 _MODEL = os.environ.get("ORDER_PARSER_MODEL", "") or settings.ORDER_PARSER_MODEL
 _MAX_TOKENS = 1200
 _MAX_TARGETED_TOKENS = 2400
+# Tryb all-rows zwraca KAŻDĄ osobę z dokumentu z własnym okresem — wiersz jest
+# ~2× większy niż w trybie targetowanym, a Velobank potrafi mieć kilkanaście osób.
+_MAX_ALL_ROWS_TOKENS = 4000
 # Zwykłe formularze zachowują dotychczasowy limit. Przy wskazanym konsultancie
 # dokładamy do niego wszystkie okna, w których deterministyczny matcher widzi
 # możliwy zapis tej osoby — dzięki temu pozycja z dalszej strony nie znika.
@@ -77,6 +80,12 @@ class ConsultantOrderRow:
     md_total: Optional[Decimal] = None
     uncertain: bool = True
     uncertain_reason: Optional[str] = None
+    start_date: Optional[str] = None
+    """Okres WŁASNY tego wiersza (ISO), gdy dokument podaje go per osoba —
+    Velobank ma kolumny „Zlecenie od / Zlecenie do", Alior zakres w nawiasie pod
+    nazwiskiem. ``None`` = wiersz nie ma własnego okresu i obowiązuje okres
+    dokumentu (``OrderExtraction.start_date``)."""
+    end_date: Optional[str] = None
 
 
 @dataclass
@@ -117,6 +126,13 @@ class OrderExtraction:
     WZROKOWEMU potwierdzeniu przez operatora, że dokument dotyczy osoby,
     z której karty uruchomił odczyt. Nie jest kwotą, więc przeżywa redakcję
     finansową."""
+
+    document_truncated: bool = False
+    """Tekst dokumentu został UCIĘTY przed wysłaniem do modelu (limit znaków
+    w trybie bez osoby docelowej). Do 09.2026 ucięcie było ciche — w trybie
+    all-rows oznaczałoby poprawnie wyglądającą listę osób bez ogona tabeli,
+    czyli ten sam tryb awarii co cap 10 stron OCR. Flaga istnieje po to, żeby
+    automat nigdy nie zapisał zamówienia z takiego odczytu."""
 
     title_needs_review: bool = False
     """Klientowa polityka numeru zamówienia nie znalazła numeru w dokumencie —
@@ -310,6 +326,8 @@ def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
                     rate_client=_normalize_amount(raw_row.get("rate_client")),
                     rate_unit=_clean_unit(raw_row.get("rate_unit")),
                     md_total=_normalize_amount(raw_row.get("md_total")),
+                    start_date=_normalize_date(raw_row.get("start_date"), end=False),
+                    end_date=_normalize_date(raw_row.get("end_date"), end=True),
                     # Pole jest wymagane przez prompt. Brak traktujemy fail-safe:
                     # starsza/ucięta odpowiedź modelu nie może zapisać kwoty.
                     uncertain=(
@@ -697,6 +715,39 @@ async def _extract_with_claude(
     consultant_name: Optional[str] = None,
     consultant_given_names: Optional[str] = None,
 ) -> Optional[OrderExtraction]:
+    """Odczyt dokumentu: bez osoby docelowej (pola dokumentu) albo z nią (wiersz).
+
+    Testy podmieniają tę funkcję fake'iem o DOKŁADNIE tej sygnaturze — dlatego
+    tryb all-rows ma osobne wejście (``_extract_all_rows_with_claude``) zamiast
+    kolejnego parametru tutaj.
+    """
+    return await _call_extraction(
+        text,
+        consultant_name=consultant_name,
+        consultant_given_names=consultant_given_names,
+        all_rows=False,
+    )
+
+
+async def _extract_all_rows_with_claude(text: str) -> Optional[OrderExtraction]:
+    """Odczyt dokumentu z WSZYSTKIMI osobami jako wierszami (ścieżka mailowa).
+
+    Bez osoby docelowej: model dostaje cały dokument (do limitu znaków) i ma
+    wypisać każdą osobę z jej własnym okresem, stawką i MD. Pola finansowe na
+    poziomie dokumentu są celowo puste — przy N osobach nie znaczą nic.
+    """
+    return await _call_extraction(
+        text, consultant_name=None, consultant_given_names=None, all_rows=True
+    )
+
+
+async def _call_extraction(
+    text: str,
+    *,
+    consultant_name: Optional[str],
+    consultant_given_names: Optional[str],
+    all_rows: bool,
+) -> Optional[OrderExtraction]:
     # Typed field w Settings — dostęp wprost (getattr z defaultem cicho
     # re-enable'owałby kill-switch, gdyby pole zniknęło z config.py).
     api_key = os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY
@@ -716,13 +767,20 @@ async def _extract_with_claude(
     prompt = ORDER_EXTRACTION.render(
         document_text=document_text,
         target_consultant=target_for_prompt,
+        list_all_consultants="yes" if all_rows else "no",
     )
+    if all_rows:
+        max_tokens = _MAX_ALL_ROWS_TOKENS
+    elif consultant_name:
+        max_tokens = _MAX_TARGETED_TOKENS
+    else:
+        max_tokens = _MAX_TOKENS
     try:
         message = await run_in_threadpool(
             call_claude,
             messages=[{"role": "user", "content": prompt}],
             model=_MODEL,
-            max_tokens=_MAX_TARGETED_TOKENS if consultant_name else _MAX_TOKENS,
+            max_tokens=max_tokens,
             api_key=api_key,
             # Claude 5 robi adaptive thinking (effort=high) domyślnie; thinking
             # tokeny liczą się do max_tokens i ucięłyby JSON — wyłączamy.
@@ -744,6 +802,10 @@ async def _extract_with_claude(
     if not isinstance(data, dict):
         return None
     result = _normalize(data, source="claude")
+    # Bez osoby docelowej `_document_text_for_prompt` tnie po cichu do
+    # _MAX_DOC_CHARS. W trybie all-rows ogon tabeli to kolejne osoby — ucięcie
+    # musi być widoczne, żeby bramka automatu odesłała dokument do człowieka.
+    result.document_truncated = not consultant_name and len(text) > _MAX_DOC_CHARS
     if target_context_incomplete:
         # Nie wybieramy osoby z niepełnego zbioru potencjalnych trafień.
         result.consultant_rows = []
@@ -2105,20 +2167,37 @@ async def parse_order_document(
     consultant_name: Optional[str] = None,
     consultant_given_names: Optional[str] = None,
     consultant_rate_unit_default: Optional[str] = None,
+    all_rows: bool = False,
 ) -> OrderExtraction:
-    """Odczytaj pola zamówienia z tekstu dokumentu. Nigdy nie rzuca."""
+    """Odczytaj pola zamówienia z tekstu dokumentu. Na treści nigdy nie rzuca.
+
+    ``all_rows=True`` (ścieżka mailowa) zwraca KAŻDĄ osobę z dokumentu
+    w ``consultant_rows`` z jej własnym okresem — bez wyboru jednej i bez
+    zwijania do pól dokumentu. Jest wykluczające z ``consultant_name``: tryb
+    targetowany wybiera jedną osobę, all-rows żadnej; podanie obu to błąd
+    programisty, nie danych, więc ``ValueError``.
+    """
+    if all_rows and consultant_name:
+        raise ValueError("all_rows=True wyklucza consultant_name")
+
     text = (text or "").strip()
     if not text:
         return OrderExtraction(
             uncertain=True, uncertain_reasons=["Pusty dokument"], source="none"
         )
 
-    result = await _extract_with_claude(
-        text,
-        consultant_name=consultant_name,
-        consultant_given_names=consultant_given_names,
-    )
+    if all_rows:
+        result = await _extract_all_rows_with_claude(text)
+    else:
+        result = await _extract_with_claude(
+            text,
+            consultant_name=consultant_name,
+            consultant_given_names=consultant_given_names,
+        )
     if result is None:
+        # Fallback regexowy nie zna wierszy osób — w trybie all-rows zwraca pusty
+        # zbiór z `source="regex"`, a to jest dla bramki automatu wystarczający
+        # powód, żeby dokument poszedł do człowieka.
         result = _extract_with_regex(text)
     if consultant_name:
         # Model dostaje nazwę w prompcie, więc jego własna lista wierszy nie jest
