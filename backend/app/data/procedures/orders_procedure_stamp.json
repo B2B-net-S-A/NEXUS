@@ -5,7 +5,7 @@
     "backend/app/api/client_order_groups.py": "f36bae8844e6f22a3616e020b5fc5e162a67ddf793c2d08ef8354a78403e00cc",
     "backend/app/api/client_orders.py": "ffeb2ef5be33ca0f9d909d947c3cd0b9f36f9c203aca43f36e4a20fa9176365d",
     "backend/app/api/md_consumption.py": "d638bb41a982bb044202688321761723f991965199bf5a3ca8e66e2d5afdc8fa",
-    "backend/app/api/order_mail_queue.py": "3b71851581ab625f434307c951c98f6149ee949c4652a05200570f4871976728",
+    "backend/app/api/order_mail_queue.py": "9170434bac98ba4847e0cb1c56629280bbdb81dd4dd38b465e22cf2968885437",
     "backend/app/models/client_order.py": "405fa6171eed558b28d2e6a51ceeb2c96397ca80faccea8c35f301c49f7ead1d",
     "backend/app/models/client_order_group.py": "903eb1f1b1e49a16657204f6cfd97a337f9c80cb431138670d09d7015ef5033e",
     "backend/app/services/client_order_lines.py": "cb1f4352150712bcf7179fe2764931249bd9114135dbaf89fd23d4679f3eb8bc",

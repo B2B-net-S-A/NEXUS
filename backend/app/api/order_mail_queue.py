@@ -13,7 +13,7 @@ ale tego NIE — przycisk jest dla niego ukryty, a endpoint odmawia.
 
 # Bez `from __future__ import annotations` (PEP 563 vs FastAPI/slowapi).
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -25,7 +25,7 @@ from app.api.client_orders import (
     _dl_assigned_to_client,
     _order_finance_visible,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import require_roles
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.order_mail import (
@@ -36,11 +36,27 @@ from app.models.order_mail import (
     OrderMailDocument,
 )
 from app.models.team_structure import DeliveryLeadClientAssignment
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services.order_mail_apply import apply_document
 
 router = APIRouter()
+
+# Bramka klasy roli jako ZALEŻNOŚĆ (widoczna w grafie FastAPI i w kontrakcie
+# `test_route_authz_contract`), lustro sidebara/middleware `/order-mail`.
+# Drobniejsze zawężenie — do własnego portfela (DL) i do prawa zapisu kwot
+# („Zastosuj") — jest per dokument i zostaje w handlerach.
+OrderMailUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.finance,
+            UserRole.delivery_lead,
+        )
+    ),
+]
 
 _FINANCE_KEYS = (
     "rate_client",
@@ -161,7 +177,7 @@ async def _load_visible(db: AsyncSession, doc_id: int, user) -> OrderMailDocumen
 
 @router.get("/queue")
 async def list_queue(
-    user: CurrentUser,
+    user: OrderMailUser,
     outcome: str = Query(OUTCOME_NEEDS_REVIEW),
     client_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -208,7 +224,7 @@ async def list_queue(
 
 @router.get("/queue/{doc_id}")
 async def get_queue_item(
-    doc_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user)
     return await _serialize(db, doc, user)
@@ -216,7 +232,7 @@ async def get_queue_item(
 
 @router.get("/queue/{doc_id}/file")
 async def download_queue_file(
-    doc_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
 ):
     doc = await _load_visible(db, doc_id, user)
     if not doc.storage_path:
@@ -246,7 +262,7 @@ async def _require_apply_rights(db: AsyncSession, doc: OrderMailDocument, user) 
 
 @router.post("/queue/{doc_id}/apply")
 async def apply_queue_item(
-    doc_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user)
     await _require_apply_rights(db, doc, user)
@@ -280,7 +296,7 @@ async def apply_queue_item(
 
 @router.post("/queue/{doc_id}/dismiss")
 async def dismiss_queue_item(
-    doc_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
+    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     doc = await _load_visible(db, doc_id, user)
     await _require_apply_rights(db, doc, user)
