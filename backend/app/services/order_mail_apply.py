@@ -127,11 +127,22 @@ async def apply_document(
                 "order_mail apply: cannot read PDF %s: %s", doc.storage_path, exc
             )
 
+    # Idempotencja ponowienia po częściowym niepowodzeniu: wiersz, który w
+    # poprzednim biegu dostał `order_id`, jest już zapisany — drugi klik
+    # „Zastosuj" nie może założyć mu drugiego zamówienia.
+    previously_applied = {
+        r.get("row_index"): r.get("order_id")
+        for r in ((proposal.get("apply_result") or {}).get("rows") or [])
+        if r.get("order_id")
+    }
     for rp in rows:
         applied = AppliedRow(
             row_index=rp.get("row_index", 0), action=rp.get("action", "")
         )
         result.rows.append(applied)
+        if applied.row_index in previously_applied:
+            applied.order_id = previously_applied[applied.row_index]
+            continue
         if applied.action not in only_actions:
             applied.error = f"Akcja {applied.action!r} poza zakresem writera"
             continue
@@ -172,6 +183,21 @@ async def apply_document(
                 order.contract = contract
             else:
                 await assert_no_open_md_group_line(db, contract.id)
+                # Drugi guard, gdy `apply_result` nie zdążył się zapisać (crash
+                # między commitem wiersza a zapisem dokumentu): zamówienie z TEGO
+                # dokumentu dla tego kontraktu i numeru już istnieje → nie dublujemy.
+                marker = f"Zamówienie z maila (dokument #{doc.id})"
+                existing = await db.scalar(
+                    select(ClientOrder).where(
+                        ClientOrder.contract_id == contract.id,
+                        ClientOrder.title == (rp.get("title") or "(bez numeru)"),
+                        ClientOrder.notes == marker,
+                    )
+                )
+                if existing is not None:
+                    applied.order_id = existing.id
+                    applied.activated = existing.status == ClientOrderStatus.active
+                    continue
                 order = ClientOrder(
                     client_id=doc.client_id,
                     contract_id=contract.id,

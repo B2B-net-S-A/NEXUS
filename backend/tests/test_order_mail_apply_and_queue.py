@@ -233,3 +233,55 @@ async def test_notify_review_falls_back_to_admins(seeded):
         # powtórka w tym samym oknie nie dubluje
         again = await svc.notify_review(db, doc)
         assert again == 0
+
+
+@pytest.mark.asyncio
+async def test_reapply_after_partial_failure_does_not_duplicate_orders(seeded):
+    """Wiersz 1 zapisany, wiersz 2 pada → outcome zostaje needs_review; drugi
+    „Zastosuj" nie może założyć wierszowi 1 drugiego zamówienia."""
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        good = dict(doc.proposal["rows"][0])
+        bad = {**good, "row_index": 1, "row_name": "Nikt", "contract_id": 999_999_999}
+        doc.proposal = {**doc.proposal, "rows": [good, bad]}
+        await db.commit()
+
+        first = await apply_document(db, doc, actor_user_id=None)
+        await db.commit()
+        assert first.ok is False
+        assert first.rows[0].order_id and first.rows[1].error
+
+        second = await apply_document(db, doc, actor_user_id=None)
+        await db.commit()
+        assert second.rows[0].order_id == first.rows[0].order_id
+        orders = (
+            (
+                await db.execute(
+                    select(ClientOrder).where(
+                        ClientOrder.contract_id == seeded["contract_id"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(orders) == 1, [o.id for o in orders]
+
+        # Trzeci bieg bez zapisanego apply_result (symulacja crasha) — guard po markerze.
+        doc.proposal = {k: v for k, v in doc.proposal.items() if k != "apply_result"}
+        await db.commit()
+        third = await apply_document(db, doc, actor_user_id=None)
+        await db.commit()
+        assert third.rows[0].order_id == first.rows[0].order_id
+        orders = (
+            (
+                await db.execute(
+                    select(ClientOrder).where(
+                        ClientOrder.contract_id == seeded["contract_id"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(orders) == 1
