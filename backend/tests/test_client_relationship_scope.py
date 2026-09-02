@@ -196,6 +196,12 @@ async def test_finance_has_organization_wide_client_read_without_edit() -> None:
     assert not access.can_edit_materials
     assert not access.can_edit_legal_documents
     assert not access.can_manage_client
+    assert access.can_view_contact_private_notes(
+        SimpleNamespace(key_relationship_owner_id=999)
+    )
+    assert access.can_view_contact_private_notes(
+        SimpleNamespace(key_relationship_owner_id=None)
+    )
     db.scalars.assert_not_awaited()
     db.execute.assert_not_awaited()
 

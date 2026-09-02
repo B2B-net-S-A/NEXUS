@@ -116,7 +116,12 @@ class ClientAccess:
         """
         if not self.private_contact_notes_allowed:
             return False
-        if self.is_admin_like and self.can_edit_contacts:
+        # Finance keeps its established organization-wide read of client
+        # contacts, including private relationship notes, without gaining any
+        # contact write capability. TCM is stopped by the guard above.
+        if self.is_organization_reader or (
+            self.is_admin_like and self.can_edit_contacts
+        ):
             return True
         if contact.key_relationship_owner_id is None:
             return self.can_edit_contacts

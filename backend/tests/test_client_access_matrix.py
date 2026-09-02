@@ -508,6 +508,16 @@ async def test_private_relationship_notes_projection(cam_client: AsyncClient) ->
     # Pozostałe pola relacyjne (operacyjne) zostają
     assert body["is_key_relationship"] is True
 
+    # Finance preserves its established organization-wide read, including
+    # private relationship notes, while remaining unable to edit contacts.
+    _, finance_email, finance_pass = await _seed_user(UserRole.finance)
+    finance_headers = await _login(cam_client, finance_email, finance_pass)
+    resp = await cam_client.get(
+        f"/api/clients/{client_id}/contacts", headers=finance_headers
+    )
+    assert resp.status_code == 200
+    assert resp.json()[0].get("relationship_notes") == "Sekret: urodziny 1 maja"
+
     # TCM reads contacts organization-wide, but never another person's private
     # relationship notes.
     tcm_id, tcm_email, tcm_pass = await _seed_user(UserRole.talent_community_manager)
