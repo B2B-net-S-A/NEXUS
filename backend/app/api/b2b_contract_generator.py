@@ -78,9 +78,12 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckRequest,
     B2BUopCheckResponse,
 )
+from app.services.order_engagement_separation import has_open_group_line
 from app.services.b2b_contract_automation import (
+    ORDER_SKIPPED_COST_CLIENT,
     ORDER_SKIPPED_OPEN_GROUP_LINE,
     ensure_b2b_employment_draft,
+    should_auto_create_order,
 )
 from app.services.b2b_contract_generator.clause_overrides import (
     ClauseOverrideError,
@@ -1743,21 +1746,34 @@ async def confirm_generated_contract_fully_signed(
                     detail="Powiązana rekrutacja już nie istnieje.",
                 )
             await _require_signature_job_scope(db, current_user, signed_job)
+            # Replay odpowiada tym samym, co pierwsze potwierdzenie: TYLKO
+            # zamówieniem okresowym (linia grupy ma własny rejestr i własne
+            # `job_id`, więc bez tego filtra replay zwracał jej id tam, gdzie
+            # pierwsza odpowiedź niosła `null`) — a gdy go nie ma, powodem,
+            # liczonym tak samo jak w serwisie.
             order_id = await db.scalar(
                 select(ClientOrder.id)
                 .where(
                     ClientOrder.contract_id == row.contract_id,
                     ClientOrder.job_id == row.job_id,
+                    ClientOrder.order_group_id.is_(None),
                 )
                 .order_by(ClientOrder.created_at.desc(), ClientOrder.id.desc())
                 .limit(1)
             )
+            replay_skipped_reason: str | None = None
+            if order_id is None:
+                if await has_open_group_line(db, row.contract_id):
+                    replay_skipped_reason = ORDER_SKIPPED_OPEN_GROUP_LINE
+                elif not should_auto_create_order(signed_job.client_id):
+                    replay_skipped_reason = ORDER_SKIPPED_COST_CLIENT
             item = await _serialize_generated_contract(db, row, current_user)
             await db.commit()
             return B2BConfirmFullySignedResponse(
                 outcome="already_processed",
                 contract_id=row.contract_id,
                 order_id=order_id,
+                order_skipped_reason=replay_skipped_reason,
                 candidate_id=row.candidate_id,
                 job_id=row.job_id,
                 client_id=row.client_id,
@@ -1883,6 +1899,7 @@ async def confirm_generated_contract_fully_signed(
                     # wpisu audyt nie odróżnia „warunki zgodne" od „powiązano
                     # mimo różnic, kontrakt został jak był".
                     "acknowledged_conflicts": list(result.acknowledged_conflicts),
+                    "order_skipped_reason": result.order_skipped_reason,
                 },
             )
         )
@@ -1924,12 +1941,14 @@ async def confirm_generated_contract_fully_signed(
             # Osoba już na linii MD/kosztowej — inny powód i inny następny
             # krok niż u klienta kosztowego: nic nie trzeba dodawać, co
             # najwyżej poprawić istniejącą linię w zamówieniu grupowym.
+            # „Otwartej", nie „żywej": linia zaplanowanej grupy jest szkicem,
+            # a i tak blokuje auto-szkic okresowy (`OPEN_ORDER_STATUSES`).
             message += (
                 " Zamówienia nie utworzono automatycznie: konsultant jest już "
-                "obsadzony na żywej linii zamówienia MD/kosztowego u tego "
-                "klienta, a zamówienie okresowe obok niej byłoby drugim zapisem "
-                "tej samej współpracy. W razie potrzeby edytuj linię w "
-                "zamówieniu grupowym."
+                "obsadzony na otwartej (także zaplanowanej) linii zamówienia "
+                "MD/kosztowego u tego klienta, a zamówienie okresowe obok niej "
+                "byłoby drugim zapisem tej samej współpracy. W razie potrzeby "
+                "edytuj linię w zamówieniu grupowym."
             )
         elif result.order is None:
             # Wariant klienta kosztowego — komunikat MUSI powiedzieć, że brak

@@ -463,18 +463,21 @@ async def _ensure_open_order(
     „Network Error" — the person stayed unsigned and unhired.
     """
 
-    # Klient kosztowy: zero zamówienia z automatu — także zero dowiązywania
-    # istniejących linii grupowych (i zero 409 przy dwóch otwartych liniach
-    # tej samej osoby, co u Polkomtela jest legalne).
-    if not should_auto_create_order(job.client_id):
-        return None, False, ORDER_SKIPPED_COST_CLIENT
-    # Osoba obsadzona na żywej linii zamówienia MD/kosztowego JEST już opisana
-    # zamówieniem u tego klienta. Auto-szkic okresowy byłby drugim zapisem tej
-    # samej współpracy na tym samym kontrakcie — a wtedy zakończenie jednego
-    # domyka drugie (zgłoszenie BNP/Polkomtel/BIK/Wedel). Cicho, nie 409:
-    # zatrudnienie nie może się wywrócić przez zamówienie, które już jest.
+    # Osoba obsadzona na otwartej linii zamówienia MD/kosztowego JEST już
+    # opisana zamówieniem u tego klienta. Auto-szkic okresowy byłby drugim
+    # zapisem tej samej współpracy na tym samym kontrakcie — a wtedy
+    # zakończenie jednego domyka drugie (zgłoszenie BNP/Polkomtel/BIK/Wedel).
+    # Cicho, nie 409: zatrudnienie nie może się wywrócić przez zamówienie,
+    # które już jest. Sprawdzane PRZED dźwignią klienta kosztowego: Polkomtel
+    # jest kosztowy I wielo-konsultantowy, a powód „linia grupy" niesie
+    # właściwy następny krok (edytuj linię), nie „dodaj zamówienie ręcznie".
     if await has_open_group_line(db, contract.id):
         return None, False, ORDER_SKIPPED_OPEN_GROUP_LINE
+    # Klient kosztowy: zero zamówienia z automatu — także zero dowiązywania
+    # istniejących szkiców okresowych (i zero 409 przy dwóch otwartych
+    # zamówieniach tej samej osoby, co u Polkomtela jest legalne).
+    if not should_auto_create_order(job.client_id):
+        return None, False, ORDER_SKIPPED_COST_CLIENT
     orders = list(
         (
             await db.execute(

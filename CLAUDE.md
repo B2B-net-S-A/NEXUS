@@ -253,9 +253,14 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   wyłącznie o klienta kosztowego, więc drugi powód kończył się 500 („Network
   Error") i wycofaniem całego podpisu u BIK/BNP — konsultant, którego Delivery
   obsadziło na linii MD przed potwierdzeniem dokumentu, zostawał niepodpisany
-  i niezatrudniony. Powód idzie w odpowiedzi (`order_skipped_reason`) i w
-  audycie `linked_to_generated_contract`; komunikat po polsku nazywa go
-  i wskazuje inny następny krok niż u klienta kosztowego. Nie zdejmuj
+  i niezatrudniony. Linia grupy jest sprawdzana PRZED dźwignią klienta
+  kosztowego (Polkomtel jest jednym i drugim — powód „linia grupy" niesie
+  właściwy następny krok). Replay (`already_processed`) zwraca w `order_id`
+  wyłącznie zamówienie okresowe (nigdy id linii grupy) i liczy powód tak samo.
+  Powód idzie w odpowiedzi (`order_skipped_reason`) i w audycie obu Activity
+  (`fully_signed_confirmed`, `linked_to_generated_contract`); komunikat po
+  polsku nazywa go i wskazuje inny następny krok niż u klienta kosztowego.
+  Nie zdejmuj
   `RuntimeError` dla braku bez powodu: cichy „brak zamówienia" zostawiłby
   zatrudnienie bez rekordu, który czytają skaner wygasania, MRR i sync
   terminacji. Testy: `test_confirm_links_a_consultant_already_on_a_group_line_without_500`,

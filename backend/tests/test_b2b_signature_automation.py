@@ -563,22 +563,10 @@ async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
         assert latest_stage.stage == PipelineStage.hired
 
 
-@pytest.mark.asyncio
-async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
-    app_client: AsyncClient, app_auth_headers: dict[str, str]
-):
-    """BIK/BNP shape: Delivery put the person on a live MD line BEFORE anyone
-    confirmed the document. The automation must not draft a second, standalone
-    order next to that line (#1321) — and until 09.2026 the endpoint turned
-    that deliberate ``None`` into a 500 that rolled the whole signature back."""
-    admin_id = await _current_admin_id(app_client)
-    scenario = await _seed_bound_scenario(created_by=admin_id)
-    existing_id = await _seed_existing_contract(
-        scenario,
-        status=ContractStatus.active,
-        start_date=date(2026, 8, 1),
-        rate_candidate=Decimal("150.500"),
-    )
+async def _seed_group_line(
+    scenario: dict[str, Any], contract_id: int, *, created_by: int
+) -> int:
+    """Put the consultant on an active MD group line (legacy BIK/BNP shape)."""
     async with AsyncSessionLocal() as db:
         group = ClientOrderGroup(
             client_id=scenario["client_id"],
@@ -588,13 +576,17 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
             # Legacy shape (``order_type IS NULL``) — exactly the BIK/BNP groups.
             order_type=None,
             is_md_budget_based=False,
-            created_by_user_id=admin_id,
+            created_by_user_id=created_by,
         )
         db.add(group)
         await db.flush()
         line = ClientOrder(
             client_id=scenario["client_id"],
-            contract_id=existing_id,
+            contract_id=contract_id,
+            # ``ConsultantLineModal`` stamps the recruitment on the line, so a
+            # replay lookup without the ``order_group_id IS NULL`` filter would
+            # report THIS line as the standalone order.
+            job_id=scenario["job_id"],
             order_group_id=group.id,
             title=f"Zamówienie {group.order_number} — Anna Signature",
             order_type=None,
@@ -611,12 +603,31 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
             currency="PLN",
             rate_client_currency="PLN",
             rate_candidate_currency="PLN",
-            created_by_user_id=admin_id,
+            created_by_user_id=created_by,
         )
         db.add(line)
         await db.commit()
         await db.refresh(line)
-        line_id = line.id
+        return line.id
+
+
+@pytest.mark.asyncio
+async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """BIK/BNP shape: Delivery put the person on a live MD line BEFORE anyone
+    confirmed the document. The automation must not draft a second, standalone
+    order next to that line (#1321) — and until 09.2026 the endpoint turned
+    that deliberate ``None`` into a 500 that rolled the whole signature back."""
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+    line_id = await _seed_group_line(scenario, existing_id, created_by=admin_id)
 
     response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
 
@@ -626,7 +637,7 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
     assert body["contract_id"] == existing_id
     assert body["order_id"] is None
     assert body["order_skipped_reason"] == "open_group_line"
-    assert "linii zamówienia MD/kosztowego" in body["message"]
+    assert "otwartej (także zaplanowanej) linii zamówienia" in body["message"]
     assert "Delivery Lead" not in body["message"]
     assert body["generated_contract"]["signature_status"] == "signed_both"
 
@@ -659,6 +670,51 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
         )
         assert link_audit is not None
         assert link_audit.details["order_skipped_reason"] == "open_group_line"
+
+    # Replay answers like the first confirmation: no standalone order (the
+    # group line is NOT reported as ``order_id``) and the same reason.
+    replay = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["outcome"] == "already_processed"
+    assert replay.json()["order_id"] is None
+    assert replay.json()["order_skipped_reason"] == "open_group_line"
+
+
+@pytest.mark.asyncio
+async def test_group_line_reason_wins_over_the_cost_client_lever(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Polkomtel is cost-based AND multi-consultant: a person already on a
+    line must get the group-line instruction (edit the line), not the
+    cost-client one (add an order by hand) — the latter invites exactly the
+    duplicate the group-line rule exists to prevent."""
+    import app.services.b2b_contract_automation as automation
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+    await _seed_group_line(scenario, existing_id, created_by=admin_id)
+    monkeypatch.setattr(
+        automation,
+        "skips_standard_order_automation",
+        lambda client_id: client_id == scenario["client_id"],
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["order_id"] is None
+    assert body["order_skipped_reason"] == "open_group_line"
+    assert "edytuj linię" in body["message"]
+    assert "dodając je ręcznie" not in body["message"]
 
 
 @pytest.mark.asyncio
