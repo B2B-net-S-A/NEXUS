@@ -24,6 +24,8 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.order_mail import OUTCOMES, OrderMailDocument
 from app.services.order_mail_ingest import (
+    app_only_ready,
+    auth_mode,
     find_orders_connection,
     ingest_is_running,
     read_state,
@@ -59,7 +61,13 @@ async def order_mail_status(
     _admin: AdminUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
     state = await read_state(db)
-    conn = await find_orders_connection(db) if settings.ORDER_MAIL_UPN else None
+    # W trybie app-only nie ma wiersza połączenia — nie szukamy go, żeby status
+    # nie sugerował „brak połączenia" tam, gdzie połączenie nie jest potrzebne.
+    conn = (
+        await find_orders_connection(db)
+        if settings.ORDER_MAIL_UPN and auth_mode() != "app"
+        else None
+    )
     counts = await db.execute(
         select(OrderMailDocument.outcome, func.count()).group_by(
             OrderMailDocument.outcome
@@ -68,6 +76,8 @@ async def order_mail_status(
     return {
         "enabled": settings.ORDER_MAIL_INGEST_ENABLED,
         "upn_configured": bool(settings.ORDER_MAIL_UPN),
+        "auth_mode": auth_mode(),
+        "app_only_ready": app_only_ready() if auth_mode() == "app" else None,
         "connection": {"id": conn.id, "upn": conn.mailbox_upn, "purpose": conn.purpose}
         if conn
         else None,

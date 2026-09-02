@@ -1760,6 +1760,15 @@ async def api_health_check():
         checks["order_mail"] = "unconfigured"
     elif not settings.ORDER_MAIL_UPN:
         checks["order_mail"] = "misconfigured"
+    elif (settings.ORDER_MAIL_AUTH_MODE or "").strip().lower() == "app" and not (
+        settings.M365_CLIENT_ID
+        and settings.M365_CLIENT_SECRET
+        and (settings.M365_MAIL_TENANT_ID or settings.M365_TENANT_ID)
+        not in ("", "common")
+    ):
+        # Tryb app-only bez poświadczeń client_credentials / realnego tenanta —
+        # pętla zapisze `app_only_misconfigured` przy każdym slocie.
+        checks["order_mail"] = "misconfigured"
     else:
         try:
             from datetime import datetime as _dt

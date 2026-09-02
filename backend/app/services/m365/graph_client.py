@@ -76,11 +76,17 @@ class GraphClient:
             # Tokens/subscriptions can outlive a role change.  Re-read the
             # owner immediately before any Graph request instead of treating
             # ``connection.is_active`` as authorization.
-            await require_eligible_connection_owner(self._db, self._conn)
+            await self._authorize()
         except Exception:
             await self.close()
             raise
         return self
+
+    async def _authorize(self) -> None:
+        """Owner eligibility gate — overridden by the app-only client, which has
+        no owner to revalidate (its authority is the tenant's admin consent and
+        the Application Access Policy, both enforced server-side)."""
+        await require_eligible_connection_owner(self._db, self._conn)
 
     async def __aexit__(self, *exc_info) -> None:
         await self.close()
@@ -99,7 +105,7 @@ class GraphClient:
         # A long delta/backfill context can stay open while an administrator
         # changes the owner's role. Revalidate before every outbound request,
         # not only when entering the context, so the next page/request stops.
-        await require_eligible_connection_owner(self._db, self._conn)
+        await self._authorize()
         if not url.startswith("http"):
             url = f"{GRAPH_BASE}{url}"
         hdrs = {"Authorization": f"Bearer {self._access_token}"}
