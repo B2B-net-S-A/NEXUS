@@ -108,6 +108,11 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/order_mail_ingest.py",
     "backend/app/tasks/order_mail_ingest.py",
     "backend/app/api/admin_order_mail.py",
+    "backend/app/services/order_mail_resolver.py",
+    "backend/app/services/order_mail_planner.py",
+    "backend/app/services/order_mail_gate.py",
+    "backend/app/services/order_mail_apply.py",
+    "backend/app/api/order_mail_queue.py",
     # Limit 10 stron OCR i komunikat o nieczytelnym skanie — instrukcja
     # podaje oba wprost, a plik zmienia się rzadko.
     "backend/app/services/cv_text_extractor.py",

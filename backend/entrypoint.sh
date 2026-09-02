@@ -5307,6 +5307,13 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0265: dl_alerts dostaje typ order_mail_review (zamówienie z maila do
+    # weryfikacji). CHECK poszerzamy DROP+ADD — lustro migracji, bo prod alembic
+    # bywa osierocony.
+    "ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_type",
+    "ALTER TABLE dl_alerts ADD CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN ("
+    "'cost_order_exhausted', 'draft_consultant_unassigned', 'md_budget_low', "
+    "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review'))",
     # 0249: data phase above has filled every existing row. Defaults protect
     # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",

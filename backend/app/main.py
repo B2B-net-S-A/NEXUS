@@ -102,6 +102,7 @@ from app.api import (
     admin_champion_ingest,
     admin_notes_insights,
     admin_order_mail,
+    order_mail_queue,
     admin_traffit,
 )
 from app.api import admin_talent_pools
@@ -1029,6 +1030,9 @@ app.include_router(
     admin_order_mail.router,
     prefix="/api/admin/order-mail",
     tags=["admin", "order-mail"],
+)
+app.include_router(
+    order_mail_queue.router, prefix="/api/order-mail", tags=["order-mail"]
 )
 app.include_router(
     admin_notes_insights.router,

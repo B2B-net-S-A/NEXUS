@@ -44,6 +44,8 @@ from app.models.client import Client
 from app.models.m365 import M365Connection
 from app.models.order_mail import (
     CONNECTION_PURPOSE_ORDERS,
+    GATE_AUTO,
+    OUTCOME_AUTO_APPLIED,
     OUTCOME_DUPLICATE,
     OUTCOME_FAILED,
     OUTCOME_IGNORED_NO_PDF,
@@ -61,6 +63,9 @@ from app.services.order_client_identity import (
     normalize_registry_id,
 )
 from app.services.order_document_text import OrderDocumentText, extract_order_text
+from app.services.order_mail_gate import GateInput, evaluate
+from app.services.order_mail_planner import ExistingOrder, plan_document
+from app.services.order_mail_resolver import load_roster, resolve_rows
 from app.services.order_pdf_parser import OrderExtraction, parse_order_document
 from app.services.order_policies import (
     PolicyContext,
@@ -332,7 +337,176 @@ async def process_pdf_bytes(
     row.outcome = (
         OUTCOME_NEEDS_REVIEW if client_id is not None else OUTCOME_UNRECOGNIZED
     )
+    if client_id is None:
+        return row
+
+    # ── Bramka automatu: resolver → planer → werdykt (zawsze zapisany) ──────
+    await _plan_and_gate(db, row, extraction, doc, policies, client_id, ident.method)
+    if row.gate_verdict == GATE_AUTO and settings.ORDER_MAIL_AUTOAPPLY_ENABLED:
+        from app.services.order_mail_apply import apply_document  # cykl importów
+
+        result = await apply_document(db, row, actor_user_id=None)
+        row.outcome = OUTCOME_AUTO_APPLIED if result.ok else OUTCOME_NEEDS_REVIEW
+        if not result.ok:
+            row.error = (
+                result.error or "; ".join(r.error for r in result.rows if r.error)
+            )[:2000]
     return row
+
+
+async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
+    """Dopasuj osoby do rostera, zaplanuj zapis, oceń bramką; zapisz na wierszu."""
+    from app.models.client_order import ClientOrder
+    from app.models.contract import Contract
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
+    from app.services.multi_consultant_orders import is_multi_consultant_client
+
+    roster = await load_roster(db, client_id)
+    resolved = resolve_rows(extraction.consultant_rows, roster)
+    contract_ids = {r.contract_id for r in resolved if r.contract_id}
+    existing: dict[int, list[ExistingOrder]] = {}
+    current_rates: dict[int, tuple[Optional[Decimal], Optional[str]]] = {}
+    if contract_ids:
+        orders = (
+            (
+                await db.execute(
+                    select(ClientOrder).where(ClientOrder.contract_id.in_(contract_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for o in orders:
+            existing.setdefault(o.contract_id, []).append(
+                ExistingOrder(
+                    id=o.id,
+                    status=o.status.value
+                    if hasattr(o.status, "value")
+                    else str(o.status),
+                    title=o.title or "",
+                    start_date=o.start_date,
+                    end_date=o.end_date,
+                    order_group_id=o.order_group_id,
+                    has_file=bool(o.file_path),
+                )
+            )
+        contracts = (
+            (
+                await db.execute(
+                    select(Contract)
+                    .options(*RATE_SCHEDULE_LOADS)
+                    .where(Contract.id.in_(contract_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        today = datetime.now(timezone.utc).date()
+        for c in contracts:
+            try:
+                eff = effective_rate_fields(c, today)
+                raw_unit = eff.get("rate_unit") or c.rate_unit
+                unit = raw_unit.value if hasattr(raw_unit, "value") else str(raw_unit)
+                unit_key = {"hourly": "hour", "daily": "day", "monthly": "month"}.get(
+                    unit, unit
+                )
+                current_rates[c.id] = (eff.get("rate_client"), unit_key)
+            except Exception:  # noqa: BLE001 — stawka bieżąca jest tylko kontrolą
+                continue
+    proposal = plan_document(
+        client_id=client_id,
+        extraction=extraction,
+        resolved=resolved,
+        existing_orders_by_contract=existing,
+        is_group_client=is_multi_consultant_client(client_id),
+        today=datetime.now(timezone.utc).date(),
+    )
+    det_rows: list = []
+    for policy in policies:
+        if policy.extract_rows is not None:
+            det_rows = policy.extract_rows(doc.text)
+            break
+    verdict = evaluate(
+        GateInput(
+            identification_method=method,
+            policies_applied=tuple(p.display_name for p in policies),
+            extraction=extraction,
+            document_truncated=extraction.document_truncated,
+            ocr_capped=doc.ocr_capped,
+            resolved=tuple(resolved),
+            proposal=proposal,
+            deterministic_rows=tuple(det_rows),
+            current_rates=current_rates,
+            autoapply_enabled=settings.ORDER_MAIL_AUTOAPPLY_ENABLED,
+            excluded_client_ids=client_ids_from_env(
+                "ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS"
+            ),
+        )
+    )
+    row.gate_verdict = verdict.verdict
+    row.gate_reasons = verdict.reasons
+    row.proposal = {
+        "client_id": proposal.client_id,
+        "order_number": proposal.order_number,
+        "is_group_client": proposal.is_group_client,
+        "blocking": proposal.blocking,
+        "rows": [r.__dict__ for r in proposal.rows],
+        "resolved": [r.__dict__ for r in resolved],
+    }
+
+
+async def notify_review(db, row) -> int:
+    """Alert dla Delivery Leadów klienta (fallback: admini) o zamówieniu do weryfikacji.
+
+    ``dl_alerts``, nie ``notifications``: mierzy kto i kiedy załatwił sprawę,
+    powtórka co 7 dni jest nowym wierszem, bez ``ALTER TYPE`` na enumie.
+    ``emit`` zwraca ``[]`` przy braku DL — dlatego fallback na adminów jest
+    napisany tu wprost, a nie zostawiony przypadkowi.
+    """
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.user import User, UserRole
+    from app.services.dl_alerts import emit as emit_dl_alert
+
+    if row.client_id is None or row.id is None:
+        return 0
+    dl_ids = list(
+        (
+            await db.execute(
+                select(DeliveryLeadClientAssignment.delivery_lead_user_id).where(
+                    DeliveryLeadClientAssignment.client_id == row.client_id
+                )
+            )
+        ).scalars()
+    )
+    if not dl_ids:
+        dl_ids = list(
+            (
+                await db.execute(
+                    select(User.id).where(
+                        User.role == UserRole.admin, User.is_active.is_(True)
+                    )
+                )
+            ).scalars()
+        )
+    if not dl_ids:
+        return 0
+    title = (row.extraction or {}).get("title") or row.attachment_name or "zamówienie"
+    created = await emit_dl_alert(
+        db,
+        alert_type="order_mail_review",
+        user_ids=dl_ids,
+        client_id=row.client_id,
+        entity_key=f"order_mail:{row.id}",
+        title=f"Sprawdź zamówienie z maila: {title}",
+        message=(
+            "Zamówienie z maila wymaga weryfikacji dopasowania: "
+            + "; ".join((row.gate_reasons or [])[:3])
+        )[:2000],
+        link=f"/order-mail?doc={row.id}",
+        payload={"document_id": row.id, "outcome": row.outcome},
+        repeat_every_days=7,
+    )
+    return len(created)
 
 
 async def _process_message(
@@ -440,6 +614,10 @@ async def _process_message(
         await db.commit()
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
+            try:
+                await notify_review(db, row)
+            except Exception:  # noqa: BLE001 — alert nie może wywrócić biegu
+                logger.exception("order_mail: notify_review failed for doc %s", row.id)
         elif row.outcome == OUTCOME_UNRECOGNIZED:
             stats.unrecognized += 1
 
