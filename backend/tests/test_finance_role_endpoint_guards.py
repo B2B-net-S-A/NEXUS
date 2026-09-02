@@ -69,6 +69,8 @@ from app.models.notification import NotificationType
 from app.models.contract import RateUnit
 from app.models.user import User, UserRole
 from app.schemas.my_clients import ClientDashboardResponse, MyClientRow
+from app.schemas.client_order import ClientOrderRead
+from app.schemas.client_order_group import OrderGroupRead
 from app.schemas.new_contractor_order import (
     NewContractorOrderRequest,
     NewContractorOrderResponse,
@@ -221,6 +223,7 @@ def test_candidate_finance_guard_is_admin_only_to_keep_finance_free_of_pii():
     [
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
@@ -266,6 +269,7 @@ def test_contract_amount_write_guard_rejects_finance_to_avoid_candidate_pii():
     [
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
@@ -430,10 +434,6 @@ def test_candidate_bearing_export_and_benchmark_are_finance_read():
         contracts.get_contract,
         contracts.contract_activities,
         contracts.contract_rate_history,
-        contracts.get_contract_draft,
-        contracts.render_draft_for_print,
-        contracts.list_contract_documents,
-        contracts.download_contract_document,
         contracts.list_contract_amendments,
         contracts.list_onboarding_items,
         contracts.list_contract_equipment,
@@ -442,6 +442,19 @@ def test_candidate_bearing_export_and_benchmark_are_finance_read():
 )
 def test_contract_business_reads_use_finance_extended_read_guard(endpoint):
     assert _current_user_annotation(endpoint) == contracts.ContractReadUser
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        contracts.get_contract_draft,
+        contracts.render_draft_for_print,
+        contracts.list_contract_documents,
+        contracts.download_contract_document,
+    ],
+)
+def test_rate_bearing_contract_documents_exclude_tcm(endpoint):
+    assert _current_user_annotation(endpoint) == contracts.ContractDocumentReadUser
 
 
 @pytest.mark.asyncio
@@ -728,10 +741,15 @@ def test_finance_reads_settings_audit_surfaces_without_gaining_mutations():
     )
 
 
-def test_legacy_order_business_gets_use_finance_extended_reader():
+def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
     for endpoint in (
+        client_orders.list_contractors_with_orders,
         client_orders.list_active_contracts_for_extension,
         client_orders.get_order,
+    ):
+        assert _user_annotation(endpoint) == client_orders.OrderSafeReadUser
+
+    for endpoint in (
         client_orders.download_order_po,
         client_orders.list_contract_order_documents,
         client_orders.list_candidate_order_documents,
@@ -742,14 +760,82 @@ def test_legacy_order_business_gets_use_finance_extended_reader():
         _user_annotation(client_order_groups.list_consultant_options_for_client)
         == client_order_groups.ConsultantOptionsReader
     )
+    for endpoint in (
+        client_order_groups.list_order_groups,
+        client_order_groups.list_group_events,
+    ):
+        assert _user_annotation(endpoint) == client_order_groups.OrderGroupSafeReadUser
     assert (
         _user_annotation(client_order_groups.add_line)
         == client_order_groups.DlAssignedOrAdmin
     )
 
 
+def test_tcm_order_projection_redacts_finance_and_file_metadata():
+    order = ClientOrderRead.model_construct(
+        rate_candidate=Decimal("100"),
+        rate_client=Decimal("150"),
+        total_value=Decimal("15000"),
+        monthly_margin=Decimal("50"),
+        currency="PLN",
+        rate_client_currency="PLN",
+        rate_candidate_currency="PLN",
+        filename="purchase-order.pdf",
+        has_file=True,
+        content_type="application/pdf",
+        size_bytes=1234,
+    )
+
+    projected = client_orders._order_response_for_user(
+        order,
+        _user(UserRole.talent_community_manager),
+    )
+
+    assert projected.rate_candidate is None
+    assert projected.rate_client is None
+    assert projected.total_value is None
+    assert projected.monthly_margin is None
+    assert projected.currency is None
+    assert projected.filename is None
+    assert projected.has_file is False
+    assert projected.content_type is None
+    assert projected.size_bytes is None
+
+
+def test_tcm_group_projection_recursively_hides_file_metadata():
+    future = OrderGroupRead.model_construct(
+        filename="future.pdf",
+        has_file=True,
+        content_type="application/pdf",
+        size_bytes=20,
+        file_uploaded_at=SimpleNamespace(),
+        future_orders=[],
+    )
+    group = OrderGroupRead.model_construct(
+        filename="current.pdf",
+        has_file=True,
+        content_type="application/pdf",
+        size_bytes=10,
+        file_uploaded_at=SimpleNamespace(),
+        future_orders=[future],
+    )
+
+    client_order_groups._redact_group_document_metadata(group)
+
+    for projected in (group, future):
+        assert projected.filename is None
+        assert projected.has_file is False
+        assert projected.content_type is None
+        assert projected.size_bytes is None
+        assert projected.file_uploaded_at is None
+
+
 def test_finance_is_org_reader_for_my_clients_without_becoming_a_dl():
     assert UserRole.finance in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+    assert (
+        UserRole.talent_community_manager
+        in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
+    )
     assert UserRole.recruiter not in my_clients._MY_CLIENTS_ORGANIZATION_READ_ROLES
 
 

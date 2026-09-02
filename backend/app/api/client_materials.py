@@ -13,9 +13,8 @@ Contract terms (singleton per client, upsert)
   GET    /clients/{client_id}/contract-terms       (can_view_legal_documents)
   PUT    /clients/{client_id}/contract-terms       (can_edit_legal_documents)
 
-PR 1/7 (containment RBAC): ready przestały być dostępne dla każdego
-zalogowanego — one-pagery czytają role operacyjne (bez viewera `user`),
-warunki umów (kary, płatności, off-limits) tylko admin/HoR/DL/TAC.
+Aktualnie całość podlega bramce Delivery. TCM może czytać one-pagery, ale nie
+warunki prawne; Admin i przypisany DL mogą zapisywać, a Finance ma odczyt.
 """
 
 from typing import Annotated, List, Optional
@@ -26,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -44,7 +44,7 @@ from app.services.client_access import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
@@ -75,7 +75,7 @@ async def _require_material_write(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_legal_documents if legal else access.can_edit_materials
     if not allowed:
-        raise deny("zapis materiałów wymaga jawnego przypisania DL/TAC")
+        raise deny("zapis materiałów wymaga roli admin lub przypisanego DL")
 
 
 async def require_client_material_read_access(

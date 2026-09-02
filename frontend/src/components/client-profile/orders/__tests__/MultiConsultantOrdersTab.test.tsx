@@ -32,15 +32,16 @@ vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (s: { user: { role: string; capabilities: string[] } }) => unknown,
   ) => selector({ user: authState }),
+  hasRole: (user: { role?: string } | null, ...roles: string[]) =>
+    roles.includes(user?.role ?? ""),
   // Lustro backendowego `_has_md_line_management_role`: obsadę zamówienia prowadzi
   // delivery, nie tylko admin.
   canManageMultiConsultantOrders: (user: { role?: string } | null) =>
     user?.role === "admin" || user?.role === "delivery_lead",
-  // Lustro backendowego `_ORDER_LIFECYCLE_ROLES` — świadomie SZERSZE niż
-  // uprawnienie do stawek: usuwanie/kończenie/przywracanie/przedłużanie ma
-  // też Head of Recruitment i Finanse.
+  // Lustro backendowego `_ORDER_LIFECYCLE_ROLES`: granica sekcji odcina HoR,
+  // TAC i TCM, a Finanse zachowują operacyjny lifecycle.
   canManageOrderLifecycle: (user: { role?: string } | null) =>
-    ["admin", "head_of_recruitment", "delivery_lead", "finance"].includes(
+    ["admin", "delivery_lead", "finance"].includes(
       user?.role ?? "",
     ),
   canViewCandidateFinance: (

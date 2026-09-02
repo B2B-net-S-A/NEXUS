@@ -1,4 +1,5 @@
 import { getUserRoles, type UserRole } from "@/store/auth";
+import { rolesWithSectionAccess } from "@/lib/section-access";
 
 /**
  * JEDEN rejestr capability dla całego UI (audyt F-19).
@@ -67,6 +68,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "admin",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
   "finance",
@@ -77,6 +79,7 @@ const OPERATIONAL: readonly UserRole[] = [
 const RECRUITER_PLUS: readonly UserRole[] = [
   "admin",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
   "finance",
@@ -96,11 +99,18 @@ const ALL_ROLES: readonly UserRole[] = [
   "finance",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
   "sourcer",
   "user",
 ];
+
+const DELIVERY_READ = rolesWithSectionAccess("delivery");
+const DELIVERY_TAC_WRITERS: readonly UserRole[] = ["admin", "delivery_lead"];
+const CORTEX_READ = rolesWithSectionAccess("insights").filter(
+  (role) => role !== "user",
+);
 
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
@@ -111,23 +121,24 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // NIE obejmuje head_of_recruitment, więc inline-edycja pól oferty (np.
   // hiring manager) musi być dla HoR ukryta — inaczej dostanie 403 na zapisie.
   "job.update": TAC_PLUS,
-  // POST /api/clients → TacPlus (backend/app/api/clients.py)
-  "client.create": TAC_PLUS,
-  // PATCH /api/clients/{id} → TacPlus (backend/app/api/clients.py). Bez tej
+  // POST /api/clients → TacPlus narrowed by the Delivery section write gate.
+  "client.create": DELIVERY_TAC_WRITERS,
+  // PATCH /api/clients/{id} → TacPlus narrowed by the Delivery section write
+  // gate. Bez tej
   // bramki nie-TAC widział "Edytuj", wypełniał formularz i dostawał 403 na
   // zapisie — czytało się jak "zapis nie działa".
-  "client.update": TAC_PLUS,
+  "client.update": DELIVERY_TAC_WRITERS,
   // PUT/POST confirm/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus
   // (backend/app/api/client_cv_rules.py). Decyzja produktowa 02.09.2026:
   // reguły CV prowadzi Delivery Lead, TAC ich nie zmienia — choć kartę
   // klienta (`client.update`) edytować może. Bramka przycisków na
   // /settings/cv-rules i sekcji „Reguły CV" w oknie edycji firmy.
   "cv_rule.manage": ["admin", "delivery_lead"],
-  // POST /api/contracts → TacPlus (backend/app/api/contracts.py)
-  "contract.create": TAC_PLUS,
+  // POST /api/contracts → TacPlus narrowed by the Delivery section write gate.
+  "contract.create": DELIVERY_TAC_WRITERS,
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =
   // ADMIN_LIKE_ROLES ∪ CLIENT_TEAM_ROLES (backend/app/services/client_access.py)
-  "contact.create": ["admin", "head_of_recruitment", "delivery_lead", "tac"],
+  "contact.create": DELIVERY_TAC_WRITERS,
   // POST /api/calendar/events → CalendarWriteAccess = CALENDAR_WRITE_ROLES
   // (backend/app/api/recruitment_access.py) — również bez HoR.
   "calendar_event.create": RECRUITER_PLUS,
@@ -170,36 +181,14 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // na CurrentUser, middleware bez wpisu (= brak zawężenia).
   "nav.talent_radar": ALL_ROLES,
   "nav.sourcing": OPERATIONAL,
-  "nav.clients": OPERATIONAL,
-  "nav.my_clients": [
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "finance",
-  ],
-  "nav.order_mail": [
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "finance",
-  ],
-  "nav.my_relationships": [
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "tac",
-    "finance",
-  ],
+  "nav.clients": DELIVERY_READ,
+  "nav.my_clients": DELIVERY_READ,
+  "nav.order_mail": DELIVERY_READ,
+  "nav.my_relationships": DELIVERY_READ,
   // Odczyt kontraktów jest szerszy niż `contract.create`: Finance ma pełny
   // business-read, ale nie dziedziczy przez to mutacji z `TAC_PLUS`.
-  "nav.contracts": ["admin", "delivery_lead", "tac", "finance"],
-  "nav.cortex": [
-    "admin",
-    "head_of_recruitment",
-    "delivery_lead",
-    "tac",
-    "finance",
-  ],
+  "nav.contracts": DELIVERY_READ,
+  "nav.cortex": CORTEX_READ,
   "nav.manager": ["admin", "delivery_lead"],
   // /api/finance/* → FinanceModuleUser = require_roles(admin, finance)
   // (backend/app/api/deps.py). Rola `finance` jest WYŁĄCZNA (CHECK

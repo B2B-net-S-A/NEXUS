@@ -46,6 +46,7 @@ import {
   canViewCandidateFinance,
   canManageMultiConsultantOrders,
   canManageOrderLifecycle,
+  hasRole,
   useAuthStore,
 } from "@/store/auth";
 
@@ -126,6 +127,9 @@ export function MultiConsultantOrdersTab({
   const canViewFinance = canViewCandidateFinance(user);
   const canManage = canManageMultiConsultantOrders(user);
   const canLifecycle = canManageOrderLifecycle(user);
+  const canExport =
+    !hasRole(user, "talent_community_manager") ||
+    hasRole(user, "admin", "delivery_lead", "finance");
   const legacyNullOrderType: LegacyClientOrderType = periodicOrdersEnabled
     ? "periodic"
     : "md";
@@ -747,6 +751,7 @@ export function MultiConsultantOrdersTab({
           resultCount={resultCount}
           exporting={exporting}
           onExport={exportVisible}
+          showExport={canExport}
         />
       ) : null}
 

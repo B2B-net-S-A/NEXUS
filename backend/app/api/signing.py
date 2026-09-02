@@ -16,7 +16,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.contract_access import assert_contract_legal_contract_access
 from app.api.deps import CurrentUser, TacPlus, require_roles
+from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -43,6 +45,10 @@ _MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_DELIVERY_SECTION_DEPENDENCIES = [
+    Depends(require_section_access(ProductSection.delivery))
+]
+
 
 ContractSignatureReadUser = Annotated[
     User,
@@ -50,7 +56,6 @@ ContractSignatureReadUser = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.delivery_lead,
-            UserRole.tac,
             UserRole.finance,
         )
     ),
@@ -69,6 +74,7 @@ def _require_enabled() -> None:
     "/contracts/{contract_id}/send-for-signature",
     response_model=SignForSignatureResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def send_for_signature(
     contract_id: int,
@@ -78,6 +84,9 @@ async def send_for_signature(
 ) -> SignForSignatureResponse:
     """Create the signature, mint the link, return the shareable URL. 202."""
     _require_enabled()
+    await assert_contract_legal_contract_access(
+        db, current_user, contract_id, write=True
+    )
     sig, sign_url = await prepare_and_send(
         db, contract_id=contract_id, payload=payload, sender_user=current_user
     )
@@ -93,6 +102,7 @@ async def send_for_signature(
     "/contracts/{contract_id}/mark-sent-offline",
     response_model=DocumentSignatureResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def mark_sent_offline(
     contract_id: int,
@@ -105,6 +115,9 @@ async def mark_sent_offline(
     but still want the pipeline to advance. No /sign link is minted.
     """
     _require_enabled()
+    await assert_contract_legal_contract_access(
+        db, current_user, contract_id, write=True
+    )
     sig = await prepare_send(
         db,
         contract_id=contract_id,
@@ -142,6 +155,7 @@ async def mark_sent_offline(
 @router.post(
     "/contracts/{contract_id}/upload-signed",
     status_code=status.HTTP_201_CREATED,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def upload_signed_offline(
     contract_id: int,
@@ -155,6 +169,9 @@ async def upload_signed_offline(
     the signature and advances the candidate to 'Umowa podpisana'.
     """
     _require_enabled()
+    await assert_contract_legal_contract_access(
+        db, current_user, contract_id, write=True
+    )
     pdf_bytes = await file.read()
     if not pdf_bytes:
         raise HTTPException(status_code=422, detail="Pusty plik")
@@ -179,6 +196,7 @@ async def upload_signed_offline(
 @router.get(
     "/contracts/{contract_id}/signatures",
     response_model=list[DocumentSignatureResponse],
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def list_signatures(
     contract_id: int,
@@ -186,6 +204,7 @@ async def list_signatures(
     db: AsyncSession = Depends(get_db),
 ) -> list[DocumentSignature]:
     """Most-recent-first signatures for a contract."""
+    await assert_contract_legal_contract_access(db, current_user, contract_id)
     result = await db.execute(
         select(DocumentSignature)
         .where(DocumentSignature.contract_id == contract_id)
@@ -197,6 +216,7 @@ async def list_signatures(
 @router.get(
     "/signatures/{signature_id}",
     response_model=DocumentSignatureDetailResponse,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def get_signature(
     signature_id: int,
@@ -210,12 +230,14 @@ async def get_signature(
     )
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
+    await assert_contract_legal_contract_access(db, current_user, sig.contract_id)
     return sig
 
 
 @router.post(
     "/signatures/{signature_id}/withdraw",
     response_model=DocumentSignatureResponse,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def withdraw_signature(
     signature_id: int,
@@ -229,6 +251,9 @@ async def withdraw_signature(
     )
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
+    await assert_contract_legal_contract_access(
+        db, current_user, sig.contract_id, write=True
+    )
     if sig.status not in (SignatureStatus.sent, SignatureStatus.in_progress):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -265,6 +290,7 @@ async def withdraw_signature(
 @router.post(
     "/signatures/{signature_id}/regenerate-link",
     response_model=dict,
+    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
 )
 async def regenerate_link(
     signature_id: int,
@@ -278,6 +304,9 @@ async def regenerate_link(
     )
     if sig is None:
         raise HTTPException(status_code=404, detail="Signature not found")
+    await assert_contract_legal_contract_access(
+        db, current_user, sig.contract_id, write=True
+    )
     if sig.status not in (SignatureStatus.sent, SignatureStatus.in_progress):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

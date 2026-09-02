@@ -53,7 +53,14 @@ router = APIRouter()
 
 ContactCaller = Annotated[
     User,
-    Depends(require_roles(UserRole.recruiter, UserRole.sourcer, UserRole.tac)),
+    Depends(
+        require_roles(
+            UserRole.recruiter,
+            UserRole.sourcer,
+            UserRole.tac,
+            UserRole.talent_community_manager,
+        )
+    ),
 ]
 ContactOversight = Annotated[
     User,
@@ -835,12 +842,18 @@ async def reassign_contact_owner(
             target is None
             or not target.is_active
             or not target.has_any_role(
-                UserRole.recruiter, UserRole.sourcer, UserRole.tac
+                UserRole.recruiter,
+                UserRole.sourcer,
+                UserRole.tac,
+                UserRole.talent_community_manager,
             )
         ):
             raise HTTPException(
                 status_code=422,
-                detail="Target must be an active recruiter, sourcer or TAC",
+                detail=(
+                    "Target must be an active recruiter, sourcer, TAC or "
+                    "Talent Community Manager"
+                ),
             )
         target_has_scope = await db.scalar(
             select(

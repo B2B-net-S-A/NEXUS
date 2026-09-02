@@ -38,15 +38,14 @@ const STATUS_LABELS: Record<FrameworkContractStatus, string> = {
 };
 
 /**
- * Kosmetyczne lustro backendowego `DlAssignedOrAdmin` (api/deps.py): admin i HoR
- * globalnie, Delivery Lead po przypisaniu do klienta. Front nie zna przypisań,
- * więc DL widzi przyciski, a ostatecznym arbitrem zostaje backend — ale
- * recruiter/sourcer/finance/TAC nie dostają już formularza, który gwarantowanie
- * kończy się 403 po wypełnieniu i wgraniu pliku.
+ * Kosmetyczne lustro zapisu sekcji Delivery i per-klientowego guarda prawnego:
+ * Admin globalnie, Delivery Lead po przypisaniu do klienta. Front nie zna
+ * przypisań, więc DL widzi przyciski, a ostatecznym arbitrem zostaje backend.
+ * Pozostali czytelnicy nie dostają formularza kończącego się 403.
  */
 function useCanEditLegalDocs(): boolean {
   const user = useAuthStore((s) => s.user);
-  return hasRole(user, "admin", "head_of_recruitment", "delivery_lead");
+  return hasRole(user, "admin", "delivery_lead");
 }
 
 const STATUS_COLORS: Record<FrameworkContractStatus, string> = {
@@ -89,8 +88,8 @@ export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) 
 
   const contracts = data?.items ?? [];
 
-  // Odczyt stoi za `can_view_legal_documents` (admin/HoR/DL/TAC + przypisanie),
-  // więc recruiter, sourcer, finance i nieprzypisany DL/TAC dostają tu 403.
+  // Odczyt stoi za `can_view_legal_documents`: Admin i Finance globalnie,
+  // Delivery Lead po przypisaniu. TCM celowo nie czyta surowych dokumentów.
   // „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło im wtedy nieprawdę
   // handlową — w body leasingu brak MSA znaczy „nie możemy obsadzić klienta" —
   // i zapraszało do zduplikowania umowy, która już istnieje.

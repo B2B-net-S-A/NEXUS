@@ -25,6 +25,7 @@ const ALL_ROLES: UserRole[] = [
   "finance",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
   "sourcer",
@@ -159,7 +160,7 @@ describe("canManageCandidateFinance", () => {
 })
 
 describe("canViewCandidateFinance", () => {
-  it("pozwala Adminowi i Finance z capability view_finance", () => {
+  it("pozwala Adminowi, Finance i DL z autorytatywnym zakresem klientów", () => {
     expect(canViewCandidateFinance({ role: "admin" })).toBe(true)
     expect(
       canViewCandidateFinance({
@@ -172,6 +173,26 @@ describe("canViewCandidateFinance", () => {
         role: "delivery_lead",
         roles: ["delivery_lead", "finance"],
         analytics_capabilities: ["view_finance"],
+        data_scope: {
+          kind: "delivery_clients",
+          user_id: 1,
+          allowed_client_ids: [17],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+        },
+      })
+    ).toBe(true)
+    expect(
+      canViewCandidateFinance({
+        role: "talent_community_manager",
+        roles: ["talent_community_manager", "delivery_lead"],
+        data_scope: {
+          kind: "delivery_clients",
+          user_id: 1,
+          allowed_client_ids: [17],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+        },
       })
     ).toBe(true)
   })
@@ -186,7 +207,7 @@ describe("canViewCandidateFinance", () => {
     expect(canManageCandidateFinance(finance)).toBe(false)
   })
 
-  it("fail-closed dla Finance bez capability i innych ról", () => {
+  it("fail-closed dla Finance bez capability, DL bez scope i zwykłego TCM", () => {
     expect(canViewCandidateFinance(null)).toBe(false)
     expect(canViewCandidateFinance(undefined)).toBe(false)
     expect(canViewCandidateFinance({ role: "finance" })).toBe(false)
@@ -194,6 +215,18 @@ describe("canViewCandidateFinance", () => {
       canViewCandidateFinance({
         role: "delivery_lead",
         capabilities: ["view_finance"],
+      })
+    ).toBe(false)
+    expect(
+      canViewCandidateFinance({
+        role: "talent_community_manager",
+        data_scope: {
+          kind: "recruitment_org",
+          user_id: 1,
+          allowed_client_ids: [],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+        },
       })
     ).toBe(false)
   })
@@ -322,8 +355,8 @@ describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () 
     expect(hasCapability(hor, "invite_link.create")).toBe(false)
     expect(hasCapability(hor, "job.create")).toBe(false)
     expect(hasCapability(hor, "client.create")).toBe(false)
-    // ...ale kontakty klienta (ADMIN_LIKE) już tak.
-    expect(hasCapability(hor, "contact.create")).toBe(true)
+    // Delivery pozostaje zamknięte także dla zapisów kontaktów klienta.
+    expect(hasCapability(hor, "contact.create")).toBe(false)
   })
 
   it("ranga HoR nadal jest wyższa od DL — dlatego capability, nie ranga", () => {
@@ -339,11 +372,11 @@ describe("RBAC gates: head_of_recruitment nie dziedziczy uprawnień DL/TAC", () 
     expect(hasRole(admin, "admin", "delivery_lead")).toBe(true)
   })
 
-  it("bramka Nowy klient (admin+delivery_lead+tac) wyklucza HoR, dopuszcza TAC", () => {
-    expect(hasRole(hor, "admin", "delivery_lead", "tac")).toBe(false)
-    expect(hasRole(tac, "admin", "delivery_lead", "tac")).toBe(true)
-    expect(hasRole(dl, "admin", "delivery_lead", "tac")).toBe(true)
-    expect(hasRole(admin, "admin", "delivery_lead", "tac")).toBe(true)
+  it("bramka Nowy klient dopuszcza tylko Admina i Delivery Leada", () => {
+    expect(hasCapability(hor, "client.create")).toBe(false)
+    expect(hasCapability(tac, "client.create")).toBe(false)
+    expect(hasCapability(dl, "client.create")).toBe(true)
+    expect(hasCapability(admin, "client.create")).toBe(true)
   })
 })
 
@@ -381,10 +414,10 @@ describe("canManageMultiConsultantOrders", () => {
   })
 
   it("nie przepuszcza pozostałych ról", () => {
-    // `head_of_recruitment` przechodzi backendowe DlAssignedOrAdmin globalnie,
-    // ale przy powierzchniach finansowych repo trzyma go poza — tu tak samo.
+    // Head of Recruitment nie ma sekcji Delivery; TCM ma w niej tylko odczyt.
     for (const role of [
       "head_of_recruitment",
+      "talent_community_manager",
       "tac",
       "recruiter",
       "sourcer",

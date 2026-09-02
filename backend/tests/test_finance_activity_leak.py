@@ -223,19 +223,21 @@ async def test_recent_activity_hides_rate_change_from_non_finance(
 async def test_contract_activities_strip_rate_for_non_finance(
     leak_client: AsyncClient, seeded: dict
 ):
-    """TAC has rate keys stripped; admin retains them."""
-    tac_headers = await _login(leak_client, *await _seed_user(UserRole.tac))
+    """TCM has rate keys stripped; admin retains them."""
+    tcm_headers = await _login(
+        leak_client, *await _seed_user(UserRole.talent_community_manager)
+    )
     fin_headers = await _login(leak_client, *await _seed_user(UserRole.admin))
     cid = seeded["contract_id"]
 
-    tac = await leak_client.get(f"/api/contracts/{cid}/activities", headers=tac_headers)
-    assert tac.status_code == 200, tac.text
-    tac_entry = _find(tac.json(), seeded["contract_activity_id"])
-    assert tac_entry is not None
-    assert "rate_candidate" not in tac_entry["details"]
-    assert "rate_client" not in tac_entry["details"]
-    assert "margin" not in tac_entry["details"]
-    assert tac_entry["details"].get("status") == "active"
+    tcm = await leak_client.get(f"/api/contracts/{cid}/activities", headers=tcm_headers)
+    assert tcm.status_code == 200, tcm.text
+    tcm_entry = _find(tcm.json(), seeded["contract_activity_id"])
+    assert tcm_entry is not None
+    assert "rate_candidate" not in tcm_entry["details"]
+    assert "rate_client" not in tcm_entry["details"]
+    assert "margin" not in tcm_entry["details"]
+    assert tcm_entry["details"].get("status") == "active"
 
     fin = await leak_client.get(f"/api/contracts/{cid}/activities", headers=fin_headers)
     assert fin.status_code == 200, fin.text
@@ -250,19 +252,21 @@ async def test_contract_activities_strip_rate_for_non_finance(
 async def test_contract_rate_history_redacts_amount_for_non_finance(
     leak_client: AsyncClient, seeded: dict
 ):
-    """TAC gets a redacted rate; admin gets the raw amount."""
-    tac_headers = await _login(leak_client, *await _seed_user(UserRole.tac))
+    """TCM gets a redacted rate; admin gets the raw amount."""
+    tcm_headers = await _login(
+        leak_client, *await _seed_user(UserRole.talent_community_manager)
+    )
     fin_headers = await _login(leak_client, *await _seed_user(UserRole.admin))
     cid = seeded["contract_id"]
 
-    tac = await leak_client.get(
-        f"/api/contracts/{cid}/rate-history", headers=tac_headers
+    tcm = await leak_client.get(
+        f"/api/contracts/{cid}/rate-history", headers=tcm_headers
     )
-    assert tac.status_code == 200, tac.text
-    tac_entry = _find(tac.json(), seeded["rate_history_id"])
-    assert tac_entry is not None
-    assert tac_entry["rate"] is None
-    assert tac_entry["currency"] is None
+    assert tcm.status_code == 200, tcm.text
+    tcm_entry = _find(tcm.json(), seeded["rate_history_id"])
+    assert tcm_entry is not None
+    assert tcm_entry["rate"] is None
+    assert tcm_entry["currency"] is None
 
     fin = await leak_client.get(
         f"/api/contracts/{cid}/rate-history", headers=fin_headers

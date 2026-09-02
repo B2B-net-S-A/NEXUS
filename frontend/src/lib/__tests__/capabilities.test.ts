@@ -20,6 +20,7 @@ const ALL_ROLES: UserRole[] = [
   "finance",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "tac",
   "recruiter",
   "sourcer",
@@ -37,7 +38,7 @@ const mkUser = (role: UserRole) => ({ role });
  */
 const EXPECTED: Record<
   Capability,
-  Record<Exclude<UserRole, "finance">, boolean>
+  Record<Exclude<UserRole, "finance" | "talent_community_manager">, boolean>
 > = {
   // POST /api/candidates → RecruiterPlus (bez HoR!)
   "candidate.create": {
@@ -70,22 +71,22 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/clients → TacPlus
+  // POST /api/clients → TacPlus narrowed by the Delivery section write gate
   "client.create": {
     admin: true,
     head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
   },
-  // PATCH /api/clients/{id} → TacPlus (bramka przycisku "Edytuj" na karcie)
+  // PATCH /api/clients/{id} → TacPlus narrowed by the Delivery section write gate
   "client.update": {
     admin: true,
     head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
@@ -102,12 +103,12 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/contracts → TacPlus
+  // POST /api/contracts → TacPlus narrowed by the Delivery section write gate
   "contract.create": {
     admin: true,
     head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
@@ -115,9 +116,9 @@ const EXPECTED: Record<
   // ClientAccess.can_edit_contacts → ADMIN_LIKE ∪ CLIENT_TEAM
   "contact.create": {
     admin: true,
-    head_of_recruitment: true,
+    head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
@@ -226,16 +227,16 @@ const EXPECTED: Record<
   },
   "nav.clients": {
     admin: true,
-    head_of_recruitment: true,
+    head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
-    recruiter: true,
-    sourcer: true,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
     user: false,
   },
   "nav.my_clients": {
     admin: true,
-    head_of_recruitment: true,
+    head_of_recruitment: false,
     delivery_lead: true,
     tac: false,
     recruiter: false,
@@ -244,7 +245,7 @@ const EXPECTED: Record<
   },
   "nav.order_mail": {
     admin: true,
-    head_of_recruitment: true,
+    head_of_recruitment: false,
     delivery_lead: true,
     tac: false,
     recruiter: false,
@@ -253,9 +254,9 @@ const EXPECTED: Record<
   },
   "nav.my_relationships": {
     admin: true,
-    head_of_recruitment: true,
+    head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
@@ -264,7 +265,7 @@ const EXPECTED: Record<
     admin: true,
     head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
@@ -274,8 +275,8 @@ const EXPECTED: Record<
     head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
-    recruiter: false,
-    sourcer: false,
+    recruiter: true,
+    sourcer: true,
     user: false,
   },
   "nav.manager": {
@@ -311,6 +312,7 @@ function financeExpected(capability: Capability): boolean {
   if (
     [
       "nav.finance",
+      "nav.clients",
       "nav.my_clients",
       "nav.order_mail",
       "nav.my_relationships",
@@ -321,6 +323,27 @@ function financeExpected(capability: Capability): boolean {
     return true;
   }
   return EXPECTED[capability].recruiter;
+}
+
+function talentCommunityManagerExpected(capability: Capability): boolean {
+  return [
+    "candidate.create",
+    "calendar_event.create",
+    "invite_link.create",
+    "candidate.document.manage",
+    "candidate.profile_fact.manage",
+    "dashboard.recruitment_stats.view",
+    "nav.candidates",
+    "nav.talents",
+    "nav.talent_radar",
+    "nav.sourcing",
+    "nav.clients",
+    "nav.my_clients",
+    "nav.order_mail",
+    "nav.my_relationships",
+    "nav.contracts",
+    "nav.cortex",
+  ].includes(capability);
 }
 
 const ALL_CAPABILITIES = Object.keys(CAPABILITY_ROLES) as Capability[];
@@ -352,7 +375,9 @@ describe("hasCapability — pełna macierz rola × capability", () => {
       const expected =
         role === "finance"
           ? financeExpected(capability)
-          : EXPECTED[capability][role];
+          : role === "talent_community_manager"
+            ? talentCommunityManagerExpected(capability)
+            : EXPECTED[capability][role];
       it(`${role} ${expected ? "MA" : "NIE ma"} ${capability}`, () => {
         expect(hasCapability(mkUser(role), capability)).toBe(expected);
       });
@@ -369,15 +394,15 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("multi-role: druga rola nadaje uprawnienie, którego primary nie ma", () => {
-    // Hybryda HoR + TAC — HoR sam nie zakłada firm, TAC tak.
+    // Hybryda HoR + TCM — HoR sam nie zakłada kandydatów, TCM tak.
     const hybrid = {
       role: "head_of_recruitment" as UserRole,
-      roles: ["head_of_recruitment", "tac"] as UserRole[],
+      roles: ["head_of_recruitment", "talent_community_manager"] as UserRole[],
     };
-    expect(hasCapability(mkUser("head_of_recruitment"), "client.create")).toBe(
+    expect(hasCapability(mkUser("head_of_recruitment"), "candidate.create")).toBe(
       false,
     );
-    expect(hasCapability(hybrid, "client.create")).toBe(true);
+    expect(hasCapability(hybrid, "candidate.create")).toBe(true);
   });
 
   it("brak `roles` (stary cache localStorage) fallbackuje na primary `role`", () => {
@@ -410,10 +435,25 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
     expect(hasCapability(mkUser("finance"), "nav.finance")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.candidates")).toBe(true);
+    expect(hasCapability(mkUser("finance"), "nav.clients")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.my_clients")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.my_relationships")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.contracts")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.cortex")).toBe(true);
+  });
+
+  it("Talent Community Manager ma biznes bez Finansów i tylko odczyt Delivery", () => {
+    for (const capability of ALL_CAPABILITIES) {
+      expect(hasCapability(mkUser("talent_community_manager"), capability)).toBe(
+        talentCommunityManagerExpected(capability),
+      );
+    }
+    expect(hasCapability(mkUser("talent_community_manager"), "nav.finance")).toBe(
+      false,
+    );
+    expect(hasCapability(mkUser("talent_community_manager"), "client.create")).toBe(
+      false,
+    );
   });
 });
 
@@ -484,11 +524,11 @@ describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () =>
     ]);
   });
 
-  it("head_of_recruitment widzi tylko osobę kontaktową", () => {
+  it("head_of_recruitment nie dostaje akcji tworzenia z sekcji Delivery", () => {
     const visible = QUICK_ACTIONS.filter((c) =>
       hasCapability(mkUser("head_of_recruitment"), c),
     );
-    expect(visible).toEqual(["contact.create"]);
+    expect(visible).toEqual([]);
   });
 });
 
@@ -526,12 +566,13 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
     }
   });
 
-  it("kontrakt, rekrutacja i firma dzielą tę samą bramkę (TacPlus)", () => {
+  it("kontrakt i firma dzielą bramkę Delivery, a rekrutacja zostaje w Pipeline", () => {
     for (const role of ALL_ROLES) {
       const contract = hasCapability(mkUser(role), "contract.create");
-      expect(hasCapability(mkUser(role), "job.create")).toBe(contract);
       expect(hasCapability(mkUser(role), "client.create")).toBe(contract);
     }
+    expect(hasCapability(mkUser("tac"), "job.create")).toBe(true);
+    expect(hasCapability(mkUser("tac"), "client.create")).toBe(false);
   });
 });
 
@@ -652,16 +693,23 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "candidate.create": { guards: [["deps", "RecruiterPlus"]] },
   "job.create": { guards: [["deps", "TacPlus"]] },
   "job.update": { guards: [["deps", "TacPlus"]] },
-  "client.create": { guards: [["deps", "TacPlus"]] },
-  "client.update": { guards: [["deps", "TacPlus"]] },
+  "client.create": {
+    productDecision:
+      "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
+  },
+  "client.update": {
+    productDecision:
+      "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
+  },
   "cv_rule.manage": { guards: [["deps", "DeliveryLeadPlus"]] },
-  "contract.create": { guards: [["deps", "TacPlus"]] },
+  "contract.create": {
+    productDecision:
+      "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
+  },
   // ClientAccess.can_edit_contacts = ADMIN_LIKE ∪ CLIENT_TEAM.
   "contact.create": {
-    guards: [
-      ["clientAccess", "ADMIN_LIKE_ROLES"],
-      ["clientAccess", "CLIENT_TEAM_ROLES"],
-    ],
+    productDecision:
+      "ClientAccess writers intersected with the Delivery section write matrix; only Admin and scoped Delivery Lead remain.",
   },
   "calendar_event.create": {
     guards: [["recruitmentAccess", "CALENDAR_WRITE_ROLES"]],
@@ -685,20 +733,26 @@ const CAPABILITY_BACKEND_MIRROR: Record<
       "Oba endpointy radaru stoją na CurrentUser (decyzja 19.08) — nie ma zbioru ról do porównania, bramką jest samo zalogowanie.",
   },
   "nav.sourcing": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
-  "nav.clients": { guards: [["deps", "OperationalUser"]] },
+  "nav.clients": {
+    productDecision:
+      "GET /api/clients is additionally protected by the central Delivery section dependency.",
+  },
   "nav.my_clients": {
     productDecision:
-      "GET /api/my-clients i /api/my-clients/{id}/dashboard dają Finance organizacyjny odczyt; UI wpuszcza Finance bez dodawania capability zapisu.",
+      "GET /api/my-clients is protected by Delivery section access; Admin, Finance, TCM and scoped Delivery Lead can read it.",
   },
   "nav.order_mail": {
     productDecision:
-      "GET /api/order-mail/queue wylicza zakres po stronie backendu (admin/HoR/finance: wszystko; DL: własny portfel); „Zastosuj” jest osobno bramkowane can_apply.",
+      "Order-mail is a Delivery surface: Admin/Finance/TCM read organization-wide, DL reads its portfolio, and only Admin/scoped DL may apply.",
   },
   "nav.my_relationships": {
     productDecision:
-      "GET /api/my-relationships daje Finance organizacyjny odczyt, a pozostałe role zachowują dotychczasowy self/management scope.",
+      "GET /api/my-relationships is protected by Delivery section access; Admin, Finance, TCM and scoped Delivery Lead can read it.",
   },
-  "nav.contracts": { guards: [["contracts", "ContractReadUser"]] },
+  "nav.contracts": {
+    productDecision:
+      "ContractReadUser is intersected with the central Delivery section read matrix.",
+  },
   "nav.cortex": { guards: [["cortex", "CortexUser"]] },
   "nav.manager": { guards: [["deps", "DeliveryLeadPlus"]] },
   "nav.finance": { guards: [["deps", "FinanceModuleUser"]] },

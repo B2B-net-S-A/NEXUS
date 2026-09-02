@@ -83,7 +83,7 @@ export function ContractsBulkActionsBarV2({
  }
 
  return (
- <RequireRole roles={["admin","delivery_lead","tac"]}>
+ <RequireRole roles={["admin","delivery_lead"]}>
  <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-card text-foreground rounded-xl shadow-md border border-white/10 px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
  <span className="text-xs inline-flex items-center gap-1.5">
  <CheckSquare className="h-3.5 w-3.5" />

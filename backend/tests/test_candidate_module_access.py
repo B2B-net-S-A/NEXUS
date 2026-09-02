@@ -42,6 +42,7 @@ ROLES = [
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
@@ -55,6 +56,7 @@ OPERATIONAL_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
@@ -63,6 +65,7 @@ OPERATIONAL_ROLES = {
 WRITE_ROLES = {
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.finance,
     UserRole.tac,
     UserRole.recruiter,
@@ -72,6 +75,7 @@ EXPORT_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.finance,
 }

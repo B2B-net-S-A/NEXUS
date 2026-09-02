@@ -20,6 +20,18 @@ def test_validate_aad_roles_deduplicates_and_preserves_precedence() -> None:
     assert roles == [UserRole.delivery_lead, UserRole.tac]
 
 
+def test_validate_aad_roles_accepts_talent_community_manager() -> None:
+    values, roles = validate_aad_mapped_roles(
+        ["talent_community_manager", "delivery_lead"]
+    )
+
+    assert values == ["talent_community_manager", "delivery_lead"]
+    assert roles == [
+        UserRole.talent_community_manager,
+        UserRole.delivery_lead,
+    ]
+
+
 @pytest.mark.parametrize(
     ("values", "message"),
     [

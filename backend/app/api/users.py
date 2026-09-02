@@ -43,6 +43,7 @@ class UserPreferencesResponse(BaseModel):
 _DEFAULT_ROLES = [
     UserRole.admin,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.tac,
     UserRole.recruiter,
     UserRole.sourcer,

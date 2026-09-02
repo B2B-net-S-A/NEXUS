@@ -42,7 +42,12 @@ from app.models.user import User, UserRole
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 QUEUE_LIMIT = 20
-OPERATIONAL_ROLES = (UserRole.recruiter, UserRole.sourcer, UserRole.tac)
+OPERATIONAL_ROLES = (
+    UserRole.recruiter,
+    UserRole.sourcer,
+    UserRole.tac,
+    UserRole.talent_community_manager,
+)
 _PRIORITY_WEIGHT = {
     JobPriority.urgent.value: 4,
     JobPriority.high.value: 3,

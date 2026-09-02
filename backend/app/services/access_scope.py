@@ -83,18 +83,24 @@ async def resolve_dashboard_scope(
     Precedence intentionally follows organizational authority.  Admin and the
     exclusive Finance persona can query organization-wide rows, with the
     capability matrix still limiting the domains/fields they may consume.
-    Head of Recruitment sees active recruitment operators. Delivery Lead sees
-    only the intersection of their clients and TACs assigned to those clients.
-    Operators see only their own work. ``delivery_lead_persona=True`` lets a
-    HoR+DL hybrid explicitly select its DL dashboard without inheriting HoR's
-    wider precedence; admin remains organization-wide.
+    Head of Recruitment and Talent Community Manager see active recruitment
+    operators. Delivery Lead sees only the intersection of their clients and
+    TACs assigned to those clients. Operators see only their own work.
+    ``delivery_lead_persona=True`` lets a recruitment+DL hybrid explicitly
+    select its DL dashboard without inheriting the wider recruitment
+    precedence; admin remains organization-wide.
     """
 
     roles = set(user.get_all_roles())
     if UserRole.admin in roles or UserRole.finance in roles:
         return DashboardScope(kind=ScopeKind.organization, user_id=user.id)
 
-    if UserRole.head_of_recruitment in roles and not delivery_lead_persona:
+    if (
+        roles.intersection(
+            {UserRole.head_of_recruitment, UserRole.talent_community_manager}
+        )
+        and not delivery_lead_persona
+    ):
         recruitment_roles = (
             UserRole.tac,
             UserRole.sourcer,
@@ -179,15 +185,17 @@ async def resolve_delivery_lead_client_ids(
     """Return the canonical client boundary for a plain Delivery Lead.
 
     ``None`` means the caller is not governed by the DL persona boundary
-    (Admin/Head of Recruitment oversight or a non-DL operational role). An
-    empty set is a real deny-all scope and must never fall back to all clients.
+    (Admin/Finance oversight or a non-DL operational role). Any account that
+    actually holds Delivery Lead is scoped to its explicit portfolio, even if
+    it also holds a recruitment role. An empty set is a real deny-all scope
+    and must never fall back to all clients.
     """
 
-    if user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    if user.has_any_role(UserRole.admin, UserRole.finance):
         return None
     if not user.has_role(UserRole.delivery_lead):
         return None
-    scope = await resolve_dashboard_scope(user, db)
+    scope = await resolve_dashboard_scope(user, db, delivery_lead_persona=True)
     if scope.kind is not ScopeKind.delivery_clients or scope.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -264,7 +272,11 @@ async def apply_activity_feed_scope(
 ):
     """Apply the persona-specific activity boundary before sorting/limiting."""
 
-    if user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    if user.has_any_role(
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+    ):
         return statement
     if not user.has_role(UserRole.delivery_lead):
         return statement

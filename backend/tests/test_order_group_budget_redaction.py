@@ -214,9 +214,8 @@ async def test_admin_still_sees_the_budget(
     assert body["lines"][0]["invoiced_total"] == pytest.approx(120000.0)
 
 
-@pytest.mark.parametrize("role_value", ["head_of_recruitment", "tac"])
-async def test_role_without_view_finance_gets_no_budget_amounts(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, role_value: str
+async def test_tcm_gets_no_budget_amounts(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
     client_id, contract_id, name = await _seed_client_with_contract()
     _enable(monkeypatch, client_id)
@@ -224,7 +223,7 @@ async def test_role_without_view_finance_gets_no_budget_amounts(
         app_client, app_auth_headers, client_id, contract_id
     )
     await _import_invoice(app_client, group, name, 120000)
-    headers = await _headers_for_role(app_client, role_value, client_id)
+    headers = await _headers_for_role(app_client, "talent_community_manager", client_id)
 
     resp = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=headers
@@ -248,3 +247,23 @@ async def test_role_without_view_finance_gets_no_budget_amounts(
     # Liczby MD i stan operacyjny zostają — pasek zużycia nie jest kwotą.
     assert body["is_cost_based"] is True
     assert body["active_consultants"] == 1
+
+
+@pytest.mark.parametrize("role_value", ["head_of_recruitment", "tac"])
+async def test_recruitment_roles_cannot_enter_delivery_order_groups(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    role_value: str,
+):
+    client_id, contract_id, _name = await _seed_client_with_contract()
+    _enable(monkeypatch, client_id)
+    await _create_cost_group(app_client, app_auth_headers, client_id, contract_id)
+    headers = await _headers_for_role(app_client, role_value, client_id)
+
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=headers
+    )
+
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"]["code"] == "section_access_denied"

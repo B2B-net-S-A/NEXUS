@@ -66,6 +66,7 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
     "admin",
     "head_of_recruitment",
     "delivery_lead",
+    "talent_community_manager",
     "tac",
     "recruiter",
     "sourcer",

@@ -9,7 +9,7 @@ Templates (admin only):
   PATCH  /required-document-templates/{id}
   DELETE /required-document-templates/{id}
 
-Per-klient instancje (jawny scope klienta/Joba do view, jawny DL/TAC do edycji):
+Per-klient instancje (jawny scope klienta/Joba do view, Admin/DL do edycji):
   GET    /clients/{client_id}/required-documents
   POST   /clients/{client_id}/required-documents              (ad-hoc, bez pliku)
   POST   /clients/{client_id}/required-documents/apply-templates  (bulk z szablonów)
@@ -27,7 +27,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import OperationalUser, get_current_user, require_roles
+from app.api.deps import OperationalUser, require_roles
+from app.api.section_access import DeliverySectionUser
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.client import Client
@@ -83,7 +84,7 @@ async def _require_required_docs_access(
 
 async def require_required_docs_read_access(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     await _assert_client(db, client_id)
@@ -98,7 +99,7 @@ async def require_required_docs_read_access(
 
 async def require_required_docs_write_access(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> User:
     await _assert_client(db, client_id)

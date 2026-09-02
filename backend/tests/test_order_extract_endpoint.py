@@ -511,19 +511,15 @@ async def test_bank_pocztowy_endpoint_converts_md_rate_and_forces_number(
     assert data["title_needs_review"] is False
 
 
-async def test_bank_pocztowy_missing_number_sets_review_flag_for_non_finance(
-    app_client: AsyncClient, monkeypatch
+async def test_bank_pocztowy_missing_number_sets_review_flag(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Brak numeru: flaga `title_needs_review` MUSI przeżyć redakcję finansową
-    (HoR nie widzi kwot, ale komunikat o numerze go dotyczy), a oryginalna
-    stawka MD (`rate_client_md`) MUSI być zredagowana jak każda kwota."""
+    """Brak numeru musi podnieść jawną flagę do ręcznej weryfikacji."""
     from app.api import client_orders as co
     from app.services.order_pdf_parser import OrderExtraction
 
     client_id = await _seed_client("Bank Pocztowy S.A.")
     monkeypatch.setenv("BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS", str(client_id))
-    hor_headers = await _hor_headers(app_client)
-
     monkeypatch.setattr(
         co,
         "extract_text",
@@ -547,7 +543,7 @@ async def test_bank_pocztowy_missing_number_sets_review_flag_for_non_finance(
     resp = await app_client.post(
         f"/api/clients/{client_id}/orders/extract",
         files={"file": ("bp.pdf", b"%PDF-1.4 dummy", "application/pdf")},
-        headers=hor_headers,
+        headers=app_auth_headers,
     )
 
     assert resp.status_code == 200, resp.text
@@ -555,11 +551,10 @@ async def test_bank_pocztowy_missing_number_sets_review_flag_for_non_finance(
     # Polityka odrzuciła numer spoza hierarchii pól i podniosła flagę.
     assert data["title"] is None
     assert data["title_needs_review"] is True
-    # Kwoty (w tym oryginał MD) zredagowane dla roli bez VIEW_FINANCE.
-    assert data["rate_client"] is None
-    assert data["rate_client_md"] is None
-    assert "rate_client_md" not in data["fields_confidence"]
-    # Redakcja powodów nie gasi banera.
+    # Uprawniony operator widzi odczytaną stawkę; bezpieczeństwo pozostałych
+    # ról zapewnia teraz wcześniejsza granica sekcji Delivery.
+    assert Decimal(str(data["rate_client"])) == Decimal("200.00")
+    assert Decimal(str(data["rate_client_md"])) == Decimal("1600")
     assert data["uncertain"] is True
 
 
@@ -611,12 +606,7 @@ async def test_order_documents_by_contract_404(
 
 
 async def _hor_headers(app_client: AsyncClient) -> dict[str, str]:
-    """Head of Recruitment — BEZ przypisania, a mimo to przechodzi guard trasy.
-
-    ``require_dl_assigned_or_admin`` przepuszcza HoR globalnie, więc to jedyna
-    rola, która dociera do tego endpointu bez prawa do kwot. Dlatego właśnie na
-    niej trzymamy dowód redakcji kanałów pobocznych.
-    """
+    """Head of Recruitment without a Delivery role."""
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.user import User, UserRole
@@ -643,84 +633,18 @@ async def _hor_headers(app_client: AsyncClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
-async def test_extract_redacts_finance_and_metadata_for_head_of_recruitment(
-    app_client: AsyncClient, monkeypatch
+async def test_head_of_recruitment_cannot_enter_delivery_order_extraction(
+    app_client: AsyncClient,
 ):
-    """HoR: kwoty ORAZ kanały poboczne (fields_confidence finansowe +
-    uncertain_reasons cytujące/nazywające finanse) muszą być zredagowane.
-
-    Wcześniej ten dowód stał na Delivery Leadzie; po poszerzeniu uprawnień
-    PRZYPISANY DL kwoty widzi (patrz test niżej), więc rolą bez dostępu, która
-    wciąż dociera do tego endpointu, jest head_of_recruitment — przepuszcza go
-    guard trasy, ale nie predykat finansowy.
-    """
-    from app.api import client_orders as co
-    from app.services.order_pdf_parser import OrderExtraction
-
     client_id = await _seed_client()
-    dl_headers = await _hor_headers(app_client)
-
-    monkeypatch.setattr(co, "extract_text", lambda path, filename: "treść zamówienia")
-
-    async def _fake_parse(text: str) -> OrderExtraction:
-        return OrderExtraction(
-            title="PO-DL",
-            start_date="2026-06-01",
-            end_date=None,
-            rate_client=Decimal("17000"),
-            rate_unit="month",
-            total_value=Decimal("102000"),
-            currency="PLN",
-            confidence={
-                "title": 0.95,
-                "start_date": 0.9,
-                "rate_client": 0.97,
-                "total_value": 0.9,
-                "currency": 0.9,
-            },
-            uncertain=True,
-            uncertain_reasons=[
-                "Stawka 17000 PLN wydaje się nietypowa",
-                "Niepewny odczyt: stawka (klient płaci)",
-            ],
-            source="claude",
-        )
-
-    monkeypatch.setattr(co, "parse_order_document", _fake_parse)
-
-    files = {"file": ("order.pdf", b"%PDF-1.4 x", "application/pdf")}
+    headers = await _hor_headers(app_client)
     resp = await app_client.post(
         f"/api/clients/{client_id}/orders/extract",
-        files=files,
-        headers=dl_headers,
+        files={"file": ("order.pdf", b"%PDF-1.4 x", "application/pdf")},
+        headers=headers,
     )
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-
-    # Wartości finansowe zredagowane.
-    assert data["rate_client"] is None
-    assert data["total_value"] is None
-    assert data["currency"] is None
-    assert data["rate_unit"] is None
-
-    # fields_confidence bez kluczy finansowych, niefinansowe zostają.
-    conf = data["fields_confidence"]
-    assert "rate_client" not in conf
-    assert "total_value" not in conf
-    assert "currency" not in conf
-    assert "rate_unit" not in conf
-    assert "title" in conf
-
-    # uncertain_reasons NIE cytuje kwot ani nie nazywa pól finansowych,
-    # ale baner „Sprawdź dane!" zostaje (uncertain=True).
-    joined = " ".join(data["uncertain_reasons"]).lower()
-    assert "17000" not in joined
-    assert "stawka" not in joined
-    assert data["uncertain"] is True
-
-    # Pola operacyjne przechodzą.
-    assert data["title"] == "PO-DL"
-    assert data["start_date"] == "2026-06-01"
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"]["code"] == "section_access_denied"
 
 
 async def test_extract_shows_finance_to_assigned_delivery_lead(
@@ -867,39 +791,45 @@ async def test_bnp_endpoint_reads_a_document_without_a_consultant_name(
     assert data["consultant_ref"] == "4711"
 
 
-async def test_bnp_consultant_ref_survives_finance_redaction(
+async def test_tcm_cannot_parse_rate_bearing_bnp_document(
     app_client: AsyncClient, monkeypatch
 ):
-    """Numer ID nie jest kwotą — rola bez VIEW_FINANCE też musi go zobaczyć.
-
-    To jedyny ślad tożsamości w dokumencie BNP; ukrycie go zostawiłoby
-    operatora bez możliwości potwierdzenia, czyjego zamówienia dotyczy plik.
-    """
-    from app.api import client_orders as co
-
+    """Bezpieczny odczyt TCM nie obejmuje surowego dokumentu ze stawką."""
     client_id = await _seed_client("BNP Paribas Bank Polska S.A.")
     monkeypatch.setenv("BNP_ORDER_EXTRACTION_CLIENT_IDS", str(client_id))
-    hor_headers = await _hor_headers(app_client)
-    monkeypatch.setattr(
-        co,
-        "extract_text",
-        lambda path, filename: (
-            "Konsultant ID: 4711\n08-2026 do 12-2026\nCena netto: 1 040,00\nSzt.: 105\n"
-        ),
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    email = f"tcm-ord-{uuid.uuid4().hex[:8]}@example.com"
+    password = f"P4ss_{uuid.uuid4().hex[:6]}!"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name="TCM Ord",
+                role=UserRole.talent_community_manager,
+                roles=[UserRole.talent_community_manager.value],
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
     )
+    assert login.status_code == 200, login.text
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
     resp = await app_client.post(
         f"/api/clients/{client_id}/orders/extract",
         files={"file": ("bnp.pdf", b"%PDF-1.4 dummy", "application/pdf")},
-        headers=hor_headers,
+        headers=headers,
     )
 
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["consultant_ref"] == "4711"
-    assert data["rate_client"] is None
-    # Liczba MD jest operacyjna, nie finansowa — zostaje.
-    assert Decimal(str(data["md_total"])) == Decimal("105")
+    assert resp.status_code == 403, resp.text
+    assert resp.json()["detail"]["code"] == "section_access_denied"
 
 
 async def test_bnp_policy_does_not_leak_to_other_clients(

@@ -108,6 +108,8 @@ def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
         presets.append("finance")
     if UserRole.head_of_recruitment in roles:
         presets.append("head-of-recruitment")
+    elif UserRole.talent_community_manager in roles:
+        presets.append("head-of-recruitment")
     if UserRole.delivery_lead in roles:
         presets.append("delivery-lead")
     if roles.intersection({UserRole.sourcer, UserRole.tac, UserRole.recruiter}):
@@ -584,7 +586,18 @@ async def me(
     presets = _dashboard_presets_for(current_user)
     response.available_dashboard_presets = presets
     response.default_dashboard_preset = presets[0] if presets else None
-    scope = await resolve_dashboard_scope(current_user, db)
+    # `/me.data_scope` also drives client-level Delivery affordances. Any
+    # account carrying Delivery Lead must therefore expose the exact assigned
+    # portfolio here, even when its default dashboard preset is HoR/TCM. The
+    # individual dashboard endpoint still resolves its own preset scope.
+    scope = await resolve_dashboard_scope(
+        current_user,
+        db,
+        delivery_lead_persona=(
+            current_user.has_role(UserRole.delivery_lead)
+            and not current_user.has_any_role(UserRole.admin, UserRole.finance)
+        ),
+    )
     response.data_scope = DashboardDataScope(**scope.as_payload())
     response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
     return response

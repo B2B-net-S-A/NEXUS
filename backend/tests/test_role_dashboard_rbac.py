@@ -33,6 +33,7 @@ from app.models.user import User, UserRole
 from app.services.access_scope import (
     DashboardScope,
     ScopeKind,
+    apply_activity_feed_scope,
     apply_delivery_lead_activity_scope,
     resolve_dashboard_scope,
 )
@@ -81,6 +82,14 @@ def test_finance_capabilities_are_exclusive_from_delivery_lead() -> None:
     assert AnalyticsCapability.VIEW_RECRUITMENT_RANKING not in delivery_caps
     assert not has_financial_access(_user(UserRole.delivery_lead))
 
+    tcm_caps = capabilities_for(_user(UserRole.talent_community_manager))
+    assert AnalyticsCapability.VIEW_RECRUITMENT_RANKING in tcm_caps
+    assert AnalyticsCapability.VIEW_TEAM_KPI in tcm_caps
+    assert AnalyticsCapability.VIEW_CLIENT_OPERATIONS in tcm_caps
+    assert AnalyticsCapability.VIEW_FINANCE not in tcm_caps
+    assert AnalyticsCapability.MANAGE_FINANCE not in tcm_caps
+    assert not has_financial_access(_user(UserRole.talent_community_manager))
+
 
 def test_admin_is_superadmin_and_legacy_viewer_has_no_dashboard_capability() -> None:
     assert capabilities_for(_user(UserRole.admin)) == frozenset(AnalyticsCapability)
@@ -104,6 +113,7 @@ async def test_frozen_legacy_dashboards_are_admin_or_hor_only() -> None:
 
     for role in (
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
@@ -131,6 +141,7 @@ async def test_team_kpi_panel_is_visible_to_every_operational_role() -> None:
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.finance,
@@ -152,10 +163,39 @@ async def test_team_kpi_panel_is_visible_to_every_operational_role() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recruitment_overview_dashboard_accepts_admin_hor_and_tcm() -> None:
+    from typing import get_args
+
+    from app.api.dashboard_v2 import HeadOfRecruitmentDashboardUser
+
+    guard = get_args(HeadOfRecruitmentDashboardUser)[1].dependency
+    for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+    ):
+        user = _user(role)
+        assert await guard(current_user=user) is user
+
+    for role in (
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.finance,
+        UserRole.sourcer,
+        UserRole.user,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await guard(current_user=_user(role))
+        assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
     for role in (
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.finance,
@@ -232,6 +272,9 @@ def test_onboarding_persona_uses_role_union_with_dl_precedence() -> None:
 def test_dashboard_presets_follow_personas_and_multi_role_union() -> None:
     assert _dashboard_presets_for(_user(UserRole.finance)) == ["finance"]
     assert _dashboard_presets_for(_user(UserRole.head_of_recruitment)) == [
+        "head-of-recruitment"
+    ]
+    assert _dashboard_presets_for(_user(UserRole.talent_community_manager)) == [
         "head-of-recruitment"
     ]
     hybrid = _user(
@@ -316,6 +359,12 @@ def test_scoped_job_operations_use_exact_delivery_scope_and_hide_budget() -> Non
         _user(UserRole.delivery_lead),
     ) == {"salary_min": None, "salary_max": None}
 
+    tcm_payload = {"salary_min": 100, "salary_max": 200}
+    assert _redact_delivery_lead_job_finance(
+        tcm_payload,
+        _user(UserRole.talent_community_manager),
+    ) == {"salary_min": None, "salary_max": None}
+
     admin_payload = {"salary_min": 100, "salary_max": 200}
     assert _redact_delivery_lead_job_finance(
         admin_payload,
@@ -326,6 +375,12 @@ def test_scoped_job_operations_use_exact_delivery_scope_and_hide_budget() -> Non
         _assert_delivery_lead_finance_write(
             {"title", "salary_min"},
             _user(UserRole.delivery_lead),
+        )
+    assert exc.value.status_code == 403
+    with pytest.raises(HTTPException) as exc:
+        _assert_delivery_lead_finance_write(
+            {"title", "salary_max"},
+            _user(UserRole.talent_community_manager),
         )
     assert exc.value.status_code == 403
     _assert_delivery_lead_finance_write(
@@ -378,6 +433,29 @@ async def test_organization_and_self_scopes_are_deterministic() -> None:
     assert own.kind is ScopeKind.self
     assert own.allowed_operator_user_ids == frozenset({100})
     assert own.cache_token() == "self:u=100:c=:t=100:o=100:p="
+
+
+@pytest.mark.asyncio
+async def test_tcm_delivery_hybrid_keeps_global_insights_activity_feed() -> None:
+    from sqlalchemy import select
+
+    hybrid = _user(
+        UserRole.talent_community_manager,
+        roles=[
+            UserRole.talent_community_manager.value,
+            UserRole.delivery_lead.value,
+        ],
+    )
+    statement = select(Activity)
+
+    assert (
+        await apply_activity_feed_scope(
+            statement,
+            hybrid,
+            db=None,  # type: ignore[arg-type]
+        )
+        is statement
+    )
 
 
 @pytest.mark.asyncio

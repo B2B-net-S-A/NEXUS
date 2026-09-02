@@ -933,7 +933,7 @@ export default function NewContractPage() {
   }
   return (
     <RequireRole
-      roles={["admin", "delivery_lead", "tac"]}
+      roles={["admin", "delivery_lead"]}
       fallback={
         <div className="max-w-3xl mx-auto p-6">
           <Link
@@ -943,7 +943,7 @@ export default function NewContractPage() {
             <ArrowLeft className="h-4 w-4" /> Wróć do listy
           </Link>
           <p className="mt-4 text-sm text-muted-foreground">
-            Tworzenie kontraktów jest dostępne dla ról: admin, delivery lead, TAC.
+            Tworzenie kontraktów jest dostępne dla ról: admin i delivery lead.
           </p>
         </div>
       }

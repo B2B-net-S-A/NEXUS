@@ -8,8 +8,6 @@ from datetime import datetime, timezone
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
-
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.invite_link import CandidateInviteLink
@@ -152,6 +150,19 @@ async def test_invite_links_report_allows_head_of_recruitment(
     rep_client: AsyncClient,
 ):
     _, email, password = await _seed_user(UserRole.head_of_recruitment, "hr")
+    headers = await _login(rep_client, email, password)
+
+    resp = await rep_client.get("/api/reports/invite-links?period=all", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "channels" in body and "totals" in body
+
+
+@pytest.mark.asyncio
+async def test_invite_links_report_allows_talent_community_manager(
+    rep_client: AsyncClient,
+):
+    _, email, password = await _seed_user(UserRole.talent_community_manager, "tcm")
     headers = await _login(rep_client, email, password)
 
     resp = await rep_client.get("/api/reports/invite-links?period=all", headers=headers)

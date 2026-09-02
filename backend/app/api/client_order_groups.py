@@ -49,6 +49,7 @@ from app.api.deps import (
     require_dl_assigned_or_admin,
     require_roles,
 )
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.activity import Activity
@@ -181,7 +182,7 @@ from app.services.order_excel_export import (
 )
 from app.services import storage_service
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 MAX_GROUP_PDF_BYTES = 25 * 1024 * 1024
 
@@ -248,19 +249,51 @@ async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> N
     """Ta sama decyzja dostępu co przy zamówieniach jednoosobowych.
 
     Lustro ``client_orders._require_client_order_read``: linia niesie kandydata
-    i stawki, więc DL/TAC wymagają jawnego przypisania. Finance ma organizacyjny
-    business-read niezależny od przypisania.
+    i stawki, więc Delivery Lead wymaga jawnego przypisania. Finance ma
+    organizacyjny business-read niezależny od przypisania.
     """
     await _assert_client(db, client_id)
-    # Head of Recruitment i Finanse mają prawo do akcji cyklu życia (patrz
-    # `_ORDER_LIFECYCLE_ROLES`), więc muszą też WIDZIEĆ zamówienia — inaczej
-    # dostają uprawnienie do przycisku, którego nigdy nie zobaczą. Finance ma
-    # dodatkowo pełny read pozostałych powierzchni klienta przez client_access.
-    if user.has_any_role(UserRole.head_of_recruitment, UserRole.finance):
+    # Finance ma organizacyjny odczyt. Head of Recruitment nie omija już
+    # granicy klienta, a na poziomie sekcji w ogóle nie wchodzi do Delivery.
+    if user.has_role(UserRole.finance):
         return
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają jawnego przypisania DL/TAC")
+        raise deny("zamówienia klienta wymagają roli Finance lub przypisanego DL")
+
+
+async def _require_safe_group_read(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+) -> None:
+    """Authorize the structured, finance-redacted order-group projection."""
+
+    await _assert_client(db, client_id)
+    access = await resolve_client_access(db, user, client_id)
+    if not access.can_view_knowledge:
+        raise deny("zamówienia klienta wymagają dostępu operacyjnego do klienta")
+
+
+def _is_read_only_tcm(user: User) -> bool:
+    return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.finance,
+    )
+
+
+def _redact_group_document_metadata(group: OrderGroupRead) -> OrderGroupRead:
+    """Hide PO-file affordances from the non-document TCM projection."""
+
+    group.filename = None
+    group.has_file = False
+    group.content_type = None
+    group.size_bytes = None
+    group.file_uploaded_at = None
+    for future in group.future_orders:
+        _redact_group_document_metadata(future)
+    return group
 
 
 def _assert_multi_client(client_id: int) -> None:
@@ -293,9 +326,8 @@ def _has_md_line_management_role(user: User) -> bool:
       zamówień zostają admin-only (``_ORDER_FINANCE_WRITE_FIELDS``),
     * tylko klient, do którego DL jest jawnie przypisany — pilnuje tego
       ``DlAssignedOrAdmin`` na trasie, a ``_require_group_read`` na odczycie,
-    * **head_of_recruitment NIE** — przechodzi przez ``DlAssignedOrAdmin``
-      globalnie, bez przypisania, a przy powierzchniach finansowych repo
-      konsekwentnie trzyma go poza (patrz `/settings/clients-overview`),
+    * **head_of_recruitment NIE** — bramka sekcji Delivery odcina tę rolę,
+      a przy powierzchniach finansowych repo konsekwentnie trzyma ją poza,
     * rola ``finance`` NIE zapisuje stawek linii MD, ale widzi je przez osobny
       ``_can_see_finance`` i capability ``VIEW_FINANCE``.
 
@@ -502,18 +534,11 @@ async def _restore_offboarded_line(
 # przedłuż). Świadomie SZERSZE niż `_has_md_line_management_role`, który
 # rządzi stawkami i zostaje przy admin + Delivery Lead.
 #
-# Ticket wymienia je przez wykluczenie: „wszystkie role oprócz Sourcer,
-# Rekruter, TAC, Talent Community". Roli „Talent Community" w systemie nie ma;
-# deprecated `user` (read-only viewer) jest poza z tego samego powodu co tamte
-# trzy. Zostają więc admin, Head of Recruitment, Delivery Lead i Finanse.
-#
-# Konsekwencja do wiedzenia: `head_of_recruitment` przechodzi guardy tras
-# GLOBALNIE, bez przypisania do klienta — dostaje te akcje u wszystkich
-# klientów. (Dawna uwaga o odcięciu `finance` od powierzchni kandydackich
-# nieaktualna — od 19.08 finance ma pełny dostęp operacyjny.)
+# Head of Recruitment, TAC, Recruiter, Sourcer i legacy viewer są odcięci od
+# całej sekcji Delivery. TCM ma bezpieczny odczyt, więc również nie wykonuje
+# tych mutacji. Zostają Admin, przypisany Delivery Lead oraz Finanse.
 _ORDER_LIFECYCLE_ROLES = (
     UserRole.admin,
-    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.finance,
 )
@@ -523,10 +548,8 @@ _ORDER_LIFECYCLE_ROLES = (
 #: dokłada `_require_order_lifecycle` w ciele handlera, bo zna `client_id`.
 OrderLifecycleUser = Annotated[User, Depends(require_roles(*_ORDER_LIFECYCLE_ROLES))]
 
-#: Zależność ODCZYTU zamówień. `TacPlus` tu nie wystarcza: odrzuca Head of
-#: Recruitment i Finanse, którym ticket przyznaje akcje cyklu życia — a rola,
-#: która może zamówienie zakończyć, ale nie może go zobaczyć, dostaje przycisk
-#: bez ekranu. Zawężenie do konkretnego klienta robi `_require_group_read`.
+#: Zależność odczytu surowych zamówień i plików. Granica sekcji jest
+#: nakładana na routerze; zawężenie do klienta robi `_require_group_read`.
 OrderGroupReader = Annotated[
     User,
     Depends(
@@ -534,6 +557,24 @@ OrderGroupReader = Annotated[
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.finance,
+            UserRole.tac,
+        )
+    ),
+]
+
+# Structured list/history projections are finance-redacted and may be shown to
+# TCM. Exports, consultant selectors and PDF files retain ``OrderGroupReader``
+# so the read-only role cannot cross the Finance boundary through an opaque
+# artefact or a write-oriented helper.
+OrderGroupSafeReadUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.head_of_recruitment,
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.finance,
             UserRole.tac,
         )
@@ -578,9 +619,7 @@ async def _require_order_lifecycle(
     await _assert_client(db, client_id)
     if not _has_order_lifecycle_role(user):
         raise deny("ta akcja wymaga roli zarządzającej zamówieniami")
-    if user.has_any_role(
-        UserRole.admin, UserRole.head_of_recruitment, UserRole.finance
-    ):
+    if user.has_any_role(UserRole.admin, UserRole.finance):
         return
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
@@ -1307,7 +1346,7 @@ def _describe_line(
 @router.get("/{client_id}/order-groups", response_model=OrderGroupListResponse)
 async def list_order_groups(
     client_id: int,
-    user: OrderGroupReader,
+    user: OrderGroupSafeReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Zamówienia klienta wraz z liniami konsultantów.
@@ -1316,7 +1355,7 @@ async def list_order_groups(
     dopiero po sprawdzeniu flagi, a odmowa renderowałaby się jako awaria tam,
     gdzie faktycznie po prostu nie ma czego pokazać.
     """
-    await _require_group_read(db, user, client_id)
+    await _require_safe_group_read(db, user, client_id)
 
     # Scanner materializuje przejścia codziennie, ale odczyt jest dodatkową
     # idempotentną bramą: zamówienie zaczynające się dziś ma stać się bieżące
@@ -1393,6 +1432,9 @@ async def list_order_groups(
     groups = [
         reads_by_id[group.id] for group in models if group.id not in hidden_future_ids
     ]
+    if _is_read_only_tcm(user):
+        for group in groups:
+            _redact_group_document_metadata(group)
     draft_orders = await _list_draft_orders(db, client_id, with_finance=with_finance)
     return OrderGroupListResponse(
         groups=groups,
@@ -1666,11 +1708,11 @@ async def list_consultant_options_for_client(
 async def list_group_events(
     client_id: int,
     group_id: int,
-    user: OrderGroupReader,
+    user: OrderGroupSafeReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Historia zamówienia — chronologicznie, od najnowszego."""
-    await _require_group_read(db, user, client_id)
+    await _require_safe_group_read(db, user, client_id)
     _assert_multi_client(client_id)
     await _load_group(db, client_id, group_id)
 
@@ -1696,7 +1738,11 @@ async def list_group_events(
                 id=ev.id,
                 event_type=ev.event_type,
                 event_label=EVENT_TYPE_LABELS.get(ev.event_type, ev.event_type),
-                description=ev.description,
+                description=(
+                    EVENT_TYPE_LABELS.get(ev.event_type, ev.event_type)
+                    if _is_read_only_tcm(user)
+                    else ev.description
+                ),
                 order_id=ev.order_id,
                 payload=ev.payload if with_finance else None,
                 created_by_user_id=ev.created_by_user_id,

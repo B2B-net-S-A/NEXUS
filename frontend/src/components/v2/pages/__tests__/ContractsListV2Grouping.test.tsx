@@ -240,6 +240,40 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(screen.queryByText("Stawka klient")).not.toBeInTheDocument();
   });
 
+  it("TCM widzi bezpieczny rejestr Delivery bez finansów i operacji", async () => {
+    useAuthStore.setState({
+      user: {
+        id: 9,
+        email: "tcm@example.com",
+        name: "Talent Community Manager",
+        role: "talent_community_manager",
+        roles: ["talent_community_manager"],
+        profile_completed: true,
+        profile_completed_at: null,
+        force_password_change: false,
+        force_password_change_at: null,
+        capabilities: [],
+        analytics_capabilities: [],
+      },
+      hydrated: true,
+    });
+
+    const { container } = renderList();
+    await screen.findByText("Paweł Małek");
+
+    expect(
+      screen.queryByRole("button", { name: /nowy kontrakt/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /zaznacz widoczne/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stawka kosztowa")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stawka przychodowa")).not.toBeInTheDocument();
+    expect(screen.queryByText("Marża")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("[data-contract-member]")).toHaveLength(3);
+  });
+
   it("osoba u 2 klientów ma 2 widoczne pasy bez rozwijania, ze wspólną komórką kandydata", async () => {
     const { container } = renderList();
     await screen.findByText("Paweł Małek");

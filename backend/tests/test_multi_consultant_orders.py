@@ -1558,30 +1558,35 @@ async def test_options_do_not_suggest_a_rate_from_a_draft_contract(
     assert row["has_different_client_contract_rates"] is False
 
 
-async def test_options_redact_rate_suggestion_for_head_of_recruitment(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+@pytest.mark.parametrize(
+    "role_value", ["head_of_recruitment", "talent_community_manager"]
+)
+async def test_consultant_options_are_closed_to_non_document_delivery_readers(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    monkeypatch,
+    role_value: str,
 ):
-    """Wygodniejszy picker nie rozszerza dostępu HoR do stawek linii."""
+    """Picker niesie sugestie stawek, więc nie należy do bezpiecznego odczytu."""
     surname = f"Stawka{uuid.uuid4().hex[:6]}"
     client_id, _, _ = await _seed_client_with_contracts(0)
     _enable_for(monkeypatch, client_id)
-    candidate_id, _ = await _seed_person_with_contract(
+    await _seed_person_with_contract(
         client_id=client_id,
         first="Olga",
         last=surname,
         rate_candidate=Decimal("560.000"),
     )
-    _, email, password = await _seed_user("head_of_recruitment")
-    hor_headers = await _headers_for(app_client, email, password)
+    _, email, password = await _seed_user(role_value)
+    headers = await _headers_for(app_client, email, password)
 
-    data = await _options(app_client, hor_headers, client_id, q=surname)
-    row = next(o for o in data["options"] if o["candidate_id"] == candidate_id)
-    assert row["suggested_rate_cost"] is None
-    assert row["suggested_contract_rate_cost"] is None
-    assert row["suggested_rate_cost_unit"] is None
-    assert row["suggested_rate_cost_currency"] is None
-    assert row["suggested_rate_cost_rate_to_pln"] is None
-    assert row["has_different_client_contract_rates"] is False
+    response = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/consultant-options",
+        headers=headers,
+        params={"q": surname},
+    )
+
+    assert response.status_code == 403, response.text
 
 
 async def test_options_never_show_the_same_person_twice(

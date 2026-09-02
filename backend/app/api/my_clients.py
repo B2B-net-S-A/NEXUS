@@ -1,7 +1,7 @@
-"""Router `/api/my-clients` — lista klientów DL + per-client dashboard.
+"""Router `/api/my-clients` — portfolio Delivery + per-client dashboard.
 
 DL widzi tylko klientów do których ma `DeliveryLeadClientAssignment`.
-Admin / head_of_recruitment widzą wszystkich.
+Admin, Finance i Talent Community Manager widzą wszystkich w trybie odczytu.
 
 Dashboard stosuje ten sam per-client guard, po rozwiązaniu merge redirectu.
 """
@@ -20,6 +20,7 @@ from starlette.responses import RedirectResponse
 
 from app.api.deps import CurrentUser, require_dl_assigned_or_admin
 from app.api.financial_access import can_read_client_finance, has_financial_access
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_framework_contract import (
@@ -48,13 +49,13 @@ from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.order_revenue import order_revenue_rows_to_pln
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 _MY_CLIENTS_ORGANIZATION_READ_ROLES = (
     UserRole.admin,
-    UserRole.head_of_recruitment,
     UserRole.finance,
+    UserRole.talent_community_manager,
 )
 
 
@@ -144,9 +145,15 @@ async def require_dl_assigned_or_admin_after_merge(
     if canonical is None:
         raise HTTPException(404, detail="Client not found")
 
-    # Finance is an organization-wide business reader. Keep the existing
-    # assignment guard for Delivery Leads; this dependency is used by GET only.
-    if current_user.has_any_role(*_MY_CLIENTS_ORGANIZATION_READ_ROLES):
+    # Any account that actually holds Delivery Lead stays inside its own
+    # portfolio, even if it also holds HoR/TCM. Admin and the exclusive Finance
+    # persona are the only global overrides.
+    delivery_scoped = current_user.has_role(
+        UserRole.delivery_lead
+    ) and not current_user.has_any_role(UserRole.admin, UserRole.finance)
+    if not delivery_scoped and current_user.has_any_role(
+        *_MY_CLIENTS_ORGANIZATION_READ_ROLES
+    ):
         return current_user
 
     # The merge moves client FK rows (including DL assignments) atomically.
@@ -184,10 +191,16 @@ async def list_my_clients(
     user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Lista klientów DL (lub wszystkich dla admin/HoR/Finance)."""
-    # Multi-role aware (M1-RBAC-02): hybryda np. recruiter+DL ma przejść
-    # po roli dodatkowej, nie tylko primary.
-    is_organization_reader = user.has_any_role(*_MY_CLIENTS_ORGANIZATION_READ_ROLES)
+    """Lista własnych klientów DL lub organizacyjny odczyt pozostałych ról."""
+    # A DL persona always wins for Delivery row scope. This prevents a hybrid
+    # HoR+DL or TCM+DL account from turning its recruitment-wide authority into
+    # organization-wide Delivery access.
+    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(user, db)
+    is_delivery_scoped = delivery_lead_client_ids is not None
+    is_organization_reader = (
+        user.has_any_role(*_MY_CLIENTS_ORGANIZATION_READ_ROLES)
+        and not is_delivery_scoped
+    )
     client_name = client_display_name_expression()
 
     if is_organization_reader:
@@ -205,10 +218,10 @@ async def list_my_clients(
         # z którymi ten odbiorca nie ma nic wspólnego.
         rows_are_callers_own_portfolio = False
     else:
-        if not user.has_role(UserRole.delivery_lead):
+        if not is_delivery_scoped:
             raise HTTPException(
                 403,
-                detail="Only Delivery Leads or admin/head_of_recruitment can view My Clients",
+                detail="Only Delivery Leads or organization readers can view My Clients",
             )
         # DL: pobierz przypisania + clients
         assignments = list(
@@ -224,6 +237,9 @@ async def list_my_clients(
                     )
                     .where(
                         DeliveryLeadClientAssignment.delivery_lead_user_id == user.id,
+                        DeliveryLeadClientAssignment.client_id.in_(
+                            sorted(delivery_lead_client_ids) or [-1]
+                        ),
                         *visible_client_predicates(),
                     )
                 )
@@ -254,13 +270,12 @@ async def list_my_clients(
         return []
 
     # Delivery Lead widzi kwoty WŁASNEGO portfela, mimo że nie ma
-    # ``VIEW_FINANCE`` — patrz `can_read_client_finance`. Flaga, a nie test roli:
-    # hybryda `head_of_recruitment + delivery_lead` wchodzi tu gałęzią
-    # organizacyjną (widzi WSZYSTKICH klientów), więc sam `has_role` rozdałby
-    # jej przychody całej firmy.
+    # ``VIEW_FINANCE`` — patrz `can_read_client_finance`. Flaga, a nie sam test
+    # roli, wiąże wyjątek finansowy dokładnie z już zawężonym zbiorem wierszy.
     finance_ok = has_financial_access(user) or rows_are_callers_own_portfolio
 
-    # Aktywne ordery — licznik jest operacyjny i pozostaje dostępny dla DL/HoR.
+    # Aktywne ordery — licznik jest operacyjny dla każdego dopuszczonego
+    # czytelnika Delivery, w tym TCM.
     active_order_counts = {
         row.client_id: row
         for row in (
@@ -443,7 +458,8 @@ async def client_dashboard(
     order_status_counts = {row.status: int(row.count or 0) for row in order_status_rows}
 
     # Revenue: lifetime total / active / completed. The query itself is
-    # finance-gated; DL and HoR never load the raw amounts.
+    # finance-gated; TCM never loads raw amounts, while an assigned DL uses the
+    # narrow per-client finance exception established above.
     total_rev = Decimal(0)
     active_rev = Decimal(0)
     completed_rev = Decimal(0)

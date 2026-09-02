@@ -492,11 +492,20 @@ async def test_extend_inherits_settlement_type(
 # ── Uprawnienia ─────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("role", ["tac", "recruiter", "sourcer"])
+@pytest.mark.parametrize(
+    "role",
+    [
+        "head_of_recruitment",
+        "talent_community_manager",
+        "tac",
+        "recruiter",
+        "sourcer",
+    ],
+)
 async def test_lifecycle_actions_forbidden_for_excluded_roles(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch, role: str
 ):
-    """Ticket wymienia te trzy role przez wykluczenie."""
+    """Brak zapisu Delivery obowiązuje niezależnie od starego guarda akcji."""
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_multi(monkeypatch, client_id)
     group = await _create_group(
@@ -518,16 +527,11 @@ async def test_lifecycle_actions_forbidden_for_excluded_roles(
         assert resp.status_code == 403, f"{role} {method} {path} -> {resp.status_code}"
 
 
-@pytest.mark.parametrize("role", ["head_of_recruitment", "finance"])
-async def test_lifecycle_actions_allowed_for_hor_and_finance(
+@pytest.mark.parametrize("role", ["finance"])
+async def test_lifecycle_actions_allowed_for_finance(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch, role: str
 ):
-    """Świadome poszerzenie: ticket przyznaje te akcje wszystkim poza trójką.
-
-    Konsekwencja jest jawna — Head of Recruitment dostaje je u WSZYSTKICH
-    klientów (przechodzi guardy globalnie), a Finanse widzą tu nazwisko
-    konsultanta. Obie decyzje potwierdzone przy planowaniu.
-    """
+    """Finanse zachowują istniejącą obsługę cyklu życia zamówień."""
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_multi(monkeypatch, client_id)
     group = await _create_group(
@@ -1657,7 +1661,7 @@ async def test_transfer_link_survives_the_payload_redaction(
         await db.commit()
         successor_id, successor_number = other.id, other.order_number
 
-    _, email, password = await _seed_user("head_of_recruitment")
+    _, email, password = await _seed_user("talent_community_manager")
     headers = await _headers_for(app_client, email, password)
     events = await _history(app_client, headers, client_id, group["id"])
     entry = next(e for e in events if e["event_type"] == EVENT_MD_TRANSFER)

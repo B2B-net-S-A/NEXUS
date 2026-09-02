@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, OperationalUser
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -30,7 +31,7 @@ from app.models.client_directory import (
 )
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.contract import Contract, ContractStatus
-from app.models.user import UserRole
+from app.models.user import User, UserRole
 from app.schemas.client_directory import (
     ClientDirectoryCategoryCounts,
     ClientDirectoryItem,
@@ -40,14 +41,24 @@ from app.schemas.client_directory import (
     ClientPortfolioScopeResponse,
     ClientPortfolioScopeUpdate,
 )
-from app.services.client_access import ADMIN_LIKE_ROLES, CLIENT_TEAM_ROLES
+from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
 from app.services.contractor_identity import contractor_identity_sql_expression
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+
+
+def _can_view_directory_legal(user: User) -> bool:
+    """Keep legal identity out of the TCM-safe Delivery projection."""
+
+    return user.has_any_role(
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.finance,
+    )
 
 
 def _effective_client_name():
@@ -111,6 +122,7 @@ def _directory_rows_statement(
     category: PortfolioCategory,
     q: Optional[str],
     as_of: date,
+    allowed_client_ids: frozenset[int] | None = None,
 ):
     canonical_name = _effective_client_name()
     scope_label = func.nullif(func.btrim(ClientPortfolioScope.label), "")
@@ -188,6 +200,8 @@ def _directory_rows_statement(
             *_visible_client_filters(),
         )
     )
+    if allowed_client_ids is not None:
+        statement = statement.where(Client.id.in_(sorted(allowed_client_ids) or [-1]))
 
     normalized_q = (q or "").strip()
     if normalized_q:
@@ -216,14 +230,17 @@ def _directory_rows_statement(
     )
 
 
-def _directory_counts_statement():
+def _directory_counts_statement(
+    *,
+    allowed_client_ids: frozenset[int] | None = None,
+):
     # Group by the EFFECTIVE category so a manually-moved client is counted in
     # the tab it actually appears in (mirrors the row query's COALESCE).
     effective_category = func.coalesce(
         ClientPortfolioScope.category_override,
         ClientPortfolioScope.category,
     )
-    return (
+    statement = (
         select(
             effective_category.label("category"),
             func.count(distinct(ClientPortfolioScope.client_id)),
@@ -236,6 +253,9 @@ def _directory_counts_statement():
         )
         .group_by(effective_category)
     )
+    if allowed_client_ids is not None:
+        statement = statement.where(Client.id.in_(sorted(allowed_client_ids) or [-1]))
+    return statement
 
 
 @router.get("/directory", response_model=ClientDirectoryResponse)
@@ -255,10 +275,12 @@ async def list_client_directory(
     """
 
     as_of = date.today()
+    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     rows_statement = _directory_rows_statement(
         category=category,
         q=q,
         as_of=as_of,
+        allowed_client_ids=allowed_client_ids,
     )
     filtered_rows = rows_statement.order_by(None).subquery()
     total_rows = int(
@@ -277,11 +299,7 @@ async def list_client_directory(
     result = await db.execute(
         rows_statement.offset((page - 1) * page_size).limit(page_size)
     )
-    can_view_legal = current_user.has_any_role(
-        *ADMIN_LIKE_ROLES,
-        *CLIENT_TEAM_ROLES,
-        UserRole.finance,
-    )
+    can_view_legal = _can_view_directory_legal(current_user)
     items = [
         ClientDirectoryItem(
             scope_id=row.scope_id,
@@ -305,7 +323,11 @@ async def list_client_directory(
         for row in result.all()
     ]
 
-    raw_counts = (await db.execute(_directory_counts_statement())).all()
+    raw_counts = (
+        await db.execute(
+            _directory_counts_statement(allowed_client_ids=allowed_client_ids)
+        )
+    ).all()
     category_counts = ClientDirectoryCategoryCounts(
         **{
             (
@@ -356,8 +378,8 @@ _DIRECTORY_EXPORT_BASE_COLUMNS = [
     "Start umowy ramowej",
     "Koniec umowy ramowej",
 ]
-# Legal columns — only for roles that already see legal data in the directory
-# (admin / HoR / delivery_lead / tac). The export never widens that access.
+# Legal columns — only for roles that already see legal data in Delivery
+# (Admin / Finance / assigned Delivery Lead). The export never widens access.
 _DIRECTORY_EXPORT_LEGAL_COLUMNS = ["Nazwa prawna", "NIP", "REGON"]
 
 
@@ -431,15 +453,12 @@ async def export_client_directory(
     up to ``limit``. Legal columns (Nazwa prawna / NIP / REGON) appear only for
     roles that already see them in the directory; the export never widens access.
     """
-    can_view_legal = current_user.has_any_role(
-        *ADMIN_LIKE_ROLES,
-        *CLIENT_TEAM_ROLES,
-        UserRole.finance,
-    )
+    can_view_legal = _can_view_directory_legal(current_user)
     statement = _directory_rows_statement(
         category=category,
         q=q,
         as_of=date.today(),
+        allowed_client_ids=await resolve_delivery_lead_client_ids(current_user, db),
     ).limit(limit)
     rows = (await db.execute(statement)).all()
     # Hitting ``limit`` means the file may be a partial view. Signal it in a

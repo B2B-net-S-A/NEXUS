@@ -18,6 +18,7 @@ interface Props {
   resultCount: number;
   exporting: boolean;
   onExport: () => void;
+  showExport?: boolean;
 }
 
 function activeFilterCount(filters: OrderListFilters): number {
@@ -40,6 +41,7 @@ export function OrderListControls({
   resultCount,
   exporting,
   onExport,
+  showExport = true,
 }: Props) {
   const update = <K extends keyof OrderListFilters>(
     key: K,
@@ -63,15 +65,17 @@ export function OrderListControls({
             className="w-full rounded-md border border-border bg-background py-2 pl-9 pr-3 text-sm text-foreground outline-hidden placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <button
-          type="button"
-          onClick={onExport}
-          disabled={exporting || resultCount === 0}
-          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-          {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
-        </button>
+        {showExport ? (
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={exporting || resultCount === 0}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {exporting ? "Przygotowuję…" : "Pobierz do Excela"}
+          </button>
+        ) : null}
       </div>
 
       <details className="mt-3">

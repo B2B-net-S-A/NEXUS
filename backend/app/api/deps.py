@@ -257,7 +257,8 @@ def require_roles(*roles: UserRole):
 # Hierarchia:
 #   admin          (5) — pełne uprawnienia, user management
 #   delivery_lead  (4) — rate cards, konflikty, pipeline templates, raporty
-#   tac            (3) — CRUD ofert/kontraktów, reject/offer, prep kit
+#   talent_community_manager — szeroki odczyt biznesowy bez finansów
+#   tac            (3) — operacje sourcing/pipeline, reject/offer, prep kit
 #   recruiter      (2) — dodawanie kandydatów, ruchy w pipeline
 #   sourcer        (2) — dodawanie kandydatów z ATS/ogłoszeń
 #   finance        — wydzielona persona finansowa
@@ -327,6 +328,7 @@ RecruiterPlus = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.tac,
             UserRole.recruiter,
             UserRole.finance,
@@ -348,6 +350,7 @@ OperationalUser = Annotated[
             UserRole.admin,
             UserRole.head_of_recruitment,
             UserRole.delivery_lead,
+            UserRole.talent_community_manager,
             UserRole.tac,
             UserRole.recruiter,
             UserRole.finance,
@@ -386,7 +389,7 @@ async def require_dl_assigned_or_admin(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency: admin/HoR globalnie OR DL z `DeliveryLeadClientAssignment`.
+    """Dependency: Admin globalnie OR DL z `DeliveryLeadClientAssignment`.
 
     FastAPI inferruje ``client_id`` z path parametru routera. Inne role
     (recruiter, sourcer, tac, user) — zawsze 403.
@@ -398,12 +401,12 @@ async def require_dl_assigned_or_admin(
 
     from app.models.team_structure import DeliveryLeadClientAssignment
 
-    if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
+    if current_user.has_role(UserRole.admin):
         return current_user
     if not current_user.has_role(UserRole.delivery_lead):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Delivery Leads or admin/head_of_recruitment may access this",
+            detail="Only Delivery Leads or admin may access this",
         )
     result = await db.execute(
         select(DeliveryLeadClientAssignment).where(

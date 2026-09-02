@@ -5,7 +5,7 @@ Scenarios covered:
 - Multi-seat jobs (headcount > 1 → fill_rate counts seats)
 - Period filter (closed_at ∈ [now - period, now])
 - Exclude reasons (`paused` removed from denominator)
-- RBAC (recruiter 403, TAC/admin 200)
+- RBAC (recruiter 403, HoR/TCM/admin 200)
 - Trend endpoint (N months returned)
 - `min_closed` server-side filter
 """
@@ -13,7 +13,7 @@ Scenarios covered:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -315,6 +315,16 @@ async def test_clients_rbac_rejects_recruiter(rep_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_clients_rbac_allows_head_of_recruitment(rep_client: AsyncClient):
     _, email, password = await _seed_user(UserRole.head_of_recruitment, "rbac-hor")
+    headers = await _login(rep_client, email, password)
+
+    resp = await rep_client.get("/api/reports/clients?period=year", headers=headers)
+    assert resp.status_code == 200
+    assert "clients" in resp.json() and "overall" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_clients_rbac_allows_talent_community_manager(rep_client: AsyncClient):
+    _, email, password = await _seed_user(UserRole.talent_community_manager, "rbac-tcm")
     headers = await _login(rep_client, email, password)
 
     resp = await rep_client.get("/api/reports/clients?period=year", headers=headers)

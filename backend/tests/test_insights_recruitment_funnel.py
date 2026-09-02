@@ -110,9 +110,14 @@ async def test_funnel_is_reachable_for_every_logged_in_role(fx_client: AsyncClie
     """Decyzja D7: /insights widzi KAŻDA zalogowana rola, także `sourcer`."""
     for role in (
         UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+        UserRole.tac,
         UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
+        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(fx_client, email, password)
@@ -321,7 +326,17 @@ async def test_invalid_period_returns_422_not_500(fx_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_time_to_hire_is_open_to_every_role(fx_client: AsyncClient):
-    for role in (UserRole.sourcer, UserRole.finance, UserRole.admin):
+    for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+        UserRole.finance,
+        UserRole.user,
+    ):
         _, email, password = await _seed_user(role, "tth-rbac")
         headers = await _login(fx_client, email, password)
         resp = await fx_client.get(
@@ -462,6 +477,10 @@ async def test_team_activity_is_open_to_every_logged_in_role(fx_client: AsyncCli
     for role in (
         UserRole.admin,
         UserRole.user,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+        UserRole.tac,
         UserRole.sourcer,
         UserRole.recruiter,
         UserRole.finance,
@@ -649,18 +668,22 @@ async def _seed_job() -> int:
 
 @pytest.mark.asyncio
 async def test_invite_links_is_open_to_every_logged_in_role(fx_client: AsyncClient):
-    """D7 — także dla `recruiter`, `sourcer`, `tac` i `user`.
+    """D7 — także dla `recruiter`, `sourcer`, `tac`, TCM i `user`.
 
-    To są dokładnie te role, dla których legacy `/api/reports/invite-links`
-    zwraca 403 (`require_roles(admin, delivery_lead, head_of_recruitment,
-    finance)`).
+    Legacy `/api/reports/invite-links` nadal odrzuca role wykonawcze
+    (`recruiter`, `sourcer`, `tac`, `user`), ale przyjmuje leadership readers,
+    w tym TCM.
     """
     for role in (
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+        UserRole.finance,
         UserRole.recruiter,
         UserRole.sourcer,
         UserRole.tac,
         UserRole.user,
-        UserRole.admin,
     ):
         _, email, password = await _seed_user(role, "il-rbac")
         headers = await _login(fx_client, email, password)

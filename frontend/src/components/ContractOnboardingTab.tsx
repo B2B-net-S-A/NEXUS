@@ -50,7 +50,13 @@ const NEXT_STATUS: Record<string, "pending" | "done" | "na"> = {
   na: "pending",
 };
 
-export function ContractOnboardingTab({ contractId }: { contractId: number }) {
+export function ContractOnboardingTab({
+  contractId,
+  readOnly = false,
+}: {
+  contractId: number;
+  readOnly?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [newLabel, setNewLabel] = useState("");
 
@@ -101,8 +107,8 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
 
   return (
     <div className="space-y-4">
-      {items.length === 0 && !isLoading && (
-        <RequireRole roles={["admin", "delivery_lead", "tac"]}>
+      {items.length === 0 && !isLoading && !readOnly && (
+        <RequireRole roles={["admin", "delivery_lead"]}>
           <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/10 rounded-2xl p-5">
             <p className="text-sm text-primary dark:text-primary mb-3">
               Brak listy onboardingowej. Zacznij od domyślnego zestawu (BHP,
@@ -116,6 +122,12 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
             </button>
           </div>
         </RequireRole>
+      )}
+
+      {items.length === 0 && !isLoading && readOnly && (
+        <p className="text-sm text-muted-foreground italic">
+          Brak listy onboardingowej.
+        </p>
       )}
 
       {items.length > 0 && (
@@ -135,32 +147,34 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
         </div>
       )}
 
-      <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const label = newLabel.trim();
-            if (label) {
-              createMutation.mutate({ label, order: items.length });
-            }
-          }}
-          className="flex gap-2"
-        >
-          <input
-            value={newLabel}
-            onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
-            className="flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
-          />
-          <button
-            type="submit"
-            disabled={createMutation.isPending || !newLabel.trim()}
-            className="flex items-center gap-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
+      {!readOnly && (
+        <RequireRole roles={["admin", "delivery_lead"]}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const label = newLabel.trim();
+              if (label) {
+                createMutation.mutate({ label, order: items.length });
+              }
+            }}
+            className="flex gap-2"
           >
-            <Plus className="w-4 h-4" /> Dodaj
-          </button>
-        </form>
-      </RequireRole>
+            <input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
+              className="flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+            />
+            <button
+              type="submit"
+              disabled={createMutation.isPending || !newLabel.trim()}
+              className="flex items-center gap-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" /> Dodaj
+            </button>
+          </form>
+        </RequireRole>
+      )}
 
       {isLoading ? (
         <div className="text-sm text-muted-foreground flex items-center gap-2">
@@ -179,26 +193,28 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
                   isNa ? "opacity-50" : ""
                 }`}
               >
-                <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-                  <button
-                    onClick={() =>
-                      updateMutation.mutate({
-                        id: item.id,
-                        payload: { status: NEXT_STATUS[item.status] },
-                      })
-                    }
-                    className={
-                      isDone
-                        ? "text-emerald-600"
-                        : isNa
-                          ? "text-muted-foreground"
-                          : "text-muted-foreground hover:text-primary"
-                    }
-                    title={`Zmień status (obecnie: ${item.status})`}
-                  >
-                    <Icon className="w-5 h-5" />
-                  </button>
-                </RequireRole>
+                {!readOnly && (
+                  <RequireRole roles={["admin", "delivery_lead"]}>
+                    <button
+                      onClick={() =>
+                        updateMutation.mutate({
+                          id: item.id,
+                          payload: { status: NEXT_STATUS[item.status] },
+                        })
+                      }
+                      className={
+                        isDone
+                          ? "text-emerald-600"
+                          : isNa
+                            ? "text-muted-foreground"
+                            : "text-muted-foreground hover:text-primary"
+                      }
+                      title={`Zmień status (obecnie: ${item.status})`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </button>
+                  </RequireRole>
+                )}
                 <span
                   className={`flex-1 text-sm ${isDone ? "line-through text-muted-foreground" : ""}`}
                 >
@@ -209,19 +225,21 @@ export function ContractOnboardingTab({ contractId }: { contractId: number }) {
                     → {formatDate(item.due_date)}
                   </span>
                 )}
-                <RequireRole roles={["admin", "delivery_lead", "tac"]}>
-                  <button
-                    onClick={() => {
-                      if (window.confirm(`Usunąć pozycję "${item.label}"?`)) {
-                        deleteMutation.mutate(item.id);
-                      }
-                    }}
-                    className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
-                    title="Usuń"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </RequireRole>
+                {!readOnly && (
+                  <RequireRole roles={["admin", "delivery_lead"]}>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Usunąć pozycję "${item.label}"?`)) {
+                          deleteMutation.mutate(item.id);
+                        }
+                      }}
+                      className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
+                      title="Usuń"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </RequireRole>
+                )}
               </li>
             );
           })}

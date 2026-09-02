@@ -244,7 +244,7 @@ export function ClientContractRegister({
   navigationSearch?: string;
 }) {
   const user = useAuthStore((s) => s.user);
-  const canEdit = hasRole(user, "admin", "delivery_lead", "tac");
+  const canEdit = hasRole(user, "admin", "delivery_lead");
 
   const [initialListState] = useState(() => {
     const parsed = parseClientContractRegisterState(navigationSearch ?? "");

@@ -26,6 +26,8 @@ class UserRole(str, enum.Enum):
     - head_of_recruitment — Olaf-type manager; odbiorca HR-owych agregatów
                             (PowerCalling, daily rollup) z notification_triggers
     - delivery_lead       — kierownik operacyjnego procesu delivery
+    - talent_community_manager — zarządza Talent Community; globalny odczyt
+                                 delivery bez finansów i bez mutacji delivery
     - finance             — operacje finansowe i widok executive
     - tac                 — Talent Acquisition Consultant (hybryda ATS + LinkedIn)
     - recruiter           — 100% LinkedIn, dodaje kandydatów
@@ -39,6 +41,7 @@ class UserRole(str, enum.Enum):
     admin = "admin"
     head_of_recruitment = "head_of_recruitment"
     delivery_lead = "delivery_lead"
+    talent_community_manager = "talent_community_manager"
     finance = "finance"
     tac = "tac"
     recruiter = "recruiter"

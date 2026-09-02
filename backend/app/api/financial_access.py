@@ -61,18 +61,17 @@ def can_read_client_finance(
       niej, ale finanse nie mogą wisieć na tym, że wcześniejsza linijka nie
       rzuciła wyjątku,
     * ``None`` jako granica znaczy „ten odbiorca NIE jest rządzony personą DL"
-      (admin, head_of_recruitment, rola nie-DL) i finansów stąd nie dostaje.
-      Dzięki temu multi-rola ``head_of_recruitment + delivery_lead`` nie dostaje
-      kwot u WSZYSTKICH klientów — jej nadzór jest nieoskopowany, a repo
-      konsekwentnie trzyma HoR poza finansami
-      (patrz ``/settings/clients-overview``),
+      (admin, Finance albo rola nie-DL) i finansów stąd nie dostaje. Każda
+      multi-rola zawierająca ``delivery_lead`` dostaje z resolvera konkretny
+      zbiór klientów, więc uprawnienie DL nie rozszerza się przez równoległą
+      rolę HoR/TCM na całą organizację,
     * ``tac`` zostaje przy redakcji: jest w zespole klienta i widzi
       konsultantów, ale obsady nie prowadzi, więc stawki go nie dotyczą.
 
-    Konsumenci: profil klienta (``api/clients.py``) i portal DL
-    (``api/my_clients.py``). Reguła mieszka tutaj, bo rozjazd dwóch kopii
-    kończy się ekranem, który sam sobie przeczy: te same kwoty tego samego
-    klienta widoczne w jednej zakładce i puste w drugiej.
+    Konsumenci: profil klienta (``api/clients.py``), portal DL
+    (``api/my_clients.py``), kontrakty i roster kontraktorów. Reguła mieszka
+    tutaj, bo rozjazd lokalnych kopii kończy się ekranami, które pokazują inne
+    uprawnienia do tych samych kwot tego samego klienta.
     """
 
     if has_financial_access(user):

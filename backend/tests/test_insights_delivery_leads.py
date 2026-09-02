@@ -564,14 +564,15 @@ async def test_every_logged_in_role_reaches_all_three_endpoints(
 ):
     """D7: /insights widzi KAŻDA zalogowana rola — także `sourcer` i `finance`.
 
-    `/api/reports/delivery-leads` zostaje przy admin+HoR+finance; ta trasa jest
-    nowa właśnie po to, żeby nie poszerzać tamtego guardu.
+    `/api/reports/delivery-leads` zostaje przy admin+HoR+TCM+finance; ta trasa
+    jest nowa właśnie po to, żeby nie poszerzać tamtego guardu.
     """
     dl_id, _, _ = await _seed_user(UserRole.delivery_lead, "rbactarget")
     for role in (
         UserRole.admin,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
+        UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,

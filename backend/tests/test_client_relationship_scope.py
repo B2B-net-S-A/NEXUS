@@ -7,7 +7,13 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.api import client_materials, client_orders, required_documents
+from app.api import (
+    client_directory,
+    client_materials,
+    client_orders,
+    clients,
+    required_documents,
+)
 from app.api.contract_access import (
     apply_contract_legal_client_scope,
     assert_contract_legal_client_access,
@@ -15,6 +21,7 @@ from app.api.contract_access import (
 )
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.user import User, UserRole
+from app.schemas.client import ClientResponse, ClientSafeResponse
 from app.services.client_access import (
     resolve_client_access,
     resolve_client_team_client_ids,
@@ -64,6 +71,8 @@ async def test_admin_and_head_keep_unrestricted_client_oversight(
     assert access.is_client_team
     assert access.can_view_legal_documents
     assert access.can_view_materials
+    assert access.can_edit_materials is (role is UserRole.admin)
+    assert access.can_manage_client is (role is UserRole.admin)
     db.scalars.assert_not_awaited()
     db.execute.assert_not_awaited()
 
@@ -93,17 +102,18 @@ async def test_delivery_lead_and_tac_use_only_their_explicit_assignment_tables()
 
 
 @pytest.mark.asyncio
-async def test_valid_dl_tac_hybrid_gets_union_without_global_fallback() -> None:
-    db = SimpleNamespace(
-        scalars=AsyncMock(side_effect=[_Rows([10, 20]), _Rows([20, 30])]),
-    )
+async def test_valid_dl_tac_hybrid_uses_only_dl_assignments() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20])))
     hybrid = _user(
         UserRole.delivery_lead,
         roles=[UserRole.delivery_lead.value, UserRole.tac.value],
     )
 
-    assert await resolve_client_team_client_ids(db, hybrid) == frozenset({10, 20, 30})
-    assert db.scalars.await_count == 2
+    assert await resolve_client_team_client_ids(db, hybrid) == frozenset({10, 20})
+    assert db.scalars.await_count == 1
+    rendered = str(db.scalars.await_args.args[0])
+    assert "delivery_lead_client_assignments" in rendered
+    assert "client_tac_assignments" not in rendered
 
 
 @pytest.mark.asyncio
@@ -136,9 +146,9 @@ async def test_assigned_client_team_role_can_read_client_surfaces(
     assert access.can_view_contacts
     assert access.can_view_knowledge
     assert access.can_view_materials
-    assert access.can_edit_materials
     assert access.can_view_legal_documents
-    assert access.can_edit_legal_documents
+    assert access.can_edit_materials is (role is UserRole.delivery_lead)
+    assert access.can_edit_legal_documents is (role is UserRole.delivery_lead)
 
 
 @pytest.mark.asyncio
@@ -188,6 +198,105 @@ async def test_finance_has_organization_wide_client_read_without_edit() -> None:
     assert not access.can_manage_client
     db.scalars.assert_not_awaited()
     db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_tcm_has_safe_organization_wide_client_read() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(), execute=AsyncMock())
+
+    access = await resolve_client_access(
+        db,
+        _user(UserRole.talent_community_manager),
+        client_id=77,
+    )
+
+    assert access.is_organization_reader
+    assert access.can_view_contacts
+    assert access.can_view_knowledge
+    assert access.can_view_materials
+    assert not access.can_view_legal_documents
+    assert not access.can_view_financials
+    assert not access.can_edit_contacts
+    assert not access.can_edit_knowledge
+    assert not access.can_edit_materials
+    assert not access.can_edit_legal_documents
+    assert not access.can_manage_client
+    db.scalars.assert_not_awaited()
+    db.execute.assert_not_awaited()
+
+    private_contact = SimpleNamespace(
+        key_relationship_owner_id=100,
+    )
+    assert not access.can_view_contact_private_notes(private_contact)
+
+    assert (
+        await resolve_client_visible_client_ids(
+            db,
+            _user(UserRole.talent_community_manager),
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_tcm_hor_hybrid_does_not_compose_into_legal_delivery_access() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(), execute=AsyncMock())
+    hybrid = _user(
+        UserRole.talent_community_manager,
+        roles=[
+            UserRole.talent_community_manager.value,
+            UserRole.head_of_recruitment.value,
+        ],
+    )
+
+    access = await resolve_client_access(db, hybrid, client_id=77)
+
+    assert access.can_view_materials
+    assert not access.can_view_legal_documents
+    assert not access.can_edit_materials
+    assert not access.can_view_contact_private_notes(
+        SimpleNamespace(key_relationship_owner_id=hybrid.id)
+    )
+    db.scalars.assert_not_awaited()
+    db.execute.assert_not_awaited()
+
+
+def test_tcm_hor_hybrid_keeps_safe_client_and_directory_projection() -> None:
+    hybrid = _user(
+        UserRole.talent_community_manager,
+        roles=[
+            UserRole.talent_community_manager.value,
+            UserRole.head_of_recruitment.value,
+        ],
+    )
+
+    assert clients._client_schema_for(hybrid) is ClientSafeResponse
+    assert not client_directory._can_view_directory_legal(hybrid)
+    assert clients._client_schema_for(_user(UserRole.delivery_lead)) is ClientResponse
+    assert client_directory._can_view_directory_legal(_user(UserRole.delivery_lead))
+
+
+@pytest.mark.asyncio
+async def test_tcm_dl_hybrid_cannot_borrow_global_tcm_delivery_scope() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10])))
+    hybrid = _user(
+        UserRole.talent_community_manager,
+        roles=[
+            UserRole.talent_community_manager.value,
+            UserRole.delivery_lead.value,
+        ],
+    )
+
+    allowed = await resolve_client_access(db, hybrid, client_id=10)
+    assert allowed.is_client_team
+    assert not allowed.is_organization_reader
+
+    db.scalars.reset_mock()
+    db.scalars.return_value = _Rows([10])
+    denied = await resolve_client_access(db, hybrid, client_id=77)
+    assert not denied.is_client_team
+    assert not denied.is_organization_reader
+    assert not denied.can_view_contacts
 
 
 @pytest.mark.asyncio
@@ -256,24 +365,15 @@ async def test_recruitment_operator_global_client_scope_uses_only_assigned_jobs(
 
 
 @pytest.mark.asyncio
-async def test_hybrid_visible_scope_is_union_of_relationships_and_jobs() -> None:
-    db = SimpleNamespace(
-        scalars=AsyncMock(
-            side_effect=[
-                _Rows([10]),
-                _Rows([20]),
-                _Rows([30]),
-            ]
-        ),
-    )
+async def test_hybrid_visible_scope_stays_inside_dl_assignments() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10])))
     hybrid = _user(
         UserRole.delivery_lead,
         roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
 
-    assert await resolve_client_visible_client_ids(db, hybrid) == frozenset(
-        {10, 20, 30}
-    )
+    assert await resolve_client_visible_client_ids(db, hybrid) == frozenset({10})
+    assert db.scalars.await_count == 1
 
 
 @pytest.mark.asyncio

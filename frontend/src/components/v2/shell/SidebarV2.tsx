@@ -43,6 +43,11 @@ import {
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
+import {
+  hasSectionAccess,
+  rolesWithSectionAccess,
+  type ProductSection,
+} from "@/lib/section-access";
 
 type BadgeCounts = {
   candidates?: number;
@@ -68,12 +73,18 @@ type NavSection = {
   title: string;
   icon: React.ComponentType<{ className?: string }>;
   items: NavItem[];
+  section?: ProductSection;
 };
+
+const CORTEX_ROLES = rolesWithSectionAccess("insights").filter(
+  (role) => role !== "user",
+);
 
 const NAV_SECTIONS: NavSection[] = [
   {
     title: "Sourcing",
     icon: Users,
+    section: "sourcing",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       // Moduł kandydatów (audyt M2 PR1): rola `user` (viewer/klient) nie ma
@@ -88,6 +99,7 @@ const NAV_SECTIONS: NavSection[] = [
           "admin",
           "head_of_recruitment",
           "delivery_lead",
+          "talent_community_manager",
           "tac",
           "recruiter",
           "finance",
@@ -98,7 +110,7 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/candidates/contact-queue",
         label: "Do przedzwonienia",
         icon: PhoneCall,
-        roles: ["tac", "recruiter", "sourcer"],
+        roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
       },
       { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
       // Generator Umów B2B — dostępny dla wszystkich ról (sourcing tooling).
@@ -118,6 +130,7 @@ const NAV_SECTIONS: NavSection[] = [
           "admin",
           "head_of_recruitment",
           "delivery_lead",
+          "talent_community_manager",
           "tac",
           "recruiter",
           "finance",
@@ -141,6 +154,7 @@ const NAV_SECTIONS: NavSection[] = [
           "admin",
           "head_of_recruitment",
           "delivery_lead",
+          "talent_community_manager",
           "tac",
           "recruiter",
           "finance",
@@ -156,6 +170,7 @@ const NAV_SECTIONS: NavSection[] = [
           "admin",
           "head_of_recruitment",
           "delivery_lead",
+          "talent_community_manager",
           "tac",
           "recruiter",
           "finance",
@@ -167,6 +182,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Pipeline",
     icon: GitBranch,
+    section: "pipeline",
     items: [
       { href: "/jobs", label: "Rekrutacje", icon: Briefcase, badgeKey: "jobs" },
       { href: "/calendar", label: "Kalendarz", icon: Calendar },
@@ -175,61 +191,41 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Delivery",
     icon: Handshake,
+    section: "delivery",
     items: [
-      // R0 (plan analytics 2026-07-16): backend odcina rolę `user` od bazy
-      // klientów (OperationalUser) — nie pokazujemy linku, do którego 403.
       {
         href: "/clients",
         label: "Klienci",
         icon: Building2,
-        roles: [
-          "admin",
-          "head_of_recruitment",
-          "delivery_lead",
-          "tac",
-          "recruiter",
-          "finance",
-          "sourcer",
-        ],
       },
       {
         href: "/my-clients",
         label: "Moi klienci",
         icon: Briefcase,
-        roles: ["delivery_lead", "admin", "head_of_recruitment", "finance"],
       },
       {
-        // Zamówienia z maila: kolejka weryfikacji. Zakres = portfel (backend
-        // `_visible_client_ids`); lustra: middleware `/order-mail`,
-        // `nav.order_mail` w lib/capabilities.ts.
+        // Zamówienia z maila są częścią Delivery. Backend daje TCM wyłącznie
+        // bezpieczny odczyt, a DL zawęża do przypisanego portfela.
         href: "/order-mail",
         label: "Zamówienia z maila",
         icon: Inbox,
-        roles: ["delivery_lead", "admin", "head_of_recruitment", "finance"],
       },
       {
         href: "/my-relationships",
         label: "Moje relacje",
         icon: Heart,
-        roles: [
-          "delivery_lead",
-          "admin",
-          "head_of_recruitment",
-          "tac",
-          "finance",
-        ],
       },
       // "Kontrakty" is now a single workspace with two modes (Obsługa
       // kontraktorów / Rejestr kontraktów). The former standalone
       // "Kontraktorzy" item was folded in — /contractors redirects to
       // /contracts?view=operations. Operations mode is role-gated inside
       // the page (same roles the old nav item used).
-      // R0: odczyty kontraktów (stawki!) = TacPlus na backendzie.
+      // Backend zwraca TCM bezpieczny rejestr bez stawek; DL widzi pełne dane
+      // tylko dla przypisanych klientów. Dokumenty prawne mają osobny gate.
       {
         href: "/contracts",
         label: "Kontrakty",
         icon: FileText,
-        roles: ["admin", "delivery_lead", "tac", "finance"],
       },
       // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
       //    na prośbę usera ("wylacz z UI na razie"). Route
@@ -262,19 +258,14 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Insights",
     icon: Lightbulb,
+    section: "insights",
     items: [
       { href: "/insights", label: "Insights", icon: Lightbulb },
       {
         href: "/cortex",
         label: "Cortex",
         icon: Brain,
-        roles: [
-          "admin",
-          "head_of_recruitment",
-          "delivery_lead",
-          "tac",
-          "finance",
-        ],
+        roles: CORTEX_ROLES,
       },
     ],
   },
@@ -326,6 +317,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Finanse",
     icon: Wallet,
+    section: "finance",
     items: [
       {
         href: "/finance",
@@ -361,14 +353,18 @@ export function visibleNavSections(
   user: Parameters<typeof hasRole>[0],
   opts: { contactQueueEnabled: boolean },
 ): NavSection[] {
-  return NAV_SECTIONS.map((section) => ({
-    ...section,
-    items: section.items.filter(
-      (item) =>
-        (!item.roles || hasRole(user, ...item.roles)) &&
-        (item.href !== "/candidates/contact-queue" || opts.contactQueueEnabled),
-    ),
-  })).filter((section) => section.items.length > 0);
+  return NAV_SECTIONS.filter(
+    (section) => !section.section || hasSectionAccess(user, section.section),
+  )
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          (!item.roles || hasRole(user, ...item.roles)) &&
+          (item.href !== "/candidates/contact-queue" || opts.contactQueueEnabled),
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
 }
 
 function CountBadge({ count }: { count: number }) {
@@ -474,7 +470,13 @@ export function SidebarV2({
   const { user, logout } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
-  const canUseContactQueue = hasRole(user, "tac", "recruiter", "sourcer");
+  const canUseContactQueue = hasRole(
+    user,
+    "talent_community_manager",
+    "tac",
+    "recruiter",
+    "sourcer",
+  );
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
   });

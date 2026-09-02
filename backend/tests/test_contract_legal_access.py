@@ -19,15 +19,10 @@ teraz przepuszcza każdą rolę; ``_generator_unscoped``
 wpuszczone role dostawałyby pustą listę zamiast 403
 (``resolve_client_team_client_ids`` zna tylko DL/TAC).
 
-Delivery Lead JEST WYJĄTKIEM i zostaje nietknięty: zachowuje fail-closed
-wymóg jawnego przypisania klienta (operuje na swoim portfelu, nie całej
-bazie) — patrz ``test_unassigned_client_team_role_fails_closed``.
-
-Ten test dowodzi: KAŻDA rola przechodzi auth na reprezentatywnych
-endpointach każdego typu (GET bez body, GET z listą, POST mutujący, GET
-pobierania DOCX), a każda poza nieprzypisanym DL dostaje PEŁNY, nieoskopowany
-dostęp — nie tylko przejście bramki. Wszystkie 13 endpointów B2B dzielą tę
-samą dependency, więc reprezentatywna próbka pokrywa kontrakt.
+Delivery Lead zachowuje istniejący, granularny zakres klientów również w tym
+narzędziu. Talent Community Manager widzi globalny katalog i bezpieczny rejestr
+operacyjny, ale nie może generować, renderować, pobierać ani modyfikować
+rate-bearing dokumentów.
 """
 
 from __future__ import annotations
@@ -44,30 +39,20 @@ NEXT_NUMBER_URL = "/api/b2b-generator/next-number"
 GENERATED_URL = "/api/b2b-generator/generated"
 GENERATE_URL = "/api/b2b-generator/generate"
 
-# KAŻDA rola przechodzi auth na generatorze B2B (20.08). `_headers_for`
-# domyślnie przypisuje DL/TAC do klienta, więc DL tu jest reprezentowany w
-# swoim zwykłym, przypisanym stanie — nieprzypisany DL ma osobny test niżej.
+# KAŻDA rola przechodzi bramkę wejściową generatora B2B (20.08). Konkretne
+# operacje mogą mieć węższy guard, np. finansowe dokumenty są niedostępne TCM.
 ALL_ROLES = [
     "admin",
     "head_of_recruitment",
     "delivery_lead",
+    "talent_community_manager",
     "tac",
     "finance",
     "recruiter",
     "sourcer",
     "user",
 ]
-# Pełny, nieoskopowany dostęp (nie tylko przejście bramki) — każda rola poza
-# Delivery Lead, który zostaje przy wymogu jawnego przypisania klienta.
-UNSCOPED_ROLES = [
-    "admin",
-    "head_of_recruitment",
-    "tac",
-    "finance",
-    "recruiter",
-    "sourcer",
-    "user",
-]
+UNSCOPED_ROLES = [role for role in ALL_ROLES if role != "delivery_lead"]
 
 
 @pytest.mark.parametrize("handler_name", ["generate", "get_detail", "download_docx"])
@@ -153,9 +138,7 @@ async def _headers_for(
 async def test_every_role_passes_generator_auth(
     app_client: AsyncClient, role_value: str
 ):
-    """Generator B2B: KAŻDA rola przechodzi auth (20.08) — nikt nie dostaje 403
-    tylko za to, jaką ma rolę (DL wciąż potrzebuje przypisania — domyślne
-    ``assign_client=True`` w ``_headers_for`` je zapewnia)."""
+    """Every role can browse in its valid scope; TCM stops at finance writes."""
     headers = await _headers_for(app_client, role_value)
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         r = await app_client.get(url, headers=headers)
@@ -163,52 +146,50 @@ async def test_every_role_passes_generator_auth(
             f"{role_value} GET {url} → {r.status_code}: {r.text}"
         )
 
-    # generate: auth passes → business logic 404 (role_id nie istnieje), never 403.
+    # Missing role reaches business validation for document operators. Plain
+    # TCM is deliberately stopped before any rate-bearing operation.
     r = await app_client.post(
         GENERATE_URL,
         json={"role_id": 999999, "start_date": "2026-01-01"},
         headers=headers,
     )
-    assert r.status_code != 403, f"{role_value} POST generate wrongly 403"
-    assert r.status_code == 404, (
-        f"{role_value} POST generate → {r.status_code}: {r.text}"
-    )
+    if role_value == "talent_community_manager":
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+    else:
+        assert r.status_code == 404, (
+            f"{role_value} POST generate → {r.status_code}: {r.text}"
+        )
 
 
-@pytest.mark.parametrize("role_value", ["delivery_lead"])
-async def test_unassigned_client_team_role_fails_closed(
-    app_client: AsyncClient,
-    role_value: str,
-):
-    # Delivery Lead keeps the fail-closed contract: an empty client graph is a
-    # hard deny on the generator surfaces. (Every other role intentionally does
-    # NOT — see ``test_unscoped_roles_have_full_generator_access``.)
+async def test_unassigned_delivery_lead_fails_closed(app_client: AsyncClient):
     headers = await _headers_for(
         app_client,
-        role_value,
+        "delivery_lead",
         assign_client=False,
     )
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         response = await app_client.get(url, headers=headers)
         assert response.status_code == 403, (
-            f"unassigned {role_value} GET {url} → {response.status_code}"
+            f"unassigned delivery_lead GET {url} → "
+            f"{response.status_code}: {response.text}"
         )
 
 
 @pytest.mark.parametrize("role_value", UNSCOPED_ROLES)
-async def test_unscoped_roles_have_full_generator_access(
+async def test_unscoped_roles_can_browse_generator(
     app_client: AsyncClient, role_value: str
 ):
-    """Every non-DL role is a full-access generator persona (20.08).
+    """Non-DL roles admitted to Sourcing do not need client assignments.
 
     Originally a TAC-only regression guard: a freshly-added TAC with zero
     ``ClientTacAssignment`` rows saw the "Brak uprawnień" banner because the
     shared legal gate required a non-empty client graph — the generator is a
-    full-access tool, so role alone must admit it. Generalized to every role
+    organization-wide Sourcing tool, so role alone must admit its catalog.
+    Generalized to every role
     opened on 20.08 for the same structural reason: none of them have any
-    client-assignment row to be scoped by, so skipping one here would mean it
-    passes ``require_b2b_generator_access`` and then hits a permanently empty
-    list/403 on every entity — auth without access, not a real decision.
+    client-assignment row to be scoped by, so the global catalog and register
+    remain available even with no assignment.
     """
 
     headers = await _headers_for(app_client, role_value, assign_client=False)
@@ -220,26 +201,38 @@ async def test_unscoped_roles_have_full_generator_access(
             f"unassigned {role_value} GET {url} → {r.status_code}: {r.text}"
         )
 
-    # Drafting is reachable: auth passes, business logic 404s on the missing
-    # role_id — never a client-scope 403.
+    # Drafting is reachable for document operators. TCM is a deliberate 403 at
+    # the finance boundary, not a client-scope denial.
     r = await app_client.post(
         GENERATE_URL,
         json={"role_id": 999999, "start_date": "2026-01-01"},
         headers=headers,
     )
-    assert r.status_code == 404, (
+    expected = 403 if role_value == "talent_community_manager" else 404
+    assert r.status_code == expected, (
         f"unassigned {role_value} POST generate → {r.status_code}: {r.text}"
     )
 
-    # DOCX download is the highest-PII generator surface and (unlike
-    # delete/update) has no author-only secondary check — so every full-access
-    # role reaches it too. Missing id ⇒ 404 (gate + scope passed), never 403.
-    # This guards the intentional expanded exposure against a future
-    # re-tightening.
+    # Opaque DOCX can contain rates. Missing id therefore produces the same
+    # split: TCM is rejected before lookup, other roles reach the 404.
     r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
-    assert r.status_code == 404, (
+    assert r.status_code == expected, (
         f"unassigned {role_value} GET generated/docx → {r.status_code}: {r.text}"
     )
+
+    # Generated-contract mutations are read-only for TCM.
+    if role_value == "talent_community_manager":
+        patch = await app_client.patch(
+            f"{GENERATED_URL}/999999",
+            headers=headers,
+            json={"client_name": "Blocked"},
+        )
+        delete = await app_client.delete(
+            f"{GENERATED_URL}/999999",
+            headers=headers,
+        )
+        assert patch.status_code == 403, patch.text
+        assert delete.status_code == 403, delete.text
 
 
 async def test_unauthenticated_is_rejected(app_client: AsyncClient):

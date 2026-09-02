@@ -1,11 +1,10 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads (GET) — `LegalDocsReader` (admin/HoR/DL/TAC przez `ClientAccess`).
-Containment: R0 2026-07-16 zrobił z tego TacPlus (stawki ramowe = finanse);
-PR 1/7 modułu klienta unifikuje przez ClientAccess.can_view_legal_documents
-(ten sam zbiór + head_of_recruitment). Wcześniej czytał każdy zalogowany.
-Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin/HoR globalnie albo
-DL przypisany do klienta).
+Reads (GET) — admin/Finance globalnie albo Delivery Lead przypisany do klienta.
+Talent Community Manager ma bezpieczny odczyt Delivery, ale nie dostaje
+nieprzezroczystych dokumentów prawnych, które mogą zawierać stawki.
+Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin globalnie albo DL
+przypisany do klienta). Bramka sekcji odcina HoR/TAC i zapis TCM.
 
 Pattern multipart upload — zaczerpnięte z `client_materials.py` (one-pagers).
 """
@@ -33,6 +32,7 @@ from app.api.deps import (
     DlAssignedOrAdmin,
     get_current_user,
 )
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.client_access import deny, resolve_client_access
 from app.services.autenti.client_contracts_sender import ClientDocSendRequest
 from app.core.database import get_db
@@ -51,7 +51,7 @@ from app.schemas.client_framework_contract import (
 )
 from app.services import storage_service
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — MSA bywa duży
@@ -80,7 +80,9 @@ async def _require_legal_docs_reader(
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("umowy ramowe klienta wymagają roli admin/HoR/DL/TAC")
+        raise deny(
+            "umowy ramowe klienta wymagają roli admin/Finance lub przypisanego DL"
+        )
     return current_user
 
 

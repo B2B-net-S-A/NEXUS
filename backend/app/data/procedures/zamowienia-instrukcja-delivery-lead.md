@@ -368,15 +368,13 @@ dwie daty i pierwszą kwotę z dokumentu, a **numeru zamówienia sam nie znajduj
 numer wyszukiwany jest po etykiecie i działa też w trybie awaryjnym). Poznasz go
 po powodzie „Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola" w banerze.
 
-**Przycisk „Zczytaj dane z dokumentu" kliknie administrator, Head of Recruitment
-(u każdego klienta, bez przypisania) i Delivery Lead przypisany do tego klienta.**
-Pozostałe role — w tym Finanse i nieprzypisany Delivery Lead — dostaną odmowę.
+**Przycisk „Zczytaj dane z dokumentu" kliknie administrator i Delivery Lead
+przypisany do tego klienta.** Pozostałe role — w tym Finanse, Talent Community
+Manager, Head of Recruitment i nieprzypisany Delivery Lead — dostaną odmowę.
 (To osobna sprawa od oglądania listy zamówień, opisanego w „Kto co może".)
 
-**Kwoty z odczytu widzi tylko administrator i przypisany Delivery Lead.** Head of
-Recruitment uruchomi odczyt, ale dostanie pusty komplet finansowy — to nie jest
-błąd odczytu, tylko ukrycie danych. Liczba MD przychodzi normalnie: jest
-wielkością operacyjną, nie finansową.
+**Kwoty z odczytu widzi tylko administrator i przypisany Delivery Lead.** Liczba
+MD jest wielkością operacyjną, nie finansową.
 
 ---
 
@@ -529,23 +527,29 @@ pytań „dlaczego nie widzę przycisku".
 
 | Poziom | Kto |
 |---|---|
-| **Odczyt zamówień** | administrator, Head of Recruitment oraz Delivery Lead i TAC **przypisani do klienta**. Rola Finanse widzi **tylko zamówienia zbiorcze (MD i kosztowe)** — sekcja „Okresowe" jest dla niej pusta, bez żadnego komunikatu |
-| **Cykl życia** (zakończ, przywróć, usuń — także usunięcie konsultanta) | administrator, Head of Recruitment, Finanse, przypisany Delivery Lead |
+| **Bezpieczny odczyt zamówień** | administrator i Finanse — wszyscy klienci; Delivery Lead — wyłącznie przypisani klienci; Talent Community Manager — wszyscy klienci, ale bez kwot, plików PO i eksportu |
+| **Cykl życia** (zakończ, przywróć, usuń — także usunięcie konsultanta) | administrator i przypisany Delivery Lead; Finanse dodatkowo przy zamówieniach zbiorczych |
 | **Stawki i obsada** (dodanie/edycja konsultanta, edycja zamówienia) | **wyłącznie** administrator i przypisany Delivery Lead |
 
-**Head of Recruitment i Finanse przechodzą bramkę u wszystkich klientów, bez
-przypisania** — ale stawek nie zapiszą. Head of Recruitment dodatkowo ich **nie
-zobaczy** (w miejscu kwot ma „—"); rola Finanse kwoty **widzi**, tylko nie może
-ich zmienić. Delivery Lead **zawsze** wymaga jawnego przypisania do klienta.
+**Finanse przechodzą bramkę odczytu u wszystkich klientów bez przypisania**
+i widzą kwoty, ale nie zapisują stawek ani obsady. Delivery Lead **zawsze**
+wymaga jawnego przypisania do klienta.
 
-**Przedłużenie jest w tej tabeli tylko formalnie.** Samo okienko otworzy każdy
-z powyższych, ale przedłużenie, w którym od razu podaje się konsultantów ze
-stawkami, wymaga uprawnień finansowych — czyli w praktyce administratora albo
-przypisanego Delivery Leada.
+**Talent Community Manager ma globalny, bezpieczny odczyt Delivery.** Widzi
+dane operacyjne, ale nie widzi kwot, marż, przychodów, plików źródłowych PO ani
+eksportów mogących zawierać stawki; nie może też wykonywać żadnych zmian.
 
-Rola bez uprawnień do stawek (np. Head of Recruitment, TAC) widzi na zamówieniach
-zbiorczych **myślnik „—"** — nie zero i nie komunikat o błędzie — a na kartach
-pojedynczych konsultantów wiersze z pieniędzmi w ogóle się nie pokazują.
+**Head of Recruitment, TAC, Rekruter i Sourcer nie mają dostępu do sekcji
+Delivery**, więc nie widzą zamówień ani tych akcji.
+
+**Przedłużenie zamówienia zbiorczego** może rozpocząć administrator, przypisany
+Delivery Lead albo Finanse. Jeżeli przedłużenie od razu zawiera konsultantów ze
+stawkami, wymaga administratora albo przypisanego Delivery Leada. Talent
+Community Manager nie otworzy formularza i nie zapisze przedłużenia.
+
+Talent Community Manager widzi na zamówieniach zbiorczych **myślnik „—"** — nie
+zero i nie komunikat o błędzie — a na kartach pojedynczych konsultantów wiersze
+z pieniędzmi w ogóle się nie pokazują.
 
 **Importu zużycia MD nie robi Delivery Lead.** Moduł Finanse jest dostępny tylko
 dla ról administrator i Finanse — ale wynik tego importu natychmiast zmienia to,
@@ -874,7 +878,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
    przypisany jako Delivery Lead na zakładce „Delivery Lead" w profilu klienta.
    Bez przypisania nie powstaną dla Ciebie **sprawy z pulpitu** — i nie trafią
    wtedy do nikogo. Powiadomienia o **końcu zamówienia** (30/14/7 dni) idą
-   niezależnie, także do administratora i Head of Recruitment.
+   niezależnie także do administratora, ale nie do Head of Recruitment.
 2. **„Zamówienie utknęło w Draft."** Brakuje jednej z czterech rzeczy: numeru,
    daty rozpoczęcia, stawki przychodowej albo kosztowej. **Jeżeli szkic ma typ MD
    albo Kosztowy, potrzebny jest jeszcze budżet** — bez niego cztery pozostałe

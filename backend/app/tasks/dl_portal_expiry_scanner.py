@@ -63,10 +63,15 @@ _ORDER_NTYPE_BY_DAY = {
 
 
 async def _staff_user_ids(db: AsyncSession) -> list[int]:
-    """admin + head_of_recruitment users — globalni odbiorcy alertów."""
+    """Admin users — global recipients of Delivery expiry alerts.
+
+    Head of Recruitment no longer has access to the Delivery section, so it
+    must not receive client/order details through the shared notification
+    inbox either. Assigned Delivery Leads are added separately per client.
+    """
     res = await db.execute(
         select(User.id).where(
-            User.role.in_((UserRole.admin, UserRole.head_of_recruitment)),
+            User.role == UserRole.admin,
             User.is_active.is_(True),
         )
     )

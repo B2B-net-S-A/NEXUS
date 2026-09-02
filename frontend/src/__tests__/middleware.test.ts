@@ -39,6 +39,22 @@ const validRecruiter = makeToken({
   roles: ["recruiter"],
   exp: now() + HOUR,
 })
+const validSourcer = makeToken({
+  role: "sourcer",
+  roles: ["sourcer"],
+  exp: now() + HOUR,
+})
+const validTac = makeToken({ role: "tac", roles: ["tac"], exp: now() + HOUR })
+const validDeliveryLead = makeToken({
+  role: "delivery_lead",
+  roles: ["delivery_lead"],
+  exp: now() + HOUR,
+})
+const validTalentCommunityManager = makeToken({
+  role: "talent_community_manager",
+  roles: ["talent_community_manager"],
+  exp: now() + HOUR,
+})
 const validFinance = makeToken({
   role: "finance",
   roles: ["finance"],
@@ -233,15 +249,95 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/manager", validAdmin)).toBe("pass")
   })
 
-  it("Moi klienci wpuszczają Finance do odczytu bez zawężania dotychczasowej trasy", () => {
+  it("Moi klienci wpuszczają role Delivery, a odcinają rekrutację i viewera", () => {
     expect(destination("/my-clients", validFinance)).toBe("pass")
     expect(destination("/my-clients/123", validFinance)).toBe("pass")
-    expect(destination("/my-clients", validRecruiter)).toBe("pass")
-    expect(destination("/my-clients", validViewer)).toBe("pass")
+    expect(destination("/my-clients", validDeliveryLead)).toBe("pass")
+    expect(destination("/my-clients", validTalentCommunityManager)).toBe("pass")
+    expect(destination("/my-clients", validRecruiter)).toBe("/403")
+    expect(destination("/my-clients", validViewer)).toBe("/403")
+  })
+
+  it.each([
+    ["sourcer", validSourcer],
+    ["recruiter", validRecruiter],
+    ["tac", validTac],
+    ["head_of_recruitment", validHeadOfRecruitment],
+  ])("%s ma Sourcing, Pipeline i Insights, ale nie Delivery ani Finanse", (_role, token) => {
+    for (const route of ["/candidates", "/jobs", "/calendar", "/insights", "/cortex"]) {
+      expect(destination(route, token), route).toBe("pass")
+    }
+    for (const route of [
+      "/clients",
+      "/my-clients",
+      "/order-mail",
+      "/my-relationships",
+      "/contracts",
+      "/contractors",
+      "/finance",
+    ]) {
+      expect(destination(route, token), route).toBe("/403")
+    }
+  })
+
+  it("TCM ma biznes bez Finansów i read-only Delivery w warstwie stron", () => {
+    for (const route of [
+      "/candidates",
+      "/jobs",
+      "/calendar",
+      "/insights",
+      "/cortex",
+      "/clients",
+      "/my-clients",
+      "/order-mail",
+      "/my-relationships",
+      "/contracts",
+    ]) {
+      expect(destination(route, validTalentCommunityManager), route).toBe("pass")
+    }
+    for (const route of [
+      "/finance",
+      "/contracts/analytics",
+      "/settings/rate-benchmarks",
+      "/settings/clients-overview",
+    ]) {
+      expect(destination(route, validTalentCommunityManager), route).toBe("/403")
+    }
+  })
+
+  it("Delivery Lead ma Delivery, lecz nie globalny moduł Finansów", () => {
+    for (const route of [
+      "/clients",
+      "/my-clients",
+      "/order-mail",
+      "/contracts",
+      "/jobs",
+      "/insights",
+    ]) {
+      expect(destination(route, validDeliveryLead), route).toBe("pass")
+    }
+    expect(destination("/finance", validDeliveryLead)).toBe("/403")
+    expect(destination("/contracts/analytics", validDeliveryLead)).toBe("/403")
+  })
+
+  it("Generator B2B pozostaje w Sourcing mimo prefiksu /contracts", () => {
+    for (const token of [
+      validRecruiter,
+      validSourcer,
+      validTac,
+      validHeadOfRecruitment,
+      validTalentCommunityManager,
+      validViewer,
+    ]) {
+      expect(destination("/contracts/b2b-generator", token)).toBe("pass")
+    }
   })
 
   it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {
     expect(destination("/candidates/contact-queue", validRecruiter)).toBe("pass")
+    expect(destination("/candidates/contact-queue", validTalentCommunityManager)).toBe(
+      "pass",
+    )
     expect(destination("/candidates/contact-queue", validAdmin)).toBe("/403")
     expect(destination("/candidates/contact-queue", validViewer)).toBe("/403")
   })
@@ -287,6 +383,40 @@ describe("zawężenia ról nadal obowiązują", () => {
       "/settings/templates",
     ]) {
       expect(destination(route, validFinance), route).toBe("/403")
+    }
+  })
+
+  it("techniczne ustawienia pozostają Admin-only", () => {
+    const technicalRoutes = [
+      "/settings/ai",
+      "/settings/api-integration",
+      "/settings/diagnostics",
+      "/settings/dictionaries",
+      "/settings/entity-fields",
+    ]
+    for (const route of technicalRoutes) {
+      expect(destination(route, validAdmin), route).toBe("pass")
+      for (const token of [
+        validHeadOfRecruitment,
+        validDeliveryLead,
+        validTalentCommunityManager,
+        validTac,
+        validRecruiter,
+        validSourcer,
+        validFinance,
+        validViewer,
+      ]) {
+        expect(destination(route, token), route).toBe("/403")
+      }
+    }
+  })
+
+  it("ustawienia procesu wpuszczają Admina i Delivery Leada", () => {
+    for (const route of ["/settings/pipeline-templates", "/settings/scoring"]) {
+      expect(destination(route, validAdmin), route).toBe("pass")
+      expect(destination(route, validDeliveryLead), route).toBe("pass")
+      expect(destination(route, validTalentCommunityManager), route).toBe("/403")
+      expect(destination(route, validRecruiter), route).toBe("/403")
     }
   })
 

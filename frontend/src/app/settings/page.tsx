@@ -126,14 +126,16 @@ const ADVANCED_LINKS: Array<{
     title: "Profile wag scoringu",
     description: "Tunowanie semantic / skills / salary / location / availability per klient.",
     icon: <Sliders className="w-5 h-5" />,
+    roles: ["admin", "delivery_lead"],
   },
   {
     href: "/settings/rate-benchmarks",
     title: "Stawki rynkowe",
     description: "Import i zarządzanie benchmarkami stawek (No Fluff Jobs, Bulldogjob, własne).",
     icon: <Coins className="w-5 h-5" />,
-    // R0 (plan analytics 2026-07-16): benchmarki stawek = finanse (DL+/admin).
-    roles: ["admin", "delivery_lead", "finance"],
+    // Globalne benchmarki stawek należą do Finansów, nie do klientowego
+    // wyjątku Delivery Leada.
+    roles: ["admin", "finance"],
   },
   {
     href: "/settings/cv-rules",
@@ -150,6 +152,7 @@ const ADVANCED_LINKS: Array<{
     title: "Szablony umów",
     description: "Edytor szablonów kontraktów (B2B, body leasing, fixed-price).",
     icon: <FileSignature className="w-5 h-5" />,
+    roles: ["admin", "finance"],
   },
   {
     href: "/settings/templates",
@@ -162,30 +165,35 @@ const ADVANCED_LINKS: Array<{
     title: "Funkcje AI",
     description: "Globalny wyłącznik + miesięczne limity dla scoringu, generatora ogłoszeń, parsera CV i podsumowań.",
     icon: <Sparkles className="w-5 h-5" />,
+    roles: ["admin"],
   },
   {
     href: "/settings/api-integration",
     title: "Integracja z API",
     description: "Klucze OAuth2 dla zewnętrznych systemów (n8n, ChatGPT, Zapier, ...) z fine-grained scopes.",
     icon: <Plug className="w-5 h-5" />,
+    roles: ["admin"],
   },
   {
     href: "/settings/dictionaries",
     title: "Słowniki",
     description: "Edytowalne taksonomie — branże, powody odrzucenia. Dodaj wartości bez deploya.",
     icon: <FileText className="w-5 h-5" />,
+    roles: ["admin"],
   },
   {
     href: "/settings/entity-fields",
     title: "Konfiguracja pól",
     description: "Dodaj własne pola na profilu kandydata / rekrutacji. Drag-drop layout.",
     icon: <Sliders className="w-5 h-5" />,
+    roles: ["admin"],
   },
   {
     href: "/settings/diagnostics",
     title: "Diagnostyka",
     description: "Status komponentów, kolejki, background tasks.",
     icon: <Stethoscope className="w-5 h-5" />,
+    roles: ["admin"],
   },
   {
     href: "/settings/team-structure",
@@ -213,7 +221,7 @@ const ADVANCED_LINKS: Array<{
     title: "Przegląd klientów",
     description: "Ranking klientów + leaderboard delivery leadów.",
     icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin", "head_of_recruitment", "finance"],
+    roles: ["admin", "finance"],
   },
   {
     href: "/settings/client-portfolio-preview",

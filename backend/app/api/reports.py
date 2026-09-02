@@ -873,6 +873,7 @@ async def report_delivery_leads(
         require_roles(
             UserRole.admin,
             UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
             UserRole.finance,
         )
     ),
@@ -903,6 +904,7 @@ async def report_delivery_lead_trend(
         require_roles(
             UserRole.admin,
             UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
             UserRole.finance,
         )
     ),
@@ -977,9 +979,8 @@ async def report_my_delivery_lead(
 
 # ── Clients Hit Ratio Report ───────────────────────────────────────────────────
 #
-# RBAC: admin + delivery_lead + tac + head_of_recruitment. Mirrors the
-# invite-links report — HoR sees per-client effectiveness to calibrate team
-# targets. Recruiters/sourcers are intentionally excluded.
+# RBAC: leadership/client-operations readers. TCM receives the same
+# non-financial organization view as the Insights client section.
 
 _ClientsReportViewer = Annotated[
     User,
@@ -989,6 +990,7 @@ _ClientsReportViewer = Annotated[
             UserRole.delivery_lead,
             UserRole.tac,
             UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
             UserRole.finance,
         )
     ),
@@ -1757,7 +1759,7 @@ async def report_board(
 # see which sourcing channels actually deliver. Links without a label fall
 # into the "Bez etykiety" bucket so nothing gets silently dropped.
 #
-# Access: admin + delivery_lead + head_of_recruitment. Recruiters see only
+# Access: leadership/team-insights readers, including TCM. Recruiters see only
 # their own links in the existing "Moje linki" modal — a team/org report is
 # leadership-level insight.
 
@@ -1775,6 +1777,7 @@ async def report_invite_links(
             UserRole.admin,
             UserRole.delivery_lead,
             UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
             UserRole.finance,
         )
     ),
@@ -1877,6 +1880,7 @@ async def report_power_calling(
             UserRole.recruiter,
             UserRole.sourcer,
             UserRole.head_of_recruitment,
+            UserRole.talent_community_manager,
             UserRole.finance,
         )
     ),

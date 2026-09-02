@@ -25,6 +25,7 @@ const ALL_ROLES = [
   "admin",
   "head_of_recruitment",
   "delivery_lead",
+  "talent_community_manager",
   "finance",
   "tac",
   "recruiter",

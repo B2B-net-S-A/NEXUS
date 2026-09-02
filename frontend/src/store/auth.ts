@@ -12,13 +12,15 @@ export type UserRole =
   | "finance"
   | "head_of_recruitment"
   | "delivery_lead"
+  | "talent_community_manager"
   | "tac"
   | "recruiter"
   | "sourcer"
   | "user"
 
 // Ranga — liczbowa reprezentacja pozwala na porównanie "min rola".
-// admin > head_of_recruitment > delivery_lead > tac > recruiter/sourcer > user
+// Legacy rank helper only. Section/action access is defined by explicit
+// matrices; TCM intentionally sits between Delivery Lead and TAC here.
 // head_of_recruitment = manager zespołu rekrutacji (wyżej niż DL, ale niżej od
 // admina — wg backend/app/models/user.py).
 export const ROLE_RANK: Record<UserRole, number> = {
@@ -29,6 +31,7 @@ export const ROLE_RANK: Record<UserRole, number> = {
   finance: 0,
   head_of_recruitment: 4.5,
   delivery_lead: 4,
+  talent_community_manager: 3.5,
   tac: 3,
   recruiter: 2,
   sourcer: 2,
@@ -40,6 +43,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   finance: "Finanse",
   head_of_recruitment: "Head of Recruitment",
   delivery_lead: "Delivery Lead",
+  talent_community_manager: "Talent Community Manager",
   tac: "TAC",
   recruiter: "Rekruter",
   sourcer: "Sourcer",
@@ -287,21 +291,32 @@ export function canManageCandidateFinance(
 }
 
 /**
- * Candidate-bearing contract/order resources may expose rates to Finance for
- * business analysis, but Finance must never inherit the mutation capability.
- * Admin keeps its normal read access; Finance additionally needs the
- * backend-issued view_finance capability. Old cached users fail closed.
+ * Candidate-bearing Delivery resources expose rates to Admin/Finance and to a
+ * Delivery Lead only inside the portfolio returned by `/api/auth/me`.
+ * Individual API routes still enforce the concrete client id. Requiring the
+ * authoritative `delivery_clients` scope here keeps old cached DL sessions
+ * fail-closed without granting the global `view_finance` capability.
  */
 export function canViewCandidateFinance(
   user:
-    | Pick<User, "role" | "roles" | "analytics_capabilities" | "capabilities">
+    | Pick<
+        User,
+        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
+      >
     | null
     | undefined
 ): boolean {
+  if (!user) return false
+  if (hasRole(user, "admin")) return true
+  if (
+    hasRole(user, "finance") &&
+    hasAnalyticsCapability(user, "view_finance")
+  ) {
+    return true
+  }
   return (
-    hasRole(user, "admin") ||
-    (hasRole(user, "finance") &&
-      hasAnalyticsCapability(user, "view_finance"))
+    hasRole(user, "delivery_lead") &&
+    user.data_scope?.kind === "delivery_clients"
   )
 }
 
@@ -311,8 +326,8 @@ export function canViewCandidateFinance(
  * Lustro backendowego `_has_md_line_management_role` w `api/client_order_groups.py`:
  * admin oraz Delivery Lead, bo to delivery układa obsadę zamówienia i
  * negocjuje stawki per konsultant. Świadomie SZERSZE niż
- * `canManageCandidateFinance` — tam chodzi o `rate_client`/`rate_candidate`
- * w module zamówień, które zostają admin-only.
+ * `canManageCandidateFinance` — tam chodzi o finanse kandydata poza wąskim
+ * kontekstem przypisanego klienta.
  *
  * To gate KOSMETYCZNE. Ostatecznym arbitrem jest backend, który dodatkowo
  * sprawdza, czy ten DL jest przypisany do TEGO klienta — czego front nie wie.
@@ -320,10 +335,8 @@ export function canViewCandidateFinance(
 /** Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta.
  *
  *  ŚWIADOMIE szerszy zbiór niż `canManageMultiConsultantOrders`, który rządzi
- *  STAWKAMI i zostaje przy admin + Delivery Lead. Ticket wymienia te role przez
- *  wykluczenie: „wszystkie oprócz Sourcer, Rekruter, TAC, Talent Community" —
- *  roli „Talent Community" w systemie nie ma, a deprecated `user` jest poza
- *  z tego samego powodu co tamte trzy.
+ *  STAWKAMI i zostaje przy admin + Delivery Lead. Granica sekcji Delivery
+ *  odcina HoR/TAC/rekrutera/sourcera, a TCM ma tu wyłącznie odczyt.
  *
  *  Lustro backendowego `_ORDER_LIFECYCLE_ROLES` (`api/client_order_groups.py`).
  *  Rozjazd tych dwóch list kończy się przyciskiem, który na kliknięciu daje
@@ -331,7 +344,7 @@ export function canViewCandidateFinance(
 export function canManageOrderLifecycle(
   user: Pick<User, "role" | "roles"> | null | undefined
 ): boolean {
-  return hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "finance")
+  return hasRole(user, "admin", "delivery_lead", "finance")
 }
 
 export function canManageMultiConsultantOrders(
@@ -350,11 +363,10 @@ export function canManageMultiConsultantOrders(
  * (`resolve_dashboard_scope` w GET /api/auth/me) — to nie jest zgadywanie po
  * roli, tylko ta sama lista klientów.
  *
- * Dlaczego nie sam `hasRole(user, "delivery_lead")`: hybryda
- * `head_of_recruitment + delivery_lead` dostaje zakres `recruitment_org`, czyli
- * nadzór nieoskopowany — test roli rozdałby jej kwoty u WSZYSTKICH klientów,
- * a backend i tak odpowie bez nich. Rozjazd tych dwóch list kończy się kafelkiem,
- * który obiecuje liczbę i pokazuje pustkę.
+ * Dlaczego nie sam `hasRole(user, "delivery_lead")`: również hybryda HoR/TCM
+ * + Delivery Lead musi mieć `delivery_clients` z konkretną listą przypisań.
+ * Sam test roli rozdałby jej kwoty u wszystkich klientów; test scope pozwala
+ * je pokazać wyłącznie we własnym portfelu.
  *
  * Fail-closed: brak `data_scope` (stary cache localStorage) = false.
  */

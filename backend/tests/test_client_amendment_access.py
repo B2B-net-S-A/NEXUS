@@ -4,8 +4,10 @@ P0.6a containment: ``GET .../amendments`` (list) i ``.../amendments/{id}/file``
 (download) używały bare ``CurrentUser`` + tylko check istnienia client/framework,
 więc read-only viewer (``user``) oraz recruiter/sourcer mogli iterować i pobierać
 dokumenty prawne (aneksy) dowolnego klienta. Po zmianie chroni je scope
-``resolve_client_access.can_view_legal_documents``. Admin/HoR mają nadzór
-organizacyjny, a DL/TAC dostęp wyłącznie przez jawną relację z klientem.
+``resolve_client_access.can_view_legal_documents`` oraz centralna granica
+sekcji Delivery. Admin/Finance mają nadzór organizacyjny, a Delivery Lead
+dostęp wyłącznie przez jawną relację z klientem. TCM widzi bezpieczne dane
+Delivery, ale nie surowe dokumenty prawne; pozostałe role nie wchodzą do sekcji.
 """
 
 from __future__ import annotations
@@ -15,10 +17,16 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-# Legal-team — can_view_legal_documents=True (oversight or explicit client team).
-ALLOWED_ROLES = ["admin", "head_of_recruitment", "delivery_lead", "tac"]
-# Delivery + viewer — no legal-doc access.
-DENIED_ROLES = ["recruiter", "sourcer", "user"]
+# Legal-document readers after applying the section boundary.
+ALLOWED_ROLES = ["admin", "delivery_lead", "finance"]
+DENIED_ROLES = [
+    "head_of_recruitment",
+    "talent_community_manager",
+    "tac",
+    "recruiter",
+    "sourcer",
+    "user",
+]
 
 
 async def _headers_for(
@@ -103,8 +111,12 @@ async def test_denied_roles_cannot_list_amendments(
     headers = await _headers_for(app_client, role_value)
     r = await app_client.get(_list_url(client_id, fc_id), headers=headers)
     assert r.status_code == 403, f"{role_value} → {r.status_code}: {r.text}"
-    # Stabilny kod błędu (client_access_denied) — nie tylko polski tekst.
-    assert "client_access_denied" in r.text
+    expected_code = (
+        "client_access_denied"
+        if role_value == "talent_community_manager"
+        else "section_access_denied"
+    )
+    assert expected_code in r.text
 
 
 @pytest.mark.parametrize("role_value", ALLOWED_ROLES)

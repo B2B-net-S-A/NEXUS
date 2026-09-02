@@ -46,4 +46,30 @@ describe("DashboardShell", () => {
     expect(screen.queryByRole("navigation", { name: "Okres dashboardu" })).toBeNull()
     expect(screen.getByText("Procesy")).toBeInTheDocument()
   })
+
+  it("can label a shared preset for a distinct role persona", () => {
+    render(
+      <DashboardShell
+        preset="head-of-recruitment"
+        period="week"
+        availablePresets={["head-of-recruitment"]}
+        onPresetChange={vi.fn()}
+        onPeriodChange={vi.fn()}
+        definitionOverrides={{
+          "head-of-recruitment": {
+            label: "Talent Community Manager",
+            shortLabel: "TCM",
+            title: "Talent Community Manager",
+            description: "Przegląd Talent Community.",
+            defaultPeriod: "week",
+          },
+        }}
+      >
+        <div>Procesy</div>
+      </DashboardShell>,
+    )
+
+    expect(screen.getAllByText("Talent Community Manager")).toHaveLength(2)
+    expect(screen.queryByText("Head of Recruitment")).toBeNull()
+  })
 })

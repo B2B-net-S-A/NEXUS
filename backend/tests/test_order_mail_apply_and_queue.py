@@ -3,8 +3,8 @@
 Seed: klient z NIP-em, kandydat z aktywnym kontraktem i stawką kosztową
 (bez niej zamówienie nie aktywuje się — `rate_candidate` NIGDY z PDF-a),
 dokument z planem `new`. Sprawdzamy: zamówienie powstało i jest aktywne,
-PDF przypięty, `sync_contract_to_live_order` zadziałał, kolejka redaguje
-kwoty dla roli bez finansów i odmawia „Zastosuj" HoR-owi.
+PDF przypięty, `sync_contract_to_live_order` zadziałał, kolejka daje TCM
+bezpieczny odczyt i odcina Head of Recruitment na granicy Delivery.
 Lata 2031+; identyfikatory per przebieg (baza współdzielona).
 """
 
@@ -19,6 +19,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -29,11 +30,36 @@ from app.models.order_mail import (
     OUTCOME_NEEDS_REVIEW,
     OrderMailDocument,
 )
+from app.models.user import User, UserRole
 from app.services import order_mail_ingest as svc
 from app.services import storage_service
 from app.services.order_mail_apply import apply_document
 
 RUN = uuid.uuid4().hex[:8]
+
+
+async def _headers_for_role(app_client: AsyncClient, role: UserRole) -> dict[str, str]:
+    tag = uuid.uuid4().hex[:8]
+    email = f"order-mail-{role.value}-{tag}@example.test"
+    password = f"P4ss_{tag}!"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            User(
+                email=email,
+                password_hash=hash_password(password),
+                name=f"Order Mail {role.value}",
+                role=role,
+                roles=[role.value],
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def _nip() -> str:
@@ -149,6 +175,7 @@ async def seeded(tmp_path, monkeypatch):
 async def test_apply_creates_active_order_with_pdf_and_syncs_contract(seeded):
     async with AsyncSessionLocal() as db:
         doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.identification_reason = "NIP 1234567890 znaleziony w dokumencie"
         result = await apply_document(db, doc, actor_user_id=None)
         assert result.ok, result.as_dict()
         await db.commit()
@@ -212,6 +239,64 @@ async def test_queue_list_detail_apply_and_dismiss_via_api(
         f"/api/order-mail/queue/{seeded['doc_id']}/dismiss", headers=app_auth_headers
     )
     assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
+    seeded, app_client: AsyncClient
+):
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.gate_reasons = ["Stawka 950 odbiega od obowiązującej 700"]
+        doc.error = "Nie udało się zapisać stawki 950"
+        doc.extraction = {
+            **doc.extraction,
+            "uncertain": True,
+            "uncertain_reasons": ["Stawka 950 wymaga kontroli"],
+            "consultant_rows": [
+                {
+                    **doc.extraction["consultant_rows"][0],
+                    "uncertain_reason": "Stawka 950 wymaga kontroli",
+                }
+            ],
+        }
+        await db.commit()
+
+    tcm_headers = await _headers_for_role(app_client, UserRole.talent_community_manager)
+    response = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}", headers=tcm_headers
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["extraction"]["rate_client"] is None
+    assert body["extraction"]["consultant_rows"][0]["rate_client"] is None
+    assert body["extraction"]["uncertain_reasons"] == [
+        "Sprawdź odczytane dane przed zapisem."
+    ]
+    assert body["extraction"]["consultant_rows"][0]["uncertain_reason"] == (
+        "Sprawdź odczytane dane przed zapisem."
+    )
+    assert body["gate_reasons"] == ["Sprawdź odczytane dane przed zapisem."]
+    assert body["identification_reason"] == "Klient rozpoznany automatycznie."
+    assert body["error"] == "Przetwarzanie dokumentu zakończyło się błędem."
+    assert body["has_file"] is False
+    assert body["can_apply"] is False
+
+    file_response = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}/file", headers=tcm_headers
+    )
+    assert file_response.status_code == 403
+    apply_response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/apply", headers=tcm_headers
+    )
+    assert apply_response.status_code == 403
+    assert apply_response.json()["detail"]["code"] == "section_access_denied"
+
+    hor_headers = await _headers_for_role(app_client, UserRole.head_of_recruitment)
+    denied = await app_client.get(
+        f"/api/order-mail/queue/{seeded['doc_id']}", headers=hor_headers
+    )
+    assert denied.status_code == 403
 
 
 @pytest.mark.asyncio

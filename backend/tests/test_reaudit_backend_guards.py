@@ -9,7 +9,7 @@ in-process surface):
 - **F-07** — ``GET /api/pipeline/overview`` is gated to ``OperationalUser``:
   the read-only ``user`` viewer gets 403; operational roles get 200.
 - **F-13** — the ``client_orders`` GET endpoints redact rate/margin fields for
-  callers without ``VIEW_FINANCE`` (only Finance/Admin have it), and
+  TCM, while assigned Delivery Leads retain their narrow client exception, and
   ``list_contracts`` ignores rate/margin FILTERS for non-finance callers so the
   filter cannot be used as an oracle to binary-search a hidden rate.
 
@@ -110,6 +110,8 @@ _OVERVIEW_ROLES = [
     "admin",
     "head_of_recruitment",
     "delivery_lead",
+    "talent_community_manager",
+    "finance",
     "tac",
     "recruiter",
     "sourcer",
@@ -119,6 +121,8 @@ _OVERVIEW_OPERATIONAL = {
     "admin",
     "head_of_recruitment",
     "delivery_lead",
+    "talent_community_manager",
+    "finance",
     "tac",
     "recruiter",
     "sourcer",
@@ -220,13 +224,9 @@ async def test_client_orders_list_redacted_for_non_finance(
     app_client: AsyncClient,
 ) -> None:
     client_id, _order_id, contract_id = await _seed_client_order()
-    tac = await _headers_for(
-        app_client,
-        "tac",
-        assigned_client_id=client_id,
-    )
+    tcm = await _headers_for(app_client, "talent_community_manager")
 
-    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=tac)
+    resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=tcm)
     assert resp.status_code == 200, resp.text
     contractors = resp.json()["contractors"]
     row = next((c for c in contractors if c["contract_id"] == contract_id), None)
@@ -292,14 +292,10 @@ async def test_client_orders_hidden_from_unassigned_delivery_lead(
 
 async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
-    tac = await _headers_for(
-        app_client,
-        "tac",
-        assigned_client_id=client_id,
-    )
+    tcm = await _headers_for(app_client, "talent_community_manager")
 
     resp = await app_client.get(
-        f"/api/clients/{client_id}/orders/{order_id}", headers=tac
+        f"/api/clients/{client_id}/orders/{order_id}", headers=tcm
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -333,11 +329,9 @@ async def test_head_of_recruitment_never_gains_order_finance(
 ) -> None:
     """HoR nie zyskuje kwot ani ich zapisu przy poszerzeniu dla DL.
 
-    Regresja na konkretną pułapkę: guard trasy ``require_dl_assigned_or_admin``
-    przepuszcza head_of_recruitment GLOBALNIE, bez sprawdzania przypisania.
-    Gdyby predykat finansowy brzmiał „ktokolwiek przeszedł ten guard", HoR
-    dostałby po cichu zapis stawek u WSZYSTKICH klientów. Dlatego
-    ``_can_manage_order_finance`` sprawdza rolę i przypisanie niezależnie.
+    Sekcja Delivery odcina HoR przed handlerem, a lokalny predykat pozostaje
+    drugą warstwą: samo przekazanie ``dl_assigned=True`` nie może zmienić
+    innej persony w Delivery Leada.
     """
     from app.api import client_orders
     from app.models.user import UserRole as Role
