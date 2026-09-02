@@ -1,8 +1,8 @@
 {
-  "reviewed_at": "2026-09-01",
+  "reviewed_at": "2026-09-02",
   "sources": {
     "backend/app/api/client_order_groups.py": "f36bae8844e6f22a3616e020b5fc5e162a67ddf793c2d08ef8354a78403e00cc",
-    "backend/app/api/client_orders.py": "55043916140b1342e6a1704c59cbadc5fc000fb026032195cd3df3656391427c",
+    "backend/app/api/client_orders.py": "ffeb2ef5be33ca0f9d909d947c3cd0b9f36f9c203aca43f36e4a20fa9176365d",
     "backend/app/api/md_consumption.py": "d638bb41a982bb044202688321761723f991965199bf5a3ca8e66e2d5afdc8fa",
     "backend/app/models/client_order.py": "405fa6171eed558b28d2e6a51ceeb2c96397ca80faccea8c35f301c49f7ead1d",
     "backend/app/models/client_order_group.py": "903eb1f1b1e49a16657204f6cfd97a337f9c80cb431138670d09d7015ef5033e",
@@ -21,6 +21,7 @@
     "backend/app/services/order_group_lifecycle.py": "773531f003c5b1d269cb3eede3aed81dc018b6ef4686e5e99982835d9fef0413",
     "backend/app/services/order_group_materializer.py": "d67ceae70ec71a72fca48becdf8a6da0a20e71f2f7a0f905ff6fd27acf36e777",
     "backend/app/services/order_pdf_parser.py": "9b233f03d4ce91b2e782b9c590746a601edc8ed213a940e4d2f68a83396e8519",
+    "backend/app/services/order_policies/registry.py": "9535516256dbf612f7aa3ce31a9ff922f4dd16aa8a687c1b65aabaf865de56b2",
     "backend/app/services/order_rate_snapshots.py": "a9a751125b2ed83afeb1efcb75d70cc5923c3d5f070af42036ef5c5580fc44e7",
     "backend/app/services/order_types.py": "0f14a295c0c97c6c7c5ec42e77fee77b07f800de23a687ddc588d92ef00e6777",
     "backend/app/services/shared_md_orders.py": "b7af4772e4cdfd131e0b798262682adf344fe4cc076b0a8faefa204bd0cf2f21",

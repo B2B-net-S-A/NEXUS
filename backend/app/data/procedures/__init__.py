@@ -84,6 +84,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/api/client_order_groups.py",
     # ── Odczyt dokumentu i polityki per klient ──────────────────────────
     "backend/app/services/order_pdf_parser.py",
+    # Rejestr polityk per klient: która reguła u kogo, w jakiej kolejności
+    # i jak zmienia wywołanie parsera. Dołożenie klienta zmienia ten plik.
+    "backend/app/services/order_policies/registry.py",
     # Limit 10 stron OCR i komunikat o nieczytelnym skanie — instrukcja
     # podaje oba wprost, a plik zmienia się rzadko.
     "backend/app/services/cv_text_extractor.py",
