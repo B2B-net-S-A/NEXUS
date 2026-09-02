@@ -136,6 +136,13 @@ class M365Connection(Base, TimestampMixin):
 
     # Soft-disconnect without row delete (preserves history).
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 0264: przeznaczenie skrzynki. ``personal`` = skrzynka rekrutera (sync
+    # wiadomości, matcher kandydatów, kalendarz). ``orders`` = skrzynka kopii
+    # zamówień (zamowienia@…): pomijana przez sync osobisty i czytana wyłącznie
+    # przez reader zamówień — jej wiadomości nie są pocztą żadnego rekrutera.
+    purpose: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="personal", server_default="personal"
+    )
 
     user = relationship("User", foreign_keys=[user_id])
 

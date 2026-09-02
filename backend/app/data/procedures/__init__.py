@@ -104,6 +104,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # (re-ekstrakcja przy literowaniu spacjami, cap OCR).
     "backend/app/services/order_client_identity.py",
     "backend/app/services/order_document_text.py",
+    # Zamówienia z maila: pobieranie ze skrzynki kopii, sloty dobowe, dziennik.
+    "backend/app/services/order_mail_ingest.py",
+    "backend/app/tasks/order_mail_ingest.py",
+    "backend/app/api/admin_order_mail.py",
     # Limit 10 stron OCR i komunikat o nieczytelnym skanie — instrukcja
     # podaje oba wprost, a plik zmienia się rzadko.
     "backend/app/services/cv_text_extractor.py",

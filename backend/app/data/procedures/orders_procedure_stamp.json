@@ -1,6 +1,7 @@
 {
   "reviewed_at": "2026-09-02",
   "sources": {
+    "backend/app/api/admin_order_mail.py": "cdbe1a7a1b9526f51f70cffbae6f0fe99e109760165c2f286e8095b03e4fb052",
     "backend/app/api/client_order_groups.py": "f36bae8844e6f22a3616e020b5fc5e162a67ddf793c2d08ef8354a78403e00cc",
     "backend/app/api/client_orders.py": "ffeb2ef5be33ca0f9d909d947c3cd0b9f36f9c203aca43f36e4a20fa9176365d",
     "backend/app/api/md_consumption.py": "d638bb41a982bb044202688321761723f991965199bf5a3ca8e66e2d5afdc8fa",
@@ -22,6 +23,7 @@
     "backend/app/services/order_document_text.py": "1f82768893dffc4daf2122ad7ea571ce715d4bc9bf31ad077780d5b7196c00e7",
     "backend/app/services/order_group_lifecycle.py": "773531f003c5b1d269cb3eede3aed81dc018b6ef4686e5e99982835d9fef0413",
     "backend/app/services/order_group_materializer.py": "d67ceae70ec71a72fca48becdf8a6da0a20e71f2f7a0f905ff6fd27acf36e777",
+    "backend/app/services/order_mail_ingest.py": "be0ac2627d415e7096443bf36c20f3c808a28dd11f0517aef316ec5f8f5753ba",
     "backend/app/services/order_pdf_parser.py": "4842f3c2758933c804de6fb44e05e4899487637fb31d9e14158506160ad08df7",
     "backend/app/services/order_policies/_shared.py": "f3400bd931e5f39d9b9eb9453426c5856373bd8adec1a6f5062fb1f2f4620262",
     "backend/app/services/order_policies/alior.py": "84add17e77aa63d95fa9ea3c058d7c13ff43ac710229bb7ede2e3de9b0a7b39f",
@@ -41,6 +43,7 @@
     "backend/app/tasks/contract_alerts.py": "609fa5e765843614b73a357d68e32f0dc75d36712360401b749c2a4f2bad7f88",
     "backend/app/tasks/dl_alerts_scanner.py": "cfbeaf098535d9959b7b35ea987f8a2a7bc860ec0fc641f4d7de6f02cc838bb0",
     "backend/app/tasks/dl_portal_expiry_scanner.py": "25a57ec71ada5fb5b69900e4deefccbc230c4ea0a057e3c61fded0076f71d127",
+    "backend/app/tasks/order_mail_ingest.py": "8cdd0b9287fe90c4962779ce19b1b3107e2d6ea8c0d7e8782e71ffdf30a373f6",
     "frontend/src/components/EditOrderDialog.tsx": "45a4b1af1e69ea8cb54ca08d7a99d9256a258b1a1a4c995d4f6218a1ae84155b",
     "frontend/src/components/ExtendOrderDialog.tsx": "b05c69bc30c3a8527fa5f21283f7426cec62f2c65b770149b4d0fc8327c2271d",
     "frontend/src/components/NewContractorOrderDialog.tsx": "2a71c4958bcf6d328eccc143cff165977eb61dc21c8fcab227acd188346aa978",

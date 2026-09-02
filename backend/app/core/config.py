@@ -327,6 +327,34 @@ class Settings(BaseSettings):
     # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).
     ORDER_EXTRACTION_ENABLED: bool = True
     ORDER_PARSER_MODEL: str = "claude-sonnet-5"
+    # ── Zamówienia z maila (ticket zamowienia@b2bnetwork.pl) ──────────────
+    # Skrzynka kopii w M365 czytana przez Graph (hosting robi kopię przychodzących
+    # na tę skrzynkę; oryginały zostają). Kill-switch PRZED pętlą: wyłączona
+    # integracja nie budzi procesu co N sekund, żeby sprawdzić tę samą flagę.
+    ORDER_MAIL_INGEST_ENABLED: bool = False
+    # UPN skrzynki zamówień; połączenie M365 z tym UPN dostaje purpose='orders'
+    # i jest POMIJANE przez sync skrzynek osobistych (matcher kandydatów, osie
+    # czasu maili) — zamówienia klientów nie są pocztą rekrutera.
+    ORDER_MAIL_UPN: str = ""
+    # Sloty dobowe (czas LOKALNY Europe/Warsaw, „HH:MM,HH:MM") — bieg raz, gdy
+    # początek któregoś slotu leży w (ostatni bieg, teraz]. Lokalny, nie UTC:
+    # ticket mówi „ok. 8:00 i 15:00", a UTC rozjeżdża się z DST.
+    ORDER_MAIL_SLOTS_LOCAL: str = "08:00,15:00"
+    ORDER_MAIL_INITIAL_LOOKBACK_DAYS: int = 7
+    ORDER_MAIL_OVERLAP_HOURS: int = 2
+    ORDER_MAIL_MAX_ATTACHMENT_MB: int = 25
+    # CSV domen nadawców, z których przyjmujemy załączniki; pusta = wszystkie
+    # (rozpoznanie klienta i tak wymaga numeru rejestrowego z rejestru, a
+    # nierozpoznany dokument kończy jako wpis w dzienniku, nie w zamówieniach).
+    ORDER_MAIL_SENDER_ALLOWLIST: str = ""
+    # Bramka auto-zapisu (P4). Domyślnie TRYB CIENIA: werdykt i powód lądują
+    # w dzienniku, nic nie jest zapisywane. Flip po dwóch tygodniach danych.
+    ORDER_MAIL_AUTOAPPLY_ENABLED: bool = False
+    # CSV client_id WYKLUCZONYCH z automatu (pusta = nikt nie wykluczony —
+    # spójnie z konwencją repo, w której pusta lista CSV nigdy nie znaczy
+    # „wszyscy"). Klient, u którego odczyt zacznie się mylić, wraca na kolejkę
+    # bez deployu.
+    ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS: str = ""
     # Resilience for the shared claude_client.call_claude() helper. Caps a hung
     # request (SDK default is 600 s) and retries transient overload/429/529/5xx.
     ANTHROPIC_TIMEOUT_SECONDS: float = 90.0

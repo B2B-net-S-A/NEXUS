@@ -3655,6 +3655,77 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_insights_seniority_snapshots_user_observed "
     "ON insights_seniority_snapshots (user_id, observed_at DESC)",
+    # 0264: zamówienia z maila. Przeznaczenie połączenia M365 (skrzynka kopii
+    # zamówień pomijana przez sync osobisty), dziennik załączników z drabiną
+    # wyniku i jednowierszowy watermark pętli. Prod alembic bywa osierocony —
+    # lustro DDL jest jedyną gwarancją, że tabele powstaną.
+    "ALTER TABLE m365_connections ADD COLUMN IF NOT EXISTS purpose "
+    "VARCHAR(16) NOT NULL DEFAULT 'personal'",
+    """DO $$ BEGIN
+        ALTER TABLE m365_connections ADD CONSTRAINT ck_m365_connections_purpose
+            CHECK (purpose IN ('personal', 'orders'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """CREATE TABLE IF NOT EXISTS order_mail_documents (
+        id SERIAL PRIMARY KEY,
+        connection_id INTEGER NULL REFERENCES m365_connections(id) ON DELETE SET NULL,
+        internet_message_id VARCHAR(998) NOT NULL,
+        m365_message_id VARCHAR(512) NULL,
+        received_at TIMESTAMPTZ NULL,
+        sender_email VARCHAR(320) NULL,
+        sender_domain VARCHAR(255) NULL,
+        subject VARCHAR(1000) NULL,
+        attachment_name VARCHAR(255) NULL,
+        attachment_sha256 VARCHAR(64) NULL,
+        attachment_size INTEGER NULL,
+        storage_path VARCHAR(512) NULL,
+        duplicate_of_id INTEGER NULL REFERENCES order_mail_documents(id) ON DELETE SET NULL,
+        outcome VARCHAR(32) NOT NULL DEFAULT 'received',
+        client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL,
+        client_key VARCHAR(64) NULL,
+        identification_method VARCHAR(16) NULL,
+        identification_reason TEXT NULL,
+        client_policy VARCHAR(128) NULL,
+        extraction JSONB NULL,
+        document_meta JSONB NULL,
+        gate_verdict VARCHAR(16) NULL,
+        gate_reasons JSONB NULL,
+        proposal JSONB NULL,
+        applied_order_id INTEGER NULL REFERENCES client_orders(id) ON DELETE SET NULL,
+        applied_group_id INTEGER NULL REFERENCES client_order_groups(id) ON DELETE SET NULL,
+        applied_at TIMESTAMPTZ NULL,
+        applied_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        reviewed_at TIMESTAMPTZ NULL,
+        error TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_order_mail_documents_outcome CHECK (outcome IN (
+            'received','ignored_no_pdf','ignored_sender','duplicate_attachment',
+            'unrecognized_client','needs_review','auto_applied','applied',
+            'dismissed','failed')),
+        CONSTRAINT ck_order_mail_documents_gate_verdict
+            CHECK (gate_verdict IS NULL OR gate_verdict IN ('auto','review'))
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_order_mail_documents_message_attachment "
+    "ON order_mail_documents (internet_message_id, attachment_sha256) "
+    "WHERE attachment_sha256 IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_order_mail_documents_message_no_attachment "
+    "ON order_mail_documents (internet_message_id) WHERE attachment_sha256 IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_documents_sha ON order_mail_documents (attachment_sha256)",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_documents_outcome ON order_mail_documents (outcome)",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_documents_client ON order_mail_documents (client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_documents_received ON order_mail_documents (received_at)",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_documents_connection_id ON order_mail_documents (connection_id)",
+    """CREATE TABLE IF NOT EXISTS order_mail_sync_state (
+        id INTEGER PRIMARY KEY,
+        last_run_started_at TIMESTAMPTZ NULL,
+        last_run_finished_at TIMESTAMPTZ NULL,
+        last_status VARCHAR(20) NULL,
+        last_error TEXT NULL,
+        last_seen_received_at TIMESTAMPTZ NULL,
+        stats JSONB NULL,
+        updated_at TIMESTAMPTZ NULL
+    )""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -101,6 +101,7 @@ from app.api import (
     admin_client_portfolio,
     admin_champion_ingest,
     admin_notes_insights,
+    admin_order_mail,
     admin_traffit,
 )
 from app.api import admin_talent_pools
@@ -650,6 +651,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
+    from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -700,6 +702,7 @@ async def lifespan(app: FastAPI):
         ),
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
+        "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
         # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
         # tylko po to, zeby sprawdzic te sama flage.
@@ -1021,6 +1024,11 @@ app.include_router(activities.router, prefix="/api/activities", tags=["activitie
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(
     admin_traffit.router, prefix="/api/admin/traffit", tags=["admin", "traffit"]
+)
+app.include_router(
+    admin_order_mail.router,
+    prefix="/api/admin/order-mail",
+    tags=["admin", "order-mail"],
 )
 app.include_router(
     admin_notes_insights.router,
@@ -1738,6 +1746,46 @@ async def api_health_check():
         except Exception:
             checks["traffit"] = "degraded"
 
+    # Zamówienia z maila — świeżość ostatniego biegu pobierania (0264). Ta
+    # sama drabina co traffit: `unconfigured` (wyłączone) / `misconfigured`
+    # (brak UPN) / `degraded` (włączone, brak świeżego udanego biegu) /
+    # `healthy`. Próg 26 h: przy slotach 08:00 i 15:00 naturalny odstęp
+    # 15→8 to 17 h, więc 18 h przełączałoby się na `degraded` przy każdym
+    # opóźnieniu o godzinę.
+    if not settings.ORDER_MAIL_INGEST_ENABLED:
+        checks["order_mail"] = "unconfigured"
+    elif not settings.ORDER_MAIL_UPN:
+        checks["order_mail"] = "misconfigured"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+            from datetime import timezone as _tz
+
+            async with AsyncSessionLocal() as session:
+                row = await asyncio.wait_for(
+                    session.execute(
+                        text(
+                            "SELECT last_run_finished_at, last_status "
+                            "FROM order_mail_sync_state WHERE id = 1"
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            r = row.fetchone()
+            if r is None or r[0] is None:
+                checks["order_mail"] = "degraded"
+            elif (_dt.now(_tz.utc) - r[0]) > _td(hours=26) or r[1] not in (
+                "ok",
+                "partial",
+                None,
+            ):
+                checks["order_mail"] = "degraded"
+            else:
+                checks["order_mail"] = "healthy"
+        except Exception:
+            checks["order_mail"] = "degraded"
+
     # Cortex extraction — informational. Świeżość ostatniego przebiegu faktów
     # skilli (cortex_extraction_runs). Overall status pozostaje DB-only; to tylko
     # uwidacznia stale/failed backfill po deployu. `unconfigured` (brak runów) /
@@ -2122,6 +2170,7 @@ async def api_health_deep_check():
         MdConsumptionImportRow,
     )
     from app.models.dl_alert import DlAlert
+    from app.models.order_mail import OrderMailDocument
     from app.models.contract import Contract
     from app.models.contract_candidate_rate import ContractCandidateRate
     from app.models.contract_client_rate import ContractClientRate
@@ -2193,6 +2242,8 @@ async def api_health_deep_check():
         # zielonym deployu i bez związku czasowego z przyczyną.
         ("client_order_invoice_consumptions", ClientOrderInvoiceConsumption),
         ("dl_alerts", DlAlert),
+        # 0264: zamówienia z maila — dziennik załączników czytany przez kolejkę.
+        ("order_mail_documents", OrderMailDocument),
         ("candidates", Candidate),
         ("clients", Client),
         # 0255: reguły CV per klient. Brak tabeli nie wywraca generatora —

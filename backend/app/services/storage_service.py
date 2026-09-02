@@ -29,6 +29,7 @@ CLIENT_CONTRACT_AMENDMENTS_DIR = STORAGE_ROOT / "client_contract_amendments"
 CLIENT_ORDER_POS_DIR = STORAGE_ROOT / "client_orders"
 CLIENT_ORDER_GROUP_POS_DIR = STORAGE_ROOT / "client_order_groups"
 FINANCE_IMPORTS_DIR = STORAGE_ROOT / "finance_imports"
+ORDER_MAIL_DIR = STORAGE_ROOT / "order_mail"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -391,6 +392,36 @@ def save_client_order_po(
     rel, size = _save_to(CLIENT_ORDER_POS_DIR / str(order_id), upload_filename, source)
     logger.info("Saved client order PO: %s (%d bytes)", rel, size)
     return rel, size
+
+
+def save_order_mail_attachment(
+    sha256: str, upload_filename: str, source: BinaryIO
+) -> tuple[str, int]:
+    """Załącznik PDF z maila zamówień: /order_mail/{sha[:2]}/{sha[:12]}-{name}.
+
+    Katalog po prefiksie SHA (nie po dacie ani kliencie): plik jest
+    identyfikowany treścią zanim wiadomo, czyj jest, a ten sam PDF przesłany
+    ponownie ma trafić obok pierwszej kopii, nie w nowe miejsce.
+    """
+    target_dir = ORDER_MAIL_DIR / sha256[:2]
+    safe = _sanitize_filename(upload_filename)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{sha256[:12]}-{safe}"
+    size = 0
+    with target_path.open("wb") as dst:
+        while True:
+            chunk = source.read(1024 * 64)
+            if not chunk:
+                break
+            dst.write(chunk)
+            size += len(chunk)
+    rel = str(target_path.relative_to(STORAGE_ROOT))
+    logger.info("Saved order-mail attachment: %s (%d bytes)", rel, size)
+    return rel, size
+
+
+def get_order_mail_attachment_path(relative_path: str) -> Path:
+    return _resolve_under_root(relative_path)
 
 
 def get_client_order_po_path(relative_path: str) -> Path:
