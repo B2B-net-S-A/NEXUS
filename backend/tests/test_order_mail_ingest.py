@@ -529,14 +529,46 @@ def test_msal_client_credentials_refresh_contract():
     Review #1343 zakładał odwrotnie: że `remove_tokens_for_client` nie istnieje,
     a `acquire_token_for_client(force_refresh=True)` działa. W msal 1.37 jest
     dokładnie na odwrót — ten test wywali się przy zmianie biblioteki, zanim
-    zrobi to produkcja po pierwszym 401.
+    zrobi to produkcja po pierwszym 401. Hermetyczny: konstruktor MSAL robi
+    OIDC discovery po sieci, więc dostaje podstawiony klient HTTP.
     """
+    import json
+
     import msal
 
+    class _Resp:
+        status_code = 200
+        headers: dict = {}
+
+        def __init__(self, payload):
+            self.text = json.dumps(payload)
+
+        def json(self):
+            return json.loads(self.text)
+
+        def raise_for_status(self):
+            return None
+
+    class _Http:
+        def get(self, url, **kwargs):
+            base = "https://login.microsoftonline.com/tenant-test"
+            return _Resp(
+                {
+                    "authorization_endpoint": f"{base}/oauth2/v2.0/authorize",
+                    "token_endpoint": f"{base}/oauth2/v2.0/token",
+                    "issuer": f"{base}/v2.0",
+                }
+            )
+
+        def post(self, url, **kwargs):  # nigdy nie powinno dojść do sieci
+            raise AssertionError("unexpected network call")
+
     app = msal.ConfidentialClientApplication(
-        client_id="00000000-0000-0000-0000-000000000000",
-        authority="https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111",
-        client_credential="not-a-real-secret",
+        client_id="nexus-test-client",  # nie GUID: reguła gitleaks fireflies-api-key
+        authority="https://login.microsoftonline.com/tenant-test",
+        client_credential="x",
+        http_client=_Http(),
+        instance_discovery=False,
     )
     assert callable(getattr(app, "remove_tokens_for_client", None))
     app.remove_tokens_for_client()  # pusty cache — no-op, nie wyjątek
