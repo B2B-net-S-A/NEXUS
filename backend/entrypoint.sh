@@ -2828,12 +2828,17 @@ _COLUMN_STATEMENTS = [
         requires_en_copy BOOLEAN NOT NULL DEFAULT FALSE,
         requires_rodo_consent_block BOOLEAN NOT NULL DEFAULT FALSE,
         notes TEXT,
+        generator_instructions TEXT,
         seed_key VARCHAR(64),
         confirmed_at TIMESTAMPTZ,
         confirmed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )""",
+    # 0266: instrukcje dla generatora AI — jedyne pole reguły, które trafia do
+    # promptu. Istniejąca tabela (0255) nie ma tej kolumny, więc ALTER obok
+    # CREATE TABLE wyżej.
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS generator_instructions TEXT",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_cv_rules_client "
     "ON client_cv_rules (client_id)",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rules_seed_key "

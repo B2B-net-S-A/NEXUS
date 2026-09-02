@@ -66,6 +66,7 @@ const DL_USER = {
 };
 
 const RECRUITER_USER = { id: 8, role: "recruiter", roles: ["recruiter"] };
+const TAC_USER = { id: 9, role: "tac", roles: ["tac"] };
 
 const OVERVIEW: CvRulesOverview = {
   rules: [
@@ -78,6 +79,7 @@ const OVERVIEW: CvRulesOverview = {
       requires_en_copy: false,
       requires_rodo_consent_block: false,
       notes: null,
+      generator_instructions: null,
       seed_key: "profil-championa-wzor-nordea-docx",
       is_active: true,
       confirmed_at: "2026-08-31T10:00:00Z",
@@ -97,6 +99,7 @@ const OVERVIEW: CvRulesOverview = {
       requires_en_copy: false,
       requires_rodo_consent_block: false,
       notes: "Maks. 3 rekomendacje.",
+      generator_instructions: "Bez sekcji zainteresowań.",
       seed_key: null,
       is_active: false,
       confirmed_at: null,
@@ -203,6 +206,18 @@ describe("CvRulesSettingsPage", () => {
     expect(screen.queryByRole("button", { name: /Usuń regułę/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Wskaż klienta/ })).not.toBeInTheDocument();
     expect(screen.getByText("BNP PARIBAS")).toBeInTheDocument();
+  });
+
+  it("TAC edytuje kartę klienta, ale reguł CV nie prowadzi — zero akcji", async () => {
+    // Decyzja produktowa 02.09.2026: bramka zapisu to DeliveryLeadPlus, nie TacPlus.
+    mocks.user = TAC_USER;
+    renderPage();
+
+    expect(await screen.findByText("Nordea Bank Abp")).toBeInTheDocument();
+    expect(screen.getByText("instrukcje AI")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Dodaj regułę/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Edytuj regułę/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Zatwierdź regułę/ })).not.toBeInTheDocument();
   });
 
   it("awaria pobrania renderuje się jako błąd z ponowieniem, nie jako pustka", async () => {

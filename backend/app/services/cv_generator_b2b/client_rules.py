@@ -76,6 +76,10 @@ class CvRuleSnapshot:
     cv_language: str | None
     requires_en_copy: bool
     requires_rodo_consent_block: bool
+    # Jedyne pole reguły, które trafia do promptu (migracja 0266). Domyślnie
+    # None, żeby istniejące wywołania konstruktora (testy, harnessy) nie
+    # musiały go znać.
+    generator_instructions: str | None = None
 
 
 def snapshot_rule(rule: Optional[ClientCvRule]) -> Optional[CvRuleSnapshot]:
@@ -88,7 +92,38 @@ def snapshot_rule(rule: Optional[ClientCvRule]) -> Optional[CvRuleSnapshot]:
         cv_language=rule.cv_language,
         requires_en_copy=bool(rule.requires_en_copy),
         requires_rodo_consent_block=bool(rule.requires_rodo_consent_block),
+        generator_instructions=(rule.generator_instructions or "").strip() or None,
     )
+
+
+# Sufit długości instrukcji dla generatora. Pole idzie do KAŻDEJ generacji
+# u tego klienta, więc nieograniczone rozrastałoby prompt (i rachunek) bez
+# żadnego sygnału zwrotnego; 2000 znaków to kilkanaście reguł, nie esej.
+GENERATOR_INSTRUCTIONS_MAX_LENGTH = 2000
+
+_PRESENTATION_RULES_TAG = "client_presentation_rules"
+
+
+def build_client_presentation_rules_block(rule: Optional[CvRuleSnapshot]) -> str:
+    """Blok ``<client_presentation_rules>`` do wiadomości użytkownika.
+
+    Pusty string, gdy klient nie ma instrukcji — wtedy prompt nie różni się
+    niczym od dotychczasowego. Idzie do wiadomości UŻYTKOWNIKA, nie do
+    systemowej: prompt systemowy jest jednym cache'owanym blokiem i musi
+    zostać identyczny między generacjami, a instrukcje różnią się per klient.
+
+    Znaczniki ``<`` i ``>`` w treści są neutralizowane: Delivery Lead nie
+    ma jak zamknąć bloku i „wyjść" z reguł prezentacji do części, w której
+    model widzi wyłącznie polecenia systemowe.
+    """
+    if rule is None:
+        return ""
+    text = (rule.generator_instructions or "").strip()
+    if not text:
+        return ""
+    text = text[:GENERATOR_INSTRUCTIONS_MAX_LENGTH]
+    safe = text.replace("<", "‹").replace(">", "›")
+    return f"<{_PRESENTATION_RULES_TAG}>\n{safe}\n</{_PRESENTATION_RULES_TAG}>"
 
 
 @dataclass(frozen=True)
@@ -239,6 +274,15 @@ def rule_reminders(rule: Optional[CvRuleSnapshot]) -> tuple[str, ...]:
             "WERYFIKUJ: ten klient oczekuje CV po polsku ORAZ po angielsku — "
             "pamiętaj o wygenerowaniu drugiej wersji językowej."
         )
+    if (rule.generator_instructions or "").strip():
+        # Model dostał reguły prezentacji klienta i mógł którąś pominąć jako
+        # niedozwoloną (dopisywanie faktów). Rekruter ma wiedzieć, że dokument
+        # był kształtowany także tymi regułami — i sprawdzić go pod ich kątem.
+        out.append(
+            "WERYFIKUJ: zastosowano instrukcje tego klienta dla generatora — "
+            "sprawdź dokument pod ich kątem (pominięte instrukcje model zgłasza "
+            "osobno w ostrzeżeniach)."
+        )
     return tuple(out)
 
 
@@ -260,4 +304,6 @@ def describe_rule(rule: Optional[CvRuleSnapshot]) -> str:
         parts.append(f"język {rule.cv_language.upper()}")
     if rule.requires_rodo_consent_block:
         parts.append("blok zgody RODO")
+    if (rule.generator_instructions or "").strip():
+        parts.append("instrukcje dla generatora")
     return ", ".join(parts)

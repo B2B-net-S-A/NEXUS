@@ -20,8 +20,12 @@ Ten plik dowodzi trzech rzeczy, które ekran zarządzania zakłada, a które
    niewidoczna dla wszystkich poza autorem. Szablony bez wiersza idą osobno.
 3. Domyślny zapis nadal jest propozycją, a edycja bez ``confirm`` ZDEJMUJE
    zatwierdzenie — zmiana wzoru nie wchodzi na produkcję bez decyzji.
-   Role spoza ``TacPlus`` (HoR, finance, recruiter, sourcer) czytają
-   przegląd, ale nie zapisują — dokładnie jak przy karcie klienta.
+   Role spoza ``DeliveryLeadPlus`` (TAC, HoR, finance, recruiter, sourcer)
+   czytają przegląd, ale nie zapisują. TAC celowo poza zapisem (decyzja
+   produktowa 02.09.2026): kartę klienta edytuje, reguł CV nie prowadzi.
+4. ``generator_instructions`` przechodzi zapis → odczyt → przegląd i wchodzi
+   do ``client_policy`` — to jedyne pole reguły, które trafia do promptu,
+   więc jego zgubienie po drodze byłoby niewidoczne aż do wygenerowanego CV.
 """
 
 from __future__ import annotations
@@ -147,6 +151,7 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
                 "spaces_to_underscores": True,
                 "cv_language": "pl",
                 "notes": "Maks. 3 rekomendacje na stanowisko.",
+                "generator_instructions": "  Bez sekcji zainteresowań.  ",
                 "confirm": True,
             },
             headers=headers,
@@ -156,7 +161,10 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
         assert body["is_active"] is True, "confirm=true musi zatwierdzać w tym samym zapisie"
         assert body["confirmed_at"] is not None
         assert body["confirmed_by_name"] == "CV rules delivery_lead"
-        assert body["client_policy"] == "nazwa pliku, język PL"
+        assert body["generator_instructions"] == "Bez sekcji zainteresowań."
+        assert body["client_policy"] == (
+            "nazwa pliku, język PL, instrukcje dla generatora"
+        )
         assert body["filename_preview"] == "B2B_Analityk_Biznesowy_Jan_Kowalski.docx"
         assert await _rule_is_active_in_db(other) is True
 
@@ -168,6 +176,7 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
         async with AsyncSessionLocal() as db:
             found = await resolve_client_rule(db, other)
             assert found is not None and found.cv_language == "pl"
+            assert found.generator_instructions == "Bez sekcji zainteresowań."
 
         # Przegląd zbiorczy: reguła założona ręcznie (bez seed_key) JEST na
         # liście, z nazwą klienta i autorem zatwierdzenia.
@@ -184,6 +193,7 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
         assert row["is_active"] is True
         assert row["confirmed_by_name"] == "CV rules delivery_lead"
         assert row["notes"] == "Maks. 3 rekomendacje na stanowisko."
+        assert row["generator_instructions"] == "Bez sekcji zainteresowań."
 
         # Szablony bez wiersza idą osobno, a suma obu list pokrywa DOKŁADNIE
         # 14 kluczy seeda — bez duplikatów i bez dziur.
@@ -208,7 +218,7 @@ async def test_default_save_is_a_proposal_and_editing_drops_confirmation(
     produkcję bez decyzji."""
     client_id = await _make_client(f"CV rules proposal {uuid.uuid4().hex[:6]}")
     try:
-        headers = await _headers_for(app_client, "tac")
+        headers = await _headers_for(app_client, "delivery_lead")
 
         r = await app_client.put(
             _rule_url(client_id),
@@ -244,14 +254,15 @@ async def test_default_save_is_a_proposal_and_editing_drops_confirmation(
 
 
 @pytest.mark.parametrize(
-    "role_value", ["head_of_recruitment", "finance", "recruiter", "sourcer"]
+    "role_value", ["tac", "head_of_recruitment", "finance", "recruiter", "sourcer"]
 )
 @pytest.mark.asyncio
-async def test_roles_outside_tac_plus_read_the_overview_but_cannot_write(
+async def test_roles_outside_delivery_lead_plus_read_the_overview_but_cannot_write(
     app_client: AsyncClient, role_value: str
 ):
     """Odczyt = każda rola operacyjna (``OperationalUser``); zapis, zatwierdzenie
-    i usunięcie = ``TacPlus``. HoR CELOWO poza zapisem — jak przy karcie klienta."""
+    i usunięcie = ``DeliveryLeadPlus``. TAC CELOWO poza zapisem (decyzja
+    02.09.2026) mimo że kartę klienta edytuje; HoR jak przy karcie klienta."""
     client_id = await _make_client(f"CV rules ro {role_value} {uuid.uuid4().hex[:6]}")
     try:
         headers = await _headers_for(app_client, role_value)

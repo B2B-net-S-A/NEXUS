@@ -90,6 +90,18 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  // PUT/POST confirm/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus.
+  // TAC celowo na false (decyzja 02.09.2026): edytuje kartę klienta, ale
+  // reguł CV nie prowadzi — kontrolki mają być dla niego niewidoczne.
+  "cv_rule.manage": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // POST /api/contracts → TacPlus
   "contract.create": {
     admin: true,
@@ -642,6 +654,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "job.update": { guards: [["deps", "TacPlus"]] },
   "client.create": { guards: [["deps", "TacPlus"]] },
   "client.update": { guards: [["deps", "TacPlus"]] },
+  "cv_rule.manage": { guards: [["deps", "DeliveryLeadPlus"]] },
   "contract.create": { guards: [["deps", "TacPlus"]] },
   // ClientAccess.can_edit_contacts = ADMIN_LIKE ∪ CLIENT_TEAM.
   "contact.create": {

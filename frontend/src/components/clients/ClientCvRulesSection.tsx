@@ -24,6 +24,12 @@
  *
  * Usuwanie ma dwustopniowe potwierdzenie W KOMPONENCIE, nie `window.confirm`
  * — natywny dialog zamraża automatyzację przeglądarki, którą weryfikujemy UI.
+ *
+ * Dwa wolne pola i to nie jest duplikat: `notes` czyta CZŁOWIEK (baner
+ * w generatorze), `generator_instructions` czyta MODEL (blok
+ * `<client_presentation_rules>` w prompcie). Reguła szukania („kandydatów
+ * z bankowości rozważamy w pierwszej kolejności") należy do notatki — w polu
+ * dla modelu byłaby zaproszeniem do koloryzowania doświadczenia bankowego.
  */
 
 import { useEffect, useState } from "react";
@@ -42,7 +48,10 @@ export interface ClientCvRuleForm {
   requires_en_copy: boolean;
   requires_rodo_consent_block: boolean;
   notes: string;
+  generator_instructions: string;
 }
+
+export const GENERATOR_INSTRUCTIONS_MAX_LENGTH = 2000;
 
 export interface ClientCvRuleResponse {
   client_id: number;
@@ -53,6 +62,8 @@ export interface ClientCvRuleResponse {
   requires_en_copy: boolean;
   requires_rodo_consent_block: boolean;
   notes: string | null;
+  /** Jedyne pole reguły, które trafia do promptu generatora. */
+  generator_instructions: string | null;
   seed_key: string | null;
   is_active: boolean;
   confirmed_at: string | null;
@@ -126,6 +137,7 @@ export function ClientCvRulesSection({
           requires_en_copy: res.data.requires_en_copy,
           requires_rodo_consent_block: res.data.requires_rodo_consent_block,
           notes: res.data.notes ?? "",
+          generator_instructions: res.data.generator_instructions ?? "",
         });
       } catch {
         // Awaria odczytu nie może udawać „klient nie ma reguł" — to dwie różne
@@ -158,6 +170,7 @@ export function ClientCvRulesSection({
           requires_en_copy: form.requires_en_copy,
           requires_rodo_consent_block: form.requires_rodo_consent_block,
           notes: form.notes.trim() || null,
+          generator_instructions: form.generator_instructions.trim() || null,
           confirm,
         },
       );
@@ -310,6 +323,37 @@ export function ClientCvRulesSection({
         <p className="mt-1 text-xs text-muted-foreground">
           Rekruter zobaczy tę notatkę w generatorze CV po wybraniu klienta.
           Trafia do człowieka, nie do modelu AI.
+        </p>
+      </div>
+
+      <div>
+        <label
+          className="mb-1 block text-xs font-medium"
+          htmlFor="cvrule-instructions"
+        >
+          Instrukcje dla generatora AI
+        </label>
+        <textarea
+          id="cvrule-instructions"
+          value={form.generator_instructions}
+          onChange={(e) => set("generator_instructions", e.target.value)}
+          rows={4}
+          maxLength={GENERATOR_INSTRUCTIONS_MAX_LENGTH}
+          className="w-full rounded-md border px-3 py-2 text-sm"
+          placeholder={
+            "Np. maks. 3 projekty na stanowisko; bez sekcji zainteresowań; " +
+            "opisy obowiązków do 2 zdań; daty w formacie MM.RRRR"
+          }
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Generator stosuje je do KAŻDEGO CV dla tego klienta — ale wyłącznie
+          do doboru i formy faktów, które kandydat ma w CV lub notatkach ze
+          screeningu (co pominąć, co wyeksponować, jak długo, jakim stylem).
+          Polecenie dopisania technologii, obowiązku czy lat doświadczenia
+          model ignoruje i zgłasza w ostrzeżeniach. Układ dokumentu (szablon
+          DOCX) się nie zmienia.
+          {" "}
+          {form.generator_instructions.length}/{GENERATOR_INSTRUCTIONS_MAX_LENGTH}
         </p>
       </div>
 

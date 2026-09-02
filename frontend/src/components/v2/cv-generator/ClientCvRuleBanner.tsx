@@ -31,6 +31,7 @@ export interface ClientCvRule {
   requires_en_copy: boolean;
   requires_rodo_consent_block: boolean;
   notes: string | null;
+  generator_instructions: string | null;
   seed_key: string | null;
   confirmed_at: string | null;
   confirmed_by_name: string | null;
@@ -143,6 +144,19 @@ export function ClientCvRuleBanner({
               Standardy klienta (notatka Delivery Leada)
             </summary>
             <span className="mt-1 block whitespace-pre-line">{rule.notes}</span>
+          </details>
+        ) : null}
+        {rule?.generator_instructions?.trim() ? (
+          // Rekruter ma wiedzieć, CZYM model kształtował dokument — inaczej
+          // pominięta sekcja albo skrócony opis wygląda jak błąd generatora,
+          // a nie jak spełnione wymaganie klienta.
+          <details className="text-muted-foreground">
+            <summary className="cursor-pointer">
+              Instrukcje dla generatora AI (zastosowane do treści)
+            </summary>
+            <span className="mt-1 block whitespace-pre-line">
+              {rule.generator_instructions}
+            </span>
           </details>
         ) : null}
       </span>

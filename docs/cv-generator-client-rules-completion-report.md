@@ -137,7 +137,7 @@ zna, plus zdanie w banerze. Dokument pozostaje nietknięty.
 - Format `{DATA}` to `YYYY-MM-DD`; szablon Credit Agricole mówi tylko
   „bieżąca_data". Wzór jest edytowalny, więc da się skorygować bez deployu.
 
-## Aktualizacja 2026-09-02 — każdy Delivery Lead i TAC zakłada reguły sam
+## Aktualizacja 2026-09-02 — każdy Delivery Lead zakłada reguły sam + instrukcje dla AI
 
 **Zgłoszenie:** „jak to poprawić, aby każdy Delivery Lead mógł sobie robić
 reguły jakie chce?" — z ekranu `/settings/cv-rules`.
@@ -146,7 +146,12 @@ reguły jakie chce?" — z ekranu `/settings/cv-rules`.
 ale ekran był podglądem 14 zasianych szablonów bez żadnej akcji i bez linku
 w Ustawieniach; reguła dla innego klienta była tu niewidoczna, a założyć ją
 dało się tylko przez okno „Edytuj firmę", dwoma osobnymi kliknięciami
-(Zapisz → Zatwierdź).
+(Zapisz → Zatwierdź). „Reguły jakie chce" nie mieściły się też w schemacie:
+jedynym wolnym polem była notatka dla człowieka.
+
+**Decyzje Artura (02.09.2026, pytania w sesji):** reguła per klient, wspólna;
+DL zatwierdza sam, dla dowolnego klienta; zapis tylko DL + admin (TAC wypada);
+DL dostaje pole instrukcji, które generator AI naprawdę stosuje.
 
 **Co się zmieniło:**
 
@@ -156,21 +161,33 @@ dało się tylko przez okno „Edytuj firmę", dwoma osobnymi kliknięciami
   i zatwierdzenie jednym kliknięciem („Zapisz i zatwierdź"). Domyślny zapis
   nadal jest propozycją; edycja obowiązującej reguły bez `confirm` zdejmuje
   zatwierdzenie.
+- Bramka zapisu `TacPlus` → `DeliveryLeadPlus`; front po nowej capability
+  `cv_rule.manage` (lustro w `capabilities.test.ts`); TAC w oknie „Edytuj
+  firmę" widzi zdanie odsyłające, nie formularz.
+- `client_cv_rules.generator_instructions` (migracja `0266` + lustro
+  w `entrypoint.sh`): instrukcje PREZENTACJI dla modelu, blok
+  `<client_presentation_rules>` w wiadomości użytkownika (system prompt
+  niezmieniony bajt w bajt → cache promptu działa), semantyka i zakaz
+  dopisywania faktów w obu promptach systemowych, `<`/`>` neutralizowane,
+  sufit 2000 znaków, ostrzeżenie dla rekrutera, opis w `client_policy`.
 - `/settings/cv-rules`: lista wszystkich reguł, wyszukiwarka, filtr stanu,
   „Tylko moi klienci" dla persony DL (z `data_scope`, do wyłączenia),
   „Dodaj regułę" z pickerem klienta, edycja / zatwierdzanie / usuwanie
-  w miejscu, sekcja szablonów bez reguły. Akcje po `client.update`.
-- Link „Reguły CV per klient" w Ustawieniach → Zaawansowane
-  (admin / delivery_lead / tac).
-- Baner w generatorze pokazuje notatkę DL („Standardy klienta") przy
-  obowiązującej regule — wcześniej notatka nie docierała do rekrutera nigdzie.
+  w miejscu, sekcja szablonów bez reguły, chip „instrukcje AI".
+- Link „Reguły CV per klient" w Ustawieniach → Zaawansowane (admin / DL).
+- Baner w generatorze pokazuje notatkę DL („Standardy klienta") i instrukcje
+  dla AI przy obowiązującej regule — wcześniej notatka nie docierała do
+  rekrutera nigdzie.
 - Formularz `ClientCvRulesSection` współdzielony z oknem edycji klienta;
   usuwanie z dwustopniowym potwierdzeniem w komponencie.
 
 **Czego świadomie NIE zrobiono:** zawężenia zapisu do portfela DL (to lustro
 `PATCH /api/clients/{id}` — reguła CV jest konfiguracją klienta jak jego
-karta) oraz wpuszczenia notatki do promptu modelu (decyzja z 31.08 stoi).
+karta), wpuszczenia NOTATKI do promptu (reguły szukania koloryzują) ani zmian
+w szablonie DOCX (instrukcje o układzie nie mają czego dotknąć).
 
 **Testy:** `backend/tests/test_client_cv_rules_overview.py`,
-`frontend/src/app/settings/cv-rules/page.test.tsx`, rozszerzony
-`ClientCvRuleBanner.test.tsx`.
+`backend/tests/test_cv_generator_client_instructions.py`,
+`frontend/src/app/settings/cv-rules/page.test.tsx`, rozszerzone
+`ClientCvRuleBanner.test.tsx`, `capabilities.test.ts` (macierz + lustro
+backendu), `test_cv_generator_client_rules.py` (snapshot).

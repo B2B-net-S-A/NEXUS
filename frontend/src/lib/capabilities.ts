@@ -35,6 +35,7 @@ export type Capability =
   | "job.update"
   | "client.create"
   | "client.update"
+  | "cv_rule.manage"
   | "contract.create"
   | "contact.create"
   | "calendar_event.create"
@@ -116,6 +117,12 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // bramki nie-TAC widział "Edytuj", wypełniał formularz i dostawał 403 na
   // zapisie — czytało się jak "zapis nie działa".
   "client.update": TAC_PLUS,
+  // PUT/POST confirm/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus
+  // (backend/app/api/client_cv_rules.py). Decyzja produktowa 02.09.2026:
+  // reguły CV prowadzi Delivery Lead, TAC ich nie zmienia — choć kartę
+  // klienta (`client.update`) edytować może. Bramka przycisków na
+  // /settings/cv-rules i sekcji „Reguły CV" w oknie edycji firmy.
+  "cv_rule.manage": ["admin", "delivery_lead"],
   // POST /api/contracts → TacPlus (backend/app/api/contracts.py)
   "contract.create": TAC_PLUS,
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =

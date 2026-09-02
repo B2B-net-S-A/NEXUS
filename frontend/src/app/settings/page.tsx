@@ -139,11 +139,11 @@ const ADVANCED_LINKS: Array<{
     href: "/settings/cv-rules",
     title: "Reguły CV per klient",
     description:
-      "Nazwa pliku, język i wymogi klienta stosowane przez generator CV. Delivery Lead i TAC dodają i zatwierdzają reguły sami.",
+      "Nazwa pliku, język, wymogi i instrukcje dla generatora CV per klient. Delivery Lead dodaje i zatwierdza reguły sam.",
     icon: <FileCheck2 className="w-5 h-5" />,
-    // PUT/POST/DELETE /api/clients/{id}/cv-rule → TacPlus. Odczyt ma każda
-    // rola operacyjna, ale link prowadzi tam, gdzie da się coś ZROBIĆ.
-    roles: ["admin", "delivery_lead", "tac"],
+    // PUT/POST/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus. Odczyt
+    // ma każda rola operacyjna, ale link prowadzi tam, gdzie da się coś ZROBIĆ.
+    roles: ["admin", "delivery_lead"],
   },
   {
     href: "/settings/contract-templates",

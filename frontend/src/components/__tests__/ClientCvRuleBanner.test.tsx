@@ -28,6 +28,7 @@ const ACTIVE: ClientCvRule = {
   requires_en_copy: false,
   requires_rodo_consent_block: false,
   notes: null,
+  generator_instructions: null,
   seed_key: null,
   confirmed_at: "2026-08-31T10:00:00Z",
   confirmed_by_name: "Artur",
@@ -70,6 +71,27 @@ describe("ClientCvRuleBanner", () => {
     expect(
       screen.queryByText("CV bez zdjęcia. Maks. 3 rekomendacje."),
     ).not.toBeInTheDocument();
+  });
+
+  it("pokazuje instrukcje dla generatora, którymi model kształtował dokument", () => {
+    render(
+      <ClientCvRuleBanner
+        clientId={1}
+        rule={{
+          ...ACTIVE,
+          generator_instructions: "Bez sekcji zainteresowań. Opisy do 2 zdań.",
+          client_policy: "nazwa pliku, język EN, instrukcje dla generatora",
+        }}
+        isLoading={false}
+        isError={false}
+      />,
+    );
+    expect(
+      screen.getByText("Instrukcje dla generatora AI (zastosowane do treści)"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Bez sekcji zainteresowań. Opisy do 2 zdań."),
+    ).toBeInTheDocument();
   });
 
   it("nie renderuje nic, gdy klient nie jest wybrany", () => {

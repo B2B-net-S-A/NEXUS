@@ -55,6 +55,7 @@ from app.services.cv_generator_b2b.champion_builder import (
 )
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
+    build_client_presentation_rules_block,
     build_filename as build_client_filename,
     rule_reminders,
 )
@@ -1441,15 +1442,24 @@ def _run_generation_pipeline(
         user_parts.append(
             f"<champion_profile>\n{champion_section.strip()}\n</champion_profile>"
         )
+    # Reguły prezentacji klienta (Delivery Lead, `client_cv_rules.
+    # generator_instructions`). W wiadomości użytkownika, nie w systemowej:
+    # tamta jest jednym cache'owanym blokiem. Prompt systemowy ogranicza ich
+    # moc do doboru i formy faktów już obecnych w źródle; w każdym trybie
+    # treści, bo dotyczą prezentacji, nie pozycjonowania pod ofertę.
+    client_rules_block = build_client_presentation_rules_block(client_rule)
+    if client_rules_block:
+        user_parts.append(client_rules_block)
     user_content = "\n\n".join(user_parts)
 
     logger.info(
         "[cv_b2b][%s] Built prompt: cv_chars=%d, notes_chars=%d, champion_chars=%d, "
-        "lang=%s, blind=%s, content_mode=%s",
+        "client_rules_chars=%d, lang=%s, blind=%s, content_mode=%s",
         request_id,
         len(cv_text),
         len(screening_notes_text),
         len(champion_section),
+        len(client_rules_block),
         language,
         blind_cv,
         mode,

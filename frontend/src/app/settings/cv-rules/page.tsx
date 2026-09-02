@@ -12,7 +12,8 @@
  *
  * Teraz: lista WSZYSTKICH reguł, „Dodaj regułę" z pickerem klienta, edycja,
  * zatwierdzanie i usuwanie w miejscu. Akcje widzi rola z capability
- * `client.update` (lustro backendowego `TacPlus`: admin / delivery_lead / tac);
+ * `cv_rule.manage` (lustro backendowego `DeliveryLeadPlus`: admin /
+ * delivery_lead — TAC edytuje kartę klienta, ale reguł CV nie prowadzi);
  * pozostałe role operacyjne mają odczyt. Dla Delivery Leada lista startuje
  * zawężona do jego portfela (`data_scope` z GET /api/auth/me) — to filtr do
  * wyłączenia, nie granica: backend nie skopuje zapisu do portfela, bo reguła
@@ -148,7 +149,7 @@ function formatDate(iso: string | null): string {
 export default function CvRulesSettingsPage() {
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthStore((s) => s.hydrated);
-  const canEdit = useCapability("client.update");
+  const canEdit = useCapability("cv_rule.manage");
   const queryClient = useQueryClient();
 
   // Portfel Delivery Leada z `data_scope` — liczy go backend w GET /api/auth/me
@@ -238,6 +239,7 @@ export default function CvRulesSettingsPage() {
           row.filename_pattern ?? "",
           row.template_label ?? "",
           row.notes ?? "",
+          row.generator_instructions ?? "",
         ].join(" "),
       );
       return haystack.includes(q);
@@ -273,7 +275,7 @@ export default function CvRulesSettingsPage() {
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <PageHeader
         title="Reguły CV per klient"
-        description="Jak ma się nazywać plik CV, w jakim ma być języku i czego jeszcze wymaga klient. Generator stosuje regułę od chwili zatwierdzenia — każdy Delivery Lead i TAC zakłada i zatwierdza reguły dla swoich klientów sam."
+        description="Jak ma się nazywać plik CV, w jakim ma być języku, czego jeszcze wymaga klient i jakie instrukcje ma dostać generator. Reguła działa od chwili zatwierdzenia — każdy Delivery Lead zakłada i zatwierdza reguły dla swoich klientów sam."
         actions={
           canEdit ? (
             <Button type="button" onClick={openAdd}>
@@ -406,7 +408,8 @@ export default function CvRulesSettingsPage() {
                       !row.requires_en_copy &&
                       !row.requires_rodo_consent_block &&
                       !row.spaces_to_underscores &&
-                      !row.notes?.trim();
+                      !row.notes?.trim() &&
+                      !row.generator_instructions?.trim();
                     return (
                       <tr key={row.client_id} className="border-t align-top">
                         <td className="p-3">
@@ -474,6 +477,11 @@ export default function CvRulesSettingsPage() {
                             ) : null}
                             {row.notes?.trim() ? (
                               <Chip title={row.notes}>notatka</Chip>
+                            ) : null}
+                            {row.generator_instructions?.trim() ? (
+                              <Chip title={row.generator_instructions}>
+                                instrukcje AI
+                              </Chip>
                             ) : null}
                             {noRequirements ? (
                               <span className="text-muted-foreground">—</span>

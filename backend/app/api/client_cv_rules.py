@@ -17,10 +17,17 @@ Własną regułę autor zatwierdza tym samym zapisem (``confirm=true``) — osob
 krok był potrzebny propozycjom z seeda, nie regule, którą ktoś właśnie
 świadomie wpisał.
 
-Bramka zapisu to ``TacPlus`` (admin / delivery_lead / tac) i CELOWO nie jest
-zawężana do portfela DL: to lustro ``PATCH /api/clients/{id}`` — reguła CV
-jest konfiguracją klienta, a Delivery Lead edytuje tu każdego klienta tak samo,
-jak edytuje jego kartę. Filtr „moi klienci" jest wygodą interfejsu, nie granicą.
+Bramka zapisu to ``DeliveryLeadPlus`` (admin / delivery_lead) — decyzja
+produktowa z 02.09.2026: reguły CV prowadzi Delivery Lead, TAC ich nie zmienia
+(choć kartę klienta edytować może). Zapis CELOWO nie jest zawężany do portfela
+DL: to lustro ``PATCH /api/clients/{id}`` — reguła CV jest konfiguracją
+klienta, a Delivery Lead edytuje tu każdego klienta tak samo, jak edytuje jego
+kartę. Filtr „moi klienci" jest wygodą interfejsu, nie granicą.
+
+``generator_instructions`` (migracja 0266) to jedyne pole reguły, które trafia
+do promptu — reguły PREZENTACJI dla generatora AI. Model dostaje je w bloku
+``<client_presentation_rules>`` i wolno mu tylko dobierać i formatować fakty
+już obecne w źródle; polecenie dopisania czegokolwiek ignoruje i zgłasza.
 """
 
 import re
@@ -33,13 +40,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.deps import OperationalUser, TacPlus
+from app.api.deps import DeliveryLeadPlus, OperationalUser
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.client_cv_rule import ClientCvRule
 from app.models.help_material import HelpMaterial
 from app.models.user import User
 from app.services.cv_generator_b2b.client_rules import (
+    GENERATOR_INSTRUCTIONS_MAX_LENGTH,
     KNOWN_TOKENS,
     build_filename,
     describe_rule,
@@ -80,6 +88,11 @@ class ClientCvRulePayload(BaseModel):
     requires_en_copy: bool = False
     requires_rodo_consent_block: bool = False
     notes: Optional[str] = None
+    # Instrukcje dla generatora AI — jedyne pole, które trafia do promptu.
+    # Sufit długości, bo idą do KAŻDEJ generacji u tego klienta.
+    generator_instructions: Optional[str] = Field(
+        default=None, max_length=GENERATOR_INSTRUCTIONS_MAX_LENGTH
+    )
     # Zatwierdź tym samym zapisem. Osobne kliknięcie „Zatwierdź" chroniło
     # PROPOZYCJE z seeda (dopasowane po nazwie, więc możliwie błędne). Reguła,
     # którą Delivery Lead właśnie wpisał ręcznie, JEST jego decyzją — kazanie mu
@@ -95,6 +108,14 @@ class ClientCvRulePayload(BaseModel):
         if value not in ("pl", "en"):
             raise ValueError("Język CV może być tylko „pl” albo „en”.")
         return value
+
+    @field_validator("notes", "generator_instructions")
+    @classmethod
+    def _blank_to_none(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @field_validator("filename_pattern")
     @classmethod
@@ -132,6 +153,7 @@ class ClientCvRuleRead(BaseModel):
     requires_en_copy: bool = False
     requires_rodo_consent_block: bool = False
     notes: Optional[str] = None
+    generator_instructions: Optional[str] = None
     seed_key: Optional[str] = None
     confirmed_at: Optional[str] = None
     confirmed_by_name: Optional[str] = None
@@ -205,6 +227,7 @@ def _to_read(
         requires_en_copy=bool(rule.requires_en_copy),
         requires_rodo_consent_block=bool(rule.requires_rodo_consent_block),
         notes=rule.notes,
+        generator_instructions=rule.generator_instructions,
         seed_key=rule.seed_key,
         confirmed_at=rule.confirmed_at.isoformat() if rule.confirmed_at else None,
         confirmed_by_name=confirmed_by_name,
@@ -260,7 +283,7 @@ async def get_client_cv_rule(
 async def upsert_client_cv_rule(
     client_id: int,
     payload: ClientCvRulePayload,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Zapisz regułę.
@@ -287,6 +310,7 @@ async def upsert_client_cv_rule(
     rule.requires_en_copy = payload.requires_en_copy
     rule.requires_rodo_consent_block = payload.requires_rodo_consent_block
     rule.notes = payload.notes
+    rule.generator_instructions = payload.generator_instructions
     if payload.confirm:
         rule.confirmed_at = datetime.now(timezone.utc)
         rule.confirmed_by = current_user.id
@@ -307,7 +331,7 @@ async def upsert_client_cv_rule(
 @router.post("/clients/{client_id}/cv-rule/confirm", response_model=ClientCvRuleRead)
 async def confirm_client_cv_rule(
     client_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Zatwierdź regułę — od tej chwili generator ją stosuje."""
@@ -332,7 +356,7 @@ async def confirm_client_cv_rule(
 @router.delete("/clients/{client_id}/cv-rule", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client_cv_rule(
     client_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Usuń regułę — klient wraca do globalnej nazwy pliku i wolnego wyboru
