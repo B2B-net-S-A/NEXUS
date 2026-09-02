@@ -53,6 +53,11 @@ _OPEN_ORDER_STATUSES = (
     ClientOrderStatus.active,
     ClientOrderStatus.paused,
 )
+# Etykieta konfliktu języka jest sprawdzana także przy zapisie szczegółów B2B
+# (pod „zachowaj warunki" nie wolno podnieść domyślnego "pl" do języka
+# dokumentu) — jedna stała, żeby zmiana etykiety nie rozjechała obu miejsc
+# po cichu.
+_LANGUAGE_CONFLICT_LABEL = "język umowy"
 
 
 @dataclass(frozen=True)
@@ -243,7 +248,7 @@ def _collect_term_conflicts(
 
     if detail is not None and detail.language and language:
         if detail.language != language:
-            conflicts.append("język umowy")
+            conflicts.append(_LANGUAGE_CONFLICT_LABEL)
 
     if detail is not None:
         detail_pairs = (
@@ -854,7 +859,9 @@ async def ensure_b2b_employment_draft(
             # ``_upsert_b2b_detail`` upgrades a default "pl" to the document
             # language; under an acknowledged language conflict that would be
             # exactly the overwrite the operator asked us not to make.
-            language=(None if "język umowy" in acknowledged_conflicts else language),
+            language=(
+                None if _LANGUAGE_CONFLICT_LABEL in acknowledged_conflicts else language
+            ),
             canonicalize_number=audit_source_generated_id is not None,
             canonicalize_signing_date=(
                 audit_source_generated_id is not None and not preserve_existing_terms
