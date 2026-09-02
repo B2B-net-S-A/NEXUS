@@ -150,6 +150,7 @@ def _job_filters(
     scope: _RecruitmentOperationsScope,
     q: str | None = None,
     category_id: int | None = None,
+    mine_only: bool = False,
 ) -> list[object]:
     filters: list[object] = [Job.status == JobStatus.published]
     if scope.preset == "finance":
@@ -170,6 +171,24 @@ def _job_filters(
                 user,
                 Job.id,
                 oversight_bypass=scope.preset != "my-work",
+            )
+        )
+    if mine_only:
+        # Explicit assignment only.  This intentionally does not reuse the
+        # role-aware scope bypass above: an admin/HoR/Finance user may read the
+        # whole preset, but "Moje przypisane" must still mean an ownership or
+        # active collaborator row bearing this exact user's id.
+        filters.append(
+            or_(
+                Job.recruiter_id == user.id,
+                Job.delivery_lead_id == user.id,
+                Job.tac_id == user.id,
+                Job.id.in_(
+                    select(JobCollaborator.job_id).where(
+                        JobCollaborator.user_id == user.id,
+                        JobCollaborator.removed_from_auto_cc.is_(False),
+                    )
+                ),
             )
         )
     normalized_q = (q or "").strip()
@@ -566,14 +585,16 @@ async def list_recruitment_operations(
     page_size: int,
     q: str | None,
     category_id: int | None,
+    mine_only: bool = False,
 ) -> RecruitmentOperationsListResponse:
     scope = await _resolve_operations_scope(db, user, preset)
-    scope_filters = _job_filters(user, scope=scope)
+    scope_filters = _job_filters(user, scope=scope, mine_only=mine_only)
     item_filters = _job_filters(
         user,
         scope=scope,
         q=q,
         category_id=category_id,
+        mine_only=mine_only,
     )
     scoped_jobs = (
         select(

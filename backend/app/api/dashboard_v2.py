@@ -1,6 +1,6 @@
 """Canonical, role-specific Dashboard v2 endpoints."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -36,6 +36,12 @@ from app.schemas.recruitment_operations import (
     RecruitmentOperationsListResponse,
     RecruitmentOperationsPreset,
 )
+from app.schemas.recruitment_activity import (
+    RecruitmentActivityDetailResponse,
+    RecruitmentActivityMetric,
+    RecruitmentActivitySummaryResponse,
+    RecruitmentActivityWindow,
+)
 from app.services.dashboard_v2 import (
     build_admin_ops_dashboard,
     build_delivery_lead_dashboard,
@@ -49,6 +55,11 @@ from app.services.recruitment_operations import (
     list_recruitment_operations,
     set_recruitment_operation_favorite,
 )
+from app.services.recruitment_activity import (
+    build_recruitment_activity_summary,
+    list_recruitment_activity_details,
+)
+from app.services.kpi_engine import WARSAW
 
 router = APIRouter()
 
@@ -222,6 +233,7 @@ async def recruitment_operations_list(
     page_size: int = Query(50, ge=1, le=100),
     q: str | None = Query(None, max_length=200),
     category_id: int | None = Query(None, ge=1),
+    mine_only: bool = Query(False),
 ) -> RecruitmentOperationsListResponse:
     ensure_recruitment_operations_preset(current_user, preset)
     return await list_recruitment_operations(
@@ -232,6 +244,67 @@ async def recruitment_operations_list(
         page_size=page_size,
         q=q,
         category_id=category_id,
+        mine_only=mine_only,
+    )
+
+
+@router.get(
+    "/recruitment-activity",
+    response_model=RecruitmentActivitySummaryResponse,
+)
+async def recruitment_activity_summary(
+    current_user: RecruitmentOperationsUser,
+    db: Database,
+    day: date | None = Query(None),
+    month: date | None = Query(None),
+    subject_user_id: int | None = Query(None, ge=1),
+    scope: Literal["auto", "team"] = Query("auto"),
+) -> RecruitmentActivitySummaryResponse:
+    """Drillable personal/team KPI activity for the unified dashboard."""
+
+    selected_day = day or datetime.now(WARSAW).date()
+    selected_month = month or selected_day.replace(day=1)
+    return await build_recruitment_activity_summary(
+        db,
+        current_user,
+        selected_day=selected_day,
+        selected_month=selected_month,
+        subject_user_id=subject_user_id,
+        team_scope=scope == "team",
+    )
+
+
+@router.get(
+    "/recruitment-activity/details",
+    response_model=RecruitmentActivityDetailResponse,
+)
+async def recruitment_activity_details(
+    current_user: RecruitmentOperationsUser,
+    db: Database,
+    metric: RecruitmentActivityMetric = Query(...),
+    window: RecruitmentActivityWindow = Query(...),
+    day: date | None = Query(None),
+    month: date | None = Query(None),
+    subject_user_id: int | None = Query(None, ge=1),
+    scope: Literal["auto", "team"] = Query("auto"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+) -> RecruitmentActivityDetailResponse:
+    """Candidate/job rows behind one visible KPI number."""
+
+    selected_day = day or datetime.now(WARSAW).date()
+    selected_month = month or selected_day.replace(day=1)
+    return await list_recruitment_activity_details(
+        db,
+        current_user,
+        metric=metric,
+        window=window,
+        selected_day=selected_day,
+        selected_month=selected_month,
+        subject_user_id=subject_user_id,
+        team_scope=scope == "team",
+        page=page,
+        page_size=page_size,
     )
 
 

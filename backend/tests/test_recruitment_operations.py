@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import date
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
@@ -22,6 +23,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
+from app.services import recruitment_activity as activity_service
 from app.services import recruitment_operations as service
 
 
@@ -57,6 +59,29 @@ def test_process_search_treats_sql_wildcards_as_literals() -> None:
 
     assert r"%50\%\_C:\\temp%" in compiled.params.values()
     assert "ESCAPE '\\\\'" in str(compiled)
+
+
+def test_mine_only_keeps_org_readers_on_explicit_assignment_scope() -> None:
+    scope = service._RecruitmentOperationsScope(preset="finance")
+    statement = select(Job.id).where(
+        *service._job_filters(
+            _user(UserRole.finance, user_id=73),
+            scope=scope,
+            mine_only=True,
+        )
+    )
+
+    sql = str(
+        statement.compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+
+    assert "jobs.recruiter_id = 73" in sql
+    assert "jobs.delivery_lead_id = 73" in sql
+    assert "jobs.tac_id = 73" in sql
+    assert "job_collaborators.user_id = 73" in sql
+    assert "job_collaborators.removed_from_auto_cc IS false" in sql
 
 
 @pytest_asyncio.fixture
@@ -134,6 +159,207 @@ async def test_operations_guard_excludes_viewer(
     assert response.status_code == 403
 
 
+@pytest.mark.parametrize(
+    "role",
+    [
+        UserRole.admin,
+        UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
+        UserRole.finance,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
+    ],
+)
+@pytest.mark.asyncio
+async def test_recruitment_activity_uses_the_same_operational_role_guard(
+    operations_client: tuple[AsyncClient, dict[str, User]],
+    monkeypatch: pytest.MonkeyPatch,
+    role: UserRole,
+) -> None:
+    client, context = operations_client
+    context["user"] = _user(role)
+    monkeypatch.setattr(
+        dashboard_api, "build_recruitment_activity_summary", _authorized
+    )
+
+    response = await client.get("/api/dashboard/v2/recruitment-activity")
+
+    assert response.status_code == 418
+
+
+@pytest.mark.asyncio
+async def test_recruitment_activity_excludes_legacy_viewer(
+    operations_client: tuple[AsyncClient, dict[str, User]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, context = operations_client
+    context["user"] = _user(UserRole.user)
+    monkeypatch.setattr(
+        dashboard_api, "build_recruitment_activity_summary", _authorized
+    )
+
+    response = await client.get("/api/dashboard/v2/recruitment-activity")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_recruitment_activity_forwards_day_month_and_person(
+    operations_client: tuple[AsyncClient, dict[str, User]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, context = operations_client
+    context["user"] = _user(UserRole.admin)
+    mocked = AsyncMock(side_effect=HTTPException(status_code=418, detail="captured"))
+    monkeypatch.setattr(dashboard_api, "build_recruitment_activity_summary", mocked)
+
+    response = await client.get(
+        "/api/dashboard/v2/recruitment-activity"
+        "?day=2026-09-02&month=2026-08-01&subject_user_id=42"
+    )
+
+    assert response.status_code == 418
+    assert mocked.await_args.kwargs["selected_day"].isoformat() == "2026-09-02"
+    assert mocked.await_args.kwargs["selected_month"].isoformat() == "2026-08-01"
+    assert mocked.await_args.kwargs["subject_user_id"] == 42
+    assert mocked.await_args.kwargs["team_scope"] is False
+
+
+@pytest.mark.asyncio
+async def test_daily_placement_drilldown_is_rejected_before_querying() -> None:
+    with pytest.raises(HTTPException) as exc:
+        await activity_service.list_recruitment_activity_details(
+            object(),
+            _user(UserRole.recruiter),
+            metric="placement",
+            window="day",
+            selected_day=date(2026, 9, 2),
+            selected_month=date(2026, 9, 1),
+            subject_user_id=None,
+            team_scope=False,
+            page=1,
+            page_size=25,
+        )
+
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_activity_scope_rejects_person_and_team_combination() -> None:
+    with pytest.raises(HTTPException) as exc:
+        await activity_service._activity_audience(
+            object(),
+            _user(UserRole.admin),
+            42,
+            team_scope=True,
+        )
+
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_recruiter_cannot_request_named_team_drilldown() -> None:
+    current = _user(UserRole.recruiter, user_id=11)
+    other = _user(UserRole.tac, user_id=12)
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [current, other]
+    db = AsyncMock()
+    db.execute.return_value = result
+
+    with pytest.raises(HTTPException) as exc:
+        await activity_service._activity_audience(
+            db,
+            current,
+            None,
+            team_scope=True,
+        )
+
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -> None:
+    current = _user(UserRole.recruiter, user_id=11)
+    other = _user(UserRole.tac, user_id=12)
+    users_result = MagicMock()
+    users_result.scalars.return_value.all.return_value = [current, other]
+    overview_result = MagicMock()
+    overview_result.mappings.return_value.all.return_value = [
+        {
+            "credit_user": 11,
+            "stage": "verified",
+            "day_count": 3,
+            "month_count": 10,
+            "benchmark_count": 30,
+        },
+        {
+            "credit_user": 11,
+            "stage": "hired",
+            "day_count": 0,
+            "month_count": 2,
+            "benchmark_count": 6,
+        },
+        {
+            "credit_user": 12,
+            "stage": "verified",
+            "day_count": 2,
+            "month_count": 8,
+            "benchmark_count": 18,
+        },
+        {
+            "credit_user": 12,
+            "stage": "hired",
+            "day_count": 0,
+            "month_count": 1,
+            "benchmark_count": 3,
+        },
+    ]
+    db = AsyncMock()
+    db.execute.side_effect = [users_result, overview_result]
+    db.scalar.side_effect = [None, None]
+
+    result = await activity_service.build_recruitment_activity_summary(
+        db,
+        current,
+        selected_day=date(2026, 9, 2),
+        selected_month=date(2026, 9, 1),
+        today=date(2026, 9, 2),
+    )
+
+    by_metric = {metric.metric: metric for metric in result.metrics}
+    comparisons = {item.metric: item for item in result.comparisons}
+    assert by_metric["verification"].day == 3
+    assert by_metric["verification"].month == 10
+    assert by_metric["placement"].day is None
+    assert by_metric["placement"].month == 2
+    assert result.verification_progress is not None
+    assert result.verification_progress.current == 3
+    assert result.verification_progress.target == 4
+    assert comparisons["verification"].personal_average == 10.0
+    assert comparisons["verification"].team_average == 8.0
+    assert comparisons["placement"].personal_average == 2.0
+    assert comparisons["placement"].team_average == 1.5
+    assert db.execute.await_count == 2
+
+
+def test_benchmark_window_never_includes_partial_current_month() -> None:
+    assert activity_service._benchmark_dates(
+        date(2026, 9, 1),
+        date(2026, 9, 2),
+    ) == (
+        date(2026, 6, 1),
+        date(2026, 9, 1),
+    )
+    assert activity_service._benchmark_dates(
+        date(2026, 7, 1),
+        date(2026, 9, 2),
+    ) == (
+        date(2026, 5, 1),
+        date(2026, 8, 1),
+    )
+
+
 @pytest.mark.asyncio
 async def test_page_size_is_capped_at_one_hundred(
     operations_client: tuple[AsyncClient, dict[str, User]],
@@ -146,6 +372,24 @@ async def test_page_size_is_capped_at_one_hundred(
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_list_forwards_explicit_personal_assignment_filter(
+    operations_client: tuple[AsyncClient, dict[str, User]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, context = operations_client
+    context["user"] = _user(UserRole.admin)
+    mocked = AsyncMock(side_effect=HTTPException(status_code=418, detail="filtered"))
+    monkeypatch.setattr(dashboard_api, "list_recruitment_operations", mocked)
+
+    response = await client.get(
+        "/api/dashboard/v2/recruitment-operations?preset=admin-ops&mine_only=true"
+    )
+
+    assert response.status_code == 418
+    assert mocked.await_args.kwargs["mine_only"] is True
 
 
 @pytest.mark.asyncio

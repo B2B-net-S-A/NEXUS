@@ -8,6 +8,7 @@ import {
   Building2,
   CheckCircle2,
   ChevronDown,
+  ClipboardList,
   Search,
   Shuffle,
   Sparkles,
@@ -17,7 +18,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useToast } from "@/components/Toast"
-import { StatCard, StatCardGrid } from "@/components/ds"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -48,8 +48,6 @@ import {
 import { useDebouncedValue } from "@/lib/use-debounced-value"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/store/auth"
-
-import { DailyRecruiterKpi } from "./DailyRecruiterKpi"
 
 const PAGE_SIZE = 50
 const NO_FAVORITE = "none"
@@ -93,12 +91,14 @@ function processQueryKey({
   page,
   query,
   categoryId,
+  mineOnly = false,
 }: {
   preset: RecruitmentDashboardPreset
   scopeCacheKey: string
   page: number
   query: string
   categoryId: number | null
+  mineOnly?: boolean
 }) {
   return [
     "recruitment-operations",
@@ -108,6 +108,7 @@ function processQueryKey({
     page,
     query,
     categoryId,
+    mineOnly,
   ] as const
 }
 
@@ -155,69 +156,6 @@ function ErrorCard({ onRetry }: { onRetry: () => void }) {
         </Button>
       </CardContent>
     </Card>
-  )
-}
-
-export function RecruitmentCompetenceKpis({
-  preset,
-}: {
-  preset: RecruitmentDashboardPreset
-}) {
-  const scopeCacheKey = useRecruitmentOperationsScopeKey()
-  const query = useQuery({
-    queryKey: processQueryKey({
-      preset,
-      scopeCacheKey,
-      page: 1,
-      query: "",
-      categoryId: null,
-    }),
-    queryFn: () =>
-      getRecruitmentOperations(preset, { page: 1, page_size: PAGE_SIZE }),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  })
-
-  if (query.isLoading) {
-    return (
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="h-32 rounded-xl" />
-        ))}
-      </div>
-    )
-  }
-
-  if (query.isError || !query.data) {
-    return <ErrorCard onRetry={() => void query.refetch()} />
-  }
-
-  const summary = query.data.summary
-  return (
-    <StatCardGrid data-testid="recruitment-competence-kpis">
-      <DailyRecruiterKpi
-        variant="compact"
-        fallbackOpenProcesses={summary.open_processes}
-      />
-      <StatCard
-        label="Wspólni kandydaci"
-        value={summary.shared_candidates}
-        icon={UsersRound}
-        sub="Już w więcej niż jednej rekrutacji"
-      />
-      <StatCard
-        label="Rekrutacje ze wspólnymi kandydatami"
-        value={summary.processes_with_shared_candidates}
-        icon={Shuffle}
-        sub={`Z ${summary.open_processes} otwartych rekrutacji`}
-      />
-      <StatCard
-        label="Bez faworyta"
-        value={summary.processes_without_favorite}
-        icon={Star}
-        sub="Rekrutacje wymagające decyzji"
-      />
-    </StatCardGrid>
   )
 }
 
@@ -553,6 +491,123 @@ function ProcessRow({
         </CollapsibleContent>
       </article>
     </Collapsible>
+  )
+}
+
+export function MyAssignedRecruitments({
+  preset,
+}: {
+  preset: RecruitmentDashboardPreset
+}) {
+  const [open, setOpen] = useState(true)
+  const scopeCacheKey = useRecruitmentOperationsScopeKey()
+  const query = useQuery({
+    queryKey: processQueryKey({
+      preset,
+      scopeCacheKey,
+      page: 1,
+      query: "",
+      categoryId: null,
+      mineOnly: true,
+    }),
+    queryFn: () =>
+      getRecruitmentOperations(preset, {
+        page: 1,
+        page_size: 100,
+        mine_only: true,
+      }),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+
+  return (
+    <section
+      aria-labelledby="my-assigned-recruitments-heading"
+      data-testid="my-assigned-recruitments"
+    >
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <Card className="overflow-hidden p-0">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 bg-card p-4 text-left transition-colors hover:bg-muted/40 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <ClipboardList className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <span
+                    id="my-assigned-recruitments-heading"
+                    className="block text-base font-semibold text-foreground"
+                  >
+                    Moje przypisane rekrutacje
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Jako rekruter, TAC, Delivery Lead lub współpracownik
+                  </span>
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
+                {query.data ? (
+                  <Badge variant="soft" size="sm">
+                    {query.data.total}
+                  </Badge>
+                ) : null}
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 text-muted-foreground transition-transform",
+                    open && "rotate-180",
+                  )}
+                />
+              </span>
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="border-t border-border">
+              {query.isLoading ? (
+                <div className="space-y-2 p-4">
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <Skeleton key={index} className="h-32 w-full" />
+                  ))}
+                </div>
+              ) : query.isError ? (
+                <div className="p-4">
+                  <ErrorCard onRetry={() => void query.refetch()} />
+                </div>
+              ) : query.data?.items.length ? (
+                <>
+                  <div className="divide-y divide-border">
+                    {query.data.items.map((process) => (
+                      <ProcessRow
+                        key={process.job_id}
+                        process={process}
+                        preset={preset}
+                      />
+                    ))}
+                  </div>
+                  {query.data.total > query.data.items.length ? (
+                    <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+                      Pokazano pierwsze {query.data.items.length} z {query.data.total}
+                      przypisań.
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <div className="px-4 py-8 text-center">
+                  <p className="text-sm font-medium text-foreground">
+                    Brak przypisanych rekrutacji
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Sekcja pokaże rekrutacje, gdy pojawisz się w ich zespole.
+                  </p>
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+    </section>
   )
 }
 

@@ -61,4 +61,23 @@ describe("recruitment operations API client", () => {
       { params: { preset: "my-work" } },
     )
   })
+
+  it("requests explicit assignments for the personal recruitment section", async () => {
+    await getRecruitmentOperations("finance", {
+      page_size: 100,
+      mine_only: true,
+    })
+
+    expect(apiGet).toHaveBeenCalledWith(
+      "/api/dashboard/v2/recruitment-operations",
+      {
+        params: {
+          preset: "finance",
+          page: 1,
+          page_size: 100,
+          mine_only: true,
+        },
+      },
+    )
+  })
 })

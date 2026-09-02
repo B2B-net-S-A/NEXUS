@@ -35,10 +35,10 @@ type Notification = {
   user_id: number;
   title: string;
   message: string;
-  link?: string;
+  link?: string | null;
   notification_type: string;
   is_read: boolean;
-  created_at?: string;
+  created_at?: string | null;
 };
 
 const TYPE_CONFIG: Record<
@@ -156,7 +156,7 @@ const POST_INTERVIEW_TYPES = new Set([
 ]);
 
 /** Parse calendar_event id from notif.link like "/calendar?event=11&action=feedback". */
-function parseEventIdFromLink(link?: string): number | null {
+function parseEventIdFromLink(link?: string | null): number | null {
   if (!link) return null;
   const match = /[?&]event=(\d+)/.exec(link);
   if (!match) return null;
@@ -164,7 +164,7 @@ function parseEventIdFromLink(link?: string): number | null {
   return Number.isFinite(id) ? id : null;
 }
 
-function timeAgo(iso?: string): string {
+function timeAgo(iso?: string | null): string {
   if (!iso) return "";
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (diff < 60) return "Przed chwilą";
@@ -213,7 +213,7 @@ export function NotificationsDropdown() {
   });
 
   const { data } = useQuery({
-    queryKey: ["notifications"],
+    queryKey: ["notifications", 20],
     queryFn: () => notificationsApi.list(20).then((r) => r.data),
     // WS invalidates cache on new events. 30s poll is safety net + fallback.
     refetchInterval: 30_000,

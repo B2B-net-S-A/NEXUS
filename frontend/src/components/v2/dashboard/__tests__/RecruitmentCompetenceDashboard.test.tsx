@@ -5,10 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ToastProvider } from "@/components/Toast"
 import {
+  MyAssignedRecruitments,
   RecruitmentCompetenceDashboard,
-  RecruitmentCompetenceKpis,
 } from "@/components/v2/dashboard/RecruitmentCompetenceDashboard"
-import { useMyKpis } from "@/hooks/useMyKpis"
 import {
   getRecruitmentOperation,
   getRecruitmentOperations,
@@ -16,7 +15,6 @@ import {
   type RecruitmentOperationsListResponse,
 } from "@/lib/recruitment-operations-api"
 
-vi.mock("@/hooks/useMyKpis", () => ({ useMyKpis: vi.fn() }))
 vi.mock("@/lib/recruitment-operations-api", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@/lib/recruitment-operations-api")>()
@@ -28,7 +26,6 @@ vi.mock("@/lib/recruitment-operations-api", async (importOriginal) => {
   }
 })
 
-const useKpis = vi.mocked(useMyKpis)
 const getList = vi.mocked(getRecruitmentOperations)
 const getDetail = vi.mocked(getRecruitmentOperation)
 vi.mocked(setRecruitmentOperationFavorite)
@@ -97,68 +94,34 @@ describe("RecruitmentCompetenceDashboard", () => {
   beforeEach(() => {
     getList.mockReset()
     getDetail.mockReset()
-    useKpis.mockReturnValue({
-      data: [
-        {
-          kpi_id: "daily_first_verifications",
-          period: "day",
-          title_pl: "Pierwsze weryfikacje",
-          description_pl: "Pierwsza weryfikacja kandydata",
-          target: 4,
-          current: 3,
-          progress_pct: 75,
-          state: "on_track",
-          deadline_hours_left: 3.2,
-        },
-      ],
-      isLoading: false,
-    } as ReturnType<typeof useMyKpis>)
   })
 
-  it(
-    "shows four compact KPI and groups scoped recruitments by competence",
-    async () => {
-      getList.mockResolvedValue(listResponse)
+  it("groups scoped recruitments by competence", async () => {
+    getList.mockResolvedValue(listResponse)
 
-      renderWithProviders(
-        <>
-          <RecruitmentCompetenceKpis preset="my-work" />
-          <RecruitmentCompetenceDashboard preset="my-work" />
-        </>,
-      )
+    renderWithProviders(<RecruitmentCompetenceDashboard preset="my-work" />)
 
-      const kpis = await screen.findByTestId("recruitment-competence-kpis")
-      expect(within(kpis).getByText("3 / 4")).toBeInTheDocument()
-      expect(within(kpis).getByText("Wspólni kandydaci")).toBeInTheDocument()
-      expect(
-        within(kpis).getByText("Rekrutacje ze wspólnymi kandydatami"),
-      ).toBeInTheDocument()
-      expect(within(kpis).getByText("Bez faworyta")).toBeInTheDocument()
+    await screen.findByText("Software Development")
+    const dashboard = screen.getByTestId("recruitment-competence-dashboard")
+    expect(
+      within(dashboard).getByText("Software Development"),
+    ).toBeInTheDocument()
+    expect(
+      within(dashboard).getByText("Na tej stronie: 1 z 60"),
+    ).toBeInTheDocument()
+    expect(within(dashboard).getByText("Weryfikacja")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Finalizacja")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Renata Rekruter")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Anna Test")).toBeInTheDocument()
+    expect(
+      within(dashboard).getByText("2 wspólnych kandydatów"),
+    ).toBeInTheDocument()
+    expect(
+      within(dashboard).queryByText(/do wykorzystania|można wysłać/i),
+    ).toBeNull()
 
-      const dashboard = await screen.findByTestId(
-        "recruitment-competence-dashboard",
-      )
-      expect(
-        within(dashboard).getByText("Software Development"),
-      ).toBeInTheDocument()
-      expect(
-        within(dashboard).getByText("Na tej stronie: 1 z 60"),
-      ).toBeInTheDocument()
-      expect(within(dashboard).getByText("Weryfikacja")).toBeInTheDocument()
-      expect(within(dashboard).getByText("Finalizacja")).toBeInTheDocument()
-      expect(within(dashboard).getByText("Renata Rekruter")).toBeInTheDocument()
-      expect(within(dashboard).getByText("Anna Test")).toBeInTheDocument()
-      expect(
-        within(dashboard).getByText("2 wspólnych kandydatów"),
-      ).toBeInTheDocument()
-      expect(
-        within(dashboard).queryByText(/do wykorzystania|można wysłać/i),
-      ).toBeNull()
-
-      expect(getList).toHaveBeenCalledTimes(1)
-    },
-    15_000,
-  )
+    expect(getList).toHaveBeenCalledTimes(1)
+  })
 
   it("loads similar recruitments only after expanding a row", async () => {
     const user = userEvent.setup()
@@ -202,21 +165,24 @@ describe("RecruitmentCompetenceDashboard", () => {
     expect(getDetail).toHaveBeenCalledWith("my-work", 71)
   })
 
-  it("uses open recruitments as the honest first KPI when no daily target exists", async () => {
-    useKpis.mockReturnValue({
-      data: [],
-      isLoading: false,
-    } as unknown as ReturnType<typeof useMyKpis>)
-    getList.mockResolvedValue(listResponse)
+  it("shows only explicitly assigned recruitments in the personal section", async () => {
+    getList.mockResolvedValue({
+      ...listResponse,
+      page_size: 100,
+      total: 1,
+      summary: { ...listResponse.summary, open_processes: 1 },
+    })
 
-    renderWithProviders(<RecruitmentCompetenceKpis preset="delivery-lead" />)
+    renderWithProviders(<MyAssignedRecruitments preset="admin-ops" />)
 
-    const kpis = await screen.findByTestId("recruitment-competence-kpis")
-    expect(within(kpis).getByText("Otwarte rekrutacje")).toBeInTheDocument()
-    expect(within(kpis).getByText("80")).toBeInTheDocument()
-    expect(getList).toHaveBeenCalledWith("delivery-lead", {
+    expect(
+      await screen.findByText("Moje przypisane rekrutacje"),
+    ).toBeInTheDocument()
+    expect(await screen.findByText("Senior Java Developer")).toBeInTheDocument()
+    expect(getList).toHaveBeenCalledWith("admin-ops", {
       page: 1,
-      page_size: 50,
+      page_size: 100,
+      mine_only: true,
     })
   })
 
