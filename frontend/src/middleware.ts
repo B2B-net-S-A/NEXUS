@@ -61,6 +61,8 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   // UX; ten wpis pilnuje, żeby wejście z paska adresu kończyło się /403,
   // a nie pustym ekranem.
   { prefix: "/finance", roles: ["admin", "finance"] },
+  // Zamówienia z maila — kolejka weryfikacji; zakres portfela wylicza backend.
+  { prefix: "/order-mail", roles: ["admin", "head_of_recruitment", "finance", "delivery_lead"] },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
   // middleware nie ma dostępu do user object, tylko JWT payload).
@@ -247,6 +249,7 @@ const PUBLIC_PATHS = [
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
   "/preview/dl-alerts",
+  "/preview/order-mail",
   "/preview/insights-campaign",
   "/preview/insights-seniority",
   "/preview/contracts-consolidation",

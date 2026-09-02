@@ -199,6 +199,15 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["delivery_lead", "admin", "head_of_recruitment", "finance"],
       },
       {
+        // Zamówienia z maila: kolejka weryfikacji. Zakres = portfel (backend
+        // `_visible_client_ids`); lustra: middleware `/order-mail`,
+        // `nav.order_mail` w lib/capabilities.ts.
+        href: "/order-mail",
+        label: "Zamówienia z maila",
+        icon: Inbox,
+        roles: ["delivery_lead", "admin", "head_of_recruitment", "finance"],
+      },
+      {
         href: "/my-relationships",
         label: "Moje relacje",
         icon: Heart,

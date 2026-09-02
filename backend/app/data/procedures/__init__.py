@@ -87,6 +87,32 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     # Rejestr polityk per klient: która reguła u kogo, w jakiej kolejności
     # i jak zmienia wywołanie parsera. Dołożenie klienta zmienia ten plik.
     "backend/app/services/order_policies/registry.py",
+    # Warstwy per klient (korpus 09.2026) i klocki wspólne — każda zmiana
+    # regexu zmienia to, co instrukcja obiecuje o odczycie u danego klienta.
+    "backend/app/services/order_policies/_shared.py",
+    "backend/app/services/order_policies/alior.py",
+    "backend/app/services/order_policies/bank_pocztowy.py",
+    "backend/app/services/order_policies/cardif.py",
+    "backend/app/services/order_policies/credit_agricole.py",
+    "backend/app/services/order_policies/kir.py",
+    "backend/app/services/order_policies/mleasing.py",
+    "backend/app/services/order_policies/nordea.py",
+    "backend/app/services/order_policies/pko_bp.py",
+    "backend/app/services/order_policies/velobank.py",
+    "backend/app/services/order_policies/known_clients.py",
+    # Rozpoznanie klienta z treści PDF i tekst zamówienia z metadanymi
+    # (re-ekstrakcja przy literowaniu spacjami, cap OCR).
+    "backend/app/services/order_client_identity.py",
+    "backend/app/services/order_document_text.py",
+    # Zamówienia z maila: pobieranie ze skrzynki kopii, sloty dobowe, dziennik.
+    "backend/app/services/order_mail_ingest.py",
+    "backend/app/tasks/order_mail_ingest.py",
+    "backend/app/api/admin_order_mail.py",
+    "backend/app/services/order_mail_resolver.py",
+    "backend/app/services/order_mail_planner.py",
+    "backend/app/services/order_mail_gate.py",
+    "backend/app/services/order_mail_apply.py",
+    "backend/app/api/order_mail_queue.py",
     # Limit 10 stron OCR i komunikat o nieczytelnym skanie — instrukcja
     # podaje oba wprost, a plik zmienia się rzadko.
     "backend/app/services/cv_text_extractor.py",
@@ -131,6 +157,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx",
+    # Kolejka zamówień z maila (ticket zamowienia@): ekran i klient API.
+    "frontend/src/components/order-mail/OrderMailQueue.tsx",
+    "frontend/src/lib/api/orderMail.ts",
     "frontend/src/lib/order-extraction.ts",
 )
 
