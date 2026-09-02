@@ -33,6 +33,7 @@ from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.document_signature import DocumentSignature
@@ -560,6 +561,195 @@ async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
         )
         assert latest_stage is not None
         assert latest_stage.stage == PipelineStage.hired
+
+
+async def _seed_group_line(
+    scenario: dict[str, Any], contract_id: int, *, created_by: int
+) -> int:
+    """Put the consultant on an active MD group line (legacy BIK/BNP shape)."""
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=scenario["client_id"],
+            order_number=f"MD-{uuid.uuid4().hex[:6]}",
+            start_date=date(2026, 8, 1),
+            status=GROUP_STATUS_ACTIVE,
+            # Legacy shape (``order_type IS NULL``) — exactly the BIK/BNP groups.
+            order_type=None,
+            is_md_budget_based=False,
+            created_by_user_id=created_by,
+        )
+        db.add(group)
+        await db.flush()
+        line = ClientOrder(
+            client_id=scenario["client_id"],
+            contract_id=contract_id,
+            # ``ConsultantLineModal`` stamps the recruitment on the line, so a
+            # replay lookup without the ``order_group_id IS NULL`` filter would
+            # report THIS line as the standalone order.
+            job_id=scenario["job_id"],
+            order_group_id=group.id,
+            title=f"Zamówienie {group.order_number} — Anna Signature",
+            order_type=None,
+            status=ClientOrderStatus.active,
+            start_date=date(2026, 8, 1),
+            md_rate_cost=Decimal("1000.00"),
+            md_rate_revenue=Decimal("1320.00"),
+            md_input_mode="md",
+            md_input_value=Decimal("90"),
+            md_total=Decimal("90"),
+            md_remaining=Decimal("90"),
+            rate_unit=RateUnit.daily,
+            billing_hours_per_month=160,
+            currency="PLN",
+            rate_client_currency="PLN",
+            rate_candidate_currency="PLN",
+            created_by_user_id=created_by,
+        )
+        db.add(line)
+        await db.commit()
+        await db.refresh(line)
+        return line.id
+
+
+@pytest.mark.asyncio
+async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """BIK/BNP shape: Delivery put the person on a live MD line BEFORE anyone
+    confirmed the document. The automation must not draft a second, standalone
+    order next to that line (#1321) — and until 09.2026 the endpoint turned
+    that deliberate ``None`` into a 500 that rolled the whole signature back."""
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+    line_id = await _seed_group_line(scenario, existing_id, created_by=admin_id)
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == "linked_existing"
+    assert body["contract_id"] == existing_id
+    assert body["order_id"] is None
+    assert body["order_skipped_reason"] == "open_group_line"
+    assert "otwartej (także zaplanowanej) linii zamówienia" in body["message"]
+    assert "Delivery Lead" not in body["message"]
+    assert body["generated_contract"]["signature_status"] == "signed_both"
+
+    async with AsyncSessionLocal() as db:
+        orders = (
+            await db.execute(
+                select(ClientOrder.id).where(ClientOrder.contract_id == existing_id)
+            )
+        ).scalars().all()
+        # The MD line is still the ONLY order on the contract — no standalone
+        # draft was added next to it.
+        assert orders == [line_id]
+        hired = await db.scalar(
+            select(func.count(CandidateStage.id)).where(
+                CandidateStage.candidate_id == scenario["candidate_id"],
+                CandidateStage.job_id == scenario["job_id"],
+                CandidateStage.stage == PipelineStage.hired,
+            )
+        )
+        assert hired == 1
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.contract_id == existing_id
+        link_audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == existing_id,
+                Activity.action == "linked_to_generated_contract",
+            )
+        )
+        assert link_audit is not None
+        assert link_audit.details["order_skipped_reason"] == "open_group_line"
+
+    # Replay answers like the first confirmation: no standalone order (the
+    # group line is NOT reported as ``order_id``) and the same reason.
+    replay = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["outcome"] == "already_processed"
+    assert replay.json()["order_id"] is None
+    assert replay.json()["order_skipped_reason"] == "open_group_line"
+
+
+@pytest.mark.asyncio
+async def test_group_line_reason_wins_over_the_cost_client_lever(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Polkomtel is cost-based AND multi-consultant: a person already on a
+    line must get the group-line instruction (edit the line), not the
+    cost-client one (add an order by hand) — the latter invites exactly the
+    duplicate the group-line rule exists to prevent."""
+    import app.services.b2b_contract_automation as automation
+
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+    await _seed_group_line(scenario, existing_id, created_by=admin_id)
+    monkeypatch.setattr(
+        automation,
+        "skips_standard_order_automation",
+        lambda client_id: client_id == scenario["client_id"],
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["order_id"] is None
+    assert body["order_skipped_reason"] == "open_group_line"
+    assert "edytuj linię" in body["message"]
+    assert "dodając je ręcznie" not in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_still_fails_loudly_when_no_order_and_no_reason(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A reason-less missing order is an internal failure, not a state: the
+    handoff must roll back entirely instead of signing without the record the
+    expiry scanner, MRR and termination sync all read."""
+    import app.services.b2b_contract_automation as automation
+
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+
+    async def _no_order(*args: Any, **kwargs: Any) -> tuple[None, bool, None]:
+        return None, False, None
+
+    monkeypatch.setattr(automation, "_ensure_open_order", _no_order)
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 500, response.text
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        0,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+        assert generated.contract_id is None
 
 
 @pytest.mark.asyncio
