@@ -896,6 +896,42 @@ i osłabia sesje wszystkim. Migracja `0220_service_accounts` (+ lustro w `entryp
   jako wymagane parametry QUERY, 422 na poprawnym body). Ten sam trap co
   w `candidate_activity_summary.py`.
 
+## Zamówienia z maila `zamowienia@b2bnetwork.pl` — czytnik app-only, skrzynka współdzielona
+
+`zamowienia@b2bnetwork.pl` NIE jest skrzynką na hostingu, tylko **listą
+dystrybucyjną w Exchange Online** (właścicielka i jedyna osoba: Marta
+Kozarzewska; nadawcy zewnętrzni dozwoleni). Kopię zamówień robi więc sama
+lista: jej członkiem jest skrzynka współdzielona **`nexus-zamowienia@b2bnetwork.pl`**
+(bez licencji, bez logowania, zero kont z hasłem). Hosting `hosting.b2bnetwork.pl`
+nie ma żadnej reguły do utrzymania.
+
+- **Czytnik pracuje app-only** (`ORDER_MAIL_AUTH_MODE=app`): client_credentials
+  rejestracji **„NEXUS ATS - Mailbox and Login"** (`b5be7c77-…`, tenant
+  `e277180c-…`) — tej samej, którą rekruterzy łączą delegowanie. Dołożone
+  APPLICATION `Mail.Read` ze zgodą administratora (02.09.2026) i **Application
+  Access Policy** `RestrictAccess` na grupę `NEXUS-OrderMail-Scope`
+  (`nexus-ordermail-scope@b2bnetwork.pl`, mail-enabled security group, ukryta
+  w GAL, jedyny członek: skrzynka zamówień). `Test-ApplicationAccessPolicy`:
+  skrzynka zamówień → Granted, dowolna inna → Denied. **Skrzynka współdzielona
+  NIE może być zakresem polityki wprost** („not a security principal") — stąd
+  grupa. Bez tej polityki uprawnienie aplikacyjne czytałoby każdą skrzynkę
+  w firmie; jej brak to błąd konfiguracji, nie „szerszy dostęp".
+- **`AppGraphClient`** (`services/m365/app_graph_client.py`) to subklasa
+  `GraphClient`: ta sama pętla retry/throttle, nadpisane tylko konstruktor,
+  bramka `_authorize` (brak właściciela do rewalidacji) i `_refresh_and_persist`
+  (nowy token klienta, nic do zapisania). Graph nie ma `/me` bez użytkownika,
+  więc `mailbox_prefix()` daje `/users/{ORDER_MAIL_UPN}`; wiersz
+  `order_mail_documents.connection_id` zostaje NULL (kolumna NULL-owalna od 0264).
+- **Tryb delegowany zostaje** (`ORDER_MAIL_AUTH_MODE=delegated`, domyślny w kodzie)
+  — wymaga konta-bota z licencją, hasłem i OAuth; na prodzie nieużywany.
+- Health: `checks.order_mail = misconfigured`, gdy tryb `app` nie ma
+  `M365_CLIENT_ID/SECRET` albo realnego tenanta w `M365_MAIL_TENANT_ID`
+  (`M365_TENANT_ID` bywa `common`, a client_credentials z `common` nie działa).
+  Status: `GET /api/admin/order-mail/status` → `auth_mode`, `app_only_ready`.
+- Env na prodzie (workflow „Coolify set env", `redeploy=false`, potem jeden
+  zwykły deploy): `ORDER_MAIL_AUTH_MODE=app`, `ORDER_MAIL_UPN=nexus-zamowienia@b2bnetwork.pl`,
+  `M365_MAIL_TENANT_ID=<GUID tenanta>`, `ORDER_MAIL_INGEST_ENABLED=true`.
+
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
 Klienci rozliczani w T&M na MD przysyłają JEDNO zamówienie („nr 445") obejmujące

@@ -55,6 +55,8 @@ from app.models.order_mail import (
     OrderMailDocument,
 )
 from app.services import storage_service
+from app.services.m365.app_graph_client import AppGraphClient
+from app.services.m365.app_mail import app_only_credentials_configured
 from app.services.m365.graph_client import GraphClient
 from app.services.order_client_identity import (
     ClientIdentification,
@@ -116,6 +118,33 @@ class IngestStats:
 
 
 # ── Połączenie skrzynki zamówień ─────────────────────────────────────────────
+
+
+def auth_mode() -> str:
+    """``delegated`` (OAuth użytkownika-bota) albo ``app`` (client_credentials)."""
+    mode = (settings.ORDER_MAIL_AUTH_MODE or "delegated").strip().lower()
+    return "app" if mode == "app" else "delegated"
+
+
+def mailbox_prefix() -> str:
+    """Prefiks ścieżek Graph dla skrzynki zamówień.
+
+    Delegated: ``/me`` (token JEST użytkownikiem). App-only: ``/users/{upn}`` —
+    token nie ma tożsamości użytkownika, więc ``/me`` zwraca 400/401; skrzynkę
+    wskazuje ``ORDER_MAIL_UPN``, a Application Access Policy pilnuje, żeby
+    żaden inny UPN pod tą ścieżką nie zadziałał.
+    """
+    if auth_mode() == "app":
+        return f"/users/{(settings.ORDER_MAIL_UPN or '').strip()}"
+    return "/me"
+
+
+def app_only_ready() -> bool:
+    """Tryb app-only ma komplet: UPN skrzynki + poświadczenia + realny tenant."""
+    return (
+        bool((settings.ORDER_MAIL_UPN or "").strip())
+        and app_only_credentials_configured()
+    )
 
 
 async def find_orders_connection(db: AsyncSession) -> Optional[M365Connection]:
@@ -281,10 +310,11 @@ async def _first_with_sha(db: AsyncSession, sha: str) -> Optional[OrderMailDocum
     )
 
 
-def _base_row(conn: M365Connection, msg: dict[str, Any]) -> OrderMailDocument:
+def _base_row(conn: Optional[M365Connection], msg: dict[str, Any]) -> OrderMailDocument:
     sender, domain = _sender_of(msg)
     return OrderMailDocument(
-        connection_id=conn.id,
+        # App-only nie ma wiersza połączenia — kolumna jest NULL-owalna od 0264.
+        connection_id=conn.id if conn is not None else None,
         internet_message_id=(msg.get("internetMessageId") or msg.get("id") or "")[:998],
         m365_message_id=(msg.get("id") or "")[:512] or None,
         received_at=_parse_graph_dt(msg.get("receivedDateTime")),
@@ -512,7 +542,7 @@ async def notify_review(db, row) -> int:
 async def _process_message(
     db: AsyncSession,
     gc: GraphClient,
-    conn: M365Connection,
+    conn: Optional[M365Connection],
     msg: dict[str, Any],
     stats: IngestStats,
     registry: ClientRegistry,
@@ -536,7 +566,7 @@ async def _process_message(
         return
 
     try:
-        page = await gc.get(f"/me/messages/{msg['id']}/attachments")
+        page = await gc.get(f"{mailbox_prefix()}/messages/{msg['id']}/attachments")
     except Exception as exc:  # noqa: BLE001
         stats.failed += 1
         stats.errors.append(f"attachments {message_id[:40]}: {exc!r}"[:300])
@@ -693,26 +723,48 @@ async def run_order_mail_ingest(
             await _write_state(
                 db, last_run_started_at=now, last_status="running", last_error=None
             )
-            conn = await find_orders_connection(db)
-            if conn is None:
-                await _write_state(
-                    db,
-                    last_run_finished_at=datetime.now(timezone.utc),
-                    last_status="error",
-                    last_error="no active M365 connection for ORDER_MAIL_UPN",
-                )
-                stats.errors.append("no_connection")
-                return stats
+            # Rejestr i okno PRZED wyborem klienta Graph: konstruktor klienta
+            # otwiera pulę httpx, więc między nim a `async with` nie może stać
+            # nic, co potrafi rzucić (inaczej pula nigdy nie jest zamykana).
             registry = await build_registry_from_db(db)
             effective_since = since or compute_since(state, now)
+            conn: Optional[M365Connection] = None
+            if auth_mode() == "app":
+                if not app_only_ready():
+                    await _write_state(
+                        db,
+                        last_run_finished_at=datetime.now(timezone.utc),
+                        last_status="error",
+                        last_error=(
+                            "app-only reader misconfigured: need ORDER_MAIL_UPN,"
+                            " M365_CLIENT_ID, M365_CLIENT_SECRET and a real tenant"
+                            " in M365_MAIL_TENANT_ID"
+                        ),
+                    )
+                    stats.errors.append("app_only_misconfigured")
+                    return stats
+            else:
+                conn = await find_orders_connection(db)
+                if conn is None:
+                    await _write_state(
+                        db,
+                        last_run_finished_at=datetime.now(timezone.utc),
+                        last_status="error",
+                        last_error="no active M365 connection for ORDER_MAIL_UPN",
+                    )
+                    stats.errors.append("no_connection")
+                    return stats
             logger.info(
-                "order_mail ingest start (%s) since=%s conn=%s",
+                "order_mail ingest start (%s) since=%s mode=%s conn=%s",
                 reason,
                 effective_since.isoformat(),
-                conn.id,
+                auth_mode(),
+                conn.id if conn is not None else None,
             )
             try:
-                async with GraphClient(conn, db) as gc:
+                async with (
+                    AppGraphClient() if conn is None else GraphClient(conn, db)
+                ) as gc:
                     params = {
                         "$filter": (
                             f"receivedDateTime ge {effective_since.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
@@ -723,7 +775,7 @@ async def run_order_mail_ingest(
                         "$top": "50",
                     }
                     async for page in gc.paginate(
-                        "/me/mailFolders/Inbox/messages", params=params
+                        f"{mailbox_prefix()}/mailFolders/Inbox/messages", params=params
                     ):
                         for msg in page.get("value", []):
                             await _process_message(db, gc, conn, msg, stats, registry)
