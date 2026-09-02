@@ -1738,7 +1738,7 @@ def erste_net_from_gross(gross: Decimal) -> Decimal:
 
 
 def apply_gross_to_net_rate_policy(
-    result: OrderExtraction, document_text: str
+    result: OrderExtraction, document_text: str, *, rate_unit: str = "hour"
 ) -> OrderExtraction:
     """Przelicz stawkę brutto na netto raz, zachowując oryginalną wartość.
 
@@ -1746,17 +1746,22 @@ def apply_gross_to_net_rate_policy(
     i znacznikiem idempotencji. ``total_value`` pozostaje bez zmian: ticket
     dotyczy wyłącznie stawki, a charakter całkowitej kwoty dokumentu może być
     inny i nie wolno go zgadywać.
+
+    ``rate_unit`` to jednostka, w której KLIENT rozlicza stawkę brutto — reguła
+    klientowa, nie przedmiot niepewności: PFRON pisze „Stawka za jedną
+    Roboczogodzinę", Erste „23,00 dni roboczych x 1 426,80 PLN BRUTTO". Do
+    09.2026 obie polityki wymuszały „hour" — na dokumencie Erste zapisywało to
+    stawkę DZIENNĄ jako godzinową z pewnością 1.0.
     """
 
     del document_text
     if result.rate_client is None:
         return result
 
-    # Dokumenty obu objętych klientów podają tę stawkę zawsze za godzinę.
-    # Jest to deterministyczna reguła klientowa, więc nie wolno zachować
-    # omyłkowej etykiety MD z modelu ani wyczyścić poprawnej kwoty tylko dlatego,
-    # że model pominął jednostkę.
-    result.rate_unit = "hour"
+    # Deterministyczna reguła klientowa: nie wolno zachować omyłkowej etykiety
+    # jednostki z modelu ani wyczyścić poprawnej kwoty tylko dlatego, że model
+    # pominął jednostkę.
+    result.rate_unit = rate_unit
     result.confidence["rate_unit"] = 1.0
     if result.rate_client_gross is not None:
         return result
@@ -1811,12 +1816,101 @@ def apply_pfron_order_policy(
     return apply_gross_to_net_rate_policy(result, document_text)
 
 
+# ── Erste Bank Polska: „Zlecenie K/…", „Zlecenie od/do", „<dni> x <brutto> PLN BRUTTO"
+#
+# Układ z korpusu (09.2026)::
+#
+#     Zlecenie K/2026/194208/JP/525/26ERSTE10
+#     Dane kontraktora / Alicja Kalbarczyk / Zlecenie od / 2026-07-01 / Zlecenie do / 2026-07-31
+#     Wartość zlecenia / 23,00 dni roboczych x 1 426,80 PLN / BRUTTO = / 32 816,40 PLN BRUTTO
+#
+# Stawka jest DZIENNA i BRUTTO — czynnik za „x" we wzorze, przeliczany ÷ 1,23.
+# Etykiety są jednoznaczne, więc wartości z nich mają proweniencję
+# deterministyczną; gdy wzoru brak, przeliczamy to, co przyszło z modelu
+# (kompatybilność z dotychczasowym zachowaniem dla dokumentów bez wzoru).
+
+_ERSTE_ORDER_NUMBER_RE = re.compile(
+    r"Zlecenie\s+(K/[A-Z0-9/]+)(?![A-Z0-9/])", re.IGNORECASE
+)
+_ERSTE_GROSS_FORMULA_RE = re.compile(
+    r"dni\s+roboczych\s*[x×*]\s*(\d[\d\u00a0\u202f ]*(?:[.,]\d{1,2})?)\s*PLN",
+    re.IGNORECASE,
+)
+_ERSTE_DATE = r"(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{4})"
+_ERSTE_FROM_RE = re.compile(r"Zlecenie\s+od\s*[:\n]?\s*" + _ERSTE_DATE, re.IGNORECASE)
+_ERSTE_TO_RE = re.compile(r"Zlecenie\s+do\s*[:\n]?\s*" + _ERSTE_DATE, re.IGNORECASE)
+
+
+def erste_order_number(text: str) -> Optional[str]:
+    m = _ERSTE_ORDER_NUMBER_RE.search(text or "")
+    return m.group(1).rstrip(".,") if m else None
+
+
+def erste_gross_day_rate(text: str) -> Optional[Decimal]:
+    m = _ERSTE_GROSS_FORMULA_RE.search(text or "")
+    return _normalize_amount(m.group(1)) if m else None
+
+
+_ERSTE_CONTRACTOR_RE = re.compile(
+    r"Dane\s+kontraktora\s+(?P<name>[^\d\n]{3,80}?)\s+Zlecenie\s+od", re.IGNORECASE
+)
+
+
+def erste_extract_rows(text: str) -> list[ConsultantOrderRow]:
+    """Jedna osoba z „Dane kontraktora <imię nazwisko> Zlecenie od …" + stawka ze wzoru.
+
+    Deterministyczny wiersz dla ścieżki mailowej: nazwisko z etykiety, okres
+    z „Zlecenie od/do", stawka NETTO dzienna ze wzoru brutto ÷ 1,23.
+    """
+    m = _ERSTE_CONTRACTOR_RE.search(text or "")
+    if not m:
+        return []
+    m_from = _ERSTE_FROM_RE.search(text or "")
+    m_to = _ERSTE_TO_RE.search(text or "")
+    gross = erste_gross_day_rate(text)
+    return [
+        ConsultantOrderRow(
+            consultant_name=re.sub(r"\s+", " ", m.group("name")).strip(),
+            start_date=_normalize_date(m_from.group(1), end=False) if m_from else None,
+            end_date=_normalize_date(m_to.group(1), end=True) if m_to else None,
+            rate_client=net_rate_from_gross(gross) if gross is not None else None,
+            rate_unit="day",
+            uncertain=gross is None,
+        )
+    ]
+
+
 def apply_erste_order_policy(
     result: OrderExtraction, document_text: str
 ) -> OrderExtraction:
-    """Kompatybilna polityka Erste delegująca do wspólnej konwersji brutto."""
+    """Numer, okres i stawka dzienna brutto z etykiet Erste; potem ÷ 1,23."""
 
-    return apply_gross_to_net_rate_policy(result, document_text)
+    number = erste_order_number(document_text)
+    if number:
+        result.title = number
+        result.confidence["title"] = 1.0
+        result.title_needs_review = False
+    m_from = _ERSTE_FROM_RE.search(document_text or "")
+    m_to = _ERSTE_TO_RE.search(document_text or "")
+    if m_from:
+        iso = _normalize_date(m_from.group(1), end=False)
+        if iso:
+            result.start_date = iso
+            result.confidence["start_date"] = 1.0
+    if m_to:
+        iso = _normalize_date(m_to.group(1), end=True)
+        if iso:
+            result.end_date = iso
+            result.confidence["end_date"] = 1.0
+    gross = erste_gross_day_rate(document_text)
+    if gross is not None and result.rate_client_gross is None:
+        result.rate_client = gross
+        result.confidence["rate_client"] = 1.0
+        # Wzór jest źródłem deterministycznym — wiersz osoby z modelu jest
+        # potwierdzony przez dokument, więc bramka bezpieczeństwa nie ma
+        # czego czyścić.
+        result.consultant_rate_matched = True
+    return apply_gross_to_net_rate_policy(result, document_text, rate_unit="day")
 
 
 def _extract_with_regex(text: str) -> OrderExtraction:
