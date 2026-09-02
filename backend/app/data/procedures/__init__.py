@@ -157,6 +157,9 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx",
+    # Kolejka zamówień z maila (ticket zamowienia@): ekran i klient API.
+    "frontend/src/components/order-mail/OrderMailQueue.tsx",
+    "frontend/src/lib/api/orderMail.ts",
     "frontend/src/lib/order-extraction.ts",
 )
 

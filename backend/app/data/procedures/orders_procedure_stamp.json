@@ -5,7 +5,7 @@
     "backend/app/api/client_order_groups.py": "f36bae8844e6f22a3616e020b5fc5e162a67ddf793c2d08ef8354a78403e00cc",
     "backend/app/api/client_orders.py": "ffeb2ef5be33ca0f9d909d947c3cd0b9f36f9c203aca43f36e4a20fa9176365d",
     "backend/app/api/md_consumption.py": "d638bb41a982bb044202688321761723f991965199bf5a3ca8e66e2d5afdc8fa",
-    "backend/app/api/order_mail_queue.py": "3d28b39ff7036c5d6ffdb53a1cf7b0c94dd80566c4f326d11c4d8485fb276098",
+    "backend/app/api/order_mail_queue.py": "3b71851581ab625f434307c951c98f6149ee949c4652a05200570f4871976728",
     "backend/app/models/client_order.py": "405fa6171eed558b28d2e6a51ceeb2c96397ca80faccea8c35f301c49f7ead1d",
     "backend/app/models/client_order_group.py": "903eb1f1b1e49a16657204f6cfd97a337f9c80cb431138670d09d7015ef5033e",
     "backend/app/services/client_order_lines.py": "cb1f4352150712bcf7179fe2764931249bd9114135dbaf89fd23d4679f3eb8bc",
@@ -59,8 +59,10 @@
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "80efc08314e735b36c154dcaf2f54bc6d4c0283c34533350c0eb051208c08868",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "539cd7158909107ee35f0e5de04d507debcea6d41784b928805be423a5550a3c",
+    "frontend/src/components/order-mail/OrderMailQueue.tsx": "01c5eb1cf62f09a9cf1c7491ee2653e34f650344d7a2f020a1a9827624216072",
     "frontend/src/components/orders/InlineOrderFields.tsx": "9c2852f7af383738d6d14e1a69959a02e8e75396e132c2c59811d9b0338a564f",
     "frontend/src/components/orders/OrderTypeSwitch.tsx": "c945cf8167010eaeb36f0592877127639dc86a48a98c6e1692a0df6ca6ba85a5",
+    "frontend/src/lib/api/orderMail.ts": "461c8b7cedba30dd02f34eb8c640e4e84f1352cb2d63c7a2631f10d4fee731ad",
     "frontend/src/lib/order-extraction.ts": "64f96f17b6d1a3adf9dc6e3d36263a385f652995079721f736de51fdfae8c90c"
   }
 }
