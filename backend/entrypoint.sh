@@ -170,6 +170,10 @@ _ENUM_STATEMENTS = [
     # CV / odpowiedzi MINDY lecą InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_generator'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'mindy_chat'",
+    # 0267: lint instrukcji klienta dla generatora CV (`cv_rule_lint`) —
+    # osobny kubełek kwoty; bez wartości enuma seed niżej i INSERT do
+    # ai_usage_log przy lincie => InvalidTextRepresentationError.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_rule_lint'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -2841,6 +2845,85 @@ _COLUMN_STATEMENTS = [
     # promptu. Istniejąca tabela (0255) nie ma tej kolumny, więc ALTER obok
     # CREATE TABLE wyżej.
     "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS generator_instructions TEXT",
+    # 0267: reguła jako pełna recepta DL — blokady, polityka prezentacji
+    # egzekwowana w kodzie, wersja + historia + CV próbne + stempel wersji
+    # na wygenerowanym CV. Istniejąca tabela (0255) nie ma tych kolumn.
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS content_mode VARCHAR(16)",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS content_mode_locked "
+    "BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS "
+    "require_screening_notes_min_chars INTEGER",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS require_project_ref "
+    "BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS require_position "
+    "BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS require_champion "
+    "BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS auto_second_language "
+    "BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS omit_sections JSONB",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS max_roles INTEGER",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS max_bullets_per_role INTEGER",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS max_bullet_chars INTEGER",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS why_points_max INTEGER",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS date_format VARCHAR(16)",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS glossary JSONB",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS generator_instructions_en TEXT",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS version "
+    "INTEGER NOT NULL DEFAULT 1",
+    """DO $$ BEGIN
+        ALTER TABLE client_cv_rules
+            ADD CONSTRAINT ck_client_cv_rules_content_mode
+            CHECK (content_mode IS NULL
+                   OR content_mode IN ('basic', 'polished', 'tailored'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_cv_rules
+            ADD CONSTRAINT ck_client_cv_rules_date_format
+            CHECK (date_format IS NULL
+                   OR date_format IN ('MM.YYYY', 'MM/YYYY', 'YYYY-MM', 'YYYY'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE client_cv_rules
+            ADD CONSTRAINT ck_client_cv_rules_limits_positive
+            CHECK ((max_roles IS NULL OR max_roles > 0)
+                   AND (max_bullets_per_role IS NULL OR max_bullets_per_role > 0)
+                   AND (max_bullet_chars IS NULL OR max_bullet_chars >= 40)
+                   AND (why_points_max IS NULL OR why_points_max > 0)
+                   AND (require_screening_notes_min_chars IS NULL
+                        OR require_screening_notes_min_chars >= 0));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """CREATE TABLE IF NOT EXISTS client_cv_rule_events (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        rule_version INTEGER NOT NULL,
+        action VARCHAR(24) NOT NULL,
+        changes JSONB,
+        actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_events_client_created "
+    "ON client_cv_rule_events (client_id, created_at)",
+    """CREATE TABLE IF NOT EXISTS client_cv_rule_previews (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE CASCADE,
+        stage_id INTEGER,
+        language VARCHAR(2) NOT NULL DEFAULT 'pl',
+        status VARCHAR(20) NOT NULL DEFAULT 'processing',
+        with_rule JSONB,
+        without_rule JSONB,
+        prompt_block TEXT,
+        error_message VARCHAR(1000),
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
+    "ON client_cv_rule_previews (client_id, created_at)",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "client_rule_version INTEGER",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_cv_rules_client "
     "ON client_cv_rules (client_id)",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rules_seed_key "
@@ -4158,6 +4241,10 @@ _DATA_STATEMENTS = [
     "SELECT 'mindy_chat', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'mindy_chat')",
+    # 0267: seed feature'a AI `cv_rule_lint` (lint instrukcji reguły CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_rule_lint', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_rule_lint')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

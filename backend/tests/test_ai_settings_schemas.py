@@ -56,6 +56,7 @@ class TestFeatureKeyEnum:
             # w produkcie) i MINDY (oba endpointy LLM w jednym kubełku).
             "cv_generator",
             "mindy_chat",
+            "cv_rule_lint",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

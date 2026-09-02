@@ -56,6 +56,12 @@ function drop(input: HTMLInputElement, file: File) {
   fireEvent.change(input);
 }
 
+/** Generacja bez klienta wymaga jawnego potwierdzenia (0267) — bez klienta
+ * nie działa żadna reguła, więc rekruter musi to zaznaczyć świadomie. */
+function confirmOutsideAssignment() {
+  fireEvent.click(screen.getByLabelText(/Generuję CV poza zleceniem/));
+}
+
 describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
   beforeEach(() => {
     getMock.mockClear();
@@ -101,6 +107,10 @@ describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
     drop(championInput(), new File(["x"], "ProfilChampiona.pdf"));
     await screen.findByText("Profil Championa nie został wczytany");
 
+    // Bez klienta i bez potwierdzenia „poza zleceniem" przycisk jest
+    // wyłączony — to bramka reguł klienta, nie odrzucenie championa.
+    expect(screen.getByRole("button", { name: /Generuj CV/i })).toBeDisabled();
+    confirmOutsideAssignment();
     expect(screen.getByRole("button", { name: /Generuj CV/i })).toBeEnabled();
   });
 
@@ -147,6 +157,7 @@ describe("CVGeneratorStandaloneV2 — tryb obróbki treści", () => {
   /** Attach the required CV file and fire the Generate button. */
   async function submitUpload() {
     drop(cvInput(), new File(["x"], "kandydat.pdf"));
+    confirmOutsideAssignment();
     fireEvent.click(screen.getByRole("button", { name: /Generuj CV/i }));
     await waitFor(() => expect(postMock).toHaveBeenCalled());
     return postMock.mock.calls[0] as [string, FormData];

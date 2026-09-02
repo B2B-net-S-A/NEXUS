@@ -55,8 +55,11 @@ from app.services.cv_generator_b2b.champion_builder import (
 )
 from app.services.cv_generator_b2b.client_rules import (
     CvRuleSnapshot,
-    build_client_presentation_rules_block,
+    apply_date_format,
+    apply_presentation_policy,
     build_filename as build_client_filename,
+    build_prompt_blocks,
+    resolve_content_mode,
     rule_reminders,
 )
 from app.services.cv_generator_b2b.docx_renderer import (
@@ -260,6 +263,10 @@ class RecruitmentReadiness:
     has_champion: bool
     has_notes: bool
     has_cv: bool
+    # Łączna długość tekstu notatek, który poszedłby do modelu — reguła
+    # klienta może wymagać minimum (0267), a front ma to pokazać PRZED
+    # kliknięciem, nie jako 422 po nim.
+    notes_chars: int = 0
     # Klient tej rekrutacji — front pokazuje go przy wyborze procesu, żeby
     # rekruter WIDZIAŁ, czyje reguły (nazwa pliku, język) zaraz zadziałają.
     # Wyprowadzany z oferty, nigdy nie wybierany ręcznie w tym trybie.
@@ -1447,7 +1454,7 @@ def _run_generation_pipeline(
     # tamta jest jednym cache'owanym blokiem. Prompt systemowy ogranicza ich
     # moc do doboru i formy faktów już obecnych w źródle; w każdym trybie
     # treści, bo dotyczą prezentacji, nie pozycjonowania pod ofertę.
-    client_rules_block = build_client_presentation_rules_block(client_rule)
+    client_rules_block = build_prompt_blocks(client_rule, language)
     if client_rules_block:
         user_parts.append(client_rules_block)
     user_content = "\n\n".join(user_parts)
@@ -1544,6 +1551,16 @@ def _run_generation_pipeline(
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
 
+    # Klocki reguły klienta domykane W KODZIE — PO bezpiecznikach, nie przed:
+    # `_fix_experience_years` i `_derivable_years` liczą lata z PEŁNEJ listy
+    # stanowisk (obcięcie do `max_roles` przed nimi zaniżałoby nagłówek
+    # „N lat doświadczenia" i flagowało poprawną liczbę jako brak pokrycia),
+    # a słownik podmienia nazewnictwo, którego bezpiecznik nie znalazłby
+    # w źródle. Model dostał te same reguły w prompcie, ale prośba nie jest
+    # gwarancją. Format dat też tutaj — bezpieczniki parsują kształt źródłowy.
+    policy_notes = apply_presentation_policy(candidate_data, client_rule)
+    apply_date_format(candidate_data, client_rule)
+
     # Snapshot for the saved-CV log BEFORE render mutates candidate_data
     # (blind mode rewrites name/company in place). Re-rendering this payload
     # reproduces an identical DOCX without another Claude call.
@@ -1582,6 +1599,15 @@ def _run_generation_pipeline(
     else:
         filename = _build_download_filename(role_title, candidate_name)
     rule_warnings.extend(rule_reminders(client_rule))
+    if policy_notes:
+        # Model nie zmieścił się w klockach reguły i kod je domknął — rekruter
+        # ma wiedzieć, że dokument był przycinany, i sprawdzić, czy nic
+        # istotnego nie wypadło.
+        rule_warnings.append(
+            "WERYFIKUJ: domknięto politykę prezentacji klienta w kodzie: "
+            + "; ".join(policy_notes)
+            + "."
+        )
 
     duration_ms = int((time.time() - started_at) * 1000)
     warnings = [str(w) for w in candidate_data.get("warnings") or [] if w]
@@ -1705,6 +1731,30 @@ async def list_recruitments_with_readiness(
         ).all()
     )
 
+    # `notes_chars` tylko tam, gdzie zatwierdzona reguła klienta wymaga
+    # minimum — liczenie sumy notatek to kilka zapytań per rekrutacja i bez
+    # wymogu nikt tej liczby nie czyta.
+    from app.models.client_cv_rule import ClientCvRule
+
+    client_ids = {
+        stage.job.client_id
+        for stage in latest_per_job.values()
+        if stage.job is not None and stage.job.client_id
+    }
+    notes_min_clients: set[int] = set()
+    if client_ids:
+        notes_min_clients = set(
+            (
+                await db.scalars(
+                    select(ClientCvRule.client_id).where(
+                        ClientCvRule.client_id.in_(client_ids),
+                        ClientCvRule.confirmed_at.is_not(None),
+                        ClientCvRule.require_screening_notes_min_chars > 0,
+                    )
+                )
+            ).all()
+        )
+
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
         job = stage.job
@@ -1728,6 +1778,16 @@ async def list_recruitments_with_readiness(
             or _has_candidate_answers(stage.screening_answers)
         )
 
+        notes_chars = 0
+        if has_notes and job is not None and job.client_id in notes_min_clients:
+            notes_chars = len(
+                (
+                    await collect_screening_notes_text(
+                        db, candidate_id=candidate_id, stage=stage, job=job
+                    )
+                ).strip()
+            )
+
         result.append(
             RecruitmentReadiness(
                 stage_id=stage.id,
@@ -1737,6 +1797,7 @@ async def list_recruitments_with_readiness(
                 has_champion=has_champion,
                 has_notes=has_notes,
                 has_cv=has_cv,
+                notes_chars=notes_chars,
                 client_id=job.client_id if job else None,
                 client_name=(
                     ((job.client.display_name or "").strip() or job.client.name)
@@ -1749,6 +1810,118 @@ async def list_recruitments_with_readiness(
     # `latest_per_job` preserves the moved_at-desc query order, so the most
     # recently active recruitments come first already.
     return result
+
+
+async def collect_screening_notes_text(
+    db: AsyncSession, *, candidate_id: int, stage: CandidateStage, job: Job
+) -> str:
+    """Wszystkie notatki, które poszłyby do modelu dla TEJ rekrutacji.
+
+    Wyniesione z ``generate_cv_for_candidate``, bo tę samą sumę musi znać
+    endpoint PRZED zakolejkowaniem generacji: reguła klienta może wymagać
+    minimalnej długości notatek (0267), a odmowa ma być czytelnym 422, nie
+    wierszem „failed" na liście. Notatki z procesów INNYCH klientów (stawki,
+    czerwone flagi, nazwy klientów) nigdy tu nie wchodzą.
+
+    Pusty string = brak notatek (wołający decyduje, czy to błąd).
+    """
+    screening_parts: list[str] = []
+
+    sn_q = (
+        select(ScreeningNote)
+        .where(
+            ScreeningNote.candidate_id == candidate_id,
+            ScreeningNote.job_id == job.id,
+        )
+        .order_by(ScreeningNote.created_at.desc())
+    )
+    screening_notes = (await db.scalars(sn_q)).all()
+    for sn in screening_notes:
+        text = _format_screening_note(sn)
+        if text:
+            screening_parts.append(f"[Notatka ze screeningu]\n{text}")
+
+    # Candidate's own answers to the Champion screening questions, recorded by
+    # the recruiter in the screening sheet (CandidateStage.screening_answers).
+    # These are candidate-provided facts — the generator must weave them into
+    # the CV just like any other screening note.
+    answers_text = _format_candidate_answers(
+        stage.screening_answers,
+        (job.champion_profile or {}).get("screening_questions"),
+    )
+    if answers_text:
+        screening_parts.append(
+            f"[Odpowiedzi kandydata na pytania screeningowe]\n{answers_text}"
+        )
+
+    if stage.notes and stage.notes.strip():
+        screening_parts.append(f"[Notatka z procesu]\n{stage.notes.strip()}")
+
+    notes_q = (
+        select(Note)
+        .where(
+            Note.candidate_id == candidate_id,
+            or_(Note.job_id == job.id, Note.job_id.is_(None)),
+        )
+        .order_by(Note.created_at.desc())
+        .limit(20)
+    )
+    notes = (await db.scalars(notes_q)).all()
+    for note in notes:
+        if note.content and note.content.strip():
+            screening_parts.append(f"[Notatka kandydata]\n{note.content.strip()}")
+
+    first_moved = await db.scalar(
+        select(func.min(CandidateStage.moved_at)).where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job.id,
+        )
+    )
+    calls_q = (
+        select(Call)
+        .where(
+            Call.candidate_id == candidate_id,
+            (Call.transcript.isnot(None)) | (Call.summary.isnot(None)),
+        )
+        .order_by(Call.created_at.desc())
+        .limit(5)
+    )
+    if first_moved is not None:
+        calls_q = calls_q.where(
+            Call.created_at >= first_moved - _CALL_WINDOW_BEFORE_PIPELINE
+        )
+    calls = (await db.scalars(calls_q)).all()
+    for call in calls:
+        # Prefer transcript; fall back to AI-generated summary.
+        body = (call.transcript or call.summary or "").strip()
+        if body:
+            screening_parts.append(f"[Transkrypt rozmowy]\n{body}")
+
+    return "\n\n".join(screening_parts)
+
+
+async def screening_notes_char_count(
+    db: AsyncSession, *, candidate_id: int, stage_id: int
+) -> int | None:
+    """Długość notatek dla etapu; ``None``, gdy etap nie należy do kandydata."""
+    stage = (
+        await db.scalars(
+            select(CandidateStage)
+            .options(selectinload(CandidateStage.job))
+            .where(CandidateStage.id == stage_id)
+        )
+    ).first()
+    if stage is None or stage.candidate_id != candidate_id or stage.job is None:
+        return None
+    text = await collect_screening_notes_text(
+        db, candidate_id=candidate_id, stage=stage, job=stage.job
+    )
+    return len(text.strip())
+
+
+def champion_present(job: Job | None) -> bool:
+    """Publiczny alias: czy oferta niesie Profil Championa (wymagania)."""
+    return _champion_present(job)
 
 
 # ── Main entrypoint ────────────────────────────────────────────────────────
@@ -1806,11 +1979,21 @@ async def generate_cv_for_candidate(
             message=f"Stage {stage_id} has no linked job",
         )
 
+    # Blokada trybu z reguły klienta (0267) — zablokowany tryb NADPISUJE
+    # żądanie rekrutera; kafelki w UI są wyłączone, ale kontrakt trzyma serwer.
+    locked_mode, was_forced = resolve_content_mode(client_rule, content_mode)
+    if was_forced:
+        logger.info(
+            "[cv_b2b][%s] content_mode forced %s→%s by client rule",
+            request_id,
+            normalize_content_mode(content_mode),
+            locked_mode,
+        )
     # Per-client ceiling. NULL cap (the default everywhere) = no ceiling, so
     # nothing changes for clients we have made no promise to.
     client = await db.get(Client, job.client_id) if job.client_id else None
     effective_mode, was_capped = apply_content_mode_cap(
-        content_mode, getattr(client, "cv_content_mode_cap", None)
+        locked_mode, getattr(client, "cv_content_mode_cap", None)
     )
     if was_capped:
         logger.info(
@@ -1893,81 +2076,10 @@ async def generate_cv_for_candidate(
     )
 
     # ── 3. Screening notes — scoped to THIS recruitment ──────────────────
-    # Notes from other clients' processes (rates, red flags, client names)
-    # must never leak into a CV generated for this client.
-    screening_parts: list[str] = []
-
-    sn_q = (
-        select(ScreeningNote)
-        .where(
-            ScreeningNote.candidate_id == candidate_id,
-            ScreeningNote.job_id == job.id,
-        )
-        .order_by(ScreeningNote.created_at.desc())
+    screening_notes_text = await collect_screening_notes_text(
+        db, candidate_id=candidate_id, stage=stage, job=job
     )
-    screening_notes = (await db.scalars(sn_q)).all()
-    for sn in screening_notes:
-        text = _format_screening_note(sn)
-        if text:
-            screening_parts.append(f"[Notatka ze screeningu]\n{text}")
-
-    # Candidate's own answers to the Champion screening questions, recorded by
-    # the recruiter in the screening sheet (CandidateStage.screening_answers).
-    # These are candidate-provided facts — the generator must weave them into
-    # the CV just like any other screening note.
-    answers_text = _format_candidate_answers(
-        stage.screening_answers,
-        (job.champion_profile or {}).get("screening_questions"),
-    )
-    if answers_text:
-        screening_parts.append(
-            f"[Odpowiedzi kandydata na pytania screeningowe]\n{answers_text}"
-        )
-
-    if stage.notes and stage.notes.strip():
-        screening_parts.append(f"[Notatka z procesu]\n{stage.notes.strip()}")
-
-    notes_q = (
-        select(Note)
-        .where(
-            Note.candidate_id == candidate_id,
-            or_(Note.job_id == job.id, Note.job_id.is_(None)),
-        )
-        .order_by(Note.created_at.desc())
-        .limit(20)
-    )
-    notes = (await db.scalars(notes_q)).all()
-    for note in notes:
-        if note.content and note.content.strip():
-            screening_parts.append(f"[Notatka kandydata]\n{note.content.strip()}")
-
-    first_moved = await db.scalar(
-        select(func.min(CandidateStage.moved_at)).where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job.id,
-        )
-    )
-    calls_q = (
-        select(Call)
-        .where(
-            Call.candidate_id == candidate_id,
-            (Call.transcript.isnot(None)) | (Call.summary.isnot(None)),
-        )
-        .order_by(Call.created_at.desc())
-        .limit(5)
-    )
-    if first_moved is not None:
-        calls_q = calls_q.where(
-            Call.created_at >= first_moved - _CALL_WINDOW_BEFORE_PIPELINE
-        )
-    calls = (await db.scalars(calls_q)).all()
-    for call in calls:
-        # Prefer transcript; fall back to AI-generated summary.
-        body = (call.transcript or call.summary or "").strip()
-        if body:
-            screening_parts.append(f"[Transkrypt rozmowy]\n{body}")
-
-    if not screening_parts:
+    if not screening_notes_text:
         raise StandaloneGenerationError(
             code="no_notes",
             message=(
@@ -1976,8 +2088,6 @@ async def generate_cv_for_candidate(
                 "albo notatka procesu."
             ),
         )
-
-    screening_notes_text = "\n\n".join(screening_parts)
 
     # ── 4-6. Sync pipeline in a worker thread — event loop stays free ────
     fallback_name = f"{candidate.name} {candidate.lastname}".strip() or None
@@ -2095,6 +2205,11 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
     # CV robionych poza konkretnym zleceniem — więc wobec klienta z sufitem
     # nadal nie wolno twierdzić, że jest nieobchodzalny; można powiedzieć, że
     # obowiązuje zawsze, gdy generacja jest przypisana do jego nazwy.
+    # `payload.content_mode` jest już po blokadzie reguły I po suficie karty
+    # klienta — nakłada je warstwa API (`generate-upload`), w tej kolejności.
+    # Ponowne nałożenie blokady TUTAJ cofałoby sufit: blokada „polished" przy
+    # suficie „basic" wracałaby do „polished", a sufit to obietnica złożona
+    # klientowi. Dlatego nic tu nie liczymy na nowo.
     return _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
@@ -2113,6 +2228,9 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
 
 
 __all__ = [
+    "champion_present",
+    "collect_screening_notes_text",
+    "screening_notes_char_count",
     "CONTENT_MODES",
     "DEFAULT_CONTENT_MODE",
     "ContentMode",

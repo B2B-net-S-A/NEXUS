@@ -21,24 +21,14 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileCheck2, Info } from "lucide-react";
 
 import api from "@/lib/api";
+import { CV_CONTENT_MODES } from "@/lib/cv-generator";
+import type { ClientCvRule } from "@/lib/cv-rules";
 
-export interface ClientCvRule {
-  client_id: number;
-  client_name: string | null;
-  filename_pattern: string | null;
-  spaces_to_underscores: boolean;
-  cv_language: "pl" | "en" | null;
-  requires_en_copy: boolean;
-  requires_rodo_consent_block: boolean;
-  notes: string | null;
-  generator_instructions: string | null;
-  seed_key: string | null;
-  confirmed_at: string | null;
-  confirmed_by_name: string | null;
-  is_active: boolean;
-  client_policy: string | null;
-  filename_preview: string | null;
-}
+const MODE_LABEL: Record<string, string> = Object.fromEntries(
+  CV_CONTENT_MODES.map((m) => [m.value, m.label]),
+);
+
+export type { ClientCvRule } from "@/lib/cv-rules";
 
 export function useClientCvRule(clientId: number | null | undefined) {
   return useQuery({
@@ -125,7 +115,15 @@ export function ClientCvRuleBanner({
         {rule?.requires_en_copy ? (
           <span className="block text-muted-foreground">
             Ten klient oczekuje CV po polsku <strong>oraz</strong> po angielsku
-            — pamiętaj o drugiej wersji.
+            {rule.auto_second_language
+              ? " — druga wersja wygeneruje się automatycznie po pierwszej."
+              : " — pamiętaj o drugiej wersji."}
+          </span>
+        ) : null}
+        {rule?.content_mode && rule.content_mode_locked ? (
+          <span className="block text-muted-foreground">
+            Tryb obróbki treści: {MODE_LABEL[rule.content_mode] ?? rule.content_mode}{" "}
+            — ustalony przez Delivery Leada.
           </span>
         ) : null}
         {rule?.requires_rodo_consent_block ? (
@@ -135,10 +133,10 @@ export function ClientCvRuleBanner({
           </span>
         ) : null}
         {rule?.notes?.trim() ? (
-          // Notatka Delivery Leada trafia do CZŁOWIEKA składającego CV, nie do
-          // modelu — to jedyne miejsce, w którym „pozostałe standardy klienta"
-          // w ogóle docierają do rekrutera; do 09.2026 były widoczne wyłącznie
-          // w oknie edycji klienta.
+          // Notatka Delivery Leada — widzi ją rekruter składający CV, a od
+          // 02.09.2026 dostaje ją też model (blok <client_notes>, ta sama
+          // granica co instrukcje: dobór akcentów, nigdy nowe fakty). Do
+          // 09.2026 była widoczna wyłącznie w oknie edycji klienta.
           <details className="text-muted-foreground">
             <summary className="cursor-pointer">
               Standardy klienta (notatka Delivery Leada)

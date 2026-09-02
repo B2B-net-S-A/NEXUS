@@ -38,7 +38,6 @@ import type {
   ClientTeamResponse,
   RequestHistoryResponse,
 } from "@/lib/api";
-import { ClientCvRulesSection } from "@/components/clients/ClientCvRulesSection";
 import { useCapability } from "@/hooks/useCapability";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useClickOutside } from "@/lib/use-click-outside";
@@ -1821,12 +1820,11 @@ interface ClientFormData {
   nda_signed: boolean;
   contract_type: string;
   notes: string;
-  cv_interactive_enabled: boolean;
 }
 
 const EMPTY_CLIENT: ClientFormData = {
   name: "", industry: "", website: "", address: "", status: "prospect",
-  nda_signed: false, contract_type: "", notes: "", cv_interactive_enabled: true,
+  nda_signed: false, contract_type: "", notes: "",
 };
 
 function clientToForm(c: any): ClientFormData {
@@ -1839,7 +1837,6 @@ function clientToForm(c: any): ClientFormData {
     nda_signed: c.nda_signed ?? false,
     contract_type: c.contract_type ?? "",
     notes: c.notes ?? "",
-    cv_interactive_enabled: c.cv_interactive_enabled ?? true,
   };
 }
 
@@ -1898,21 +1895,6 @@ function ClientFormFields({ form, onChange, onCheckbox, nameRequired = true }: {
           className="w-4 h-4 rounded accent-blue-600"
         />
         <span className="text-sm text-foreground dark:text-muted-foreground">NDA podpisane</span>
-      </label>
-      <label className="flex items-start gap-2 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={form.cv_interactive_enabled}
-          onChange={e => onCheckbox("cv_interactive_enabled", e.target.checked)}
-          className="mt-0.5 w-4 h-4 rounded accent-blue-600"
-        />
-        <span className="text-sm text-foreground dark:text-muted-foreground">
-          Interaktywna wersja CV na linku dla klienta
-          <span className="block text-xs text-muted-foreground">
-            Kafelki must/nice-have z dowodami z CV + chat AI. Wyłącz, jeśli
-            klient ma dostawać wyłącznie klasyczny widok dokumentu.
-          </span>
-        </span>
       </label>
     </>
   );
@@ -2005,7 +1987,6 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
         nda_signed: form.nda_signed,
         contract_type: form.contract_type || null,
         notes: form.notes || null,
-        cv_interactive_enabled: form.cv_interactive_enabled,
       };
       // Edycja nazwy pisze do sync-odpornego `display_name` — Traffit nadpisuje
       // `name` przy każdym daily sync, a wyświetlanie i tak robi
@@ -2033,14 +2014,24 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
             PATCH klienta i poza `ClientFormFields`, który jest współdzielony
             z oknem DODAWANIA klienta. Zakładanie reguł przy tworzeniu firmy
             dawałoby regułę bez świadomej decyzji. */}
-        {canManageCvRules ? (
-          <ClientCvRulesSection clientId={client.id} />
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Reguły CV tego klienta (nazwa pliku, język, instrukcje dla generatora)
-            ustawia Delivery Lead albo admin — patrz Ustawienia → Reguły CV per klient.
-          </p>
-        )}
+        {/* Reguły CV (nazwa pliku, język, instrukcje, blokady, polityka treści,
+            interaktywne CV) mają WŁASNY edytor w Ustawieniach — jeden ekran
+            prowadzi całą politykę CV klienta. Tu tylko odsyłacz. */}
+        <p className="text-xs text-muted-foreground">
+          Reguły CV tego klienta (nazwa pliku, język, instrukcje dla generatora,
+          interaktywne CV) prowadzi Delivery Lead albo admin w{" "}
+          {canManageCvRules ? (
+            <a
+              href={`/settings/cv-rules?client=${client.id}`}
+              className="text-primary hover:underline"
+            >
+              Ustawienia → Reguły CV per klient
+            </a>
+          ) : (
+            <span>Ustawienia → Reguły CV per klient</span>
+          )}
+          .
+        </p>
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />

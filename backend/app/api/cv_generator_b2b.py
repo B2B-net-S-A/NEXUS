@@ -66,6 +66,7 @@ from app.api.candidate_access import (
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import limiter
 from app.models.activity import Activity
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.cv_generated_document import CvGeneratedDocument
@@ -74,21 +75,26 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.services import object_storage
+from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.cv_generator_b2b.client_rules import (
+    required_input_problems,
     resolve_client_rule,
+    resolve_content_mode,
     snapshot_rule,
 )
 from app.services.cv_generator_b2b.standalone_service import (
-    DEFAULT_CONTENT_MODE,
     ContentMode,
+    DEFAULT_CONTENT_MODE,
     StandaloneGenerationError,
     UploadGenerationInput,
     apply_content_mode_cap,
     ascii_filename_fallback,
+    champion_present,
     generate_cv_for_candidate,
     generate_cv_from_uploads,
     list_recruitments_with_readiness,
     rerender_docx_from_payload,
+    screening_notes_char_count,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +126,9 @@ class RecruitmentOption(BaseModel):
     has_champion: bool
     has_notes: bool
     has_cv: bool
+    # Długość notatek, które poszłyby do modelu — reguła klienta może wymagać
+    # minimum, a front ma to pokazać PRZED kliknięciem (0267).
+    notes_chars: int = 0
     ready: bool
     # Klient wyprowadzony z oferty — w tym trybie NIE jest wybierany ręcznie.
     client_id: Optional[int] = None
@@ -200,6 +209,8 @@ def _error_status(code: str) -> int:
         "no_cv_file": 422,
         "no_champion": 422,
         "no_notes": 422,
+        "notes_too_short": 422,
+        "missing_required_input": 422,
         "invalid_input": 400,
         "extraction_failed": 502,
         "ai_failed": 502,
@@ -326,6 +337,7 @@ async def _finalize_success(
     *,
     result,
     consent_screenshot: Optional[dict] = None,
+    rule_version: Optional[int] = None,
 ) -> bool:
     """Flip a „processing" row to „ready" with its render payload + warnings, so
     it can be re-downloaded/previewed later without another Claude call. Returns
@@ -351,6 +363,10 @@ async def _finalize_success(
         result.render_payload["consent_screenshot"] = consent_screenshot
     row.render_payload = result.render_payload
     row.warnings = list(result.warnings or [])
+    # Stempel wersji reguły klienta (0267) — odpowiedź na „którą regułą
+    # powstało CV, na które klient się skarży".
+    if rule_version is not None:
+        row.client_rule_version = rule_version
     # The mode the pipeline ACTUALLY ran with — a per-client cap may have
     # lowered what the recruiter requested, and the row has to describe the
     # document that reached the client, not the intent behind it. Only written
@@ -420,6 +436,47 @@ async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -
     row.error_message = message[:1000]
 
 
+def _reject_missing_inputs(problems: list[str]) -> None:
+    """422 z listą braków — PRZED naliczeniem kwoty, jak zrzut zgody u PKO BP."""
+    if problems:
+        raise HTTPException(status_code=422, detail="\n".join(problems))
+
+
+def _second_language(rule, language: str) -> Optional[str]:
+    """Język drugiej wersji, gdy reguła każe ją generować automatycznie.
+
+    Tylko gdy klient oczekuje OBU wersji i nie wymusza jednego języka —
+    przy wymuszonym języku druga wersja byłaby dokumentem, którego klient
+    nie chce. ``None`` = nic nie generuj.
+    """
+    if rule is None or not rule.auto_second_language or not rule.requires_en_copy:
+        return None
+    if rule.cv_language:
+        return None
+    return "en" if language == "pl" else "pl"
+
+
+async def _charge_second_language_or_note(
+    db: AsyncSession, *, first_generated_id: int, user_id: int
+) -> bool:
+    """Obciąż kwotę za drugą wersję; przy odmowie dopisz uwagę do pierwszego
+    wiersza zamiast padać — druga wersja jest wygodą, pierwsza już powstała."""
+    try:
+        await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
+        return True
+    except AIQuotaExceeded as exc:
+        row = await db.get(CvGeneratedDocument, first_generated_id)
+        if row is not None:
+            row.warnings = [
+                *list(row.warnings or []),
+                "Druga wersja językowa nie powstała: "
+                + (exc.reason or "limit AI wyczerpany")
+                + " — wygeneruj ją ręcznie.",
+            ]
+        await db.commit()
+        return False
+
+
 # ── Background generation jobs ─────────────────────────────────────────────
 #
 # Scheduled via FastAPI ``BackgroundTasks`` AFTER the 202 response is fully sent,
@@ -450,6 +507,7 @@ async def _run_generate_new_job(
             # snapshotu — pipeline jest synchroniczny i leci w threadpoolu,
             # gdzie dostęp do atrybutu wiersza ORM kończy się MissingGreenlet.
             rule = await resolve_client_rule(db, client_id)
+            rule_snapshot = snapshot_rule(rule)
             result = await generate_cv_for_candidate(
                 db,
                 candidate_id=candidate_id,
@@ -457,7 +515,7 @@ async def _run_generate_new_job(
                 language=language,
                 blind_cv=blind_cv,
                 content_mode=content_mode,
-                client_rule=snapshot_rule(rule),
+                client_rule=rule_snapshot,
                 project_ref=project_ref or None,
             )
         except StandaloneGenerationError as err:
@@ -477,6 +535,7 @@ async def _run_generate_new_job(
             generated_id,
             result=result,
             consent_screenshot=consent_screenshot,
+            rule_version=rule_snapshot.version if rule_snapshot else None,
         )
         if finalized:
             db.add(
@@ -511,6 +570,91 @@ async def _run_generate_new_job(
             )
 
             await ensure_requirement_map(db, generated_id, user_id=user_id)
+
+        # Druga wersja językowa (0267): klient oczekuje PL i EN, a Delivery
+        # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
+        # awaria — porażka drugiej nie dotyka pierwszej.
+        second = _second_language(rule_snapshot, language) if finalized else None
+        if second is not None:
+            if not await _charge_second_language_or_note(
+                db, first_generated_id=generated_id, user_id=user_id
+            ):
+                return
+            first_row = await db.get(CvGeneratedDocument, generated_id)
+            second_id = await _create_pending_row(
+                db,
+                mode="new",
+                candidate_id=candidate_id,
+                candidate_name=first_row.candidate_name if first_row else "Kandydat",
+                position=first_row.position if first_row else None,
+                language=second,
+                blind_cv=blind_cv,
+                user_id=user_id,
+                content_mode=content_mode,
+                client_id=client_id,
+            )
+            await db.commit()
+            try:
+                second_result = await generate_cv_for_candidate(
+                    db,
+                    candidate_id=candidate_id,
+                    stage_id=stage_id,
+                    language=second,  # type: ignore[arg-type]
+                    blind_cv=blind_cv,
+                    content_mode=content_mode,
+                    client_rule=rule_snapshot,
+                    project_ref=project_ref or None,
+                )
+            except StandaloneGenerationError as err:
+                await _finalize_failure(db, second_id, err.message)
+                await db.commit()
+                return
+            except Exception as err:  # noqa: BLE001
+                logger.exception(
+                    "[cv_b2b] second-language job %s crashed: %s", second_id, err
+                )
+                await _finalize_failure(
+                    db, second_id, "Nieoczekiwany błąd generacji CV."
+                )
+                await db.commit()
+                return
+            second_finalized = await _finalize_success(
+                db,
+                second_id,
+                result=second_result,
+                consent_screenshot=consent_screenshot,
+                rule_version=rule_snapshot.version if rule_snapshot else None,
+            )
+            if second_finalized:
+                db.add(
+                    Activity(
+                        entity_type="candidate",
+                        entity_id=candidate_id,
+                        action="b2b_cv_generated",
+                        details={
+                            "stage_id": stage_id,
+                            "language": second,
+                            "blind_cv": blind_cv,
+                            "content_mode_requested": content_mode,
+                            "content_mode_used": (
+                                second_result.render_payload or {}
+                            ).get("content_mode"),
+                            "filename": second_result.filename,
+                            "warnings_count": len(second_result.warnings),
+                            "processing_time_ms": second_result.processing_time_ms,
+                            "generated_id": second_id,
+                            "auto_second_language": True,
+                        },
+                        user_id=user_id,
+                    )
+                )
+            await db.commit()
+            if second_finalized:
+                from app.services.cv_generator_b2b.requirement_map import (
+                    ensure_requirement_map,
+                )
+
+                await ensure_requirement_map(db, second_id, user_id=user_id)
 
 
 def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
@@ -575,6 +719,7 @@ async def _run_generate_upload_job(
             generated_id,
             result=result,
             consent_screenshot=consent_screenshot,
+            rule_version=payload.client_rule.version if payload.client_rule else None,
         )
         if finalized:
             # Upload mode has no candidate context — anchor the audit on the user.
@@ -612,6 +757,92 @@ async def _run_generate_upload_job(
                 await ensure_requirement_map(
                     db, generated_id, user_id=user_id, requirements=requirements
                 )
+
+        # Druga wersja językowa (0267) — patrz worker trybu „new".
+        second = (
+            _second_language(payload.client_rule, payload.language)
+            if finalized
+            else None
+        )
+        if second is not None:
+            import dataclasses
+
+            if not await _charge_second_language_or_note(
+                db, first_generated_id=generated_id, user_id=user_id
+            ):
+                return
+            first_row = await db.get(CvGeneratedDocument, generated_id)
+            second_payload = dataclasses.replace(payload, language=second)  # type: ignore[arg-type]
+            second_id = await _create_pending_row(
+                db,
+                mode="upload",
+                candidate_id=None,
+                candidate_name=first_row.candidate_name if first_row else "Kandydat",
+                position=payload.position or None,
+                language=second,
+                blind_cv=payload.blind_cv,
+                user_id=user_id,
+                content_mode=payload.content_mode,
+                client_id=first_row.client_id if first_row else None,
+            )
+            await db.commit()
+            try:
+                second_result = await run_in_threadpool(
+                    generate_cv_from_uploads, second_payload
+                )
+            except StandaloneGenerationError as err:
+                await _finalize_failure(db, second_id, err.message)
+                await db.commit()
+                return
+            except Exception as err:  # noqa: BLE001
+                logger.exception(
+                    "[cv_b2b] second-language upload %s crashed: %s", second_id, err
+                )
+                await _finalize_failure(
+                    db, second_id, "Nieoczekiwany błąd generacji CV."
+                )
+                await db.commit()
+                return
+            second_finalized = await _finalize_success(
+                db,
+                second_id,
+                result=second_result,
+                consent_screenshot=consent_screenshot,
+                rule_version=(
+                    payload.client_rule.version if payload.client_rule else None
+                ),
+            )
+            if second_finalized:
+                db.add(
+                    Activity(
+                        entity_type="user",
+                        entity_id=user_id,
+                        action="b2b_cv_generated_upload",
+                        details={
+                            "cv_filename": payload.cv_filename,
+                            "language": second,
+                            "blind_cv": payload.blind_cv,
+                            "content_mode": payload.content_mode,
+                            "filename": second_result.filename,
+                            "warnings_count": len(second_result.warnings),
+                            "processing_time_ms": second_result.processing_time_ms,
+                            "generated_id": second_id,
+                            "auto_second_language": True,
+                        },
+                        user_id=user_id,
+                    )
+                )
+            await db.commit()
+            if second_finalized:
+                from app.services.cv_generator_b2b.requirement_map import (
+                    ensure_requirement_map,
+                )
+
+                requirements = _upload_requirements(second_payload)
+                if requirements:
+                    await ensure_requirement_map(
+                        db, second_id, user_id=user_id, requirements=requirements
+                    )
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -752,6 +983,7 @@ async def list_candidate_recruitments(
             has_champion=r.has_champion,
             has_notes=r.has_notes,
             has_cv=r.has_cv,
+            notes_chars=r.notes_chars,
             ready=r.ready,
             client_id=r.client_id,
             client_name=r.client_name,
@@ -934,8 +1166,43 @@ async def generate(
         )
 
     rule = await resolve_client_rule(db, client_id)
-    _enforce_client_language(snapshot_rule(rule), payload.language)
+    rule_snapshot = snapshot_rule(rule)
+    _enforce_client_language(rule_snapshot, payload.language)
     _require_consent_screenshot(rule, payload.consent_screenshot_key)
+
+    # Blokada trybu (0267): zablokowany tryb nadpisuje żądanie — kafelki w UI
+    # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
+    # `generate_cv_for_candidate` już na tę wartość.
+    effective_mode, _forced = resolve_content_mode(rule_snapshot, payload.content_mode)
+
+    # Etap musi należeć do TEGO kandydata — inaczej wymagane wejścia zgłaszałyby
+    # „brak notatek" dla cudzego etapu zamiast 404.
+    stage = await db.get(CandidateStage, payload.stage_id)
+    if stage is None or stage.candidate_id != payload.candidate_id:
+        raise HTTPException(
+            status_code=404, detail="Rekrutacja nie należy do tego kandydata."
+        )
+
+    # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
+    if rule_snapshot is not None and (
+        rule_snapshot.require_screening_notes_min_chars
+        or rule_snapshot.require_project_ref
+        or rule_snapshot.require_champion
+    ):
+        job = await db.get(Job, stage.job_id)
+        notes_chars = await screening_notes_char_count(
+            db, candidate_id=payload.candidate_id, stage_id=payload.stage_id
+        )
+        _reject_missing_inputs(
+            required_input_problems(
+                rule_snapshot,
+                mode="new",
+                screening_chars=notes_chars or 0,
+                has_project_ref=bool(payload.project_ref.strip()),
+                has_position=True,
+                has_champion=champion_present(job),
+            )
+        )
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
@@ -951,7 +1218,7 @@ async def generate(
         language=payload.language,
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
-        content_mode=payload.content_mode,
+        content_mode=effective_mode,
         client_id=client_id,
     )
     # Commit before scheduling/returning so the row is visible to both the poll
@@ -966,7 +1233,7 @@ async def generate(
         language=payload.language,
         blind_cv=payload.blind_cv,
         user_id=current_user.id,
-        content_mode=payload.content_mode,
+        content_mode=effective_mode,
         client_id=client_id,
         project_ref=payload.project_ref or "",
         consent_screenshot=(
@@ -1042,8 +1309,30 @@ async def generate_from_upload(
             content_mode, client.cv_content_mode_cap
         )
         rule = await resolve_client_rule(db, client_id)
-        _enforce_client_language(snapshot_rule(rule), language)
+        rule_snapshot = snapshot_rule(rule)
+        _enforce_client_language(rule_snapshot, language)
         _require_consent_screenshot(rule, consent_screenshot_key)
+        # Blokada trybu (0267) PRZED sufitem — zablokowany tryb nadpisuje
+        # żądanie, sufit nadal wygrywa z blokadą.
+        locked_mode, _forced = resolve_content_mode(rule_snapshot, content_mode)
+        effective_mode, _capped = apply_content_mode_cap(
+            locked_mode, client.cv_content_mode_cap
+        )
+        has_champion = bool(
+            champion_file is not None and champion_file.filename
+        ) or bool(
+            (must_requirements or "").strip() or (nice_requirements or "").strip()
+        )
+        _reject_missing_inputs(
+            required_input_problems(
+                rule_snapshot,
+                mode="upload",
+                screening_chars=len((screening_notes or "").strip()),
+                has_project_ref=bool((project_ref or "").strip()),
+                has_position=bool((position or "").strip()),
+                has_champion=has_champion,
+            )
+        )
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
