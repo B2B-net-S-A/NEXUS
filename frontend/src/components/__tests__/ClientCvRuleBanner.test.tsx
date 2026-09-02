@@ -37,6 +37,41 @@ const ACTIVE: ClientCvRule = {
 };
 
 describe("ClientCvRuleBanner", () => {
+  it("pokazuje notatkę Delivery Leada tylko przy regule, która obowiązuje", () => {
+    const { rerender } = render(
+      <ClientCvRuleBanner
+        clientId={1}
+        rule={{ ...ACTIVE, notes: "CV bez zdjęcia. Maks. 3 rekomendacje." }}
+        isLoading={false}
+        isError={false}
+      />,
+    );
+    expect(
+      screen.getByText("Standardy klienta (notatka Delivery Leada)"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("CV bez zdjęcia. Maks. 3 rekomendacje."),
+    ).toBeInTheDocument();
+
+    // Reguła niezatwierdzona nie obowiązuje — jej notatka też nie.
+    rerender(
+      <ClientCvRuleBanner
+        clientId={1}
+        rule={{
+          ...ACTIVE,
+          notes: "CV bez zdjęcia. Maks. 3 rekomendacje.",
+          is_active: false,
+          client_policy: "",
+        }}
+        isLoading={false}
+        isError={false}
+      />,
+    );
+    expect(
+      screen.queryByText("CV bez zdjęcia. Maks. 3 rekomendacje."),
+    ).not.toBeInTheDocument();
+  });
+
   it("nie renderuje nic, gdy klient nie jest wybrany", () => {
     const { container } = render(
       <ClientCvRuleBanner

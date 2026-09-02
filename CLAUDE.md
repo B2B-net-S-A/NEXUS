@@ -373,6 +373,47 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   HTML nie niosą zrzutu. Wymóg dotyczy dokumentu wysyłanego do banku, a obraz
   niesie adres e-mail kandydata — inny kanał to osobna decyzja.
 
+## Reguły CV per klient — każdy Delivery Lead i TAC zakłada je sam
+
+`/settings/cv-rules` jest ekranem ZARZĄDZANIA (od 09.2026), nie podglądem.
+Do tej pory pokazywał wyłącznie 14 szablonów Championa zasianych migracją
+`0255`, bez dodawania i edycji, i nie miał linku w Ustawieniach — reguła dla
+piętnastego klienta była tu niewidoczna, a jedyną drogą do jej założenia było
+okno „Edytuj firmę" w profilu klienta. Backend (`TacPlus`) wpuszczał Delivery
+Leada od początku; to była usterka POWIERZCHNI, nie uprawnień.
+
+- **`GET /api/settings/cv-rules` zwraca `{rules, unassigned_templates}`** —
+  KAŻDĄ regułę w bazie (z nazwą klienta, autorem zatwierdzenia i szablonem,
+  z którego ją zasiano) plus szablony Championa bez wiersza. Tych drugich nie
+  wolno ukryć: brak reguły wyglądałby identycznie jak jej nieistnienie.
+- **Zapis i zatwierdzenie to JEDNO kliknięcie** („Zapisz i zatwierdź",
+  `PUT … {confirm: true}`). Osobny krok „Zatwierdź" chronił PROPOZYCJE z seeda
+  (dopasowane po nazwie, więc możliwie błędne); reguła wpisana ręcznie JEST
+  decyzją autora, a drugie kliknięcie gubiło ludzi — zapisana i niezatwierdzona
+  reguła wygląda w generatorze jak jej brak. Domyślny `PUT` (bez `confirm`)
+  nadal zostawia propozycję, a edycja obowiązującej reguły tą ścieżką ZDEJMUJE
+  zatwierdzenie. Inline „Zatwierdź" na liście zostaje dla propozycji z seeda.
+- **Bramka zapisu NIE jest zawężana do portfela DL** i tak ma zostać: to
+  lustro `PATCH /api/clients/{id}` — reguła CV jest konfiguracją klienta jak
+  jego karta. „Tylko moi klienci" na liście to filtr z `data_scope`
+  (domyślnie włączony dla persony DL, do wyłączenia), nie granica. HoR,
+  finance, recruiter i sourcer czytają przegląd, ale nie zapisują (403) —
+  dokładnie jak przy karcie klienta. Test: `test_client_cv_rules_overview.py`.
+- **Akcje w UI idą po `useCapability("client.update")`** (`TAC_PLUS`) — tej
+  samej bramce, która chowa „Edytuj firmę". Inaczej recruiter wypełniałby
+  formularz i dostawał 403 na zapisie.
+- **Notatka („pozostałe standardy klienta") jest WIDOCZNA w generatorze** —
+  zwijana sekcja banera po wybraniu klienta z obowiązującą regułą. To jedyne
+  miejsce, w którym reguła spoza czterech pól strukturalnych dociera do
+  rekrutera; do 09.2026 notatka była widoczna wyłącznie w oknie edycji
+  klienta. Nadal NIE trafia do promptu modelu (patrz raport: reguły SZUKANIA
+  w prompcie generatora zapraszałyby do koloryzowania doświadczenia).
+- **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w komponencie
+  i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
+- Formularz jest współdzielony (`ClientCvRulesSection`): profil klienta →
+  „Edytuj firmę" → Reguły CV nadal działa i nie ma tam „Usuń regułę" (obok
+  pól firmy czytałoby się jak usuwanie klienta).
+
 ## Profil Championa — siedem sekcji (przebudowa 09.2026)
 
 Szablon skrócony do siedmiu sekcji: **1. Podstawowe informacje · 2. Co wpisać

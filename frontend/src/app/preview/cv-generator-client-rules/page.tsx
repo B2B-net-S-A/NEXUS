@@ -56,6 +56,8 @@ const PKO: ClientCvRule = {
   filename_pattern: "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}",
   cv_language: "pl",
   requires_rodo_consent_block: true,
+  notes:
+    "Maks. 3 rekomendacje na stanowisko. CV bez zdjęcia. Numer projektu ZOB-xxxx bierzemy z zamówienia.",
   seed_key: "profil-championa-wzor-pko-bp-docx",
   client_policy: "nazwa pliku, język PL, blok zgody RODO",
   filename_preview: "ZOB-4521_Analityk Biznesowy_Jan Kowalski.docx",

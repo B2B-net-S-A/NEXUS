@@ -136,3 +136,41 @@ zna, plus zdanie w banerze. Dokument pozostaje nietknięty.
   da się wiarygodnie wyprowadzić z oferty.
 - Format `{DATA}` to `YYYY-MM-DD`; szablon Credit Agricole mówi tylko
   „bieżąca_data". Wzór jest edytowalny, więc da się skorygować bez deployu.
+
+## Aktualizacja 2026-09-02 — każdy Delivery Lead i TAC zakłada reguły sam
+
+**Zgłoszenie:** „jak to poprawić, aby każdy Delivery Lead mógł sobie robić
+reguły jakie chce?" — z ekranu `/settings/cv-rules`.
+
+**Diagnoza:** backend wpuszczał DL od początku (`PUT/POST/DELETE` za `TacPlus`),
+ale ekran był podglądem 14 zasianych szablonów bez żadnej akcji i bez linku
+w Ustawieniach; reguła dla innego klienta była tu niewidoczna, a założyć ją
+dało się tylko przez okno „Edytuj firmę", dwoma osobnymi kliknięciami
+(Zapisz → Zatwierdź).
+
+**Co się zmieniło:**
+
+- `GET /api/settings/cv-rules` → `{rules, unassigned_templates}`: każda reguła
+  w bazie + szablony Championa bez wiersza.
+- `PUT /api/clients/{id}/cv-rule` przyjmuje `confirm: true` — zapis
+  i zatwierdzenie jednym kliknięciem („Zapisz i zatwierdź"). Domyślny zapis
+  nadal jest propozycją; edycja obowiązującej reguły bez `confirm` zdejmuje
+  zatwierdzenie.
+- `/settings/cv-rules`: lista wszystkich reguł, wyszukiwarka, filtr stanu,
+  „Tylko moi klienci" dla persony DL (z `data_scope`, do wyłączenia),
+  „Dodaj regułę" z pickerem klienta, edycja / zatwierdzanie / usuwanie
+  w miejscu, sekcja szablonów bez reguły. Akcje po `client.update`.
+- Link „Reguły CV per klient" w Ustawieniach → Zaawansowane
+  (admin / delivery_lead / tac).
+- Baner w generatorze pokazuje notatkę DL („Standardy klienta") przy
+  obowiązującej regule — wcześniej notatka nie docierała do rekrutera nigdzie.
+- Formularz `ClientCvRulesSection` współdzielony z oknem edycji klienta;
+  usuwanie z dwustopniowym potwierdzeniem w komponencie.
+
+**Czego świadomie NIE zrobiono:** zawężenia zapisu do portfela DL (to lustro
+`PATCH /api/clients/{id}` — reguła CV jest konfiguracją klienta jak jego
+karta) oraz wpuszczenia notatki do promptu modelu (decyzja z 31.08 stoi).
+
+**Testy:** `backend/tests/test_client_cv_rules_overview.py`,
+`frontend/src/app/settings/cv-rules/page.test.tsx`, rozszerzony
+`ClientCvRuleBanner.test.tsx`.

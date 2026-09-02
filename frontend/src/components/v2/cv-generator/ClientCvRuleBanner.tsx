@@ -133,6 +133,18 @@ export function ClientCvRuleBanner({
             uzupełnij dokument po pobraniu.
           </span>
         ) : null}
+        {rule?.notes?.trim() ? (
+          // Notatka Delivery Leada trafia do CZŁOWIEKA składającego CV, nie do
+          // modelu — to jedyne miejsce, w którym „pozostałe standardy klienta"
+          // w ogóle docierają do rekrutera; do 09.2026 były widoczne wyłącznie
+          // w oknie edycji klienta.
+          <details className="text-muted-foreground">
+            <summary className="cursor-pointer">
+              Standardy klienta (notatka Delivery Leada)
+            </summary>
+            <span className="mt-1 block whitespace-pre-line">{rule.notes}</span>
+          </details>
+        ) : null}
       </span>
     </div>
   );

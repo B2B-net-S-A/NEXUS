@@ -20,6 +20,7 @@ import {
   Sliders,
   Coins,
   FileSignature,
+  FileCheck2,
   Workflow,
   Stethoscope,
   ChevronRight,
@@ -133,6 +134,16 @@ const ADVANCED_LINKS: Array<{
     icon: <Coins className="w-5 h-5" />,
     // R0 (plan analytics 2026-07-16): benchmarki stawek = finanse (DL+/admin).
     roles: ["admin", "delivery_lead", "finance"],
+  },
+  {
+    href: "/settings/cv-rules",
+    title: "Reguły CV per klient",
+    description:
+      "Nazwa pliku, język i wymogi klienta stosowane przez generator CV. Delivery Lead i TAC dodają i zatwierdzają reguły sami.",
+    icon: <FileCheck2 className="w-5 h-5" />,
+    // PUT/POST/DELETE /api/clients/{id}/cv-rule → TacPlus. Odczyt ma każda
+    // rola operacyjna, ale link prowadzi tam, gdzie da się coś ZROBIĆ.
+    roles: ["admin", "delivery_lead", "tac"],
   },
   {
     href: "/settings/contract-templates",
