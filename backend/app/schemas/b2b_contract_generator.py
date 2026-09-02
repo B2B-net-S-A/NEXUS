@@ -558,10 +558,20 @@ class B2BStatusEventItem(BaseModel):
 
 
 class B2BConfirmFullySignedRequest(BaseModel):
-    """One-time legacy binding supplied only when the generated row lacks IDs."""
+    """One-time legacy binding supplied only when the generated row lacks IDs.
+
+    ``keep_existing_contract_terms`` — świadome potwierdzenie mimo różnic
+    między dokumentem a już istniejącym kontraktem tej pary (kandydat,
+    rekrutacja). Serwer wtedy WIĄŻE podpisaną umowę z kontraktem, ale nie
+    zmienia niczego, co na kontrakcie jest już wpisane (stawka, jednostka,
+    harmonogram, daty, szczegóły B2B). Bez różnic flaga nic nie zmienia; nie
+    obchodzi też żadnej innej odmowy (duplikaty kontraktorów, inny klient,
+    kontrakt nie-B2B, zdublowane zamówienia, umowa już podpisana).
+    """
 
     candidate_id: Optional[int] = None
     job_id: Optional[int] = None
+    keep_existing_contract_terms: bool = False
 
     @model_validator(mode="after")
     def _source_links_are_a_pair(self) -> "B2BConfirmFullySignedRequest":
@@ -581,3 +591,7 @@ class B2BConfirmFullySignedResponse(BaseModel):
     client_id: int
     message: str
     generated_contract: B2BGeneratedContractItem
+    # Różnice zaakceptowane flagą ``keep_existing_contract_terms`` (etykiety
+    # PL, te same co w komunikacie 409). Puste = warunki były zgodne albo
+    # kontrakt powstał w tej operacji.
+    acknowledged_conflicts: list[str] = Field(default_factory=list)

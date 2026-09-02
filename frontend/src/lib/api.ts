@@ -3014,6 +3014,14 @@ export interface B2BGeneratedContractRow {
 export interface B2BConfirmFullySignedRequest {
   candidate_id?: number;
   job_id?: number;
+  /**
+   * Świadome potwierdzenie mimo różnic między dokumentem a istniejącym
+   * kontraktem tej pary (kandydat, rekrutacja): serwer wiąże umowę, ale nie
+   * zmienia niczego, co na kontrakcie jest już wpisane. Wysyłane WYŁĄCZNIE po
+   * 409 z `can_keep_existing_terms` — bez różnic flaga nic nie zmienia, a
+   * pozostałych odmów (duplikaty, inny klient, umowa podpisana) nie obchodzi.
+   */
+  keep_existing_contract_terms?: boolean;
 }
 
 export interface B2BConfirmFullySignedResult {
@@ -3025,6 +3033,8 @@ export interface B2BConfirmFullySignedResult {
   client_id: number;
   message: string;
   generated_contract: B2BGeneratedContractRow;
+  /** Różnice zaakceptowane flagą `keep_existing_contract_terms` (etykiety PL). */
+  acknowledged_conflicts?: string[];
 }
 
 export interface B2BUopIssue {

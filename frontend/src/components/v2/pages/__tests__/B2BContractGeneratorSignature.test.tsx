@@ -487,11 +487,213 @@ describe("GeneratedContractsTab — status podpisu", () => {
       "href",
       "/contracts/92",
     );
+    // Bez podpowiedzi `can_keep_existing_terms` NIE ma drogi „mimo różnic" —
+    // duplikaty kontraktorów to odmowa twarda.
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(mocks.showActionToast).toHaveBeenCalledWith(
       "Znaleziono kilka otwartych kontraktów.",
       expect.objectContaining({
         actionLabel: "Otwórz pierwszy kontrakt",
       }),
     );
+  });
+
+  it("przy różnicach warunków pozwala potwierdzić podpis z zachowaniem warunków kontraktu", async () => {
+    mocks.confirmFullySigned
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              message:
+                "Istniejący kontraktor ma inne niepuste warunki: stawka kandydata, jednostka stawki.",
+              contract_ids: [619],
+              conflicts: ["stawka kandydata", "jednostka stawki"],
+              can_keep_existing_terms: true,
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        ...confirmationResult("linked_existing"),
+        message:
+          "Kontraktor już istniał — umowę powiązano, a jego dotychczasowe warunki zostały bez zmian (różnice względem dokumentu: stawka kandydata, jednostka stawki).",
+        acknowledged_conflicts: ["stawka kandydata", "jednostka stawki"],
+      });
+    renderTab([generatedRow()]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const confirmButton = within(dialog).getByRole("button", {
+      name: "Potwierdź podpisanie",
+    });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    await userEvent.click(confirmButton);
+
+    expect(
+      await within(dialog).findByText(
+        "Istniejący kontrakt ma inne warunki niż dokument",
+      ),
+    ).toBeInTheDocument();
+    // Lista różnic stoi obok listy „System wykona atomowo" — celujemy w <li>
+    // z etykietą, nie w wszystkie pozycje list w dialogu.
+    for (const label of ["stawka kandydata", "jednostka stawki"]) {
+      expect(
+        within(dialog).getByText(label, { selector: "li" }),
+      ).toBeInTheDocument();
+    }
+    expect(within(dialog).getByRole("link", { name: /Kontrakt #619/ })).toHaveAttribute(
+      "href",
+      "/contracts/619",
+    );
+    expect(mocks.confirmFullySigned).toHaveBeenCalledTimes(1);
+    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
+      candidate_id: 7,
+      job_id: 20,
+    });
+
+    const checkbox = within(dialog).getByRole("checkbox", {
+      name: /Zachowaj dotychczasowe warunki kontraktu #619/,
+    });
+    await userEvent.click(checkbox);
+    const overrideButton = within(dialog).getByRole("button", {
+      name: "Potwierdź mimo różnic",
+    });
+    await userEvent.click(overrideButton);
+
+    await waitFor(() =>
+      expect(mocks.confirmFullySigned).toHaveBeenCalledTimes(2),
+    );
+    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
+      candidate_id: 7,
+      job_id: 20,
+      keep_existing_contract_terms: true,
+    });
+    await waitFor(() =>
+      expect(mocks.showActionToast).toHaveBeenCalledWith(
+        expect.stringContaining("dotychczasowe warunki zostały bez zmian"),
+        expect.objectContaining({ actionLabel: "Otwórz kontraktora" }),
+      ),
+    );
+  });
+
+  it("zgoda na różnice nie przeżywa zmiany rekrutacji w wierszu historycznym", async () => {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/api/cv-generator/candidates") {
+        return Promise.resolve({
+          data: [
+            {
+              id: 7,
+              name: "Jan",
+              lastname: "Nowak",
+              full_name: "Jan Nowak",
+              email: "jan@example.com",
+            },
+          ],
+        });
+      }
+      if (url === "/api/cv-generator/candidates/7/recruitments") {
+        return Promise.resolve({
+          data: [
+            {
+              stage_id: 12,
+              job_id: 20,
+              job_title: "Cloud Engineer",
+              stage: "Screening",
+            },
+            {
+              stage_id: 13,
+              job_id: 21,
+              job_title: "Data Engineer",
+              stage: "Screening",
+            },
+          ],
+        });
+      }
+      if (url === "/api/jobs/20" || url === "/api/jobs/21") {
+        return Promise.resolve({
+          data: {
+            title: url.endsWith("20") ? "Cloud Engineer" : "Data Engineer",
+            client_id: 3,
+            client_name: "Nordea",
+          },
+        });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    mocks.confirmFullySigned
+      .mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              message: "Istniejący kontraktor ma inne niepuste warunki.",
+              contract_ids: [619],
+              conflicts: ["stawka kandydata"],
+              can_keep_existing_terms: true,
+            },
+          },
+        },
+      })
+      .mockResolvedValueOnce(confirmationResult("created"));
+    renderTab([
+      generatedRow({
+        candidate_id: null,
+        job_id: null,
+        client_id: null,
+        candidate_name: null,
+        job_title: null,
+        canonical_client_name: null,
+        partner_name: "Historyczny Partner",
+      }),
+    ]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Oznacz jako podpisaną" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const [candidateCombobox] = within(dialog).getAllByRole("combobox");
+    await userEvent.click(candidateCombobox);
+    await userEvent.click(await screen.findByText("Jan Nowak"));
+    await waitFor(() =>
+      expect(within(dialog).getAllByRole("combobox")[1]).not.toBeDisabled(),
+    );
+    await userEvent.click(within(dialog).getAllByRole("combobox")[1]);
+    await userEvent.click(await screen.findByText("Cloud Engineer · Screening"));
+
+    const confirmButton = within(dialog).getByRole("button", {
+      name: "Potwierdź podpisanie",
+    });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    await userEvent.click(confirmButton);
+    await userEvent.click(
+      await within(dialog).findByRole("checkbox", {
+        name: /Zachowaj dotychczasowe warunki kontraktu #619/,
+      }),
+    );
+    expect(
+      within(dialog).getByRole("button", { name: "Potwierdź mimo różnic" }),
+    ).toBeInTheDocument();
+
+    // Zmiana rekrutacji = inna para; różnice liczone dla (7, 20) nie są
+    // różnicami dla (7, 21).
+    await userEvent.click(within(dialog).getAllByRole("combobox")[1]);
+    await userEvent.click(await screen.findByText("Data Engineer · Screening"));
+
+    expect(within(dialog).queryByRole("checkbox")).toBeNull();
+    const plainButton = within(dialog).getByRole("button", {
+      name: "Potwierdź podpisanie",
+    });
+    await waitFor(() => expect(plainButton).toBeEnabled());
+    await userEvent.click(plainButton);
+    await waitFor(() =>
+      expect(mocks.confirmFullySigned).toHaveBeenCalledTimes(2),
+    );
+    expect(mocks.confirmFullySigned).toHaveBeenLastCalledWith(1, {
+      candidate_id: 7,
+      job_id: 21,
+    });
   });
 });
