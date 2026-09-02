@@ -29,6 +29,7 @@ import { notificationsApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
+import { useAuthStore } from "@/store/auth";
 
 type Notification = {
   id: number;
@@ -194,6 +195,8 @@ function NotifToast({ notif, onClose }: { notif: WsNotification; onClose: () => 
 export function NotificationsDropdown() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const authUser = useAuthStore((state) => state.user);
+  const scopeCacheKey = `${authUser?.id ?? "anonymous"}:${authUser?.authorization_version ?? "none"}`;
   const [open, setOpen] = useState(false);
   const [toastNotif, setToastNotif] = useState<WsNotification | null>(null);
   const [feedbackModal, setFeedbackModal] = useState<{
@@ -213,7 +216,7 @@ export function NotificationsDropdown() {
   });
 
   const { data } = useQuery({
-    queryKey: ["notifications", 20],
+    queryKey: ["notifications", scopeCacheKey, 20],
     queryFn: () => notificationsApi.list(20).then((r) => r.data),
     // WS invalidates cache on new events. 30s poll is safety net + fallback.
     refetchInterval: 30_000,

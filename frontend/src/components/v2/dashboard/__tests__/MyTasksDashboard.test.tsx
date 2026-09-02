@@ -94,6 +94,16 @@ describe("MyTasksDashboard", () => {
             is_read: false,
             created_at: "2026-09-02T07:00:00Z",
           },
+          {
+            id: 8,
+            user_id: 11,
+            title: "Przeczytana informacja",
+            message: "Ta pozycja nie wymaga już reakcji",
+            link: "/jobs/8",
+            notification_type: "stage_changed",
+            is_read: true,
+            created_at: "2026-09-01T07:00:00Z",
+          },
         ],
         unread_count: 1,
       },
@@ -106,6 +116,7 @@ describe("MyTasksDashboard", () => {
     expect(await screen.findByText("Wyślij feedback do klienta")).toBeVisible()
     expect(screen.getByText("Interview z klientem")).toBeVisible()
     expect(screen.getByText("Kandydat czeka na decyzję")).toBeVisible()
+    expect(screen.queryByText("Przeczytana informacja")).toBeNull()
     expect(listEvents).toHaveBeenCalledWith(
       expect.objectContaining({
         mine_only: true,
@@ -113,7 +124,7 @@ describe("MyTasksDashboard", () => {
         limit: 100,
       }),
     )
-    expect(listNotifications).toHaveBeenCalledWith(10)
+    expect(listNotifications).toHaveBeenCalledWith(20)
   })
 
   it("allows the whole personal-work section to be collapsed", async () => {

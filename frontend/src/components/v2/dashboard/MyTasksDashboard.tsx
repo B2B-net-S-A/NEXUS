@@ -234,8 +234,10 @@ export function MyTasksDashboard() {
     refetchInterval: 60_000,
   })
   const notificationsQuery = useQuery({
-    queryKey: ["notifications", scopeCacheKey, 10],
-    queryFn: () => notificationsApi.list(10).then((response) => response.data),
+    // The shell bell uses the same key and limit, so the dashboard reuses its
+    // fresh response instead of polling the same feed a second time.
+    queryKey: ["notifications", scopeCacheKey, 20],
+    queryFn: () => notificationsApi.list(20).then((response) => response.data),
     staleTime: 15_000,
     refetchInterval: 30_000,
   })
@@ -243,7 +245,9 @@ export function MyTasksDashboard() {
     calendarQuery.data?.filter((event) => event.event_type === "deadline") ?? []
   const meetings =
     calendarQuery.data?.filter((event) => event.event_type !== "deadline") ?? []
-  const notifications = notificationsQuery.data?.items ?? []
+  const notifications =
+    notificationsQuery.data?.items.filter((notification) => !notification.is_read) ??
+    []
   const unread = notificationsQuery.data?.unread_count ?? 0
   const total = deadlines.length + meetings.length + unread
   const loading = calendarQuery.isLoading || notificationsQuery.isLoading
