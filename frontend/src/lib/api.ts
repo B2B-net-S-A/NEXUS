@@ -3055,6 +3055,13 @@ export interface B2BConfirmFullySignedResult {
   generated_contract: B2BGeneratedContractRow;
   /** Różnice zaakceptowane flagą `keep_existing_contract_terms` (etykiety PL). */
   acknowledged_conflicts?: string[];
+  /**
+   * Dlaczego `order_id` jest puste mimo udanego podpisu: `cost_client` (typ
+   * zamówienia wybiera Delivery Lead) albo `open_group_line` (osoba jest już
+   * na otwartej linii zamówienia MD/kosztowego). `null` przy wypełnionym
+   * `order_id`.
+   */
+  order_skipped_reason?: string | null;
 }
 
 export interface B2BUopIssue {

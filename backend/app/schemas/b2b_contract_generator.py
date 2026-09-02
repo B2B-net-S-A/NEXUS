@@ -595,3 +595,8 @@ class B2BConfirmFullySignedResponse(BaseModel):
     # PL, te same co w komunikacie 409). Puste = warunki były zgodne albo
     # kontrakt powstał w tej operacji.
     acknowledged_conflicts: list[str] = Field(default_factory=list)
+    # Dlaczego ``order_id`` jest puste mimo udanego podpisu: ``cost_client``
+    # (typ zamówienia wybiera Delivery Lead) albo ``open_group_line`` (osoba
+    # jest już na żywej linii zamówienia MD/kosztowego). ``None`` przy
+    # wypełnionym ``order_id``.
+    order_skipped_reason: Optional[str] = None

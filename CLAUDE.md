@@ -243,6 +243,28 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   monitorze, a przyklejona kolumna akcji (283 px) zasłaniała to, co pod nią —
   pół „Status podpisu". Testy: `test_b2b_signature_automation.py`
   (`keep_existing_terms*`), `B2BContractGeneratorSignature.test.tsx`.
+- **Brak zamówienia po podpisie jest legalny WYŁĄCZNIE z powodem.**
+  `_ensure_open_order` zwraca `(order, created, skipped_reason)`; dwa powody:
+  `cost_client` (typ zamówienia wybiera Delivery Lead) i `open_group_line`
+  (osoba jest już na żywej linii zamówienia MD/kosztowego — auto-szkic
+  okresowy dublowałby współpracę na tym samym kontrakcie, #1321). Endpoint
+  `confirm-fully-signed` rzuca `RuntimeError` (→ 500, pełny rollback) tylko
+  wtedy, gdy zamówienia nie ma i NIE MA powodu. Do 09.2026 bramka pytała
+  wyłącznie o klienta kosztowego, więc drugi powód kończył się 500 („Network
+  Error") i wycofaniem całego podpisu u BIK/BNP — konsultant, którego Delivery
+  obsadziło na linii MD przed potwierdzeniem dokumentu, zostawał niepodpisany
+  i niezatrudniony. Linia grupy jest sprawdzana PRZED dźwignią klienta
+  kosztowego (Polkomtel jest jednym i drugim — powód „linia grupy" niesie
+  właściwy następny krok). Replay (`already_processed`) zwraca w `order_id`
+  wyłącznie zamówienie okresowe (nigdy id linii grupy) i liczy powód tak samo.
+  Powód idzie w odpowiedzi (`order_skipped_reason`) i w audycie obu Activity
+  (`fully_signed_confirmed`, `linked_to_generated_contract`); komunikat po
+  polsku nazywa go i wskazuje inny następny krok niż u klienta kosztowego.
+  Nie zdejmuj
+  `RuntimeError` dla braku bez powodu: cichy „brak zamówienia" zostawiłby
+  zatrudnienie bez rekordu, który czytają skaner wygasania, MRR i sync
+  terminacji. Testy: `test_confirm_links_a_consultant_already_on_a_group_line_without_500`,
+  `test_confirm_still_fails_loudly_when_no_order_and_no_reason`.
 - **`suspended` powstał, bo bez niego rejestr kłamał.** Kontraktor kończy projekt
   u klienta, ale umowa B2B dalej obowiązuje — czeka na kolejne zlecenie. `active`
   twierdziłby, że ktoś pracuje; `closed`, że umowy nie ma. Ten status odpowiada na
