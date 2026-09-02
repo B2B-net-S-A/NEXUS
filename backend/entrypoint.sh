@@ -92,7 +92,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'head_of_recruitment'",
     # Role dashboards/RBAC cutover (0210): exclusive Finance persona.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'finance'",
-    # Section RBAC (0267): Talent Community Manager persona.
+    # Section RBAC (0268): Talent Community Manager persona.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'talent_community_manager'",
     # notificationtype: 5 trigger types + champion_profile_updated
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'dl_stage_stale_6h'",

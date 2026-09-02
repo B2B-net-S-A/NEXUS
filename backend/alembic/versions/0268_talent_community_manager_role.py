@@ -1,15 +1,15 @@
 """Add the Talent Community Manager application role.
 
-Revision ID: 0267_talent_community_manager
-Revises: 0266_cv_rules_generator_instructions
+Revision ID: 0268_talent_community_manager
+Revises: 0267_client_cv_rules_dl_recipe
 Create Date: 2026-09-02
 """
 
 from alembic import op
 
 
-revision = "0267_talent_community_manager"
-down_revision = "0266_cv_rules_generator_instructions"
+revision = "0268_talent_community_manager"
+down_revision = "0267_client_cv_rules_dl_recipe"
 branch_labels = None
 depends_on = None
 
