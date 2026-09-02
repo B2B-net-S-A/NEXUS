@@ -93,6 +93,12 @@ def _user_roles(user) -> set:
 
 
 def _is_read_only_tcm(user) -> bool:
+    """TCM ceiling for Delivery mail, irrespective of HoR/TAC secondary roles.
+
+    HoR and TAC do not independently enter Delivery, so only Admin, assigned
+    Delivery Lead, or Finance can supersede the TCM read-only projection here.
+    """
+
     roles = _user_roles(user)
     return UserRole.talent_community_manager in roles and not roles.intersection(
         {UserRole.admin, UserRole.finance, UserRole.delivery_lead}

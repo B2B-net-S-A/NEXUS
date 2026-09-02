@@ -1017,6 +1017,12 @@ def _redact_order_finance(order: ClientOrderRead) -> ClientOrderRead:
 
 
 def _is_read_only_tcm(user: User) -> bool:
+    """TCM ceiling for Delivery orders, irrespective of HoR/TAC secondary roles.
+
+    HoR and TAC do not independently enter Delivery, so only Admin, assigned
+    Delivery Lead, or Finance can supersede the TCM read-only projection here.
+    """
+
     return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
         UserRole.admin,
         UserRole.delivery_lead,

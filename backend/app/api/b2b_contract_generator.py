@@ -132,7 +132,13 @@ _TCM_ELEVATED_CONTRACT_ROLES = (
 
 
 def _is_read_only_tcm(user: User) -> bool:
-    """Return whether TCM is the caller's only contract-operating persona."""
+    """Return whether TCM is the caller's only contract-operating persona.
+
+    Unlike Delivery order surfaces, this sourcing-side generator already
+    grants HoR and TAC their own contract-operating persona. A TCM+HoR/TAC
+    hybrid therefore uses that established persona; a plain TCM stays
+    finance-redacted and read-only.
+    """
 
     return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
         *_TCM_ELEVATED_CONTRACT_ROLES
