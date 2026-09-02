@@ -59,6 +59,12 @@ _OPEN_ORDER_STATUSES = (
 # po cichu.
 _LANGUAGE_CONFLICT_LABEL = "język umowy"
 
+#: Dlaczego automatyzacja świadomie NIE założyła zamówienia. Każdy powód jest
+#: stanem do obsłużenia przez wołającego; ``order is None`` BEZ powodu przy
+#: ``ensure_order=True`` to awaria, której nie wolno przemilczeć.
+ORDER_SKIPPED_COST_CLIENT = "cost_client"
+ORDER_SKIPPED_OPEN_GROUP_LINE = "open_group_line"
+
 
 @dataclass(frozen=True)
 class B2BEmploymentDraftResult:
@@ -71,6 +77,11 @@ class B2BEmploymentDraftResult:
     # Non-empty means the existing contract's populated terms were left as they
     # were and only the linkage/order/stage automation ran.
     acknowledged_conflicts: tuple[str, ...] = ()
+    # Why ``order`` is ``None`` although ``ensure_order`` was requested — one of
+    # ``ORDER_SKIPPED_*``. ``None`` next to a missing order means the automation
+    # failed to produce the record every downstream reader (expiry scanner,
+    # MRR, termination sync) expects; callers must not treat that as success.
+    order_skipped_reason: str | None = None
 
 
 def _payload_value(payload: Any | None, name: str) -> Any | None:
@@ -442,19 +453,28 @@ async def _ensure_open_order(
     job: Job,
     actor_id: int,
     source: str,
-) -> tuple[ClientOrder | None, bool]:
+) -> tuple[ClientOrder | None, bool, str | None]:
+    """Reuse or draft the standalone order; ``(order, created, skipped_reason)``.
+
+    A missing order is legitimate ONLY with a reason. The signed-confirmation
+    endpoint turned every reason-less ``None`` into a 500 and the group-line
+    branch below (#1321) had none, so confirming a BIK/BNP consultant whom
+    Delivery had already put on an MD line rolled the whole handoff back with
+    „Network Error" — the person stayed unsigned and unhired.
+    """
+
     # Klient kosztowy: zero zamówienia z automatu — także zero dowiązywania
     # istniejących linii grupowych (i zero 409 przy dwóch otwartych liniach
     # tej samej osoby, co u Polkomtela jest legalne).
     if not should_auto_create_order(job.client_id):
-        return None, False
+        return None, False, ORDER_SKIPPED_COST_CLIENT
     # Osoba obsadzona na żywej linii zamówienia MD/kosztowego JEST już opisana
     # zamówieniem u tego klienta. Auto-szkic okresowy byłby drugim zapisem tej
     # samej współpracy na tym samym kontrakcie — a wtedy zakończenie jednego
     # domyka drugie (zgłoszenie BNP/Polkomtel/BIK/Wedel). Cicho, nie 409:
     # zatrudnienie nie może się wywrócić przez zamówienie, które już jest.
     if await has_open_group_line(db, contract.id):
-        return None, False
+        return None, False, ORDER_SKIPPED_OPEN_GROUP_LINE
     orders = list(
         (
             await db.execute(
@@ -503,7 +523,7 @@ async def _ensure_open_order(
             )
         if order.job_id is None:
             order.job_id = job.id
-        return orders[0], False
+        return orders[0], False, None
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip()
     from_signed_confirmation = source == "signed_generated_contract"
@@ -558,7 +578,7 @@ async def _ensure_open_order(
             },
         )
     )
-    return order, True
+    return order, True, None
 
 
 async def _resolve_hired_stage_def(
@@ -871,8 +891,9 @@ async def ensure_b2b_employment_draft(
 
     order: ClientOrder | None = None
     created_order = False
+    order_skipped_reason: str | None = None
     if ensure_order:
-        order, created_order = await _ensure_open_order(
+        order, created_order, order_skipped_reason = await _ensure_open_order(
             db,
             contract=contract,
             candidate=candidate,
@@ -914,6 +935,7 @@ async def ensure_b2b_employment_draft(
                     "hired_stage_created": created_hired_stage,
                     "acknowledged_conflicts": list(acknowledged_conflicts),
                     "existing_terms_kept": preserve_existing_terms,
+                    "order_skipped_reason": order_skipped_reason,
                 },
             )
         )
@@ -925,4 +947,5 @@ async def ensure_b2b_employment_draft(
         created_order=created_order,
         created_hired_stage=created_hired_stage,
         acknowledged_conflicts=acknowledged_conflicts,
+        order_skipped_reason=order_skipped_reason,
     )

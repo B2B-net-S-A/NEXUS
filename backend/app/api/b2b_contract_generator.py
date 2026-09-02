@@ -79,8 +79,8 @@ from app.schemas.b2b_contract_generator import (
     B2BUopCheckResponse,
 )
 from app.services.b2b_contract_automation import (
+    ORDER_SKIPPED_OPEN_GROUP_LINE,
     ensure_b2b_employment_draft,
-    should_auto_create_order,
 )
 from app.services.b2b_contract_generator.clause_overrides import (
     ClauseOverrideError,
@@ -1828,11 +1828,16 @@ async def confirm_generated_contract_fully_signed(
             audit_source_generated_id=row.id,
             keep_existing_terms=payload.keep_existing_contract_terms,
         )
-        # Klient kosztowy (Polkomtel): automatyzacja świadomie NIE tworzy
-        # zamówienia — hook nie zna jego typu (kosztowe vs MD), więc dodaje je
-        # ręcznie Delivery Lead. Dla pozostałych klientów brak zamówienia to
-        # nadal błąd wewnętrzny, nie stan do obsłużenia.
-        if result.order is None and should_auto_create_order(job.client_id):
+        # Brak zamówienia jest stanem do obsłużenia WYŁĄCZNIE z powodem
+        # podanym przez serwis: klient kosztowy (typ zamówienia wybiera
+        # Delivery Lead) albo osoba już obsadzona na żywej linii zamówienia
+        # MD/kosztowego (auto-szkic okresowy dublowałby współpracę na tym
+        # samym kontrakcie — #1321). Do 09.2026 bramka pytała tylko o klienta
+        # kosztowego, więc drugi powód kończył się 500 („Network Error") i
+        # wycofaniem całego podpisu u BIK/BNP. Bez powodu to nadal awaria:
+        # cichy „brak zamówienia" zostawiłby zatrudnienie bez rekordu, który
+        # czytają skaner wygasania, MRR i sync terminacji.
+        if result.order is None and result.order_skipped_reason is None:
             raise RuntimeError("employment automation returned no ClientOrder")
 
         row.signature_status = "signed_both"
@@ -1915,7 +1920,18 @@ async def confirm_generated_contract_fully_signed(
                 "Kontraktor już istniał — umowę powiązano bez tworzenia "
                 "duplikatu, a zatrudnienie zsynchronizowano."
             )
-        if result.order is None:
+        if result.order_skipped_reason == ORDER_SKIPPED_OPEN_GROUP_LINE:
+            # Osoba już na linii MD/kosztowej — inny powód i inny następny
+            # krok niż u klienta kosztowego: nic nie trzeba dodawać, co
+            # najwyżej poprawić istniejącą linię w zamówieniu grupowym.
+            message += (
+                " Zamówienia nie utworzono automatycznie: konsultant jest już "
+                "obsadzony na żywej linii zamówienia MD/kosztowego u tego "
+                "klienta, a zamówienie okresowe obok niej byłoby drugim zapisem "
+                "tej samej współpracy. W razie potrzeby edytuj linię w "
+                "zamówieniu grupowym."
+            )
+        elif result.order is None:
             # Wariant klienta kosztowego — komunikat MUSI powiedzieć, że brak
             # zamówienia jest decyzją, nie awarią, i wskazać następny krok.
             message += (
@@ -1934,6 +1950,7 @@ async def confirm_generated_contract_fully_signed(
             message=message,
             generated_contract=item,
             acknowledged_conflicts=list(result.acknowledged_conflicts),
+            order_skipped_reason=result.order_skipped_reason,
         )
     except HTTPException:
         await db.rollback()
