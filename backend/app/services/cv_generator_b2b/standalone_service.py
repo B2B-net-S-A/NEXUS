@@ -2205,9 +2205,11 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
     # CV robionych poza konkretnym zleceniem — więc wobec klienta z sufitem
     # nadal nie wolno twierdzić, że jest nieobchodzalny; można powiedzieć, że
     # obowiązuje zawsze, gdy generacja jest przypisana do jego nazwy.
-    locked_mode, _forced = resolve_content_mode(
-        payload.client_rule, payload.content_mode
-    )
+    # `payload.content_mode` jest już po blokadzie reguły I po suficie karty
+    # klienta — nakłada je warstwa API (`generate-upload`), w tej kolejności.
+    # Ponowne nałożenie blokady TUTAJ cofałoby sufit: blokada „polished" przy
+    # suficie „basic" wracałaby do „polished", a sufit to obietnica złożona
+    # klientowi. Dlatego nic tu nie liczymy na nowo.
     return _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
@@ -2218,7 +2220,7 @@ def generate_cv_from_uploads(payload: UploadGenerationInput) -> GenerationResult
         request_id=request_id,
         fallback_name=None,
         started_at=started_at,
-        content_mode=locked_mode,
+        content_mode=payload.content_mode,
         client_rule=payload.client_rule,
         project_ref=payload.project_ref or None,
         position_ref=payload.position or None,

@@ -259,3 +259,46 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
     assert saved["experience"][0]["dates"] == "03/2024 - obecnie"
     assert not any("12" in w and "BRAK POKRYCIA" in w for w in result.warnings), result.warnings
     assert any("domknięto politykę prezentacji" in w for w in result.warnings)
+
+
+# ── 6. Blokada trybu NIE cofa sufitu karty klienta (ścieżka upload) ─────────
+
+
+def test_upload_path_does_not_relock_above_the_client_cap(
+    captured_prompt: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """API nakłada blokadę, POTEM sufit, i przekazuje wynik jako
+    `payload.content_mode`. Serwis nie może nałożyć blokady drugi raz —
+    blokada „polished" przy suficie „basic" wracałaby do „polished", a sufit to
+    obietnica złożona klientowi."""
+    from app.services.cv_generator_b2b.standalone_service import (
+        UploadGenerationInput,
+        apply_content_mode_cap,
+        generate_cv_from_uploads,
+    )
+
+    monkeypatch.setattr(svc, "_validate_upload", lambda *a, **k: None)
+    rule = CvRuleSnapshot(
+        filename_pattern=None,
+        spaces_to_underscores=False,
+        cv_language=None,
+        requires_en_copy=False,
+        requires_rodo_consent_block=False,
+        content_mode="polished",
+        content_mode_locked=True,
+    )
+    # To, co robi warstwa API: blokada → sufit.
+    locked, _ = svc.resolve_content_mode(rule, "tailored")
+    capped, _ = apply_content_mode_cap(locked, "basic")
+    assert (locked, capped) == ("polished", "basic")
+
+    payload = UploadGenerationInput(
+        cv_bytes=b"x",
+        cv_filename="cv.pdf",
+        language="pl",
+        content_mode=capped,  # type: ignore[arg-type]
+        client_rule=rule,
+    )
+    result = generate_cv_from_uploads(payload)
+    assert result.render_payload["content_mode"] == "basic"
+    assert captured_prompt["system"] == get_prompt("pl", False, "basic")

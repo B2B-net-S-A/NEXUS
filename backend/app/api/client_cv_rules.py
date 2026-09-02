@@ -983,7 +983,11 @@ async def lint_client_cv_rule(
         )
     try:
         # Jedno pole = jedno wywołanie modelu = jedno obciążenie. Wszystkie
-        # naliczane PRZED pierwszym wywołaniem — odmowa w połowie cofa całość.
+        # naliczane PRZED pierwszym wywołaniem: odmowa z powodu wyczerpanego
+        # limitu cofa całość (rollback niżej), ale BŁĄD MODELU po commicie
+        # kwoty NIE zwraca — naliczamy decyzję o dopuszczeniu, nie sukces
+        # round-tripu, tak jak generator i generator ogłoszeń. Nieudane
+        # wywołanie też kosztowało tokeny.
         for _ in fields:
             await check_and_increment(
                 db, AIFeatureKey.cv_rule_lint, user_id=current_user.id

@@ -122,6 +122,13 @@ _BARE_CHARGE_BASELINE = {
     # Migracja tego wpisu ma sens dopiero PO zdjęciu `ai_client.py` z
     # `_RAW_CLIENT_BASELINE` — wtedy jednym ruchem wraca i deklaracja, i sens.
     "app/api/cv_generator_b2b.py",
+    # 0267: reguły CV klienta — ten sam rodzaj co wpis wyżej, z tych samych
+    # dwóch powodów. Lint instrukcji idzie `rule_lint.lint_instructions` →
+    # `ai_client.analyze_with_ai` (surowy klient SDK, bramka dostawcy go nie
+    # ogląda), a CV próbne to dwie generacje w `BackgroundTasks` PO odesłaniu
+    # 202 — deklaracja nie dożyłaby wydatku, a bramka musi zostać w handlerze
+    # (czytelne 503 zamiast wiersza „failed"). Zdejmij razem z wpisem wyżej.
+    "app/api/client_cv_rules.py",
 }
 
 
