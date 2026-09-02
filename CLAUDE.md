@@ -373,6 +373,73 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   HTML nie niosą zrzutu. Wymóg dotyczy dokumentu wysyłanego do banku, a obraz
   niesie adres e-mail kandydata — inny kanał to osobna decyzja.
 
+## Reguły CV per klient — Delivery Lead zakłada je sam, generator dostaje instrukcje
+
+`/settings/cv-rules` jest ekranem ZARZĄDZANIA (od 09.2026), nie podglądem.
+Do tej pory pokazywał wyłącznie 14 szablonów Championa zasianych migracją
+`0255`, bez dodawania i edycji, i nie miał linku w Ustawieniach — reguła dla
+piętnastego klienta była tu niewidoczna, a jedyną drogą do jej założenia było
+okno „Edytuj firmę" w profilu klienta. Backend wpuszczał Delivery Leada od
+początku; to była usterka POWIERZCHNI, nie uprawnień. Decyzje Artura
+z 02.09.2026: reguła per KLIENT (wspólna), DL zatwierdza SAM dla DOWOLNEGO
+klienta, zapis tylko **DL + admin**, plus pole instrukcji dla AI.
+
+- **`GET /api/settings/cv-rules` zwraca `{rules, unassigned_templates}`** —
+  KAŻDĄ regułę w bazie (z nazwą klienta, autorem zatwierdzenia i szablonem,
+  z którego ją zasiano) plus szablony Championa bez wiersza. Tych drugich nie
+  wolno ukryć: brak reguły wyglądałby identycznie jak jej nieistnienie.
+- **Zapis i zatwierdzenie to JEDNO kliknięcie** („Zapisz i zatwierdź",
+  `PUT … {confirm: true}`). Osobny krok „Zatwierdź" chronił PROPOZYCJE z seeda
+  (dopasowane po nazwie, więc możliwie błędne); reguła wpisana ręcznie JEST
+  decyzją autora, a drugie kliknięcie gubiło ludzi — zapisana i niezatwierdzona
+  reguła wygląda w generatorze jak jej brak. Domyślny `PUT` (bez `confirm`)
+  nadal zostawia propozycję, a edycja obowiązującej reguły tą ścieżką ZDEJMUJE
+  zatwierdzenie. Inline „Zatwierdź" na liście zostaje dla propozycji z seeda.
+- **Bramka zapisu to `DeliveryLeadPlus` (admin + DL), NIE `TacPlus`.** TAC
+  edytuje kartę klienta, ale reguł CV nie prowadzi — w oknie „Edytuj firmę"
+  widzi zamiast formularza zdanie odsyłające do DL/admina, a na
+  `/settings/cv-rules` ma czysty odczyt. Front idzie po WŁASNEJ capability
+  `cv_rule.manage` (lustro `DeliveryLeadPlus` w `capabilities.test.ts`), nie po
+  `client.update` — te dwie bramki różnią się dokładnie o TAC-a. Zapis NIE
+  jest zawężany do portfela DL i tak ma zostać: to lustro
+  `PATCH /api/clients/{id}` — reguła CV jest konfiguracją klienta jak jego
+  karta. „Tylko moi klienci" na liście to filtr z `data_scope` (domyślnie
+  włączony dla persony DL, do wyłączenia), nie granica. HoR, TAC, finance,
+  recruiter i sourcer czytają przegląd, ale dostają 403 na zapisie.
+  Test: `test_client_cv_rules_overview.py`.
+- **`generator_instructions` (migracja 0266) to JEDYNE pole reguły, które
+  trafia do promptu.** Wolny tekst DL o PREZENTACJI: co pominąć, co
+  wyeksponować, ile pozycji, jak długo, jakim stylem, format dat. Model dostaje
+  go w bloku `<client_presentation_rules>` **w wiadomości użytkownika, nie
+  w prompcie systemowym** — system idzie jako JEDEN blok
+  z `cache_control: ephemeral` i każda różnica per klient kasowałaby cache
+  promptu u tego klienta. Prompt systemowy (PL i EN) definiuje semantykę bloku
+  i ogranicza jego moc do doboru i formy faktów już obecnych w `<cv>` /
+  `<screening_notes>`; polecenie dopisania technologii, obowiązku, lat czy
+  certyfikatu model ignoruje i zgłasza w `warnings` („Pominięto instrukcję
+  klienta: …"). Bez tego akapitu blok byłby DANYMI, które „granica danych"
+  każe ignorować — pole działałoby wyłącznie na papierze. Znaczniki `<`/`>`
+  w treści są neutralizowane (DL nie ma jak „zamknąć" bloku), długość ucięta
+  do 2000 znaków (`GENERATOR_INSTRUCTIONS_MAX_LENGTH`). Działa w KAŻDYM trybie
+  treści i w blind, bo dotyczy prezentacji, nie pozycjonowania pod ofertę.
+  Układ dokumentu (szablon DOCX) się nie zmienia — instrukcje o tabelach
+  i kolumnach nie mają czego dotknąć. Rekruter dostaje ostrzeżenie
+  „zastosowano instrukcje tego klienta", a baner pokazuje ich treść.
+  Test: `test_cv_generator_client_instructions.py` (asertuje, co REALNIE
+  poszło do modelu i że system prompt jest bajt w bajt ten sam z instrukcjami
+  i bez nich).
+- **`notes` i `generator_instructions` to NIE duplikat** — notatkę czyta
+  człowiek (zwijana sekcja banera po wybraniu klienta z obowiązującą regułą;
+  do 09.2026 nie docierała do rekrutera nigdzie), instrukcje czyta model.
+  Reguła SZUKANIA („kandydatów z bankowości rozważamy w pierwszej
+  kolejności") należy do notatki — w polu dla modelu byłaby zaproszeniem do
+  koloryzowania doświadczenia bankowego.
+- **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w komponencie
+  i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
+- Formularz jest współdzielony (`ClientCvRulesSection`): profil klienta →
+  „Edytuj firmę" → Reguły CV nadal działa (dla DL/admina) i nie ma tam „Usuń
+  regułę" (obok pól firmy czytałoby się jak usuwanie klienta).
+
 ## Profil Championa — siedem sekcji (przebudowa 09.2026)
 
 Szablon skrócony do siedmiu sekcji: **1. Podstawowe informacje · 2. Co wpisać

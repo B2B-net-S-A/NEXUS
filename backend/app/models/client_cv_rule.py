@@ -100,6 +100,15 @@ class ClientCvRule(Base, TimestampMixin):
     # doświadczenia bankowego.
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
+    # Instrukcje dla generatora AI (migracja 0266) — jedyne pole reguły, które
+    # TRAFIA do promptu. Wolny tekst Delivery Leada o PREZENTACJI: co pominąć,
+    # co wyeksponować, jak długo, jakim stylem. Prompt systemowy ogranicza ich
+    # moc do doboru i formy faktów już obecnych w źródle — polecenie, które
+    # wymagałoby dopisania technologii, obowiązku, lat czy certyfikatu, model
+    # ignoruje i zgłasza w ``warnings``. Idą w wiadomości użytkownika, nie
+    # w systemowym prompcie (ten jest cache'owany i musi zostać statyczny).
+    generator_instructions: Mapped[Optional[str]] = mapped_column(Text)
+
     # Slug szablonu z ``help_materials``, z którego regułę zasiano. Pozwala
     # ekranowi weryfikacji pokazać link do dokumentu źródłowego bez dokładania
     # ``client_id`` do ``help_materials``.

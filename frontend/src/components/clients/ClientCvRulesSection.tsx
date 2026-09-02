@@ -1,7 +1,9 @@
 "use client";
 
 /**
- * Reguły CV klienta w oknie edycji klienta.
+ * Reguły CV klienta — formularz współdzielony przez okno edycji klienta
+ * („Edytuj firmę" w profilu) i przegląd zbiorczy w Ustawieniach
+ * (`/settings/cv-rules`).
  *
  * Świadomie NIE jest częścią payloadu PATCH klienta i nie siedzi
  * w `ClientFormFields`: tamten komponent jest współdzielony z oknem
@@ -9,9 +11,25 @@
  * regułę bez świadomej decyzji (i bez szansy porównania jej z szablonem
  * Championa). Reguła ma własną tabelę, własne endpointy i własny zapis.
  *
- * Zapis NIE zatwierdza. Zatwierdzenie jest osobnym kliknięciem, bo dopiero ono
- * sprawia, że generator zaczyna używać wzoru — a błędny wzór to plik nazwany
- * inaczej, niż wymaga tego klient, wykryty dopiero po wysyłce.
+ * Dwa przyciski zapisu, bo są dwie różne sytuacje:
+ *
+ *  * „Zapisz i zatwierdź" — reguła wpisana świadomie przez Delivery Leada /
+ *    TAC-a JEST jego decyzją. Osobne kliknięcie „Zatwierdź" nie dodawało
+ *    żadnej weryfikacji, a gubiło ludzi: zapisana i niezatwierdzona reguła
+ *    wygląda w generatorze dokładnie jak jej brak.
+ *  * „Zapisz jako propozycję" — wersja robocza, której autor nie chce jeszcze
+ *    włączyć. Edycja obowiązującej reguły tą ścieżką ZDEJMUJE zatwierdzenie
+ *    (robi to serwer): zmiana wzoru nazwy pliku nie wchodzi na produkcję bez
+ *    decyzji.
+ *
+ * Usuwanie ma dwustopniowe potwierdzenie W KOMPONENCIE, nie `window.confirm`
+ * — natywny dialog zamraża automatyzację przeglądarki, którą weryfikujemy UI.
+ *
+ * Dwa wolne pola i to nie jest duplikat: `notes` czyta CZŁOWIEK (baner
+ * w generatorze), `generator_instructions` czyta MODEL (blok
+ * `<client_presentation_rules>` w prompcie). Reguła szukania („kandydatów
+ * z bankowości rozważamy w pierwszej kolejności") należy do notatki — w polu
+ * dla modelu byłaby zaproszeniem do koloryzowania doświadczenia bankowego.
  */
 
 import { useEffect, useState } from "react";
@@ -30,34 +48,84 @@ export interface ClientCvRuleForm {
   requires_en_copy: boolean;
   requires_rodo_consent_block: boolean;
   notes: string;
+  generator_instructions: string;
 }
 
-interface RuleResponse {
+export const GENERATOR_INSTRUCTIONS_MAX_LENGTH = 2000;
+
+export interface ClientCvRuleResponse {
+  client_id: number;
+  client_name: string | null;
   filename_pattern: string | null;
   spaces_to_underscores: boolean;
   cv_language: "pl" | "en" | null;
   requires_en_copy: boolean;
   requires_rodo_consent_block: boolean;
   notes: string | null;
+  /** Jedyne pole reguły, które trafia do promptu generatora. */
+  generator_instructions: string | null;
+  seed_key: string | null;
   is_active: boolean;
   confirmed_at: string | null;
   confirmed_by_name: string | null;
+  /** `null` = klient nie ma wiersza reguły; `""` = wiersz jest, ale nie
+   * obowiązuje; niepusty = opis zastosowanej polityki. */
+  client_policy: string | null;
   filename_preview: string | null;
 }
 
-export function ClientCvRulesSection({ clientId }: { clientId: number }) {
+/** Czy odpowiedź opisuje ISTNIEJĄCY wiersz (także niezatwierdzony). */
+export function hasStoredRule(rule: ClientCvRuleResponse | null): boolean {
+  return rule !== null && rule.client_policy !== null;
+}
+
+interface Props {
+  clientId: number;
+  /** Po każdym udanym zapisie — przegląd zbiorczy odświeża listę. */
+  onChanged?: (rule: ClientCvRuleResponse) => void;
+  /** Po usunięciu reguły. */
+  onDeleted?: () => void;
+  /** Pokaż „Usuń regułę". Okno edycji klienta go nie ma — tam usuwanie reguły
+   * obok pól firmy czytałoby się jak usuwanie klienta. */
+  allowDelete?: boolean;
+}
+
+function errorDetail(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })
+    ?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail)) {
+    const first = detail[0] as { msg?: unknown } | undefined;
+    if (first && typeof first.msg === "string") return first.msg;
+  }
+  return fallback;
+}
+
+export function ClientCvRulesSection({
+  clientId,
+  onChanged,
+  onDeleted,
+  allowDelete = false,
+}: Props) {
   const [form, setForm] = useState<ClientCvRuleForm | null>(null);
-  const [rule, setRule] = useState<RuleResponse | null>(null);
+  const [rule, setRule] = useState<ClientCvRuleResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [loadFailed, setLoadFailed] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    setForm(null);
+    setRule(null);
+    setError("");
+    setInfo("");
+    setLoadFailed(false);
+    setConfirmingDelete(false);
     (async () => {
       try {
-        const res = await api.get<RuleResponse>(
+        const res = await api.get<ClientCvRuleResponse>(
           `/api/clients/${clientId}/cv-rule`,
         );
         if (cancelled) return;
@@ -69,6 +137,7 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
           requires_en_copy: res.data.requires_en_copy,
           requires_rodo_consent_block: res.data.requires_rodo_consent_block,
           notes: res.data.notes ?? "",
+          generator_instructions: res.data.generator_instructions ?? "",
         });
       } catch {
         // Awaria odczytu nie może udawać „klient nie ma reguł" — to dwie różne
@@ -86,13 +155,13 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
     value: ClientCvRuleForm[K],
   ) => setForm((f) => (f ? { ...f, [key]: value } : f));
 
-  const save = async () => {
+  const save = async (confirm: boolean) => {
     if (!form) return;
     setBusy(true);
     setError("");
     setInfo("");
     try {
-      const res = await api.put<RuleResponse>(
+      const res = await api.put<ClientCvRuleResponse>(
         `/api/clients/${clientId}/cv-rule`,
         {
           filename_pattern: form.filename_pattern.trim() || null,
@@ -101,34 +170,34 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
           requires_en_copy: form.requires_en_copy,
           requires_rodo_consent_block: form.requires_rodo_consent_block,
           notes: form.notes.trim() || null,
+          generator_instructions: form.generator_instructions.trim() || null,
+          confirm,
         },
       );
       setRule(res.data);
       setInfo(
-        "Zapisano. Reguła zacznie działać dopiero po zatwierdzeniu.",
+        confirm
+          ? "Zapisano i zatwierdzono — generator już stosuje tę regułę."
+          : "Zapisano jako propozycję. Generator zacznie ją stosować dopiero po zatwierdzeniu.",
       );
+      onChanged?.(res.data);
     } catch (err) {
-      setError(
-        (err as { response?: { data?: { detail?: unknown } } })?.response?.data
-          ?.detail?.toString?.() ?? "Nie udało się zapisać reguły.",
-      );
+      setError(errorDetail(err, "Nie udało się zapisać reguły."));
     } finally {
       setBusy(false);
     }
   };
 
-  const confirm = async () => {
+  const remove = async () => {
     setBusy(true);
     setError("");
     setInfo("");
     try {
-      const res = await api.post<RuleResponse>(
-        `/api/clients/${clientId}/cv-rule/confirm`,
-      );
-      setRule(res.data);
-      setInfo("Reguła zatwierdzona — generator już jej używa.");
-    } catch {
-      setError("Nie udało się zatwierdzić reguły.");
+      await api.delete(`/api/clients/${clientId}/cv-rule`);
+      setConfirmingDelete(false);
+      onDeleted?.();
+    } catch (err) {
+      setError(errorDetail(err, "Nie udało się usunąć reguły."));
     } finally {
       setBusy(false);
     }
@@ -145,6 +214,8 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
     return <p className="text-sm text-muted-foreground">Ładowanie reguł CV…</p>;
   }
 
+  const stored = hasStoredRule(rule);
+
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex items-center justify-between gap-3">
@@ -153,9 +224,13 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
           <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
             Obowiązuje
           </span>
-        ) : (
+        ) : stored ? (
           <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400">
             Niezatwierdzona
+          </span>
+        ) : (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            Brak reguły
           </span>
         )}
       </div>
@@ -235,7 +310,7 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
 
       <div>
         <label className="mb-1 block text-xs font-medium" htmlFor="cvrule-notes">
-          Pozostałe standardy klienta (notatka)
+          Pozostałe standardy klienta (notatka dla rekrutera)
         </label>
         <textarea
           id="cvrule-notes"
@@ -245,28 +320,95 @@ export function ClientCvRulesSection({ clientId }: { clientId: number }) {
           className="w-full rounded-md border px-3 py-2 text-sm"
           placeholder="SLA, off-limit, limity rekomendacji, dokumenty onboardingowe…"
         />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Rekruter zobaczy tę notatkę w generatorze CV po wybraniu klienta.
+          Trafia do człowieka, nie do modelu AI.
+        </p>
+      </div>
+
+      <div>
+        <label
+          className="mb-1 block text-xs font-medium"
+          htmlFor="cvrule-instructions"
+        >
+          Instrukcje dla generatora AI
+        </label>
+        <textarea
+          id="cvrule-instructions"
+          value={form.generator_instructions}
+          onChange={(e) => set("generator_instructions", e.target.value)}
+          rows={4}
+          maxLength={GENERATOR_INSTRUCTIONS_MAX_LENGTH}
+          className="w-full rounded-md border px-3 py-2 text-sm"
+          placeholder={
+            "Np. maks. 3 projekty na stanowisko; bez sekcji zainteresowań; " +
+            "opisy obowiązków do 2 zdań; daty w formacie MM.RRRR"
+          }
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Generator stosuje je do KAŻDEGO CV dla tego klienta — ale wyłącznie
+          do doboru i formy faktów, które kandydat ma w CV lub notatkach ze
+          screeningu (co pominąć, co wyeksponować, jak długo, jakim stylem).
+          Polecenie dopisania technologii, obowiązku czy lat doświadczenia
+          model ignoruje i zgłasza w ostrzeżeniach. Układ dokumentu (szablon
+          DOCX) się nie zmienia.
+          {" "}
+          {form.generator_instructions.length}/{GENERATOR_INSTRUCTIONS_MAX_LENGTH}
+        </p>
       </div>
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {info ? <p className="text-sm text-emerald-600">{info}</p> : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           disabled={busy}
-          onClick={save}
-          className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+          onClick={() => save(true)}
+          className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
         >
-          Zapisz reguły
+          Zapisz i zatwierdź
         </button>
         <button
           type="button"
-          disabled={busy || rule?.is_active === true}
-          onClick={confirm}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
+          disabled={busy}
+          onClick={() => save(false)}
+          className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
         >
-          Zatwierdź
+          Zapisz jako propozycję
         </button>
+        {allowDelete && stored ? (
+          confirmingDelete ? (
+            <span className="ml-auto flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">Usunąć regułę?</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={remove}
+                className="rounded-md bg-destructive px-3 py-1.5 text-sm text-destructive-foreground disabled:opacity-50"
+              >
+                Tak, usuń
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+              >
+                Anuluj
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmingDelete(true)}
+              className="ml-auto rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              Usuń regułę
+            </button>
+          )
+        ) : null}
       </div>
       {rule?.confirmed_at ? (
         <p className="text-xs text-muted-foreground">

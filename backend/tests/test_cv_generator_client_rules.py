@@ -40,6 +40,7 @@ def test_snapshot_carries_every_field_the_pipeline_reads():
         cv_language="en",
         requires_en_copy=True,
         requires_rodo_consent_block=True,
+        generator_instructions="  Bez sekcji zainteresowań.  ",
     )
     snap = snapshot_rule(row)
     assert snap == CvRuleSnapshot(
@@ -48,8 +49,13 @@ def test_snapshot_carries_every_field_the_pipeline_reads():
         cv_language="en",
         requires_en_copy=True,
         requires_rodo_consent_block=True,
+        generator_instructions="Bez sekcji zainteresowań.",
     )
     assert snapshot_rule(None) is None
+    # Puste instrukcje = brak instrukcji, a nie pusty string, który
+    # `build_client_presentation_rules_block` musiałby osobno odsiewać.
+    row.generator_instructions = "   "
+    assert snapshot_rule(row).generator_instructions is None
 
 
 # (etykieta, wzór, spaces_to_underscores, oczekiwana nazwa)

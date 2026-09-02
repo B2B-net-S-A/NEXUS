@@ -39,6 +39,7 @@ import type {
   RequestHistoryResponse,
 } from "@/lib/api";
 import { ClientCvRulesSection } from "@/components/clients/ClientCvRulesSection";
+import { useCapability } from "@/hooks/useCapability";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
@@ -1978,6 +1979,10 @@ export function AddClientModal({
 }
 
 export function EditClientModal({ client, onClose, onSuccess }: { client: any; onClose: () => void; onSuccess: (msg: string) => void }) {
+  // Reguły CV prowadzi Delivery Lead (DeliveryLeadPlus), a kartę klienta
+  // edytuje też TAC (TacPlus). Bez tej bramki TAC widziałby formularz reguł
+  // i dostawał 403 dopiero na zapisie.
+  const canManageCvRules = useCapability("cv_rule.manage");
   const [form, setForm] = useState<ClientFormData>(() => clientToForm(client));
   // Nazwa z chwili otwarcia (GET zwraca nazwę EFEKTYWNĄ = display_name ?? name)
   // — dirty-check decyduje, czy w ogóle wysyłamy display_name.
@@ -2028,7 +2033,14 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
             PATCH klienta i poza `ClientFormFields`, który jest współdzielony
             z oknem DODAWANIA klienta. Zakładanie reguł przy tworzeniu firmy
             dawałoby regułę bez świadomej decyzji. */}
-        <ClientCvRulesSection clientId={client.id} />
+        {canManageCvRules ? (
+          <ClientCvRulesSection clientId={client.id} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Reguły CV tego klienta (nazwa pliku, język, instrukcje dla generatora)
+            ustawia Delivery Lead albo admin — patrz Ustawienia → Reguły CV per klient.
+          </p>
+        )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />
