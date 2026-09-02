@@ -40,7 +40,15 @@ interface Props {
   /** Reguła po zapisie — podgląd promptu czyta stan ZAPISANY, więc po
    * edycji bez zapisu pokazuje poprzednią treść; mówimy o tym wprost. */
   dirty: boolean;
+  /** Id ostatniego CV próbnego — trzymane w edytorze, żeby przeżyło
+   * przełączenie zakładki. */
+  previewId: number | null;
+  onPreviewId: (id: number | null) => void;
 }
+
+// Po tym czasie backend i tak pokazuje „processing" jako awarię (restart
+// serwera w trakcie zadania); dalsze odpytywanie byłoby pętlą bez końca.
+const POLL_CAP_MS = 15 * 60 * 1000;
 
 type Payload = Record<string, unknown>;
 
@@ -159,7 +167,7 @@ function VariantColumn({
   );
 }
 
-export function CvRulePreviewTab({ clientId, dirty }: Props) {
+export function CvRulePreviewTab({ clientId, dirty, previewId, onPreviewId }: Props) {
   const [language, setLanguage] = useState<CvRuleLanguage>("pl");
   const promptQuery = useQuery({
     queryKey: ["cv-rule-prompt-preview", clientId, language],
@@ -169,7 +177,6 @@ export function CvRulePreviewTab({ clientId, dirty }: Props) {
   const [candidateQuery, setCandidateQuery] = useState("");
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [stageId, setStageId] = useState<string>("");
-  const [previewId, setPreviewId] = useState<number | null>(null);
   const [enqueueError, setEnqueueError] = useState("");
   const [enqueuing, setEnqueuing] = useState(false);
 
@@ -208,7 +215,12 @@ export function CvRulePreviewTab({ clientId, dirty }: Props) {
     queryKey: ["cv-rule-preview", clientId, previewId],
     enabled: previewId !== null,
     queryFn: () => cvRulesApi.getPreview(clientId, previewId!),
-    refetchInterval: (q) => (q.state.data?.status === "processing" ? 4000 : false),
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (data?.status !== "processing") return false;
+      const started = data.created_at ? new Date(data.created_at).getTime() : Date.now();
+      return Date.now() - started < POLL_CAP_MS ? 4000 : false;
+    },
   });
   const preview: RulePreview | undefined = previewQuery.data;
 
@@ -224,7 +236,7 @@ export function CvRulePreviewTab({ clientId, dirty }: Props) {
         stage_id: selected.stage_id,
         language,
       });
-      setPreviewId(row.id);
+      onPreviewId(row.id);
     } catch (err) {
       setEnqueueError(extractErrorMsg(err) || "Nie udało się uruchomić CV próbnego.");
     } finally {

@@ -157,10 +157,12 @@ def upgrade() -> None:
             sa.ForeignKey("clients.id", ondelete="CASCADE"),
             nullable=False,
         ),
+        # CASCADE: podgląd niesie pełne CV kandydata i jest artefaktem
+        # jednorazowym — usunięcie osoby (RODO) ma go zabrać ze sobą.
         sa.Column(
             "candidate_id",
             sa.Integer(),
-            sa.ForeignKey("candidates.id", ondelete="SET NULL"),
+            sa.ForeignKey("candidates.id", ondelete="CASCADE"),
             nullable=True,
         ),
         sa.Column("stage_id", sa.Integer(), nullable=True),

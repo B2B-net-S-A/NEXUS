@@ -67,6 +67,7 @@ from app.services.cv_generator_b2b.client_rules import (
 from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     generate_cv_for_candidate,
+    list_recruitments_with_readiness,
 )
 
 logger = logging.getLogger(__name__)
@@ -546,6 +547,22 @@ def _diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, dict[str, 
     }
 
 
+async def _next_version(db: AsyncSession, client_id: int) -> int:
+    """Pierwsza wersja NOWEGO wiersza reguły = max z historii klienta + 1.
+
+    Usunięcie i ponowne założenie reguły nie może zacząć numeracji od 1:
+    historia trzyma stare v1..vN, a wygenerowane CV noszą stempel
+    `client_rule_version` — dwie różne treści pod tym samym numerem
+    zamieniłyby stempel w zgadywankę.
+    """
+    last = await db.scalar(
+        select(func.max(ClientCvRuleEvent.rule_version)).where(
+            ClientCvRuleEvent.client_id == client_id
+        )
+    )
+    return int(last or 0) + 1
+
+
 def _record_event(
     db: AsyncSession,
     *,
@@ -671,8 +688,10 @@ async def upsert_client_cv_rule(
 
     after = _rule_state(rule, client)
     changes = _diff(before, after)
-    if created or changes:
-        rule.version = (int(rule.version or 1) + 1) if not created else 1
+    if created:
+        rule.version = await _next_version(db, client.id)
+    elif changes:
+        rule.version = int(rule.version or 1) + 1
 
     if payload.confirm:
         rule.confirmed_at = datetime.now(timezone.utc)
@@ -802,7 +821,10 @@ async def copy_client_cv_rule(
     rule.confirmed_by = None
     after = _rule_state(rule, client)
     changes = _diff(before, after)
-    rule.version = 1 if created else (int(rule.version or 1) + (1 if changes else 0))
+    if created:
+        rule.version = await _next_version(db, client.id)
+    elif changes:
+        rule.version = int(rule.version or 1) + 1
     await db.flush()
     _record_event(
         db,
@@ -960,9 +982,12 @@ async def lint_client_cv_rule(
             findings=[], ok_count=0, adds_facts_count=0, unclear_count=0
         )
     try:
-        await check_and_increment(
-            db, AIFeatureKey.cv_rule_lint, user_id=current_user.id
-        )
+        # Jedno pole = jedno wywołanie modelu = jedno obciążenie. Wszystkie
+        # naliczane PRZED pierwszym wywołaniem — odmowa w połowie cofa całość.
+        for _ in fields:
+            await check_and_increment(
+                db, AIFeatureKey.cv_rule_lint, user_id=current_user.id
+            )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -1037,19 +1062,53 @@ def _variant(value: Optional[dict]) -> Optional[PreviewVariant]:
 
 
 def _preview_read(row: ClientCvRulePreview) -> PreviewRead:
+    status_value = row.status
+    error_message = row.error_message
+    if (
+        status_value == "processing"
+        and row.created_at is not None
+        and datetime.now(timezone.utc) - row.created_at > PREVIEW_STALE_AFTER
+    ):
+        status_value = "failed"
+        error_message = (
+            "Podgląd nie zakończył się w 15 minut (restart serwera w trakcie?) "
+            "— uruchom go ponownie."
+        )
     return PreviewRead(
         id=row.id,
         client_id=row.client_id,
         candidate_id=row.candidate_id,
         stage_id=row.stage_id,
         language=row.language,
-        status=row.status,
-        error_message=row.error_message,
+        status=status_value,
+        error_message=error_message,
         prompt_block=row.prompt_block,
         with_rule=_variant(row.with_rule),
         without_rule=_variant(row.without_rule),
         created_at=_iso(row.created_at),
     )
+
+
+async def _mark_preview_failed(db: AsyncSession, preview_id: int, message: str) -> None:
+    """Zapisz porażkę PO rollbacku — sesja po błędzie bazy w trakcie generacji
+    jest w stanie, w którym `commit()` sam rzuca, a wiersz zostałby
+    „processing" na zawsze."""
+    await db.rollback()
+    row = await db.get(ClientCvRulePreview, preview_id)
+    if row is None:
+        return
+    row.status = "failed"
+    row.error_message = message[:1000]
+    await db.commit()
+
+
+# Podgląd „processing" starszy niż to okno to zadanie zabite w locie (Coolify
+# restartuje kontener przy każdym pushu) — pokazujemy je jako awarię, żeby
+# przycisk i odpytywanie nie wisiały w nieskończoność.
+PREVIEW_STALE_AFTER = timedelta(minutes=15)
+# Podglądy niosą pełne CV kandydata — nie są dokumentami do wysłania, więc
+# nie ma powodu trzymać ich dłużej niż kilka dni.
+PREVIEW_RETENTION = timedelta(days=7)
 
 
 async def _run_rule_preview_job(
@@ -1085,15 +1144,13 @@ async def _run_rule_preview_job(
                 client_rule=None,
             )
         except StandaloneGenerationError as err:
-            row.status = "failed"
-            row.error_message = err.message[:1000]
-            await db.commit()
+            await _mark_preview_failed(db, preview_id, err.message)
             return
         except Exception as err:  # noqa: BLE001 — job w tle nie może paść cicho
             logger.exception("[cv_rule_preview] job %s crashed: %s", preview_id, err)
-            row.status = "failed"
-            row.error_message = "Nieoczekiwany błąd generacji CV próbnego."
-            await db.commit()
+            await _mark_preview_failed(
+                db, preview_id, "Nieoczekiwany błąd generacji CV próbnego."
+            )
             return
         row.with_rule = {
             "payload": with_rule.render_payload,
@@ -1149,6 +1206,35 @@ async def enqueue_client_cv_rule_preview(
             status_code=422,
             detail="Wybrana rekrutacja należy do innego klienta niż ta reguła.",
         )
+    # Gotowość rekrutacji (CV, Champion, notatki) PRZED naliczeniem kwoty —
+    # inaczej DL płaci dwie generacje za wiersz „failed".
+    readiness = await list_recruitments_with_readiness(db, payload.candidate_id)
+    match = next((r for r in readiness if r.stage_id == payload.stage_id), None)
+    if match is None or not match.ready:
+        missing = []
+        if match is None or not match.has_cv:
+            missing.append("CV w systemie")
+        if match is None or not match.has_champion:
+            missing.append("Profil Championa")
+        if match is None or not match.has_notes:
+            missing.append("notatki z rozmów")
+        raise HTTPException(
+            status_code=422,
+            detail="Ta rekrutacja nie jest gotowa do generacji — brakuje: "
+            + ", ".join(missing)
+            + ".",
+        )
+    # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
+    # kolejnego — bez osobnego crona.
+    from sqlalchemy import delete as sa_delete
+
+    await db.execute(
+        sa_delete(ClientCvRulePreview).where(
+            ClientCvRulePreview.client_id == client_id,
+            ClientCvRulePreview.created_at
+            < datetime.now(timezone.utc) - PREVIEW_RETENTION,
+        )
+    )
     try:
         for _ in range(2):
             await check_and_increment(

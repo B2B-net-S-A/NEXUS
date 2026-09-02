@@ -1508,12 +1508,6 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
-    # Klocki reguły klienta domykane W KODZIE, zaraz po odpowiedzi modelu:
-    # sekcje do pominięcia, limity stanowisk / punktów / długości, słownik.
-    # Model dostał te same reguły w prompcie, ale prośba nie jest gwarancją.
-    # PRZED bezpiecznikami, żeby ucięta treść nie generowała ostrzeżeń o czymś,
-    # czego w dokumencie już nie ma. Format dat idzie osobno, na końcu.
-    policy_notes = apply_presentation_policy(candidate_data, client_rule)
     candidate_data["language"] = language
     candidate_data["blind_cv"] = blind_cv
     # Stamped BEFORE the render_payload snapshot so the saved row records which
@@ -1557,8 +1551,14 @@ def _run_generation_pipeline(
     guard_warnings.extend(_date_overlap_warnings(candidate_data, language))
     guard_warnings.extend(_champion_parse_warnings(champion_dto))
 
-    # Format dat klienta — NA KOŃCU, po bezpiecznikach lat i nakładania się
-    # dat, które parsują daty w kształcie źródłowym (`MM.YYYY`).
+    # Klocki reguły klienta domykane W KODZIE — PO bezpiecznikach, nie przed:
+    # `_fix_experience_years` i `_derivable_years` liczą lata z PEŁNEJ listy
+    # stanowisk (obcięcie do `max_roles` przed nimi zaniżałoby nagłówek
+    # „N lat doświadczenia" i flagowało poprawną liczbę jako brak pokrycia),
+    # a słownik podmienia nazewnictwo, którego bezpiecznik nie znalazłby
+    # w źródle. Model dostał te same reguły w prompcie, ale prośba nie jest
+    # gwarancją. Format dat też tutaj — bezpieczniki parsują kształt źródłowy.
+    policy_notes = apply_presentation_policy(candidate_data, client_rule)
     apply_date_format(candidate_data, client_rule)
 
     # Snapshot for the saved-CV log BEFORE render mutates candidate_data
@@ -1731,6 +1731,30 @@ async def list_recruitments_with_readiness(
         ).all()
     )
 
+    # `notes_chars` tylko tam, gdzie zatwierdzona reguła klienta wymaga
+    # minimum — liczenie sumy notatek to kilka zapytań per rekrutacja i bez
+    # wymogu nikt tej liczby nie czyta.
+    from app.models.client_cv_rule import ClientCvRule
+
+    client_ids = {
+        stage.job.client_id
+        for stage in latest_per_job.values()
+        if stage.job is not None and stage.job.client_id
+    }
+    notes_min_clients: set[int] = set()
+    if client_ids:
+        notes_min_clients = set(
+            (
+                await db.scalars(
+                    select(ClientCvRule.client_id).where(
+                        ClientCvRule.client_id.in_(client_ids),
+                        ClientCvRule.confirmed_at.is_not(None),
+                        ClientCvRule.require_screening_notes_min_chars > 0,
+                    )
+                )
+            ).all()
+        )
+
     result: list[RecruitmentReadiness] = []
     for stage in latest_per_job.values():
         job = stage.job
@@ -1755,7 +1779,7 @@ async def list_recruitments_with_readiness(
         )
 
         notes_chars = 0
-        if has_notes and job is not None:
+        if has_notes and job is not None and job.client_id in notes_min_clients:
             notes_chars = len(
                 (
                     await collect_screening_notes_text(

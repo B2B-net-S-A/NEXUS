@@ -27,8 +27,12 @@ class ClientCvRulePreview(Base):
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # CASCADE, nie SET NULL: wiersz niesie pełny `render_payload` kandydata
+    # (nazwisko, pracodawcy, daty). Podgląd to artefakt jednorazowy — nie ma
+    # powodu, żeby przeżył usunięcie osoby (RODO), w odróżnieniu od
+    # `cv_generated_documents`, które są dokumentami wysłanymi klientowi.
     candidate_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("candidates.id", ondelete="CASCADE"), nullable=True
     )
     stage_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     language: Mapped[str] = mapped_column(

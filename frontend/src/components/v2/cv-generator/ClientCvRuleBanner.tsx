@@ -133,10 +133,10 @@ export function ClientCvRuleBanner({
           </span>
         ) : null}
         {rule?.notes?.trim() ? (
-          // Notatka Delivery Leada trafia do CZŁOWIEKA składającego CV, nie do
-          // modelu — to jedyne miejsce, w którym „pozostałe standardy klienta"
-          // w ogóle docierają do rekrutera; do 09.2026 były widoczne wyłącznie
-          // w oknie edycji klienta.
+          // Notatka Delivery Leada — widzi ją rekruter składający CV, a od
+          // 02.09.2026 dostaje ją też model (blok <client_notes>, ta sama
+          // granica co instrukcje: dobór akcentów, nigdy nowe fakty). Do
+          // 09.2026 była widoczna wyłącznie w oknie edycji klienta.
           <details className="text-muted-foreground">
             <summary className="cursor-pointer">
               Standardy klienta (notatka Delivery Leada)

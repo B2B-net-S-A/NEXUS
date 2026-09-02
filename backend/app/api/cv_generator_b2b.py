@@ -618,14 +618,43 @@ async def _run_generate_new_job(
                 )
                 await db.commit()
                 return
-            await _finalize_success(
+            second_finalized = await _finalize_success(
                 db,
                 second_id,
                 result=second_result,
                 consent_screenshot=consent_screenshot,
                 rule_version=rule_snapshot.version if rule_snapshot else None,
             )
+            if second_finalized:
+                db.add(
+                    Activity(
+                        entity_type="candidate",
+                        entity_id=candidate_id,
+                        action="b2b_cv_generated",
+                        details={
+                            "stage_id": stage_id,
+                            "language": second,
+                            "blind_cv": blind_cv,
+                            "content_mode_requested": content_mode,
+                            "content_mode_used": (
+                                second_result.render_payload or {}
+                            ).get("content_mode"),
+                            "filename": second_result.filename,
+                            "warnings_count": len(second_result.warnings),
+                            "processing_time_ms": second_result.processing_time_ms,
+                            "generated_id": second_id,
+                            "auto_second_language": True,
+                        },
+                        user_id=user_id,
+                    )
+                )
             await db.commit()
+            if second_finalized:
+                from app.services.cv_generator_b2b.requirement_map import (
+                    ensure_requirement_map,
+                )
+
+                await ensure_requirement_map(db, second_id, user_id=user_id)
 
 
 def _upload_requirements(payload: UploadGenerationInput) -> list[dict[str, str]]:
@@ -774,16 +803,46 @@ async def _run_generate_upload_job(
                 )
                 await db.commit()
                 return
-            await _finalize_success(
+            second_finalized = await _finalize_success(
                 db,
                 second_id,
                 result=second_result,
                 consent_screenshot=consent_screenshot,
-                rule_version=payload.client_rule.version
-                if payload.client_rule
-                else None,
+                rule_version=(
+                    payload.client_rule.version if payload.client_rule else None
+                ),
             )
+            if second_finalized:
+                db.add(
+                    Activity(
+                        entity_type="user",
+                        entity_id=user_id,
+                        action="b2b_cv_generated_upload",
+                        details={
+                            "cv_filename": payload.cv_filename,
+                            "language": second,
+                            "blind_cv": payload.blind_cv,
+                            "content_mode": payload.content_mode,
+                            "filename": second_result.filename,
+                            "warnings_count": len(second_result.warnings),
+                            "processing_time_ms": second_result.processing_time_ms,
+                            "generated_id": second_id,
+                            "auto_second_language": True,
+                        },
+                        user_id=user_id,
+                    )
+                )
             await db.commit()
+            if second_finalized:
+                from app.services.cv_generator_b2b.requirement_map import (
+                    ensure_requirement_map,
+                )
+
+                requirements = _upload_requirements(second_payload)
+                if requirements:
+                    await ensure_requirement_map(
+                        db, second_id, user_id=user_id, requirements=requirements
+                    )
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -1116,14 +1175,21 @@ async def generate(
     # `generate_cv_for_candidate` już na tę wartość.
     effective_mode, _forced = resolve_content_mode(rule_snapshot, payload.content_mode)
 
+    # Etap musi należeć do TEGO kandydata — inaczej wymagane wejścia zgłaszałyby
+    # „brak notatek" dla cudzego etapu zamiast 404.
+    stage = await db.get(CandidateStage, payload.stage_id)
+    if stage is None or stage.candidate_id != payload.candidate_id:
+        raise HTTPException(
+            status_code=404, detail="Rekrutacja nie należy do tego kandydata."
+        )
+
     # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
     if rule_snapshot is not None and (
         rule_snapshot.require_screening_notes_min_chars
         or rule_snapshot.require_project_ref
         or rule_snapshot.require_champion
     ):
-        stage = await db.get(CandidateStage, payload.stage_id)
-        job = await db.get(Job, stage.job_id) if stage is not None else None
+        job = await db.get(Job, stage.job_id)
         notes_chars = await screening_notes_char_count(
             db, candidate_id=payload.candidate_id, stage_id=payload.stage_id
         )

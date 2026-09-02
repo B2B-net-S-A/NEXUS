@@ -2906,7 +2906,7 @@ _COLUMN_STATEMENTS = [
     """CREATE TABLE IF NOT EXISTS client_cv_rule_previews (
         id SERIAL PRIMARY KEY,
         client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-        candidate_id INTEGER REFERENCES candidates(id) ON DELETE SET NULL,
+        candidate_id INTEGER REFERENCES candidates(id) ON DELETE CASCADE,
         stage_id INTEGER,
         language VARCHAR(2) NOT NULL DEFAULT 'pl',
         status VARCHAR(20) NOT NULL DEFAULT 'processing',

@@ -404,7 +404,9 @@ do modelu.
   `client_cv_rules.version` i zostawia wpis w `client_cv_rule_events` z diffem
   pól (`saved` / `saved_and_confirmed` / `confirmed` / `deleted` / `copied`).
   Sam ponowny zapis identycznej treści wersji nie zmienia: stempel na CV ma
-  mówić o treści, nie o kliknięciach. Wygenerowane CV nosi
+  mówić o treści, nie o kliknięciach. Nowy wiersz po usunięciu startuje od
+  `max(rule_version)+1` z historii, nie od 1 — dwie różne treści pod tym
+  samym numerem zamieniłyby stempel w zgadywankę. Wygenerowane CV nosi
   `cv_generated_documents.client_rule_version` — bez tego reklamacja klienta
   jest nie do prześledzenia. FK historii idzie po KLIENCIE, nie po regule:
   usunięcie i ponowne założenie reguły nie kasuje historii.
@@ -425,16 +427,24 @@ do modelu.
   `test_cv_generator_client_instructions.py` (system prompt identyczny
   z instrukcjami i bez).
 - **Klocki są domykane W KODZIE, nie tylko proszone** (`apply_presentation_policy`
-  zaraz po odpowiedzi modelu, PRZED bezpiecznikami): `omit_sections`
+  PO bezpiecznikach, tuż przed snapshotem `render_payload`): `omit_sections`
   (education | certifications | languages | skills — `why_points` i
   `experience` celowo poza katalogiem), `max_roles`, `max_bullets_per_role`,
   `max_bullet_chars` (cięcie na granicy słowa + „…"), `why_points_max`,
-  `glossary` (całe słowa, bez `\b`, który przy polskich znakach nie działa).
-  **Format dat nakładany OSOBNO, na końcu** (`apply_date_format`): bezpieczniki
-  lat i nakładania się dat parsują daty w kształcie źródłowym `MM.YYYY`.
+  `glossary` (całe słowa, bez `\b`, który przy polskich znakach nie działa;
+  `re.sub` z lambdą, bo `\` w celu wywalałby `re.error`). **Kolejność jest
+  load-bearing:** `_fix_experience_years` i `_derivable_years` liczą lata
+  z PEŁNEJ listy stanowisk — obcięcie do `max_roles` przed nimi zaniżało
+  nagłówek „N lat doświadczenia" i flagowało poprawną liczbę jako brak
+  pokrycia; słownik przed bezpiecznikiem podmieniał nazewnictwo, którego
+  ten nie znajdował w źródle. **Format dat NIE idzie do promptu** — model
+  posłuszny prośbie o `MM/YYYY` gubiłby miesiące bezpiecznikom, które parsują
+  wyłącznie `MM.YYYY`; format nakłada kod na końcu (`apply_date_format`).
   Domknięcie czegokolwiek = ostrzeżenie „domknięto politykę prezentacji
-  klienta w kodzie" — posłuszny model nie generuje żadnej uwagi. Test:
-  `test_cv_rule_presentation_policy.py`.
+  klienta w kodzie" — posłuszny model nie generuje żadnej uwagi. Testy:
+  `test_cv_rule_presentation_policy.py` (klocki w izolacji) i
+  `test_cv_generator_client_instructions.py::test_policy_runs_after_year_guards…`
+  (kolejność w prawdziwym pipeline'ie).
 - **Blokady.** `content_mode` + `content_mode_locked`: zablokowany tryb
   NADPISUJE żądanie na serwerze (`resolve_content_mode` PRZED sufitem, sufit
   nadal wygrywa); kafelki w generatorze wyłączone; tryb bez blokady = domyślny,
@@ -444,7 +454,9 @@ do modelu.
   w readiness rekrutacji). `auto_second_language`: druga wersja generowana
   w tle po pierwszej, jako OSOBNY wiersz z osobną kwotą — tylko przy
   „obie wersje" i bez wymuszonego języka; odmowa kwoty dopisuje uwagę do
-  pierwszego wiersza zamiast padać.
+  pierwszego wiersza zamiast padać. Drugi wiersz jest pełnoprawny: własny wpis
+  `Activity` i mapa wymagań interaktywnego CV, a `rule_reminders` NIE każe
+  wtedy „pamiętać o drugiej wersji".
 - **Klient w trybie upload podpowiadany z procesu kandydata** (picker
   kandydata z bazy, wyłącznie po to). Dokładnie jeden klient w procesach =
   wybrany sam; kilku = przyciski; zero = ręcznie. Generacja BEZ klienta wymaga
@@ -458,10 +470,17 @@ do modelu.
   model nie ocenił, wracają jako `unclear`, nigdy jako `ok`.
 - **CV próbne (`POST …/cv-rule/preview`)** — ten sam kandydat i rekrutacja
   U TEGO klienta (cudza rekrutacja → 422), z regułą ZAPISANĄ (także
-  niezatwierdzoną) i bez, obok siebie. Dwie generacje = DWA obciążenia kwoty
-  `cv_generator` naliczone przed kolejką; liczone w tle (2-3 min to więcej
-  niż limit proxy), osobna tabela `client_cv_rule_previews` — nie
-  `cv_generated_documents`, bo podgląd nie jest dokumentem do wysłania.
+  niezatwierdzoną) i bez, obok siebie. Gotowość rekrutacji sprawdzana PRZED
+  kwotą (inaczej DL płaciłby dwie generacje za wiersz „failed"); dwie
+  generacje = DWA obciążenia `cv_generator` naliczone przed kolejką; liczone
+  w tle (2-3 min to więcej niż limit proxy), osobna tabela
+  `client_cv_rule_previews` — nie `cv_generated_documents`, bo podgląd nie
+  jest dokumentem do wysłania. `candidate_id` z **CASCADE** (wiersz niesie
+  pełne CV — usunięcie osoby ma go zabrać), retencja 7 dni sprzątana przy
+  następnym podglądzie, „processing" starsze niż 15 min raportowane jako
+  awaria (Coolify zabija zadanie w tle przy każdym pushu), porażka zapisywana
+  po `rollback()`. Id podglądu żyje w edytorze, nie w zakładce — przełączenie
+  zakładki nie może zgubić wyniku, za który już zapłacono.
 - **Sygnał zwrotny (`GET …/cv-rule/feedback`)** liczy z ostrzeżeń
   wygenerowanych CV pominięte instrukcje per tekst i domknięcia polityki;
   instrukcja pomijana w co drugim CV to instrukcja do przepisania.

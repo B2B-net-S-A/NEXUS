@@ -113,11 +113,12 @@ class ClientCvRule(Base, TimestampMixin):
         Boolean, nullable=False, default=False, server_default="false"
     )
 
-    # Standardy „dla człowieka": SLA, off-limit, limity rekomendacji, dokumenty
-    # onboardingowe. Świadomie NIE trafiają do promptu modelu — „kandydatów
-    # z doświadczeniem w bankowości rozważamy w pierwszej kolejności" to reguła
-    # SZUKANIA, a w prompcie generatora byłaby zaproszeniem do koloryzowania
-    # doświadczenia bankowego.
+    # Notatka DL o standardach klienta: SLA, off-limit, limity rekomendacji,
+    # co klient ceni. Widzi ją rekruter w generatorze, a od 02.09.2026
+    # (decyzja Artura) TAKŻE model — w osobnym bloku `<client_notes>` pod tą
+    # samą granicą co instrukcje: kontekst do doboru akcentów wśród faktów
+    # ze źródła, nigdy nowe fakty („klient ceni bankowość" = pokaż bankowe
+    # projekty wyżej, jeśli są; nie: napisz, że są).
     notes: Mapped[Optional[str]] = mapped_column(Text)
 
     # Instrukcje dla generatora AI (migracja 0266) — jedyne pole reguły, które

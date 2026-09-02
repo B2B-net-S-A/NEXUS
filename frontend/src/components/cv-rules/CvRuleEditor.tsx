@@ -69,6 +69,10 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
   const [loadFailed, setLoadFailed] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [copySource, setCopySource] = useState<ClientRef | null>(null);
+  // Id CV próbnego trzymane TU, nie w zakładce: przełączenie zakładki
+  // odmontowuje jej stan, a zadanie w tle (i dwa obciążenia kwoty) już
+  // poszło — wynik musi dać się obejrzeć po powrocie.
+  const [previewId, setPreviewId] = useState<number | null>(null);
 
   const load = async (cancelledRef?: { current: boolean }) => {
     try {
@@ -94,6 +98,8 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
     setInfo("");
     setLoadFailed(false);
     setConfirmingDelete(false);
+    setCopySource(null);
+    setPreviewId(null);
     setTab("basics");
     void load(cancelled);
     return () => {
@@ -253,7 +259,14 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
           {tab === "content" ? (
             <CvRuleContentTab form={form} set={set} clientId={clientId} />
           ) : null}
-          {tab === "preview" ? <CvRulePreviewTab clientId={clientId} dirty={dirty} /> : null}
+          {tab === "preview" ? (
+            <CvRulePreviewTab
+              clientId={clientId}
+              dirty={dirty}
+              previewId={previewId}
+              onPreviewId={setPreviewId}
+            />
+          ) : null}
           {tab === "history" ? <CvRuleHistoryTab clientId={clientId} /> : null}
         </div>
       </TabbedNav>

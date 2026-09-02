@@ -137,6 +137,22 @@ def test_long_bullets_are_shortened_at_a_word_boundary() -> None:
     assert any("skrócono" in n for n in notes)
 
 
+def test_glossary_target_with_backslash_does_not_crash() -> None:
+    data = _data()
+    data["why_points"] = ["BA w bankowości"]
+    apply_presentation_policy(data, _rule(glossary=(("BA", r"Analityk\Biznesowy"),)))
+    assert data["why_points"] == [r"Analityk\Biznesowy w bankowości"]
+
+
+def test_reminders_skip_second_language_when_it_is_automatic() -> None:
+    from app.services.cv_generator_b2b.client_rules import rule_reminders
+
+    manual = rule_reminders(_rule(requires_en_copy=True))
+    assert any("drugiej wersji" in r for r in manual)
+    auto = rule_reminders(_rule(requires_en_copy=True, auto_second_language=True))
+    assert not any("drugiej wersji" in r for r in auto)
+
+
 def test_glossary_replaces_whole_words_case_insensitively() -> None:
     data = _data()
     data["why_points"] = ["Doświadczony business analyst w bankowości"]
@@ -166,6 +182,9 @@ def test_glossary_replaces_whole_words_case_insensitively() -> None:
         ("2014 – 2015", "MM.YYYY", "2014 – 2015"),  # gołe lata zostają
         ("03.2019 – obecnie", "YYYY", "2019 – obecnie"),
         ("03.2019 – obecnie", "nonsense", "03.2019 – obecnie"),
+        # Zakres z myślnikiem bez spacji: dwie daty, nie jedna zlepka.
+        ("03.2019-05.2021", "MM/YYYY", "03/2019-05/2021"),
+        ("03.2019-05.2021", "YYYY-MM", "2019-03-2021-05"),
     ],
 )
 def test_reformat_dates(text: str, fmt: str, expected: str) -> None:
@@ -246,7 +265,10 @@ def test_prompt_block_carries_structured_rules_in_document_language() -> None:
     )
     pl = build_client_presentation_rules_block(rule, "pl")
     en = build_client_presentation_rules_block(rule, "en")
-    assert "Języki" in pl and "Maksymalnie 3 punktów" in pl and "MM.YYYY" in pl
+    assert "Języki" in pl and "Maksymalnie 3 punktów" in pl
+    # Format dat CELOWO nie idzie do promptu — bezpieczniki parsują daty
+    # w kształcie źródłowym; format nakłada kod na końcu pipeline'u.
+    assert "MM.YYYY" not in pl
     assert "Bez zdjęcia." in pl and "No photo." not in pl
     assert "Languages" in en and "At most 3" in en and "No photo." in en
     assert "Bez zdjęcia." not in en

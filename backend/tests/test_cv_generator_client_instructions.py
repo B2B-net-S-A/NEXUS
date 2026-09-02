@@ -204,3 +204,58 @@ def test_recruiter_is_told_that_client_instructions_shaped_the_document() -> Non
     assert any("instrukcje tego klienta dla generatora" in w for w in reminders)
     assert describe_rule(_rule(_INSTRUCTIONS)).endswith("instrukcje dla generatora")
     assert "instrukcje" not in describe_rule(_rule(None))
+
+
+# ── 5. Kolejność w pipeline'ie: klocki PO bezpiecznikach ─────────────────────
+
+
+def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
+    captured_prompt: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`max_roles=3` nie może zaniżyć nagłówka „N lat doświadczenia" ani
+    oflagować prawdziwej liczby jako brak pokrycia — lata liczą się z PEŁNEJ
+    listy stanowisk, obcięcie idzie po bezpiecznikach. Format dat też po."""
+    roles = [
+        ("03.2024 – obecnie", "F"),
+        ("01.2022 – 02.2024", "E"),
+        ("01.2020 – 12.2021", "D"),
+        ("01.2018 – 12.2019", "C"),
+        ("01.2016 – 12.2017", "B"),
+        ("03.2014 – 12.2015", "A"),
+    ]
+    payload = dict(_AI_JSON)
+    payload["why_points"] = ["12 lat jako Backend Developer", "Python", "PostgreSQL"]
+    payload["experience"] = [
+        {
+            "dates": dates,
+            "company": company,
+            "industry": "IT",
+            "position": "Backend Developer",
+            "responsibilities": ["Utrzymanie API w Pythonie"],
+            "technologies": ["Python"],
+        }
+        for dates, company in roles
+    ]
+    monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(payload))
+    cv_text = "\n".join(f"{d} {c} Backend Developer, Python" for d, c in roles)
+    monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: cv_text)
+
+    rule = CvRuleSnapshot(
+        filename_pattern=None,
+        spaces_to_underscores=False,
+        cv_language=None,
+        requires_en_copy=False,
+        requires_rodo_consent_block=False,
+        max_roles=3,
+        date_format="MM/YYYY",
+    )
+    result, _ = _run(captured_prompt, rule)
+    saved = result.render_payload
+    assert len(saved["experience"]) == 3
+    assert saved["experience"][0]["company"] == "F"
+    assert "12 lat" in saved["why_points"][0], saved["why_points"]
+    # `_normalize_dashes` sprowadza półpauzę do zwykłego myślnika — to jest
+    # kształt, który trafia do dokumentu.
+    assert saved["experience"][0]["dates"] == "03/2024 - obecnie"
+    assert not any("12" in w and "BRAK POKRYCIA" in w for w in result.warnings), result.warnings
+    assert any("domknięto politykę prezentacji" in w for w in result.warnings)

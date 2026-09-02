@@ -330,12 +330,10 @@ def _structured_rule_lines(rule: CvRuleSnapshot, language: str) -> list[str]:
             else f"Sekcja „dlaczego ten kandydat” (why_points): maksymalnie "
             f"{rule.why_points_max} punktów."
         )
-    if rule.date_format:
-        lines.append(
-            f"Write all dates in the format {rule.date_format}."
-            if en
-            else f"Wszystkie daty w formacie {rule.date_format}."
-        )
+    # Format dat CELOWO nie idzie do promptu: bezpieczniki lat i nakładania
+    # się dat parsują daty w kształcie źródłowym (`MM.YYYY`), a model
+    # posłuszny prośbie o `MM/YYYY` gubiłby im miesiące. Format nakłada kod
+    # na końcu pipeline'u (`apply_date_format`) — deterministycznie.
     if rule.glossary:
         pairs = "; ".join(f"„{src}” → „{dst}”" for src, dst in rule.glossary)
         lines.append(
@@ -430,7 +428,9 @@ def _glossary_pattern(src: str) -> re.Pattern[str]:
 def _apply_glossary_text(text: str, glossary: tuple[tuple[str, str], ...]) -> str:
     out = text
     for src, dst in glossary:
-        out = _glossary_pattern(src).sub(dst, out)
+        # Lambda, nie szablon: `dst` z backslashem albo `\g<0>` wywaliłby
+        # `re.error` w threadpoolu — „failed" na każdej generacji u klienta.
+        out = _glossary_pattern(src).sub(lambda _m, _dst=dst: _dst, out)
     return out
 
 
@@ -519,7 +519,9 @@ def apply_presentation_policy(
 
 
 _DATE_MONTH_YEAR = re.compile(r"(?<!\d)(\d{1,2})[./-](\d{4})(?!\d)")
-_DATE_YEAR_MONTH = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})(?!\d)")
+# Rok poprzedzony separatorem daty to koniec tokenu `MM.YYYY`, nie początek
+# `YYYY-MM` — bez tego „03.2019-05.2021" rozpadał się na „03.05/2019.2021".
+_DATE_YEAR_MONTH = re.compile(r"(?<![\d./])(\d{4})-(\d{1,2})(?!\d)")
 
 
 def _render_date(year: str, month: str | None, fmt: str) -> str:
@@ -544,10 +546,12 @@ def reformat_dates(text: str, fmt: str) -> str:
     """
     if fmt not in DATE_FORMATS or not text:
         return text
-    out = _DATE_YEAR_MONTH.sub(
-        lambda m: _render_date(m.group(1), m.group(2), fmt), text
+    # Najpierw `MM.YYYY` (częstszy kształt), potem `YYYY-MM` — w tej kolejności
+    # zakres z myślnikiem bez spacji zostaje dwoma datami, nie jedną zlepką.
+    out = _DATE_MONTH_YEAR.sub(
+        lambda m: _render_date(m.group(2), m.group(1), fmt), text
     )
-    out = _DATE_MONTH_YEAR.sub(lambda m: _render_date(m.group(2), m.group(1), fmt), out)
+    out = _DATE_YEAR_MONTH.sub(lambda m: _render_date(m.group(1), m.group(2), fmt), out)
     return out
 
 
@@ -715,7 +719,9 @@ def rule_reminders(rule: Optional[CvRuleSnapshot]) -> tuple[str, ...]:
             "WERYFIKUJ: ten klient wymaga zrzutu ekranu ze zgodą kandydata na "
             "dole CV — sprawdź, czy jest widoczny w pobranym dokumencie."
         )
-    if rule.requires_en_copy:
+    if rule.requires_en_copy and not rule.auto_second_language:
+        # Przy automacie druga wersja powstaje sama — przypomnienie byłoby
+        # fałszywym zadaniem na obu dokumentach.
         out.append(
             "WERYFIKUJ: ten klient oczekuje CV po polsku ORAZ po angielsku — "
             "pamiętaj o wygenerowaniu drugiej wersji językowej."

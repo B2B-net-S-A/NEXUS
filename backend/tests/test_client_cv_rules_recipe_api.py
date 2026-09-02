@@ -181,6 +181,14 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
         assert "notes" not in latest["changes"]
         assert events[0]["actor_name"] == "Recipe delivery_lead"
 
+        # Usunięcie i ponowne założenie NIE restartuje numeracji — stempel
+        # `client_rule_version` na CV ma pozostać jednoznaczny.
+        r = await app_client.delete(RULE_URL.format(cid=cid), headers=headers)
+        assert r.status_code == 204
+        r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["version"] == 3
+
         # Dla TAC ten sam zapis to 403 (DeliveryLeadPlus).
         tac = await _headers_for(app_client, "tac")
         r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=tac)
@@ -324,7 +332,7 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert charged == ["cv_rule_lint"]
+        assert charged == ["cv_rule_lint", "cv_rule_lint"], "jedno pole = jedno obciążenie"
         assert len(calls) == 2  # instrukcje + notatka, osobno
         assert body["adds_facts_count"] == 1 and body["ok_count"] == 2
         bad = next(f for f in body["findings"] if f["verdict"] == "adds_facts")
@@ -409,6 +417,35 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
             )
 
         monkeypatch.setattr(api_module, "generate_cv_for_candidate", fake_generate)
+
+        # Rekrutacja bez CV / Championa / notatek → 422 PRZED kwotą (prawdziwa
+        # gotowość: kandydat testowy nie ma nic z tych trzech).
+        r = await app_client.post(
+            RULE_URL.format(cid=cid) + "/preview",
+            json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
+            headers=headers,
+        )
+        assert r.status_code == 422, r.text
+        assert "nie jest gotowa" in r.json()["detail"]
+        assert charged == []
+
+        from types import SimpleNamespace
+
+        async def fake_readiness(db, candidate_id):
+            return [
+                SimpleNamespace(
+                    stage_id=stage_id, ready=True, has_cv=True, has_champion=True, has_notes=True
+                ),
+                SimpleNamespace(
+                    stage_id=other_stage_id,
+                    ready=True,
+                    has_cv=True,
+                    has_champion=True,
+                    has_notes=True,
+                ),
+            ]
+
+        monkeypatch.setattr(api_module, "list_recruitments_with_readiness", fake_readiness)
 
         # Rekrutacja u INNEGO klienta → 422, bez naliczania kwoty.
         r = await app_client.post(
