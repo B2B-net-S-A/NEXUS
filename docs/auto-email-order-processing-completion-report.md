@@ -38,8 +38,8 @@ Frontend: `src/app/order-mail/page.tsx`, `src/components/order-mail/OrderMailQue
 
 ## Co musi zrobić właściciel (bez tego nic nie ruszy)
 
-1. **Reguła na hostingu**: kopia (nie redirect) przychodzących z `zamowienia@b2bnetwork.pl` na skrzynkę w M365; zweryfikować jedną wiadomością, że `From:` zostaje.
-2. **Dedykowany user NEXUS + OAuth M365** tej skrzynki (`M365Connection` jest unikalne po użytkowniku; właściciel musi przejść `eligible_m365_owner`), `ORDER_MAIL_UPN`, potem `ORDER_MAIL_INGEST_ENABLED=true`.
+1. ~~Reguła na hostingu~~ **NIEPOTRZEBNA** (ustalone 02.09): `zamowienia@` to lista dystrybucyjna w Exchange Online; kopię robi członkostwo skrzynki współdzielonej `nexus-zamowienia@b2bnetwork.pl` w tej liście (zrobione).
+2. ~~Dedykowany user + OAuth~~ **ZASTĄPIONE trybem app-only** (`ORDER_MAIL_AUTH_MODE=app`): APPLICATION `Mail.Read` + Application Access Policy na grupę `NEXUS-OrderMail-Scope` (zrobione 02.09, patrz sekcja w `CLAUDE.md`). Zostaje env: `ORDER_MAIL_UPN`, `M365_MAIL_TENANT_ID`, potem `ORDER_MAIL_INGEST_ENABLED=true`.
 3. **NIP-y w `clients.nip`** dla klientów zamówieniowych — seed w `order_policies/known_clients.py` (19 pozycji z korpusu; BNP to DWA podmioty; NIP Autenti celowo pominięty). Bez tego warunek 1 bramki zatrzymuje automat na zawsze.
 4. **Env polityk** per klient (`*_ORDER_EXTRACTION_CLIENT_IDS`) — dopiero wtedy odczyt danego klienta ma proweniencję deterministyczną.
 5. **Reguły okresu** dla BIK / Cyfrowy Polsat / Polkomtel (dokumenty nie mają okresu) i MD vs kosztowe (próbka Polsata ma obie kolumny) — do tego czasu ci klienci zostają w kolejce.

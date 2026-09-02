@@ -394,3 +394,130 @@ async def test_ingest_without_connection_records_error(db_session, monkeypatch):
     assert "no_connection" in stats.errors
     state = await svc.read_state(db_session)
     assert state["last_status"] == "error"
+
+
+# ── Tryb app-only (client_credentials, skrzynka współdzielona) ──────────────
+
+
+def test_mailbox_prefix_follows_auth_mode(monkeypatch):
+    """`/me` tylko dla tokenu użytkownika; app-only adresuje skrzynkę po UPN."""
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nexus-zamowienia@example.test")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "delegated")
+    assert svc.mailbox_prefix() == "/me"
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "APP")
+    assert svc.auth_mode() == "app"
+    assert svc.mailbox_prefix() == "/users/nexus-zamowienia@example.test"
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "garbage")
+    assert svc.auth_mode() == "delegated"
+
+
+class _RecordingGraph(_FakeGraph):
+    def __init__(self, messages, attachments):
+        super().__init__(messages, attachments)
+        self.urls: list[str] = []
+
+    async def paginate(self, url, params=None):
+        self.urls.append(url)
+        async for page in super().paginate(url, params=params):
+            yield page
+
+    async def get(self, url, params=None):
+        self.urls.append(url)
+        return await super().get(url, params=params)
+
+
+@pytest.mark.asyncio
+async def test_app_mode_reads_users_path_without_connection(
+    db_session, monkeypatch, tmp_path
+):
+    """App-only: zero wierszy M365Connection, ścieżki `/users/{upn}`, connection_id NULL."""
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    upn = f"nexus-zamowienia-{RUN}@example.test"
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", upn)
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "app")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+    monkeypatch.setattr(svc, "app_only_credentials_configured", lambda: True)
+
+    # Wiadomość bez PDF-a: przechodzi przez listę i załączniki, nie dotyka parsera.
+    mid = f"app-{RUN}"
+    fake = _RecordingGraph(
+        [_msg(mid)],
+        {
+            f"graph-{mid}": [
+                {
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    "name": "notatka.txt",
+                    "contentType": "text/plain",
+                    "contentBytes": "AA==",
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(svc, "AppGraphClient", lambda: fake)
+
+    async def _boom(conn, db):  # delegated NIE może zostać dotknięte w trybie app
+        raise AssertionError("GraphClient(conn, db) called in app mode")
+
+    monkeypatch.setattr(svc, "GraphClient", _boom)
+
+    stats = await svc.run_order_mail_ingest(reason="test")
+
+    assert "no_connection" not in stats.errors
+    assert "app_only_misconfigured" not in stats.errors
+    assert stats.ignored_no_pdf == 1
+    assert fake.urls[0] == f"/users/{upn}/mailFolders/Inbox/messages"
+    assert fake.urls[1] == f"/users/{upn}/messages/graph-{mid}/attachments"
+
+    from sqlalchemy import select
+
+    from app.models.order_mail import OrderMailDocument
+
+    row = await db_session.scalar(
+        select(OrderMailDocument).where(
+            OrderMailDocument.internet_message_id == f"<{mid}-{RUN}@example>"
+        )
+    )
+    assert row is not None
+    assert row.connection_id is None
+    assert row.outcome == "ignored_no_pdf"
+
+
+@pytest.mark.asyncio
+async def test_app_mode_without_credentials_records_error(db_session, monkeypatch):
+    """Brak poświadczeń client_credentials = jawny błąd stanu, nie cicha pustka."""
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_UPN", "nexus-zamowienia@example.test")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTH_MODE", "app")
+    monkeypatch.setattr(svc, "app_only_credentials_configured", lambda: False)
+    stats = await svc.run_order_mail_ingest(reason="test")
+    assert "app_only_misconfigured" in stats.errors
+    state = await svc.read_state(db_session)
+    assert state["last_status"] == "error"
+    assert "app-only reader misconfigured" in (state["last_error"] or "")
+
+
+@pytest.mark.asyncio
+async def test_app_graph_client_token_lifecycle(monkeypatch):
+    """Wejście bierze token; 401-owe odświeżenie wymusza nowy; brak tokenu = wyjątek."""
+    from app.services.m365 import app_graph_client as agc
+
+    calls: list[bool] = []
+
+    def fake_acquire(*, force_refresh=False):
+        calls.append(force_refresh)
+        return f"tok-{len(calls)}"
+
+    monkeypatch.setattr(agc, "acquire_app_token", fake_acquire)
+    async with agc.AppGraphClient() as gc:
+        assert gc._access_token == "tok-1"
+        await gc._authorize()  # no-op: nie ma właściciela do sprawdzenia
+        await gc._refresh_and_persist()
+        assert gc._access_token == "tok-2"
+    assert calls == [False, True]
+
+    monkeypatch.setattr(agc, "acquire_app_token", lambda *, force_refresh=False: None)
+    with pytest.raises(agc.AppOnlyTokenUnavailable):
+        async with agc.AppGraphClient():
+            pass

@@ -336,6 +336,16 @@ class Settings(BaseSettings):
     # i jest POMIJANE przez sync skrzynek osobistych (matcher kandydatów, osie
     # czasu maili) — zamówienia klientów nie są pocztą rekrutera.
     ORDER_MAIL_UPN: str = ""
+    # Jak czytnik uwierzytelnia się do tej skrzynki:
+    #  - "delegated" — połączenie OAuth użytkownika-bota (wiersz M365Connection
+    #    o tym UPN); wymaga konta z licencją i hasłem oraz odświeżania tokenu;
+    #  - "app" — client_credentials TEJ SAMEJ rejestracji (M365_CLIENT_ID/SECRET,
+    #    realny tenant w M365_MAIL_TENANT_ID) z APPLICATION `Mail.Read` zawężonym
+    #    Application Access Policy do skrzynki zamówień. Skrzynka może być
+    #    WSPÓŁDZIELONA (bez licencji, bez logowania) — członek listy dystrybucyjnej
+    #    zamowienia@, więc hosting nie potrzebuje żadnej reguły kopii. Graph nie
+    #    ma `/me` bez użytkownika, stąd ścieżki `/users/{upn}/...`.
+    ORDER_MAIL_AUTH_MODE: str = "delegated"
     # Sloty dobowe (czas LOKALNY Europe/Warsaw, „HH:MM,HH:MM") — bieg raz, gdy
     # początek któregoś slotu leży w (ostatni bieg, teraz]. Lokalny, nie UTC:
     # ticket mówi „ok. 8:00 i 15:00", a UTC rozjeżdża się z DST.

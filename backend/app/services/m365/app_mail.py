@@ -55,6 +55,38 @@ def is_configured() -> bool:
     )
 
 
+def app_only_credentials_configured() -> bool:
+    """Czy da się w ogóle wziąć token client_credentials (bez flag kanału mail).
+
+    Osobno od ``is_configured()``: tamta bramkuje WYSYŁKĘ systemową i wymaga
+    ``M365_APP_MAIL_ENABLED`` + skrzynki nadawcy; czytnik zamówień potrzebuje
+    tylko poświadczeń rejestracji i realnego tenanta.
+    """
+    tenant = _tenant()
+    return bool(
+        settings.M365_CLIENT_ID
+        and settings.M365_CLIENT_SECRET
+        and tenant
+        and tenant != "common"
+    )
+
+
+def acquire_app_token(*, force_refresh: bool = False) -> Optional[str]:
+    """Token app-only do Graph (``.default``) albo ``None``.
+
+    ``force_refresh`` kasuje cache MSAL dla tego klienta — używane po 401,
+    gdy Graph odrzucił token, który MSAL wciąż uważa za ważny.
+    """
+    if not app_only_credentials_configured():
+        return None
+    if force_refresh:
+        app = _get_msal_app()
+        remove = getattr(app, "remove_tokens_for_client", None)
+        if callable(remove):
+            remove()
+    return _acquire_token()
+
+
 def _get_msal_app() -> msal.ConfidentialClientApplication:
     """MSAL app z reużyciem token-cache; przebudowa gdy zmienią się creds/tenant."""
     global _msal_app, _msal_key
