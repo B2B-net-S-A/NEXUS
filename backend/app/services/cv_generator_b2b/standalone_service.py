@@ -206,14 +206,48 @@ class GenerationResult:
     job_id: int | None = None
 
 
+def hydrate_consent_screenshot(payload: dict[str, Any]) -> dict[str, Any]:
+    """Doczytaj bajty zrzutu zgody z magazynu i wstrzyknij je do payloadu.
+
+    W `render_payload` zapisany jest wyłącznie `storage_key` — zrzut maila waży
+    setki kilobajtów i w JSONB puchłby przy każdym odczycie wiersza. Renderer
+    dostaje bajty pod `consent_screenshot._bytes` i sam do magazynu nie sięga,
+    więc zostaje czystą funkcją.
+
+    Awaria magazynu NIE przerywa pobrania: CV bez zrzutu to dokument do ręcznego
+    uzupełnienia (stan sprzed tej funkcji), a wyjątek tutaj zabrałby rekruterowi
+    także tę możliwość. Ostrzeżenie idzie do logu.
+    """
+    consent = payload.get("consent_screenshot")
+    if not isinstance(consent, dict):
+        return payload
+    key = str(consent.get("storage_key") or "").strip()
+    if not key or consent.get("_bytes"):
+        return payload
+    try:
+        from app.services import object_storage
+
+        consent["_bytes"] = object_storage.download_cv(key)
+    except Exception:  # noqa: BLE001 — patrz docstring
+        logger.warning(
+            "consent screenshot: nie udało się pobrać %s z magazynu", key, exc_info=True
+        )
+    return payload
+
+
 def rerender_docx_from_payload(render_payload: dict[str, Any]) -> bytes:
     """Re-render a previously generated CV from its saved ``render_payload``.
 
     Deterministic — no Claude call. Deep-copies because ``render_cv_to_bytes``
     mutates the dict in place for blind anonymization, and the stored payload
     must stay reusable for the next download.
+
+    Zrzut zgody doczytujemy TUTAJ, a nie przy generacji: dokument jest
+    re-renderowany przy KAŻDYM pobraniu, więc obraz zapisany tylko raz zniknąłby
+    z drugiego i każdego kolejnego pliku.
     """
-    return render_cv_to_bytes(copy.deepcopy(render_payload), TEMPLATE_PATH)
+    payload = hydrate_consent_screenshot(copy.deepcopy(render_payload))
+    return render_cv_to_bytes(payload, TEMPLATE_PATH)
 
 
 @dataclass(frozen=True)

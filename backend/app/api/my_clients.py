@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Annotated, Optional
+from typing import Annotated, NamedTuple, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -67,16 +67,36 @@ _MY_CLIENTS_ORGANIZATION_READ_ROLES = (
 _LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
 
+class MonthlyMarginTotals(NamedTuple):
+    """Miesięczne agregaty jednego klienta, policzone z TYCH SAMYCH kontraktów.
+
+    ``revenue`` jest tu po to, żeby procent marży miał mianownik w tej samej
+    jednostce co licznik. Wcześniej dzieliliśmy marżę MIESIĘCZNĄ przez sumę
+    ``ClientOrder.total_value`` — czyli przepływ na miesiąc przez wartość całych
+    zamówień. Iloraz dwóch różnych wielkości nie znaczy nic: na produkcji dawał
+    u Nordei 603,82%.
+    """
+
+    margin: Decimal
+    revenue: Decimal
+    has_margin: bool
+    complete: bool
+
+
 async def _monthly_margin_total_pln(
     db: AsyncSession,
     contracts: list[Contract],
     on: date,
-) -> tuple[Decimal, bool, bool]:
-    """Return ``(total, has_margin, complete)`` for contract margins in PLN.
+) -> MonthlyMarginTotals:
+    """Miesięczna marża i miesięczny przychód klienta w PLN.
 
-    The revenue and candidate-cost legs are converted independently. When a
-    required FX rate is unavailable, ``complete`` is false so the caller can
-    return ``None`` instead of presenting a partial aggregate as authoritative.
+    Obie nogi (przychodowa i kosztowa) są przewalutowane NIEZALEŻNIE. Gdy
+    brakuje kursu, ``complete`` jest fałszywe, żeby wołający zwrócił ``None``
+    zamiast podawać częściowy agregat jako pewny.
+
+    ``revenue`` sumuje wyłącznie kontrakty, które weszły też do ``margin`` —
+    kontrakt pominięty w liczniku (brak stawki, brak kursu) nie może zawyżać
+    mianownika, bo procent przestałby opisywać ten sam zbiór.
     """
 
     currencies = {
@@ -89,6 +109,7 @@ async def _monthly_margin_total_pln(
     }
     fx_rates = await rates_to_pln(db, currencies, on)
     total = Decimal("0")
+    revenue = Decimal("0")
     has_margin = False
     complete = True
     for contract in contracts:
@@ -108,8 +129,9 @@ async def _monthly_margin_total_pln(
             continue
         assert client_pln is not None and candidate_pln is not None
         total += client_pln - candidate_pln
+        revenue += client_pln
         has_margin = True
-    return total, has_margin, complete
+    return MonthlyMarginTotals(total, revenue, has_margin, complete)
 
 
 async def require_dl_assigned_or_admin_after_merge(
@@ -425,7 +447,6 @@ async def client_dashboard(
     total_rev = Decimal(0)
     active_rev = Decimal(0)
     completed_rev = Decimal(0)
-    active_rev_pln = Decimal(0)
     revenue_fx_complete = True
     currency_breakdown: dict[str, Decimal] = {}
     if finance_ok:
@@ -461,7 +482,6 @@ async def client_dashboard(
                 "completed": Decimal("0"),
             },
         )
-        active_rev_pln = revenue_totals["active"]
         revenue_fx_complete = client_id not in revenue_incomplete
         if revenue_fx_complete:
             total_rev = revenue_totals["total"]
@@ -490,6 +510,7 @@ async def client_dashboard(
         .all()
     )
     monthly_margin_total: Decimal | int = 0
+    monthly_revenue_total: Decimal = Decimal("0")
     has_margin = False
     margin_complete = True
     if finance_ok:
@@ -513,13 +534,26 @@ async def client_dashboard(
         today = date.today()
         (
             monthly_margin_total,
+            monthly_revenue_total,
             has_margin,
             margin_complete,
         ) = await _monthly_margin_total_pln(db, contract_rows, today)
 
+    # Marża % = marża MIESIĘCZNA / przychód MIESIĘCZNY, obie nogi z tego samego
+    # zbioru kontraktów. Mianownikiem NIE jest suma `ClientOrder.total_value`:
+    # to wartość całych zamówień, a nie przepływ na miesiąc. Dzielenie
+    # przepływu przez wartość całkowitą dawało liczbę bez znaczenia — na
+    # produkcji 603,82% u Nordei (1 833 307 zł/mc marży przez 303 616 zł
+    # wartości zamówień).
+    #
+    # `revenue_fx_complete` NIE jest już warunkiem: dotyczy przewalutowania
+    # zamówień, których ten wskaźnik przestał używać. Kompletność kursów dla
+    # stawek kontraktowych niesie `margin_complete`.
     margin_pct: Optional[float] = None
-    if margin_complete and revenue_fx_complete and has_margin and active_rev_pln > 0:
-        margin_pct = round(float(monthly_margin_total) / float(active_rev_pln) * 100, 2)
+    if margin_complete and has_margin and monthly_revenue_total > 0:
+        margin_pct = round(
+            float(monthly_margin_total) / float(monthly_revenue_total) * 100, 2
+        )
 
     # Konsultanci active vs completed (na podstawie kontraktów linkowanych do orderów)
     active_headcount = summarize_active_contracts(

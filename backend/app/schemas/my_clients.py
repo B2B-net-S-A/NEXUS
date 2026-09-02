@@ -62,6 +62,15 @@ class ClientDashboardResponse(BaseModel):
     # Margin (auto z linkowanych Contract)
     monthly_margin_total: Optional[WholePLN] = None
     monthly_margin_pct: Optional[float] = None
+    """Marża miesięczna jako % przychodu MIESIĘCZNEGO (marża/przychód×100).
+
+    Obie wielkości pochodzą z tego samego zbioru żywych kontraktów, więc liczba
+    jest sprawdzalna wzrokiem: ``monthly_margin_total`` podzielone przez sumę
+    stawek przychodowych. Do 09.2026 mianownikiem była suma
+    ``ClientOrder.total_value`` — wartość CAŁYCH zamówień — więc wskaźnik
+    dzielił przepływ miesięczny przez wartość całkowitą i potrafił pokazać
+    603,82% (Nordea, zmierzone na produkcji).
+    """
 
     # Konsultanci
     active_consultants: int = 0

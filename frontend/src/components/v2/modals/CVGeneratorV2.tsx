@@ -10,6 +10,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import api from "@/lib/api";
+import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
+import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { cn } from "@/lib/utils";
 import {
   type CvContentMode,
@@ -112,7 +114,23 @@ export function CVGeneratorV2({
     );
   }, [recruitmentsQuery.data, stageId]);
 
-  const canSubmit = !!selectedRecruitment && selectedRecruitment.ready;
+  // Zrzut zgody kandydata — wymagany u klientów z `requires_rodo_consent_block`
+  // (dziś PKO BP). Klienta bierzemy z wybranej rekrutacji, tak jak robi to
+  // serwer, żeby ekran i walidacja mówiły o tym samym.
+  const [consentKey, setConsentKey] = useState<string | null>(null);
+  // Ten sam hook i ten sam klucz cache co w generatorze standalone — dwa
+  // własne zapytania o tę samą regułę rozjechałyby się przy pierwszej zmianie.
+  // `is_active`, bo propozycja z seeda (niezatwierdzona) nie obowiązuje i serwer
+  // też jej nie stosuje (`resolve_client_rule`).
+  const consentRuleQuery = useClientCvRule(selectedRecruitment?.client_id ?? null);
+  const consentRequired =
+    !!consentRuleQuery.data?.is_active &&
+    !!consentRuleQuery.data.requires_rodo_consent_block;
+
+  const canSubmit =
+    !!selectedRecruitment &&
+    selectedRecruitment.ready &&
+    (!consentRequired || !!consentKey);
 
   const generateMut = useMutation({
     mutationFn: async () => {
@@ -129,6 +147,7 @@ export function CVGeneratorV2({
           language,
           blind_cv: blindCv,
           content_mode: contentMode,
+          consent_screenshot_key: consentKey ?? "",
         },
         { timeout: 30_000 },
       );
@@ -369,6 +388,13 @@ export function CVGeneratorV2({
                 </div>
               </div>
             </div>
+
+            <ConsentScreenshotField
+              value={consentKey}
+              onChange={(key: string | null) => setConsentKey(key)}
+              required={consentRequired}
+              disabled={generateMut.isPending}
+            />
 
             {error && (
               <div

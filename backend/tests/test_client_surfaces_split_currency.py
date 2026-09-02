@@ -186,12 +186,14 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
 
     monkeypatch.setattr(my_clients, "rates_to_pln", missing_fx)
     monkeypatch.setattr(my_clients, "effective_rate_fields", effective_fields)
-    total, has_margin, complete = await my_clients._monthly_margin_total_pln(
+    totals = await my_clients._monthly_margin_total_pln(
         object(), [contract], date.today()
     )
-    assert total == 0
-    assert has_margin is False
-    assert complete is False
+    assert totals.margin == 0
+    assert totals.has_margin is False
+    assert totals.complete is False
+    # Kontrakt pominięty w liczniku nie może zawyżyć mianownika procentu.
+    assert totals.revenue == 0
 
     # `_margin_lookup_pln` mieszka od refaktoru w `app/services/insights_clients.py`
     # (ta sama funkcja zasila `/api/admin/clients-overview` i `/api/insights/clients`),
@@ -255,18 +257,17 @@ async def test_missing_fx_never_becomes_a_nominal_margin(monkeypatch) -> None:
     assert zero_profile["monthly_margin"] == Decimal("-100")
     assert zero_profile["client_missing_fx"] is False
 
-    (
-        zero_total,
-        zero_has_margin,
-        zero_complete,
-    ) = await my_clients._monthly_margin_total_pln(
+    zero_totals = await my_clients._monthly_margin_total_pln(
         object(), [zero_revenue_contract], date.today()
     )
-    assert (zero_total, zero_has_margin, zero_complete) == (
+    assert (zero_totals.margin, zero_totals.has_margin, zero_totals.complete) == (
         Decimal("-100"),
         True,
         True,
     )
+    # Zerowy przychód przy ujemnej marży: procent nie ma mianownika i wołający
+    # musi zwrócić ``None`` zamiast dzielić przez zero.
+    assert zero_totals.revenue == 0
     zero_admin, zero_admin_incomplete = await admin_clients_overview._margin_lookup_pln(
         object(), [zero_revenue_contract], date.today()
     )

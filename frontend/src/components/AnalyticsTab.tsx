@@ -116,9 +116,13 @@ function KpiGrid({
                 ? `${data.monthly_margin_total}`
                 : "—"
             }
+            // „% przychodu/mc", nie samo „%": ten wskaźnik to marża
+            // miesięczna podzielona przez przychód miesięczny. Goły procent
+            // obok kwoty czytał się jak udział w wartości zamówień, czyli
+            // w liczbie, której tu nie ma.
             sublabel={
               data.monthly_margin_pct != null
-                ? `${data.monthly_margin_pct}%`
+                ? `${data.monthly_margin_pct}% przychodu/mc`
                 : undefined
             }
           />
