@@ -100,15 +100,15 @@ from app.services.order_types import (
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
-    apply_bank_pocztowy_order_policy,
-    apply_bnp_order_policy,
-    apply_credit_agricole_order_policy,
-    apply_erste_order_policy,
-    apply_orlen_order_policy,
-    apply_pfron_order_policy,
     enforce_consultant_policy_safety,
-    enforce_nordea_order_number,
     parse_order_document,
+)
+from app.services.order_policies import (
+    PolicyContext,
+    active_policies,
+    apply_policies,
+    is_client_in_policy,
+    parse_plan,
 )
 from app.services.order_excel_export import (
     OrderExportRow,
@@ -251,168 +251,39 @@ def _attach_po_bytes(
     return previous if previous and previous != rel_path else None
 
 
-# CSV z `client_id` klientów, u których numer zamówienia podlega twardej
-# polityce Nordei (`enforce_nordea_order_number`). Ustawiana w Coolify, jak
-# `MULTI_CONSULTANT_ORDER_CLIENT_IDS` i `COST_ORDER_CLIENT_IDS`.
-#
-# Czytane z `os.environ`, a nie z `Settings`, dlatego że to bramka jednego
-# routera, a nie kontrakt współdzielony z frontem (tamte dwie listy wychodzą
-# do UI przez `ClientSafeResponse`). Precedens w tej samej warstwie:
-# `admin_import` czyta `TALENT_RADAR_DSN` tak samo.
-_NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV = "NORDEA_ORDER_NUMBER_CLIENT_IDS"
-
-
-# CSV z `client_id` klientów objętych polityką ekstrakcji Banku Pocztowego
-# (`apply_bank_pocztowy_order_policy`: hierarchia „Numer pisma"/„Zamówienie nr"
-# + stawka netto za 1 MD przeliczana na godzinową). Ta sama mechanika bramki
-# co wyżej — patrz `_is_nordea_order_number_client` po uzasadnienie ID-ków.
-_BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV = "BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS"
-
-
-# CSV z `client_id` klientów objętych polityką ekstrakcji Credit Agricole
-# (`apply_credit_agricole_order_policy`: stawka wyłącznie z pola
-# „Wynagrodzenie za 1MD (8h) (PLN netto)", liczba MD wyłącznie z „Szacowana
-# ilość MD"). Ta sama mechanika bramki co wyżej.
-_CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV = "CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS"
-
-
-# CSV z `client_id` klientów objętych polityką ekstrakcji BNP
-# (`apply_bnp_order_policy`: dokument JEDNOOSOBOWY, konsultant rozpoznawany po
-# numerze ID zamiast po nazwisku, „Cena netto" → stawka za 1 MD, „Szt." →
-# liczba MD, okres „MM-RRRR do MM-RRRR" → pierwszy/ostatni dzień miesiąca).
-# Ta sama mechanika bramki co wyżej — i ten sam powód, dla którego to ID,
-# a nie nazwa: „BNP" jako podciąg wciąga też „BNP Paribas Bank Polska",
-# odrębnego klienta (patrz `GET /api/admin/client-mixups`).
-_BNP_ORDER_CLIENT_IDS_ENV = "BNP_ORDER_EXTRACTION_CLIENT_IDS"
-
-
-# CSV z `client_id` klientów, u których stawka w dokumencie jest BRUTTO
-# i podlega przeliczeniu na netto (`apply_erste_order_policy`, ÷ 1,23).
-# Bramka po ID, nie po nazwie — „Erste Bank Polska S.A." to nazwa, którą
-# Traffit potrafi nadpisać, a rodzina rekordów tego samego banku bywa większa
-# niż jeden wiersz (ta sama lekcja co przy BNP).
-_ERSTE_GROSS_RATE_CLIENT_IDS_ENV = "ERSTE_GROSS_RATE_CLIENT_IDS"
-
-# Reguły Orlen/PFRON są celowo związane z kanonicznymi rekordami klientów,
-# które zweryfikowano w produkcyjnym rejestrze przed wdrożeniem ticketu. Env
-# pozwala dopisać kontrolowany duplikat/rekord w innym środowisku bez
-# rozlewania heurystyki na klientów o podobnej nazwie. Nazwa klienta nie jest
-# bramką: import z Traffita może ją zmienić, a reguła finansowa ma pozostać
-# dokładnie client-specific.
-_ORLEN_ORDER_EXTRACTION_CLIENT_IDS_ENV = "ORLEN_ORDER_EXTRACTION_CLIENT_IDS"
-_PFRON_ORDER_EXTRACTION_CLIENT_IDS_ENV = "PFRON_ORDER_EXTRACTION_CLIENT_IDS"
-_ORLEN_CANONICAL_CLIENT_IDS = frozenset({35})
-_PFRON_CANONICAL_CLIENT_IDS = frozenset({122})
-
-
-def _client_ids_from_env(env_name: str) -> frozenset[int]:
-    """CSV `client_id` ze zmiennej środowiskowej bramki polityki ekstrakcji.
-
-    Wpisy nienumeryczne są POMIJANE, nie wysadzają requestu: literówka w
-    zmiennej środowiskowej ma wyłączyć politykę jednemu klientowi, a nie
-    położyć odczyt PDF-a wszystkim.
-    """
-    ids: set[int] = set()
-    for chunk in os.environ.get(env_name, "").split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        try:
-            ids.add(int(chunk))
-        except ValueError:
-            continue
-    return frozenset(ids)
-
-
-def _nordea_order_number_client_ids() -> frozenset[int]:
-    """Lista klientów objętych polityką numeru zamówienia Nordei."""
-    return _client_ids_from_env(_NORDEA_ORDER_NUMBER_CLIENT_IDS_ENV)
+# Bramki polityk odczytu PDF per klient. Deklaracje (env, kanoniczne ID,
+# kolejność, wpływ na parser) mieszkają w ``app.services.order_policies`` —
+# tu zostają wyłącznie cienkie wrappery, bo testy importują je po nazwie
+# (``test_order_activation_gates_and_group_materializer``) i pinują semantykę:
+# ID z env, pusta lista = fail-closed, literówka gasi jeden wpis, nie request.
 
 
 def _is_nordea_order_number_client(client_id: Optional[int]) -> bool:
-    """Czy u tego klienta numer zamówienia wymusza reguła Nordei.
-
-    Dopasowanie po ID, nie po nazwie — tak jak `is_cost_order_client` i
-    `is_multi_consultant_client`, i z tego samego powodu: `Client.name`
-    nadpisuje import z Traffita, a klient bywa RODZINĄ rekordów (BNP) albo ma
-    duplikat wiersza (e-Zdrowie). Podciąg „nordea bank abp" w wolnym tekście
-    przestawał trafiać po jednej edycji nazwy u źródła — a wtedy parser
-    zwracał numer oferty/projektu jako numer zamówienia, czyli dokładnie to,
-    przed czym ta reguła chroni, tylko bez żadnego sygnału. Odwrotnie też:
-    dowolny nowy klient z tym podciągiem w `legal_name` dostawał politykę bez
-    niczyjej decyzji.
-
-    Pusta lista → `False` dla każdego klienta (fail-closed, jak obie sąsiednie
-    bramki). Aktywacja na prodzie = ustawienie
-    `NORDEA_ORDER_NUMBER_CLIENT_IDS` w Coolify.
-    """
-    if client_id is None:
-        return False
-    return client_id in _nordea_order_number_client_ids()
+    return is_client_in_policy("nordea", client_id)
 
 
 def _is_bank_pocztowy_order_client(client_id: Optional[int]) -> bool:
-    """Czy u tego klienta ekstrakcja PDF podlega polityce Banku Pocztowego.
-
-    Dopasowanie po ID z env, nie po nazwie — te same powody co w
-    `_is_nordea_order_number_client` (nazwa nadpisywana importem z Traffita).
-    Pusta lista → `False` dla każdego klienta (fail-closed). Aktywacja na
-    prodzie = ustawienie `BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS` w Coolify.
-    """
-    if client_id is None:
-        return False
-    return client_id in _client_ids_from_env(_BANK_POCZTOWY_ORDER_CLIENT_IDS_ENV)
+    return is_client_in_policy("bank_pocztowy", client_id)
 
 
 def _is_credit_agricole_order_client(client_id: Optional[int]) -> bool:
-    """Czy u tego klienta stawkę czytamy WYŁĄCZNIE z etykiety wynagrodzenia.
-
-    Bramka po ID z env, fail-closed — jak obie sąsiednie. Aktywacja na prodzie
-    = ustawienie `CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS` w Coolify.
-    """
-    if client_id is None:
-        return False
-    return client_id in _client_ids_from_env(_CREDIT_AGRICOLE_ORDER_CLIENT_IDS_ENV)
+    return is_client_in_policy("credit_agricole", client_id)
 
 
 def _is_bnp_order_client(client_id: Optional[int]) -> bool:
-    """Czy dokumenty tego klienta są JEDNOOSOBOWE i bez nazwiska konsultanta.
-
-    Bramka po ID z env, fail-closed — jak sąsiednie. Aktywacja na prodzie
-    = ustawienie `BNP_ORDER_EXTRACTION_CLIENT_IDS` w Coolify.
-    """
-    if client_id is None:
-        return False
-    return client_id in _client_ids_from_env(_BNP_ORDER_CLIENT_IDS_ENV)
+    return is_client_in_policy("bnp", client_id)
 
 
 def _is_erste_gross_rate_client(client_id: Optional[int]) -> bool:
-    """Czy u tego klienta stawka w dokumencie jest brutto (→ ÷ 1,23).
-
-    Bramka po ID z env, fail-closed — jak sąsiednie. Aktywacja na prodzie
-    = ustawienie `ERSTE_GROSS_RATE_CLIENT_IDS` w Coolify.
-    """
-    if client_id is None:
-        return False
-    return client_id in _client_ids_from_env(_ERSTE_GROSS_RATE_CLIENT_IDS_ENV)
+    return is_client_in_policy("erste", client_id)
 
 
 def _is_orlen_order_client(client_id: Optional[int]) -> bool:
-    if client_id is None:
-        return False
-    return client_id in (
-        _ORLEN_CANONICAL_CLIENT_IDS
-        | _client_ids_from_env(_ORLEN_ORDER_EXTRACTION_CLIENT_IDS_ENV)
-    )
+    return is_client_in_policy("orlen", client_id)
 
 
 def _is_pfron_order_client(client_id: Optional[int]) -> bool:
-    if client_id is None:
-        return False
-    return client_id in (
-        _PFRON_CANONICAL_CLIENT_IDS
-        | _client_ids_from_env(_PFRON_ORDER_EXTRACTION_CLIENT_IDS_ENV)
-    )
+    return is_client_in_policy("pfron", client_id)
 
 
 def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
@@ -2021,28 +1892,25 @@ async def extract_order_pdf(
             },
         ) from exc
 
-    # BNP: dokument jest z definicji JEDNOOSOBOWY i nie zawiera imienia ani
-    # nazwiska — wyłącznie numer ID konsultanta. Nazwisko podane matcherowi nie
-    # miałoby więc czego dopasować, a matcher jest fail-closed: KAŻDY odczyt
-    # kończyłby się wyczyszczeniem stawki i liczby MD (to jest zgłoszona
-    # awaria). Parser dostaje sam tekst, a tożsamość rozstrzyga karta, z której
-    # operator uruchomił odczyt.
-    bnp_single_consultant = _is_bnp_order_client(client_id)
+    # Które reguły klientowe obowiązują i jak kształtują wywołanie parsera —
+    # patrz ``app.services.order_policies``. Dwa wpływy na SAMO parsowanie:
+    #  - dokument jednoosobowy bez nazwiska (BNP): parser dostaje sam tekst,
+    #    bo fail-closed matcher nie miałby czego dopasować i KAŻDY odczyt
+    #    kończyłby się wyczyszczeniem stawki i liczby MD;
+    #  - domyślna jednostka stawki (PFRON, Erste: zawsze godzinowo), podana
+    #    matcherowi już przy parsowaniu — inaczej wyczyściłby poprawną kwotę,
+    #    gdy model odczytał wiersz osoby, ale pominął sam token jednostki.
+    policies = active_policies(client_id)
+    plan = parse_plan(policies)
 
-    if bnp_single_consultant:
+    if plan.single_consultant_document:
         extraction = await parse_order_document(text)
-    elif target_consultant and (
-        _is_pfron_order_client(client_id) or _is_erste_gross_rate_client(client_id)
-    ):
-        # PFRON i Erste deklarują stawkę przychodową zawsze godzinowo.
-        # Podajemy tę twardą, client-specific regułę już matcherowi:
-        # inaczej bezpieczny matcher wyczyściłby poprawną kwotę, gdy model
-        # odczytał wiersz osoby, ale pominął sam token jednostki.
+    elif target_consultant and plan.rate_unit_default:
         extraction = await parse_order_document(
             text,
             consultant_name=target_consultant,
             consultant_given_names=target_given_names,
-            consultant_rate_unit_default="hour",
+            consultant_rate_unit_default=plan.rate_unit_default,
         )
     elif target_consultant:
         # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
@@ -2055,53 +1923,22 @@ async def extract_order_pdf(
     else:
         # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
         extraction = await parse_order_document(text)
-    # Nazwy zastosowanych polityk jadą do odpowiedzi. Bez tego niewłączona
-    # bramka klienta jest NIEWIDOCZNA: odczyt „działa" (model coś wypełnia),
-    # a jedynym objawem jest numer zamówienia wzięty z niewłaściwego pola —
-    # dokładnie objaw zgłoszony dla Nordei. Nazwa polityki zamienia cichą
-    # różnicę w zdanie, które operator widzi przy odczycie.
-    applied_policies: list[str] = []
-    if _is_nordea_order_number_client(client_id):
-        applied_policies.append("Nordea")
-        extraction = enforce_nordea_order_number(extraction, text)
-    if _is_bank_pocztowy_order_client(client_id):
-        applied_policies.append("Bank Pocztowy")
-        extraction = apply_bank_pocztowy_order_policy(extraction, text)
-    if _is_credit_agricole_order_client(client_id):
-        applied_policies.append("Credit Agricole")
-        extraction = apply_credit_agricole_order_policy(extraction, text)
-    if bnp_single_consultant:
-        applied_policies.append("BNP")
-        extraction = apply_bnp_order_policy(extraction, text)
-    # Orlen i PFRON są rozłączne, twardo bramkowane po client_id. Orlen może
-    # zaakceptować dwie pozycje tej samej osoby tylko przy IDENTYCZNEJ stawce,
-    # ale zawsze usuwa MD; PFRON opiera okres wyłącznie o konkretną datę i
-    # sam wykonuje brutto→netto. Obie polityki działają po matcherze, bo nie
-    # mogą zgadywać tożsamości konsultanta.
-    if _is_orlen_order_client(client_id) and target_consultant:
-        applied_policies.append("Orlen")
-        extraction = apply_orlen_order_policy(
-            extraction,
-            text,
-            consultant_name=target_consultant,
-            consultant_given_names=target_given_names,
-        )
-    if _is_pfron_order_client(client_id):
-        applied_policies.append("PFRON")
-        extraction = apply_pfron_order_policy(extraction, text)
 
-    # Erste jako OSTATNIA (PFRON jest rozłączny i już przeliczył własną stawkę):
-    # wrapper przelicza kwotę po innych politykach. Odwrotna kolejność mogłaby
-    # podzielić wartość, którą kolejna polityka zaraz nadpisze.
-    if _is_erste_gross_rate_client(client_id) and not _is_pfron_order_client(client_id):
-        applied_policies.append("Erste Bank Polska")
-        extraction = apply_erste_order_policy(extraction, text)
+    extraction, applied_policies = apply_policies(
+        extraction,
+        PolicyContext(
+            document_text=text,
+            target_consultant=target_consultant,
+            target_given_names=target_given_names,
+        ),
+        policies,
+    )
 
     # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
     # ale nie mogą utworzyć stawki/MD bez dowodu z wiersza tej osoby. U BNP nie
     # ma wierszy do dopasowania — cały dokument JEST pozycją jednej osoby —
     # więc bramka jest tam pominięta świadomie, a nie przez przeoczenie.
-    if target_consultant and not bnp_single_consultant:
+    if target_consultant and not plan.single_consultant_document:
         extraction = enforce_consultant_policy_safety(extraction)
 
     # Finance redaction — kwoty widzą tylko role z VIEW_FINANCE (spójne z
