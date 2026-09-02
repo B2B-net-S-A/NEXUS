@@ -14,6 +14,9 @@ export type RecruitmentOption = {
   has_champion: boolean;
   has_notes: boolean;
   has_cv: boolean;
+  // Długość notatek, które poszłyby do modelu — reguła klienta może wymagać
+  // minimum, a formularz ma to pokazać PRZED kliknięciem (0267).
+  notes_chars?: number;
   ready: boolean;
   // Klient tej rekrutacji — wyprowadzany z oferty po stronie serwera. Front go
   // POKAZUJE, nigdy nie wybiera: możliwość rozjazdu z ofertą oznaczałaby

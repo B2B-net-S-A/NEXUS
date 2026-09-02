@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -32,6 +33,7 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -46,6 +48,24 @@ class ClientCvRule(Base, TimestampMixin):
         CheckConstraint(
             "cv_language IS NULL OR cv_language IN ('pl', 'en')",
             name="ck_client_cv_rules_language",
+        ),
+        CheckConstraint(
+            "content_mode IS NULL OR content_mode IN ('basic', 'polished', 'tailored')",
+            name="ck_client_cv_rules_content_mode",
+        ),
+        CheckConstraint(
+            "date_format IS NULL OR date_format IN "
+            "('MM.YYYY', 'MM/YYYY', 'YYYY-MM', 'YYYY')",
+            name="ck_client_cv_rules_date_format",
+        ),
+        CheckConstraint(
+            "(max_roles IS NULL OR max_roles > 0) AND "
+            "(max_bullets_per_role IS NULL OR max_bullets_per_role > 0) AND "
+            "(max_bullet_chars IS NULL OR max_bullet_chars >= 40) AND "
+            "(why_points_max IS NULL OR why_points_max > 0) AND "
+            "(require_screening_notes_min_chars IS NULL "
+            "OR require_screening_notes_min_chars >= 0)",
+            name="ck_client_cv_rules_limits_positive",
         ),
         # Świadomie BEZ więzu „confirmed_at i confirmed_by naraz albo wcale":
         # `confirmed_by` ma ON DELETE SET NULL, więc usunięcie konta osoby,
@@ -108,6 +128,70 @@ class ClientCvRule(Base, TimestampMixin):
     # ignoruje i zgłasza w ``warnings``. Idą w wiadomości użytkownika, nie
     # w systemowym prompcie (ten jest cache'owany i musi zostać statyczny).
     generator_instructions: Mapped[Optional[str]] = mapped_column(Text)
+
+    # Wariant instrukcji dla CV angielskiego (migracja 0267). Pusty = dla EN
+    # idzie treść podstawowa. Klienci z „obiema wersjami" bywają precyzyjni
+    # co do angielskiego nazewnictwa ról, a jedna treść w dwóch językach
+    # zmuszała DL do pisania po polsku o angielskim dokumencie.
+    generator_instructions_en: Mapped[Optional[str]] = mapped_column(Text)
+
+    # ── Blokady (migracja 0267): rekruter przestaje wybierać ──────────────
+    # Tryb obróbki treści: NULL = wolny wybór rekrutera (w granicach sufitu
+    # `Client.cv_content_mode_cap`); wartość + `content_mode_locked=false` =
+    # domyślnie zaznaczony, rekruter może zmienić; wartość + locked = zawsze
+    # ten tryb, serwer NADPISUJE żądanie. Wartość może być tylko trybem
+    # z katalogu (CHECK), sufit z karty klienta nadal wygrywa z blokadą.
+    content_mode: Mapped[Optional[str]] = mapped_column(String(16))
+    content_mode_locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Wymagane wejścia — brak blokuje generację czytelnym 422 PRZED
+    # naliczeniem kwoty (ten sam wzorzec co zrzut zgody u PKO BP). Minimalna
+    # długość notatek: NULL/0 = bez wymogu. Reszta to flagi.
+    require_screening_notes_min_chars: Mapped[Optional[int]] = mapped_column(Integer)
+    require_project_ref: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    require_position: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    require_champion: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Druga wersja językowa generowana AUTOMATYCZNIE po pierwszej (tylko gdy
+    # `requires_en_copy` i bez wymuszonego języka). Druga generacja to drugie
+    # wywołanie najdroższego modelu w produkcie — dlatego decyzja DL, nie
+    # domyślne zachowanie.
+    auto_second_language: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    # ── Polityka prezentacji egzekwowana w kodzie (migracja 0267) ────────
+    # Klocki, które renderer domyka deterministycznie PO odpowiedzi modelu.
+    # Model dostaje je też jako instrukcje, ale prośba nie jest gwarancją —
+    # a „maks. 3 punkty" wypełnione czterema wygląda dla klienta jak
+    # zignorowane wymaganie. Sekcje: education | certifications | languages
+    # | skills. Słownik: lista {"from": ..., "to": ...} stosowana do
+    # słownictwa całymi słowami, bez zmiany faktów.
+    omit_sections: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    max_roles: Mapped[Optional[int]] = mapped_column(Integer)
+    max_bullets_per_role: Mapped[Optional[int]] = mapped_column(Integer)
+    max_bullet_chars: Mapped[Optional[int]] = mapped_column(Integer)
+    why_points_max: Mapped[Optional[int]] = mapped_column(Integer)
+    date_format: Mapped[Optional[str]] = mapped_column(String(16))
+    glossary: Mapped[Optional[list]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+
+    # Numer wersji bumpowany przy KAŻDYM zapisie zmieniającym treść reguły.
+    # Stemplowany na wygenerowanym CV (`cv_generated_documents.
+    # client_rule_version`) — bez tego nie da się odpowiedzieć, którą wersją
+    # reguły powstał dokument, na który klient się skarży.
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
 
     # Slug szablonu z ``help_materials``, z którego regułę zasiano. Pozwala
     # ekranowi weryfikacji pokazać link do dokumentu źródłowego bez dokładania

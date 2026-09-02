@@ -191,3 +191,43 @@ w szablonie DOCX (instrukcje o układzie nie mają czego dotknąć).
 `frontend/src/app/settings/cv-rules/page.test.tsx`, rozszerzone
 `ClientCvRuleBanner.test.tsx`, `capabilities.test.ts` (macierz + lustro
 backendu), `test_cv_generator_client_rules.py` (snapshot).
+
+## Aktualizacja 2026-09-02 (część 2) — pełna recepta Delivery Leada
+
+**Cel (Artur):** rekruter ma mieć jak najmniej wyboru; CV ma się generować
+tak, jak Delivery Lead chce dla klienta. Zasady: reguły per klient, jeden
+szablon DOCX, blind bez zmian, stawek w CV nigdy, notatka sourcingowa też do
+generatora. Wszystko w jednym PR, migracja `0267`.
+
+**Blokady dla rekrutera:** tryb obróbki treści ustawiany dokładnie (wolny /
+domyślny / zablokowany — serwer nadpisuje żądanie, sufit z karty nadal
+wygrywa), wymagane wejścia (min. długość notatek, numer projektu, stanowisko,
+profil Championa → 422 z listą braków przed kwotą, te same zdania widoczne
+w formularzu), automatyczna druga wersja językowa, klient w uploadzie
+podpowiadany z procesu kandydata, generacja bez klienta za jawnym checkboxem.
+Sufit trybu i interaktywne CV prowadzone z edytora reguły (zapis na `clients`).
+
+**Polityka prezentacji egzekwowana w kodzie:** sekcje do pominięcia, limity
+stanowisk / punktów / długości punktu, liczba punktów „dlaczego ten
+kandydat", format dat, słownik klienta. Model dostaje to samo jako instrukcje;
+kod domyka po odpowiedzi i zgłasza, co domknął.
+
+**Reguły AI:** instrukcje PL + wariant EN, notatka DL w osobnym bloku
+`<client_notes>` pod tą samą granicą, lint linia po linii tanim modelem
+(nowy klucz kwoty `cv_rule_lint`), podgląd dokładnego bloku promptu, CV
+próbne z regułą i bez obok siebie (w tle, osobna tabela, dwa obciążenia
+kwoty), sygnał zwrotny (pominięte instrukcje per tekst, domknięcia polityki),
+historia zmian z diffem, stempel wersji reguły na każdym wygenerowanym CV,
+kopiowanie reguły z innego klienta jako propozycji.
+
+**Front:** edytor w pięciu zakładkach (Podstawy · Generator · Treść i AI ·
+Podgląd · Historia) na `/settings/cv-rules` (deep link `?client=`), okno
+„Edytuj firmę" tylko odsyła. Generator: kafelki trybu wyłączone przy blokadzie,
+alert z brakami przed kliknięciem, picker kandydata w uploadzie.
+
+**Poza zakresem świadomie:** reguły per rekrutacja, wzorcowe CV jako przykład
+dla modelu, bramka zatwierdzania każdego CV przez DL, wariant szablonu DOCX.
+
+**Testy:** `test_cv_rule_presentation_policy.py`,
+`test_client_cv_rules_recipe_api.py`, `CvRuleEditor.test.tsx`, rozszerzone
+`page.test.tsx`, `ClientCvRuleBanner.test.tsx`, `capabilities.test.ts`.
