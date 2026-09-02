@@ -91,7 +91,9 @@ function fold(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    // Zakres znaków łączących (U+0300–U+036F) jako escape'y, nie surowe bajty
+    // w źródle — te potrafią zniknąć w diffie albo edytorze bez śladu.
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/ł/g, "l");
 }
 
