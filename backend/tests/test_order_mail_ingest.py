@@ -521,3 +521,26 @@ async def test_app_graph_client_token_lifecycle(monkeypatch):
     with pytest.raises(agc.AppOnlyTokenUnavailable):
         async with agc.AppGraphClient():
             pass
+
+
+def test_msal_client_credentials_refresh_contract():
+    """Kontrakt MSAL, na którym stoi `acquire_app_token(force_refresh=True)`.
+
+    Review #1343 zakładał odwrotnie: że `remove_tokens_for_client` nie istnieje,
+    a `acquire_token_for_client(force_refresh=True)` działa. W msal 1.37 jest
+    dokładnie na odwrót — ten test wywali się przy zmianie biblioteki, zanim
+    zrobi to produkcja po pierwszym 401.
+    """
+    import msal
+
+    app = msal.ConfidentialClientApplication(
+        client_id="00000000-0000-0000-0000-000000000000",
+        authority="https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111",
+        client_credential="not-a-real-secret",
+    )
+    assert callable(getattr(app, "remove_tokens_for_client", None))
+    app.remove_tokens_for_client()  # pusty cache — no-op, nie wyjątek
+    with pytest.raises(ValueError):
+        app.acquire_token_for_client(
+            scopes=["https://graph.microsoft.com/.default"], force_refresh=True
+        )

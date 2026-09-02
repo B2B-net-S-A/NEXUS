@@ -75,15 +75,16 @@ def acquire_app_token(*, force_refresh: bool = False) -> Optional[str]:
     """Token app-only do Graph (``.default``) albo ``None``.
 
     ``force_refresh`` kasuje cache MSAL dla tego klienta — używane po 401,
-    gdy Graph odrzucił token, który MSAL wciąż uważa za ważny.
+    gdy Graph odrzucił token, który MSAL wciąż uważa za ważny. Świadomie
+    ``remove_tokens_for_client()`` + ponowne ``acquire_token_for_client``:
+    MSAL (1.37) **odrzuca** ``acquire_token_for_client(force_refresh=True)``
+    ``ValueError``-em („this method does not support force_refresh") — pilnuje
+    tego ``test_msal_client_credentials_refresh_contract``.
     """
     if not app_only_credentials_configured():
         return None
     if force_refresh:
-        app = _get_msal_app()
-        remove = getattr(app, "remove_tokens_for_client", None)
-        if callable(remove):
-            remove()
+        _get_msal_app().remove_tokens_for_client()
     return _acquire_token()
 
 

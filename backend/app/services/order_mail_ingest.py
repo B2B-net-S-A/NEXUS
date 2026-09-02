@@ -723,6 +723,11 @@ async def run_order_mail_ingest(
             await _write_state(
                 db, last_run_started_at=now, last_status="running", last_error=None
             )
+            # Rejestr i okno PRZED wyborem klienta Graph: konstruktor klienta
+            # otwiera pulę httpx, więc między nim a `async with` nie może stać
+            # nic, co potrafi rzucić (inaczej pula nigdy nie jest zamykana).
+            registry = await build_registry_from_db(db)
+            effective_since = since or compute_since(state, now)
             conn: Optional[M365Connection] = None
             if auth_mode() == "app":
                 if not app_only_ready():
@@ -738,7 +743,6 @@ async def run_order_mail_ingest(
                     )
                     stats.errors.append("app_only_misconfigured")
                     return stats
-                client_cm = AppGraphClient()
             else:
                 conn = await find_orders_connection(db)
                 if conn is None:
@@ -750,9 +754,6 @@ async def run_order_mail_ingest(
                     )
                     stats.errors.append("no_connection")
                     return stats
-                client_cm = GraphClient(conn, db)
-            registry = await build_registry_from_db(db)
-            effective_since = since or compute_since(state, now)
             logger.info(
                 "order_mail ingest start (%s) since=%s mode=%s conn=%s",
                 reason,
@@ -761,7 +762,9 @@ async def run_order_mail_ingest(
                 conn.id if conn is not None else None,
             )
             try:
-                async with client_cm as gc:
+                async with (
+                    AppGraphClient() if conn is None else GraphClient(conn, db)
+                ) as gc:
                     params = {
                         "$filter": (
                             f"receivedDateTime ge {effective_since.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
