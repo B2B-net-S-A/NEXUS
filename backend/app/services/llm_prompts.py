@@ -195,11 +195,15 @@ CV_ENRICHMENT_BULK = PromptTemplate(
 
 ORDER_EXTRACTION = PromptTemplate(
     name="order_extraction",
-    # v3: osobne wiersze konsultantów + opcjonalna osoba docelowa. Bump JEST
-    # konieczny — cache wyników
+    # v4: tryb LIST ALL CONSULTANTS (każda osoba z dokumentu, bez osoby
+    # docelowej — ścieżka mailowa), okres per wiersz, oraz trzy pułapki
+    # potwierdzone na realnym korpusie 20 zamówień (09.2026): numer umowy
+    # ramowej powtarzany na każdej stronie obok numeru zamówienia, polski
+    # format liczb znaczący dwie rzeczy w jednej tabeli, kolumny „nowe obok
+    # starych" w rewizjach Work Orderów. Bump JEST konieczny — cache wyników
     # promptu jest kluczowany wersją, więc bez niego zamówienia czytane po
     # wdrożeniu wracałyby ze starego cache'u BEZ wierszy osobowych.
-    version=3,
+    version=4,
     expected_format="json",
     system_prompt=(
         "You extract structured fields from a client purchase order / call-off / "
@@ -214,6 +218,8 @@ ORDER_EXTRACTION = PromptTemplate(
     template=(
         "TARGET CONSULTANT (may be '(not provided)'):\n"
         "{target_consultant}\n\n"
+        "LIST ALL CONSULTANTS (yes|no):\n"
+        "{list_all_consultants}\n\n"
         "From the order document below, produce a JSON object with these fields:\n"
         '  "title": the order identifier — order number, "numer zamówienia", '
         '"Call Off Agreement number", PO number or a similar document reference, '
@@ -234,18 +240,27 @@ ORDER_EXTRACTION = PromptTemplate(
         "the order, as a plain number. Only when the document states the COUNT "
         "directly — do NOT derive it by dividing the total value by the rate, and "
         "do not confuse it with the rate itself. null if absent.\n"
-        '  "consultant_rows": when TARGET CONSULTANT is provided, a JSON list of '
-        "EVERY consultant/person row or clearly separated consultant section in "
-        "the provided document excerpts; otherwise an empty list. Each item has exactly: "
-        '{{"consultant_name": string, "rate_client": number|null, '
-        '"rate_unit": "hour"|"day"|"month"|null, "md_total": number|null, '
-        '"uncertain": boolean, "uncertain_reason": string|null}}. '
-        "Copy consultant_name as written. Keep rate_client and md_total ONLY from "
-        "that same row/section; never combine a name with values from an adjacent "
-        "person. Set uncertain=true whenever the name-to-values binding is not "
-        "explicit and unambiguous; in that case keep rate_client, rate_unit and "
-        "md_total null and explain why in uncertain_reason. Do not include table "
-        "headers without a person's name. Repeated identical rows may be returned once.\n"
+        '  "consultant_rows": when TARGET CONSULTANT is provided OR LIST ALL '
+        "CONSULTANTS is yes, a JSON list of EVERY consultant/person row or clearly "
+        "separated consultant section in the provided document excerpts; otherwise "
+        'an empty list. Each item has exactly: {{"consultant_name": string, '
+        '"start_date": "YYYY-MM-DD"|"YYYY-MM"|null, "end_date": "YYYY-MM-DD"|'
+        '"YYYY-MM"|null, "rate_client": number|null, "rate_unit": '
+        '"hour"|"day"|"month"|null, "md_total": number|null, "uncertain": boolean, '
+        '"uncertain_reason": string|null}}. '
+        "Copy consultant_name as written (surname-first order is common; keep it). "
+        "start_date/end_date are the period stated FOR THAT ROW — a per-row "
+        '"Zlecenie od"/"Zlecenie do" column, or a "(dd.mm.yyyy-dd.mm.yyyy)" span '
+        "printed next to the name; null when the row has no own period (the "
+        "document-level period then applies). Keep rate_client and md_total ONLY "
+        "from that same row/section; never combine a name with values from an "
+        "adjacent person. When a table lists several rate-like columns for one "
+        'person (e.g. "Stawka bazowa", "Marża", "Razem stawka dla Banku"), '
+        "rate_client is the FINAL rate the client pays, not the base or the margin. "
+        "Set uncertain=true whenever the name-to-values binding is not explicit and "
+        "unambiguous; in that case keep rate_client, rate_unit and md_total null and "
+        "explain why in uncertain_reason. Do not include table headers without a "
+        "person's name. Repeated identical rows may be returned once.\n"
         '  "currency": ISO 4217 code ("PLN"|"EUR"|"USD") if present, else null.\n'
         '  "_confidence": object mapping each field above to a float 0.0-1.0 — 0.95+ '
         "when explicit and unambiguous, 0.6-0.85 when inferred from context, "
@@ -254,18 +269,36 @@ ORDER_EXTRACTION = PromptTemplate(
         "several plausible candidates, or looked atypical/incomplete.\n"
         '  "uncertain_reasons": list of short Polish strings naming what is unsure '
         '(e.g. "Nie znaleziono jednoznacznej daty końca"). Empty list if fully confident.\n\n'
-        "TARGET RULE: when TARGET CONSULTANT is provided, set the top-level "
-        "rate_client, rate_unit and md_total to null. The server will select one "
-        "consultant_rows item using strict name matching. Listing several distinct "
-        "consultants is normal and does not itself make the result uncertain. The "
-        "three deliberately null top-level fields also do not count as missing in "
-        "this mode. If a "
-        "person's row/section cannot be separated from another person's values, keep "
-        "that row's financial/MD fields null and explain the ambiguity.\n\n"
+        "TARGET RULE: when TARGET CONSULTANT is provided or LIST ALL CONSULTANTS is "
+        "yes, set the top-level rate_client, rate_unit and md_total to null — with "
+        "several people the document-level values mean nothing. The server selects "
+        "rows by strict name matching. Listing several distinct consultants is normal "
+        "and does not itself make the result uncertain. The three deliberately null "
+        "top-level fields also do not count as missing in this mode. If a person's "
+        "row/section cannot be separated from another person's values, keep that "
+        "row's financial/MD fields null and explain the ambiguity.\n\n"
         "PERIOD NOTATION: some clients write the period in the body, e.g. BNP uses "
         '"mc 06-2026_12-2026" meaning months 06/2026 through 12/2026 — output '
         'start_date "2026-06" and end_date "2026-12". Recognise such MM-YYYY ranges '
-        "and any similar shorthand, converting them to the period bounds.\n\n"
+        "and any similar shorthand, converting them to the period bounds. Phrases "
+        'like "z możliwością przedłużenia" or "lub do wyczerpania kwoty" are NOT '
+        "dates — ignore them when reading end_date.\n\n"
+        "KNOWN TRAPS — check each one before answering:\n"
+        "1. FRAMEWORK vs ORDER NUMBER. Documents cite a framework/master agreement "
+        '("Umowa Ramowa nr", "Frame Agreement number", "umowa na usługi IT nr", '
+        '"na podstawie umowy") — often repeated on every page — AND a separate '
+        'order/call-off number ("Zamówienie nr", "Call Off Agreement number", '
+        '"Zlecenie nr", "Numer zamówienia", "Numer pisma"). title must be the ORDER '
+        "number, never the framework agreement number, even if the framework number "
+        "appears first or more often.\n"
+        "2. POLISH NUMBER FORMATS. In one table a dot may be a thousands separator "
+        'with a comma decimal ("1.200,00" = 1200.00) while a quantity column uses a '
+        'comma before three zeros ("64,000" = 64 pieces/MD, NOT 64000). Decide per '
+        "column from its header and from which magnitude is plausible: a daily rate "
+        "of 64000 or a man-day count of 1200 is not.\n"
+        '3. REVISION COLUMNS. Revised work orders show "New" next to "Current (if '
+        'different)" (or "Nowa"/"Poprzednia") for dates, hours and rates. Take the '
+        "NEW value; never the previous one.\n\n"
         "Respond with ONLY the raw JSON, no prose.\n\n"
         "Order document:\n{document_text}\n"
     ),

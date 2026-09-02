@@ -81,7 +81,7 @@ class DlAlert(Base):
         CheckConstraint(
             "alert_type IN ('cost_order_exhausted', "
             "'draft_consultant_unassigned', 'md_budget_low', "
-            "'missing_revenue_rate', 'md_consultant_ended')",
+            "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review')",
             name="ck_dl_alerts_type",
         ),
         CheckConstraint("status IN ('new', 'handled')", name="ck_dl_alerts_status"),

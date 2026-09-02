@@ -182,7 +182,6 @@ class TestNordeaCallOffNumber:
         )
         assert m.nordea_frame_agreement_number("Frame Agreement number: FA-1") == "FA-1"
 
-
     @pytest.mark.parametrize(
         ("text", "expected"),
         [
@@ -1466,20 +1465,40 @@ class TestErsteGrossToNetPolicy:
         assert enforced.rate_client == Decimal("1000.00")
         # Oryginał brutto zostaje widoczny obok — operator konfrontuje z PDF-em.
         assert enforced.rate_client_gross == Decimal("1230")
-        assert enforced.rate_unit == "hour"
+        # Erste rozlicza DZIENNIE — korpus 09.2026: „23,00 dni roboczych x
+        # 1 426,80 PLN BRUTTO". Do tej rewizji polityka wymuszała „hour" i na
+        # tym dokumencie zapisywała stawkę dzienną jako godzinową z pewnością 1.0.
+        assert enforced.rate_unit == "day"
 
-    def test_client_rule_overrides_missing_or_wrong_model_unit_with_hourly(self):
+    def test_client_rule_overrides_missing_or_wrong_model_unit_with_client_unit(self):
         missing = m.apply_erste_order_policy(
             m.OrderExtraction(rate_client=Decimal("1230"), source="claude"), ""
         )
         wrong = m.apply_pfron_order_policy(
             m.OrderExtraction(
-                rate_client=Decimal("1230"), rate_unit="day", source="claude"
+                rate_client=Decimal("1230"), rate_unit="hour", source="claude"
             ),
             "Termin realizacji usług do dnia 31.12.2026",
         )
-        assert missing.rate_unit == "hour"
+        # Każdy klient narzuca SWOJĄ jednostkę: Erste dzień, PFRON godzina
+        # („Stawka za jedną Roboczogodzinę").
+        assert missing.rate_unit == "day"
         assert wrong.rate_unit == "hour"
+
+    def test_erste_reads_number_period_and_gross_day_rate_from_labels(self):
+        """Etykiety Erste z korpusu: numer „Zlecenie K/…”, „Zlecenie od/do”, wzór brutto."""
+        text = (
+            "Zlecenie K/2031/194208/JP/525/31ERSTE10\n"
+            "Dane kontraktora Anna Testowa Zlecenie od 2031-07-01 Zlecenie do 2031-07-31\n"
+            "Wartość zlecenia 23,00 dni roboczych x 1 426,80 PLN BRUTTO = 32 816,40 PLN BRUTTO\n"
+        )
+        enforced = m.apply_erste_order_policy(m.OrderExtraction(source="claude"), text)
+        assert enforced.title == "K/2031/194208/JP/525/31ERSTE10"
+        assert (enforced.start_date, enforced.end_date) == ("2031-07-01", "2031-07-31")
+        assert enforced.rate_client_gross == Decimal("1426.80")
+        assert enforced.rate_client == Decimal("1160.00")
+        assert enforced.rate_unit == "day"
+        assert enforced.confidence["rate_client"] == 1.0
 
     def test_rounding_is_half_up_to_two_places(self):
         # 1000 / 1,23 = 813,00813… → 813,01

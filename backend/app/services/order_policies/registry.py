@@ -35,7 +35,18 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from app.services import order_pdf_parser as parser
-from app.services.order_pdf_parser import OrderExtraction
+from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
+from app.services.order_policies import (
+    alior,
+    bank_pocztowy,
+    cardif,
+    credit_agricole,
+    kir,
+    mleasing,
+    nordea,
+    pko_bp,
+    velobank,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +59,7 @@ class PolicyContext:
 
 
 PolicyFn = Callable[[OrderExtraction, PolicyContext], OrderExtraction]
+RowsFn = Callable[[str], list[ConsultantOrderRow]]
 
 
 @dataclass(frozen=True)
@@ -82,6 +94,10 @@ class OrderClientPolicy:
     #: Klucze polityk AKTYWNYCH u klienta, które wyłączają tę (Erste ustępuje
     #: PFRON-owi, bo PFRON sam wykonuje brutto→netto).
     suppressed_by: frozenset[str] = field(default_factory=frozenset)
+    #: Deterministyczny ekstraktor wierszy osób z tekstu (bez modelu). Bramka
+    #: automatu porównuje z nim wiersze modelu; harness korpusu używa go jako
+    #: źródła wierszy w trybie bez LLM. Brak = klient bez tabeli osób.
+    extract_rows: Optional[RowsFn] = None
 
 
 def client_ids_from_env(env_name: str) -> frozenset[int]:
@@ -109,15 +125,18 @@ def client_ids_from_env(env_name: str) -> frozenset[int]:
 
 
 def _nordea(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
-    return parser.enforce_nordea_order_number(result, ctx.document_text)
+    result = parser.enforce_nordea_order_number(result, ctx.document_text)
+    return nordea.apply_nordea_layout(result, ctx.document_text)
 
 
 def _bank_pocztowy(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
-    return parser.apply_bank_pocztowy_order_policy(result, ctx.document_text)
+    result = parser.apply_bank_pocztowy_order_policy(result, ctx.document_text)
+    return bank_pocztowy.apply_bank_pocztowy_layout(result, ctx.document_text)
 
 
 def _credit_agricole(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
-    return parser.apply_credit_agricole_order_policy(result, ctx.document_text)
+    result = parser.apply_credit_agricole_order_policy(result, ctx.document_text)
+    return credit_agricole.apply_credit_agricole_layout(result, ctx.document_text)
 
 
 def _bnp(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
@@ -141,6 +160,30 @@ def _erste(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
     return parser.apply_erste_order_policy(result, ctx.document_text)
 
 
+def _pko_bp(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return pko_bp.apply_pko_bp_order_policy(result, ctx.document_text)
+
+
+def _kir(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return kir.apply_kir_order_policy(result, ctx.document_text)
+
+
+def _mleasing(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return mleasing.apply_mleasing_order_policy(result, ctx.document_text)
+
+
+def _velobank(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return velobank.apply_velobank_order_policy(result, ctx.document_text)
+
+
+def _alior(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return alior.apply_alior_order_policy(result, ctx.document_text)
+
+
+def _cardif(result: OrderExtraction, ctx: PolicyContext) -> OrderExtraction:
+    return cardif.apply_cardif_order_policy(result, ctx.document_text)
+
+
 # ── Rejestr ──────────────────────────────────────────────────────────────────
 
 POLICIES: tuple[OrderClientPolicy, ...] = (
@@ -150,6 +193,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         env_var="NORDEA_ORDER_NUMBER_CLIENT_IDS",
         apply=_nordea,
         order=10,
+        extract_rows=nordea.extract_rows,
     ),
     OrderClientPolicy(
         key="bank_pocztowy",
@@ -157,6 +201,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         env_var="BANK_POCZTOWY_ORDER_EXTRACTION_CLIENT_IDS",
         apply=_bank_pocztowy,
         order=20,
+        extract_rows=bank_pocztowy.extract_rows,
     ),
     OrderClientPolicy(
         key="credit_agricole",
@@ -164,6 +209,7 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         env_var="CREDIT_AGRICOLE_ORDER_EXTRACTION_CLIENT_IDS",
         apply=_credit_agricole,
         order=30,
+        extract_rows=credit_agricole.extract_rows,
     ),
     OrderClientPolicy(
         key="bnp",
@@ -197,8 +243,64 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         env_var="ERSTE_GROSS_RATE_CLIENT_IDS",
         apply=_erste,
         order=70,
-        rate_unit_default="hour",
+        # Dzienna, nie godzinowa — „23,00 dni roboczych x 1 426,80 PLN BRUTTO".
+        rate_unit_default="day",
         suppressed_by=frozenset({"pfron"}),
+        extract_rows=parser.erste_extract_rows,
+    ),
+    # ── Polityki z korpusu 09.2026 (ticket mailowy) ──────────────────────
+    OrderClientPolicy(
+        key="pko_bp",
+        display_name="PKO BP",
+        env_var="PKO_BP_ORDER_EXTRACTION_CLIENT_IDS",
+        apply=_pko_bp,
+        order=110,
+        rate_unit_default="day",
+        extract_rows=pko_bp.extract_rows,
+    ),
+    OrderClientPolicy(
+        key="kir",
+        display_name="KIR",
+        env_var="KIR_ORDER_EXTRACTION_CLIENT_IDS",
+        apply=_kir,
+        order=120,
+        rate_unit_default="hour",
+        extract_rows=kir.extract_rows,
+    ),
+    OrderClientPolicy(
+        key="mleasing",
+        display_name="mLeasing",
+        env_var="MLEASING_ORDER_EXTRACTION_CLIENT_IDS",
+        apply=_mleasing,
+        order=130,
+        extract_rows=mleasing.extract_rows,
+    ),
+    OrderClientPolicy(
+        key="velobank",
+        display_name="VeloBank",
+        env_var="VELOBANK_ORDER_EXTRACTION_CLIENT_IDS",
+        apply=_velobank,
+        order=140,
+        rate_unit_default="day",
+        extract_rows=velobank.extract_rows,
+    ),
+    OrderClientPolicy(
+        key="alior",
+        display_name="Alior",
+        env_var="ALIOR_ORDER_EXTRACTION_CLIENT_IDS",
+        apply=_alior,
+        order=150,
+        rate_unit_default="day",
+        extract_rows=alior.extract_rows,
+    ),
+    OrderClientPolicy(
+        key="cardif",
+        display_name="Cardif",
+        env_var="CARDIF_ORDER_EXTRACTION_CLIENT_IDS",
+        apply=_cardif,
+        order=160,
+        rate_unit_default="day",
+        extract_rows=cardif.extract_rows,
     ),
 )
 
@@ -237,7 +339,11 @@ class ParsePlan:
 
 def parse_plan(policies: list[OrderClientPolicy]) -> ParsePlan:
     single = any(p.single_consultant_document for p in policies)
-    unit = next((p.rate_unit_default for p in policies if p.rate_unit_default), None)
+    # Tie-break: pierwsza polityka w kolejności ``order`` wygrywa. Gdyby PFRON
+    # (60) i Erste (70) były aktywne u jednego klienta, obowiązuje jednostka
+    # PFRON-u — spójnie z ``suppressed_by``, przez które PFRON wyłącza Erste.
+    ordered = sorted(policies, key=lambda p: p.order)
+    unit = next((p.rate_unit_default for p in ordered if p.rate_unit_default), None)
     return ParsePlan(single_consultant_document=single, rate_unit_default=unit)
 
 
@@ -257,6 +363,11 @@ def apply_policies(
     ``suppressed_by`` patrzy na polityki AKTYWNE u klienta, nie na te, które
     faktycznie zadziałały: PFRON wyłącza Erste dlatego, że jest włączony u tego
     klienta, a nie dlatego, że akurat coś zmienił w tym dokumencie.
+
+    Lista jest sortowana TUTAJ, choć ``active_policies`` już ją sortuje: funkcja
+    jest publiczna i dostaje listy także spoza niej (harness korpusu, ścieżka
+    mailowa po rozpoznaniu klienta). Kontrakt „kolejność = ``order``" ma
+    trzymać się niezależnie od tego, kto zbudował listę.
     """
     active_keys = {p.key for p in policies}
     applied: list[str] = []

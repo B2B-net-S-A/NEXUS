@@ -53,6 +53,7 @@ export type Capability =
   | "nav.sourcing"
   | "nav.clients"
   | "nav.my_clients"
+  | "nav.order_mail"
   | "nav.my_relationships"
   | "nav.contracts"
   | "nav.cortex"
@@ -164,6 +165,12 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.sourcing": OPERATIONAL,
   "nav.clients": OPERATIONAL,
   "nav.my_clients": [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "finance",
+  ],
+  "nav.order_mail": [
     "admin",
     "head_of_recruitment",
     "delivery_lead",

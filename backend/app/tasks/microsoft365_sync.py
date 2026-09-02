@@ -105,6 +105,9 @@ async def _tick(interval: int) -> None:
             select(M365Connection)
             .where(
                 M365Connection.is_active.is_(True),
+                # Skrzynka zamówień (0264) nie jest pocztą rekrutera — czyta ją
+                # wyłącznie reader zamówień, nigdy ten sync.
+                M365Connection.purpose == "personal",
                 or_(
                     M365Connection.last_sync_status != M365SyncStatus.error,
                     and_(
@@ -449,7 +452,10 @@ async def _backfill_missing_subscriptions(db: AsyncSession) -> None:
     # Pull every active connection that has at least one missing default
     # resource. Cheap because the table is tiny (one row per connected user).
     conns_result = await db.execute(
-        select(M365Connection).where(M365Connection.is_active.is_(True))
+        select(M365Connection).where(
+            M365Connection.is_active.is_(True),
+            M365Connection.purpose == "personal",
+        )
     )
     connections = list(conns_result.scalars().all())
     if not connections:

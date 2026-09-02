@@ -230,6 +230,15 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  "nav.order_mail": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   "nav.my_relationships": {
     admin: true,
     head_of_recruitment: true,
@@ -291,6 +300,7 @@ function financeExpected(capability: Capability): boolean {
     [
       "nav.finance",
       "nav.my_clients",
+      "nav.order_mail",
       "nav.my_relationships",
       "nav.contracts",
       "nav.cortex",
@@ -667,6 +677,10 @@ const CAPABILITY_BACKEND_MIRROR: Record<
     productDecision:
       "GET /api/my-clients i /api/my-clients/{id}/dashboard dają Finance organizacyjny odczyt; UI wpuszcza Finance bez dodawania capability zapisu.",
   },
+  "nav.order_mail": {
+    productDecision:
+      "GET /api/order-mail/queue wylicza zakres po stronie backendu (admin/HoR/finance: wszystko; DL: własny portfel); „Zastosuj” jest osobno bramkowane can_apply.",
+  },
   "nav.my_relationships": {
     productDecision:
       "GET /api/my-relationships daje Finance organizacyjny odczyt, a pozostałe role zachowują dotychczasowy self/management scope.",
@@ -730,6 +744,7 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   "/sourcing/marketplace": "nav.sourcing",
   "/clients": "nav.clients",
   "/my-clients": "nav.my_clients",
+  "/order-mail": "nav.order_mail",
   "/my-relationships": "nav.my_relationships",
   "/contracts": "nav.contracts",
   "/cortex": "nav.cortex",
