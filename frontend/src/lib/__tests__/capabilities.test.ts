@@ -49,6 +49,16 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  // POST /api/candidates/{id}/assign-to-job/{job_id} → CandidateWriteAccess.
+  "candidate.assign_to_job": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
   // POST /api/jobs → TacPlus
   "job.create": {
     admin: true,

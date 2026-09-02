@@ -24,17 +24,18 @@
  * domknąłby cykl modułów.
  */
 
-import type { ClientRef } from "@/lib/contract-client-filter";
+import type { TalentRadarRecruitmentRef } from "@/lib/talent-radar-recruitment";
 import type {
   ChampionParseSummary,
   TalentRadarSearchResponse,
 } from "@/lib/talent-radar-api";
 
-export const TALENT_RADAR_SESSION_KEY = "nexus_talent_radar_session_v1";
+export const TALENT_RADAR_SESSION_KEY = "nexus_talent_radar_session_v2";
+const LEGACY_TALENT_RADAR_SESSION_KEYS = ["nexus_talent_radar_session_v1"];
 
 /** Lustro pól `useState` w TalentRadarWorkspace — zapisywane i odtwarzane RAZEM. */
 export interface TalentRadarSessionState {
-  client: ClientRef | null;
+  recruitment: TalentRadarRecruitmentRef | null;
   title: string;
   text: string;
   budgetMax: string;
@@ -50,7 +51,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /**
  * Walidacja kształtu przed oddaniem snapshotu do `setState`. Płytka z wyboru:
  * pilnuje inwariantów, na których workspace i wyniki polegają wprost
- * (`client.id` do requestu, `response.results.map(...)`, `meta` jako obiekt);
+ * (`recruitment.clientId` do requestu, `response.results.map(...)`, `meta` jako
+ * obiekt);
  * pola głębiej są renderowane defensywnie (optional chaining, `?? null`).
  */
 function isValidState(value: unknown): value is TalentRadarSessionState {
@@ -60,10 +62,15 @@ function isValidState(value: unknown): value is TalentRadarSessionState {
   if (typeof value.budgetMax !== "string") return false;
   if (typeof value.excludeRemoteOnly !== "boolean") return false;
 
-  const client = value.client;
-  if (client !== null) {
-    if (!isRecord(client)) return false;
-    if (typeof client.id !== "number" || typeof client.name !== "string") {
+  const recruitment = value.recruitment;
+  if (recruitment !== null) {
+    if (!isRecord(recruitment)) return false;
+    if (
+      typeof recruitment.id !== "number" ||
+      typeof recruitment.title !== "string" ||
+      typeof recruitment.clientId !== "number" ||
+      typeof recruitment.clientName !== "string"
+    ) {
       return false;
     }
   }
@@ -119,6 +126,9 @@ export function clearTalentRadarSession(): void {
   if (typeof window === "undefined") return;
   try {
     window.sessionStorage.removeItem(TALENT_RADAR_SESSION_KEY);
+    for (const key of LEGACY_TALENT_RADAR_SESSION_KEYS) {
+      window.sessionStorage.removeItem(key);
+    }
   } catch {
     /* storage wyłączony — nie ma czego kasować */
   }

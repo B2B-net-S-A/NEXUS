@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  assignToJob: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => {
@@ -23,6 +24,9 @@ vi.mock("@/lib/api", () => {
     __esModule: true,
     default: api,
     api,
+    recommendationsApi: {
+      assignToJob: (...args: unknown[]) => mocks.assignToJob(...args),
+    },
     extractErrorMsg: (e: unknown) => String(e),
   };
 });
@@ -40,7 +44,12 @@ import {
 } from "@/lib/talent-radar-session";
 
 const SAVED_SEARCH: TalentRadarSessionState = {
-  client: { id: 7, name: "Acme Sp. z o.o." },
+  recruitment: {
+    id: 71,
+    title: "Senior Python Developer",
+    clientId: 7,
+    clientName: "Acme Sp. z o.o.",
+  },
   title: "Senior Python Developer",
   text: "Szukamy osoby z Pythonem, FastAPI i Postgresem — minimum 5 lat doświadczenia.",
   budgetMax: "180",
@@ -109,8 +118,21 @@ beforeEach(() => {
   sessionStorage.clear();
   mocks.apiGet.mockReset();
   mocks.apiPost.mockReset();
-  // Jedyny GET na tej stronie: lookup klientów dla pickera.
-  mocks.apiGet.mockResolvedValue({ data: [{ id: 7, name: "Acme Sp. z o.o." }] });
+  mocks.assignToJob.mockReset();
+  mocks.assignToJob.mockResolvedValue({ data: { status: "assigned" } });
+  // Jedyny GET na tej stronie: otwarte rekrutacje dla pickera.
+  mocks.apiGet.mockResolvedValue({
+    data: {
+      items: [
+        {
+          id: 71,
+          title: "Senior Python Developer",
+          client_id: 7,
+          client_name: "Acme Sp. z o.o.",
+        },
+      ],
+    },
+  });
 });
 
 describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
@@ -133,8 +155,10 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
     expect(await screen.findByText("Jan Kowalski")).toBeInTheDocument();
     expect(mocks.apiPost).not.toHaveBeenCalled();
 
-    // Formularz wrócił razem z nimi: klient w pickerze i treść requestu.
-    expect(screen.getByText("Acme Sp. z o.o.")).toBeInTheDocument();
+    // Formularz wrócił razem z nimi: rekrutacja w pickerze i treść requestu.
+    expect(
+      screen.getByRole("combobox", { name: /Rekrutacja/ }),
+    ).toHaveTextContent("Senior Python Developer · Acme Sp. z o.o.");
     expect(screen.getByLabelText("Treść requestu")).toHaveValue(
       SAVED_SEARCH.text,
     );
@@ -158,6 +182,28 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
     ) as TalentRadarSessionState | null;
     expect(stored?.text).toBe(SAVED_SEARCH.text);
     expect(stored?.response?.results).toHaveLength(1);
+  });
+
+  it("przypisuje wynik jednym kliknięciem do rekrutacji ze snapshotu", async () => {
+    sessionStorage.setItem(
+      TALENT_RADAR_SESSION_KEY,
+      JSON.stringify(SAVED_SEARCH),
+    );
+    renderWorkspace();
+
+    const assignButton = await screen.findByRole("button", {
+      name: /Przypisz Jan Kowalski do rekrutacji Senior Python Developer/,
+    });
+    fireEvent.click(assignButton);
+
+    await waitFor(() => {
+      expect(mocks.assignToJob).toHaveBeenCalledWith(101, 71);
+    });
+    expect(
+      await screen.findByRole("button", {
+        name: "Jan Kowalski — przypisano do rekrutacji",
+      }),
+    ).toBeDisabled();
   });
 
   it("edycja formularza aktualizuje snapshot", async () => {

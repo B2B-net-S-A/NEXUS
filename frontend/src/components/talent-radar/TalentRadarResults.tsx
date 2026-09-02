@@ -11,7 +11,7 @@
  */
 
 import Link from "next/link";
-import { SearchX, TriangleAlert, Users } from "lucide-react";
+import { CheckCircle2, SearchX, TriangleAlert, Users } from "lucide-react";
 
 import {
   EmptyState,
@@ -20,7 +20,7 @@ import {
   type MatchReason,
 } from "@/components/ds";
 import { Alert } from "@/components/ui/alert";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { encodeTalentRadarBackRef } from "@/lib/url-filters";
 import { cn } from "@/lib/utils";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
@@ -62,6 +62,8 @@ function matchReasons(result: TalentRadarResult): MatchReason[] {
   ].slice(0, 8);
 }
 
+const EMPTY_ASSIGNED_IDS: ReadonlySet<number> = new Set<number>();
+
 export interface TalentRadarResultsProps {
   /** `null` = jeszcze nie szukano (inny stan niż „zero wyników"). */
   meta: TalentRadarMeta | null;
@@ -87,6 +89,13 @@ export interface TalentRadarResultsProps {
    * `/preview/talent-radar` (bez auth store) dalej pokrywał ten wariant.
    */
   canOpenProfile?: boolean;
+  /** Czy bieżąca rola może mutować pipeline (lustro CandidateWriteAccess). */
+  canAssign?: boolean;
+  /** Jednoznaczny cel przycisku — rekrutacja wybrana przed wyszukiwaniem. */
+  targetRecruitmentTitle?: string;
+  onAssign?: (candidateId: number) => void;
+  assigningCandidateId?: number | null;
+  assignedCandidateIds?: ReadonlySet<number>;
 }
 
 export function TalentRadarResults({
@@ -96,6 +105,11 @@ export function TalentRadarResults({
   error = null,
   onRetry,
   canOpenProfile = true,
+  canAssign = false,
+  targetRecruitmentTitle,
+  onAssign,
+  assigningCandidateId = null,
+  assignedCandidateIds = EMPTY_ASSIGNED_IDS,
 }: TalentRadarResultsProps) {
   // Kolejność jak w kanonie widoków (`lib/view-state.ts`): awaria PRZED pustym
   // i przed stanem startowym. 403 rozdzielone od 5xx, bo to dwa różne zdania:
@@ -160,7 +174,7 @@ export function TalentRadarResults({
       <EmptyState
         icon={Users}
         title="Zacznij od wklejenia requestu"
-        description="Wybierz klienta i wklej treść — nie zakładamy rekrutacji, to tylko przeszukanie bazy."
+        description="Wybierz rekrutację i wklej treść requestu — wyniki przypiszesz do niej jednym kliknięciem."
       />
     );
   }
@@ -173,7 +187,14 @@ export function TalentRadarResults({
         <strong>{meta.eligible_size.toLocaleString("pl-PL")}</strong> wolno
         zaproponować temu klientowi. Pokazujemy{" "}
         <strong>{meta.returned.toLocaleString("pl-PL")}</strong> najlepiej
-        dopasowanych.
+        dopasowanych
+        {targetRecruitmentTitle ? (
+          <>
+            {" "}do rekrutacji <strong>{targetRecruitmentTitle}</strong>.
+          </>
+        ) : (
+          "."
+        )}
         {(meta.hidden?.over_budget ?? 0) > 0 && (
           <>
             {" "}
@@ -202,37 +223,75 @@ export function TalentRadarResults({
 
       {results.length > 0 ? (
         <MatchList layout="grid">
-          {results.map((result) => (
-            <MatchCard
-              key={result.candidate_id}
-              name={candidateName(result)}
-              role={candidateRole(result)}
-              score={result.total}
-              reasons={matchReasons(result)}
-              actions={
-                canOpenProfile ? (
-                  // Celowo `Link` ze stylami `buttonVariants`, nie `<Button
-                  // asChild>`: Button renderuje slot na spinner obok dziecka,
-                  // więc Radix Slot dostaje dwoje dzieci i wywala się w
-                  // runtime („Slot failed to slot onto its children"). Ten sam
-                  // obchód co w HelpMaterialsSection.tsx.
-                  //
-                  // `from=talent-radar`: profil pokaże „Wróć do Talent Radaru"
-                  // zamiast „Wróć do kandydatów", a radar odtworzy wyszukiwanie
-                  // ze snapshotu (lib/talent-radar-session.ts) — bez tego powrót
-                  // kasował wyniki i formularz.
-                  <Link
-                    href={`/candidates/${result.candidate_id}?${encodeTalentRadarBackRef().toString()}`}
-                    className={cn(
-                      buttonVariants({ variant: "outline", size: "sm" }),
-                    )}
-                  >
-                    Otwórz profil
-                  </Link>
-                ) : undefined
-              }
-            />
-          ))}
+          {results.map((result) => {
+            const assigned = assignedCandidateIds.has(result.candidate_id);
+            const assigning = assigningCandidateId === result.candidate_id;
+            const name = candidateName(result);
+            return (
+              <MatchCard
+                key={result.candidate_id}
+                name={name}
+                role={candidateRole(result)}
+                score={result.total}
+                reasons={matchReasons(result)}
+                actions={
+                  (canAssign && onAssign) || canOpenProfile ? (
+                    <>
+                      {canAssign && onAssign ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => onAssign(result.candidate_id)}
+                          loading={assigning}
+                          disabled={assigned}
+                          aria-label={
+                            assigned
+                              ? `${name} — przypisano do rekrutacji`
+                              : `Przypisz ${name} do rekrutacji${
+                                  targetRecruitmentTitle
+                                    ? ` ${targetRecruitmentTitle}`
+                                    : ""
+                                }`
+                          }
+                        >
+                          {assigned ? (
+                            <>
+                              <CheckCircle2 className="h-4 w-4" />
+                              Przypisano
+                            </>
+                          ) : assigning ? (
+                            "Przypisuję…"
+                          ) : (
+                            "Przypisz do rekrutacji"
+                          )}
+                        </Button>
+                      ) : null}
+                      {canOpenProfile ? (
+                        // Celowo `Link` ze stylami `buttonVariants`, nie `<Button
+                        // asChild>`: Button renderuje slot na spinner obok dziecka,
+                        // więc Radix Slot dostaje dwoje dzieci i wywala się w
+                        // runtime („Slot failed to slot onto its children"). Ten sam
+                        // obchód co w HelpMaterialsSection.tsx.
+                        //
+                        // `from=talent-radar`: profil pokaże „Wróć do Talent Radaru"
+                        // zamiast „Wróć do kandydatów", a radar odtworzy wyszukiwanie
+                        // ze snapshotu (lib/talent-radar-session.ts) — bez tego powrót
+                        // kasował wyniki i formularz.
+                        <Link
+                          href={`/candidates/${result.candidate_id}?${encodeTalentRadarBackRef().toString()}`}
+                          className={cn(
+                            buttonVariants({ variant: "outline", size: "sm" }),
+                          )}
+                        >
+                          Otwórz profil
+                        </Link>
+                      ) : null}
+                    </>
+                  ) : undefined
+                }
+              />
+            );
+          })}
         </MatchList>
       ) : (
         <EmptyState

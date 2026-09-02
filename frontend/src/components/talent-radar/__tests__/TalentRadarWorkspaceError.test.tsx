@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   parseChampion: vi.fn(),
   showError: vi.fn(),
+  showSuccess: vi.fn(),
 }));
 
 vi.mock("next/link", () => ({
@@ -37,26 +38,45 @@ vi.mock("@/lib/talent-radar-api", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
+  recommendationsApi: { assignToJob: vi.fn() },
   extractErrorMsg: (error: unknown) =>
     (error as { message?: string })?.message ?? "błąd",
 }));
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showError: mocks.showError }),
+  useToast: () => ({
+    showError: mocks.showError,
+    showSuccess: mocks.showSuccess,
+  }),
 }));
 
 vi.mock("@/hooks/useCapability", () => ({
   useCapability: () => true,
 }));
 
-vi.mock("@/components/talent-radar/TalentRadarClientPicker", () => ({
-  TalentRadarClientPicker: ({
+vi.mock("@/components/talent-radar/TalentRadarRecruitmentPicker", () => ({
+  TalentRadarRecruitmentPicker: ({
     onChange,
   }: {
-    onChange: (client: { id: number; name: string }) => void;
+    onChange: (recruitment: {
+      id: number;
+      title: string;
+      clientId: number;
+      clientName: string;
+    }) => void;
   }) => (
-    <button type="button" onClick={() => onChange({ id: 1, name: "Klient" })}>
-      Wybierz klienta (mock)
+    <button
+      type="button"
+      onClick={() =>
+        onChange({
+          id: 11,
+          title: "Senior Python Developer",
+          clientId: 1,
+          clientName: "Klient",
+        })
+      }
+    >
+      Wybierz rekrutację (mock)
     </button>
   ),
 }));
@@ -76,7 +96,7 @@ async function searchOnce() {
       <TalentRadarWorkspace />
     </QueryClientProvider>,
   );
-  await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
+  await user.click(screen.getByRole("button", { name: /Wybierz rekrutację/ }));
   await user.type(screen.getByLabelText("Treść requestu"), QUERY_TEXT);
   await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
   return user;
@@ -106,7 +126,7 @@ describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
     expect(mocks.showError).toHaveBeenCalled();
   });
 
-  it("zmiana klienta unieważnia stary błąd razem z wynikami", async () => {
+  it("zmiana rekrutacji unieważnia stary błąd razem z wynikami", async () => {
     mocks.search.mockRejectedValue(
       Object.assign(new Error("boom"), { response: { status: 500 } }),
     );
@@ -114,7 +134,7 @@ describe("TalentRadarWorkspace — błąd wyszukiwania", () => {
     const user = await searchOnce();
     await screen.findByText("Wyszukiwanie nie doszło do skutku");
 
-    await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
+    await user.click(screen.getByRole("button", { name: /Wybierz rekrutację/ }));
 
     await waitFor(() =>
       expect(
