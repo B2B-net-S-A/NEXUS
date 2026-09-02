@@ -134,6 +134,17 @@ def event_visibility_filter(user: User) -> ColumnElement[bool]:
     """
     if user_is_read_override(user):
         return true()
+    return personal_event_visibility_filter(user)
+
+
+def personal_event_visibility_filter(user: User) -> ColumnElement[bool]:
+    """Owner/attendee scope without the organization-wide read override.
+
+    Dashboard sections labelled "Moje" use this even for Admin, HoR and
+    Finance.  Their ability to inspect the complete calendar remains unchanged
+    on the calendar screen itself.
+    """
+
     attendee_clause = text(_ATTENDEE_MATCH_SQL).bindparams(
         cal_scope_email=(user.email or "")
     )

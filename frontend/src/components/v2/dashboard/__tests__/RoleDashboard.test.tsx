@@ -24,12 +24,15 @@ vi.mock("@/components/v2/dashboard/DashboardShell", () => ({
     children: React.ReactNode
   }) => <div data-show-period={String(showPeriod)}>{children}</div>,
 }))
-vi.mock("@/components/v2/dashboard/DailyRecruiterKpi", () => ({
-  DailyRecruiterKpi: () => <div>daily-recruiter-kpi</div>,
-}))
 vi.mock("@/components/v2/dashboard/RecruitmentCompetenceDashboard", () => ({
   RecruitmentCompetenceDashboard: () => <div>recruitment-processes</div>,
-  RecruitmentCompetenceKpis: () => <div>recruitment-kpis</div>,
+  MyAssignedRecruitments: () => <div>my-assigned-recruitments</div>,
+}))
+vi.mock("@/components/v2/dashboard/RecruitmentActivityDashboard", () => ({
+  RecruitmentActivityDashboard: () => <div>recruitment-activity</div>,
+}))
+vi.mock("@/components/v2/dashboard/MyTasksDashboard", () => ({
+  MyTasksDashboard: () => <div>my-tasks</div>,
 }))
 vi.mock("@/components/candidate-contact/ContactOversightPanel", () => ({
   ContactOversightPanel: () => <div>contact-oversight</div>,
@@ -74,14 +77,16 @@ describe("RoleDashboard — unified recruitment view", () => {
     })
   })
 
-  it("shows KPI and recruitments together and removes the legacy tab parameter", () => {
+  it("shows activity, personal work and recruitments without legacy tabs", () => {
     navigation.params = new URLSearchParams(
       "preset=my-work&period=day&tab=processes",
     )
 
     render(<RoleDashboard />)
 
-    expect(screen.getByText("recruitment-kpis")).toBeInTheDocument()
+    expect(screen.getByText("recruitment-activity")).toBeInTheDocument()
+    expect(screen.getByText("my-assigned-recruitments")).toBeInTheDocument()
+    expect(screen.getByText("my-tasks")).toBeInTheDocument()
     expect(screen.getByText("recruitment-processes")).toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: "KPI" })).toBeNull()
     expect(screen.queryByRole("tab", { name: "Procesy" })).toBeNull()
@@ -95,7 +100,7 @@ describe("RoleDashboard — unified recruitment view", () => {
 
     render(<RoleDashboard />)
 
-    expect(screen.getByText("recruitment-kpis").closest("[data-show-period]"))
+    expect(screen.getByText("recruitment-activity").closest("[data-show-period]"))
       .toHaveAttribute("data-show-period", "false")
   })
 
@@ -137,10 +142,20 @@ describe("RoleDashboard — unified recruitment view", () => {
 
       const { container } = render(<RoleDashboard />)
 
-      const kpis = screen.getByText("recruitment-kpis")
+      const kpis = screen.getByText("recruitment-activity")
+      const assigned = screen.getByText("my-assigned-recruitments")
+      const tasks = screen.getByText("my-tasks")
       const processes = screen.getByText("recruitment-processes")
       expect(
         kpis.compareDocumentPosition(processes) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        assigned.compareDocumentPosition(tasks) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        tasks.compareDocumentPosition(processes) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy()
       expect(screen.queryByRole("tab", { name: "KPI" })).toBeNull()
@@ -193,7 +208,7 @@ describe("RoleDashboard — unified recruitment view", () => {
 
     render(<RoleDashboard />)
 
-    expect(screen.getByText("recruitment-kpis")).toBeVisible()
+    expect(screen.getByText("recruitment-activity")).toBeVisible()
     expect(screen.queryByText("contact-oversight")).toBeNull()
     expect(screen.queryByText("team-allocation")).toBeNull()
   })
@@ -217,11 +232,13 @@ describe("RoleDashboard — unified recruitment view", () => {
 
     render(<RoleDashboard />)
 
-    expect(screen.getByText("recruitment-kpis")).toBeInTheDocument()
+    expect(screen.getByText("recruitment-activity")).toBeInTheDocument()
+    expect(screen.getByText("my-assigned-recruitments")).toBeInTheDocument()
+    expect(screen.getByText("my-tasks")).toBeInTheDocument()
     expect(screen.getByText("recruitment-processes")).toBeInTheDocument()
     expect(screen.queryByRole("tab", { name: "Operations" })).toBeNull()
     expect(screen.queryByRole("tab", { name: "Executive" })).toBeNull()
-    expect(screen.getByText("recruitment-kpis").closest("[data-show-period]"))
+    expect(screen.getByText("recruitment-activity").closest("[data-show-period]"))
       .toHaveAttribute("data-show-period", "false")
     expect(navigation.replace).toHaveBeenCalledWith(
       "/dashboard?preset=finance&period=quarter",

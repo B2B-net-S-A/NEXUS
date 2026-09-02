@@ -1221,6 +1221,8 @@ export const calendarApi = {
     to_date?: string;
     event_type?: string;
     status?: string;
+    mine_only?: boolean;
+    limit?: number;
   }) => api.get("/api/calendar/events", { params }),
   createEvent: (data: Record<string, unknown>) => api.post("/api/calendar/events", data),
   getEvent: (id: number) => api.get(`/api/calendar/events/${id}`),
@@ -1242,9 +1244,27 @@ export const calendarApi = {
 };
 
 // ── Notifications ─────────────────────────────────────────────────────────────
+export interface NotificationResponse {
+  id: number;
+  user_id: number;
+  title: string;
+  message: string;
+  link: string | null;
+  notification_type: string;
+  is_read: boolean;
+  created_at: string | null;
+}
+
+export interface NotificationListResponse {
+  items: NotificationResponse[];
+  unread_count: number;
+}
+
 export const notificationsApi = {
   list: (limit?: number) =>
-    api.get("/api/notifications", { params: limit ? { limit } : undefined }),
+    api.get<NotificationListResponse>("/api/notifications", {
+      params: limit ? { limit } : undefined,
+    }),
   count: () => api.get("/api/notifications/count"),
   markRead: (id: number) => api.patch(`/api/notifications/${id}/read`),
   markAllRead: () => api.patch("/api/notifications/read-all"),

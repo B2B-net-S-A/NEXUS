@@ -110,6 +110,7 @@ export interface RecruitmentOperationsListParams {
   page_size?: number
   q?: string
   category_id?: number | null
+  mine_only?: boolean
 }
 
 export async function getRecruitmentOperations(
@@ -127,6 +128,7 @@ export async function getRecruitmentOperations(
         ...(typeof params.category_id === "number"
           ? { category_id: params.category_id }
           : {}),
+        ...(params.mine_only ? { mine_only: true } : {}),
       },
     },
   )

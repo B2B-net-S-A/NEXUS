@@ -27,9 +27,11 @@ import { cn } from "@/lib/utils"
 
 import { DashboardShell } from "./DashboardShell"
 import {
+  MyAssignedRecruitments,
   RecruitmentCompetenceDashboard,
-  RecruitmentCompetenceKpis,
 } from "./RecruitmentCompetenceDashboard"
+import { MyTasksDashboard } from "./MyTasksDashboard"
+import { RecruitmentActivityDashboard } from "./RecruitmentActivityDashboard"
 import {
   MyPriorityQueue,
   TeamAllocationBoard,
@@ -148,7 +150,9 @@ function RecruitmentDashboardContent({
 }) {
   return (
     <div className="space-y-6">
-      <RecruitmentCompetenceKpis preset={preset} />
+      <RecruitmentActivityDashboard />
+      <MyAssignedRecruitments preset={preset} />
+      <MyTasksDashboard />
       <RecruitmentCompetenceDashboard preset={preset} />
       <OperationalTools preset={preset} roles={roles} />
     </div>

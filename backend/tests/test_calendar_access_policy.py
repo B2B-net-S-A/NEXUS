@@ -177,6 +177,30 @@ async def test_admin_lists_all(app_client: AsyncClient, app_auth_headers: dict):
     assert a_event in {e["id"] for e in r.json()}
 
 
+async def test_admin_mine_only_list_does_not_use_org_override(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    admin_id = await _me_id(app_client, app_auth_headers)
+    recruiter_id, *_ = await _seed_user(UserRole.recruiter, "owner")
+    own_event = await _seed_event(owner_id=admin_id, title="Admin owns")
+    foreign_event = await _seed_event(owner_id=recruiter_id, title="Recruiter owns")
+
+    r = await app_client.get(
+        "/api/calendar/events",
+        params={
+            "from_date": _iso(_BASE - timedelta(hours=1)),
+            "to_date": _iso(_BASE + timedelta(hours=2)),
+            "mine_only": True,
+        },
+        headers=app_auth_headers,
+    )
+
+    assert r.status_code == 200
+    ids = {event["id"] for event in r.json()}
+    assert own_event in ids
+    assert foreign_event not in ids
+
+
 # ── GET anti-enumeration ──────────────────────────────────────────────────────
 
 

@@ -35,6 +35,7 @@ from app.api.calendar_access import (
     CALENDAR_EVENT_DELETED,
     CALENDAR_EVENT_UPDATED,
     event_visibility_filter,
+    personal_event_visibility_filter,
     project_event_fields,
     record_calendar_audit,
     user_can_mutate_event,
@@ -206,6 +207,7 @@ async def list_events(
     upcoming: bool = Query(False),
     start_from: Optional[datetime] = Query(None),
     limit: int = Query(_EVENTS_MAX, ge=1, le=_EVENTS_MAX),
+    mine_only: bool = Query(False),
 ):
     """List calendar events the caller may see (owner / attendee / admin-HoR).
 
@@ -227,7 +229,12 @@ async def list_events(
     odpowiedzi dla wołających, którzy ich nie podają
     (`app/calendar/page.tsx` filtruje tydzień przez `from_date`/`to_date`).
     """
-    query = select(CalendarEvent).where(event_visibility_filter(current_user))
+    visibility = (
+        personal_event_visibility_filter(current_user)
+        if mine_only
+        else event_visibility_filter(current_user)
+    )
+    query = select(CalendarEvent).where(visibility)
     conditions = []
     if from_date:
         conditions.append(CalendarEvent.start_time >= from_date)
