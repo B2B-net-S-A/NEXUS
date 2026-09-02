@@ -33,6 +33,7 @@ import {
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -111,6 +112,14 @@ const NO_ACCESS_DESC =
 type ContractConflict = {
   message: string;
   contractIds: number[];
+  /** Etykiety PL różniących się pól — z 409 automatyzacji podpisu. */
+  conflicts: string[];
+  /**
+   * Serwer dopuszcza ponowne potwierdzenie z `keep_existing_contract_terms`.
+   * Tylko konflikt WARUNKÓW to ma; duplikaty kontraktorów, inny klient czy
+   * umowa już podpisana zostają twardą odmową bez tej podpowiedzi.
+   */
+  canKeepExistingTerms: boolean;
 };
 
 function getContractConflict(error: unknown): ContractConflict | null {
@@ -129,6 +138,9 @@ function getContractConflict(error: unknown): ContractConflict | null {
   }
   const message = (detail as { message?: unknown }).message;
   const rawIds = (detail as { contract_ids?: unknown }).contract_ids;
+  const rawConflicts = (detail as { conflicts?: unknown }).conflicts;
+  const canKeep = (detail as { can_keep_existing_terms?: unknown })
+    .can_keep_existing_terms;
   if (typeof message !== "string") return null;
   return {
     message,
@@ -137,6 +149,13 @@ function getContractConflict(error: unknown): ContractConflict | null {
           (id): id is number => typeof id === "number" && Number.isFinite(id),
         )
       : [],
+    conflicts: Array.isArray(rawConflicts)
+      ? rawConflicts.filter(
+          (label): label is string =>
+            typeof label === "string" && label.trim().length > 0,
+        )
+      : [],
+    canKeepExistingTerms: canKeep === true,
   };
 }
 
@@ -514,6 +533,11 @@ function ConfirmFullySignedDialog({
   const [candidateQuery, setCandidateQuery] = useState("");
   const [stageId, setStageId] = useState("");
   const [submitError, setSubmitError] = useState<ContractConflict | null>(null);
+  // Zaznaczane dopiero PO 409 z listą różnic — drugi, jawny krok. Bez niego
+  // „Potwierdź podpisanie" wysyłałoby flagę w ciemno i konflikt warunków
+  // (stawka dzienna w kontrakcie vs godzinowa w dokumencie) nigdy nie
+  // dotarłby do operatora.
+  const [keepExistingTerms, setKeepExistingTerms] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -522,6 +546,7 @@ function ConfirmFullySignedDialog({
     setCandidateQuery("");
     setStageId("");
     setSubmitError(null);
+    setKeepExistingTerms(false);
   }, [open, row.id]);
 
   const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
@@ -559,6 +584,15 @@ function ConfirmFullySignedDialog({
   );
   const effectiveJobId = row.job_id ?? selectedRecruitment?.job_id ?? null;
 
+  // Zgoda dotyczy KONKRETNEJ pary (kandydat, rekrutacja) — tej, dla której
+  // serwer wyliczył różnice. W wierszu historycznym parę wybiera się w tym
+  // samym dialogu, więc jej zmiana musi skasować i listę różnic, i zgodę;
+  // inaczej flaga poleciałaby dla pary, której konfliktów nikt nie widział.
+  useEffect(() => {
+    setSubmitError(null);
+    setKeepExistingTerms(false);
+  }, [effectiveCandidateId, effectiveJobId]);
+
   const linkedCandidateQuery = useQuery({
     queryKey: ["b2b-signature-candidate", row.candidate_id],
     queryFn: async () => {
@@ -594,6 +628,12 @@ function ConfirmFullySignedDialog({
       return b2bGeneratorApi.confirmFullySigned(row.id, {
         candidate_id: effectiveCandidateId,
         job_id: effectiveJobId,
+        // Klucz dopiero po świadomym zaznaczeniu — `false` nie leci wcale,
+        // żeby zwykłe potwierdzenie było bajt w bajt tym samym żądaniem co
+        // przed tą zmianą. Czytamy WYŁĄCZNIE stan checkboxa: `onMutate`
+        // czyści `submitError` przed wywołaniem `mutationFn`, więc warunek
+        // na błędzie w tym miejscu widziałby już `null` i gubił flagę.
+        ...(keepExistingTerms ? { keep_existing_contract_terms: true } : {}),
       });
     },
     onSuccess: (result) => {
@@ -605,8 +645,14 @@ function ConfirmFullySignedDialog({
       const normalized = conflict ?? {
         message: extractErrorMsg(error),
         contractIds: [],
+        conflicts: [],
+        canKeepExistingTerms: false,
       };
       setSubmitError(normalized);
+      // Zaznaczenie ma sens tylko przy odmowie, która je oferuje; inna
+      // odmowa (np. dwa kontrakty naraz) chowa checkbox, więc i flaga musi
+      // zniknąć — inaczej kolejne kliknięcie wysłałoby ją w ciemno.
+      if (!normalized.canKeepExistingTerms) setKeepExistingTerms(false);
       if (normalized.contractIds.length > 0) {
         toast.showActionToast(normalized.message, {
           actionLabel:
@@ -828,8 +874,22 @@ function ConfirmFullySignedDialog({
           />
 
           {submitError ? (
-            <Alert variant="error" title="Nie można zakończyć automatyzacji">
+            <Alert
+              variant={submitError.canKeepExistingTerms ? "warning" : "error"}
+              title={
+                submitError.canKeepExistingTerms
+                  ? "Istniejący kontrakt ma inne warunki niż dokument"
+                  : "Nie można zakończyć automatyzacji"
+              }
+            >
               <p className="mt-0.5 text-xs opacity-90">{submitError.message}</p>
+              {submitError.conflicts.length > 0 ? (
+                <ul className="mt-1.5 list-disc pl-4 text-xs">
+                  {submitError.conflicts.map((label) => (
+                    <li key={label}>{label}</li>
+                  ))}
+                </ul>
+              ) : null}
               {submitError.contractIds.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-2">
                   {submitError.contractIds.map((contractId) => (
@@ -842,6 +902,32 @@ function ConfirmFullySignedDialog({
                       <ExternalLink className="h-3 w-3" />
                     </Link>
                   ))}
+                </div>
+              ) : null}
+              {submitError.canKeepExistingTerms ? (
+                <div className="mt-3 flex items-start gap-2">
+                  <Checkbox
+                    id="b2b-keep-existing-terms"
+                    checked={keepExistingTerms}
+                    onCheckedChange={(value) =>
+                      setKeepExistingTerms(value === true)
+                    }
+                    className="mt-0.5"
+                  />
+                  <Label
+                    htmlFor="b2b-keep-existing-terms"
+                    className="text-xs font-normal leading-snug"
+                  >
+                    Zachowaj dotychczasowe warunki kontraktu
+                    {submitError.contractIds.length === 1
+                      ? ` #${submitError.contractIds[0]}`
+                      : ""}{" "}
+                    i potwierdź podpisanie mimo różnic. Umowa zostanie
+                    powiązana z kontraktem, ale stawka, jednostka, harmonogram
+                    ani daty w kontrakcie nie zmienią się — podpisany dokument
+                    pozostaje zapisem tego, co strony podpisały; kontrakt
+                    popraw ręcznie, jeśli trzeba.
+                  </Label>
                 </div>
               ) : null}
             </Alert>
@@ -880,7 +966,12 @@ function ConfirmFullySignedDialog({
             ) : (
               <CheckCircle2 className="h-4 w-4" />
             )}
-            Potwierdź podpisanie
+            {/* Sam stan checkboxa: `onMutate` czyści `submitError` na czas
+                żądania, a etykieta nie może mrugać na „Potwierdź podpisanie",
+                gdy flaga właśnie leci. Checkbox istnieje tylko po 409
+                z podpowiedzią i jest zerowany przy każdej innej odmowie oraz
+                przy zmianie pary, więc `true` zawsze znaczy świadomą zgodę. */}
+            {keepExistingTerms ? "Potwierdź mimo różnic" : "Potwierdź podpisanie"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1912,13 +2003,22 @@ export function GeneratedContractsTab() {
                   <th className="py-2 pr-4 font-medium">Klient</th>
                   <th className="py-2 pr-4 font-medium">Status umowy</th>
                   <th className="py-2 pr-4 font-medium">Status podpisu</th>
-                  <th className="py-2 pr-4 font-medium">Wygenerował</th>
+                  {/* „Wygenerowano" niesie datę I autora (druga linia) —
+                      jedna kolumna zamiast dwóch. Kontener jest przycięty do
+                      `max-w-7xl`, więc rejestr o 10 kolumnach przelewał się
+                      na KAŻDYM monitorze, a przyklejona kolumna akcji
+                      zasłaniała wtedy to, co pod nią leżało: „Status podpisu"
+                      z uciętym „Oznacz jako…". */}
                   <th className="py-2 pr-4 font-medium">Wygenerowano</th>
-                  {/* `sticky right-0`: przy 10 kolumnach tabela przelewa się
+                  {/* `sticky right-0`: przy tylu kolumnach tabela przelewa się
                       w poziomy scroll i akcje lądowały za prawą krawędzią —
                       ucięty przycisk czyta się jak brak możliwości („nie da
                       się usunąć"), więc kolumna akcji musi być widoczna bez
-                      przewijania. */}
+                      przewijania. Przyklejona kolumna ZASŁANIA jednak wszystko,
+                      co pod nią, dopóki użytkownik nie przewinie — dlatego
+                      akcje są ikonowe (z `aria-label` i `title`): trzy
+                      przyciski z tekstem miały 283 px i zakrywały pół
+                      „Status podpisu". */}
                   <th className="sticky right-0 z-10 bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))]">
                     Akcje
                   </th>
@@ -2053,7 +2153,7 @@ export function GeneratedContractsTab() {
                         </div>
                       </td>
                       <td className="py-2 pr-4">
-                        <div className="flex min-w-48 flex-col items-start gap-1.5">
+                        <div className="flex flex-col items-start gap-1.5">
                           <Badge
                             variant={signed ? "success" : "outline"}
                             size="md"
@@ -2123,11 +2223,17 @@ export function GeneratedContractsTab() {
                           ) : null}
                         </div>
                       </td>
-                      <td className="py-2 pr-4">{r.created_by_name || "—"}</td>
-                      <td className="py-2 pr-4 text-muted-foreground">
-                        {r.created_at
-                          ? r.created_at.slice(0, 16).replace("T", " ")
-                          : "—"}
+                      <td className="py-2 pr-4">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="whitespace-nowrap text-muted-foreground">
+                            {r.created_at
+                              ? r.created_at.slice(0, 16).replace("T", " ")
+                              : "—"}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {r.created_by_name || "—"}
+                          </span>
+                        </div>
                       </td>
                       <td className="sticky right-0 z-10 bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))]">
                         <div className="flex items-center justify-end gap-1">
@@ -2136,28 +2242,28 @@ export function GeneratedContractsTab() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8"
+                                className="h-8 w-8 p-0"
                                 disabled={saving}
                                 onClick={() => saveEdit(r.id)}
                                 title="Zapisz nazwę Klienta"
+                                aria-label="Zapisz nazwę Klienta"
                               >
                                 {saving ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
                                 ) : (
                                   <Save className="h-4 w-4" />
                                 )}
-                                <span className="ml-1">Zapisz</span>
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8"
+                                className="h-8 w-8 p-0"
                                 disabled={saving}
                                 onClick={() => setEditingId(null)}
                                 title="Anuluj edycję"
+                                aria-label="Anuluj edycję"
                               >
                                 <X className="h-4 w-4" />
-                                <span className="ml-1">Anuluj</span>
                               </Button>
                             </>
                           ) : (
@@ -2166,46 +2272,46 @@ export function GeneratedContractsTab() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8"
+                                  className="h-8 w-8 p-0"
                                   onClick={() => startEdit(r)}
-                                  title="Popraw nazwę Klienta"
+                                  title="Edytuj nazwę Klienta"
+                                  aria-label="Edytuj nazwę Klienta"
                                 >
                                   <Pencil className="h-4 w-4" />
-                                  <span className="ml-1">Edytuj</span>
                                 </Button>
                               ) : null}
                               {r.can_download ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8"
+                                  className="h-8 w-8 p-0"
                                   disabled={downloading}
                                   onClick={() => downloadMut.mutate(r)}
                                   title="Pobierz DOCX ponownie"
+                                  aria-label="Pobierz DOCX ponownie"
                                 >
                                   {downloading ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                   ) : (
                                     <Download className="h-4 w-4" />
                                   )}
-                                  <span className="ml-1">Pobierz</span>
                                 </Button>
                               ) : null}
                               {!signed && r.can_delete ? (
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 text-destructive hover:text-destructive"
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                                   disabled={deleting}
                                   onClick={() => confirmDelete(r)}
                                   title="Usuń umowę z listy"
+                                  aria-label="Usuń umowę z listy"
                                 >
                                   {deleting ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                   ) : (
                                     <Trash2 className="h-4 w-4" />
                                   )}
-                                  <span className="ml-1">Usuń</span>
                                 </Button>
                               ) : null}
                               {(!r.can_edit || signed) &&

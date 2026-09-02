@@ -1826,6 +1826,7 @@ async def confirm_generated_contract_fully_signed(
             ensure_order=True,
             ensure_hired=True,
             audit_source_generated_id=row.id,
+            keep_existing_terms=payload.keep_existing_contract_terms,
         )
         # Klient kosztowy (Polkomtel): automatyzacja świadomie NIE tworzy
         # zamówienia — hook nie zna jego typu (kosztowe vs MD), więc dodaje je
@@ -1873,6 +1874,10 @@ async def confirm_generated_contract_fully_signed(
                     "outcome": (
                         "created" if result.created_contract else "linked_existing"
                     ),
+                    # Różnice, które operator świadomie zaakceptował — bez tego
+                    # wpisu audyt nie odróżnia „warunki zgodne" od „powiązano
+                    # mimo różnic, kontrakt został jak był".
+                    "acknowledged_conflicts": list(result.acknowledged_conflicts),
                 },
             )
         )
@@ -1883,29 +1888,38 @@ async def confirm_generated_contract_fully_signed(
         item = await _serialize_generated_contract(db, row, current_user)
         await db.commit()
         outcome = "created" if result.created_contract else "linked_existing"
-        message = (
-            "Utworzono szkic kontraktora i zamówienia oraz oznaczono "
-            "kandydata jako zatrudnionego."
-            if result.created_contract
-            else (
+        # Zdanie bazowe wybierane RAZ, sufiks klienta kosztowego DOKLEJANY —
+        # nie nadpisujący. Wcześniej gałąź „brak zamówienia" podmieniała cały
+        # komunikat, więc u Polkomtela potwierdzenie mimo różnic mówiło
+        # „powiązano bez duplikatu", co czyta się jak „warunki zgodne", choć
+        # stawka w kontrakcie dalej była inna niż w podpisanym dokumencie.
+        if result.acknowledged_conflicts:
+            message = (
+                "Kontraktor już istniał — umowę powiązano, a jego dotychczasowe "
+                "warunki zostały bez zmian (różnice względem dokumentu: "
+                + ", ".join(result.acknowledged_conflicts)
+                + "). Sprawdź kontrakt i w razie potrzeby popraw go ręcznie."
+            )
+        elif result.created_contract:
+            message = (
+                "Utworzono szkic kontraktora i zamówienia oraz oznaczono "
+                "kandydata jako zatrudnionego."
+                if result.order is not None
+                else (
+                    "Utworzono szkic kontraktora i oznaczono kandydata jako "
+                    "zatrudnionego."
+                )
+            )
+        else:
+            message = (
                 "Kontraktor już istniał — umowę powiązano bez tworzenia "
                 "duplikatu, a zatrudnienie zsynchronizowano."
             )
-        )
         if result.order is None:
             # Wariant klienta kosztowego — komunikat MUSI powiedzieć, że brak
             # zamówienia jest decyzją, nie awarią, i wskazać następny krok.
-            message = (
-                (
-                    "Utworzono szkic kontraktora i oznaczono kandydata jako "
-                    "zatrudnionego."
-                    if result.created_contract
-                    else (
-                        "Kontraktor już istniał — umowę powiązano bez "
-                        "tworzenia duplikatu, a zatrudnienie zsynchronizowano."
-                    )
-                )
-                + " Zamówienia nie utworzono automatycznie: u tego klienta typ "
+            message += (
+                " Zamówienia nie utworzono automatycznie: u tego klienta typ "
                 "zamówienia (kosztowe albo MD) wybiera Delivery Lead, dodając "
                 "je ręcznie w zakładce Zamówienia („Nowy kontraktor / "
                 "zamówienie”)."
@@ -1919,6 +1933,7 @@ async def confirm_generated_contract_fully_signed(
             client_id=job.client_id,
             message=message,
             generated_contract=item,
+            acknowledged_conflicts=list(result.acknowledged_conflicts),
         )
     except HTTPException:
         await db.rollback()

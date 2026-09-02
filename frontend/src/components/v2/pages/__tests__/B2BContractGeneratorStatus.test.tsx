@@ -430,7 +430,6 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
       "Klient",
       "Status umowy",
       "Status podpisu",
-      "Wygenerował",
       "Wygenerowano",
       "Akcje",
     ]);
@@ -442,6 +441,33 @@ describe("GeneratedContractsTab — kolumny rejestru", () => {
     expect(await screen.findByText("1234563218")).toBeInTheDocument();
     // Surowe ISO, bez godziny — w odróżnieniu od kolumny „Wygenerowano".
     expect(screen.getByText("2026-08-25")).toBeInTheDocument();
+  });
+
+  it("pokazuje autora pod datą w kolumnie Wygenerowano zamiast osobnej kolumny", async () => {
+    renderTab([generatedRow()]);
+    const author = await screen.findByText("Marta Rekruter");
+    const cell = author.closest("td");
+    expect(cell).not.toBeNull();
+    expect(cell?.textContent).toContain("2026-07-24 10:30");
+    expect(
+      screen.queryByRole("columnheader", { name: "Wygenerował" }),
+    ).toBeNull();
+  });
+
+  it("akcje w przyklejonej kolumnie są ikonowe, ale nazwane dla czytników ekranu", async () => {
+    renderTab([generatedRow({ can_download: true })]);
+    await screen.findByText("1471/2026");
+    for (const name of [
+      "Edytuj nazwę Klienta",
+      "Pobierz DOCX ponownie",
+      "Usuń umowę z listy",
+    ]) {
+      const button = screen.getByRole("button", { name });
+      expect(button).toHaveAttribute("title", name);
+      // Sama ikona — tekst w przycisku zjadał szerokość, którą przyklejona
+      // kolumna zasłaniała pod sobą.
+      expect(button.textContent?.trim()).toBe("");
+    }
   });
 
   it("dla spółki pokazuje nazwę firmy i osobę w drugiej linii", async () => {
