@@ -2170,6 +2170,8 @@ async def api_health_deep_check():
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.client_cv_rule import ClientCvRule
+    from app.models.client_cv_rule_event import ClientCvRuleEvent
+    from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.models.insights_scoring_config import InsightsScoringConfig
     from app.models.client_order_group import (
         ClientOrderGroup,
@@ -2265,6 +2267,8 @@ async def api_health_deep_check():
         # deploy i pliki nazwane wzorem, którego klient nie akceptuje, wykryte
         # dopiero przez odbiorcę. Sonda jest jedynym dowodem, że tabela jest.
         ("client_cv_rules", ClientCvRule),
+        ("client_cv_rule_events", ClientCvRuleEvent),
+        ("client_cv_rule_previews", ClientCvRulePreview),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,

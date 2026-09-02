@@ -402,72 +402,119 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   HTML nie niosą zrzutu. Wymóg dotyczy dokumentu wysyłanego do banku, a obraz
   niesie adres e-mail kandydata — inny kanał to osobna decyzja.
 
-## Reguły CV per klient — Delivery Lead zakłada je sam, generator dostaje instrukcje
+## Reguły CV per klient — pełna recepta Delivery Leada
 
-`/settings/cv-rules` jest ekranem ZARZĄDZANIA (od 09.2026), nie podglądem.
-Do tej pory pokazywał wyłącznie 14 szablonów Championa zasianych migracją
-`0255`, bez dodawania i edycji, i nie miał linku w Ustawieniach — reguła dla
-piętnastego klienta była tu niewidoczna, a jedyną drogą do jej założenia było
-okno „Edytuj firmę" w profilu klienta. Backend wpuszczał Delivery Leada od
-początku; to była usterka POWIERZCHNI, nie uprawnień. Decyzje Artura
-z 02.09.2026: reguła per KLIENT (wspólna), DL zatwierdza SAM dla DOWOLNEGO
-klienta, zapis tylko **DL + admin**, plus pole instrukcji dla AI.
+`/settings/cv-rules` jest JEDYNYM ekranem polityki CV klienta (od 09.2026).
+Warstwy reguły, w kolejności powstania: nazwa pliku i język (`0255`) →
+instrukcje dla modelu (`0266`) → blokady dla rekrutera, polityka prezentacji
+egzekwowana w kodzie, słownik, wersja + historia + CV próbne (`0267`).
+Decyzje Artura z 02.09.2026: reguła per KLIENT (wspólna, nie per rekrutacja),
+DL zatwierdza SAM dla DOWOLNEGO klienta, zapis tylko **DL + admin**, blind
+bez zmian, jeden szablon DOCX, stawek w CV nigdy, notatka sourcingowa TEŻ idzie
+do modelu.
 
 - **`GET /api/settings/cv-rules` zwraca `{rules, unassigned_templates}`** —
-  KAŻDĄ regułę w bazie (z nazwą klienta, autorem zatwierdzenia i szablonem,
-  z którego ją zasiano) plus szablony Championa bez wiersza. Tych drugich nie
+  KAŻDĄ regułę w bazie plus szablony Championa bez wiersza. Tych drugich nie
   wolno ukryć: brak reguły wyglądałby identycznie jak jej nieistnienie.
 - **Zapis i zatwierdzenie to JEDNO kliknięcie** („Zapisz i zatwierdź",
-  `PUT … {confirm: true}`). Osobny krok „Zatwierdź" chronił PROPOZYCJE z seeda
-  (dopasowane po nazwie, więc możliwie błędne); reguła wpisana ręcznie JEST
-  decyzją autora, a drugie kliknięcie gubiło ludzi — zapisana i niezatwierdzona
-  reguła wygląda w generatorze jak jej brak. Domyślny `PUT` (bez `confirm`)
-  nadal zostawia propozycję, a edycja obowiązującej reguły tą ścieżką ZDEJMUJE
-  zatwierdzenie. Inline „Zatwierdź" na liście zostaje dla propozycji z seeda.
-- **Bramka zapisu to `DeliveryLeadPlus` (admin + DL), NIE `TacPlus`.** TAC
-  edytuje kartę klienta, ale reguł CV nie prowadzi — w oknie „Edytuj firmę"
-  widzi zamiast formularza zdanie odsyłające do DL/admina, a na
-  `/settings/cv-rules` ma czysty odczyt. Front idzie po WŁASNEJ capability
-  `cv_rule.manage` (lustro `DeliveryLeadPlus` w `capabilities.test.ts`), nie po
-  `client.update` — te dwie bramki różnią się dokładnie o TAC-a. Zapis NIE
-  jest zawężany do portfela DL i tak ma zostać: to lustro
-  `PATCH /api/clients/{id}` — reguła CV jest konfiguracją klienta jak jego
-  karta. „Tylko moi klienci" na liście to filtr z `data_scope` (domyślnie
-  włączony dla persony DL, do wyłączenia), nie granica. HoR, TAC, finance,
-  recruiter i sourcer czytają przegląd, ale dostają 403 na zapisie.
-  Test: `test_client_cv_rules_overview.py`.
-- **`generator_instructions` (migracja 0266) to JEDYNE pole reguły, które
-  trafia do promptu.** Wolny tekst DL o PREZENTACJI: co pominąć, co
-  wyeksponować, ile pozycji, jak długo, jakim stylem, format dat. Model dostaje
-  go w bloku `<client_presentation_rules>` **w wiadomości użytkownika, nie
-  w prompcie systemowym** — system idzie jako JEDEN blok
-  z `cache_control: ephemeral` i każda różnica per klient kasowałaby cache
-  promptu u tego klienta. Prompt systemowy (PL i EN) definiuje semantykę bloku
-  i ogranicza jego moc do doboru i formy faktów już obecnych w `<cv>` /
-  `<screening_notes>`; polecenie dopisania technologii, obowiązku, lat czy
-  certyfikatu model ignoruje i zgłasza w `warnings` („Pominięto instrukcję
-  klienta: …"). Bez tego akapitu blok byłby DANYMI, które „granica danych"
-  każe ignorować — pole działałoby wyłącznie na papierze. Znaczniki `<`/`>`
-  w treści są neutralizowane (DL nie ma jak „zamknąć" bloku), długość ucięta
-  do 2000 znaków (`GENERATOR_INSTRUCTIONS_MAX_LENGTH`). Działa w KAŻDYM trybie
-  treści i w blind, bo dotyczy prezentacji, nie pozycjonowania pod ofertę.
-  Układ dokumentu (szablon DOCX) się nie zmienia — instrukcje o tabelach
-  i kolumnach nie mają czego dotknąć. Rekruter dostaje ostrzeżenie
-  „zastosowano instrukcje tego klienta", a baner pokazuje ich treść.
-  Test: `test_cv_generator_client_instructions.py` (asertuje, co REALNIE
-  poszło do modelu i że system prompt jest bajt w bajt ten sam z instrukcjami
-  i bez nich).
-- **`notes` i `generator_instructions` to NIE duplikat** — notatkę czyta
-  człowiek (zwijana sekcja banera po wybraniu klienta z obowiązującą regułą;
-  do 09.2026 nie docierała do rekrutera nigdzie), instrukcje czyta model.
-  Reguła SZUKANIA („kandydatów z bankowości rozważamy w pierwszej
-  kolejności") należy do notatki — w polu dla modelu byłaby zaproszeniem do
-  koloryzowania doświadczenia bankowego.
-- **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w komponencie
+  `PUT … {confirm: true}`). Domyślny `PUT` zostawia propozycję, a edycja
+  obowiązującej reguły tą ścieżką ZDEJMUJE zatwierdzenie. Blokady i polityka
+  też czekają na zatwierdzenie — inaczej kopia z innego klienta zaczęłaby
+  blokować rekruterów (`test_unconfirmed_recipe_is_invisible_to_the_generator`).
+- **Bramka zapisu to `DeliveryLeadPlus`, NIE `TacPlus`.** TAC edytuje kartę
+  klienta, reguł nie prowadzi. Front idzie po WŁASNEJ capability
+  `cv_rule.manage` (lustro w `capabilities.test.ts`). Okno „Edytuj firmę"
+  NIE ma już formularza reguł ani przełącznika interaktywnego CV — odsyła do
+  `/settings/cv-rules?client=<id>` (deep link czytany efektem, nie
+  inicjalizatorem: miękka nawigacja nie odmontowuje strony). Zapis nie jest
+  zawężany do portfela DL — lustro `PATCH /api/clients/{id}`; „Tylko moi
+  klienci" to filtr z `data_scope`, nie granica.
+- **Wersja i historia.** Każdy zapis zmieniający TREŚĆ bumpuje
+  `client_cv_rules.version` i zostawia wpis w `client_cv_rule_events` z diffem
+  pól (`saved` / `saved_and_confirmed` / `confirmed` / `deleted` / `copied`).
+  Sam ponowny zapis identycznej treści wersji nie zmienia: stempel na CV ma
+  mówić o treści, nie o kliknięciach. Nowy wiersz po usunięciu startuje od
+  `max(rule_version)+1` z historii, nie od 1 — dwie różne treści pod tym
+  samym numerem zamieniłyby stempel w zgadywankę. Wygenerowane CV nosi
+  `cv_generated_documents.client_rule_version` — bez tego reklamacja klienta
+  jest nie do prześledzenia. FK historii idzie po KLIENCIE, nie po regule:
+  usunięcie i ponowne założenie reguły nie kasuje historii.
+- **Flagi karty klienta (`cv_content_mode_cap`, `cv_interactive_enabled`)
+  są zapisywane NA `clients`, ale prowadzone z edytora reguły** — generator,
+  publiczny link i sufit działają bez zmian, a DL ma jeden ekran. Kopia
+  z innego klienta ich NIE przenosi (obietnice złożone konkretnemu klientowi).
+- **Do promptu trafiają DWA bloki w wiadomości użytkownika, nie w systemowym
+  prompcie** (ten jest jednym cache'owanym blokiem i musi zostać bajt w bajt
+  ten sam): `<client_presentation_rules>` = klocki zrenderowane w języku
+  dokumentu + wolny tekst (`generator_instructions`, dla EN wariant
+  `generator_instructions_en`, gdy wpisany) oraz `<client_notes>` = notatka DL.
+  Oba prompty systemowe (PL/EN) definiują semantykę i granicę: dobór i forma
+  faktów obecnych w `<cv>`/`<screening_notes>`, NIGDY nowe fakty; „klient ceni
+  bankowość" znaczy „pokaż bankowe projekty wyżej, jeśli są", nie „napisz, że
+  są". Pominiętą instrukcję model zgłasza w `warnings` („Pominięto instrukcję
+  klienta: …"). `<`/`>` neutralizowane, sufit 2000 znaków na pole. Test:
+  `test_cv_generator_client_instructions.py` (system prompt identyczny
+  z instrukcjami i bez).
+- **Klocki są domykane W KODZIE, nie tylko proszone** (`apply_presentation_policy`
+  PO bezpiecznikach, tuż przed snapshotem `render_payload`): `omit_sections`
+  (education | certifications | languages | skills — `why_points` i
+  `experience` celowo poza katalogiem), `max_roles`, `max_bullets_per_role`,
+  `max_bullet_chars` (cięcie na granicy słowa + „…"), `why_points_max`,
+  `glossary` (całe słowa, bez `\b`, który przy polskich znakach nie działa;
+  `re.sub` z lambdą, bo `\` w celu wywalałby `re.error`). **Kolejność jest
+  load-bearing:** `_fix_experience_years` i `_derivable_years` liczą lata
+  z PEŁNEJ listy stanowisk — obcięcie do `max_roles` przed nimi zaniżało
+  nagłówek „N lat doświadczenia" i flagowało poprawną liczbę jako brak
+  pokrycia; słownik przed bezpiecznikiem podmieniał nazewnictwo, którego
+  ten nie znajdował w źródle. **Format dat NIE idzie do promptu** — model
+  posłuszny prośbie o `MM/YYYY` gubiłby miesiące bezpiecznikom, które parsują
+  wyłącznie `MM.YYYY`; format nakłada kod na końcu (`apply_date_format`).
+  Domknięcie czegokolwiek = ostrzeżenie „domknięto politykę prezentacji
+  klienta w kodzie" — posłuszny model nie generuje żadnej uwagi. Testy:
+  `test_cv_rule_presentation_policy.py` (klocki w izolacji) i
+  `test_cv_generator_client_instructions.py::test_policy_runs_after_year_guards…`
+  (kolejność w prawdziwym pipeline'ie).
+- **Blokady.** `content_mode` + `content_mode_locked`: zablokowany tryb
+  NADPISUJE żądanie na serwerze (`resolve_content_mode` PRZED sufitem, sufit
+  nadal wygrywa); kafelki w generatorze wyłączone; tryb bez blokady = domyślny,
+  zaznaczany RAZ przy zmianie klienta. Wymagane wejścia (`require_*`) dają 422
+  z listą braków PRZED naliczeniem kwoty, tym samym kanałem co zrzut zgody
+  u PKO BP; front pokazuje te same zdania przed kliknięciem (`notes_chars`
+  w readiness rekrutacji). `auto_second_language`: druga wersja generowana
+  w tle po pierwszej, jako OSOBNY wiersz z osobną kwotą — tylko przy
+  „obie wersje" i bez wymuszonego języka; odmowa kwoty dopisuje uwagę do
+  pierwszego wiersza zamiast padać. Drugi wiersz jest pełnoprawny: własny wpis
+  `Activity` i mapa wymagań interaktywnego CV, a `rule_reminders` NIE każe
+  wtedy „pamiętać o drugiej wersji".
+- **Klient w trybie upload podpowiadany z procesu kandydata** (picker
+  kandydata z bazy, wyłącznie po to). Dokładnie jeden klient w procesach =
+  wybrany sam; kilku = przyciski; zero = ręcznie. Generacja BEZ klienta wymaga
+  jawnego checkboxa „CV poza zleceniem" — to była największa dziura: bez
+  klienta nie działa ŻADNA reguła.
+- **Lint instrukcji (`POST …/cv-rule/lint`)** — tani model
+  (`CLAUDE_MODEL_CV_BULK`), osobny klucz kwoty `aifeaturekey.cv_rule_lint`
+  (enum + seed + lustro w entrypoincie; pilnuje
+  `test_ai_feature_enum_entrypoint_mirror.py`). Opinia, nie bramka: pokazuje
+  wcześniej granicę, której prompt generatora i tak pilnuje. Linie, których
+  model nie ocenił, wracają jako `unclear`, nigdy jako `ok`.
+- **CV próbne (`POST …/cv-rule/preview`)** — ten sam kandydat i rekrutacja
+  U TEGO klienta (cudza rekrutacja → 422), z regułą ZAPISANĄ (także
+  niezatwierdzoną) i bez, obok siebie. Gotowość rekrutacji sprawdzana PRZED
+  kwotą (inaczej DL płaciłby dwie generacje za wiersz „failed"); dwie
+  generacje = DWA obciążenia `cv_generator` naliczone przed kolejką; liczone
+  w tle (2-3 min to więcej niż limit proxy), osobna tabela
+  `client_cv_rule_previews` — nie `cv_generated_documents`, bo podgląd nie
+  jest dokumentem do wysłania. `candidate_id` z **CASCADE** (wiersz niesie
+  pełne CV — usunięcie osoby ma go zabrać), retencja 7 dni sprzątana przy
+  następnym podglądzie, „processing" starsze niż 15 min raportowane jako
+  awaria (Coolify zabija zadanie w tle przy każdym pushu), porażka zapisywana
+  po `rollback()`. Id podglądu żyje w edytorze, nie w zakładce — przełączenie
+  zakładki nie może zgubić wyniku, za który już zapłacono.
+- **Sygnał zwrotny (`GET …/cv-rule/feedback`)** liczy z ostrzeżeń
+  wygenerowanych CV pominięte instrukcje per tekst i domknięcia polityki;
+  instrukcja pomijana w co drugim CV to instrukcja do przepisania.
+- **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w edytorze
   i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
-- Formularz jest współdzielony (`ClientCvRulesSection`): profil klienta →
-  „Edytuj firmę" → Reguły CV nadal działa (dla DL/admina) i nie ma tam „Usuń
-  regułę" (obok pól firmy czytałoby się jak usuwanie klienta).
 
 ## Profil Championa — siedem sekcji (przebudowa 09.2026)
 

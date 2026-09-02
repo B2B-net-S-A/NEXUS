@@ -85,6 +85,11 @@ class CvGeneratedDocument(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Wersja reguły CV klienta (`client_cv_rules.version`), z którą powstał
+    # ten dokument (migracja 0267). NULL = bez reguły albo wiersz sprzed
+    # stempla. To jest odpowiedź na „którą regułą powstało CV, na które
+    # klient się skarży" — bez niej historia zmian reguły nic nie wyjaśnia.
+    client_rule_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     # ── Interaktywna wersja CV (kafelki wymagań na publicznym linku) ────────
     # Mapa „wymaganie → dowody z doświadczenia" generowana JEDNYM dodatkowym

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import CvRulesSettingsPage, { type CvRulesOverview } from "./page";
+import { makeCvRuleRow } from "@/test/fixtures/cv-rule";
 
 /**
  * Ekran „Reguły CV per klient" po przebudowie na zarządzanie (09.2026).
@@ -18,10 +19,15 @@ import CvRulesSettingsPage, { type CvRulesOverview } from "./page";
 
 const mocks = vi.hoisted(() => ({
   user: null as Record<string, unknown> | null,
+  search: "",
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
   delete: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
 vi.mock("@/store/auth", () => ({
@@ -70,46 +76,32 @@ const TAC_USER = { id: 9, role: "tac", roles: ["tac"] };
 
 const OVERVIEW: CvRulesOverview = {
   rules: [
-    {
+    makeCvRuleRow({
       client_id: 1,
       client_name: "Nordea Bank Abp",
-      filename_pattern: "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
-      spaces_to_underscores: false,
-      cv_language: "en",
-      requires_en_copy: false,
-      requires_rodo_consent_block: false,
-      notes: null,
-      generator_instructions: null,
       seed_key: "profil-championa-wzor-nordea-docx",
-      is_active: true,
-      confirmed_at: "2026-08-31T10:00:00Z",
-      confirmed_by_name: "Artur",
-      client_policy: "nazwa pliku, język EN",
-      filename_preview: "B2B_Analityk Biznesowy_Jan Kowalski.docx",
       template_label: "Nordea",
       template_url: "https://example.com/nordea.docx",
-      updated_at: "2026-08-31T10:00:00Z",
-    },
-    {
+    }),
+    makeCvRuleRow({
       client_id: 2,
       client_name: "Tauron Polska Energia",
       filename_pattern: "B2B_Tauron_{STANOWISKO}_{IMIE_NAZWISKO}",
       spaces_to_underscores: true,
       cv_language: "pl",
-      requires_en_copy: false,
-      requires_rodo_consent_block: false,
       notes: "Maks. 3 rekomendacje.",
       generator_instructions: "Bez sekcji zainteresowań.",
-      seed_key: null,
+      content_mode: "basic",
+      content_mode_locked: true,
+      require_project_ref: true,
       is_active: false,
       confirmed_at: null,
       confirmed_by_name: null,
       client_policy: "",
       filename_preview: null,
-      template_label: null,
-      template_url: null,
+      version: 3,
       updated_at: "2026-09-01T10:00:00Z",
-    },
+    }),
   ],
   unassigned_templates: [
     {
@@ -215,9 +207,29 @@ describe("CvRulesSettingsPage", () => {
 
     expect(await screen.findByText("Nordea Bank Abp")).toBeInTheDocument();
     expect(screen.getByText("instrukcje AI")).toBeInTheDocument();
+    expect(screen.getByText("tryb: Przepisanie")).toBeInTheDocument();
+    expect(screen.getByText("wymagane wejścia")).toBeInTheDocument();
+    expect(screen.getByText("wersja 3")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Dodaj regułę/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edytuj regułę/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Zatwierdź regułę/ })).not.toBeInTheDocument();
+  });
+
+  it("?client=<id> otwiera edytor tego klienta od razu", async () => {
+    mocks.user = DL_USER;
+    mocks.search = "client=2";
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/settings/cv-rules") return { data: OVERVIEW };
+      if (url === "/api/clients/2/cv-rule") return { data: OVERVIEW.rules[1] };
+      if (url.startsWith("/api/clients/2/cv-rule/")) return { data: [] };
+      throw new Error(`unexpected GET ${url}`);
+    });
+    renderPage();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Reguły CV — Tauron Polska Energia"),
+    ).toBeInTheDocument();
+    mocks.search = "";
   });
 
   it("awaria pobrania renderuje się jako błąd z ponowieniem, nie jako pustka", async () => {

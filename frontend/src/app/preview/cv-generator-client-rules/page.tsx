@@ -27,31 +27,18 @@ import {
   ClientCvRuleBanner,
   type ClientCvRule,
 } from "@/components/v2/cv-generator/ClientCvRuleBanner";
+import { makeCvRule } from "@/test/fixtures/cv-rule";
 
 const client = new QueryClient({
   defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 });
 
-const NORDEA: ClientCvRule = {
-  client_id: 1,
-  client_name: "Nordea Bank Abp",
-  filename_pattern: "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
-  spaces_to_underscores: false,
-  cv_language: "en",
-  requires_en_copy: false,
-  requires_rodo_consent_block: false,
-  notes: null,
-  generator_instructions: null,
+const NORDEA: ClientCvRule = makeCvRule({
   seed_key: "profil-championa-wzor-nordea-docx",
-  confirmed_at: "2026-08-31T10:00:00Z",
   confirmed_by_name: "Artur Twardowski",
-  is_active: true,
-  client_policy: "nazwa pliku, język EN",
-  filename_preview: "B2B_Analityk Biznesowy_Jan Kowalski.docx",
-};
+});
 
-const PKO: ClientCvRule = {
-  ...NORDEA,
+const PKO: ClientCvRule = makeCvRule({
   client_id: 2,
   client_name: "PKO Bank Polski",
   filename_pattern: "ZOB-{PROJEKT}_{STANOWISKO}_{IMIE_NAZWISKO}",
@@ -61,13 +48,16 @@ const PKO: ClientCvRule = {
     "Maks. 3 rekomendacje na stanowisko. CV bez zdjęcia. Numer projektu ZOB-xxxx bierzemy z zamówienia.",
   generator_instructions:
     "Bez sekcji zainteresowań. Maks. 3 projekty na stanowisko. Opisy obowiązków do 2 zdań.",
+  content_mode: "polished",
+  content_mode_locked: true,
   seed_key: "profil-championa-wzor-pko-bp-docx",
-  client_policy: "nazwa pliku, język PL, blok zgody RODO, instrukcje dla generatora",
+  confirmed_by_name: "Artur Twardowski",
+  client_policy:
+    "nazwa pliku, język PL, blok zgody RODO, tryb „Redakcja”, instrukcje dla generatora, notatka DL",
   filename_preview: "ZOB-4521_Analityk Biznesowy_Jan Kowalski.docx",
-};
+});
 
-const ALIOR_PROPOSED: ClientCvRule = {
-  ...NORDEA,
+const ALIOR_PROPOSED: ClientCvRule = makeCvRule({
   client_id: 3,
   client_name: "Alior Bank S.A.",
   cv_language: null,
@@ -78,7 +68,7 @@ const ALIOR_PROPOSED: ClientCvRule = {
   client_policy: "",
   filename_preview: null,
   seed_key: "profil-championa-wzor-alior-docx",
-};
+});
 
 function Case({
   title,
