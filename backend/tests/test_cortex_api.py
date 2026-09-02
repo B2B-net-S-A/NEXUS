@@ -47,7 +47,9 @@ async def test_coverage_shape(app_client: AsyncClient, app_auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_tech_map_rejects_recruiter(app_client: AsyncClient):
+async def test_tech_map_allows_recruiter_but_admin_command_does_not(
+    app_client: AsyncClient,
+):
     unique = uuid.uuid4().hex[:8]
     email = f"pytest-recruiter-{unique}@example.com"
     password = f"T3st_{unique}!PassX"
@@ -71,7 +73,7 @@ async def test_tech_map_rejects_recruiter(app_client: AsyncClient):
         headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
 
         resp = await app_client.get("/api/cortex/tech-map", headers=headers)
-        assert resp.status_code == 403
+        assert resp.status_code == 200
         resp = await app_client.post(
             "/api/cortex/admin/backfill-traffit", headers=headers
         )
@@ -141,7 +143,9 @@ async def test_cortex_client_stack_and_successors_shape(
 
 
 @pytest.mark.asyncio
-async def test_cortex_drilldown_rejects_recruiter(app_client: AsyncClient):
+async def test_cortex_drilldown_allows_recruiter_but_curation_does_not(
+    app_client: AsyncClient,
+):
     unique = uuid.uuid4().hex[:8]
     email = f"pytest-recruiter-dd-{unique}@example.com"
     password = f"T3st_{unique}!PassX"
@@ -161,10 +165,10 @@ async def test_cortex_drilldown_rejects_recruiter(app_client: AsyncClient):
             "/api/auth/login", json={"email": email, "password": password}
         )
         headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-        # Drill-down (nazwiska) i kuracja niedostępne dla recruitera.
+        # Recruiter has Insights/Cortex read access, but no taxonomy curation.
         assert (
             await app_client.get("/api/cortex/skill/1/candidates", headers=headers)
-        ).status_code == 403
+        ).status_code == 200
         assert (
             await app_client.post(
                 "/api/cortex/skills",

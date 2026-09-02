@@ -40,7 +40,7 @@ RUN = uuid.uuid4().hex[:8]
 
 async def _headers_for_role(app_client: AsyncClient, role: UserRole) -> dict[str, str]:
     tag = uuid.uuid4().hex[:8]
-    email = f"order-mail-{role.value}-{tag}@example.test"
+    email = f"order-mail-{role.value}-{tag}@example.com"
     password = f"P4ss_{tag}!"
     async with AsyncSessionLocal() as db:
         db.add(

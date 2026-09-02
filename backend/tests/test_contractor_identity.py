@@ -10,6 +10,7 @@ from app.analytics import metrics
 from app.api import contract_analytics
 from app.api.contractors import contractor_stats
 from app.models.contract import ContractStatus
+from app.models.user import UserRole
 from app.services.contractor_identity import (
     contractor_identity_key,
     count_unique_contractors,
@@ -208,7 +209,10 @@ async def test_contractor_stats_deduplicates_active_people_but_keeps_contract_co
             candidate=duplicate_profile,
         ),
     ]
-    user = SimpleNamespace(has_any_role=lambda *_roles: True)
+    user = SimpleNamespace(
+        has_role=lambda role: role is UserRole.admin,
+        has_any_role=lambda *roles: UserRole.admin in roles,
+    )
 
     stats = await contractor_stats(user, _StatsDb(contracts))
 

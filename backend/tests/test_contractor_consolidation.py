@@ -378,7 +378,7 @@ async def test_grouped_list_redacts_member_rates_for_non_finance(app_client):
     await _seed_contract(cand, c1)
     await _seed_contract(cand, c2)
 
-    headers = await _tac_headers(app_client)
+    headers = await _role_headers(app_client, "talent_community_manager")
     resp = await app_client.get(
         "/api/contracts",
         params={"q": marker, "group_by_candidate": "true", "page_size": 50},

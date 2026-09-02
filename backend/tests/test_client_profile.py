@@ -276,15 +276,15 @@ async def test_archive_money_is_redacted_without_view_finance(
     client_id, contract_id = await _seed_scheduled_contract(ended=True)
 
     unique = uuid.uuid4().hex[:8]
-    email = f"pytest-hor-{unique}@example.com"
+    email = f"pytest-tcm-{unique}@example.com"
     password = f"T3st_{unique}!PassX"
     async with AsyncSessionLocal() as db:
         db.add(
             User(
                 email=email,
                 password_hash=hash_password(password),
-                name="Pytest HoR",
-                role=UserRole.head_of_recruitment,
+                name="Pytest TCM",
+                role=UserRole.talent_community_manager,
                 is_active=True,
             )
         )
@@ -637,4 +637,4 @@ async def test_head_of_recruitment_with_dl_role_sees_rates_only_in_dl_portfolio(
     assert row["monthly_rate_candidate"] == 12000
     assert row["monthly_rate_client"] == 18000
     assert row["monthly_margin"] == 6000
-    assert body["summary"]["active_mrr"] == 18000
+    assert body["summary"]["active_mrr"] == 6000

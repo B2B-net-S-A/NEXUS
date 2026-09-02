@@ -1105,7 +1105,7 @@ async def test_confirm_rbac_allows_admin_and_fails_closed_without_client_scope(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_and_tac_require_job_scope_then_can_confirm_when_assigned(
+async def test_delivery_lead_scope_allows_confirmation_but_tac_stays_outside_delivery(
     app_client: AsyncClient,
 ):
     admin_id = await _current_admin_id(app_client)
@@ -1161,6 +1161,16 @@ async def test_delivery_lead_and_tac_require_job_scope_then_can_confirm_when_ass
             await db.commit()
 
         allowed = await _confirm(app_client, headers, scenario["generated_id"])
+        if role is UserRole.tac:
+            assert allowed.status_code == 403, (
+                "TAC must remain outside Delivery even with legacy job/client "
+                f"assignments: {allowed.text}"
+            )
+            assert await _counts_for_pair(
+                scenario["candidate_id"], scenario["job_id"]
+            ) == (0, 0, 0)
+            continue
+
         assert allowed.status_code == 200, (
             f"assigned {role.value} got {allowed.status_code}: {allowed.text}"
         )
