@@ -53,6 +53,7 @@ _FLAT_TO_BASICS = (
     "rate_raw",
     "work_mode",
     "start_date",
+    "deadline",
     "contract_length",
 )
 

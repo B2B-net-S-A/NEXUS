@@ -49,9 +49,23 @@ class ChampionBasics(BaseModel):
     rate_raw: Optional[str] = Field(default=None, max_length=255)
     work_mode: Optional[str] = Field(default=None, max_length=50)
     onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    # LOKALIZACJA BIURA — czyli gdzie jest praca, nie gdzie mieszka kandydat.
+    #
+    # Nazwa klucza kłamie i zostaje taka celowo: `scoring_service` porównuje tę
+    # wartość z miastem KANDYDATA (`_score_location`), więc od zawsze znaczyła
+    # „dokąd trzeba dojechać". Przemianowanie klucza to migracja 949 profili
+    # i ośmiu konsumentów po to, żeby użytkownik zobaczył dokładnie to samo —
+    # poprawione są więc ETYKIETY (wzór Word, edytor), nie kształt danych.
     candidate_location_pref: Optional[str] = Field(default=None, max_length=255)
+    # JĘZYK PRACY wymagany od kandydata (np. „PL, EN B2+"). NIE jest to język,
+    # w którym ma być napisane CV — ten stoi w `ClientCvRule.cv_language`, jest
+    # per klient i to jego słucha generator. Dwa różne fakty, dwa różne pola;
+    # zlanie ich dałoby drugie źródło prawdy obok tego, które naprawdę działa.
     language: Optional[str] = Field(default=None, max_length=50)
     start_date: Optional[str] = Field(default=None, max_length=100)
+    # Termin na dostarczenie kandydatów DO TEJ oferty. Osobno od KPI klienta
+    # („mamy 5 dni roboczych"), bo tamto opisuje tempo, a to konkretną datę.
+    deadline: Optional[str] = Field(default=None, max_length=100)
     contract_length: Optional[str] = Field(default=None, max_length=255)
 
 
@@ -481,6 +495,7 @@ class ChampionProfile(BaseModel):
             "rate_raw",
             "work_mode",
             "start_date",
+            "deadline",
             "contract_length",
         ):
             _fill(basics, key, out.pop(key, None))
