@@ -62,6 +62,10 @@ class B2BEmploymentDraftResult:
     created_contract: bool
     created_order: bool
     created_hired_stage: bool
+    # Term conflicts the caller explicitly acknowledged (``keep_existing_terms``).
+    # Non-empty means the existing contract's populated terms were left as they
+    # were and only the linkage/order/stage automation ran.
+    acknowledged_conflicts: tuple[str, ...] = ()
 
 
 def _payload_value(payload: Any | None, name: str) -> Any | None:
@@ -86,16 +90,31 @@ def _conflict_detail(
 
 
 def _raise_conflict(contract: Contract, details: list[str]) -> None:
+    """409 for material term conflicts — the only 409 a caller may override.
+
+    ``conflicts`` names every differing field so the UI can show them, and
+    ``can_keep_existing_terms`` tells it that re-sending the confirmation with
+    ``keep_existing_contract_terms=true`` links the document WITHOUT touching
+    the populated terms. Every other 409 raised by this service (duplicate
+    contractors, other client, non-B2B, open-order duplicates, signed link)
+    stays hard and carries no such hint.
+    """
     raise HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail=_conflict_detail(
-            (
-                "Istniejący kontraktor ma inne niepuste warunki: "
-                + ", ".join(details)
-                + ". Otwórz istniejący kontrakt i wyjaśnij konflikt ręcznie."
+        detail={
+            **_conflict_detail(
+                (
+                    "Istniejący kontraktor ma inne niepuste warunki: "
+                    + ", ".join(details)
+                    + ". Otwórz istniejący kontrakt i wyjaśnij konflikt ręcznie "
+                    "albo potwierdź podpis, zachowując dotychczasowe warunki "
+                    "kontraktu."
+                ),
+                contract_ids=[contract.id],
             ),
-            contract_ids=[contract.id],
-        ),
+            "conflicts": list(details),
+            "can_keep_existing_terms": True,
+        },
     )
 
 
@@ -139,7 +158,7 @@ async def _is_skeletal_pipeline_draft(
     return origin_activity_id is not None
 
 
-def _assert_compatible_terms(
+def _collect_term_conflicts(
     contract: Contract,
     detail: B2BContractDetail | None,
     payload: Any | None,
@@ -147,8 +166,12 @@ def _assert_compatible_terms(
     signing_date: date | None,
     language: str | None,
     skeletal_pipeline_draft: bool,
-) -> None:
-    """Reject only material conflicts where both sides already carry a value."""
+) -> list[str]:
+    """Name only material conflicts where both sides already carry a value.
+
+    Returns the PL labels used in the 409 message and in the audit trail; the
+    caller decides whether they block (default) or are acknowledged.
+    """
 
     conflicts: list[str] = []
     start_date = _payload_value(payload, "start_date")
@@ -259,8 +282,7 @@ def _assert_compatible_terms(
             ):
                 conflicts.append(label)
 
-    if conflicts:
-        _raise_conflict(contract, conflicts)
+    return conflicts
 
 
 def _fill_contract_terms(
@@ -287,6 +309,39 @@ def _fill_contract_terms(
     contract.rate_unit = RateUnit.hourly
 
 
+def _complete_absent_terms(contract: Contract, payload: Any | None) -> bool:
+    """Under acknowledged conflicts fill only what is EMPTY; never re-interpret.
+
+    Mirrors the absent-value half of ``_fill_contract_terms`` without its
+    unconditional ``rate_unit = hourly``: a populated non-hourly unit also
+    governs the client rate, so re-reading it as hourly would silently change
+    margin. Returns whether the document's hourly rate/schedule may be taken
+    verbatim — only a contract with no rate information at all (no cached
+    rate, no schedule) and an hourly unit can; a flat hourly rate seeded next
+    to a daily schedule would be a second, contradicting source of truth.
+    """
+
+    if contract.start_date is None:
+        contract.start_date = _payload_value(payload, "start_date")
+    if contract.rate_unit is None:
+        # Column default is ``monthly`` (server default), so ``None`` is only a
+        # legacy shape; the default path forces hourly here as well.
+        contract.rate_unit = RateUnit.hourly
+    payload_currency = _payload_value(payload, "currency")
+    if not contract.rate_candidate_currency and payload_currency:
+        contract.rate_candidate_currency = payload_currency
+    if not contract.currency:
+        contract.currency = payload_currency or "PLN"
+    rate_free = (
+        contract.rate_candidate is None
+        and not contract.candidate_rate_schedule
+        and contract.rate_unit == RateUnit.hourly
+    )
+    if rate_free:
+        contract.rate_candidate = _payload_value(payload, "rate_candidate")
+    return rate_free
+
+
 async def _upsert_b2b_detail(
     db: AsyncSession,
     contract: Contract,
@@ -296,7 +351,8 @@ async def _upsert_b2b_detail(
     contract_number: str | None,
     signing_date: date | None,
     language: str | None,
-    canonicalize_snapshot: bool,
+    canonicalize_number: bool,
+    canonicalize_signing_date: bool,
 ) -> B2BContractDetail:
     detail = existing_detail
     if detail is None:
@@ -323,11 +379,14 @@ async def _upsert_b2b_detail(
     for field, value in values.items():
         if getattr(detail, field) is None and value is not None:
             setattr(detail, field, value)
-    if canonicalize_snapshot:
-        if contract_number:
-            detail.contract_number = contract_number
-        if signing_date:
-            detail.signing_date = signing_date
+    # The number identifies WHICH document was signed, so a confirmation may
+    # always stamp it — it is not a negotiated term and is never listed as a
+    # conflict. The signing date is a term (``data podpisania``) and follows the
+    # caller's decision about populated terms.
+    if canonicalize_number and contract_number:
+        detail.contract_number = contract_number
+    if canonicalize_signing_date and signing_date:
+        detail.signing_date = signing_date
     if language and (not detail.language or detail.language == "pl"):
         detail.language = language
     return detail
@@ -608,12 +667,24 @@ async def ensure_b2b_employment_draft(
     ensure_detail: bool = True,
     validate_terms: bool = True,
     reject_signed_generated_link: bool = False,
+    keep_existing_terms: bool = False,
 ) -> B2BEmploymentDraftResult:
     """Lock the candidate, then reuse/create exactly one compatible B2B draft.
 
     ``ensure_order`` and ``ensure_hired`` are enabled by the fully-signed and
     pipeline-hired paths. The regular generator can reuse the same contractor
     identity without prematurely marking employment.
+
+    ``keep_existing_terms`` is the operator's explicit acknowledgement of term
+    conflicts (rate, unit, schedule, dates, B2B detail). With it, a conflicting
+    existing contract is LINKED but not edited: nothing already populated on
+    the contract or its B2B detail changes (empty fields are still completed
+    from the document, and the detail always takes the signed document's
+    number) — the signed document stays the legal record, the contract keeps
+    what Delivery entered (e.g. a daily rate next to a document quoting the
+    same money per hour). Without conflicts the flag is a no-op. It never
+    bypasses the identity guards (duplicate contractors, other client,
+    non-B2B, open-order duplicates, signed link).
     """
 
     if job.client_id is None:
@@ -665,6 +736,7 @@ async def ensure_b2b_employment_draft(
 
     created_contract = not contracts
     skeletal_pipeline_draft = False
+    acknowledged_conflicts: tuple[str, ...] = ()
     if created_contract:
         contract = Contract(
             candidate_id=candidate.id,
@@ -742,7 +814,7 @@ async def ensure_b2b_employment_draft(
                     ),
                 )
         if require_b2b and validate_terms:
-            _assert_compatible_terms(
+            conflicts = _collect_term_conflicts(
                 contract,
                 existing_detail,
                 payload,
@@ -750,8 +822,19 @@ async def ensure_b2b_employment_draft(
                 language=language,
                 skeletal_pipeline_draft=skeletal_pipeline_draft,
             )
+            if conflicts and not keep_existing_terms:
+                _raise_conflict(contract, conflicts)
+            acknowledged_conflicts = tuple(conflicts)
 
-    if require_b2b:
+    # Acknowledged conflicts freeze the existing contract's POPULATED terms:
+    # the document is linked, empty fields are still completed from it, but
+    # nothing populated is overwritten or re-interpreted (the same rule the
+    # B2B detail follows below).
+    preserve_existing_terms = bool(acknowledged_conflicts)
+    if require_b2b and preserve_existing_terms:
+        if _complete_absent_terms(contract, payload):
+            _seed_candidate_rate_schedule(contract, payload, actor_id=actor_id)
+    elif require_b2b:
         _fill_contract_terms(
             contract,
             payload,
@@ -768,8 +851,14 @@ async def ensure_b2b_employment_draft(
             payload,
             contract_number=contract_number,
             signing_date=signing_date,
-            language=language,
-            canonicalize_snapshot=audit_source_generated_id is not None,
+            # ``_upsert_b2b_detail`` upgrades a default "pl" to the document
+            # language; under an acknowledged language conflict that would be
+            # exactly the overwrite the operator asked us not to make.
+            language=(None if "język umowy" in acknowledged_conflicts else language),
+            canonicalize_number=audit_source_generated_id is not None,
+            canonicalize_signing_date=(
+                audit_source_generated_id is not None and not preserve_existing_terms
+            ),
         )
     await db.flush()
 
@@ -816,6 +905,8 @@ async def ensure_b2b_employment_draft(
                     "generated_contract_id": audit_source_generated_id,
                     "order_id": order.id if order else None,
                     "hired_stage_created": created_hired_stage,
+                    "acknowledged_conflicts": list(acknowledged_conflicts),
+                    "existing_terms_kept": preserve_existing_terms,
                 },
             )
         )
@@ -826,4 +917,5 @@ async def ensure_b2b_employment_draft(
         created_contract=created_contract,
         created_order=created_order,
         created_hired_stage=created_hired_stage,
+        acknowledged_conflicts=acknowledged_conflicts,
     )

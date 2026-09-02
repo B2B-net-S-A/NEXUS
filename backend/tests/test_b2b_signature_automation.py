@@ -34,6 +34,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
+from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.document_signature import DocumentSignature
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -294,6 +295,9 @@ async def _seed_existing_contract(
     start_date: date | None = None,
     rate_candidate: Decimal | None = None,
     currency: str = "PLN",
+    rate_unit: RateUnit = RateUnit.hourly,
+    rate_client: Decimal | None = None,
+    with_rate_schedule: bool = False,
 ) -> int:
     async with AsyncSessionLocal() as db:
         contract = Contract(
@@ -304,10 +308,21 @@ async def _seed_existing_contract(
             status=status,
             start_date=start_date or date(2026, 8, 1),
             rate_candidate=rate_candidate or Decimal("150.500"),
-            rate_unit=RateUnit.hourly,
+            rate_client=rate_client,
+            rate_unit=rate_unit,
             currency=currency,
         )
         db.add(contract)
+        await db.flush()
+        if with_rate_schedule:
+            db.add(
+                ContractCandidateRate(
+                    contract_id=contract.id,
+                    rate=contract.rate_candidate,
+                    effective_from=contract.start_date,
+                    created_by=scenario.get("created_by"),
+                )
+            )
         await db.commit()
         await db.refresh(contract)
         return contract.id
@@ -893,6 +908,382 @@ async def test_confirm_rejects_material_contract_conflict_without_partial_change
         assert contract.start_date == date(2026, 9, 1)
         assert contract.rate_candidate == Decimal("175.000")
         assert contract.currency == "EUR"
+        assert generated is not None
+        assert generated.signature_status == "unsigned"
+        assert generated.contract_id is None
+
+
+@pytest.mark.asyncio
+async def test_conflict_409_names_every_difference_and_offers_keeping_terms(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """The prod shape (2026-09): Delivery entered the contractor by hand AFTER
+    the document was generated — daily unit, MD-derived amount (68 PLN/h ×
+    8 = 544 PLN/day) and one schedule row. Three labels, one hint."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        rate_candidate=Decimal("1204.000"),
+        rate_client=Decimal("1760.000"),
+        rate_unit=RateUnit.daily,
+        with_rate_schedule=True,
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert detail["contract_ids"] == [existing_id]
+    assert detail["conflicts"] == [
+        "stawka kandydata",
+        "jednostka stawki",
+        "harmonogram stawek",
+    ]
+    assert detail["can_keep_existing_terms"] is True
+    assert "zachowując dotychczasowe warunki" in detail["message"]
+
+
+@pytest.mark.asyncio
+async def test_keep_existing_terms_links_without_touching_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Acknowledged conflicts link the signed document and run the order/hired
+    automation, but the contract keeps EVERY populated term — including the
+    non-hourly unit, which also governs the client rate and therefore margin."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        rate_candidate=Decimal("1204.000"),
+        rate_client=Decimal("1760.000"),
+        rate_unit=RateUnit.daily,
+        with_rate_schedule=True,
+    )
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["outcome"] == "linked_existing"
+    assert body["contract_id"] == existing_id
+    assert body["acknowledged_conflicts"] == [
+        "stawka kandydata",
+        "jednostka stawki",
+        "harmonogram stawek",
+    ]
+    assert "bez zmian" in body["message"]
+    assert "jednostka stawki" in body["message"]
+    assert body["generated_contract"]["signature_status"] == "signed_both"
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        1,
+        1,
+        1,
+    )
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, existing_id)
+        assert contract is not None
+        assert contract.status == ContractStatus.active
+        assert contract.rate_candidate == Decimal("1204.000")
+        assert contract.rate_client == Decimal("1760.000")
+        assert contract.rate_unit == RateUnit.daily
+        assert contract.start_date == date(2026, 8, 1)
+        schedule = (
+            await db.execute(
+                select(ContractCandidateRate).where(
+                    ContractCandidateRate.contract_id == existing_id
+                )
+            )
+        ).scalars().all()
+        assert [row.rate for row in schedule] == [Decimal("1204.000")]
+
+        # Absent values are still completed from the document: the B2B detail
+        # did not exist, so it is created with the signed document's number.
+        detail = await db.scalar(
+            select(B2BContractDetail).where(
+                B2BContractDetail.contract_id == existing_id
+            )
+        )
+        assert detail is not None
+        assert detail.project_city == "Warszawa"
+        assert detail.contract_number == scenario["contract_number"]
+
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert generated is not None
+        assert generated.contract_id == existing_id
+        assert generated.signature_source == "manual_confirmation"
+
+        order = await db.scalar(
+            select(ClientOrder).where(ClientOrder.contract_id == existing_id)
+        )
+        assert order is not None
+        # The auto-drafted order inherits the contract as it IS, not the
+        # document's hourly reading.
+        assert order.rate_unit == RateUnit.daily
+
+        audit = (
+            await db.execute(
+                select(Activity).where(
+                    Activity.entity_type == "b2b_generated_contract",
+                    Activity.entity_id == scenario["generated_id"],
+                    Activity.action == "fully_signed_confirmed",
+                )
+            )
+        ).scalars().all()
+        assert len(audit) == 1
+        assert audit[0].details["acknowledged_conflicts"] == [
+            "stawka kandydata",
+            "jednostka stawki",
+            "harmonogram stawek",
+        ]
+        link_audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == existing_id,
+                Activity.action == "linked_to_generated_contract",
+            )
+        )
+        assert link_audit is not None
+        assert link_audit.details["existing_terms_kept"] is True
+
+
+@pytest.mark.asyncio
+async def test_keep_existing_terms_completes_empty_fields_but_never_reinterprets(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Empty fields are still filled from the document (start date), but a
+    populated daily unit stays, and the document's HOURLY rate is not written
+    next to it — that number would be read in the wrong unit."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    async with AsyncSessionLocal() as db:
+        contract = Contract(
+            candidate_id=scenario["candidate_id"],
+            client_id=scenario["client_id"],
+            job_id=scenario["job_id"],
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=None,
+            rate_candidate=None,
+            rate_client=Decimal("1760.000"),
+            rate_unit=RateUnit.daily,
+            currency="PLN",
+        )
+        db.add(contract)
+        await db.commit()
+        await db.refresh(contract)
+        existing_id = contract.id
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["acknowledged_conflicts"] == ["jednostka stawki"]
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, existing_id)
+        assert contract is not None
+        assert contract.start_date == date(2026, 8, 1)
+        assert contract.rate_unit == RateUnit.daily
+        assert contract.rate_candidate is None
+        assert contract.rate_client == Decimal("1760.000")
+        schedule_rows = await db.scalar(
+            select(func.count(ContractCandidateRate.id)).where(
+                ContractCandidateRate.contract_id == existing_id
+            )
+        )
+        assert schedule_rows == 0
+        order = await db.scalar(
+            select(ClientOrder).where(ClientOrder.contract_id == existing_id)
+        )
+        assert order is not None
+        assert order.start_date == date(2026, 8, 1)
+
+
+@pytest.mark.asyncio
+async def test_keep_existing_terms_stamps_the_signed_number_but_keeps_detail_terms(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """A detail left by an earlier document keeps its populated terms (city is
+    a listed conflict) but takes the number of the document actually signed —
+    the number is identity, not a term, and is never listed as a conflict."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.ready_for_signature,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(
+            B2BContractDetail(
+                contract_id=existing_id,
+                contract_number="OLD/2099",
+                project_city="Kraków",
+                language="pl",
+            )
+        )
+        await db.commit()
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["acknowledged_conflicts"] == ["miasto realizacji"]
+    async with AsyncSessionLocal() as db:
+        detail = await db.scalar(
+            select(B2BContractDetail).where(
+                B2BContractDetail.contract_id == existing_id
+            )
+        )
+        assert detail is not None
+        assert detail.contract_number == scenario["contract_number"]
+        assert detail.project_city == "Kraków"
+        # Empty detail fields are still completed from the document.
+        assert detail.signing_date == date(2026, 7, 24)
+        assert detail.project_description == "Rozwój systemu bankowego."
+
+
+@pytest.mark.asyncio
+async def test_keep_existing_terms_message_survives_the_cost_client_suffix(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """At a cost client (no auto order) the message must still say the terms
+    were kept — the order suffix is appended, not substituted."""
+    import app.services.b2b_contract_automation as automation
+
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        rate_candidate=Decimal("1204.000"),
+        rate_client=Decimal("1760.000"),
+        rate_unit=RateUnit.daily,
+        with_rate_schedule=True,
+    )
+    monkeypatch.setattr(
+        automation,
+        "skips_standard_order_automation",
+        lambda client_id: client_id == scenario["client_id"],
+    )
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["order_id"] is None
+    assert body["acknowledged_conflicts"] == [
+        "stawka kandydata",
+        "jednostka stawki",
+        "harmonogram stawek",
+    ]
+    assert "dotychczasowe warunki zostały bez zmian" in body["message"]
+    assert "Zamówienia nie utworzono automatycznie" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_keep_existing_terms_is_a_no_op_without_conflicts(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Without differences the flag changes nothing: absent terms are filled
+    from the document exactly as on the default path."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.ready_for_signature,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["acknowledged_conflicts"] == []
+    async with AsyncSessionLocal() as db:
+        detail = await db.scalar(
+            select(B2BContractDetail).where(
+                B2BContractDetail.contract_id == existing_id
+            )
+        )
+        assert detail is not None
+        assert detail.contract_number == scenario["contract_number"]
+        assert detail.signing_date == date(2026, 7, 24)
+        link_audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == existing_id,
+                Activity.action == "linked_to_generated_contract",
+            )
+        )
+        assert link_audit is not None
+        assert link_audit.details["existing_terms_kept"] is False
+
+
+@pytest.mark.asyncio
+async def test_keep_existing_terms_never_bypasses_identity_guards(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Two live contractors is not a term conflict — the flag must not turn
+    that 409 into a silent link to either of them."""
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+    await _seed_existing_contract(scenario, status=ContractStatus.draft)
+    await _seed_existing_contract(scenario, status=ContractStatus.ready_for_signature)
+
+    response = await _confirm(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        {"keep_existing_contract_terms": True},
+    )
+
+    assert response.status_code == 409, response.text
+    detail = response.json()["detail"]
+    assert "can_keep_existing_terms" not in detail
+    assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
+        2,
+        0,
+        0,
+    )
+    async with AsyncSessionLocal() as db:
+        generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
         assert generated is not None
         assert generated.signature_status == "unsigned"
         assert generated.contract_id is None

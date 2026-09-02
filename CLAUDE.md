@@ -214,6 +214,35 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `confirm-fully-signed` (`TacPlus` + ścisły client-scope — audytowana,
   jednokierunkowa automatyzacja zatrudnienia, świadomie kontained nawet dla
   pełnodostępowego TAC). Test kontraktowy: `test_contract_legal_access.py`.
+- **Potwierdzenie podpisu mimo różnic = „zachowaj warunki kontraktu", nigdy
+  „nadpisz z dokumentu".** Gdy para (kandydat, rekrutacja) ma już żywy
+  kontrakt o innych wypełnionych warunkach niż dokument, automatyzacja odmawia
+  409 z listą różnic (`conflicts`) i podpowiedzią `can_keep_existing_terms`.
+  Drugi, jawny krok — checkbox w dialogu →
+  `keep_existing_contract_terms: true` — WIĄŻE podpisaną umowę z kontraktem,
+  zapewnia zamówienie i etap „Zatrudniony", ale nie zmienia niczego, co na
+  kontrakcie już jest (stawka, jednostka, harmonogram, daty, szczegóły B2B).
+  Puste pola nadal uzupełnia z dokumentu (`_complete_absent_terms`), z jednym
+  wyjątkiem: stawki GODZINOWEJ z dokumentu nie wpisuje obok jednostki dziennej
+  ani obok harmonogramu. Numer umowy w `b2b_contract_details` jest stemplowany
+  zawsze — identyfikuje, KTÓRY dokument podpisano, nie jest warunkiem i nigdy
+  nie trafia na listę różnic; data podpisania (warunek) zostaje. Zgoda jest
+  przypięta do pary (kandydat, rekrutacja): w wierszu historycznym zmiana
+  rekrutacji w dialogu kasuje listę różnic i checkbox. Przypadek z 09.2026: Delivery
+  założyło kontrakty ręcznie PO wygenerowaniu dokumentu, w jednostce dziennej
+  (68 zł/h w dokumencie = 544 zł/dzień w kontrakcie) — to ta sama kwota,
+  nie konflikt handlowy. Nadpisywanie z dokumentu jest wykluczone, bo
+  `rate_unit` rządzi TAKŻE stawką klienta: dzienna stawka klienta przeczytana
+  jako godzinowa rozsadza marżę. Flaga nie obchodzi żadnej innej odmowy
+  (duplikaty kontraktorów, inny klient, kontrakt nie-B2B, zdublowane
+  zamówienia, umowa już podpisana) i bez różnic nic nie zmienia. Ślad:
+  `acknowledged_conflicts` w Activity `fully_signed_confirmed` i
+  `existing_terms_kept` w `linked_to_generated_contract`. Kolumna akcji
+  rejestru jest ikonowa (`aria-label` + `title`), a autor siedzi pod datą
+  w „Wygenerowano": kontener `max-w-7xl` przycinał tabelę na KAŻDYM
+  monitorze, a przyklejona kolumna akcji (283 px) zasłaniała to, co pod nią —
+  pół „Status podpisu". Testy: `test_b2b_signature_automation.py`
+  (`keep_existing_terms*`), `B2BContractGeneratorSignature.test.tsx`.
 - **`suspended` powstał, bo bez niego rejestr kłamał.** Kontraktor kończy projekt
   u klienta, ale umowa B2B dalej obowiązuje — czeka na kolejne zlecenie. `active`
   twierdziłby, że ktoś pracuje; `closed`, że umowy nie ma. Ten status odpowiada na
