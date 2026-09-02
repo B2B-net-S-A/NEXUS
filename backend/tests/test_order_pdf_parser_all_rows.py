@@ -210,6 +210,21 @@ async def test_all_rows_marks_silent_truncation(monkeypatch):
     )
     assert short.document_truncated is False
 
+    # Tryb ZWYKŁY bez osoby docelowej idzie tą samą ścieżką cięcia
+    # (text[:_MAX_DOC_CHARS]), więc flaga mówi prawdę także tutaj — nie jest
+    # zawężona do all_rows (wątek review #1337). Zawężenie ukryłoby realne
+    # cięcie przed każdym przyszłym konsumentem tego trybu.
+    plain_long = await parse_order_document(long_text)
+    assert plain_long.document_truncated is True
+    assert captured["max_tokens"] == m._MAX_TOKENS
+
+    # Tryb celowany nie tnie po cichu — buduje nagłówek + okna osoby, a o
+    # niepełnym kontekście mówi `uncertain`. Flaga ma tam zostać opuszczona.
+    targeted_long = await parse_order_document(
+        long_text + "\nAndrzej Iciek", consultant_name="Andrzej Iciek"
+    )
+    assert targeted_long.document_truncated is False
+
 
 @pytest.mark.asyncio
 async def test_targeted_mode_is_untouched_by_all_rows_switch(monkeypatch):

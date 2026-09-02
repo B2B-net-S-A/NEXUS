@@ -128,11 +128,18 @@ class OrderExtraction:
     finansową."""
 
     document_truncated: bool = False
-    """Tekst dokumentu został UCIĘTY przed wysłaniem do modelu (limit znaków
-    w trybie bez osoby docelowej). Do 09.2026 ucięcie było ciche — w trybie
-    all-rows oznaczałoby poprawnie wyglądającą listę osób bez ogona tabeli,
-    czyli ten sam tryb awarii co cap 10 stron OCR. Flaga istnieje po to, żeby
-    automat nigdy nie zapisał zamówienia z takiego odczytu."""
+    """Tekst dokumentu został UCIĘTY przed wysłaniem do modelu.
+
+    Opisuje FAKT, nie tryb: bez osoby docelowej ``_document_text_for_prompt``
+    tnie do ``_MAX_DOC_CHARS`` zarówno w trybie zwykłym, jak i all-rows — i w obu
+    flaga wstaje. Tryb celowany ma własną strategię (nagłówek + okna osoby),
+    więc o niepełnym kontekście mówi tam ``uncertain``, nie ta flaga.
+    Zawężenie warunku do all-rows ukryłoby realne cięcie przed każdym przyszłym
+    konsumentem trybu zwykłego — czyli przywróciło ciche ucięcie sprzed 09.2026,
+    które w all-rows oznaczało poprawnie wyglądającą listę osób bez ogona tabeli
+    (ten sam tryb awarii co cap 10 stron OCR). Jedyny konsument bramkujący
+    (``order_mail_gate``, ścieżka mailowa) pracuje wyłącznie w all-rows;
+    ręczny ``/orders/extract`` tej flagi nie wystawia."""
 
     title_needs_review: bool = False
     """Klientowa polityka numeru zamówienia nie znalazła numeru w dokumencie —
