@@ -119,7 +119,9 @@ describe("ClientPlaybookForm", () => {
     expect(await screen.findByText("Zapisano kartę (wersja 4).")).toBeInTheDocument();
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ version: 4 }));
     expect(screen.getByText(/Karta klienta · wersja 4/)).toBeInTheDocument();
-  });
+    // Dwa podglądy markdown + historia renderują się przy każdej zmianie pola;
+    // pod obciążeniem (pełny pakiet) domyślne 5 s bywa za mało.
+  }, 15_000);
 
   it("po zapisie invaliduje kartę, listę ustawień i historię", async () => {
     const queryClient = makeQueryClient();
