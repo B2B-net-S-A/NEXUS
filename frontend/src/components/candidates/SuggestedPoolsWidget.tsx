@@ -17,6 +17,7 @@ interface SuggestedPool {
 
 interface Props {
   candidateId: number;
+  canAdd?: boolean;
 }
 
 /**
@@ -24,7 +25,7 @@ interface Props {
  * pools ranked by centroid similarity. Rekruter jednym klikiem dodaje
  * kandydata do puli (akceptacja sugestii AI).
  */
-export function SuggestedPoolsWidget({ candidateId }: Props) {
+export function SuggestedPoolsWidget({ candidateId, canAdd = true }: Props) {
   const qc = useQueryClient();
   const { showError } = useToast();
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
@@ -42,6 +43,7 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
 
   const addMutation = useMutation({
     mutationFn: async (poolId: number) => {
+      if (!canAdd) throw new Error("Brak prawa zapisu w Sourcing");
       await api.post(`/api/talent-pools/${poolId}/add`, {
         candidate_id: candidateId,
       });
@@ -112,7 +114,7 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
                 <span className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
                   <Check className="w-3 h-3" />w puli
                 </span>
-              ) : (
+              ) : canAdd ? (
                 <button
                   type="button"
                   onClick={() => addMutation.mutate(s.pool_id)}
@@ -121,7 +123,7 @@ export function SuggestedPoolsWidget({ candidateId }: Props) {
                 >
                   <Plus className="w-3 h-3" /> Dodaj
                 </button>
-              )}
+              ) : null}
             </li>
           );
         })}

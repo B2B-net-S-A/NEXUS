@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+from app.api.financial_access import has_financial_access
 from app.api.deps import (
     DlAssignedOrAdmin,
     get_current_user,
@@ -255,7 +256,7 @@ async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> N
     await _assert_client(db, client_id)
     # Finance ma organizacyjny odczyt. Head of Recruitment nie omija już
     # granicy klienta, a na poziomie sekcji w ogóle nie wchodzi do Delivery.
-    if user.has_role(UserRole.finance):
+    if user.has_role(UserRole.finance) and has_financial_access(user):
         return
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
@@ -595,7 +596,7 @@ async def require_consultant_options_reader(
 ) -> User:
     """Preserve the legacy DL assignment guard and add Finance read only."""
 
-    if current_user.has_role(UserRole.finance):
+    if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
         return current_user
     return await require_dl_assigned_or_admin(
         client_id=client_id,
@@ -609,7 +610,10 @@ ConsultantOptionsReader = Annotated[User, Depends(require_consultant_options_rea
 
 def _has_order_lifecycle_role(user: User) -> bool:
     """Sam test ROLI — przypisanie do klienta sprawdza `_require_order_lifecycle`."""
-    return user.has_any_role(*_ORDER_LIFECYCLE_ROLES)
+    return user.has_any_role(UserRole.admin, UserRole.delivery_lead) or (
+        user.has_role(UserRole.finance)
+        and user_has_capability(user, AnalyticsCapability.MANAGE_FINANCE)
+    )
 
 
 async def _require_order_lifecycle(
@@ -625,7 +629,10 @@ async def _require_order_lifecycle(
     await _assert_client(db, client_id)
     if not _has_order_lifecycle_role(user):
         raise deny("ta akcja wymaga roli zarządzającej zamówieniami")
-    if user.has_any_role(UserRole.admin, UserRole.finance):
+    if user.has_role(UserRole.admin) or (
+        user.has_role(UserRole.finance)
+        and user_has_capability(user, AnalyticsCapability.MANAGE_FINANCE)
+    ):
         return
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:

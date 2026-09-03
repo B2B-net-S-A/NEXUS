@@ -25,8 +25,15 @@ vi.mock("@/components/Toast", () => ({
 // CAŁY plik — objaw wygląda jak zepsuta bramka, przyczyną jest setup testu.
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
-    selector: (state: { user: { role: string; roles: string[] } }) => unknown,
-  ) => selector({ user: { role: auth.role, roles: [auth.role] } }),
+    selector: (state: {
+      user: { role: string; roles: string[] };
+      realUser: null;
+    }) => unknown,
+  ) =>
+    selector({
+      user: { role: auth.role, roles: [auth.role] },
+      realUser: null,
+    }),
   hasRole: (_user: unknown, ...roles: string[]) => roles.includes(auth.role),
   getUserRoles: (user: { role: string; roles?: string[] } | null) =>
     user ? Array.from(new Set([user.role, ...(user.roles ?? [])])) : [],

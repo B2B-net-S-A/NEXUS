@@ -17,6 +17,7 @@ interface EditableCellProps {
   onSave: (next: number | null) => Promise<void>;
   onError: (msg: string) => void;
   className?: string;
+  readOnly?: boolean;
 }
 
 /**
@@ -36,6 +37,7 @@ export function EditableCell({
   onSave,
   onError,
   className,
+  readOnly = false,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -84,6 +86,14 @@ export function EditableCell({
         {saving && (
           <Loader2 className="ml-1 inline h-3 w-3 animate-spin text-muted-foreground" />
         )}
+      </td>
+    );
+  }
+
+  if (readOnly) {
+    return (
+      <td className={cn("px-3 py-1.5 text-right tabular-nums", className)}>
+        {display}
       </td>
     );
   }

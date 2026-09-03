@@ -24,6 +24,7 @@ from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.user import User
 from app.services.candidate_membership import filter_to_candidate_members
 from app.services.job_membership import filter_to_members
+from app.services.section_permissions import resolve_effective_section_access_for_users
 
 # @email + @userId.  Email regex z note: dopuszcza znaki specjalne typowe
 # w korporacyjnych adresach (kropka, plus, myślnik).
@@ -102,13 +103,9 @@ async def parse_mentions_global(db: AsyncSession, content: str) -> list[int]:
             User.is_active.is_(True),
         )
     )
-    return sorted(
-        {
-            user.id
-            for user in rows.scalars().all()
-            if user_can_access_candidate_domain(user)
-        }
-    )
+    users = list(rows.scalars().all())
+    await resolve_effective_section_access_for_users(db, users)
+    return sorted({user.id for user in users if user_can_access_candidate_domain(user)})
 
 
 __all__ = [

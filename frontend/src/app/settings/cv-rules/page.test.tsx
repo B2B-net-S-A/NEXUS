@@ -32,7 +32,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/store/auth", () => ({
   useAuthStore: (selector: (state: unknown) => unknown) =>
-    selector({ user: mocks.user, hydrated: true }),
+    selector({ user: mocks.user, realUser: null, hydrated: true }),
   // `hasCapability` (lib/capabilities) liczy role z tego helpera — mock musi
   // go wystawić, inaczej `useCapability("client.update")` wywraca render.
   getUserRoles: (user: { role?: string; roles?: string[] } | null) =>

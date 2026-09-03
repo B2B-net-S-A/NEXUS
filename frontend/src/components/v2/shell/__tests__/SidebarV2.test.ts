@@ -43,10 +43,47 @@ describe("visibleNavSections", () => {
   });
 
   it("moduł Finanse zostaje zamknięty przed rolami operacyjnymi", () => {
-    // Usunięcie rozgałęzienia nie może zadziałać w drugą stronę: `/finance`
-    // ma `roles: ["admin", "finance"]`, więc recruiter go nie widzi.
+    // Bramka sekcji wyliczona z domyślnej polityki nadal blokuje recruitera.
     expect(hrefs("recruiter")).not.toContain("/finance");
     expect(hrefs("admin")).toContain("/finance");
+  });
+
+  it("respektuje indywidualne nadanie i odebranie sekcji z backendu", () => {
+    const recruiterWithFinance = visibleNavSections(
+      {
+        role: "recruiter",
+        roles: ["recruiter"],
+        effective_section_access: {
+          sourcing: "write",
+          pipeline: "write",
+          delivery: "none",
+          insights: "read",
+          finance: "read",
+          system_admin: "none",
+        },
+      },
+      { contactQueueEnabled: false },
+    ).flatMap((section) => section.items.map((item) => item.href));
+
+    const deliveryLeadWithoutDelivery = visibleNavSections(
+      {
+        role: "delivery_lead",
+        roles: ["delivery_lead"],
+        effective_section_access: {
+          sourcing: "write",
+          pipeline: "write",
+          delivery: "none",
+          insights: "read",
+          finance: "none",
+          system_admin: "none",
+        },
+      },
+      { contactQueueEnabled: false },
+    ).flatMap((section) => section.items.map((item) => item.href));
+
+    expect(recruiterWithFinance).toContain("/finance");
+    expect(deliveryLeadWithoutDelivery).not.toContain("/clients");
+    expect(deliveryLeadWithoutDelivery).not.toContain("/contracts");
   });
 
   it.each([

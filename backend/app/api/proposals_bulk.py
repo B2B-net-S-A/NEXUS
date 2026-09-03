@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict
@@ -54,7 +55,7 @@ from app.services.recruitment_process_commands import (
     open_process,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 SkipReason = Literal[
     "already_in_job",

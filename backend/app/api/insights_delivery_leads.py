@@ -61,12 +61,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import Period, PeriodError, resolve_period
 from app.api.deps import CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 # Nazwa klienta i widocznosc — LUSTRO `app/services/client_identity.py`
 # w surowym SQL-u (te zapytania sa tekstowe, wiec nie moga wolac helperow ORM).

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   forceDeleteSigned: vi.fn(),
   updateContract: vi.fn(),
   canManageFinance: false,
+  deliveryAccess: "write" as "none" | "read" | "write",
+  impersonating: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -36,12 +38,24 @@ vi.mock("next/link", () => ({
 vi.mock("@/store/auth", () => ({
   useAuthStore: (
     selector: (state: {
-      user: { role: string; roles: string[] };
+      user: {
+        role: string;
+        roles: string[];
+        effective_section_access: { delivery: "none" | "read" | "write" };
+      };
+      realUser: { role: string; roles: string[] } | null;
       hydrated: boolean;
     }) => unknown,
   ) =>
     selector({
-      user: { role: mocks.role, roles: [mocks.role] },
+      user: {
+        role: mocks.role,
+        roles: [mocks.role],
+        effective_section_access: { delivery: mocks.deliveryAccess },
+      },
+      realUser: mocks.impersonating
+        ? { role: "admin", roles: ["admin"] }
+        : null,
       hydrated: true,
     }),
   hasRole: (
@@ -238,6 +252,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.role = "admin";
   mocks.canManageFinance = false;
+  mocks.deliveryAccess = "write";
+  mocks.impersonating = false;
   window.history.replaceState(
     {},
     "",
@@ -282,6 +298,27 @@ describe("ContractDetailPage — edycja walut stawek", () => {
       }),
     );
     expect(mocks.updateContract.mock.calls[0]?.[1]).not.toHaveProperty("currency");
+  });
+});
+
+describe("ContractDetailPage — poziom sekcji Delivery", () => {
+  it("ukrywa mutacje dla Delivery read i podczas impersonacji", async () => {
+    mocks.role = "delivery_lead";
+    mocks.deliveryAccess = "read";
+    const first = renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
+
+    first.unmount();
+    mocks.deliveryAccess = "write";
+    mocks.impersonating = true;
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    expect(screen.queryByRole("button", { name: /Edytuj/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
   });
 });
 

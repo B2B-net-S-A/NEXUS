@@ -19,7 +19,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateFinanceReadAccess
+from app.api.candidate_access import (
+    CandidateFinanceReadAccess,
+    CandidateSearchAccess,
+    require_candidate_write,
+)
 from app.api.deps import AdminUser, CurrentUser, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
@@ -44,7 +48,7 @@ router = APIRouter()
 
 @router.get("/embed-diagnostics")
 async def embed_diagnostics(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
 ):
     """
     Report the state of the embedding pipeline so admins can diagnose
@@ -109,7 +113,7 @@ async def embed_diagnostics(
     return report
 
 
-@router.post("/embed-init")
+@router.post("/embed-init", dependencies=[Depends(require_candidate_write)])
 async def embed_init(
     current_user: ManagerOrAdmin,
 ):
@@ -278,6 +282,7 @@ async def list_conflicts(
 @router.post(
     "/candidates/{candidate_id}/conflicts",
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_candidate_write)],
 )
 async def create_conflict(
     candidate_id: int,
@@ -323,7 +328,10 @@ async def create_conflict(
     return _conflict_to_dict(cc)
 
 
-@router.patch("/conflicts/{conflict_id}/deactivate")
+@router.patch(
+    "/conflicts/{conflict_id}/deactivate",
+    dependencies=[Depends(require_candidate_write)],
+)
 async def deactivate_conflict(
     conflict_id: int,
     current_user: ManagerOrAdmin,

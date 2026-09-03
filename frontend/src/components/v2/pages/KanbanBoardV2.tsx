@@ -150,6 +150,8 @@ interface KanbanBoardV2Props {
  // board przesuwa się w pionie i kolumny muszą przeliczyć wysokość, żeby
  // wypełnić zwolnioną przestrzeń (inaczej zostaje dziura na dole).
  headerCollapsed?: boolean;
+ /** Read-only policy keeps the pipeline visible but removes every mutation. */
+ readOnly?: boolean;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -466,6 +468,7 @@ interface CardProps {
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
  desktopOverview: boolean;
+ readOnly: boolean;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -484,6 +487,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onRemoveFromRecruitment,
  contactFeatureEnabled,
  desktopOverview,
+ readOnly,
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
@@ -714,7 +718,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
  „pending", gdzie prawy górny róg zajmuje badge weryfikacji. */}
- <button
+ {!readOnly && <button
  type="button"
  onClick={(e) => {
  e.stopPropagation();
@@ -731,9 +735,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  aria-label={`Usuń ${fullName} z rekrutacji`}
  >
  <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
- </button>
+ </button>}
 
- {canScreen && !isPending && (
+ {!readOnly && canScreen && !isPending && (
  <button
  type="button"
  onClick={(e) => {
@@ -749,7 +753,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Screening</span>
  </button>
  )}
- {isPending && isApprover && (
+ {!readOnly && isPending && isApprover && (
  <div className={cn("mt-2 pt-2 border-t border-amber-200 flex items-center gap-1.5", desktopOverview &&"xl:pointer-fine:mt-1 xl:pointer-fine:flex-col xl:pointer-fine:items-center xl:pointer-fine:gap-0.5 xl:pointer-fine:pt-1")}>
  <button
  type="button"
@@ -801,6 +805,7 @@ interface ColProps {
  contactFeatureEnabled: boolean;
  desktopOverview: boolean;
  fullPipelineDesktop: boolean;
+ readOnly: boolean;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -819,6 +824,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  contactFeatureEnabled,
  desktopOverview,
  fullPipelineDesktop,
+ readOnly,
 }: ColProps) {
  const dropId = colId(col);
  return (
@@ -876,6 +882,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  key={String(item.id)}
  draggableId={String(item.id)}
  index={index}
+ isDragDisabled={readOnly}
  >
  {(dragProvided, dragSnapshot) => (
  <div
@@ -902,6 +909,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onRemoveFromRecruitment={onRemoveFromRecruitment}
  contactFeatureEnabled={contactFeatureEnabled}
  desktopOverview={desktopOverview}
+ readOnly={readOnly}
  />
  </div>
  )}
@@ -923,7 +931,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed, readOnly = false }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  const queryClient = useQueryClient();
@@ -1333,6 +1341,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
+ if (readOnly) return;
  if (!res.destination) return;
  const src = cols.find((c) => colId(c) === res.source.droppableId);
  const dst = cols.find((c) => colId(c) === res.destination!.droppableId);
@@ -1385,7 +1394,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  applyOptimistic(item, colId(src), dst);
  sendMove(item, dst);
  },
- [cols, applyOptimistic, sendMove]
+ [cols, applyOptimistic, sendMove, readOnly]
  );
 
  // Submit z modala"Zweryfikowany — podaj rate"
@@ -1787,7 +1796,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  <span className="text-sm font-medium">
  Wybrano: <strong>{selected.size}</strong>
  </span>
- <div className="inline-flex items-center gap-2 text-xs ml-2">
+ {!readOnly && <div className="inline-flex items-center gap-2 text-xs ml-2">
  <MoveRight className="h-3.5 w-3.5" />
  <span>Przenieś do:</span>
  <Select onValueChange={bulkMove}>
@@ -1802,7 +1811,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  ))}
  </SelectContent>
  </Select>
- </div>
+ </div>}
  <Button
  size="sm"
  variant="secondary"
@@ -1877,6 +1886,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  contactFeatureEnabled={contactFeature.enabled}
  desktopOverview={desktopOverview}
  fullPipelineDesktop={fullPipelineDesktop}
+ readOnly={readOnly}
  />
  ))
  )}

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Union
+from typing import Mapping, Optional, Union
 
 import bcrypt
 from jose import jwt
@@ -65,6 +65,7 @@ def create_access_token(
     force_password_change: bool = False,
     roles: Optional[list[str]] = None,
     authorization_version: int = 1,
+    section_access: Mapping[str, str] | None = None,
 ) -> str:
     """Create a JWT access token.
 
@@ -92,6 +93,10 @@ def create_access_token(
     }
     if roles:
         payload["roles"] = roles
+    if section_access is not None:
+        # Signed UX snapshot for Next middleware. Backend authorization always
+        # resolves the current database policy independently on each request.
+        payload["sa"] = dict(section_access)
     if force_password_change:
         payload["fpc"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)

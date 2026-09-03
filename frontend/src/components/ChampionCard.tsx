@@ -34,6 +34,7 @@ interface ChampionCardProps {
    * before sending the profile externally.
    */
   employment?: EmploymentInfo;
+  readOnly?: boolean;
 }
 
 const FIT_LABEL: Record<string, { label: string; color: string }> = {
@@ -46,6 +47,7 @@ export function ChampionCard({
   stageId,
   title = "Profil Championa",
   employment,
+  readOnly = false,
 }: ChampionCardProps) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["stage-screening", stageId],
@@ -56,7 +58,10 @@ export function ChampionCard({
   const [copied, setCopied] = useState(false);
 
   const shareMut = useMutation({
-    mutationFn: () => screeningApi.createShareToken(stageId, 30),
+    mutationFn: () => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return screeningApi.createShareToken(stageId, 30);
+    },
     onSuccess: (res) => {
       const origin =
         typeof window !== "undefined" ? window.location.origin : "";
@@ -144,7 +149,8 @@ export function ChampionCard({
               deal-breaker
             </span>
           )}
-          {!shareUrl ? (
+          {!readOnly ? (
+            !shareUrl ? (
             <button
               type="button"
               onClick={() => {
@@ -200,7 +206,8 @@ export function ChampionCard({
                 <ExternalLink className="w-3 h-3" />
               </a>
             </span>
-          )}
+            )
+          ) : null}
         </div>
       </header>
 

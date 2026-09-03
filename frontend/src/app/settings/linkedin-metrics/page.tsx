@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Save } from"lucide-react"
 import api from"@/lib/api"
 import { Button } from"@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from"@/components/ui/card"
+import { hasSectionAccess } from"@/lib/section-access"
 import { hasRole, useAuthStore } from"@/store/auth"
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -22,6 +23,8 @@ interface LiRow {
  responses_received: number
  week_number?: number | null
 }
+
+const EMPTY_ROWS: LiRow[] = []
 
 // Rzadkie mapowanie: user_id × date → edited values (local state).
 type CellKey = string //"userId|YYYY-MM-DD"
@@ -61,8 +64,11 @@ function fmtDay(d: Date) {
 export default function AdminLinkedInMetricsPage() {
  const user = useAuthStore((s) => s.user)
  const hydrated = useAuthStore((s) => s.hydrated)
- const canEdit = hasRole(user,"admin","head_of_recruitment")
- const isAllowed = canEdit || hasRole(user,"finance")
+ const hasEligibleRole = hasRole(user,"admin","head_of_recruitment","finance")
+ const isAllowed = hasEligibleRole && hasSectionAccess(user,"insights","read")
+ const canEdit =
+ hasRole(user,"admin","head_of_recruitment") &&
+ hasSectionAccess(user,"insights","write")
  const qc = useQueryClient()
 
  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()))
@@ -82,7 +88,7 @@ export default function AdminLinkedInMetricsPage() {
  enabled: hydrated && isAllowed,
  })
 
- const { data: rows = [] } = useQuery<LiRow[]>({
+ const { data: rows = EMPTY_ROWS } = useQuery<LiRow[]>({
  queryKey: ["linkedin-batch", weekFromISO, weekToISO],
  queryFn: () =>
  api
@@ -105,7 +111,7 @@ export default function AdminLinkedInMetricsPage() {
  }
  }
  setDrafts(next)
- }, [rows.length, weekFromISO])
+ }, [rows, weekFromISO])
 
  const getDraft = (userId: number, dateIso: string): CellDraft =>
  drafts[`${userId}|${dateIso}`] ?? {
@@ -163,7 +169,9 @@ export default function AdminLinkedInMetricsPage() {
  <Card>
  <CardHeader>
  <CardTitle>Brak dostępu</CardTitle>
- <CardDescription>Strona dla admina/Head of Recruitment.</CardDescription>
+ <CardDescription>
+ Strona wymaga odpowiedniej roli oraz dostępu do sekcji Insights.
+ </CardDescription>
  </CardHeader>
  </Card>
  </div>
@@ -174,7 +182,7 @@ export default function AdminLinkedInMetricsPage() {
  <div className="max-w-[1400px] mx-auto space-y-5 p-4 md:p-6">
  <div>
  <p className="text-xs font-semibold uppercase tracking-eyebrow text-primary">
- {canEdit ? "Admin · LinkedIn metrics (ręczne)" : "Finanse · LinkedIn metrics (podgląd)"}
+ {canEdit ? "LinkedIn metrics · edycja" : "LinkedIn metrics · podgląd"}
  </p>
  <h1 className="font-semibold text-3xl md:text-4xl font-extrabold tracking-[-0.025em] text-foreground mt-1">
  Aktywność LinkedIn — {canEdit ? "bulk edit" : "podgląd"}

@@ -16,8 +16,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidatePIIAccess
-from app.api.deps import CurrentUser
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    CandidateSearchAccess,
+    CandidateWriteAccess,
+)
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.call import Call, CallDirection, CallStatus
@@ -96,7 +99,7 @@ async def list_candidate_calls(
 @router.post("/calls", response_model=CallResponse, status_code=status.HTTP_201_CREATED)
 async def log_call(
     data: CallCreate,
-    current_user: CandidatePIIAccess,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczne zalogowanie rozmowy (np. po kliknięciu 'Zadzwoń')."""
@@ -119,7 +122,7 @@ async def log_call(
 
 @router.get("/calls/stats")
 async def call_stats(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """

@@ -44,6 +44,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.financial_access import has_financial_access
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.user import User, UserRole
@@ -92,7 +93,7 @@ async def require_contract_legal_read_access(
 ) -> User:
     """Read-only legal-document gate with organization-wide Finance access."""
 
-    if current_user.has_role(UserRole.finance):
+    if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
         return current_user
     return await require_contract_legal_access(current_user, db)
 

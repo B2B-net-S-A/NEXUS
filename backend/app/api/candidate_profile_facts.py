@@ -22,7 +22,9 @@ from app.schemas.candidate_profile_facts import (
 )
 from app.services import candidate_profile_facts as facts
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 _ETAG_KINDS: tuple[Literal["languages", "profile-rate"], ...] = (
     "languages",

@@ -250,7 +250,9 @@ async def test_chat_membership_rejects_excluded_roles_before_db(
 
 
 @pytest.mark.asyncio
-async def test_global_candidate_mentions_exclude_viewer_role_unions() -> None:
+async def test_global_candidate_mentions_exclude_viewer_role_unions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     recruiter = _user(UserRole.recruiter)
     recruiter.id = 1
     finance = _user(UserRole.finance)
@@ -272,6 +274,13 @@ async def test_global_candidate_mentions_exclude_viewer_role_unions() -> None:
     ]
     db = AsyncMock()
     db.execute.return_value = result
+    # This unit exercises the legacy role-union guard only. Runtime policy
+    # resolution has its own DB-backed tests; avoid turning this fixture into a
+    # partial mock of the role/override tables.
+    monkeypatch.setattr(
+        "app.services.mention_parser.resolve_effective_section_access_for_users",
+        AsyncMock(),
+    )
 
     # Finance (2) i hybryda finance+admin (4) wchodzą od 19.08 — wykluczony
     # zostaje wyłącznie viewer `user` (3).

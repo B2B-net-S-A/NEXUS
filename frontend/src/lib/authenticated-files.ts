@@ -15,7 +15,7 @@
  * `contract-documents`) na dowolny endpoint plikowy backendu.
  */
 
-import { getAccessToken } from "./session";
+import { getAuthenticatedRequestHeaders } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -26,10 +26,9 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
  * or an absolute `http(s)://` URL.
  */
 export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
-  const token = getAccessToken();
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   const res = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: getAuthenticatedRequestHeaders(),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();
@@ -48,14 +47,12 @@ export async function postAuthenticatedDownload(
   path: string,
   payload: unknown,
 ): Promise<AuthenticatedDownload> {
-  const token = getAccessToken();
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: {
+    headers: getAuthenticatedRequestHeaders({
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    }),
     body: JSON.stringify(payload),
   });
   if (!res.ok) {

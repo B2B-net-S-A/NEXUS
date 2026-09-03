@@ -57,16 +57,20 @@ function chatQueryRetry(failureCount: number, err: unknown): boolean {
 
 interface CandidateChatTabProps {
   candidateId: number;
+  readOnly?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function CandidateChatTab({ candidateId }: CandidateChatTabProps) {
+export default function CandidateChatTab({
+  candidateId,
+  readOnly = false,
+}: CandidateChatTabProps) {
   const user = useAuthStore((s) => s.user);
   // Exact-role, NIE ranga: head_of_recruitment (ROLE_RANK 4.5 > delivery_lead)
   // przechodził przez hasMinRole i dostawał prawo przypinania, którego backend
   // mu nie daje. Pin wiadomości = tylko admin + delivery_lead.
-  const canPin = hasRole(user, "admin", "delivery_lead");
+  const canPin = !readOnly && hasRole(user, "admin", "delivery_lead");
   const queryClient = useQueryClient();
 
   // ── Members (dla autocomplete) ────────────────────────────────────────────
@@ -149,7 +153,10 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     mutationFn: async (payload: {
       content: string;
       reply_to_message_id?: number | null;
-    }) => (await candidateChatApi.sendMessage(candidateId, payload)).data,
+    }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return (await candidateChatApi.sendMessage(candidateId, payload)).data;
+    },
     onSuccess: () => {
       setText("");
       setReplyTo(null);
@@ -163,8 +170,10 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
   });
 
   const editMutation = useMutation({
-    mutationFn: async ({ id, content }: { id: number; content: string }) =>
-      (await candidateChatApi.editMessage(candidateId, id, { content })).data,
+    mutationFn: async ({ id, content }: { id: number; content: string }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return (await candidateChatApi.editMessage(candidateId, id, { content })).data;
+    },
     onSuccess: () => {
       setText("");
       setEditingId(null);
@@ -176,6 +185,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
       await candidateChatApi.deleteMessage(candidateId, id);
     },
     onSuccess: () => {
@@ -186,10 +196,12 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
   });
 
   const pinMutation = useMutation({
-    mutationFn: async ({ id, pin }: { id: number; pin: boolean }) =>
-      pin
+    mutationFn: async ({ id, pin }: { id: number; pin: boolean }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return pin
         ? (await candidateChatApi.pinMessage(candidateId, id)).data
-        : (await candidateChatApi.unpinMessage(candidateId, id)).data,
+        : (await candidateChatApi.unpinMessage(candidateId, id)).data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["candidate-chat-pinned", candidateId] });
       queryClient.invalidateQueries({
@@ -207,10 +219,12 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
       id: number;
       emoji: string;
       add: boolean;
-    }) =>
-      add
+    }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return add
         ? (await candidateChatApi.addReaction(candidateId, id, emoji)).data
-        : (await candidateChatApi.removeReaction(candidateId, id, emoji)).data,
+        : (await candidateChatApi.removeReaction(candidateId, id, emoji)).data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["candidate-chat-messages", candidateId, activeSearch],
@@ -236,7 +250,11 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
       queryClient.invalidateQueries({ queryKey: ["candidate-chat-unread", candidateId] });
 
       // Mark as read jeśli to nowa wiadomość a tab jest aktywny
-      if (detail.kind === "new" && document.visibilityState === "visible") {
+      if (
+        !readOnly &&
+        detail.kind === "new" &&
+        document.visibilityState === "visible"
+      ) {
         // best-effort, w tle
         candidateChatApi.markRead(candidateId).catch(() => undefined);
       }
@@ -244,16 +262,18 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
     window.addEventListener(CANDIDATE_CHAT_BUS_EVENT, handler as EventListener);
     return () =>
       window.removeEventListener(CANDIDATE_CHAT_BUS_EVENT, handler as EventListener);
-  }, [candidateId, activeSearch, queryClient]);
+  }, [candidateId, activeSearch, queryClient, readOnly]);
 
   // Mark read on mount + przy każdej zmianie ostatniej wiadomości (jeśli tab widoczny)
   useEffect(() => {
+    if (readOnly) return;
     candidateChatApi.markRead(candidateId).catch(() => undefined);
-  }, [candidateId, messages.length]);
+  }, [candidateId, messages.length, readOnly]);
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = (e?: FormEvent) => {
     e?.preventDefault();
+    if (readOnly) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     if (editingId !== null) {
@@ -431,7 +451,8 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
             message={m}
             currentUserId={user?.id ?? -1}
             canPin={canPin}
-            isAdmin={user?.role === "admin"}
+            isAdmin={!readOnly && user?.role === "admin"}
+            readOnly={readOnly}
             onReply={() => {
               setReplyTo(m);
               setEditingId(null);
@@ -451,7 +472,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
       </div>
 
       {/* Reply / edit banner */}
-      {(replyTo || editingId !== null) && (
+      {!readOnly && (replyTo || editingId !== null) && (
         <div className="flex items-center justify-between px-4 py-1.5 bg-primary/10 dark:bg-primary/30 border-t border-primary/20 dark:border-primary/30 text-xs">
           <span className="truncate">
             {editingId !== null ? (
@@ -479,6 +500,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
       )}
 
       {/* Compose */}
+      {!readOnly ? (
       <form
         onSubmit={handleSubmit}
         className="relative border-t border-border dark:border-border px-3 py-2"
@@ -522,6 +544,7 @@ export default function CandidateChatTab({ candidateId }: CandidateChatTabProps)
           </button>
         </div>
       </form>
+      ) : null}
     </div>
   );
 }
@@ -533,6 +556,7 @@ interface MessageRowProps {
   currentUserId: number;
   canPin: boolean;
   isAdmin: boolean;
+  readOnly: boolean;
   onReply: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -548,6 +572,7 @@ function MessageRow({
   currentUserId,
   canPin,
   isAdmin,
+  readOnly,
   onReply,
   onEdit,
   onDelete,
@@ -630,7 +655,21 @@ function MessageRow({
           <div className="mt-1 flex flex-wrap gap-1">
             {message.reactions.map((r: ReactionAggregate) => {
               const mine = r.user_ids.includes(currentUserId);
-              return (
+              return readOnly ? (
+                <span
+                  key={r.emoji}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs",
+                    mine
+                      ? "bg-primary/15 border-primary/30 text-primary dark:bg-primary/40"
+                      : "bg-muted border-border text-foreground dark:bg-muted dark:border-border",
+                  )}
+                  title={`${r.count} ${r.count === 1 ? "reakcja" : "reakcji"}`}
+                >
+                  <span>{r.emoji}</span>
+                  <span>{r.count}</span>
+                </span>
+              ) : (
                 <button
                   key={r.emoji}
                   type="button"
@@ -651,7 +690,7 @@ function MessageRow({
           </div>
         )}
 
-        {!message.is_deleted && (
+        {!readOnly && !message.is_deleted && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex items-center gap-2 text-xs relative">
             <button
               onClick={onReply}

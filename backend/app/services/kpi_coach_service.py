@@ -35,6 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import ws as ws_manager
 from app.models.kpi_nudge_log import KpiNudgeChannel, KpiNudgeLog, KpiNudgeType
 from app.models.notification import Notification, NotificationType
+from app.services.notification_access import user_can_receive_notification
+from app.services.section_permissions import resolve_effective_section_access_for_users
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import KpiPeriod
 from app.services.kpi_engine import (
@@ -457,7 +459,18 @@ async def _fetch_eligible_users(db: AsyncSession) -> list[User]:
             )
         )
     )
-    return list(result.scalars().all())
+    users = list(result.scalars().all())
+    await resolve_effective_section_access_for_users(db, users)
+    return [
+        user
+        for user in users
+        if user_can_receive_notification(
+            user,
+            NotificationType.kpi_coach,
+            related_entity_type="kpi_nudge_log",
+            link="/?tab=dashboard",
+        )
+    ]
 
 
 async def _count_reminders(

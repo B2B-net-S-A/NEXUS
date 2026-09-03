@@ -130,6 +130,22 @@ export interface User {
   default_dashboard_preset?: DashboardPreset | null
   /** Wersja polityki autoryzacji, przydatna do invalidacji cache. */
   authorization_version?: number
+  /**
+   * Efektywny dostęp do głównych sekcji produktu, już po połączeniu ról i
+   * zastosowaniu indywidualnych wyjątków. Backend jest źródłem prawdy; brak
+   * pola występuje tylko w sesjach zapisanych przed wdrożeniem RBAC v2.
+   */
+  effective_section_access?: Partial<
+    Record<
+      | "sourcing"
+      | "pipeline"
+      | "delivery"
+      | "insights"
+      | "finance"
+      | "system_admin",
+      "none" | "read" | "write"
+    >
+  >
   /** Jawny zakres danych; frontend używa go tylko do UX i query keys. */
   data_scope?: DataScope
   /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.
@@ -195,8 +211,13 @@ export function postLoginDestination(
 /** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
  *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
  *  API odpowiedź) — używamy ``[role]``. */
+type RoleBearingUser = {
+  role: UserRole
+  roles?: readonly UserRole[]
+}
+
 export function getUserRoles(
-  user: Pick<User, "role" | "roles"> | null | undefined
+  user: RoleBearingUser | null | undefined
 ): UserRole[] {
   if (!user) return []
   const set = new Set<UserRole>([user.role])
@@ -210,7 +231,7 @@ export function getUserRoles(
  * Multi-role aware — sprawdza primary + secondary roles (migracja 0110).
  */
 export function hasRole(
-  user: Pick<User, "role" | "roles"> | null | undefined,
+  user: RoleBearingUser | null | undefined,
   ...roles: UserRole[]
 ): boolean {
   if (!user) return false
@@ -224,7 +245,7 @@ export function hasRole(
  * Multi-role aware — bierze max z primary + secondary.
  */
 export function hasMinRole(
-  user: Pick<User, "role" | "roles"> | null | undefined,
+  user: RoleBearingUser | null | undefined,
   minRole: UserRole
 ): boolean {
   if (!user) return false

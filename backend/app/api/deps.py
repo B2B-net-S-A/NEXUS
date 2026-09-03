@@ -19,6 +19,8 @@ from app.core.security import (
 from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
 from app.services.onboarding_access import onboarding_persona_for_user
+from app.services.request_semantics import is_read_only_http_request
+from app.services.section_permissions import resolve_effective_section_access
 from app.services.service_account_auth import (
     API_KEY_HEADER,
     ServiceKeyError,
@@ -60,10 +62,6 @@ security = HTTPBearer(auto_error=False)
 #     wyszukiwarki, które są read-only). Każda mutacja w trybie podglądu
 #     zwraca 403, żeby admin nie stworzył/nie zmienił danych „jako ktoś inny".
 IMPERSONATION_HEADER = "X-Impersonate-User-Id"
-_IMPERSONATION_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-# Read-only POST-y (wyszukiwarki) — muszą działać w trybie podglądu, bo część
-# list (np. kandydaci) ładuje się przez POST /api/search/*.
-_IMPERSONATION_POST_ALLOW_PREFIXES = ("/api/search",)
 
 
 async def _resolve_impersonation(
@@ -79,12 +77,8 @@ async def _resolve_impersonation(
             detail="Tylko administrator może oglądać widok innego użytkownika",
         )
 
-    method = request.method.upper()
     path = request.url.path
-    is_read_only = method in _IMPERSONATION_SAFE_METHODS or (
-        method == "POST" and path.startswith(_IMPERSONATION_POST_ALLOW_PREFIXES)
-    )
-    if not is_read_only:
+    if not is_read_only_http_request(request.method, path):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Podgląd jako użytkownik jest tylko do odczytu",
@@ -167,9 +161,15 @@ async def get_authenticated_user(
         raise credentials_exception
 
     impersonate_raw = request.headers.get(IMPERSONATION_HEADER)
-    if impersonate_raw:
-        return await _resolve_impersonation(request, user, impersonate_raw, db)
-    return user
+    effective_user = (
+        await _resolve_impersonation(request, user, impersonate_raw, db)
+        if impersonate_raw
+        else user
+    )
+    # Authoritative request-local snapshot. No process cache: policy edits are
+    # immediately consistent across multiple API workers/pods.
+    await resolve_effective_section_access(db, effective_user)
+    return effective_user
 
 
 def ensure_exclusive_role_configuration(current_user: User) -> User:

@@ -32,6 +32,7 @@ from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
 from app.api.deps import AdminUser, TacPlus
 from app.api.recruitment_access import ensure_job_membership
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.b2b_contract_detail import B2BContractDetail
@@ -115,7 +116,7 @@ from app.services.client_identity import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 

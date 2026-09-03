@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
+import { useAuthStore } from "@/store/auth";
 
 const push = vi.fn();
 
@@ -69,6 +70,29 @@ vi.mock("@/components/v2/RiskBadge", () => ({
 }));
 
 const apiGet = vi.mocked(api.get);
+
+function setSourcingAccess(
+  access: "read" | "write",
+  impersonating = false,
+  role: "recruiter" | "user" = "recruiter",
+) {
+  const user = {
+    id: 12,
+    email: "rekruter@example.com",
+    name: "Rekruter",
+    role,
+    profile_completed: true,
+    profile_completed_at: null,
+    force_password_change: false,
+    force_password_change_at: null,
+    effective_section_access: { sourcing: access },
+  } as const;
+  useAuthStore.setState({
+    user: user as never,
+    realUser: impersonating ? ({ ...user, id: 1, role: "admin" } as never) : null,
+    hydrated: true,
+  });
+}
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const client = new QueryClient({
@@ -171,6 +195,7 @@ function documentData() {
 
 describe("CandidateQuickView", () => {
   beforeEach(() => {
+    setSourcingAccess("write");
     push.mockReset();
     apiGet.mockReset();
     apiGet.mockImplementation((url: string) => {
@@ -271,6 +296,51 @@ describe("CandidateQuickView", () => {
     const button = await screen.findByRole("button", { name: "Otwórz CV" });
     await waitFor(() => expect(button).toBeDisabled());
     expect(button).toHaveAttribute("title", "Brak sklasyfikowanego CV");
+  });
+
+  it.each([
+    ["read access", "read", false],
+    ["impersonation", "write", true],
+  ] as const)(
+    "hides sourcing mutations for %s while keeping read actions",
+    async (_label, access, impersonating) => {
+      setSourcingAccess(access, impersonating);
+
+      render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+        wrapper,
+      });
+
+      expect(
+        await screen.findByRole("button", { name: "Pełny profil" }),
+      ).toBeEnabled();
+      expect(
+        screen.queryByRole("button", { name: "Przypisz do rekrutacji" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Oznacz jako zatrudnionego" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Dodaj notatkę" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "+48 500 100 200" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("honours an individual write grant above the role default", async () => {
+    setSourcingAccess("write", false, "user");
+
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Przypisz do rekrutacji" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Dodaj notatkę" }),
+    ).toBeInTheDocument();
   });
 
   it.each([

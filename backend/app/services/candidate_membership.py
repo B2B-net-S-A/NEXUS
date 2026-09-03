@@ -21,6 +21,12 @@ from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    resolve_effective_section_access_for_users,
+    section_access_for_user,
+)
 
 
 async def is_member_of_candidate_chat(
@@ -136,10 +142,13 @@ async def list_candidate_chat_member_ids(
     eligible_rows = await db.execute(
         select(User).where(User.id.in_(member_ids)).where(User.is_active.is_(True))
     )
+    eligible_users = list(eligible_rows.scalars().all())
+    await resolve_effective_section_access_for_users(db, eligible_users)
     eligible_ids = {
         user.id
-        for user in eligible_rows.scalars().all()
+        for user in eligible_users
         if user_can_access_candidate_domain(user)
+        and section_access_for_user(user, ProductSection.sourcing) >= SectionAccess.read
     }
     return sorted(eligible_ids)
 

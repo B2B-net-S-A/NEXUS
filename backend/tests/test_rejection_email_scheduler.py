@@ -13,14 +13,17 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.recruitment_pipeline import PipelineStage
+from app.models.user import User, UserRole
 from app.services.rejection_email_scheduler import (
     ACTIVE_OTHER_STAGES_EXCLUDE,
     DELAY_MINUTES,
     MAX_ATTEMPTS,
     TRIGGER_PREVIOUS_STAGES,
     _apply,
+    _can_send_rejection_email,
     _render,
 )
+from app.services.section_permissions import ProductSection
 
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -65,6 +68,29 @@ def test_delay_is_fifteen_minutes() -> None:
 
 def test_max_attempts_is_three() -> None:
     assert MAX_ATTEMPTS == 3
+
+
+def test_rejection_email_requires_pipeline_write_not_only_sourcing() -> None:
+    recruiter = User(
+        id=91,
+        email="recruiter@example.com",
+        name="Recruiter",
+        role=UserRole.recruiter,
+        roles=[UserRole.recruiter.value],
+        is_active=True,
+    )
+    recruiter.effective_section_access = {
+        section.value: "none" for section in ProductSection
+    }
+    recruiter.effective_section_access[ProductSection.sourcing.value] = "write"
+
+    assert not _can_send_rejection_email(recruiter)
+
+    recruiter.effective_section_access[ProductSection.pipeline.value] = "read"
+    assert not _can_send_rejection_email(recruiter)
+
+    recruiter.effective_section_access[ProductSection.pipeline.value] = "write"
+    assert _can_send_rejection_email(recruiter)
 
 
 # ── Renderer: _apply() ─────────────────────────────────────────────────────

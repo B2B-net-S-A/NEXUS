@@ -288,7 +288,7 @@ async def resolve_client_access(
     is_organization_reader = (
         user.has_any_role(*ORGANIZATION_READ_ROLES) and not delivery_scoped
     )
-    is_finance_reader = user.has_role(UserRole.finance)
+    is_finance_reader = user.has_role(UserRole.finance) and has_financial_access(user)
     is_read_only_tcm = user.has_role(
         UserRole.talent_community_manager
     ) and not user.has_any_role(UserRole.admin, UserRole.delivery_lead)

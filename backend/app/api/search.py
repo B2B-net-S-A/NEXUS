@@ -32,11 +32,17 @@ from app.services.match_score_cache import fresh_score_conditions
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
+from app.services.client_access import resolve_client_visible_client_ids
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
     resolve_visible_client,
     visible_client_predicates,
+)
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
 )
 from app.services.structured_candidate_search import (
     build_filter_groups,
@@ -47,6 +53,20 @@ from app.services.structured_candidate_search import (
 )
 
 router = APIRouter()
+
+
+def _can_read_section(user: Any, section: ProductSection) -> bool:
+    """Non-raising section check for a mixed-entity search response."""
+
+    return section_access_for_user(user, section) >= SectionAccess.read
+
+
+def _apply_client_visibility(statement: Any, column: Any, client_ids: Any) -> Any:
+    """Apply the canonical client graph; an empty graph is authoritative."""
+
+    if client_ids is None:
+        return statement
+    return statement.where(column.in_(sorted(client_ids) or [-1]))
 
 
 def _fts_clause(q: str) -> Any:
@@ -462,7 +482,11 @@ async def unified_search(
     # M2 audit PR 1: candidates section only for roles with candidate read
     # capability — the viewer/client role keeps jobs/clients search but must
     # not enumerate the candidate base through the unified search bar.
-    if (not entity or entity == "candidates") and user_has_candidate_read(current_user):
+    if (
+        (not entity or entity == "candidates")
+        and _can_read_section(current_user, ProductSection.sourcing)
+        and user_has_candidate_read(current_user)
+    ):
         result = await db.execute(
             select(Candidate)
             .where(
@@ -485,7 +509,9 @@ async def unified_search(
             for c in result.scalars().all()
         ]
 
-    if not entity or entity == "jobs":
+    if (not entity or entity == "jobs") and _can_read_section(
+        current_user, ProductSection.pipeline
+    ):
         result = await db.execute(
             select(Job)
             .where(
@@ -501,9 +527,12 @@ async def unified_search(
             for j in result.scalars().all()
         ]
 
-    if not entity or entity == "clients":
+    if (not entity or entity == "clients") and _can_read_section(
+        current_user, ProductSection.delivery
+    ):
         client_name = client_display_name_expression()
-        result = await db.execute(
+        visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
+        clients_query = (
             select(Client, client_name.label("client_name"))
             .where(
                 *visible_client_predicates(),
@@ -516,6 +545,10 @@ async def unified_search(
             .order_by(func.lower(client_name).asc(), Client.id.asc())
             .limit(10)
         )
+        clients_query = _apply_client_visibility(
+            clients_query, Client.id, visible_client_ids
+        )
+        result = await db.execute(clients_query)
         results["clients"] = [
             {"id": client.id, "name": effective_name, "status": client.status}
             for client, effective_name in result.all()
@@ -541,7 +574,9 @@ async def global_search(
     # M2 audit PR 1: viewer/client role must not enumerate candidates from
     # the top search bar — the section is skipped, jobs/clients stay.
     candidates: list[dict[str, Any]] = []
-    if user_has_candidate_read(current_user):
+    if _can_read_section(
+        current_user, ProductSection.sourcing
+    ) and user_has_candidate_read(current_user):
         cand_result = await db.execute(
             select(Candidate)
             .where(
@@ -564,58 +599,69 @@ async def global_search(
         ]
 
     # Jobs
-    jobs_result = await db.execute(
-        select(Job)
-        .where(
-            Job.title.ilike(f"%{q}%"),
-        )
-        .limit(LIMIT)
-    )
-    jobs_list = []
-    for j in jobs_result.scalars().all():
-        # Get client name via client_id
-        client_name = ""
-        if j.client_id:
-            client = await resolve_visible_client(
-                db,
-                j.client_id,
-                follow_merge=True,
+    jobs_list: list[dict[str, Any]] = []
+    if _can_read_section(current_user, ProductSection.pipeline):
+        jobs_result = await db.execute(
+            select(Job)
+            .where(
+                Job.title.ilike(f"%{q}%"),
             )
-            if client:
-                client_name = client_display_name(client)
-        jobs_list.append(
-            {
-                "id": j.id,
-                "name": j.title,
-                "subtitle": client_name or j.location or "",
-                "url": f"/jobs/{j.id}",
-            }
+            .limit(LIMIT)
         )
+        for j in jobs_result.scalars().all():
+            # Get client name via client_id
+            job_client_name = ""
+            if j.client_id:
+                client = await resolve_visible_client(
+                    db,
+                    j.client_id,
+                    follow_merge=True,
+                )
+                if client:
+                    job_client_name = client_display_name(client)
+            jobs_list.append(
+                {
+                    "id": j.id,
+                    "name": j.title,
+                    "subtitle": job_client_name or j.location or "",
+                    "url": f"/jobs/{j.id}",
+                }
+            )
 
     # Clients
-    client_name = client_display_name_expression()
-    clients_result = await db.execute(
-        select(Client, client_name.label("client_name"))
-        .where(
-            *visible_client_predicates(),
-            or_(
-                client_name.ilike(f"%{q}%"),
-                Client.name.ilike(f"%{q}%"),
-                Client.industry.ilike(f"%{q}%"),
-            ),
+    clients_list: list[dict[str, Any]] = []
+    visible_client_ids: frozenset[int] | None = frozenset()
+    can_read_delivery = _can_read_section(current_user, ProductSection.delivery)
+    if can_read_delivery:
+        visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
+    if can_read_delivery:
+        client_name = client_display_name_expression()
+        clients_query = (
+            select(Client, client_name.label("client_name"))
+            .where(
+                *visible_client_predicates(),
+                or_(
+                    client_name.ilike(f"%{q}%"),
+                    Client.name.ilike(f"%{q}%"),
+                    Client.industry.ilike(f"%{q}%"),
+                ),
+            )
+            .order_by(func.lower(client_name).asc(), Client.id.asc())
+            .limit(LIMIT)
         )
-        .order_by(func.lower(client_name).asc(), Client.id.asc())
-        .limit(LIMIT)
-    )
-    clients_list = [
-        {
-            "id": client.id,
-            "name": effective_name,
-            "subtitle": client.industry or "",
-            "url": f"/clients/{client.id}",
-        }
-        for client, effective_name in clients_result.all()
-    ]
+        clients_query = _apply_client_visibility(
+            clients_query, Client.id, visible_client_ids
+        )
+        clients_result = await db.execute(clients_query)
+        clients_list = [
+            {
+                "id": client.id,
+                "name": effective_name,
+                "subtitle": client.industry or "",
+                "url": f"/clients/{client.id}",
+            }
+            for client, effective_name in clients_result.all()
+        ]
 
     # Contacts — same containment as candidates above. Contact rows carry
     # client-side hiring-manager names, e-mails and phone numbers (PII), and
@@ -623,8 +669,8 @@ async def global_search(
     # leaving contacts open would let the same role enumerate people from the
     # search bar through a different section.
     contacts_list: list[dict[str, Any]] = []
-    if user_has_candidate_read(current_user):
-        contacts_result = await db.execute(
+    if can_read_delivery:
+        contacts_query = (
             select(Contact)
             .where(
                 or_(
@@ -634,6 +680,10 @@ async def global_search(
             )
             .limit(LIMIT)
         )
+        contacts_query = _apply_client_visibility(
+            contacts_query, Contact.client_id, visible_client_ids
+        )
+        contacts_result = await db.execute(contacts_query)
         contacts_list = [
             {
                 "id": c.id,

@@ -75,7 +75,7 @@ function emptyResponse() {
   };
 }
 
-function renderSection() {
+function renderSection(readOnly = false) {
   const client = new QueryClient({
     // Zapytanie ma WŁASNE `retry: 1` (produkcyjne zachowanie, nie ruszamy go),
     // więc domyślne `retry: false` go nie zdejmie — zerujemy tylko opóźnienie
@@ -87,7 +87,7 @@ function renderSection() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <HistoricalCandidatesSection jobId={5} />
+      <HistoricalCandidatesSection jobId={5} readOnly={readOnly} />
     </QueryClientProvider>,
   );
 }
@@ -139,8 +139,47 @@ describe("HistoricalCandidatesSection — stany zapytania", () => {
     // wycinał komponent sto linii wcześniej.
     expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
     expect(screen.getByText(HEADING)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kandydaci z podobnych projektów/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     expect(
       screen.queryByText(/Nie udało się pobrać danych/),
     ).not.toBeInTheDocument();
+  });
+
+  it("przy samym odczycie pokazuje kandydata bez zaznaczania i dodawania", async () => {
+    mocks.forJob.mockResolvedValue({
+      data: {
+        job_id: 5,
+        tier_used: "primary",
+        similar_jobs: [],
+        candidates: [
+          {
+            candidate_id: 9,
+            name: "Anna",
+            lastname: "Nowak",
+            avatar_url: null,
+            competence_category: "Backend",
+            current_availability: null,
+            tier: "A",
+            historical_score: 0.9,
+            recommended_count: 1,
+            same_client: false,
+            rejected_by_same_client: false,
+            negative_signal: false,
+            sources: [],
+          },
+        ],
+        meta: { hidden_ineligible: 0 },
+      },
+    });
+
+    renderSection(true);
+
+    expect(await screen.findByRole("link", { name: "Anna Nowak" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Zaznacz Anna Nowak" })).toBeNull();
+    expect(screen.queryByText("Dodaj do pipeline")).toBeNull();
+    expect(screen.queryByText(/Dodaj zaznaczonych/)).toBeNull();
   });
 });

@@ -31,7 +31,7 @@ vi.mock("@/components/AppShell", () => ({
 }));
 
 vi.mock("@/lib/session", () => ({
-  getAccessToken: () => "tok-123",
+  getAuthenticatedRequestHeaders: () => ({ Authorization: "Bearer tok-123" }),
 }));
 
 const BASE_RESPONSE: ClientDirectoryResponse = {

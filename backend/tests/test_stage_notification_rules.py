@@ -357,6 +357,87 @@ async def test_http_create_rule_unauthenticated_returns_401(app_client):
     assert resp.status_code in (401, 403)
 
 
+@pytest.mark.asyncio
+async def test_delivery_lead_lists_client_overrides_only_for_assigned_client(
+    app_client,
+    app_auth_headers,
+):
+    """Delivery section access never widens a DL beyond its client graph."""
+    import uuid
+
+    from sqlalchemy import delete
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.client import Client, ClientStatus
+    from app.models.team_structure import DeliveryLeadClientAssignment
+    from app.models.user import User, UserRole
+
+    password = f"P4ss_{uuid.uuid4().hex[:8]}!"
+    async with AsyncSessionLocal() as db:
+        own = Client(
+            name=f"Stage rules own {uuid.uuid4().hex[:8]}",
+            status=ClientStatus.active,
+            hidden=False,
+        )
+        foreign = Client(
+            name=f"Stage rules foreign {uuid.uuid4().hex[:8]}",
+            status=ClientStatus.active,
+            hidden=False,
+        )
+        user = User(
+            email=f"stage-rules-dl-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password(password),
+            name="Stage rules Delivery Lead",
+            role=UserRole.delivery_lead,
+            roles=[UserRole.delivery_lead.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add_all([own, foreign, user])
+        await db.flush()
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=user.id,
+                client_id=own.id,
+            )
+        )
+        await db.commit()
+        own_id, foreign_id, user_id, email = own.id, foreign.id, user.id, user.email
+
+    try:
+        login = await app_client.post(
+            "/api/auth/login", json={"email": email, "password": password}
+        )
+        assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        own_response = await app_client.get(
+            f"/api/clients/{own_id}/notification-overrides", headers=headers
+        )
+        assert own_response.status_code == 200, own_response.text
+
+        foreign_response = await app_client.get(
+            f"/api/clients/{foreign_id}/notification-overrides", headers=headers
+        )
+        assert foreign_response.status_code == 403, foreign_response.text
+
+        admin_response = await app_client.get(
+            f"/api/clients/{foreign_id}/notification-overrides",
+            headers=app_auth_headers,
+        )
+        assert admin_response.status_code == 200, admin_response.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.delivery_lead_user_id == user_id
+                )
+            )
+            await db.execute(delete(Client).where(Client.id.in_([own_id, foreign_id])))
+            await db.commit()
+
+
 # ── Hook smoke: pipeline.move call site ─────────────────────────────────────
 
 

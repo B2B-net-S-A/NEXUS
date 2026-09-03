@@ -278,6 +278,8 @@ async def _incremental_one(client, db, ss, owner) -> bool:
                     "title": notif.title,
                     "message": notif.message,
                     "link": notif.link,
+                    "notification_type": NotificationType.saved_search_match.value,
+                    "related_entity_type": "saved_search",
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 },
             },

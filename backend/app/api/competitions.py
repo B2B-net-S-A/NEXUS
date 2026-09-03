@@ -1,7 +1,7 @@
 """Router `/api/competitions/*` — Liga Mistrzów kwartalna + Wyścigi Miesięczne
 + Hall of Fame.
 
-Dostęp: GET dla wszystkich zalogowanych; POST /freeze tylko admin.
+Dostęp: sekcja Insights; POST /freeze dodatkowo tylko admin.
 """
 
 from datetime import date
@@ -12,6 +12,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.services.insights_scoring_config import (
     get_scoring_config,
@@ -21,7 +22,7 @@ from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.user import User
 from app.services import competitions as comp_service
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 def _parse_type(type_str: str) -> CompetitionType:
@@ -37,8 +38,9 @@ def _parse_type(type_str: str) -> CompetitionType:
         )
 
 
-# D7 (Artur, 2026-08-31): odczyty konkursow sa otwarte dla KAZDEJ zalogowanej
-# roli — Liga Mistrzow, wyscigi i Hall of Fame sa czescia /insights.
+# D7 (Artur, 2026-08-31): odczyty konkursow sa czescia /insights i domyslna
+# macierz nadal otwiera Insights kazdej aktywnej roli. Konfigurowalna bramka
+# sekcji moze jednak ten domyslny dostep jawnie wycofac.
 #
 # To jedyny wspoldzielony endpoint, ktory wolno bylo poszerzyc NA MIEJSCU:
 # jego jedynym konsumentem we froncie jest ChampionsSection.tsx, czyli sama

@@ -39,6 +39,7 @@ from app.analytics.periods import (
     resolve_period,
 )
 from app.api.deps import AdminUser, CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_invalidate, cache_set
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -46,7 +47,7 @@ from app.models.recruitment_campaign import RecruitmentCampaign
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CACHE_TTL_SECONDS = 300
 CACHE_PREFIX = "insights:campaigns:counts:v1"

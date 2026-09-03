@@ -27,6 +27,7 @@ from app.api.recruitment_access import (
     RecruitmentAssessmentWriteAccess,
     RecruitmentReadAccess,
 )
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -40,7 +41,7 @@ from app.schemas.scorecard import ScorecardSchema, ScorecardSubmission
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 # ── Scorecards ───────────────────────────────────────────────────────────────

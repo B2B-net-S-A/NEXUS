@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.analytics.capabilities import AnalyticsCapability, capabilities_for
 from app.api.admin import _acquires_onboarding_role, _normalized_role_values
-from app.api.auth import _dashboard_presets_for
+from app.services.user_response import _dashboard_presets_for
 from app.api.dashboard import _legacy_organization_dashboard_guard
 from app.api.deps import require_onboarded_user, require_roles
 from app.api.dynareporter_delivery_lead_dashboard import (

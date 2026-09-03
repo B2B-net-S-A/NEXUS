@@ -35,12 +35,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import ws as ws_manager
+from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import send_mention_email
+from app.services.notification_access import (
+    filter_notification_recipients,
+    user_can_receive_notification,
+)
+from app.services.section_permissions import resolve_effective_section_access_for_users
 
 logger = logging.getLogger(__name__)
 
@@ -137,9 +143,17 @@ async def enqueue_mention_notifications(
         select(User).where(User.id.in_(unique_ids), User.is_active.is_(True))
     )
     users = list(rows.scalars().all())
+    await resolve_effective_section_access_for_users(db, users)
 
     pairs: list[tuple[User, Notification]] = []
     for user in users:
+        if not user_can_receive_notification(
+            user,
+            NotificationType.note_mention,
+            related_entity_type=related_entity_type,
+            link=deep_link_path,
+        ):
+            continue
         notif = Notification(
             user_id=user.id,
             title=notification_title,
@@ -170,8 +184,22 @@ async def send_mention_side_effects(
     if not pairs:
         return 0
 
+    # The note transaction has already committed; re-read recipients so a
+    # policy revocation racing that commit cannot leak the snippet by email.
+    async with AsyncSessionLocal() as db:
+        allowed_users = await filter_notification_recipients(
+            db,
+            (user.id for user, _ in pairs),
+            NotificationType.note_mention,
+            related_entity_type="note",
+            link=deep_link_path,
+        )
+    allowed_ids = {user.id for user in allowed_users}
+
     sent = 0
     for user, notif in pairs:
+        if user.id not in allowed_ids:
+            continue
         # WS push — natychmiastowe pojawienie się w NotificationsDropdown.
         try:
             await ws_manager.notify_user(

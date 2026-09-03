@@ -1036,7 +1036,7 @@ class ConsentScreenshotResponse(BaseModel):
 @limiter.limit("20/minute")
 async def upload_consent_screenshot(
     request: Request,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateWriteAccess,
     file: Annotated[UploadFile, File(description="Zrzut ekranu ze zgodą kandydata")],
 ) -> ConsentScreenshotResponse:
     """Wgraj zrzut zgody i zwróć klucz do przekazania przy generacji CV.
@@ -1128,7 +1128,7 @@ def _require_consent_screenshot(rule, storage_key: str) -> None:
 async def generate(
     request: Request,
     payload: GenerateRequest,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateWriteAccess,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> GenerateEnqueuedResponse:
@@ -1255,7 +1255,7 @@ async def generate(
 @limiter.limit("10/minute")
 async def generate_from_upload(
     request: Request,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateWriteAccess,
     background_tasks: BackgroundTasks,
     # No `from __future__ import annotations` in this module (see module docstring),
     # so this multipart marker resolves correctly even under the slowapi
@@ -1628,7 +1628,7 @@ async def _interactive_available(db: AsyncSession, row: CvGeneratedDocument) -> 
 )
 async def create_generated_cv_share_token(
     generated_id: int,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateWriteAccess,
     expires_in_days: int = Query(14, ge=1, le=90),
     max_views: Optional[int] = Query(None, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
@@ -1756,7 +1756,7 @@ async def list_generated_cv_share_tokens(
 @router.delete("/generated/share-token/{token}")
 async def revoke_generated_cv_share_token(
     token: str,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateWriteAccess,
     reason: Optional[str] = Query(None, max_length=255),
     db: AsyncSession = Depends(get_db),
 ) -> dict:

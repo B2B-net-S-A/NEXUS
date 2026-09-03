@@ -79,6 +79,7 @@ from app.api.recruitment_access import (
     ensure_champion_job_read_visible,
     ensure_delivery_lead_job_visible,
 )
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
 from app.services import champion_view
@@ -104,7 +105,7 @@ from app.models.proposal_snapshot import SOURCE_HANDOFF
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 # GET-only recruitment history/Champion surfaces. Finance gains organization-

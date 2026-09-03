@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.m365 import M365Connection
 from app.models.user import User
+from app.services.section_permissions import resolve_effective_section_access
 
 
 class M365OwnerIneligible(RuntimeError):
@@ -27,7 +28,10 @@ async def eligible_m365_owner(db: AsyncSession, user_id: int) -> User | None:
     # the user in its identity map. Role changes happen in other requests and
     # a cached pre-cutover User object must not authorize a Graph call.
     owner = await db.get(User, user_id, populate_existing=True)
-    if owner is None or not user_can_access_candidate_domain(owner):
+    if owner is None:
+        return None
+    await resolve_effective_section_access(db, owner)
+    if not user_can_access_candidate_domain(owner):
         return None
     return owner
 

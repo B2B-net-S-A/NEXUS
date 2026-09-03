@@ -8,7 +8,7 @@
  * przeglądarce same-origin blob URL. Wzorzec jak ``contract-documents.ts``.
  */
 
-import { getAccessToken } from "./session";
+import { getAuthenticatedRequestHeaders } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -23,10 +23,9 @@ export async function fetchOrderDocumentBlob(
   clientId: number,
   orderId: number,
 ): Promise<Blob> {
-  const token = getAccessToken();
   const res = await fetch(
     `${API_BASE}/api/clients/${clientId}/orders/${orderId}/file`,
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    { headers: getAuthenticatedRequestHeaders() },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();

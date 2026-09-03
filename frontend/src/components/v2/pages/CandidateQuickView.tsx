@@ -62,6 +62,7 @@ import {
   type CandidateContactSummary,
 } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { canMutateSection } from "@/lib/section-access";
 
 type QuickViewDestination =
   | "summary"
@@ -235,9 +236,11 @@ function ContactItem({
 function QuickNotes({
   candidateId,
   notes,
+  canWrite,
 }: {
   candidateId: number;
   notes: CandidateQuickViewData["recent_notes"];
+  canWrite: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
@@ -245,12 +248,14 @@ function QuickNotes({
   const [note, setNote] = React.useState("");
 
   const addNote = useMutation({
-    mutationFn: () =>
-      api.post("/api/notes", {
+    mutationFn: () => {
+      if (!canWrite) throw new Error("Brak prawa zapisu w Sourcing");
+      return api.post("/api/notes", {
         candidate_id: candidateId,
         content: note.trim(),
         note_type: "general",
-      }),
+      });
+    },
     onSuccess: () => {
       setNote("");
       setComposerOpen(false);
@@ -273,17 +278,19 @@ function QuickNotes({
         >
           Notatki
         </h3>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setComposerOpen((open) => !open)}
-        >
-          <MessageSquare className="h-3.5 w-3.5" />
-          Dodaj notatkę
-        </Button>
+        {canWrite ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setComposerOpen((open) => !open)}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Dodaj notatkę
+          </Button>
+        ) : null}
       </div>
 
-      {composerOpen ? (
+      {canWrite && composerOpen ? (
         <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
           <Textarea
             value={note}
@@ -348,6 +355,12 @@ export function CandidateQuickView({
   const router = useRouter();
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((state) => state.user);
+  const isImpersonating = useAuthStore((state) => state.realUser !== null);
+  const canWriteSourcing = canMutateSection(
+    currentUser,
+    "sourcing",
+    isImpersonating,
+  );
   const contactFeature = useCandidateContactFeature({
     queryEnabled: Boolean(currentUser),
   });
@@ -413,6 +426,7 @@ export function CandidateQuickView({
   const quickView = quickViewQuery.data;
   const candidate = quickView?.candidate;
   const canOwnContact =
+    canWriteSourcing &&
     contactFeature.enabled &&
     Boolean(candidate?.phone) &&
     Boolean(candidate?.contact_case) &&
@@ -697,12 +711,16 @@ export function CandidateQuickView({
                       label="Telefon"
                     >
                       {candidate.phone ? (
-                        <CallButton
-                          candidateId={candidateId}
-                          phone={candidate.phone}
-                          compact
-                          className="whitespace-nowrap"
-                        />
+                        canWriteSourcing ? (
+                          <CallButton
+                            candidateId={candidateId}
+                            phone={candidate.phone}
+                            compact
+                            className="whitespace-nowrap"
+                          />
+                        ) : (
+                          candidate.phone
+                        )
                       ) : (
                         "Brak danych"
                       )}
@@ -726,14 +744,16 @@ export function CandidateQuickView({
                   className="grid grid-cols-2 gap-2 self-start"
                   aria-label="Akcje kandydata"
                 >
-                  <Button
-                    className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                    onClick={() => setAssignOpen(true)}
-                    disabled={!quickView.capabilities.can_assign}
-                  >
-                    <UserPlus className="h-4 w-4 shrink-0" />
-                    Przypisz do rekrutacji
-                  </Button>
+                  {canWriteSourcing ? (
+                    <Button
+                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
+                      onClick={() => setAssignOpen(true)}
+                      disabled={!quickView.capabilities.can_assign}
+                    >
+                      <UserPlus className="h-4 w-4 shrink-0" />
+                      Przypisz do rekrutacji
+                    </Button>
+                  ) : null}
                   {canOwnContact && fullContactCaseQuery.data ? (
                     <Button
                       variant="outline"
@@ -753,14 +773,15 @@ export function CandidateQuickView({
                       <BriefcaseBusiness className="h-4 w-4 shrink-0" />
                       Oznaczono jako zatrudnionego
                     </Button>
-                  ) : quickView.capabilities.can_mark_employed ? (
+                  ) : canWriteSourcing &&
+                    quickView.capabilities.can_mark_employed ? (
                     <MarkEmployedAction
                       candidateId={candidateId}
                       employment={candidate.employment}
                       variant="outline"
                       className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
                     />
-                  ) : (
+                  ) : canWriteSourcing ? (
                     <Button
                       variant="outline"
                       disabled
@@ -768,7 +789,7 @@ export function CandidateQuickView({
                     >
                       Oznacz jako zatrudnionego
                     </Button>
-                  )}
+                  ) : null}
                   <Button
                     variant="outline"
                     className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
@@ -915,6 +936,7 @@ export function CandidateQuickView({
               <QuickNotes
                 candidateId={candidateId}
                 notes={quickView.recent_notes}
+                canWrite={canWriteSourcing}
               />
             </div>
 
@@ -925,6 +947,7 @@ export function CandidateQuickView({
                   variant="compact"
                   maxItems={2}
                   hideWhenEmpty
+                  canAssign={canWriteSourcing}
                   onShowAll={() => openFullProfile("matching")}
                 />
               </DeferUntilVisible>
@@ -933,7 +956,7 @@ export function CandidateQuickView({
         )}
       </div>
 
-      {candidate ? (
+      {canWriteSourcing && candidate ? (
         <QuickAssignV2
           open={assignOpen}
           onOpenChange={setAssignOpen}
@@ -954,20 +977,22 @@ export function CandidateQuickView({
         onClose={() => setPreviewDocumentId(null)}
         onDownload={downloadDocument}
       />
-      <ContactOutcomeSheet
-        contactCase={fullContactCaseQuery.data ?? null}
-        open={contactOutcomeOpen}
-        onOpenChange={setContactOutcomeOpen}
-        onSaved={() =>
-          void Promise.all([
-            queryClient.invalidateQueries({
-              queryKey: candidateQueryKeys.quickView(candidateId),
-            }),
-            fullContactCaseQuery.refetch(),
-          ])
-        }
-        onConflict={() => void fullContactCaseQuery.refetch()}
-      />
+      {canWriteSourcing ? (
+        <ContactOutcomeSheet
+          contactCase={fullContactCaseQuery.data ?? null}
+          open={contactOutcomeOpen}
+          onOpenChange={setContactOutcomeOpen}
+          onSaved={() =>
+            void Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: candidateQueryKeys.quickView(candidateId),
+              }),
+              fullContactCaseQuery.refetch(),
+            ])
+          }
+          onConflict={() => void fullContactCaseQuery.refetch()}
+        />
+      ) : null}
     </div>
   );
 }

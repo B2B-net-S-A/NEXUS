@@ -15,8 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.email_template import EmailCategory, EmailTemplate
-from app.api.candidate_access import CandidatePIIAccess
-from app.api.deps import AdminUser, CurrentUser, TacPlus
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    CandidateWriteAccess,
+    require_candidate_write,
+)
+from app.api.deps import AdminUser, TacPlus
 
 logger = logging.getLogger(__name__)
 
@@ -280,7 +284,7 @@ def _extract_placeholders(text: str) -> List[str]:
 
 @router.get("/email-templates", response_model=List[EmailTemplateResponse])
 async def list_email_templates(
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     category: Optional[EmailCategory] = None,
 ):
@@ -310,7 +314,7 @@ async def list_email_templates(
 @router.get("/email-templates/{template_id}", response_model=EmailTemplateResponse)
 async def get_email_template(
     template_id: int,
-    current_user: CurrentUser,
+    current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz szablon emaila po ID."""
@@ -336,6 +340,7 @@ async def get_email_template(
     "/email-templates",
     response_model=EmailTemplateResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_candidate_write)],
 )
 async def create_email_template(
     data: EmailTemplateCreate,
@@ -368,7 +373,11 @@ async def create_email_template(
     )
 
 
-@router.put("/email-templates/{template_id}", response_model=EmailTemplateResponse)
+@router.put(
+    "/email-templates/{template_id}",
+    response_model=EmailTemplateResponse,
+    dependencies=[Depends(require_candidate_write)],
+)
 async def update_email_template(
     template_id: int,
     data: EmailTemplateUpdate,
@@ -453,7 +462,7 @@ async def preview_template_by_id(
 @router.post("/email-templates/{template_id}/send")
 async def send_test_email(
     template_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
 ):
     """Legacy simulated test-send — permanently disabled (Module 6, P0.1).
 
@@ -514,7 +523,7 @@ async def seed_default_templates(
 @router.post("/emails/send")
 async def send_email(
     data: SendEmailRequest,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
 ):
     """Legacy simulated send — permanently disabled (Module 6, finding P0.1).
 

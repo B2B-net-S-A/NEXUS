@@ -15,11 +15,17 @@ function mkToken(payload: Record<string, unknown>): string {
 
 describe("decodeJwtPayload", () => {
   it("dekoduje payload poprawnie sformowanego tokenu", () => {
-    const token = mkToken({ role: "admin", roles: ["admin"], exp: 1234567890 });
+    const token = mkToken({
+      role: "admin",
+      roles: ["admin"],
+      exp: 1234567890,
+      sa: { delivery: "write", finance: "write" },
+    });
     expect(decodeJwtPayload(token)).toMatchObject({
       role: "admin",
       roles: ["admin"],
       exp: 1234567890,
+      sa: { delivery: "write", finance: "write" },
     });
   });
 

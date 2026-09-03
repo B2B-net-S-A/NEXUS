@@ -16,6 +16,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import HeadOfRecruitmentPlus, OperationalUser
+from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.team_structure import (
@@ -43,8 +44,9 @@ from app.services.client_tac_assignments import (
     toggle_legacy_primary_tac,
     upsert_client_tac_assignment,
 )
+from app.services.client_access import deny, resolve_client_access
 
-router = APIRouter()
+router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 # Role allowed to act as a client-relationship TAC. Intentionally wider than
@@ -135,11 +137,14 @@ async def _resolve_first_priority_reconciliation(
 @router.get("/{client_id}/team", response_model=ClientTeamResponse)
 async def get_client_team(
     client_id: int,
-    _user: OperationalUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientTeamResponse:
     """Combined TAC + DL view for a single client."""
     await _ensure_client_exists(db, client_id)
+    access = await resolve_client_access(db, current_user, client_id)
+    if not access.can_view_contacts:
+        raise deny("brak dostępu do zespołu tego klienta")
 
     tac_rows = (
         await db.execute(

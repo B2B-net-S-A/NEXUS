@@ -109,6 +109,8 @@ interface CandidateSearchViewProps {
   addToJob?: { id: number; title: string };
   /** Called after a successful bulk-add so the parent can refresh the AI tab. */
   onBulkAdded?: (resp: BulkProposalsResponse) => void;
+  /** Preserve job-scoped search data while hiding every server mutation. */
+  readOnly?: boolean;
 }
 
 /**
@@ -124,6 +126,7 @@ export function CandidateSearchView({
   backHref,
   addToJob,
   onBulkAdded,
+  readOnly = false,
 }: CandidateSearchViewProps) {
   const [request, setRequest] = useState<CandidateSearchRequest>({
     ...DEFAULT_REQUEST,
@@ -183,7 +186,7 @@ export function CandidateSearchView({
   // Load the job's assignable (non-terminal) stages once, for the bulk-add
   // target-stage picker. Best-effort: on failure the picker just isn't shown.
   useEffect(() => {
-    if (!addToJob) return;
+    if (!addToJob || readOnly) return;
     let cancelled = false;
     proposalsBulkApi
       .assignableStages(addToJob.id)
@@ -196,7 +199,7 @@ export function CandidateSearchView({
     return () => {
       cancelled = true;
     };
-  }, [addToJob]);
+  }, [addToJob, readOnly]);
 
   const toggleSelect = (id: number) => {
     setSelected((prev) => {
@@ -211,6 +214,7 @@ export function CandidateSearchView({
 
   const loadSavedSearch = (ss: SavedSearchOut) => {
     if (ss.requires_reapproval) {
+      if (readOnly) return;
       setError(null);
       setReapprovalError(null);
       setReapprovalSearchId(ss.id);
@@ -245,6 +249,7 @@ export function CandidateSearchView({
   };
 
   const approveAndLoadSavedSearch = async () => {
+    if (readOnly) return;
     const savedSearch = savedSearches.find(
       (search) => search.id === reapprovalSearchId,
     );
@@ -278,6 +283,7 @@ export function CandidateSearchView({
   };
 
   const saveCurrentSearch = async () => {
+    if (readOnly) return;
     const name = saveName.trim();
     if (!name) return;
     setSavePending(true);
@@ -304,6 +310,7 @@ export function CandidateSearchView({
   };
 
   const deleteSavedSearch = async (id: number) => {
+    if (readOnly) return;
     try {
       await savedSearchesApi.remove(id);
       if (reapprovalSearchId === id) {
@@ -328,7 +335,7 @@ export function CandidateSearchView({
   }, [addToJob, queryClient]);
 
   const submitBulk = async () => {
-    if (!addToJob || selected.size === 0) return;
+    if (readOnly || !addToJob || selected.size === 0) return;
     setBulkPending(true);
     setError(null);
     try {
@@ -360,7 +367,7 @@ export function CandidateSearchView({
   };
 
   const submitShortlist = async () => {
-    if (!addToJob || selected.size === 0) return;
+    if (readOnly || !addToJob || selected.size === 0) return;
     setShortlistPending(true);
     setError(null);
     try {
@@ -593,6 +600,7 @@ export function CandidateSearchView({
         <JobShortlistPanel
           jobId={addToJob.id}
           refreshSignal={shortlistRefresh}
+          readOnly={readOnly}
           onPromoted={() => {
             // Promoted candidate is now in the pipeline → refresh results + kanban.
             setRequest((r) => ({ ...r }));
@@ -602,7 +610,7 @@ export function CandidateSearchView({
       )}
 
       {/* Saved searches strip */}
-      {(savedSearches.length > 0 || saveDraftOpen) && (
+      {(savedSearches.length > 0 || (!readOnly && saveDraftOpen)) && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-zinc-500 dark:text-zinc-400 font-medium">
             Zapisane:
@@ -615,6 +623,12 @@ export function CandidateSearchView({
               <button
                 type="button"
                 onClick={() => loadSavedSearch(ss)}
+                disabled={readOnly && ss.requires_reapproval}
+                title={
+                  readOnly && ss.requires_reapproval
+                    ? "Ten zapis wymaga ponownego zatwierdzenia w trybie edycji"
+                    : undefined
+                }
                 className="hover:text-primary"
               >
                 {ss.name}
@@ -633,17 +647,19 @@ export function CandidateSearchView({
                   ponownie zatwierdź
                 </Badge>
               )}
-              <button
-                type="button"
-                aria-label={`Usuń ${ss.name}`}
-                onClick={() => deleteSavedSearch(ss.id)}
-                className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-600"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              {!readOnly ? (
+                <button
+                  type="button"
+                  aria-label={`Usuń ${ss.name}`}
+                  onClick={() => deleteSavedSearch(ss.id)}
+                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-zinc-400 hover:text-rose-600"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              ) : null}
             </span>
           ))}
-          {!saveDraftOpen ? (
+          {!readOnly && !saveDraftOpen ? (
             <Button
               type="button"
               size="sm"
@@ -654,7 +670,7 @@ export function CandidateSearchView({
               <Bookmark className="h-3 w-3" />
               Zapisz wyszukiwanie
             </Button>
-          ) : (
+          ) : !readOnly ? (
             <span className="inline-flex items-center gap-1.5">
               <Input
                 autoFocus
@@ -700,10 +716,10 @@ export function CandidateSearchView({
                 Anuluj
               </Button>
             </span>
-          )}
+          ) : null}
         </div>
       )}
-      {savedSearches.length === 0 && !saveDraftOpen && (
+      {!readOnly && savedSearches.length === 0 && !saveDraftOpen && (
         <Button
           type="button"
           size="sm"
@@ -715,7 +731,7 @@ export function CandidateSearchView({
           Zapisz to wyszukiwanie
         </Button>
       )}
-      {savedSearchAwaitingReapproval && (
+      {!readOnly && savedSearchAwaitingReapproval && (
         <div
           role="alert"
           className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"
@@ -858,7 +874,7 @@ export function CandidateSearchView({
       {/* Sticky bulk-add bar — only when in job context */}
       {addToJob && selected.size > 0 && (
         <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-col items-center gap-2">
-          {bulkOptionsOpen && (
+          {!readOnly && bulkOptionsOpen && (
             <div className="w-80 max-w-full space-y-2 rounded-xl border bg-card p-3 text-left shadow-lg dark:border-zinc-800">
               {assignableStages.length > 0 && (
                 <div className="space-y-1">
@@ -925,26 +941,28 @@ export function CandidateSearchView({
             <span className="tabular-nums">
               Wybrano <strong>{selected.size}</strong>
             </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
-              onClick={() => setBulkOptionsOpen((o) => !o)}
-              disabled={bulkPending}
-            >
-              Notatka i tagi
-              {bulkOptionsOpen ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronUp className="h-3 w-3" />
-              )}
-              {(bulkNote.trim() ||
-                bulkTagsInput.trim() ||
-                bulkStageId !== "") && (
-                <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-              )}
-            </Button>
+            {!readOnly ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
+                onClick={() => setBulkOptionsOpen((o) => !o)}
+                disabled={bulkPending}
+              >
+                Notatka i tagi
+                {bulkOptionsOpen ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronUp className="h-3 w-3" />
+                )}
+                {(bulkNote.trim() ||
+                  bulkTagsInput.trim() ||
+                  bulkStageId !== "") && (
+                  <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
+                )}
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="sm"
@@ -955,21 +973,23 @@ export function CandidateSearchView({
             >
               Wyczyść
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
-              onClick={submitShortlist}
-              disabled={bulkPending || shortlistPending}
-            >
-              {shortlistPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <ListPlus className="h-3 w-3" />
-              )}
-              Do shortlisty
-            </Button>
+            {!readOnly ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 text-xs text-zinc-50 hover:bg-zinc-700 hover:text-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:hover:text-zinc-900"
+                onClick={submitShortlist}
+                disabled={bulkPending || shortlistPending}
+              >
+                {shortlistPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <ListPlus className="h-3 w-3" />
+                )}
+                Do shortlisty
+              </Button>
+            ) : null}
             {selected.size >= 2 && (
               <Button
                 type="button"
@@ -983,20 +1003,22 @@ export function CandidateSearchView({
                 Porównaj
               </Button>
             )}
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={submitBulk}
-              disabled={bulkPending || shortlistPending}
-            >
-              {bulkPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Plus className="h-3 w-3" />
-              )}
-              Dodaj do „{addToJob.title}"
-            </Button>
+            {!readOnly ? (
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={submitBulk}
+                disabled={bulkPending || shortlistPending}
+              >
+                {bulkPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}
+                Dodaj do „{addToJob.title}"
+              </Button>
+            ) : null}
           </div>
         </div>
       )}

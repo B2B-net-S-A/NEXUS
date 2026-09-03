@@ -24,6 +24,8 @@ from app.core.security import (
     token_is_revoked,
 )
 from app.models.user import User
+from app.services.notification_access import user_can_receive_realtime_event
+from app.services.section_permissions import resolve_effective_section_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -66,6 +68,10 @@ class ConnectionManager:
     def __init__(self) -> None:
         # Notifications: user_id → list of active WebSocket connections
         self._connections: Dict[int, List[WebSocket]] = {}
+        # Real browser sockets retain the access token so every outbound event
+        # can re-check authorization_version before exposing fresh data. Tests
+        # that exercise the manager in isolation may connect without a token.
+        self._auth_tokens: Dict[WebSocket, str] = {}
 
         # Presence state
         self._viewers: Dict[ResourceKey, Dict[int, Set[WebSocket]]] = {}
@@ -77,7 +83,12 @@ class ConnectionManager:
     # ── Notifications (existing API) ──────────────────────────────────────────
 
     async def connect(
-        self, user_id: int, websocket: WebSocket, *, subprotocol: Optional[str] = None
+        self,
+        user_id: int,
+        websocket: WebSocket,
+        *,
+        subprotocol: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ) -> None:
         # When the client carried the JWT on the WS subprotocol, RFC 6455 requires
         # us to echo one of the offered subprotocols on accept or the browser
@@ -87,6 +98,8 @@ class ConnectionManager:
         if user_id not in self._connections:
             self._connections[user_id] = []
         self._connections[user_id].append(websocket)
+        if auth_token:
+            self._auth_tokens[websocket] = auth_token
         logger.info(
             "WS connected: user_id=%d, total=%d",
             user_id,
@@ -98,6 +111,7 @@ class ConnectionManager:
     async def disconnect(self, user_id: int, websocket: WebSocket) -> None:
         # Clean up presence subscriptions before removing from connections
         await self._cleanup_ws(user_id, websocket)
+        self._auth_tokens.pop(websocket, None)
 
         if user_id in self._connections:
             try:
@@ -120,6 +134,15 @@ class ConnectionManager:
         dead: List[WebSocket] = []
         for ws in connections:
             try:
+                token = self._auth_tokens.get(ws)
+                if token:
+                    current_user = await _authenticate_ws_token(token)
+                    if current_user is None:
+                        await ws.close(code=4001, reason="Unauthorized")
+                        dead.append(ws)
+                        continue
+                    if not user_can_receive_realtime_event(current_user, event):
+                        continue
                 await ws.send_json(event)
             except Exception:
                 dead.append(ws)
@@ -401,6 +424,7 @@ async def _authenticate_ws_token(token: str) -> Optional[User]:
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user and _ws_payload_authorizes_user(payload, user):
+            await resolve_effective_section_access(db, user)
             return user
     return None
 
@@ -496,7 +520,12 @@ async def ws_notifications(
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    await manager.connect(user.id, websocket, subprotocol=accepted_subprotocol)
+    await manager.connect(
+        user.id,
+        websocket,
+        subprotocol=accepted_subprotocol,
+        auth_token=raw_token,
+    )
 
     try:
         await websocket.send_json(
@@ -519,9 +548,11 @@ async def ws_notifications(
                 # state on every keep-alive interval instead. This also expires
                 # existing sockets after an authorization-version bump rather
                 # than protecting only new handshakes.
-                if await _authenticate_ws_token(raw_token) is None:
+                refreshed_user = await _authenticate_ws_token(raw_token)
+                if refreshed_user is None:
                     await websocket.close(code=4001, reason="Unauthorized")
                     break
+                user = refreshed_user
                 try:
                     await websocket.send_json({"type": "ping"})
                 except Exception:
@@ -531,9 +562,11 @@ async def ws_notifications(
             # Re-authorize before acting on any client frame. A role/status
             # change that landed while receive_text() was pending must not leave
             # a stale socket able to subscribe to presence channels.
-            if await _authenticate_ws_token(raw_token) is None:
+            refreshed_user = await _authenticate_ws_token(raw_token)
+            if refreshed_user is None:
                 await websocket.close(code=4001, reason="Unauthorized")
                 break
+            user = refreshed_user
 
             if data == "ping":
                 await websocket.send_json({"type": "pong"})

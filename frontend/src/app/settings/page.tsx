@@ -40,6 +40,11 @@ import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
+import {
+  hasSectionAccess,
+  type ProductSection,
+  type SectionAccess,
+} from "@/lib/section-access";
 
 // Lazy-load heavy tabs — content loaded only when tab activated.
 // AdminUsersTab pulls ~30kB+ chunk (user mgmt + modals + import).
@@ -81,6 +86,8 @@ interface TabConfig {
   icon: React.ReactNode;
   /** Jeśli ustawione — tab widoczny tylko dla użytkowników z którąkolwiek z tych ról. */
   roles?: UserRole[];
+  section?: ProductSection;
+  required?: Exclude<SectionAccess, "none">;
 }
 
 const TABS: TabConfig[] = [
@@ -92,6 +99,8 @@ const TABS: TabConfig[] = [
     label: "Procesy",
     icon: <Workflow className="w-4 h-4" />,
     roles: ["admin", "delivery_lead"],
+    section: "pipeline",
+    required: "write",
   },
   {
     id: "administracja",
@@ -113,6 +122,8 @@ const ADVANCED_LINKS: Array<{
   description: string;
   icon: React.ReactNode;
   roles?: UserRole[];
+  section?: ProductSection;
+  required?: Exclude<SectionAccess, "none">;
 }> = [
   {
     href: "/settings/pipeline-templates",
@@ -120,6 +131,8 @@ const ADVANCED_LINKS: Array<{
     description: "Pipeline templates: definicje stagey i przepływów per rekrutację.",
     icon: <Workflow className="w-5 h-5" />,
     roles: ["admin", "delivery_lead"],
+    section: "pipeline",
+    required: "write",
   },
   {
     href: "/settings/scoring",
@@ -127,6 +140,8 @@ const ADVANCED_LINKS: Array<{
     description: "Tunowanie semantic / skills / salary / location / availability per klient.",
     icon: <Sliders className="w-5 h-5" />,
     roles: ["admin", "delivery_lead"],
+    section: "insights",
+    required: "read",
   },
   {
     href: "/settings/rate-benchmarks",
@@ -136,6 +151,7 @@ const ADVANCED_LINKS: Array<{
     // Globalne benchmarki stawek należą do Finansów, nie do klientowego
     // wyjątku Delivery Leada.
     roles: ["admin", "finance"],
+    section: "finance",
   },
   {
     href: "/settings/cv-rules",
@@ -146,6 +162,8 @@ const ADVANCED_LINKS: Array<{
     // PUT/POST/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus. Odczyt
     // ma każda rola operacyjna, ale link prowadzi tam, gdzie da się coś ZROBIĆ.
     roles: ["admin", "delivery_lead"],
+    section: "delivery",
+    required: "write",
   },
   {
     href: "/settings/contract-templates",
@@ -153,6 +171,7 @@ const ADVANCED_LINKS: Array<{
     description: "Edytor szablonów kontraktów (B2B, body leasing, fixed-price).",
     icon: <FileSignature className="w-5 h-5" />,
     roles: ["admin", "finance"],
+    section: "finance",
   },
   {
     href: "/settings/templates",
@@ -166,6 +185,7 @@ const ADVANCED_LINKS: Array<{
     description: "Globalny wyłącznik + miesięczne limity dla scoringu, generatora ogłoszeń, parsera CV i podsumowań.",
     icon: <Sparkles className="w-5 h-5" />,
     roles: ["admin"],
+    section: "system_admin",
   },
   {
     href: "/settings/api-integration",
@@ -173,6 +193,7 @@ const ADVANCED_LINKS: Array<{
     description: "Klucze OAuth2 dla zewnętrznych systemów (n8n, ChatGPT, Zapier, ...) z fine-grained scopes.",
     icon: <Plug className="w-5 h-5" />,
     roles: ["admin"],
+    section: "system_admin",
   },
   {
     href: "/settings/dictionaries",
@@ -180,6 +201,7 @@ const ADVANCED_LINKS: Array<{
     description: "Edytowalne taksonomie — branże, powody odrzucenia. Dodaj wartości bez deploya.",
     icon: <FileText className="w-5 h-5" />,
     roles: ["admin"],
+    section: "system_admin",
   },
   {
     href: "/settings/entity-fields",
@@ -187,6 +209,7 @@ const ADVANCED_LINKS: Array<{
     description: "Dodaj własne pola na profilu kandydata / rekrutacji. Drag-drop layout.",
     icon: <Sliders className="w-5 h-5" />,
     roles: ["admin"],
+    section: "system_admin",
   },
   {
     href: "/settings/diagnostics",
@@ -194,6 +217,7 @@ const ADVANCED_LINKS: Array<{
     description: "Status komponentów, kolejki, background tasks.",
     icon: <Stethoscope className="w-5 h-5" />,
     roles: ["admin"],
+    section: "system_admin",
   },
   {
     href: "/settings/team-structure",
@@ -208,6 +232,8 @@ const ADVANCED_LINKS: Array<{
     description: "Bulk edit dziennych liczb (CV / Msg / Resp) per TAC/sourcer.",
     icon: <BarChart3 className="w-5 h-5" />,
     roles: ["admin", "head_of_recruitment", "finance"],
+    section: "insights",
+    required: "read",
   },
   {
     href: "/settings/chats",
@@ -222,6 +248,7 @@ const ADVANCED_LINKS: Array<{
     description: "Ranking klientów + leaderboard delivery leadów.",
     icon: <BarChart3 className="w-5 h-5" />,
     roles: ["admin", "finance"],
+    section: "finance",
   },
   {
     href: "/settings/client-portfolio-preview",
@@ -230,6 +257,7 @@ const ADVANCED_LINKS: Array<{
       "Read-only plan Excela: dopasowania, KIR, blockery i podejrzenia duplikatów przed apply-once.",
     icon: <FileText className="w-5 h-5" />,
     roles: ["admin", "finance"],
+    section: "finance",
   },
   {
     href: "/settings/hiring-managers",
@@ -237,6 +265,7 @@ const ADVANCED_LINKS: Array<{
     description: "KPI hiring managerów w klientach (Phase 9b).",
     icon: <UsersIcon className="w-5 h-5" />,
     roles: ["admin", "head_of_recruitment", "finance"],
+    section: "insights",
   },
 ];
 
@@ -431,12 +460,16 @@ export default function SettingsPage() {
   const visibleTabs = TABS.filter(
     (tab) =>
       (!financeReadOnly || FINANCE_READ_ONLY_TABS.has(tab.id)) &&
-      (!tab.roles || hasRole(user, ...tab.roles)),
+      (!tab.roles || hasRole(user, ...tab.roles)) &&
+      (!tab.section ||
+        hasSectionAccess(user, tab.section, tab.required ?? "read")),
   );
   const visibleAdvancedLinks = ADVANCED_LINKS.filter(
     (link) =>
       (!financeReadOnly || FINANCE_READ_ONLY_LINKS.has(link.href)) &&
-      (!link.roles || hasRole(user, ...link.roles)),
+      (!link.roles || hasRole(user, ...link.roles)) &&
+      (!link.section ||
+        hasSectionAccess(user, link.section, link.required ?? "read")),
   );
   const visibleActiveTab = visibleTabs.some((tab) => tab.id === activeTab)
     ? activeTab

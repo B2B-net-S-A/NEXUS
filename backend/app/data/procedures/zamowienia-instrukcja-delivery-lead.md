@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-02
+> **Zgodność z systemem sprawdzona:** 2026-09-03
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -472,11 +472,13 @@ reakcji. Pięć rodzajów:
 > zamówienie zakładasz ręcznie — nie wywoła żadnego powiadomienia. Takich osób
 > musisz pilnować sam.
 
-**Warunek, bez którego nie dostaniesz nic z tej sekcji:** musisz być **przypisany
-do klienta jako Delivery Lead** (profil klienta → zakładka „Delivery Lead"). Bez
-przypisania sprawy z pulpitu dla tego klienta **w ogóle nie powstają — dla
-nikogo**. To pierwsza rzecz do sprawdzenia, gdy „system nic nie przysyła".
-Powiadomienia z dzwonka (Miejsce 1) idą niezależnie od przypisania.
+**Warunek, bez którego nie dostaniesz nic z tej sekcji:** musisz mieć aktywne
+konto, rolę i dostęp do sekcji Delivery oraz być **przypisany do klienta jako
+Delivery Lead** (profil klienta → zakładka „Delivery Lead"). Bez przypisania sprawy
+z pulpitu dla tego klienta **w ogóle nie powstają — dla nikogo**. To pierwsza
+rzecz do sprawdzenia, gdy „system nic nie przysyła". Powiadomienia z dzwonka
+(Miejsce 1) administrator dostaje globalnie, a Delivery Lead tylko dla
+przypisanych klientów i przy aktywnym dostępie do sekcji Delivery.
 
 Sekcja pokazuje wyłącznie **Twoje** wpisy — nawet administratorowi. Widać ją
 tylko w widoku pulpitu „Delivery Lead".
@@ -874,11 +876,13 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ## Najczęstsze pułapki
 
-1. **„Nie dostaję żadnych powiadomień o tym kliencie."** Sprawdź, czy jesteś
-   przypisany jako Delivery Lead na zakładce „Delivery Lead" w profilu klienta.
-   Bez przypisania nie powstaną dla Ciebie **sprawy z pulpitu** — i nie trafią
-   wtedy do nikogo. Powiadomienia o **końcu zamówienia** (30/14/7 dni) idą
-   niezależnie także do administratora, ale nie do Head of Recruitment.
+1. **„Nie dostaję żadnych powiadomień o tym kliencie."** Sprawdź aktywność
+   konta, rolę i dostęp do sekcji Delivery oraz przypisanie na zakładce
+   „Delivery Lead" w profilu klienta. Bez przypisania nie powstaną dla Ciebie
+   **sprawy z pulpitu** — i nie trafią wtedy do nikogo. Powiadomienia o **końcu
+   zamówienia** (30/14/7 dni) dostaje globalnie także aktywny administrator,
+   ale nie Head of Recruitment; Delivery Lead dostaje je tylko dla przypisanych
+   klientów.
 2. **„Zamówienie utknęło w Draft."** Brakuje jednej z czterech rzeczy: numeru,
    daty rozpoczęcia, stawki przychodowej albo kosztowej. **Jeżeli szkic ma typ MD
    albo Kosztowy, potrzebny jest jeszcze budżet** — bez niego cztery pozostałe

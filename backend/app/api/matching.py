@@ -7,7 +7,7 @@ GET /api/jobs/{id}/ai-matches
 
 # UWAGA: bez `from __future__ import annotations` — PEP 563 zamienia
 # adnotacje FastAPI w ForwardRef i wywala app.openapi() na Annotated
-# guardach (OperationalUser); ten sam trap co slowapi #579.
+# guardach (CandidateSearchAccess); ten sam trap co slowapi #579.
 
 import json
 import logging
@@ -18,7 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, OperationalUser
+from app.api.candidate_access import CandidateSearchAccess
+from app.api.deps import get_db
 from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -240,7 +241,7 @@ def _parse_required_skills(job: Job) -> list[str]:
 @router.get("/jobs/{job_id}/ai-matches")
 async def get_ai_matches(
     job_id: int,
-    current_user: OperationalUser,
+    current_user: CandidateSearchAccess,
     # M3-COST-01: bounds są twarde — bez nich `limit` rozszerza effective_pool
     # (Qdrant fetch + liczba dokumentów rerankowanych przez Voyage) bez granic,
     # a odpowiedź zawiera PII kandydatów. 422 zanim jakikolwiek provider zostanie

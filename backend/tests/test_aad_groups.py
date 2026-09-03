@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import json
 import uuid
+from types import SimpleNamespace
 from typing import AsyncIterator
+from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
@@ -33,6 +36,7 @@ from app.core.security import create_access_token
 from app.models.activity import Activity
 from app.models.auth_exchange_code import AuthExchangeCode
 from app.models.user import User, UserRole
+from app.services.admin_membership import protect_active_admin_membership
 from app.services.m365 import aad_groups as aad_groups_module
 from app.services.m365.aad_groups import (
     fetch_user_groups,
@@ -113,6 +117,35 @@ def test_map_groups_to_role_matches_map_groups_to_roles_first_element():
     roles = map_groups_to_roles(groups, mapping)
     single = map_groups_to_role(groups, mapping)
     assert roles[0] == single
+
+
+@pytest.mark.asyncio
+async def test_last_active_admin_guard_takes_global_lock_and_fails_closed():
+    target = SimpleNamespace(
+        id=17,
+        is_active=True,
+        get_all_roles=lambda: {UserRole.admin},
+    )
+    db = SimpleNamespace(
+        get_bind=lambda: SimpleNamespace(dialect=SimpleNamespace(name="postgresql")),
+        execute=AsyncMock(),
+        scalar=AsyncMock(return_value=0),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await protect_active_admin_membership(
+            db,
+            actor_id=None,
+            target=target,
+            next_roles=[UserRole.recruiter.value],
+            next_active=True,
+            protect_self=False,
+        )
+
+    assert exc_info.value.status_code == 409
+    db.execute.assert_awaited_once()
+    assert "pg_advisory_xact_lock" in str(db.execute.await_args.args[0])
+    db.scalar.assert_awaited_once()
 
 
 # ── HTTP-mocked: fetch_user_groups filters directory roles ──────────────────
@@ -484,7 +517,9 @@ async def test_sso_invalid_role_map_revokes_existing_admin_state(
 
     unique = uuid.uuid4().hex[:8]
     email = f"aad-invalid-map-{unique}@b2bnetwork.pl"
+    break_glass_email = f"aad-break-glass-{unique}@b2bnetwork.pl"
     cleanup_users.append(email)
+    cleanup_users.append(break_glass_email)
     group_id = f"grp-admin-{unique}"
 
     async with AsyncSessionLocal() as db:
@@ -498,7 +533,16 @@ async def test_sso_invalid_role_map_revokes_existing_admin_state(
             profile_completed=True,
             authorization_version=4,
         )
-        db.add(user)
+        break_glass = User(
+            email=break_glass_email,
+            password_hash=None,
+            name="Break Glass Admin",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+            profile_completed=True,
+        )
+        db.add_all([user, break_glass])
         await db.commit()
 
     monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
@@ -540,6 +584,136 @@ async def test_sso_invalid_role_map_revokes_existing_admin_state(
             .where(Activity.action == "sso_aad_role_mapping_invalid")
         )
         assert audit is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("scenario", "mapping", "groups", "expected_roles", "expected_active"),
+    [
+        (
+            "no-match",
+            {"some-other-group": "admin"},
+            [{"id": "unmapped-group", "displayName": "Unmapped"}],
+            [UserRole.admin.value],
+            False,
+        ),
+        (
+            "invalid-match",
+            {"finance-group": "finance", "recruiter-group": "recruiter"},
+            [
+                {"id": "finance-group", "displayName": "Finance"},
+                {"id": "recruiter-group", "displayName": "Recruiters"},
+            ],
+            [UserRole.admin.value],
+            False,
+        ),
+        (
+            "mapped-non-admin",
+            {"recruiter-group": "recruiter"},
+            [{"id": "recruiter-group", "displayName": "Recruiters"}],
+            [UserRole.recruiter.value],
+            True,
+        ),
+    ],
+)
+async def test_sso_callback_rolls_back_when_aad_would_remove_last_admin(
+    app_client_no_redirect,
+    monkeypatch,
+    cleanup_users,
+    scenario,
+    mapping,
+    groups,
+    expected_roles,
+    expected_active,
+):
+    """All AAD removal paths preserve the last admin and issue no session."""
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"aad-last-admin-{scenario}-{unique}@b2bnetwork.pl"
+    cleanup_users.append(email)
+    original_oid = f"old-oid-{unique}"
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=email,
+            password_hash=None,
+            name="Last AAD Admin",
+            role=UserRole.admin,
+            roles=[UserRole.admin.value],
+            is_active=True,
+            profile_completed=True,
+            authorization_version=7,
+            oauth_provider="microsoft",
+            external_id=original_oid,
+            azure_oid=original_oid,
+            microsoft_upn=email,
+            aad_group_ids=[{"id": "old-admin-group", "displayName": "Admins"}],
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        user_id = user.id
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(settings, "AAD_GROUP_ROLE_MAP_JSON", json.dumps(mapping))
+    _patch_token_exchange_with_access(
+        monkeypatch,
+        {
+            "preferred_username": email,
+            "oid": f"new-oid-{unique}",
+            "name": "Last AAD Admin Changed",
+        },
+    )
+    _patch_fetch_groups(monkeypatch, groups)
+
+    async def _block_last_admin(
+        _db,
+        *,
+        actor_id,
+        target,
+        next_roles,
+        next_active,
+        protect_self,
+    ):
+        assert actor_id is None
+        assert target.id == user_id
+        assert list(next_roles) == expected_roles
+        assert next_active is expected_active
+        assert protect_self is False
+        raise HTTPException(
+            status_code=409,
+            detail="At least one active administrator must remain",
+        )
+
+    monkeypatch.setattr(
+        auth_ms_module,
+        "protect_active_admin_membership",
+        _block_last_admin,
+    )
+
+    state = auth_ms_module._sign_login_state("v" * 64)
+    response = await app_client_no_redirect.get(
+        "/api/auth/microsoft/callback",
+        params={"code": "graph-code", "state": state},
+    )
+
+    assert response.status_code == 302
+    error = parse_qs(urlparse(response.headers["location"]).query)["error"]
+    assert error == [auth_ms_module._LAST_ACTIVE_ADMIN_ERROR]
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        assert user is not None
+        assert user.is_active is True
+        assert user.role is UserRole.admin
+        assert user.roles == [UserRole.admin.value]
+        assert user.authorization_version == 7
+        assert user.azure_oid == original_oid
+        assert user.aad_group_ids == [
+            {"id": "old-admin-group", "displayName": "Admins"}
+        ]
+        exchange = await db.scalar(
+            select(AuthExchangeCode).where(AuthExchangeCode.user_id == user_id)
+        )
+        assert exchange is None
 
 
 # ── Admin endpoint: /resync-aad-groups ──────────────────────────────────────
@@ -672,6 +846,92 @@ async def test_resync_endpoint_422_when_user_has_no_stored_groups(
     )
     assert resp.status_code == 422
     assert "log in via" in resp.text or "log in" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_resync_cannot_remove_calling_admin_access(
+    app_client_no_redirect, monkeypatch, admin_token
+):
+    """An IdP remap must not deactivate or demote the admin running resync."""
+
+    admin_id, token = admin_token
+    group_id = f"grp-self-admin-{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        admin.aad_group_ids = [{"id": group_id, "displayName": "NEXUS-Admin"}]
+        await db.commit()
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({group_id: "recruiter"}),
+    )
+
+    response = await app_client_no_redirect.post(
+        f"/api/admin/users/{admin_id}/resync-aad-groups",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 400
+    assert "own administrator" in response.text
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        assert admin.is_active is True
+        assert admin.has_role(UserRole.admin)
+
+
+@pytest.mark.asyncio
+async def test_resync_self_no_match_fails_closed_when_another_admin_exists(
+    app_client_no_redirect, monkeypatch, admin_token, cleanup_users
+):
+    """Broken IdP membership deactivates self when a break-glass admin remains."""
+
+    admin_id, token = admin_token
+    unique = uuid.uuid4().hex[:8]
+    group_id = f"grp-self-unmapped-{unique}"
+    break_glass_email = f"resync-break-glass-{unique}@b2bnetwork.pl"
+    cleanup_users.append(break_glass_email)
+
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        admin.aad_group_ids = [{"id": group_id, "displayName": "Unmapped"}]
+        db.add(
+            User(
+                email=break_glass_email,
+                password_hash=None,
+                name="Resync break-glass admin",
+                role=UserRole.admin,
+                roles=[UserRole.admin.value],
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({"different-group": "recruiter"}),
+    )
+
+    response = await app_client_no_redirect.post(
+        f"/api/admin/users/{admin_id}/resync-aad-groups",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        assert admin.is_active is False
+        assert admin.has_role(UserRole.admin)
+        assert admin.tokens_valid_after is not None
 
 
 @pytest.mark.asyncio

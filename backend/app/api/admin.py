@@ -20,7 +20,7 @@ from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.models.user_activity import UserActivity
-from app.api.deps import AdminUser
+from app.api.deps import AdminUser, ensure_exclusive_role_configuration
 from app.schemas.user import UserResponse
 from app.services.aad_role_policy import (
     InvalidAadRoleMapping,
@@ -40,6 +40,9 @@ from app.services.onboarding_access import (
     onboarding_persona_changed,
     onboarding_persona_for_roles,
 )
+from app.services.admin_membership import protect_active_admin_membership
+from app.services.section_permissions import resolve_effective_section_access
+from app.services.user_response import build_user_response
 
 router = APIRouter()
 
@@ -219,7 +222,7 @@ async def update_user(
     logs separately. RODO accountability requires an audit trail for any
     privilege escalation or account state change.
     """
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -248,6 +251,15 @@ async def update_user(
             final_roles = _normalized_role_values(final_primary, original_roles)
     else:
         final_roles = _normalized_role_values(final_primary, original_roles)
+
+    next_active = data.is_active if data.is_active is not None else user.is_active
+    await protect_active_admin_membership(
+        db,
+        actor_id=_admin.id,
+        target=user,
+        next_roles=final_roles,
+        next_active=next_active,
+    )
 
     user.role = final_primary
     user.roles = final_roles
@@ -386,10 +398,18 @@ async def deactivate_user(
             status_code=400, detail="Cannot deactivate your own account"
         )
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    await protect_active_admin_membership(
+        db,
+        actor_id=admin.id,
+        target=user,
+        next_roles=[role.value for role in user.get_all_roles()],
+        next_active=False,
+    )
 
     if user.is_active:
         user.authorization_version += 1
@@ -433,6 +453,7 @@ async def start_impersonation(
         raise HTTPException(
             status_code=400, detail="Nie można podglądać nieaktywnego użytkownika"
         )
+    ensure_exclusive_role_configuration(target)
 
     db.add(
         Activity(
@@ -449,7 +470,8 @@ async def start_impersonation(
         )
     )
     await db.flush()
-    return target
+    await resolve_effective_section_access(db, target)
+    return await build_user_response(target, db)
 
 
 @router.post("/users/{user_id}/reset-password", response_model=dict)
@@ -467,7 +489,7 @@ async def reset_password(
     - Audit log: ``Activity(action="password_changed_by_admin")``.
     - In-app notification + email do usera (security audit trail).
     """
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -531,7 +553,7 @@ async def send_reset_link(
     jest jednorazowy. Flag ``force_password_change`` NIE jest ustawiany,
     bo user i tak ustawi własne hasło w reset-password flow.
     """
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -693,7 +715,7 @@ async def resync_aad_groups(
             ),
         )
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(
@@ -713,6 +735,14 @@ async def resync_aad_groups(
     try:
         mapping = settings.aad_group_role_map
     except ValueError as exc:
+        await protect_active_admin_membership(
+            db,
+            actor_id=_admin.id,
+            target=user,
+            next_roles=[role.value for role in user.get_all_roles()],
+            next_active=False,
+            protect_self=False,
+        )
         await fail_closed_invalid_aad_mapping(
             db,
             user,
@@ -739,6 +769,14 @@ async def resync_aad_groups(
     if not role_strs:
         # No group matches → deny. Same fail-closed behaviour as the SSO
         # callback so the resync endpoint cannot accidentally grant access.
+        await protect_active_admin_membership(
+            db,
+            actor_id=_admin.id,
+            target=user,
+            next_roles=[role.value for role in user.get_all_roles()],
+            next_active=False,
+            protect_self=False,
+        )
         if user.is_active:
             user.authorization_version += 1
             user.tokens_valid_after = datetime.now(timezone.utc)
@@ -773,6 +811,14 @@ async def resync_aad_groups(
     try:
         role_strs, mapped_roles = validate_aad_mapped_roles(role_strs)
     except InvalidAadRoleMapping as exc:
+        await protect_active_admin_membership(
+            db,
+            actor_id=_admin.id,
+            target=user,
+            next_roles=[role.value for role in user.get_all_roles()],
+            next_active=False,
+            protect_self=False,
+        )
         await fail_closed_invalid_aad_mapping(
             db,
             user,
@@ -787,6 +833,13 @@ async def resync_aad_groups(
             detail=str(exc),
         ) from exc
     new_role = mapped_roles[0]
+    await protect_active_admin_membership(
+        db,
+        actor_id=_admin.id,
+        target=user,
+        next_roles=role_strs,
+        next_active=True,
+    )
     role_changed = user.role != new_role
     roles_changed = previous_roles != role_strs
     active_changed = not user.is_active

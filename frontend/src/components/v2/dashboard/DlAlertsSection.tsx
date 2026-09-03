@@ -20,6 +20,7 @@ import {
   type DlAlertRead,
   type DlAlertStatus,
 } from "@/lib/api/dlAlerts";
+import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { useAuthStore } from "@/store/auth";
 import { hasRole } from "@/store/auth";
 
@@ -136,9 +137,8 @@ export function DlAlertsSection() {
       // `fetch` + Bearer + blob, nie axios z `responseType:"blob"` — ta druga
       // droga bywa zawodna cross-origin (ta sama decyzja co w eksporcie
       // kontraktów i w `lib/authenticated-files.ts`).
-      const token = useAuthStore.getState().token;
       const res = await fetch(dlAlertsExportUrl(scope), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: getAuthenticatedRequestHeaders(),
       });
       if (!res.ok) {
         showToast("Eksport nie powiódł się.", "error");

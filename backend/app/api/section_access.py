@@ -15,117 +15,18 @@ existing resource-scope guards underneath this dependency.
 
 from __future__ import annotations
 
-from enum import IntEnum, StrEnum
-from typing import Annotated, Iterable
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 
 from app.api.deps import get_current_user
-from app.models.user import User, UserRole
-
-
-class ProductSection(StrEnum):
-    sourcing = "sourcing"
-    pipeline = "pipeline"
-    delivery = "delivery"
-    insights = "insights"
-    finance = "finance"
-    system_admin = "system_admin"
-
-
-class SectionAccess(IntEnum):
-    none = 0
-    read = 1
-    write = 2
-
-
-_NONE = {section: SectionAccess.none for section in ProductSection}
-
-
-def _policy(**overrides: SectionAccess) -> dict[ProductSection, SectionAccess]:
-    policy = dict(_NONE)
-    policy.update(
-        {ProductSection(section): access for section, access in overrides.items()}
-    )
-    return policy
-
-
-# Primary role -> section ceiling.  Multi-role users receive the union, while
-# endpoint and resource guards below this layer may still narrow individual
-# actions or data rows.  Keep the frontend mirror in
-# ``frontend/src/lib/section-access.ts``; parity tests cover both matrices.
-ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]] = {
-    UserRole.admin: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        delivery=SectionAccess.write,
-        insights=SectionAccess.write,
-        finance=SectionAccess.write,
-        system_admin=SectionAccess.write,
-    ),
-    UserRole.finance: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        delivery=SectionAccess.write,
-        insights=SectionAccess.read,
-        finance=SectionAccess.write,
-    ),
-    UserRole.head_of_recruitment: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        insights=SectionAccess.write,
-    ),
-    UserRole.delivery_lead: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        delivery=SectionAccess.write,
-        insights=SectionAccess.read,
-    ),
-    UserRole.talent_community_manager: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        delivery=SectionAccess.read,
-        insights=SectionAccess.read,
-    ),
-    UserRole.tac: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        insights=SectionAccess.read,
-    ),
-    UserRole.recruiter: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        insights=SectionAccess.read,
-    ),
-    UserRole.sourcer: _policy(
-        sourcing=SectionAccess.write,
-        pipeline=SectionAccess.write,
-        insights=SectionAccess.read,
-    ),
-    # Deprecated compatibility persona: keep only the already-public-to-all
-    # sourcing tools.  No new provisioning is allowed.
-    UserRole.user: _policy(
-        sourcing=SectionAccess.read,
-        pipeline=SectionAccess.read,
-        insights=SectionAccess.read,
-    ),
-}
-
-
-def section_access_for_roles(
-    roles: Iterable[UserRole], section: ProductSection
-) -> SectionAccess:
-    return max(
-        (ROLE_SECTION_ACCESS.get(role, _NONE)[section] for role in roles),
-        default=SectionAccess.none,
-    )
-
-
-def section_access_for_user(user: User, section: ProductSection) -> SectionAccess:
-    return section_access_for_roles(user.get_all_roles(), section)
-
-
-_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+from app.models.user import User
+from app.services.request_semantics import is_read_only_http_request
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 
 def require_section_access(section: ProductSection):
@@ -135,11 +36,8 @@ def require_section_access(section: ProductSection):
         request: Request,
         current_user: User = Depends(get_current_user),
     ) -> User:
-        required = (
-            SectionAccess.read
-            if request.method.upper() in _READ_METHODS
-            else SectionAccess.write
-        )
+        is_read = is_read_only_http_request(request.method, request.url.path)
+        required = SectionAccess.read if is_read else SectionAccess.write
         granted = section_access_for_user(current_user, section)
         if granted < required:
             raise HTTPException(
@@ -159,8 +57,22 @@ def require_section_access(section: ProductSection):
 DELIVERY_SECTION_DEPENDENCIES = [
     Depends(require_section_access(ProductSection.delivery))
 ]
+SOURCING_SECTION_DEPENDENCIES = [
+    Depends(require_section_access(ProductSection.sourcing))
+]
+PIPELINE_SECTION_DEPENDENCIES = [
+    Depends(require_section_access(ProductSection.pipeline))
+]
+INSIGHTS_SECTION_DEPENDENCIES = [
+    Depends(require_section_access(ProductSection.insights))
+]
+FINANCE_SECTION_DEPENDENCIES = [Depends(require_section_access(ProductSection.finance))]
 
 
 DeliverySectionUser = Annotated[
     User, Depends(require_section_access(ProductSection.delivery))
+]
+
+FinanceSectionUser = Annotated[
+    User, Depends(require_section_access(ProductSection.finance))
 ]

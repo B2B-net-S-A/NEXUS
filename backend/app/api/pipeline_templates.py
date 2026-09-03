@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.job import Job
 from app.models.pipeline_template import (
@@ -38,7 +39,7 @@ from app.schemas.pipeline_template import (
     StageReorderItem,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 # ── Template CRUD ────────────────────────────────────────────────────────────

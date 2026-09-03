@@ -626,6 +626,61 @@ _PROFILE_RATE_ALTER_SQL = (
 )
 
 _COLUMN_STATEMENTS = [
+    # 0269: configurable product-section RBAC. The tables are created here as
+    # an idempotent recovery path when Alembic stopped before stamping head.
+    """CREATE TABLE IF NOT EXISTS rbac_policy_state (
+           id INTEGER PRIMARY KEY,
+           revision BIGINT NOT NULL DEFAULT 1,
+           updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           CONSTRAINT ck_rbac_policy_state_singleton CHECK (id = 1),
+           CONSTRAINT ck_rbac_policy_state_revision_positive CHECK (revision > 0)
+       )""",
+    """CREATE TABLE IF NOT EXISTS rbac_role_section_permissions (
+           role VARCHAR(64) NOT NULL,
+           section VARCHAR(32) NOT NULL,
+           access VARCHAR(16) NOT NULL,
+           updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           PRIMARY KEY (role, section),
+           CONSTRAINT ck_rbac_role_section_permissions_role CHECK (
+               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user')
+           ),
+           CONSTRAINT ck_rbac_role_section_permissions_section CHECK (
+               section IN ('sourcing','pipeline','delivery','insights','finance','system_admin')
+           ),
+           CONSTRAINT ck_rbac_role_section_permissions_access CHECK (
+               access IN ('none','read','write')
+           )
+       )""",
+    """CREATE TABLE IF NOT EXISTS rbac_user_section_overrides (
+           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           section VARCHAR(32) NOT NULL,
+           access VARCHAR(16) NOT NULL,
+           updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           PRIMARY KEY (user_id, section),
+           CONSTRAINT ck_rbac_user_section_overrides_section CHECK (
+               section IN ('sourcing','pipeline','delivery','insights','finance','system_admin')
+           ),
+           CONSTRAINT ck_rbac_user_section_overrides_access CHECK (
+               access IN ('none','read','write')
+           )
+       )""",
+    """CREATE TABLE IF NOT EXISTS rbac_permission_audit (
+           id BIGSERIAL PRIMARY KEY,
+           actor_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           target_kind VARCHAR(16) NOT NULL,
+           target_key VARCHAR(128) NOT NULL,
+           revision BIGINT NOT NULL,
+           before JSONB NOT NULL,
+           after JSONB NOT NULL,
+           created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           CONSTRAINT ck_rbac_permission_audit_target_kind CHECK (
+               target_kind IN ('role','user')
+           ),
+           CONSTRAINT ck_rbac_permission_audit_revision_positive CHECK (revision > 0)
+       )""",
     # Role dashboards/RBAC cutover (0210).  These tables keep the pre-cutover
     # role snapshot and explicit work queue for ambiguous relationship data.
     """CREATE TABLE IF NOT EXISTS role_session_migration_audit (
@@ -4098,6 +4153,75 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    # 0269: bootstrap only. Defaults are inserted only for an entirely empty
+    # matrix. A partial matrix is an operational fault and must stay fail-closed;
+    # filling a single missing row on restart could silently restore a broader
+    # default after an administrator deliberately selected `none`.
+    """INSERT INTO rbac_policy_state (id, revision)
+       VALUES (1, 1)
+       ON CONFLICT (id) DO NOTHING""",
+    """INSERT INTO rbac_role_section_permissions (role, section, access)
+       SELECT defaults.role, defaults.section, defaults.access
+       FROM (VALUES
+           ('admin', 'sourcing', 'write'),
+           ('admin', 'pipeline', 'write'),
+           ('admin', 'delivery', 'write'),
+           ('admin', 'insights', 'write'),
+           ('admin', 'finance', 'write'),
+           ('admin', 'system_admin', 'write'),
+           ('finance', 'sourcing', 'write'),
+           ('finance', 'pipeline', 'write'),
+           ('finance', 'delivery', 'write'),
+           ('finance', 'insights', 'read'),
+           ('finance', 'finance', 'write'),
+           ('finance', 'system_admin', 'none'),
+           ('head_of_recruitment', 'sourcing', 'write'),
+           ('head_of_recruitment', 'pipeline', 'write'),
+           ('head_of_recruitment', 'delivery', 'none'),
+           ('head_of_recruitment', 'insights', 'write'),
+           ('head_of_recruitment', 'finance', 'none'),
+           ('head_of_recruitment', 'system_admin', 'none'),
+           ('delivery_lead', 'sourcing', 'write'),
+           ('delivery_lead', 'pipeline', 'write'),
+           ('delivery_lead', 'delivery', 'write'),
+           ('delivery_lead', 'insights', 'read'),
+           ('delivery_lead', 'finance', 'none'),
+           ('delivery_lead', 'system_admin', 'none'),
+           ('talent_community_manager', 'sourcing', 'write'),
+           ('talent_community_manager', 'pipeline', 'write'),
+           ('talent_community_manager', 'delivery', 'read'),
+           ('talent_community_manager', 'insights', 'read'),
+           ('talent_community_manager', 'finance', 'none'),
+           ('talent_community_manager', 'system_admin', 'none'),
+           ('tac', 'sourcing', 'write'),
+           ('tac', 'pipeline', 'write'),
+           ('tac', 'delivery', 'none'),
+           ('tac', 'insights', 'read'),
+           ('tac', 'finance', 'none'),
+           ('tac', 'system_admin', 'none'),
+           ('recruiter', 'sourcing', 'write'),
+           ('recruiter', 'pipeline', 'write'),
+           ('recruiter', 'delivery', 'none'),
+           ('recruiter', 'insights', 'read'),
+           ('recruiter', 'finance', 'none'),
+           ('recruiter', 'system_admin', 'none'),
+           ('sourcer', 'sourcing', 'write'),
+           ('sourcer', 'pipeline', 'write'),
+           ('sourcer', 'delivery', 'none'),
+           ('sourcer', 'insights', 'read'),
+           ('sourcer', 'finance', 'none'),
+           ('sourcer', 'system_admin', 'none'),
+           ('user', 'sourcing', 'read'),
+           ('user', 'pipeline', 'read'),
+           ('user', 'delivery', 'none'),
+           ('user', 'insights', 'read'),
+           ('user', 'finance', 'none'),
+           ('user', 'system_admin', 'none')
+       ) AS defaults(role, section, access)
+       WHERE NOT EXISTS (
+           SELECT 1 FROM rbac_role_section_permissions
+       )
+       ON CONFLICT (role, section) DO NOTHING""",
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
     # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie

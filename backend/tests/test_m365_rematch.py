@@ -24,8 +24,13 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models.m365 import EmailMatchMethod
+from app.models.section_permission import (
+    RoleSectionPermission,
+    UserSectionOverride,
+)
 from app.models.user import User, UserRole
 from app.services.m365.provider import MatchResult
+from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
 from app.tasks import microsoft365_sync as rematch_mod
 from app.tasks.microsoft365_sync import RematchStats, _addresses, _rematch_pass
 
@@ -112,14 +117,30 @@ def _make_db(emails: list[SimpleNamespace]) -> SimpleNamespace:
     scalars_obj = SimpleNamespace(all=lambda: emails)
     result_obj = SimpleNamespace(scalars=lambda: scalars_obj)
     owners = {email.user_id: email.user for email in emails}
+    role_rows = [
+        RoleSectionPermission(
+            role=role.value,
+            section=section.value,
+            access=access.name,
+        )
+        for role, policy in DEFAULT_ROLE_SECTION_ACCESS.items()
+        for section, access in policy.items()
+    ]
 
     async def _get(model: Any, row_id: int, **_kwargs: Any) -> Any:
         if model is User:
             return owners.get(row_id)
         return None
 
+    async def _scalars(statement: Any) -> SimpleNamespace:
+        entity = statement.column_descriptions[0].get("entity")
+        rows = role_rows if entity is RoleSectionPermission else []
+        assert entity in {RoleSectionPermission, UserSectionOverride}
+        return SimpleNamespace(all=lambda: rows)
+
     return SimpleNamespace(
         execute=AsyncMock(return_value=result_obj),
+        scalars=AsyncMock(side_effect=_scalars),
         get=AsyncMock(side_effect=_get),
         commit=AsyncMock(),
     )

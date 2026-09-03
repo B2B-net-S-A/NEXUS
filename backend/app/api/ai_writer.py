@@ -16,11 +16,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, get_db
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 class JobDescriptionRequest(BaseModel):

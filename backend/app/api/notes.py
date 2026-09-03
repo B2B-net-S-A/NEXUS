@@ -26,6 +26,7 @@ from app.services.note_mention_render import (
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.api.deps import DeliveryLeadPlus
 from app.api.recruitment_access import ensure_delivery_lead_job_visible
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.mention_dispatch import (
     build_note_context_label,
@@ -36,7 +37,7 @@ from app.services.mention_dispatch import (
 )
 from app.services.mention_parser import parse_mentions, parse_mentions_global
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 async def _resolve_mentions(db: AsyncSession, content: str, note: Note) -> list[int]:

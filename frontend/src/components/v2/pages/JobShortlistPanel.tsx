@@ -47,6 +47,8 @@ interface JobShortlistPanelProps {
   refreshSignal?: number;
   /** Called after a successful promote so the parent can refresh the pipeline. */
   onPromoted?: () => void;
+  /** Keep shortlist data visible without exposing server mutations. */
+  readOnly?: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ export function JobShortlistPanel({
   jobId,
   refreshSignal,
   onPromoted,
+  readOnly = false,
 }: JobShortlistPanelProps) {
   const [entries, setEntries] = useState<ShortlistEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -86,6 +89,7 @@ export function JobShortlistPanel({
   }, [load, refreshSignal]);
 
   const patch = async (entry: ShortlistEntry, body: Partial<ShortlistUpdate>) => {
+    if (readOnly) return;
     setBusyId(entry.id);
     setError(null);
     try {
@@ -112,6 +116,7 @@ export function JobShortlistPanel({
   };
 
   const promote = async (entry: ShortlistEntry) => {
+    if (readOnly) return;
     setBusyId(entry.id);
     setError(null);
     try {
@@ -129,6 +134,7 @@ export function JobShortlistPanel({
   };
 
   const remove = async (entry: ShortlistEntry) => {
+    if (readOnly) return;
     setBusyId(entry.id);
     setError(null);
     try {
@@ -167,6 +173,7 @@ export function JobShortlistPanel({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         className="flex w-full items-center justify-between p-3 text-sm"
       >
         <span className="font-medium">
@@ -204,45 +211,64 @@ export function JobShortlistPanel({
                   {e.score_snapshot}
                 </span>
               )}
-              <select
-                aria-label="Ocena"
-                value={e.evaluation_status}
-                disabled={busyId === e.id}
-                onChange={(ev) =>
-                  patch(e, {
-                    evaluation_status: ev.target.value as EvaluationStatus,
-                  })
-                }
-                className={SELECT_CLASS}
-              >
-                {Object.entries(EVAL_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Kontakt"
-                value={e.outreach_status}
-                disabled={busyId === e.id}
-                onChange={(ev) =>
-                  patch(e, {
-                    outreach_status: ev.target.value as OutreachStatus,
-                  })
-                }
-                className={SELECT_CLASS}
-              >
-                {Object.entries(OUTREACH_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
+              {readOnly ? (
+                <>
+                  <span
+                    aria-label={`Ocena: ${EVAL_LABELS[e.evaluation_status]}`}
+                    className="rounded-md border bg-muted px-2 py-1 text-xs"
+                  >
+                    {EVAL_LABELS[e.evaluation_status]}
+                  </span>
+                  <span
+                    aria-label={`Kontakt: ${OUTREACH_LABELS[e.outreach_status]}`}
+                    className="rounded-md border bg-muted px-2 py-1 text-xs"
+                  >
+                    {OUTREACH_LABELS[e.outreach_status]}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <select
+                    aria-label="Ocena"
+                    value={e.evaluation_status}
+                    disabled={busyId === e.id}
+                    onChange={(ev) =>
+                      patch(e, {
+                        evaluation_status: ev.target.value as EvaluationStatus,
+                      })
+                    }
+                    className={SELECT_CLASS}
+                  >
+                    {Object.entries(EVAL_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Kontakt"
+                    value={e.outreach_status}
+                    disabled={busyId === e.id}
+                    onChange={(ev) =>
+                      patch(e, {
+                        outreach_status: ev.target.value as OutreachStatus,
+                      })
+                    }
+                    className={SELECT_CLASS}
+                  >
+                    {Object.entries(OUTREACH_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
               {e.promoted_to_pipeline_at ? (
                 <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   w rekrutacji
                 </span>
-              ) : (
+              ) : !readOnly ? (
                 <Button
                   type="button"
                   size="sm"
@@ -258,16 +284,18 @@ export function JobShortlistPanel({
                   )}
                   Do rekrutacji
                 </Button>
-              )}
-              <button
-                type="button"
-                onClick={() => remove(e)}
-                disabled={busyId === e.id}
-                aria-label={`Usuń ${e.candidate_name} z shortlisty`}
-                className="text-zinc-400 hover:text-rose-600 disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              ) : null}
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={() => remove(e)}
+                  disabled={busyId === e.id}
+                  aria-label={`Usuń ${e.candidate_name} z shortlisty`}
+                  className="text-zinc-400 hover:text-rose-600 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
             </div>
           ))}
         </div>

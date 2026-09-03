@@ -22,6 +22,11 @@ from fastapi import Depends, HTTPException, status
 
 from app.api.deps import get_current_user
 from app.models.user import User, UserRole
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 if TYPE_CHECKING:
     pass
@@ -134,6 +139,37 @@ def capabilities_for(user: User) -> frozenset[AnalyticsCapability]:
     caps: set[AnalyticsCapability] = set()
     for role in user.get_all_roles():
         caps |= ROLE_CAPABILITIES.get(role, frozenset())
+
+    # Insights access is a ceiling over every analytics capability except the
+    # explicitly Finance-owned trio below. Without this central cut, an
+    # endpoint protected by ``require_capability`` could keep returning
+    # reports after an administrator revoked the Insights section.
+    finance_caps = {
+        AnalyticsCapability.VIEW_FINANCE,
+        AnalyticsCapability.MANAGE_FINANCE,
+        AnalyticsCapability.APPROVE_FINANCE,
+    }
+    insights_access = section_access_for_user(user, ProductSection.insights)
+    if insights_access < SectionAccess.read:
+        caps &= finance_caps
+    elif insights_access < SectionAccess.write:
+        caps.discard(AnalyticsCapability.ADMIN_ANALYTICS)
+
+    # Finance section access is independently configurable. It gates the
+    # finance capabilities and can explicitly grant read/write to an
+    # individual without making that person a Finance organizational persona.
+    # Approval remains an admin-only separation-of-duties capability.
+    finance_access = section_access_for_user(user, ProductSection.finance)
+    if finance_access < SectionAccess.read:
+        caps -= finance_caps
+    else:
+        caps.add(AnalyticsCapability.VIEW_FINANCE)
+        if finance_access >= SectionAccess.write:
+            caps.add(AnalyticsCapability.MANAGE_FINANCE)
+        else:
+            caps.discard(AnalyticsCapability.MANAGE_FINANCE)
+        if not user.has_role(UserRole.admin):
+            caps.discard(AnalyticsCapability.APPROVE_FINANCE)
     return frozenset(caps)
 
 

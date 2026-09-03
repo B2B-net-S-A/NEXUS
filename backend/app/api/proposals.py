@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -44,7 +45,7 @@ from app.tasks.compute_proposals import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 async def _ensure_job_exists(db: AsyncSession, job_id: int) -> Job:

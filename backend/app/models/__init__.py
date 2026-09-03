@@ -1,4 +1,10 @@
 from app.models.user import User
+from app.models.section_permission import (  # noqa: F401
+    RbacPermissionAudit,
+    RbacPolicyState,
+    RoleSectionPermission,
+    UserSectionOverride,
+)
 from app.models.candidate import Candidate
 from app.models.candidate_language import CandidateLanguage  # noqa: F401
 from app.models.candidate_source_identity_review import (  # noqa: F401

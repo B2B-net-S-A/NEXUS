@@ -37,7 +37,9 @@ from app.services.match_justification_service import (
     notes_gap_warnings_from_extracted,
 )
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 class NotesGapWarning(BaseModel):

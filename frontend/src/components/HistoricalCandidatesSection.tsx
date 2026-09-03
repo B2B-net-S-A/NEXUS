@@ -40,6 +40,7 @@ import {
 
 interface Props {
   jobId: number;
+  readOnly?: boolean;
 }
 
 // Notatka job-scoped doklejana przy hurtowym przepinaniu (widoczna w
@@ -152,6 +153,7 @@ function CandidateRow({
   isSelected,
   onToggleSelect,
   onAdded,
+  readOnly,
 }: {
   candidate: HistoricalCandidate;
   jobId: number;
@@ -159,6 +161,7 @@ function CandidateRow({
   isSelected: boolean;
   onToggleSelect: (id: number) => void;
   onAdded: (id: number) => void;
+  readOnly: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -200,14 +203,16 @@ function CandidateRow({
     <li className="border border-slate-200 rounded-lg bg-card">
       <div className="flex items-center gap-2 p-3">
         {/* Multi-select do hurtowego przepinania. */}
-        <input
-          type="checkbox"
-          checked={isSelected}
-          disabled={inPipeline}
-          onChange={() => onToggleSelect(candidate.candidate_id)}
-          aria-label={`Zaznacz ${fullName}`}
-          className="h-4 w-4 shrink-0 rounded border-slate-300 accent-indigo-600 disabled:opacity-40"
-        />
+        {!readOnly ? (
+          <input
+            type="checkbox"
+            checked={isSelected}
+            disabled={inPipeline}
+            onChange={() => onToggleSelect(candidate.candidate_id)}
+            aria-label={`Zaznacz ${fullName}`}
+            className="h-4 w-4 shrink-0 rounded border-slate-300 accent-indigo-600 disabled:opacity-40"
+          />
+        ) : null}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -285,7 +290,7 @@ function CandidateRow({
         </button>
 
         {/* Add this historical candidate straight into the job's pipeline. */}
-        <button
+        {!readOnly ? <button
           type="button"
           onClick={() => addMutation.mutate()}
           disabled={addMutation.isPending || inPipeline}
@@ -316,7 +321,7 @@ function CandidateRow({
               Dodaj do pipeline
             </>
           )}
-        </button>
+        </button> : null}
       </div>
       {open ? (
         <div className="px-3 pb-3">
@@ -330,7 +335,7 @@ function CandidateRow({
   );
 }
 
-export function HistoricalCandidatesSection({ jobId }: Props) {
+export function HistoricalCandidatesSection({ jobId, readOnly = false }: Props) {
   const [expanded, setExpanded] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [added, setAdded] = useState<Set<number>>(new Set());
@@ -492,6 +497,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
           isSelected={selected.has(c.candidate_id)}
           onToggleSelect={toggleSelect}
           onAdded={(id) => setAdded((prev) => new Set([...prev, id]))}
+          readOnly={readOnly}
         />
       ))}
     </ul>
@@ -510,6 +516,8 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        aria-controls="historical-candidates-content"
         className="w-full flex items-center gap-2 mb-3"
       >
         <Sparkles className="h-4 w-4 text-indigo-600" />
@@ -534,9 +542,13 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
         </span>
       </button>
 
-      {!expanded ? null : viewState === "loading" ? (
-        <p className="text-sm text-slate-500">Szukam kandydatów z pokrewnych rekrutacji…</p>
-      ) : failed ? (
+      {!expanded ? null : (
+        <div id="historical-candidates-content">
+          {viewState === "loading" ? (
+            <p className="text-sm text-slate-500">
+              Szukam kandydatów z pokrewnych rekrutacji…
+            </p>
+          ) : failed ? (
         <QueryStateNotice
           state={viewState as BlockingViewState}
           className="bg-white"
@@ -581,7 +593,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
           </div>
 
           {/* Pasek hurtowego przepinania (Faza 2). */}
-          <div className="mb-3 flex items-center gap-2 flex-wrap">
+          {!readOnly ? <div className="mb-3 flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={toggleSelectAll}
@@ -618,7 +630,7 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
                 Odrzuceni przez tego klienta i osoby już w pipeline nie wchodzą do „zaznacz wszystkich”.
               </span>
             ) : null}
-          </div>
+          </div> : null}
 
           {grouped ? (
             <div className="space-y-4">
@@ -642,6 +654,8 @@ export function HistoricalCandidatesSection({ jobId }: Props) {
             renderRows(candidates)
           )}
         </>
+          )}
+        </div>
       )}
     </section>
   );

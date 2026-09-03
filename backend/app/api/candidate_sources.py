@@ -34,7 +34,12 @@ from app.schemas.candidate_source_event import (
     SourceReportResponse,
 )
 
-router = APIRouter()
+from app.api.section_access import (
+    INSIGHTS_SECTION_DEPENDENCIES,
+    SOURCING_SECTION_DEPENDENCIES,
+)
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 def _serialize(row: CandidateSourceEvent) -> CandidateSourceEventOut:
@@ -125,7 +130,7 @@ async def add_candidate_source(
 
 # ── /reports/sources aggregation ─────────────────────────────────────────────
 
-reports_router = APIRouter()
+reports_router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 @reports_router.get("/sources", response_model=SourceReportResponse)

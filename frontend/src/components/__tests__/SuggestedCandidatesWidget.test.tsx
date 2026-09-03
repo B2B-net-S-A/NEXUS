@@ -81,7 +81,9 @@ function candidateMatch(
   };
 }
 
-function renderWidget(props: { jobHasBudget?: boolean } = {}) {
+function renderWidget(
+  props: { jobHasBudget?: boolean; readOnly?: boolean } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, refetchOnWindowFocus: false },
@@ -259,6 +261,55 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
 
     expect(selectMatchesForHistory([unscored, scored], normalMeta)).toEqual([scored]);
     expect(selectMatchesForHistory([scored], degradedMeta)).toEqual([]);
+  });
+});
+
+describe("SuggestedCandidatesWidget read-only", () => {
+  it("pokazuje ranking bez akcji zmieniających rekrutację", async () => {
+    mocks.latest.mockResolvedValue(readySnapshot());
+
+    renderWidget({ readOnly: true });
+
+    expect(await screen.findByRole("link", { name: "Anna Nowak" })).toBeTruthy();
+    expect(screen.queryByTestId("regenerate-proposals-btn")).toBeNull();
+    expect(screen.queryByText("Do shortlisty")).toBeNull();
+    expect(screen.queryByText("Przypisz")).toBeNull();
+    await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());
+  });
+
+  it("nie zapisuje historii ani nie pokazuje mutującego retry dla błędnego snapshotu", async () => {
+    mocks.latest.mockResolvedValue({
+      data: {
+        ...readySnapshot().data,
+        status: "failed",
+        error_message: "Generowanie nie powiodło się",
+      },
+    });
+
+    renderWidget({ readOnly: true });
+
+    expect(
+      await screen.findByText("Generowanie nie powiodło się"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Spróbuj ponownie" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.regenerate).not.toHaveBeenCalled();
+    expect(mocks.logHistory).not.toHaveBeenCalled();
+  });
+
+  it("pozwala uruchomić odczytowy fallback bez zapisywania historii", async () => {
+    mocks.forJob.mockResolvedValue(
+      liveResponse([candidateMatch(82, BREAKDOWN)]),
+    );
+
+    renderWidget({ readOnly: true });
+    fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
+
+    expect(await screen.findByRole("link", { name: "Anna Nowak" })).toBeTruthy();
+    expect(mocks.logHistory).not.toHaveBeenCalled();
+    expect(screen.queryByText("Do shortlisty")).toBeNull();
+    expect(screen.queryByText("Przypisz")).toBeNull();
   });
 });
 /**

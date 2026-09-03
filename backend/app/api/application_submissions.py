@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.api.candidate_access import CandidateWriteAccess
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.api.recruitment_access import (
     ensure_optional_job_membership,
     job_read_scope_clause,
@@ -52,7 +53,7 @@ from app.services.recruitment_process_commands import open_process
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

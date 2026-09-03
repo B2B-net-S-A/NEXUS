@@ -44,8 +44,7 @@ from app.services.html_sanitizer import sanitize_cv_html
 # A read-only viewer/client could enumerate sequential stage_id values and
 # download every candidate's original + branded CV. Reads now require the
 # same CandidateDocumentAccess capability as the canonical document routes.
-from app.api.candidate_access import CandidateDocumentAccess
-from app.api.deps import RecruiterPlus
+from app.api.candidate_access import CandidateDocumentAccess, CandidateWriteAccess
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -128,7 +127,7 @@ async def _load_csv_for_stage(
 
     Egzekwuje też **resource scope**: `stage_id` niesie `job_id`, więc dostęp do
     CV tej rekrutacji wymaga przynależności do jej zespołu. Rola
-    (`CandidateDocumentAccess` / `RecruiterPlus`) odpowiada tylko na pytanie
+    (`CandidateDocumentAccess` / `CandidateWriteAccess`) odpowiada tylko na pytanie
     „czy wolno ci oglądać CV", nie „czy wolno ci oglądać CV **tej**
     rekrutacji" — i to jest dokładnie ta różnica, przez którą łatanie kolejnych
     routerów nigdy nie trzymało (#791 → #815 → #819).
@@ -221,7 +220,7 @@ async def download_original_cv(
 )
 async def refresh_original_cv(
     stage_id: int,
-    current_user: RecruiterPlus,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVOriginalSnapshotResponse:
     """Nadpisz snapshot aktualną zawartością CV kandydata (manual refresh).
@@ -389,7 +388,7 @@ async def get_branded_cv(
 async def update_branded_cv(
     stage_id: int,
     payload: CVBrandedUpdate,
-    current_user: RecruiterPlus,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
     """Update brandowanego CV — XOR `content_html` (save) / `template+language` (re-render).
@@ -492,7 +491,7 @@ async def render_branded_cv_for_print(
 )
 async def finalize_branded_cv(
     stage_id: int,
-    current_user: RecruiterPlus,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedFinalizeResponse:
     """Snapshot brandowanego draftu → storage_service + status `draft → finalized`.
@@ -582,7 +581,7 @@ _SHARE_PATH_PREFIX = "/cv/"
 )
 async def create_cv_share_token(
     stage_id: int,
-    current_user: RecruiterPlus,
+    current_user: CandidateWriteAccess,
     expires_in_days: int = Query(14, ge=1, le=90),
     max_views: Optional[int] = Query(None, ge=1, le=1000),
     purpose: Optional[str] = Query(None, max_length=120),
@@ -684,7 +683,7 @@ def _token_list_item(row: CVShareToken) -> CVShareTokenListItem:
 )
 async def list_cv_share_tokens(
     stage_id: int,
-    current_user: RecruiterPlus,
+    current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[CVShareTokenListItem]:
     """Lista linków (aktywnych i odwołanych) dla CV tego stage'a — bez
@@ -709,7 +708,7 @@ async def list_cv_share_tokens(
 @router.delete("/candidates/stages/cv/share-token/{token}")
 async def revoke_cv_share_token(
     token: str,
-    current_user: RecruiterPlus,
+    current_user: CandidateWriteAccess,
     reason: Optional[str] = Query(None, max_length=255),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -771,7 +770,7 @@ async def revoke_cv_share_token(
 @router.delete("/candidates/stages/{stage_id}/cv/share-tokens")
 async def revoke_all_cv_share_tokens(
     stage_id: int,
-    current_user: RecruiterPlus,
+    current_user: CandidateWriteAccess,
     reason: Optional[str] = Query(None, max_length=255),
     db: AsyncSession = Depends(get_db),
 ) -> dict:

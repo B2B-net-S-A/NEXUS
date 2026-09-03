@@ -25,12 +25,14 @@ from app.models.candidate_contact import (
 from app.models.job import Job
 from app.models.client import Client
 from app.models.notification import Notification, NotificationType
+from app.services.notification_access import notification_recipient_has_access
 from app.models.user import User, UserRole
 from app.api.recruitment_access import (
     CalendarWriteAccess,
     RecruitmentReadAccess,
     ensure_optional_job_membership,
 )
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.calendar_access import (
     CALENDAR_EVENT_DELETED,
     CALENDAR_EVENT_UPDATED,
@@ -49,7 +51,7 @@ from app.services.candidate_contact_hooks import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 def _is_contact_handoff_event(event: CalendarEvent) -> bool:
@@ -1029,6 +1031,19 @@ async def _dispatch_reminder(event_id: int) -> None:
             await db.commit()
             return
 
+        if not await notification_recipient_has_access(
+            db,
+            event.created_by,
+            NotificationType.interview_scheduled,
+            related_entity_type="calendar_event",
+            link="/calendar",
+        ):
+            # Revoked users must not receive either a persisted row or the
+            # realtime reminder; stamp the event so the scanner does not spin.
+            event.reminder_sent_at = now
+            await db.commit()
+            return
+
         notif = Notification(
             user_id=event.created_by,
             title="Przypomnienie o wydarzeniu",
@@ -1048,6 +1063,7 @@ async def _dispatch_reminder(event_id: int) -> None:
             "title": notif.title,
             "message": notif.message,
             "link": notif.link,
+            "notification_type": NotificationType.interview_scheduled.value,
             "created_at": now.isoformat(),
         }
 

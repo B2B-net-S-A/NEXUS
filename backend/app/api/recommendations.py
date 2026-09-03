@@ -23,8 +23,9 @@ from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.candidate_access import (
     CandidateWriteAccess,
     require_candidate_read,
+    require_candidate_roles,
 )
-from app.api.deps import require_roles
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.services.candidate_stage_cv_service import (
@@ -86,10 +87,21 @@ from app.schemas.similar_job_candidates import (
 )
 from app.services.canonical_text import build_job_query_variants
 from app.services.retrieval_pool import retrieve_candidate_pool
+from app.services.section_permissions import SectionAccess
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_ADMIN_OR_DELIVERY_LEAD_CANDIDATE_READ = require_candidate_roles(
+    UserRole.admin,
+    UserRole.delivery_lead,
+)
+_ADMIN_OR_DELIVERY_LEAD_CANDIDATE_WRITE = require_candidate_roles(
+    UserRole.admin,
+    UserRole.delivery_lead,
+    required_access=SectionAccess.write,
+)
 
 
 def _score_breakdown_payload(
@@ -1157,12 +1169,16 @@ def _fallback_criteria_from_text(job: Job) -> dict:
     return {"must_skills": must, "nice_skills": nice}
 
 
-@router.post("/jobs/{job_id}/refresh-criteria", response_model=dict)
+@router.post(
+    "/jobs/{job_id}/refresh-criteria",
+    response_model=dict,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 @limiter.limit("5/minute")
 async def refresh_job_criteria(
     request: Request,
     job_id: int,
-    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
+    current_user: User = Depends(_ADMIN_OR_DELIVERY_LEAD_CANDIDATE_WRITE),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1205,7 +1221,7 @@ async def refresh_job_criteria(
 async def generate_job_criteria_preview(
     request: Request,
     job_id: int,
-    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
+    current_user: User = Depends(_ADMIN_OR_DELIVERY_LEAD_CANDIDATE_READ),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1234,13 +1250,16 @@ async def generate_job_criteria_preview(
 # ── Batch recompute ─────────────────────────────────────────────────────────
 
 
-@router.post("/jobs/{job_id}/recompute-scores")
+@router.post(
+    "/jobs/{job_id}/recompute-scores",
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 @limiter.limit("2/minute")
 async def recompute_scores(
     request: Request,
     job_id: int,
     top_k: int = Query(200, ge=1, le=500),
-    current_user: User = Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
+    current_user: User = Depends(_ADMIN_OR_DELIVERY_LEAD_CANDIDATE_WRITE),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -1281,7 +1300,10 @@ async def recompute_scores(
 # ── Assign to recruitment (quick action from candidate profile) ─────────────
 
 
-@router.post("/candidates/{candidate_id}/assign-to-job/{job_id}")
+@router.post(
+    "/candidates/{candidate_id}/assign-to-job/{job_id}",
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 async def assign_candidate_to_job(
     candidate_id: int,
     job_id: int,

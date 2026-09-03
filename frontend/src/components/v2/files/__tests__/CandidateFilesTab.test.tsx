@@ -33,8 +33,9 @@ let currentRole = "recruiter";
 // `getUserRoles` z TEGO mocka. Bez niego leci TypeError w renderze i pada
 // CAŁY plik — objaw wygląda jak zepsuta bramka, przyczyną jest setup testu.
 vi.mock("@/store/auth", () => ({
-  useAuthStore: (selector: (state: { user: { role: string } }) => unknown) =>
-    selector({ user: { role: currentRole } }),
+  useAuthStore: (
+    selector: (state: { user: { role: string }; realUser: null }) => unknown,
+  ) => selector({ user: { role: currentRole }, realUser: null }),
   hasRole: (user: { role: string } | null, ...roles: string[]) =>
     !!user && roles.includes(user.role),
   getUserRoles: (user: { role: string; roles?: string[] } | null) =>

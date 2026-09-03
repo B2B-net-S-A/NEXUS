@@ -4,8 +4,9 @@ Runs once a day. Responsibilities:
     1. Promote active → ending when end_date - today ≤ 30.
     2. Promote ending → ended when end_date < today.
     3. For each active/ending contract with end_date at T-60/30/14/7 days,
-       create in-app Notification rows for admin + delivery_lead users
-       and post one summary message to Slack (if SLACK_WEBHOOK_URL set).
+       create in-app Notification rows for active admins and authorised,
+       client-assigned Delivery Leads, then post one summary message to Slack
+       (if SLACK_WEBHOOK_URL set).
     4. Dedup: Notification rows are keyed by (user, contract, threshold_days).
        We never re-notify for the same triple.
 """
@@ -31,10 +32,12 @@ from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.contract_equipment import ContractEquipment, EquipmentReturnStatus
 from app.models.notification import Notification, NotificationType
-from app.models.user import User, UserRole
 from app.services.contract_order_offboarding import (
     apply_contract_order_offboarding,
     reconcile_pending_md_offboarding_alerts,
+)
+from app.services.delivery_alert_recipients import (
+    load_delivery_alert_recipient_scope,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +54,6 @@ _COMPLIANCE_DOC_TYPES = (
     ContractDocumentType.oc_policy,
 )
 _DEFAULT_INTERVAL_HOURS = 24.0
-_STAFF_ROLES: tuple[UserRole, ...] = (UserRole.admin, UserRole.delivery_lead)
 
 
 async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
@@ -104,11 +106,18 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
     return (ending_count.rowcount or 0, len(ended_contracts))
 
 
-async def _staff_user_ids(db: AsyncSession) -> list[int]:
-    res = await db.execute(
-        select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
+async def _client_ids_by_contract_id(
+    db: AsyncSession, contract_ids: Iterable[int]
+) -> dict[int, int]:
+    """Resolve contract ownership once for client-scoped notification fan-out."""
+
+    ids = sorted(set(contract_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(Contract.id, Contract.client_id).where(Contract.id.in_(ids))
     )
-    return [row[0] for row in res.all()]
+    return {contract_id: client_id for contract_id, client_id in rows.all()}
 
 
 async def _claim_alert(db: AsyncSession, dedup_key: str) -> bool:
@@ -380,9 +389,12 @@ async def run_contract_alerts_cycle() -> dict:
         )
         await db.commit()
 
-        staff_ids = await _staff_user_ids(db)
-        if not staff_ids:
-            logger.info("contract_alerts: no staff users — skipping notifications")
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+        if recipient_scope.is_empty:
+            logger.info(
+                "contract_alerts: no authorised Delivery recipients — "
+                "skipping notifications"
+            )
             return stats
 
         to_slack: list[tuple[int, Contract]] = []
@@ -400,6 +412,9 @@ async def run_contract_alerts_cycle() -> dict:
                 else NotificationType.contract_ending
             )
             for c in fresh:
+                recipient_ids = recipient_scope.for_client(c.client_id)
+                if not recipient_ids:
+                    continue
                 # Claim key carries the end_date too, so the atomic ledger re-arms on
                 # extend just like the SELECT pre-filter above.
                 if not await _claim_alert(
@@ -414,7 +429,7 @@ async def run_contract_alerts_cycle() -> dict:
                     f"zostało {threshold} dni. Rozważ przedłużenie lub kontakt z klientem."
                 )
                 link = f"/contracts/{c.id}"
-                for uid in staff_ids:
+                for uid in recipient_ids:
                     db.add(
                         Notification(
                             user_id=uid,
@@ -432,12 +447,11 @@ async def run_contract_alerts_cycle() -> dict:
 
     # Compliance: NIP / OC / ZUS expiring soon
     async with AsyncSessionLocal() as db:
-        staff_ids_res = await db.execute(
-            select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
-        )
-        staff_ids = [row[0] for row in staff_ids_res.all()]
-        if staff_ids:
+        if not recipient_scope.is_empty:
             expiring = await _compliance_documents_expiring(db)
+            client_ids = await _client_ids_by_contract_id(
+                db, (doc.contract_id for doc in expiring)
+            )
             already = await _compliance_already_notified(db)
             # Episode-aware: a renewed document re-alerts once its CURRENT expiry forms
             # a new (id, expiry) pair. ``_compliance_documents_expiring`` guarantees a
@@ -449,6 +463,11 @@ async def run_contract_alerts_cycle() -> dict:
                 and (d.id, d.expiry_date.isoformat()) not in already
             ]
             for doc in fresh:
+                recipient_ids = recipient_scope.for_client(
+                    client_ids.get(doc.contract_id)
+                )
+                if not recipient_ids:
+                    continue
                 episode = doc.expiry_date.isoformat()
                 # Claim key carries the expiry too, so the atomic ledger re-arms on
                 # renewal just like the SELECT pre-filter above.
@@ -460,7 +479,7 @@ async def run_contract_alerts_cycle() -> dict:
                     f"#{doc.contract_id} wygasa {doc.expiry_date}. "
                     f"Zamów nowy zanim straci ważność."
                 )
-                for uid in staff_ids:
+                for uid in recipient_ids:
                     db.add(
                         Notification(
                             user_id=uid,
@@ -475,12 +494,11 @@ async def run_contract_alerts_cycle() -> dict:
 
     # Equipment returns due within 14 days.
     async with AsyncSessionLocal() as db:
-        staff_ids_res = await db.execute(
-            select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
-        )
-        staff_ids = [row[0] for row in staff_ids_res.all()]
-        if staff_ids:
+        if not recipient_scope.is_empty:
             due = await _equipment_due_for_return(db)
+            client_ids = await _client_ids_by_contract_id(
+                db, (item.contract_id for item in due)
+            )
             already = await _equipment_already_notified(db)
             # Episode-aware: equipment re-flagged pending with a fresh return_due_date
             # forms a new (id, due) pair and re-arms. ``_equipment_due_for_return``
@@ -492,6 +510,11 @@ async def run_contract_alerts_cycle() -> dict:
                 and (item.id, item.return_due_date.isoformat()) not in already
             ]
             for item in fresh:
+                recipient_ids = recipient_scope.for_client(
+                    client_ids.get(item.contract_id)
+                )
+                if not recipient_ids:
+                    continue
                 episode = item.return_due_date.isoformat()
                 # Claim key carries the due date too, so the atomic ledger re-arms on a
                 # new due date just like the SELECT pre-filter above.
@@ -505,7 +528,7 @@ async def run_contract_alerts_cycle() -> dict:
                     f"#{item.contract_id} ma być zwrócony "
                     f"{item.return_due_date} ({days_left} dni)."
                 )
-                for uid in staff_ids:
+                for uid in recipient_ids:
                     db.add(
                         Notification(
                             user_id=uid,
@@ -522,11 +545,7 @@ async def run_contract_alerts_cycle() -> dict:
 
     # Client orders expiring in 30 days (often earlier than the consultant contract).
     async with AsyncSessionLocal() as db:
-        staff_ids_res = await db.execute(
-            select(User.id).where(User.role.in_(_STAFF_ROLES), User.is_active.is_(True))
-        )
-        staff_ids = [row[0] for row in staff_ids_res.all()]
-        if staff_ids:
+        if not recipient_scope.is_empty:
             orders = await _client_orders_ending(db)
             already = await _client_order_already_notified(db)
             # Episode-aware: a client order extended to a fresh client_order_end_date
@@ -539,6 +558,9 @@ async def run_contract_alerts_cycle() -> dict:
                 and (c.id, c.client_order_end_date.isoformat()) not in already
             ]
             for c in fresh:
+                recipient_ids = recipient_scope.for_client(c.client_id)
+                if not recipient_ids:
+                    continue
                 episode = c.client_order_end_date.isoformat()
                 # Claim key carries the order end date too, so the atomic ledger re-arms
                 # on an extended order just like the SELECT pre-filter above.
@@ -554,7 +576,7 @@ async def run_contract_alerts_cycle() -> dict:
                     f"{c.client_order_end_date} ({days_left} dni). "
                     f"Skontaktuj się z klientem w sprawie przedłużenia."
                 )
-                for uid in staff_ids:
+                for uid in recipient_ids:
                     db.add(
                         Notification(
                             user_id=uid,

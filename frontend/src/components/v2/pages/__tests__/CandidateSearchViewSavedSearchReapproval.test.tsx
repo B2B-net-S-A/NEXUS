@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +34,19 @@ vi.mock("@/components/v2/filters/FiltersPanel", () => ({
 }));
 
 vi.mock("@/components/v2/pages/JobShortlistPanel", () => ({
-  JobShortlistPanel: () => null,
+  JobShortlistPanel: ({
+    jobId,
+    readOnly,
+  }: {
+    jobId: number;
+    readOnly?: boolean;
+  }) => (
+    <div
+      data-testid="job-shortlist"
+      data-job-id={jobId}
+      data-read-only={String(Boolean(readOnly))}
+    />
+  ),
 }));
 
 vi.mock("@/components/v2/pages/CandidateCompareModal", () => ({
@@ -56,13 +69,15 @@ const savedSearch = {
   updated_at: "2026-07-30T10:00:00Z",
 };
 
-function renderView() {
+function renderView(
+  props: ComponentProps<typeof CandidateSearchView> = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <CandidateSearchView />
+      <CandidateSearchView {...props} />
     </QueryClientProvider>,
   );
 }
@@ -142,5 +157,42 @@ describe("CandidateSearchView saved-search reapproval", () => {
     expect(
       screen.getByRole("button", { name: "Zatwierdź i zastosuj" }),
     ).toBeInTheDocument();
+  });
+
+  it("zachowuje job-scoped odczyt w read-only bez mutacji zapisanych wyszukiwań", async () => {
+    list.mockResolvedValue([
+      {
+        ...savedSearch,
+        requires_reapproval: false,
+        pinned_to_job_id: 7,
+      },
+    ]);
+
+    renderView({
+      addToJob: { id: 7, title: "Backend Developer" },
+      readOnly: true,
+    });
+
+    const shortlist = await screen.findByTestId("job-shortlist");
+    expect(shortlist).toHaveAttribute("data-job-id", "7");
+    expect(shortlist).toHaveAttribute("data-read-only", "true");
+    await waitFor(() =>
+      expect(list).toHaveBeenCalledWith({
+        entity: "candidates",
+        pinned_to_job_id: 7,
+        only_mine: undefined,
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Zapisz wyszukiwanie/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Zapisz to wyszukiwanie/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: `Usuń ${savedSearch.name}` }),
+    ).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
   });
 });

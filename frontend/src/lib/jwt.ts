@@ -10,11 +10,15 @@
  * importuje się go zarówno z edge middleware Next.js, jak i z komponentów
  * klienckich. Jedna kopia base64url-decode = brak dryfu między tymi miejscami.
  */
+import type { ProductSection, SectionAccess } from "@/lib/section-access";
+
 export interface JwtPayload {
   role?: string;
   roles?: string[];
   exp?: number;
   fpc?: boolean;
+  /** Podpisany snapshot dostępu do sekcji używany przez edge middleware. */
+  sa?: Partial<Record<ProductSection, SectionAccess>>;
 }
 
 /** Decode the JWT payload segment, or `null` when the token is malformed. */

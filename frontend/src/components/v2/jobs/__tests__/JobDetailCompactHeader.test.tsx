@@ -52,6 +52,25 @@ describe("JobDetailCompactHeader", () => {
     expect(onAddCandidate).toHaveBeenCalledOnce();
   });
 
+  it("nie pokazuje głównej akcji, gdy sekcja jest tylko do odczytu", () => {
+    renderHeader({
+      onAddCandidate: undefined,
+      onEdit: undefined,
+      onWriteAnnouncement: undefined,
+      onGenerateInviteLink: undefined,
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Dodaj kandydata" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Więcej akcji rekrutacji" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Pozyskaj kandydatów" }),
+    ).toBeTruthy();
+  });
+
   it("grupuje pozyskiwanie i narzędzia bez utraty żadnej sekcji", async () => {
     const { onTabChange } = renderHeader();
 

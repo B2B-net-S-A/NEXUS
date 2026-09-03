@@ -33,7 +33,7 @@ import {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { cn } from "@/lib/utils";
-import { getAccessToken } from "@/lib/session";
+import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   httpStatusFromError,
@@ -403,10 +403,9 @@ export function ClientsListV2() {
       if (querySearch) params.set("q", querySearch);
       params.set("format", format);
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-      const token = getAccessToken();
       const res = await fetch(
         `${apiBase}/api/clients/directory/export?${params}`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        { headers: getAuthenticatedRequestHeaders() },
       );
       if (!res.ok) {
         setToast("Eksport nie powiódł się.");

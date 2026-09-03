@@ -71,6 +71,27 @@ describe("JobShortlistPanel", () => {
     );
     expect(screen.queryByText("Do rekrutacji")).not.toBeInTheDocument();
   });
+
+  it("w trybie tylko do odczytu zachowuje dane shortlisty bez kontrolek mutacji", async () => {
+    list.mockResolvedValue([entry()]);
+    render(<JobShortlistPanel jobId={10} readOnly />);
+
+    expect(await screen.findByText("Anna Kowalska")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ocena: Do oceny")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Kontakt: Nie kontaktowano"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Do rekrutacji/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/Usuń Anna z shortlisty/),
+    ).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+    expect(promote).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
 });
 
 // ── M4 PR-03 (audyt P2.8): taksonomia błędów zamiast maskowania ─────────────

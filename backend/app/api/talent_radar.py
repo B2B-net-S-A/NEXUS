@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.api.deps import get_db
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.rate_limit import limiter
 from app.services import champion_view
 from app.services.talent_radar_search import (
@@ -33,7 +34,7 @@ from app.services.talent_radar_search import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 class TalentRadarSearchRequest(BaseModel):

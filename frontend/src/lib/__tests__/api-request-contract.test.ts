@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { api, recommendationsApi } from "@/lib/api";
+import { adminApi, api, recommendationsApi } from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 /**
@@ -25,6 +25,8 @@ interface Captured {
   timeout?: number;
   contentType?: unknown;
   isFormData: boolean;
+  data?: unknown;
+  params?: unknown;
 }
 
 /** AxiosHeaders trzyma klucz w formie, w jakiej go podano — szukamy bez względu na wielkość liter. */
@@ -50,6 +52,8 @@ beforeEach(() => {
       method: config.method,
       timeout: config.timeout,
       url: config.url,
+      data: config.data,
+      params: config.params,
     });
     return {
       data: {},
@@ -94,5 +98,41 @@ describe("api — kontrakt requestu wychodzącego", () => {
     expect(captured[0].url).toBe("/api/candidates");
     expect(captured[0].method).toBe("get");
     expect(api.defaults.baseURL).toBeTruthy();
+  });
+
+  it("wysyła wersję polityki i zbiorczą zmianę uprawnień roli", async () => {
+    await adminApi.updateRoleSectionPermissions(7, [
+      { role: "recruiter", section: "delivery", access: "read" },
+      { role: "recruiter", section: "finance", access: "none" },
+    ]);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      method: "put",
+      url: "/api/admin/section-permissions/roles",
+    });
+    expect(JSON.parse(String(captured[0].data))).toEqual({
+      revision: 7,
+      changes: [
+        { role: "recruiter", section: "delivery", access: "read" },
+        { role: "recruiter", section: "finance", access: "none" },
+      ],
+    });
+  });
+
+  it("wysyła inherit jako usunięcie wyjątku użytkownika", async () => {
+    await adminApi.updateUserSectionPermissions(42, 8, [
+      { section: "delivery", access: "inherit" },
+    ]);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({
+      method: "put",
+      url: "/api/admin/section-permissions/users/42",
+    });
+    expect(JSON.parse(String(captured[0].data))).toEqual({
+      revision: 8,
+      changes: [{ section: "delivery", access: "inherit" }],
+    });
   });
 });

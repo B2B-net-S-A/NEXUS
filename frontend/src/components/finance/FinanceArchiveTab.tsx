@@ -30,7 +30,7 @@ function formatDateTime(iso: string): string {
   });
 }
 
-export function FinanceArchiveTab() {
+export function FinanceArchiveTab({ canWrite = true }: { canWrite?: boolean }) {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -154,7 +154,7 @@ export function FinanceArchiveTab() {
                       <Download className="h-4 w-4" />
                     )}
                   </button>
-                  {run.status === "superseded" && (
+                  {canWrite && run.status === "superseded" && (
                     <button
                       type="button"
                       title="Przywróć jako aktualny"

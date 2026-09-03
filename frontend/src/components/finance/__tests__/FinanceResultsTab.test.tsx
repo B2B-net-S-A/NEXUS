@@ -27,14 +27,14 @@ import { financeApi } from "@/lib/api/finance";
  * złotówki, a nie jak „nic tu jeszcze nie ma".
  */
 
-function renderTab() {
+function renderTab(canWrite = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <FinanceResultsTab />
+        <FinanceResultsTab canWrite={canWrite} />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -45,6 +45,20 @@ beforeEach(() => {
 });
 
 describe("FinanceResultsTab — stany", () => {
+  it("w trybie tylko do odczytu nie pokazuje importu", async () => {
+    vi.mocked(financeApi.listPeriods).mockResolvedValue({ data: [] } as never);
+
+    renderTab(false);
+
+    expect(
+      await screen.findByText("Nie zaimportowano jeszcze żadnego miesiąca."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Importuj plik Excel z wynikami"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Wgraj plik Excel powyżej/)).not.toBeInTheDocument();
+  });
+
   it("w trakcie wczytywania NIE rysuje kafli ani selektora", async () => {
     // Zapytanie, które nigdy się nie kończy — utrwala stan „nie wiem jeszcze".
     vi.mocked(financeApi.listPeriods).mockReturnValue(

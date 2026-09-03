@@ -10,6 +10,9 @@ Lifecycle:
    - 30/14/7 dni przed ``ClientFrameworkContract.expiry_date`` (status=active)
    - 30/14/7 dni przed ``ClientOrder.end_date`` (status=active)
 
+Odbiorcy: aktywni admini globalnie oraz aktywni Delivery Leadzi wyłącznie dla
+przypisanych klientów i tylko z effective ``delivery >= read``.
+
 Dedup: ``Notification.related_entity_*`` + ``notification_type`` per próg
 (jeden alert 30d + jeden 14d + jeden 7d na entity per timeline).
 
@@ -36,12 +39,14 @@ from app.models.client_framework_contract import (
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
-from app.models.team_structure import DeliveryLeadClientAssignment
-from app.models.user import User, UserRole
 from app.services.contract_lifecycle import (
     reconcile_contracts_to_live_orders,
 )
 from app.services.client_identity import client_display_name_expression
+from app.services.delivery_alert_recipients import (
+    DeliveryAlertRecipientScope,
+    load_delivery_alert_recipient_scope,
+)
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 
 logger = logging.getLogger(__name__)
@@ -60,31 +65,6 @@ _ORDER_NTYPE_BY_DAY = {
     14: NotificationType.client_order_ending_14d,
     7: NotificationType.client_order_ending_7d,
 }
-
-
-async def _staff_user_ids(db: AsyncSession) -> list[int]:
-    """Admin users — global recipients of Delivery expiry alerts.
-
-    Head of Recruitment no longer has access to the Delivery section, so it
-    must not receive client/order details through the shared notification
-    inbox either. Assigned Delivery Leads are added separately per client.
-    """
-    res = await db.execute(
-        select(User.id).where(
-            User.role == UserRole.admin,
-            User.is_active.is_(True),
-        )
-    )
-    return [row[0] for row in res.all()]
-
-
-async def _dl_user_ids_for_client(db: AsyncSession, client_id: int) -> list[int]:
-    res = await db.execute(
-        select(DeliveryLeadClientAssignment.delivery_lead_user_id).where(
-            DeliveryLeadClientAssignment.client_id == client_id
-        )
-    )
-    return [row[0] for row in res.all()]
 
 
 async def _already_notified(
@@ -152,11 +132,12 @@ async def _promote_statuses(
     )
 
 
-async def _scan_framework_contracts(db: AsyncSession) -> int:
+async def _scan_framework_contracts(
+    db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope
+) -> int:
     """Zwraca # nowych notyfikacji."""
     today = date.today()
     sent = 0
-    staff_ids = await _staff_user_ids(db)
     for days in _THRESHOLDS_DAYS:
         target_date = today + timedelta(days=days)
         rows = list(
@@ -172,9 +153,7 @@ async def _scan_framework_contracts(db: AsyncSession) -> int:
         )
         ntype = _FC_NTYPE_BY_DAY[days]
         for fc in rows:
-            recipients = set(staff_ids)
-            recipients.update(await _dl_user_ids_for_client(db, fc.client_id))
-            for user_id in recipients:
+            for user_id in recipient_scope.for_client(fc.client_id):
                 if await _already_notified(
                     db,
                     user_id=user_id,
@@ -201,10 +180,11 @@ async def _scan_framework_contracts(db: AsyncSession) -> int:
     return sent
 
 
-async def _scan_orders(db: AsyncSession) -> int:
+async def _scan_orders(
+    db: AsyncSession, recipient_scope: DeliveryAlertRecipientScope
+) -> int:
     today = date.today()
     sent = 0
-    staff_ids = await _staff_user_ids(db)
     for days in _THRESHOLDS_DAYS:
         target_date = today + timedelta(days=days)
         # Join Order → Contract → Candidate + Client dla candidate_name + client_name w treści
@@ -232,9 +212,7 @@ async def _scan_orders(db: AsyncSession) -> int:
             cand_name: str = row.candidate_name or "kontraktor"
             cli_name: str = row.client_name or "klient"
 
-            recipients = set(staff_ids)
-            recipients.update(await _dl_user_ids_for_client(db, o.client_id))
-            for user_id in recipients:
+            for user_id in recipient_scope.for_client(o.client_id):
                 if await _already_notified(
                     db,
                     user_id=user_id,
@@ -272,8 +250,9 @@ async def run_once() -> dict:
                 groups_promoted,
                 contracts_reconciled,
             ) = await _promote_statuses(db)
-            fc_alerts = await _scan_framework_contracts(db)
-            order_alerts = await _scan_orders(db)
+            recipient_scope = await load_delivery_alert_recipient_scope(db)
+            fc_alerts = await _scan_framework_contracts(db, recipient_scope)
+            order_alerts = await _scan_orders(db, recipient_scope)
             await db.commit()
         except Exception:  # noqa: BLE001
             await db.rollback()

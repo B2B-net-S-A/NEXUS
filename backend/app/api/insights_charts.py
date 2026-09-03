@@ -37,12 +37,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
 from app.api.deps import CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CACHE_TTL_SECONDS = 300
 

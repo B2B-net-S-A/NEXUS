@@ -15,6 +15,7 @@ import {
   Database,
   Wrench,
   Eye,
+  ShieldCheck,
 } from "lucide-react";
 import { adminApi, extractErrorMsg } from "@/lib/api";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
@@ -31,8 +32,9 @@ import { SystemTab } from "./SystemTab";
 import { AuditLogTab } from "./AuditLogTab";
 import { ImportTab } from "./ImportTab";
 import { AdminToolsGrid } from "./AdminToolsGrid";
+import { PermissionsTab } from "./PermissionsTab";
 
-type SubTab = "users" | "system" | "audit" | "import" | "tools";
+type SubTab = "users" | "permissions" | "system" | "audit" | "import" | "tools";
 
 export function AdminUsersTab() {
   const { user } = useAuthStore();
@@ -138,6 +140,14 @@ export function AdminUsersTab() {
         force_password_change: false,
         force_password_change_at: null,
         allowed_sections: [],
+        analytics_capabilities: d.analytics_capabilities,
+        capabilities: d.capabilities,
+        available_dashboard_presets: d.available_dashboard_presets,
+        default_dashboard_preset: d.default_dashboard_preset,
+        authorization_version: d.authorization_version,
+        data_scope: d.data_scope,
+        analytics_v1_mode: d.analytics_v1_mode,
+        effective_section_access: d.effective_section_access,
       });
       // impersonate() przekierowuje na "/" po ustawieniu stanu.
     } catch (e) {
@@ -169,7 +179,7 @@ export function AdminUsersTab() {
           <div>
             <h2 className="text-xl font-bold">Panel administracyjny</h2>
             <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-              Zarządzaj użytkownikami i systemem
+              Zarządzaj użytkownikami, uprawnieniami i systemem
             </p>
           </div>
         </div>
@@ -187,27 +197,30 @@ export function AdminUsersTab() {
         )}
       </div>
 
-      <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-lg w-fit">
-        {[
-          { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
-          { id: "system" as SubTab, label: "System", icon: Server },
-          { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
-          { id: "import" as SubTab, label: "Import CV", icon: Database },
-          { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
-        ].map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setSubTab(id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              subTab === id
-                ? "bg-card dark:bg-gray-600 text-foreground dark:text-foreground shadow-xs"
-                : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-foreground"
-            }`}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-          </button>
-        ))}
+      <div className="overflow-x-auto overscroll-x-contain">
+        <div className="flex w-max min-w-full gap-1 rounded-lg bg-muted p-1">
+          {[
+            { id: "users" as SubTab, label: "Użytkownicy", icon: Users },
+            { id: "permissions" as SubTab, label: "Uprawnienia", icon: ShieldCheck },
+            { id: "system" as SubTab, label: "System", icon: Server },
+            { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
+            { id: "import" as SubTab, label: "Import CV", icon: Database },
+            { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setSubTab(id)}
+              className={`flex items-center gap-2 whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+                subTab === id
+                  ? "bg-card text-foreground shadow-xs dark:bg-card"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {subTab === "users" && (
@@ -360,6 +373,7 @@ export function AdminUsersTab() {
       )}
 
       {subTab === "system" && <SystemTab />}
+      {subTab === "permissions" && <PermissionsTab />}
       {subTab === "import" && <ImportTab />}
       {subTab === "tools" && <AdminToolsGrid />}
       {subTab === "audit" && <AuditLogTab />}

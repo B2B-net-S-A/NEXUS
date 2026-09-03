@@ -166,12 +166,44 @@ class GlobalContactScope:
     client_team_ids: frozenset[int] | None
 
 
+def _require_contact_read_section(current_user: User) -> None:
+    """Contacts are shared by Pipeline and Delivery, but never section-less."""
+
+    granted = max(
+        section_access_for_user(current_user, ProductSection.pipeline),
+        section_access_for_user(current_user, ProductSection.delivery),
+    )
+    if granted < SectionAccess.read:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "section_access_denied",
+                "sections": [
+                    ProductSection.pipeline.value,
+                    ProductSection.delivery.value,
+                ],
+                "required": SectionAccess.read.name,
+            },
+        )
+
+
+async def require_contact_read_access(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    _require_contact_read_section(current_user)
+    return current_user
+
+
+ContactReadUser = Annotated[User, Depends(require_contact_read_access)]
+
+
 async def require_global_contact_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> GlobalContactScope:
     """Resolve global-contact visibility before the endpoint query executes."""
 
+    _require_contact_read_section(current_user)
     visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
     if visible_client_ids is not None and not visible_client_ids:
         raise deny("lista kontaktów wymaga jawnego przypisania klienta lub Joba")
@@ -265,7 +297,7 @@ async def list_all_contacts(
 )
 async def list_client_contacts(
     client_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: ContactReadUser,
     db: AsyncSession = Depends(get_db),
 ):
     await assert_client_exists(db, client_id)

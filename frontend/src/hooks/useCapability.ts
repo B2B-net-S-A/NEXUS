@@ -6,6 +6,7 @@ import {
   CAPABILITY_ROLES,
   hasAnyCapability,
   hasCapability,
+  MUTATING_CAPABILITIES,
   type Capability,
 } from "@/lib/capabilities"
 import { useAuthStore } from "@/store/auth"
@@ -19,7 +20,10 @@ import { useAuthStore } from "@/store/auth"
  */
 export function useCapability(capability: Capability): boolean {
   const user = useAuthStore((s) => s.user)
-  return hasCapability(user, capability)
+  const impersonating = useAuthStore((s) => s.realUser !== null)
+  return (
+    !impersonating || !MUTATING_CAPABILITIES.has(capability)
+  ) && hasCapability(user, capability)
 }
 
 /**
@@ -30,17 +34,24 @@ export function useCapability(capability: Capability): boolean {
  */
 export function useCapabilities(): Record<Capability, boolean> {
   const user = useAuthStore((s) => s.user)
+  const impersonating = useAuthStore((s) => s.realUser !== null)
   return useMemo(() => {
     const out = {} as Record<Capability, boolean>
     for (const capability of Object.keys(CAPABILITY_ROLES) as Capability[]) {
-      out[capability] = hasCapability(user, capability)
+      out[capability] =
+        (!impersonating || !MUTATING_CAPABILITIES.has(capability)) &&
+        hasCapability(user, capability)
     }
     return out
-  }, [user])
+  }, [impersonating, user])
 }
 
 /** Czy user ma choć jedną z capability (np. „czy w ogóle pokazywać menu Dodaj"). */
 export function useAnyCapability(...capabilities: Capability[]): boolean {
   const user = useAuthStore((s) => s.user)
-  return hasAnyCapability(user, ...capabilities)
+  const impersonating = useAuthStore((s) => s.realUser !== null)
+  const visibleCapabilities = impersonating
+    ? capabilities.filter((capability) => !MUTATING_CAPABILITIES.has(capability))
+    : capabilities
+  return hasAnyCapability(user, ...visibleCapabilities)
 }

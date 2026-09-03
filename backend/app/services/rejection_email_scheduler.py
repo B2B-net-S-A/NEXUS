@@ -50,6 +50,12 @@ from app.models.rejection_email import (
 )
 from app.models.user import User
 from app.services.m365.access import M365OwnerIneligible, eligible_m365_owner
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    resolve_effective_section_access,
+    section_access_for_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +72,44 @@ TRIGGER_PREVIOUS_STAGES: frozenset[PipelineStage] = frozenset(
         PipelineStage.onboarding,
     }
 )
+
+
+def _can_send_rejection_email(user: User) -> bool:
+    """Require both the candidate persona and current Pipeline write access."""
+
+    return (
+        user_can_access_candidate_domain(user)
+        and section_access_for_user(user, ProductSection.pipeline)
+        >= SectionAccess.write
+    )
+
+
+async def _mark_permission_revoked(
+    db: AsyncSession,
+    row: ScheduledRejectionEmail,
+    *,
+    reason: str,
+) -> None:
+    """Terminate queued external communication after an authorization revoke."""
+
+    row.status = RejectionEmailStatus.skipped
+    row.last_error = reason
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=getattr(row, "candidate_id", 0),
+            action="rejection_email_skipped",
+            user_id=row.recruiter_id,
+            details={
+                "scheduled_rejection_email_id": row.id,
+                "job_id": getattr(row, "job_id", None),
+                "reason": reason,
+            },
+        )
+    )
+    await db.flush()
+    await db.commit()
+
 
 # Stages considered "active" when listing OTHER processes the candidate is
 # still in. Terminal stages are excluded.
@@ -113,7 +157,10 @@ async def maybe_schedule(
         return None
 
     recruiter = await db.get(User, recruiter_id)
-    if recruiter is None or not user_can_access_candidate_domain(recruiter):
+    if recruiter is None:
+        return None
+    await resolve_effective_section_access(db, recruiter)
+    if not _can_send_rejection_email(recruiter):
         return None
 
     other_processes = await _load_other_active_processes(
@@ -207,13 +254,26 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     # Queued work can outlive a role cutover.  Treat current RBAC as the
     # authorization source and terminate the queue row without retrying or
     # notifying the now-Finance/viewer account with candidate PII.
-    if await eligible_m365_owner(db, row.recruiter_id) is None:
-        row.status = RejectionEmailStatus.skipped
-        row.last_error = "m365_owner_outside_candidate_domain"
-        await db.flush()
-        await db.commit()
+    owner = await eligible_m365_owner(db, row.recruiter_id)
+    if owner is None:
+        await _mark_permission_revoked(
+            db,
+            row,
+            reason="m365_owner_outside_candidate_domain",
+        )
         logger.warning(
             "rejection_email_dispatch: row %s skipped — owner outside candidate domain",
+            row_id,
+        )
+        return
+    if not _can_send_rejection_email(owner):
+        await _mark_permission_revoked(
+            db,
+            row,
+            reason="pipeline_write_access_revoked",
+        )
+        logger.warning(
+            "rejection_email_dispatch: row %s skipped — Pipeline write access revoked",
             row_id,
         )
         return
@@ -306,6 +366,25 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
     # Deferred import — keeps scheduler importable without the heavy M365
     # dependency chain (msal, etc.) in unit-test environments.
     from app.services.m365 import sender as m365_sender
+
+    # Re-read immediately before entering the Graph sender. Queued work may
+    # spend time behind row locks or other due emails after the first check.
+    owner = await eligible_m365_owner(db, row.recruiter_id)
+    if owner is None or not _can_send_rejection_email(owner):
+        await _mark_permission_revoked(
+            db,
+            row,
+            reason=(
+                "pipeline_write_access_revoked"
+                if owner is not None
+                else "m365_owner_outside_candidate_domain"
+            ),
+        )
+        logger.warning(
+            "rejection_email_dispatch: row %s skipped — authorization changed before send",
+            row_id,
+        )
+        return
 
     send_error: Optional[Exception] = None
     try:
