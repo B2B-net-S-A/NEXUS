@@ -1518,6 +1518,11 @@ async def list_generated_contracts(
     if start_to is not None:
         query = query.where(B2BGeneratedContract.start_date <= start_to)
 
+    # Okno wierszy zostaje „najnowsze `limit`" (po `created_at`), żeby świeżo
+    # wygenerowana umowa — także z ręcznie wpisanym NISKIM numerem — nigdy nie
+    # wypadła poza widoczną stronę. Gdyby oknem był sam numer, `ORDER BY year,
+    # seq ASC LIMIT` zwracałby najNIŻSZE numery (najstarsze umowy) i chował te
+    # dopiero co utworzone — dokładnie odwrotnie do potrzeby.
     rows = list(
         (
             await db.execute(
@@ -1527,6 +1532,13 @@ async def list_generated_contracts(
         .scalars()
         .all()
     )
+    # WYŚWIETLAMY rosnąco po numerze umowy: użytkownik czyta numerację jak
+    # licznik, a `created_at` rozjeżdża się z nią przy ręcznym wpisaniu numeru
+    # (1501 wpisane ręcznie PRZED wygenerowanym 1500 stało wyżej). Sortujemy po
+    # LICZBOWYCH kolumnach (year, seq) — nie po stringu „1500/2026", który
+    # leksykalnie stawia „1000/2026" przed „999/2026". UNIQUE(year, seq) czyni
+    # z tej pary porządek całkowity, więc kolejność jest deterministyczna.
+    rows.sort(key=lambda r: (r.year, r.seq))
     return await _serialize_generated_contracts(db, rows, current_user)
 
 
