@@ -2283,7 +2283,7 @@ async def api_health_deep_check():
         ("client_cv_rules", ClientCvRule),
         ("client_cv_rule_events", ClientCvRuleEvent),
         ("client_cv_rule_previews", ClientCvRulePreview),
-        # 0271: karta klienta. Brak tabeli nie wywraca startu — wyszedłby dopiero
+        # 0272: karta klienta. Brak tabeli nie wywraca startu — wyszedłby dopiero
         # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
         ("client_playbooks", ClientPlaybook),
         ("client_playbook_events", ClientPlaybookEvent),

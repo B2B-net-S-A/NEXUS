@@ -9,7 +9,7 @@ Dwa wejścia, jedna prawda w bazie (lustro ``client_cv_rules``):
   mają kartę; renderowany też w Pomocy → Klienci i na stronie oferty.
 
 Zapis = obowiązuje. Bez bramki zatwierdzenia jak w regułach CV: seed z
-migracji 0271 NIGDY nie nadpisuje istniejącego wiersza, więc nie ma
+migracji 0272 NIGDY nie nadpisuje istniejącego wiersza, więc nie ma
 „propozycji", którą trzeba by odróżnić od decyzji człowieka. Zmiana treści
 bumpuje ``version`` i zostawia wpis w ``client_playbook_events`` z diffem.
 

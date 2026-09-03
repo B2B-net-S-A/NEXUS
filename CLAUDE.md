@@ -635,19 +635,19 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   każdej rekrutacji; teraz ma ona jedno miejsce.
 - **Wzór Word leży na SharePoincie, nie w repo** — NEXUS trzyma do niego wyłącznie
   link (`help_materials`). Jest JEDEN, ogólny; 14 wzorów per klient wycofano
-  z Pomocy migracją 0271 (`is_published=false`; wiersze zostają, bo przegląd
+  z Pomocy migracją 0272 (`is_published=false`; wiersze zostają, bo przegląd
   reguł CV linkuje je po slugu; pliki na SharePoincie zostają w bibliotece).
   Generator: `scripts/generate_champion_template.py --out-dir …` (bez
   `--client`/`--all`).
 - **Treść kliencka dawnych wzorów żyje w `app/data/client_playbooks/seed.json`**
-  — źródło seeda migracji 0271 i lustra w entrypoint. Dawny
+  — źródło seeda migracji 0272 i lustra w entrypoint. Dawny
   `scripts/champion_template_clients.json` został usunięty po jednorazowej
   konwersji skryptem `scripts/build_client_playbook_seed.py`, który sprawdza
   KOMPLETNOŚĆ: każda linia 14 wzorów musi trafić do karty (inaczej pada).
 
 ## Karta klienta (`client_playbooks`)
 
-Jedno miejsce prawdy „jak pracujemy z tym klientem" (migracja `0271`, decyzje
+Jedno miejsce prawdy „jak pracujemy z tym klientem" (migracja `0272`, decyzje
 Artura 03.09.2026). Tabela 1:1 z klientem + `client_playbook_events` (historia
 z diffem pól). Pola: SLA w dniach roboczych, minimum kandydatów, limit CV na
 proces, blokada kandydata (h), karencja między projektami (dni), polityka
@@ -690,7 +690,7 @@ link). API: `app/api/client_playbooks.py`.
   startowej i lista probe tuples w `main.py`) i **lustro w `entrypoint.sh`**
   (DDL w `_COLUMN_STATEMENTS`, `_seed_client_playbooks(conn)` po procedurach,
   odpublikowanie wzorów w `_DATA_STATEMENTS` z markerem
-  `0271_champion_client_templates_unpublished` w `app_settings`, który nie cofa
+  `0272_champion_client_templates_unpublished` w `app_settings`, który nie cofa
   ponownej publikacji przez admina). Prod alembic jest osierocony — entrypoint
   JEST wdrożeniem.
 - **Nie przenoś na kartę `selling_points`/`consultant_insight`/`historical_questions`

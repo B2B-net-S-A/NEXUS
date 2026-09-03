@@ -1,4 +1,4 @@
-"""Karta klienta (`client_playbooks`, migracja 0271) — kontrakty API.
+"""Karta klienta (`client_playbooks`, migracja 0272) — kontrakty API.
 
 Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
 
@@ -535,16 +535,16 @@ def test_seed_file_matches_migration_and_entrypoint_mirror():
         "CREATE TABLE IF NOT EXISTS client_playbook_events",
         "ADD CONSTRAINT ck_client_playbooks_numbers",
         "await _seed_client_playbooks(conn)",
-        "0271_champion_client_templates_unpublished",
+        "0272_champion_client_templates_unpublished",
     ):
         assert needle in entrypoint, needle
 
     migration = (
-        BACKEND_ROOT / "alembic" / "versions" / "0271_client_playbooks.py"
+        BACKEND_ROOT / "alembic" / "versions" / "0272_client_playbooks.py"
     ).read_text(encoding="utf-8")
     assert "ON CONFLICT (client_id) DO NOTHING" in migration
-    assert re.search(r'down_revision = "0270_jobs_open_state_dates"', migration)
-    assert re.search(r'revision = "0271_client_playbooks"', migration)
+    assert re.search(r'down_revision = "0271_default_template_interview"', migration)
+    assert re.search(r'revision = "0272_client_playbooks"', migration)
     for slug, _ in CHAMPION_SEED_KEYS:
         assert slug in migration, slug
         assert slug in entrypoint, slug

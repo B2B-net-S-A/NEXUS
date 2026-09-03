@@ -47,13 +47,13 @@ Backend:
   `PUT` (`DeliverySectionUser` + `can_edit_knowledge`), `GET …/history`
   (`DeliverySectionUser` + `can_view_knowledge`), `GET /api/settings/client-playbooks`
   (`OperationalUser`, bez zawężania do portfela).
-- Migracja `0271_client_playbooks` (← `0270_jobs_open_state_dates`, po `0269_configurable_section_rbac`): dwie tabele,
+- Migracja `0272_client_playbooks` (← `0271_default_template_interview`, po `0270_jobs_open_state_dates`): dwie tabele,
   seed 14 kart z `app/data/client_playbooks/seed.json` (dokładnie jeden żywy klient
   po wzorcu nazwy z 0255, `ON CONFLICT (client_id) DO NOTHING`), odpublikowanie
   14 wzorów w `help_materials`.
 - `entrypoint.sh`: lustro DDL w `_COLUMN_STATEMENTS`, `_seed_client_playbooks(conn)`
   po `_seed_repo_procedures`, odpublikowanie w `_DATA_STATEMENTS` z markerem
-  `0271_champion_client_templates_unpublished` w `app_settings`.
+  `0272_champion_client_templates_unpublished` w `app_settings`.
 - Parser Championa v6 (`champion_parse:v6:haiku-4.5`): trzy układy dokumentu, blok
   `client` bez pól karty klienta, bez `documents`; `build_champion_dict` emituje puste
   wartości (kształt siedmiu kluczy zostaje).
@@ -109,7 +109,7 @@ w ENERGA/ORLEN) zostają — to treść wzorów, poprawia ją DL w edytorze.
 ## Testy (lokalnie, 03.09.2026)
 
 Backend (obraz `nexus-verify:img`, świeża baza `nexus_playbook`, `alembic upgrade heads`
-0269 → 0270_jobs_open_state_dates → 0271_client_playbooks, jedna głowa):
+0270_jobs_open_state_dates → 0271_default_template_interview → 0272_client_playbooks, jedna głowa):
 
 | Zestaw | Wynik |
 |---|---|

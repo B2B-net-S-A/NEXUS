@@ -1,4 +1,4 @@
-"""Karta klienta — standardy współpracy per klient (migracja 0271).
+"""Karta klienta — standardy współpracy per klient (migracja 0272).
 
 Do 09.2026 wiedza o kliencie (SLA, limit CV, hold, off-limit, onboarding,
 dokumenty) była KOPIOWANA do każdej oferty w `jobs.champion_profile`

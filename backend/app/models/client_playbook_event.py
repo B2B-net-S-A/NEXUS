@@ -1,4 +1,4 @@
-"""Historia zmian karty klienta (migracja 0271).
+"""Historia zmian karty klienta (migracja 0272).
 
 Jeden wiersz na zapis zmieniający treść: diff pól, kto, kiedy.
 ``playbook_version`` wiąże zdarzenie z numerem wersji karty. FK po

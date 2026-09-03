@@ -2977,9 +2977,9 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
     "ON client_cv_rule_previews (client_id, created_at)",
-    # 0271: karta klienta — standardy współpracy per klient (SLA, limity,
+    # 0272: karta klienta — standardy współpracy per klient (SLA, limity,
     # hold, onboarding, dokumenty). Sąsiad `client_cv_rules`: 1:1 z klientem,
-    # wersja + historia. Lustro migracji 0271 — zmieniasz tu, zmień też tam.
+    # wersja + historia. Lustro migracji 0272 — zmieniasz tu, zmień też tam.
     """CREATE TABLE IF NOT EXISTS client_playbooks (
         id SERIAL PRIMARY KEY,
         client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -5327,7 +5327,7 @@ _DATA_STATEMENTS = [
            NULL, TRUE, 53, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
-    # 0271 (decyzja produktowa 03.09.2026): 14 wzorów Championa per klient
+    # 0272 (decyzja produktowa 03.09.2026): 14 wzorów Championa per klient
     # schodzi z Pomocy; ich treść przejęła karta klienta, a wzór jest jeden,
     # ogólny. Wiersze ZOSTAJĄ (przegląd reguł CV linkuje `template_url` po
     # slugu) — zmienia się tylko `is_published`. Marker w app_settings jest
@@ -5335,7 +5335,7 @@ _DATA_STATEMENTS = [
     # nie jest cofana przy każdym starcie kontenera.
     "WITH marker AS ("
     "INSERT INTO app_settings (key, value) "
-    "VALUES ('0271_champion_client_templates_unpublished', 'true'::jsonb) "
+    "VALUES ('0272_champion_client_templates_unpublished', 'true'::jsonb) "
     "ON CONFLICT (key) DO NOTHING RETURNING key) "
     "UPDATE help_materials SET is_published = false, updated_at = now() "
     "WHERE slug IN ("
@@ -6443,7 +6443,7 @@ async def _seed_repo_procedures(conn):
 
 
 # ── Karta klienta: seed z pliku w repo ──────────────────────────────────────
-# Lustro seeda migracji 0271. Źródło prawdy: `app/data/client_playbooks/
+# Lustro seeda migracji 0272. Źródło prawdy: `app/data/client_playbooks/
 # seed.json` (treść dawnych 14 wzorów Championa per klient). Wiersz powstaje
 # wyłącznie przy DOKŁADNIE JEDNYM żywym kliencie pasującym do wzorca nazwy
 # i NIGDY nie nadpisuje istniejącego (ON CONFLICT DO NOTHING) — edycja

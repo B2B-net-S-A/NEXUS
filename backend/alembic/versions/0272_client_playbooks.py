@@ -16,8 +16,8 @@ do wzorca nazwy (kalka 0255) i NIGDY nie nadpisuje istniejącego —
 `is_published=false`); wiersze zostają, bo przegląd reguł CV linkuje je po
 slugu.
 
-Revision ID: 0271_client_playbooks
-Revises: 0270_jobs_open_state_dates
+Revision ID: 0272_client_playbooks
+Revises: 0271_default_template_interview
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0271_client_playbooks"
-down_revision = "0270_jobs_open_state_dates"
+revision = "0272_client_playbooks"
+down_revision = "0271_default_template_interview"
 branch_labels = None
 depends_on = None
 
-# backend/alembic/versions/0271_… → parents[2] == backend/
+# backend/alembic/versions/0272_… → parents[2] == backend/
 _SEED_FILE = (
     Path(__file__).resolve().parents[2]
     / "app"
