@@ -105,6 +105,15 @@ jobs:
           # 1/5 testów nie istnieje (finding z review PR #1083). job-index
           # jest 0-based w kolejności ekspansji matrixa; wartości `shard`
           # w matrixie służą tylko do nazwy joba i liczności listy.
+          # Wykrywacz wywołań LLM poza bramką kwot. Od 0270 oba baseline'y
+          # strażnika są puste (albo świadomie uzasadnione), więc CI może
+          # egzekwować regułę zamiast tylko ją logować.
+          #
+          # TYLKO CI. Na produkcji ta flaga wchodzi osobno, po cyklu obserwacji
+          # z pustym „UNGATED" w logach — detektor istnieje właśnie po to, żeby
+          # znaleźć miejsca, o których nikt nie pomyślał, a wywalenie ich
+          # od razu na prodzie zamieniłoby diagnozę w awarię.
+          AI_QUOTA_STRICT: "true"
           CI_SHARD_COUNT: ${{ strategy.job-total }}
           CI_SHARD_INDEX: ${{ strategy.job-index }}
         run: |

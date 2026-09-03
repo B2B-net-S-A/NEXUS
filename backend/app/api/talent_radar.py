@@ -286,7 +286,14 @@ async def talent_radar_parse_champion(
         "must_skills": musts,
         "nice_skills": nices,
         "summary": {
-            "role_name": parsed.get("role_name"),
+            # Przez `champion_view.basics`, jak trzy pola niżej. Prompt v5
+            # zwraca nazwę roli w sekcji „basics", a v3 kładł ją płasko —
+            # odczyt wprost z `parsed` widział WYŁĄCZNIE stary kształt, więc
+            # chip pokazywał „Profil wczytany", a request wyszukiwania nie
+            # niósł `title` i nazwa roli nigdy nie trafiała do embeddingu.
+            # `basics` podnosi płaskie pole starego kształtu (`_FLAT_TO_BASICS`),
+            # więc jedna wartość obsługuje oba prompty.
+            "role_name": _summary_basics.get("role_name"),
             # Liczniki liczą to, co POJEDZIE do rankingu — wpis bez `name`
             # odpada w normalizacji, więc licznik z surowej listy pokazywałby
             # więcej wymagań, niż system faktycznie zna.

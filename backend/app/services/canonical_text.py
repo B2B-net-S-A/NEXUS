@@ -288,8 +288,23 @@ def build_job_query_variants(job, base_text: str | None = None) -> list[str]:
     return [v for v in variants if v.strip() and v.strip() != base]
 
 
-def build_job_text_v2(job) -> str:
-    """PII-free, labeled canonical job document."""
+def build_job_text_v2(job, *, max_field_chars: int | None = 1200) -> str:
+    """PII-free, labeled canonical job document.
+
+    ``max_field_chars`` — sufit na POJEDYNCZE pole tekstowe. ``None`` znaczy
+    „nie tnij" i używa tego wyłącznie Talent Radar: jego oferta jest efemeryczna,
+    a wklejony przez rekrutera request bywa mailem, w którym wymagania stoją na
+    końcu, po akapicie grzeczności. Domyślne 1200 znaków obcinało go tak, że
+    silnik rankował po wstępie — zmierzone: `must 1/2` i podobieństwo 0,65
+    zamiast 0,73 dla tego samego zapytania bez wstępu.
+
+    Domyślna wartość zostaje 1200 i to jest istotne: ``index_outbox_service``
+    liczy SHA-256 z tego tekstu, żeby zdecydować o reindeksie, a
+    ``compute_proposals`` używa go jako odcisku świeżości snapshotów. Globalne
+    podniesienie limitu przestawiłoby 949 ofert na „do przeliczenia" i
+    unieważniło snapshoty propozycji — bez żadnej korzyści, bo indeksowana
+    oferta i tak niesie te pola w kolumnach.
+    """
     sections: list[str] = []
 
     title = _strip_ref_noise(getattr(job, "title", "") or "")
@@ -315,10 +330,10 @@ def build_job_text_v2(job) -> str:
 
     desc = getattr(job, "description", None)
     if desc:
-        sections.append("[DESCRIPTION] " + _clean(desc)[:1200])
+        sections.append("[DESCRIPTION] " + _clean(desc)[:max_field_chars])
     reqs = getattr(job, "requirements", None)
     if reqs:
-        sections.append("[REQUIREMENTS] " + _clean(reqs)[:1200])
+        sections.append("[REQUIREMENTS] " + _clean(reqs)[:max_field_chars])
 
     # Champion — przez `champion_view`, więc czytany niezależnie od tego, czy
     # oferta ma kształt sprzed czy po przebudowie szablonu (09.2026).

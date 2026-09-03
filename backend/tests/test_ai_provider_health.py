@@ -157,6 +157,28 @@ class _FakeMessage:
     content = [type("Block", (), {"text": "ok"})()]
 
 
+@pytest.fixture
+def _declared_provider_call():
+    """Deklaracja wywołania AI dla testów podmieniających KLIENTA SDK.
+
+    Takie testy realnie wchodzą w `_assert_declared`, a CI biegnie od 0270
+    z `AI_QUOTA_STRICT=true` — bez deklaracji padałyby na bramce kwot zamiast
+    sprawdzać circuit breaker dostawcy. Nie autouse: w tym pliku są też testy
+    czytające `main.py` jako tekst, którym kontekst jest niepotrzebny.
+    """
+    from datetime import date
+
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import QuotaState, declared_call
+
+    with declared_call(
+        AIFeatureKey.scoring,
+        user_id=None,
+        state=QuotaState(used=1, limit=0, period_start=date(2026, 9, 1)),
+    ):
+        yield
+
+
 def _install_client(monkeypatch, side_effects):
     calls = {"n": 0}
 
@@ -178,7 +200,7 @@ def _install_client(monkeypatch, side_effects):
     return calls
 
 
-def test_call_claude_success_records_healthy(monkeypatch):
+def test_call_claude_success_records_healthy(monkeypatch, _declared_provider_call):
     _install_client(monkeypatch, [_FakeMessage()])
     claude_client.call_claude(
         messages=[{"role": "user", "content": "x"}],
@@ -189,7 +211,7 @@ def test_call_claude_success_records_healthy(monkeypatch):
     assert provider_status("claude") == "ok"
 
 
-def test_call_claude_repeated_failures_trip_claude_down(monkeypatch):
+def test_call_claude_repeated_failures_trip_claude_down(monkeypatch, _declared_provider_call):
     _install_client(monkeypatch, [_FakeErr(529), _FakeErr(529), _FakeErr(529)])
     for _ in range(3):
         with pytest.raises(_FakeErr):
