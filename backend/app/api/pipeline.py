@@ -920,10 +920,33 @@ async def move_candidate(
         try:
             from app.services.job_fill import is_fully_staffed, placements_by_job
 
-            filled = (await placements_by_job(db, [job.id])).get(job.id, 0)
+            # Skrót: właśnie kogoś zatrudniliśmy, więc obsada >= 1. Przy
+            # `headcount = 1` (default) wiemy to bez pytania widoku
+            # `analytics_first_milestones` — a to gorąca ścieżka `/move`.
+            headcount = int(job.headcount or 1)
+            filled = (
+                1
+                if headcount <= 1
+                else (await placements_by_job(db, [job.id])).get(job.id, 0)
+            )
+            already_hinted = await db.scalar(
+                select(Notification.id)
+                .where(
+                    Notification.related_entity_type == "job",
+                    Notification.related_entity_id == job.id,
+                    Notification.notification_type
+                    == NotificationType.suggest_next_step,
+                )
+                .limit(1)
+            )
             if (
-                is_fully_staffed(job.headcount, filled)
+                is_fully_staffed(headcount, filled)
                 and job.status != JobStatus.closed
+                # Bez dedupu KAŻDE kolejne zatrudnienie na tej rekrutacji
+                # rozsyłałoby ten sam komunikat do wszystkich admin/DL/TAC.
+                # Podpowiedź ma być jedna — jeśli ktoś ją zignorował, powtórka
+                # niczego nie doda, a nauczy ignorować powiadomienia.
+                and already_hinted is None
             ):
                 staff_rows = await db.execute(
                     select(User.id).where(

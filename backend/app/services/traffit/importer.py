@@ -3668,6 +3668,12 @@ class TraffitImporter:
         # ZA commitem etapów i świadomie best-effort: awaria skutku nie może
         # cofnąć zaimportowanego wiersza ani zatrzymać fazy. Domyślnie
         # wyłączone (`TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED`).
+        #
+        # Ten `except` NIE jest martwy, choć hook łapie własne wyjątki per
+        # wiersz: parsowanie payloadu (`int(r["job_id"])`) i zbiorczy odczyt
+        # ofert stoją POZA tamtymi blokami, więc zniekształcony wsad albo
+        # awaria bazy przechodzą tędy. Pilnuje tego
+        # `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
         try:
             await apply_imported_stage_side_effects(
                 self.db, rows=[payload for payload, _, _ in pending_rows]

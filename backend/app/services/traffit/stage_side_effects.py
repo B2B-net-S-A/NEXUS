@@ -73,14 +73,20 @@ async def apply_imported_stage_side_effects(
     from app.services.candidate_risk import on_candidate_stage_change
 
     for candidate_id in candidate_ids:
+        # SAVEPOINT na wiersz, nie `db.rollback()`.
+        #
+        # `rollback()` cofa CAŁĄ transakcję sesji, więc jeden nieudany kandydat
+        # kasowałby wszystkie wcześniejsze przeliczenia z tego wsadu — czyli
+        # cicha utrata pracy proporcjonalna do rozmiaru wsadu. Ten sam wzorzec
+        # stosuje importer przy fazach (`begin_nested`).
         try:
-            await on_candidate_stage_change(db, candidate_id)
+            async with db.begin_nested():
+                await on_candidate_stage_change(db, candidate_id)
             applied["risk"] += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "import risk recompute failed cand=%s: %s", candidate_id, exc
             )
-            await db.rollback()
 
     # 2. Talent pool po wysłaniu CV — idempotentny przez unique constraint.
     if cv_sent_rows:
@@ -103,13 +109,14 @@ async def apply_imported_stage_side_effects(
             if job is None:
                 continue
             try:
-                await auto_add_on_cv_sent(
-                    db=db,
-                    candidate_id=int(row["candidate_id"]),
-                    job=job,
-                    user_id=row.get("moved_by"),
-                    extra_activity_details={"source": "traffit_import"},
-                )
+                async with db.begin_nested():
+                    await auto_add_on_cv_sent(
+                        db=db,
+                        candidate_id=int(row["candidate_id"]),
+                        job=job,
+                        user_id=row.get("moved_by"),
+                        extra_activity_details={"source": "traffit_import"},
+                    )
                 applied["talent_pool"] += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
@@ -118,7 +125,6 @@ async def apply_imported_stage_side_effects(
                     row["job_id"],
                     exc,
                 )
-                await db.rollback()
 
     try:
         await db.commit()

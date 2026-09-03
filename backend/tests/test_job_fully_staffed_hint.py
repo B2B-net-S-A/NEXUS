@@ -174,3 +174,57 @@ async def test_placements_are_counted_once_per_pair():
 
     assert counted == 1, "Dwa wiersze `hired` tej samej pary to jeden placement."
     assert is_fully_staffed(2, counted) is False
+
+
+async def test_the_hint_is_sent_once_not_on_every_later_hire(
+    app_client, app_auth_headers
+):
+    """Druga osoba zatrudniona na tej samej rekrutacji nie powtarza komunikatu.
+
+    Bez dedupu KAŻDE kolejne zatrudnienie rozsyłałoby ten sam tekst do
+    wszystkich admin/DL/TAC — a powtórka niczego nie dodaje i uczy ignorować
+    powiadomienia.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    world = await _seed(headcount=1)
+    await _hire(app_client, app_auth_headers, world)
+    after_first = await _hint_count(world["job_id"])
+    assert after_first > 0
+
+    # Druga osoba na tej samej, jednoetatowej rekrutacji.
+    async with AsyncSessionLocal() as db:
+        second = Candidate(
+            name="Piotr",
+            lastname=f"Second-{world['job_id']}",
+            email=f"second-{world['job_id']}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add(second)
+        await db.commit()
+        await db.refresh(second)
+        db.add(
+            CandidateStage(
+                candidate_id=second.id,
+                job_id=world["job_id"],
+                stage=PipelineStage.screening,
+                moved_at=NOW,
+            )
+        )
+        await db.commit()
+        second_id = second.id
+
+    resp = await app_client.post(
+        "/api/pipeline/move",
+        headers=app_auth_headers,
+        json={
+            "candidate_id": second_id,
+            "job_id": world["job_id"],
+            "stage": "hired",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert await _hint_count(world["job_id"]) == after_first

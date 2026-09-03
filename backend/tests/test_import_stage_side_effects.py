@@ -125,3 +125,23 @@ def test_importer_calls_the_hook_after_the_stage_commit():
     assert min(hook_lines) > min(lines_with_commit), (
         "Hook stoi PRZED commitem etapów — jego awaria cofnęłaby import."
     )
+
+
+async def test_the_hook_can_raise_so_the_callers_guard_is_not_dead(monkeypatch):
+    """Zewnętrzny `try/except` w importerze NIE jest martwy.
+
+    Hook łapie własne wyjątki per wiersz, ale parsowanie payloadu i zbiorczy
+    odczyt ofert stoją POZA tamtymi blokami. Zniekształcony wsad przechodzi
+    tędy — i dlatego wywołujący musi mieć własny guard.
+    """
+    import pytest
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED", True)
+
+    with pytest.raises(Exception):
+        await apply_imported_stage_side_effects(
+            db=None,
+            rows=[{"job_id": 1, "stage_legacy_enum": "cv_sent"}],  # brak candidate_id
+        )
