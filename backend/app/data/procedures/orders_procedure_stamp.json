@@ -53,7 +53,7 @@
     "frontend/src/components/ExtendOrderDialog.tsx": "b05c69bc30c3a8527fa5f21283f7426cec62f2c65b770149b4d0fc8327c2271d",
     "frontend/src/components/NewContractorOrderDialog.tsx": "2a71c4958bcf6d328eccc143cff165977eb61dc21c8fcab227acd188346aa978",
     "frontend/src/components/OrderDocumentsSection.tsx": "750c49ec2456414632a38af8ebb94343fd3d63044b79f8f695c6f37d325ce41f",
-    "frontend/src/components/OrdersAndContractsTab.tsx": "2347cb9fd0e56bf06408242cb5aa6bea925e9f3f7f641bab524466a91449ffe9",
+    "frontend/src/components/OrdersAndContractsTab.tsx": "6233e896a0bd0b6d4c86d1eac02f9879fe81f0bb8ba7daf5d321bddb1bcdffb6",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx": "6dbc4e77d755bea610d2fe5dd7fadbefdf6c4aaf477afcd0f1bf4866c8240f8b",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx": "883fd63bb570f558a12cbee28bac256aa539c59a0cb3bd7e8732804f074bb474",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "da3f21571abb2ab52619513e2aabc696606e60142a7922ff3b535b7d3082cc4b",

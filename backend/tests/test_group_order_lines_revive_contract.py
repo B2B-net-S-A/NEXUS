@@ -30,7 +30,17 @@ async def _mark_ended(contract_id: int) -> date:
     return previous_end
 
 
-async def _assert_active_through(contract_id: int, expected_end: date | None) -> None:
+async def _assert_revived_with_order_end(
+    contract_id: int, order_end: date | None
+) -> None:
+    """Wskrzeszony kontrakt: aktywny i BEZTERMINOWY, data z zamówienia osobno.
+
+    Reguła zakładki „Zakończeni" (09.2026): zamówienie nigdy nie ustawia daty
+    końca UMOWY — inaczej po upływie jego okresu nocny cron kończy umowę
+    i osoba wraca do „Zakończonych" tylko dlatego, że skończył się okres
+    zamówienia. Data z zamówienia ma swoje miejsce w „Końcu zamówienia
+    u klienta" (``client_order_end_date``), tu śledzonym przez ``_mark_ended``.
+    """
     from app.core.database import AsyncSessionLocal
     from app.models.contract import Contract, ContractStatus
 
@@ -38,8 +48,8 @@ async def _assert_active_through(contract_id: int, expected_end: date | None) ->
         contract = await db.get(Contract, contract_id)
         assert contract is not None
         assert contract.status == ContractStatus.active
-        assert contract.end_date == expected_end
-        assert contract.client_order_end_date == expected_end
+        assert contract.end_date is None
+        assert contract.client_order_end_date == order_end
 
 
 async def test_create_group_with_live_line_revives_ended_contract(
@@ -61,7 +71,7 @@ async def test_create_group_with_live_line_revives_ended_contract(
         headers=app_auth_headers,
     )
     assert created.status_code == 201, created.text
-    await _assert_active_through(contracts[0], new_end)
+    await _assert_revived_with_order_end(contracts[0], new_end)
 
 
 async def test_add_live_line_revives_its_ended_contract(
@@ -81,7 +91,7 @@ async def test_add_live_line_revives_its_ended_contract(
         headers=app_auth_headers,
     )
     assert added.status_code == 201, added.text
-    await _assert_active_through(contracts[1], new_end)
+    await _assert_revived_with_order_end(contracts[1], new_end)
 
 
 async def test_swap_to_live_successor_revives_ended_contract(
@@ -115,7 +125,7 @@ async def test_swap_to_live_successor_revives_ended_contract(
         headers=app_auth_headers,
     )
     assert swapped.status_code == 201, swapped.text
-    await _assert_active_through(contracts[1], new_end)
+    await _assert_revived_with_order_end(contracts[1], new_end)
 
 
 async def test_scheduled_group_revives_contract_only_when_line_materializes(
@@ -156,7 +166,7 @@ async def test_scheduled_group_revives_contract_only_when_line_materializes(
         assert changed == 1
         await db.commit()
 
-    await _assert_active_through(contracts[0], None)
+    await _assert_revived_with_order_end(contracts[0], None)
     async with AsyncSessionLocal() as db:
         line_status = await db.scalar(
             select(ClientOrder.status).where(

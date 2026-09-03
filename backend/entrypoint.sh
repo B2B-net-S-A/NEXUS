@@ -6950,6 +6950,32 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Reguła zakładki „Zakończeni" (09.2026) — jednorazowa korekta wskazanego
+# kontraktu + audyt klasy (safety-net dla migracji 0274, gdy alembic na prodzie
+# stoi na starszej rewizji). Jedno źródło SQL-a w
+# `app/services/contract_ended_tab_repair.py`; blok jest idempotentny.
+echo "Repairing contracts ended by an order period, not by administration (one-shot)..."
+python - <<'PY' || echo "ended-tab contract repair skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.contract_ended_tab_repair import (
+    ENDED_TAB_REPAIR_MARKER,
+    ENDED_TAB_REPAIR_SQL,
+)
+
+async def repair():
+    async with engine.begin() as conn:
+        await conn.execute(text(ENDED_TAB_REPAIR_SQL))
+        receipt = await conn.scalar(
+            text("SELECT value::text FROM app_settings WHERE key = :key"),
+            {"key": ENDED_TAB_REPAIR_MARKER},
+        )
+    print(f"ended-tab contract repair: {receipt}")
+
+asyncio.run(repair())
+PY
+
 # Reset any m365_connections stuck in 'running' from a killed sync task.
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of

@@ -9,6 +9,7 @@ import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
   consultantMatchesQuery,
+  contractClosed,
   contractorMatchesPill,
   contractorOrderType,
   effectiveClientOrderType,
@@ -18,6 +19,7 @@ import {
   filterAndSortOrderGroups,
   flattenOrderGroupIds,
   isCurrentOrder,
+  lacksCurrentOrder,
   orderGroupMatchesPill,
   sortOrderLinesByConsultant,
   usesSharedMdPool,
@@ -628,3 +630,102 @@ describe("client order list filters", () => {
     ).toBe(true);
   });
 });
+
+// ── Reguła zakładki „Zakończeni" (09.2026) ──────────────────────────────────
+// O przynależności decyduje wyłącznie umowa z modułu Kontrakty — status i data
+// zakończenia — nigdy sam upływ okresu zamówienia.
+describe("reguła zakładki Zakończeni", () => {
+  const TODAY = "2026-09-03";
+  const past = (over: Partial<ClientOrderRead> = {}) =>
+    clientOrder(1, "periodic", {
+      status: "completed",
+      start_date: "2026-07-01",
+      end_date: "2026-08-31",
+      ...over,
+    });
+
+  it("umowa zamknięta = status końcowy ORAZ data końca, która minęła", () => {
+    expect(
+      contractClosed(
+        contractor(1, "Wczoraj", { contract_status: "ended", contract_end_date: "2026-09-02" }),
+        TODAY,
+      ),
+    ).toBe(true);
+    // Do daty końca włącznie osoba pracuje.
+    expect(
+      contractClosed(
+        contractor(2, "Dziś", { contract_status: "ended", contract_end_date: "2026-09-03" }),
+        TODAY,
+      ),
+    ).toBe(false);
+    expect(
+      contractClosed(
+        contractor(3, "Jutro", { contract_status: "ended", contract_end_date: "2026-09-30" }),
+        TODAY,
+      ),
+    ).toBe(false);
+    // Bez daty nie ma czego minąć — „ended" bez daty to zaszłość, nie zakończenie.
+    expect(
+      contractClosed(
+        contractor(4, "Bezterminowa", { contract_status: "ended", contract_end_date: null }),
+        TODAY,
+      ),
+    ).toBe(false);
+    expect(
+      contractClosed(
+        contractor(5, "Aktywna", { contract_status: "active", contract_end_date: "2026-01-01" }),
+        TODAY,
+      ),
+    ).toBe(false);
+  });
+
+  it("upływ okresu zamówienia NIE przenosi do Zakończonych — zostaje dopisek", () => {
+    // Klimczak po 31.08: umowa aktywna (bezterminowa), zamówienie minęło.
+    const klimczak = contractor(469, "Piotr Klimczak", {
+      contract_status: "active",
+      contract_end_date: null,
+      days_to_latest_end: -3,
+      orders: [past()],
+    });
+    expect(contractorMatchesPill(klimczak, "active", TODAY)).toBe(true);
+    expect(contractorMatchesPill(klimczak, "completed", TODAY)).toBe(false);
+    expect(lacksCurrentOrder(klimczak, TODAY)).toBe(true);
+
+    // Przedłużenie dodane (zaczyna się później) — dopisek znika.
+    const extended = contractor(469, "Piotr Klimczak", {
+      contract_status: "active",
+      orders: [
+        past(),
+        clientOrder(2, "periodic", { status: "active", start_date: "2026-09-01", end_date: "2026-12-31" }),
+      ],
+    });
+    expect(lacksCurrentOrder(extended, TODAY)).toBe(false);
+    // Bezterminowe zamówienie obejmuje dziś; anulowane i szkice nie liczą się.
+    expect(
+      lacksCurrentOrder(
+        contractor(7, "Open", { orders: [clientOrder(3, "periodic", { status: "active", start_date: "2026-01-01", end_date: null })] }),
+        TODAY,
+      ),
+    ).toBe(false);
+    expect(
+      lacksCurrentOrder(
+        contractor(8, "Anulowane", { orders: [clientOrder(4, "periodic", { status: "cancelled", start_date: "2026-01-01", end_date: null })] }),
+        TODAY,
+      ),
+    ).toBe(true);
+  });
+
+  it("umowa z datą końca dziś lub później trzyma osobę w Aktywnych do dnia X włącznie", () => {
+    const endsToday = contractor(10, "Kończy dziś", {
+      contract_status: "ended",
+      contract_end_date: TODAY,
+      orders: [past({ end_date: TODAY })],
+    });
+    expect(contractorMatchesPill(endsToday, "active", TODAY)).toBe(true);
+    expect(contractorMatchesPill(endsToday, "completed", TODAY)).toBe(false);
+    // Od dnia X+1 — Zakończeni.
+    expect(contractorMatchesPill(endsToday, "active", "2026-09-04")).toBe(false);
+    expect(contractorMatchesPill(endsToday, "completed", "2026-09-04")).toBe(true);
+  });
+});
+

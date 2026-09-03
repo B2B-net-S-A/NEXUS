@@ -127,6 +127,13 @@ export interface CandidateFilters {
   // (hired/contract history). Joins the move-filter family → triggers
   // historical matching unless `stageCurrentOnly` is on.
   stageClientIds: number[];
+  // "Data wysłania do klienta" — filtr po dacie rekomendacji kandydata do
+  // klienta (przejście na etap `cv_sent`). Inclusive `YYYY-MM-DD` bounds,
+  // HISTORYCZNY (dowolne wysłanie w oknie, niezależnie od bieżącego etapu) i
+  // niezależny od rodziny `stage*`. Empty string = bound open. Round-trips in
+  // the URL as `sent_from`/`sent_to`.
+  sentToClientFrom: string;
+  sentToClientTo: string;
   // "Aktualny etap" toggle. When true → force CURRENT-stage matching even with
   // who/when/client move-filters (sends `stage_current_only=true`). When false
   // (default) → omit the param so the backend auto-resolves: current for a bare
@@ -179,6 +186,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageMovedAfter: "",
   stageMovedBefore: "",
   stageClientIds: [],
+  sentToClientFrom: "",
+  sentToClientTo: "",
   stageCurrentOnly: false,
   openTo: [],
   recentlyChangedJobs: null,
@@ -275,6 +284,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.stageMovedAfter) p.set("stage_from", f.stageMovedAfter);
   if (f.stageMovedBefore) p.set("stage_to", f.stageMovedBefore);
   if (f.stageClientIds.length) p.set("stage_client", CSV(f.stageClientIds));
+  if (f.sentToClientFrom) p.set("sent_from", f.sentToClientFrom);
+  if (f.sentToClientTo) p.set("sent_to", f.sentToClientTo);
   if (f.stageCurrentOnly) p.set("stage_current", "1");
   if (f.openTo.length) p.set("open_to", CSV(f.openTo));
   if (f.recentlyChangedJobs !== null) {
@@ -363,6 +374,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageMovedAfter: parseIsoDate(sp.get("stage_from")),
     stageMovedBefore: parseIsoDate(sp.get("stage_to")),
     stageClientIds: parseCsvInt(sp.get("stage_client")),
+    sentToClientFrom: parseIsoDate(sp.get("sent_from")),
+    sentToClientTo: parseIsoDate(sp.get("sent_to")),
     stageCurrentOnly: sp.get("stage_current") === "1",
     openTo,
     recentlyChangedJobs,
@@ -526,6 +539,8 @@ export function filtersToApiParams(
     stage_client_id: filters.stageClientIds.length
       ? filters.stageClientIds
       : undefined,
+    sent_to_client_from: filters.sentToClientFrom || undefined,
+    sent_to_client_to: filters.sentToClientTo || undefined,
     // Only send when forcing current-stage matching; omitting lets the backend
     // auto-resolve (current for a bare stage, historical with a move-filter).
     stage_current_only: filters.stageCurrentOnly ? true : undefined,
