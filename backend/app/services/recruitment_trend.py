@@ -28,9 +28,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.funnel_coverage import (
-    STAGES_WITHOUT_TRAFFIT_COVERAGE,
     coverage_note,
     uncovered_conversions,
+    uncovered_stages_for_window,
 )
 from app.services.kpi_engine import WARSAW
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
@@ -192,7 +192,7 @@ def funnel_conversions(
     interview: int,
     akceptacje: int,
     placementy: int,
-    uncovered_stages: frozenset[str] = STAGES_WITHOUT_TRAFFIT_COVERAGE,
+    uncovered_stages: Optional[frozenset[str]] = None,
 ) -> FunnelConversions:
     """Konwersje lejka z sum okresu (czysta funkcja, bez DB).
 
@@ -206,6 +206,9 @@ def funnel_conversions(
     Default parametru jest WYGASZAJĄCY, nie neutralny: wywołujący, który
     o nim zapomni, dostanie zachowanie uczciwe, a nie defektowe.
     """
+    if uncovered_stages is None:
+        # Bez okna → najszersze wygaszenie (patrz `uncovered_stages_for_window`).
+        uncovered_stages = uncovered_stages_for_window(None)
     values = {
         "verified_to_recommendation_pct": _ratio_pct(rekomendacje, weryfikacje),
         "recommendation_to_interview_pct": _ratio_pct(interview, rekomendacje),

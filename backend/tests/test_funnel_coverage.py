@@ -17,6 +17,7 @@ import dataclasses
 from app.models.recruitment_pipeline import PipelineStage
 from app.services.funnel_coverage import (
     CONVERSION_OPERAND_STAGES,
+    COVERAGE_STARTED_AT,
     STAGES_WITHOUT_TRAFFIT_COVERAGE,
     coverage_note,
     uncovered_conversions,
@@ -25,6 +26,7 @@ from app.services.funnel_coverage import (
 from app.services.recruitment_trend import FunnelConversions
 from app.services.traffit.mappers import (
     _DEFAULT_STATE_MAPPING,
+    _TRAFFIT_STATE_NAME_MAP,
     _TRAFFIT_STATE_TYPE_MAP,
     TRAFFIT_MAPPED_LEGACY_STAGES,
 )
@@ -37,15 +39,20 @@ def test_uncovered_stages_are_derived_from_the_mapper_not_copied():
     wynik jest prawdziwy. Literał przypina, CO dziś z tego wychodzi; derywacja
     przypina, że nikt nie utrzymuje drugiej kopii listy.
     """
+    # Po domknięciu mapowania po NAZWIE stanu („Zaakceptowany",
+    # „Interview u klienta") zbiór skurczył się SAM — to jest dowód, że
+    # derywacja działa, a nie że ktoś utrzymuje drugą kopię listy.
     assert STAGES_WITHOUT_TRAFFIT_COVERAGE == {
-        "acceptance",
-        "client_interview",
         "negotiation",
         "onboarding",
         "prep_call",
     }
+    # …ale etapy ze ŚWIEŻYM mapowaniem nadal nie mają danych historycznych,
+    # więc bez podanego okna traktujemy je jak niepokryte.
+    assert set(COVERAGE_STARTED_AT) == {"acceptance", "client_interview"}
     assert TRAFFIT_MAPPED_LEGACY_STAGES == (
         {mapping["legacy"] for mapping in _TRAFFIT_STATE_TYPE_MAP.values()}
+        | {mapping["legacy"] for mapping in _TRAFFIT_STATE_NAME_MAP.values()}
         | {_DEFAULT_STATE_MAPPING["legacy"]}
     )
 
@@ -72,7 +79,7 @@ def test_operand_stages_are_real_pipeline_stages():
 
 def test_predicate_covers_any_operand_not_only_the_denominator():
     """Ta sama siódemka psuje dwie liczby — raz jako mianownik, raz jako licznik."""
-    suppressed = set(uncovered_conversions(STAGES_WITHOUT_TRAFFIT_COVERAGE))
+    suppressed = set(uncovered_conversions(uncovered_stages_for_window(None)))
     # mianownik `acceptance`
     assert "acceptance_to_placement_pct" in suppressed
     # licznik `acceptance`, mianownik `interview` (zdrowy!)
@@ -85,7 +92,7 @@ def test_predicate_covers_any_operand_not_only_the_denominator():
 
 
 def test_note_names_actual_stages_so_it_cannot_go_stale():
-    note = coverage_note(STAGES_WITHOUT_TRAFFIT_COVERAGE)
+    note = coverage_note(uncovered_stages_for_window(None))
     assert note is not None
     assert "Akceptacja" in note
     # Etapy, których żadna konwersja nie dotyka, nie zaśmiecają komunikatu.
@@ -111,5 +118,16 @@ def test_window_before_a_stage_gained_coverage_stays_suppressed(monkeypatch):
     assert "acceptance" not in fc.uncovered_stages_for_window(date(2034, 7, 1))
 
 
-def test_without_a_coverage_start_date_the_derived_set_is_used():
-    assert uncovered_stages_for_window(None) == STAGES_WITHOUT_TRAFFIT_COVERAGE
+def test_a_window_after_the_mapping_landed_sees_the_stage_as_covered():
+    """Okno po wdrożeniu mapowania odsłania metrykę — wygaszenie nie jest wieczne."""
+    from datetime import date
+
+    assert "acceptance" not in uncovered_stages_for_window(date(2026, 12, 1))
+    assert "acceptance" in uncovered_stages_for_window(date(2026, 1, 1))
+
+
+def test_missing_window_suppresses_the_widest_set_not_the_narrowest():
+    """Brak okna = „nie wiem", a nie „wszystko pokryte"."""
+    assert uncovered_stages_for_window(None) == (
+        STAGES_WITHOUT_TRAFFIT_COVERAGE | set(COVERAGE_STARTED_AT)
+    )

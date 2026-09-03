@@ -42,8 +42,16 @@ STAGES_WITHOUT_TRAFFIT_COVERAGE: frozenset[str] = frozenset(
 # historyczne zostałyby takie, jakie są (mapper działa na PRZYSZŁE importy;
 # 194 891 historycznych wierszy świadomie nie jest przepisywanych).
 #
-# Wpis dodaj W TYM SAMYM commicie co zmiana `_TRAFFIT_STATE_TYPE_MAP`.
-COVERAGE_STARTED_AT: dict[str, date] = {}
+# Wpis dodaj W TYM SAMYM commicie co zmiana mapowania Traffita.
+#
+# `acceptance` i `client_interview` zyskały mapowanie po nazwie stanu
+# („Zaakceptowany", „Interview u klienta") — wdrożenie 2026-09-03. Data jest
+# ustawiona na pierwszy PEŁNY miesiąc po wdrożeniu: okno wrześniowe byłoby
+# częściowe, więc iloraz z niego znowu mówiłby coś, czego nie ma.
+COVERAGE_STARTED_AT: dict[str, date] = {
+    "acceptance": date(2026, 10, 1),
+    "client_interview": date(2026, 10, 1),
+}
 
 # Mapa: pole konwersji → (etap licznika, etap mianownika).
 #
@@ -70,7 +78,12 @@ def uncovered_stages_for_window(
     okien zaczynających się od tej daty — wcześniejsze okna nadal go nie mają.
     """
 
-    if window_start is None or not COVERAGE_STARTED_AT:
+    if window_start is None:
+        # „Nie wiem, o jakie okno chodzi" → odpowiedź najszersza, nie najwęższa.
+        # Etap ze świeżym mapowaniem ma w większości okien puste dane, więc
+        # wywołujący bez okna dostaje zachowanie wygaszające, nie defektowe.
+        return frozenset(STAGES_WITHOUT_TRAFFIT_COVERAGE | set(COVERAGE_STARTED_AT))
+    if not COVERAGE_STARTED_AT:
         return STAGES_WITHOUT_TRAFFIT_COVERAGE
 
     start = window_start.date() if isinstance(window_start, datetime) else window_start

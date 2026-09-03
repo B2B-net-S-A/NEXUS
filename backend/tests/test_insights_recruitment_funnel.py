@@ -195,10 +195,11 @@ async def test_stages_flag_the_ones_traffit_never_maps(fx_client: AsyncClient):
     ).json()
 
     unmapped = {s["stage"] for s in body["stages"] if not s["mapped_from_traffit"]}
-    # Dokladnie te piec, ktorych `traffit/mappers.py:404-449` NIE mapuje.
+    # Dokladnie te trzy, ktorych mapper NIE mapuje. `acceptance`
+    # i `client_interview` wypadly stad po domknieciu mapowania po NAZWIE stanu
+    # („Zaakceptowany", „Interview u klienta") — do tego czasu byly puste,
+    # a kafel „akceptacja → placement" pokazywal 3257,1%.
     assert unmapped == {
-        "acceptance",
-        "client_interview",
         "negotiation",
         "onboarding",
         "prep_call",
@@ -806,10 +807,6 @@ def test_stage_coverage_flag_matches_the_shared_source_of_truth():
     unmapped = {s["stage"] for s in FUNNEL_STAGES if not s["mapped_from_traffit"]}
     assert unmapped == set(STAGES_WITHOUT_TRAFFIT_COVERAGE)
     # Literał — derywacja porównana sama ze sobą nie dowodzi niczego.
-    assert unmapped == {
-        "prep_call",
-        "client_interview",
-        "acceptance",
-        "negotiation",
-        "onboarding",
-    }
+    # `acceptance` i `client_interview` wypadły stąd po domknięciu mapowania
+    # po nazwie stanu; lejek Insights raportuje je teraz jako odnotowywane.
+    assert unmapped == {"prep_call", "negotiation", "onboarding"}

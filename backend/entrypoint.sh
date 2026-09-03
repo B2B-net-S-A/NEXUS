@@ -4228,6 +4228,27 @@ _DATA_STATEMENTS = [
            SELECT 1 FROM rbac_role_section_permissions
        )
        ON CONFLICT (role, section) DO NOTHING""",
+    # 0271: domyślny szablon dostaje kolumnę dla legacy `interview`.
+    #
+    # Bez niej karty z tego etapu (1 633 na produkcji) nie miały gdzie się
+    # wyrenderować. Mapowanie wyrównane do szablonu importowanego z Traffita,
+    # który kolumnę o TEJ SAMEJ nazwie mapuje na `interview`.
+    #
+    # Warunkowo (`IS NULL`) — ręczna korekta wygrywa; oraz `NOT EXISTS`, bo
+    # `get_kanban` buduje `enum_to_def` jako słownik i druga kolumna z tą samą
+    # wartością wygrywałaby zależnie od kolejności.
+    """UPDATE pipeline_stage_defs AS sd
+          SET legacy_enum_value = 'interview', updated_at = NOW()
+         FROM pipeline_templates AS t
+        WHERE t.id = sd.template_id
+          AND t.is_default IS TRUE
+          AND sd.name = 'Przepuszczony przez DZ'
+          AND sd.legacy_enum_value IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM pipeline_stage_defs other
+               WHERE other.template_id = sd.template_id
+                 AND other.legacy_enum_value = 'interview'
+          )""",
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
     # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie
