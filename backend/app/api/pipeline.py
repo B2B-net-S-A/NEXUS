@@ -3,6 +3,7 @@ import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pydantic import BaseModel
+from collections.abc import Iterable, Sequence
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -45,6 +46,7 @@ from app.schemas.pipeline import (
     HiringManagerVetoBrief,
     KanbanColumn,
     KanbanView,
+    OffTemplateColumn,
     PendingVerificationListItem,
     PendingVerificationReject,
     StageMove,
@@ -1008,6 +1010,99 @@ async def move_candidate(
     return CandidateStageResponse(**resp)
 
 
+def _bucket_by_stage_def(
+    entries: Iterable[CandidateStage],
+    stage_defs: Sequence[PipelineStageDef],
+) -> tuple[dict[int, list[CandidateStage]], list[CandidateStage]]:
+    """Rozdziel karty na kolumny szablonu i kubełek „poza szablonem".
+
+    Partycja jest **wyczerpująca i rozłączna** — każdy wpis trafia dokładnie
+    w jedno miejsce. Wcześniej ta pętla miała dwie ścieżki wyjścia i brak
+    trzeciej, więc karta, która nie pasowała do żadnej kolumny, po prostu
+    znikała: bez kolumny, bez licznika, bez ostrzeżenia (1 633 karty na
+    produkcji, pomiar 2026-09-02).
+
+    Każda gałąź kończy się `continue`, żeby nie dało się dopisać czwartej
+    ścieżki, która znowu po cichu zgubi wpis. Czysta funkcja — testowalna bez
+    bazy i bez HTTP, więc strażnik przeżyje refaktor endpointu.
+    """
+
+    enum_to_def: dict[str, PipelineStageDef] = {
+        sd.legacy_enum_value: sd for sd in stage_defs if sd.legacy_enum_value
+    }
+    columns_map: dict[int, list[CandidateStage]] = {sd.id: [] for sd in stage_defs}
+    off_template: list[CandidateStage] = []
+
+    for entry in entries:
+        # `None not in columns_map` — klucze to int-y, więc wiersz bez
+        # `stage_def_id` (produkuje go dziś `/bulk-move` i `open_process`)
+        # poprawnie spada do fallbacku po legacy enumie.
+        if entry.stage_def_id in columns_map:
+            columns_map[entry.stage_def_id].append(entry)
+            continue
+        mapped = enum_to_def.get(entry.stage.value) if entry.stage else None
+        if mapped is not None:
+            columns_map[mapped.id].append(entry)
+            continue
+        off_template.append(entry)
+
+    return columns_map, off_template
+
+
+async def _build_off_template(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    entries: Sequence[CandidateStage],
+    render,
+) -> Optional[OffTemplateColumn]:
+    """Zbuduj kubełek — albo `None`, gdy szablon pokrywa każdą kartę.
+
+    Etykiety mówią, na jakich etapach te karty stoją; bez nich rekruter widzi
+    kubełek, ale nie wie, dokąd kartę wyprowadzić. Zapytanie o nazwy etapów
+    z obcego szablonu leci **tylko gdy kubełek jest niepusty**, więc zdrowa
+    tablica nie płaci za to ani jednym round-tripem.
+    """
+
+    if not entries:
+        return None
+
+    labels: list[str] = []
+    foreign_def_ids = {e.stage_def_id for e in entries if e.stage_def_id is not None}
+    names_by_def_id: dict[int, str] = {}
+    if foreign_def_ids:
+        rows = await db.execute(
+            select(PipelineStageDef.id, PipelineStageDef.name).where(
+                PipelineStageDef.id.in_(foreign_def_ids)
+            )
+        )
+        names_by_def_id = {def_id: name for def_id, name in rows.all()}
+
+    for entry in entries:
+        label = names_by_def_id.get(entry.stage_def_id) if entry.stage_def_id else None
+        if label is None and entry.stage is not None:
+            label = STAGE_LABELS.get(entry.stage, entry.stage.value)
+        if label and label not in labels:
+            labels.append(label)
+
+    # Metryka spadku bez zmiany zachowania — sieroty powstają NADAL
+    # (`/bulk-move` i `open_process` zapisują `stage_def_id=NULL`), więc ten
+    # licznik ma rosnąć albo maleć, a nie zostać zapomniany.
+    logger.warning(
+        "kanban off-template bucket: job=%s cards=%d stages=%s",
+        job_id,
+        len(entries),
+        labels,
+    )
+
+    return OffTemplateColumn(
+        name="Poza szablonem",
+        count=len(entries),
+        items=[CandidateStageResponse(**render(e)) for e in entries],
+        missing_stage_labels=labels,
+    )
+
+
 @router.get("/kanban/{job_id}", response_model=KanbanView)
 async def get_kanban(
     job_id: int,
@@ -1130,20 +1225,9 @@ async def get_kanban(
             .all()
         )
 
-        enum_to_def: dict[str, PipelineStageDef] = {
-            sd.legacy_enum_value: sd for sd in stage_defs if sd.legacy_enum_value
-        }
-
-        columns_map: dict[int, list[CandidateStage]] = {sd.id: [] for sd in stage_defs}
-
-        for entry in seen.values():
-            # Prefer explicit FK; fall back to legacy enum mapping
-            if entry.stage_def_id in columns_map:
-                columns_map[entry.stage_def_id].append(entry)
-            else:
-                mapped = enum_to_def.get(entry.stage.value) if entry.stage else None
-                if mapped:
-                    columns_map[mapped.id].append(entry)
+        columns_map, off_template_entries = _bucket_by_stage_def(
+            seen.values(), stage_defs
+        )
 
         columns = []
         for sd in stage_defs:
@@ -1171,17 +1255,32 @@ async def get_kanban(
                     ),
                 )
             )
-        return KanbanView(job_id=job_id, columns=columns)
+        return KanbanView(
+            job_id=job_id,
+            columns=columns,
+            off_template=await _build_off_template(
+                db,
+                job_id=job_id,
+                entries=off_template_entries,
+                render=_stage_resp_with_name,
+            ),
+        )
 
     # ── Legacy fallback (no template seeded yet) ──────────────────────────────
+    # Ta gałąź pokrywa cały `PipelineStage`, więc dziś nic tu nie ginie. Kubełek
+    # jest mimo to zbierany, żeby inwariant „suma kolumn + kubełek == liczba par"
+    # trzymał na OBU ścieżkach i test regresji nie musiał się rozgałęziać.
     columns_map_legacy: dict[PipelineStage, list[CandidateStage]] = {
         s: [] for s in STAGE_ORDER
     }
     columns_map_legacy[PipelineStage.rejected] = []
     columns_map_legacy[PipelineStage.withdrawn] = []
+    off_template_entries = []
     for stage_entry in seen.values():
         if stage_entry.stage in columns_map_legacy:
             columns_map_legacy[stage_entry.stage].append(stage_entry)
+            continue
+        off_template_entries.append(stage_entry)
 
     columns = []
     for stage in list(STAGE_ORDER) + [PipelineStage.rejected, PipelineStage.withdrawn]:
@@ -1202,7 +1301,16 @@ async def get_kanban(
                 terminal_type=_LEGACY_TERMINAL_TYPE.get(stage),
             )
         )
-    return KanbanView(job_id=job_id, columns=columns)
+    return KanbanView(
+        job_id=job_id,
+        columns=columns,
+        off_template=await _build_off_template(
+            db,
+            job_id=job_id,
+            entries=off_template_entries,
+            render=_stage_resp_with_name,
+        ),
+    )
 
 
 @router.get(
