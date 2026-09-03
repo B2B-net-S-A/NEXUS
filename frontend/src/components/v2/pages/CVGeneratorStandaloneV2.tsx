@@ -909,8 +909,15 @@ export function CVGeneratorStandaloneV2() {
         />
       )}
 
-      <div className="mt-6 flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
+      {/* Przyklejony pasek akcji. Formularz bywa bardzo długi (Krok 1–4 +
+          „Opcje" ≈ 2600 px), a wcześniej przycisk „Generuj" leżał na samym dole
+          w normalnym przepływie — po wgraniu CV/championa wyglądało to, jakby
+          ekran „uciął się" na Kroku 2 i nie było czym wygenerować. `sticky
+          bottom-0` w kontenerze przewijania (main z overflow-y-auto) trzyma
+          przycisk przy dolnej krawędzi widoku przez cały formularz i zwalnia go
+          dopiero przy liście „Wygenerowane CV" poniżej. */}
+      <div className="sticky bottom-0 z-20 mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-border bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <p className="mr-auto hidden text-xs text-muted-foreground sm:block">
           {activeMut.isPending
             ? "Uruchamiam generację…"
             : "Generacja leci w tle (60–90 s) — CV pojawi się na liście poniżej. Możesz zamknąć kartę."}
