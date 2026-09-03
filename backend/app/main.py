@@ -51,6 +51,7 @@ from app.api import activities
 from app.api import admin
 from app.api import admin_section_permissions
 from app.api import client_cv_rules as client_cv_rules_api
+from app.api import client_playbooks as client_playbooks_api
 from app.api import analytics_v1 as analytics_v1_api
 from app.api import dashboard_v2 as dashboard_v2_api
 from app.api import finance as finance_api
@@ -876,6 +877,11 @@ app.include_router(clients.router, prefix="/api/clients", tags=["clients"])
 # Trasy niosą pełne ścieżki (/clients/{id}/cv-rule oraz /settings/cv-rules),
 # bo ten sam router obsługuje dwa wejścia do tej samej reguły.
 app.include_router(client_cv_rules_api.router, prefix="/api", tags=["client-cv-rules"])
+# Karta klienta: /clients/{id}/playbook (+ /history) i /settings/client-playbooks —
+# dwa wejścia do tej samej karty, więc trasy niosą pełne ścieżki jak reguły CV.
+app.include_router(
+    client_playbooks_api.router, prefix="/api", tags=["client-playbooks"]
+)
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(
     client_framework_contracts.router,
@@ -2178,6 +2184,8 @@ async def api_health_deep_check():
     from app.models.client_cv_rule import ClientCvRule
     from app.models.client_cv_rule_event import ClientCvRuleEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
+    from app.models.client_playbook import ClientPlaybook
+    from app.models.client_playbook_event import ClientPlaybookEvent
     from app.models.insights_scoring_config import InsightsScoringConfig
     from app.models.client_order_group import (
         ClientOrderGroup,
@@ -2275,6 +2283,10 @@ async def api_health_deep_check():
         ("client_cv_rules", ClientCvRule),
         ("client_cv_rule_events", ClientCvRuleEvent),
         ("client_cv_rule_previews", ClientCvRulePreview),
+        # 0271: karta klienta. Brak tabeli nie wywraca startu — wyszedłby dopiero
+        # jako 500 na profilu klienta i w Pomocy → Klienci. Sonda jest dowodem.
+        ("client_playbooks", ClientPlaybook),
+        ("client_playbook_events", ClientPlaybookEvent),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,
