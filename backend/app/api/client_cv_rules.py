@@ -27,6 +27,7 @@ prześledzenia.
 """
 
 import logging
+from contextlib import nullcontext
 import re
 import time
 import uuid
@@ -56,7 +57,13 @@ from app.services.client_access import (
     resolve_client_access,
     resolve_client_visible_client_ids,
 )
-from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+from app.services.ai_quota import (
+    AIQuotaExceeded,
+    QuotaState,
+    ai_feature,
+    check_and_increment,
+    declared_call,
+)
 from app.services.cv_generator_b2b.client_rules import (
     CONTENT_MODES,
     DATE_FORMATS,
@@ -1040,17 +1047,51 @@ async def lint_client_cv_rule(
         return LintResponse(
             findings=[], ok_count=0, adds_facts_count=0, unclear_count=0
         )
+    request_id = f"cvlint_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
+    findings: list[LintFindingRead] = []
     try:
         # Jedno pole = jedno wywołanie modelu = jedno obciążenie. Wszystkie
-        # naliczane PRZED pierwszym wywołaniem: odmowa z powodu wyczerpanego
-        # limitu cofa całość (rollback niżej), ale BŁĄD MODELU po commicie
-        # kwoty NIE zwraca — naliczamy decyzję o dopuszczeniu, nie sukces
-        # round-tripu, tak jak generator i generator ogłoszeń. Nieudane
-        # wywołanie też kosztowało tokeny.
-        for _ in fields:
-            await check_and_increment(
-                db, AIFeatureKey.cv_rule_lint, user_id=current_user.id
-            )
+        # naliczane PRZED pierwszym wywołaniem (`units=len(fields)`): odmowa
+        # z powodu wyczerpanego limitu cofa całość, więc Delivery Lead dostaje
+        # pełną ocenę albo czyste 503 — nigdy połowy, bo limit skończył się
+        # w środku pętli. BŁĄD MODELU po naliczeniu NIE zwraca kwoty: liczymy
+        # decyzję o dopuszczeniu, nie sukces round-tripu, bo nieudane wywołanie
+        # też kosztowało tokeny.
+        #
+        # `ai_feature`, nie gołe `check_and_increment`: bez deklaracji te
+        # wywołania dolatują do granicy dostawcy jako niezadeklarowane. Blok
+        # obejmuje CAŁĄ pętlę, bo deklaracja żyje tylko na czas swojego bloku.
+        async with ai_feature(
+            db,
+            AIFeatureKey.cv_rule_lint,
+            user_id=current_user.id,
+            units=len(fields),
+        ):
+            await db.commit()
+            for name, text in fields:
+                try:
+                    results = await run_in_threadpool(
+                        lint_instructions,
+                        text or "",
+                        request_id=f"{request_id}_{name}",
+                    )
+                except Exception as err:  # noqa: BLE001 — lint nie wywraca edytora
+                    logger.warning("[cv_rule_lint] %s failed: %s", name, err)
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="Nie udało się ocenić instrukcji — spróbuj za chwilę.",
+                    ) from err
+                findings.extend(
+                    LintFindingRead(
+                        field=name,
+                        index=f.index,
+                        line=f.line,
+                        verdict=f.verdict,
+                        reason=f.reason,
+                        suggestion=f.suggestion,
+                    )
+                    for f in results
+                )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -1062,32 +1103,6 @@ async def lint_client_cv_rule(
                 "limit": exc.limit,
             },
         ) from exc
-    await db.commit()
-
-    request_id = f"cvlint_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
-    findings: list[LintFindingRead] = []
-    for name, text in fields:
-        try:
-            results = await run_in_threadpool(
-                lint_instructions, text or "", request_id=f"{request_id}_{name}"
-            )
-        except Exception as err:  # noqa: BLE001 — lint nie może wywrócić edytora
-            logger.warning("[cv_rule_lint] %s failed: %s", name, err)
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Nie udało się ocenić instrukcji — spróbuj za chwilę.",
-            ) from err
-        findings.extend(
-            LintFindingRead(
-                field=name,
-                index=f.index,
-                line=f.line,
-                verdict=f.verdict,
-                reason=f.reason,
-                suggestion=f.suggestion,
-            )
-            for f in results
-        )
     return LintResponse(
         findings=findings,
         ok_count=sum(1 for f in findings if f.verdict == "ok"),
@@ -1182,10 +1197,44 @@ async def _run_rule_preview_job(
     candidate_id: int,
     stage_id: int,
     language: str,
+    quota_state: "QuotaState | None" = None,
+    quota_user_id: int | None = None,
 ) -> None:
     """Dwie generacje w tle: z regułą (zapisaną, choćby niezatwierdzoną)
     i bez. Awaria którejkolwiek = wiersz „failed" z powodem; nic nie jest
-    zapisywane w `cv_generated_documents`."""
+    zapisywane w `cv_generated_documents`.
+
+    `quota_state` pochodzi z naliczenia zrobionego w handlerze i służy WYŁĄCZNIE
+    do zadeklarowania wywołania — `BackgroundTasks` biegnie po zamknięciu
+    handlera, więc contextvar ustawiony przez `ai_feature` już nie żyje, a
+    bramka na granicy dostawcy widziałaby te dwie generacje jako
+    niezadeklarowane. Naliczenia tu NIE MA i być nie może: byłoby drugie.
+    """
+    declaration = (
+        declared_call(
+            AIFeatureKey.cv_generator, user_id=quota_user_id, state=quota_state
+        )
+        if quota_state is not None
+        else nullcontext()
+    )
+    with declaration:
+        await _run_rule_preview_job_inner(
+            preview_id,
+            client_id=client_id,
+            candidate_id=candidate_id,
+            stage_id=stage_id,
+            language=language,
+        )
+
+
+async def _run_rule_preview_job_inner(
+    preview_id: int,
+    *,
+    client_id: int,
+    candidate_id: int,
+    stage_id: int,
+    language: str,
+) -> None:
     async with AsyncSessionLocal() as db:
         row = await db.get(ClientCvRulePreview, preview_id)
         if row is None:
@@ -1301,10 +1350,11 @@ async def enqueue_client_cv_rule_preview(
         )
     )
     try:
-        for _ in range(2):
-            await check_and_increment(
-                db, AIFeatureKey.cv_generator, user_id=current_user.id
-            )
+        # Dwie generacje = dwie jednostki, naliczone JEDNYM sprawdzeniem, żeby
+        # DL nie dostał połowy podglądu przy limicie kończącym się w środku.
+        quota_state = await check_and_increment(
+            db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
+        )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -1334,6 +1384,12 @@ async def enqueue_client_cv_rule_preview(
         candidate_id=payload.candidate_id,
         stage_id=payload.stage_id,
         language=payload.language,
+        # Kwota jest naliczona WYŻEJ, w handlerze — bramka musi tam zostać,
+        # bo odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
+        # Zadanie dostaje sam stan, żeby móc się ZADEKLAROWAĆ: contextvar
+        # ustawiony przez handler nie dożywa do `BackgroundTasks`.
+        quota_state=quota_state,
+        quota_user_id=current_user.id,
     )
     return _preview_read(row)
 

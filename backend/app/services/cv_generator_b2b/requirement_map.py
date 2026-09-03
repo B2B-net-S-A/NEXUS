@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ai_feature import AIFeatureKey
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
-from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.skill_normalize import iter_skill_names
 from app.services.cv_generator_b2b.public_view import (
     build_public_payload,
@@ -272,9 +272,28 @@ async def ensure_requirement_map(
             return  # cache hit — nic do zrobienia, zero kosztu
 
         # Kwota AI — FAIL-OPEN: brak kwoty/feature off = brak kafelków, nie awaria.
+        #
+        # `ai_feature`, nie gołe `check_and_increment`: obciążenie i DEKLARACJA
+        # w jednym kroku. Samo obciążenie nie ustawia kontekstu wywołania, więc
+        # poprawnie naliczona mapa logowała się na granicy dostawcy jako
+        # „UNGATED", a pod AI_QUOTA_STRICT rzucałaby `AIQuotaUngated` — który
+        # wpadłby w `except Exception` niżej i CICHO skasował kafelki przy
+        # w pełni sprawnym systemie.
+        #
+        # Wyjątek kwoty leci teraz z WEJŚCIA w context manager, więc fail-open
+        # obejmuje cały blok, nie samo obciążenie.
         try:
-            await check_and_increment(db, AIFeatureKey.cv_requirement_map, user_id)
-            await db.commit()
+            async with ai_feature(db, AIFeatureKey.cv_requirement_map, user_id=user_id):
+                await db.commit()
+                await _generate_requirement_map(
+                    db,
+                    row=row,
+                    generated_id=generated_id,
+                    requirements=requirements,
+                    public_payload=public_payload,
+                    digest=digest,
+                )
+            return
         except AIQuotaExceeded as exc:
             await db.rollback()
             logger.warning(
@@ -282,56 +301,6 @@ async def ensure_requirement_map(
             )
             return
 
-        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get(
-            "CLAUDE_API_KEY"
-        )
-        if not api_key:
-            logger.warning("[cv_req_map] no API key configured — skipping")
-            return
-
-        from app.services.claude_client import call_claude
-
-        prompt = CV_REQUIREMENT_MAP.render(
-            cv_json=json.dumps(public_payload, ensure_ascii=False),
-            requirements_json=json.dumps(requirements, ensure_ascii=False),
-            language_label=(
-                "angielski" if public_payload["language"] == "en" else "polski"
-            ),
-        )
-        started = time.time()
-        message = await run_in_threadpool(
-            call_claude,
-            model=DEFAULT_MODEL,
-            max_tokens=MAX_TOKENS,
-            # Claude 5: adaptive thinking liczy się do max_tokens i ucina JSON.
-            thinking={"type": "disabled"},
-            system=CV_REQUIREMENT_MAP.system_prompt,
-            messages=[{"role": "user", "content": prompt}],
-            api_key=api_key,
-        )
-        raw = _strip_code_fences(
-            "".join(
-                getattr(b, "text", "") or ""
-                for b in message.content
-                if hasattr(b, "text")
-            )
-        )
-        parsed = json.loads(raw)
-        if not isinstance(parsed, dict):
-            raise ValueError("LLM returned non-object JSON")
-
-        items = _sanitize_items(parsed, requirements, public_payload)
-        row.requirement_map = {"items": items}
-        row.requirement_map_input_hash = digest
-        row.requirement_map_model = DEFAULT_MODEL
-        row.requirement_map_generated_at = datetime.now(timezone.utc)
-        await db.commit()
-        logger.info(
-            "[cv_req_map] generated=%s items=%d latency_ms=%d",
-            generated_id,
-            len(items),
-            int((time.time() - started) * 1000),
-        )
     except Exception as exc:  # noqa: BLE001 — mapa nigdy nie psuje generacji CV
         try:
             await db.rollback()
@@ -340,3 +309,68 @@ async def ensure_requirement_map(
         logger.warning(
             "[cv_req_map] generation failed generated=%s: %s", generated_id, exc
         )
+
+
+async def _generate_requirement_map(
+    db: AsyncSession,
+    *,
+    row: CvGeneratedDocument,
+    generated_id: int,
+    requirements: list[dict[str, str]],
+    public_payload: dict,
+    digest: str,
+) -> None:
+    """Wywołanie modelu i zapis mapy wymagań — wyodrębnione z `ensure_requirement_map`.
+
+    Powód wyniesienia jest mechaniczny, nie kosmetyczny: bramka kwot musi teraz
+    OBEJMOWAĆ wywołanie modelu, bo `ai_feature` deklaruje kontekst tylko na czas
+    swojego bloku. Wcięcie pięćdziesięciu linii w `async with` dałoby diff, w
+    którym łatwo przeoczyć zgubioną gałąź — a tutaj każda z nich kończy się
+    `return` i decyduje o tym, czy kafelki w ogóle powstaną.
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+    if not api_key:
+        logger.warning("[cv_req_map] no API key configured — skipping")
+        return
+
+    from app.services.claude_client import call_claude
+
+    prompt = CV_REQUIREMENT_MAP.render(
+        cv_json=json.dumps(public_payload, ensure_ascii=False),
+        requirements_json=json.dumps(requirements, ensure_ascii=False),
+        language_label=(
+            "angielski" if public_payload["language"] == "en" else "polski"
+        ),
+    )
+    started = time.time()
+    message = await run_in_threadpool(
+        call_claude,
+        model=DEFAULT_MODEL,
+        max_tokens=MAX_TOKENS,
+        # Claude 5: adaptive thinking liczy się do max_tokens i ucina JSON.
+        thinking={"type": "disabled"},
+        system=CV_REQUIREMENT_MAP.system_prompt,
+        messages=[{"role": "user", "content": prompt}],
+        api_key=api_key,
+    )
+    raw = _strip_code_fences(
+        "".join(
+            getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
+        )
+    )
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM returned non-object JSON")
+
+    items = _sanitize_items(parsed, requirements, public_payload)
+    row.requirement_map = {"items": items}
+    row.requirement_map_input_hash = digest
+    row.requirement_map_model = DEFAULT_MODEL
+    row.requirement_map_generated_at = datetime.now(timezone.utc)
+    await db.commit()
+    logger.info(
+        "[cv_req_map] generated=%s items=%d latency_ms=%d",
+        generated_id,
+        len(items),
+        int((time.time() - started) * 1000),
+    )

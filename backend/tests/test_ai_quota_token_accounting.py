@@ -193,9 +193,14 @@ def test_declared_call_does_not_charge_anything():
 # sens polega na braku bramki. Runtime nie odróżni prawdziwego `QuotaState` od
 # wymyślonego, więc jedyną egzekwowalną ochroną jest lista miejsc, którym wolno
 # go użyć. Ta lista ma tylko maleć. Wzorzec: `_BARE_CHARGE_BASELINE`.
-# Pusta CELOWO: dziś prymityw nie ma jeszcze konsumentów. Dwa dojdą razem
-# z przeniesieniem generacji CV B2B i CV próbnego reguł na deklarację w tle.
-_DECLARED_CALL_ALLOWLIST: set[str] = set()
+# Dwa miejsca, oba z tego samego powodu: wydatek dzieje się w `BackgroundTasks`,
+# po zamknięciu handlera, gdy contextvar z `ai_feature` już nie żyje. Kwota
+# w obu jest naliczona WYŻEJ, w handlerze — tutaj następuje wyłącznie
+# deklaracja. Lista ma tylko maleć.
+_DECLARED_CALL_ALLOWLIST: set[str] = {
+    "app/api/cv_generator_b2b.py",
+    "app/api/client_cv_rules.py",
+}
 
 
 def _files_using_declared_call() -> set[str]:

@@ -357,7 +357,11 @@ async def test_targeted_extract_rejects_candidate_without_eligible_contract(
         called["extract"] = True
         raise AssertionError(f"file extraction must not run: {case_label}")
 
-    async def _must_not_count_quota(*args, **kwargs):
+    def _must_not_count_quota(*args, **kwargs):
+        # `ai_feature` jest ASYNCHRONICZNYM context managerem, więc podmianka
+        # musi być zwykłą funkcją zwracającą CM — a nie korutyną, bo wtedy
+        # `async with` padłby na TypeError zamiast na tej asercji i test
+        # przechodziłby z niewłaściwego powodu.
         called["quota"] = True
         raise AssertionError(f"quota must not run: {case_label}")
 
@@ -366,7 +370,7 @@ async def test_targeted_extract_rejects_candidate_without_eligible_contract(
         raise AssertionError(f"parser must not run: {case_label}")
 
     monkeypatch.setattr(co, "extract_text", _must_not_extract)
-    monkeypatch.setattr(co, "check_and_increment", _must_not_count_quota)
+    monkeypatch.setattr(co, "ai_feature", _must_not_count_quota)
     monkeypatch.setattr(co, "parse_order_document", _must_not_parse)
     response = await app_client.post(
         f"/api/clients/{client_id}/orders/extract",

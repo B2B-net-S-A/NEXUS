@@ -97,37 +97,22 @@ def test_the_parallel_quota_implementation_is_gone():
 # The entries below are pre-existing and each needs its own migration. The list
 # must only ever shrink — z JEDNYM wyjątkiem opisanym niżej.
 _BARE_CHARGE_BASELINE = {
-    "app/api/jobs.py",
-    "app/api/client_orders.py",
-    "app/services/cv_generator_b2b/requirement_map.py",
-    "app/services/cv_generator_b2b/interactive_chat.py",
-    # Dopisane świadomie, nie żeby uciszyć strażnika: ta ścieżka jest INNEGO
-    # RODZAJU niż cztery powyższe i nie da się jej zmigrować do `ai_feature()`.
+    # Po 0270 zostały DWA wpisy i oba są świadome — a szkoda opisana w nagłówku
+    # tej sekcji przy żadnym z nich nie zachodzi, bo wywołanie jest
+    # zadeklarowane przez OTACZAJĄCY `declared_call`, nie przez to obciążenie.
     #
-    # Dwa powody, oba sprawdzone w kodzie:
-    #
-    # 1. Deklaracja by nie dożyła do wydatku. `ai_feature` ustawia contextvar
-    #    i KASUJE go w `finally` przy wyjściu z bloku, a Claude jest tu wołany
-    #    z `BackgroundTasks`, czyli PO odesłaniu 202 i zamknięciu handlera.
-    #    Bramka musi zostać w handlerze — odmowa w tle zostawiłaby wiersz
-    #    „failed" zamiast czytelnego 503 (patrz `_charge_cv_generation_quota`).
-    # 2. Szkoda opisana w nagłówku tej sekcji tu NIE ZACHODZI. `requirement_map`
-    #    i `interactive_chat` wołają `claude_client.call_claude`, więc realnie
-    #    trafiają w `_assert_declared` i logują się jako UNGATED. Generacja CV
-    #    idzie `standalone_service` → `ai_client.analyze_with_ai`, które buduje
-    #    `anthropic.Anthropic(...)` wprost (stąd wpis w `_RAW_CLIENT_BASELINE`)
-    #    — bramka na granicy dostawcy nigdy jej nie ogląda. Deklaracja byłaby
-    #    obietnicą pokrycia, którego nie ma.
-    #
-    # Migracja tego wpisu ma sens dopiero PO zdjęciu `ai_client.py` z
-    # `_RAW_CLIENT_BASELINE` — wtedy jednym ruchem wraca i deklaracja, i sens.
+    # `cv_generator_b2b.py` — druga wersja językowa CV. Naliczana W TLE, już po
+    # odesłaniu 202, bo decyzja o jej wygenerowaniu zapada dopiero po wczytaniu
+    # reguły klienta w zadaniu. Nie da się jej wnieść do handlera bez zgadywania
+    # z góry, czy w ogóle powstanie — a naliczenie na zapas kosztowałoby
+    # rekrutera jednostkę za dokument, którego klient nie chce. `ai_feature`
+    # tu NIE zadziała: kontekst tej cechy jest już aktywny (szym `_run_declared`),
+    # więc zagnieżdżona deklaracja zostałaby zdedupikowana i druga wersja
+    # wyszłaby DARMO.
     "app/api/cv_generator_b2b.py",
-    # 0267: reguły CV klienta — ten sam rodzaj co wpis wyżej, z tych samych
-    # dwóch powodów. Lint instrukcji idzie `rule_lint.lint_instructions` →
-    # `ai_client.analyze_with_ai` (surowy klient SDK, bramka dostawcy go nie
-    # ogląda), a CV próbne to dwie generacje w `BackgroundTasks` PO odesłaniu
-    # 202 — deklaracja nie dożyłaby wydatku, a bramka musi zostać w handlerze
-    # (czytelne 503 zamiast wiersza „failed"). Zdejmij razem z wpisem wyżej.
+    # `client_cv_rules.py` — CV próbne reguły: dwie generacje naliczone jednym
+    # `units=2` w handlerze, żeby DL nie dostał połowy podglądu. Zadanie w tle
+    # deklaruje się tym stanem przez `declared_call`.
     "app/api/client_cv_rules.py",
 }
 

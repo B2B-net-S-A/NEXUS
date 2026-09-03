@@ -2493,7 +2493,7 @@ async def generate_recommended_searches_endpoint(
     until the DL approves/rejects them.
     """
     from app.models.ai_feature import AIFeatureKey
-    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+    from app.services.ai_quota import AIQuotaExceeded, ai_feature
     from app.services.champion_draft_service import generate_recommended_searches
 
     job = await db.scalar(select(Job).where(Job.id == job_id))
@@ -2501,17 +2501,28 @@ async def generate_recommended_searches_endpoint(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
+    # `ai_feature`, nie gołe `check_and_increment`: obciążenie i DEKLARACJA
+    # w jednym kroku — bez deklaracji wywołanie dolatuje do granicy dostawcy
+    # jako niezadeklarowane i pod AI_QUOTA_STRICT rzuca, mimo naliczonej kwoty.
+    #
+    # Przy okazji 429 → 503 (C-8 z audytu): to była JEDYNA trasa mapująca
+    # wyczerpaną kwotę na 429 — dwie bliźniacze niżej zawsze zwracały 503 ze
+    # słownikiem `detail`, i to ten kształt zna front.
     try:
-        await check_and_increment(
-            db, AIFeatureKey.champion_draft, user_id=current_user.id
-        )
+        async with ai_feature(db, AIFeatureKey.champion_draft, user_id=current_user.id):
+            profile = await generate_recommended_searches(
+                db, job_id=job_id, user_id=current_user.id
+            )
     except AIQuotaExceeded as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
-
-    try:
-        profile = await generate_recommended_searches(
-            db, job_id=job_id, user_id=current_user.id
-        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 — LLM failures surface as 502
@@ -2651,7 +2662,7 @@ async def generate_champion_from_jd(
         GenerateFromJdPayload,
         patches_from_payload,
     )
-    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+    from app.services.ai_quota import AIQuotaExceeded, ai_feature
     from app.services.champion_draft_service import generate_from_jd
 
     job = await db.scalar(select(Job).where(Job.id == job_id))
@@ -2659,11 +2670,16 @@ async def generate_champion_from_jd(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
+    body = GenerateFromJdPayload.model_validate(payload or {})
     try:
-        await check_and_increment(
-            db, AIFeatureKey.champion_draft, user_id=current_user.id
-        )
-        await db.commit()
+        async with ai_feature(db, AIFeatureKey.champion_draft, user_id=current_user.id):
+            await db.commit()
+            suggestion = await generate_from_jd(
+                db,
+                job_id=job_id,
+                raw_description=body.raw_description,
+                user_id=current_user.id,
+            )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -2676,13 +2692,6 @@ async def generate_champion_from_jd(
             },
         ) from exc
 
-    body = GenerateFromJdPayload.model_validate(payload or {})
-    suggestion = await generate_from_jd(
-        db,
-        job_id=job_id,
-        raw_description=body.raw_description,
-        user_id=current_user.id,
-    )
     out = ChampionProfileSuggestionOut.model_validate(suggestion)
     out.patches = patches_from_payload(suggestion.payload or {})
     return out
@@ -2710,7 +2719,7 @@ async def generate_champion_from_history(
         GenerateFromHistoryPayload,
         patches_from_payload,
     )
-    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+    from app.services.ai_quota import AIQuotaExceeded, ai_feature
     from app.services.champion_draft_service import generate_from_historical_jobs
 
     job = await db.scalar(select(Job).where(Job.id == job_id))
@@ -2718,11 +2727,25 @@ async def generate_champion_from_history(
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
 
+    body = GenerateFromHistoryPayload.model_validate(payload or {})
+    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+    _assert_delivery_lead_cross_client_disabled(
+        body.cross_client,
+        delivery_lead_pairs,
+    )
+    from app.services.champion_draft_service import HistoricalSearchUnavailable
+
     try:
-        await check_and_increment(
-            db, AIFeatureKey.champion_draft, user_id=current_user.id
-        )
-        await db.commit()
+        async with ai_feature(db, AIFeatureKey.champion_draft, user_id=current_user.id):
+            await db.commit()
+            suggestion = await generate_from_historical_jobs(
+                db,
+                job_id=job_id,
+                raw_description=body.raw_description,
+                top_k=body.top_k,
+                cross_client=body.cross_client,
+                user_id=current_user.id,
+            )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -2734,24 +2757,6 @@ async def generate_champion_from_history(
                 "limit": exc.limit,
             },
         ) from exc
-
-    body = GenerateFromHistoryPayload.model_validate(payload or {})
-    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
-    _assert_delivery_lead_cross_client_disabled(
-        body.cross_client,
-        delivery_lead_pairs,
-    )
-    from app.services.champion_draft_service import HistoricalSearchUnavailable
-
-    try:
-        suggestion = await generate_from_historical_jobs(
-            db,
-            job_id=job_id,
-            raw_description=body.raw_description,
-            top_k=body.top_k,
-            cross_client=body.cross_client,
-            user_id=current_user.id,
-        )
     except HistoricalSearchUnavailable as exc:
         # 503, nie 200 z odrzuceniem. Poprzednio awaria kończyła się wierszem
         # „znaleziono 0, wymagane co najmniej 2" — nieprawdą o danych klienta,

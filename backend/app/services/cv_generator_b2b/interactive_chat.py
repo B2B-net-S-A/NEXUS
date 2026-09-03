@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ai_feature import AIFeatureKey
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken, CvShareChatMessage
-from app.services.ai_quota import check_and_increment
+from app.services.ai_quota import ai_feature
 
 # Reuse jednego źródła prawdy wzorców DLP/injection (świadomy import prywatnych
 # helperów — duplikacja ~100 linii regexów rozjechałaby się przy pierwszej
@@ -204,8 +204,26 @@ async def answer_question(
 
     # Globalna kwota AI — commit od razu, żeby licznik nie przepadł przy
     # późniejszym rollbacku ścieżki LLM.
-    await check_and_increment(db, AIFeatureKey.cv_interactive_chat, user_id=None)
-    await db.commit()
+    #
+    # `ai_feature`, nie gołe `check_and_increment`: samo obciążenie nie ustawia
+    # kontekstu wywołania, więc pod AI_QUOTA_STRICT ten endpoint rzucałby
+    # `AIQuotaUngated` mimo poprawnie naliczonej kwoty. Wyjątek wpadłby
+    # w `except Exception` niżej, zostałby przepakowany na `CvChatLLMError`
+    # i hiring manager dostałby 502 z komunikatem o błędzie przejściowym —
+    # na KAŻDE pytanie, przy rosnącym liczniku.
+    async with ai_feature(db, AIFeatureKey.cv_interactive_chat, user_id=None):
+        await db.commit()
+        return await _answer_with_model(db, token_row, doc_row, question)
+
+
+async def _answer_with_model(
+    db: AsyncSession,
+    token_row: CvGeneratedShareToken,
+    doc_row: CvGeneratedDocument,
+    question: str,
+) -> str:
+    """Wywołanie modelu i zapis wymiany — wyodrębnione, bo bramka kwot musi
+    OBEJMOWAĆ wywołanie, a `ai_feature` deklaruje kontekst tylko na czas bloku."""
 
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
     if not api_key:

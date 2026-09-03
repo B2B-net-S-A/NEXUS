@@ -25,6 +25,7 @@ request time. Real (non-stringized) annotations sidestep it. Same reason as
 import hashlib
 import json
 import logging
+from contextlib import nullcontext
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -75,7 +76,12 @@ from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.services import object_storage
-from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+from app.services.ai_quota import (
+    AIQuotaExceeded,
+    QuotaState,
+    check_and_increment,
+    declared_call,
+)
 from app.services.cv_generator_b2b.client_rules import (
     required_input_problems,
     resolve_client_rule,
@@ -380,7 +386,7 @@ async def _finalize_success(
     return True
 
 
-async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> None:
+async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> QuotaState:
     """Obciąż kwotę AI za generację CV B2B — i odmów, gdy jest wyczerpana.
 
     To NAJDROŻSZE wywołanie Claude'a w produkcie (16 384 tokeny outputu, łańcuch
@@ -410,10 +416,13 @@ async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> None:
     kandydacie nie commituje niczego, więc nie obciąża kwoty.
     """
     from app.models.ai_feature import AIFeatureKey
-    from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+    from app.services.ai_quota import (
+        AIQuotaExceeded,
+        check_and_increment,
+    )
 
     try:
-        await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
+        return await check_and_increment(db, AIFeatureKey.cv_generator, user_id=user_id)
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -425,6 +434,31 @@ async def _charge_cv_generation_quota(db: AsyncSession, user_id: int) -> None:
                 "limit": exc.limit,
             },
         ) from exc
+
+
+async def _run_declared(fn, *args, quota_state=None, quota_user_id=None, **kwargs):
+    """Odpal zadanie w tle z DEKLARACJĄ kwoty naliczonej już w handlerze.
+
+    `BackgroundTasks` biegnie po odesłaniu odpowiedzi, więc contextvar
+    ustawiony przez handler jest już zresetowany, a generacja CV — najdroższe
+    wywołanie w produkcie — dolatuje do granicy dostawcy jako niezadeklarowana.
+    Pod `AI_QUOTA_STRICT` skończyłaby się wyjątkiem mimo poprawnie naliczonej
+    kwoty.
+
+    Owijamy TUTAJ, na poziomie zakolejkowania, a nie w ciele zadania: ciała obu
+    generacji mają po kilkaset linii i wcięcie ich w `with` dałoby diff, w
+    którym nie widać zmiany logiki. Bramka odmowy zostaje w handlerze — odmowa
+    w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
+    """
+    declaration = (
+        declared_call(
+            AIFeatureKey.cv_generator, user_id=quota_user_id, state=quota_state
+        )
+        if quota_state is not None
+        else nullcontext()
+    )
+    with declaration:
+        await fn(*args, **kwargs)
 
 
 async def _finalize_failure(db: AsyncSession, generated_id: int, message: str) -> None:
@@ -1206,7 +1240,7 @@ async def generate(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    await _charge_cv_generation_quota(db, current_user.id)
+    quota_state = await _charge_cv_generation_quota(db, current_user.id)
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
     generated_id = await _create_pending_row(
@@ -1226,8 +1260,11 @@ async def generate(
     await db.commit()
 
     background_tasks.add_task(
+        _run_declared,
         _run_generate_new_job,
         generated_id,
+        quota_state=quota_state,
+        quota_user_id=current_user.id,
         candidate_id=payload.candidate_id,
         stage_id=payload.stage_id,
         language=payload.language,
@@ -1336,7 +1373,7 @@ async def generate_from_upload(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
-    await _charge_cv_generation_quota(db, current_user.id)
+    quota_state = await _charge_cv_generation_quota(db, current_user.id)
     cv_bytes = await cv_file.read()
     champion_bytes: bytes | None = None
     champion_filename: str | None = None
@@ -1377,8 +1414,11 @@ async def generate_from_upload(
     await db.commit()
 
     background_tasks.add_task(
+        _run_declared,
         _run_generate_upload_job,
         generated_id,
+        quota_state=quota_state,
+        quota_user_id=current_user.id,
         payload=gen_payload,
         user_id=current_user.id,
         consent_screenshot=(

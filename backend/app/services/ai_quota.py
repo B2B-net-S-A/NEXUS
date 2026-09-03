@@ -140,13 +140,24 @@ async def check_and_increment(
     db: AsyncSession,
     feature: AIFeatureKey,
     user_id: Optional[int] = None,
+    *,
+    units: int = 1,
 ) -> QuotaState:
     """Atomic-ish quota check + increment.
 
     Raises ``AIQuotaExceeded`` if blocked. Returns post-increment state on
     success. Caller is expected to ``await db.commit()`` if the broader unit
     of work succeeds.
+
+    ``units`` obsługuje operacje, które są JEDNĄ decyzją użytkownika, ale
+    kilkoma wywołaniami modelu — dziś tylko lint reguł CV (jedno pole = jedno
+    wywołanie). Naliczenie ich z góry, jednym sprawdzeniem, zachowuje
+    „wszystko albo nic": rekruter dostaje pełną ocenę albo czyste 503, nigdy
+    połowy przy wyczerpanym limicie w środku pętli. Przy ``units=1`` warunek
+    blokady jest identyczny co do znaku z poprzednim (``total_used >= limit``).
     """
+    if units < 1:
+        raise ValueError("units musi być dodatnie")
     # 1. Master toggle
     master = await get_master_enabled(db)
     if not master:
@@ -179,7 +190,7 @@ async def check_and_increment(
     period = _current_period_start()
     total_used = await get_total_usage_for_period(db, feature, period)
 
-    if limit > 0 and total_used >= limit:
+    if limit > 0 and total_used + units > limit:
         raise AIQuotaExceeded(
             feature,
             "Miesięczny limit wyczerpany",
@@ -195,13 +206,13 @@ async def check_and_increment(
             feature=feature,
             user_id=user_id,
             period_start=period,
-            count=1,
+            count=units,
             last_call_at=now,
         )
         .on_conflict_do_update(
             constraint="uq_ai_usage_feature_user_period",
             set_={
-                "count": AIUsageLog.count + 1,
+                "count": AIUsageLog.count + units,
                 "last_call_at": now,
             },
         )
@@ -209,7 +220,7 @@ async def check_and_increment(
     await db.execute(stmt)
 
     return QuotaState(
-        used=total_used + 1,
+        used=total_used + units,
         limit=limit,
         period_start=period,
     )
@@ -362,6 +373,7 @@ async def ai_feature(
     feature: AIFeatureKey,
     *,
     user_id: Optional[int] = None,
+    units: int = 1,
 ):
     """Charge the quota and mark the surrounding block as a declared AI call.
 
@@ -390,7 +402,7 @@ async def ai_feature(
         yield active.state
         return
 
-    state = await check_and_increment(db, feature, user_id=user_id)
+    state = await check_and_increment(db, feature, user_id=user_id, units=units)
     context = AiCallContext(feature=feature, user_id=user_id, state=state)
     token = _AI_CALL_CONTEXT.set(context)
     try:
