@@ -1,4 +1,4 @@
-"""Migracja 0271: korekta wskazana w tickecie + audyt klasy — kontrakt SQL-a.
+"""Migracja 0274: korekta wskazana w tickecie + audyt klasy — kontrakt SQL-a.
 
 Wzorzec 0250: id kontraktu nie jest zaufane samo — klient, nazwisko, status,
 brak wypowiedzenia i data muszą się zgadzać; analogiczne wiersze są wyłącznie
@@ -24,13 +24,13 @@ from app.services.contract_ended_tab_repair import (
 )
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic/versions/0271_ended_tab_contract_repair.py"
+MIGRATION = BACKEND / "alembic/versions/0274_ended_tab_contract_repair.py"
 
 
-def test_0271_chains_after_jobs_open_state_head():
+def test_0274_chains_after_the_current_head():
     source = MIGRATION.read_text(encoding="utf-8")
-    assert 'revision = "0271_ended_tab_contract_repair"' in source
-    assert 'down_revision = "0270_jobs_open_state_dates"' in source
+    assert 'revision = "0274_ended_tab_contract_repair"' in source
+    assert 'down_revision = "0273_action_permissions"' in source
     assert "ENDED_TAB_REPAIR_SQL" in source
 
 

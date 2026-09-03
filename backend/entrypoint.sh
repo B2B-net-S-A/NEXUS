@@ -6951,7 +6951,7 @@ asyncio.run(repair())
 PY
 
 # Reguła zakładki „Zakończeni" (09.2026) — jednorazowa korekta wskazanego
-# kontraktu + audyt klasy (safety-net dla migracji 0271, gdy alembic na prodzie
+# kontraktu + audyt klasy (safety-net dla migracji 0274, gdy alembic na prodzie
 # stoi na starszej rewizji). Jedno źródło SQL-a w
 # `app/services/contract_ended_tab_repair.py`; blok jest idempotentny.
 echo "Repairing contracts ended by an order period, not by administration (one-shot)..."

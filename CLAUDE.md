@@ -1637,7 +1637,7 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wyczyszczenie daty (bezterminowa) nie rusza zamówień.
   W drugą stronę zamówienie NIGDY nie ustawia daty końca umowy:
   `sync_contract_to_live_order` wskrzesza kontrakt jako bezterminowy.
-- **Korekta danych (migracja `0271` + lustro w `entrypoint.sh`, SQL w
+- **Korekta danych (migracja `0274` + lustro w `entrypoint.sh`, SQL w
   `services/contract_ended_tab_repair.py`)**: wskazany w tickecie Contract 469
   (Piotr Klimczak, VeloBank) wraca na `active` po pełnych kluczach
   biznesowych; klasa „zakończona bez wypowiedzenia, a zamówienie trwało po

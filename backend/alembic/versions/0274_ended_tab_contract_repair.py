@@ -1,7 +1,7 @@
 """Reguła zakładki „Zakończeni": korekta Contract 469 + audyt klasy.
 
-Revision ID: 0271_ended_tab_contract_repair
-Revises: 0270_jobs_open_state_dates
+Revision ID: 0274_ended_tab_contract_repair
+Revises: 0273_action_permissions
 
 Korekta danych bez zmiany schematu. Kod w tej samej rewizji przestaje
 przepisywać datę końca ZAMÓWIENIA do daty końca UMOWY przy wskrzeszaniu
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services.contract_ended_tab_repair import ENDED_TAB_REPAIR_SQL
 
-revision = "0271_ended_tab_contract_repair"
-down_revision = "0270_jobs_open_state_dates"
+revision = "0274_ended_tab_contract_repair"
+down_revision = "0273_action_permissions"
 branch_labels = None
 depends_on = None
 

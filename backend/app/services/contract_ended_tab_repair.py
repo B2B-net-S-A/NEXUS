@@ -15,11 +15,11 @@ w ``app_settings``: dwie z trzech u VeloBanku to osoby, których na nowym
 zamówieniu nie ma, więc masowe wskrzeszenie wciągnęłoby je do MRR i alertów.
 
 Blok jest jednorazowy (marker + advisory lock) i idempotentny; jedno źródło
-dla migracji 0271 i dla safety-netu w ``entrypoint.sh`` (alembic na prodzie
+dla migracji 0274 i dla safety-netu w ``entrypoint.sh`` (alembic na prodzie
 bywa osierocony).
 """
 
-ENDED_TAB_REPAIR_MARKER = "0271_ended_tab_contract_repair"
+ENDED_TAB_REPAIR_MARKER = "0274_ended_tab_contract_repair"
 _MARKER = ENDED_TAB_REPAIR_MARKER
 
 ENDED_TAB_REPAIR_SQL = rf"""
@@ -127,7 +127,7 @@ BEGIN
     )
     ON CONFLICT (key) DO NOTHING;
 
-    RAISE NOTICE '0271 repaired % contract(s); % analogue(s) audited',
+    RAISE NOTICE '0274 repaired % contract(s); % analogue(s) audited',
         repaired_rows, audited_rows;
 END
 $ended_tab_repair$;

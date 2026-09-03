@@ -31,10 +31,10 @@ VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Klimcza
   końca umowy (`_sync_client_orders_to_contract_end`, wyłącznie skracanie, audyt
   `orders_synced_to_end_date`); `sync_contract_to_live_order` wskrzesza kontrakt jako
   bezterminowy (data z zamówienia idzie do `client_order_end_date`, gdy śledzony).
-- **Dane**: migracja `0271_ended_tab_contract_repair` + lustro w `entrypoint.sh`
+- **Dane**: migracja `0274_ended_tab_contract_repair` + lustro w `entrypoint.sh`
   (SQL w `services/contract_ended_tab_repair.py`): Contract 469 → `active`,
   `end_date NULL`, wpis `contract_reopened`; audyt klasy w
-  `app_settings['0271_ended_tab_contract_repair']`.
+  `app_settings['0274_ended_tab_contract_repair']`.
 - Instrukcja zamówień (moduł Pomoc) opisuje regułę; CLAUDE.md ma nową sekcję.
 
 ## Poza zakresem (świadomie)
@@ -48,5 +48,5 @@ VeloBank (465, 469, 470); na nowym zamówieniu `3/09/2026/BL` jest tylko Klimcza
 ## Weryfikacja
 
 Backend: testy cyklu życia kontraktu i zamówień + nowe `test_contract_end_date_rule.py`
-i `test_ended_tab_contract_repair_0271.py` (w tym wykonanie bloku SQL na bazie).
+i `test_ended_tab_contract_repair_0274.py` (w tym wykonanie bloku SQL na bazie).
 Front: `client-order-list.test.ts`, `OrdersAndContractsTab.test.tsx`, tsc, eslint.
