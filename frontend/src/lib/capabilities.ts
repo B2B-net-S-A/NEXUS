@@ -40,6 +40,7 @@ export type Capability =
   | "client.create"
   | "client.update"
   | "cv_rule.manage"
+  | "client_playbook.manage"
   | "contract.create"
   | "contact.create"
   | "calendar_event.create"
@@ -137,6 +138,11 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // klienta (`client.update`) edytować może. Bramka przycisków na
   // /settings/cv-rules i sekcji „Reguły CV" w oknie edycji firmy.
   "cv_rule.manage": ["admin", "delivery_lead"],
+  // PUT /api/clients/{id}/playbook + GET …/playbook/history → DeliverySectionUser
+  // (backend/app/api/client_playbooks.py): zapis w sekcji Delivery. Kartę
+  // prowadzi DL; odczyt ma każdy OperationalUser — bramkujemy tylko przycisk
+  // „Edytuj kartę" i CTA „Załóż kartę".
+  "client_playbook.manage": ["admin", "delivery_lead"],
   // POST /api/contracts → TacPlus narrowed by the Delivery section write gate.
   "contract.create": DELIVERY_TAC_WRITERS,
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts =
@@ -219,6 +225,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "client.create": { section: "delivery", required: "write" },
   "client.update": { section: "delivery", required: "write" },
   "cv_rule.manage": { section: "delivery", required: "write" },
+  "client_playbook.manage": { section: "delivery", required: "write" },
   "contract.create": { section: "delivery", required: "write" },
   "contact.create": { section: "delivery", required: "write" },
   "calendar_event.create": { section: "pipeline", required: "write" },
@@ -247,6 +254,7 @@ export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
   "client.create",
   "client.update",
   "cv_rule.manage",
+  "client_playbook.manage",
   "contract.create",
   "contact.create",
   "calendar_event.create",
