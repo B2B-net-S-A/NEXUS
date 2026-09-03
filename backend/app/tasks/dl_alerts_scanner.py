@@ -39,12 +39,16 @@ from app.models.dl_alert import (
 )
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import consultant_display_name
+from app.services.delivery_alert_recipients import (
+    DeliveryAlertRecipientScope,
+    load_delivery_alert_recipient_scope,
+)
 from app.services.dl_alerts import dl_user_ids_for_client, emit
 from app.services.shared_md_orders import uses_shared_md_pool
 
 logger = logging.getLogger(__name__)
 
-Rule = Callable[[AsyncSession], Awaitable[int]]
+Rule = Callable[[AsyncSession, DeliveryAlertRecipientScope | None], Awaitable[int]]
 
 
 def _client_link(client_id: int) -> str:
@@ -63,7 +67,10 @@ async def _client_names(db: AsyncSession, client_ids: set[int]) -> dict[int, str
     return {cid: name for cid, name in rows}
 
 
-async def rule_draft_consultant_unassigned(db: AsyncSession) -> int:
+async def rule_draft_consultant_unassigned(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
     """Konsultant z zamówieniem w statusie Draft — czeka na uzupełnienie.
 
     To ta sama populacja, którą zakładka „Zamówienia" pokazuje pod pigułką
@@ -78,9 +85,13 @@ async def rule_draft_consultant_unassigned(db: AsyncSession) -> int:
     )
     orders = list(result.scalars())
     names = await _client_names(db, {o.client_id for o in orders})
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
     created = 0
     for order in orders:
-        user_ids = await dl_user_ids_for_client(db, order.client_id)
+        user_ids = await dl_user_ids_for_client(
+            db, order.client_id, scope=recipient_scope
+        )
         if not user_ids:
             continue
         who = consultant_display_name(order) or "Konsultant"
@@ -105,7 +116,10 @@ async def rule_draft_consultant_unassigned(db: AsyncSession) -> int:
     return created
 
 
-async def rule_md_budget_low(db: AsyncSession) -> int:
+async def rule_md_budget_low(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
     """Kończące się MD — osobno przy osobie i osobno we wspólnej puli.
 
     Próg jest GLOBALNY (``DL_ALERT_MD_THRESHOLD``), bez konfiguracji per klient
@@ -115,12 +129,18 @@ async def rule_md_budget_low(db: AsyncSession) -> int:
     niezależnie od tego, czy budżet wisi przy osobie, czy na zamówieniu.
     """
     threshold = Decimal(str(settings.DL_ALERT_MD_THRESHOLD))
-    created = await _md_low_per_consultant(db, threshold)
-    created += await _md_low_shared_pool(db, threshold)
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    created = await _md_low_per_consultant(db, threshold, recipient_scope)
+    created += await _md_low_shared_pool(db, threshold, recipient_scope)
     return created
 
 
-async def _md_low_per_consultant(db: AsyncSession, threshold: Decimal) -> int:
+async def _md_low_per_consultant(
+    db: AsyncSession,
+    threshold: Decimal,
+    recipient_scope: DeliveryAlertRecipientScope,
+) -> int:
     """Aktywna linia z własnym budżetem MD i pozostałością poniżej progu."""
     result = await db.execute(
         select(ClientOrder)
@@ -137,7 +157,9 @@ async def _md_low_per_consultant(db: AsyncSession, threshold: Decimal) -> int:
     names = await _client_names(db, {o.client_id for o in orders})
     created = 0
     for order in orders:
-        user_ids = await dl_user_ids_for_client(db, order.client_id)
+        user_ids = await dl_user_ids_for_client(
+            db, order.client_id, scope=recipient_scope
+        )
         if not user_ids:
             continue
         group = order.order_group
@@ -167,7 +189,11 @@ async def _md_low_per_consultant(db: AsyncSession, threshold: Decimal) -> int:
     return created
 
 
-async def _md_low_shared_pool(db: AsyncSession, threshold: Decimal) -> int:
+async def _md_low_shared_pool(
+    db: AsyncSession,
+    threshold: Decimal,
+    recipient_scope: DeliveryAlertRecipientScope,
+) -> int:
     """Wspólna pula MD (Lotte Wedel, Cyfrowy Polsat) poniżej progu.
 
     Osobne zapytanie, bo budżet mieszka gdzie indziej: przy tych dwóch
@@ -194,7 +220,9 @@ async def _md_low_shared_pool(db: AsyncSession, threshold: Decimal) -> int:
     names = await _client_names(db, {group.client_id for group in groups})
     created = 0
     for group in groups:
-        user_ids = await dl_user_ids_for_client(db, group.client_id)
+        user_ids = await dl_user_ids_for_client(
+            db, group.client_id, scope=recipient_scope
+        )
         if not user_ids:
             continue
         client_name = names.get(group.client_id, "Klient")
@@ -227,7 +255,10 @@ async def _md_low_shared_pool(db: AsyncSession, threshold: Decimal) -> int:
     return created
 
 
-async def rule_missing_revenue_rate(db: AsyncSession) -> int:
+async def rule_missing_revenue_rate(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
     """Aktywne zamówienie bez uzupełnionej stawki przychodowej.
 
     Dwa źródła, bo stawka przychodowa mieszka w dwóch kolumnach: linia
@@ -257,9 +288,13 @@ async def rule_missing_revenue_rate(db: AsyncSession) -> int:
     )
     orders = list(result.scalars())
     names = await _client_names(db, {o.client_id for o in orders})
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
     created = 0
     for order in orders:
-        user_ids = await dl_user_ids_for_client(db, order.client_id)
+        user_ids = await dl_user_ids_for_client(
+            db, order.client_id, scope=recipient_scope
+        )
         if not user_ids:
             continue
         group = order.order_group
@@ -307,6 +342,7 @@ async def run_once(db: AsyncSession | None = None) -> dict[str, int]:
 
 async def _run_rules(db: AsyncSession) -> dict[str, int]:
     created: dict[str, int] = {}
+    recipient_scope = await load_delivery_alert_recipient_scope(db)
     for name, rule in ALERT_RULES.items():
         try:
             # SAVEPOINT, nie wspólna transakcja z `db.rollback()` w except.
@@ -315,7 +351,7 @@ async def _run_rules(db: AsyncSession) -> dict[str, int]:
             # raportowałoby liczby wierszy, których w bazie nie ma. To ten sam
             # tryb awarii co przy fazie `workflows` importu Traffita.
             async with db.begin_nested():
-                created[name] = await rule(db)
+                created[name] = await rule(db, recipient_scope)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

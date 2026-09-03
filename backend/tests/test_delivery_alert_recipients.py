@@ -161,7 +161,9 @@ async def test_delivery_alert_recipients_honour_roles_access_and_client_scope():
 
         async with AsyncSessionLocal() as db:
             scope = await load_delivery_alert_recipient_scope(db)
-            dl_alert_recipients = set(await dl_user_ids_for_client(db, client_ids[0]))
+            dl_alert_recipients = set(
+                await dl_user_ids_for_client(db, client_ids[0], scope=scope)
+            )
 
         own_recipients = set(scope.for_client(client_ids[0]))
         other_recipients = set(scope.for_client(client_ids[1]))

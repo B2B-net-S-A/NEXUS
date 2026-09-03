@@ -445,7 +445,7 @@ async def start_impersonation(
             status_code=400, detail="Nie można oglądać widoku samego siebie"
         )
 
-    result = await db.execute(select(User).where(User.id == user_id).with_for_update())
+    result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
