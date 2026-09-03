@@ -24,6 +24,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
+from app.services.pipeline_latest import latest_stage_ids
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
@@ -699,17 +700,13 @@ async def list_jobs(
         )
         counts = dict(count_result.all())
 
-    # Optional: stage breakdown per job. Single GROUP BY (no N+1) — only the
-    # *latest* stage per (candidate_id, job_id) counts, so we mirror the
-    # pattern used in team_structure.my-team: id IN (MAX(id) GROUP BY pair).
+    # Optional: stage breakdown per job. Single GROUP BY (no N+1) — liczy się
+    # wyłącznie *bieżący* etap pary, wg kanonicznego `(moved_at DESC, id DESC)`.
+    # Dawniej `MAX(id)`, co przy backdated imporcie z Traffita wskazywało inny
+    # wiersz niż tablica i KPI (2 712 rozjeżdżonych par na produkcji).
     stage_breakdown: dict[int, dict[str, int]] = {}
     if include_stage_counts and job_ids:
-        latest_per_cj = (
-            select(func.max(CandidateStage.id).label("latest_id"))
-            .where(CandidateStage.job_id.in_(job_ids))
-            .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
-            .subquery()
-        )
+        latest_per_cj = latest_stage_ids(job_ids=job_ids)
         breakdown_rows = (
             await db.execute(
                 select(

@@ -238,6 +238,10 @@ export interface RecruitmentFunnelConversions {
   acceptance_to_placement_pct: number | null;
   interview_to_placement_pct: number | null;
   overall_pct: number | null;
+  /** Pola wygaszone z braku POKRYCIA (nie z braku próby) — `null` w tych polach
+   *  znaczy „nie ma z czego policzyć", a nie „mianownik był zerowy". */
+  uncovered: string[];
+  coverage_note: string | null;
 }
 
 export interface CompetitionRankingEntry {

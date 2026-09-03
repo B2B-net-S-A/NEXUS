@@ -93,6 +93,10 @@ from app.analytics.periods import (
     PeriodKind,
     resolve_period,
 )
+from app.services.metric_definitions import (
+    CLOSED_JOBS_WITH_PLACEMENT,
+    FIRST_HIRED_PER_CANDIDATE_JOB,
+)
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
@@ -668,7 +672,7 @@ async def insights_board(
             # Nazwa definicji jedzie w odpowiedzi, żeby konsument mógł ją
             # napisać na kaflu — trzy różne „placementy" w jednej aplikacji
             # to jest właśnie ta klasa pomyłki, którą D2 zamyka.
-            "placements_definition": "first_hired_per_candidate_job",
+            "placements_definition": FIRST_HIRED_PER_CANDIDATE_JOB,
             "placements": placements,
             "verified": counts.get("verified", 0),
             "cv_sent": counts.get("cv_sent", 0),
@@ -678,7 +682,7 @@ async def insights_board(
             "jobs_closed_with_placement": jobs_closed_filled,
             # Definicja wypowiadalna jednym zdaniem — patrz docstring modułu p.2.
             "hit_ratio_pct": _ratio(jobs_closed_filled, jobs_closed),
-            "hit_ratio_definition": "closed_jobs_with_at_least_one_placement",
+            "hit_ratio_definition": CLOSED_JOBS_WITH_PLACEMENT,
             "finance": {
                 "asof": asof.isoformat(),
                 "basis": "mrr_from_rate_schedules",

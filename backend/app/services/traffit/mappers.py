@@ -15,6 +15,7 @@ Discovery findings (docs/traffit-discovery.md):
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
@@ -457,6 +458,66 @@ _DEFAULT_STATE_MAPPING = {
     "is_terminal": False,
 }
 
+# ── Mapowanie po NAZWIE stanu (wąskie, świadome) ────────────────────────────
+#
+# `state.type` nie odróżnia rozmowy u klienta od interview wewnętrznego ani
+# akceptacji klienta od weryfikacji rekrutera — Traffit po prostu nie ma
+# takich typów. Semantykę niesie NAZWA stanu, i to ją widzi rekruter
+# w interfejsie. Skutek braku tego mapowania był mierzalny: `acceptance`
+# miał 7 wystąpień w 2026 (same ręczne ruchy) wobec 228 placementów, przez co
+# kafel „akceptacja → placement" pokazywał 3257,1%, a `client_interview` — 2.
+#
+# To NIE jest odwrócenie decyzji z migracji `0234_park_traffit_acceptance_marker`.
+# Tamta odmawia dopisywania etapu z markera w IMIENIU kandydata („[akcept]Mateusz"),
+# bo marker nie niesie ani oferty, ani daty — dopisanie wiersza byłoby
+# sfabrykowaniem historii. Stan workflow niesie oba, a 0234 sama stwierdza, że
+# „fakt «Zaakceptowany» żyje w NAZWIE etapu szablonu". To domknięcie tej luki
+# w miejscu, w którym 0234 ją wskazała.
+#
+# Zbiór jest domknięty i przejrzalny: dwa workflow'y, 15 i 18 stanów.
+# Dopasowanie po ZNORMALIZOWANEJ nazwie (bez diakrytyków, bez sufiksu `(#41)`,
+# który importer dokleja przy duplikatach nazw), więc „Kandydat Zweryfikowany"
+# nie może przypadkiem trafić w „Zaakceptowany".
+_TRAFFIT_STATE_NAME_MAP: dict[str, dict[str, Any]] = {
+    "interview u klienta": {
+        "legacy": "client_interview",
+        "category": "external",
+        "is_terminal": False,
+    },
+    "zaakceptowany": {
+        "legacy": "acceptance",
+        "category": "external",
+        "is_terminal": False,
+    },
+}
+
+
+def _normalize_state_name(name: str) -> str:
+    """Nazwa stanu → klucz dopasowania: bez diakrytyków, sufiksu i wielkości liter."""
+
+    without_suffix = re.sub(r"\s*\(#\d+\)\s*$", "", name.strip())
+    folded = unicodedata.normalize("NFKD", without_suffix.lower())
+    folded = folded.replace("\u0142", "l")  # ł nie rozkłada się przez NFKD
+    return "".join(ch for ch in folded if not unicodedata.combining(ch)).strip()
+
+
+# Etapy NEXUSA, na które import z Traffita w ogóle potrafi trafić.
+#
+# WYPROWADZONE z mapy powyżej, nie przepisane — i stoi tuż obok niej celowo,
+# żeby nie dało się zmienić jednego bez drugiego. Dopełnienie tego zbioru
+# (`PipelineStage` minus ten zbiór) to etapy BEZ POKRYCIA: nie ma ich skąd
+# zapełnić, więc metryka licząca iloraz przez taki etap podaje liczbę, która
+# nie opisuje rzeczywistości (na produkcji: `akceptacja → placement = 3257,1%`
+# przy 7 akceptacjach rocznie wobec 228 placementów).
+#
+# Konsument: `app.services.funnel_coverage`. Gdy mapowanie zostanie domknięte,
+# zbiór etapów bez pokrycia skurczy się SAM.
+TRAFFIT_MAPPED_LEGACY_STAGES: frozenset[str] = frozenset(
+    {mapping["legacy"] for mapping in _TRAFFIT_STATE_TYPE_MAP.values()}
+    | {mapping["legacy"] for mapping in _TRAFFIT_STATE_NAME_MAP.values()}
+    | {_DEFAULT_STATE_MAPPING["legacy"]}
+)
+
 
 def map_traffit_state_to_pipeline(state: dict[str, Any]) -> dict[str, Any]:
     """Zwraca mapping z PipelineStageDef-friendly polami dla Traffit state.
@@ -465,8 +526,18 @@ def map_traffit_state_to_pipeline(state: dict[str, Any]) -> dict[str, Any]:
     """
     state_type = (state.get("type") or "").strip()
     is_rejection = bool(state.get("is_rejection") or False)
+    # Nazwa PRZED typem — niesie semantykę, której typ nie ma. `sid` jako
+    # fallback, bo importer używa tej samej kolejności przy nazywaniu etapu.
+    name_key = _normalize_state_name(
+        (state.get("name") or "").strip() or (state.get("sid") or "").strip()
+    )
 
-    base = dict(_TRAFFIT_STATE_TYPE_MAP.get(state_type, _DEFAULT_STATE_MAPPING))
+    by_name = _TRAFFIT_STATE_NAME_MAP.get(name_key)
+    base = dict(
+        by_name
+        if by_name is not None
+        else _TRAFFIT_STATE_TYPE_MAP.get(state_type, _DEFAULT_STATE_MAPPING)
+    )
     if is_rejection:
         base.update(
             {

@@ -168,6 +168,11 @@ async def sla_alerts(
                     CandidateStage.candidate_id,
                     CandidateStage.job_id,
                     CandidateStage.moved_at.desc(),
+                    # Tiebreaker kanoniczny: 4 699 par na produkcji dzieli
+                    # identyczny `moved_at`, a bez `id` PostgreSQL zwraca
+                    # dowolny z nich — alert SLA leciałby raz z jednego
+                    # wiersza, raz z drugiego.
+                    CandidateStage.id.desc(),
                 )
             )
         )
@@ -196,6 +201,11 @@ async def sla_alerts(
                     CandidateStage.candidate_id,
                     CandidateStage.job_id,
                     CandidateStage.moved_at.desc(),
+                    # Tiebreaker kanoniczny: 4 699 par na produkcji dzieli
+                    # identyczny `moved_at`, a bez `id` PostgreSQL zwraca
+                    # dowolny z nich — alert SLA leciałby raz z jednego
+                    # wiersza, raz z drugiego.
+                    CandidateStage.id.desc(),
                 )
             )
         )
