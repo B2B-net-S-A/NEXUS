@@ -249,13 +249,14 @@ def test_declared_call_passes_in_strict_mode(monkeypatch):
 # The three entries below are pre-existing and each needs its own migration
 # (the CV generator carries a bespoke retry loop and prompt caching), so they
 # are frozen rather than pretended away. The list must only ever shrink.
-_RAW_CLIENT_BASELINE = {
-    # `ai_writer` migrated to `call_claude`; the CV generator keeps its own
-    # client because it carries a bespoke retry loop, prompt caching and a
-    # model fallback chain the shared helper does not have — it now at least
-    # feeds `record_provider_call` and shares the retry predicate.
-    "app/services/cv_generator_b2b/ai_client.py",
-}
+# PUSTA od 0270. Generator CV był ostatnim wpisem: jego własny klient niósł
+# łańcuch modeli, cache promptu i bespoke retry, których wspólny helper nie
+# miał — więc wchłonęliśmy te MECHANIZMY do `call_claude`, a WARTOŚCI strojone
+# pod produkt zostały w `cv_generator_b2b/provider.py`, który już żadnego
+# klienta nie buduje. Skutek uboczny wart zapamiętania: dopiero po tym zdjęciu
+# bramka dostawcy w ogóle WIDZI analizę UoP i lint reguł CV — obie szły przez
+# tamten plik i były dla niej niewidzialne niezależnie od kwot.
+_RAW_CLIENT_BASELINE: set[str] = set()
 
 
 def _files_constructing_a_raw_client() -> set[str]:
