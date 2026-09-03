@@ -41,6 +41,8 @@ from fastapi.concurrency import run_in_threadpool
 from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja parse_cv
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +374,7 @@ async def _parse_with_claude(
 
     from app.services.claude_client import call_claude
 
-    chosen_model = model or settings.CLAUDE_MODEL_CV
+    chosen_model = model or model_for(AIFeatureKey.cv_parser)
     try:
         user_prompt = template.render(cv_text=cv_text[:8000])
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,

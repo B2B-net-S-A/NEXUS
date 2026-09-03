@@ -35,6 +35,7 @@ from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.models.candidate_document import CandidateDocument
 from app.services.cv_enrichment import _CV_PLACEHOLDER_NAMES, _apply_cv_enrichment
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +187,14 @@ async def enrich_candidate_from_cv_bytes(
     if raw_text and raw_text.strip():
         result["text_extracted"] = True
         try:
-            parsed = await parse_cv(raw_text, prefer_llm=prefer_llm) or {}
+            parsed = (
+                await parse_cv(
+                    raw_text,
+                    prefer_llm=prefer_llm,
+                    model=model_for(AIFeatureKey.cv_name_backfill),
+                )
+                or {}
+            )
             result["parsed"] = True
             if parsed.get("first_name"):
                 result["name_source"] = "cv"

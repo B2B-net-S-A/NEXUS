@@ -46,10 +46,11 @@ from app.services.cv_generator_b2b.public_view import (
     public_payload_text,
 )
 from app.services.llm_prompts import CV_REQUIREMENT_MAP
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.environ.get("CV_REQUIREMENT_MAP_MODEL", "claude-sonnet-5")
+DEFAULT_MODEL = model_for(AIFeatureKey.cv_requirement_map)
 MAX_TOKENS = int(os.environ.get("CV_REQUIREMENT_MAP_MAX_TOKENS", "4000"))
 
 _MAX_MUST = 12

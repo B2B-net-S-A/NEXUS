@@ -38,6 +38,7 @@ from app.models.match_justification import CandidateMatchJustification
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
+from app.services.ai_models import model_for
 from app.services.scoring_service import (
     ScoreBreakdown,
     _extract_skills_from_champion,
@@ -46,7 +47,7 @@ from app.services.scoring_service import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.environ.get("MATCH_SCORING_MODEL", "claude-sonnet-5")
+DEFAULT_MODEL = model_for(AIFeatureKey.scoring)
 MAX_CV_CHARS = int(os.environ.get("MATCH_SCORING_MAX_CV_CHARS", "6000"))
 MAX_REQ_CHARS = 3000
 MAX_CHAMPION_CHARS = 2000

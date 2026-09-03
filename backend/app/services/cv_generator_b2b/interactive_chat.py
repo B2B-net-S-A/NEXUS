@@ -51,12 +51,13 @@ from app.services.candidate_activity_summary_service import (
     _normalize_for_detection,
 )
 from app.services.cv_generator_b2b.public_view import build_public_payload
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
 # Haiku domyślnie: publiczny, koszto-wrażliwy endpoint z krótkimi odpowiedziami
 # groundowanymi w małym kontekście — nie potrzebuje flagowego modelu.
-CHAT_MODEL = os.environ.get("CV_INTERACTIVE_CHAT_MODEL", "claude-haiku-4-5-20251001")
+CHAT_MODEL = model_for(AIFeatureKey.cv_interactive_chat)
 CHAT_MAX_TOKENS = int(os.environ.get("CV_INTERACTIVE_CHAT_MAX_TOKENS", "700"))
 DAILY_QUESTION_LIMIT = max(
     1, int(os.environ.get("CV_INTERACTIVE_CHAT_DAILY_LIMIT", "30"))

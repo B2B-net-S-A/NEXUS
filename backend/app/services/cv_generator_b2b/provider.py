@@ -24,6 +24,8 @@ import os
 import time
 from typing import Any
 
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import fallbacks_for, model_for
 from app.services.claude_client import (
     ClaudeError,
     ClaudeOverloaded,
@@ -42,8 +44,9 @@ logger = logging.getLogger(__name__)
 # CV_B2B_THINKING=adaptive + CV_B2B_MAX_TOKENS>=24576 i porównania jakości.
 #
 # TO NIE JEST DOMYŚLNA WARTOŚĆ Z PRZYPADKU — to zmierzona decyzja jakościowa.
-_DEFAULT_MODEL = "claude-sonnet-4-6"
-_DEFAULT_FALLBACK_MODELS = ("claude-opus-4-8",)
+# Model i fallback żyją w rejestrze (ai_models.AIFeatureKey.cv_generator) — jedno
+# miejsce prawdy dla wszystkich 16 funkcji; tu zostaje env-owe warstwowanie
+# (CV_B2B_MODEL / CV_B2B_FALLBACK_MODELS) specyficzne dla tej ścieżki.
 # 8192 → 16384: gęste CV (długi staż, wiele ról, rozbudowane obowiązki)
 # przekraczały 8192 tokeny outputu i ucinały JSON. 16384 daje 2× zapasu, a przy
 # ekstrakcji strukturalnej płaci się za realnie wygenerowane tokeny, więc
@@ -86,13 +89,13 @@ class CVGeneratorOverloadedError(CVGeneratorAIError):
 
 
 def _model() -> str:
-    return os.environ.get("CV_B2B_MODEL", _DEFAULT_MODEL)
+    return model_for(AIFeatureKey.cv_generator)
 
 
 def _fallback_models() -> list[str]:
     raw = os.environ.get("CV_B2B_FALLBACK_MODELS")
     if raw is None:
-        return list(_DEFAULT_FALLBACK_MODELS)
+        return list(fallbacks_for(AIFeatureKey.cv_generator))
     return [m.strip() for m in raw.split(",") if m.strip()]
 
 

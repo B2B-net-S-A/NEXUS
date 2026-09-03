@@ -24,8 +24,9 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from app.core.config import settings
 from app.services.cv_generator_b2b.provider import CVGeneratorAIError, analyze_with_ai
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ def lint_instructions(text: str, *, request_id: str) -> list[LintFinding]:
             payload,
             request_id,
             system=LINT_SYSTEM_PROMPT,
-            model_override=settings.CLAUDE_MODEL_CV_BULK,
+            model_override=model_for(AIFeatureKey.cv_rule_lint),
         )
     except CVGeneratorAIError as err:
         logger.warning("[cv_rule_lint][%s] model call failed: %s", request_id, err)

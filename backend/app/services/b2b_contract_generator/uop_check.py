@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     analyze_with_ai,
@@ -25,7 +26,6 @@ from app.services.cv_generator_b2b.provider import (
 logger = logging.getLogger(__name__)
 
 _MAX_INPUT_CHARS = 6000
-_DEFAULT_UOP_MODEL = "claude-sonnet-5"
 
 _PROMPT_PL = """Jesteś polskim prawnikiem specjalizującym się w umowach B2B (kontrakt \
 z jednoosobową działalnością gospodarczą). Oceń poniższy „opis projektu i zakres \
@@ -149,10 +149,7 @@ def _normalize_result(data: dict, clean: str) -> dict:
 
 def _uop_model() -> str:
     """Model UoP niezależny od quality-pinu generatora CV."""
-    return (
-        os.environ.get("UOP_CHECK_MODEL", _DEFAULT_UOP_MODEL).strip()
-        or _DEFAULT_UOP_MODEL
-    )
+    return model_for(AIFeatureKey.uop_check)
 
 
 def check_employment_hallmarks(text: str, language: str = "pl") -> dict:

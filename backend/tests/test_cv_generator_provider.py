@@ -150,12 +150,17 @@ def test_model_override_does_not_inherit_the_cv_quality_pin(monkeypatch):
     assert seen[0]["model"] == "claude-haiku-4-5-20251001"
 
 
-def test_empty_model_setting_refuses_before_touching_the_provider(monkeypatch):
-    monkeypatch.setenv("CV_B2B_MODEL", "")
+def test_empty_model_env_falls_back_to_the_pin(monkeypatch):
+    """Pusty CV_B2B_MODEL (typowe wstrzyknięcie Coolify) NIE zdejmuje generatora
+    — spada na pin z rejestru (Sonnet 4.6), zamiast blokować najdroższą funkcję.
+
+    To świadoma zmiana kontraktu z C11: rejestr traktuje pusty env jak brak.
+    Stary ai_client odmawiał tu twardo (guard „CV_B2B_MODEL jest pusty")."""
+    monkeypatch.setenv("CV_B2B_MODEL", "   ")
     called = _install(monkeypatch, [_FakeMessage()])
-    with pytest.raises(CVGeneratorAIError):
-        analyze_with_ai("dane", "req-5")
-    assert called == []
+    analyze_with_ai("dane", "req-5")
+    assert called, "wywołanie nie doszło do dostawcy mimo poprawnego pinu"
+    assert called[0]["model"] == "claude-sonnet-4-6"
 
 
 # ── Mapowanie na typy błędów generatora ──────────────────────────────────────
