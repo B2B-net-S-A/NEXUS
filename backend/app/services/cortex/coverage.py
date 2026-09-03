@@ -7,6 +7,8 @@ podpisujemy „rekordy, nie osoby" (duplikaty kandydatów — discovery §3.6).
 
 from __future__ import annotations
 
+from typing import Optional
+
 from sqlalchemy import case, distinct, func, literal, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -147,8 +149,15 @@ async def compute_coverage(db: AsyncSession) -> dict:
         await db.execute(select(func.max(CortexSkillFact.extracted_at)))
     ).scalar()
 
-    def pct(part: int, whole: int) -> float:
-        return round(part / whole * 100, 1) if whole else 0.0
+    def pct(part: int, whole: int) -> Optional[float]:
+        """Odsetek albo ``None`` — zerowy mianownik to brak podstawy do oceny.
+
+        Dawne `0.0` mówiło „zero procent pokrycia" także wtedy, gdy nie było
+        ANI JEDNEGO wiersza do pokrycia — czyli malowało na czerwono brak
+        danych. To ta sama reguła co `insights_clients.ratio_pct`
+        i `services/job_data_trust`.
+        """
+        return round(part / whole * 100, 1) if whole else None
 
     return {
         "data_as_of": data_as_of.isoformat() if data_as_of else None,
