@@ -259,8 +259,15 @@ class Settings(BaseSettings):
     # Run log-only for a cycle, read the UNGATED lines, then flip.
     AI_QUOTA_STRICT: bool = False
 
-    # Ollama (local LLM + embeddings fallback)
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    # Ollama (local LLM + embeddings fallback).
+    # C-12: default PUSTY, nie "http://localhost:11434". Usługi nie ma w compose
+    # prod, a niepusty default sprawiał, że guard `if not host: return None`
+    # w cv_parser / recommendations / embedding_service NIGDY nie chronił —
+    # każda awaria Claude'a/Voyage dokładała nieudane HTTP na localhost:11434
+    # i log mylący diagnozę. Fallback Ollama działa wyłącznie przy JAWNIE
+    # ustawionym OLLAMA_BASE_URL (tryb offline z CLAUDE.md), tak jak opisują
+    # docstringi wszystkich trzech konsumentów („if configured").
+    OLLAMA_BASE_URL: str = ""
     OLLAMA_MODEL: str = "llama3.2"
     OLLAMA_EMBED_MODEL: str = "mxbai-embed-large"
 
