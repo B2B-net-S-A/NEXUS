@@ -803,12 +803,17 @@ async def _compute_dl_metrics(
             bucket["client_names"].add(r.client_name)
 
     # 2. Placements per DL w okresie (liczymy `hired` stage ruchy z `hired` in period).
+    # Placement = PIERWSZE wejście pary na „Zatrudniony" (definicja kanoniczna,
+    # ta sama co `/insights` i `app/services/job_fill.py`). Do 09.2026 liczyło
+    # się tu `count(candidate_stages.id)` po WSZYSTKICH wierszach `hired`, więc
+    # kandydat z powtórzonym etapem podbijał wynik Delivery Leada dwa razy —
+    # i ta sama rekrutacja miała inną liczbę placementów tutaj niż w Insights.
     placements_q = (
         select(
             Job.id.label("job_id"),
             Job.delivery_lead_id,
             Job.client_id,
-            func.count(CandidateStage.id).label("cnt"),
+            func.count(func.distinct(CandidateStage.candidate_id)).label("cnt"),
         )
         .join(CandidateStage, CandidateStage.job_id == Job.id)
         .where(

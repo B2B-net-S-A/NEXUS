@@ -33,7 +33,7 @@ from app.services.candidate_contact_hooks import (
     maybe_ensure_contact_opportunity,
 )
 from app.services.b2b_contract_automation import ensure_b2b_employment_draft
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.pipeline_template import (
     PipelineStageDef,
     PipelineTemplate,
@@ -903,6 +903,56 @@ async def move_candidate(
                         related_entity_id=employment.contract.id,
                     )
                 )
+
+    # Obsada kompletna → PODPOWIEDŹ zamknięcia rekrutacji, nie automat.
+    #
+    # Zatrudnienie nie zmieniało dotąd stanu rekrutacji: `headcount` nie był
+    # dekrementowany, a `close_reason = filled_by_us` nie był ustawiany nigdzie
+    # w kodzie pipeline'u — stąd 315 rekrutacji zamkniętych w 90 dni BEZ powodu
+    # i raport wygranych/przegranych bez czego liczyć wygranej.
+    #
+    # Automatu tu nie ma świadomie (decyzja właściciela 2026-09-03): 99,6% ruchu
+    # pochodzi z importu, więc automatyczne domykanie działałoby retroaktywnie
+    # na tysiącach rekrutacji, o które nikt nie prosił. Powiadomienie prowadzi
+    # do ISTNIEJĄCEGO `POST /api/jobs/{job_id}/close`, który zapisuje powód
+    # i loguje `Activity`.
+    if legacy_enum == PipelineStage.hired:
+        try:
+            from app.services.job_fill import is_fully_staffed, placements_by_job
+
+            filled = (await placements_by_job(db, [job.id])).get(job.id, 0)
+            if (
+                is_fully_staffed(job.headcount, filled)
+                and job.status != JobStatus.closed
+            ):
+                staff_rows = await db.execute(
+                    select(User.id).where(
+                        User.role.in_(
+                            [UserRole.admin, UserRole.delivery_lead, UserRole.tac]
+                        ),
+                        User.is_active.is_(True),
+                    )
+                )
+                for (uid,) in staff_rows.all():
+                    db.add(
+                        Notification(
+                            user_id=uid,
+                            title=f"Rekrutacja '{job.title}' ma komplet obsady",
+                            message=(
+                                f"Obsadzono {filled} z {job.headcount or 1} "
+                                "etatów. Jeśli to koniec — zamknij rekrutację "
+                                "z powodem „Obsadzone przez nas”, żeby raport "
+                                "wygranych i przegranych miał z czego liczyć."
+                            ),
+                            link=f"/jobs/{job.id}",
+                            notification_type=NotificationType.suggest_next_step,
+                            related_entity_type="job",
+                            related_entity_id=job.id,
+                        )
+                    )
+        except Exception as _exc:  # noqa: BLE001
+            # Podpowiedź nie może wywrócić zatrudnienia.
+            logger.warning("fully-staffed hint failed for job=%s: %s", job.id, _exc)
 
     # Automatic rejection-email scheduling (0045_rejection_emails).
     # Runs when the current move is a rejection AND the caller didn't
