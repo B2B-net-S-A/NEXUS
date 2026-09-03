@@ -91,6 +91,28 @@ def _record_health(started: float, *, failed: bool) -> None:
         pass
 
 
+def _record_tokens(message: Any) -> None:
+    """Dolicz tokeny udanego wywołania do zadeklarowanej operacji (nigdy nie rzuca).
+
+    Granica dostawcy jest jedynym miejscem, które WIDZI `message.usage` dla
+    każdego wołającego naraz — instrumentowanie ich pojedynczo zostawiłoby
+    dziury dokładnie tam, gdzie nikt nie pamiętał (dziś usage idzie do logu
+    w czterech serwisach i do nikąd w pozostałych).
+    """
+    try:
+        from app.services.ai_quota import record_token_usage
+
+        usage = getattr(message, "usage", None)
+        if usage is None:
+            return
+        record_token_usage(
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
+        )
+    except Exception:  # noqa: BLE001 — telemetria nie może wywrócić wywołania
+        pass
+
+
 def _assert_declared(model: str) -> None:
     """Refuse (or at least log) an LLM call nobody charged a quota for.
 
@@ -179,6 +201,7 @@ def call_claude(
                 **kwargs,
             )
             _record_health(started, failed=False)
+            _record_tokens(message)
             return message
         except BaseException as err:  # noqa: BLE001 — classify then re-raise
             last_err = err

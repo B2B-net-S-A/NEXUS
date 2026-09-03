@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import contextvars
 import logging
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -233,15 +233,127 @@ _AI_CALL_CONTEXT: contextvars.ContextVar[Optional["AiCallContext"]] = (
 )
 
 
+@dataclass
+class TokenUsage:
+    """Tokeny zebrane w obrębie JEDNEJ zadeklarowanej operacji AI.
+
+    Mutowalny akumulator, a nie zwracana wartość, bo wypełnia go inna warstwa
+    niż ta, która go czyta: `call_claude` jest synchroniczne i biegnie
+    w `run_in_threadpool`, a odczytuje `ai_feature` po powrocie do pętli
+    zdarzeń. `anyio.to_thread.run_sync` kopiuje MAPĘ contextvarów, nie
+    wartości — więc wątek roboczy i wołający trzymają TEN SAM obiekt i
+    mutacja jest widoczna po obu stronach. Na tym stoi cały mechanizm.
+
+    Sumujemy, nie nadpisujemy: jedna operacja bywa łańcuchem wywołań
+    (mapa-redukcja transkryptu Championa, dwie próby sprawdzenia UoP,
+    fallback na kolejny model). Rachunek dotyczy operacji, nie ostatniego
+    round-tripu.
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def add(self, *, input_tokens: Optional[int], output_tokens: Optional[int]) -> None:
+        """Dolicz jedno udane wywołanie. `None`/śmieci są ignorowane.
+
+        Dostawca zwraca `usage` jako obiekt SDK, a przy nietypowej odpowiedzi
+        pole potrafi być `None`. Telemetria nie ma prawa wywrócić wywołania,
+        za które już zapłacono — dlatego tu nie ma miejsca na wyjątek.
+        """
+        for name, value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                continue
+            if value > 0:
+                setattr(self, name, getattr(self, name) + value)
+
+    def any(self) -> bool:
+        return self.input_tokens > 0 or self.output_tokens > 0
+
+
 @dataclass(frozen=True)
 class AiCallContext:
     feature: AIFeatureKey
     user_id: Optional[int]
     state: QuotaState
+    # `frozen=True` zabrania PODMIANY atrybutu, nie mutacji obiektu, na który
+    # wskazuje — więc akumulator może tu mieszkać bez odmrażania reszty.
+    usage: TokenUsage = field(default_factory=TokenUsage)
 
 
 class AIQuotaUngated(RuntimeError):
     """An LLM call was made outside `async with ai_feature(...)`."""
+
+
+def record_token_usage(
+    *, input_tokens: Optional[int], output_tokens: Optional[int]
+) -> None:
+    """Dolicz tokeny do zadeklarowanej operacji AI, jeśli jakaś jest w zasięgu.
+
+    Wołane z granicy dostawcy po UDANYM wywołaniu. Brak kontekstu to nie błąd:
+    tak wygląda wywołanie niezadeklarowane, które ma własny detektor
+    (`claude_client._assert_declared`) — dublowanie go tutaj zamieniłoby
+    telemetrię w drugą bramkę.
+    """
+    context = _AI_CALL_CONTEXT.get()
+    if context is None:
+        return
+    context.usage.add(input_tokens=input_tokens, output_tokens=output_tokens)
+
+
+async def _persist_token_usage(context: "AiCallContext") -> None:
+    """Dopisz zebrane tokeny do wiersza zużycia. Best-effort, WŁASNA sesja.
+
+    Osobna sesja, nie sesja wołającego — z dwóch powodów, oba zmierzone
+    w istniejącym kodzie:
+
+    1. **Wołający zwykle commituje WEWNĄTRZ bloku** i nigdy więcej (wzorzec
+       „naliczamy dopuszczenie, nie sukces round-tripu" — `cv_match_preview`,
+       `match_justification_service`, MINDY). UPDATE dopisany do jego sesji po
+       tym commicie otwierałby transakcję, której nikt nie domyka, więc tokeny
+       przepadałyby po cichu.
+    2. **Ścieżka błędu robi rollback.** Tokeny opisują wywołanie, które
+       NAPRAWDĘ poszło do dostawcy i zostało opłacone — cofnięcie ich razem
+       z nieudaną jednostką pracy zaniżałoby rachunek dokładnie w miesiącu,
+       w którym coś się psuje i retry mnoży koszt.
+
+    Nigdy nie rzuca: to telemetria doklejona do `finally`, a wyjątek stąd
+    przykryłby prawdziwy wyjątek z bloku wołającego.
+    """
+    usage = context.usage
+    if not usage.any():
+        return
+    try:
+        from app.core.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(AIUsageLog)
+                .where(
+                    AIUsageLog.feature == context.feature,
+                    AIUsageLog.period_start == context.state.period_start,
+                    (
+                        AIUsageLog.user_id == context.user_id
+                        if context.user_id is not None
+                        else AIUsageLog.user_id.is_(None)
+                    ),
+                )
+                .values(
+                    input_tokens=AIUsageLog.input_tokens + usage.input_tokens,
+                    output_tokens=AIUsageLog.output_tokens + usage.output_tokens,
+                )
+            )
+            await session.commit()
+    except Exception:  # noqa: BLE001 — telemetria nie może wywrócić wywołania
+        logger.warning(
+            "[ai-quota] nie udało się zapisać tokenów dla %s (in=%s out=%s)",
+            context.feature.value,
+            usage.input_tokens,
+            usage.output_tokens,
+            exc_info=True,
+        )
 
 
 @asynccontextmanager
@@ -279,15 +391,61 @@ async def ai_feature(
         return
 
     state = await check_and_increment(db, feature, user_id=user_id)
-    token = _AI_CALL_CONTEXT.set(
-        AiCallContext(feature=feature, user_id=user_id, state=state)
-    )
+    context = AiCallContext(feature=feature, user_id=user_id, state=state)
+    token = _AI_CALL_CONTEXT.set(context)
     try:
         yield state
     finally:
         _AI_CALL_CONTEXT.reset(token)
+        # Tokeny dopisujemy PO zdjęciu kontekstu i we własnej sesji — patrz
+        # `_persist_token_usage`. Zagnieżdżona deklaracja tej samej cechy
+        # wychodzi wyżej (`return` przed tym blokiem), więc zapis robi
+        # wyłącznie najbardziej zewnętrzny `ai_feature` i nie ma podwójnego
+        # liczenia.
+        await _persist_token_usage(context)
 
 
 def current_ai_call() -> Optional[AiCallContext]:
     """The declared AI call in scope, if any."""
     return _AI_CALL_CONTEXT.get()
+
+
+@contextmanager
+def declared_call(
+    feature: AIFeatureKey,
+    *,
+    user_id: Optional[int],
+    state: QuotaState,
+):
+    """Zadeklaruj wywołanie AI, które zostało JUŻ naliczone gdzie indziej.
+
+    Istnieje dla dokładnie jednego kształtu: handler nalicza kwotę i odsyła
+    odpowiedź, a pieniądze wydaje `BackgroundTasks` PO jego zamknięciu —
+    wtedy contextvar ustawiony przez `ai_feature` już nie żyje (`reset`
+    w `finally`), więc bramka na granicy dostawcy widzi wywołanie jako
+    niezadeklarowane. Dotyczy generacji CV B2B i CV próbnego reguł klienta.
+
+    Rozważone i odrzucone: `contextvars.copy_context()` (Starlette nie
+    wystawia `context=` dla `BackgroundTasks`) oraz parametr `declared_feature`
+    w `call_claude` (przenosi deklarację do warstwy dostawcy i psuje własność
+    „jest dokładnie jedna bramka, i to ona pyta o kontekst").
+
+    **To jest z definicji „deklaruj bez płacenia", więc jedyne dopuszczalne
+    użycie to `QuotaState` pochodzący z wcześniejszego `check_and_increment`
+    dla TEJ SAMEJ operacji.** Wywołanie z wymyślonym stanem obchodzi sufit
+    i główny wyłącznik — nie ma tu bramki, która by to złapała, bo cały sens
+    tego prymitywu polega na jej braku. Bramka stoi w handlerze i tam ma
+    zostać: odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
+
+    Synchroniczny, bo nie dotyka bazy — naliczenie już się odbyło. Tokeny
+    zebrane w tle NIE są dopisywane: sesja handlera dawno zamknięta, a
+    otwieranie własnej z zadania w tle po to, żeby doliczyć telemetrię,
+    kosztowałoby więcej niż jest warte. Licznik wywołań jest poprawny.
+    """
+    token = _AI_CALL_CONTEXT.set(
+        AiCallContext(feature=feature, user_id=user_id, state=state)
+    )
+    try:
+        yield
+    finally:
+        _AI_CALL_CONTEXT.reset(token)
