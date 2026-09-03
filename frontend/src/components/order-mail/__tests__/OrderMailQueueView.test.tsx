@@ -11,7 +11,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
-import type { OrderMailDocument } from "@/lib/api/orderMail";
+import type { OrderMailDocument, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
   return {
@@ -29,7 +29,23 @@ function doc(over: Partial<OrderMailDocument> = {}): OrderMailDocument {
   };
 }
 
+function syncStatus(over: Partial<OrderMailSyncStatus> = {}): OrderMailSyncStatus {
+  return {
+    enabled: true, interval_minutes: 60, autoapply_enabled: false, running: false, started_at: "2031-03-03T08:00:00Z",
+    interrupted: false, can_trigger: true,
+    last_completed: {
+      reason: "manual", started_at: "2031-03-03T08:00:00Z", finished_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+      status: "ok", error: null, messages: 3, new_messages: 2, attachments: 2, auto_applied: 1, needs_review: 1,
+      unrecognized: 0, duplicates: 0, skipped_existing: 1, ignored_no_pdf: 0, ignored_sender: 0, failed: 0, errors: [],
+    },
+    ...over,
+  };
+}
+
+const mailbox = { status: syncStatus(), statusError: false, checking: false, checkError: null, onCheckNow: vi.fn() };
+
 const base = {
+  mailbox,
   outcome: "needs_review" as const, onOutcomeChange: vi.fn(), total: 1, selectedId: 1,
   onSelect: vi.fn(), onApply: vi.fn(), onDismiss: vi.fn(), onRetry: vi.fn(), busy: false, applyError: null,
 };
@@ -51,6 +67,52 @@ describe("OrderMailQueueView", () => {
     rerender(<OrderMailQueueView {...base} onApply={onApply} state="ready" items={[doc({ can_apply: true })]} />);
     fireEvent.click(screen.getByRole("button", { name: /Zastosuj/ }));
     expect(onApply).toHaveBeenCalledWith(1);
+  });
+
+  it("mailbox panel shows the last check and the button asks for a new one", () => {
+    const onCheckNow = vi.fn();
+    render(<OrderMailQueueView {...base} mailbox={{ ...mailbox, onCheckNow }} state="ready" items={[doc()]} />);
+    expect(screen.getByTestId("mailbox-check")).toHaveTextContent("co 60 min");
+    expect(screen.getByTestId("mailbox-check")).toHaveTextContent("5 min temu (ręcznie)");
+    expect(screen.getByTestId("mailbox-check-result")).toHaveTextContent(
+      "2 nowe wiadomości · 1 zapisane automatycznie · 1 do weryfikacji",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Pobierz zamówienia z maila/ }));
+    expect(onCheckNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("button is absent without rights and busy while the mailbox is being checked", () => {
+    const { rerender } = render(
+      <OrderMailQueueView {...base} mailbox={{ ...mailbox, status: syncStatus({ can_trigger: false }) }} state="ready" items={[doc()]} />,
+    );
+    expect(screen.queryByRole("button", { name: /Pobierz zamówienia z maila/ })).toBeNull();
+    rerender(<OrderMailQueueView {...base} mailbox={{ ...mailbox, checking: true }} state="ready" items={[doc()]} />);
+    expect(screen.getByRole("button", { name: /Pobierz zamówienia z maila/ })).toBeDisabled();
+    expect(screen.getByTestId("mailbox-check")).toHaveTextContent("Sprawdzam skrzynkę");
+    // Bieg planowy trwający po stronie serwera blokuje przycisk tak samo jak własny klik.
+    rerender(<OrderMailQueueView {...base} mailbox={{ ...mailbox, status: syncStatus({ running: true }) }} state="ready" items={[doc()]} />);
+    expect(screen.getByRole("button", { name: /Pobierz zamówienia z maila/ })).toBeDisabled();
+  });
+
+  it("interrupted previous run, failed run and disabled ingest are said out loud", () => {
+    const { rerender } = render(
+      <OrderMailQueueView {...base} mailbox={{ ...mailbox, status: syncStatus({ interrupted: true }) }} state="ready" items={[doc()]} />,
+    );
+    expect(screen.getByTestId("mailbox-check-result")).toHaveTextContent("przerwane");
+    rerender(
+      <OrderMailQueueView
+        {...base}
+        mailbox={{ ...mailbox, status: syncStatus({ last_completed: { ...syncStatus().last_completed!, status: "error", error: "Graph 401" } }) }}
+        state="ready"
+        items={[doc()]}
+      />,
+    );
+    expect(screen.getByTestId("mailbox-check-result")).toHaveTextContent("nie powiodło się: Graph 401");
+    rerender(<OrderMailQueueView {...base} mailbox={{ ...mailbox, status: syncStatus({ enabled: false }) }} state="ready" items={[doc()]} />);
+    expect(screen.getByTestId("mailbox-check")).toHaveTextContent("wyłączone");
+    expect(screen.getByRole("button", { name: /Pobierz zamówienia z maila/ })).toBeDisabled();
+    rerender(<OrderMailQueueView {...base} mailbox={{ ...mailbox, status: null, statusError: true }} state="ready" items={[doc()]} />);
+    expect(screen.getByTestId("mailbox-check")).toHaveTextContent("Nie udało się pobrać stanu skrzynki");
   });
 
   it("error is an error, empty is empty, loading is loading", () => {

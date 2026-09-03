@@ -1759,9 +1759,10 @@ async def api_health_check():
     # Zamówienia z maila — świeżość ostatniego biegu pobierania (0264). Ta
     # sama drabina co traffit: `unconfigured` (wyłączone) / `misconfigured`
     # (brak UPN) / `degraded` (włączone, brak świeżego udanego biegu) /
-    # `healthy`. Próg 26 h: przy slotach 08:00 i 15:00 naturalny odstęp
-    # 15→8 to 17 h, więc 18 h przełączałoby się na `degraded` przy każdym
-    # opóźnieniu o godzinę.
+    # `healthy`. Próg = 3 odstępy pętli (co najmniej 3 h): jeden spóźniony
+    # bieg nie przełącza na `degraded`, trzy z rzędu — tak. `running` w
+    # kolumnie NIE jest awarią: to bieg w toku albo przerwany restartem
+    # (deploy), a o świeżości i tak mówi data ostatniego końca.
     if not settings.ORDER_MAIL_INGEST_ENABLED:
         checks["order_mail"] = "unconfigured"
     elif not settings.ORDER_MAIL_UPN:
@@ -1792,13 +1793,12 @@ async def api_health_check():
                     timeout=1.0,
                 )
             r = row.fetchone()
+            from app.services.order_mail_ingest import poll_interval_minutes
+
+            stale_after = _td(minutes=max(3 * poll_interval_minutes(), 180))
             if r is None or r[0] is None:
                 checks["order_mail"] = "degraded"
-            elif (_dt.now(_tz.utc) - r[0]) > _td(hours=26) or r[1] not in (
-                "ok",
-                "partial",
-                None,
-            ):
+            elif (_dt.now(_tz.utc) - r[0]) > stale_after or r[1] == "error":
                 checks["order_mail"] = "degraded"
             else:
                 checks["order_mail"] = "healthy"

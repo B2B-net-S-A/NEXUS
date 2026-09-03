@@ -3698,7 +3698,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
             'cost_order_exhausted', 'draft_consultant_unassigned',
             'md_budget_low', 'missing_revenue_rate',
-            'md_consultant_ended')),
+            'md_consultant_ended', 'order_mail_review')),
         CONSTRAINT ck_dl_alerts_status CHECK (status IN ('new', 'handled')),
         CONSTRAINT ck_dl_alerts_handled_coherence
             CHECK (status <> 'handled' OR handled_at IS NOT NULL)
@@ -5558,13 +5558,6 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
-    # 0265: dl_alerts dostaje typ order_mail_review (zamówienie z maila do
-    # weryfikacji). CHECK poszerzamy DROP+ADD — lustro migracji, bo prod alembic
-    # bywa osierocony.
-    "ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_type",
-    "ALTER TABLE dl_alerts ADD CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN ("
-    "'cost_order_exhausted', 'draft_consultant_unassigned', 'md_budget_low', "
-    "'missing_revenue_rate', 'md_consultant_ended', 'order_mail_review'))",
     # 0249: data phase above has filled every existing row. Defaults protect
     # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",
@@ -5573,13 +5566,22 @@ _CONSTRAINT_STATEMENTS = [
     "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET NOT NULL",
     # Atomic closed-domain rewrite. If lock_timeout fires, the DROP rolls back
     # with the ADD and the next container start retries safely.
+    #
+    # JEDYNA definicja tej domeny w safety-necie (lustro `DlAlert.__table_args__`
+    # i migracji 0265). Do 03.09.2026 lustro 0265 stało WYŻEJ w tej liście
+    # i dodawało `order_mail_review`, a ten blok — starszy, z wąską listą —
+    # wykonywał się PO nim i przy każdym deployu ZWĘŻAŁ więz z powrotem.
+    # Skutek na prodzie: żaden alert „zamówienie z maila do weryfikacji"
+    # nie dał się zapisać (CheckViolationError w `notify_review`), a do #1355
+    # ten sam błąd zatruwał sesję i zostawiał stan biegu na „running".
+    # Pilnuje tego `tests/test_entrypoint_dl_alerts_check_mirror.py`.
     """DO $$ BEGIN
         ALTER TABLE dl_alerts DROP CONSTRAINT IF EXISTS ck_dl_alerts_type;
         ALTER TABLE dl_alerts
             ADD CONSTRAINT ck_dl_alerts_type CHECK (alert_type IN (
                 'cost_order_exhausted', 'draft_consultant_unassigned',
                 'md_budget_low', 'missing_revenue_rate',
-                'md_consultant_ended'
+                'md_consultant_ended', 'order_mail_review'
             ));
     END $$""",
     # Detect the FK structurally rather than by name: metadata.create_all may

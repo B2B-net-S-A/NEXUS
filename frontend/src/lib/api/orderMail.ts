@@ -101,6 +101,43 @@ export interface OrderMailQueueResponse {
   items: OrderMailDocument[];
 }
 
+/** Ostatni ZAKOŃCZONY bieg sprawdzania skrzynki (rekord z `order_mail_sync_state.stats`). */
+export interface OrderMailLastRun {
+  /** `scheduled` (co godzinę) albo `manual` (przycisk). */
+  reason: string;
+  started_at: string | null;
+  finished_at: string | null;
+  status: "ok" | "partial" | "error" | string;
+  error: string | null;
+  messages: number;
+  new_messages: number;
+  attachments: number;
+  auto_applied: number;
+  needs_review: number;
+  unrecognized: number;
+  duplicates: number;
+  skipped_existing: number;
+  ignored_no_pdf: number;
+  ignored_sender: number;
+  failed: number;
+  errors: string[];
+}
+
+export interface OrderMailSyncStatus {
+  enabled: boolean;
+  interval_minutes: number;
+  autoapply_enabled: boolean;
+  /** Bieg trwa w tej chwili (blokada po stronie serwera). */
+  running: boolean;
+  /** Ostatni START biegu — trwającego, przerwanego albo zakończonego. */
+  started_at: string | null;
+  /** Ostatni bieg zaczął się i nie zapisał końca (restart w trakcie), a nic nie trwa. */
+  interrupted: boolean;
+  last_completed: OrderMailLastRun | null;
+  /** Czy zalogowany może kliknąć „Pobierz zamówienia z maila" (admin, finance, DL). */
+  can_trigger: boolean;
+}
+
 export const orderMailApi = {
   listQueue: (params: { outcome?: OrderMailOutcome; client_id?: number; limit?: number; offset?: number } = {}) =>
     api.get<OrderMailQueueResponse>("/api/order-mail/queue", { params }),
@@ -111,6 +148,9 @@ export const orderMailApi = {
     }),
   dismiss: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/dismiss`),
   fileUrl: (id: number) => `/api/order-mail/queue/${id}/file`,
+  syncStatus: () => api.get<OrderMailSyncStatus>("/api/order-mail/sync/status"),
+  /** Bieg startuje w tle — wynik czyta się z `syncStatus` (patrz `lib/order-mail-sync.ts`). */
+  triggerSync: () => api.post<{ status: "started" }>("/api/order-mail/sync"),
 };
 
 export const ORDER_MAIL_ACTION_LABEL: Record<OrderMailProposalRow["action"], string> = {
