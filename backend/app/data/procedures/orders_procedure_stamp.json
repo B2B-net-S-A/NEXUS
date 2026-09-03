@@ -1,11 +1,11 @@
 {
   "reviewed_at": "2026-09-03",
   "sources": {
-    "backend/app/api/admin_order_mail.py": "5d8e786b41f3300a325583b7e28263d048ab78f6b07a0b42baecb583ebacd7a6",
+    "backend/app/api/admin_order_mail.py": "9906e4d5b834ca51e95b0f765f64e5194706f5202029c0128960a899b7ed836a",
     "backend/app/api/client_order_groups.py": "27f97373bc639fdf270a464da05d416b0002622a73e0b3fe62065ff225228d3b",
     "backend/app/api/client_orders.py": "abd35487f59fcd424df3439d16d8067fe95a77a934502ec710b5a0901794cecf",
     "backend/app/api/md_consumption.py": "d638bb41a982bb044202688321761723f991965199bf5a3ca8e66e2d5afdc8fa",
-    "backend/app/api/order_mail_queue.py": "2b5bfa0a2ceb05643652ccdd9bd5ef29e8d688f708e97c640ca98f3bcf8c77c0",
+    "backend/app/api/order_mail_queue.py": "aadac0c1ea1f1d60d1af9e5506ee093572ca7b2c969d916eef24561f4f4a2138",
     "backend/app/models/client_order.py": "405fa6171eed558b28d2e6a51ceeb2c96397ca80faccea8c35f301c49f7ead1d",
     "backend/app/models/client_order_group.py": "903eb1f1b1e49a16657204f6cfd97a337f9c80cb431138670d09d7015ef5033e",
     "backend/app/services/client_order_lines.py": "cb1f4352150712bcf7179fe2764931249bd9114135dbaf89fd23d4679f3eb8bc",
@@ -26,7 +26,7 @@
     "backend/app/services/order_group_materializer.py": "d67ceae70ec71a72fca48becdf8a6da0a20e71f2f7a0f905ff6fd27acf36e777",
     "backend/app/services/order_mail_apply.py": "c6a92c4c2b244f91d5af9cc1200477758e333b5effe5061962477bfd59edab63",
     "backend/app/services/order_mail_gate.py": "47e40dda809d7608304cff321af122e1924221e64b818b0e8da6ef9e94b240a8",
-    "backend/app/services/order_mail_ingest.py": "8d20b5c793cbe76ce8453d6669a9c92afcf0dbab28b4f79bb1fc89320d7e179c",
+    "backend/app/services/order_mail_ingest.py": "b50cd5c99c916561f7f1805fd5a0eb979581b3b852f119deb359ac6c10182386",
     "backend/app/services/order_mail_planner.py": "becea768a8a1c2e08cf20b0463d797e1ba83814716b9517b4b2276d212c3e8b5",
     "backend/app/services/order_mail_resolver.py": "f9534b1d48d135a024866e522471f2025c6c94c38cdbb53b8d4e96ba58f13b2c",
     "backend/app/services/order_pdf_parser.py": "bbd32e16d8610eb4f59ddc189c1f14b19b786fed79ed595f39045981e4b305c5",
@@ -48,7 +48,7 @@
     "backend/app/tasks/contract_alerts.py": "d026c06137dd49e8cadffcbdc652f21ed5666cc1071bd1808a6bc07fc885a54d",
     "backend/app/tasks/dl_alerts_scanner.py": "64c081141c7b58b4fd355d544e4cd1d5f20dbab60218e20eb98f4ab79d6e37fe",
     "backend/app/tasks/dl_portal_expiry_scanner.py": "b013b7d151694e0efc24b947c3ca76df1684b293ade9e68826defe5112eaa3a5",
-    "backend/app/tasks/order_mail_ingest.py": "8cdd0b9287fe90c4962779ce19b1b3107e2d6ea8c0d7e8782e71ffdf30a373f6",
+    "backend/app/tasks/order_mail_ingest.py": "02e110ce41fa133bf75eebcae841d4ed4f2c644d5aafd3cc6864c90e73edf498",
     "frontend/src/components/EditOrderDialog.tsx": "45a4b1af1e69ea8cb54ca08d7a99d9256a258b1a1a4c995d4f6218a1ae84155b",
     "frontend/src/components/ExtendOrderDialog.tsx": "b05c69bc30c3a8527fa5f21283f7426cec62f2c65b770149b4d0fc8327c2271d",
     "frontend/src/components/NewContractorOrderDialog.tsx": "2a71c4958bcf6d328eccc143cff165977eb61dc21c8fcab227acd188346aa978",
@@ -59,10 +59,10 @@
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "da3f21571abb2ab52619513e2aabc696606e60142a7922ff3b535b7d3082cc4b",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "539cd7158909107ee35f0e5de04d507debcea6d41784b928805be423a5550a3c",
-    "frontend/src/components/order-mail/OrderMailQueue.tsx": "01c5eb1cf62f09a9cf1c7491ee2653e34f650344d7a2f020a1a9827624216072",
+    "frontend/src/components/order-mail/OrderMailQueue.tsx": "0fbfcd7f4d95c8c1499ed79ba2398c62661d5363a1a51f3d1a943db1282d2a33",
     "frontend/src/components/orders/InlineOrderFields.tsx": "9c2852f7af383738d6d14e1a69959a02e8e75396e132c2c59811d9b0338a564f",
     "frontend/src/components/orders/OrderTypeSwitch.tsx": "c945cf8167010eaeb36f0592877127639dc86a48a98c6e1692a0df6ca6ba85a5",
-    "frontend/src/lib/api/orderMail.ts": "461c8b7cedba30dd02f34eb8c640e4e84f1352cb2d63c7a2631f10d4fee731ad",
+    "frontend/src/lib/api/orderMail.ts": "f8aec9b2ea00a5bd1314a2fd6fec47eb736bbbd45c99d0a3975841b757cf92da",
     "frontend/src/lib/order-extraction.ts": "64f96f17b6d1a3adf9dc6e3d36263a385f652995079721f736de51fdfae8c90c"
   }
 }

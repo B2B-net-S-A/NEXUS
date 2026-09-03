@@ -1029,6 +1029,36 @@ nie ma żadnej reguły do utrzymania.
 - Env na prodzie (workflow „Coolify set env", `redeploy=false`, potem jeden
   zwykły deploy): `ORDER_MAIL_AUTH_MODE=app`, `ORDER_MAIL_UPN=nexus-zamowienia@b2bnetwork.pl`,
   `M365_MAIL_TENANT_ID=<GUID tenanta>`, `ORDER_MAIL_INGEST_ENABLED=true`.
+- **Skrzynka jest sprawdzana co godzinę, nie w slotach.** Do 03.09.2026 pętla
+  miała dwa sloty dobowe (08:00/15:00 Europe/Warsaw): zamówienie VeloBank
+  przyszło o 08:37 i czekałoby do 15:00. Teraz bieg jest należny, gdy od KOŃCA
+  ostatniego minęło `ORDER_MAIL_POLL_INTERVAL_MINUTES` (default 60, podłoga 5;
+  `ORDER_MAIL_SLOTS_LOCAL` nie istnieje). Odstęp liczony od końca ma dwie
+  konsekwencje, na których stoi ticket: bieg ręczny przesuwa zegar (nie ma
+  dwóch biegów tuż po sobie), a bieg przerwany restartem końca NIE zapisuje,
+  więc po deployu skrzynka jest sprawdzana od razu, nie za godzinę.
+- **„Pobierz zamówienia z maila" jest w kolejce `/order-mail`**, nie tylko
+  w API admina: `POST /api/order-mail/sync` (admin / finance / delivery_lead —
+  bramka ROLOWA, bo dotyczy całej skrzynki, nie dokumentu; TCM ma sam odczyt)
+  i `GET /api/order-mail/sync/status` (każda rola kolejki; TCM bez treści
+  błędów, bo te cytują nazwy załączników). Bieg idzie w tle, front odpytuje
+  stan co 2 s i uznaje koniec po ZMIANIE `finished_at` z serwera, nigdy po
+  zegarze przeglądarki (`lib/order-mail-sync.ts`). 409 = bieg już trwa, front
+  dołącza do niego. Liczby w pasku (nowe wiadomości / zapisane automatycznie /
+  do weryfikacji) dotyczą CAŁEJ skrzynki — kolejka DL jest zawężona do
+  portfela, więc „1 do weryfikacji" i pusta lista to nie sprzeczność.
+- **Wynik biegu żyje w `order_mail_sync_state.stats` jako rekord** (`reason`,
+  `started_at`, `finished_at`, `status`, `error` + liczniki), bo wiersz stanu ma
+  jedną parę start/koniec, a bieg, który właśnie trwa, nadpisuje start.
+  `last_status='running'` bez blokady w procesie = bieg PRZERWANY (deploy
+  w trakcie — u nas kilka razy dziennie) i tak jest pokazywany
+  (`interrupted`), a health traktuje `running` jako brak informacji, nie awarię
+  (degraduje po 3 odstępach albo na `error`). Trzy rzeczy, które trzymają ten
+  stan uczciwym: bieg z requestu startuje przez `start_ingest_task` (trzymana
+  referencja — zebrane zadanie nie zapisuje końca), padnięte powiadomienie DL
+  robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
+  a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
+  i przesuwał okno wstecz).
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 

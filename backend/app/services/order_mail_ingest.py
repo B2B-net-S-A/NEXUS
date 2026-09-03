@@ -94,14 +94,41 @@ def ingest_is_running() -> bool:
     return _ingest_lock.locked()
 
 
+# Referencje do biegów uruchomionych „w tle" z requestu. ``asyncio.create_task``
+# bez trzymanej referencji to zadanie, które interpreter może zebrać w połowie
+# biegu (dokumentacja asyncio mówi o tym wprost) — zebrane zadanie nie zapisuje
+# końca i w stanie zostaje ``running`` bez końca. Wzorzec z ``api/cortex.py``.
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def start_ingest_task(*, reason: str, since: Optional[datetime] = None) -> asyncio.Task:
+    """Uruchom bieg w tle i trzymaj referencję do zadania do jego końca."""
+    task = asyncio.create_task(run_order_mail_ingest(reason=reason, since=since))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
+
+
 @dataclass
 class IngestStats:
+    """Liczniki jednego biegu.
+
+    ``messages`` to wszystkie wiadomości z okna zapytania (watermark minus
+    nakładka, więc te same wiadomości wracają w kolejnych biegach);
+    ``new_messages`` — tylko te, dla których powstał choć jeden wpis
+    w dzienniku. Operator pyta o drugą liczbę („ile przyszło nowych"),
+    pierwsza jest miarą kosztu Graph.
+    """
+
+    reason: str = "scheduled"
     messages: int = 0
+    new_messages: int = 0
     attachments: int = 0
     ignored_no_pdf: int = 0
     ignored_sender: int = 0
     duplicates: int = 0
     unrecognized: int = 0
+    auto_applied: int = 0
     needs_review: int = 0
     skipped_existing: int = 0
     failed: int = 0
@@ -546,11 +573,13 @@ async def _process_message(
     msg: dict[str, Any],
     stats: IngestStats,
     registry: ClientRegistry,
-) -> None:
+) -> bool:
+    """Przetwórz jedną wiadomość. ``True`` = powstał choć jeden wpis w dzienniku."""
     message_id = msg.get("internetMessageId") or msg.get("id")
     if not message_id:
-        return
+        return False
     stats.messages += 1
+    added = False
     received = _parse_graph_dt(msg.get("receivedDateTime"))
     if received and (stats.max_received_at is None or received > stats.max_received_at):
         stats.max_received_at = received
@@ -562,15 +591,16 @@ async def _process_message(
             row.outcome = OUTCOME_IGNORED_SENDER
             db.add(row)
             await db.commit()
+            added = True
         stats.ignored_sender += 1
-        return
+        return added
 
     try:
         page = await gc.get(f"{mailbox_prefix()}/messages/{msg['id']}/attachments")
     except Exception as exc:  # noqa: BLE001
         stats.failed += 1
         stats.errors.append(f"attachments {message_id[:40]}: {exc!r}"[:300])
-        return
+        return False
     pdfs = [
         att
         for att in page.get("value", [])
@@ -586,8 +616,9 @@ async def _process_message(
             row.outcome = OUTCOME_IGNORED_NO_PDF
             db.add(row)
             await db.commit()
+            added = True
         stats.ignored_no_pdf += 1
-        return
+        return added
 
     max_bytes = settings.ORDER_MAIL_MAX_ATTACHMENT_MB * 1024 * 1024
     for att in pdfs:
@@ -621,6 +652,7 @@ async def _process_message(
             row.client_key = original.client_key
             db.add(row)
             await db.commit()
+            added = True
             stats.duplicates += 1
             continue
 
@@ -642,14 +674,30 @@ async def _process_message(
             stats.failed += 1
         db.add(row)
         await db.commit()
+        added = True
         if row.outcome == OUTCOME_NEEDS_REVIEW:
             stats.needs_review += 1
+            # Id PRZED ewentualnym rollbackiem: rollback wygasza atrybuty ORM,
+            # a ich odczyt w sesji async to MissingGreenlet.
+            doc_id = row.id
             try:
                 await notify_review(db, row)
-            except Exception:  # noqa: BLE001 — alert nie może wywrócić biegu
-                logger.exception("order_mail: notify_review failed for doc %s", row.id)
+                # ``emit`` nie commituje — bez tego alert czekałby na commit
+                # zapisu stanu, a ten może nie nadejść (restart w trakcie).
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001 — alert nie może wywrócić biegu
+                logger.exception("order_mail: notify_review failed for doc %s", doc_id)
+                # Padnięte zapytanie zostawia sesję w transakcji do wycofania:
+                # bez rollbacku KAŻDE kolejne zapytanie — także zapis końca
+                # biegu — kończy się PendingRollbackError, a stan zostaje na
+                # „running" bez końca.
+                await db.rollback()
+                stats.errors.append(f"notify doc {doc_id}: {exc!r}"[:300])
+        elif row.outcome == OUTCOME_AUTO_APPLIED:
+            stats.auto_applied += 1
         elif row.outcome == OUTCOME_UNRECOGNIZED:
             stats.unrecognized += 1
+    return added
 
 
 # ── Stan pętli ───────────────────────────────────────────────────────────────
@@ -695,6 +743,96 @@ async def _write_state(db: AsyncSession, **fields: Any) -> None:
     await db.commit()
 
 
+STATUS_INTERRUPTED = "interrupted"
+_COMPLETED_STATUSES = ("ok", "partial", "error")
+
+
+def poll_interval_minutes() -> int:
+    """Odstęp między biegami z podłogą 5 min (zero = pętla bez przerwy)."""
+    return max(5, int(settings.ORDER_MAIL_POLL_INTERVAL_MINUTES or 0))
+
+
+def _iso(value: Any) -> Optional[str]:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    return value
+
+
+def completed_record(
+    stats: IngestStats,
+    *,
+    started_at: datetime,
+    finished_at: datetime,
+    status: str,
+    error: Optional[str],
+) -> dict[str, Any]:
+    """Samodzielny zapis ostatniego ZAKOŃCZONEGO biegu — trafia do ``stats``.
+
+    Wiersz stanu ma jedną parę start/koniec, a bieg, który właśnie trwa (albo
+    został przerwany), nadpisuje start. Bez tego rekordu liczniki w ``stats``
+    nie dałoby się jednoznacznie przypisać do biegu, który je wyprodukował.
+    """
+    return {
+        **stats.as_dict(),
+        "started_at": _iso(started_at),
+        "finished_at": _iso(finished_at),
+        "status": status,
+        "error": error,
+    }
+
+
+def sync_snapshot(state: Optional[dict[str, Any]], *, running: bool) -> dict[str, Any]:
+    """Stan pobierania w kształcie dla API kolejki i admina.
+
+    ``last_status='running'`` w bazie znaczy tylko „bieg się zaczął". Czy trwa,
+    wie wyłącznie blokada w TYM procesie: gdy jej nie ma, bieg został przerwany
+    (restart kontenera przy deployu — u nas kilka razy dziennie) i końca nie
+    zapisał. Taki bieg pokazujemy jako ``interrupted``, nie jako wieczne
+    „trwa"; następny tick pętli i tak uruchomi go od nowa.
+    """
+    state = state or {}
+    last_status = state.get("last_status")
+    stats = state.get("stats") or {}
+    last_completed = None
+    if stats.get("finished_at") or (
+        # Zapisy sprzed rekordu (bez ``finished_at`` w ``stats``): koniec
+        # bierzemy z kolumny — tylko gdy ostatni start faktycznie się zakończył.
+        stats and last_status in _COMPLETED_STATUSES
+    ):
+        last_completed = {
+            "reason": stats.get("reason") or "scheduled",
+            "started_at": stats.get("started_at")
+            or _iso(state.get("last_run_started_at")),
+            "finished_at": stats.get("finished_at")
+            or _iso(state.get("last_run_finished_at")),
+            "status": stats.get("status") or last_status,
+            "error": stats.get("error", state.get("last_error")),
+            "messages": int(stats.get("messages") or 0),
+            "new_messages": int(stats.get("new_messages") or 0),
+            "attachments": int(stats.get("attachments") or 0),
+            "auto_applied": int(stats.get("auto_applied") or 0),
+            "needs_review": int(stats.get("needs_review") or 0),
+            "unrecognized": int(stats.get("unrecognized") or 0),
+            "duplicates": int(stats.get("duplicates") or 0),
+            "skipped_existing": int(stats.get("skipped_existing") or 0),
+            "ignored_no_pdf": int(stats.get("ignored_no_pdf") or 0),
+            "ignored_sender": int(stats.get("ignored_sender") or 0),
+            "failed": int(stats.get("failed") or 0),
+            "errors": list(stats.get("errors") or []),
+        }
+    return {
+        "enabled": bool(settings.ORDER_MAIL_INGEST_ENABLED),
+        "interval_minutes": poll_interval_minutes(),
+        "autoapply_enabled": bool(settings.ORDER_MAIL_AUTOAPPLY_ENABLED),
+        "running": running,
+        "started_at": _iso(state.get("last_run_started_at")),
+        "interrupted": last_status == "running" and not running,
+        "last_completed": last_completed,
+    }
+
+
 def compute_since(state: Optional[dict[str, Any]], now: datetime) -> datetime:
     """Od kiedy pytać skrzynkę: watermark minus nakładka; pierwszy bieg = lookback."""
     last_seen = state.get("last_seen_received_at") if state else None
@@ -712,7 +850,7 @@ async def run_order_mail_ingest(
     *, reason: str = "scheduled", since: Optional[datetime] = None
 ) -> IngestStats:
     """Jeden bieg pobierania. Nie rzuca; wynik i błąd lądują w stanie pętli."""
-    stats = IngestStats()
+    stats = IngestStats(reason=reason)
     if _ingest_lock.locked():
         stats.errors.append("already running")
         return stats
@@ -778,30 +916,71 @@ async def run_order_mail_ingest(
                         f"{mailbox_prefix()}/mailFolders/Inbox/messages", params=params
                     ):
                         for msg in page.get("value", []):
-                            await _process_message(db, gc, conn, msg, stats, registry)
-                status = "ok" if not stats.failed else "partial"
+                            if await _process_message(
+                                db, gc, conn, msg, stats, registry
+                            ):
+                                stats.new_messages += 1
+                status = "ok" if not (stats.failed or stats.errors) else "partial"
+                error = None if status == "ok" else "; ".join(stats.errors[:5])[:2000]
+                finished = datetime.now(timezone.utc)
                 await _write_state(
                     db,
-                    last_run_finished_at=datetime.now(timezone.utc),
+                    last_run_finished_at=finished,
                     last_status=status,
-                    last_error=None
-                    if status == "ok"
-                    else "; ".join(stats.errors[:5])[:2000],
-                    last_seen_received_at=stats.max_received_at
-                    or (state or {}).get("last_seen_received_at"),
-                    stats=stats.as_dict(),
+                    last_error=error,
+                    # Watermark nie może się COFNĄĆ: bieg ręczny z jawnym
+                    # ``since`` (backfill) ogląda starsze wiadomości niż
+                    # ostatnio widziana i bez tego przesuwałby okno wstecz.
+                    last_seen_received_at=_latest(
+                        stats.max_received_at,
+                        (state or {}).get("last_seen_received_at"),
+                    ),
+                    stats=completed_record(
+                        stats,
+                        started_at=now,
+                        finished_at=finished,
+                        status=status,
+                        error=error,
+                    ),
                 )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 logger.exception("order_mail ingest failed")
                 stats.errors.append(repr(exc)[:300])
-                await _write_state(
-                    db,
-                    last_run_finished_at=datetime.now(timezone.utc),
-                    last_status="error",
-                    last_error=repr(exc)[:2000],
-                    stats=stats.as_dict(),
-                )
+                # Sesja po padniętym zapytaniu wymaga rollbacku — inaczej sam
+                # zapis stanu „error" padnie i wiersz zostanie na „running".
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    logger.exception("order_mail: rollback after failure failed")
+                finished = datetime.now(timezone.utc)
+                try:
+                    await _write_state(
+                        db,
+                        last_run_finished_at=finished,
+                        last_status="error",
+                        last_error=repr(exc)[:2000],
+                        stats=completed_record(
+                            stats,
+                            started_at=now,
+                            finished_at=finished,
+                            status="error",
+                            error=repr(exc)[:2000],
+                        ),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("order_mail: could not persist failed run state")
     logger.info("order_mail ingest done: %s", stats.as_dict())
     return stats
+
+
+def _latest(*values: Optional[datetime]) -> Optional[datetime]:
+    known = []
+    for value in values:
+        if value is None:
+            continue
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        known.append(value)
+    return max(known) if known else None

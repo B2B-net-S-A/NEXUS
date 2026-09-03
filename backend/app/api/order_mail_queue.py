@@ -1,4 +1,5 @@
-"""Kolejka zamówień z maila: lista, szczegół, PDF, „Zastosuj", „Odrzuć".
+"""Kolejka zamówień z maila: lista, szczegół, PDF, „Zastosuj", „Odrzuć",
+„Pobierz zamówienia z maila" i stan ostatniego sprawdzenia skrzynki.
 
 To powierzchnia Delivery. Admin i Finance widzą organizację, Delivery Lead
 wyłącznie jawnie przypisany portfel, a Talent Community Manager globalną,
@@ -25,6 +26,7 @@ from app.api.client_orders import (
 )
 from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.order_mail import (
@@ -38,6 +40,12 @@ from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.order_mail_apply import apply_document
+from app.services.order_mail_ingest import (
+    ingest_is_running,
+    read_state,
+    start_ingest_task,
+    sync_snapshot,
+)
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -67,6 +75,16 @@ OrderMailFileUser = Annotated[
         )
     ),
 ]
+
+# „Pobierz zamówienia z maila" dotyczy CAŁEJ skrzynki, nie jednego dokumentu,
+# więc bramka jest rolowa, nie per klient: role, które w tej kolejce pracują
+# (Admin, Finance, Delivery Lead). Talent Community Manager ma tu wyłącznie
+# bezpieczny odczyt — stan sprawdzenia widzi (żeby wiedzieć, jak świeża jest
+# kolejka), przycisku nie dostaje.
+# Jedno źródło prawdy dla bramki HTTP i dla ``can_trigger`` w statusie —
+# rozjazd tych dwóch dałby przycisk widoczny komuś, kto po kliknięciu dostaje 403.
+_SYNC_TRIGGER_ROLES = (UserRole.admin, UserRole.finance, UserRole.delivery_lead)
+OrderMailSyncUser = Annotated[User, Depends(require_roles(*_SYNC_TRIGGER_ROLES))]
 
 _FINANCE_KEYS = (
     "rate_client",
@@ -216,6 +234,54 @@ async def _load_visible(db: AsyncSession, doc_id: int, user) -> OrderMailDocumen
     if visible is not None and (doc.client_id is None or doc.client_id not in visible):
         raise HTTPException(status_code=403, detail="Brak dostępu do tego klienta")
     return doc
+
+
+@router.get("/sync/status")
+async def sync_status(
+    user: OrderMailUser, db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Kiedy skrzynka była ostatnio sprawdzana i co z tego wyszło.
+
+    Wynik ostatniego ZAKOŃCZONEGO biegu (``last_completed``: ile nowych
+    wiadomości, ile zapisanych automatycznie, ile do weryfikacji) oraz to,
+    czy bieg trwa albo został przerwany. Liczby dotyczą całej skrzynki —
+    kolejka poniżej jest zawężona do portfela, więc DL może zobaczyć
+    „2 do weryfikacji" i pustą listę.
+    """
+    snapshot = sync_snapshot(await read_state(db), running=ingest_is_running())
+    snapshot["can_trigger"] = bool(_user_roles(user) & set(_SYNC_TRIGGER_ROLES))
+    last = snapshot.get("last_completed")
+    if last and _is_read_only_tcm(user):
+        # Treść błędów cytuje nazwy załączników i odpowiedzi Graph — lustro
+        # redakcji ``error`` w ``_serialize``.
+        if last.get("error"):
+            last["error"] = "Sprawdzenie skrzynki zakończyło się błędem."
+        last["errors"] = (
+            ["Sprawdzenie skrzynki zakończyło się błędem."] if last["errors"] else []
+        )
+    return snapshot
+
+
+@router.post("/sync")
+async def trigger_sync(_user: OrderMailSyncUser) -> Dict[str, Any]:
+    """„Pobierz zamówienia z maila": sprawdź skrzynkę teraz, poza harmonogramem.
+
+    Bieg idzie w tle (parsowanie PDF-ów modelem trwa minuty — dłużej niż
+    limit proxy), a wynik czyta się z ``GET /sync/status``. 409, gdy bieg
+    już trwa: front dołącza do niego zamiast startować drugi.
+    """
+    if not settings.ORDER_MAIL_INGEST_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Pobieranie zamówień z maila jest wyłączone (ORDER_MAIL_INGEST_ENABLED=false)",
+        )
+    if ingest_is_running():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Sprawdzanie skrzynki już trwa",
+        )
+    start_ingest_task(reason="manual")
+    return {"status": "started"}
 
 
 @router.get("/queue")
