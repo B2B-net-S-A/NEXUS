@@ -1,0 +1,236 @@
+[
+  {
+    "seed_key": "profil-championa-wzor-alior-docx",
+    "name_pattern": "%alior%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": 2,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": "Stawki oczekiwane zawsze w zapytaniu; brak jednoznacznego FA, bazujemy na dotychczasowych zatrudnieniach.",
+    "about_for_candidate": "Inwestują w nowoczesne technologie, które przekształcają branżę i przynoszą wartość klientom.\nRozwijają aplikacje mobilne i online, wzbogacając je rozwiązaniami opartymi o sztuczną inteligencję i hiperpersonalizację w czasie rzeczywistym i podnoszą jakość i szybkość obsługi.\nTradycyjne systemy CRM zastępują nowoczesnymi, chmurowymi rozwiązaniami.\nWdrażają zaawansowane technologie do oceny ryzyka, zwiększając bezpieczeństwo i efektywność.\nPrzechodzą na model Cloud Native i architekturę mikroserwisową, co zapewnia większą elastyczność i skalowalność.\nWykorzystują potencjał chmury Azure i Google Cloud Platform do budowy nowych aplikacji i migracji istniejących systemów.\nPion IT składa się z czterech głównych jednostek odpowiedzialnych za tworzenie wartości biznesowej oraz z trzech centrów kompetencyjnych, które dostarczają niezbędną wiedzę, procesy, standardy i zasoby technologiczne\nWspółpraca z B2B.net od: 2022 r. (długofalowa, stabilna), body leasing.",
+    "priority_rules": "Kandydatów z doświadczeniem w bankowości zawsze rozważamy w pierwszej kolejności.",
+    "process_rules_md": "- Nazwa pliku CV: B2B_Stanowisko_imię nazwisko.docx – pamiętajcie, aby była spójność: tytuł pliku vs nazwa stanowiska wewnątrz pliku.\n- CV po polsku oraz po angielsku.\n- Notatka rekomendacyjna w Traffit powinna wyglądać jak obowiązujący wzór.\n- SLA: konkretny, nieprzekraczalny deadline, bez możliwości modyfikacji oferty po tym terminie.\n- Trzeba weryfikować, co znajduje się w oryginalnym CV vs layout, koniecznie analizować QA ze screenigu, aby nie było rozjazdów między treścią layoutu a tym, co powie kandydat podczas screeningu.\n- Limit CV: w większości przypadków 2 CV.\n- OFFLIMIT – nie wyciągamy kandydatów od tego Klienta.\n- Stawki oczekiwane zawsze wpisuję w zapytaniu, nie ma jednoznacznego FA, bazujemy na dotychczasowych zatrudnieniach.\n- Język polski – fluent.\n- Wschód – kandydaci nie są mile widziani.\n- Głównie praca zdalna – wskazuję to w PCh.",
+    "onboarding_md": "- Sprzęt wraz z dostępami przekazuje Klient, odbiór z biura, w ostateczności wysyłka.\n- Adresy biur:\n- Gdańsk: Piastowska 7\n- Warszawa: Chmielna 69 (Varso Tower)\n- Kraków: os. Boh Września 80a\n- Delegacje: 340PLN brutto na nocleg plus zwrot kosztów biletów tam i z powrotem.\n- Rozliczenia odbywają się na wzorze KEŚu (Karta Ewidencji Świadczenia Usług), który konsultant otrzymuje wraz z informacjami onboardingowymi od działu rozliczeń.\n- TS jest akceptowany w Jira i automatycznie wysyłany do nas (wprowadzili to w lipcu 2026).\n- Praca spoza granic RP nie jest możliwa.\n- Praca w godzinach biurowych.\n- Wyłączność projektowa dla Klienta.\n- WSPÓŁPRACA NA LATA.\n- Akceptacja kandydata: zawsze udostępniamy NIP lub Pesel (w przypadku braku JDG), aby Klient mógł dokonać weryfikacji compliance. Po tym dopiero następuje akceptacja.\n- Brak dodatkowych dokumentów, które trzeba dostarczyć do Klienta.\n- Umowę dedykowaną dla Klienta znajdziecie tutaj: Umowa B2B – tę umowę zapisujecie na swoim dysku pt. „Umowa B2B_B2B.net S.A.” i wysyłacie kandydatowi.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-bik-docx",
+    "name_pattern": "%informacji kredytowej%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": null,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": "Stawki oczekiwane zawsze w zapytaniu; brak jednoznacznego FA, bazujemy na dotychczasowych zatrudnieniach.",
+    "about_for_candidate": "Praca na dużych wolumenach danych finansowych i wrażliwych,\nWłasne modele scoringowe do oceny ryzyka kredytowego i fraudu,\nWykorzystanie AI/ML w obszarach scoringu, analizy ryzyka, jakości danych i automatyzacji decyzji.\nZastosowanie behawioralnej biometrii i zaawansowanej analityki w obszarze anti-fraud,\nArchitektura oparta o mikroserwisy,\nMałe, zwinne zespoły → realny wpływ na architekturę i decyzje techniczne,\nDługofalowe projekty i spokojne, uporządkowane tempo pracy.\nObowiązuje limit 231MDs do przepracowania w roku, bez wyjątków. Objaśniamy to sformułowaniem: work life balance.\nWspółpraca z B2B.net od: 2017 r. (długofalowa, stabilna), body leasing, fixed price, Certyfikowany partner integracyjny Biuro Informacji Kredytowej, wspierający banki i instytucje pożyczkowe w integracji systemów z platformami BIK.",
+    "priority_rules": "Kandydatów z doświadczeniem w finansach/domenowym zawsze rozważamy w pierwszej kolejności.",
+    "process_rules_md": "- Nazwa pliku CV: B2B_Stanowisko_imię nazwisko.docx – pamiętajcie, aby była spójność: tytuł pliku vs nazwa stanowiska wewnątrz pliku.\n- CV po polsku oraz po angielsku.\n- Notatka rekomendacyjna w Traffit powinna wyglądać jak obowiązujący wzór.\n- SLA: brak, wysyłam na bieżąco, im szybciej, tym lepiej.\n- Trzeba weryfikować, co znajduje się w oryginalnym CV vs layout, koniecznie analizować QA ze screenigu, aby nie było rozjazdów między treścią layoutu a tym, co powie kandydat podczas screeningu.\n- Brak limitu rekomendacji per proces.\n- OFFLIMIT – nie wyciągamy kandydatów od tego Klienta.\n- Stawki oczekiwane zawsze wpisuję w zapytaniu, nie ma jednoznacznego FA, bazujemy na dotychczasowych zatrudnieniach.\n- Język polski – fluent.\n- Praca hybrydowa 1 dzień w tygodniu, w niektórych przypadkach 1 dzień w miesiącu – każdorazowo wskazuję to w PCh.",
+    "onboarding_md": "- Sprzęt wraz z dostępami przekazuje Klient, odbiór z biura, w ostateczności wysyłka, ale wolą tego unikać, jak tylko mogą.\n- Adresy biur:\n- Katowice: Gliwicka 2\n- Warszawa: Zygmunta Modzelewskiego 77a\n- Umowa B2B dedykowana pod Klienta - Umowa, brak innych dokumentów.\n- Delegacje: brak zwrotów za dojazdy do biura.\n- Rozliczenia odbywają się na wzorze TS od nas, który konsultant otrzymuje wraz z informacjami onboardingowymi od działu rozliczeń.\n- TS musi zostać zaakceptowany przez Managera, a następnie wysłany wraz z FV do naszych rozliczeń. My dodatkowo weryfikujemy spójność godzin z Managerami.\n- Praca spoza granic RP nie jest możliwa.\n- Praca w godzinach biurowych.\n- WSPÓŁPRACA NA LATA.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-bnp-paribas-docx",
+    "name_pattern": "%bnp%",
+    "sla_business_days": 10,
+    "sla_min_candidates": 2,
+    "cv_limit_per_process": 6,
+    "hold_hours": null,
+    "multi_project_cooldown_days": 14,
+    "rate_policy": "Nie przekraczamy stawek umownych; wyjątek: Architekci i profile skomplikowane, nierynkowe.",
+    "about_for_candidate": "Wykorzystanie AI/ML (w tym generatywnej AI) w konkretnych procesach biznesowych i IT – m.in. analiza danych, anti-fraud, KYC (nie jako eksperyment, tylko realne use-case’y).\nArchitektura hybrydowa: on-prem + chmura dedykowana (Oracle Cloud@Customer, IBM Cloud), z wykorzystaniem platform kontenerowych (OpenShift) z wysokimi wymaganiami bezpieczeństwa i compliance,\nPrace nad realnymi produktami i procesami finansowymi w środowisku regulowanym,\nZwinne podejście do rozwoju (Scrum/Agile), podział na chaptery i zespoły produktowe (squady).\nOsobny dział stanowi DevOps, Architektura i zespół UX/UI. Reszta to zespoły SCRUMowe (BA, Dev, tester, PO, SM – rzadziej, bo rezygnują ze Scrum Masterów obecnie),\nW BNP obowiązuje limit 220MDs do przepracowania w roku, bez wyjątków. Objaśniamy to sformułowaniem: work life balance.\nWspółpraca z B2B.net od: 2015 r. (długofalowa, stabilna), body leasing, fixed price, usługi pentestów. \nProjekty realizowane są w złożonych środowiskach IT, często z udziałem struktur globalnych (Francja).",
+    "priority_rules": "Kandydatów z doświadczeniem w bankowości zawsze rozważamy w pierwszej kolejności.",
+    "process_rules_md": "- Nazwa pliku CV: B2B_Stanowisko_imię nazwisko.docx – pamiętajcie, aby była spójność: tytuł pliku vs nazwa stanowiska wewnątrz pliku.\n- CV po polsku oraz po angielsku.\n- Notatka rekomendacyjna w Traffit powinna wyglądać jak obowiązujący wzór.\n- Trzeba weryfikować, co znajduje się w oryginalnym CV vs layout, koniecznie analizować QA ze screenigu, aby nie było rozjazdów między treścią layoutu a tym, co powie kandydat podczas screeningu.\n- Brak oficjalnego limitu rekomendacji per proces, jednakże staram się nie przekraczać 5-6 CV per wakat (zostało to ustalone w trakcie współpracy).\n- OFFLIMIT – nie wyciągamy kandydatów od tego Klienta.\n- Jeśli chcemy wysłać kandydata na więcej niż jeden projekt, to musimy poczekać 14 dni od pierwszej rekomendacji.\n- Nie przekraczamy stawek umownych, wyjątkiem są Architekci lub profile, które są skomplikowane i nierynkowe.\n- Nie rekomendujemy kandydatów ze Wschodu, Klient nie patrzy na takich przychylnie. Perfect PL musi być.\n- Praca hybrydowa 18 dni na kwartał – standard Banku, ale nie jest weryfikowany odbijaniem karty na bramkach. Jeśli jest inny wymiar, informuję o tym na górze w wierszy „tryb pracy”.",
+    "onboarding_md": "- SLA: mamy 10 dni roboczych na wysłanie pierwszych dwóch kandydatów, z doświadczenia wiemy, że kandydatów wysyłamy tego samego lub następnego dnia, aby pojawili się „na górze” listy Managera. Wysyłam na bieżąco, nawet po deadlinie, który jest zawarty w Traffit, wyjątkiem są zapytania bez numeru RITM w tytule, wówczas deadline jest z definicji.\n- Sprzęt wraz z dostępami przekazuje Klient, zawsze odbiór z biura.\n- Adresy biur:\n- Katowice: Żelazna 10\n- Warszawa: Kasprzaka 2\n- Kraków: Armii Krajowej 28\n- Po akceptacji kandydata: zawsze wysyłam do Was ankietę compliance, którą uzupełniamy NIP-em (jeśli nie ma, to PESELEM, a jeśli jest, to wysyłacie od razu NIP plus PESEL. Klient musi po swojej stronie zweryfikować tę ankietę, trwa to zwykle 1-2 dni i następnie jest oficjalna akceptacja, ustalenie start date’u, do założenia tożsamości potrzebny jest PESEL, adres email, telefon, przekazujemy również potwierdzenie lokalizacji odbioru sprzętu.\n- Dokument do podpisu „Zdalny dostęp” przed zawarciem umowy znajduje się na dysku, jest on na nasze potrzeby: Dokumenty onboardingowe. Ten dokument zapisujecie na swoim dysku, a następnie wypełniacie i wysyłacie w pdf do podpisu konsultantowi (może być podpis ręczny i skan, może być podpis elektroniczny (nie profilem zaufanym)\n- Umowa B2B dedykowana pod Klienta, znajdziecie na dysku: Umowa dedykowana pod BNP Paribas – zapisujecie na dysku, zmieniacie nazwę na „Umowa B2B_B2B.net S.A.” i takową wysyłacie do konsultanta.\n- Obligatoryjny dokument, który również kandydat musi podpisać: Oświadczenie, że nie jest karany – ten dokument nie wymaga poświadczenia KRK, wystarczy, że konsultant go podpisze i wyśle do nas. Podpis odręczny i skan albo podpis elektroniczny.\n- Delegacje: zwracamy koszty dojazdu i noclegów do 2000 PLN brutto rocznie – wyłącznie na formalną prośbę Klienta (do wiadomości dla Was).\n- Rozliczenia odbywają się na wzorze TS od Klienta, który konsultant otrzymuje z Banku.\n- TS musi zostać podpisany przez Managera, a następnie wysłany wraz z FV do naszych rozliczeń.\n- Praca spoza granic RP nie jest możliwa (mówi o tym umowa ramowa z Klientem).\n- Praca w godzinach biurowych.\n- Wyłączność dla Klienta (wszystko jest w umowie dedykowanej B2B).\n- WSPÓŁPRACA NA LATA.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-bank-pocztowy-docx",
+    "name_pattern": "%pocztow%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": 2,
+    "hold_hours": 24,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "Transformacja infrastruktury/chmurowa – Mimo dużej struktury onpremisowej, liczne projekty migracyjne z Onpremów/hybrydowych rozwiązań do AWS’a, tworzenie landing zonów aplikacji w Azzurze. W związku z tym powstaje duże zapotrzebowane na Cloud Engineerów, Solution Architectów.\nPowerapps (Canvas Pro)– W związku ze ścisłą współpracą z Pocztą Polską i rozwojem aplikacji mobilnych i internetowych np., Pocztowy24. Docelowo planowany dalszy rozwój zespołu PowerApps.\nPocztowyID – usługa zdalnego potwierdzania tożsamości klientów w oparciu o rozwiązanie mojeID od KIR, co pozwala na online’ową identyfikację i obsługę procesów cyfrowych (np. zakładanie umów czy interakcje z usługami publicznymi).\nRozwój bankowości mobilnej i internetowej (m.in. aplikacja Pocztowy24 i kanały płatności BLIK/Apple Pay/Google Pay). \nIntegracja systemów przelewów natychmiastowych Express Elixir (obsługiwana przez KIR) dla szybkich transakcji międzybankowych.",
+    "priority_rules": "Kandydatów z doświadczeniem w bankowości zawsze rozważamy w pierwszej kolejności.",
+    "process_rules_md": "- Nazwa pliku CV: Bank_Pocztowy_Stanowisko_Imię_Nazwisko\n- CV tylko po polsku.\n- Powinien być osobny, dopasowany do konkretnej rekrutacji plik CV i osobna dopasowana notatka do każdej rekrutacji. Nawet jeśli rekrutacja jest bliźniacza – robimy copy-paste notatki i kopię pliku do konkretnej rekrutacji.\n- Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku – porównujcie z oryginalnym CV kandydata.\n- Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek każdy inny może ich procesować dalej.\n- Mamy deadliny na wysłanie kandydatów około 1 tygodnia, trzeba działać szybko\n- W większości zapytań mamy limit na 2 CV\n- OFFLIMIT - TAK",
+    "onboarding_md": null,
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-credit-agricole-docx",
+    "name_pattern": "%credit agricole%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": null,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "Credit Agricole Bank Polska\nBank zatrudnia około 800 specjalistów IT i realizuje projekty rozwijające bankowość detaliczną, korporacyjną, mobilną oraz w obszarach cyberbezpieczeństwa i infrastruktury.\nZespół IT obejmuje m.in. programistów, architektów, analityków, testerów, administratorów, specjalistów ds. bezpieczeństwa oraz kierowników projektów.\nProjekty realizowane są w oparciu o nowoczesne technologie i metodyki zwinne, z naciskiem na długofalowy rozwój systemów bankowych.\nCredit Agricole jest częścią międzynarodowej Grupy Crédit Agricole – jednej z największych grup finansowych na świecie, działającej w 46 krajach i obsługującej ponad 54 mln klientów.\nWspółpraca z konsultantami ma charakter długoterminowy, a po zakończeniu projektu często istnieje możliwość zaangażowania w kolejne inicjatywy w ramach banku.\nOFFLIMIT – TAK\nCV wyłącznie w języku polskim. \nNazwa pliku CV: B2B.NET_nazwa_stanowiska_imię_i_nazwisko_bieżąca_data\nLokalizacje biur: \nŻwirki i Wigury 18, 02-092 Warszawa\nLegnicka 48, bud. C-D, 54-202 Wrocław\nForma współpracy: B2B, umowa zlecenie na stanowiska juniorskie, jeśli kandydat posiada status studenta/ucznia.\nDokumenty po akceptacji: standardowa umowa B2B \nB2Bnet S.A\\B2B_ALL - Dokumenty\\02_Rekrutacja i HR\\Wzory\\Umowy\\B2B\nSprzęt: podstawowy sprzęt, niezbędny do wykonywania pracy, zapewnia klient. \nProces rekrutacyjny: zazwyczaj obejmuje 1 – 2 etapy (w zależności od stanowiska). Rozmowy prowadzone są w języku polskim.\nModel pracy: zdalny/hybrydowy/stacjonarny oraz wymiar pracy z biura są określane indywidualnie dla każdego projektu.",
+    "priority_rules": null,
+    "process_rules_md": null,
+    "onboarding_md": null,
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-energa-docx",
+    "name_pattern": "%energa%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": 5,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "Energa-Operator S.A. to jedna z największych spółek dystrybucyjnych energii elektrycznej w Polsce, należąca do Grupy ORLEN. Spółka odpowiada za dystrybucję energii elektrycznej, utrzymanie oraz rozwój infrastruktury energetycznej i pełni funkcję Operatora Systemu Dystrybucyjnego (OSD). Siedziba firmy znajduje się w Gdańsku. \nFirma realizuje strategiczne projekty związane z bezpieczeństwem energetycznym, cyfryzacją oraz rozwojem infrastruktury elektroenergetycznej w Polsce północnej i środkowej. Projekty prowadzone są w dużej skali, w środowisku korporacyjnym i regulowanym. \nEnerga-Operator działa zgodnie z Programem Zgodności, który zapewnia niedyskryminacyjne traktowanie użytkowników systemu energetycznego oraz wysokie standardy bezpieczeństwa informacji i danych sensytywnych. \nKlient stawia duży nacisk na bezpieczeństwo danych, zgodność z RODO, procesy compliance oraz wysoką jakość współpracy z partnerami zewnętrznymi. Współpraca odbywa się w uporządkowanym środowisku procesowym z jasno określonymi zasadami i odpowiedzialnościami. \nProjekty realizowane dla Energa-Operator często dotyczą środowisk enterprise, integracji systemów, utrzymania i rozwoju infrastruktury IT oraz wsparcia transformacji cyfrowej organizacji. Kandydaci mają możliwość pracy przy projektach o dużym wpływie biznesowym i społecznym. \nOrganizacja współpracuje w modelu body leasingowym i preferuje długofalową współpracę z doświadczonymi specjalistami IT oraz ekspertami technologicznymi.",
+    "priority_rules": "Preferowani kandydaci z doświadczeniem w dużych organizacjach  (np. energetyka, bankowość)",
+    "process_rules_md": "- Nazwa pliku CV: ENERGA_Nazwa projektu_Stanowsiko_Imię i Nazwisko\n- CV tylko po polsku\n- Dedykowane CV + dedykowana notatka\n- Weryfikacja zgodności CV z oryginałem - sprawdzamy, czy AI nie przekłamało doświdczenia\n- Wysyłamy w ofercie MAX 5 kandydatów (zatem dążymy do liczby 5 w górę na zweryfikowanym)\n- Krótkie deadliny - do ok. tygodnia - szybkie działania kluczowe\n- Długoterminowe projekty\n- Praca hybrydowa\n- Interview odbywa się z managerem w języku polskim  - najczęsciej po pierwszym etapie zapada decyzja o zatrudnieniu.\n- Nie rekomendujemy konsultantów pochodzących z innych krajów - preferowani Polacy.\n- OFFLIMIT – Tak",
+    "onboarding_md": "- Oswiadczenie KRK – zostaje u nas – ENERGA tego dokuemntu nie wymaga.\n\n**Dokumenty wymagane od konsultanta**\n- Umowa z konsultantem\n- Oswiadczenie KRK – ENERGA tego dokuemntu nie wymaga.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-kir-docx",
+    "name_pattern": "%krajowa izba rozliczeniowa%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": null,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "Działa jako technologiczny hub dla banków, instytucji finansowych, administracji publicznej i firm, dostarczając narzędzia cyfrowe związane z rozliczeniami, identyfikacją i bezpieczeństwem. KIR ma strategiczne znaczenie rynkowe: obsługuje miliony transakcji dziennie w systemach takich jak Elixir czy Express Elixir.  \nBiuro: Rotmistrza Witolda Pileckiego 65, 02-781 Warszawa\nNa co klient zwraca uwagę? \n- Przede wszystkim wiedze techniczna – pytania czysto techniczne, bez zbędnej „otoczki” \n- Konkretne odpowiedzi na pytania poparte przykładami z własnego doświadczenia.  \n- Gotowość do pracy stacjonarnej – Kandydat powinien pozytywnie wypowiadać się o pracy stacjonarnej – WAŻNE!\nObecne inicjatywy: \n- Express Elixir – system szybkich płatności natychmiastowych, powszechnie wdrożony przez banki w Polsce.  \n- mojeID i mSzafir – usługi identyfikacji i podpisu elektronicznego dla banków, firm i administracji.  \n- Współpraca nad e-Doręczeniami — cyfrową usługą integrującą korespondencję administracyjną z systemami banków, realizowaną z Pocztą Polską i PKO BP.",
+    "priority_rules": "Priorytetowo traktujemy kandydatów z doświadczeniem w pracy z rozwiązaniami KIR, min: mSzafir, mojeID, Express Elixir\nMust-have to doświadczenie w instytucjach finansowych\nKlient jest bardzo skrupulatny w wyborze kandydatów, więc nie rekomendujemy kandydatów, którzy zaliczają screening z „kredytem zaufania”.",
+    "process_rules_md": "- Nazwa pliku CV: B2B_Stanowisko_Imię_Nazwisko\n- CV tylko po polsku.\n- Proces to jedna rozmowa techniczna, po której zazwyczaj w przeciągu 2 tygodni przychodzi decyzja o zaangażowaniu w projekt",
+    "onboarding_md": null,
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-nordea-docx",
+    "name_pattern": "%nordea%",
+    "sla_business_days": 5,
+    "sla_min_candidates": 1,
+    "cv_limit_per_process": null,
+    "hold_hours": 24,
+    "multi_project_cooldown_days": null,
+    "rate_policy": "Kandydaci poza budżetem klienta rozpatrywani case by case; przed przerobieniem CV kontakt z Marcinem lub Igorem.",
+    "about_for_candidate": "Wartości: Collaboration, Ownership, Passion, Courage\nDlaczego to ważne?\nNordea szuka osób, które nie tylko znają technologię, ale też podzielają te wartości w codziennej pracy, w pracy zespołowej, podejmowaniu decyzji i rozwiązywaniu problemów.\nNordea to bardzo dojrzałe, spokojne i profesjonalne środowisko pracy. Projekty realizowane są w międzynarodowych zespołach, z dużym naciskiem na jakość, bezpieczeństwo i specjalistyczną wiedzę. Idealne miejsce dla seniorów i ekspertów.\nMetodologia pracy: SAFe (Scaled Agile Framework)\nSAFE, więcej informacji: https://framework.scaledagile.com/#big-picture / https://youtu.be/aW2m-BtCJyE?si=6cCcK89Rliy2H5mZ\n\nLokalizacja biur:\nWarszawa: Daimlera 4, 02-460 Warszawa, Poland\nGdynia: Łużycka 8B, 81-537 Gdynia\nGdańsk: aleja Grunwaldzka 472, 80-236 Gdańsk\nŁódź: Al. Marszałka Edwarda Śmigłego-Rydza 20, 93-281 Łódź\nNordea to nasz strategiczny klient. Współpraca z nimi trwa nieprzerwanie od 2015 roku. Posiadamy tam około 400 konsultantów. Ta liczba stale rośnie \nDługoterminowe projekty – współpraca na lata, część naszych konsultantów świadczy usługi dla klienta od samego początku \nInterview odbywa się w języku angielskim\nKonsultanci w trakcie świadczenia usług dla Nordea muszą być zlokalizowani w Polsce. Praca zza granicy nie jest możliwa. \nZwrot kosztów dojazdów do biura co do zasady nie przysługuje. Wyjątek stanowi sytuacja, w której konsultant zlokalizowany w Warszawie zostaje, na prośbę klienta,  poproszony o przyjazd do Trójmiasta; wówczas koszty dojazdu podlegają zwrotowi",
+    "priority_rules": null,
+    "process_rules_md": "- KPI: Mamy 5 dni roboczych, aby wysłać minimum jednego kandydata na projekt\n- Nazwa pliku CV: B2B_Nazwa stanowiska_Imię i Nazwisko.\n- CV tylko po angielsku.\n- Jeśli kandydat pasuje na więcej niż jeden projekt – w notatce wklejamy na wszystkie, które pasuje\n- Kandydat powinien być dopasowany do konkretnej rekrutacji plik CV i osobna dopasowana notatka do każdej rekrutacji. Nawet jeśli rekrutacja jest bliźniacza – robimy copy-paste notatki i kopię pliku do konkretnej rekrutacji.\n- Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku – porównujcie z oryginalnym CV kandydata.\n- Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek każdy inny może ich procesować dalej.\n- Kandydaci poza budżetem klienta będą rozpatrywani case by case. Przed przerobieniem CV gorąca prośba o kontakt z Marcinem lub Igorem, aby nie marnować czasu\n- Do momentu zamknięcia projektu możemy nieprzerwanie przesyłać kandydatów.\n- OFFLIMIT – TAK\n- Nie rekomendujemy konsultantów pochodzących z krajów objętych konfliktami (np. Białoruś, Ukraina).",
+    "onboarding_md": "- Podstawowy sprzęt (laptop) jest zapewniany konsultantom przez bank Nordea w pierwszym dniu świadczenia usług, natomiast wszelkie dodatkowe kwestie pozostają po ich stronie.\n\n**Dokumenty wymagane od konsultanta**\n- NDA (Appendix 3)\n- Appendix 3 (Confidentiality undertaking template).docx\n- Oświadczenie o niekaralności (nasz layout) + wyciągnięty dokument z KRK\n- Oświadczenie o niekaralnośći_ang.pdf\n- Umowa z konsultantem\n- Skany certyfikatów specjalizacyjnych oraz ukończone dyplomy wykształcenia",
+    "documents": [
+      {
+        "name": "Link do strony, gdzie konsultant wyciągnie KRK",
+        "url": "https://ekrk.ms.gov.pl/ep-web"
+      }
+    ]
+  },
+  {
+    "seed_key": "profil-championa-wzor-orlen-docx",
+    "name_pattern": "%orlen%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": 5,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "1. Skala i realny wpływ\nRozwiązania IT w ORLEN wspierają kluczowe procesy energetyczne i paliwowe w Polsce oraz regionie CEE, od produkcji, przez logistykę, po sprzedaż i handel energią. To systemy o charakterze mission-critical, mające bezpośredni wpływ na funkcjonowanie gospodarki i bezpieczeństwo energetyczne.\n\n2. Duże, ambitne projekty technologiczne\nORLEN realizuje szeroką transformację cyfrową, rozwój platform data & analytics, integracja systemów po przejęciach (LOTOS, PGNiG), rozwój systemów dla energetyki i retailu. To środowisko budowania nowych rozwiązań w skali enterprise, a nie tylko utrzymania.\n\n3. Nowoczesny stack Data & Cloud\nSilna ekspozycja na Google Cloud Platform (GCP) i architekturę danych (BigQuery, Dataflow, Dataplex). Projekty obejmują przetwarzanie danych w czasie rzeczywistym, data governance i zaawansowaną analitykę, rzadko spotykane w takiej skali w Polsce.\n\n4. Stabilność i przewidywalność\nJedna z największych firm w regionie, o strategicznym znaczeniu dla państwa. Stabilne środowisko pracy, długofalowe projekty i brak typowej dla startupów zmienności.\n\n5. Prestiż i znaczenie strategiczne\nORLEN działa w sektorach kluczowych dla państwa - energetyka, paliwa, gaz. Projekty mają realny wpływ na bezpieczeństwo energetyczne oraz rozwój infrastruktury w Polsce i Europie.\n\n6. Główne lokalizacje biur ORLEN\nCentrala (HQ)\nPłock ul. Chemików 7\nGłówna siedziba spółki i centrum operacyjne całej grupy \nBiuro w Warszawie\nWarszawa - ul. Kasprzaka (dzielnica Wola)\nKluczowa lokalizacja biznesowo-IT (często projekty, vendorzy, współpraca z biznesem)",
+    "priority_rules": "Preferowani kandydaci z doświadczeniem w dużych organizacjach  (np. energetyka, bankowość)",
+    "process_rules_md": "- Nazwa pliku CV: ORLEN_Nazwa projektu_Stanowsiko_Imię i Nazwisko\n- CV tylko po polsku\n- Dedykowane CV + dedykowana notatka\n- Weryfikacja zgodności CV z oryginałem - sprawdzamy, czy AI nie przekłamało doświdczenia\n- Wysyłamy w ofercie MAX 5 kandydatów (zatem dążymy do liczby 5 w górę na zweryfikowanym)\n- Krótkie deadliny - do ok. tygodnia - szybkie działania kluczowe\n- Długoterminowe projekty\n- Praca hybrydowa (1-4 dni onsite - zależy od projektu)\n- Interview odbywa się z managerem w języku polskim  - najczęsciej po pierwszym etapie zapada decyzja o zatrudnieniu.\n- Nie rekomendujemy konsultantów pochodzących z innych krajów - preferowani Polacy.\n- OFFLIMIT – Tak",
+    "onboarding_md": "**Dokumenty wymagane od konsultanta**\n- Umowa z konsultantem\n- Oswiadczenie KRK – ORLEN tego dokuemntu nie wymaga.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-pansa-docx",
+    "name_pattern": "%pansa%",
+    "sla_business_days": 5,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": 3,
+    "hold_hours": 24,
+    "multi_project_cooldown_days": null,
+    "rate_policy": "Limit stawki, nie rekomendujemy powyżej; ewentualnie 5 zł powyżej po konsultacji z DL (Michał Walasek).",
+    "about_for_candidate": "PANSA to państwowa instytucja odpowiedzialna za bezpieczne zarządzanie ruchem lotniczym w polskiej przestrzeni powietrznej. Projekty IT w PANSA dotyczą m.in. systemów wspierających kontrolę ruchu lotniczego, integracji z radarami i systemami nawigacyjnymi oraz aplikacji o wysokich wymaganiach dotyczących niezawodności i bezpieczeństwa. W takim środowisku szczególnie cenione są doświadczenie z systemami krytycznymi (high availability), bezpieczeństwem oraz pracą z dużymi, złożonymi systemami.\nLokalizacja biur: Warszawa, ul. Wieżowa 8\nDługoterminowe projekty – współpraca na lata\nInterview odbywa się w języku polskim\nKonsultanci w trakcie świadczenia usług dla PANSA muszą być zlokalizowani w Polsce. Praca zza granicy nie jest możliwa. \nZwrot kosztów dojazdów do biura nie przysługuje.",
+    "priority_rules": null,
+    "process_rules_md": "- KPI: Mamy deadline na pokazanie kandydatów, po deadline już nie można pokazywać, zwykle jest to około 5 dni roboczych.\n- Mamy limit CV, które możemy pokazać, zazwyczaj od 1 do 3.\n- Rekrutacja najczęściej podzielona jest na 3 etapy:\n  - Analiza CV\n  - Test online\n  - Rozmowa\n- CV tylko po polsku.\n- Kandydat powinien być dopasowany do konkretnej rekrutacji plik CV i osobna dopasowana notatka do każdej rekrutacji. Nawet jeśli rekrutacja jest bliźniacza – robimy copy-paste notatki i kopię pliku do konkretnej rekrutacji.\n- Nazwa pliku CV: B2B_PANSA_Nazwa_Stanowiska_Imię_Nazwisko\n- Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku – porównujcie z oryginalnym CV kandydata.\n- Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek każdy inny może ich procesować dalej.\n- Mamy limit stawki, nie rekomendujcie kandydatów powyżej limitu (ew. 5 zł powyżej po konsultacji z DL – Michał Walasek)\n- OFFLIMIT – TAK\n- Przeważnie praca jest głównie zdalna, max raz w miesiącu z biura.",
+    "onboarding_md": "- Sprzęt zapewnia B2B.net",
+    "documents": [
+      {
+        "name": "Link do umowy przedwstępnej dla kandydata z aktywaną działalnością gospodarczą",
+        "url": "https://b2bnetsa.sharepoint.com/:w:/r/sites/B2B_ALL/_layouts/15/Doc.aspx?sourcedoc=%7B526BCEE5-407A-430E-800E-D77CDE5A9C66%7D&file=Umowa%20na%20udzia%C5%82%20w%20rekrutacji%20B2B_PANSA.docx&action=default&mobileredirect=true"
+      },
+      {
+        "name": "Link do umowy przedwstępnej dla kandydata bez aktywnej działalności gospodarczej",
+        "url": "https://b2bnetsa.sharepoint.com/:w:/r/sites/B2B_ALL/_layouts/15/Doc.aspx?sourcedoc=%7B27C6F2DD-D2D7-4035-A061-FA13159C319D%7D&file=Umowa%20na%20udzia%C5%82%20w%20rekrutacji_osoba_fizyczna%20PANSA.docx&action=default&mobileredirect=true"
+      }
+    ]
+  },
+  {
+    "seed_key": "profil-championa-wzor-pfron-docx",
+    "name_pattern": "%pfron%",
+    "sla_business_days": 10,
+    "sla_min_candidates": 1,
+    "cv_limit_per_process": null,
+    "hold_hours": 24,
+    "multi_project_cooldown_days": null,
+    "rate_policy": "Kandydaci poza budżetem klienta rozpatrywani case by case; przed przerobieniem CV kontakt z Marcinem lub Igorem.",
+    "about_for_candidate": "Kim jest PFRON\nPaństwowy Fundusz Rehabilitacji Osób Niepełnosprawnych (PFRON) wspiera osoby z niepełnosprawnościami poprzez finansowanie i zarządzanie programami rehabilitacyjnymi i wsparcia zawodowego. Kluczowy odbiorą usług? OBYWATEL.  Instytucja wykorzystuje nowoczesne systemy IT do obsługi wniosków, deklaracji i raportowania.\nAdres: al. Jana Pawła II 13, 00-828 Warszawa\nhttps://www.pfron.org.pl/o-funduszu/\n\nAtuty PFRON w kontekście technologicznym\nAplikacje webowe: e-PFRON2, iPFRON+, SOW – dostęp przez przeglądarkę\nBackend: węzeł krajowy, rejestry państowe\nBazy danych: relacyjne (Oracle, PostgreSQL)\nIntegracje: REST/SOAP API, XML, JSON, ePUAP, profil zaufany\n\nStyl rozmów rekrutacyjnych w PFRON\nRozmowy w trybie online, prowadzone przez zespół PFRON\nOmawiane są: projekt, wymagania i przykłady doświadczenia kandydatów w kontekście procesów i technologii\nPytania weryfikacyjne dotyczą workflow, integracji systemów, baz danych i bezpieczeństwa\n\nNa co PFRON zwraca największą uwagę\nZrozumienie procesów i workflow w instytucjach publicznych\nDoświadczenie w pracy w środowisku on-premises i integracjami \nZnajomość bezpieczeństwa danych i wymagań regulacyjnych\nSamodzielność i praktyczne doświadczenie - klient nie szuka osób, które trzeba uczyć",
+    "priority_rules": null,
+    "process_rules_md": "- KPI: Mamy 10 dni roboczych, aby wysłać minimum jednego kandydata na projekt\n- Nazwa pliku CV: B2B_Nazwa stanowiska_Imię i Nazwisko.\n- CV tylko po polsku.\n- Jeśli kandydat pasuje na więcej niż jeden projekt – w notatce wklejamy na wszystkie, które pasuje\n- Kandydat powinien być dopasowany do konkretnej rekrutacji plik CV i osobna dopasowana notatka do każdej rekrutacji. Nawet jeśli rekrutacja jest bliźniacza – robimy copy-paste notatki i kopię pliku do konkretnej rekrutacji.\n- Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku – porównujcie z oryginalnym CV kandydata.\n- Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek każdy inny może ich procesować dalej.\n- Kandydaci poza budżetem klienta będą rozpatrywani case by case. Przed przerobieniem CV gorąca prośba o kontakt z Marcinem lub Igorem, aby nie marnować czasu\n- Do momentu zamknięcia projektu możemy nieprzerwanie przesyłać kandydatów.\n- OFFLIMIT – TAK\n- Nie rekomendujemy konsultantów pochodzących z krajów objętych konfliktami (np. Białoruś, Ukraina).",
+    "onboarding_md": "- Podstawowy sprzęt (laptop) jest zapewniany konsultantom przez bank Nordea w pierwszym dniu świadczenia usług, natomiast wszelkie dodatkowe kwestie pozostają po ich stronie.\n\n**Dokumenty wymagane od konsultanta**\n- Oświadczenie o niekaralności + wyciągnięty dokument z KRK\n- Oświadczenie o niekaralności – link\n- Umowa z konsultantem.\n- Skany certyfikatów specjalizacyjnych oraz ukończone dyplomy wykształcenia.\n- Oświadczenie BHP – link\n- Załącznik do polityki – oświadczenie – link",
+    "documents": [
+      {
+        "name": "Link do strony, gdzie konsultant wyciągnie KRK",
+        "url": "https://ekrk.ms.gov.pl/ep-web"
+      }
+    ]
+  },
+  {
+    "seed_key": "profil-championa-wzor-pko-bp-docx",
+    "name_pattern": "%pko%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": null,
+    "hold_hours": 24,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "Skala i realny wpływ – rozwiązania wdrażane w PKO BP trafiają do ponad 12 mln klientów. Dla ambitnego specjalisty to rzadka szansa, żeby widzieć efekty swojej pracy w krytycznych procesach całej gospodarki.\nDuże, ambitne projekty technologiczne – bank prowadzi szeroką transformację IT: modernizacja architektury, migracja do chmury, cel obsługi >15 mln klientów do 2027 r. To nie jest praca na utrzymaniu – to praca przy budowaniu czegoś nowego.\nChmura Krajowa (OChK) – PKO BP jest współwłaścicielem OChK (joint venture z PFR). To unikalna w Polsce ekspozycja na tematy chmurowe w skali enterprise i w kontekście strategicznym.\nStabilność i przewidywalność – ponad 100 lat historii, silna pozycja rynkowa, brak ryzyka gwałtownych zwrotów jak w startupach. Dobry wybór dla osób, które cenią ciągłość projektów.\nPrestiż i ekspansja – projekty z PGZ (sektor obronny), plany ekspansji w UE, obecność w CEE przez oddziały zagraniczne i KredoBank na Ukrainie. Bank działa w obszarach strategicznych dla kraju.",
+    "priority_rules": "Kandydatów z doświadczeniem w bankowości zawsze rozważamy w pierwszej kolejności.",
+    "process_rules_md": "- Nazwa pliku CV: ZOB-numer projektu_Stanowisko_Imię i Nazwisko\n- CV tylko po polsku.\n- Powinien być osobny, dopasowany do konkretnej rekrutacji plik CV i osobna dopasowana notatka do każdej rekrutacji. Nawet jeśli rekrutacja jest bliźniacza – robimy copy-paste notatki i kopię pliku do konkretnej rekrutacji.\n- Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku – porównujcie z oryginalnym CV kandydata.\n- Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek każdy inny może ich procesować dalej.\n- Mamy bardzo krótkie deadliny, po których system nie przepuści kolejnych ofert– zawsze sprawdzajcie, kiedy jest deadline i działajcie szybko\n- OFFLIMIT – TAK\n- Każda rekomendacja wiąże się ze zgodą kandydata na udział w procesie, screen maila od kandydata o poniższej treści wrzucacie na dole CV:\n- Temat maila: ZOB-xxxx - zgoda na przetwarzanie danych osobowych\n- Treść maila:\n- Dzień dobry,",
+    "onboarding_md": "- Onboarding: Klient wymaga jedynie przesłania PESELu do dostępów oraz zdjęcia do wyrobienia karty wejściówki.\n- Biura: Warszawa, Chmielna 89, Lublin, Tomasza Zana 2a, Katowice: ul. Damrota 23.\n- Standardowa umowa: Umowa B2B\n- Ja, [imię i nazwisko kandydata], wyrażam zgodę na przetwarzanie przez PKO Bank Polski moich danych osobowych zawartych w dokumencie CV, przekazanym przez B2B.net S.A. („Oferent”) w ramach zapytania ofertowego nr ZOB-xxxx. Zgoda jest udzielona w celu umożliwienia wstępnej oceny kompetencji i doświadczenia do realizacji usług, które mają być realizowane z moim udziałem oraz przewidywanego sposobu ich realizacji. Przetwarzanie danych w oparciu o zgodę będzie odbywało się w okresie prowadzenia przez PKO Bank Polski postępowania ofertowego, o którym mowa powyżej oraz w okresie ewentualnego świadczenia przez Oferenta Usług na rzecz PKO Bank Polski z moim udziałem.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-santander-docx",
+    "name_pattern": "%santander%",
+    "sla_business_days": null,
+    "sla_min_candidates": null,
+    "cv_limit_per_process": null,
+    "hold_hours": null,
+    "multi_project_cooldown_days": null,
+    "rate_policy": null,
+    "about_for_candidate": "Bankowość mobilna i kanały cyfrowe jako kluczowe produkty banku,\nProjekty integracyjne i transformacyjne związane z procesem przejęcia przez Erste Group,\nRozbudowany ekosystem integracji (systemy bankowe, kanały cyfrowe, Financial Markets, systemy zewnętrzne),\nAnalityka danych i automatyzacja procesów wspierające stabilność i monitoring systemów,\nZwinne zespoły produktowe i podział na chaptery, chaptery na squady scrumowe.\nPraca w środowisku międzynarodowym (PL + zagranica).\nWspółpraca z B2B.net od: 2024 r., body leasing. \nNastąpiło połączenie z ERSTE.",
+    "priority_rules": "Kandydatów z doświadczeniem w bankowości zawsze rozważamy w pierwszej kolejności. Domenowe – bomba.",
+    "process_rules_md": "- Nazwa pliku CV: B2B_Stanowisko_imię nazwisko.docx – pamiętajcie, aby była spójność: tytuł pliku vs nazwa stanowiska wewnątrz pliku.\n- CV po polsku oraz po angielsku.\n- Notatka rekomendacyjna w Traffit powinna wyglądać jak obowiązujący wzór.\n- SLA: brak, im szybciej, tym lepiej.\n- Trzeba weryfikować, co znajduje się w oryginalnym CV vs layout, koniecznie analizować QA ze screenigu, aby nie było rozjazdów między treścią layoutu a tym, co powie kandydat podczas screeningu.\n- Brak limitu rekomendacji per proces.\n- OFFLIMIT – BRAK.\n- Najczęściej jest oczekiwany i PL, i ANG (współpraca z zespołami z Madrytu).\n- Praca z terytorium państw UE jest możliwa.\n- Praca zdalna, raz w miesiącu lub raz na kwartał spotykają się zespołowo, nie jest to obligatoryjne. Będę wskazywać w PCh.",
+    "onboarding_md": "- Sprzęt wraz z dostępami przekazuje Klient, zawsze odbiór z biura, rzadko wysyłka.\n- Adresy biur:\n- Wrocław: Robotnicza 11\n- Warszawa: al. Jana Pawła II 17\n- Poznań: Kolorowa 8\n- Umowa B2B dedykowana pod Klienta, znajdziecie na dysku.\n- Delegacje: nie było do tej pory, w umowie nie ma nic na ten temat.\n- Rozliczenia odbywają się na wzorze TS od nas.\n- TS musi zostać zaakceptowany przez Managera, a następnie wysłany wraz z FV do naszych rozliczeń.\n- Praca w godzinach biurowych.\n- Wyłączność dla Klienta (wszystko jest w umowie dedykowanej B2B).\n- WSPÓŁPRACA NA LATA.\n- Brak dokumentów, które trzeba dostarczyć do Klienta.\n- PESEL udostępniamy do założenia tożsamości w Banku.\n- Standardowa umowa: Umowa B2B – na razie nie podpisaliśmy umowy na BL z Bankiem, więc bazujemy na standardowej umowie (naszym wzorze). Jeśli się to zmieni, ja zmienię lokalizację pliku. Standardowo: zapisujemy u siebie na dysku pt. „Umowa B2B_B2B.net S.A.” i wysyłamy do kandydata.",
+    "documents": []
+  },
+  {
+    "seed_key": "profil-championa-wzor-tauron-docx",
+    "name_pattern": "%tauron%",
+    "sla_business_days": 5,
+    "sla_min_candidates": 1,
+    "cv_limit_per_process": null,
+    "hold_hours": 24,
+    "multi_project_cooldown_days": null,
+    "rate_policy": "Brak limitu stawki; wysyłamy w rozsądnych, rynkowych stawkach.",
+    "about_for_candidate": "TAURON to jedna z największych grup energetycznych w Polsce. Firma realizuje strategiczne projekty związane z transformacją energetyczną, cyfryzacją oraz rozwojem nowoczesnych usług dla klientów. Praca odbywa się w środowisku Agile.\nLokalizacja biur: \nWrocław, pl. Powstańców Śląskich 20\nKatowice al. Walentego Roździeńskiego 1B (KTW II)\nDługoterminowe projekty – współpraca na lata\nInterview odbywa się w języku polskim\nKonsultanci w trakcie świadczenia usług dla Tauron muszą być zlokalizowani w Polsce. Praca zza granicy nie jest możliwa. \nZwrot kosztów dojazdów do biura nie przysługuje. \nW Tauron obowiązuje sztywny limit godzin przepracowanych w miesiącu, który wynosi 165h.",
+    "priority_rules": null,
+    "process_rules_md": "- KPI: Mamy 5 dni roboczych, aby wysłać minimum jednego kandydata na projekt, ale nie mamy limitu CV, które możemy pokazać.\n- Po upływie 5 dni roboczych możemy wysyłać kandydatów, ale mają prawo go od razu odrzucić z tytułu wysłania po terminie.\n- CV tylko po polsku.\n- Kandydat powinien być dopasowany do konkretnej rekrutacji plik CV i osobna dopasowana notatka do każdej rekrutacji. Nawet jeśli rekrutacja jest bliźniacza – robimy copy-paste notatki i kopię pliku do konkretnej rekrutacji.\n- Nazwa pliku CV: B2B_Tauron_Nazwa_Stanowiska_Imię_Nazwisko\n- Sprawdzajcie, czy AI nie namieszało przy tworzeniu pliku – porównujcie z oryginalnym CV kandydata.\n- Nie blokujemy kandydatów! Po 24 godzinach bez żadnych działań i notatek każdy inny może ich procesować dalej.\n- Nie mamy limitu, jeśli chodzi o stawkę, wysyłamy w rozsądnych, rynkowych stawkach.\n- OFFLIMIT – NIE\n- Przeważnie praca jest głównie zdalna, max raz w miesiącu z biura.",
+    "onboarding_md": "- Podstawowy sprzęt (laptop) jest zapewniany konsultantom przez Tauron w pierwszym dniu świadczenia usług.\n- Kandydat nie podpisuje umowy z nami, tylko bezpośrednio z klientem. Możliwa jest współpraca na podstawie umowy B2B lub UOP, ale preferujemy B2B, bo mamy wyższą marżę. Za negocjację umowy odpowiada Tauron.\n\n**Dokumenty wymagane od konsultanta**\n- Załączniki do zapoznania się przez kandydata:\n- Zakres usług - ZAŁĄCZNIK NR 1 Zakres usług.pdf\n- Raport miesięczny - ZAŁĄCZNIK NR 2 Raport Miesięczny — uproszczony.pdf\n- Upoważnienie RODO - ZAŁĄCZNIK NR 3 Upoważnienie szczególne do Przetwarzania Danych Osobowych.pdf\n- Zasady zdalnego dostępu do VPN - ZAŁĄCZNIK NR 4 Zasady Zdalnego Dostępu VPN dla Wykonawcy.pdf\n- Porozumienie przesyłania dokumentów - ZAŁĄCZNIK NR 4 Zasady Zdalnego Dostępu VPN dla Wykonawcy.pdf\n- Zasady przesyłania faktur - ZAŁĄCZNIK NR 5b Zasady przesyłania faktur i załączników za pośrednictwem Krajowego Systemu e-Faktur (KSeF).pdf\n- Wymagania dotyczące zgłaszania i obsługi incydentów bezpieczeństwa - ZAŁĄCZNIK NR 6 Wymagania dot. zgłaszania i obsługi incydentów bezpieczeństwa.pdf\n- To są załączniki do zapoznania się, wszelkie dokumenty kandydat podpisuje bezpośrednio z Tauron.",
+    "documents": [
+      {
+        "name": "Draft umowy",
+        "url": "https://b2bnetsa.sharepoint.com/:b:/r/sites/B2B_ALL/Shared%20Documents/02_Rekrutacja%20i%20HR/REKRUTACJA/PROJEKTY/TAURON/00_Dokumenty%20onboardingowe/draft%20umowy%20Tauron.pdf?d=w70042cac740a4139ba74c4a9616510c9&csf=1&web=1&e=Guthqj"
+      }
+    ]
+  }
+]
