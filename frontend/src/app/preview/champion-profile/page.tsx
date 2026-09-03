@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness designu edytora Profilu Championa — siedem sekcji (09.2026).
+ * Harness designu edytora Profilu Championa — sześć sekcji (09.2026).
  *
  * Renderuje PRAWDZIWY `ChampionProfileEditor`, ale przy renderze nie rusza
  * sieci: cache react-query jest zasiany z góry (`setQueryData` + `staleTime:
@@ -21,8 +21,11 @@
  *      pokazać komplet danych w nowych sekcjach. Tu sekcja 3 jest PUSTA, bo
  *      stary szablon nie miał pola na stack: chip „Brak pozycji" mówi wprost,
  *      że wymagania są wtedy zgadywane z opisu.
- *   2. profil już wypełniony po nowemu — ze stackiem, dyskwalifikatorami
- *      i dokumentami.
+ *   2. profil już wypełniony po nowemu — ze stackiem i dyskwalifikatorami.
+ *
+ * Oba przypadki mają `clientId={null}`, więc karta klienta w sekcji 6 się nie
+ * renderuje (notka „Wybierz klienta…") — nic z `client-playbook` nie trzeba
+ * zasiewać. Dane `documents` w fixture zostają: pole żyje w JSONB nadal.
  */
 
 import { useMemo } from "react";
@@ -132,7 +135,7 @@ export default function ChampionProfilePreviewPage() {
       <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
         <header>
           <h1 className="text-lg font-semibold text-foreground">
-            Profil Championa — siedem sekcji
+            Profil Championa — sześć sekcji
           </h1>
           <p className="text-xs text-muted-foreground">
             Harness designu. Wyłącznie zahardkodowane mocki, zero wywołań API.
@@ -154,7 +157,7 @@ export default function ChampionProfilePreviewPage() {
           data-testid="case-filled-new"
         >
           <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-            2. Profil wypełniony po nowemu — stack, dyskwalifikatory, dokumenty
+            2. Profil wypełniony po nowemu — stack, dyskwalifikatory
           </h2>
           <ChampionProfileEditor jobId={2} canEdit clientId={null} />
         </section>

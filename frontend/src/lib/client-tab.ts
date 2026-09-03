@@ -9,6 +9,9 @@ import { useEffect, useState } from "react";
 
 export type ClientTab =
   | "profil"
+  // Karta klienta („Zasady współpracy") — cel linku „Edytuj kartę" ze strony
+  // rekrutacji i z Pomocy → Klienci (`/clients/{id}?tab=zasady`).
+  | "zasady"
   | "projekty"
   | "kontakty"
   | "umowy-ramowe"
@@ -18,6 +21,7 @@ export type ClientTab =
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
+  "zasady",
   "projekty",
   "kontakty",
   "umowy-ramowe",

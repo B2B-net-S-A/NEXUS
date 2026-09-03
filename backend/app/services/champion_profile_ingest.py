@@ -40,6 +40,12 @@ PARSE_MODEL = "claude-haiku-4-5-20251001"
 # importu sierpniowego; v4 zmienia KSZTAŁT WYJŚCIA (siedem sekcji zamiast
 # płaskiej listy), nie zakres wydobywanych faktów.
 #
+# v6 (09.2026, karta klienta): pola karty klienta — `client.about`,
+# `priority_rules`, `offlimit`, `contract_type`, `cv_language` oraz sekcja
+# `documents` — NIE są już wydobywane. Żyją w `client_playbooks` (jedno miejsce
+# per klient), a nie w profilu każdej rekrutacji. Klucze zostają w słowniku
+# z pustymi wartościami: kształt JSONB się nie zmienia.
+#
 # Prompt opisuje nagłówki OBU szablonów, bo stary krąży po firmie w kilkuset
 # kopiach i będzie wgrywany jeszcze długo po tym, jak nowy stanie się
 # obowiązujący. Parser rozumiejący wyłącznie nowe nagłówki zamieniłby każdy
@@ -47,12 +53,13 @@ PARSE_MODEL = "claude-haiku-4-5-20251001"
 # poprawny wynik, nie błąd.
 #
 # Zmiana treści = inne wyniki parsowania; bump wersji w _parser przy każdej edycji.
-PARSER_VERSION = "champion_parse:v5:haiku-4.5"
+PARSER_VERSION = "champion_parse:v6:haiku-4.5"
 
 PROMPT = """Z dokumentu "Profil Championa" (opis idealnego kandydata uzgodniony z klientem) wyciągnij DOKŁADNIE tę strukturę JSON.
 
-Dokument może być w jednym z dwóch układów:
-* NOWY (7 sekcji): 1. Podstawowe informacje, 2. Co wpisać (search), 3. Stack technologiczny, 4. O projekcie, 5. Pytania screeningowe, 6. O kliencie, 7. Dokumenty
+Dokument może być w jednym z trzech układów:
+* AKTUALNY (6 sekcji): 1. Podstawowe informacje, 2. Co wpisać (search), 3. Stack technologiczny, 4. O projekcie, 5. Pytania screeningowe, 6. O kliencie
+* POPRZEDNI (7 sekcji): jak wyżej plus 7. Dokumenty; sekcja 6 mogła zawierać też opis klienta, standardy i reguły priorytetu
 * STARY: informacje o projekcie, profil kandydata MUST/NICE, kontekst projektu, screening, success strategy, informacja o kliencie, standardy rekrutacji
 
 {
@@ -87,19 +94,14 @@ Dokument może być w jednym z dwóch układów:
  "screening_questions": [{"id": "q1", "question": str, "ideal_answer": str, "deal_breaker": str}],
    // WSZYSTKIE pytania z sekcji SCREENING / "Pytania od Delivery Leada", z pełnymi idealnymi odpowiedziami i deal-breakerami
  "client": {
-   "about": str,                           // "O kliencie" / "Co powiedzieć o Kliencie"
    "selling_points": str,                  // "Co przekona kandydata do oferty?" + atuty klienta
-   "priority_rules": str,                  // reguły typu "kandydaci z bankowością w pierwszej kolejności"
-   "offlimit": bool|null,
-   "contract_type": str|null,
-   "cv_language": str|null,
    "consultant_insight": str,              // "INSIGHT OD KONSULTANTA" — co mówi nasz człowiek już pracujący u klienta
    "historical_questions": str,            // "Historyczne pytania" klienta
    "sectors": [str]                        // branże z wymagań/kontekstu (banking, fintech, płatności...)
- },
- "documents": [{"name": str, "url": str}]  // sekcja "Dokumenty" — nazwa + link; pomiń pozycje bez linku
+ }
 }
 Zasady: NICZEGO nie wymyślaj — brak sekcji/informacji = null/pusta wartość. Cytuj wiernie, skracaj tylko redakcyjnie.
+Z sekcji »O kliencie« / »Informacja o kliencie« bierz WYŁĄCZNIE pola wymienione wyżej. Opis klienta, standardy rekrutacji, reguły priorytetu, off-limit, typ umowy, język CV oraz całą sekcję »Dokumenty« POMIŃ — te dane żyją w karcie klienta w NEXUSIE, nie w profilu rekrutacji.
 "project.about" skróć do maksymalnie 2 zdań nawet jeśli dokument ma dłuższy opis — resztę pomiń, NIE przenoś do innych pól.
 "stack.must"/"stack.nice" to POJEDYNCZE technologie ("Java", "Kubernetes"), nie całe wymagania zdaniami — zdanie opisowe zamień na samą technologię, którą opisuje.
 Zwróć SAM JSON.
@@ -205,22 +207,6 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
                 out.append({"name": name.strip()})
         return out
 
-    def _documents(raw: Any) -> list[dict]:
-        """Pozycja bez linku jest POMIJANA — sekcja 7 to wskaźniki, nie lista tytułów.
-
-        Wpis z samą nazwą renderowałby się jako dokument, którego nie da się
-        otworzyć: gorzej niż jego brak, bo obiecuje coś, czego nie ma.
-        """
-        out: list[dict] = []
-        for item in raw or []:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or "").strip()
-            url = str(item.get("url") or "").strip()
-            if name and url:
-                out.append({"name": name, "url": url})
-        return out
-
     return {
         "basics": {
             "role_name": basics.get("role_name") or parsed.get("role_name"),
@@ -261,17 +247,19 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
         },
         "screening_questions": parsed.get("screening_questions") or [],
         "client": {
-            "about": client.get("about") or "",
+            # Pola karty klienta CELOWO puste od v6: żyją w `client_playbooks`.
+            # Klucze zostają — konsumenci i test kształtu czytają je `.get()`.
+            "about": "",
             "selling_points": client.get("selling_points") or "",
-            "priority_rules": client.get("priority_rules") or "",
-            "offlimit": client.get("offlimit"),
-            "contract_type": client.get("contract_type"),
-            "cv_language": client.get("cv_language"),
+            "priority_rules": "",
+            "offlimit": None,
+            "contract_type": None,
+            "cv_language": None,
             "consultant_insight": client.get("consultant_insight") or "",
             "historical_questions": client.get("historical_questions") or "",
             "sectors": client.get("sectors") or parsed.get("sectors") or [],
         },
-        "documents": _documents(parsed.get("documents")),
+        "documents": [],
         "_source": (
             f"traffit_recruitment_file:{file_id}"
             if file_id is not None

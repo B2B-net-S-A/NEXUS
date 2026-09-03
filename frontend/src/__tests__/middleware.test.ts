@@ -180,6 +180,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/order-consultant-picker",
     "/preview/contracts-consolidation",
     "/preview/procedure-help",
+    "/preview/client-playbook",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })
@@ -219,6 +220,9 @@ describe("linki publiczne działają bez tokenu", () => {
     // Treść procedury z modułu Pomoc — sam `ProcedureContent` z mockiem,
     // bez sesji i bez API.
     expect(destination("/preview/procedure-help")).toBe("pass")
+    // Karta klienta — cache react-query zasiany z góry (także gałąź błędu),
+    // zero API; bez sesji capability = false, więc linków edycji nie ma.
+    expect(destination("/preview/client-playbook")).toBe("pass")
 
     // Reszta harnessów zostaje prywatna. /preview/shell renderuje prawdziwy
     // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.

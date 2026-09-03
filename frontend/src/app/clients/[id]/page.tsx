@@ -51,6 +51,7 @@ import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
+import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -837,6 +838,9 @@ export default function ClientDetailPage() {
 
   const allTabs: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
+    // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
+    // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
+    { key: "zasady", label: "Zasady współpracy", icon: <BookOpen className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
     { key: "zespol", label: "Delivery Lead", icon: <Users className="w-4 h-4" /> },
@@ -988,6 +992,8 @@ export default function ClientDetailPage() {
               </LazyDetails>
             </div>
           )}
+
+          {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 

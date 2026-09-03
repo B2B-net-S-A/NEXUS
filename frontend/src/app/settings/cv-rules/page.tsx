@@ -150,6 +150,10 @@ export default function CvRulesSettingsPage() {
   // nawigacja App Routera nie odmontowuje strony.
   const searchParams = useSearchParams();
   const deepLinkClient = searchParams.get("client");
+  // `&tab=playbook` — link „Załóż kartę" z karty klienta otwiera edytor od
+  // razu na zakładce „Karta klienta". Nieznaną wartość edytor zamienia na
+  // „Podstawy".
+  const deepLinkTab = searchParams.get("tab");
 
   // Portfel Delivery Leada z `data_scope` — liczy go backend w GET /api/auth/me
   // z tego samego `resolve_dashboard_scope`, którego używają trasy DL. Nie
@@ -169,6 +173,7 @@ export default function CvRulesSettingsPage() {
   const [editor, setEditor] = useState<{
     clientId: number;
     clientName: string;
+    initialTab?: string;
   } | null>(null);
   const [adding, setAdding] = useState(false);
   const [addClient, setAddClient] = useState<ClientRef | null>(null);
@@ -228,8 +233,12 @@ export default function CvRulesSettingsPage() {
     const id = Number.parseInt(deepLinkClient, 10);
     if (!Number.isFinite(id) || id <= 0) return;
     const row = rows.find((r) => r.client_id === id);
-    setEditor({ clientId: id, clientName: row?.client_name ?? `#${id}` });
-  }, [deepLinkClient, canEdit, rows]);
+    setEditor({
+      clientId: id,
+      clientName: row?.client_name ?? `#${id}`,
+      initialTab: deepLinkTab ?? undefined,
+    });
+  }, [deepLinkClient, deepLinkTab, canEdit, rows]);
 
   const filtered = useMemo(() => {
     const q = fold(search.trim());
@@ -706,6 +715,7 @@ export default function CvRulesSettingsPage() {
         {editor ? (
           <CvRuleEditor
             clientId={editor.clientId}
+            initialTab={editor.initialTab}
             allowDelete
             onChanged={(rule) => invalidate(rule.client_id)}
             onDeleted={() => {

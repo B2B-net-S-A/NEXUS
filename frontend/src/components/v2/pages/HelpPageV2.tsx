@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  BookOpen,
+ Building2,
  Eye,
  EyeOff,
  HelpCircle,
@@ -30,6 +32,7 @@ import { TabsContent } from"@/components/ui/tabs";
 import { TabbedNav, TabbedNavItem } from"@/components/ds/TabbedNav";
 import { HelpMaterial } from"@/lib/api/help-materials";
 import { HelpMaterialsSection } from"@/components/v2/pages/HelpMaterialsSection";
+import { HelpClientPlaybooksSection } from "@/components/v2/pages/HelpClientPlaybooksSection";
 import { HelpMaterialEditorModal } from"@/components/v2/modals/HelpMaterialEditorModal";
 import {
  ProcedureHeading,
@@ -37,18 +40,27 @@ import {
 } from"@/components/v2/ProcedureTableOfContents";
 import { assignHeadingIds } from"@/lib/procedure-headings";
 
-type HelpTab ="procedures" |"materials";
+type HelpTab = "procedures" | "materials" | "clients";
+const HELP_TAB_VALUES: readonly HelpTab[] = ["procedures", "materials", "clients"];
+function isHelpTab(value: string | null): value is HelpTab {
+  return value !== null && (HELP_TAB_VALUES as readonly string[]).includes(value);
+}
 
 const HELP_TABS: TabbedNavItem[] = [
  { value:"procedures", label:"Procedury", icon: BookOpen },
  { value:"materials", label:"Materiały", icon: Library },
+ { value: "clients", label: "Klienci", icon: Building2 },
 ];
 
 /**
- * Pomoc — wewnętrzna baza wiedzy dla zespołu, dwie zakładki:
+ * Pomoc — wewnętrzna baza wiedzy dla zespołu, trzy zakładki:
  *  · Procedury (SOP) — treść trzymana i renderowana w NEXUSie,
  *  · Materiały — biblioteka LINKÓW do dokumentów w SharePoincie (NEXUS ich
- *    nie hostuje; tam są natywnie edytowalne w Word Online).
+ *    nie hostuje; tam są natywnie edytowalne w Word Online),
+ *  · Klienci — procedura per klient GENEROWANA z karty klienta (bez własnej
+ *    treści; edycja w profilu klienta, tylko DL/admin). Zastępuje 14 wzorów
+ *    Word per klient. `?tab=clients&client=<id>` to cel linku „Pełna karta
+ *    klienta →" ze strony rekrutacji.
  * Widoczna dla wszystkich zalogowanych; edycja tylko dla roli `admin`.
  */
 export function HelpPageV2() {
@@ -64,7 +76,17 @@ export function HelpPageV2() {
  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(
  null
  );
- const [activeTab, setActiveTab] = useState<HelpTab>("procedures");
+ // `?tab=` czytane efektem, nie tylko inicjalizatorem (wzorzec `useClientTab`):
+ // miękka nawigacja App Routera nie odmontowuje strony, więc link z rekrutacji
+ // otwarty na już wyrenderowanej Pomocy musiałby inaczej przełączać ręcznie.
+ const searchParams = useSearchParams();
+ const requestedTab = searchParams.get("tab");
+ const [activeTab, setActiveTab] = useState<HelpTab>(() =>
+ isHelpTab(requestedTab) ? requestedTab : "procedures",
+ );
+ useEffect(() => {
+ if (isHelpTab(requestedTab)) setActiveTab(requestedTab);
+ }, [requestedTab]);
  const [materialEditorOpen, setMaterialEditorOpen] = useState(false);
  const [materialEditorTarget, setMaterialEditorTarget] = useState<HelpMaterial | null>(null);
  const [materialCategories, setMaterialCategories] = useState<string[]>([]);
@@ -170,6 +192,9 @@ export function HelpPageV2() {
  oraz materiały firmowe.
  </p>
  </div>
+ {/* Trójstopniowo, nie binarnie: na „Klienci" nie ma czego dodawać
+ (karty zakłada DL w profilu klienta), więc bez trzeciej gałęzi
+ wyświetlałby się tu „Dodaj materiał". */}
  {isAdmin &&
  (activeTab ==="procedures" ? (
  <Button
@@ -182,7 +207,7 @@ export function HelpPageV2() {
  >
  <Plus className="h-4 w-4" /> Dodaj procedurę
  </Button>
- ) : (
+ ) : activeTab === "materials" ? (
  <Button
  size="sm"
  variant="primary"
@@ -190,7 +215,7 @@ export function HelpPageV2() {
  >
  <Plus className="h-4 w-4" /> Dodaj materiał
  </Button>
- ))}
+ ) : null)}
  </div>
 
  <TabbedNav
@@ -297,6 +322,12 @@ export function HelpPageV2() {
  onToast={showToast}
  onCategoriesChange={handleMaterialCategories}
  />
+ </TabsContent>
+
+ {/* Radix TabsContent bez `forceMount` odmontowuje nieaktywne panele —
+ lista kart nie strzela, dopóki zakładka nie jest aktywna. */}
+ <TabsContent value="clients">
+ <HelpClientPlaybooksSection />
  </TabsContent>
  </TabbedNav>
 
