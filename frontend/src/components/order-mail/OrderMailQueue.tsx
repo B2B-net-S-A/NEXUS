@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { Inbox, FileText, Check, X, ExternalLink } from "lucide-react";
+import { Inbox, FileText, Check, X, ExternalLink, Loader2, MailCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState, PageHeader, QueryStateNotice } from "@/components/ds";
@@ -13,7 +13,16 @@ import {
   orderMailApi,
   type OrderMailDocument,
   type OrderMailOutcome,
+  type OrderMailSyncStatus,
 } from "@/lib/api/orderMail";
+import {
+  baselineOf,
+  checkOutcome,
+  formatAge,
+  formatLastRunSummary,
+  reasonLabel,
+  type CheckBaseline,
+} from "@/lib/order-mail-sync";
 
 /**
  * Kolejka zamówień z maila.
@@ -50,7 +59,84 @@ function period(a: string | null, b: string | null): string {
 
 export type OrderMailViewState = "loading" | "error" | "ready";
 
+export interface MailboxCheckProps {
+  /** `null` = jeszcze nie pobrano (albo błąd — patrz `statusError`). */
+  status: OrderMailSyncStatus | null;
+  statusError: boolean;
+  /** Między kliknięciem a pierwszym `running: true` z serwera. */
+  checking: boolean;
+  checkError: string | null;
+  onCheckNow: () => void;
+}
+
+/**
+ * Pasek nad kolejką: kiedy skrzynka była sprawdzana, co z tego wyszło i przycisk
+ * „Pobierz zamówienia z maila". Liczby dotyczą CAŁEJ skrzynki — kolejka niżej jest
+ * zawężona do portfela, więc Delivery Lead może zobaczyć „1 do weryfikacji"
+ * i pustą listę; stąd zdanie o zakresie w opisie wyniku.
+ */
+export function MailboxCheckPanel(p: MailboxCheckProps) {
+  const busy = p.checking || Boolean(p.status?.running);
+  const last = p.status?.last_completed ?? null;
+  const enabled = p.status?.enabled ?? true;
+  let title: string;
+  let detail: string;
+  if (p.statusError) {
+    title = "Nie udało się pobrać stanu skrzynki.";
+    detail = "Kolejka poniżej działa — nie wiadomo tylko, jak jest świeża.";
+  } else if (!p.status) {
+    title = "Sprawdzam stan skrzynki…";
+    detail = "";
+  } else if (!enabled) {
+    title = "Pobieranie zamówień z maila jest wyłączone.";
+    detail = "Skrzynka nie jest sprawdzana (ORDER_MAIL_INGEST_ENABLED=false).";
+  } else if (busy) {
+    title = "Sprawdzam skrzynkę zamowienia@…";
+    detail = "Nowe wiadomości pojawią się w kolejce po zakończeniu sprawdzania.";
+  } else if (last) {
+    title = `Skrzynka sprawdzana automatycznie co ${p.status.interval_minutes} min · ostatnio ${formatAge(last.finished_at)} (${reasonLabel(last.reason)})`;
+    detail =
+      last.status === "error"
+        ? `Sprawdzenie nie powiodło się: ${last.error ?? "błąd bez opisu"}`
+        : `${formatLastRunSummary(last)}${last.status === "partial" && last.error ? ` · ${last.error}` : ""} — liczby dla całej skrzynki, kolejka pokazuje Twój zakres.`;
+  } else {
+    title = `Skrzynka sprawdzana automatycznie co ${p.status.interval_minutes} min · jeszcze nie sprawdzana`;
+    detail = "Pierwsze sprawdzenie uruchomi się samo albo po kliknięciu przycisku.";
+  }
+  const interruptedNote =
+    p.status?.interrupted && !busy
+      ? " Poprzednie sprawdzenie zostało przerwane (restart aplikacji) — następne uruchomi się samo."
+      : "";
+  return (
+    <section
+      data-testid="mailbox-check"
+      className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-sm"
+    >
+      <div className="min-w-0">
+        <div className="font-medium">{title}</div>
+        <div
+          className={"text-muted-foreground " + (last?.status === "error" && !busy ? "text-destructive" : "")}
+          role="status"
+          aria-live="polite"
+          data-testid="mailbox-check-result"
+        >
+          {detail}
+          {interruptedNote}
+        </div>
+        {p.checkError && <div className="text-destructive">{p.checkError}</div>}
+      </div>
+      {p.status?.can_trigger && (
+        <Button variant="outline" onClick={p.onCheckNow} disabled={busy || !enabled}>
+          {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <MailCheck className="mr-1 h-4 w-4" />}
+          Pobierz zamówienia z maila
+        </Button>
+      )}
+    </section>
+  );
+}
+
 export interface OrderMailQueueViewProps {
+  mailbox: MailboxCheckProps;
   outcome: OrderMailOutcome;
   onOutcomeChange: (o: OrderMailOutcome) => void;
   state: OrderMailViewState;
@@ -75,6 +161,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
         title="Zamówienia z maila"
         description="Załączniki ze skrzynki zamowienia@b2bnetwork.pl: rozpoznany klient, osoby, okres i stawka — do potwierdzenia jednym kliknięciem."
       />
+      <MailboxCheckPanel {...p.mailbox} />
       <div className="mt-4 flex gap-2" role="tablist">
         {TABS.map((t) => (
           <button
@@ -157,8 +244,56 @@ export function OrderMailQueue() {
     ? String((apply.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Nie udało się zapisać")
     : null;
 
+  // „Pobierz zamówienia z maila": bieg idzie w tle na serwerze, więc po kliknięciu
+  // odpytujemy stan co 2 s, aż pojawi się NOWY wynik (znaczniki z serwera, nie
+  // zegar przeglądarki — patrz `lib/order-mail-sync.ts`). `baseline` ≠ null =
+  // czekamy na wynik naszego kliknięcia.
+  const [baseline, setBaseline] = useState<CheckBaseline | null>(null);
+  const [checkNotice, setCheckNotice] = useState<string | null>(null);
+  const sync = useQuery({
+    queryKey: ["order-mail", "sync-status"],
+    queryFn: async () => (await orderMailApi.syncStatus()).data,
+    refetchInterval: (query) => (baseline || query.state.data?.running ? 2_000 : 60_000),
+  });
+  const trigger = useMutation({
+    mutationFn: () => orderMailApi.triggerSync(),
+    onMutate: () => {
+      setCheckNotice(null);
+      setBaseline(baselineOf(sync.data));
+    },
+    onSuccess: () => {
+      void sync.refetch();
+    },
+    onError: (error) => {
+      // 409 = bieg już trwa (np. planowy) — dołączamy do niego zamiast startować drugi.
+      if (httpStatus(error) === 409) {
+        void sync.refetch();
+        return;
+      }
+      setBaseline(null);
+      setCheckNotice(errorDetail(error, "Nie udało się uruchomić sprawdzenia skrzynki."));
+    },
+  });
+  useEffect(() => {
+    if (!baseline || !sync.data) return;
+    const outcome = checkOutcome(sync.data, baseline);
+    if (outcome === "pending") return;
+    setBaseline(null);
+    if (outcome === "interrupted") {
+      setCheckNotice("Sprawdzanie zostało przerwane (restart aplikacji). Kliknij ponownie.");
+    }
+    void qc.invalidateQueries({ queryKey: ["order-mail", "queue"] });
+  }, [baseline, sync.data, qc]);
+
   return (
     <OrderMailQueueView
+      mailbox={{
+        status: sync.data ?? null,
+        statusError: sync.isError,
+        checking: baseline !== null,
+        checkError: checkNotice,
+        onCheckNow: () => trigger.mutate(),
+      }}
       outcome={outcome}
       onOutcomeChange={(o) => { setOutcome(o); setSelectedId(null); }}
       state={list.isError ? "error" : !list.isSuccess ? "loading" : "ready"}
@@ -173,6 +308,15 @@ export function OrderMailQueue() {
       applyError={applyError}
     />
   );
+}
+
+function httpStatus(error: unknown): number | undefined {
+  return (error as { response?: { status?: number } } | null)?.response?.status;
+}
+
+function errorDetail(error: unknown, fallback: string): string {
+  const detail = (error as { response?: { data?: { detail?: unknown } } } | null)?.response?.data?.detail;
+  return typeof detail === "string" && detail ? detail : fallback;
 }
 
 function Detail({ doc, onApply, onDismiss, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; busy: boolean; applyError: string | null }) {

@@ -2,6 +2,8 @@
 
 - ``POST /api/admin/order-mail/sync`` — bieg teraz (w tle); 503 gdy wyłączone,
   409 gdy bieg trwa. ``since_days`` = głębszy backfill z jawnym zakresem.
+  Operatorski „Pobierz zamówienia z maila" (bez backfillu) jest w
+  ``order_mail_queue.py`` — tu zostaje wariant z ``since_days`` dla admina.
 - ``GET  /api/admin/order-mail/status`` — watermark + statystyki ostatniego biegu.
 - ``GET  /api/admin/order-mail/documents`` — dziennik (także wpisy ignorowane
   i nierozpoznane, których kolejka operatora nie pokazuje).
@@ -11,7 +13,6 @@ tylko do logów, a wołający dostałby 200 „started" na literówkę.
 """
 
 # Bez `from __future__ import annotations` — patrz admin_traffit.py (PEP 563).
-import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -29,7 +30,8 @@ from app.services.order_mail_ingest import (
     find_orders_connection,
     ingest_is_running,
     read_state,
-    run_order_mail_ingest,
+    start_ingest_task,
+    sync_snapshot,
 )
 
 router = APIRouter()
@@ -52,7 +54,7 @@ async def trigger_order_mail_sync(
     since = (
         datetime.now(timezone.utc) - timedelta(days=since_days) if since_days else None
     )
-    asyncio.create_task(run_order_mail_ingest(reason="manual", since=since))
+    start_ingest_task(reason="manual", since=since)
     return {"status": "started", "since_days": since_days}
 
 
@@ -74,16 +76,15 @@ async def order_mail_status(
         )
     )
     return {
-        "enabled": settings.ORDER_MAIL_INGEST_ENABLED,
+        # Ta sama projekcja co w kolejce (enabled / interval_minutes / running /
+        # interrupted / last_completed), plus surowy wiersz stanu do diagnozy.
+        **sync_snapshot(state, running=ingest_is_running()),
         "upn_configured": bool(settings.ORDER_MAIL_UPN),
         "auth_mode": auth_mode(),
         "app_only_ready": app_only_ready() if auth_mode() == "app" else None,
         "connection": {"id": conn.id, "upn": conn.mailbox_upn, "purpose": conn.purpose}
         if conn
         else None,
-        "running": ingest_is_running(),
-        "slots_local": settings.ORDER_MAIL_SLOTS_LOCAL,
-        "autoapply_enabled": settings.ORDER_MAIL_AUTOAPPLY_ENABLED,
         "state": {
             k: (v.isoformat() if isinstance(v, datetime) else v)
             for k, v in (state or {}).items()

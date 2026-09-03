@@ -8,7 +8,7 @@ Lata w danych: 2031+ (wolny zakres bazy testowej).
 
 import random
 import uuid
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -26,10 +26,10 @@ from app.models.order_mail import (
     OrderMailDocument,
 )
 from app.services import order_mail_ingest as svc
-from app.services.order_client_identity import ClientIdentification
+from app.services.order_client_identity import ClientIdentification, ClientRegistry
 from app.services.order_document_text import OrderDocumentText
 from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
-from app.tasks.order_mail_ingest import due_slot, parse_slots
+from app.tasks.order_mail_ingest import due_interval
 
 WAW = ZoneInfo("Europe/Warsaw")
 RUN = uuid.uuid4().hex[:8]  # baza testowa jest współdzielona i nie jest czyszczona
@@ -53,63 +53,114 @@ async def db_session():
         yield session
 
 
-# ── Sloty ────────────────────────────────────────────────────────────────────
+# ── Odstęp między biegami ───────────────────────────────────────────────────
 
 
-class TestDueSlot:
-    slots = [time(8, 0), time(15, 0)]
+class TestDueInterval:
+    hour = timedelta(minutes=60)
 
     def test_first_run_is_immediate(self):
-        assert (
-            due_slot(datetime(2031, 3, 3, 10, 0, tzinfo=WAW), None, self.slots) is True
+        assert due_interval(datetime(2031, 3, 3, 10, 0, tzinfo=WAW), None, self.hour)
+
+    def test_waits_a_full_interval_after_the_last_finish(self):
+        last = datetime(2031, 3, 3, 8, 4, tzinfo=WAW)
+        assert not due_interval(
+            datetime(2031, 3, 3, 8, 30, tzinfo=WAW), last, self.hour
+        )
+        assert not due_interval(datetime(2031, 3, 3, 9, 3, tzinfo=WAW), last, self.hour)
+        assert due_interval(datetime(2031, 3, 3, 9, 4, tzinfo=WAW), last, self.hour)
+
+    def test_manual_run_pushes_the_clock(self):
+        """Bieg ręczny o 08:50 znaczy, że planowy nie odpala o 09:04, tylko o 09:50."""
+        manual_finished = datetime(2031, 3, 3, 8, 50, tzinfo=WAW)
+        assert not due_interval(
+            datetime(2031, 3, 3, 9, 4, tzinfo=WAW), manual_finished, self.hour
+        )
+        assert due_interval(
+            datetime(2031, 3, 3, 9, 50, tzinfo=WAW), manual_finished, self.hour
         )
 
-    def test_runs_once_per_slot_not_every_check(self):
-        last = datetime(2031, 3, 3, 8, 4, tzinfo=WAW)  # bieg z 08:00 skończył się 08:04
-        assert (
-            due_slot(datetime(2031, 3, 3, 8, 30, tzinfo=WAW), last, self.slots) is False
-        )
-        assert (
-            due_slot(datetime(2031, 3, 3, 14, 59, tzinfo=WAW), last, self.slots)
-            is False
-        )
-        assert (
-            due_slot(datetime(2031, 3, 3, 15, 1, tzinfo=WAW), last, self.slots) is True
-        )
+    def test_interrupted_run_leaves_no_finish_and_is_due_at_once(self):
+        """Restart w trakcie biegu: koniec niezapisany → po starcie od razu."""
+        assert due_interval(datetime(2031, 3, 3, 9, 0, tzinfo=WAW), None, self.hour)
 
-    def test_no_third_run_in_the_evening(self):
-        """Dwa markery z min_gap≈10h odpalałyby o 18:00; sloty — nie."""
-        last = datetime(2031, 3, 3, 15, 3, tzinfo=WAW)
-        assert (
-            due_slot(datetime(2031, 3, 3, 18, 0, tzinfo=WAW), last, self.slots) is False
-        )
-        assert (
-            due_slot(datetime(2031, 3, 3, 23, 59, tzinfo=WAW), last, self.slots)
-            is False
-        )
-
-    def test_restart_at_0759_does_not_lose_0800(self):
-        last = datetime(2031, 3, 3, 15, 3, tzinfo=WAW)
-        assert (
-            due_slot(datetime(2031, 3, 4, 8, 0, tzinfo=WAW), last, self.slots) is True
-        )
-
-    def test_overrunning_run_does_not_double_fire(self):
-        # bieg zaczął 07:58, skończył 08:20 → slot 08:00 leży PRZED last → nie
-        last = datetime(2031, 3, 4, 8, 20, tzinfo=WAW)
-        assert (
-            due_slot(datetime(2031, 3, 4, 8, 25, tzinfo=WAW), last, self.slots) is False
-        )
-
-    def test_missed_yesterday_slot_after_long_outage(self):
+    def test_long_outage_is_due_once_not_many_times(self):
         last = datetime(2031, 3, 1, 15, 3, tzinfo=WAW)
-        assert (
-            due_slot(datetime(2031, 3, 3, 7, 0, tzinfo=WAW), last, self.slots) is True
-        )
+        assert due_interval(datetime(2031, 3, 3, 7, 0, tzinfo=WAW), last, self.hour)
 
-    def test_parse_slots_tolerates_junk(self):
-        assert parse_slots("08:00, 15:00,bad, 15:00") == [time(8, 0), time(15, 0)]
-        assert parse_slots("") == []
+    def test_interval_floor_and_default(self, monkeypatch):
+        monkeypatch.setattr(svc.settings, "ORDER_MAIL_POLL_INTERVAL_MINUTES", 0)
+        assert svc.poll_interval_minutes() == 5
+        monkeypatch.setattr(svc.settings, "ORDER_MAIL_POLL_INTERVAL_MINUTES", 60)
+        assert svc.poll_interval_minutes() == 60
+
+
+# ── Projekcja stanu (kolejka + admin) ────────────────────────────────────────
+
+
+class TestSyncSnapshot:
+    def test_no_state_yet(self):
+        snap = svc.sync_snapshot(None, running=False)
+        assert snap["last_completed"] is None
+        assert snap["interrupted"] is False
+        assert snap["interval_minutes"] == svc.poll_interval_minutes()
+
+    def test_running_without_lock_is_interrupted_and_keeps_previous_result(self):
+        """Wiersz „running" po restarcie: poprzedni wynik zostaje, bieg = przerwany."""
+        state = {
+            "last_run_started_at": datetime(2031, 3, 3, 9, 6, tzinfo=timezone.utc),
+            "last_run_finished_at": datetime(2031, 3, 3, 6, 2, tzinfo=timezone.utc),
+            "last_status": "running",
+            "last_error": None,
+            "last_seen_received_at": None,
+            "stats": {
+                "reason": "scheduled",
+                "started_at": "2031-03-03T06:02:00+00:00",
+                "finished_at": "2031-03-03T06:02:41+00:00",
+                "status": "ok",
+                "error": None,
+                "messages": 1,
+                "new_messages": 0,
+                "needs_review": 0,
+                "errors": [],
+            },
+        }
+        snap = svc.sync_snapshot(state, running=False)
+        assert snap["interrupted"] is True
+        assert snap["started_at"] == "2031-03-03T09:06:00+00:00"
+        assert snap["last_completed"]["finished_at"] == "2031-03-03T06:02:41+00:00"
+        assert snap["last_completed"]["status"] == "ok"
+        assert snap["last_completed"]["reason"] == "scheduled"
+        live = svc.sync_snapshot(state, running=True)
+        assert live["interrupted"] is False and live["running"] is True
+
+    def test_legacy_stats_without_record_are_attributed_only_when_finished(self):
+        legacy = {"messages": 3, "needs_review": 1, "errors": []}
+        base = {
+            "last_run_started_at": datetime(2031, 3, 3, 8, 0, tzinfo=timezone.utc),
+            "last_run_finished_at": datetime(2031, 3, 3, 8, 1, tzinfo=timezone.utc),
+            "last_error": "x",
+            "stats": legacy,
+        }
+        done = svc.sync_snapshot({**base, "last_status": "partial"}, running=False)
+        assert done["last_completed"]["status"] == "partial"
+        assert done["last_completed"]["error"] == "x"
+        assert done["last_completed"]["needs_review"] == 1
+        assert done["last_completed"]["finished_at"] == "2031-03-03T08:01:00+00:00"
+        # Start nadpisany przez nowy bieg — liczników nie da się przypisać.
+        mid = svc.sync_snapshot({**base, "last_status": "running"}, running=True)
+        assert mid["last_completed"] is None
+
+
+def test_watermark_never_moves_backwards():
+    older = datetime(2031, 3, 1, tzinfo=timezone.utc)
+    newer = datetime(2031, 3, 2, tzinfo=timezone.utc)
+    assert svc._latest(older, newer) == newer
+    assert svc._latest(newer, older) == newer
+    assert svc._latest(None, older) == older
+    assert svc._latest(None, None) is None
+    naive = datetime(2031, 3, 3)
+    assert svc._latest(naive, older) == naive.replace(tzinfo=timezone.utc)
 
 
 # ── Watermark ────────────────────────────────────────────────────────────────
@@ -330,6 +381,9 @@ async def test_ingest_end_to_end_with_fake_graph(
     assert (stats.messages, stats.attachments) == (5, 3)
     assert (stats.needs_review, stats.unrecognized, stats.duplicates) == (1, 1, 1)
     assert (stats.ignored_no_pdf, stats.ignored_sender) == (1, 1)
+    # Każda z pięciu wiadomości zostawiła wpis w dzienniku → pięć NOWYCH.
+    assert stats.new_messages == 5 and stats.auto_applied == 0
+    assert stats.reason == "test"
 
     rows = (
         (
@@ -366,8 +420,9 @@ async def test_ingest_end_to_end_with_fake_graph(
     assert orders_connection.purpose == "orders"
 
     # Idempotencja: drugi bieg nad tymi samymi wiadomościami nic nie dokłada.
-    again = await svc.run_order_mail_ingest(reason="test")
+    again = await svc.run_order_mail_ingest(reason="test-again")
     assert again.skipped_existing == 3 or again.skipped_existing >= 1
+    assert again.messages == 5 and again.new_messages == 0
     total = len(
         (
             await db_session.execute(
@@ -385,6 +440,64 @@ async def test_ingest_end_to_end_with_fake_graph(
     assert state["last_status"] == "ok"
     assert state["last_seen_received_at"] is not None
     assert state["stats"]["messages"] == 5
+    # Rekord ostatniego ZAKOŃCZONEGO biegu — to z niego czyta przycisk
+    # „Pobierz zamówienia z maila" i pasek „ostatnie sprawdzenie".
+    record = state["stats"]
+    assert record["reason"] == "test-again" and record["status"] == "ok"
+    assert record["finished_at"] >= record["started_at"]
+    snap = svc.sync_snapshot(state, running=False)
+    assert snap["interrupted"] is False
+    assert snap["last_completed"]["new_messages"] == 0
+    assert snap["last_completed"]["messages"] == 5
+    assert snap["last_completed"]["reason"] == "test-again"
+
+
+@pytest.mark.asyncio
+async def test_notify_failure_rolls_back_session_and_is_recorded(
+    db_session, monkeypatch, tmp_path
+):
+    """Padnięte powiadomienie DL (błąd SQL w trakcie) nie może zatruć sesji.
+
+    Bez rollbacku każde kolejne zapytanie — także zapis końca biegu — kończy
+    się PendingRollbackError i stan zostaje na „running" bez końca (tak
+    wyglądał bieg 2026-09-03 09:06 na prodzie: dokument w kolejce, stan
+    nigdy niezamknięty).
+    """
+    from sqlalchemy import text as sql_text
+
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_SENDER_ALLOWLIST", "")
+
+    async def fake_process(db, row, payload, *, registry):
+        row.outcome = OUTCOME_NEEDS_REVIEW
+        row.client_id = 1
+        row.extraction = {"title": "7/2031", "consultant_rows": []}
+        return row
+
+    async def failing_notify(db, row):
+        await db.execute(sql_text("SELECT * FROM order_mail_table_that_does_not_exist"))
+
+    monkeypatch.setattr(svc, "process_pdf_bytes", fake_process)
+    monkeypatch.setattr(svc, "notify_review", failing_notify)
+
+    tag = uuid.uuid4().hex[:8]
+    fake = _FakeGraph([], {"graph-nf": [_pdf("nf.pdf", f"%PDF nf {tag}".encode())]})
+    stats = svc.IngestStats()
+    added = await svc._process_message(
+        db_session,
+        fake,
+        None,
+        _msg("nf"),
+        stats,
+        registry=ClientRegistry(by_registry_id={}),
+    )
+    assert added is True and stats.needs_review == 1
+    assert stats.errors and stats.errors[0].startswith("notify doc ")
+    # Sesja nadaje się do dalszej pracy — bez rollbacku ten SELECT rzuca.
+    assert (await db_session.execute(sql_text("SELECT 1"))).scalar() == 1
 
 
 @pytest.mark.asyncio

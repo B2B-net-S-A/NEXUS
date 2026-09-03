@@ -13,7 +13,7 @@
 
 import { useState } from "react";
 import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
-import type { OrderMailDocument, OrderMailOutcome } from "@/lib/api/orderMail";
+import type { OrderMailDocument, OrderMailOutcome, OrderMailSyncStatus } from "@/lib/api/orderMail";
 
 function doc(id: number, over: Partial<OrderMailDocument>): OrderMailDocument {
   return {
@@ -78,12 +78,37 @@ const ITEMS: OrderMailDocument[] = [
   }),
 ];
 
+/** Ostatnie sprawdzenie skrzynki — trzy liczby z ticketu plus przycisk „Pobierz". */
+const SYNC_STATUS: OrderMailSyncStatus = {
+  enabled: true,
+  interval_minutes: 60,
+  autoapply_enabled: false,
+  running: false,
+  started_at: "2031-03-03T08:02:00Z",
+  interrupted: false,
+  can_trigger: true,
+  last_completed: {
+    reason: "scheduled", started_at: "2031-03-03T08:02:00Z", finished_at: new Date(Date.now() - 12 * 60_000).toISOString(),
+    status: "ok", error: null, messages: 4, new_messages: 2, attachments: 3, auto_applied: 1, needs_review: 1,
+    unrecognized: 0, duplicates: 1, skipped_existing: 2, ignored_no_pdf: 0, ignored_sender: 0, failed: 0, errors: [],
+  },
+};
+
 export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(1);
+  const [checking, setChecking] = useState(false);
   const items = outcome === "needs_review" ? ITEMS : [];
   return (
     <OrderMailQueueView
+      mailbox={{
+        status: SYNC_STATUS,
+        statusError: false,
+        checking,
+        checkError: null,
+        // W harnessie „sprawdzanie" trwa 2 s i wraca do wyniku — sam wygląd stanu zajętego.
+        onCheckNow: () => { setChecking(true); setTimeout(() => setChecking(false), 2000); },
+      }}
       outcome={outcome}
       onOutcomeChange={setOutcome}
       state="ready"
