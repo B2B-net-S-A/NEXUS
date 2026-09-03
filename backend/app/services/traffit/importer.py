@@ -57,6 +57,9 @@ from app.services.traffit.mappers import (
     traffit_workflow_state_to_stage_def,
     traffit_workflow_to_template,
 )
+from app.services.traffit.stage_side_effects import (
+    apply_imported_stage_side_effects,
+)
 from app.services.traffit.rejection_backfill import (
     backfill_rejection_descriptions_from_activities,
     backfill_rejection_notes_from_activities,
@@ -3661,6 +3664,20 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+
+        # ZA commitem etapów i świadomie best-effort: awaria skutku nie może
+        # cofnąć zaimportowanego wiersza ani zatrzymać fazy. Domyślnie
+        # wyłączone (`TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED`).
+        try:
+            await apply_imported_stage_side_effects(
+                self.db, rows=[payload for payload, _, _ in pending_rows]
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Imported-stage side effects failed: %r", exc)
+            try:
+                await self.db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _replay_stage_rows(
         self,

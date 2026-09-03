@@ -1000,6 +1000,15 @@ class Settings(BaseSettings):
     COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
 
     TRAFFIT_SYNC_ENABLED: bool = False
+    # Skutki uboczne dla etapów przychodzących z importu.
+    #
+    # Import pisze do `candidate_stages` surowym SQL-em (świadomie — warstwa
+    # komend robi ~10 zapytań i 2 blokady na wiersz, w kolejności blokad
+    # NIEZGODNEJ z wsadem, co w przeszłości się zakleszczało). Skutkiem było
+    # to, że automatyzacje pipeline'u dotyczyły 0,4% ruchu. Ten przełącznik
+    # włącza WĄSKI, wsadowy zestaw skutków idempotentnych — nigdy maili
+    # do kandydatów.
+    TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED: bool = False
     # Background loop wake cadence (how often it checks whether a run is due).
     # The actual import runs at most once/day (delta) + once/week (full),
     # gated on the persisted watermark — clamped to >=300s in the loop.
