@@ -408,7 +408,11 @@ async def backfill_missing_names(
                 await backfill_candidate_from_stored_cv(
                     db, candidate, prefer_llm=prefer_llm
                 )
-            await db.commit()
+                # Commit WEWNĄTRZ bloku: `_persist_token_usage` w `finally`
+                # ai_feature otwiera własną sesję i UPDATE-uje wiersz zużycia —
+                # bez wcześniejszego commitu wiersz check_and_increment jest
+                # niewidoczny (READ COMMITTED) i tokeny przepadają.
+                await db.commit()
             if _name_resolved(candidate):
                 stats["resolved"] += 1
             else:

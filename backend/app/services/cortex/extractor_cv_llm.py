@@ -108,6 +108,12 @@ async def run_cv_llm_extraction(
             # otwartej transakcji przez czas API call).
             async with ai_feature(db, AIFeatureKey.cv_parser):
                 parsed = await parse_cv(raw)
+                # Commit WEWNĄTRZ bloku: `_persist_token_usage` (finally
+                # ai_feature) czyta wiersz zużycia w OSOBNEJ sesji — bez commitu
+                # wiersz check_and_increment jest niewidoczny i tokeny padają na
+                # zero. Ścieżka jest LLM-bound (_COMMIT_EVERY=20 to heartbeat,
+                # nie oszczędność commitów), więc commit per wiersz jest pomijalny.
+                await db.commit()
             tokens = [
                 RawSkillToken(
                     name=name, confidence=CV_LLM_CONFIDENCE, evidence=name[:300]
