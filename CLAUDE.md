@@ -1292,10 +1292,11 @@ budżet MD tej samej osoby. Migracja `0262_separate_md_periodic`.
   zadeklarował — a nocny `_promote_statuses` przestawiał ją na „Kończąca się",
   potem „Zakończona". Kopiujemy wyłącznie datę ROZPOCZĘCIA. Datę zakończenia
   umowy ustawia człowiek (rejestr umów albo `/terminate`).
-  `sync_contract_to_live_order` **zostaje** i dalej wydłuża horyzont
-  zakończonego kontraktu do końca żywego zamówienia — to jest mechanizm
-  wskrzeszania („Przedłużenie zamówienia wskrzesza zakończony kontrakt"),
-  a bez niego nocny cron demotowałby wskrzeszony kontrakt tej samej nocy.
+  `sync_contract_to_live_order` **zostaje** jako mechanizm wskrzeszania
+  („Przedłużenie zamówienia wskrzesza zakończony kontrakt"), ale od 09.2026
+  wskrzeszony kontrakt jest BEZTERMINOWY — nie dziedziczy już daty końca
+  zamówienia (patrz „Zakładka „Zakończeni" — decyduje umowa, nie okres
+  zamówienia").
 - **Zakończenie u jednego klienta nie sięga do drugiego.**
   `client_orders.client_id` to WŁASNA kolumna, a baza nie ma więzu wiążącego ją
   z klientem kontraktu (rozjazd zna też `contract_merge`). Kaskada offboardingu
@@ -1596,10 +1597,13 @@ wygasania.
 Reguła żyje w `contract_lifecycle.sync_contract_to_live_order` i zależy
 WYŁĄCZNIE od dat, nie od zakładki: zamówienie obejmujące dziś (`start <= dziś`
 i `end IS NULL OR end >= dziś`) wskrzesza kontrakt, przyszłe nie zmienia nic,
-`draft`/`cancelled` nie liczą się wcale. **Data końca kontraktu rośnie razem
-ze statusem** — bez tego nocny `_promote_statuses` demotuje wskrzeszony
-kontrakt tej samej nocy i poprawka kasuje samą siebie. Historię leczy migracja
-`0243` (reguła ogólna, zero ID w SQL-u).
+`draft`/`cancelled` nie liczą się wcale. **Wskrzeszony kontrakt jest
+BEZTERMINOWY** (od 09.2026; do tego czasu dostawał datę końca zamówienia,
+a gdy jej okres mijał, cron kończył umowę ponownie — patrz sekcja o zakładce
+„Zakończeni"). Nocny `_promote_statuses` pomija `end_date IS NULL`, więc nie
+demotuje go „tej samej nocy". Data z zamówienia ma swoje miejsce w „Końcu
+zamówienia u klienta" (`client_order_end_date`, tylko gdy śledzony). Historię
+leczy migracja `0243` (reguła ogólna, zero ID w SQL-u).
 
 **Każdy writer aktywnego zamówienia musi wołać tę samą regułę.** Po 0243
 zostały pominięte: PATCH uzupełniający draft, import CSV Nordea oraz aktywne
@@ -1608,6 +1612,38 @@ Contract 327/order 285493 i Contract 165/order 285623. Runtime obsługuje teraz
 wszystkie te ścieżki; migracja `0250` koryguje dwa jawnie wskazane rekordy po
 pełnych kluczach biznesowych i zapisuje read-only audyt analogicznych przypadków
 innych klientów w `app_settings['0250_live_order_contract_repair']`.
+
+## Zakładka „Zakończeni" — decyduje umowa, nie okres zamówienia
+
+Zgłoszenie (VeloBank, 09.2026): 11 osób miało to samo zamówienie do 31.08,
+a po jego upływie do „Zakończonych" trafiły dokładnie te 4, którym umowa
+miała wpisaną datę końca 30.06 — przepisaną przy zakładaniu kontraktu
+z pierwszego okresu zamówienia, bez wypowiedzenia. Reszta (umowy
+bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
+
+- **Zakładka czyta WYŁĄCZNIE umowę** (`contractClosed` w
+  `lib/client-order-list.ts`, jedyne źródło pigułek dla obu rejestrów):
+  „Zakończeni" = status końcowy ORAZ `contract_end_date < dziś`. Do daty
+  końca włącznie osoba jest w „Aktywnych", od następnego dnia przechodzi
+  sama (nocny cron `contract_alerts._promote_statuses`). Upływ okresu
+  zamówienia nie przenosi nikogo — osoba zostaje w „Aktywnych" z dopiskiem
+  **„Brak aktywnego zamówienia"** (`lacksCurrentOrder`: żadne zamówienie
+  nie obejmuje dziś ani nie zaczyna się później).
+- **Data końca umowy rządzi zamówieniem, nie odwrotnie.** PATCH daty końca
+  w Kontraktach (`update_contract`) woła `_sync_client_orders_to_contract_end`
+  (ten sam co `/terminate`): otwarte zamówienia dostają tę datę, zaczynające
+  się później są anulowane, `completed` dopiero gdy dzień nadejdzie. Wyłącznie
+  SKRACANIE — zamówienie to PO klienta, przedłużenie umowy go nie wydłuża;
+  wyczyszczenie daty (bezterminowa) nie rusza zamówień.
+  W drugą stronę zamówienie NIGDY nie ustawia daty końca umowy:
+  `sync_contract_to_live_order` wskrzesza kontrakt jako bezterminowy.
+- **Korekta danych (migracja `0274` + lustro w `entrypoint.sh`, SQL w
+  `services/contract_ended_tab_repair.py`)**: wskazany w tickecie Contract 469
+  (Piotr Klimczak, VeloBank) wraca na `active` po pełnych kluczach
+  biznesowych; klasa „zakończona bez wypowiedzenia, a zamówienie trwało po
+  dacie końca umowy" jest tylko AUDYTOWANA do `app_settings` — masowe
+  wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
+  (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
 ## Polityki odczytu PDF per klient — jeden wzorzec, siedem bramek
 

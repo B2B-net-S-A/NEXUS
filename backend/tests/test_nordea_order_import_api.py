@@ -314,7 +314,9 @@ async def test_nordea_apply_revives_an_ended_contract_but_preview_rolls_back(
         contract = await db.get(Contract, contract_id)
         assert contract is not None
         assert contract.status == ContractStatus.active
-        assert contract.end_date == new_end
+        # Reguła 09.2026: umowa wraca jako bezterminowa, a data z zamówienia
+        # ląduje w „Końcu zamówienia u klienta" (tu śledzonym w seedzie).
+        assert contract.end_date is None
         assert contract.client_order_end_date == new_end
         audit = await db.scalar(
             select(Activity).where(
@@ -371,7 +373,8 @@ async def test_nordea_revives_once_with_the_widest_overlapping_order_horizon(
         contract = await db.get(Contract, contract_id)
         assert contract is not None
         assert contract.status == ContractStatus.active
-        assert contract.end_date == farther_end
+        assert contract.end_date is None
+        # Najszerszy horyzont z nachodzących zamówień — na właściwym polu.
         assert contract.client_order_end_date == farther_end
 
 

@@ -306,8 +306,9 @@ async def _sync_client_orders_to_contract_end(
       * ``B2BGeneratedContract`` celowo NIETKNIĘTY (zamknięcie dokumentu
         prawnego to odrębna, ręczna operacja).
 
-    Wyniesione z ``/terminate`` do funkcji, bo ma DWÓCH wołających: dyspozycję
-    wypowiedzenia i ustawienie statusu „Zakończony" wprost z rejestru umów.
+    Wyniesione z ``/terminate`` do funkcji, bo ma TRZECH wołających: dyspozycję
+    wypowiedzenia, ustawienie statusu „Zakończony" wprost z rejestru umów oraz
+    zmianę samej daty końca umowy (``update_contract``, reguła 09.2026).
     Druga ścieżka miała tę regułę pominiętą, więc kończyła kontrakt i
     zostawiała jego zamówienia otwarte — objaw widoczny dopiero jako alert DL
     o zamówieniu nieistniejącej już współpracy.
@@ -2473,6 +2474,7 @@ async def update_contract(
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    previous_end_date = contract.end_date
     was_incomplete_draft = contract.status == ContractStatus.draft and bool(
         validate_ready_for_activation(contract)
     )
@@ -2594,6 +2596,25 @@ async def update_contract(
         if coerced_status != contract.status:
             contract.status = coerced_status
             updates["status"] = coerced_status.value  # reflect the outcome in audit
+    # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
+    # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
+    # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
+    # a ``completed`` dopiero gdy dzień nadejdzie: do daty włącznie osoba jest
+    # w „Aktywni", od następnego dnia przenosi ją nocny cron. Wyłącznie
+    # SKRACANIE — zamówienie to PO klienta, przedłużenie umowy go nie wydłuża.
+    # Zmiana statusu na „Zakończony" ma własny sync w
+    # ``_apply_contract_status_change`` — bez wykluczenia liczba w audycie
+    # podwajałaby się. Wyczyszczenie daty (bezterminowa) nie rusza zamówień.
+    orders_synced_to_end = 0
+    if (
+        "end_date" in data.model_fields_set
+        and contract.end_date is not None
+        and contract.end_date != previous_end_date
+        and not (status_sent and contract.status == ContractStatus.ended)
+    ):
+        orders_synced_to_end = await _sync_client_orders_to_contract_end(
+            db, contract.id, contract.end_date, actor_id=current_user.id
+        )
     contract.margin = contract.calculate_margin()
     db.add(
         Activity(
@@ -2620,6 +2641,11 @@ async def update_contract(
                 **(
                     {"order_drafts_inherited_rates": draft_orders_inherited}
                     if draft_orders_inherited
+                    else {}
+                ),
+                **(
+                    {"orders_synced_to_end_date": orders_synced_to_end}
+                    if orders_synced_to_end
                     else {}
                 ),
             },
