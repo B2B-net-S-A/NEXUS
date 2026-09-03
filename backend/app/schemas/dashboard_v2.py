@@ -67,6 +67,12 @@ class DashboardKpi(DashboardModel):
     target: DashboardKpiValue = None
     comparison: DashboardKpiValue = None
     definition: str
+    # Maszynowy kod reguły (`app.services.metric_definitions`). Tekst
+    # `definition` jest dla człowieka; kod pozwala PORÓWNAĆ dwa ekrany
+    # i dostać odpowiedź „ta sama reguła / inna reguła". Bez tego rozjazd
+    # 213/228/317/332 placementów za ten sam rok wygląda jak błąd, a jest
+    # dwiema świadomymi atrybucjami.
+    definition_code: str | None = None
     drilldown_href: str | None = None
 
 

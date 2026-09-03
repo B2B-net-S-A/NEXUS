@@ -69,6 +69,7 @@ from app.schemas.dashboard_v2 import (
     RecruitmentTrendMonth,
 )
 from app.services import dashboard_v2_sources as sources
+from app.services.metric_definitions import VERIFIER_ANCHORED_MILESTONES
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +267,7 @@ def _kpi(
     target: str | int | float | None = None,
     comparison: str | int | float | None = None,
     href: str | None = None,
+    definition_code: str | None = None,
 ) -> DashboardKpi:
     return DashboardKpi(
         value=value,
@@ -274,6 +276,7 @@ def _kpi(
         target=target,
         comparison=comparison,
         definition=definition,
+        definition_code=definition_code,
         drilldown_href=href,
     )
 
@@ -1762,36 +1765,44 @@ async def build_recruitment_stats_dashboard(
     kpi_quality = _source_kpi_quality(quality, "team_funnel", team)
     totals = team.totals if team is not None else None
     kpis = RecruitmentStatsKpis(
+        # Pięć kafli liczy TĘ SAMĄ regułę atrybucji — stąd jeden kod definicji.
+        # Insights liczy `first_hired_per_candidate_job`, więc kody RÓŻNIĄ SIĘ
+        # świadomie: to dwa różne pytania, nie rozjazd do naprawy.
         verifications=_kpi(
             totals.weryfikacje if totals else None,
             "count",
             "Pierwsze przejścia na etap Zweryfikowany w oknie "
             "(atrybucja verifier-anchored).",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         recommendations=_kpi(
             totals.rekomendacje if totals else None,
             "count",
             "CV wysłane do klienta — pierwsze cv_sent per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         interviews=_kpi(
             totals.interview if totals else None,
             "count",
             "Pierwsze interview per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         acceptances=_kpi(
             totals.akceptacje if totals else None,
             "count",
             "Klient zaakceptował kandydata — pierwsze acceptance per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         placements=_kpi(
             totals.placementy if totals else None,
             "count",
             "Pierwsze hired per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
     )
 

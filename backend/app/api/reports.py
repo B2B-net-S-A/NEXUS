@@ -36,6 +36,7 @@ from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.insights_workdays import working_days_for
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.metric_definitions import VERIFIER_ANCHORED_MILESTONES
 
 logger = logging.getLogger(__name__)
 
@@ -450,6 +451,12 @@ async def report_recruitment(
             "placements_count": placements,
         },
         "funnel_efficiency": funnel_efficiency,
+        # Którą regułę atrybucji pokazują te liczby. Konsument porównuje kod
+        # z kodem innego ekranu i dostaje odpowiedź „ta sama reguła / inna" —
+        # bez tego rozjazd wobec Insights (te liczą
+        # `first_hired_per_candidate_job`) wygląda jak błąd, a jest różnicą
+        # pytania, nie defektem.
+        "definition_code": VERIFIER_ANCHORED_MILESTONES,
         # Kamienie milowe BEZ przypisanego autora. Nagłówek liczy całą populację
         # atrybucji, wiersze wyłącznie to, co dało się komuś przypisać — bez tego
         # pola różnica byłaby niewytłumaczalna, a zawężenie nagłówka do

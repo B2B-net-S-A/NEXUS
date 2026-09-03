@@ -131,3 +131,45 @@ def test_missing_window_suppresses_the_widest_set_not_the_narrowest():
     assert uncovered_stages_for_window(None) == (
         STAGES_WITHOUT_TRAFFIT_COVERAGE | set(COVERAGE_STARTED_AT)
     )
+
+
+# ── Kody definicji: jeden string, wiele ekranów ──────────────────────────────
+
+
+def test_definition_codes_are_not_duplicated_as_literals():
+    """Kod definicji jest kontraktem — porównanie dwóch kodów ma dawać odpowiedź.
+
+    Do 09.2026 literał `first_hired_per_candidate_job` był przepisany
+    w czterech miejscach. Rozjechana kopia daje maszynowo „inna reguła" tam,
+    gdzie reguła jest identyczna — czyli odwrotność tego, do czego to pole
+    służy.
+    """
+    import pathlib
+
+    from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
+
+    app_dir = pathlib.Path(__file__).resolve().parents[1] / "app"
+    offenders = [
+        str(path.relative_to(app_dir))
+        for path in app_dir.rglob("*.py")
+        if path.name != "metric_definitions.py"
+        and f'"{FIRST_HIRED_PER_CANDIDATE_JOB}"' in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        "Literał kodu definicji poza `metric_definitions`: " f"{offenders}"
+    )
+
+
+def test_the_two_attribution_families_do_not_share_a_code():
+    """Kafle i Insights liczą co innego — kody MUSZĄ się różnić.
+
+    Wspólny kod twierdziłby, że 228 i 213 placementów to ta sama reguła,
+    czyli że jedna z liczb jest po prostu błędna. Nie jest — to dwa różne
+    pytania („komu należy się uznanie" vs „co się wydarzyło").
+    """
+    from app.services.metric_definitions import (
+        FIRST_HIRED_PER_CANDIDATE_JOB,
+        VERIFIER_ANCHORED_MILESTONES,
+    )
+
+    assert FIRST_HIRED_PER_CANDIDATE_JOB != VERIFIER_ANCHORED_MILESTONES

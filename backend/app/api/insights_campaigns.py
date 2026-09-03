@@ -38,6 +38,7 @@ from app.analytics.periods import (
     PeriodError,
     resolve_period,
 )
+from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.api.deps import AdminUser, CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_invalidate, cache_set
@@ -57,7 +58,7 @@ CACHE_PREFIX = "insights:campaigns:counts:v1"
 # Ten sam slug co w `insights_board.py`. Gdyby baner liczył placementy inaczej
 # niż kokpit zarządu, dwie liczby pod tą samą nazwą na sąsiednich ekranach
 # różniłyby się bez żadnego wyjaśnienia.
-PLACEMENTS_DEFINITION = "first_hired_per_candidate_job"
+PLACEMENTS_DEFINITION = FIRST_HIRED_PER_CANDIDATE_JOB
 PLACEMENTS_DEFINITION_NOTE = (
     "Placement = PIERWSZE wejście na etap „Zatrudniony” dla pary "
     "(kandydat, rekrutacja) w oknie kampanii (widok analytics_first_milestones)."

@@ -37,6 +37,7 @@ from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.services.insights_scoring_config import (
     get_scoring_config,
     league_points_formula,
@@ -729,7 +730,7 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
 # Własny wariant („..._by_mover") wyglądałby na precyzyjniejszy, a dawałby
 # maszynowo „różne" tam, gdzie reguła jest identyczna — czyli odwrotność tego,
 # do czego to pole służy. Rozjazdu pilnuje test.
-HALL_OF_FAME_ATTRIBUTION = "first_hired_per_candidate_job"
+HALL_OF_FAME_ATTRIBUTION = FIRST_HIRED_PER_CANDIDATE_JOB
 
 
 HALL_OF_FAME_ROLES = [
