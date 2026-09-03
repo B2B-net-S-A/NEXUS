@@ -840,7 +840,9 @@ export const adminApi = {
       {
         revision,
         changes,
-        action_changes: actionChanges,
+        ...(actionChanges.length > 0
+          ? { action_changes: actionChanges }
+          : {}),
       },
     ),
   updateUserSectionPermissions: (
@@ -851,7 +853,13 @@ export const adminApi = {
   ) =>
     api.put<SectionPermissionMutationResponse>(
       `/api/admin/section-permissions/users/${userId}`,
-      { revision, changes, action_changes: actionChanges },
+      {
+        revision,
+        changes,
+        ...(actionChanges.length > 0
+          ? { action_changes: actionChanges }
+          : {}),
+      },
     ),
 };
 

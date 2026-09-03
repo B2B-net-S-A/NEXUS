@@ -227,9 +227,12 @@ async def test_unscoped_roles_can_browse_generator(
         assert r.json()["detail"]["code"] == "action_access_denied"
 
     # Opaque DOCX can contain rates. Missing id therefore produces the same
-    # split: TCM is rejected before lookup, read-authorized roles reach the 404.
+    # split: view-only roles are rejected before lookup, document operators
+    # reach the 404.
     r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
-    docx_expected = 403 if role_value == "talent_community_manager" else 404
+    docx_expected = (
+        403 if role_value in {"talent_community_manager", "user"} else 404
+    )
     assert r.status_code == docx_expected, (
         f"unassigned {role_value} GET generated/docx → {r.status_code}: {r.text}"
     )
