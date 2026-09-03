@@ -23,7 +23,9 @@ from typing import Any, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cortex import runs
 from app.services.cortex.fact_store import (
     RawSkillToken,
@@ -96,9 +98,16 @@ async def run_cv_llm_extraction(
 
     for candidate_id, raw in rows:
         try:
+            # Bramka kwoty jest TUTAJ, w pętli, a nie przez `parse_cv(db=…)`.
+            # Różnica jest istotna: tamta ścieżka POŁYKA `AIQuotaExceeded`
+            # i schodzi na regex, a Cortex zapisuje fakty z ufnością 0,85 —
+            # wyżej niż dane z Traffita. Cicha degradacja do regexa pod
+            # etykietą wysokiej ufności to zatrucie danych, nie oszczędność.
+            #
             # parse_cv woła zewnętrzny LLM — poza savepointem (żeby nie trzymać
             # otwartej transakcji przez czas API call).
-            parsed = await parse_cv(raw)
+            async with ai_feature(db, AIFeatureKey.cv_parser):
+                parsed = await parse_cv(raw)
             tokens = [
                 RawSkillToken(
                     name=name, confidence=CV_LLM_CONFIDENCE, evidence=name[:300]
@@ -119,6 +128,13 @@ async def run_cv_llm_extraction(
                 )
             stats["facts_upserted"] += fact_stats.matched
             stats["unmatched_tokens"] += fact_stats.unmatched
+        except AIQuotaExceeded as quota_exc:
+            # Hamulec organizacyjny: zatrzymuje BIEG, nie wiersz. Mielenie
+            # reszty bazy po wyczerpaniu kwoty zapisywałoby fakty z regexa
+            # pod ufnością zarezerwowaną dla modelu.
+            stats["stopped_reason"] = f"quota: {quota_exc}"
+            logger.warning("cortex cv_llm: stop przez kwotę AI: %s", quota_exc)
+            break
         except Exception:  # noqa: BLE001 — pojedynczy kandydat nie ubija runu
             stats["errors"] += 1
             logger.exception("cortex cv_llm extraction failed for id=%s", candidate_id)

@@ -241,7 +241,12 @@ async def try_parse_cv(
         if not text.strip():
             attachment.parse_error = "text_extraction_empty"
             return
-        parsed = await parse_cv(text, prefer_llm=True)
+        # `db=` włącza bramkę kwoty na PŁATNYM kroku. Bez niej ta ścieżka
+        # docierała do Claude'a poza systemem kwot: skrzynka współdzielona
+        # potrafi przynieść kilkadziesiąt CV dziennie, a żaden licznik ich nie
+        # widział. Wyczerpana kwota gasi wyłącznie Claude'a — Ollama i regex
+        # są darmowe i lecą dalej, więc załącznik nadal zostaje sparsowany.
+        parsed = await parse_cv(text, prefer_llm=True, db=db)
     except Exception as exc:  # noqa: BLE001
         logger.exception("CV parse failed for attachment %s", attachment.id)
         attachment.parse_error = f"parse_failed: {exc!r}"[:500]
