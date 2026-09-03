@@ -50,6 +50,10 @@ import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import {
+  hasActionAccess,
+  type ProductAction,
+} from "@/lib/action-access";
+import {
   hasSectionAccess,
   rolesWithSectionAccess,
   type ProductSection,
@@ -67,6 +71,7 @@ type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   badgeKey?: keyof BadgeCounts;
   roles?: UserRole[];
+  action?: ProductAction;
   /**
    * Renderuje pozycję jako `<a href target="_blank" rel="noopener noreferrer">`
    * zamiast Next.js `<Link>`. Używane dla zewnętrznych dashboardów
@@ -119,14 +124,13 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
       },
       { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
-      // Generator Umów B2B — dostępny dla wszystkich ról (sourcing tooling).
-      // Wcześniej w sekcji Delivery z gate'em tac+; przeniesiony tu 2026-06-08
-      // na prośbę usera. Edycja katalogu 29 ról nadal admin-only (zakładka
-      // "Zakresy ról (admin)" w komponencie, gate `isAdmin`).
+      // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
+      // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
       {
         href: "/contracts/b2b-generator",
         label: "Generator Umów B2B",
         icon: FileSignature,
+        action: "b2b_contract_generator",
       },
       {
         href: "/talents",
@@ -357,7 +361,13 @@ const NAV_SECTIONS: NavSection[] = [
  */
 export function visibleNavSections(
   user:
-    | Pick<User, "role" | "roles" | "effective_section_access">
+    | Pick<
+        User,
+        | "role"
+        | "roles"
+        | "effective_section_access"
+        | "effective_action_access"
+      >
     | null
     | undefined,
   opts: { contactQueueEnabled: boolean },
@@ -370,6 +380,7 @@ export function visibleNavSections(
       items: section.items.filter(
         (item) =>
           (!item.roles || hasRole(user, ...item.roles)) &&
+          (!item.action || hasActionAccess(user, item.action)) &&
           (item.href !== "/candidates/contact-queue" || opts.contactQueueEnabled),
       ),
     }))

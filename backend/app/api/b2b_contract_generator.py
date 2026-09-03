@@ -26,6 +26,7 @@ from app.api.contract_access import (
     B2B_GENERATOR_UNCONDITIONAL_ROLES,
     B2BGeneratorAccess,
     apply_contract_legal_client_scope,
+    assert_b2b_generator_action_access,
     assert_contract_legal_client_access,
 )
 from app.api.contract_templates import _jinja_env
@@ -57,6 +58,11 @@ from app.models.note import Note, NoteType
 from app.models.job_collaborator import JobCollaborator
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
+from app.services.action_permissions import (
+    ActionAccess,
+    ProductAction,
+    action_access_for_user,
+)
 from app.schemas.b2b_contract_generator import (
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
@@ -126,50 +132,21 @@ _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.do
 _CLAUSE_SNAPSHOT_FIELD = "_clause_override"
 
 
-_TCM_ELEVATED_CONTRACT_ROLES = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.tac,
-    UserRole.finance,
-)
+def _is_view_only_generator_user(user: User) -> bool:
+    """Whether rate-bearing document content must stay redacted."""
 
-
-def _is_read_only_tcm(user: User) -> bool:
-    """Return whether TCM is the caller's only contract-operating persona.
-
-    Unlike Delivery order surfaces, this sourcing-side generator already
-    grants HoR and TAC their own contract-operating persona. A TCM+HoR/TAC
-    hybrid therefore uses that established persona; a plain TCM stays
-    finance-redacted and read-only.
-    """
-
-    return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
-        *_TCM_ELEVATED_CONTRACT_ROLES
+    return (
+        action_access_for_user(user, ProductAction.b2b_contract_generator)
+        < ActionAccess.generate
     )
 
 
-def _deny_tcm_contract_content(user: User) -> None:
-    """Block opaque rate-bearing content while keeping safe metadata visible."""
-
-    if _is_read_only_tcm(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "code": "finance_fields_forbidden",
-                "fields": ["rate_candidate", "currency", "contract_document"],
-            },
-        )
+def _require_contract_generation(user: User) -> None:
+    assert_b2b_generator_action_access(user, ActionAccess.generate)
 
 
-def _deny_tcm_generated_contract_write(user: User) -> None:
-    """Keep the TCM generated-contract register read-only."""
-
-    if _is_read_only_tcm(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"code": "section_access_denied", "section": "delivery"},
-        )
+def _require_generated_contract_management(user: User) -> None:
+    assert_b2b_generator_action_access(user, ActionAccess.manage)
 
 
 def _clause_snapshot(key: str | None, ops: list, *, source: str = "generate") -> dict:
@@ -599,15 +576,31 @@ async def _serialize_generated_contracts(
                 scoped_job_ids.update(job_id for (job_id,) in result.all())
 
     is_admin = current_user.has_role(UserRole.admin)
-    is_read_only_tcm = _is_read_only_tcm(current_user)
+    generator_access = action_access_for_user(
+        current_user, ProductAction.b2b_contract_generator
+    )
+    can_generate_documents = generator_access >= ActionAccess.generate
+    can_manage_documents = generator_access >= ActionAccess.manage
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
-        can_manage = not is_signed and (is_admin or row.created_by == current_user.id)
-        can_confirm = _has_signature_role(current_user) and not is_signed
+        can_manage = (
+            can_manage_documents
+            and not is_signed
+            and (is_admin or row.created_by == current_user.id)
+        )
+        can_confirm = (
+            can_manage_documents and _has_signature_role(current_user) and not is_signed
+        )
         blocked_reason: str | None = None
         if is_signed:
             blocked_reason = "Umowa została już oznaczona jako podpisana obustronnie."
+        elif not can_manage_documents:
+            blocked_reason = (
+                "Oznaczenie podpisu wymaga uprawnienia do zarządzania "
+                "Generatorem Umów B2B."
+            )
+            can_confirm = False
         elif not _has_signature_role(current_user):
             blocked_reason = (
                 "Oznaczenie podpisu wymaga roli administratora, Delivery Lead lub TAC."
@@ -637,18 +630,10 @@ async def _serialize_generated_contracts(
                 # wypowiedzenie i porozumienie o rozwiązaniu dotyczą właśnie
                 # umów podpisanych.
                 #
-                # `True` bezwarunkowo, bo autoryzacja zaszła WYŻEJ: do tej listy
-                # dociera wyłącznie `B2BGeneratorAccess` (admin / head of
-                # recruitment / TAC / delivery lead z niepustym grafem klientów),
-                # a `_scope_generator_query` zawęża ją do klientów, których
-                # użytkownik prowadzi. Wcześniejsza reguła „autor albo admin"
-                # była za wąska dla operacji, o którą tu chodzi: kontraktora na
-                # nowy projekt kieruje delivery, nie osoba, która kiedyś
-                # wygenerowała dokument — przy tamtej regule przycisk „Zmień
-                # status" byłby niewidoczny dla większości zespołu, a zakładka
-                # „Umowy bez projektu" nie miałaby jak działać. Korekta TREŚCI
-                # dokumentu (`can_edit`) zostaje przy wąskiej bramce.
-                can_change_status=not is_read_only_tcm,
+                # Status handlowy wymaga poziomu `manage`; zakres wierszy nadal
+                # ogranicza `_scope_generator_query`. Korekta TREŚCI dokumentu
+                # (`can_edit`) pozostaje dodatkowo przy autorze albo adminie.
+                can_change_status=can_manage_documents,
                 contract_status=row.contract_status,
                 closure_reason=row.closure_reason,
                 closure_reason_other=row.closure_reason_other,
@@ -665,9 +650,11 @@ async def _serialize_generated_contracts(
                 signing_date=row.signing_date,
                 created_at=row.created_at.isoformat() if row.created_at else None,
                 created_by_name=users.get(row.created_by),
-                can_delete=can_manage and not is_read_only_tcm,
-                can_edit=can_manage and not is_read_only_tcm,
-                can_download=(row.render_payload is not None and not is_read_only_tcm),
+                can_delete=can_manage,
+                can_edit=can_manage,
+                can_download=(
+                    row.render_payload is not None and can_generate_documents
+                ),
                 signature_status=row.signature_status,
                 signature_source=row.signature_source,
                 candidate_id=row.candidate_id,
@@ -840,10 +827,9 @@ async def generate(
     current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    # TCM may browse the operational register, but generating a document writes
-    # ``rate_candidate`` and embeds it in an opaque DOCX. An additional
-    # contract-operating role still contributes its normal permission.
-    _deny_tcm_contract_content(current_user)
+    # Register view is intentionally separate from rate-bearing generation.
+    # The latter writes ``rate_candidate`` and embeds it in an opaque DOCX.
+    _require_contract_generation(current_user)
     role = await db.get(B2BContractRole, payload.role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Rola nie znaleziona")
@@ -1092,7 +1078,7 @@ async def get_detail(
         contract.client_id,
     )
     d = contract.b2b_detail
-    redact_finance = _is_read_only_tcm(current_user)
+    redact_finance = _is_view_only_generator_user(current_user)
     return B2BContractDetailResponse(
         contract_id=contract.id,
         candidate_id=contract.candidate_id,
@@ -1120,7 +1106,7 @@ async def download_docx(
     db: AsyncSession = Depends(get_db),
     language: str | None = Query(None),
 ):
-    _deny_tcm_contract_content(current_user)
+    _require_contract_generation(current_user)
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     await _assert_generator_client_access(
         db,
@@ -1224,6 +1210,7 @@ async def company_lookup(
     krs: str | None = Query(None),
 ):
     """Dane firmy z rejestru: Biała Lista MF po NIP (JDG + spółki) lub KRS."""
+    _require_contract_generation(current_user)
     data = await lookup_company(nip=nip, krs=krs)
     if not data:
         raise HTTPException(
@@ -1248,7 +1235,7 @@ async def render_standalone(
     `format=html` → podgląd (nie loguje numeru). `format=docx` → przypisuje
     numer, loguje wygenerowanie i zwraca plik DOCX.
     """
-    _deny_tcm_contract_content(current_user)
+    _require_contract_generation(current_user)
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     linked_job: Job | None = None
@@ -1650,7 +1637,7 @@ async def download_generated_contract(
     treści klauzul pod tym samym kluczem też jest tylko logowany, nie blokowany.
     Autorytatywny jest podpisany dokument, nie ten plik. Wiersze bez payloadu →
     422 z prośbą o ponowne wygenerowanie."""
-    _deny_tcm_contract_content(current_user)
+    _require_contract_generation(current_user)
     row = await db.get(B2BGeneratedContract, generated_id)
     if not row:
         raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
@@ -1689,6 +1676,7 @@ async def confirm_generated_contract_fully_signed(
 ):
     """One-way, audited manual confirmation with atomic employment automation."""
 
+    _require_generated_contract_management(current_user)
     try:
         row = await db.scalar(
             select(B2BGeneratedContract)
@@ -2007,7 +1995,7 @@ async def update_generated_contract(
       kieruje delivery, nie osoba, która kiedyś kliknęła „generuj"; przy wąskiej
       bramce przycisk byłby niewidoczny dla większości zespołu i cała zakładka
       „Umowy bez projektu" nie miałaby jak działać."""
-    _deny_tcm_generated_contract_write(current_user)
+    _require_generated_contract_management(current_user)
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -2297,7 +2285,7 @@ async def delete_generated_contract(
     administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
     liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
     ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
-    _deny_tcm_generated_contract_write(current_user)
+    _require_generated_contract_management(current_user)
     row = await db.scalar(
         select(B2BGeneratedContract)
         .where(B2BGeneratedContract.id == generated_id)
@@ -2347,6 +2335,7 @@ async def check_uop(
 
     Zwraca wykryte ryzykowne sformułowania + bezpieczniejszą redakcję. Wymaga
     skonfigurowanego ``ANTHROPIC_API_KEY`` (inaczej 503)."""
+    _require_contract_generation(current_user)
     text = (payload.text or "").strip()
     if not text:
         return B2BUopCheckResponse(ok=True, issues=[], rewritten="", summary="")

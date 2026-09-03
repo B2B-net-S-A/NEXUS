@@ -48,6 +48,11 @@ from app.api.financial_access import has_financial_access
 from app.core.database import get_db
 from app.models.contract import Contract
 from app.models.user import User, UserRole
+from app.services.action_permissions import (
+    ActionAccess,
+    ProductAction,
+    action_access_for_user,
+)
 from app.services.client_access import (
     ADMIN_LIKE_ROLES,
     deny,
@@ -197,6 +202,24 @@ B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.user,
 )
 
+B2B_GENERATOR_ACTION = ProductAction.b2b_contract_generator
+
+
+def assert_b2b_generator_action_access(user: User, required: ActionAccess) -> None:
+    """Enforce the configurable action ceiling inside the Sourcing section."""
+
+    granted = action_access_for_user(user, B2B_GENERATOR_ACTION)
+    if granted < required:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "action_access_denied",
+                "action": B2B_GENERATOR_ACTION.value,
+                "required": required.name,
+                "granted": granted.name,
+            },
+        )
+
 
 async def require_b2b_generator_access(
     current_user: User = Depends(get_current_user),
@@ -204,23 +227,18 @@ async def require_b2b_generator_access(
 ) -> User:
     """Gate for the B2B contract generator specifically.
 
-    Sourcing tooling open to every logged-in role (product decision, 20.08 —
-    mirrors Talent Radar 19.08 and the finance full-access-tier decision,
-    19.08). The sidebar entry for this tool has never carried a `roles`
-    restriction ("Generator Umów B2B — dostępny dla wszystkich ról"), so the
-    previous role gate here (Admin/HoR/TAC unconditionally, Delivery Lead only
-    with a client assignment, everyone else denied) produced exactly the
-    visible-link-but-403 gap already fixed once for Talent Radar: recruiter,
-    sourcer, finance and the legacy `user` role saw the link and got 403.
+    The coarse Sourcing section remains the outer ceiling. Inside it, the
+    database-backed action policy controls whether the sidebar and this gate
+    expose the generator at all.
 
     Delivery Lead keeps its established fail-closed contract: an empty DL
     client graph is denied, and concrete entities stay inside its portfolio.
-    Talent Community Manager enters the global catalog, but rate-bearing
-    generation/render/download commands have an additional explicit denial in
-    ``b2b_contract_generator``. Its generated contract register remains
-    non-financial and read-only for plain TCM.
+    The configurable action policy independently selects view, generation or
+    management. A view-only user sees the finance-redacted register; stronger
+    levels are checked by the concrete commands in ``b2b_contract_generator``.
     """
 
+    assert_b2b_generator_action_access(current_user, ActionAccess.view)
     if current_user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES):
         return current_user
     if current_user.has_role(UserRole.delivery_lead):

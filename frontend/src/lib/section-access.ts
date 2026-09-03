@@ -1,4 +1,9 @@
 import type { UserRole } from "@/store/auth";
+import type {
+  ActionAccess,
+  ProductAction,
+  UserActionOverrideAccess,
+} from "@/lib/action-access";
 
 export type ProductSection =
   | "sourcing"
@@ -23,6 +28,7 @@ export const PRODUCT_SECTIONS: readonly ProductSection[] = [
 export interface RoleSectionPermissions {
   role: UserRole;
   permissions: Record<ProductSection, SectionAccess>;
+  action_permissions?: Record<ProductAction, ActionAccess>;
   locked?: boolean;
   locked_sections?: ProductSection[];
 }
@@ -30,6 +36,7 @@ export interface RoleSectionPermissions {
 export interface SectionPermissionsResponse {
   revision: number;
   roles: RoleSectionPermissions[];
+  actions?: ProductAction[];
 }
 
 export interface UserSectionPermissions {
@@ -43,6 +50,9 @@ export interface UserSectionPermissions {
   overrides: Partial<Record<ProductSection, SectionAccess>>;
   inherited_permissions?: Record<ProductSection, SectionAccess>;
   effective_permissions: Record<ProductSection, SectionAccess>;
+  action_overrides?: Partial<Record<ProductAction, ActionAccess>>;
+  inherited_action_permissions?: Record<ProductAction, ActionAccess>;
+  effective_action_permissions?: Record<ProductAction, ActionAccess>;
   scope_summary?: string;
 }
 
@@ -61,6 +71,17 @@ export interface RoleSectionPermissionChange {
 export interface UserSectionPermissionChange {
   section: ProductSection;
   access: UserSectionOverrideAccess;
+}
+
+export interface RoleActionPermissionChange {
+  role: UserRole;
+  action: ProductAction;
+  access: ActionAccess;
+}
+
+export interface UserActionPermissionChange {
+  action: ProductAction;
+  access: UserActionOverrideAccess;
 }
 
 export interface SectionPermissionMutationResponse {
