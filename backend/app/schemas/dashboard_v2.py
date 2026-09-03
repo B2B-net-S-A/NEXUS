@@ -13,7 +13,7 @@ must therefore never be serialized as a numeric zero.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -159,7 +159,9 @@ class DeliveryRiskBoardRow(DashboardModel):
     priority: str
     open_vacancies: int
     tac_user_id: int | None = None
-    age_days: int
+    # `None` = nie znamy daty otwarcia rekrutacji (0270). Zero znaczyłoby
+    # „otwarta dzisiaj", a dla wierszy sprzed backfillu byłaby to data importu.
+    age_days: Optional[int] = None
     first_recommendation_at: datetime | None = None
     risk: DashboardSeverity
     next_action_href: str

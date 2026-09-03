@@ -50,6 +50,7 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -408,6 +409,10 @@ class ClientHitRatioRow:
     active_jobs: int
     target_achieved: Optional[bool]
     close_reasons: dict[str, int]
+    # Jaki odsetek zamknięć ma ZNANY powód. Na produkcji to dziś 0,0 u każdego
+    # klienta (`close_reason` NULL na 3924 z 3924), więc kubełek `unknown`
+    # w `close_reasons` jest luką w danych, a nie kategorią obok pozostałych.
+    outcome_coverage_pct: Optional[float] = None
 
 
 def _enum_value(raw: object, *, default: str) -> str:
@@ -444,6 +449,10 @@ async def compute_client_hit_ratio(
             Job.client_id,
             Job.headcount,
             Job.close_reason,
+            # Dla `job_data_trust.vacancies_declared`: importer wpisuje
+            # `headcount = 1` jako stałą, więc pochodzenie wiersza jest jedynym
+            # sposobem odróżnienia zadeklarowanej jedynki od braku deklaracji.
+            Job.external_source,
             effective_name.label("client_name"),
             Client.status.label("client_status"),
         )
@@ -479,11 +488,18 @@ async def compute_client_hit_ratio(
                 "filled_job_ids": set(),
                 "placements": 0,
                 "active_jobs": 0,
+                "outcome_known_jobs": 0,
                 "close_reasons": {},
             },
         )
         bucket["closed_jobs"] += 1
-        bucket["total_vacancies"] += int(r.headcount or 1)
+        # Tylko rekrutacje, które NAPRAWDĘ deklarują liczbę etatów. Doliczanie
+        # zahardkodowanej jedynki z importu zaniżało mianownik i produkowało
+        # `fill_rate` powyżej 100% — na produkcji u siedmiu klientów.
+        if job_data_trust.vacancies_declared(r):
+            bucket["total_vacancies"] += int(r.headcount or 1)
+        if job_data_trust.outcome_available(r):
+            bucket["outcome_known_jobs"] += 1
         key = _enum_value(r.close_reason, default="unknown")
         bucket["close_reasons"][key] = bucket["close_reasons"].get(key, 0) + 1
 
@@ -544,6 +560,9 @@ async def compute_client_hit_ratio(
                 if hit_ratio is None
                 else hit_ratio >= HIT_RATIO_TARGET_PCT,
                 close_reasons=bucket["close_reasons"],
+                outcome_coverage_pct=job_data_trust.coverage_pct(
+                    bucket["outcome_known_jobs"], closed
+                ),
             )
         )
     return out

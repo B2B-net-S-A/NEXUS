@@ -158,6 +158,9 @@ def _hit_ratio_payload(row: ClientHitRatioRow) -> dict:
         "active_jobs": row.active_jobs,
         "target_achieved": row.target_achieved,
         "close_reasons": dict(row.close_reasons),
+        # Bez tego kubełek `unknown` w `close_reasons` wygląda na kategorię
+        # obok pozostałych, a jest luką w danych (0,0% pokrycia na produkcji).
+        "outcome_coverage_pct": row.outcome_coverage_pct,
     }
 
 
