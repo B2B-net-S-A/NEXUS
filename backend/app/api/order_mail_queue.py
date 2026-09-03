@@ -81,17 +81,10 @@ OrderMailFileUser = Annotated[
 # (Admin, Finance, Delivery Lead). Talent Community Manager ma tu wyłącznie
 # bezpieczny odczyt — stan sprawdzenia widzi (żeby wiedzieć, jak świeża jest
 # kolejka), przycisku nie dostaje.
-OrderMailSyncUser = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.finance,
-            UserRole.delivery_lead,
-        )
-    ),
-]
-_SYNC_TRIGGER_ROLES = {UserRole.admin, UserRole.finance, UserRole.delivery_lead}
+# Jedno źródło prawdy dla bramki HTTP i dla ``can_trigger`` w statusie —
+# rozjazd tych dwóch dałby przycisk widoczny komuś, kto po kliknięciu dostaje 403.
+_SYNC_TRIGGER_ROLES = (UserRole.admin, UserRole.finance, UserRole.delivery_lead)
+OrderMailSyncUser = Annotated[User, Depends(require_roles(*_SYNC_TRIGGER_ROLES))]
 
 _FINANCE_KEYS = (
     "rate_client",
@@ -256,7 +249,7 @@ async def sync_status(
     „2 do weryfikacji" i pustą listę.
     """
     snapshot = sync_snapshot(await read_state(db), running=ingest_is_running())
-    snapshot["can_trigger"] = bool(_user_roles(user) & _SYNC_TRIGGER_ROLES)
+    snapshot["can_trigger"] = bool(_user_roles(user) & set(_SYNC_TRIGGER_ROLES))
     last = snapshot.get("last_completed")
     if last and _is_read_only_tcm(user):
         # Treść błędów cytuje nazwy załączników i odpowiedzi Graph — lustro
