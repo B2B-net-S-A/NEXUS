@@ -136,6 +136,39 @@ async def get_total_usage_for_period(
     return int(result.scalar() or 0)
 
 
+async def get_usage_summary_for_period(
+    db: AsyncSession,
+    period_start: Optional[date] = None,
+) -> dict[str, tuple[int, int, int]]:
+    """Zbiorcze zużycie per funkcja w okresie: (wywołania, tokeny_in, tokeny_out).
+
+    JEDEN ``GROUP BY`` zamiast pętli ``get_total_usage_for_period`` per funkcja
+    (N+1) w panelu Ustawienia → AI — tokeny podwoiłyby ten koszt. Kolumna
+    ``feature`` czytana jako TEKST: prod trzyma w ``ai_usage_log`` wiersze po
+    funkcjach przemianowanych/usuniętych (``embeddings``, ``matching``, …),
+    a hydratacja enumem przy odczycie rzuciłaby ``LookupError`` na całym
+    ``select()`` (ta sama pułapka co w ``ai_settings`` i sondzie zdrowia).
+    Klucze spoza ``AIFeatureKey`` wołający po prostu pomija.
+    """
+    from sqlalchemy import Text, cast, func
+
+    period = period_start or _current_period_start()
+    result = await db.execute(
+        select(
+            cast(AIUsageLog.feature, Text),
+            func.coalesce(func.sum(AIUsageLog.count), 0),
+            func.coalesce(func.sum(AIUsageLog.input_tokens), 0),
+            func.coalesce(func.sum(AIUsageLog.output_tokens), 0),
+        )
+        .where(AIUsageLog.period_start == period)
+        .group_by(cast(AIUsageLog.feature, Text))
+    )
+    return {
+        str(feat): (int(count or 0), int(tin or 0), int(tout or 0))
+        for feat, count, tin, tout in result.all()
+    }
+
+
 async def check_and_increment(
     db: AsyncSession,
     feature: AIFeatureKey,

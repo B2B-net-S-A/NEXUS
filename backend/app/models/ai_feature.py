@@ -99,7 +99,7 @@ class AIFeatureKey(str, enum.Enum):
 # Human-readable labels surfaced in the Settings UI (PL — primary language
 # of NEXUS recruiters; we don't expose the keys directly).
 FEATURE_LABELS: dict[AIFeatureKey, str] = {
-    AIFeatureKey.scoring: "Scoring kandydatów",
+    AIFeatureKey.scoring: "Uzasadnienie dopasowania (AI)",
     AIFeatureKey.job_description_generator: "Generator ogłoszeń",
     AIFeatureKey.cv_parser: "Tworzenie kandydata z CV",
     AIFeatureKey.candidate_summary: "Podsumowanie kandydata",

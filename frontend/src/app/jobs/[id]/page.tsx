@@ -849,6 +849,18 @@ function AIMatchingSection({
               </>
             )}
           </span>
+          {/* P-B (2026-09-03): ilu odsiała bramka dopuszczalności — mirror
+              Talent Radaru. Widoczne, bo skrócona lista bez wyjaśnienia czyta
+              się jak „nikt nie pasuje", a nie „część jest zablokowana". */}
+          {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
+            <span
+              className="text-[11px] px-2 py-0.5 border border-warning/25 bg-warning-muted text-warning-muted-foreground rounded-full font-medium"
+              title="Blacklista klienta, NDA, konflikt konkurencyjny lub weto hiring managera"
+              data-testid="ai-matches-eligibility-filtered"
+            >
+              {data!.meta!.eligibility_filtered} pominięto (blacklista / NDA / weto)
+            </span>
+          )}
           {searchType?.startsWith("semantic") && (
             <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
           )}

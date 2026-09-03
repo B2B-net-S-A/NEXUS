@@ -154,6 +154,11 @@ async def test_fallback_reached_by_empty_hits_still_gates(
         "renderowaną z przyciskiem „dodaj do pipeline'u”"
     )
     assert clean_id in returned, "bramka wycięła kandydata bez żadnej blokady"
+    # P-B (2026-09-03): licznik odsianych bramką jest teraz w odpowiedzi.
+    # Co najmniej zablokowany kandydat musi być policzony.
+    assert body["meta"]["eligibility_filtered"] >= 1, (
+        "meta.eligibility_filtered nie liczy odsianych bramką dopuszczalności"
+    )
 
 
 @pytest.mark.integration
