@@ -22,6 +22,7 @@ from app.models.competence_category import (
     CompetenceCategory,
     UserCompetenceCategory,
 )
+from app.services.pipeline_latest import latest_stage_ids
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import (
@@ -886,15 +887,13 @@ async def list_my_team(
 
     # 3. Active candidates per TAC.
     #
-    # "Active" = latest stage per (candidate, job) is non-terminal.
-    # Strategia: per (candidate_id, job_id) bierzemy MAX(id) jako proxy dla
-    # "latest" (id rośnie wraz z moved_at — wstawiany sekwencyjnie). Następnie
-    # filtrujemy po stage != terminal i grupujemy po Job.tac_id.
-    latest_per_cj = (
-        select(func.max(CandidateStage.id).label("latest_id"))
-        .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
-        .subquery()
-    )
+    # "Active" = bieżący etap pary jest nieterminalny.
+    #
+    # Kanoniczny tiebreaker `(moved_at DESC, id DESC)`, nie `MAX(id)`. Dawny
+    # komentarz twierdził, że „id rośnie wraz z moved_at — wstawiany
+    # sekwencyjnie"; dla importu z Traffita to nieprawda, bo `moved_at`
+    # przychodzi z zewnątrz i bywa cofnięty.
+    latest_per_cj = latest_stage_ids()
     active_cand_rows = (
         await db.execute(
             select(
