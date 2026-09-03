@@ -42,9 +42,19 @@ const recruiterPermissions = {
 
 const policy: SectionPermissionsResponse = {
   revision: 12,
+  actions: ["b2b_contract_generator"],
   roles: [
-    { role: "admin", permissions: allWrite, locked: true },
-    { role: "recruiter", permissions: recruiterPermissions },
+    {
+      role: "admin",
+      permissions: allWrite,
+      action_permissions: { b2b_contract_generator: "manage" },
+      locked: true,
+    },
+    {
+      role: "recruiter",
+      permissions: recruiterPermissions,
+      action_permissions: { b2b_contract_generator: "manage" },
+    },
   ],
 };
 
@@ -59,6 +69,9 @@ const users: UserSectionPermissionsResponse = {
       roles: ["recruiter"],
       overrides: {},
       effective_permissions: recruiterPermissions,
+      action_overrides: {},
+      inherited_action_permissions: { b2b_contract_generator: "manage" },
+      effective_action_permissions: { b2b_contract_generator: "manage" },
     },
   ],
   total: 1,
@@ -116,9 +129,39 @@ describe("PermissionsTab", () => {
     );
 
     await waitFor(() =>
-      expect(adminApi.updateRoleSectionPermissions).toHaveBeenCalledWith(12, [
-        { role: "recruiter", section: "delivery", access: "read" },
-      ]),
+      expect(adminApi.updateRoleSectionPermissions).toHaveBeenCalledWith(
+        12,
+        [{ role: "recruiter", section: "delivery", access: "read" }],
+        [],
+      ),
+    );
+  });
+
+  it("zapisuje poziom Generatora Umów B2B dla roli", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    fireEvent.change(
+      await screen.findByLabelText("Rekruter: Generator umów B2B"),
+      { target: { value: "generate" } },
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź i zapisz" }),
+    );
+
+    await waitFor(() =>
+      expect(adminApi.updateRoleSectionPermissions).toHaveBeenCalledWith(
+        12,
+        [],
+        [
+          {
+            role: "recruiter",
+            action: "b2b_contract_generator",
+            access: "generate",
+          },
+        ],
+      ),
     );
   });
 
@@ -163,6 +206,38 @@ describe("PermissionsTab", () => {
         42,
         12,
         [{ section: "delivery", access: "write" }],
+        [],
+      ),
+    );
+  });
+
+  it("nadaje użytkownikowi indywidualne generowanie bez Finansów", async () => {
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.click(
+      await screen.findByRole("tab", { name: "Wyjątki użytkowników" }),
+    );
+    fireEvent.change(
+      await screen.findByLabelText("Jan Kowalski: Generator umów B2B"),
+      { target: { value: "generate" } },
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz wyjątek" }));
+    await user.click(
+      screen.getByRole("button", { name: "Potwierdź i zapisz" }),
+    );
+
+    await waitFor(() =>
+      expect(adminApi.updateUserSectionPermissions).toHaveBeenCalledWith(
+        42,
+        12,
+        [],
+        [
+          {
+            action: "b2b_contract_generator",
+            access: "generate",
+          },
+        ],
       ),
     );
   });

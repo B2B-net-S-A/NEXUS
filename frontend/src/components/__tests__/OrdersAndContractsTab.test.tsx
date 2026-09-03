@@ -371,6 +371,28 @@ describe("OrdersAndContractsTab card", () => {
     expect(await screen.findByLabelText(/Budżet w MD/)).toBeInTheDocument();
   });
 
+  it('mówi „Brak aktywnego zamówienia", gdy okres minął, a umowa trwa', async () => {
+    // Reguła zakładki „Zakończeni" (09.2026): upływ okresu zamówienia nie
+    // przenosi osoby do „Zakończonych" — zostaje w „Aktywnych" z dopiskiem.
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [{ ...structuredClone(CONTRACTOR), orders: [HISTORY], days_to_latest_end: -40 }],
+        total_contractors: 1,
+        can_manage_finance: true,
+      },
+    } as never);
+    renderTab();
+    expect(await screen.findByTestId("no-active-order-note")).toHaveTextContent(
+      "Brak aktywnego zamówienia",
+    );
+  });
+
+  it('nie dopisuje „Brak aktywnego zamówienia", gdy zamówienie trwa albo dopiero się zacznie', async () => {
+    renderTab();
+    expect((await screen.findAllByText(/Tomasz Sadowski/)).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("no-active-order-note")).toBeNull();
+  });
+
   it("shows the consultant name with the contract id and recruitment origin", async () => {
     renderTab();
     expect(
@@ -760,6 +782,9 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
       contract_id: 603,
       candidate_name: "Ewa Zielińska",
       contract_status: "ended",
+      // Reguła 09.2026: „Zakończeni" wymaga daty końca umowy, która minęła —
+      // status bez daty to zaszłość danych, nie zakończenie współpracy.
+      contract_end_date: localISO(-10),
       days_to_latest_end: null,
       orders: [makeOrder({ id: 31, title: "Z-1", status: "completed" })],
     };
@@ -788,6 +813,7 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
       ...structuredClone(CONTRACTOR),
       contract_id: 606,
       contract_status: "ended",
+      contract_end_date: localISO(-10),
       candidate_name: "Zakonczony Kontrakt",
       orders: [makeOrder({ id: 43, title: "Z-1", status: "active" })],
     };

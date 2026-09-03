@@ -103,6 +103,18 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
+  // PUT /api/clients/{id}/playbook → DeliverySectionUser (zapis w sekcji
+  // Delivery). Kartę klienta prowadzi Delivery Lead; odczyt ma każda rola
+  // operacyjna, więc bramka dotyczy wyłącznie „Edytuj kartę" / „Załóż kartę".
+  "client_playbook.manage": {
+    admin: true,
+    head_of_recruitment: false,
+    delivery_lead: true,
+    tac: false,
+    recruiter: false,
+    sourcer: false,
+    user: false,
+  },
   // POST /api/contracts → TacPlus narrowed by the Delivery section write gate
   "contract.create": {
     admin: true,
@@ -752,6 +764,10 @@ const CAPABILITY_BACKEND_MIRROR: Record<
       "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
   },
   "cv_rule.manage": { guards: [["deps", "DeliveryLeadPlus"]] },
+  "client_playbook.manage": {
+    productDecision:
+      "DeliverySectionUser (Delivery section write) — default matrix leaves Admin and Delivery Lead; TAC, HoR and recruiter are section-denied. Finance has delivery write by matrix but no UI entry.",
+  },
   "contract.create": {
     productDecision:
       "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",

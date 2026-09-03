@@ -36,6 +36,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
+from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
@@ -437,7 +438,7 @@ async def insights_placement_analysis(
         "by_client": by_client,
         # Kod definicji — ta sama konwencja co `/api/insights/board`, żeby front
         # nie zgadywał, którą z trzech definicji placementu ogląda.
-        "placements_definition": "first_hired_per_candidate_job",
+        "placements_definition": FIRST_HIRED_PER_CANDIDATE_JOB,
     }
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result

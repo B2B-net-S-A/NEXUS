@@ -241,3 +241,108 @@ async def test_period_contract_quarter_custom_and_422(rs_client: AsyncClient):
 
     unknown = await rs_client.get(f"{PATH}?period=fortnight", headers=headers)
     assert unknown.status_code == 422
+
+
+# ── Guard pokrycia: iloraz przez etap bez danych ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_conversions_without_coverage_are_null_and_flagged_partial(
+    rs_client: AsyncClient,
+):
+    """Kafle nie mogą podawać `akceptacja → placement` jako liczby pewnej.
+
+    Na produkcji było tam 3257,1% przy `data_quality.status = "complete"` —
+    etapu `acceptance` nie zapełnia import z Traffita, więc mianownik nie
+    opisywał rzeczywistości.
+    """
+    await cache_invalidate(CACHE_PREFIX)
+    headers = await _headers(rs_client, UserRole.admin)
+    resp = await rs_client.get(PATH, headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    conversions = body["data"]["conversions"]
+    assert conversions["acceptance_to_placement_pct"] is None
+    assert conversions["interview_to_acceptance_pct"] is None
+    assert set(conversions["uncovered"]) == {
+        "interview_to_acceptance_pct",
+        "acceptance_to_placement_pct",
+    }
+    assert conversions["coverage_note"]
+
+    quality = body["data_quality"]
+    assert quality["sections"]["funnel_conversions"]["status"] == "partial"
+    assert quality["status"] == "partial"
+    assert any("Akceptacja" in w for w in quality["warnings"])
+
+    # Wygaszamy ILORAZ, nie liczniki — 7 akceptacji to prawdziwe 7 ruchów.
+    assert quality["sections"]["team_funnel"]["status"] == "complete"
+    assert body["data"]["kpis"]["acceptances"]["quality"] == "complete"
+    assert body["data"]["team_table"] is not None
+
+    await cache_invalidate(CACHE_PREFIX)
+
+
+@pytest.mark.asyncio
+async def test_healthy_conversions_survive_the_coverage_guard(
+    rs_client: AsyncClient,
+):
+    """Guard nie jest sufitem na wszystko — cztery zdrowe stopnie zostają."""
+    await cache_invalidate(CACHE_PREFIX)
+    headers = await _headers(rs_client, UserRole.admin)
+    resp = await rs_client.get(PATH, headers=headers)
+    assert resp.status_code == 200, resp.text
+
+    conversions = resp.json()["data"]["conversions"]
+    for field in (
+        "verified_to_recommendation_pct",
+        "recommendation_to_interview_pct",
+        "interview_to_placement_pct",
+        "overall_pct",
+    ):
+        assert field not in conversions["uncovered"]
+
+    await cache_invalidate(CACHE_PREFIX)
+
+
+@pytest.mark.asyncio
+async def test_structural_partial_keeps_the_full_cache_ttl(
+    rs_client: AsyncClient, monkeypatch
+):
+    """Znany brak pokrycia nie może skracać cache'a 4× na stronie głównej.
+
+    `partial` z braku pokrycia jest STAŁY — ponowienie za 30 s nic nie zmieni,
+    a przeliczanie ciężkiego `VERIFIER_ANCHORED_CTE` cztery razy częściej
+    kosztuje realnie. Krótki TTL zostaje dla awarii, które mogą minąć.
+    """
+    from app.services import dashboard_v2 as dash
+
+    captured: dict[str, object] = {}
+    original = dash.cache_set
+
+    async def _spy(key, value, ttl_seconds=None):
+        captured["ttl"] = ttl_seconds
+        return await original(key, value, ttl_seconds=ttl_seconds)
+
+    monkeypatch.setattr(dash, "cache_set", _spy)
+    headers = await _headers(rs_client, UserRole.admin)
+
+    await cache_invalidate(CACHE_PREFIX)
+    resp = await rs_client.get(PATH, headers=headers)
+    assert resp.status_code == 200, resp.text
+    # Sama degradacja strukturalna → pełne 120 s.
+    assert resp.json()["data_quality"]["status"] == "partial"
+    assert captured["ttl"] == 120
+
+    # Awaria źródła → krótki TTL, tak jak dotąd.
+    async def _boom(db):
+        raise RuntimeError("monthly races source down")
+
+    monkeypatch.setattr(sources, "load_monthly_races", _boom)
+    await cache_invalidate(CACHE_PREFIX)
+    resp = await rs_client.get(PATH, headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert captured["ttl"] == 30
+
+    await cache_invalidate(CACHE_PREFIX)

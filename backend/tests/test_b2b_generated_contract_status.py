@@ -13,6 +13,7 @@ przez prawdziwą bazę:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -482,6 +483,108 @@ async def test_status_filter_narrows_the_listing(app_client, app_auth_headers):
     ids = {x["id"] for x in resp.json()}
     assert closed_id in ids
     assert active_id not in ids
+
+
+# ── API: kolejność listy (rosnąco po numerze umowy) ──────────────────────────
+
+
+async def _seed_numbered(
+    created_by: int,
+    *,
+    year: int,
+    seq: int,
+    partner_name: str,
+    created_at: datetime | None = None,
+) -> str:
+    """Wstaw wiersz o JAWNYM ``(year, seq)`` i opcjonalnym ``created_at``.
+
+    Sortowanie listy testujemy na KONTROLOWANYCH numerach, nie na losowym ``seq``
+    z ``_seed`` — inaczej nie da się odróżnić kolejności po numerze od kolejności
+    utworzenia. ``created_at`` ustawiamy jawnie, żeby test nie zależał od
+    rozdzielczości zegara."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        row = B2BGeneratedContract(
+            year=year,
+            seq=seq,
+            contract_number=f"{seq}/{year}",
+            partner_name=partner_name,
+            client_name="Nordea Bank",
+            language="pl",
+            created_by=created_by,
+            render_payload={"language": "pl"},
+        )
+        if created_at is not None:
+            row.created_at = created_at
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        return row.contract_number
+
+
+async def test_generated_list_is_sorted_ascending_by_contract_number(
+    app_client, app_auth_headers
+):
+    """Regres z ekranu użytkownika: numery 1500, 1501, 1499 wyświetlały się
+    w kolejności utworzenia (``created_at`` malejąco), a nie rosnąco po numerze.
+
+    Numer wpisany ręcznie i numer wygenerowany później rozjeżdżają ``created_at``
+    z numerem, więc lista MUSI sortować po numerze. Ustawiamy ``created_at`` tak,
+    by malał wraz z numerem — stary sort dałby [środkowy, wysoki, niski]."""
+    admin_id = await _admin_user_id(app_client)
+    tag = f"Sortcheck{uuid.uuid4().hex[:10]}"
+    base = 700000 + (uuid.uuid4().int % 90000)
+    t0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+    # created_at desc dałby [mid, high, low] (dokładnie układ z ekranu:
+    # 1500, 1501, 1499) — czyli NIE rosnąco po numerze.
+    low = await _seed_numbered(
+        admin_id, year=2026, seq=base, partner_name=f"{tag} A", created_at=t0
+    )
+    high = await _seed_numbered(
+        admin_id,
+        year=2026,
+        seq=base + 2,
+        partner_name=f"{tag} B",
+        created_at=t0 + timedelta(minutes=1),
+    )
+    mid = await _seed_numbered(
+        admin_id,
+        year=2026,
+        seq=base + 1,
+        partner_name=f"{tag} C",
+        created_at=t0 + timedelta(minutes=2),
+    )
+
+    resp = await app_client.get(
+        PATH, headers=app_auth_headers, params={"q": tag, "limit": 200}
+    )
+    assert resp.status_code == 200, resp.text
+    numbers = [x["contract_number"] for x in resp.json()]
+    assert numbers == [low, mid, high], numbers
+
+
+async def test_generated_list_sorts_numerically_not_lexically(
+    app_client, app_auth_headers
+):
+    """„1000/rok" nie może stanąć przed „999/rok": sortujemy po LICZBOWYM ``seq``,
+    nie po stringu ``contract_number`` (leksykalnie „1000" < „999")."""
+    admin_id = await _admin_user_id(app_client)
+    tag = f"Lexcheck{uuid.uuid4().hex[:10]}"
+    # Rok „wolny" na współdzielonej bazie — unikamy kolizji z UNIQUE(year, seq).
+    year = 4000 + (uuid.uuid4().int % 4000)
+
+    n1000 = await _seed_numbered(admin_id, year=year, seq=1000, partner_name=f"{tag} A")
+    n999 = await _seed_numbered(admin_id, year=year, seq=999, partner_name=f"{tag} B")
+
+    resp = await app_client.get(
+        PATH, headers=app_auth_headers, params={"q": tag, "limit": 200}
+    )
+    assert resp.status_code == 200, resp.text
+    numbers = [x["contract_number"] for x in resp.json()]
+    assert numbers == [n999, n1000], numbers
 
 
 # ── API: wyszukiwarka ────────────────────────────────────────────────────────

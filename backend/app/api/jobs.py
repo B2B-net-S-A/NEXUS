@@ -24,6 +24,7 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
+from app.services.pipeline_latest import latest_stage_ids
 from app.models.job import Job, JobStatus, RecruitmentType
 from app.models.job_collaborator import JobCollaborator
 from app.models.activity import Activity
@@ -699,17 +700,13 @@ async def list_jobs(
         )
         counts = dict(count_result.all())
 
-    # Optional: stage breakdown per job. Single GROUP BY (no N+1) — only the
-    # *latest* stage per (candidate_id, job_id) counts, so we mirror the
-    # pattern used in team_structure.my-team: id IN (MAX(id) GROUP BY pair).
+    # Optional: stage breakdown per job. Single GROUP BY (no N+1) — liczy się
+    # wyłącznie *bieżący* etap pary, wg kanonicznego `(moved_at DESC, id DESC)`.
+    # Dawniej `MAX(id)`, co przy backdated imporcie z Traffita wskazywało inny
+    # wiersz niż tablica i KPI (2 712 rozjeżdżonych par na produkcji).
     stage_breakdown: dict[int, dict[str, int]] = {}
     if include_stage_counts and job_ids:
-        latest_per_cj = (
-            select(func.max(CandidateStage.id).label("latest_id"))
-            .where(CandidateStage.job_id.in_(job_ids))
-            .group_by(CandidateStage.candidate_id, CandidateStage.job_id)
-            .subquery()
-        )
+        latest_per_cj = latest_stage_ids(job_ids=job_ids)
         breakdown_rows = (
             await db.execute(
                 select(
@@ -1394,6 +1391,11 @@ async def update_job(
     if status_flipped:
         if new_status == JobStatus.closed:
             job.closed_at = datetime.now(timezone.utc)
+            # Lustro `close_job`. Odwrotnie NIE działa: wyjście ze stanu
+            # `closed` nie wskrzesza `is_open`, bo „prowadzimy tę rekrutację"
+            # jest decyzją człowieka (handoff), a nie skutkiem ubocznym
+            # odblokowania statusu przez sync Traffita.
+            job.is_open = False
             await maybe_close_job_contact_opportunities(
                 db,
                 job_id=job_id,
@@ -1571,6 +1573,9 @@ async def close_job(
 
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
+    # Zamknięta rekrutacja nie jest przez nikogo prowadzona — bez tego digest
+    # dopasowań i alerty terminów chodziłyby po niej dalej (0270).
+    job.is_open = False
     job.close_reason = data.reason
     job.close_notes = data.notes
     await maybe_close_job_contact_opportunities(
@@ -1761,9 +1766,14 @@ async def update_champion_profile(
     # wszystkiego, co naprawdę go czyta.
     stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
     stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
-    if stack_must:
+    # Synchronizujemy, gdy edytor PRZYSŁAŁ sekcję `stack` — także wtedy, gdy
+    # przysłał ją pustą. Warunek `if stack_must:` sprawiał, że wyczyszczenie
+    # stacku w edytorze nigdy nie czyściło kolumn: Delivery Lead widział pustą
+    # sekcję, a scoring, filtry i mapa wymagań dalej czytały skasowane
+    # technologie. Payload BEZ sekcji `stack` nadal nie rusza kolumn — to
+    # odróżnia „wyczyściłem" od „nie dotykałem".
+    if "stack" in (payload or {}):
         job.must_skills = stack_must
-    if stack_nice:
         job.nice_skills = stack_nice
 
     # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
@@ -1916,6 +1926,42 @@ _HANDOFF_RECRUITER_ROLES = (
 )
 
 
+@router.get("/{job_id}/readiness")
+async def get_job_readiness(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Czego brakuje, żeby przekazać rekrutację do searchu — PRZED kliknięciem.
+
+    Ta sama lista, którą `POST /jobs/{id}/handoff` zwraca w 422. Wystawiona
+    osobno, bo dowiadywanie się o brakach dopiero z odrzuconego żądania jest
+    najgorszym momentem: na próbce 100 rekrutacji z produkcji bramkę przechodzą
+    23, więc trzy na cztery kliknięcia kończyły się błędem, który dało się
+    pokazać wcześniej.
+
+    Odczyt, nie mutacja — świadomie NIE tworzy snapshotu ani niczego nie
+    stempluje, żeby dało się to wołać przy każdym renderze zakładki.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+
+    blockers = _compute_job_readiness(job)
+    # Zamknięta rekrutacja nie jest „niegotowa" — jej się po prostu nie
+    # przekazuje. Lustro guardu 409 w samym handoffie; bez tego przycisk
+    # wyglądałby na możliwy do odblokowania uzupełnieniem Championa.
+    is_closed = job.status == JobStatus.closed
+    return {
+        "job_id": job.id,
+        "ready": not blockers and not is_closed,
+        "blockers": blockers,
+        "closed": is_closed,
+        "already_handed_off": job.is_open,
+    }
+
+
 @router.post("/{job_id}/handoff", status_code=202)
 async def handoff_job_to_search(
     job_id: int,
@@ -1969,6 +2015,12 @@ async def handoff_job_to_search(
         )
 
     job.recruiter_id = recruiter.id
+    # Handoff jest MOMENTEM, w którym rekrutacja staje się nasza (0270). Do tej
+    # pory „prowadzimy ją" znaczyło `status == published`, czyli pole będące
+    # lustrem Traffita — przez co Priority Work, digest dopasowań, alerty
+    # terminów i linki zaproszeniowe działały dla 14 rekordów demo i dla niczego
+    # więcej. Teraz włącza je ta jedna linia.
+    job.is_open = True
     db.add(
         Activity(
             entity_type="job",

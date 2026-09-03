@@ -20,7 +20,9 @@ from app.core.security import decode_token, hash_password
 from app.models.section_permission import (
     RbacPermissionAudit,
     RbacPolicyState,
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.user import User, UserRole
@@ -62,6 +64,9 @@ async def permission_target() -> AsyncIterator[dict[str, object]]:
         await db.execute(
             delete(UserSectionOverride).where(UserSectionOverride.user_id == user_id)
         )
+        await db.execute(
+            delete(UserActionOverride).where(UserActionOverride.user_id == user_id)
+        )
         target = await db.scalar(select(User).where(User.id == user_id))
         if target is not None:
             await db.delete(target)
@@ -81,6 +86,7 @@ async def test_user_override_is_versioned_audited_and_returned_in_auth_snapshot(
     admin_row = next(row for row in policy.json()["roles"] if row["role"] == "admin")
     assert admin_row["locked"] is True
     assert admin_row["permissions"]["system_admin"] == "write"
+    assert admin_row["action_permissions"]["b2b_contract_generator"] == "manage"
 
     target_id = int(permission_target["id"])
     grant = await app_client.put(
@@ -115,6 +121,7 @@ async def test_user_override_is_versioned_audited_and_returned_in_auth_snapshot(
     [row] = users.json()["users"]
     assert row["overrides"]["delivery"] == "read"
     assert row["effective_permissions"]["delivery"] == "read"
+    assert row["effective_action_permissions"]["b2b_contract_generator"] == "manage"
 
     login = await app_client.post(
         "/api/auth/login",
@@ -131,6 +138,7 @@ async def test_user_override_is_versioned_audited_and_returned_in_auth_snapshot(
     )
     assert me.status_code == 200, me.text
     assert me.json()["effective_section_access"]["delivery"] == "read"
+    assert me.json()["effective_action_access"]["b2b_contract_generator"] == "manage"
 
     impersonation = await app_client.post(
         f"/api/admin/impersonate/{target_id}", headers=app_auth_headers
@@ -149,6 +157,7 @@ async def test_user_override_is_versioned_audited_and_returned_in_auth_snapshot(
         "default_dashboard_preset",
         "data_scope",
         "effective_section_access",
+        "effective_action_access",
         "analytics_v1_mode",
     ):
         assert impersonated_profile[field] == target_profile[field]
@@ -178,6 +187,102 @@ async def test_user_override_is_versioned_audited_and_returned_in_auth_snapshot(
         },
     )
     assert inherit.status_code == 200, inherit.text
+
+
+async def test_user_action_override_is_audited_and_returned_in_auth_snapshot(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    permission_target: dict[str, object],
+) -> None:
+    policy = await app_client.get(
+        "/api/admin/section-permissions", headers=app_auth_headers
+    )
+    assert policy.status_code == 200, policy.text
+    revision = policy.json()["revision"]
+    target_id = int(permission_target["id"])
+
+    grant = await app_client.put(
+        f"/api/admin/section-permissions/users/{target_id}",
+        headers=app_auth_headers,
+        json={
+            "revision": revision,
+            "action_changes": [
+                {
+                    "action": "b2b_contract_generator",
+                    "access": "generate",
+                }
+            ],
+        },
+    )
+    assert grant.status_code == 200, grant.text
+    assert grant.json() == {
+        "revision": revision + 1,
+        "changed": True,
+        "invalidated_users": 1,
+    }
+
+    users = await app_client.get(
+        "/api/admin/section-permissions/users",
+        headers=app_auth_headers,
+        params={"search": permission_target["email"]},
+    )
+    assert users.status_code == 200, users.text
+    [row] = users.json()["users"]
+    assert row["action_overrides"] == {"b2b_contract_generator": "generate"}
+    assert row["inherited_action_permissions"] == {"b2b_contract_generator": "manage"}
+    assert row["effective_action_permissions"] == {"b2b_contract_generator": "generate"}
+    assert row["effective_permissions"]["finance"] == "none"
+
+    login = await app_client.post(
+        "/api/auth/login",
+        json={
+            "email": permission_target["email"],
+            "password": permission_target["password"],
+        },
+    )
+    assert login.status_code == 200, login.text
+    access_token = login.json()["access_token"]
+    me = await app_client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert me.status_code == 200, me.text
+    assert me.json()["effective_action_access"] == {
+        "b2b_contract_generator": "generate"
+    }
+    assert me.json()["effective_section_access"]["finance"] == "none"
+
+    generate = await app_client.post(
+        "/api/b2b-generator/generate",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"role_id": 999999, "start_date": "2026-01-01"},
+    )
+    assert generate.status_code == 404, generate.text
+    manage = await app_client.patch(
+        "/api/b2b-generator/generated/999999",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"client_name": "Blocked"},
+    )
+    assert manage.status_code == 403, manage.text
+    assert manage.json()["detail"] == {
+        "code": "action_access_denied",
+        "action": "b2b_contract_generator",
+        "required": "manage",
+        "granted": "generate",
+    }
+
+    async with AsyncSessionLocal() as db:
+        audit = await db.scalar(
+            select(RbacPermissionAudit)
+            .where(
+                RbacPermissionAudit.target_kind == "user",
+                RbacPermissionAudit.target_key == str(target_id),
+            )
+            .order_by(RbacPermissionAudit.id.desc())
+        )
+        assert audit is not None
+        assert audit.revision == revision + 1
+        assert audit.before == {}
+        assert audit.after == {"action:b2b_contract_generator": "generate"}
 
 
 async def test_technical_admin_access_cannot_be_delegated_or_overridden(
@@ -292,6 +397,92 @@ async def test_explicit_none_materializes_a_missing_role_row(
                         access="none",
                     )
                 )
+            await db.execute(
+                delete(RbacPermissionAudit).where(
+                    RbacPermissionAudit.target_kind == "role",
+                    RbacPermissionAudit.revision == revision + 1,
+                )
+            )
+            await db.commit()
+
+
+async def test_explicit_none_materializes_a_missing_role_action_row(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """A missing privileged-action row stays fail-closed until audited repair."""
+
+    role = UserRole.user.value
+    action = "b2b_contract_generator"
+    key = f"{role}:action:{action}"
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(RoleActionPermission).where(
+                RoleActionPermission.role == role,
+                RoleActionPermission.action == action,
+            )
+        )
+        await db.commit()
+
+    policy = await app_client.get(
+        "/api/admin/section-permissions", headers=app_auth_headers
+    )
+    assert policy.status_code == 200, policy.text
+    revision = policy.json()["revision"]
+    role_row = next(row for row in policy.json()["roles"] if row["role"] == role)
+    assert role_row["action_permissions"][action] == "none"
+
+    try:
+        response = await app_client.put(
+            "/api/admin/section-permissions/roles",
+            headers=app_auth_headers,
+            json={
+                "revision": revision,
+                "action_changes": [{"role": role, "action": action, "access": "none"}],
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["changed"] is True
+        assert response.json()["revision"] == revision + 1
+
+        async with AsyncSessionLocal() as db:
+            restored = await db.scalar(
+                select(RoleActionPermission).where(
+                    RoleActionPermission.role == role,
+                    RoleActionPermission.action == action,
+                )
+            )
+            assert restored is not None
+            assert restored.access == "none"
+            audit = await db.scalar(
+                select(RbacPermissionAudit)
+                .where(
+                    RbacPermissionAudit.target_kind == "role",
+                    RbacPermissionAudit.revision == revision + 1,
+                )
+                .order_by(RbacPermissionAudit.id.desc())
+            )
+            assert audit is not None
+            assert audit.before == {key: "missing"}
+            assert audit.after == {key: "none"}
+    finally:
+        async with AsyncSessionLocal() as db:
+            restored = await db.scalar(
+                select(RoleActionPermission).where(
+                    RoleActionPermission.role == role,
+                    RoleActionPermission.action == action,
+                )
+            )
+            if restored is None:
+                db.add(
+                    RoleActionPermission(
+                        role=role,
+                        action=action,
+                        access="view",
+                    )
+                )
+            else:
+                restored.access = "view"
             await db.execute(
                 delete(RbacPermissionAudit).where(
                     RbacPermissionAudit.target_kind == "role",

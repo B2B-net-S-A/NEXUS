@@ -353,10 +353,14 @@ class Settings(BaseSettings):
     #    zamowienia@, więc hosting nie potrzebuje żadnej reguły kopii. Graph nie
     #    ma `/me` bez użytkownika, stąd ścieżki `/users/{upn}/...`.
     ORDER_MAIL_AUTH_MODE: str = "delegated"
-    # Sloty dobowe (czas LOKALNY Europe/Warsaw, „HH:MM,HH:MM") — bieg raz, gdy
-    # początek któregoś slotu leży w (ostatni bieg, teraz]. Lokalny, nie UTC:
-    # ticket mówi „ok. 8:00 i 15:00", a UTC rozjeżdża się z DST.
-    ORDER_MAIL_SLOTS_LOCAL: str = "08:00,15:00"
+    # Odstęp między biegami (minuty). Do 09.2026 pętla miała dwa sloty dobowe
+    # (08:00 i 15:00): zamówienie, które przyszło o 08:37, czekało do 15:00.
+    # Bieg jest należny, gdy od KOŃCA ostatniego minęło co najmniej tyle minut —
+    # także zaraz po restarcie kontenera (bieg przerwany końca nie zapisuje)
+    # i po biegu ręcznym (ten przesuwa zegar, więc nie ma dwóch biegów tuż po
+    # sobie). Podłoga 5 min (`poll_interval_minutes`): bieg to kilka wywołań
+    # Graph, a przy zerze pętla kręciłaby się bez przerwy.
+    ORDER_MAIL_POLL_INTERVAL_MINUTES: int = 60
     ORDER_MAIL_INITIAL_LOOKBACK_DAYS: int = 7
     ORDER_MAIL_OVERLAP_HOURS: int = 2
     ORDER_MAIL_MAX_ATTACHMENT_MB: int = 25
@@ -1007,6 +1011,15 @@ class Settings(BaseSettings):
     COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
 
     TRAFFIT_SYNC_ENABLED: bool = False
+    # Skutki uboczne dla etapów przychodzących z importu.
+    #
+    # Import pisze do `candidate_stages` surowym SQL-em (świadomie — warstwa
+    # komend robi ~10 zapytań i 2 blokady na wiersz, w kolejności blokad
+    # NIEZGODNEJ z wsadem, co w przeszłości się zakleszczało). Skutkiem było
+    # to, że automatyzacje pipeline'u dotyczyły 0,4% ruchu. Ten przełącznik
+    # włącza WĄSKI, wsadowy zestaw skutków idempotentnych — nigdy maili
+    # do kandydatów.
+    TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED: bool = False
     # Background loop wake cadence (how often it checks whether a run is due).
     # The actual import runs at most once/day (delta) + once/week (full),
     # gated on the persisted watermark — clamped to >=300s in the loop.

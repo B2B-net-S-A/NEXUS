@@ -14,6 +14,7 @@ import {
  Banknote,
  Briefcase,
  Building2,
+ CalendarClock,
  ChevronRight,
  CircleDot,
  Columns3,
@@ -1506,6 +1507,14 @@ export function CandidatesListV2() {
  .map((x) => Number.parseInt(x, 10))
  .filter((n) => Number.isFinite(n))
  );
+ // „Data wysłania do klienta" — zakres dat rekomendacji kandydata do klienta
+ // (przejście na etap `cv_sent`). Niezależny od rodziny `stage*`, historyczny.
+ const [sentToClientFrom, setSentToClientFrom] = useState<string>(
+ searchParams.get("sent_from") ??""
+ );
+ const [sentToClientTo, setSentToClientTo] = useState<string>(
+ searchParams.get("sent_to") ??""
+ );
  // "Aktualny etap" toggle — force current-stage matching even with a
  // who/when/client move-filter. Off (default) lets the backend auto-resolve.
  const [stageCurrentOnly, setStageCurrentOnly] = useState<boolean>(
@@ -1646,6 +1655,8 @@ export function CandidatesListV2() {
  stageMovedAfter,
  stageMovedBefore,
  stageClientIds,
+ sentToClientFrom,
+ sentToClientTo,
  stageCurrentOnly,
  openTo: openToFilter,
  recentlyChangedJobs,
@@ -1683,6 +1694,8 @@ export function CandidatesListV2() {
  stageMovedAfter,
  stageMovedBefore,
  stageClientIds,
+ sentToClientFrom,
+ sentToClientTo,
  stageCurrentOnly,
  openToFilter,
  recentlyChangedJobs,
@@ -1999,6 +2012,7 @@ export function CandidatesListV2() {
  stageMovedByIds.length +
  (stageMovedAfter || stageMovedBefore ? 1 : 0) +
  stageClientIds.length +
+ (sentToClientFrom || sentToClientTo ? 1 : 0) +
  (stageCurrentOnly ? 1 : 0) +
  (recentlyChangedJobs ? 1 : 0) +
  qAll.length +
@@ -2043,6 +2057,10 @@ export function CandidatesListV2() {
  if (patch.stageMovedBefore !== undefined)
  setStageMovedBefore(patch.stageMovedBefore);
  if (patch.stageClientIds !== undefined) setStageClientIds(patch.stageClientIds);
+ if (patch.sentToClientFrom !== undefined)
+ setSentToClientFrom(patch.sentToClientFrom);
+ if (patch.sentToClientTo !== undefined)
+ setSentToClientTo(patch.sentToClientTo);
  if (patch.stageCurrentOnly !== undefined)
  setStageCurrentOnly(patch.stageCurrentOnly);
  if (patch.openTo !== undefined) setOpenToFilter(patch.openTo);
@@ -2088,6 +2106,8 @@ export function CandidatesListV2() {
  setStageMovedAfter("");
  setStageMovedBefore("");
  setStageClientIds([]);
+ setSentToClientFrom("");
+ setSentToClientTo("");
  setStageCurrentOnly(false);
  setRecentlyChangedJobs(null);
  setQAll([]);
@@ -2677,6 +2697,55 @@ export function CandidatesListV2() {
                   setPage(1);
                 }}
               />
+            </FilterSection>
+
+            {/* Data wysłania do klienta — własna sekcja. Filtr po dacie
+                rekomendacji kandydata do klienta (przejście na etap `cv_sent`);
+                niezależny od panelu etapu i historyczny. */}
+            <FilterSection
+              title="Data wysłania do klienta"
+              icon={<CalendarClock />}
+              accent="violet"
+            >
+              <FilterField
+                label="Zakres dat (od – do)"
+                hint="Kandydaci zarekomendowani do klienta (przejście na etap CV wysłane) w tym oknie. Zakres włącznie; nie wymaga wyboru etapu."
+              >
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 space-y-1">
+                    <label className="block text-[10px] text-muted-foreground">
+                      od
+                    </label>
+                    <Input
+                      type="date"
+                      aria-label="Data wysłania do klienta — od"
+                      value={sentToClientFrom}
+                      max={sentToClientTo || undefined}
+                      onChange={(e) => {
+                        setSentToClientFrom(e.target.value);
+                        setPage(1);
+                      }}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="block text-[10px] text-muted-foreground">
+                      do
+                    </label>
+                    <Input
+                      type="date"
+                      aria-label="Data wysłania do klienta — do"
+                      value={sentToClientTo}
+                      min={sentToClientFrom || undefined}
+                      onChange={(e) => {
+                        setSentToClientTo(e.target.value);
+                        setPage(1);
+                      }}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+              </FilterField>
             </FilterSection>
 
             {/* Dane zawodowe — lokalizacja, firmy, tryb pracy, doświadczenie. */}

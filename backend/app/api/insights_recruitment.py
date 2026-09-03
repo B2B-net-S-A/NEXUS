@@ -35,6 +35,7 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
+from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
 from app.services.insights_invite_links import (
     compute_invite_link_channels,
     count_invite_link_candidates,
@@ -63,10 +64,10 @@ CACHE_TTL_SECONDS = 300
 #   Reszta lejka musi przyjść z `candidate_stages`, deduplikowana tak samo —
 #   inaczej liczby z dwóch źródeł nie dają się porównać.
 #
-# `mapped_from_traffit` — czy import z Traffita zna ten etap
-#   (`app/services/traffit/mappers.py:404-449` mapuje wyłącznie na
-#   new|screening|verified|interview|cv_sent|hired|rejected|withdrawn).
-#   Etap spoza tej listy pokazuje zero, bo NIE JEST ODNOTOWYWANY.
+# `mapped_from_traffit` — czy import z Traffita zna ten etap. Wyliczane
+#   z `app.services.funnel_coverage` (które wyprowadza to z tabeli mapera),
+#   NIE deklarowane tutaj — patrz pętla pod listą. Etap spoza tej listy
+#   pokazuje zero, bo NIE JEST ODNOTOWYWANY.
 #
 # Pomylenie tych flag daje dokładnie defekt, przed którym broni docstring
 # modułu: API twierdziłoby, że zero przy „Nowi" to obserwacja, a przy
@@ -76,81 +77,79 @@ FUNNEL_STAGES: list[dict] = [
         "stage": "new",
         "label": "Nowi / Analiza CV",
         "in_milestones": False,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "screening",
         "label": "Screening",
         "in_milestones": False,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "verified",
         "label": "Zweryfikowany",
         "in_milestones": True,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "prep_call",
         "label": "Preparation Meeting",
         "in_milestones": False,
-        "mapped_from_traffit": False,
     },
     {
         "stage": "cv_sent",
         "label": "CV wysłane",
         "in_milestones": True,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "interview",
         "label": "Rozmowa",
         "in_milestones": True,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "client_interview",
         "label": "Rozmowa u klienta",
         "in_milestones": True,
-        "mapped_from_traffit": False,
     },
     {
         "stage": "acceptance",
         "label": "Akceptacja",
         "in_milestones": True,
-        "mapped_from_traffit": False,
     },
     {
         "stage": "negotiation",
         "label": "Negocjacje",
         "in_milestones": False,
-        "mapped_from_traffit": False,
     },
     {
         "stage": "hired",
         "label": "Zatrudniony",
         "in_milestones": True,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "onboarding",
         "label": "Onboarding",
         "in_milestones": False,
-        "mapped_from_traffit": False,
     },
     {
         "stage": "rejected",
         "label": "Odrzucony",
         "in_milestones": False,
-        "mapped_from_traffit": True,
     },
     {
         "stage": "withdrawn",
         "label": "Wycofany",
         "in_milestones": False,
-        "mapped_from_traffit": True,
     },
 ]
+
+# `mapped_from_traffit` jest POCHODNĄ tabeli mapera, nie deklaracją.
+#
+# Trzynaście ręcznie utrzymywanych booleanów rozjeżdżało się z rzeczywistością
+# przy pierwszej zmianie mapowania, a objaw byłby cichy: etap raportowałby
+# „odnotowywany", pokazując zero. Źródło prawdy jest jedno i dzieli je
+# z kaflami dashboardu (`app.services.funnel_coverage`).
+for _stage in FUNNEL_STAGES:
+    _stage["mapped_from_traffit"] = (
+        _stage["stage"] not in STAGES_WITHOUT_TRAFFIT_COVERAGE
+    )
 
 _STAGE_LOG_STAGES = [x["stage"] for x in FUNNEL_STAGES if not x["in_milestones"]]
 

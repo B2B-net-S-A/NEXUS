@@ -246,6 +246,12 @@ class CandidateFilterSpec(BaseModel):
     stage_moved_after: Optional[date] = None
     stage_moved_before: Optional[date] = None
     stage_client_id: Optional[list[int]] = None
+    # "Data wysłania do klienta" — dedykowany filtr po dacie rekomendacji
+    # kandydata do klienta (przejście na etap `cv_sent`). Niezależny od
+    # ogólnego rodzinnego filtra `stage_*`: dopasowuje kandydatów z DOWOLNYM
+    # ruchem na `cv_sent` w oknie dat (historycznie), inclusive `YYYY-MM-DD`.
+    sent_to_client_from: Optional[date] = None
+    sent_to_client_to: Optional[date] = None
     competence_category_id: Optional[list[int]] = None
     sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
     id_after: Optional[int] = Field(None, ge=1)
@@ -1127,6 +1133,40 @@ async def _build_candidate_filtered_query(
             stage_exists = select(1).where(*conditions).exists()
         query = query.where(stage_exists)
 
+    # "Data wysłania do klienta" — dedykowany, niezależny filtr po dacie
+    # rekomendacji kandydata do klienta (przejście na etap `cv_sent`). Świadomie
+    # HISTORYCZNY i osobny od rodzinnego `stage_*`: „kogo wysłaliśmy do klienta
+    # w maju" to fakt o zdarzeniu (`cv_sent`), nie o bieżącym etapie — kandydat,
+    # który po wysyłce poszedł na rozmowę u klienta, nadal się liczy. Zakres dat
+    # włącznie, jak przy `stage_moved_*`: dolna granica = 00:00 UTC dnia `from`,
+    # górna = 00:00 UTC dnia PO `to` (cały dzień `to` w środku).
+    sent_from_dt = (
+        datetime.combine(
+            f.sent_to_client_from, datetime.min.time(), tzinfo=timezone.utc
+        )
+        if f.sent_to_client_from
+        else None
+    )
+    sent_to_dt = (
+        datetime.combine(
+            f.sent_to_client_to + timedelta(days=1),
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        if f.sent_to_client_to
+        else None
+    )
+    if sent_from_dt is not None or sent_to_dt is not None:
+        sent_conditions = [
+            CandidateStage.candidate_id == Candidate.id,
+            CandidateStage.stage == PipelineStage.cv_sent,
+        ]
+        if sent_from_dt is not None:
+            sent_conditions.append(CandidateStage.moved_at >= sent_from_dt)
+        if sent_to_dt is not None:
+            sent_conditions.append(CandidateStage.moved_at < sent_to_dt)
+        query = query.where(select(1).where(*sent_conditions).exists())
+
     return query, q_any_groups
 
 
@@ -1551,6 +1591,26 @@ async def list_candidates(
             "the candidate's CURRENT move per job-pair instead."
         ),
     ),
+    sent_to_client_from: Optional[date] = Query(
+        None,
+        description=(
+            "Send-date filter (Data wysłania do klienta) — lower bound "
+            "(inclusive), `YYYY-MM-DD`. Matches candidates who reached the "
+            "`cv_sent` stage (CV wysłane do klienta / rekomendacja) with "
+            "`CandidateStage.moved_at >= 00:00 UTC` of this day. Independent of "
+            "`pipeline_stage`/`stage_*`; always HISTORICAL — any `cv_sent` move "
+            "in the window counts, even if the candidate has since advanced."
+        ),
+    ),
+    sent_to_client_to: Optional[date] = Query(
+        None,
+        description=(
+            "Send-date filter (Data wysłania do klienta) — upper bound "
+            "(inclusive), `YYYY-MM-DD`. Matches `cv_sent` moves with "
+            "`CandidateStage.moved_at < 00:00 UTC` of the NEXT day, so the whole "
+            "`to` day is included. Pairs with `sent_to_client_from`."
+        ),
+    ),
     competence_category_id: Optional[list[int]] = Query(
         None,
         description=(
@@ -1629,6 +1689,8 @@ async def list_candidates(
         stage_moved_after=stage_moved_after,
         stage_moved_before=stage_moved_before,
         stage_client_id=stage_client_id,
+        sent_to_client_from=sent_to_client_from,
+        sent_to_client_to=sent_to_client_to,
         competence_category_id=competence_category_id,
         sort=sort,
         id_after=id_after,

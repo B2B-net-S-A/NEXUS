@@ -198,6 +198,18 @@ function collectChips(
  onUpdate({ stageMovedAfter: "", stageMovedBefore: "", page: 1 }),
  });
  }
+ // "Data wysłania do klienta" — single chip for the (inclusive) date range of
+ // the cv_sent (recommendation) move. Independent of the stage-move family.
+ if (filters.sentToClientFrom || filters.sentToClientTo) {
+ const from = filters.sentToClientFrom ||"…";
+ const to = filters.sentToClientTo ||"…";
+ chips.push({
+ key: "sent_to_client",
+ label: `Wysłany do klienta: ${from} – ${to}`,
+ clear: () =>
+ onUpdate({ sentToClientFrom: "", sentToClientTo: "", page: 1 }),
+ });
+ }
  // Stage-move "client" — the client owning the job where the move happened.
  filters.stageClientIds.forEach((id) => {
  const name = clientsById?.get(id) ?? `Klient #${id}`;
@@ -541,6 +553,8 @@ export function ActiveFilterChips({
  stageMovedAfter: "",
  stageMovedBefore: "",
  stageClientIds: [],
+ sentToClientFrom: "",
+ sentToClientTo: "",
  stageCurrentOnly: false,
  qAll: [],
  qAny: [],

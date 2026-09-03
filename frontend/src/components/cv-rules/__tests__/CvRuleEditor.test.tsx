@@ -3,12 +3,16 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CvRuleEditor } from "@/components/cv-rules/CvRuleEditor";
+import { makeClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRule } from "@/test/fixtures/cv-rule";
 
 /**
- * Edytor reguły — pełna recepta DL w pięciu zakładkach.
+ * Edytor reguły — pełna recepta DL w sześciu zakładkach.
  *
- * Trzy kontrakty, które łatwo cofnąć „przy okazji":
+ * Cztery kontrakty, które łatwo cofnąć „przy okazji":
+ *  * zakładka „Karta klienta" montuje się LENIWIE (edytor otwierany dla reguły
+ *    nie strzela po kartę) i po pierwszym wejściu jest tylko chowana — szkic
+ *    karty przeżywa przełączenie zakładki; na niej nie ma stopki reguły;
  *  * „Zapisz i zatwierdź" wysyła `confirm: true` i KOMPLET pól (blokady,
  *    polityka, słownik, flagi klienta) — pominięte pole w payloadzie
  *    oznaczałoby ciche wyzerowanie go na serwerze;
@@ -47,16 +51,21 @@ function switchTab(name: string) {
   fireEvent.click(tab);
 }
 
-function renderEditor(onChanged = vi.fn()) {
+function renderEditor(onChanged = vi.fn(), initialTab?: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
-      <CvRuleEditor clientId={5} allowDelete onChanged={onChanged} />
+      <CvRuleEditor
+        clientId={5}
+        allowDelete
+        onChanged={onChanged}
+        initialTab={initialTab}
+      />
     </QueryClientProvider>,
   );
-  return onChanged;
+  return Object.assign(onChanged, { unmount: view.unmount });
 }
 
 describe("CvRuleEditor", () => {
@@ -79,6 +88,9 @@ describe("CvRuleEditor", () => {
       if (url === "/api/clients/5/cv-rule/prompt-preview")
         return { data: { language: "pl", block: "<client_presentation_rules>\nx\n</client_presentation_rules>", is_active: true } };
       if (url === "/api/clients-lookup") return { data: [] };
+      if (url === "/api/clients/5/playbook")
+        return { data: makeClientPlaybook({ client_id: 5 }) };
+      if (url === "/api/clients/5/playbook/history") return { data: [] };
       throw new Error(`unexpected GET ${url}`);
     });
     mocks.put.mockImplementation(async (_url: string, body: Record<string, unknown>) => ({
@@ -182,5 +194,45 @@ describe("CvRuleEditor", () => {
     expect(mocks.delete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Tak, usuń" }));
     await waitFor(() => expect(mocks.delete).toHaveBeenCalledWith("/api/clients/5/cv-rule"));
+  });
+
+  it("zakładka „Karta klienta” montuje się dopiero po wejściu i zachowuje szkic po przełączeniu", async () => {
+    renderEditor();
+    await screen.findByText("Reguły CV · wersja 1");
+    // Leniwie: edytor otwarty dla reguły nie strzela po kartę.
+    expect(mocks.get).not.toHaveBeenCalledWith("/api/clients/5/playbook");
+
+    switchTab("Karta klienta");
+    const sla = await screen.findByLabelText("SLA: dni robocze na pierwszego kandydata");
+    expect(mocks.get).toHaveBeenCalledWith("/api/clients/5/playbook");
+    // Na zakładce karty jedynym zapisem jest „Zapisz kartę".
+    expect(screen.queryByRole("button", { name: "Zapisz i zatwierdź" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz kartę" })).toBeInTheDocument();
+
+    fireEvent.change(sla, { target: { value: "9" } });
+    switchTab("Podstawy");
+    expect(screen.getByRole("button", { name: "Zapisz i zatwierdź" })).toBeInTheDocument();
+    switchTab("Karta klienta");
+    // Szkic przeżył przełączenie — zakładka była chowana, nie odmontowana.
+    expect(screen.getByLabelText("SLA: dni robocze na pierwszego kandydata")).toHaveValue(9);
+    expect(mocks.get.mock.calls.filter(([url]) => url === "/api/clients/5/playbook")).toHaveLength(1);
+  });
+
+  it("initialTab otwiera edytor na wskazanej zakładce, nieznana wartość wraca na Podstawy", async () => {
+    const first = renderEditor(vi.fn(), "playbook");
+    await screen.findByText("Reguły CV · wersja 1");
+    expect(screen.getByRole("tab", { name: "Karta klienta" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(await screen.findByLabelText("SLA: dni robocze na pierwszego kandydata")).toBeInTheDocument();
+    first.unmount();
+
+    renderEditor(vi.fn(), "nope");
+    await screen.findByText("Reguły CV · wersja 1");
+    expect(screen.getByRole("tab", { name: "Podstawy" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });

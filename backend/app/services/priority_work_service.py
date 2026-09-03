@@ -23,7 +23,7 @@ from app.models.candidate import Candidate
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.client import Client
 from app.models.competence_category import UserCompetenceCategory
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_priority import (
     PriorityBlockerStatus,
@@ -732,10 +732,11 @@ async def _validate_persisted_plan(
         )
     }
     for job in jobs.values():
-        if job.status != JobStatus.published:
+        if not job.is_open:
             raise HTTPException(
                 422,
-                f"Request #{job.id} nie jest opublikowany i nie może wejść do planu",
+                f"Request #{job.id} nie został przekazany do searchu "
+                "i nie może wejść do planu",
             )
 
     assignments_by_demand: dict[int, list[RecruitmentPriorityAssignment]] = {}

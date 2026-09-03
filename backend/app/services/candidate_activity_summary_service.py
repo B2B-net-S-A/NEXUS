@@ -656,7 +656,7 @@ async def _submissions_section(
                 CandidateStage.candidate_id == candidate_id,
                 CandidateStage.job_id.in_(visible_job_ids),
             )
-            .order_by(CandidateStage.moved_at.desc())
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
             .limit(_MAX_STAGE_ROWS + 1)
         )
     ).all()

@@ -263,3 +263,23 @@ async def test_unknown_key_is_rejected(scfg_client: AsyncClient):
         json={"values": {"league_points_teleportation": 5}},
     )
     assert resp.status_code in (400, 422), resp.text
+
+
+def test_league_weights_are_pinned_because_they_pay_out():
+    """Wagi Ligi niosą pieniądze — zmiana ma być decyzją, nie skutkiem ubocznym.
+
+    Zmierzone na produkcji Q3 2026 przy tych wartościach: u zwycięzcy 2 040
+    z 3 080 punktów (66%) pochodziło ze składnika `interview`, a osoba z 4
+    placementami wygrała 5 000 zł z osobą, która miała 6 (3 000 zł). Właściciel
+    świadomie zostawił wagi bez zmian (2026-09-03).
+
+    Ten test nie broni konkretnych liczb jako „słusznych" — wymusza, żeby ich
+    zmiana przeszła przez świadomą edycję testu, a nie wjechała przy okazji
+    refaktoru albo zmiany mapowania Traffita, które przesuwa składnik
+    `interview`.
+    """
+    from app.services.insights_scoring_config import SCORING_DEFAULTS
+
+    assert SCORING_DEFAULTS["league_points_placement"] == 150
+    assert SCORING_DEFAULTS["league_points_interview"] == 15
+    assert SCORING_DEFAULTS["league_points_recommendation"] == 5

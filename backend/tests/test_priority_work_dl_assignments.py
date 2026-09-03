@@ -65,7 +65,9 @@ async def test_plain_recruiter_cannot_assign() -> None:
 async def test_delivery_lead_cannot_assign_a_foreign_request() -> None:
     """Ta sama granica co przy demandach: DL rządzi tylko swoimi requestami."""
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(id=7, delivery_lead_id=999, status=JobStatus.published)
+    job = SimpleNamespace(
+        id=7, delivery_lead_id=999, status=JobStatus.published, is_open=True
+    )
     db = SimpleNamespace(scalar=AsyncMock(return_value=job))
 
     with pytest.raises(HTTPException) as err:
@@ -75,9 +77,19 @@ async def test_delivery_lead_cannot_assign_a_foreign_request() -> None:
     assert "własne" in err.value.detail
 
 
-async def test_assignment_requires_published_request() -> None:
+async def test_assignment_requires_a_request_handed_off_to_search() -> None:
+    """0270: bramką jest `is_open`, nie `status`.
+
+    Do 0270 pytaliśmy o `status == published`, czyli o pole będące lustrem
+    Traffita. Po naprawie mapowania statusu obejmuje ono ~305 rekrutacji
+    otwartych u klientów, z których zdecydowanej większości nikt w NEXUSIE nie
+    przejął — plan Priority Work zapełniłby się requestami, których nikt nie
+    prowadzi. `is_open` ustawia dopiero handoff.
+    """
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(id=7, delivery_lead_id=5, status=JobStatus.draft)
+    job = SimpleNamespace(
+        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=False
+    )
     db = SimpleNamespace(scalar=AsyncMock(return_value=job))
 
     with pytest.raises(HTTPException) as err:
@@ -89,7 +101,9 @@ async def test_assignment_requires_published_request() -> None:
 async def test_assignee_must_hold_an_operational_role() -> None:
     """Nie da się przypisać rekrutacji komuś spoza recruiter/sourcer/TAC."""
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(id=7, delivery_lead_id=5, status=JobStatus.published)
+    job = SimpleNamespace(
+        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
+    )
     outsider = _FakeUser(42, UserRole.user)
     db = SimpleNamespace(scalar=AsyncMock(side_effect=[job, outsider]))
 
@@ -103,7 +117,9 @@ async def test_assignee_must_hold_an_operational_role() -> None:
 async def test_channel_must_match_the_assignees_role() -> None:
     """Sourcer pracuje na bazie; przypisanie mu LinkedIna jest błędem DL-a."""
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(id=7, delivery_lead_id=5, status=JobStatus.published)
+    job = SimpleNamespace(
+        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
+    )
     sourcer = _FakeUser(42, UserRole.sourcer)
     db = SimpleNamespace(scalar=AsyncMock(side_effect=[job, sourcer]))
 
@@ -131,7 +147,9 @@ async def test_full_roster_reports_the_ceiling_at_assignment_time(
     która ROZDZIELA pracę, a nie na tej, która ją WYKONUJE.
     """
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(id=7, delivery_lead_id=5, status=JobStatus.published)
+    job = SimpleNamespace(
+        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
+    )
     recruiter = _FakeUser(42, UserRole.recruiter)
     demand = SimpleNamespace(id=3)
     plan = SimpleNamespace(id=1)
@@ -181,7 +199,9 @@ async def test_explicit_rank_that_is_taken_gets_an_honest_message(
     równoległości nie było.
     """
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(id=7, delivery_lead_id=5, status=JobStatus.published)
+    job = SimpleNamespace(
+        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
+    )
     recruiter = _FakeUser(42, UserRole.recruiter)
     demand = SimpleNamespace(id=3)
     plan = SimpleNamespace(id=1)

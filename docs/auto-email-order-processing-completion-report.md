@@ -21,6 +21,7 @@ Frontend: `src/app/order-mail/page.tsx`, `src/components/order-mail/OrderMailQue
 ## Nowe endpointy
 
 - `POST /api/admin/order-mail/sync` (`since_days`), `GET /api/admin/order-mail/status`, `GET /api/admin/order-mail/documents` — admin.
+- `POST /api/order-mail/sync` (admin / finance / delivery_lead) i `GET /api/order-mail/sync/status` (każda rola kolejki) — „Pobierz zamówienia z maila" i pasek „ostatnie sprawdzenie" w `/order-mail` (03.09.2026, patrz sekcja niżej).
 - `GET /api/order-mail/queue`, `GET /api/order-mail/queue/{id}`, `GET …/{id}/file`, `POST …/{id}/apply`, `POST …/{id}/dismiss` — zakres portfela; „Zastosuj" = admin lub przypisany DL.
 
 ## Zmienne środowiskowe (Coolify, workflow „Coolify set env")
@@ -29,7 +30,7 @@ Frontend: `src/app/order-mail/page.tsx`, `src/components/order-mail/OrderMailQue
 |---|---|---|
 | `ORDER_MAIL_INGEST_ENABLED` | `false` | kill-switch pętli pobierania |
 | `ORDER_MAIL_UPN` | `""` | UPN skrzynki kopii w M365 (połączenie dostaje `purpose=orders`) |
-| `ORDER_MAIL_SLOTS_LOCAL` | `08:00,15:00` | sloty dobowe, czas Europe/Warsaw |
+| `ORDER_MAIL_POLL_INTERVAL_MINUTES` | `60` | odstęp między sprawdzeniami skrzynki (od końca ostatniego biegu; podłoga 5). Zastąpił `ORDER_MAIL_SLOTS_LOCAL` 03.09.2026 |
 | `ORDER_MAIL_INITIAL_LOOKBACK_DAYS` / `ORDER_MAIL_OVERLAP_HOURS` | `7` / `2` | pierwszy bieg / nakładka watermarku |
 | `ORDER_MAIL_SENDER_ALLOWLIST` | `""` (wszyscy) | CSV domen nadawców |
 | `ORDER_MAIL_AUTOAPPLY_ENABLED` | `false` | **tryb cienia** — werdykt w dzienniku, zero zapisów; flip po ~2 tyg. danych |
@@ -57,3 +58,44 @@ Frontend: `src/app/order-mail/page.tsx`, `src/components/order-mail/OrderMailQue
 ## Weryfikacja
 
 Backend: 342+ testów z modułu zamówień/M365/health zielone lokalnie (obraz `nexus-verify:img`, własny Postgres), w tym 30 nowych P3/P4 i 34 polityk na fixture'ach syntetycznych; harness na 20 realnych PDF-ach: klient 20/20, numer/okres/stawka zgodne dla klientów z polityką. Frontend: type-check, eslint, vitest (order-mail 3, capabilities 255, shell 109); harness `/preview/order-mail` sprawdzony w Chrome. Instrukcja zamówień przestemplowana.
+
+## Aktualizacja 2026-09-03 — sprawdzanie co godzinę + „Pobierz zamówienia z maila"
+
+Ticket: skrzynka `nexus-zamowienia@` sprawdzana co godzinę, przycisk ręcznego
+sprawdzenia w module, wynik po każdym sprawdzeniu, a czekające w skrzynce
+zamówienie pobrane od razu po wdrożeniu.
+
+**Co było naprawdę.** Czytnik (P3) działał już od 02.09, ale w DWÓCH slotach
+dobowych (08:00/15:00), a jedyny ręczny start to `POST /api/admin/order-mail/sync`
+(admin, bez UI, bez wyniku). Czekające zamówienie (VeloBank, `3/09/2026/BL`,
+8 osób) przyszło 03.09 o 08:37 — 35 min PO porannym slocie — i bez zmiany
+czekałoby do 15:00. Zostało pobrane ręcznym biegiem w trakcie diagnozy
+(09:06 UTC) i jest w kolejce jako `needs_review` (osoba bez żywego kontraktu →
+poprawnie do weryfikacji, tryb cienia).
+
+**Ten ręczny bieg ujawnił drugą usterkę:** dokument trafił do kolejki, ale stan
+biegu został na `running` bez końca (health `order_mail=degraded`). Bieg z
+requestu startował gołym `asyncio.create_task` bez referencji, a każdy wyjątek
+po padniętym zapytaniu (np. powiadomienie DL) zostawiał sesję bez rollbacku —
+zapis końca padał na `PendingRollbackError`. Deploy #1352 wystartował o 09:00,
+więc równie dobrze mogło to być przerwanie restartem; obie ścieżki są
+domknięte (rejestr zadań, rollback + wpis w `errors`, `interrupted` w projekcji).
+
+**Zmiany.** Pętla: odstęp `ORDER_MAIL_POLL_INTERVAL_MINUTES` (60) liczony od
+końca ostatniego biegu zamiast slotów; tick co 60 s. Serwis: liczniki
+`new_messages` / `auto_applied`, `reason` biegu, rekord ostatniego zakończonego
+biegu w `stats`, `sync_snapshot` (wspólna projekcja admin + kolejka),
+`start_ingest_task`, watermark bez cofania. API kolejki: `POST /sync`,
+`GET /sync/status`. Health: próg 3 odstępy (min. 3 h), `running` ≠ awaria.
+Front: `MailboxCheckPanel` w `/order-mail` (przycisk + „ostatnie sprawdzenie:
+N nowych · A zapisanych automatycznie · R do weryfikacji"), `lib/order-mail-sync.ts`
+(koniec biegu po zmianie znaczników z serwera, nie po zegarze przeglądarki),
+harness `/preview/order-mail`.
+
+**Dlaczego nie webhooki Graph.** Subskrypcje zmian dałyby sekundy zamiast
+godziny, ale kosztują publiczny endpoint walidacyjny za Cloudflare, tabelę
+subskrypcji, pętlę odnawiania (wygasają), sekret `clientState` i — zgodnie
+z zaleceniem Microsoftu — i tak okresowy poll jako siatkę na zgubione
+powiadomienia. Przy kilku zamówieniach tygodniowo i przycisku „Pobierz" na
+przypadek „wiem, że właśnie przyszło" godzina wystarcza; skrócenie to jedna
+zmienna w Coolify (`ORDER_MAIL_POLL_INTERVAL_MINUTES=15`).

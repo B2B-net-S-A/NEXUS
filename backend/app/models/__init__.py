@@ -2,7 +2,9 @@ from app.models.user import User
 from app.models.section_permission import (  # noqa: F401
     RbacPermissionAudit,
     RbacPolicyState,
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.candidate import Candidate
@@ -109,6 +111,8 @@ from app.models.client_contract_terms import ClientContractTerms
 from app.models.client_cv_rule import ClientCvRule
 from app.models.client_cv_rule_event import ClientCvRuleEvent
 from app.models.client_cv_rule_preview import ClientCvRulePreview
+from app.models.client_playbook import ClientPlaybook
+from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.insights_scoring_config import InsightsScoringConfig
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.insights_seniority_snapshot import (  # noqa: F401
@@ -393,6 +397,8 @@ __all__ = [
     "ClientCvRule",
     "ClientCvRuleEvent",
     "ClientCvRulePreview",
+    "ClientPlaybook",
+    "ClientPlaybookEvent",
     "InsightsScoringConfig",
     "UserWorkdayPeriod",
     "InsightsSenioritySnapshot",

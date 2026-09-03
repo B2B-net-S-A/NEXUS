@@ -21,8 +21,6 @@ Testy pilnują trzech rzeczy, z których każda już raz zawiodła po cichu:
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from app.schemas.champion import ChampionProfile
@@ -558,7 +556,7 @@ def test_location_label_says_office_not_candidate() -> None:
     Delivery Lead wpisujący tam miasto zamieszkania kandydata psuł dopasowania,
     robiąc dokładnie to, o co prosił formularz.
     """
-    text = _template_text(_generator().build(None, None))
+    text = _template_text(_generator().build())
     assert "Lokalizacja biura" in text
     assert "Lokalizacja kandydata" not in text
 
@@ -571,7 +569,7 @@ def test_two_distinct_language_rows() -> None:
     jego słucha generator. Jedna etykieta „Język" kazała zgadywać, a zgadnięcie
     źle znaczyło albo CV w złym języku, albo utracone wymaganie językowe.
     """
-    text = _template_text(_generator().build(None, None))
+    text = _template_text(_generator().build())
     assert "Język pracy" in text
     # Samo „Język" bez doprecyzowania nie może zostać jako osobny wiersz.
     assert "\nJęzyk\n" not in text
@@ -583,36 +581,38 @@ def test_deadline_row_is_back() -> None:
     Nie da się go wyprowadzić z niczego innego: KPI klienta („5 dni roboczych")
     opisuje TEMPO, a nie datę tej konkretnej rekrutacji.
     """
-    assert "Deadline na kandydatów" in _template_text(_generator().build(None, None))
+    assert "Deadline na kandydatów" in _template_text(_generator().build())
 
 
-def test_client_standards_sit_above_the_first_section() -> None:
-    """Standardy klienta w ramce POD TYTUŁEM, nie na końcu dokumentu.
+def test_template_has_no_client_standards_box_and_points_to_nexus() -> None:
+    """Wzór NIE przepisuje standardów klienta — kieruje do karty klienta w NEXUSIE.
 
-    KPI czasu na kandydata, język i konwencja nazwy pliku CV to jedyne fakty,
-    które rekruter musi znać ZANIM cokolwiek zrobi. Na końcu sekcji 6 czytał je
-    już po podjęciu decyzji, których dotyczą.
+    Do 09.2026 ramka „STANDARDY TEGO KLIENTA" pod tytułem i sekcja 7 „Dokumenty"
+    niosły treść per KLIENT, kopiowaną do każdej rekrutacji (14 wzorów Word).
+    Ta treść ma od teraz jedno miejsce (`client_playbooks`), więc wzór jest
+    jeden, sześciosekcyjny, a pod sekcją 6 stoi odsyłacz zamiast kopii.
     """
     gen = _generator()
-    clients = json.loads(gen.CLIENTS_FILE.read_text(encoding="utf-8"))
-    doc = gen.build("Nordea", clients["Nordea"])
-    text = _template_text(doc)
-
-    standards_at = text.find("STANDARDY TEGO KLIENTA")
-    section_one_at = text.find("1. PODSTAWOWE INFORMACJE")
-    client_section_at = text.find("6. O KLIENCIE")
-
-    assert standards_at != -1, "brak ramki ze standardami"
-    assert standards_at < section_one_at, "standardy muszą stać nad sekcją 1"
-    # I nie mogą zostać zdublowane na dole — jedna prawda, jedno miejsce.
-    assert text.count("KPI: Mamy 5 dni roboczych") == 1
-    assert client_section_at > standards_at
+    text = _template_text(gen.build())
+    assert "STANDARDY TEGO KLIENTA" not in text
+    assert "7. DOKUMENTY" not in text
+    assert "6. O KLIENCIE" in text
+    assert "Zasady współpracy" in text
+    assert len(gen.SECTION_TITLES) == 6
 
 
-def test_client_description_stays_in_section_six() -> None:
-    """Przeniesienie standardów NIE zabrało opisu klienta z sekcji 6."""
-    gen = _generator()
-    clients = json.loads(gen.CLIENTS_FILE.read_text(encoding="utf-8"))
-    text = _template_text(gen.build("Nordea", clients["Nordea"]))
-    assert "Co powiedzieć o Kliencie" in text
-    assert "Collaboration, Ownership, Passion, Courage" in text
+def test_section_six_carries_only_role_level_client_fields() -> None:
+    """Sekcja 6 zostaje z tym, co zależy od TEJ roli, nie od klienta.
+
+    „Co powiedzieć o Kliencie" i „Reguły priorytetu" przeszły na kartę klienta;
+    zostały atuty tej oferty, insight konsultanta i historyczne pytania —
+    dokładnie te pola, które czytają wektor oferty i prompt generatora CV.
+    """
+    text = _template_text(_generator().build())
+    assert "Co przekona kandydata do tej oferty" in text
+    assert "Co powiedzieć o Kliencie" not in text
+    assert "Reguły priorytetu" not in text
+    section_six_at = text.find("6. O KLIENCIE")
+    assert section_six_at != -1
+    assert section_six_at < text.find("Insight od naszego konsultanta u klienta")
+    assert section_six_at < text.find("Historyczne pytania klienta")

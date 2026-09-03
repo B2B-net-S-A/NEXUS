@@ -48,7 +48,7 @@ from app.services.section_permissions import (
 from app.services.notification_access import user_can_receive_notification
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
@@ -162,7 +162,11 @@ async def _scan_and_create(db: AsyncSession) -> int:
             (
                 await db.execute(
                     select(Job).where(
-                        Job.status == JobStatus.published,
+                        # `is_open` (0270): alert o terminie ma trafić do osoby,
+                        # która tę rekrutację prowadzi. Na `status` alarmowałby
+                        # o wszystkim, co u klienta otwarte — także o tym, czego
+                        # nikt w NEXUSIE nie przejął.
+                        Job.is_open.is_(True),
                         Job.deadline == target,
                     )
                 )

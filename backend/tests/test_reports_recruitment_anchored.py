@@ -257,3 +257,68 @@ async def test_pure_sender_without_verifications_gets_no_credit(
         assert sender["rekomendacje"] == 0
         assert sender["interviews"] == 0
         assert sender["placements"] == 0
+
+
+# ── Spójność nagłówka z własnymi wierszami ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_header_totals_equal_the_sum_of_its_own_rows(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Tabela musi sumować się do własnego nagłówka.
+
+    Do 09.2026 nagłówek czytał surowy `analytics_first_milestones`, a wiersze
+    szły przez `VERIFIER_ANCHORED_CTE` — dwie różne populacje w JEDNEJ
+    odpowiedzi HTTP. Zmierzone na produkcji (rok 2026): kolumna „interview"
+    sumowała się do 3 833 pod nagłówkiem mówiącym 3 339, czyli rozjazd 15%.
+    """
+    resp = await app_client.get(
+        "/api/reports/recruitment?period=year", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    rows = body["per_recruiter"]
+    funnel = body["funnel"]
+    unattributed = body["unattributed"]
+    for header_key, row_key in (
+        ("weryfikacje_count", "weryfikacje"),
+        ("rekomendacje_count", "rekomendacje"),
+        ("interviews_count", "interviews"),
+        ("placements_count", "placements"),
+    ):
+        # Kamienie bez autora są WYSTAWIONE, nie schowane — zawężenie nagłówka
+        # do przypisanych po cichu ukryłoby wykonaną pracę.
+        assert funnel[header_key] == (
+            sum(r[row_key] for r in rows) + unattributed[row_key]
+        ), header_key
+
+
+@pytest.mark.asyncio
+async def test_zero_denominator_is_null_not_a_hard_zero(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """„Nie było czego dzielić" ≠ „0% skuteczności"."""
+    from app.api.reports import _pct_or_none, _safe_pct
+
+    assert _pct_or_none(3, 0) is None
+    # Legacy kontrakt ZOSTAJE — trzej konsumenci stoją na nim arytmetycznie.
+    assert _safe_pct(3, 0) == 0.0
+
+
+@pytest.mark.asyncio
+async def test_closing_more_than_verifying_is_named_not_left_as_efficiency(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """5 850% przy nazwisku czyta się jak skuteczność, a jest masowym domykaniem."""
+    resp = await app_client.get(
+        "/api/reports/recruitment?period=year", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    for row in resp.json()["per_recruiter"]:
+        assert "closes_more_than_verifies" in row
+        assert row["closes_more_than_verifies"] == (
+            row["placements"] > row["weryfikacje"]
+        )

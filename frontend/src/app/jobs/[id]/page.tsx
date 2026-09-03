@@ -1383,6 +1383,7 @@ export default function JobDetailPage() {
           ) : (
             <KanbanBoardV2
               columns={kanban?.columns ?? []}
+              offTemplate={kanban?.off_template ?? null}
               jobId={Number(id)}
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}

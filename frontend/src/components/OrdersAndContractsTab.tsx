@@ -33,6 +33,8 @@ import {
   visibleLegacyOrderIds,
   type LegacyClientOrderType,
   type OrderListFilters,
+  contractorMatchesPill,
+  lacksCurrentOrder,
 } from "@/lib/client-order-list";
 import type {
   ClientOrderRead,
@@ -155,46 +157,22 @@ export function OrdersAndContractsTab({
   // zamówień okresowych: admin albo DL przypisany do tego klienta.
   const canManageOrders = canManageFinance;
 
-  // Predykaty pigułek w JEDNYM miejscu — filtr i licznik MUSZĄ liczyć to samo.
-  // Dwie kopie tej samej reguły rozjeżdżają się przy pierwszej zmianie i dają
-  // licznik, który nie zgadza się z listą pod nim.
+  // Predykaty pigułek w JEDNYM miejscu — filtr i licznik MUSZĄ liczyć to samo,
+  // a ten ekran i zunifikowany rejestr (`MultiConsultantOrdersTab`) tę samą
+  // regułę: `contractorMatchesPill` z `lib/client-order-list.ts`. Historia
+  // reguł (draft z aktywnym zamówieniem w „Aktywni", „Zakończeni" wyłącznie
+  // po umowie z modułu Kontrakty, nigdy po upływie okresu zamówienia) jest
+  // opisana przy tej funkcji; druga kopia tutaj rozjeżdżała się przy
+  // pierwszej zmianie i dawała licznik niezgodny z listą pod nim.
   const PILL_PREDICATES: Record<
     Exclude<Filter, "all">,
     (c: ContractWithOrdersRead) => boolean
   > = useMemo(
     () => ({
-      // Pigułki liczyły WYŁĄCZNIE status kontraktu, a uzupełnianie zamówienia
-      // zmienia status ZAMÓWIENIA. Kontraktor z draftowym kontraktem i
-      // kompletnym, aktywnym zamówieniem siedział więc w „Draft" na stałe i
-      // nie pojawiał się w „Aktywni" — czyli uzupełnienie czterech pól nie
-      // dawało żadnego widocznego skutku, mimo że backend promował zamówienie
-      // (`_auto_activate_unless_status_explicit`).
-      // Zawężone do kontraktu SZKICOWEGO. Szersze „którekolwiek zamówienie jest
-      // aktywne" wciągało do „Aktywni" kontrakty ZAKOŃCZONE i unieważnione,
-      // którym został wiszący wiersz `active` (zamówienia domyka nocny skaner
-      // `dl_portal_expiry_scanner` po dacie, więc taki rozjazd to norma, nie
-      // wyjątek) — kontraktor pokazywałby się jednocześnie w „Aktywni"
-      // i „Zakończeni".
-      active: (c) =>
-        c.contract_status === "active" ||
-        c.contract_status === "ending" ||
-        (c.contract_status === "draft" &&
-          c.orders.some((o) => o.status === "active")),
-      expiring_30d: (c) =>
-        c.days_to_latest_end !== null &&
-        c.days_to_latest_end >= 0 &&
-        c.days_to_latest_end <= 30,
-      ended: (c) =>
-        c.contract_status === "ended" || c.contract_status === "completed",
-      // „Do uzupełnienia" = został jeszcze szkic zamówienia, albo kontrakt jest
-      // szkicem i nie ma nic aktywnego, co by go wyprzedzało. Świadomie NIE
-      // dodajemy tu kontraktora bez ani jednego zamówienia: to cała populacja
-      // z poprawki przycisku „Uzupełnij zamówienie", więc licznik urósłby o
-      // ludzi, których nikt tu wcześniej nie szukał.
-      drafts: (c) =>
-        c.orders.some((o) => o.status === "draft") ||
-        (c.contract_status === "draft" &&
-          !c.orders.some((o) => o.status === "active")),
+      active: (c) => contractorMatchesPill(c, "active"),
+      expiring_30d: (c) => contractorMatchesPill(c, "ending_30d"),
+      ended: (c) => contractorMatchesPill(c, "completed"),
+      drafts: (c) => contractorMatchesPill(c, "draft"),
     }),
     [],
   );
@@ -974,6 +952,13 @@ function ContractorCard({
     contractor.days_to_latest_end !== null &&
     contractor.days_to_latest_end >= 0 &&
     contractor.days_to_latest_end <= 30;
+  // Okres zamówienia minął, a umowa trwa: osoba zostaje w „Aktywnych"
+  // z dopiskiem — do „Zakończonych" przenosi wyłącznie umowa z modułu
+  // Kontrakty (reguła 09.2026, `contractClosed`).
+  const noCurrentOrder =
+    (contractor.contract_status === "active" ||
+      contractor.contract_status === "ending") &&
+    lacksCurrentOrder(contractor);
 
   const hasSection = futureOrders.length > 0 || historyOrders.length > 0;
   // Zamknięte i anulowane nie mają czego kończyć. Linii grup ta karta nie
@@ -1010,6 +995,16 @@ function ContractorCard({
               <span className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
                 kończy się za {contractor.days_to_latest_end} dni
+              </span>
+            )}
+            {noCurrentOrder && (
+              <span
+                className="text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded flex items-center gap-1"
+                title="Okres zamówienia minął, a umowa trwa — dodaj przedłużenie albo zakończ współpracę w module Kontrakty"
+                data-testid="no-active-order-note"
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Brak aktywnego zamówienia
               </span>
             )}
           </div>

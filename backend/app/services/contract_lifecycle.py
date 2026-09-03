@@ -463,10 +463,16 @@ async def sync_contract_to_live_order(
 
     Decyduje WYŁĄCZNIE porównanie dat z dniem dzisiejszym, nie to, z której
     zakładki operator kliknął. Przedłużenie zaczynające się w przyszłości nie
-    zmienia więc niczego (ląduje w „Przyszłym zamówieniu”), a data końca
-    kontraktu rośnie razem ze statusem: bez tego nocny ``_promote_statuses``
-    zdemotowałby wskrzeszony kontrakt z powrotem do ``ended`` jeszcze tej nocy
-    i poprawka kasowałaby samą siebie.
+    zmienia więc niczego (ląduje w „Przyszłym zamówieniu”).
+
+    Wskrzeszony kontrakt staje się BEZTERMINOWY (reguła zakładki „Zakończeni",
+    09.2026): zamówienie nigdy nie ustawia daty końca umowy — tę wpisuje
+    administracja w module Kontrakty. Do 09.2026 kontrakt dostawał tu datę
+    końca ZAMÓWIENIA, a gdy jego okres mijał, nocny ``_promote_statuses``
+    kończył umowę i osoba lądowała w „Zakończonych" tylko dlatego, że upłynął
+    okres zamówienia (VeloBank: 4 z 11 osób na tym samym zamówieniu, w tym
+    kontraktor czekający na przedłużenie). Cron pomija ``end_date IS NULL``,
+    więc bezterminowa umowa nie jest demotowana „tej samej nocy".
     """
     # Serialize against terminal-state writers before reading any lifecycle
     # field. A caller may hold an identity-map object loaded before a concurrent
@@ -529,31 +535,26 @@ async def sync_contract_to_live_order(
         return False
 
     changed = False
-    previous_end = contract.end_date
-    # Horyzont kontraktu musi sięgać co najmniej tak daleko jak zamówienie.
-    # Zamówienie bezterminowe czyni bezterminowym także kontrakt — to jest
-    # dosłownie to, co mówią dane, a od sierpnia 2026 taki kontrakt jest
-    # aktywowalny (`ACTIVATION_REQUIRED_FIELDS` bez `end_date`).
-    if order_end is None:
-        if contract.end_date is not None:
-            contract.end_date = None
-            changed = True
-    elif contract.end_date is not None and order_end > contract.end_date:
-        contract.end_date = order_end
+    # Data końca UMOWY nie pochodzi z zamówienia (patrz docstring): kontrakt
+    # wraca jako bezterminowy, a od sierpnia 2026 taki kontrakt jest w pełni
+    # operacyjny (`ACTIVATION_REQUIRED_FIELDS` bez `end_date`).
+    if contract.end_date is not None:
+        contract.end_date = None
         changed = True
-
-    if contract.end_date != previous_end:
-        # ``client_order_end_date`` is an optional, explicitly tracked mirror
-        # of the client-order horizon.  Keep NULL as "not tracked" instead of
-        # inventing a date, but never leave a past date next to a revived,
-        # longer (or indefinite) contract.  This used to live in the
-        # ``client_orders`` route adapter, which meant service-level writers
-        # such as the Nordea CSV import and scheduled group materializer could
-        # not reuse the complete invariant without importing the API layer.
-        if contract.end_date is None:
-            contract.client_order_end_date = None
-        elif contract.client_order_end_date is not None:
-            contract.client_order_end_date = contract.end_date
+    # ``client_order_end_date`` („Koniec zamówienia u klienta") is the
+    # explicitly tracked mirror of the client-order horizon — THAT is where an
+    # order-derived date belongs.  Keep NULL as "not tracked" instead of
+    # inventing a date, but never leave a past date next to a revived
+    # contract.  This used to live in the ``client_orders`` route adapter,
+    # which meant service-level writers such as the Nordea CSV import and
+    # scheduled group materializer could not reuse the complete invariant
+    # without importing the API layer.
+    if (
+        contract.client_order_end_date is not None
+        and contract.client_order_end_date != order_end
+    ):
+        contract.client_order_end_date = order_end
+        changed = True
 
     if await reopen_contract(db, contract, actor_id=actor_id):
         changed = True

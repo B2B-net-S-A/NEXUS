@@ -33,8 +33,8 @@ bywa orphaned.
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0270_ai_quota_keys_and_tokens"
-down_revision = "0269_configurable_section_rbac"
+revision = "0275_ai_quota_keys_and_tokens"
+down_revision = "0274_ended_tab_contract_repair"
 branch_labels = None
 depends_on = None
 

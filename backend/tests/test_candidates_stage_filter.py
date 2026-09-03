@@ -807,6 +807,155 @@ async def test_active_recruitments_mover_reflects_latest_move(
         )
 
 
+# ── "Data wysłania do klienta" — sent_to_client_from / sent_to_client_to ──────
+# Dedicated filter over the `cv_sent` (recommendation-to-client) move date.
+# Independent of `pipeline_stage`/`stage_*`; always HISTORICAL. ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_filter_sent_to_client_date_range(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`sent_to_client_from`/`sent_to_client_to` bound the `cv_sent` move date
+    inclusively — a candidate sent to the client inside the window matches, one
+    sent earlier does not. No `pipeline_stage` param required."""
+    job_id = await _seed_job()
+    in_range = await _seed_candidate(name_suffix="-SIN")
+    too_old = await _seed_candidate(name_suffix="-SOLD")
+    await _seed_stage(
+        in_range,
+        job_id,
+        "cv_sent",
+        moved_at=datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    await _seed_stage(
+        too_old,
+        job_id,
+        "cv_sent",
+        moved_at=datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?sent_to_client_from=2026-05-01"
+            "&sent_to_client_to=2026-05-31&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert in_range in ids
+        assert too_old not in ids
+    finally:
+        await _cleanup(candidate_ids=[in_range, too_old], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_filter_sent_to_client_to_is_inclusive_of_whole_day(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A `cv_sent` move late on the `sent_to_client_to` day is still included
+    (the upper bound is the start of the NEXT day, exclusive)."""
+    job_id = await _seed_job()
+    cand = await _seed_candidate()
+    await _seed_stage(
+        cand,
+        job_id,
+        "cv_sent",
+        moved_at=datetime(2026, 5, 31, 23, 30, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?sent_to_client_to=2026-05-31&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert cand in ids
+    finally:
+        await _cleanup(candidate_ids=[cand], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_filter_sent_to_client_only_counts_cv_sent_stage(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The filter targets the `cv_sent` move specifically — a candidate whose
+    only in-window move is `verified` (not sent to the client yet) does NOT
+    match, while one with a `cv_sent` move in the window does."""
+    job_id = await _seed_job()
+    sent = await _seed_candidate(name_suffix="-SENT")
+    only_verified = await _seed_candidate(name_suffix="-VER")
+    await _seed_stage(
+        sent,
+        job_id,
+        "cv_sent",
+        moved_at=datetime(2026, 5, 10, 9, 0, tzinfo=timezone.utc),
+    )
+    await _seed_stage(
+        only_verified,
+        job_id,
+        "verified",
+        moved_at=datetime(2026, 5, 10, 9, 0, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?sent_to_client_from=2026-05-01"
+            "&sent_to_client_to=2026-05-31&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert sent in ids
+        assert only_verified not in ids
+    finally:
+        await _cleanup(candidate_ids=[sent, only_verified], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_filter_sent_to_client_matches_after_candidate_progressed(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """The filter is HISTORICAL: a candidate sent to the client inside the
+    window who has since advanced (e.g. to `client_interview`) still matches —
+    "sent to client in May" is a fact about the event, not the current stage."""
+    job_id = await _seed_job()
+    progressed = await _seed_candidate(name_suffix="-SPROG")
+    await _seed_stage(
+        progressed,
+        job_id,
+        "cv_sent",
+        moved_at=datetime(2026, 5, 15, 12, 0, tzinfo=timezone.utc),
+    )
+    await _seed_stage(
+        progressed,
+        job_id,
+        "client_interview",
+        moved_at=datetime(2026, 5, 25, 12, 0, tzinfo=timezone.utc),
+    )
+    try:
+        r = await app_client.get(
+            "/api/candidates?sent_to_client_from=2026-05-01"
+            "&sent_to_client_to=2026-05-20&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = [item["id"] for item in r.json()["items"]]
+        assert progressed in ids
+    finally:
+        await _cleanup(candidate_ids=[progressed], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_filter_sent_to_client_invalid_date_returns_422(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """A non-date `sent_to_client_from` value is rejected with 422."""
+    r = await app_client.get(
+        "/api/candidates?sent_to_client_from=not-a-date&page_size=10",
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 422
+
+
 @pytest.mark.asyncio
 async def test_active_recruitments_includes_terminal_stage(
     app_client: AsyncClient, app_auth_headers: dict

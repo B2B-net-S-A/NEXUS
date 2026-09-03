@@ -538,12 +538,16 @@ do modelu.
 - **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w edytorze
   i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
 
-## Profil Championa — siedem sekcji (przebudowa 09.2026)
+## Profil Championa — sześć sekcji + karta klienta (przebudowa 09.2026)
 
-Szablon skrócony do siedmiu sekcji: **1. Podstawowe informacje · 2. Co wpisać
+Szablon skrócony do sześciu sekcji: **1. Podstawowe informacje · 2. Co wpisać
 (search) · 3. Stack technologiczny · 4. O projekcie · 5. Pytania screeningowe ·
-6. O kliencie · 7. Dokumenty**. Powód: Delivery Leadowie opisywali 80% starego
-profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
+6. O kliencie**. Powód: Delivery Leadowie opisywali 80% starego profilu jako
+szum. Sekcja 6 niesie WYŁĄCZNIE treść zależną od roli (co przekona kandydata
+do tej oferty, insight konsultanta, historyczne pytania, branże). Standardy
+klienta i dokumenty żyją w **karcie klienta** (`client_playbooks`, osobna
+sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
+(nadal deklaruje siedem sekcji — patrz niżej), warstwa odczytu
 `app/services/champion_view.py`, wzór Word `scripts/generate_champion_template.py`.
 
 - **Skrócenie „O projekcie" do 2 zdań jest bezpieczne WYŁĄCZNIE dzięki sekcji 3.**
@@ -595,10 +599,16 @@ profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
   Zdjęcie któregokolwiek zamieniłoby te pliki w CV bez sekcji — po cichu, bo brak
   sekcji jest u nas poprawnym wynikiem, nie błędem. Pilnuje tego
   `test_champion_template_agenda.py` czytający tytuły WPROST z generatora wzoru.
-- **Prompt parsera to v4** (`champion_parse:v4:haiku-4.5`) i opisuje nagłówki OBU
-  szablonów. `ingest_parsed_profile` czyta skille z `stack.must` **oraz** z płaskiego
-  `must_skills` — czytanie jednego kształtu zepsułoby albo każdy nowy dokument, albo
-  każde ponowne przetworzenie starego, a objaw byłby ten sam i cichy.
+- **Prompt parsera to v6** (`champion_parse:v6:haiku-4.5`), opisuje TRZY układy
+  (6 sekcji, 7 sekcji, stary) i NIE wydobywa pól karty klienta
+  (`client.about/priority_rules/offlimit/contract_type/cv_language`, `documents`)
+  — `build_champion_dict` emituje dla nich puste wartości, a kształt siedmiu
+  kluczy JSONB zostaje (konsumenci czytają `.get()`, test kształtu tego pilnuje).
+  `schemas/champion.py` CELOWO nadal deklaruje te pola: migracja leniwa starych
+  profili i 949 wierszy produkcji. `ingest_parsed_profile` czyta skille
+  z `stack.must` **oraz** z płaskiego `must_skills` — czytanie jednego kształtu
+  zepsułoby albo każdy nowy dokument, albo każde ponowne przetworzenie starego,
+  a objaw byłby ten sam i cichy.
 - **Publiczna karta Championa dostaje WĄSKĄ projekcję**, nie surowy JSONB
   (`_public_champion_projection`). Do 09.2026 endpoint zwracał cały profil, więc
   każdy z linkiem miał w JSON-ie także NASZĄ stawkę dla kandydata, firmy docelowe,
@@ -619,23 +629,73 @@ profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
   DOKUMENTU CV — per klient i to jego słucha generator. W edytorze język CV jest
   **tylko do odczytu**, bo edytowalne pole obok reguły klienta byłoby drugim
   źródłem prawdy, które przy pierwszej zmianie zaczyna kłamać.
-- **Standardy klienta stoją w ramce POD TYTUŁEM wzoru**, nie na końcu sekcji 6:
-  KPI czasu na kandydata, język i konwencja nazwy pliku CV to jedyne fakty,
-  które rekruter musi znać ZANIM zacznie pracę. Na końcu czytał je już po
-  podjęciu decyzji, których dotyczą. Delivery Lead ich nie pisze — wstrzykiwane
-  per klient z `champion_template_clients.json`.
-- **Wzory Word leżą na SharePoincie, nie w repo** — NEXUS trzyma do nich wyłącznie
-  linki (`help_materials`, migracja 0219: 1 ogólny + 14 per klient). Wszystkie 15
-  podmieniono 01.09.2026 w `.../02_Rekrutacja i HR/Wzory/Profil Championa/`;
-  biblioteka ma wersjonowanie (limit 500), więc poprzednie wersje są w historii.
-  Generator: `scripts/generate_champion_template.py --all`.
-- **Treść kliencka wzorów jest w repo, nie tylko w Wordzie.**
-  `scripts/champion_template_clients.json` trzyma to, co odróżniało 14 wzorów per
-  klient: KPI czasu na kandydata, konwencję nazwy pliku CV, język CV, reguły
-  priorytetu i wymagane dokumenty z linkami. Bez tego pliku regeneracja wzoru
-  produkuje generyk i **kasuje wiedzę, której nie ma nigdzie indziej** — sekcje
-  6 i 7 starych dokumentów były jedynym jej nośnikiem. Zmieniasz wzór u klienta:
-  najpierw zaktualizuj JSON, potem regeneruj.
+- **Wzór Word NIE ma ramki standardów ani sekcji „Dokumenty"** — wskazówka pod
+  nagłówkiem sekcji 6 kieruje do karty klienta w NEXUSIE. Do 09.2026 ramka
+  „Standardy tego klienta" i sekcja 7 niosły treść per klient kopiowaną do
+  każdej rekrutacji; teraz ma ona jedno miejsce.
+- **Wzór Word leży na SharePoincie, nie w repo** — NEXUS trzyma do niego wyłącznie
+  link (`help_materials`). Jest JEDEN, ogólny; 14 wzorów per klient wycofano
+  z Pomocy migracją 0272 (`is_published=false`; wiersze zostają, bo przegląd
+  reguł CV linkuje je po slugu; pliki na SharePoincie zostają w bibliotece).
+  Generator: `scripts/generate_champion_template.py --out-dir …` (bez
+  `--client`/`--all`).
+- **Treść kliencka dawnych wzorów żyje w `app/data/client_playbooks/seed.json`**
+  — źródło seeda migracji 0272 i lustra w entrypoint. Dawny
+  `scripts/champion_template_clients.json` został usunięty po jednorazowej
+  konwersji skryptem `scripts/build_client_playbook_seed.py`, który sprawdza
+  KOMPLETNOŚĆ: każda linia 14 wzorów musi trafić do karty (inaczej pada).
+
+## Karta klienta (`client_playbooks`)
+
+Jedno miejsce prawdy „jak pracujemy z tym klientem" (migracja `0272`, decyzje
+Artura 03.09.2026). Tabela 1:1 z klientem + `client_playbook_events` (historia
+z diffem pól). Pola: SLA w dniach roboczych, minimum kandydatów, limit CV na
+proces, blokada kandydata (h), karencja między projektami (dni), polityka
+stawek, „co powiedzieć kandydatowi o kliencie", reguły priorytetu, zasady
+procesu (Markdown), onboarding po akceptacji (Markdown), dokumenty (nazwa +
+link). API: `app/api/client_playbooks.py`.
+
+- **Zapis = obowiązuje.** Bez `confirmed_at` jak w regułach CV: seed NIGDY nie
+  nadpisuje istniejącego wiersza (`ON CONFLICT (client_id) DO NOTHING`), więc
+  nie ma propozycji do odróżnienia od decyzji człowieka. `version` bumpuje się
+  tylko przy realnym diffie; identyczny zapis nie zostawia wpisu w historii.
+- **Tabela-siostra reguł CV, nie kolumny w `client_cv_rules`** — edycja
+  obowiązującej reguły CV zdejmuje zatwierdzenie; adres biura na tym samym
+  wierszu wyłączałby wymuszanie nazwy pliku do ponownego zatwierdzenia.
+- **Bramki (lustro reguł CV po #1351):** zapis i historia = `DeliverySectionUser`
+  (sekcja Delivery) + graf klienta `resolve_client_access` (admin org-wide,
+  Delivery Lead tylko własny portfel). **Odczyt karty i przeglądu = `OperationalUser`,
+  org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
+  Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
+  przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
+  w odpowiedzi tylko do ról z odczytem sekcji Delivery. `client_playbooks.router`
+  NIE trafia na listę routerów Delivery w `test_section_access.py` (bramki per
+  handler, jak `client_cv_rules.router`).
+- **Trzy powierzchnie odczytu, jeden formularz:** profil klienta → „Zasady
+  współpracy" (edycja w miejscu dla DL/admina), rekrutacja → sekcja 6 Championa
+  (wariant compact; link „Pełna karta klienta →" prowadzi do Pomocy, bo `/clients/*`
+  jest w middleware bramkowane sekcją Delivery), Pomoc → Klienci (procedura per
+  klient generowana z karty, `?tab=clients&client=<id>`). Edycja także jako
+  zakładka „Karta klienta" w `/settings/cv-rules?client=<id>&tab=playbook`.
+  Formularz jest JEDEN (`ClientPlaybookForm`); capability `client_playbook.manage`
+  = admin + delivery_lead z wymogiem sekcji Delivery/write.
+- **Seed jest KOMPLETNY** (decyzja: „żeby nic nie uciekło z aktualnych plików"):
+  każda linia standardów, opisu klienta i dokumentów z 14 wzorów trafia do karty,
+  w tym linie o nazwie pliku/języku CV (dublują regułę CV — DL usuwa je z karty,
+  gdy reguła CV jest zatwierdzona) i linie o pochodzeniu kandydata (przeniesione
+  jak są). Liczby (SLA, limity) zasiano tylko tam, gdzie wzór podawał je WPROST.
+  Wzorce dopasowania klienta są z 0255; wieloznaczne (np. `%bnp%` przy kilku
+  klientach BNP) nie zasieją nic — DL zakłada kartę ręcznie z treści `seed.json`.
+- **Trzy miejsca rejestracji modelu** (`models/__init__`, lokalne importy sondy
+  startowej i lista probe tuples w `main.py`) i **lustro w `entrypoint.sh`**
+  (DDL w `_COLUMN_STATEMENTS`, `_seed_client_playbooks(conn)` po procedurach,
+  odpublikowanie wzorów w `_DATA_STATEMENTS` z markerem
+  `0272_champion_client_templates_unpublished` w `app_settings`, który nie cofa
+  ponownej publikacji przez admina). Prod alembic jest osierocony — entrypoint
+  JEST wdrożeniem.
+- **Nie przenoś na kartę `selling_points`/`consultant_insight`/`historical_questions`
+  bez A/B** — zasilają wektor oferty i prompt generatora CV (949 ofert).
+- Poza zakresem MVP: `DELETE`/`copy-from` karty, alerty z pól strukturalnych (SLA).
 ## Delivery Lead widzi kwoty własnego portfela (profil klienta + Analityka)
 
 Kwoty JEDNEGO klienta redaguje wspólna reguła **`can_read_client_finance`
@@ -1029,6 +1089,36 @@ nie ma żadnej reguły do utrzymania.
 - Env na prodzie (workflow „Coolify set env", `redeploy=false`, potem jeden
   zwykły deploy): `ORDER_MAIL_AUTH_MODE=app`, `ORDER_MAIL_UPN=nexus-zamowienia@b2bnetwork.pl`,
   `M365_MAIL_TENANT_ID=<GUID tenanta>`, `ORDER_MAIL_INGEST_ENABLED=true`.
+- **Skrzynka jest sprawdzana co godzinę, nie w slotach.** Do 03.09.2026 pętla
+  miała dwa sloty dobowe (08:00/15:00 Europe/Warsaw): zamówienie VeloBank
+  przyszło o 08:37 i czekałoby do 15:00. Teraz bieg jest należny, gdy od KOŃCA
+  ostatniego minęło `ORDER_MAIL_POLL_INTERVAL_MINUTES` (default 60, podłoga 5;
+  `ORDER_MAIL_SLOTS_LOCAL` nie istnieje). Odstęp liczony od końca ma dwie
+  konsekwencje, na których stoi ticket: bieg ręczny przesuwa zegar (nie ma
+  dwóch biegów tuż po sobie), a bieg przerwany restartem końca NIE zapisuje,
+  więc po deployu skrzynka jest sprawdzana od razu, nie za godzinę.
+- **„Pobierz zamówienia z maila" jest w kolejce `/order-mail`**, nie tylko
+  w API admina: `POST /api/order-mail/sync` (admin / finance / delivery_lead —
+  bramka ROLOWA, bo dotyczy całej skrzynki, nie dokumentu; TCM ma sam odczyt)
+  i `GET /api/order-mail/sync/status` (każda rola kolejki; TCM bez treści
+  błędów, bo te cytują nazwy załączników). Bieg idzie w tle, front odpytuje
+  stan co 2 s i uznaje koniec po ZMIANIE `finished_at` z serwera, nigdy po
+  zegarze przeglądarki (`lib/order-mail-sync.ts`). 409 = bieg już trwa, front
+  dołącza do niego. Liczby w pasku (nowe wiadomości / zapisane automatycznie /
+  do weryfikacji) dotyczą CAŁEJ skrzynki — kolejka DL jest zawężona do
+  portfela, więc „1 do weryfikacji" i pusta lista to nie sprzeczność.
+- **Wynik biegu żyje w `order_mail_sync_state.stats` jako rekord** (`reason`,
+  `started_at`, `finished_at`, `status`, `error` + liczniki), bo wiersz stanu ma
+  jedną parę start/koniec, a bieg, który właśnie trwa, nadpisuje start.
+  `last_status='running'` bez blokady w procesie = bieg PRZERWANY (deploy
+  w trakcie — u nas kilka razy dziennie) i tak jest pokazywany
+  (`interrupted`), a health traktuje `running` jako brak informacji, nie awarię
+  (degraduje po 3 odstępach albo na `error`). Trzy rzeczy, które trzymają ten
+  stan uczciwym: bieg z requestu startuje przez `start_ingest_task` (trzymana
+  referencja — zebrane zadanie nie zapisuje końca), padnięte powiadomienie DL
+  robi `rollback()` (bez niego zapis końca leci na `PendingRollbackError`),
+  a watermark nigdy się nie cofa (backfill `since_days` oglądał starsze maile
+  i przesuwał okno wstecz).
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
@@ -1202,10 +1292,11 @@ budżet MD tej samej osoby. Migracja `0262_separate_md_periodic`.
   zadeklarował — a nocny `_promote_statuses` przestawiał ją na „Kończąca się",
   potem „Zakończona". Kopiujemy wyłącznie datę ROZPOCZĘCIA. Datę zakończenia
   umowy ustawia człowiek (rejestr umów albo `/terminate`).
-  `sync_contract_to_live_order` **zostaje** i dalej wydłuża horyzont
-  zakończonego kontraktu do końca żywego zamówienia — to jest mechanizm
-  wskrzeszania („Przedłużenie zamówienia wskrzesza zakończony kontrakt"),
-  a bez niego nocny cron demotowałby wskrzeszony kontrakt tej samej nocy.
+  `sync_contract_to_live_order` **zostaje** jako mechanizm wskrzeszania
+  („Przedłużenie zamówienia wskrzesza zakończony kontrakt"), ale od 09.2026
+  wskrzeszony kontrakt jest BEZTERMINOWY — nie dziedziczy już daty końca
+  zamówienia (patrz „Zakładka „Zakończeni" — decyduje umowa, nie okres
+  zamówienia").
 - **Zakończenie u jednego klienta nie sięga do drugiego.**
   `client_orders.client_id` to WŁASNA kolumna, a baza nie ma więzu wiążącego ją
   z klientem kontraktu (rozjazd zna też `contract_merge`). Kaskada offboardingu
@@ -1506,10 +1597,13 @@ wygasania.
 Reguła żyje w `contract_lifecycle.sync_contract_to_live_order` i zależy
 WYŁĄCZNIE od dat, nie od zakładki: zamówienie obejmujące dziś (`start <= dziś`
 i `end IS NULL OR end >= dziś`) wskrzesza kontrakt, przyszłe nie zmienia nic,
-`draft`/`cancelled` nie liczą się wcale. **Data końca kontraktu rośnie razem
-ze statusem** — bez tego nocny `_promote_statuses` demotuje wskrzeszony
-kontrakt tej samej nocy i poprawka kasuje samą siebie. Historię leczy migracja
-`0243` (reguła ogólna, zero ID w SQL-u).
+`draft`/`cancelled` nie liczą się wcale. **Wskrzeszony kontrakt jest
+BEZTERMINOWY** (od 09.2026; do tego czasu dostawał datę końca zamówienia,
+a gdy jej okres mijał, cron kończył umowę ponownie — patrz sekcja o zakładce
+„Zakończeni"). Nocny `_promote_statuses` pomija `end_date IS NULL`, więc nie
+demotuje go „tej samej nocy". Data z zamówienia ma swoje miejsce w „Końcu
+zamówienia u klienta" (`client_order_end_date`, tylko gdy śledzony). Historię
+leczy migracja `0243` (reguła ogólna, zero ID w SQL-u).
 
 **Każdy writer aktywnego zamówienia musi wołać tę samą regułę.** Po 0243
 zostały pominięte: PATCH uzupełniający draft, import CSV Nordea oraz aktywne
@@ -1518,6 +1612,38 @@ Contract 327/order 285493 i Contract 165/order 285623. Runtime obsługuje teraz
 wszystkie te ścieżki; migracja `0250` koryguje dwa jawnie wskazane rekordy po
 pełnych kluczach biznesowych i zapisuje read-only audyt analogicznych przypadków
 innych klientów w `app_settings['0250_live_order_contract_repair']`.
+
+## Zakładka „Zakończeni" — decyduje umowa, nie okres zamówienia
+
+Zgłoszenie (VeloBank, 09.2026): 11 osób miało to samo zamówienie do 31.08,
+a po jego upływie do „Zakończonych" trafiły dokładnie te 4, którym umowa
+miała wpisaną datę końca 30.06 — przepisaną przy zakładaniu kontraktu
+z pierwszego okresu zamówienia, bez wypowiedzenia. Reszta (umowy
+bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
+
+- **Zakładka czyta WYŁĄCZNIE umowę** (`contractClosed` w
+  `lib/client-order-list.ts`, jedyne źródło pigułek dla obu rejestrów):
+  „Zakończeni" = status końcowy ORAZ `contract_end_date < dziś`. Do daty
+  końca włącznie osoba jest w „Aktywnych", od następnego dnia przechodzi
+  sama (nocny cron `contract_alerts._promote_statuses`). Upływ okresu
+  zamówienia nie przenosi nikogo — osoba zostaje w „Aktywnych" z dopiskiem
+  **„Brak aktywnego zamówienia"** (`lacksCurrentOrder`: żadne zamówienie
+  nie obejmuje dziś ani nie zaczyna się później).
+- **Data końca umowy rządzi zamówieniem, nie odwrotnie.** PATCH daty końca
+  w Kontraktach (`update_contract`) woła `_sync_client_orders_to_contract_end`
+  (ten sam co `/terminate`): otwarte zamówienia dostają tę datę, zaczynające
+  się później są anulowane, `completed` dopiero gdy dzień nadejdzie. Wyłącznie
+  SKRACANIE — zamówienie to PO klienta, przedłużenie umowy go nie wydłuża;
+  wyczyszczenie daty (bezterminowa) nie rusza zamówień.
+  W drugą stronę zamówienie NIGDY nie ustawia daty końca umowy:
+  `sync_contract_to_live_order` wskrzesza kontrakt jako bezterminowy.
+- **Korekta danych (migracja `0274` + lustro w `entrypoint.sh`, SQL w
+  `services/contract_ended_tab_repair.py`)**: wskazany w tickecie Contract 469
+  (Piotr Klimczak, VeloBank) wraca na `active` po pełnych kluczach
+  biznesowych; klasa „zakończona bez wypowiedzenia, a zamówienie trwało po
+  dacie końca umowy" jest tylko AUDYTOWANA do `app_settings` — masowe
+  wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
+  (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
 ## Polityki odczytu PDF per klient — jeden wzorzec, siedem bramek
 

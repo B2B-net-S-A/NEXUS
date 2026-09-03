@@ -254,7 +254,9 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
     assert await reconcile_contracts_to_live_orders(db, today=today) == 1
     assert audited_contract.status == ContractStatus.ended
     assert missed_contract.status == ContractStatus.active
-    assert missed_contract.end_date == missed_order.end_date
+    # Reguła 09.2026: zamówienie nie ustawia daty końca UMOWY — wskrzeszony
+    # kontrakt jest bezterminowy, a datę wpisze administracja w Kontraktach.
+    assert missed_contract.end_date is None
     assert len(db.added) == 1
 
 
@@ -443,9 +445,12 @@ async def test_running_extension_moves_contractor_back_to_active(
 
     status, end_date = await _contract_state(contract_id)
     assert status == ContractStatus.active
-    # Data końca musi iść za zamówieniem — inaczej nocny `_promote_statuses`
-    # zdemotuje wskrzeszony kontrakt z powrotem tej samej nocy.
-    assert end_date == new_end
+    # Reguła zakładki „Zakończeni" (09.2026): zamówienie nigdy nie ustawia daty
+    # końca UMOWY. Wskrzeszony kontrakt jest bezterminowy — nocny
+    # `_promote_statuses` pomija `end_date IS NULL`, więc nie demotuje go
+    # „tej samej nocy", a gdy okres zamówienia minie, osoba zostaje
+    # w „Aktywnych" z dopiskiem „Brak aktywnego zamówienia".
+    assert end_date is None
 
 
 async def test_patch_that_completes_a_running_draft_revives_the_contract(
@@ -487,7 +492,9 @@ async def test_patch_that_completes_a_running_draft_revives_the_contract(
 
     status, end_date = await _contract_state(contract_id)
     assert status == ContractStatus.active
-    assert end_date == new_end
+    # Reguła 09.2026: wskrzeszony kontrakt jest bezterminowy, nie „do końca
+    # zamówienia".
+    assert end_date is None
 
 
 async def test_active_order_metadata_patch_does_not_backfill_legacy_contract(
@@ -538,10 +545,8 @@ async def test_active_order_metadata_patch_does_not_backfill_legacy_contract(
         headers=app_auth_headers,
     )
     assert period_change.status_code == 200, period_change.text
-    assert await _contract_state(contract_id) == (
-        ContractStatus.active,
-        extended_order_end,
-    )
+    # Wskrzeszenie czyni umowę bezterminową (reguła zakładki „Zakończeni").
+    assert await _contract_state(contract_id) == (ContractStatus.active, None)
 
 
 async def test_future_extension_leaves_the_contract_alone(app_client, app_auth_headers):
@@ -721,15 +726,12 @@ async def test_daily_scanner_revives_only_live_active_orders():
         "draft": ContractStatus.ended,
         "cancelled": ContractStatus.ended,
     }
-    assert live is not None and live.end_date == today + timedelta(days=120)
-    assert live_ending is not None and live_ending.end_date == today + timedelta(
-        days=90
-    )
+    # Reguła 09.2026: wskrzeszenie nie przepisuje daty końca zamówienia do
+    # umowy — wszystkie trzy wracają jako bezterminowe.
+    assert live is not None and live.end_date is None
+    assert live_ending is not None and live_ending.end_date is None
     grouped_live = await _contract_state(cases["grouped_live"][1])
-    assert grouped_live == (
-        ContractStatus.active,
-        today + timedelta(days=150),
-    )
+    assert grouped_live == (ContractStatus.active, None)
     assert audit_count == 3
 
 

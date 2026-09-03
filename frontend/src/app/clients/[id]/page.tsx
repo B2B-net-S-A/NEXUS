@@ -51,6 +51,7 @@ import { FrameworkContractsTab } from "@/components/FrameworkContractsTab";
 import { MultiConsultantOrdersTab } from "@/components/client-profile/orders/MultiConsultantOrdersTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
+import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -837,6 +838,9 @@ export default function ClientDetailPage() {
 
   const allTabs: { key: ClientTab; label: string; icon: React.ReactNode }[] = [
     { key: "profil", label: "Profil", icon: <LayoutDashboard className="w-4 h-4" /> },
+    // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
+    // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
+    { key: "zasady", label: "Zasady współpracy", icon: <BookOpen className="w-4 h-4" /> },
     { key: "projekty", label: "Projekty", icon: <Briefcase className="w-4 h-4" /> },
     { key: "zamowienia", label: "Zamówienia", icon: <DollarSign className="w-4 h-4" /> },
     { key: "zespol", label: "Delivery Lead", icon: <Users className="w-4 h-4" /> },
@@ -989,6 +993,8 @@ export default function ClientDetailPage() {
             </div>
           )}
 
+          {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}
+
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
 
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
@@ -1071,9 +1077,14 @@ interface CoopStatsRow {
   placements: number;
   total_vacancies: number;
   hit_ratio: number;
-  fill_rate: number;
+  /** `null` = nie da się policzyć (żadna zamknięta rekrutacja nie deklaruje
+   *  headcountu). NIE to samo co 0% — patrz `services/job_data_trust.py`. */
+  fill_rate: number | null;
+  fill_rate_source?: string;
   active_jobs: number;
   target_achieved: boolean;
+  /** Odsetek zamknięć ze znanym powodem; `null` gdy brak zamknięć. */
+  outcome_coverage_pct?: number | null;
 }
 
 interface CoopStatsResponse {
@@ -1177,9 +1188,9 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                 {row!.placements}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {row!.total_vacancies > 0
+                {row!.fill_rate !== null && row!.total_vacancies > 0
                   ? `z ${row!.total_vacancies} miejsc · fill ${row!.fill_rate.toFixed(1)}%`
-                  : "—"}
+                  : "brak zadeklarowanych etatów"}
               </div>
             </div>
             <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">

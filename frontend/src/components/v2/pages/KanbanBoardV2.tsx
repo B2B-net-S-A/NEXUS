@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from"react";
-import { memo, useCallback, useEffect, useRef, useState } from"react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
+import { Alert } from"@/components/ui/alert";
 import {
  DragDropContext,
  Draggable,
@@ -152,7 +153,8 @@ interface KanbanBoardV2Props {
  headerCollapsed?: boolean;
  /** Read-only policy keeps the pipeline visible but removes every mutation. */
  readOnly?: boolean;
-}
+ /** Karty poza szablonem — `null` na zdrowej tablicy. */
+ offTemplate?: OffTemplateColumn | null;}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -171,6 +173,48 @@ const CATEGORY_LABEL: Record<string, string> = {
 // jako dodatkowe punkty re-screeningu przed kontaktem z klientem.
 const EXTERNAL_STAGES_FOR_SCREENING = new Set(["client_interview","acceptance","negotiation","onboarding",
 ]);
+
+/** Karty, których etap nie ma kolumny w szablonie tej rekrutacji.
+ *
+ *  Backend zwraca je OSOBNO od `columns` (`KanbanView.off_template`), właśnie
+ *  po to, żeby kubełek nie miał tożsamości celu ruchu. */
+export interface OffTemplateColumn {
+ name: string;
+ count: number;
+ items: KanbanItem[];
+ missing_stage_labels: string[];
+}
+
+/** Sentinel kolumny „poza szablonem" — CELOWO nie jest wartością `PipelineStage`.
+ *
+ *  Gdyby kubełek udawał `"new"`, przeciek przez `isDropDisabled` i filtr celów
+ *  skończyłby się cichym HTTP 200 na złym etapie (backend rozwiązuje etap po
+ *  `legacy_enum_value`). Z tym sentinelem ta sama pomyłka daje 422 i board
+ *  odświeża prawdę z serwera — awaria jest widoczna, nie cicha. */
+const OFF_TEMPLATE_STAGE = "__off_template__";
+
+const isOffTemplate = (col: KanbanColumn) => col.stage === OFF_TEMPLATE_STAGE;
+
+/** Doklej kubełek na koniec listy kolumn (albo zwróć kolumny bez zmian).
+ *
+ *  Musi być użyty w KAŻDYM punkcie synchronizacji stanu — inaczej kubełek
+ *  znika po pierwszym odświeżeniu i karty znowu są niewidoczne. */
+export const composeColumns = (
+ columns: KanbanColumn[],
+ offTemplate?: OffTemplateColumn | null
+): KanbanColumn[] => {
+ if (!offTemplate || offTemplate.count === 0) return columns;
+ return [
+ ...columns,
+ {
+ stage: OFF_TEMPLATE_STAGE,
+ count: offTemplate.count,
+ items: offTemplate.items,
+ stage_def_id: null,
+ name: offTemplate.name,
+ },
+ ];
+};
 
 const colId = (col: KanbanColumn) =>
  col.stage_def_id ? `def:${col.stage_def_id}` : `stage:${col.stage}`;
@@ -806,7 +850,10 @@ interface ColProps {
  desktopOverview: boolean;
  fullPipelineDesktop: boolean;
  readOnly: boolean;
-}
+ /** Kolumna „poza szablonem" jest wyłącznie ŹRÓDŁEM: kartę można z niej
+  *  wyciągnąć, ale nie da się jej tam upuścić (upuszczenie znaczyłoby ruch
+  *  na przypadkowy etap). */
+ dropDisabled?: boolean;}
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
@@ -825,11 +872,15 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  desktopOverview,
  fullPipelineDesktop,
  readOnly,
-}: ColProps) {
+ dropDisabled,}: ColProps) {
  const dropId = colId(col);
+ // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
+ // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
+ const noDrop = Boolean(dropDisabled);
  return (
  <div
  data-colid={dropId}
+ data-drop-disabled={noDrop}
  role="group"
  aria-label={`${columnLabel(col)}, liczba kandydatów: ${col.count}`}
  className={cn(
@@ -860,7 +911,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </Badge>
  </div>
 
- <Droppable droppableId={dropId}>
+ <Droppable droppableId={dropId} isDropDisabled={noDrop}>
  {(provided, snapshot) => (
  <div
  ref={provided.innerRef}
@@ -931,7 +982,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed, readOnly = false }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  const queryClient = useQueryClient();
@@ -941,7 +992,10 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  // hybrydowy TAC+DL ma widzieć akcje approvera (parity z backendem #782).
  const authUser = useAuthStore((s) => s.user);
  const isApprover = getUserRoles(authUser).some((r) => APPROVER_ROLES.has(r));
- const [cols, setCols] = useState(columns);
+ const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
+ // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
+ // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
+ const stageCols = useMemo(() => cols.filter((c) => !isOffTemplate(c)), [cols]);
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
  );
@@ -1066,13 +1120,13 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  const [removeBusy, setRemoveBusy] = useState(false);
 
  useEffect(() => {
- setCols(columns);
+ setCols(composeColumns(columns, offTemplate));
  setFocusedColId((current) =>
  current && columns.some((col) => colId(col) === current)
  ? current
  : defaultFocusColumnId(columns)
  );
- }, [columns]);
+ }, [columns, offTemplate]);
 
  useEffect(() => {
  (async () => {
@@ -1202,7 +1256,12 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  try {
  const fresh = await pipelineApi.kanban(jobId);
  if (Array.isArray(fresh.data?.columns)) {
- setCols(fresh.data.columns as KanbanColumn[]);
+ setCols(
+ composeColumns(
+ fresh.data.columns as KanbanColumn[],
+ fresh.data.off_template as OffTemplateColumn | null
+ )
+ );
  }
  } catch (e) {
  console.error("Kanban refresh failed", e);
@@ -1344,7 +1403,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  if (readOnly) return;
  if (!res.destination) return;
  const src = cols.find((c) => colId(c) === res.source.droppableId);
- const dst = cols.find((c) => colId(c) === res.destination!.droppableId);
+ // `stageCols`, nie `cols` — kubełek nie jest celem ruchu. Istniejący
+ // guard `if (!src || !dst) return;` domyka sprawę, gdyby drop przeszedł.
+ const dst = stageCols.find((c) => colId(c) === res.destination!.droppableId);
  if (!src || !dst || colId(src) === colId(dst)) return;
  const item = src.items[res.source.index];
  if (!item) return;
@@ -1394,7 +1455,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  applyOptimistic(item, colId(src), dst);
  sendMove(item, dst);
  },
- [cols, applyOptimistic, sendMove, readOnly]
+ [cols, stageCols, applyOptimistic, sendMove, readOnly]
  );
 
  // Submit z modala"Zweryfikowany — podaj rate"
@@ -1517,7 +1578,12 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  // stage'em, więc najprościej ponownie pobrać kanban dla joba.
  const fresh = await pipelineApi.kanban(jobId);
  if (Array.isArray(fresh.data?.columns)) {
- setCols(fresh.data.columns as KanbanColumn[]);
+ setCols(
+ composeColumns(
+ fresh.data.columns as KanbanColumn[],
+ fresh.data.off_template as OffTemplateColumn | null
+ )
+ );
  }
  showSuccess("Weryfikacja odrzucona — kandydat wrócił na poprzedni stage.");
  } catch (e) {
@@ -1654,7 +1720,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  );
 
  const bulkMove = async (destColId: string) => {
- const dst = cols.find((c) => colId(c) === destColId);
+ const dst = stageCols.find((c) => colId(c) === destColId);
  if (!dst || selected.size === 0) return;
  // Zaznaczone karty wraz z kolumną źródłową; karty już w celu pomijamy.
  const entries: { item: KanbanItem; srcColId: string }[] = [];
@@ -1771,14 +1837,48 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  }
  };
 
- const fullPipelineDesktop = cols.length > 0 && cols.length <= 15;
- const desktopOverview = fullPipelineDesktop && cols.length > 3;
+ // Progi liczone z kolumn SZABLONU — kubełek nie może przestawić układu
+ // desktopowego na 1 009 rekrutacjach z sierotami.
+ const fullPipelineDesktop = stageCols.length > 0 && stageCols.length <= 15;
+ const desktopOverview = fullPipelineDesktop && stageCols.length > 3;
 
  return (
  <div className="relative space-y-3">
- {cols.length > 0 && (
+ {offTemplate && offTemplate.count > 0 && (
+ <Alert
+ variant="warning"
+ title={`${offTemplate.count} ${
+ offTemplate.count === 1 ? "kandydat stoi" : "kandydatów stoi"
+ } na etapie spoza szablonu tej rekrutacji`}
+ description={
+ <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+ <span>
+ Etapy bez kolumny:{" "}
+ <strong>{offTemplate.missing_stage_labels.join(", ")}</strong>.
+ Karty są w kolumnie „{offTemplate.name}" na końcu tablicy — przenieś
+ je dalej albo uzupełnij szablon.
+ </span>
+ <button
+ type="button"
+ className="underline underline-offset-2 font-medium"
+ onClick={() => focusColumn(`stage:${OFF_TEMPLATE_STAGE}`)}
+ >
+ Pokaż
+ </button>
+ <Link
+ href="/settings/pipeline-templates"
+ className="underline underline-offset-2 font-medium"
+ >
+ Otwórz szablony
+ </Link>
+ </span>
+ }
+ />
+ )}
+
+ {stageCols.length > 0 && (
  <StageFocusNavigator
- cols={cols}
+ cols={stageCols}
  focusedId={focusedColId}
  onFocus={focusColumn}
  density={density}
@@ -1804,7 +1904,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  <SelectValue placeholder="Wybierz etap…" />
  </SelectTrigger>
  <SelectContent>
- {cols.map((c) => (
+ {stageCols.map((c) => (
  <SelectItem key={colId(c)} value={colId(c)}>
  {columnLabel(c)}
  </SelectItem>
@@ -1887,6 +1987,7 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  desktopOverview={desktopOverview}
  fullPipelineDesktop={fullPipelineDesktop}
  readOnly={readOnly}
+ dropDisabled={isOffTemplate(col)}
  />
  ))
  )}

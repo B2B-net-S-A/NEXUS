@@ -25,7 +25,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.recruitment_priority import (
     PriorityBlockerCategory,
     PriorityBlockerStatus,
@@ -646,9 +646,9 @@ async def create_priority_demand(
         raise HTTPException(404, "Request nie istnieje")
     if job.delivery_lead_id != current_user.id:
         raise HTTPException(403, "Możesz zgłaszać demand tylko dla własnego requestu")
-    if job.status != JobStatus.published:
+    if not job.is_open:
         raise HTTPException(
-            422, "Demand można zgłosić tylko dla opublikowanego requestu"
+            422, "Demand można zgłosić tylko dla requestu przekazanego do searchu"
         )
     existing = await db.scalar(
         select(RecruitmentPriorityDemand.id).where(
@@ -788,8 +788,8 @@ async def create_priority_assignment(
         raise HTTPException(404, "Request nie istnieje")
     if not is_hor and job.delivery_lead_id != current_user.id:
         raise HTTPException(403, "Możesz przypisywać tylko własne requesty")
-    if job.status != JobStatus.published:
-        raise HTTPException(422, "Przypisać można tylko opublikowany request")
+    if not job.is_open:
+        raise HTTPException(422, "Przypisać można tylko request przekazany do searchu")
 
     assignee = await db.scalar(select(User).where(User.id == payload.assignee_user_id))
     if assignee is None or not assignee.is_active:

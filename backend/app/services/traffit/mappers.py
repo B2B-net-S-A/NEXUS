@@ -15,6 +15,7 @@ Discovery findings (docs/traffit-discovery.md):
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date, datetime, timezone
 from typing import Any, Optional
 
@@ -457,6 +458,66 @@ _DEFAULT_STATE_MAPPING = {
     "is_terminal": False,
 }
 
+# ── Mapowanie po NAZWIE stanu (wąskie, świadome) ────────────────────────────
+#
+# `state.type` nie odróżnia rozmowy u klienta od interview wewnętrznego ani
+# akceptacji klienta od weryfikacji rekrutera — Traffit po prostu nie ma
+# takich typów. Semantykę niesie NAZWA stanu, i to ją widzi rekruter
+# w interfejsie. Skutek braku tego mapowania był mierzalny: `acceptance`
+# miał 7 wystąpień w 2026 (same ręczne ruchy) wobec 228 placementów, przez co
+# kafel „akceptacja → placement" pokazywał 3257,1%, a `client_interview` — 2.
+#
+# To NIE jest odwrócenie decyzji z migracji `0234_park_traffit_acceptance_marker`.
+# Tamta odmawia dopisywania etapu z markera w IMIENIU kandydata („[akcept]Mateusz"),
+# bo marker nie niesie ani oferty, ani daty — dopisanie wiersza byłoby
+# sfabrykowaniem historii. Stan workflow niesie oba, a 0234 sama stwierdza, że
+# „fakt «Zaakceptowany» żyje w NAZWIE etapu szablonu". To domknięcie tej luki
+# w miejscu, w którym 0234 ją wskazała.
+#
+# Zbiór jest domknięty i przejrzalny: dwa workflow'y, 15 i 18 stanów.
+# Dopasowanie po ZNORMALIZOWANEJ nazwie (bez diakrytyków, bez sufiksu `(#41)`,
+# który importer dokleja przy duplikatach nazw), więc „Kandydat Zweryfikowany"
+# nie może przypadkiem trafić w „Zaakceptowany".
+_TRAFFIT_STATE_NAME_MAP: dict[str, dict[str, Any]] = {
+    "interview u klienta": {
+        "legacy": "client_interview",
+        "category": "external",
+        "is_terminal": False,
+    },
+    "zaakceptowany": {
+        "legacy": "acceptance",
+        "category": "external",
+        "is_terminal": False,
+    },
+}
+
+
+def _normalize_state_name(name: str) -> str:
+    """Nazwa stanu → klucz dopasowania: bez diakrytyków, sufiksu i wielkości liter."""
+
+    without_suffix = re.sub(r"\s*\(#\d+\)\s*$", "", name.strip())
+    folded = unicodedata.normalize("NFKD", without_suffix.lower())
+    folded = folded.replace("\u0142", "l")  # ł nie rozkłada się przez NFKD
+    return "".join(ch for ch in folded if not unicodedata.combining(ch)).strip()
+
+
+# Etapy NEXUSA, na które import z Traffita w ogóle potrafi trafić.
+#
+# WYPROWADZONE z mapy powyżej, nie przepisane — i stoi tuż obok niej celowo,
+# żeby nie dało się zmienić jednego bez drugiego. Dopełnienie tego zbioru
+# (`PipelineStage` minus ten zbiór) to etapy BEZ POKRYCIA: nie ma ich skąd
+# zapełnić, więc metryka licząca iloraz przez taki etap podaje liczbę, która
+# nie opisuje rzeczywistości (na produkcji: `akceptacja → placement = 3257,1%`
+# przy 7 akceptacjach rocznie wobec 228 placementów).
+#
+# Konsument: `app.services.funnel_coverage`. Gdy mapowanie zostanie domknięte,
+# zbiór etapów bez pokrycia skurczy się SAM.
+TRAFFIT_MAPPED_LEGACY_STAGES: frozenset[str] = frozenset(
+    {mapping["legacy"] for mapping in _TRAFFIT_STATE_TYPE_MAP.values()}
+    | {mapping["legacy"] for mapping in _TRAFFIT_STATE_NAME_MAP.values()}
+    | {_DEFAULT_STATE_MAPPING["legacy"]}
+)
+
 
 def map_traffit_state_to_pipeline(state: dict[str, Any]) -> dict[str, Any]:
     """Zwraca mapping z PipelineStageDef-friendly polami dla Traffit state.
@@ -465,8 +526,18 @@ def map_traffit_state_to_pipeline(state: dict[str, Any]) -> dict[str, Any]:
     """
     state_type = (state.get("type") or "").strip()
     is_rejection = bool(state.get("is_rejection") or False)
+    # Nazwa PRZED typem — niesie semantykę, której typ nie ma. `sid` jako
+    # fallback, bo importer używa tej samej kolejności przy nazywaniu etapu.
+    name_key = _normalize_state_name(
+        (state.get("name") or "").strip() or (state.get("sid") or "").strip()
+    )
 
-    base = dict(_TRAFFIT_STATE_TYPE_MAP.get(state_type, _DEFAULT_STATE_MAPPING))
+    by_name = _TRAFFIT_STATE_NAME_MAP.get(name_key)
+    base = dict(
+        by_name
+        if by_name is not None
+        else _TRAFFIT_STATE_TYPE_MAP.get(state_type, _DEFAULT_STATE_MAPPING)
+    )
     if is_rejection:
         base.update(
             {
@@ -686,11 +757,28 @@ _JOB_STATUS_MAP: dict[str, str] = {
 
 
 def normalize_job_status(raw: Optional[str], is_closed: bool = False) -> str:
+    """Status rekrutacji z payloadu Traffita.
+
+    `is_closed` rządzi, bo jest to JEDYNE pole o stanie rekrutacji, które
+    odpowiedź LISTY `/recruitments/` naprawdę niesie — i niesie wiarygodnie
+    (wyprodukowało 3924 poprawnie zamknięte rekrutacje na produkcji).
+
+    Brak `raw` znaczy „nie wiemy", a nie „szkic". Importer czyta listę, a ta
+    — w odróżnieniu od odpowiedzi szczegółowej — nie ma w ogóle klucza
+    `status`; potwierdza to fixture `recruitments_list.json` oraz produkcja,
+    gdzie `custom_fields.traffit_raw_status` jest NULL na 4206 z 4206
+    zaimportowanych wierszy. Zwracany do 0270 `draft` nie był więc informacją,
+    tylko wartością domyślną — i ukrywał 291 realnie otwartych rekrutacji
+    przed kilkunastoma powierzchniami pytającymi o `status == published`.
+
+    Mapa niżej zostaje na wypadek, gdyby Traffit zaczął kiedyś podawać `status`
+    w liście albo gdyby ktoś dołożył pobieranie szczegółów.
+    """
     if is_closed:
         return "closed"
     if not raw:
-        return "draft"
-    return _JOB_STATUS_MAP.get(raw.strip().lower(), "draft")
+        return "published"
+    return _JOB_STATUS_MAP.get(raw.strip().lower(), "published")
 
 
 def traffit_recruitment_to_job(
@@ -733,13 +821,20 @@ def traffit_recruitment_to_job(
     is_closed = bool(payload.get("is_closed") or False)
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
 
-    deadline: Optional[date] = None
-    if isinstance(closing_date, str) and closing_date.strip():
-        # Take date portion (yyyy-MM-dd) and convert to datetime.date for asyncpg.
-        try:
-            deadline = date.fromisoformat(closing_date.split(" ")[0])
-        except ValueError:
-            deadline = None
+    closing_dt = _parse_traffit_datetime(closing_date)
+    deadline: Optional[date] = closing_dt.date() if closing_dt else None
+
+    # Data otwarcia rekrutacji U KLIENTA. `jobs.created_at` jest stemplowane
+    # `NOW()` przy insercie, więc dla 4206 zaimportowanych wierszy opisuje
+    # moment importu — stąd mediana czasu realizacji równa 0 dni. Traffit
+    # podaje prawdziwą datę w `created_at` i podaje ją w odpowiedzi LISTY,
+    # więc nie kosztuje ani jednego dodatkowego zapytania.
+    opened_at = _parse_traffit_datetime(payload.get("created_at"))
+
+    # Data zamknięcia — TYLKO dla rekrutacji faktycznie zamkniętych. Dla
+    # otwartych `closing_date` znaczy „planowany termin", nie „zamknięto”,
+    # i trafia wyłącznie do `deadline` wyżej.
+    closed_at = closing_dt if is_closed else None
 
     return {
         "external_id": str(traffit_id),
@@ -751,6 +846,8 @@ def traffit_recruitment_to_job(
         "recruiter_id": recruiter_id,
         "reference_number": _pick_nonempty(payload.get("nrRef")),
         "deadline": deadline,
+        "opened_at": opened_at,
+        "closed_at": closed_at,
         "custom_fields": {
             "traffit_is_confidential": bool(payload.get("is_confidential") or False),
             "traffit_raw_status": payload.get("status"),

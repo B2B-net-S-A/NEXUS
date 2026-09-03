@@ -105,7 +105,9 @@ export interface DeliveryRiskBoardRow {
   priority: string;
   open_vacancies: number;
   tac_user_id: number | null;
-  age_days: number;
+  /** `null` = nie znamy daty otwarcia rekrutacji (0270). Zero znaczyłoby
+   *  „otwarta dzisiaj”, a przed backfillem byłaby to data importu. */
+  age_days: number | null;
   first_recommendation_at: string | null;
   risk: DashboardSeverity;
   next_action_href: string;
@@ -236,6 +238,10 @@ export interface RecruitmentFunnelConversions {
   acceptance_to_placement_pct: number | null;
   interview_to_placement_pct: number | null;
   overall_pct: number | null;
+  /** Pola wygaszone z braku POKRYCIA (nie z braku próby) — `null` w tych polach
+   *  znaczy „nie ma z czego policzyć", a nie „mianownik był zerowy". */
+  uncovered: string[];
+  coverage_note: string | null;
 }
 
 export interface CompetitionRankingEntry {

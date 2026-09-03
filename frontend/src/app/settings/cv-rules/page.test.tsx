@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import CvRulesSettingsPage, { type CvRulesOverview } from "./page";
+import { makeEmptyClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRuleRow } from "@/test/fixtures/cv-rule";
 
 /**
@@ -228,6 +229,31 @@ describe("CvRulesSettingsPage", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(
       await screen.findByText("Reguły CV — Tauron Polska Energia"),
+    ).toBeInTheDocument();
+    mocks.search = "";
+  });
+
+  it("?client=2&tab=playbook otwiera edytor na zakładce Karta klienta", async () => {
+    // Link „Załóż kartę" z karty klienta (rekrutacja, profil) prowadzi tu
+    // z `&tab=playbook` — edytor ma wystartować na karcie, nie na Podstawach.
+    mocks.user = DL_USER;
+    mocks.search = "client=2&tab=playbook";
+    mocks.get.mockImplementation(async (url: string) => {
+      if (url === "/api/settings/cv-rules") return { data: OVERVIEW };
+      if (url === "/api/clients/2/cv-rule") return { data: OVERVIEW.rules[1] };
+      if (url === "/api/clients/2/playbook") return { data: makeEmptyClientPlaybook(2) };
+      if (url === "/api/clients/2/playbook/history") return { data: [] };
+      if (url.startsWith("/api/clients/2/cv-rule/")) return { data: [] };
+      throw new Error(`unexpected GET ${url}`);
+    });
+    renderPage();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: "Karta klienta" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      await screen.findByLabelText("SLA: dni robocze na pierwszego kandydata"),
     ).toBeInTheDocument();
     mocks.search = "";
   });

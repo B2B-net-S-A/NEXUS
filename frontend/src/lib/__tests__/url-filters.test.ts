@@ -53,6 +53,8 @@ describe("url-filters", () => {
       stageMovedAfter: "2026-05-01",
       stageMovedBefore: "2026-05-29",
       stageClientIds: [21, 33],
+      sentToClientFrom: "2026-06-01",
+      sentToClientTo: "2026-06-30",
       stageCurrentOnly: true,
       openTo: ["side_projects", "expert_consult"],
       recentlyChangedJobs: 2,
@@ -302,6 +304,37 @@ describe("url-filters", () => {
     const decoded = decodeFilters(sp("stage_from=not-a-date&stage_to=2026-13-99x"));
     expect(decoded.stageMovedAfter).toBe("");
     expect(decoded.stageMovedBefore).toBe("");
+  });
+
+  it("encodes the sent-to-client date range on sent_from/sent_to", () => {
+    const filters: CandidateFilters = {
+      ...DEFAULT_FILTERS,
+      sentToClientFrom: "2026-06-01",
+      sentToClientTo: "2026-06-30",
+    };
+    const encoded = encodeFilters(filters);
+    expect(encoded.get("sent_from")).toBe("2026-06-01");
+    expect(encoded.get("sent_to")).toBe("2026-06-30");
+    const decoded = decodeFilters(encoded);
+    expect(decoded.sentToClientFrom).toBe("2026-06-01");
+    expect(decoded.sentToClientTo).toBe("2026-06-30");
+  });
+
+  it("empty + malformed sent-to-client dates stay out of the URL / API", () => {
+    expect(encodeFilters({ ...DEFAULT_FILTERS }).has("sent_from")).toBe(false);
+    expect(encodeFilters({ ...DEFAULT_FILTERS }).has("sent_to")).toBe(false);
+    const decoded = decodeFilters(sp("sent_from=not-a-date&sent_to=2026-13-99x"));
+    expect(decoded.sentToClientFrom).toBe("");
+    expect(decoded.sentToClientTo).toBe("");
+  });
+
+  it("maps the sent-to-client range to backend params", () => {
+    const params = filtersToApiParams(
+      { ...DEFAULT_FILTERS, sentToClientFrom: "2026-06-01", sentToClientTo: "" },
+      1,
+    );
+    expect(params.sent_to_client_from).toBe("2026-06-01");
+    expect(params.sent_to_client_to).toBeUndefined();
   });
 
   it("empty stage-move filters stay out of the URL", () => {

@@ -1,44 +1,35 @@
 #!/usr/bin/env python3
-"""Generator wzoru „Profil Championa" (.docx) — szablon 7-sekcyjny z 09.2026.
+"""Generator wzoru „Profil Championa" (.docx) — szablon 6-sekcyjny (09.2026, karta klienta).
 
-Skrypt, a nie piętnaście ręcznie zredagowanych plików, z trzech powodów.
+JEDEN wzór, bez wariantów per klient. Do 09.2026 było ich piętnaście (ogólny
+i czternaście per klient), różniących się WYŁĄCZNIE treścią kliencką: ramką
+„Standardy tego klienta", opisem klienta i listą dokumentów. Ta treść ma od
+teraz jedno miejsce — kartę klienta w NEXUSIE (`client_playbooks`; seed z
+`app/data/client_playbooks/seed.json`), więc wzór jej nie przepisuje.
 
-1. **Wzorów jest piętnaście** — jeden ogólny i czternaście per klient (ALIOR,
-   BIK, BNP PARIBAS, Bank Pocztowy, Credit Agricole, ENERGA, KIR, Nordea,
-   ORLEN, PANSA, PFRON, PKO BP, Santander, Tauron). Różnią się WYŁĄCZNIE treścią
-   sekcji 6 i 7, nie strukturą.
-2. **Nagłówki są kontraktem z parserem.** `cv_generator_b2b/champion_builder.py`
-   rozpoznaje sekcje wgranego dokumentu po ich NAZWACH, więc wzór rozjechany
-   z kodem po cichu produkuje CV bez sekcji — a brak sekcji jest u nas poprawnym
-   wynikiem, nie błędem. Generowanie z jednego źródła sprawia, że literówka
-   w Wordzie nie może tego zepsuć; pilnuje tego `test_champion_template_agenda.py`.
-3. **Treść kliencka nie może zginąć.** Wzory per klient niosą realną wiedzę:
-   KPI czasu na kandydata, konwencję nazwy pliku CV, język CV, wymagane
-   dokumenty wraz z linkami. Nadpisanie ich generykiem skasowałoby ją
-   bezpowrotnie, dlatego jest wyekstrahowana do
-   `champion_template_clients.json` i wstrzykiwana z powrotem.
+Skrypt, a nie ręcznie zredagowany plik, z jednego powodu: **nagłówki są
+kontraktem z parserem.** `cv_generator_b2b/champion_builder.py` rozpoznaje
+sekcje wgranego dokumentu po ich NAZWACH, więc wzór rozjechany z kodem po cichu
+produkuje CV bez sekcji — a brak sekcji jest u nas poprawnym wynikiem, nie
+błędem. Generowanie z jednego źródła sprawia, że literówka w Wordzie nie może
+tego zepsuć; pilnuje tego `test_champion_template_agenda.py`.
 
 Użycie:
     python scripts/generate_champion_template.py --out-dir /tmp/wzory
-    python scripts/generate_champion_template.py --out-dir /tmp/wzory --client Nordea
-    python scripts/generate_champion_template.py --out-dir /tmp/wzory --all
 
-Pliki trzeba wgrać na SharePoint — NEXUS trzyma do wzorów wyłącznie linki
-(`help_materials`), nie kopie.
+Plik trzeba wgrać na SharePoint — NEXUS trzyma do wzoru wyłącznie link
+(`help_materials`), nie kopię.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import sys
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt, RGBColor
-
-CLIENTS_FILE = pathlib.Path(__file__).with_name("champion_template_clients.json")
 
 # Nagłówki sekcji. To NIE jest kosmetyka dokumentu, tylko kontrakt z parserem —
 # patrz punkt 2 w docstringu modułu. Importowane przez
@@ -50,7 +41,6 @@ SECTION_TITLES: tuple[str, ...] = (
     "O PROJEKCIE",
     "PYTANIA SCREENINGOWE",
     "O KLIENCIE",
-    "DOKUMENTY",
 )
 
 # Etykiety pól, które parser traktuje jako TREŚCIOWE — czyli takie, po których
@@ -121,15 +111,12 @@ def _block_table(doc: Document, blocks: list[tuple[str, str]]) -> None:
     doc.add_paragraph()
 
 
-def build(client: str | None, client_data: dict | None) -> Document:
+def build() -> Document:
     doc = Document()
-    data = client_data or {}
 
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run(
-        "PROFIL CHAMPIONA" + (f" — {client.replace('_', ' ')}" if client else "")
-    )
+    run = title.add_run("PROFIL CHAMPIONA")
     run.bold = True
     run.font.size = Pt(20)
     run.font.color.rgb = _ACCENT
@@ -145,16 +132,6 @@ def build(client: str | None, client_data: dict | None) -> Document:
         doc,
         [("Opracowano na podstawie rozmowy z", "[Manager] oraz [Konsultant wewnętrzny]")],
     )
-
-    # ── Standardy klienta: RAMKA NA GÓRZE, nie na końcu ──────────────────
-    #
-    # To jedyne fakty w dokumencie, które rekruter musi znać ZANIM zacznie
-    # cokolwiek robić: ile ma dni na kandydata, w jakim języku ma być CV, jak
-    # nazwać plik. Na końcu sekcji 6 czytał je już po podjęciu decyzji, których
-    # dotyczą. Delivery Lead ich NIE pisze — są wstrzykiwane per klient.
-    standards = data.get("standardy", [])
-    if standards:
-        _block_table(doc, [("STANDARDY TEGO KLIENTA:", "\n".join(standards))])
 
     _hint(
         doc,
@@ -251,33 +228,24 @@ def build(client: str | None, client_data: dict | None) -> Document:
         table.rows[i].cells[0].text = f"Pytanie {i}:"
         table.rows[i].cells[1].text = "Idealna odpowiedź:\n\nDeal breaker:"
     doc.add_paragraph()
-    _block_table(
-        doc,
-        [
-            (f"{CONTENT_FIELD_LABELS[3]}:", ""),
-            (f"{CONTENT_FIELD_LABELS[4]}:", ""),
-        ],
-    )
 
-    # 6 — treść klienta przenoszona 1:1 ze starego wzoru
+    # 6 — wyłącznie to, co zależy od TEJ roli. Standardy współpracy (SLA,
+    # limit CV, off-limit, onboarding, dokumenty) NIE są tu przepisywane:
+    # żyją w karcie klienta w NEXUSIE (`client_playbooks`), jedno miejsce.
     _section(doc, 6, SECTION_TITLES[5])
+    _hint(
+        doc,
+        "Standardy klienta (SLA, limit CV, off-limit, onboarding, dokumenty) są "
+        "w NEXUSIE: Klient → Zasady współpracy albo Pomoc → Klienci. Nie "
+        "przepisuj ich tutaj.",
+    )
     _block_table(
         doc,
         [
-            ("Co powiedzieć o Kliencie:", "\n".join(data.get("o_kliencie", []))),
-            # Standardy rekrutacji przeniesione do ramki pod tytułem — tutaj
-            # zostaje to, co rekruter mówi kandydatowi o kliencie.
-            ("Reguły priorytetu:", ""),
+            ("Co przekona kandydata do tej oferty:", ""),
+            (f"{CONTENT_FIELD_LABELS[4]}:", ""),
+            (f"{CONTENT_FIELD_LABELS[3]}:", ""),
         ],
-    )
-
-    # 7 — j.w.
-    _section(doc, 7, SECTION_TITLES[6])
-    _hint(doc, "Nazwa + link. Pozycja bez linku nie zostanie wczytana do NEXUSA.")
-    docs = data.get("dokumenty", [])
-    _block_table(
-        doc,
-        [("Wymagane dokumenty:", "\n".join(docs) if docs else "")],
     )
 
     return doc
@@ -286,37 +254,16 @@ def build(client: str | None, client_data: dict | None) -> Document:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", required=True)
-    parser.add_argument("--client", help="wygeneruj wariant dla jednego klienta")
-    parser.add_argument("--all", action="store_true", help="ogólny + wszystkie 14 wariantów")
     args = parser.parse_args()
 
-    clients = json.loads(CLIENTS_FILE.read_text(encoding="utf-8"))
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.client:
-        if args.client not in clients:
-            print(f"nieznany klient: {args.client}; znam: {sorted(clients)}", file=sys.stderr)
-            return 2
-        targets: list[str | None] = [args.client]
-    elif args.all:
-        targets = [None, *sorted(clients)]
-    else:
-        targets = [None]
-
-    for client in targets:
-        name = (
-            "Profil_Championa_WZÓR.docx"
-            if client is None
-            else f"Profil_Championa_WZÓR_{client}.docx"
-        )
-        path = out_dir / name
-        build(client, clients.get(client) if client else None).save(path)
-        print(f"zapisano: {path}")
-
+    path = out_dir / "Profil_Championa_WZÓR.docx"
+    build().save(path)
+    print(f"zapisano: {path}")
     print(
-        "\nWgranie na SharePoint jest osobnym krokiem — NEXUS trzyma do wzorów "
-        "wyłącznie linki (help_materials), nie kopie plików.",
+        "\nWgranie na SharePoint jest osobnym krokiem — NEXUS trzyma do wzoru "
+        "wyłącznie link (help_materials), nie kopię pliku.",
         file=sys.stderr,
     )
     return 0
