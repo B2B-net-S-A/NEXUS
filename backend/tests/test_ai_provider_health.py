@@ -157,6 +157,28 @@ class _FakeMessage:
     content = [type("Block", (), {"text": "ok"})()]
 
 
+@pytest.fixture
+def _declared_provider_call():
+    """Deklaracja wywołania AI dla testów podmieniających KLIENTA SDK.
+
+    Takie testy realnie wchodzą w `_assert_declared`, a CI biegnie od 0270
+    z `AI_QUOTA_STRICT=true` — bez deklaracji padałyby na bramce kwot zamiast
+    sprawdzać circuit breaker dostawcy. Nie autouse: w tym pliku są też testy
+    czytające `main.py` jako tekst, którym kontekst jest niepotrzebny.
+    """
+    from datetime import date
+
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import QuotaState, declared_call
+
+    with declared_call(
+        AIFeatureKey.scoring,
+        user_id=None,
+        state=QuotaState(used=1, limit=0, period_start=date(2026, 9, 1)),
+    ):
+        yield
+
+
 def _install_client(monkeypatch, side_effects):
     calls = {"n": 0}
 
@@ -178,7 +200,7 @@ def _install_client(monkeypatch, side_effects):
     return calls
 
 
-def test_call_claude_success_records_healthy(monkeypatch):
+def test_call_claude_success_records_healthy(monkeypatch, _declared_provider_call):
     _install_client(monkeypatch, [_FakeMessage()])
     claude_client.call_claude(
         messages=[{"role": "user", "content": "x"}],
@@ -189,7 +211,9 @@ def test_call_claude_success_records_healthy(monkeypatch):
     assert provider_status("claude") == "ok"
 
 
-def test_call_claude_repeated_failures_trip_claude_down(monkeypatch):
+def test_call_claude_repeated_failures_trip_claude_down(
+    monkeypatch, _declared_provider_call
+):
     _install_client(monkeypatch, [_FakeErr(529), _FakeErr(529), _FakeErr(529)])
     for _ in range(3):
         with pytest.raises(_FakeErr):
@@ -203,72 +227,87 @@ def test_call_claude_repeated_failures_trip_claude_down(monkeypatch):
     assert provider_status("claude") == "down"
 
 
-# ── /api/health `ai_features` probe ──────────────────────────────────────────
+# ── /api/health `ai_features` probe (C12) ────────────────────────────────────
 #
-# Both cases below were live defects on prod (2026-08-10), and both were
-# invisible: the probe answered `unknown` and `healthy` respectively, and
-# neither value looks like a bug to an operator.
+# Do C12 ten check raportował `uncapped: <funkcje z monthly_limit=0>`. Brak
+# sufitów jest jednak stanem ZAMIERZONYM od 24.08 (bez sufitów, zamiast tego
+# alarm o skoku), więc ostrzeżenie było stałe i bezużyteczne — a jednocześnie
+# NIE pokazywało, że sam alarm nie wystartował (03.09: `ai_spend_alerts` w
+# `exited_cleanly`, brak SLACK_WEBHOOK_URL, health `healthy`). Teraz check
+# raportuje STAN mechanizmu zastępczego: webhook + czy pętla biegnie.
+
+_RUNNING = {"tasks": ["ai_spend_alerts", "calendar_reminder"]}
+_STOPPED = {"tasks": ["calendar_reminder"], "exited_cleanly": ["ai_spend_alerts"]}
+_FORBIDDEN_PREFIXES = ("unhealthy", "misconfigured", "critical", "crashed")
 
 
-def _uncapped_from(limits: dict[str, int]) -> list[str]:
-    """Mirror of the probe's classification in `app/main.py`.
+def test_ai_features_healthy_only_when_webhook_set_and_loop_runs():
+    from app.services.background_task_health import spend_alarm_status
 
-    Kept as a pure function so the rule can be tested without standing up the
-    app; `test_probe_source_matches_this_rule` pins it to the real source.
-    """
-    from app.models.ai_feature import AIFeatureKey
-
-    return sorted(k.value for k in AIFeatureKey if limits.get(k.value, 0) <= 0)
+    assert spend_alarm_status(_RUNNING, webhook_set=True) == "healthy"
 
 
-def test_zero_monthly_limit_counts_as_uncapped():
-    """`monthly_limit = 0` means unlimited — a row is not a ceiling.
+def test_ai_features_never_trips_uptime_probe_prefixes():
+    """uptime-probe.yml:258 tworzy issue dla ^(unhealthy|misconfigured|critical
+    |crashed). `ai_features` liczy się na KAŻDYM pollu, więc żaden jego stan nie
+    może zaczynać się od tych prefiksów — inaczej brak webhooka (stan O-1)
+    spamowałby issue co godzinę."""
+    from app.services.background_task_health import spend_alarm_status
 
-    Prod had all 19 features configured at 0 while the probe reported
-    `healthy`: a green light on a system with no spending ceiling anywhere.
-    """
-    from app.models.ai_feature import AIFeatureKey
-
-    all_zero = {k.value: 0 for k in AIFeatureKey}
-    assert _uncapped_from(all_zero) == sorted(k.value for k in AIFeatureKey)
-
-    all_capped = {k.value: 100 for k in AIFeatureKey}
-    assert _uncapped_from(all_capped) == []
-
-
-def test_missing_row_still_counts_as_uncapped():
-    """Fail-open: no row means no ceiling, so it must stay reported."""
-    from app.models.ai_feature import AIFeatureKey
-
-    keys = [k.value for k in AIFeatureKey]
-    limits = {k: 100 for k in keys[1:]}  # first key has no row at all
-    assert _uncapped_from(limits) == [keys[0]]
+    for cls, webhook in [
+        (_RUNNING, True),
+        (_STOPPED, True),
+        (_STOPPED, False),
+        ({}, False),
+    ]:
+        val = spend_alarm_status(cls, webhook_set=webhook)
+        assert not val.startswith(_FORBIDDEN_PREFIXES), val
 
 
-def test_unknown_db_key_does_not_break_the_rule():
-    """Prod holds 11 rows whose key the enum no longer has (`embeddings`, …).
+def test_ai_features_names_the_missing_webhook():
+    """Brak SLACK_WEBHOOK_URL = budżet AI bez alarmu — musi być WIDOCZNE, ale
+    nie jako awaria (to stan-do-skonfigurowania, O-1)."""
+    from app.services.background_task_health import spend_alarm_status
 
-    Reading the column as the enum type raised on those rows and turned the
-    whole probe into `unknown`. A drift detector must survive the drift.
-    """
-    from app.models.ai_feature import AIFeatureKey
-
-    limits = {k.value: 100 for k in AIFeatureKey}
-    limits.update({"embeddings": 0, "reranking": 0, "matching": 0})
-    assert _uncapped_from(limits) == []
+    val = spend_alarm_status(_STOPPED, webhook_set=False)
+    assert "SLACK_WEBHOOK_URL" in val and "off" in val
 
 
-def test_probe_source_matches_this_rule():
-    """Guard the guard: the probe must read text + limit, not the enum type."""
+def test_ai_features_flags_loop_down_despite_webhook():
+    """Webhook ustawiony, a pętla nie biegnie — informacyjnie tu (alarm leci
+    przez background_tasks), ale stan musi być czytelny, nie `healthy`."""
+    from app.services.background_task_health import spend_alarm_status
+
+    val = spend_alarm_status(_STOPPED, webhook_set=True)
+    assert val != "healthy"
+    assert not val.startswith(_FORBIDDEN_PREFIXES), val
+
+
+def test_background_tasks_flags_stopped_alarm_only_when_webhook_set():
+    """Config-bramka: cichy alarm alarmuje (issue) TYLKO gdy webhook jest — inaczej
+    to stan O-1 i flagowanie go co godzinę byłoby fałszywym alarmem."""
+    from app.services.background_task_health import stopped_webhook_alarms
+
+    assert stopped_webhook_alarms(_STOPPED, webhook_set=True) == ["ai_spend_alerts"]
+    assert stopped_webhook_alarms(_STOPPED, webhook_set=False) == []
+    assert stopped_webhook_alarms(_RUNNING, webhook_set=True) == []
+
+
+def test_probe_source_uses_the_shared_classifier():
+    """Guard the guard: sonda `ai_features` i `background_tasks` w main.py MUSZĄ
+    czytać wspólny klasyfikator, a nie wrócić do własnej, inline'owej logiki
+    (dwie kopie rozjeżdżają się po cichu — to była przyczyna C12)."""
     from pathlib import Path
 
-    src = Path(__file__).resolve().parents[1] / "app" / "main.py"
-    text = src.read_text(encoding="utf-8")
-    assert "cast(AIFeatureConfig.feature, Text)" in text, (
-        "probe stopped reading the feature column as text — an orphan row will "
-        "again turn the whole check into `unknown`"
+    src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(
+        encoding="utf-8"
     )
-    assert "limits.get(k.value, 0) <= 0" in text, (
-        "probe stopped treating monthly_limit=0 as uncapped — it will report "
-        "healthy on a system with no ceiling"
+    assert "spend_alarm_status" in src, (
+        "ai_features przestał raportować stan alarmu — wróci wieczny uncapped"
+    )
+    assert "stopped_webhook_alarms" in src, (
+        "background_tasks przestał wykrywać cichy, krytyczny alarm"
+    )
+    assert "limits.get(k.value, 0) <= 0" not in src, (
+        "wrócił martwy check `uncapped` (brak sufitów jest zamierzony od 24.08)"
     )

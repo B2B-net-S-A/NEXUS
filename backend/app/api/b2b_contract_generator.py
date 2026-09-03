@@ -2342,19 +2342,49 @@ async def delete_generated_contract(
 async def check_uop(
     payload: B2BUopCheckRequest,
     current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
 ):
     """AI-sprawdzenie opisu/zakresu pod kątem znamion umowy o pracę (art. 22 §1 KP).
 
     Zwraca wykryte ryzykowne sformułowania + bezpieczniejszą redakcję. Wymaga
-    skonfigurowanego ``ANTHROPIC_API_KEY`` (inaczej 503)."""
+    skonfigurowanego ``ANTHROPIC_API_KEY`` (inaczej 503).
+
+    Kwota: ``AIFeatureKey.uop_check``. Ta trasa stała CAŁKOWICIE poza systemem
+    kwot — zmierzone na produkcji 02.09: wywołanie trwało 15,4 s, a licznik
+    w Ustawieniach → AI nie drgnął. Główny wyłącznik też jej nie dotyczył, choć
+    panel obiecywał, że gasi wszystko.
+
+    Naliczamy RAZ, choć serwis robi do dwóch round-tripów (własna pętla
+    ponowienia przy nieparsowalnym JSON-ie): jednostką jest decyzja
+    użytkownika, nie liczba prób, którymi system się do niej dobiera.
+    """
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import AIQuotaExceeded, ai_feature
+
     _require_contract_generation(current_user)
     text = (payload.text or "").strip()
     if not text:
         return B2BUopCheckResponse(ok=True, issues=[], rewritten="", summary="")
     try:
-        result = await run_in_threadpool(
-            check_employment_hallmarks, text, payload.language
-        )
+        async with ai_feature(db, AIFeatureKey.uop_check, user_id=current_user.id):
+            # Naliczenie commitujemy PRZED wyjściem do dostawcy — liczymy
+            # decyzję o dopuszczeniu, nie sukces round-tripu. Bez tego 502
+            # od modelu zwracałby wywołanie za darmo, mimo wydanych tokenów.
+            await db.commit()
+            result = await run_in_threadpool(
+                check_employment_hallmarks, text, payload.language
+            )
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
     except CVGeneratorAIError as exc:
         raise HTTPException(
             status_code=503,

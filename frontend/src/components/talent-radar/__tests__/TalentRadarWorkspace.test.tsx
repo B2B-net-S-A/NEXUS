@@ -45,6 +45,8 @@ const SAVED_SEARCH: TalentRadarSessionState = {
   text: "Szukamy osoby z Pythonem, FastAPI i Postgresem — minimum 5 lat doświadczenia.",
   budgetMax: "180",
   excludeRemoteOnly: false,
+  location: "",
+  championSkills: null,
   championProfile: null,
   championSummary: null,
   response: {

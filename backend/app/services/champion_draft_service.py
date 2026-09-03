@@ -67,6 +67,7 @@ from app.services.historical_jobs_retrieval import (
     find_similar_historical_jobs,
     skill_frequency,
 )
+from app.services.ai_models import model_for
 from app.services.llm_prompts import (
     CHAMPION_PROFILE_ENRICH_FROM_CALL,
     CHAMPION_PROFILE_ENRICH_FROM_MEETING,
@@ -87,7 +88,7 @@ class HistoricalSearchUnavailable(RuntimeError):
     """
 
 
-DEFAULT_MODEL = os.environ.get("CHAMPION_AI_MODEL", "claude-sonnet-5")
+DEFAULT_MODEL = model_for(AIFeatureKey.champion_draft)
 MAX_TRANSCRIPT_CHARS = int(os.environ.get("CHAMPION_AI_MAX_TRANSCRIPT_CHARS", "40000"))
 
 
@@ -247,7 +248,7 @@ def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
 
 
 async def _summarize_transcript_for_champion(
-    transcript: str, *, summarize_model: str = "claude-sonnet-5"
+    transcript: str, *, summarize_model: str | None = None
 ) -> str:
     """Map-reduce: chunk → per-chunk summary → concat.
 
@@ -259,6 +260,9 @@ async def _summarize_transcript_for_champion(
     output is then fed into the existing Champion prompt template.
     """
     import asyncio as _asyncio  # noqa: PLC0415 — local rename, avoid shadowing top import
+
+    if summarize_model is None:
+        summarize_model = model_for(AIFeatureKey.champion_draft)
 
     if len(transcript) <= MAX_TRANSCRIPT_CHARS:
         return transcript

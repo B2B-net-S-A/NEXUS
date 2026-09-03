@@ -4,6 +4,7 @@
  */
 
 import { api } from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -477,7 +478,12 @@ export const dlPortalApi = {
     return api.post<OrderExtractionResult>(
       `/api/clients/${clientId}/orders/extract`,
       fd,
-      { headers: { "Content-Type": "multipart/form-data" } }
+      {
+        headers: { "Content-Type": "multipart/form-data" },
+        // Sonnet po dokumencie do 64 tys. znaków (tryb z listą konsultantów).
+        // Domyślne 30 s instancji jest skrojone pod CRUD-y.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      }
     );
   },
 

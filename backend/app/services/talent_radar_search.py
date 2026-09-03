@@ -43,9 +43,44 @@ from app.services.embedding_service import (
     _build_job_text,
 )
 from app.services.pipeline_eligibility import filter_eligible_candidates
-from app.services.scoring_service import ScoreBreakdown, rank_candidates_for_job
+from app.services.scoring_service import (
+    ScoreBreakdown,
+    WeightProfile,
+    rank_candidates_for_job,
+)
 
 logger = logging.getLogger(__name__)
+
+
+# Radar nie ma pipeline'u ani widełek, więc dwie warstwy nie mają czego oceniać
+# i dawały wszystkim to samo: `champion_fit` zwracał stałe 6,5/10 („brak
+# screeningu") dla KAŻDEGO kandydata, a `availability` ma budżet 0 już
+# w domyślnym profilu. Warstwa, która nie różnicuje, nie rankuje — tylko
+# podnosi podłogę i zbija wyniki w wąski przedział (zmierzone na prodzie:
+# wszystkie top-20 między 74 a 79).
+#
+# Dziesięć punktów po `champion_fit` idzie do warstwy semantycznej, bo to
+# JEDYNY sygnał, który w radarze naprawdę różnicuje kandydatów — pozostałe
+# (skills, lokalizacja, stawka) mają na wklejonym requeście rzadkie pokrycie.
+#
+# Profil MUSI sumować się do 100: przy wyłączonej renormalizacji (domyślnej)
+# wyzerowana warstwa nie znika z mianownika, tylko oddaje zero punktów — bez
+# rozdzielenia jej budżetu każdy wynik radaru spadłby o 6,5 względem
+# dzisiejszego, co wyglądałoby jak regres jakości.
+#
+# Renormalizacja NIE jest tu alternatywą: to flaga globalna i siedzi
+# w `_SCORING_CACHE_INPUTS`, więc jej flip unieważniłby cały cache score'ów
+# `/recommendations` — cena nieproporcjonalna do zmiany w jednym ekranie.
+RADAR_PROFILE = WeightProfile(
+    id=-1,
+    name="talent_radar",
+    semantic=70.0,
+    skills=10.0,
+    salary=15.0,
+    location=5.0,
+    availability=0.0,
+    champion_fit=0.0,
+)
 
 
 class TalentRadarError(ValueError):
@@ -229,6 +264,10 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         # wychodziła wcześniej, więc awaria nie pokazywała się na ścieżce
         # „Qdrant leży" — tylko na tej, która miała działać.
         hiring_manager_contact_id=None,
+        # `None` = „nie tnij" przy wywodzeniu umiejętności z prozy. Prawdziwa
+        # oferta nie ma tego atrybutu i zachowuje sufit 4000 znaków; tutaj
+        # request wklejony przez rekrutera bywa mailem z wymaganiami na końcu.
+        skill_scan_cap=None,
     )
 
 
@@ -264,7 +303,12 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
         )
 
     job = build_ephemeral_job(query)
-    query_text = _build_job_text(job)
+    # `max_field_chars=None` — radar embeduje CAŁY wklejony request. Domyślne
+    # 1200 znaków sprawiało, że mail z wymaganiami na końcu był rankowany po
+    # akapicie grzeczności (zmierzone: `must 1/2`, podobieństwo 0,65 zamiast
+    # 0,73). Sufit realny daje `max_length=20_000` w modelu żądania — około
+    # 7 tys. tokenów, jedna piąta okna modelu embeddingów.
+    query_text = _build_job_text(job, max_field_chars=None)
     if not query_text.strip():
         raise TalentRadarError("Zapytanie jest puste po normalizacji.")
 
@@ -276,22 +320,41 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # rankingu radaru, która ma własną flagę (tamta dotyczy `_score_skills`).
     from app.services.hybrid_search import build_job_bm25_query
 
-    hits = await retrieve_candidate_pool(
-        db,
-        query_text,
-        top_k=settings.MATCH_POOL_SIZE,
-        query_variants=build_job_query_variants(job, query_text),
-        bm25_query=build_job_bm25_query(job),
-    )
-    if not hits:
-        # Qdrant or Voyage is down. Say so instead of returning an empty list
-        # that reads as "we have nobody like that".
+    # `raise_on_error=True` rozdziela dwa stany, które do tej pory wyglądały
+    # identycznie: AWARIĘ dostawcy i zdrowe zapytanie bez trafień. Przy
+    # domyślnym połykaniu błędu oba dawały pustą listę, więc radar raportował
+    # `semantic_unavailable` także wtedy, gdy retrieval działał — a to znaczy,
+    # że baner awarii przestaje cokolwiek znaczyć. `/ai-matches` rozróżnia je
+    # od 08.2026 (`no_semantic_hits`); tu doganiamy tamten kontrakt.
+    from app.services.embedding_service import SemanticSearchUnavailable
+
+    try:
+        hits = await retrieve_candidate_pool(
+            db,
+            query_text,
+            top_k=settings.MATCH_POOL_SIZE,
+            raise_on_error=True,
+            query_variants=build_job_query_variants(job, query_text),
+            bm25_query=build_job_bm25_query(job),
+        )
+    except SemanticSearchUnavailable as exc:
+        logger.warning("[talent-radar] retrieval niedostępny: %s", exc)
         return RadarResult(
             breakdowns=[],
             pool_size=0,
             eligible_size=0,
             degraded=True,
             reason="semantic_unavailable",
+        )
+    if not hits:
+        # Zdrowe zapytanie, zero trafień. NIE jest to awaria — interfejs ma
+        # powiedzieć „nikt nie pasuje", a nie „nie wiemy".
+        return RadarResult(
+            breakdowns=[],
+            pool_size=0,
+            eligible_size=0,
+            degraded=False,
+            reason="no_semantic_hits",
         )
 
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
@@ -318,7 +381,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # keyed by (candidate, job, profile) and this job has no id, so caching would
     # either collide across unrelated searches or crash on the null key.
     breakdowns = await rank_candidates_for_job(
-        job, candidates, db, similarity_map=similarity_map
+        job, candidates, db, similarity_map=similarity_map, profile=RADAR_PROFILE
     )
 
     threshold = (

@@ -40,7 +40,7 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
 from app.services import object_storage
 from app.services import champion_view
-from app.services.cv_generator_b2b.ai_client import (
+from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     CVGeneratorOverloadedError,
     CVGeneratorTruncatedError,

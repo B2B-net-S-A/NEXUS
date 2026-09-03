@@ -10,6 +10,7 @@
  */
 
 import api from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import type { CvContentMode } from "@/lib/cv-generator";
 
 export type CvRuleLanguage = "pl" | "en";
@@ -240,7 +241,9 @@ export const cvRulesApi = {
   ) =>
     (
       await api.post<LintResponse>(`/api/clients/${clientId}/cv-rule/lint`, body, {
-        timeout: 60_000,
+        // N sekwencyjnych wywołań modelu, po jednym na pole. Wspólna stała
+        // zamiast lokalnej liczby — kopie sufitu rozjeżdżają się cicho.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
     ).data,
   promptPreview: async (clientId: number, language: CvRuleLanguage) =>

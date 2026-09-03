@@ -23,6 +23,10 @@ class FeatureConfig(BaseModel):
     )
 
     # Display-only (not editable):
+    model: str = Field(
+        "",
+        description="Efektywny model LLM (z rejestru ai_models) — funkcja → model.",
+    )
     label: str = Field(..., description="Human-readable PL label")
     data_sent_to_ai: List[str] = Field(
         default_factory=list,
@@ -37,6 +41,8 @@ class FeatureUsage(BaseModel):
 
     feature: AIFeatureKey
     used: int = Field(0, ge=0)
+    input_tokens: int = Field(0, ge=0, description="Suma tokenów wejścia w okresie.")
+    output_tokens: int = Field(0, ge=0, description="Suma tokenów wyjścia w okresie.")
     limit: int = Field(0, ge=0, description="0 = unlimited")
     period_start: date
     period_end: date = Field(

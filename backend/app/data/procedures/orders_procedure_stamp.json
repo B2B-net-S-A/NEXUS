@@ -3,7 +3,7 @@
   "sources": {
     "backend/app/api/admin_order_mail.py": "9906e4d5b834ca51e95b0f765f64e5194706f5202029c0128960a899b7ed836a",
     "backend/app/api/client_order_groups.py": "27f97373bc639fdf270a464da05d416b0002622a73e0b3fe62065ff225228d3b",
-    "backend/app/api/client_orders.py": "abd35487f59fcd424df3439d16d8067fe95a77a934502ec710b5a0901794cecf",
+    "backend/app/api/client_orders.py": "52fe5b18b5e3f3560a2ee9ce0d1e39829e9e409655f3ccc0dc74c678c63d4dea",
     "backend/app/api/md_consumption.py": "d638bb41a982bb044202688321761723f991965199bf5a3ca8e66e2d5afdc8fa",
     "backend/app/api/order_mail_queue.py": "aadac0c1ea1f1d60d1af9e5506ee093572ca7b2c969d916eef24561f4f4a2138",
     "backend/app/models/client_order.py": "405fa6171eed558b28d2e6a51ceeb2c96397ca80faccea8c35f301c49f7ead1d",
@@ -29,7 +29,7 @@
     "backend/app/services/order_mail_ingest.py": "b50cd5c99c916561f7f1805fd5a0eb979581b3b852f119deb359ac6c10182386",
     "backend/app/services/order_mail_planner.py": "becea768a8a1c2e08cf20b0463d797e1ba83814716b9517b4b2276d212c3e8b5",
     "backend/app/services/order_mail_resolver.py": "f9534b1d48d135a024866e522471f2025c6c94c38cdbb53b8d4e96ba58f13b2c",
-    "backend/app/services/order_pdf_parser.py": "bbd32e16d8610eb4f59ddc189c1f14b19b786fed79ed595f39045981e4b305c5",
+    "backend/app/services/order_pdf_parser.py": "304f86b1f315897f908d5052eb6d8f07a47a0030fba0d1494d8b12a3ad8c715f",
     "backend/app/services/order_policies/_shared.py": "f3400bd931e5f39d9b9eb9453426c5856373bd8adec1a6f5062fb1f2f4620262",
     "backend/app/services/order_policies/alior.py": "84add17e77aa63d95fa9ea3c058d7c13ff43ac710229bb7ede2e3de9b0a7b39f",
     "backend/app/services/order_policies/bank_pocztowy.py": "0e2867e7938452abf1ea0485431ec0cf38cfdd8c66e943b308ed8754cec77435",

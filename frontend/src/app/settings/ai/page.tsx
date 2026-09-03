@@ -66,12 +66,16 @@ function MasterToggle({ enabled, onChange, disabled }: MasterToggleProps) {
         />
         <div>
           <h2 className="text-lg font-semibold text-foreground">
-            Funkcje AI w NEXUS
+            Funkcje generatywne AI
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
             {enabled
-              ? "AI jest włączone — funkcje poniżej działają zgodnie z indywidualnymi ustawieniami."
-              : "Wszystkie funkcje AI są wyłączone globalnie. Włącz aby przywrócić działanie."}
+              ? "Funkcje generatywne (parsowanie CV, generatory, podsumowania, czaty) działają zgodnie z ustawieniami poniżej."
+              : "Wszystkie funkcje generatywne AI są wyłączone globalnie. Włącz, aby przywrócić działanie."}
+          </p>
+          <p className="text-xs text-muted-foreground/80 mt-1.5">
+            Wyszukiwanie semantyczne (dopasowania kandydat ↔ oferta) działa
+            NIEZALEŻNIE od tego wyłącznika i pozostaje aktywne.
           </p>
         </div>
       </div>
@@ -160,6 +164,15 @@ function FeatureCard({
             <h3 className="text-base font-semibold text-foreground">
               {config.label}
             </h3>
+            {config.model && (
+              <code
+                className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono"
+                title="Efektywny model LLM (rejestr backendu)"
+                data-testid="feature-model"
+              >
+                {config.model}
+              </code>
+            )}
             {exhausted && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-rose-500/10 text-rose-500">
                 <AlertCircle className="w-3 h-3" />
@@ -186,6 +199,16 @@ function FeatureCard({
               odnowienie {formatDate(usage.period_end)}
             </span>
           </div>
+
+          {(usage.input_tokens > 0 || usage.output_tokens > 0) && (
+            <p
+              className="text-xs text-muted-foreground/80 mt-1"
+              data-testid="feature-tokens"
+            >
+              Tokeny w tym okresie: {formatNumber(usage.input_tokens)} wejścia ·{" "}
+              {formatNumber(usage.output_tokens)} wyjścia
+            </p>
+          )}
 
           {config.monthly_limit > 0 && (
             <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">

@@ -37,10 +37,19 @@ export interface TalentRadarSessionState {
   client: ClientRef | null;
   title: string;
   text: string;
+  location: string;
   budgetMax: string;
   excludeRemoteOnly: boolean;
   championProfile: Record<string, unknown> | null;
   championSummary: ChampionParseSummary | null;
+  /**
+   * Wymagania z `parse-champion`. Trzymane OSOBNO od `championProfile`, bo ten
+   * obiekt ich nie niesie (`build_champion_dict` ich nie kopiuje) — a bez nich
+   * w snapshocie powrót z profilu kandydata gubił listy i kolejne „Szukaj"
+   * leciało bez wymagań. Dziś bez skutku widocznego (flaga strukturalnych
+   * wymagań jest wyłączona), ale po jej flipie łańcuch urwałby się cicho.
+   */
+  championSkills: { must: string[]; nice: string[] } | null;
   response: TalentRadarSearchResponse | null;
 }
 
@@ -57,6 +66,20 @@ function isValidState(value: unknown): value is TalentRadarSessionState {
   if (!isRecord(value)) return false;
   if (typeof value.title !== "string") return false;
   if (typeof value.text !== "string") return false;
+  // `location` i `championSkills` doszły później — snapshot sprzed tej wersji
+  // nie ma ich wcale. Klucz jest wersjonowany, więc taki zapis i tak zostanie
+  // odrzucony; walidacja przyjmuje `undefined` po to, żeby restore nie zależał
+  // od kolejności deployu frontu i klucza w przeglądarce.
+  if (value.location !== undefined && typeof value.location !== "string") {
+    return false;
+  }
+  if (
+    value.championSkills !== undefined &&
+    value.championSkills !== null &&
+    !isRecord(value.championSkills)
+  ) {
+    return false;
+  }
   if (typeof value.budgetMax !== "string") return false;
   if (typeof value.excludeRemoteOnly !== "boolean") return false;
 

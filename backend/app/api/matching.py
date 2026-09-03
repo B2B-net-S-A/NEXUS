@@ -370,9 +370,13 @@ async def get_ai_matches(
         ordered: list[Candidate] = [
             c for cid in candidate_ids if (c := candidates_by_id.get(cid))
         ]
+        _pool_before_eligibility = len(ordered)
         ordered = await filter_eligible_candidates(
             db, job=job, candidates=ordered, now=datetime.now(timezone.utc)
         )
+        # P-B (decyzja Artura, 2026-09-03): odsianych bramką dopuszczalności
+        # PUBLIKUJEMY (patrz komentarz przy gałęzi tag-fallback).
+        eligibility_filtered = _pool_before_eligibility - len(ordered)
 
         search_type = "semantic"
         scores_by_idx: dict[int, float] = {
@@ -415,7 +419,12 @@ async def get_ai_matches(
             "min_score": round(threshold, 3),
             "location_filter": requested_location if location_active else None,
             "matches": matches,
-            "meta": {"mode": search_type, "degraded": False, "reason": None},
+            "meta": {
+                "mode": search_type,
+                "degraded": False,
+                "reason": None,
+                "eligibility_filtered": eligibility_filtered,
+            },
         }
 
     # ── Fallback: tag-based matching ─────────────────────────────────────────
@@ -442,11 +451,15 @@ async def get_ai_matches(
         db, job=job, candidates=all_candidates, now=datetime.now(timezone.utc)
     )
 
-    # Licznik idzie WYŁĄCZNIE do logu, świadomie nie do odpowiedzi. „Ukryto N"
-    # w body byłoby wyrocznią na NDA: rekruter dowiedziałby się, że u tego
-    # klienta istnieje N osób, których nie wolno mu zobaczyć. W logu jest po to,
-    # żeby zgłoszenie „lista jest podejrzanie krótka" dało się rozstrzygnąć
-    # bez zgadywania — bez niego skrócenie listy jest niediagnozowalne.
+    # P-B (decyzja Artura, 2026-09-03): licznik odsianych JEST teraz w odpowiedzi
+    # (`meta.eligibility_filtered`) i renderowany na stronie oferty — świadome
+    # ODWRÓCENIE wcześniejszej decyzji, która trzymała go wyłącznie w logu.
+    # Zapisany wprost, bo znosi realny, wcześniej udokumentowany tradeoff:
+    # „Ukryto N" jest wyrocznią na NDA — rekruter dowiaduje się, że u tego
+    # klienta istnieje N osób, których nie wolno mu zobaczyć. Ujednolicone
+    # z Talent Radarem (bliźniaczy ekran, ten sam silnik), który publikuje
+    # `eligible_size` od początku. Log zostaje: rozstrzyga „lista jest
+    # podejrzanie krótka" bez zgadywania, także gdy front licznika nie pokaże.
     hidden = before_gate - len(all_candidates)
     if hidden:
         logger.info(
@@ -493,5 +506,6 @@ async def get_ai_matches(
             "reason": (
                 "semantic_unavailable" if semantic_unavailable else "no_semantic_hits"
             ),
+            "eligibility_filtered": hidden,
         },
     }

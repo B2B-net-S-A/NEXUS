@@ -53,10 +53,11 @@ from app.services.ai_quota import (
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.client_identity import client_display_name_expression
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.environ.get("CANDIDATE_SUMMARY_MODEL", "claude-sonnet-5")
+DEFAULT_MODEL = model_for(AIFeatureKey.candidate_summary)
 MAX_TOKENS = 1200
 
 # Changing this value invalidates every previously generated row even when the

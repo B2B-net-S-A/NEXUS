@@ -78,7 +78,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import storage_service
-from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import deny, resolve_client_access
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
@@ -1934,23 +1934,6 @@ async def extract_order_pdf(
             ),
         )
 
-    # Quota AI — liczone po udanej ekstrakcji, przed wywołaniem Claude, żeby
-    # blokada zwróciła 503 bez palenia wywołania modelu (wzorzec cv_match_preview).
-    try:
-        await check_and_increment(db, AIFeatureKey.order_parser, user_id=user.id)
-        await db.commit()
-    except AIQuotaExceeded as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "feature": exc.feature.value,
-                "reason": exc.reason,
-                "used": exc.used,
-                "limit": exc.limit,
-            },
-        ) from exc
-
     # Które reguły klientowe obowiązują i jak kształtują wywołanie parsera —
     # patrz ``app.services.order_policies``. Dwa wpływy na SAMO parsowanie:
     #  - dokument jednoosobowy bez nazwiska (BNP): parser dostaje sam tekst,
@@ -1962,26 +1945,29 @@ async def extract_order_pdf(
     policies = active_policies(client_id)
     plan = parse_plan(policies)
 
-    if plan.single_consultant_document:
-        extraction = await parse_order_document(text)
-    elif target_consultant and plan.rate_unit_default:
-        extraction = await parse_order_document(
-            text,
-            consultant_name=target_consultant,
-            consultant_given_names=target_given_names,
-            consultant_rate_unit_default=plan.rate_unit_default,
-        )
-    elif target_consultant:
-        # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
-        # ich matchery zachowują dotychczasowe, fail-closed zachowanie.
-        extraction = await parse_order_document(
-            text,
-            consultant_name=target_consultant,
-            consultant_given_names=target_given_names,
-        )
-    else:
-        # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
-        extraction = await parse_order_document(text)
+    # Bramka kwoty MUSI obejmować wywołanie modelu: `ai_feature` deklaruje
+    # kontekst tylko na czas swojego bloku, a bez deklaracji `parse_order_document`
+    # dolatywałby do granicy dostawcy jako niezadeklarowany.
+    try:
+        async with ai_feature(db, AIFeatureKey.order_parser, user_id=user.id):
+            await db.commit()
+            extraction = await _extract_with_plan(
+                text,
+                plan=plan,
+                target_consultant=target_consultant,
+                target_given_names=target_given_names,
+            )
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
 
     extraction, applied_policies = apply_policies(
         extraction,
@@ -2905,3 +2891,39 @@ async def delete_order_po(
     # cofnąć poprawnego usunięcia z formularza ani zostawić bazy wskazującej na
     # nieistniejący plik.
     storage_service.delete_client_order_po(previous_path)
+
+
+async def _extract_with_plan(
+    text: str,
+    *,
+    plan,
+    target_consultant: Optional[str],
+    target_given_names: Optional[str],
+):
+    """Wywołanie parsera zamówienia w wariancie wynikającym z reguł klienta.
+
+    Wyodrębnione z handlera, bo bramka kwoty musi teraz OBEJMOWAĆ wywołanie
+    modelu — a wcięcie czterech gałęzi w `async with` dawałoby diff, w którym
+    łatwo pomylić, która gałąź dostaje który zestaw argumentów. Rozróżnienia
+    są tu istotne: BNP dostaje sam tekst (fail-closed matcher nie miałby czego
+    dopasować), PFRON i Erste dokładają domyślną jednostkę stawki.
+    """
+    if plan.single_consultant_document:
+        return await parse_order_document(text)
+    if target_consultant and plan.rate_unit_default:
+        return await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+            consultant_rate_unit_default=plan.rate_unit_default,
+        )
+    if target_consultant:
+        # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
+        # ich matchery zachowują dotychczasowe, fail-closed zachowanie.
+        return await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+        )
+    # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
+    return await parse_order_document(text)

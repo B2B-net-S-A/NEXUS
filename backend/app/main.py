@@ -1943,45 +1943,27 @@ async def api_health_check():
     # recorded (see `_run_qdrant`) and feeds `meta.ai_status`, but publishing a
     # second, similarly-named key would only make this output ambiguous.
 
-    # AI features with no monthly ceiling. Under fail-open quota semantics that
-    # is a spend warning, not an outage — informational, never flips `overall`.
+    # Mechanizm zastępczy budżetu AI. Po decyzji 24.08 (bez sufitów miesięcznych)
+    # jedyną ochroną wydatków jest alarm `ai_spend_alerts`. Do C12 ten check
+    # raportował `uncapped: <14 funkcji>` — a brak sufitów jest stanem
+    # ZAMIERZONYM, więc to ostrzeżenie było stałe i bezużyteczne, a jednocześnie
+    # NIC nie pokazywało, że sam alarm nie wystartował (03.09: pętla w
+    # `exited_cleanly`, brak SLACK_WEBHOOK_URL, health `healthy`).
     #
-    # "Uncapped" is BOTH a missing row and a row with `monthly_limit = 0`, which
-    # `ai_quota` documents as unlimited. Counting only missing rows made this
-    # probe report `healthy` on prod while all 19 configured features sat at 0 —
-    # a green light on a system with no ceiling anywhere.
-    #
-    # The feature column is read as text on purpose. Hydrating it into
-    # `AIFeatureKey` raises when a row holds a value the enum no longer has, and
-    # prod has 11 such rows (`embeddings`, `matching`, `reranking`, …) left from
-    # features that were renamed or dropped. A probe whose job is spotting
-    # config drift must not be killed by that drift — before this, one orphan row
-    # turned the whole check into a silent `unknown`.
+    # Teraz raportujemy STAN alarmu: czy webhook jest ustawiony i czy pętla
+    # biegnie. Wartość celowo NIE zaczyna się od prefiksu awaryjnego — patrz
+    # `spend_alarm_status`. Realny błąd (webhook jest, pętla nie biegnie)
+    # alarmuje przez `background_tasks`, nie tutaj.
     try:
-        from sqlalchemy import Text, cast
-
-        from app.models.ai_feature import AIFeatureConfig, AIFeatureKey
-
-        async with AsyncSessionLocal() as session:
-            rows = await asyncio.wait_for(
-                session.execute(
-                    select(
-                        cast(AIFeatureConfig.feature, Text),
-                        AIFeatureConfig.monthly_limit,
-                    )
-                ),
-                timeout=1.0,
-            )
-        limits = {str(f): (lim or 0) for f, lim in rows.all()}
-        uncapped = sorted(k.value for k in AIFeatureKey if limits.get(k.value, 0) <= 0)
-        checks["ai_features"] = (
-            "healthy" if not uncapped else f"uncapped: {','.join(uncapped)}"
+        from app.services.background_task_health import (
+            classify_background_tasks,
+            spend_alarm_status,
         )
+
+        _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
+        _cls = classify_background_tasks(getattr(app.state, "background_tasks", None))
+        checks["ai_features"] = spend_alarm_status(_cls, webhook_set=_webhook_set)
     except Exception as exc:
-        # Log it: this is the safety net for fail-open quota semantics (a missing
-        # config row means uncapped spend), and operators are told to treat
-        # `ai_features` as informational. A silent `unknown` would hide the
-        # warning at exactly the moment it matters most.
         logger.warning("[health] ai_features check failed: %s", exc)
         checks["ai_features"] = "unknown"
 
@@ -2013,25 +1995,36 @@ async def api_health_check():
         logger.warning("[health] fx check failed: %s", exc)
         checks["fx"] = "unknown"
 
-    # Pętle w tle — liczba tych, które PADŁY. Świadomie nie „running/expected":
-    # ten ułamek jest z założenia nierówny (23 z 34 pętli kończą się celowo na
-    # własnym kill-switchu), więc jego spadek o jeden jest nieodróżnialny od
-    # zdrowego stanu. `crashed` przy zdrowej instalacji wynosi zero, więc każda
-    # wartość powyżej zera jest jednoznaczna. Informacyjny — martwa pętla nie
-    # jest powodem, żeby uptime-probe uznał backend za nieżywy.
+    # Pętle w tle. `crashed` (wyjątek) alarmuje jak dotąd. Dodatkowo:
+    # krytyczne alarmy Slack (ochrona budżetu AI) bramkowane configiem — gdy
+    # SLACK_WEBHOOK_URL JEST ustawiony, a pętla i tak wyszła czysto, to realny
+    # błąd wart issue (`critical:`); gdy webhook nieustawiony — stan O-1, cisza.
+    # Ta sama klasyfikacja co w /api/admin/snapshot (jedna funkcja, zero
+    # rozjazdu). Informacyjny — nie flipuje `overall` na 503.
     try:
+        from app.services.background_task_health import (
+            classify_background_tasks,
+            stopped_webhook_alarms,
+        )
+
         _bg = getattr(app.state, "background_tasks", None)
         if not isinstance(_bg, dict):
             checks["background_tasks"] = "unknown"
         else:
-            crashed = [
-                name
-                for name, task in _bg.items()
-                if task.done() and not task.cancelled() and task.exception() is not None
-            ]
-            checks["background_tasks"] = (
-                "healthy" if not crashed else f"crashed: {','.join(sorted(crashed))}"
-            )
+            _cls = classify_background_tasks(_bg)
+            _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
+            _stopped = stopped_webhook_alarms(_cls, webhook_set=_webhook_set)
+            if _cls["crashed"]:
+                checks["background_tasks"] = (
+                    f"crashed: {','.join(sorted(_cls['crashed_tasks']))}"
+                )
+            elif _stopped:
+                checks["background_tasks"] = (
+                    f"critical: {','.join(_stopped)} — pętla alarmu wyszła mimo "
+                    "ustawionego SLACK_WEBHOOK_URL"
+                )
+            else:
+                checks["background_tasks"] = "healthy"
     except Exception as exc:
         logger.warning("[health] background_tasks check failed: %s", exc)
         checks["background_tasks"] = "unknown"
