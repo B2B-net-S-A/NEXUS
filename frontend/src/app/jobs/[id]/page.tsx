@@ -34,6 +34,7 @@ import { formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { hasSectionAccess } from "@/lib/section-access";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
 import { LocationInput } from "@/components/v2/filters/LocationInput";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
@@ -116,8 +117,15 @@ function PublishModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-card rounded-xl shadow-xl w-full max-w-md p-6">
-        <h2 className="text-lg font-bold mb-1">Opublikuj ogłoszenie</h2>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="publish-posting-title"
+        className="bg-card rounded-xl shadow-xl w-full max-w-md p-6"
+      >
+        <h2 id="publish-posting-title" className="text-lg font-bold mb-1">
+          Opublikuj ogłoszenie
+        </h2>
         <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
           ⚠️ Integracja z portalami w przygotowaniu — dane symulowane
         </p>
@@ -191,7 +199,13 @@ function PublishModal({
 
 // ── Postings Section ──────────────────────────────────────────────────────────
 
-function PostingsSection({ jobId }: { jobId: number }) {
+function PostingsSection({
+  jobId,
+  readOnly = false,
+}: {
+  jobId: number;
+  readOnly?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [showModal, setShowModal] = useState(false);
 
@@ -232,7 +246,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
           <h2 className="text-lg font-semibold">Portale ogłoszeniowe</h2>
           <span className="text-xs text-muted-foreground ml-1">({postings.length})</span>
         </div>
-        <div className="flex gap-2">
+        {!readOnly ? <div className="flex gap-2">
           <button
             onClick={() => publishAllMutation.mutate()}
             disabled={publishAllMutation.isPending}
@@ -248,7 +262,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
             <Plus className="w-3.5 h-3.5" />
             Opublikuj ogłoszenie
           </button>
-        </div>
+        </div> : null}
       </div>
 
       {/* Simulation notice */}
@@ -260,7 +274,11 @@ function PostingsSection({ jobId }: { jobId: number }) {
       {postings.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">Brak publikacji. Opublikuj ogłoszenie na portalach rekrutacyjnych.</p>
+          <p className="text-sm">
+            {readOnly
+              ? "Brak publikacji."
+              : "Brak publikacji. Opublikuj ogłoszenie na portalach rekrutacyjnych."}
+          </p>
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -274,7 +292,9 @@ function PostingsSection({ jobId }: { jobId: number }) {
                 <th className="text-right py-2 px-3 text-muted-foreground font-medium">Wyświetlenia</th>
                 <th className="text-right py-2 px-3 text-muted-foreground font-medium">Aplikacje</th>
                 <th className="text-center py-2 px-3 text-muted-foreground font-medium">Link</th>
-                <th className="text-center py-2 px-3 text-muted-foreground font-medium">Akcje</th>
+                {!readOnly ? (
+                  <th className="text-center py-2 px-3 text-muted-foreground font-medium">Akcje</th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -312,6 +332,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
                           href={posting.url}
                           target="_blank"
                           rel="noopener noreferrer"
+                          aria-label={`Otwórz ogłoszenie na ${portalCfg.label} w nowej karcie`}
                           className="text-primary hover:text-primary/80 inline-flex items-center gap-1"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
@@ -320,9 +341,11 @@ function PostingsSection({ jobId }: { jobId: number }) {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 text-center">
-                      <DeleteButton onConfirm={() => deleteMutation.mutate(posting.id)} />
-                    </td>
+                    {!readOnly ? (
+                      <td className="py-2.5 px-3 text-center">
+                        <DeleteButton onConfirm={() => deleteMutation.mutate(posting.id)} />
+                      </td>
+                    ) : null}
                   </tr>
                 );
               })}
@@ -332,7 +355,7 @@ function PostingsSection({ jobId }: { jobId: number }) {
       )}
 
       {/* Publish modal */}
-      {showModal && (
+      {!readOnly && showModal && (
         <PublishModal
           jobId={jobId}
           existingPortals={activePortals}
@@ -523,12 +546,21 @@ function AIJobWriterModal({
 
 // ── Phase 4: AI criteria / scoring actions ──────────────────────────────────
 
-function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) {
+function JobAIActions({
+  jobId,
+  onDone,
+  readOnly = false,
+}: {
+  jobId: number;
+  onDone: () => void;
+  readOnly?: boolean;
+}) {
   const [busy, setBusy] = useState<null | "criteria" | "recompute" | "embed-all">(null);
   const [last, setLast] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
   const run = async (kind: "criteria" | "recompute" | "embed-all") => {
+    if (readOnly) return;
     setBusy(kind);
     setLast(null);
     try {
@@ -560,6 +592,8 @@ function JobAIActions({ jobId, onDone }: { jobId: number; onDone: () => void }) 
       setBusy(null);
     }
   };
+
+  if (readOnly) return null;
 
   return (
     <div className="rounded-lg border border-dashed border-primary/30 dark:border-primary/90 bg-primary/10 dark:bg-primary/10 p-3">
@@ -713,7 +747,15 @@ function EmailTemplateModal({
   );
 }
 
-function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
+function AIMatchingSection({
+  jobId,
+  job,
+  readOnly = false,
+}: {
+  jobId: number;
+  job: any;
+  readOnly?: boolean;
+}) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
@@ -742,8 +784,12 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   // etap. Wcześniej legacy wysyłał `pipeline/move` ze `stage:"sourced"` (spoza
   // enum PipelineStage) → 422 i cichy fail.
   const addToPipelineMutation = useMutation({
-    mutationFn: ({ candidateId }: { candidateId: number; fullName: string }) =>
-      proposalsBulkApi.add(jobId, { candidate_ids: [candidateId] }),
+    mutationFn: ({ candidateId }: { candidateId: number; fullName: string }) => {
+      if (readOnly) {
+        throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
+      }
+      return proposalsBulkApi.add(jobId, { candidate_ids: [candidateId] });
+    },
     onMutate: ({ candidateId }) => setAddingId(candidateId),
     onSuccess: (res, { candidateId, fullName }) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -784,7 +830,11 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
   return (
     <div className="space-y-4">
       {/* Phase 4: AI criteria + scoring actions */}
-      <JobAIActions jobId={jobId} onDone={() => refetch()} />
+      <JobAIActions
+        jobId={jobId}
+        onDone={() => refetch()}
+        readOnly={readOnly}
+      />
 
       {/* Header info + location filter */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -930,7 +980,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                   )}
 
                   {/* Action buttons */}
-                  <div className="flex gap-2 pt-1">
+                  {!readOnly ? <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => addToPipelineMutation.mutate({ candidateId: c.id, fullName })}
                       disabled={isAdding || isAdded}
@@ -955,7 +1005,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
                       <Mail className="w-3 h-3" />
                       Wyślij wiadomość
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
               </div>
             );
@@ -964,7 +1014,7 @@ function AIMatchingSection({ jobId, job }: { jobId: number; job: any }) {
       )}
 
       {/* Email modal */}
-      {emailTarget && (
+      {!readOnly && emailTarget && (
         <EmailTemplateModal
           candidate={emailTarget}
           job={job}
@@ -999,7 +1049,10 @@ export default function JobDetailPage() {
   // dezorientują — sekcja legacy (+ operacyjne akcje "Przelicz scoring" /
   // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
+  const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
+  const canWritePipeline =
+    !impersonating && hasSectionAccess(authUser, "pipeline", "write");
   // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
   // żeby nie hodować drugiej listy ról obok niego (F-19).
   const canUpdateJob = useCapability("job.update");
@@ -1110,13 +1163,14 @@ export default function JobDetailPage() {
   }, [job, id, openTab]);
 
   const handleUseDescription = useCallback(async (description: string) => {
+    if (!canWritePipeline) return;
     try {
       await api.patch(`/api/jobs/${id}`, { description });
       queryClient.invalidateQueries({ queryKey: ["job", id] });
     } catch (e) {
       // silent — user can copy manually
     }
-  }, [id, queryClient]);
+  }, [canWritePipeline, id, queryClient]);
 
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
   // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
@@ -1176,6 +1230,9 @@ export default function JobDetailPage() {
                   ? "Szkic"
                   : job.status}
             </Badge>
+            {!canWritePipeline ? (
+              <Badge variant="info">Tylko odczyt</Badge>
+            ) : null}
           </>
         }
         metadata={
@@ -1208,13 +1265,21 @@ export default function JobDetailPage() {
         }
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        onAddCandidate={() => setShowAddCandidates(true)}
-        onEdit={canUpdateJob ? () => setShowEditJob(true) : undefined}
+        onAddCandidate={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
+        onEdit={
+          canWritePipeline && canUpdateJob
+            ? () => setShowEditJob(true)
+            : undefined
+        }
         onWriteAnnouncement={
-          canUpdateJob ? () => setShowAIWriter(true) : undefined
+          canWritePipeline && canUpdateJob
+            ? () => setShowAIWriter(true)
+            : undefined
         }
         onGenerateInviteLink={
-          job.status === "published" && canCreateInviteLink
+          canWritePipeline &&
+          job.status === "published" &&
+          canCreateInviteLink
             ? () => setShowInviteLink(true)
             : undefined
         }
@@ -1235,7 +1300,7 @@ export default function JobDetailPage() {
                 clientId={job.client_id ?? null}
                 value={job.hiring_manager_contact_id ?? null}
                 valueName={job.hiring_manager_name ?? null}
-                canEdit={canUpdateJob}
+                canEdit={canWritePipeline && canUpdateJob}
                 onSaved={() =>
                   queryClient.invalidateQueries({ queryKey: ["job", id] })
                 }
@@ -1263,7 +1328,7 @@ export default function JobDetailPage() {
       />
 
       {/* Edit Job Modal */}
-      {showEditJob && job && (
+      {canWritePipeline && showEditJob && job && (
         <EditJobModal
           job={job}
           onClose={() => setShowEditJob(false)}
@@ -1275,7 +1340,7 @@ export default function JobDetailPage() {
       )}
 
       {/* AI Writer Modal */}
-      {showAIWriter && (
+      {canWritePipeline && showAIWriter && (
         <AIJobWriterModal
           job={job}
           onClose={() => setShowAIWriter(false)}
@@ -1285,14 +1350,14 @@ export default function JobDetailPage() {
 
       {/* Invite Link Modal — pre-selected current job */}
       <GenerateInviteLinkV2
-        open={showInviteLink}
+        open={canWritePipeline && showInviteLink}
         onOpenChange={setShowInviteLink}
         defaultJobId={Number(id)}
       />
 
       {/* Quick search + bulk-add candidates to this job */}
       <AddCandidatesQuickModal
-        open={showAddCandidates}
+        open={canWritePipeline && showAddCandidates}
         onClose={() => setShowAddCandidates(false)}
         jobId={Number(id)}
         jobTitle={job.title}
@@ -1310,6 +1375,7 @@ export default function JobDetailPage() {
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}
               headerCollapsed={headerCollapsed}
+              readOnly={!canWritePipeline}
             />
           )}
         </div>
@@ -1319,12 +1385,13 @@ export default function JobDetailPage() {
         <RequestHistorySection
           jobId={Number(id)}
           clientId={job?.client_id ?? null}
+          readOnly={!canWritePipeline}
         />
       )}
 
       {activeTab === "ai-matching" && (
         <div className="space-y-4">
-          <HistoricalCandidatesSection jobId={Number(id)} />
+          <HistoricalCandidatesSection jobId={Number(id)} readOnly={!canWritePipeline} />
           <div
             className={cn(
               "rounded-lg transition-shadow",
@@ -1336,6 +1403,7 @@ export default function JobDetailPage() {
               jobId={Number(id)}
               defaultLocation={formatCandidateLocation(job?.location)}
               jobHasBudget={job?.has_budget_hourly ?? true}
+              readOnly={!canWritePipeline}
             />
           </div>
           {isAdmin && (
@@ -1347,7 +1415,11 @@ export default function JobDetailPage() {
                   Prosty semantic + tag fallback · widok diagnostyczny (admin)
                 </span>
               </div>
-              <AIMatchingSection jobId={Number(id)} job={job} />
+              <AIMatchingSection
+                jobId={Number(id)}
+                job={job}
+                readOnly={!canWritePipeline}
+              />
             </div>
           )}
         </div>
@@ -1357,6 +1429,7 @@ export default function JobDetailPage() {
         <ManualSearchTab
           jobId={Number(id)}
           job={job}
+          readOnly={!canWritePipeline}
           onBulkAdded={() => {
             queryClient.invalidateQueries({ queryKey: ["kanban", id] });
             queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
@@ -1365,7 +1438,7 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "portals" && (
-        <PostingsSection jobId={Number(id)} />
+        <PostingsSection jobId={Number(id)} readOnly={!canWritePipeline} />
       )}
 
       {activeTab === "champion" && (
@@ -1376,11 +1449,15 @@ export default function JobDetailPage() {
             // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
             // recruiter sees a read-only Champion instead of filling a form that
             // 403s on save (P1-02).
-            canEdit={isAdmin || hasRole(authUser, "delivery_lead")}
+            canEdit={
+              canWritePipeline &&
+              (isAdmin || hasRole(authUser, "delivery_lead"))
+            }
           />
-          {(isAdmin || hasRole(authUser, "delivery_lead")) && (
+          {canWritePipeline &&
+            (isAdmin || hasRole(authUser, "delivery_lead")) && (
             <JobHandoffButton jobId={Number(id)} />
-          )}
+            )}
         </>
       )}
 
@@ -1388,10 +1465,13 @@ export default function JobDetailPage() {
         <QuestionBankTab
           jobId={Number(id)}
           clientId={job?.client_id ?? null}
+          readOnly={!canWritePipeline}
         />
       )}
 
-      {activeTab === "chat" && <JobChatTab jobId={Number(id)} />}
+      {activeTab === "chat" && (
+        <JobChatTab jobId={Number(id)} readOnly={!canWritePipeline} />
+      )}
     </div>
   );
 }
@@ -1416,6 +1496,7 @@ interface ManualSearchTabProps {
   jobId: number;
   job: JobLite;
   onBulkAdded?: () => void;
+  readOnly?: boolean;
 }
 
 /**
@@ -1424,7 +1505,12 @@ interface ManualSearchTabProps {
  * can bulk-add hits straight into the pipeline. Already-added candidates
  * are excluded server-side via ``exclude_in_job_id``.
  */
-function ManualSearchTab({ jobId, job, onBulkAdded }: ManualSearchTabProps) {
+function ManualSearchTab({
+  jobId,
+  job,
+  onBulkAdded,
+  readOnly = false,
+}: ManualSearchTabProps) {
   const initial = buildJobSearchPrefill(job);
 
   return (
@@ -1432,6 +1518,7 @@ function ManualSearchTab({ jobId, job, onBulkAdded }: ManualSearchTabProps) {
       initial={initial}
       addToJob={{ id: jobId, title: job.title }}
       onBulkAdded={onBulkAdded}
+      readOnly={readOnly}
     />
   );
 }

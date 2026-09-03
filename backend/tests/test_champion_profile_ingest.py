@@ -352,12 +352,10 @@ def _route_dep_names(route) -> set:
 
 
 def test_radar_routes_require_login_and_share_the_same_guard():
-    """Radar jest dostępny dla KAŻDEJ zalogowanej roli (decyzja produktowa
-    Artura 19.08) — więc kontrakt to: (1) uwierzytelnienie WYMUSZONE na obu
-    trasach, (2) parse-champion i search mają IDENTYCZNY zestaw zależności
-    auth (porównanie z sąsiednią trasą łapie refaktor gubiący guard),
-    (3) ŻADNEGO guardu rolowego (`_check` z require_candidate_roles) — jego
-    powrót oznaczałby ciche cofnięcie decyzji „dla każdego".
+    """Obie trasy wymagają logowania i tej samej bramki sekcji Sourcing.
+
+    Polityka startowa nadal daje radar każdej aktywnej roli, ale administrator
+    może teraz jawnie odebrać Sourcing konkretnej osobie.
     """
     from app.api.talent_radar import router
 
@@ -369,8 +367,8 @@ def test_radar_routes_require_login_and_share_the_same_guard():
 
     # Uwierzytelnienie wymuszone (nie anonymous):
     assert "get_current_user" in parse and "get_current_user" in search
-    # Bez zawężenia rolowego — radar ma być dla każdej roli:
-    assert "_check" not in parse and "_check" not in search
+    # Konfigurowalna bramka sekcji jest obecna na obu trasach:
+    assert "_check" in parse and "_check" in search
     # Oba endpointy z tym samym zestawem zależności auth:
     auth_deps = {"get_current_user", "_check"}
     assert (parse & auth_deps) == (search & auth_deps), (

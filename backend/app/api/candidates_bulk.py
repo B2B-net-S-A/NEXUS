@@ -43,7 +43,9 @@ from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.services import candidate_audit
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 # ── Request / response shapes ────────────────────────────────────────────────

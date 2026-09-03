@@ -16,7 +16,9 @@ from app.core.database import get_db
 from app.models.job import Job
 from app.models.job_posting import JobPosting, Portal, PostingStatus
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 def now_utc():

@@ -29,6 +29,7 @@ import {
  hasRole,
  useAuthStore,
 } from"@/store/auth";
+import { hasSectionAccess } from "@/lib/section-access";
 import { Badge } from"@/components/ui/badge";
 import { Button, buttonVariants } from"@/components/ui/button";
 import { Card } from"@/components/ui/card";
@@ -81,9 +82,13 @@ function rateUnitLabel(unit: ContractorListItem["rate_unit"]): string {
 
 export function ContractorsListV2() {
  const user = useAuthStore((state) => state.user);
+ const impersonating = useAuthStore((state) => state.realUser !== null);
  const canManageFinance = canManageCandidateFinance(user);
  const canViewFinance = canViewCandidateFinance(user);
- const canOperateContracts = hasRole(user,"admin","delivery_lead");
+ const canOperateContracts =
+ !impersonating &&
+ hasRole(user,"admin","delivery_lead") &&
+ hasSectionAccess(user,"delivery","write");
  const searchParams = useSearchParams();
  const navigationSearch = searchParams.toString();
  const [initialListState] = useState(() => {

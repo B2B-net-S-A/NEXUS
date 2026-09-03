@@ -71,4 +71,43 @@ describe("SuggestedJobsWidget degraded recommendations", () => {
     expect(screen.getByText("BM25 · tryb awaryjny")).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
+
+  it("keeps recommendations readable without rendering assignment actions", async () => {
+    const match: JobMatch = {
+      job: {
+        id: 11,
+        title: "Python Developer",
+        client_id: null,
+        location: "Warszawa",
+        salary_min: null,
+        salary_max: null,
+        remote_policy: null,
+        status: "published",
+        priority: null,
+        seniority: null,
+        industry: null,
+        deadline: null,
+      },
+      total_score: 82,
+      breakdown: null,
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SuggestedJobsWidget
+          candidateId={7}
+          matches={[match]}
+          canAssign={false}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Python Developer")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Przypisz" }),
+    ).not.toBeInTheDocument();
+  });
 });

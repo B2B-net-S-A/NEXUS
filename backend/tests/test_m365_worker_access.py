@@ -16,6 +16,7 @@ from app.services import rejection_email_scheduler
 from app.services.m365 import sender, sync, webhooks
 from app.services.m365.access import M365OwnerIneligible
 from app.services.m365.graph_client import GraphClient
+from app.services.section_permissions import ProductSection
 from app.tasks import microsoft365_sync
 
 
@@ -233,6 +234,46 @@ async def test_rejection_worker_marks_ineligible_owner_skipped_without_retry(
     db.flush.assert_awaited_once()
     db.commit.assert_awaited_once()
     assert db.scalar.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_rejection_worker_skips_after_pipeline_write_is_revoked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    row = SimpleNamespace(
+        id=503,
+        recruiter_id=37,
+        candidate_id=70,
+        job_id=80,
+        status=RejectionEmailStatus.pending,
+        last_error=None,
+    )
+    owner = _user(UserRole.recruiter)
+    owner.effective_section_access = {
+        section.value: "none" for section in ProductSection
+    }
+    owner.effective_section_access[ProductSection.sourcing.value] = "write"
+    eligible_owner = AsyncMock(return_value=owner)
+    send_new = AsyncMock()
+    db = AsyncMock()
+    db.scalar.return_value = row
+    monkeypatch.setattr(
+        rejection_email_scheduler,
+        "eligible_m365_owner",
+        eligible_owner,
+    )
+    monkeypatch.setattr(sender, "send_new", send_new)
+
+    await rejection_email_scheduler.dispatch(db, row.id)
+
+    assert row.status == RejectionEmailStatus.skipped
+    assert row.last_error == "pipeline_write_access_revoked"
+    send_new.assert_not_awaited()
+    db.flush.assert_awaited_once()
+    db.commit.assert_awaited_once()
+    audit = db.add.call_args.args[0]
+    assert audit.action == "rejection_email_skipped"
+    assert audit.details["reason"] == "pipeline_write_access_revoked"
 
 
 @pytest.mark.asyncio

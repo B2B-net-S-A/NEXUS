@@ -32,6 +32,7 @@ from app.models.contract import Contract, ContractStatus
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services import candidate_stage_cv_service
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
@@ -167,6 +168,13 @@ async def test_contract_alerts_dedup_survives_racing_prefilter(monkeypatch) -> N
             end_date=business_today() + timedelta(days=30),  # falls in the 30d window
         )
         db.add(contract)
+        db.add(
+            DeliveryLeadClientAssignment(
+                delivery_lead_user_id=staff.id,
+                client_id=client.id,
+                is_head=False,
+            )
+        )
         await db.commit()
         staff_uid, contract_id = staff.id, contract.id
 

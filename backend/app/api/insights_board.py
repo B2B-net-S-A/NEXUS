@@ -94,6 +94,7 @@ from app.analytics.periods import (
     resolve_period,
 )
 from app.api.deps import CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -108,7 +109,7 @@ from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln_by_dat
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CACHE_TTL_SECONDS = 300
 

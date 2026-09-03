@@ -1,4 +1,4 @@
-import { getAccessToken } from "./session";
+import { getAuthenticatedRequestHeaders } from "./session";
 
 export interface BulkCvDownloadResult {
   includedCount: number;
@@ -36,14 +36,11 @@ export async function downloadBulkCvs(
   }
 
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
-  const token = getAccessToken();
-
   const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
     method: "POST",
-    headers: {
+    headers: getAuthenticatedRequestHeaders({
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    }),
     body: JSON.stringify({ candidate_ids: candidateIds }),
   });
 

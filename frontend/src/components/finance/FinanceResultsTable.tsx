@@ -96,6 +96,7 @@ interface Props {
   ) => Promise<void>;
   onError: (msg: string) => void;
   searching: boolean;
+  readOnly?: boolean;
 }
 
 export function FinanceResultsTable({
@@ -106,6 +107,7 @@ export function FinanceResultsTable({
   onEdit,
   onError,
   searching,
+  readOnly = false,
 }: Props) {
   if (rows.length === 0) {
     return (
@@ -199,6 +201,7 @@ export function FinanceResultsTable({
                       }
                       onSave={(next) => onEdit(row.id, field, next)}
                       onError={onError}
+                      readOnly={readOnly}
                     />
                   </ClientNameSlot>
                 );

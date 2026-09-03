@@ -32,26 +32,39 @@ from sqlalchemy import delete, select
 RULE_URL = "/api/clients/{cid}/cv-rule"
 
 
-async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, str]:
+async def _headers_for(
+    app_client: AsyncClient,
+    role_value: str,
+    *,
+    assigned_client_id: int | None = None,
+) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
     email = f"recipe-{role_value}-{uuid.uuid4().hex[:8]}@example.com"
     password = f"P4ss_{uuid.uuid4().hex[:6]}!"
     async with AsyncSessionLocal() as db:
         role = UserRole(role_value)
-        db.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                name=f"Recipe {role_value}",
-                role=role,
-                roles=[role.value],
-                is_active=True,
-                profile_completed=True,
-            )
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            name=f"Recipe {role_value}",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+            profile_completed=True,
         )
+        db.add(user)
+        await db.flush()
+        if assigned_client_id is not None and role is UserRole.delivery_lead:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user.id,
+                    client_id=assigned_client_id,
+                )
+            )
         await db.commit()
     login = await app_client.post(
         "/api/auth/login", json={"email": email, "password": password}
@@ -79,6 +92,7 @@ async def _cleanup(client_ids: list[int]) -> None:
     from app.models.client_cv_rule_event import ClientCvRuleEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.models.cv_generated_document import CvGeneratedDocument
+    from app.models.team_structure import DeliveryLeadClientAssignment
 
     async with AsyncSessionLocal() as db:
         for model in (
@@ -88,6 +102,11 @@ async def _cleanup(client_ids: list[int]) -> None:
             ClientCvRule,
         ):
             await db.execute(delete(model).where(model.client_id.in_(client_ids)))
+        await db.execute(
+            delete(DeliveryLeadClientAssignment).where(
+                DeliveryLeadClientAssignment.client_id.in_(client_ids)
+            )
+        )
         await db.execute(delete(Client).where(Client.id.in_(client_ids)))
         await db.commit()
 
@@ -130,14 +149,20 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
 ):
     cid = await _make_client(f"Recipe versions {uuid.uuid4().hex[:6]}")
     try:
-        headers = await _headers_for(app_client, "delivery_lead")
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
 
-        r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=headers)
+        r = await app_client.put(
+            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["version"] == 1 and body["is_active"] is True
         assert body["omit_sections"] == ["education", "languages"]  # kolejność katalogu
-        assert body["glossary"] == [{"from": "Business Analyst", "to": "Analityk Biznesowy"}]
+        assert body["glossary"] == [
+            {"from": "Business Analyst", "to": "Analityk Biznesowy"}
+        ]
         assert body["content_mode"] == "basic" and body["content_mode_locked"] is True
         assert body["cv_content_mode_cap"] == "polished"
         assert body["cv_interactive_enabled"] is False
@@ -155,7 +180,9 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
             assert client.cv_interactive_enabled is False
 
         # Ta sama treść, tylko zatwierdzenie → wersja bez zmian.
-        r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=headers)
+        r = await app_client.put(
+            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        )
         assert r.json()["version"] == 1
 
         # Zmiana treści → bump + diff.
@@ -177,7 +204,10 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
         latest = events[0]
         assert latest["rule_version"] == 2
         assert latest["changes"]["max_roles"] == {"from": 5, "to": 3}
-        assert latest["changes"]["cv_interactive_enabled"] == {"from": False, "to": True}
+        assert latest["changes"]["cv_interactive_enabled"] == {
+            "from": False,
+            "to": True,
+        }
         assert "notes" not in latest["changes"]
         assert events[0]["actor_name"] == "Recipe delivery_lead"
 
@@ -185,13 +215,17 @@ async def test_save_bumps_version_only_on_content_change_and_records_diff(
         # `client_rule_version` na CV ma pozostać jednoznaczny.
         r = await app_client.delete(RULE_URL.format(cid=cid), headers=headers)
         assert r.status_code == 204
-        r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=headers)
+        r = await app_client.put(
+            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        )
         assert r.status_code == 200, r.text
         assert r.json()["version"] == 3
 
-        # Dla TAC ten sam zapis to 403 (DeliveryLeadPlus).
+        # TAC bez dostępu Delivery nie może ani zapisać, ani czytać historii.
         tac = await _headers_for(app_client, "tac")
-        r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=tac)
+        r = await app_client.put(
+            RULE_URL.format(cid=cid), json=_full_payload(), headers=tac
+        )
         assert r.status_code == 403
         r = await app_client.get(RULE_URL.format(cid=cid) + "/history", headers=tac)
         assert r.status_code == 403
@@ -208,7 +242,9 @@ async def test_copy_from_another_client_is_a_proposal_without_client_flags(
     target = await _make_client(f"Recipe target {tag}")
     try:
         headers = await _headers_for(app_client, "admin")
-        r = await app_client.put(RULE_URL.format(cid=source), json=_full_payload(), headers=headers)
+        r = await app_client.put(
+            RULE_URL.format(cid=source), json=_full_payload(), headers=headers
+        )
         assert r.status_code == 200, r.text
 
         r = await app_client.post(
@@ -223,7 +259,9 @@ async def test_copy_from_another_client_is_a_proposal_without_client_flags(
         assert body["cv_content_mode_cap"] is None, "flagi klienta nie są kopiowane"
         assert body["cv_interactive_enabled"] is True
 
-        h = await app_client.get(RULE_URL.format(cid=target) + "/history", headers=headers)
+        h = await app_client.get(
+            RULE_URL.format(cid=target) + "/history", headers=headers
+        )
         assert h.json()[0]["action"] == "copied"
         assert h.json()[0]["changes"]["source_client_id"] == source
 
@@ -241,7 +279,9 @@ async def test_feedback_counts_skipped_instructions_from_generated_warnings(
 ):
     cid = await _make_client(f"Recipe feedback {uuid.uuid4().hex[:6]}")
     try:
-        headers = await _headers_for(app_client, "delivery_lead")
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
         from app.core.database import AsyncSessionLocal
         from app.models.cv_generated_document import CvGeneratedDocument
 
@@ -274,13 +314,17 @@ async def test_feedback_counts_skipped_instructions_from_generated_warnings(
                 )
             await db.commit()
 
-        r = await app_client.get(RULE_URL.format(cid=cid) + "/feedback", headers=headers)
+        r = await app_client.get(
+            RULE_URL.format(cid=cid) + "/feedback", headers=headers
+        )
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["generated_total"] == 3
         assert body["with_skipped_instructions"] == 2
         assert body["with_policy_enforced"] == 1
-        assert body["skipped_by_instruction"] == [{"text": "Dopisz Kubernetes", "count": 2}]
+        assert body["skipped_by_instruction"] == [
+            {"text": "Dopisz Kubernetes", "count": 2}
+        ]
         assert {g["client_rule_version"] for g in body["recent"]} == {2, None}
     finally:
         await _cleanup([cid])
@@ -320,7 +364,9 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
 
     cid = await _make_client(f"Recipe lint {uuid.uuid4().hex[:6]}")
     try:
-        headers = await _headers_for(app_client, "delivery_lead")
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
         r = await app_client.post(
             RULE_URL.format(cid=cid) + "/lint",
             json={
@@ -332,7 +378,9 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert charged == ["cv_rule_lint", "cv_rule_lint"], "jedno pole = jedno obciążenie"
+        assert charged == ["cv_rule_lint", "cv_rule_lint"], (
+            "jedno pole = jedno obciążenie"
+        )
         assert len(calls) == 2  # instrukcje + notatka, osobno
         assert body["adds_facts_count"] == 1 and body["ok_count"] == 2
         bad = next(f for f in body["findings"] if f["verdict"] == "adds_facts")
@@ -344,7 +392,11 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
         charged.clear()
         r = await app_client.post(
             RULE_URL.format(cid=cid) + "/lint",
-            json={"generator_instructions": "", "generator_instructions_en": None, "notes": None},
+            json={
+                "generator_instructions": "",
+                "generator_instructions_en": None,
+                "notes": None,
+            },
             headers=headers,
         )
         assert r.status_code == 200 and r.json()["findings"] == []
@@ -369,14 +421,18 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
     candidate_id = job_id = stage_id = other_stage_id = None
     try:
         async with AsyncSessionLocal() as db:
-            cand = Candidate(name="Jan", lastname=f"Próbny {tag}", email=f"probny-{tag}@example.com")
+            cand = Candidate(
+                name="Jan", lastname=f"Próbny {tag}", email=f"probny-{tag}@example.com"
+            )
             db.add(cand)
             await db.flush()
             job = Job(title="Analityk", client_id=cid)
             other_job = Job(title="Analityk u innego", client_id=other)
             db.add_all([job, other_job])
             await db.flush()
-            stage = CandidateStage(candidate_id=cand.id, job_id=job.id, stage="verified")
+            stage = CandidateStage(
+                candidate_id=cand.id, job_id=job.id, stage="verified"
+            )
             other_stage = CandidateStage(
                 candidate_id=cand.id, job_id=other_job.id, stage="verified"
             )
@@ -389,8 +445,12 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
                 other_stage.id,
             )
 
-        headers = await _headers_for(app_client, "delivery_lead")
-        r = await app_client.put(RULE_URL.format(cid=cid), json=_full_payload(), headers=headers)
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        r = await app_client.put(
+            RULE_URL.format(cid=cid), json=_full_payload(), headers=headers
+        )
         assert r.status_code == 200, r.text
 
         charged: list[str] = []
@@ -404,7 +464,9 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
 
         async def fake_generate(db, *, candidate_id, stage_id, language="pl", **kw):
             seen_rules.append(kw.get("client_rule"))
-            from app.services.cv_generator_b2b.standalone_service import GenerationResult
+            from app.services.cv_generator_b2b.standalone_service import (
+                GenerationResult,
+            )
 
             return GenerationResult(
                 candidate_name="Jan Próbny",
@@ -434,7 +496,11 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         async def fake_readiness(db, candidate_id):
             return [
                 SimpleNamespace(
-                    stage_id=stage_id, ready=True, has_cv=True, has_champion=True, has_notes=True
+                    stage_id=stage_id,
+                    ready=True,
+                    has_cv=True,
+                    has_champion=True,
+                    has_notes=True,
                 ),
                 SimpleNamespace(
                     stage_id=other_stage_id,
@@ -445,12 +511,18 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
                 ),
             ]
 
-        monkeypatch.setattr(api_module, "list_recruitments_with_readiness", fake_readiness)
+        monkeypatch.setattr(
+            api_module, "list_recruitments_with_readiness", fake_readiness
+        )
 
         # Rekrutacja u INNEGO klienta → 422, bez naliczania kwoty.
         r = await app_client.post(
             RULE_URL.format(cid=cid) + "/preview",
-            json={"candidate_id": candidate_id, "stage_id": other_stage_id, "language": "pl"},
+            json={
+                "candidate_id": candidate_id,
+                "stage_id": other_stage_id,
+                "language": "pl",
+            },
             headers=headers,
         )
         assert r.status_code == 422, r.text
@@ -462,7 +534,9 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
             headers=headers,
         )
         assert r.status_code == 202, r.text
-        assert charged == ["cv_generator", "cv_generator"], "dwie generacje = dwa obciążenia"
+        assert charged == ["cv_generator", "cv_generator"], (
+            "dwie generacje = dwa obciążenia"
+        )
         preview_id = r.json()["id"]
 
         # Zadanie w tle wykonało się po odpowiedzi (BackgroundTasks w ASGI transport).
@@ -478,11 +552,11 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert "<client_presentation_rules>" in body["prompt_block"]
         assert seen_rules[0] is not None and seen_rules[1] is None
 
-        # Cudzy podgląd (inny klient w ścieżce) → 404.
+        # Cudzy klient jest odcięty zanim endpoint ujawni podgląd.
         g = await app_client.get(
             RULE_URL.format(cid=other) + f"/preview/{preview_id}", headers=headers
         )
-        assert g.status_code == 404
+        assert g.status_code == 403
     finally:
         async with AsyncSessionLocal() as db:
             if stage_id:
@@ -514,7 +588,7 @@ async def test_generate_upload_refuses_missing_required_inputs_before_quota(
 
     cid = await _make_client(f"Recipe required {uuid.uuid4().hex[:6]}")
     try:
-        dl = await _headers_for(app_client, "delivery_lead")
+        dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
         r = await app_client.put(
             RULE_URL.format(cid=cid),
             json=_full_payload(require_screening_notes_min_chars=None),
@@ -548,7 +622,9 @@ async def test_unconfirmed_recipe_is_invisible_to_the_generator():
     from app.services.cv_generator_b2b.client_rules import resolve_client_rule
 
     async with AsyncSessionLocal() as db:
-        client = Client(name=f"Recipe hidden {uuid.uuid4().hex[:6]}", status=ClientStatus.active)
+        client = Client(
+            name=f"Recipe hidden {uuid.uuid4().hex[:6]}", status=ClientStatus.active
+        )
         db.add(client)
         await db.flush()
         db.add(
@@ -566,7 +642,9 @@ async def test_unconfirmed_recipe_is_invisible_to_the_generator():
         async with AsyncSessionLocal() as db:
             assert await resolve_client_rule(db, cid) is None
             rule = (
-                await db.execute(select(ClientCvRule).where(ClientCvRule.client_id == cid))
+                await db.execute(
+                    select(ClientCvRule).where(ClientCvRule.client_id == cid)
+                )
             ).scalar_one()
             rule.confirmed_at = datetime.now(timezone.utc)
             await db.commit()

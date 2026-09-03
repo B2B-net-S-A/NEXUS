@@ -22,13 +22,14 @@ import { clearTalentRadarSession } from "./talent-radar-session";
  * zostawiłaby je wszystkie po cichu czytające martwy klucz.
  */
 const ACCESS_TOKEN_KEY = "access_token";
+const IMPERSONATE_ID_KEY = "nexus_impersonate_id";
 
 /** Klucze localStorage, które RAZEM stanowią sesję. */
 const SESSION_STORAGE_KEYS = [
   ACCESS_TOKEN_KEY,
   "nexus_user",
   "nexus_real_user",
-  "nexus_impersonate_id",
+  IMPERSONATE_ID_KEY,
 ] as const;
 
 /** Cookie czytane przez routing-gate w middleware Next.js (src/middleware.ts). */
@@ -80,6 +81,30 @@ export function getAccessToken(): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Headers for native `fetch` calls that bypass the shared axios interceptor.
+ * The impersonation marker is load-bearing: without it file previews and
+ * exports execute as the real administrator and can bypass the viewed user's
+ * section and row scope.
+ */
+export function getAuthenticatedRequestHeaders(
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  const headers = { ...extra };
+  const token = getAccessToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (typeof window === "undefined") return headers;
+  try {
+    const impersonateId = window.localStorage.getItem(IMPERSONATE_ID_KEY);
+    if (impersonateId && /^[1-9]\d*$/.test(impersonateId)) {
+      headers["X-Impersonate-User-Id"] = impersonateId;
+    }
+  } catch {
+    /* storage wyłączony / środowisko nie-przeglądarkowe */
+  }
+  return headers;
 }
 
 /** Usuń wszystkie persystowane artefakty sesji. Bezpieczne poza przeglądarką. */

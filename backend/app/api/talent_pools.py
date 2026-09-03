@@ -21,7 +21,9 @@ from app.services.talent_pool_cc import (
     resolve_cc_id_for_pool_name,
 )
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

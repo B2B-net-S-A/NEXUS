@@ -30,6 +30,7 @@ from sqlalchemy.orm import selectinload
 # candidate_id - so a viewer/client blocked from /api/candidates/{id} by
 # PR1 could still harvest identity by walking IDs through the pin router.
 from app.api.candidate_access import CandidatePIIAccess
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.candidate_pin import CandidatePin
@@ -41,7 +42,7 @@ from app.schemas.candidate_pin import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 # Cap how many pins a single user may hold. The chip bar is meant for
 # active short-listing (typically 3–10 candidates per role); much beyond

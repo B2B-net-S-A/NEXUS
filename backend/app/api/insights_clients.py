@@ -40,6 +40,7 @@ from app.analytics.periods import (
     resolve_period,
 )
 from app.api.deps import CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -58,7 +59,7 @@ from app.services.insights_hiring_managers import compute_hiring_manager_kpis
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CACHE_TTL_SECONDS = 300
 

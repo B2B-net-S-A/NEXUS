@@ -32,7 +32,9 @@ from app.services.candidate_identity_quarantine import (
     override_identity_quarantine,
 )
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 class IdentityMismatchMark(BaseModel):

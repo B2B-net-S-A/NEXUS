@@ -225,6 +225,7 @@ import {
  type CandidateContactCase,
 } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { canMutateSection } from "@/lib/section-access";
 
 const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
  active: "success",
@@ -556,6 +557,12 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // passed into children so the NotatkiTab can emit edit signals without
  // mounting a second hook instance.
  const currentUser = useAuthStore((s) => s.user);
+ const isImpersonating = useAuthStore((s) => s.realUser !== null);
+ const canWriteSourcing = canMutateSection(
+ currentUser,
+ "sourcing",
+ isImpersonating,
+ );
  const contactFeature = useCandidateContactFeature({
  queryEnabled: hasRole(
  currentUser,
@@ -717,6 +724,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  });
 
  const handleAddNote = async (jobId?: number | null) => {
+ if (!canWriteSourcing) return;
  if (!noteText.trim()) return;
  setNoteSaving(true);
  try {
@@ -749,6 +757,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  noteId: number,
  content: string,
  ): Promise<boolean> => {
+ if (!canWriteSourcing) return false;
  try {
  await api.patch(`/api/notes/${noteId}`, { content });
  queryClient.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(id) });
@@ -763,6 +772,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // Usuwanie notatki. Backend kaskaduje NoteMention; zwraca 403 gdy user nie
  // jest autorem ani adminem (spójne z gating w NotatkiTab).
  const handleDeleteNote = async (noteId: number): Promise<boolean> => {
+ if (!canWriteSourcing) return false;
  try {
  await api.delete(`/api/notes/${noteId}`);
  queryClient.invalidateQueries({ queryKey: candidateQueryKeys.timelineRoot(id) });
@@ -778,7 +788,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // naprawami, których brak był powodem wyłączenia: migracja 0224 odpina umowy
  // (faktury i podpisy przestały ginąć w kaskadzie), a endpoint sprząta Qdranta
  // i pliki w object storage. Widoczne wyłącznie dla admina.
- const canDeleteCandidate = canHardDeleteCandidate(currentUser);
+ const canDeleteCandidate =
+ canWriteSourcing && canHardDeleteCandidate(currentUser);
  const deleteMut = useMutation({
  mutationFn: () => candidatesApi.delete(id),
  onSuccess: () => {
@@ -989,7 +1000,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  </Avatar>
 
  <div className="flex-1 min-w-0">
- {editingIdentity ? (
+ {editingIdentity && canWriteSourcing ? (
  <IdentityEditor
  candidate={candidate}
  onClose={() => setEditingIdentity(false)}
@@ -1051,6 +1062,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  :""}
  </Badge>
  )}
+ {canWriteSourcing ? (
  <button
  type="button"
  onClick={() => setEditingIdentity(true)}
@@ -1060,6 +1072,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <PencilLine className="h-3.5 w-3.5" />
  Edytuj kontakt
  </button>
+ ) : null}
  </div>
  {/* Scannable one-liner: title · experience · location · salary ·
  availability — falls back to current_role when no facts resolve. */}
@@ -1080,15 +1093,20 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {candidate.email}
  </a>
  )}
- {candidate.phone && (
+ {candidate.phone && canWriteSourcing ? (
  <CallButton
  candidateId={Number(id)}
  phone={candidate.phone}
  compact
  className="min-h-11 min-w-11"
  />
- )}
+ ) : candidate.phone ? (
+ <span className="inline-flex items-center gap-1.5">
+ {candidate.phone}
+ </span>
+ ) : null}
  {candidate.phone &&
+ canWriteSourcing &&
  contactCaseQuery.data &&
  hasRole(
  currentUser,
@@ -1180,6 +1198,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {/* Action row — primary recruiter tasks stay visible; secondary actions
  collapse into a "Więcej" menu so the strip reads as a clear hierarchy
  instead of one undifferentiated wall of buttons. */}
+ {canWriteSourcing ? (
  <div className="flex items-center gap-2 flex-wrap mt-5">
  <Button
  size="sm"
@@ -1283,6 +1302,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  </DropdownMenuContent>
  </DropdownMenu>
  </div>
+ ) : null}
  {/* Key stats moved into ProfilTab "Kluczowe fakty" grid for a single,
  scannable source — see ProfilTab FactTile grid. */}
  </div>
@@ -1346,7 +1366,11 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
 
  <div className="p-4 sm:p-5">
  <TabsContent value="summary" className="mt-0 space-y-5">
- <ProfilTab candidate={candidate} onOpenTab={setActiveTab} />
+ <ProfilTab
+ candidate={candidate}
+ onOpenTab={setActiveTab}
+ readOnly={!canWriteSourcing}
+ />
  <section aria-labelledby="candidate-commercial-data">
  <h2
  id="candidate-commercial-data"
@@ -1384,12 +1408,14 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  candidateName={`${candidate.name} ${candidate.lastname}`}
  focusedJobId={visibleFocusJobId}
+ readOnly={!canWriteSourcing}
  />
  </div>
  <div className="space-y-4">
  <CandidatePipelinesWidget
  candidateId={Number(id)}
  employment={candidate.employment}
+ readOnly={!canWriteSourcing}
  />
  </div>
  </div>
@@ -1446,6 +1472,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  setEditing={setPresenceEditing}
  candidateName={candidate.name ?? null}
  candidateLastname={candidate.lastname ?? null}
+ readOnly={!canWriteSourcing}
  />
  ) : (
  <TimelineTab items={timeline ?? []} />
@@ -1479,6 +1506,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  setEditing={setPresenceEditing}
  candidateName={candidate.name ?? null}
  candidateLastname={candidate.lastname ?? null}
+ readOnly={!canWriteSourcing}
  />
  )
  ) : null}
@@ -1495,7 +1523,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  )
  ) : null}
  {activityView === "chat" ? (
- <CandidateChatTab candidateId={Number(id)} />
+ <CandidateChatTab
+ candidateId={Number(id)}
+ readOnly={!canWriteSourcing}
+ />
  ) : null}
  </TabsContent>
 
@@ -1514,12 +1545,19 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateId={Number(id)}
  recruitments={history}
  defaultJobId={backJobId}
+ readOnly={!canWriteSourcing}
  />
  )}
  </div>
  <aside className="space-y-4 xl:sticky xl:top-4">
- <SuggestedJobsWidget candidateId={Number(id)} />
- <SuggestedPoolsWidget candidateId={Number(id)} />
+ <SuggestedJobsWidget
+ candidateId={Number(id)}
+ canAssign={canWriteSourcing}
+ />
+ <SuggestedPoolsWidget
+ candidateId={Number(id)}
+ canAdd={canWriteSourcing}
+ />
  </aside>
  </div>
  </TabsContent>
@@ -1593,6 +1631,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  </div>
 
  {/* ── Modals ── */}
+ {canWriteSourcing ? (
+ <>
  <SendEmailV2
  open={emailOpen}
  onOpenChange={setEmailOpen}
@@ -1671,6 +1711,8 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  onSaved={() => void contactCaseQuery.refetch()}
  onConflict={() => void contactCaseQuery.refetch()}
  />
+ </>
+ ) : null}
  {candidate && canDeleteCandidate && (
  <ConfirmV2
  open={deleteOpen}
@@ -2306,9 +2348,11 @@ function verifiedTechList(candidate: any): string[] {
 function SellRatePanel({
  candidateId,
  onOpenTab,
+ readOnly = false,
 }: {
  candidateId: number;
  onOpenTab?: (tab: string) => void;
+ readOnly?: boolean;
 }) {
  const { visibleData: historyRaw } = useCandidateHistoryQuery(
  candidateId,
@@ -2359,6 +2403,7 @@ function SellRatePanel({
  jobId={job.job_id}
  clientRate={job.client_rate ?? null}
  expectedRate={job.expected_rate ?? null}
+ readOnly={readOnly}
  />
  </div>
  ))}
@@ -2379,9 +2424,11 @@ function SellRatePanel({
 function ProfilTab({
  candidate,
  onOpenTab,
+ readOnly = false,
 }: {
  candidate: any;
  onOpenTab?: (tab: string) => void;
+ readOnly?: boolean;
 }) {
  // Defensive: legacy/imported candidates may have these as string/object
  // instead of array (e.g. Traffit-imported with raw text). Array.isArray
@@ -2536,7 +2583,11 @@ function ProfilTab({
  {/* 1.5 Stawka do klienta — cena wysłania kandydata do klienta (per
  rekrutacja). Wyniesione z zakładki Rekrutacje, bo użytkownik nie
  zaglądał do podzakładki i nie znajdował kontrolki „Uzupełnij". */}
- <SellRatePanel candidateId={candidate.id} onOpenTab={onOpenTab} />
+ <SellRatePanel
+ candidateId={candidate.id}
+ onOpenTab={onOpenTab}
+ readOnly={readOnly}
+ />
 
  {/* 2. Ostatnia aktywność — mini feed (last 5) */}
  {feed.length > 0 && (
@@ -2752,6 +2803,7 @@ function ProfilTab({
  )}
 
  {/* 10. Szczegóły administracyjne — collapsible, panels render only if relevant */}
+ {!readOnly ? (
  <section className="rounded-lg border border-border">
  <button
  type="button"
@@ -2815,6 +2867,7 @@ function ProfilTab({
  </div>
  )}
  </section>
+ ) : null}
  </div>
  <FilePreviewModal
  documents={cvDocs ?? []}
@@ -3229,6 +3282,7 @@ function EditableRateCell({
  mutationFn,
  successMessage,
  testIdPrefix,
+ readOnly = false,
 }: {
  candidateId: number;
  label: string;
@@ -3236,6 +3290,7 @@ function EditableRateCell({
  mutationFn: (payload: RatePayload) => Promise<unknown>;
  successMessage: string;
  testIdPrefix: string;
+ readOnly?: boolean;
 }) {
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
@@ -3248,7 +3303,10 @@ function EditableRateCell({
  );
 
  const mut = useMutation({
- mutationFn,
+ mutationFn: (payload: RatePayload) => {
+ if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+ return mutationFn(payload);
+ },
  onSuccess: () => {
  showSuccess(successMessage);
  invalidateCandidateMutation(queryClient, candidateId, "rate");
@@ -3275,7 +3333,7 @@ function EditableRateCell({
  <div>
  <div className="flex items-center justify-between gap-2">
  <span className="text-muted-foreground">{label}</span>
- {!editing && (
+ {!editing && !readOnly && (
  <button
  type="button"
  onClick={() => setEditing(true)}
@@ -3286,7 +3344,7 @@ function EditableRateCell({
  </button>
  )}
  </div>
- {editing ? (
+ {editing && !readOnly ? (
  <div className="flex items-center gap-1 mt-1 flex-wrap">
  <input
  type="number"
@@ -3346,11 +3404,13 @@ function RecruitmentRateRow({
  jobId,
  clientRate,
  expectedRate,
+ readOnly = false,
 }: {
  candidateId: number;
  jobId: number;
  clientRate: RecruitmentRate;
  expectedRate: RecruitmentRate;
+ readOnly?: boolean;
 }) {
  const sameUnit =
  clientRate != null &&
@@ -3370,6 +3430,7 @@ function RecruitmentRateRow({
  rate={expectedRate}
  testIdPrefix="expected-rate"
  successMessage="Zapisano stawkę kandydata"
+ readOnly={readOnly}
  mutationFn={(payload) =>
  candidatesApi.setRecruitmentExpectedRate(candidateId, jobId, payload)
  }
@@ -3380,6 +3441,7 @@ function RecruitmentRateRow({
  rate={clientRate}
  testIdPrefix="client-rate"
  successMessage="Zapisano stawkę do klienta"
+ readOnly={readOnly}
  mutationFn={(payload) =>
  candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
  }
@@ -3408,11 +3470,13 @@ function RekrutacjeTab({
  candidateId,
  candidateName,
  focusedJobId,
+ readOnly = false,
 }: {
  history: any[];
  candidateId: number;
  candidateName: string;
  focusedJobId: number | null;
+ readOnly?: boolean;
 }) {
  if (!Array.isArray(history) || history.length === 0) {
  return (
@@ -3430,6 +3494,7 @@ function RekrutacjeTab({
  candidateId={candidateId}
  candidateName={candidateName}
  focusedJobId={focusedJobId}
+ readOnly={readOnly}
  />
  ))}
  </div>
@@ -3441,11 +3506,13 @@ function RekrutacjaCard({
  candidateId,
  candidateName,
  focusedJobId,
+ readOnly = false,
 }: {
  job: any;
  candidateId: number;
  candidateName: string;
  focusedJobId: number | null;
+ readOnly?: boolean;
 }) {
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
@@ -3474,8 +3541,10 @@ function RekrutacjaCard({
  });
 
  const refreshMut = useMutation({
- mutationFn: () =>
- candidateStageCvApi.original.refresh(stageId as number),
+ mutationFn: () => {
+ if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+ return candidateStageCvApi.original.refresh(stageId as number);
+ },
  onSuccess: () => {
  showSuccess("Snapshot CV oryginalnego zaktualizowany");
  queryClient.invalidateQueries({ queryKey: ["cv-original", stageId] });
@@ -3489,7 +3558,10 @@ function RekrutacjaCard({
  });
 
  const removeMut = useMutation({
- mutationFn: () => candidatesApi.removeFromRecruitment(candidateId, jobId),
+ mutationFn: () => {
+ if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+ return candidatesApi.removeFromRecruitment(candidateId, jobId);
+ },
  onSuccess: () => {
  showSuccess(
  job.job_title
@@ -3603,6 +3675,7 @@ function RekrutacjaCard({
  jobId={job.job_id ?? job.id}
  clientRate={job.client_rate ?? null}
  expectedRate={job.expected_rate ?? null}
+ readOnly={readOnly}
  />
 
  <div className="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-border">
@@ -3616,6 +3689,8 @@ function RekrutacjaCard({
  >
  Pokaż CV oryginalne
  </Button>
+ {!readOnly ? (
+ <>
  <Button
  size="sm"
  variant="outline"
@@ -3647,6 +3722,9 @@ function RekrutacjaCard({
  </Button>
  </>
  ) : null}
+ </>
+ ) : null}
+ {!readOnly ? (
  <Button
  size="sm"
  variant="ghost"
@@ -3657,6 +3735,7 @@ function RekrutacjaCard({
  <Trash2 className="h-3.5 w-3.5 mr-1" />
  Usuń z rekrutacji
  </Button>
+ ) : null}
  </div>
 
  {openOriginal && stageId != null ? (
@@ -3668,7 +3747,7 @@ function RekrutacjaCard({
  candidateName={candidateName}
  />
  ) : null}
- {openBranded && stageId != null ? (
+ {!readOnly && openBranded && stageId != null ? (
  <CVBrandedEditModal
  open
  onOpenChange={setOpenBranded}
@@ -3677,7 +3756,7 @@ function RekrutacjaCard({
  candidateName={candidateName}
  />
  ) : null}
- {openShare && stageId != null ? (
+ {!readOnly && openShare && stageId != null ? (
  <CVShareLinkModal
  open
  onOpenChange={setOpenShare}
@@ -3686,7 +3765,7 @@ function RekrutacjaCard({
  />
  ) : null}
 
- {confirmRefresh ? (
+ {!readOnly && confirmRefresh ? (
  <Dialog open onOpenChange={() => setConfirmRefresh(false)}>
  <DialogContent size="md">
  <div className="p-5 space-y-3">
@@ -3716,7 +3795,7 @@ function RekrutacjaCard({
  </Dialog>
  ) : null}
 
- {confirmRemove ? (
+ {!readOnly && confirmRemove ? (
  <Dialog open onOpenChange={() => setConfirmRemove(false)}>
  <DialogContent size="md">
  <div className="p-5 space-y-3">
@@ -3999,6 +4078,7 @@ function PipelinePane({
  setEditing,
  candidateName,
  candidateLastname,
+ readOnly = false,
 }: {
  candidateId: number;
  cvFilename?: string | null;
@@ -4014,6 +4094,7 @@ function PipelinePane({
  setEditing?: (field: string, active: boolean) => void;
  candidateName?: string | null;
  candidateLastname?: string | null;
+ readOnly?: boolean;
 }) {
  const { showError } = useToast();
  // Ta sama zasada co przy załącznikach umowy: padnięte pobranie dokumentów
@@ -4112,6 +4193,7 @@ function PipelinePane({
 
  {/* Prawa kolumna — notatka + timeline */}
  <div className="space-y-4 min-w-0">
+ {!readOnly ? (
  <NoteComposer
  recruitments={recruitments}
  defaultJobId={defaultJobId}
@@ -4125,7 +4207,8 @@ function PipelinePane({
  candidateName={candidateName}
  candidateLastname={candidateLastname}
  />
- <Separator />
+ ) : null}
+ {!readOnly ? <Separator /> : null}
  <div>
  <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
  Aktywność
@@ -4155,6 +4238,7 @@ function NotatkiTab({
  setEditing,
  candidateName,
  candidateLastname,
+ readOnly = false,
 }: {
  timeline: any[];
  recruitments?: any[];
@@ -4171,6 +4255,7 @@ function NotatkiTab({
  setEditing?: (field: string, active: boolean) => void;
  candidateName?: string | null;
  candidateLastname?: string | null;
+ readOnly?: boolean;
 }) {
  const items = Array.isArray(timeline) ? timeline : [];
  const notes = items.filter((t: any) => t.type === "note");
@@ -4204,6 +4289,7 @@ function NotatkiTab({
  // _can_modify_note na backendzie. author_id bywa null dla importów Traffit:
  // wtedy tylko admin (canModerate) widzi akcje, autor-match jest niemożliwy.
  const canModifyNote = (n: any): boolean =>
+ !readOnly &&
  currentUserId != null &&
  (canModerate ||
  (n.author_id != null && Number(n.author_id) === Number(currentUserId)));
@@ -4216,6 +4302,7 @@ function NotatkiTab({
 
  return (
  <div className="space-y-4">
+ {!readOnly ? (
  <NoteComposer
  recruitments={recruitments}
  defaultJobId={defaultJobId}
@@ -4229,8 +4316,9 @@ function NotatkiTab({
  candidateName={candidateName}
  candidateLastname={candidateLastname}
  />
+ ) : null}
 
- <Separator />
+ {!readOnly ? <Separator /> : null}
 
  {notes.length === 0 ? (
  <div className="py-6 text-center text-sm text-muted-foreground">

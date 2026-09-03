@@ -53,6 +53,7 @@ _GATE_QUALNAME_MARKERS = (
     "require_contractor_access",
     "require_onboarding_user",
     "require_global_contact_access",
+    "require_contact_read_access",
     "require_client_material_read_access",
     "require_client_material_write_access",
     "require_client_legal_read_access",
@@ -192,85 +193,12 @@ def _routes() -> list[tuple[str, str, str]]:
 # most have simply never been reviewed. Removing an entry means that route
 # gained a real gate. That is the burn-down, and mutating routes come first.
 _BARE_BASELINE: set[tuple[str, str]] = {
-    # ── /insights + konkursy: świadomie bez bramki zasobowej (decyzja D7) ────
-    #
-    # Artur, 2026-08-31: /insights ma być widoczne dla KAŻDEJ zalogowanej roli,
-    # łącznie z kwotami i danymi imiennymi. Konsekwencja została zgłoszona
-    # i potwierdzona — patrz docs/insights-dynareporter-migration-plan.md §0 D7.
-    #
-    # To NIE jest dług do spłacenia jak reszta tej listy. Te trasy mają
-    # `CurrentUser` celowo i nie wolno „naprawić" ich przez dołożenie
-    # `require_capability(VIEW_FINANCE)`: ta capability steruje 40+ innymi
-    # powierzchniami (app/analytics/capabilities.py:64-115), więc jej użycie
-    # tutaj albo odetnie /insights wbrew decyzji, albo — jeśli ktoś ją poszerzy
-    # dla ról — wycieknie stawki konsultantów poza Insights.
-    #
-    # Dokładnie dlatego /insights dostało WŁASNE routery zamiast poszerzenia
-    # /api/reports/* i /api/admin/*: tamte są współdzielone z innymi stronami.
-    # Zawężenie tych tras wymaga zmiany decyzji D7, nie edycji tej listy.
-    ("GET", "/api/competitions/current"),
-    # Zamrozone podia z `competition_winners` — sekcja „Hall of Fame" na
-    # /insights. Poszerzone z `OperationalUser` do `CurrentUser` 2026-09-01:
-    # ta trasa oddaje nazwiska podium i kwoty JUZ PRZYZNANYCH nagrod, czyli ten
-    # sam material, ktory /current i /monthly-races oddaja obok na zywo dla
-    # kazdej zalogowanej roli. Zapis (POST /freeze) zostaje na AdminUser.
-    ("GET", "/api/competitions/history"),
-    ("GET", "/api/competitions/monthly-races"),
-    ("GET", "/api/insights/board"),
-    # Baner kampanii: cel firmowy jest OGŁOSZENIEM dla całego zespołu,
-    # a liczniki są zagregowane (zero nazwisk, zero kwot). Baner, którego
-    # nie widzi połowa firmy, nie jest kampanią. CRUD kampanii stoi na
-    # `AdminUser`, więc do baseline nie trafia.
-    ("GET", "/api/insights/campaigns/active"),
-    # Wykresy roczne i analiza placementów (zakładka Rekrutacja). Ta sama
-    # decyzja D7 co reszta bloku: `/yearly-stats` niesie wyłącznie liczniki
-    # etapów, a `/placement-analysis` — imiona osób, którym przypisano
-    # placement, świadomie i zgodnie z §0 D7.
-    ("GET", "/api/insights/charts/placement-analysis"),
-    ("GET", "/api/insights/charts/yearly-stats"),
-    # Plakietki ostrzezen: ODCZYT dla kazdej zalogowanej roli, bo ostrzezenie
-    # widoczne tylko dla wystawiajacego nie zmienia niczyjego zachowania —
-    # a plakietka „procedury" ma byc sygnalem dla zespolu, nie notatka
-    # w szufladzie. ZAPIS (POST/PATCH) i historia stoja na `AdminUser`
-    # i do tej listy nie trafiaja.
-    ("GET", "/api/insights/performance-flags"),
-    ("GET", "/api/insights/clients/hiring-managers"),
-    ("GET", "/api/insights/clients/hit-ratio"),
-    ("GET", "/api/insights/clients/ranking"),
-    # „Performance per osoba" — cztery liczby przy nazwisku w oknie okresu.
-    # Ta sama decyzja D7 co reszta bloku /api/insights/*: imienny ranking
-    # rekrutacyjny jest jawny dla calego zespolu.
-    ("GET", "/api/insights/team-table"),
-    ("GET", "/api/insights/delivery-leads"),
-    ("GET", "/api/insights/delivery-leads/placements-by-client"),
-    ("GET", "/api/insights/delivery-leads/{dl_id}/trend"),
-    ("GET", "/api/insights/recruitment/available-periods"),
-    ("GET", "/api/insights/recruitment/funnel"),
-    ("GET", "/api/insights/recruitment/invite-links"),
-    ("GET", "/api/insights/recruitment/seniority"),
-    # Punktacja Ligi jest REGULA KONKURSU, nie danymi: ranking widoczny dla
-    # kazdej roli bez dostepu do formuly bylby wyrocznia. PATCH stoi na
-    # AdminUser, wiec do baseline nie trafia.
-    ("GET", "/api/insights/scoring-config"),
-    ("GET", "/api/insights/recruitment/team-activity"),
-    ("GET", "/api/insights/recruitment/time-to-hire"),
-    # ── koniec bloku D7 ──────────────────────────────────────────────────────
-    ("DELETE", "/api/interview-questions/{question_id}"),
-    ("DELETE", "/api/jobs/{job_id}/collaborators/{user_id}"),
-    ("DELETE", "/api/saved-searches/{search_id}"),
     ("DELETE", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/activities/stats"),
-    ("GET", "/api/analytics/v1/me/calls"),
-    ("GET", "/api/analytics/v1/me/kpis"),
-    ("GET", "/api/analytics/v1/recruitment/users/{user_id}"),
     ("GET", "/api/autenti/health"),
     ("GET", "/api/auth/me"),
-    ("GET", "/api/calls/stats"),
     ("GET", "/api/clients-lookup"),
-    ("GET", "/api/clients/{client_id}/contacts"),
-    ("GET", "/api/clients/{client_id}/notification-overrides"),
     ("GET", "/api/competence-categories"),
-    ("GET", "/api/competitions/my-position"),
     ("GET", "/api/dictionaries/{slug}/items"),
     ("GET", "/api/dynareporter/board-dashboard/monthly"),
     ("GET", "/api/dynareporter/competitions/my-notifications"),
@@ -286,9 +214,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/dynareporter/placements/stats/by-user"),
     ("GET", "/api/dynareporter/profile/me"),
     ("GET", "/api/dynareporter/upload/history"),
-    ("GET", "/api/email-templates"),
-    ("GET", "/api/email-templates/{template_id}"),
-    ("GET", "/api/embed-diagnostics"),
     ("GET", "/api/entity-schema/{entity_type}"),
     ("GET", "/api/fx"),
     # Biblioteka linków do dokumentów firmowych (SharePoint) — odczyt dla
@@ -297,36 +222,14 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # odcinane po stronie serwera, niezależnie od parametru klienta. Zapisy
     # (POST/PUT/DELETE) mają pełną bramkę AdminUser.
     ("GET", "/api/help-materials"),
-    ("GET", "/api/interview-questions"),
-    ("GET", "/api/interview-questions/{question_id}"),
-    ("GET", "/api/invite-links"),
-    ("GET", "/api/jobs"),
     ("GET", "/api/jobs-lookup"),
-    ("GET", "/api/jobs/train-names"),
-    ("GET", "/api/jobs/{job_id}"),
-    ("GET", "/api/jobs/{job_id}/postings"),
-    ("GET", "/api/jobs/{job_id}/questions"),
-    ("GET", "/api/jobs/{job_id}/suggested-questions"),
     ("GET", "/api/kpis/me/panel"),
     ("GET", "/api/kpis/me/today"),
-    ("GET", "/api/linkedin-metrics/my-summary"),
-    ("GET", "/api/linkedin-metrics/summary"),
-    ("GET", "/api/match-history/{job_id}/{candidate_id}"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/count"),
-    ("GET", "/api/pipeline-templates"),
-    ("GET", "/api/pipeline-templates/{template_id}"),
-    (
-        "GET",
-        "/api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules",
-    ),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
-    ("GET", "/api/pipeline/stages"),
-    ("GET", "/api/postings/stats"),
     ("GET", "/api/procedures"),
     ("GET", "/api/procedures/{id_or_slug}"),
-    ("GET", "/api/reports/my-delivery-lead"),
-    ("GET", "/api/saved-searches"),
     ("GET", "/api/search/"),
     ("GET", "/api/search/global"),
     ("GET", "/api/settings/candidates-columns"),
@@ -340,25 +243,14 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("PATCH", "/api/dynareporter/competitions/notifications/{notif_id}/read"),
     ("PATCH", "/api/notifications/read-all"),
     ("PATCH", "/api/notifications/{notification_id}/read"),
-    ("PATCH", "/api/saved-searches/{search_id}"),
     ("PATCH", "/api/users/me/preferences"),
     ("POST", "/api/auth/change-password"),
-    ("POST", "/api/email-templates/{template_id}/send"),
-    ("POST", "/api/emails/send"),
-    ("POST", "/api/invite-links/{token}/revoke"),
-    ("POST", "/api/jobs/{job_id}/claim"),
-    ("POST", "/api/jobs/{job_id}/collaborators"),
-    ("POST", "/api/saved-searches"),
-    ("POST", "/api/saved-searches/{search_id}/viewed"),
     # Talent Radar dla KAŻDEJ zalogowanej roli — decyzja produktowa Artura
     # 19.08 (poszła po 403 u Head of Recruitment). Wyniki to lista triage bez
     # kontaktu i stawek (salary wygaszone), a pełny profil kandydata pozostaje
     # za bramkami modułu kandydatów; test w test_champion_profile_ingest.py
     # pilnuje, że guard rolowy nie wróci na te trasy cichym refaktorem.
-    ("POST", "/api/talent-radar/parse-champion"),
-    ("POST", "/api/talent-radar/search"),
     ("POST", "/api/user-email-templates"),
-    ("PUT", "/api/interview-questions/{question_id}"),
     ("PUT", "/api/notifications/read-all"),
     ("PUT", "/api/notifications/{notification_id}/read"),
     ("PUT", "/api/user-email-templates/{template_id}"),

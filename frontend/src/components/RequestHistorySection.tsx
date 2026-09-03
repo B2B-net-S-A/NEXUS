@@ -41,6 +41,7 @@ import { AddJobModal } from "@/components/AppShell";
 interface Props {
   jobId: number;
   clientId?: number | null;
+  readOnly?: boolean;
 }
 
 const STATUS_LABEL_PL: Record<string, string> = {
@@ -93,7 +94,11 @@ function similarityTone(pct: number): string {
   return "bg-muted text-foreground dark:bg-muted dark:text-muted-foreground";
 }
 
-export function RequestHistorySection({ jobId, clientId }: Props) {
+export function RequestHistorySection({
+  jobId,
+  clientId,
+  readOnly = false,
+}: Props) {
   const [crossClient, setCrossClient] = useState(false);
   const [activeBucket, setActiveBucket] = useState<"in_progress" | "closed">(
     "closed",
@@ -123,6 +128,9 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
       candidateId: number;
       sourceJobId: number;
     }) => {
+      if (readOnly) {
+        throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
+      }
       const r = await requestHistoryApi.addCandidate(jobId, {
         candidate_id: vars.candidateId,
         source_job_id: vars.sourceJobId,
@@ -248,9 +256,11 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
             onOpen={() =>
               window.open(`/jobs/${entry.job_id}`, "_blank", "noopener,noreferrer")
             }
-            onCopyAsTemplate={() => setTemplateJobId(entry.job_id)}
+            onCopyAsTemplate={
+              readOnly ? undefined : () => setTemplateJobId(entry.job_id)
+            }
             onAddChampion={
-              entry.champion_candidate_id != null
+              !readOnly && entry.champion_candidate_id != null
                 ? () =>
                     addCandidateMutation.mutate({
                       candidateId: entry.champion_candidate_id as number,
@@ -259,12 +269,13 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
                 : undefined
             }
             isAddingChampion={addCandidateMutation.isPending}
+            showMutationActions={!readOnly}
           />
         ))}
       </ul>
 
       {/* Skopiuj jako template — modal rendered locally */}
-      {templateJobId !== null && (
+      {!readOnly && templateJobId !== null && (
         <AddJobModal
           fromJobId={templateJobId}
           onClose={() => setTemplateJobId(null)}
@@ -284,9 +295,10 @@ export function RequestHistorySection({ jobId, clientId }: Props) {
 interface RowProps {
   entry: RequestHistoryEntry;
   onOpen: () => void;
-  onCopyAsTemplate: () => void;
+  onCopyAsTemplate?: () => void;
   onAddChampion?: () => void;
   isAddingChampion: boolean;
+  showMutationActions: boolean;
 }
 
 function RequestHistoryRow({
@@ -295,6 +307,7 @@ function RequestHistoryRow({
   onCopyAsTemplate,
   onAddChampion,
   isAddingChampion,
+  showMutationActions,
 }: RowProps) {
   const simPct = Math.round(entry.similarity * 100);
   const simSourceLabel =
@@ -341,33 +354,37 @@ function RequestHistoryRow({
             <ArrowUpRight className="w-3 h-3" />
             Otwórz
           </button>
-          <button
-            type="button"
-            onClick={onCopyAsTemplate}
-            className="text-xs px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1"
-            title="Otwórz formularz nowego requestu z prefilled polami"
-          >
-            <Copy className="w-3 h-3" />
-            Skopiuj jako template
-          </button>
-          <button
-            type="button"
-            onClick={onAddChampion}
-            disabled={!onAddChampion || isAddingChampion}
-            className="text-xs px-2 py-1 rounded bg-purple-50 hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed text-purple-800 border border-purple-200 inline-flex items-center gap-1"
-            title={
-              onAddChampion
-                ? "Dodaj championa tej roli do bieżącego pipeline'u"
-                : "Brak championa w tej roli"
-            }
-          >
-            {isAddingChampion ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <UserPlus className="w-3 h-3" />
-            )}
-            Dodaj championa
-          </button>
+          {showMutationActions && onCopyAsTemplate ? (
+            <button
+              type="button"
+              onClick={onCopyAsTemplate}
+              className="text-xs px-2 py-1 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 inline-flex items-center gap-1"
+              title="Otwórz formularz nowego requestu z prefilled polami"
+            >
+              <Copy className="w-3 h-3" />
+              Skopiuj jako template
+            </button>
+          ) : null}
+          {showMutationActions ? (
+            <button
+              type="button"
+              onClick={onAddChampion}
+              disabled={!onAddChampion || isAddingChampion}
+              className="text-xs px-2 py-1 rounded bg-purple-50 hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed text-purple-800 border border-purple-200 inline-flex items-center gap-1"
+              title={
+                onAddChampion
+                  ? "Dodaj championa tej roli do bieżącego pipeline'u"
+                  : "Brak championa w tej roli"
+              }
+            >
+              {isAddingChampion ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <UserPlus className="w-3 h-3" />
+              )}
+              Dodaj championa
+            </button>
+          ) : null}
         </div>
       </div>
     </li>

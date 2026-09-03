@@ -80,6 +80,8 @@ import {
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
 import { cn } from "@/lib/utils";
+import { canMutateSection } from "@/lib/section-access";
+import { useAuthStore } from "@/store/auth";
 
 type CandidateOption = {
   id: number;
@@ -134,6 +136,13 @@ function formatGeneratedDate(iso?: string | null): string {
 
 export function CVGeneratorStandaloneV2() {
   const toast = useToast();
+  const currentUser = useAuthStore((state) => state.user);
+  const isImpersonating = useAuthStore((state) => state.realUser !== null);
+  const canWriteSourcing = canMutateSection(
+    currentUser,
+    "sourcing",
+    isImpersonating,
+  );
 
   // ── Mode (New vs Old) ───────────────────────────────────────────────────
   const [mode, setMode] = useState<Mode>("new");
@@ -493,6 +502,7 @@ export function CVGeneratorStandaloneV2() {
   }, [generatedQuery.data]);
 
   function handleSubmit() {
+    if (!canWriteSourcing) return;
     activeMut.mutate();
   }
 
@@ -525,6 +535,7 @@ export function CVGeneratorStandaloneV2() {
   }
 
   async function handleDeleteGenerated(item: GeneratedCvItem) {
+    if (!canWriteSourcing) return;
     try {
       await api.delete(`/api/cv-generator/generated/${item.id}`);
       generatedQuery.refetch();
@@ -587,6 +598,8 @@ export function CVGeneratorStandaloneV2() {
         </div>
       </div>
 
+      {canWriteSourcing ? (
+        <>
       <Card className="mb-4">
         <CardHeader>
           <CardTitle className="text-base">Tryb</CardTitle>
@@ -920,6 +933,15 @@ export function CVGeneratorStandaloneV2() {
           )}
         </Button>
       </div>
+        </>
+      ) : (
+        <Alert
+          variant="info"
+          className="mb-4"
+          title="Tryb tylko do odczytu"
+          description="Możesz przeglądać i pobierać wcześniej wygenerowane CV, ale generowanie, udostępnianie i usuwanie wymagają prawa zapisu w Sourcing."
+        />
+      )}
 
       {/* ── Wygenerowane CV — lista trwała (przetrwa nawigację/odświeżenie) ── */}
       <Card className="mt-4">
@@ -951,6 +973,7 @@ export function CVGeneratorStandaloneV2() {
                   onDownloadHtml={handleDownloadHtml}
                   onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
+                  canWrite={canWriteSourcing}
                 />
               ))}
             </ul>
@@ -964,11 +987,13 @@ export function CVGeneratorStandaloneV2() {
         onDownload={handleDownloadGenerated}
       />
 
-      <CvGeneratedShareModal
-        generatedId={shareItem?.id ?? null}
-        candidateName={shareItem?.candidate_name}
-        onClose={() => setShareItem(null)}
-      />
+      {canWriteSourcing ? (
+        <CvGeneratedShareModal
+          generatedId={shareItem?.id ?? null}
+          candidateName={shareItem?.candidate_name}
+          onClose={() => setShareItem(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1547,6 +1572,7 @@ type GeneratedCvRowProps = {
   onDownloadHtml: (item: GeneratedCvItem) => void;
   onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
+  canWrite: boolean;
 };
 
 function GeneratedCvRow({
@@ -1556,6 +1582,7 @@ function GeneratedCvRow({
   onDownloadHtml,
   onShare,
   onDelete,
+  canWrite,
 }: GeneratedCvRowProps) {
   const warnings = item.warnings ?? [];
   // Ostrzeżenia klasy „BRAK POKRYCIA" (treść bez pokrycia w źródłowym CV)
@@ -1656,18 +1683,20 @@ function GeneratedCvRow({
                   >
                     <FileCode2 className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!item.can_download}
-                    onClick={() => onShare(item)}
-                    title="Udostępnij klientowi (link)"
-                  >
-                    <Link2 className="h-4 w-4" />
-                  </Button>
+                  {canWrite ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={!item.can_download}
+                      onClick={() => onShare(item)}
+                      title="Udostępnij klientowi (link)"
+                    >
+                      <Link2 className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                 </>
               )}
-              {item.can_delete && (
+              {canWrite && item.can_delete && (
                 <Button
                   variant="ghost"
                   size="sm"

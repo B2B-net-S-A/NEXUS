@@ -57,16 +57,20 @@ function chatQueryRetry(failureCount: number, err: unknown): boolean {
 
 interface JobChatTabProps {
   jobId: number;
+  readOnly?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export default function JobChatTab({ jobId }: JobChatTabProps) {
+export default function JobChatTab({
+  jobId,
+  readOnly = false,
+}: JobChatTabProps) {
   const user = useAuthStore((s) => s.user);
   // Exact-role, NIE ranga: head_of_recruitment (ROLE_RANK 4.5 > delivery_lead)
   // przechodził przez hasMinRole i dostawał prawo przypinania, którego backend
   // mu nie daje. Pin wiadomości = tylko admin + delivery_lead.
-  const canPin = hasRole(user, "admin", "delivery_lead");
+  const canPin = !readOnly && hasRole(user, "admin", "delivery_lead");
   const queryClient = useQueryClient();
 
   // ── Members (do wyświetlenia licznika "X członków" w headerze) ────────────
@@ -150,7 +154,10 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     mutationFn: async (payload: {
       content: string;
       reply_to_message_id?: number | null;
-    }) => (await jobChatApi.sendMessage(jobId, payload)).data,
+    }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Pipeline");
+      return (await jobChatApi.sendMessage(jobId, payload)).data;
+    },
     onSuccess: () => {
       setText("");
       setReplyTo(null);
@@ -164,8 +171,10 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
   });
 
   const editMutation = useMutation({
-    mutationFn: async ({ id, content }: { id: number; content: string }) =>
-      (await jobChatApi.editMessage(jobId, id, { content })).data,
+    mutationFn: async ({ id, content }: { id: number; content: string }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Pipeline");
+      return (await jobChatApi.editMessage(jobId, id, { content })).data;
+    },
     onSuccess: () => {
       setText("");
       setEditingId(null);
@@ -177,6 +186,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Pipeline");
       await jobChatApi.deleteMessage(jobId, id);
     },
     onSuccess: () => {
@@ -187,10 +197,12 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
   });
 
   const pinMutation = useMutation({
-    mutationFn: async ({ id, pin }: { id: number; pin: boolean }) =>
-      pin
+    mutationFn: async ({ id, pin }: { id: number; pin: boolean }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Pipeline");
+      return pin
         ? (await jobChatApi.pinMessage(jobId, id)).data
-        : (await jobChatApi.unpinMessage(jobId, id)).data,
+        : (await jobChatApi.unpinMessage(jobId, id)).data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["job-chat-pinned", jobId] });
       queryClient.invalidateQueries({
@@ -208,10 +220,12 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       id: number;
       emoji: string;
       add: boolean;
-    }) =>
-      add
+    }) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Pipeline");
+      return add
         ? (await jobChatApi.addReaction(jobId, id, emoji)).data
-        : (await jobChatApi.removeReaction(jobId, id, emoji)).data,
+        : (await jobChatApi.removeReaction(jobId, id, emoji)).data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["job-chat-messages", jobId, activeSearch],
@@ -240,7 +254,11 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       queryClient.invalidateQueries({ queryKey: ["job-chat-unread", jobId] });
 
       // Mark as read jeśli to nowa wiadomość a tab jest aktywny
-      if (detail.kind === "new" && document.visibilityState === "visible") {
+      if (
+        !readOnly &&
+        detail.kind === "new" &&
+        document.visibilityState === "visible"
+      ) {
         // best-effort, w tle
         jobChatApi.markRead(jobId).catch(() => undefined);
       }
@@ -248,16 +266,18 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
     window.addEventListener(CHAT_BUS_EVENT, handler as EventListener);
     return () =>
       window.removeEventListener(CHAT_BUS_EVENT, handler as EventListener);
-  }, [jobId, activeSearch, queryClient]);
+  }, [jobId, activeSearch, queryClient, readOnly]);
 
   // Mark read on mount + przy każdej zmianie ostatniej wiadomości (jeśli tab widoczny)
   useEffect(() => {
+    if (readOnly) return;
     jobChatApi.markRead(jobId).catch(() => undefined);
-  }, [jobId, messages.length]);
+  }, [jobId, messages.length, readOnly]);
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const handleSubmit = (e?: FormEvent) => {
     e?.preventDefault();
+    if (readOnly) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     if (editingId !== null) {
@@ -434,7 +454,8 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
             message={m}
             currentUserId={user?.id ?? -1}
             canPin={canPin}
-            isAdmin={user?.role === "admin"}
+            isAdmin={!readOnly && user?.role === "admin"}
+            readOnly={readOnly}
             onReply={() => {
               setReplyTo(m);
               setEditingId(null);
@@ -454,7 +475,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       </div>
 
       {/* Reply / edit banner */}
-      {(replyTo || editingId !== null) && (
+      {!readOnly && (replyTo || editingId !== null) && (
         <div className="flex items-center justify-between px-4 py-1.5 bg-primary/10 dark:bg-primary/30 border-t border-primary/20 dark:border-primary/30 text-xs">
           <span className="truncate">
             {editingId !== null ? (
@@ -482,6 +503,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
       )}
 
       {/* Compose */}
+      {!readOnly ? (
       <form
         onSubmit={handleSubmit}
         className="relative border-t border-border dark:border-border px-3 py-2"
@@ -525,6 +547,7 @@ export default function JobChatTab({ jobId }: JobChatTabProps) {
           </button>
         </div>
       </form>
+      ) : null}
     </div>
   );
 }
@@ -536,6 +559,7 @@ interface MessageRowProps {
   currentUserId: number;
   canPin: boolean;
   isAdmin: boolean;
+  readOnly: boolean;
   onReply: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -551,6 +575,7 @@ function MessageRow({
   currentUserId,
   canPin,
   isAdmin,
+  readOnly,
   onReply,
   onEdit,
   onDelete,
@@ -633,7 +658,21 @@ function MessageRow({
           <div className="mt-1 flex flex-wrap gap-1">
             {message.reactions.map((r: ReactionAggregate) => {
               const mine = r.user_ids.includes(currentUserId);
-              return (
+              return readOnly ? (
+                <span
+                  key={r.emoji}
+                  className={cn(
+                    "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs",
+                    mine
+                      ? "bg-primary/15 border-primary/30 text-primary dark:bg-primary/40"
+                      : "bg-muted border-border text-foreground dark:bg-muted dark:border-border",
+                  )}
+                  title={`${r.count} ${r.count === 1 ? "reakcja" : "reakcji"}`}
+                >
+                  <span>{r.emoji}</span>
+                  <span>{r.count}</span>
+                </span>
+              ) : (
                 <button
                   key={r.emoji}
                   type="button"
@@ -654,7 +693,7 @@ function MessageRow({
           </div>
         )}
 
-        {!message.is_deleted && (
+        {!readOnly && !message.is_deleted && (
           <div className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex items-center gap-2 text-xs relative">
             <button
               onClick={onReply}

@@ -36,6 +36,8 @@ interface Props {
   hideWhenEmpty?: boolean;
   /** Optional integration hook after a successful assignment. */
   onAssigned?: (jobId: number) => void;
+  /** Keep recommendations visible while hiding assignment mutations. */
+  canAssign?: boolean;
 }
 
 function ScoreChip({ score }: { score: number | null }) {
@@ -58,6 +60,7 @@ export function SuggestedJobsWidget({
   recommendationMeta,
   hideWhenEmpty = false,
   onAssigned,
+  canAssign = true,
 }: Props) {
   const usingExternal = externalMatches !== undefined;
   const topK = Math.max(maxItems, 10);
@@ -95,8 +98,10 @@ export function SuggestedJobsWidget({
     : (recommendations.data?.meta ?? null);
 
   const assign = useMutation({
-    mutationFn: (jobId: number) =>
-      recommendationsApi.assignToJob(candidateId, jobId),
+    mutationFn: (jobId: number) => {
+      if (!canAssign) throw new Error("Brak prawa zapisu w Sourcing");
+      return recommendationsApi.assignToJob(candidateId, jobId);
+    },
     onSuccess: (_response, jobId) => {
       setAssignedIds((previous) => new Set(previous).add(jobId));
       invalidateCandidateMutation(queryClient, candidateId, "assignment");
@@ -268,7 +273,7 @@ export function SuggestedJobsWidget({
                         compact
                       />
                     ) : null}
-                    {candidateId > 0 ? (
+                    {candidateId > 0 && canAssign ? (
                       <Button
                         size="sm"
                         variant={assigned ? "outline" : "secondary"}

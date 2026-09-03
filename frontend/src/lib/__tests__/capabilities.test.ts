@@ -455,6 +455,53 @@ describe("hasCapability — przypadki brzegowe", () => {
       false,
     );
   });
+
+  it("efektywna sekcja zawęża akcje do read i może całkiem ukryć nawigację", () => {
+    const deliveryReadOnly = {
+      role: "delivery_lead" as UserRole,
+      roles: ["delivery_lead"] as UserRole[],
+      effective_section_access: {
+        sourcing: "write" as const,
+        pipeline: "write" as const,
+        delivery: "read" as const,
+        insights: "read" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+
+    expect(hasCapability(deliveryReadOnly, "nav.clients")).toBe(true);
+    expect(hasCapability(deliveryReadOnly, "client.create")).toBe(false);
+    expect(hasCapability(deliveryReadOnly, "client.update")).toBe(false);
+
+    const deliveryDenied = {
+      ...deliveryReadOnly,
+      effective_section_access: {
+        ...deliveryReadOnly.effective_section_access,
+        delivery: "none" as const,
+      },
+    };
+    expect(hasCapability(deliveryDenied, "nav.clients")).toBe(false);
+  });
+
+  it("indywidualny grant sekcji nie omija węższej reguły roli", () => {
+    const recruiterWithDeliveryWrite = {
+      role: "recruiter" as UserRole,
+      roles: ["recruiter"] as UserRole[],
+      effective_section_access: {
+        sourcing: "write" as const,
+        pipeline: "write" as const,
+        delivery: "write" as const,
+        insights: "read" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+
+    expect(hasCapability(recruiterWithDeliveryWrite, "client.create")).toBe(
+      false,
+    );
+  });
 });
 
 describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po HoR)", () => {
@@ -666,7 +713,10 @@ function backendRoles(file: BackendFile, symbol: string): UserRole[] {
     }
     const roles = [...value.matchAll(/UserRole\.(\w+)/g)].map((m) => m[1]);
     if (roles.length > 0) return roles as UserRole[];
-    const alias = value.trim().replace(/^\*/, "");
+    // Section-aware aliases pass a second, non-role keyword argument. The
+    // mirror still follows the first role tuple; the required access level is
+    // verified by the dedicated section tests.
+    const alias = value.trim().replace(/^\*/, "").split(",", 1)[0].trim();
     if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(alias) || seen.has(alias)) {
       throw new Error(
         `Nie umiem rozwinąć ${name} w ${BACKEND_FILES[file]} (wartość: ${value.trim()}).`,

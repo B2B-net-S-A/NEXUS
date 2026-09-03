@@ -28,7 +28,9 @@ vi.mock("@/components/contracts/ContractRegisterDialog", () => ({
   ContractRegisterDialog: () => null,
 }));
 
-vi.mock("@/lib/session", () => ({ getAccessToken: () => "tok" }));
+vi.mock("@/lib/session", () => ({
+  getAuthenticatedRequestHeaders: () => ({ Authorization: "Bearer tok" }),
+}));
 
 const CLIENT_ID = 42;
 const EMPTY_TEXT = "Brak kontraktów dla tego klienta.";
@@ -64,6 +66,7 @@ beforeEach(() => {
       capabilities: [],
       analytics_capabilities: [],
     },
+    realUser: null,
     hydrated: true,
   });
   getMock.mockReset();
@@ -117,5 +120,51 @@ describe("ClientContractRegister — awaria nie udaje pustego rejestru", () => {
 
     expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
     expect(screen.getByText(CTA)).toBeInTheDocument();
+  });
+
+  it("Delivery read i impersonacja nie pokazują akcji tworzenia", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/contracts/register/subcategories") {
+        return Promise.resolve({ data: { subcategories: [] } });
+      }
+      return Promise.resolve({
+        data: { items: [], total: 0, page: 1, page_size: 50 },
+      });
+    });
+    const baseUser = {
+      id: 2,
+      email: "dl@example.com",
+      name: "Delivery Lead",
+      role: "delivery_lead" as const,
+      roles: ["delivery_lead" as const],
+      profile_completed: true,
+      profile_completed_at: null,
+      force_password_change: false,
+      force_password_change_at: null,
+      effective_section_access: { delivery: "read" as const },
+    };
+    useAuthStore.setState({ user: baseUser, realUser: null });
+
+    const first = renderRegister();
+    expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(CTA)).not.toBeInTheDocument();
+
+    first.unmount();
+    useAuthStore.setState({
+      user: {
+        ...baseUser,
+        effective_section_access: { delivery: "write" },
+      },
+      realUser: {
+        ...baseUser,
+        id: 1,
+        role: "admin",
+        roles: ["admin"],
+        effective_section_access: { delivery: "write" },
+      },
+    });
+    renderRegister();
+    expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(CTA)).not.toBeInTheDocument();
   });
 });

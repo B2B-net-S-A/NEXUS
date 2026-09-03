@@ -153,6 +153,7 @@ from app.api.recruitment_access import (
     ensure_job_membership,
     job_read_scope_clause,
 )
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.services import candidate_audit
 from app.services.candidate_audit import candidate_subject_reference
 from app.services.candidate_monthly_rate_retirement import (
@@ -182,11 +183,12 @@ from app.services.recruitment_process_commands import (
     update_latest_expected_rate,
     void_process,
 )
+from app.services.notification_access import filter_notification_recipients
 from app.api import ws as ws_manager
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
@@ -2353,7 +2355,13 @@ async def create_candidate(
             User.is_active, User.role.in_(["admin", "head_of_recruitment"])
         )
     )
-    managers = managers_result.scalars().all()
+    managers = await filter_notification_recipients(
+        db,
+        (manager.id for manager in managers_result.scalars().all()),
+        NotificationType.candidate_added,
+        related_entity_type="candidate",
+        link=f"/candidates/{candidate.id}",
+    )
     notif_ids = []
     for mgr in managers:
         if mgr.id != current_user.id:
@@ -2377,6 +2385,7 @@ async def create_candidate(
                     "title": notif.title,
                     "message": notif.message,
                     "link": notif.link,
+                    "notification_type": NotificationType.candidate_added.value,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 },
             },

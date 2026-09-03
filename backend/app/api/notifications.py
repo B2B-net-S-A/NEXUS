@@ -7,13 +7,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, true, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.notification import Notification, NotificationType
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.api.deps import CurrentUser
+from app.services.notification_access import notification_visibility_predicate
 
 router = APIRouter()
 
@@ -70,11 +71,7 @@ _FINANCE_SAFE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 def _notification_visibility(current_user: User):
     """Return the fail-closed notification predicate for the current persona."""
 
-    # Finance widzi feed jak pozostałe role operacyjne (decyzja produktowa
-    # 19.08 — pełny dostęp; dawna lista „finance-safe" zdjęta).
-    if current_user.has_role(UserRole.admin):
-        return true()
-    return Notification.notification_type != NotificationType.pending_verification
+    return notification_visibility_predicate(current_user)
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────

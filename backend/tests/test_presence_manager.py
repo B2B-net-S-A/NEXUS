@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import List
-
 import pytest
 
 from app.api.ws import ConnectionManager
@@ -27,11 +26,14 @@ class FakeWebSocket:
         self.sent: List[dict] = []
         self.accepted = False
 
-    async def accept(self) -> None:
+    async def accept(self, subprotocol=None) -> None:
         self.accepted = True
 
     async def send_json(self, payload: dict) -> None:
         self.sent.append(payload)
+
+    async def close(self, code: int, reason: str) -> None:
+        self.closed = (code, reason)
 
 
 @pytest.fixture
@@ -151,7 +153,7 @@ async def test_set_editing_toggles_field(manager, user_a, user_b):
 async def test_set_editing_ignores_non_viewer(manager, user_a):
     """Editing signal from a user who never subscribed is a no-op."""
     ws = FakeWebSocket()
-    await manager.connect(user_a.id, ws := FakeWebSocket())
+    await manager.connect(user_a.id, ws)
 
     await manager.set_editing(user_a.id, "candidate", 99, "notes", True)
 

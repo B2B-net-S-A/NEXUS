@@ -49,7 +49,9 @@ from app.services.candidate_contact import (
     record_contact_attempt,
 )
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 ContactCaller = Annotated[
     User,

@@ -53,9 +53,11 @@ from app.services.aad_role_policy import (
     fail_closed_invalid_aad_mapping,
     validate_aad_mapped_roles,
 )
+from app.services.admin_membership import protect_active_admin_membership
 from app.services.finance_role_cleanup import clear_recruitment_access_for_finance
 from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
+from app.services.section_permissions import resolve_effective_section_access
 
 logger = logging.getLogger(__name__)
 
@@ -327,6 +329,41 @@ def _frontend_login_error_url(reason: str) -> str:
 
 _MICROSOFT_SIGN_IN_ERROR = "Microsoft sign-in failed. Try again."
 _AAD_GROUP_LOOKUP_ERROR = "Microsoft role lookup failed. Contact administrator."
+_LAST_ACTIVE_ADMIN_ERROR = (
+    "Microsoft role update blocked: at least one active administrator must remain."
+)
+
+
+async def _last_admin_sso_redirect(
+    db: AsyncSession,
+    user: User,
+    *,
+    next_roles: list[str],
+    next_active: bool,
+) -> RedirectResponse | None:
+    """Return an error redirect when AAD would remove the final active admin."""
+
+    try:
+        await protect_active_admin_membership(
+            db,
+            actor_id=None,
+            target=user,
+            next_roles=next_roles,
+            next_active=next_active,
+            protect_self=False,
+        )
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_409_CONFLICT:
+            raise
+        # Identity linkage and the AAD group snapshot are assigned before role
+        # evaluation. A normal redirect would make get_db() commit them, so the
+        # blocked transition must explicitly roll the whole callback back.
+        await db.rollback()
+        return RedirectResponse(
+            _frontend_login_error_url(_LAST_ACTIVE_ADMIN_ERROR),
+            status_code=302,
+        )
+    return None
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -421,7 +458,9 @@ async def callback(
 
     # Upsert user keyed by lowercased email.
     email_lower = email.lower()
-    result = await db.execute(select(User).where(User.email == email_lower))
+    result = await db.execute(
+        select(User).where(User.email == email_lower).with_for_update()
+    )
     user = result.scalar_one_or_none()
     if user is None:
         # First-time users from the verified corporate-domain allowlist enter
@@ -538,6 +577,14 @@ async def callback(
             mapping = settings.aad_group_role_map
         except ValueError as exc:
             logger.exception("sso callback: AAD_GROUP_ROLE_MAP_JSON invalid")
+            blocked = await _last_admin_sso_redirect(
+                db,
+                user,
+                next_roles=[role.value for role in user.get_all_roles()],
+                next_active=False,
+            )
+            if blocked is not None:
+                return blocked
             await fail_closed_invalid_aad_mapping(
                 db,
                 user,
@@ -559,6 +606,14 @@ async def callback(
             # No NEXUS role granted by any AAD group → block login.
             # We also flip is_active=false so subsequent password-based
             # login attempts (if any password_hash still exists) also fail.
+            blocked = await _last_admin_sso_redirect(
+                db,
+                user,
+                next_roles=[role.value for role in user.get_all_roles()],
+                next_active=False,
+            )
+            if blocked is not None:
+                return blocked
             if user.is_active:
                 user.authorization_version += 1
                 user.tokens_valid_after = datetime.now(timezone.utc)
@@ -594,6 +649,14 @@ async def callback(
                 role_strs,
                 exc,
             )
+            blocked = await _last_admin_sso_redirect(
+                db,
+                user,
+                next_roles=[role.value for role in user.get_all_roles()],
+                next_active=False,
+            )
+            if blocked is not None:
+                return blocked
             await fail_closed_invalid_aad_mapping(
                 db,
                 user,
@@ -615,6 +678,14 @@ async def callback(
         # written to ``users.roles``. Only audit primary-role transitions.
         role_strs = unique_role_strs
         new_role = mapped_roles[0]
+        blocked = await _last_admin_sso_redirect(
+            db,
+            user,
+            next_roles=role_strs,
+            next_active=True,
+        )
+        if blocked is not None:
+            return blocked
         prior_roles = list(user.roles or [])
         prior_effective_roles = [role.value for role in user.get_all_roles()]
         onboarding_reset = onboarding_persona_changed(
@@ -714,6 +785,7 @@ async def callback(
 
     await db.flush()
     user_id = user.id
+    await resolve_effective_section_access(db, user)
 
     # Issue Nexus JWTs.
     access = create_access_token(
@@ -722,6 +794,7 @@ async def callback(
         force_password_change=user.force_password_change,
         roles=[r.value for r in user.get_all_roles()],
         authorization_version=user.authorization_version,
+        section_access=user.effective_section_access,
     )
     refresh = create_refresh_token(
         user.id, authorization_version=user.authorization_version

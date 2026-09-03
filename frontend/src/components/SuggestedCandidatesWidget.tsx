@@ -31,6 +31,8 @@ interface Props {
    *  honorował. Przy false przełącznik sufitu jest nieaktywny z tooltipem,
    *  bo klik odpalałby zapytanie zwracające tę samą listę (review #1207). */
   jobHasBudget?: boolean;
+  /** Hide every action that mutates the job while preserving ranking filters. */
+  readOnly?: boolean;
 }
 
 const PENDING_POLL_MS = 2000;
@@ -94,6 +96,7 @@ export function SuggestedCandidatesWidget({
   jobId,
   defaultLocation,
   jobHasBudget = true,
+  readOnly = false,
 }: Props) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("snapshot");
@@ -218,16 +221,18 @@ export function SuggestedCandidatesWidget({
       setLiveMeta(r.data.meta ?? null);
       setLiveLoaded(true);
       const historyMatches = selectMatchesForHistory(got, r.data.meta);
-      await Promise.allSettled(
-        historyMatches.map((m) =>
-          matchHistoryApi.log({
-            job_id: jobId,
-            candidate_id: m.candidate.id,
-            total_score: Math.round(m.total_score),
-            breakdown: m.breakdown,
-          }),
-        ),
-      );
+      if (!readOnly) {
+        await Promise.allSettled(
+          historyMatches.map((m) =>
+            matchHistoryApi.log({
+              job_id: jobId,
+              candidate_id: m.candidate.id,
+              total_score: Math.round(m.total_score),
+              breakdown: m.breakdown,
+            }),
+          ),
+        );
+      }
     } catch (e: unknown) {
       const msg =
         e && typeof e === "object" && "response" in e
@@ -240,6 +245,7 @@ export function SuggestedCandidatesWidget({
   };
 
   const regenerate = async () => {
+    if (readOnly) return;
     setRegenerating(true);
     try {
       await proposalsApi.regenerate(jobId, topK);
@@ -258,6 +264,7 @@ export function SuggestedCandidatesWidget({
 
   // ── Assign to pipeline ────────────────────────────────────────────────────
   const handleAssign = async (candidateId: number) => {
+    if (readOnly) return;
     setAssigning(candidateId);
     try {
       await recommendationsApi.assignToJob(candidateId, jobId);
@@ -275,6 +282,7 @@ export function SuggestedCandidatesWidget({
 
   // ── Add to shortlist (default action — staged evaluation before pipeline) ──
   const handleShortlist = async (candidateId: number) => {
+    if (readOnly) return;
     setShortlisting(candidateId);
     try {
       await shortlistApi.add(jobId, [candidateId]);
@@ -292,7 +300,7 @@ export function SuggestedCandidatesWidget({
 
   // Log top-3 to match history once a snapshot becomes ready (same UX as live).
   useEffect(() => {
-    if (!isSnapReady || !snapshot) return;
+    if (readOnly || !isSnapReady || !snapshot) return;
     const historyMatches = selectMatchesForHistory(snapshotMatches);
     void Promise.allSettled(
       historyMatches.map((m) =>
@@ -304,7 +312,7 @@ export function SuggestedCandidatesWidget({
         }),
       ),
     );
-  }, [isSnapReady, snapshot, snapshotMatches, jobId]);
+  }, [isSnapReady, snapshot, snapshotMatches, jobId, readOnly]);
 
   const scoreColor = (s: number) => {
     if (s >= 75) return "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300";
@@ -490,6 +498,7 @@ export function SuggestedCandidatesWidget({
             </button>
           </div>
           {mode === "snapshot" ? (
+            !readOnly ? (
             <button
               onClick={regenerate}
               disabled={regenerating || isSnapPending}
@@ -506,6 +515,7 @@ export function SuggestedCandidatesWidget({
                 </>
               )}
             </button>
+            ) : null
           ) : (
             <button
               onClick={loadLive}
@@ -558,15 +568,17 @@ export function SuggestedCandidatesWidget({
             Brief lub Profil Championa zmienił się po wygenerowaniu tego rankingu
             — jest nieaktualny.
           </span>
-          <button
-            type="button"
-            onClick={regenerate}
-            disabled={regenerating || isSnapPending}
-            data-testid="stale-rerun-btn"
-            className="rounded-md bg-primary px-2 py-0.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            Uruchom ponownie
-          </button>
+          {!readOnly ? (
+            <button
+              type="button"
+              onClick={regenerate}
+              disabled={regenerating || isSnapPending}
+              data-testid="stale-rerun-btn"
+              className="rounded-md bg-primary px-2 py-0.5 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              Uruchom ponownie
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -702,7 +714,7 @@ export function SuggestedCandidatesWidget({
       {displayError && (
         <div className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 rounded p-2 mb-2">
           {displayError}
-          {isSnapFailed && (
+          {isSnapFailed && !readOnly && (
             <button
               onClick={regenerate}
               disabled={regenerating}
@@ -818,7 +830,7 @@ export function SuggestedCandidatesWidget({
                     <span className="text-[11px] text-emerald-600 font-medium">
                       ✓ Na shortliście
                     </span>
-                  ) : (
+                  ) : readOnly ? null : (
                     <div className="flex items-center gap-1">
                       {/* Primary action: stage on the shortlist for evaluation
                           before touching the pipeline (add_to_shortlist enforces

@@ -56,12 +56,13 @@ from app.analytics.scope import (
     organization_scope,
 )
 from app.api.deps import CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 _CACHE_TTL_SECONDS = 120
 

@@ -59,6 +59,7 @@ from app.api.recruitment_access import (
     user_can_edit_rates,
     user_can_terminal_transition,
 )
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.services.hiring_manager_verdicts import (
     load_manager_rejections,
     puts_candidate_before_client,
@@ -79,6 +80,8 @@ from app.services.recruitment_process_commands import (
     reject_pending_verification,
     transition_process,
 )
+from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
+from app.services.notification_access import notification_recipient_has_access
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -91,7 +94,7 @@ _LEGACY_TERMINAL_TYPE: dict[
     PipelineStage.withdrawn: "withdrawn",
 }
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 logger = logging.getLogger(__name__)
 
 
@@ -878,15 +881,8 @@ async def move_candidate(
                 if cand
                 else f"#{data.candidate_id}"
             )
-            staff_ids_res = await db.execute(
-                select(User.id).where(
-                    User.role.in_(
-                        [UserRole.admin, UserRole.delivery_lead, UserRole.tac]
-                    ),
-                    User.is_active.is_(True),
-                )
-            )
-            for (uid,) in staff_ids_res.all():
+            delivery_recipients = await load_delivery_alert_recipient_scope(db)
+            for uid in delivery_recipients.for_client(job.client_id):
                 db.add(
                     Notification(
                         user_id=uid,
@@ -1734,7 +1730,17 @@ async def accept_verification(
         )
     )
 
-    if stage.moved_by and stage.moved_by != current_user.id:
+    if (
+        stage.moved_by
+        and stage.moved_by != current_user.id
+        and await notification_recipient_has_access(
+            db,
+            stage.moved_by,
+            NotificationType.pending_verification,
+            related_entity_type="candidate_stage",
+            link=f"/jobs/{stage.job_id}",
+        )
+    ):
         db.add(
             Notification(
                 user_id=stage.moved_by,
@@ -1821,7 +1827,17 @@ async def reject_verification(
         )
     )
 
-    if stage.moved_by and stage.moved_by != current_user.id:
+    if (
+        stage.moved_by
+        and stage.moved_by != current_user.id
+        and await notification_recipient_has_access(
+            db,
+            stage.moved_by,
+            NotificationType.pending_verification,
+            related_entity_type="candidate_stage",
+            link=f"/jobs/{stage.job_id}",
+        )
+    ):
         db.add(
             Notification(
                 user_id=stage.moved_by,

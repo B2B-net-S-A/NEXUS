@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, RecruiterPlus
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.invite_link import CandidateInviteLink
@@ -37,7 +38,7 @@ from app.services.priority_work_policy import (
 )
 from app.services.priority_work_service import audit_event
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 def _resolve_status(link: CandidateInviteLink) -> InviteLinkStatus:

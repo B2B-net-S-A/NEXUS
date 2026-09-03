@@ -2,27 +2,22 @@
 
 Do 09.2026 ``GET /api/settings/cv-rules`` zwracało wyłącznie 14 zasianych
 szablonów Championa, a ekran w Ustawieniach był podglądem bez żadnej akcji.
-Backend od początku wpuszczał Delivery Leada do zapisu (``TacPlus``), więc
-„DL nie może robić reguł" było usterką POWIERZCHNI, nie uprawnień — ale jedną
-regułę dawało się założyć tylko przez okno „Edytuj firmę", a zapis i
-zatwierdzenie były dwoma osobnymi kliknięciami.
+Ekran zarządzania pozwala zapisać i zatwierdzić regułę jednym kliknięciem, ale
+backend musi pozostać źródłem prawdy dla portfela klienta — filtr w interfejsie
+nie jest granicą bezpieczeństwa.
 
 Ten plik dowodzi trzech rzeczy, które ekran zarządzania zakłada, a które
 łatwo cofnąć „przy okazji":
 
-1. Delivery Lead zakłada i zatwierdza regułę JEDNYM zapisem (``confirm=true``)
-   i to dla DOWOLNEGO klienta — także spoza swojego portfela. To lustro
-   ``PATCH /api/clients/{id}`` (też ``TacPlus``, też bez scope'u): reguła CV
-   jest konfiguracją klienta jak jego karta. Filtr „moi klienci" jest wygodą
-   interfejsu, nie granicą.
-2. Przegląd zbiorczy pokazuje KAŻDĄ regułę, nie tylko zasiane — reguła
-   założona ręcznie ma ``seed_key = NULL`` i musi być na liście, inaczej jest
-   niewidoczna dla wszystkich poza autorem. Szablony bez wiersza idą osobno.
+1. Delivery Lead zakłada i zatwierdza regułę JEDNYM zapisem (``confirm=true``),
+   ale wyłącznie dla klienta z ``DeliveryLeadClientAssignment``.
+2. Przegląd zbiorczy administratora pokazuje KAŻDĄ regułę, nie tylko zasiane.
+   Delivery Lead widzi tylko własny portfel i nie widzi nieprzypisanych
+   szablonów, których zakresu nie da się powiązać z klientem.
 3. Domyślny zapis nadal jest propozycją, a edycja bez ``confirm`` ZDEJMUJE
    zatwierdzenie — zmiana wzoru nie wchodzi na produkcję bez decyzji.
-   Role spoza ``DeliveryLeadPlus`` (TAC, HoR, finance, recruiter, sourcer)
-   czytają przegląd, ale nie zapisują. TAC celowo poza zapisem (decyzja
-   produktowa 02.09.2026): kartę klienta edytuje, reguł CV nie prowadzi.
+   Role bez odczytu Delivery nie otwierają przeglądu. Finance zachowuje
+   organizacyjny odczyt, ale bez prawa edycji konfiguracji klienta.
 4. ``generator_instructions`` przechodzi zapis → odczyt → przegląd i wchodzi
    do ``client_policy`` — to jedyne pole reguły, które trafia do promptu,
    więc jego zgubienie po drodze byłoby niewidoczne aż do wygenerowanego CV.
@@ -51,6 +46,7 @@ async def _headers_for(
 ) -> dict[str, str]:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
+    from app.models.job import Job
     from app.models.team_structure import DeliveryLeadClientAssignment
     from app.models.user import User, UserRole
 
@@ -74,6 +70,14 @@ async def _headers_for(
                 DeliveryLeadClientAssignment(
                     delivery_lead_user_id=user.id,
                     client_id=assigned_client_id,
+                )
+            )
+        if assigned_client_id is not None and role is UserRole.recruiter:
+            db.add(
+                Job(
+                    title=f"CV rule access {uuid.uuid4().hex[:8]}",
+                    client_id=assigned_client_id,
+                    recruiter_id=user.id,
                 )
             )
         await db.commit()
@@ -101,6 +105,7 @@ async def _cleanup(client_ids: list[int]) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.client import Client
     from app.models.client_cv_rule import ClientCvRule
+    from app.models.job import Job
     from app.models.team_structure import DeliveryLeadClientAssignment
 
     async with AsyncSessionLocal() as db:
@@ -112,6 +117,7 @@ async def _cleanup(client_ids: list[int]) -> None:
                 DeliveryLeadClientAssignment.client_id.in_(client_ids)
             )
         )
+        await db.execute(delete(Job).where(Job.client_id.in_(client_ids)))
         await db.execute(delete(Client).where(Client.id.in_(client_ids)))
         await db.commit()
 
@@ -130,22 +136,37 @@ async def _rule_is_active_in_db(client_id: int) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_save(
+async def test_delivery_lead_manages_only_assigned_client_rules(
     app_client: AsyncClient,
 ):
-    """DL: jeden zapis = reguła obowiązuje; klient spoza portfela też przechodzi;
-    przegląd zbiorczy widzi regułę bez ``seed_key``."""
+    """DL: jeden zapis zatwierdza regułę, ale scope kończy się na portfelu."""
     tag = uuid.uuid4().hex[:6]
     mine = await _make_client(f"CV rules portfolio {tag}")
     other = await _make_client(f"CV rules outside {tag}")
     try:
+        admin_headers = await _headers_for(app_client, "admin")
+        outside = await app_client.put(
+            _rule_url(other),
+            json={"filename_pattern": "OUTSIDE_{IMIE_NAZWISKO}", "confirm": True},
+            headers=admin_headers,
+        )
+        assert outside.status_code == 200, outside.text
+
         headers = await _headers_for(
             app_client, "delivery_lead", assigned_client_id=mine
         )
 
-        # Klient SPOZA portfela DL — bramka jest lustrem PATCH /api/clients/{id}.
-        r = await app_client.put(
+        denied = await app_client.put(
             _rule_url(other),
+            json={"filename_pattern": "FORBIDDEN_{IMIE_NAZWISKO}", "confirm": True},
+            headers=headers,
+        )
+        assert denied.status_code == 403, denied.text
+        denied_read = await app_client.get(_rule_url(other), headers=headers)
+        assert denied_read.status_code == 403, denied_read.text
+
+        r = await app_client.put(
+            _rule_url(mine),
             json={
                 "filename_pattern": "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
                 "spaces_to_underscores": True,
@@ -158,7 +179,9 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["is_active"] is True, "confirm=true musi zatwierdzać w tym samym zapisie"
+        assert body["is_active"] is True, (
+            "confirm=true musi zatwierdzać w tym samym zapisie"
+        )
         assert body["confirmed_at"] is not None
         assert body["confirmed_by_name"] == "CV rules delivery_lead"
         assert body["generator_instructions"] == "Bez sekcji zainteresowań."
@@ -166,7 +189,7 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
             "nazwa pliku, język PL, instrukcje dla generatora, notatka DL"
         )
         assert body["filename_preview"] == "B2B_Analityk_Biznesowy_Jan_Kowalski.docx"
-        assert await _rule_is_active_in_db(other) is True
+        assert await _rule_is_active_in_db(mine) is True
 
         # Generator czyta wyłącznie zatwierdzone reguły — to jest ta sama
         # ścieżka, więc reguła z jednego zapisu musi być dla niego widoczna.
@@ -174,36 +197,46 @@ async def test_delivery_lead_creates_and_confirms_rule_for_any_client_in_one_sav
         from app.services.cv_generator_b2b.client_rules import resolve_client_rule
 
         async with AsyncSessionLocal() as db:
-            found = await resolve_client_rule(db, other)
+            found = await resolve_client_rule(db, mine)
             assert found is not None and found.cv_language == "pl"
             assert found.generator_instructions == "Bez sekcji zainteresowań."
 
-        # Przegląd zbiorczy: reguła założona ręcznie (bez seed_key) JEST na
-        # liście, z nazwą klienta i autorem zatwierdzenia.
+        # Przegląd DL obejmuje wyłącznie jawnie przypisanego klienta.
         r = await app_client.get(OVERVIEW_URL, headers=headers)
         assert r.status_code == 200, r.text
         overview = r.json()
         assert set(overview) == {"rules", "unassigned_templates"}
         by_client = {row["client_id"]: row for row in overview["rules"]}
-        assert other in by_client, "ręcznie założona reguła musi być w przeglądzie"
-        row = by_client[other]
+        assert mine in by_client
+        assert other not in by_client
+        assert overview["unassigned_templates"] == []
+        row = by_client[mine]
         assert row["seed_key"] is None
         assert row["template_label"] is None
-        assert row["client_name"] == f"CV rules outside {tag}"
+        assert row["client_name"] == f"CV rules portfolio {tag}"
         assert row["is_active"] is True
         assert row["confirmed_by_name"] == "CV rules delivery_lead"
         assert row["notes"] == "Maks. 3 rekomendacje na stanowisko."
         assert row["generator_instructions"] == "Bez sekcji zainteresowań."
 
-        # Szablony bez wiersza idą osobno, a suma obu list pokrywa DOKŁADNIE
-        # 14 kluczy seeda — bez duplikatów i bez dziur.
+        # Admin zachowuje organizacyjny przegląd oraz nieprzypisane szablony.
+        admin_overview = (
+            await app_client.get(OVERVIEW_URL, headers=admin_headers)
+        ).json()
+        admin_client_ids = {row["client_id"] for row in admin_overview["rules"]}
+        assert {mine, other}.issubset(admin_client_ids)
+
         from app.api.client_cv_rules import CHAMPION_SEED_KEYS
 
-        seeded_keys = {r["seed_key"] for r in overview["rules"] if r["seed_key"]}
-        unassigned_keys = {t["seed_key"] for t in overview["unassigned_templates"]}
+        seeded_keys = {
+            row["seed_key"] for row in admin_overview["rules"] if row["seed_key"]
+        }
+        unassigned_keys = {
+            template["seed_key"] for template in admin_overview["unassigned_templates"]
+        }
         assert seeded_keys.isdisjoint(unassigned_keys)
         assert seeded_keys | unassigned_keys == {k for k, _ in CHAMPION_SEED_KEYS}
-        for template in overview["unassigned_templates"]:
+        for template in admin_overview["unassigned_templates"]:
             assert set(template) == {"seed_key", "label", "template_url"}
     finally:
         await _cleanup([mine, other])
@@ -218,7 +251,9 @@ async def test_default_save_is_a_proposal_and_editing_drops_confirmation(
     produkcję bez decyzji."""
     client_id = await _make_client(f"CV rules proposal {uuid.uuid4().hex[:6]}")
     try:
-        headers = await _headers_for(app_client, "delivery_lead")
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=client_id
+        )
 
         r = await app_client.put(
             _rule_url(client_id),
@@ -253,22 +288,63 @@ async def test_default_save_is_a_proposal_and_editing_drops_confirmation(
         await _cleanup([client_id])
 
 
+@pytest.mark.asyncio
+async def test_recruiter_reads_single_rule_only_through_assigned_job(
+    app_client: AsyncClient,
+):
+    """Pipeline keeps its narrow Job read without opening Delivery settings."""
+    tag = uuid.uuid4().hex[:6]
+    assigned = await _make_client(f"CV rule recruiter assigned {tag}")
+    foreign = await _make_client(f"CV rule recruiter foreign {tag}")
+    try:
+        admin = await _headers_for(app_client, "admin")
+        for client_id in (assigned, foreign):
+            response = await app_client.put(
+                _rule_url(client_id),
+                json={"filename_pattern": "B2B_{IMIE_NAZWISKO}", "confirm": True},
+                headers=admin,
+            )
+            assert response.status_code == 200, response.text
+
+        recruiter = await _headers_for(
+            app_client, "recruiter", assigned_client_id=assigned
+        )
+        own_response = await app_client.get(_rule_url(assigned), headers=recruiter)
+        assert own_response.status_code == 200, own_response.text
+
+        foreign_response = await app_client.get(_rule_url(foreign), headers=recruiter)
+        assert foreign_response.status_code == 403, foreign_response.text
+
+        overview = await app_client.get(OVERVIEW_URL, headers=recruiter)
+        assert overview.status_code == 403, overview.text
+    finally:
+        await _cleanup([assigned, foreign])
+
+
 @pytest.mark.parametrize(
-    "role_value", ["tac", "head_of_recruitment", "finance", "recruiter", "sourcer"]
+    "role_value, overview_status",
+    [
+        ("tac", 403),
+        ("head_of_recruitment", 403),
+        ("finance", 200),
+        ("recruiter", 403),
+        ("sourcer", 403),
+        ("talent_community_manager", 200),
+    ],
 )
 @pytest.mark.asyncio
-async def test_roles_outside_delivery_lead_plus_read_the_overview_but_cannot_write(
-    app_client: AsyncClient, role_value: str
+async def test_section_and_client_scope_control_overview_and_writes(
+    app_client: AsyncClient, role_value: str, overview_status: int
 ):
-    """Odczyt = każda rola operacyjna (``OperationalUser``); zapis, zatwierdzenie
-    i usunięcie = ``DeliveryLeadPlus``. TAC CELOWO poza zapisem (decyzja
-    02.09.2026) mimo że kartę klienta edytuje; HoR jak przy karcie klienta."""
+    """Sekcja otwiera widok, ale resolver klienta nadal rozstrzyga zapis."""
     client_id = await _make_client(f"CV rules ro {role_value} {uuid.uuid4().hex[:6]}")
     try:
         headers = await _headers_for(app_client, role_value)
 
         r = await app_client.get(OVERVIEW_URL, headers=headers)
-        assert r.status_code == 200, f"{role_value} GET overview → {r.status_code}"
+        assert r.status_code == overview_status, (
+            f"{role_value} GET overview → {r.status_code}: {r.text}"
+        )
 
         r = await app_client.put(
             _rule_url(client_id),

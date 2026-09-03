@@ -37,7 +37,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import require_candidate_write
+from app.api.candidate_access import require_candidate_read
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -177,7 +177,7 @@ async def cv_upload_preview(
     salary_min: Annotated[Optional[int], Form()] = None,
     salary_max: Annotated[Optional[int], Form()] = None,
     competence_category: Annotated[Optional[str], Form()] = None,
-    current_user: User = Depends(require_candidate_write),
+    current_user: User = Depends(require_candidate_read),
     db: AsyncSession = Depends(get_db),
 ):
     """Preview top jobs for a freshly uploaded CV — no Candidate is created."""

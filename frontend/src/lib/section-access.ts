@@ -9,10 +9,75 @@ export type ProductSection =
   | "system_admin";
 
 export type SectionAccess = "none" | "read" | "write";
+export type UserSectionOverrideAccess = SectionAccess | "inherit";
+
+export const PRODUCT_SECTIONS: readonly ProductSection[] = [
+  "sourcing",
+  "pipeline",
+  "delivery",
+  "insights",
+  "finance",
+  "system_admin",
+];
+
+export interface RoleSectionPermissions {
+  role: UserRole;
+  permissions: Record<ProductSection, SectionAccess>;
+  locked?: boolean;
+  locked_sections?: ProductSection[];
+}
+
+export interface SectionPermissionsResponse {
+  revision: number;
+  roles: RoleSectionPermissions[];
+}
+
+export interface UserSectionPermissions {
+  user_id: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  roles?: UserRole[];
+  is_active?: boolean;
+  locked?: boolean;
+  overrides: Partial<Record<ProductSection, SectionAccess>>;
+  inherited_permissions?: Record<ProductSection, SectionAccess>;
+  effective_permissions: Record<ProductSection, SectionAccess>;
+  scope_summary?: string;
+}
+
+export interface UserSectionPermissionsResponse {
+  revision: number;
+  users: UserSectionPermissions[];
+  total?: number;
+}
+
+export interface RoleSectionPermissionChange {
+  role: UserRole;
+  section: ProductSection;
+  access: SectionAccess;
+}
+
+export interface UserSectionPermissionChange {
+  section: ProductSection;
+  access: UserSectionOverrideAccess;
+}
+
+export interface SectionPermissionMutationResponse {
+  revision: number;
+  changed: boolean;
+  invalidated_users: number;
+}
 
 export interface SectionUser {
   role: UserRole;
   roles?: readonly UserRole[];
+  /**
+   * Autorytatywny wynik polityki RBAC zwracany przez backend. Pole jest
+   * opcjonalne wyłącznie na czas hydracji starszych sesji zapisanych w
+   * localStorage; jeśli mapa istnieje, brak sekcji oznacza jawne `none`.
+   */
+  effective_section_access?: Partial<Record<ProductSection, SectionAccess>>;
 }
 
 export const ALL_USER_ROLES: readonly UserRole[] = [
@@ -134,6 +199,10 @@ export function sectionAccessForUser(
   section: ProductSection,
 ): SectionAccess {
   if (!user) return "none";
+  if (user.effective_section_access) {
+    const effective = user.effective_section_access[section];
+    return effective === "read" || effective === "write" ? effective : "none";
+  }
   return sectionAccessForRoles(
     new Set<UserRole>([user.role, ...(user.roles ?? [])]),
     section,
@@ -148,6 +217,19 @@ export function hasSectionAccess(
   return (
     ACCESS_RANK[sectionAccessForUser(user, section)] >= ACCESS_RANK[required]
   );
+}
+
+/**
+ * UI guard for actions that mutate a product section. Impersonation is a
+ * read-only support mode even when the impersonated user normally has write
+ * access; the backend remains the final authority for every request.
+ */
+export function canMutateSection(
+  user: SectionUser | null | undefined,
+  section: ProductSection,
+  isImpersonating = false,
+): boolean {
+  return !isImpersonating && hasSectionAccess(user, section, "write");
 }
 
 export function rolesWithSectionAccess(

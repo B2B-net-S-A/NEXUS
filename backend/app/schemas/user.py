@@ -89,6 +89,11 @@ class UserResponse(BaseModel):
     available_dashboard_presets: list[DashboardPreset] = Field(default_factory=list)
     default_dashboard_preset: DashboardPreset | None = None
     data_scope: DashboardDataScope | None = None
+    # Database-backed section ceiling used by navigation and route UX. Backend
+    # guards independently resolve the same policy and remain authoritative.
+    effective_section_access: dict[str, Literal["none", "read", "write"]] = Field(
+        default_factory=dict
+    )
     # Tryb rolloutu Analytics v1 (off|shadow|live) — frontend NIE wykonuje
     # requestów do /api/analytics/v1 dopóki tryb != live (fail-closed;
     # w shadow legacy UI pozostaje nietknięte — plan §8).

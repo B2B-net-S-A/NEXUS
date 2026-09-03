@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.api.deps import AdminUser, CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.user import User
 from app.models.user_performance_flag import (
@@ -54,7 +55,7 @@ from app.models.user_performance_flag import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 # Brzmienie 1:1 z DynaReportera — plakietka ma czytać się tak samo po obu
 # stronach migracji, inaczej ta sama ocena wygląda jak dwie różne.

@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.insights_scoring_config import InsightsScoringConfig
 from app.models.user import User
@@ -42,7 +43,7 @@ from app.services.insights_scoring_config import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 # Ostrzeżenie jedzie w KAŻDEJ odpowiedzi, także GET-owej: dialog zapisu
 # renderuje się z danych ekranu, a ostrzeżenie doklejone tylko do PATCH-a

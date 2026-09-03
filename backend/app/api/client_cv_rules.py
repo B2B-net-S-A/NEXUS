@@ -3,22 +3,20 @@
 Dwa wejścia, jedna prawda w bazie:
 
 * profil klienta (``/api/clients/{id}/cv-rule``) — odczyt i zapis reguły;
-* przegląd zbiorczy (``/api/settings/cv-rules``) — WSZYSTKIE reguły w bazie
-  (nie tylko 14 zasianych z szablonów Championa) plus szablony, które nie mają
-  jeszcze reguły. Z tego ekranu Delivery Lead zakłada regułę dla dowolnego
-  klienta, edytuje ją, zatwierdza, usuwa, kopiuje z innego klienta, lintuje
-  instrukcje, ogląda blok promptu, CV próbne, historię i sygnał zwrotny.
+* przegląd zbiorczy (``/api/settings/cv-rules``) — wszystkie reguły w zasięgu
+  użytkownika (dla administratora cała baza), nie tylko zasiane szablony.
+  Delivery Lead zarządza z niego wyłącznie własnym portfelem klientów.
 
 ``confirmed_at IS NULL`` znaczy **propozycja, która nie obowiązuje**. Generator
 czyta wyłącznie reguły zatwierdzone (``resolve_client_rule``), więc zasiane
 dopasowanie po nazwie klienta nie może wejść w życie bez decyzji człowieka.
 Własną regułę autor zatwierdza tym samym zapisem (``confirm=true``).
 
-Bramka zapisu to ``DeliveryLeadPlus`` (admin / delivery_lead) — decyzja
-produktowa z 02.09.2026: reguły CV prowadzi Delivery Lead, TAC ich nie zmienia
-(choć kartę klienta edytować może). Zapis CELOWO nie jest zawężany do portfela
-DL: to lustro ``PATCH /api/clients/{id}`` — reguła CV jest konfiguracją
-klienta. Filtr „moi klienci" jest wygodą interfejsu, nie granicą.
+Bramka zarządzania to centralne uprawnienie sekcji Delivery oraz resolver
+dostępu do konkretnego klienta. Admin ma zasięg globalny, a Delivery Lead
+wyłącznie klientów z ``DeliveryLeadClientAssignment``. Pojedynczy odczyt
+reguły pozostaje dostępny z Pipeline dla rekrutera pracującego przy Jobie tego
+klienta — nadal przez ten sam resolver, nigdy organizacyjnie.
 
 Warstwy reguły (0255 → 0266 → 0267): nazwa pliku i język → instrukcje dla
 modelu → blokady (tryb, wymagane wejścia, druga wersja językowa), polityka
@@ -42,7 +40,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.deps import DeliveryLeadPlus, OperationalUser
+from app.api.deps import OperationalUser
+from app.api.section_access import DeliverySectionUser
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
@@ -52,6 +51,11 @@ from app.models.client_cv_rule_preview import ClientCvRulePreview
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.help_material import HelpMaterial
 from app.models.user import User
+from app.services.client_access import (
+    deny,
+    resolve_client_access,
+    resolve_client_visible_client_ids,
+)
 from app.services.ai_quota import AIQuotaExceeded, check_and_increment
 from app.services.cv_generator_b2b.client_rules import (
     CONTENT_MODES,
@@ -68,6 +72,11 @@ from app.services.cv_generator_b2b.standalone_service import (
     StandaloneGenerationError,
     generate_cv_for_candidate,
     list_recruitments_with_readiness,
+)
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
 )
 
 logger = logging.getLogger(__name__)
@@ -514,6 +523,47 @@ async def _client_or_404(db: AsyncSession, client_id: int) -> Client:
     return client
 
 
+def _require_shared_rule_section_read(user: User) -> None:
+    """Allow the Job/Pipeline consumer without opening the Delivery module.
+
+    A recruiter needs the client's confirmed CV recipe while working on an
+    assigned Job.  That narrow read is therefore admitted by either Pipeline
+    or Delivery; the client graph is checked separately below.  All management
+    endpoints keep the ordinary Delivery section dependency.
+    """
+
+    granted = max(
+        section_access_for_user(user, ProductSection.delivery),
+        section_access_for_user(user, ProductSection.pipeline),
+    )
+    if granted < SectionAccess.read:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "section_access_denied",
+                "section": ProductSection.delivery.value,
+                "required": SectionAccess.read.name,
+                "granted": granted.name,
+            },
+        )
+
+
+async def _require_client_rule_access(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+    *,
+    write: bool,
+) -> None:
+    """Enforce the authoritative client graph below the section ceiling."""
+
+    access = await resolve_client_access(db, user, client_id)
+    allowed = access.can_edit_knowledge if write else access.can_view_knowledge
+    if not allowed:
+        action = "edycja" if write else "odczyt"
+        raise deny(f"{action} reguł CV klienta jest niedozwolony")
+
+
 def _client_label(client: Client) -> str:
     return (client.display_name or "").strip() or client.name
 
@@ -627,12 +677,13 @@ async def get_client_cv_rule(
 ) -> ClientCvRuleRead:
     """Reguła CV klienta — także niezatwierdzona.
 
-    Bramka jest lustrem `GET /api/clients/{id}` (`OperationalUser`), bo to
-    konfiguracja klienta, a nie dana kandydata. Nie zawęża to nikomu dostępu
-    do banera w generatorze: `CANDIDATE_DOCUMENT_ROLES` (bramka obu ścieżek
-    generacji) to DOKŁADNIE ten sam zestaw siedmiu ról operacyjnych.
+    Jest to wąski odczyt współdzielony przez Delivery i Pipeline. Rekruter
+    zobaczy regułę wyłącznie klienta osiągalnego przez przypisany Job;
+    Delivery Lead wyłącznie klienta ze swojego portfela.
     """
     client = await _client_or_404(db, client_id)
+    _require_shared_rule_section_read(current_user)
+    await _require_client_rule_access(db, current_user, client.id, write=False)
     rule = await _rule_for(db, client.id)
     confirmed_by_name = None
     if rule is not None and rule.confirmed_by:
@@ -652,7 +703,7 @@ async def get_client_cv_rule(
 async def upsert_client_cv_rule(
     client_id: int,
     payload: ClientCvRulePayload,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Zapisz regułę.
@@ -670,6 +721,7 @@ async def upsert_client_cv_rule(
     zmienia — stempel na CV ma mówić o TREŚCI reguły, nie o kliknięciach.
     """
     client = await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _rule_for(db, client.id)
     before = _rule_state(rule, client)
     created = rule is None
@@ -723,11 +775,12 @@ async def upsert_client_cv_rule(
 @router.post("/clients/{client_id}/cv-rule/confirm", response_model=ClientCvRuleRead)
 async def confirm_client_cv_rule(
     client_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Zatwierdź regułę — od tej chwili generator ją stosuje."""
     client = await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _rule_for(db, client.id)
     if rule is None:
         raise HTTPException(
@@ -758,12 +811,13 @@ async def confirm_client_cv_rule(
 @router.delete("/clients/{client_id}/cv-rule", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_client_cv_rule(
     client_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Usuń regułę — klient wraca do globalnej nazwy pliku i wolnego wyboru
     języka. Historia zostaje (FK po kliencie, nie po regule)."""
     client = await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client.id, write=True)
     rule = await _rule_for(db, client.id)
     if rule is not None:
         _record_event(
@@ -785,7 +839,7 @@ async def delete_client_cv_rule(
 async def copy_client_cv_rule(
     client_id: int,
     source_client_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> ClientCvRuleRead:
     """Skopiuj treść reguły z innego klienta — jako PROPOZYCJĘ.
@@ -801,7 +855,9 @@ async def copy_client_cv_rule(
             status_code=422, detail="Wskaż innego klienta niż docelowy."
         )
     client = await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client.id, write=True)
     source_client = await _client_or_404(db, source_client_id)
+    await _require_client_rule_access(db, current_user, source_client.id, write=False)
     source = await _rule_for(db, source_client.id)
     if source is None:
         raise HTTPException(
@@ -847,11 +903,12 @@ async def copy_client_cv_rule(
 @router.get("/clients/{client_id}/cv-rule/history", response_model=list[RuleEventRead])
 async def client_cv_rule_history(
     client_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[RuleEventRead]:
     await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
     rows = (
         await db.scalars(
             select(ClientCvRuleEvent)
@@ -890,7 +947,7 @@ def _skipped_from_warnings(warnings: list[str] | None) -> tuple[list[str], bool]
 @router.get("/clients/{client_id}/cv-rule/feedback", response_model=RuleFeedback)
 async def client_cv_rule_feedback(
     client_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
     days: int = Query(90, ge=1, le=365),
 ) -> RuleFeedback:
@@ -901,6 +958,7 @@ async def client_cv_rule_feedback(
     mają powodu ich zgłaszać.
     """
     await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
     since = datetime.now(timezone.utc) - timedelta(days=days)
     rows = (
         await db.execute(
@@ -959,7 +1017,7 @@ async def client_cv_rule_feedback(
 async def lint_client_cv_rule(
     client_id: int,
     payload: LintRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> LintResponse:
     """Oceń instrukcje linia po linii ZANIM trafią do reguły.
@@ -971,6 +1029,7 @@ async def lint_client_cv_rule(
     from app.services.cv_generator_b2b.rule_lint import lint_instructions
 
     await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=True)
     fields = [
         ("generator_instructions", payload.generator_instructions),
         ("generator_instructions_en", payload.generator_instructions_en),
@@ -1040,13 +1099,14 @@ async def lint_client_cv_rule(
 @router.get("/clients/{client_id}/cv-rule/prompt-preview", response_model=PromptPreview)
 async def client_cv_rule_prompt_preview(
     client_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
     language: Literal["pl", "en"] = Query("pl"),
 ) -> PromptPreview:
     """Dokładny blok, jaki dostanie model — bez tajemnic. Pokazuje stan
     ZAPISANY (także niezatwierdzony), z zaznaczeniem, czy obowiązuje."""
     await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
     rule = await _rule_for(db, client_id)
     return PromptPreview(
         language=language,
@@ -1180,7 +1240,7 @@ async def _run_rule_preview_job(
 async def enqueue_client_cv_rule_preview(
     client_id: int,
     payload: PreviewRequest,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> PreviewRead:
@@ -1191,6 +1251,7 @@ async def enqueue_client_cv_rule_preview(
     ma być czytelnym 503, nie wierszem „failed".
     """
     await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=True)
     from app.models.job import Job
     from app.models.recruitment_pipeline import CandidateStage
 
@@ -1283,9 +1344,11 @@ async def enqueue_client_cv_rule_preview(
 async def get_client_cv_rule_preview(
     client_id: int,
     preview_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> PreviewRead:
+    await _client_or_404(db, client_id)
+    await _require_client_rule_access(db, current_user, client_id, write=False)
     row = await db.get(ClientCvRulePreview, preview_id)
     if row is None or row.client_id != client_id:
         raise HTTPException(status_code=404, detail="Podgląd nie istnieje.")
@@ -1297,35 +1360,32 @@ async def get_client_cv_rule_preview(
 
 @router.get("/settings/cv-rules", response_model=CvRulesOverview)
 async def cv_rules_overview(
-    current_user: OperationalUser,
+    current_user: DeliverySectionUser,
     db: AsyncSession = Depends(get_db),
 ) -> CvRulesOverview:
-    """Przegląd zbiorczy: KAŻDA reguła w bazie + szablony Championa bez reguły.
+    """Przegląd zbiorczy reguł w autoryzowanym grafie klientów.
 
     Do 09.2026 ten endpoint zwracał wyłącznie 14 zasianych szablonów, więc
     reguła założona ręcznie dla piętnastego klienta była na tym ekranie
-    NIEWIDOCZNA. Teraz lista jest pełna, a szablony bez wiersza idą osobno:
-    ukrycie ich sprawiłoby, że brak reguły wyglądałby identycznie jak jej
-    nieistnienie i nikt by go nie uzupełnił.
-
-    Odczyt jest nieoskopowany także dla Delivery Leada (lustro
-    ``GET /api/clients/{id}/cv-rule``) — zawężenie do portfela robi interfejs,
-    jako filtr, który da się wyłączyć.
+    niewidoczna. Administrator nadal widzi pełną listę i nieprzypisane
+    szablony. Użytkownik z ograniczonym grafem (w szczególności Delivery Lead)
+    widzi wyłącznie reguły swoich klientów; nieprzypisane szablony są ukryte,
+    bo nie mają klienta, którego przypisanie można zweryfikować.
     """
     seed_labels = dict(CHAMPION_SEED_KEYS)
     seed_keys = list(seed_labels)
+    visible_client_ids = await resolve_client_visible_client_ids(db, current_user)
 
     confirmed_by_user = aliased(User)
-    rows = (
-        await db.execute(
-            select(ClientCvRule, Client, _CLIENT_DISPLAY_NAME, confirmed_by_user.name)
-            .join(Client, Client.id == ClientCvRule.client_id)
-            .outerjoin(
-                confirmed_by_user, confirmed_by_user.id == ClientCvRule.confirmed_by
-            )
-            .order_by(func.lower(_CLIENT_DISPLAY_NAME), ClientCvRule.id)
-        )
-    ).all()
+    rules_stmt = (
+        select(ClientCvRule, Client, _CLIENT_DISPLAY_NAME, confirmed_by_user.name)
+        .join(Client, Client.id == ClientCvRule.client_id)
+        .outerjoin(confirmed_by_user, confirmed_by_user.id == ClientCvRule.confirmed_by)
+        .order_by(func.lower(_CLIENT_DISPLAY_NAME), ClientCvRule.id)
+    )
+    if visible_client_ids is not None:
+        rules_stmt = rules_stmt.where(ClientCvRule.client_id.in_(visible_client_ids))
+    rows = (await db.execute(rules_stmt)).all()
 
     urls = dict(
         (
@@ -1358,11 +1418,15 @@ async def cv_rules_overview(
             )
         )
 
-    unassigned = [
-        UnassignedChampionTemplate(
-            seed_key=key, label=label, template_url=urls.get(key)
-        )
-        for key, label in CHAMPION_SEED_KEYS
-        if key not in seen_seed_keys
-    ]
+    unassigned = (
+        [
+            UnassignedChampionTemplate(
+                seed_key=key, label=label, template_url=urls.get(key)
+            )
+            for key, label in CHAMPION_SEED_KEYS
+            if key not in seen_seed_keys
+        ]
+        if visible_client_ids is None
+        else []
+    )
     return CvRulesOverview(rules=rules, unassigned_templates=unassigned)

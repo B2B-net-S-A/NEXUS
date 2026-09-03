@@ -41,6 +41,11 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import user_can_access_candidate_domain
+from app.services.section_permissions import (
+    resolve_effective_section_access,
+    resolve_effective_section_access_for_users,
+)
+from app.services.notification_access import user_can_receive_notification
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.job import Job, JobStatus
@@ -109,8 +114,18 @@ async def _assigned_user_ids(db: AsyncSession, job: Job) -> list[int]:
     eligible = await db.execute(
         select(User).where(User.id.in_(candidate_ids)).where(User.is_active.is_(True))
     )
+    eligible_users = list(eligible.scalars().all())
+    await resolve_effective_section_access_for_users(db, eligible_users)
     return sorted(
-        u.id for u in eligible.scalars().all() if user_can_access_candidate_domain(u)
+        u.id
+        for u in eligible_users
+        if user_can_access_candidate_domain(u)
+        and user_can_receive_notification(
+            u,
+            NotificationType.job_deadline_7d,
+            related_entity_type="job",
+            link=f"/jobs/{job.id}",
+        )
     )
 
 
@@ -261,17 +276,38 @@ async def _dispatch_emails(db: AsyncSession) -> int:
     if not pairs:
         return 0
 
+    await resolve_effective_section_access_for_users(db, [user for _, user in pairs])
+
     base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
     sent = 0
     for notif, user in pairs:
         # Re-check bieżących uprawnień do domeny kandydatów zanim poleci PII.
-        if not user.email or not user_can_access_candidate_domain(user):
+        if (
+            not user.email
+            or not user_can_access_candidate_domain(user)
+            or not user_can_receive_notification(
+                user,
+                notif.notification_type,
+                related_entity_type=notif.related_entity_type,
+                link=notif.link,
+            )
+        ):
             continue
         if not await _claim_email(db, notif.id):
             continue
         # Stan roli/konta mógł się zmienić między SELECT-em a claimem.
         await db.refresh(user, attribute_names=["role", "roles", "is_active"])
-        if not user.is_active or not user_can_access_candidate_domain(user):
+        await resolve_effective_section_access(db, user)
+        if (
+            not user.is_active
+            or not user_can_access_candidate_domain(user)
+            or not user_can_receive_notification(
+                user,
+                notif.notification_type,
+                related_entity_type=notif.related_entity_type,
+                link=notif.link,
+            )
+        ):
             await _release_email_claim(db, notif.id)
             continue
 

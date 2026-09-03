@@ -53,6 +53,24 @@ describe("authenticated-files", () => {
       );
     });
 
+    it("attaches the impersonated user marker to native file requests", async () => {
+      localStorage.setItem("access_token", "jwt-admin");
+      localStorage.setItem("nexus_impersonate_id", "42");
+      fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
+
+      await fetchAuthenticatedBlob("/api/contracts/7/documents/8/download");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://localhost:8000/api/contracts/7/documents/8/download",
+        {
+          headers: {
+            Authorization: "Bearer jwt-admin",
+            "X-Impersonate-User-Id": "42",
+          },
+        },
+      );
+    });
+
     it("sends no Authorization header when there is no token", async () => {
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
 

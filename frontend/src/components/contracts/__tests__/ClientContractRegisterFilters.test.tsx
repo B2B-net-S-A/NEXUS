@@ -21,7 +21,9 @@ vi.mock("@/components/contracts/ContractRegisterDialog", () => ({
   ContractRegisterDialog: () => null,
 }));
 
-vi.mock("@/lib/session", () => ({ getAccessToken: () => "tok" }));
+vi.mock("@/lib/session", () => ({
+  getAuthenticatedRequestHeaders: () => ({ Authorization: "Bearer tok" }),
+}));
 
 const CLIENT_ID = 42;
 const NativeURL = URL;

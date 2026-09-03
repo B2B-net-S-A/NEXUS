@@ -15,8 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidateSearchAccess
-from app.api.deps import CurrentUser
+from app.api.candidate_access import CandidateSearchAccess, CandidateWriteAccess
 from app.core.database import get_db
 from app.models.saved_search import MatchHistory, SavedSearch
 from app.services.candidate_monthly_rate_retirement import (
@@ -101,7 +100,7 @@ def _is_candidate_entity(entity: str) -> bool:
 
 @router.get("/saved-searches")
 async def list_saved_searches(
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     entity: Optional[str] = Query(None),
     pinned_to_job_id: Optional[int] = Query(
         None,
@@ -182,7 +181,7 @@ async def list_saved_searches(
 @router.post("/saved-searches", status_code=status.HTTP_201_CREATED)
 async def create_saved_search(
     data: SavedSearchCreate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     # Soft cap so a single user can't fill the table with thousands of saved
@@ -254,7 +253,7 @@ async def create_saved_search(
 async def update_saved_search(
     search_id: int,
     data: SavedSearchUpdate,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     ss = await db.scalar(
@@ -319,7 +318,7 @@ async def update_saved_search(
 @router.post("/saved-searches/{search_id}/viewed")
 async def mark_saved_search_viewed(
     search_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     """Owner opened the saved search — reset the unseen badge and roll
@@ -345,7 +344,7 @@ async def mark_saved_search_viewed(
 @router.delete("/saved-searches/{search_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_saved_search(
     search_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     ss = await db.scalar(
@@ -366,7 +365,7 @@ async def delete_saved_search(
 async def get_match_history(
     job_id: int,
     candidate_id: int,
-    current_user: CurrentUser,
+    current_user: CandidateSearchAccess,
     limit: int = Query(10, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
@@ -403,7 +402,7 @@ class MatchHistoryCreate(BaseModel):
 @router.post("/match-history", status_code=status.HTTP_201_CREATED)
 async def log_match(
     data: MatchHistoryCreate,
-    current_user: CandidateSearchAccess,
+    current_user: CandidateWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
     mh = MatchHistory(

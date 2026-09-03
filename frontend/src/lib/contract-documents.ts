@@ -12,7 +12,7 @@
  * status 0 na prod — patrz `FilePreviewModal.fetchDocumentBlob` (2026-05-25).
  */
 
-import { getAccessToken } from "./session";
+import { getAuthenticatedRequestHeaders } from "./session";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -26,10 +26,9 @@ export async function fetchContractDocumentBlob(
   contractId: number,
   documentId: number,
 ): Promise<Blob> {
-  const token = getAccessToken();
   const res = await fetch(
     `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    { headers: getAuthenticatedRequestHeaders() },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();

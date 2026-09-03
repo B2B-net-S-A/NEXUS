@@ -26,11 +26,10 @@ Capability → allowed roles:
   lose bulk export (matrix section 9 of the audit: "domyślnie nie recruiter");
   exports are audited via ``candidate_audit``.
 - **candidate finance read** (candidate-specific pricing and conflict history)
-  — admin and Finance; mutations remain admin only. Delivery/recruitment roles
-  keep their operational candidate access, but cannot read or mutate
-  sell/cost rates. The candidate's own global B2B profile rate is a separate
-  typed-fact capability available to all internal operational roles; it does
-  not widen client sell-rate or contract permissions.
+  — internal operational role plus effective Finance read access; mutations
+  remain admin only. The role defaults still grant this only to Admin/Finance,
+  while an explicit per-user Finance exception can delegate the read. The
+  candidate's own global B2B profile rate is a separate typed-fact capability.
 - **privacy execute** (anonymize / erase / hard delete) — NOBODY until the
   PR 2 privacy executor lands. Endpoints answer 409 with a clear message;
   see ``privacy_workflow_unavailable``.
@@ -48,6 +47,11 @@ from fastapi import Depends, HTTPException, status
 
 from app.api.deps import get_current_user
 from app.models.user import User, UserRole
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 
 # ── Capability role sets ─────────────────────────────────────────────────────
 
@@ -87,10 +91,7 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.finance,
-)
+CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
 
 # Global Talent 360 facts are a deliberately broader write capability than
@@ -113,7 +114,13 @@ def user_has_candidate_read(user: User) -> bool:
         return True
     if user.has_role(UserRole.user):
         return False
-    return user.has_any_role(*CANDIDATE_READ_ROLES)
+    section_read = max(
+        section_access_for_user(user, ProductSection.sourcing),
+        section_access_for_user(user, ProductSection.pipeline),
+    )
+    return section_read >= SectionAccess.read and user.has_any_role(
+        *CANDIDATE_READ_ROLES
+    )
 
 
 def user_can_access_candidate_domain(user: User) -> bool:
@@ -192,7 +199,10 @@ def privacy_workflow_unavailable(operation: str) -> HTTPException:
 # ── FastAPI dependencies ─────────────────────────────────────────────────────
 
 
-def require_candidate_roles(*roles: UserRole):
+def require_candidate_roles(
+    *roles: UserRole,
+    required_access: SectionAccess = SectionAccess.read,
+):
     """Candidate-domain role guard with explicit viewer denial.
 
     The generic ``require_roles`` correctly treats Admin as a superuser, but
@@ -213,6 +223,20 @@ def require_candidate_roles(*roles: UserRole):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires candidate role: {[role.value for role in roles]}",
             )
+        candidate_access = max(
+            section_access_for_user(current_user, ProductSection.sourcing),
+            section_access_for_user(current_user, ProductSection.pipeline),
+        )
+        if candidate_access < required_access:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "section_access_denied",
+                    "section": "sourcing_or_pipeline",
+                    "required": required_access.name,
+                    "granted": candidate_access.name,
+                },
+            )
         return current_user
 
     return _check
@@ -221,7 +245,32 @@ def require_candidate_roles(*roles: UserRole):
 # Callable-style dependencies for routes using the `= Depends(...)` idiom
 # (keeps signatures with already-defaulted params valid without reordering).
 require_candidate_read = require_candidate_roles(*CANDIDATE_READ_ROLES)
-require_candidate_write = require_candidate_roles(*CANDIDATE_WRITE_ROLES)
+require_candidate_write = require_candidate_roles(
+    *CANDIDATE_WRITE_ROLES,
+    required_access=SectionAccess.write,
+)
+
+
+async def require_candidate_finance_read(
+    current_user: User = Depends(
+        require_candidate_roles(*CANDIDATE_FINANCE_READ_ROLES)
+    ),
+) -> User:
+    """Require candidate-domain visibility plus configured Finance read access."""
+
+    granted = section_access_for_user(current_user, ProductSection.finance)
+    if granted < SectionAccess.read:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "section_access_denied",
+                "section": ProductSection.finance.value,
+                "required": SectionAccess.read.name,
+                "granted": granted.name,
+            },
+        )
+    return current_user
+
 
 # Search / list summaries (no viewer access — closes M2-SEC-01).
 CandidateSearchAccess = Annotated[
@@ -240,7 +289,13 @@ CandidateDocumentAccess = Annotated[
 
 # Mutations: notes, source events, talent pools, tags, engagement, location.
 CandidateWriteAccess = Annotated[
-    User, Depends(require_candidate_roles(*CANDIDATE_WRITE_ROLES))
+    User,
+    Depends(
+        require_candidate_roles(
+            *CANDIDATE_WRITE_ROLES,
+            required_access=SectionAccess.write,
+        )
+    ),
 ]
 
 # Bulk exports (CSV/XLSX) — audited, management roles plus Finance business read.
@@ -250,13 +305,17 @@ CandidateExportAccess = Annotated[
 
 # Candidate-specific pricing/conflict reads.  Mutations keep the narrower alias
 # below so Finance cannot write candidate rates by gaining read access.
-CandidateFinanceReadAccess = Annotated[
-    User, Depends(require_candidate_roles(*CANDIDATE_FINANCE_READ_ROLES))
-]
+CandidateFinanceReadAccess = Annotated[User, Depends(require_candidate_finance_read)]
 
 # Client-facing pricing mutations („stawka do klienta").
 CandidateFinanceAccess = Annotated[
-    User, Depends(require_candidate_roles(*CANDIDATE_FINANCE_ROLES))
+    User,
+    Depends(
+        require_candidate_roles(
+            *CANDIDATE_FINANCE_ROLES,
+            required_access=SectionAccess.write,
+        )
+    ),
 ]
 
 # Typed global profile facts are readable by every internal operational role.
@@ -267,7 +326,13 @@ CandidateProfileFactsReadAccess = Annotated[
 # Their dedicated OCC writers deliberately use the product-specific role set,
 # not the narrower generic CandidateWriteAccess or client-rate finance guard.
 CandidateProfileFactsWriteAccess = Annotated[
-    User, Depends(require_candidate_roles(*CANDIDATE_PROFILE_FACT_WRITE_ROLES))
+    User,
+    Depends(
+        require_candidate_roles(
+            *CANDIDATE_PROFILE_FACT_WRITE_ROLES,
+            required_access=SectionAccess.write,
+        )
+    ),
 ]
 
 # Releasing a source that is confirmed to describe another person is a
@@ -278,6 +343,7 @@ CandidateIdentityQuarantineOverrideAccess = Annotated[
         require_candidate_roles(
             UserRole.admin,
             UserRole.head_of_recruitment,
+            required_access=SectionAccess.write,
         )
     ),
 ]
@@ -289,5 +355,11 @@ CandidateIdentityQuarantineOverrideAccess = Annotated[
 # Przez `require_candidate_roles`, nie przez globalny `AdminUser`, żeby zachować
 # fail-closed na rolach spoza modułu kandydata (`finance`, legacy `user`).
 CandidateHardDeleteAccess = Annotated[
-    User, Depends(require_candidate_roles(UserRole.admin))
+    User,
+    Depends(
+        require_candidate_roles(
+            UserRole.admin,
+            required_access=SectionAccess.write,
+        )
+    ),
 ]

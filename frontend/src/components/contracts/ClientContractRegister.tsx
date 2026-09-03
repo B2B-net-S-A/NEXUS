@@ -12,7 +12,8 @@ import { Calendar, Clock, Download, FileText, Pencil, Plus } from "lucide-react"
 import api, { contractsApi } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { getAccessToken } from "@/lib/session";
+import { getAuthenticatedRequestHeaders } from "@/lib/session";
+import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore, hasRole } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -244,7 +245,11 @@ export function ClientContractRegister({
   navigationSearch?: string;
 }) {
   const user = useAuthStore((s) => s.user);
-  const canEdit = hasRole(user, "admin", "delivery_lead");
+  const impersonating = useAuthStore((s) => s.realUser !== null);
+  const canEdit =
+    !impersonating &&
+    hasRole(user, "admin", "delivery_lead") &&
+    hasSectionAccess(user, "delivery", "write");
 
   const [initialListState] = useState(() => {
     const parsed = parseClientContractRegisterState(navigationSearch ?? "");
@@ -435,10 +440,9 @@ export function ClientContractRegister({
       if (periodTo) params.set("period_to", periodTo);
       subcategoryFilter.forEach((s) => params.append("subcategory", s));
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-      const token = getAccessToken();
       const res = await fetch(
         `${apiBase}/api/contracts/register/export?${params}`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        { headers: getAuthenticatedRequestHeaders() },
       );
       if (!res.ok) {
         flashToast("Eksport nie powiódł się.");

@@ -10,6 +10,7 @@ import type { EmploymentInfo } from "@/components/v2/CandidateHighlights";
 interface Props {
   candidateId: number;
   employment?: EmploymentInfo;
+  readOnly?: boolean;
 }
 
 // Współdzielony klucz cache — invalidowany m.in. po „Usuń z rekrutacji"
@@ -23,7 +24,11 @@ const CATEGORY_COLORS: Record<string, string> = {
   terminal: "bg-slate-100 text-slate-700 border-slate-300",
 };
 
-export function CandidatePipelinesWidget({ candidateId, employment }: Props) {
+export function CandidatePipelinesWidget({
+  candidateId,
+  employment,
+  readOnly = false,
+}: Props) {
   const { data: rows = [], isLoading: loading } = useQuery<CandidatePipelineRow[]>({
     queryKey: candidatePipelinesQueryKey(candidateId),
     queryFn: () =>
@@ -58,7 +63,12 @@ export function CandidatePipelinesWidget({ candidateId, employment }: Props) {
           </div>
           <ul className="space-y-1.5 mb-3">
             {active.map((p) => (
-              <PipelineRow key={p.candidate_stage_id} row={p} employment={employment} />
+              <PipelineRow
+                key={p.candidate_stage_id}
+                row={p}
+                employment={employment}
+                readOnly={readOnly}
+              />
             ))}
           </ul>
         </>
@@ -70,7 +80,13 @@ export function CandidatePipelinesWidget({ candidateId, employment }: Props) {
           </div>
           <ul className="space-y-1.5">
             {closed.map((p) => (
-              <PipelineRow key={p.candidate_stage_id} row={p} muted employment={employment} />
+              <PipelineRow
+                key={p.candidate_stage_id}
+                row={p}
+                muted
+                employment={employment}
+                readOnly={readOnly}
+              />
             ))}
           </ul>
         </>
@@ -83,10 +99,12 @@ function PipelineRow({
   row,
   muted,
   employment,
+  readOnly,
 }: {
   row: CandidatePipelineRow;
   muted?: boolean;
   employment?: EmploymentInfo;
+  readOnly: boolean;
 }) {
   // Show Champion card once the candidate advances to an external stage —
   // recruiter should have filled screening before moving into cv_sent+.
@@ -128,7 +146,11 @@ function PipelineRow({
       </div>
 
       {showChampion && (
-        <ChampionCard stageId={row.candidate_stage_id} employment={employment} />
+        <ChampionCard
+          stageId={row.candidate_stage_id}
+          employment={employment}
+          readOnly={readOnly}
+        />
       )}
     </li>
   );

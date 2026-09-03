@@ -31,6 +31,7 @@ interface DopasowanieTabProps {
   recruitments: Recruitment[];
   /** Preselect the job the profile was opened from (`?from=job&jobId=N`). */
   defaultJobId?: number | null;
+  readOnly?: boolean;
 }
 
 /** Ring colour by score band — mirrors the kanban / marketplace score bands. */
@@ -83,6 +84,7 @@ export function DopasowanieTab({
   candidateId,
   recruitments,
   defaultJobId,
+  readOnly = false,
 }: DopasowanieTabProps) {
   const { showError, showSuccess } = useToast();
   const queryClient = useQueryClient();
@@ -121,10 +123,12 @@ export function DopasowanieTab({
   });
 
   const refreshMut = useMutation({
-    mutationFn: () =>
-      matchScoringApi
+    mutationFn: () => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return matchScoringApi
         .get(candidateId, jobId!, { refresh: true })
-        .then((r) => r.data),
+        .then((r) => r.data);
+    },
     onSuccess: (data) => {
       queryClient.setQueryData(queryKey, data);
       showSuccess("Uzasadnienie odświeżone");
@@ -133,10 +137,12 @@ export function DopasowanieTab({
   });
 
   const feedbackMut = useMutation({
-    mutationFn: (rating: number) =>
-      matchScoringApi
+    mutationFn: (rating: number) => {
+      if (readOnly) throw new Error("Brak prawa zapisu w Sourcing");
+      return matchScoringApi
         .feedback(candidateId, jobId!, { rating })
-        .then((r) => r.data),
+        .then((r) => r.data);
+    },
     onSuccess: (data) => queryClient.setQueryData(queryKey, data),
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać oceny"),
   });
@@ -161,6 +167,7 @@ export function DopasowanieTab({
   const currentRating = data?.rating ?? 0;
 
   const setRating = (value: number) => {
+    if (readOnly) return;
     if (feedbackMut.isPending) return;
     // Clicking the active thumb again resets the rating (send 0).
     feedbackMut.mutate(currentRating === value ? 0 : value);
@@ -186,15 +193,17 @@ export function DopasowanieTab({
             ))}
           </select>
         </label>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refreshMut.mutate()}
-          disabled={busy || jobId == null}
-        >
-          <RefreshCw className={cn("h-3.5 w-3.5", refreshMut.isPending && "animate-spin")} />
-          Odśwież
-        </Button>
+        {!readOnly ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refreshMut.mutate()}
+            disabled={busy || jobId == null}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", refreshMut.isPending && "animate-spin")} />
+            Odśwież
+          </Button>
+        ) : null}
       </div>
 
       {/* Loading (first generation calls the LLM — can take a few seconds) */}
@@ -315,6 +324,7 @@ export function DopasowanieTab({
 
           {/* Feedback + provenance */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            {!readOnly ? (
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">Oceń ten scoring:</span>
               <Button
@@ -338,6 +348,7 @@ export function DopasowanieTab({
                 <ThumbsDown className="h-3.5 w-3.5" />
               </Button>
             </div>
+            ) : null}
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Sparkles className="h-3 w-3" />
               Wygenerowane przez AI{data.model ? ` (${data.model})` : ""} — zweryfikuj

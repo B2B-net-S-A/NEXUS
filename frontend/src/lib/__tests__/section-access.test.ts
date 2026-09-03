@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_USER_ROLES,
   ROLE_SECTION_ACCESS,
+  canMutateSection,
   hasSectionAccess,
   rolesWithSectionAccess,
   sectionAccessForUser,
@@ -49,6 +50,54 @@ describe("central section access matrix", () => {
     };
     expect(sectionAccessForUser(hybrid, "delivery")).toBe("read");
     expect(sectionAccessForUser(hybrid, "finance")).toBe("none");
+  });
+
+  it("prefers the backend effective map over the static legacy matrix", () => {
+    const recruiterWithException = {
+      role: "recruiter" as const,
+      effective_section_access: {
+        sourcing: "read" as const,
+        pipeline: "write" as const,
+        delivery: "write" as const,
+        insights: "none" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+
+    expect(sectionAccessForUser(recruiterWithException, "delivery")).toBe(
+      "write",
+    );
+    expect(sectionAccessForUser(recruiterWithException, "insights")).toBe(
+      "none",
+    );
+  });
+
+  it("fails closed for a missing section in an effective backend map", () => {
+    expect(
+      sectionAccessForUser(
+        {
+          role: "admin",
+          effective_section_access: { sourcing: "write" },
+        },
+        "system_admin",
+      ),
+    ).toBe("none");
+  });
+
+  it("allows UI mutations only with write access outside impersonation", () => {
+    const writer = {
+      role: "recruiter" as const,
+      effective_section_access: { sourcing: "write" as const },
+    };
+    const reader = {
+      role: "recruiter" as const,
+      effective_section_access: { sourcing: "read" as const },
+    };
+
+    expect(canMutateSection(writer, "sourcing")).toBe(true);
+    expect(canMutateSection(reader, "sourcing")).toBe(false);
+    expect(canMutateSection(writer, "sourcing", true)).toBe(false);
   });
 
   it("derives route allowlists from the same matrix", () => {

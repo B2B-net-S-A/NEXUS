@@ -31,7 +31,9 @@ import {
 } from "@/components/ui/command";
 import api from "@/lib/api";
 import type { Capability } from "@/lib/capabilities";
+import { hasSectionAccess, type ProductSection } from "@/lib/section-access";
 import { useCapabilities } from "@/hooks/useCapability";
+import { useAuthStore } from "@/store/auth";
 
 interface Props {
   /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
@@ -69,8 +71,11 @@ export function CommandPaletteV2({
 }: Props) {
   const router = useRouter();
   const can = useCapabilities();
-  const canSearchCandidates = can["nav.candidates"];
-  const canSearchClients = can["nav.clients"];
+  const user = useAuthStore((state) => state.user);
+  const canSearchCandidates =
+    hasSectionAccess(user, "sourcing") && can["nav.candidates"];
+  const canSearchJobs = hasSectionAccess(user, "pipeline");
+  const canSearchClients = hasSectionAccess(user, "delivery");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QuickResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -142,24 +147,26 @@ export function CommandPaletteV2({
             }),
         );
       }
-      requests.push(
-        api
-          .get("/api/jobs", {
-            params: { q: term, page_size: 5 },
-            signal: ctrl.signal,
-          })
-          .then((res) => {
-            buckets.job = ((res.data?.items ?? []) as RawSearchItem[]).map(
-              (j) => ({
-                type: "job" as const,
-                id: j.id,
-                title: j.title ?? `Rekrutacja #${j.id}`,
-                subtitle: j.client_name ?? null,
-              }),
-            );
-            flush();
-          }),
-      );
+      if (canSearchJobs) {
+        requests.push(
+          api
+            .get("/api/jobs", {
+              params: { q: term, page_size: 5 },
+              signal: ctrl.signal,
+            })
+            .then((res) => {
+              buckets.job = ((res.data?.items ?? []) as RawSearchItem[]).map(
+                (j) => ({
+                  type: "job" as const,
+                  id: j.id,
+                  title: j.title ?? `Rekrutacja #${j.id}`,
+                  subtitle: j.client_name ?? null,
+                }),
+              );
+              flush();
+            }),
+        );
+      }
       if (canSearchClients) {
         requests.push(
           api
@@ -197,7 +204,7 @@ export function CommandPaletteV2({
       ctrl.abort();
       clearTimeout(timer);
     };
-  }, [query, open, canSearchCandidates, canSearchClients]);
+  }, [query, open, canSearchCandidates, canSearchJobs, canSearchClients]);
 
   const go = (href: string) => {
     onOpenChange(false);
@@ -213,6 +220,7 @@ export function CommandPaletteV2({
     label: string;
     icon: typeof LayoutDashboard;
     capability?: Capability;
+    section?: ProductSection;
   }> = useMemo(
     () => [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -221,34 +229,52 @@ export function CommandPaletteV2({
         label: "Kandydaci",
         icon: Users,
         capability: "nav.candidates",
+        section: "sourcing",
       },
-      { href: "/jobs", label: "Rekrutacje", icon: Briefcase },
+      {
+        href: "/jobs",
+        label: "Rekrutacje",
+        icon: Briefcase,
+        section: "pipeline",
+      },
       {
         href: "/clients",
         label: "Klienci",
         icon: Building2,
-        capability: "nav.clients",
+        section: "delivery",
       },
       {
         href: "/contracts",
         label: "Kontrakty",
         icon: FileText,
-        capability: "nav.contracts",
+        section: "delivery",
       },
       {
         href: "/talents",
         label: "Talenty",
         icon: Star,
         capability: "nav.talents",
+        section: "sourcing",
       },
       {
         href: "/talent-radar",
         label: "Talent Radar",
         icon: Radar,
         capability: "nav.talent_radar",
+        section: "sourcing",
       },
-      { href: "/calendar", label: "Kalendarz", icon: Calendar },
-      { href: "/insights", label: "Insights", icon: Lightbulb },
+      {
+        href: "/calendar",
+        label: "Kalendarz",
+        icon: Calendar,
+        section: "pipeline",
+      },
+      {
+        href: "/insights",
+        label: "Insights",
+        icon: Lightbulb,
+        section: "insights",
+      },
       { href: "/settings", label: "Ustawienia", icon: Settings },
       {
         href: "/manager",
@@ -260,13 +286,17 @@ export function CommandPaletteV2({
         href: "/finance",
         label: "Finanse",
         icon: Wallet,
-        capability: "nav.finance",
+        section: "finance",
       },
     ],
     [],
   );
 
-  const visibleNav = navItems.filter((i) => !i.capability || can[i.capability]);
+  const visibleNav = navItems.filter(
+    (item) =>
+      (!item.section || hasSectionAccess(user, item.section)) &&
+      (!item.capability || can[item.capability]),
+  );
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>

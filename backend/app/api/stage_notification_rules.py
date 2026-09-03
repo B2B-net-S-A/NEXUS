@@ -3,10 +3,12 @@
 Dwa routery:
 
 - ``template_router`` (mount pod ``/api/pipeline-templates``) — baseline rules
-  na poziomie ``PipelineStageDef``. Owner: admin/delivery_lead.
+  na poziomie ``PipelineStageDef``. Sekcja Pipeline, owner:
+  admin/delivery_lead.
 
 - ``client_router`` (mount pod ``/api/clients``) — overrides per klient,
-  wypierają baseline. Owner: admin/delivery_lead.
+  wypierają baseline. Sekcja Delivery plus autorytatywny graf klienta:
+  admin globalnie, Delivery Lead tylko przez ``DeliveryLeadClientAssignment``.
 
 Walidacje cross-field żyją w schematach Pydantic (`schemas/stage_notification.py`),
 dodatkowo CHECK constraints w DB pełnią rolę safety net.
@@ -21,6 +23,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, ManagerOrAdmin
+from app.api.section_access import (
+    DELIVERY_SECTION_DEPENDENCIES,
+    PIPELINE_SECTION_DEPENDENCIES,
+)
 from app.core.database import get_db
 from app.models.client import Client
 from app.models.pipeline_template import PipelineStageDef
@@ -28,6 +34,7 @@ from app.models.stage_notification import (
     ClientStageNotificationOverride,
     StageNotificationRule,
 )
+from app.models.user import User
 from app.schemas.stage_notification import (
     ClientStageOverrideCreate,
     ClientStageOverrideResponse,
@@ -36,9 +43,10 @@ from app.schemas.stage_notification import (
     StageNotificationRuleResponse,
     StageNotificationRuleUpdate,
 )
+from app.services.client_access import deny, resolve_client_access
 
-template_router = APIRouter()
-client_router = APIRouter()
+template_router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+client_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
 # ── Template-level baseline rules ────────────────────────────────────────────
@@ -199,6 +207,22 @@ async def _ensure_stage_def_exists(db: AsyncSession, stage_def_id: int) -> None:
         raise HTTPException(status_code=404, detail="Stage definition not found")
 
 
+async def _require_client_override_access(
+    db: AsyncSession,
+    current_user: User,
+    client_id: int,
+    *,
+    write: bool,
+) -> None:
+    """Apply the client graph below the Delivery section permission."""
+
+    access = await resolve_client_access(db, current_user, client_id)
+    allowed = access.can_edit_knowledge if write else access.can_view_knowledge
+    if not allowed:
+        action = "edycja" if write else "odczyt"
+        raise deny(f"{action} reguł powiadomień klienta jest niedozwolony")
+
+
 @client_router.get(
     "/{client_id}/notification-overrides",
     response_model=List[ClientStageOverrideResponse],
@@ -210,6 +234,7 @@ async def list_overrides(
     stage_def_id: Optional[int] = None,
 ):
     await _ensure_client_exists(db, client_id)
+    await _require_client_override_access(db, current_user, client_id, write=False)
     stmt = select(ClientStageNotificationOverride).where(
         ClientStageNotificationOverride.client_id == client_id
     )
@@ -231,10 +256,11 @@ async def list_overrides(
 async def create_override(
     client_id: int,
     payload: ClientStageOverrideCreate,
-    current_user: ManagerOrAdmin,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
+    await _require_client_override_access(db, current_user, client_id, write=True)
     await _ensure_stage_def_exists(db, payload.stage_def_id)
     override = ClientStageNotificationOverride(
         client_id=client_id,
@@ -268,10 +294,11 @@ async def update_override(
     client_id: int,
     override_id: int,
     payload: ClientStageOverrideUpdate,
-    current_user: ManagerOrAdmin,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
+    await _require_client_override_access(db, current_user, client_id, write=True)
     override = await db.scalar(
         select(ClientStageNotificationOverride).where(
             ClientStageNotificationOverride.id == override_id,
@@ -307,10 +334,11 @@ async def update_override(
 async def delete_override(
     client_id: int,
     override_id: int,
-    current_user: ManagerOrAdmin,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     await _ensure_client_exists(db, client_id)
+    await _require_client_override_access(db, current_user, client_id, write=True)
     override = await db.scalar(
         select(ClientStageNotificationOverride).where(
             ClientStageNotificationOverride.id == override_id,

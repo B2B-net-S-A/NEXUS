@@ -123,10 +123,12 @@ from app.services.cost_orders import is_cost_order_client
 from app.services.order_rate_snapshots import inherited_order_rate_fields
 from app.services.order_types import suggested_order_type
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, TacPlus, require_roles
+from app.api.deps import AdminUser, TacPlus, get_current_user, require_roles
 from app.api.financial_access import (
     FinanceReadUser,
     can_read_client_finance,
+    has_financial_access,
+    require_financial_access,
     redact_feed_activity,
     redact_financial_fields,
 )
@@ -158,20 +160,38 @@ ContractReadUser = Annotated[
     ),
 ]
 
+
 # Contract drafts and uploaded files are opaque legal artefacts: their HTML or
 # binary content can contain rates even when the structured API response is
 # redacted. TCM may read the operational Delivery register, but cannot cross
 # the Finance boundary through an unstructured document. Delivery Lead keeps
 # document access and is scoped to assigned clients by the existing resolver.
+async def require_contract_document_read_access(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Guard opaque contract documents without making Finance a role shortcut.
+
+    Admin and Delivery Lead keep their established legal-document personas.
+    Finance is admitted only while its effective Finance section still grants
+    read access.  An individual Finance grant does not by itself expose legal
+    documents to a recruiter/sourcer: the document persona remains a separate
+    boundary and the concrete client scope is resolved by the handler.
+    """
+
+    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
+        return current_user
+    if current_user.has_role(UserRole.finance):
+        require_financial_access(current_user)
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Contract documents require Admin, Delivery Lead or Finance access",
+    )
+
+
 ContractDocumentReadUser = Annotated[
     User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.finance,
-        )
-    ),
+    Depends(require_contract_document_read_access),
 ]
 
 # Upload limit — nothing fancy, we're storing contracts + PDFs, not media.
@@ -2860,7 +2880,9 @@ async def get_contract_draft(
         if default is not None:
             rendered_from_default = True
             rendered = _render_draft_body(default, contract)
-            if current_user.has_role(UserRole.finance):
+            if current_user.has_role(UserRole.finance) and has_financial_access(
+                current_user
+            ):
                 preview_content_html = rendered
                 preview_template_id = default.id
             else:
@@ -2981,7 +3003,11 @@ async def render_draft_for_print(
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
     body = contract.draft_content_html
-    if not body and current_user.has_role(UserRole.finance):
+    if (
+        not body
+        and current_user.has_role(UserRole.finance)
+        and has_financial_access(current_user)
+    ):
         contract_type_value = (
             contract.contract_type.value
             if hasattr(contract.contract_type, "value")

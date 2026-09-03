@@ -10,6 +10,8 @@ import {
   type ScoringWeightProfile,
   type ScoringWeights,
 } from "@/lib/api";
+import { hasSectionAccess } from "@/lib/section-access";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 // Sześć warstw silnika — spójne z backendowym built-in (scoring_service.py):
 // 35 + 30 + 12 + 8 + 5 + 10 = 100. Edytor był 5-warstwowy (M3-SCORE/UI):
@@ -254,10 +256,12 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
 
 function ProfileRow({
   profile,
+  canEdit,
   onEdit,
   onDelete,
 }: {
   profile: ScoringWeightProfile;
+  canEdit: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -294,28 +298,40 @@ function ProfileRow({
           <span className="ml-auto">suma: {total}</span>
         </div>
       </div>
-      <button
-        onClick={onEdit}
-        className="text-xs text-primary hover:text-primary/80 hover:underline"
-      >
-        Edytuj
-      </button>
-      <button
-        onClick={onDelete}
-        className="text-xs text-destructive hover:text-red-800"
-        title="Usuń"
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      {canEdit && (
+        <>
+          <button
+            onClick={onEdit}
+            className="text-xs text-primary hover:text-primary/80 hover:underline"
+          >
+            Edytuj
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-xs text-destructive hover:text-red-800"
+            title="Usuń"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </>
+      )}
     </li>
   );
 }
 
 export default function ScoringWeightsPage() {
+  const user = useAuthStore((state) => state.user);
+  const hydrated = useAuthStore((state) => state.hydrated);
+  const isAllowed =
+    hasRole(user, "admin", "delivery_lead") &&
+    hasSectionAccess(user, "insights", "read");
+  const canEdit =
+    hasRole(user, "admin") && hasSectionAccess(user, "insights", "write");
   const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["scoring-weights"],
     queryFn: () => scoringWeightsApi.list().then((r) => r.data),
+    enabled: hydrated && isAllowed,
   });
 
   const [editing, setEditing] = useState<ScoringWeightProfile | null | "new">(null);
@@ -328,6 +344,18 @@ export default function ScoringWeightsPage() {
   useEffect(() => {
     // Close editor after successful mutation
   }, [data]);
+
+  if (!hydrated) {
+    return <div className="p-6 text-muted-foreground">Ładowanie…</div>;
+  }
+
+  if (!isAllowed) {
+    return (
+      <div className="p-6 text-muted-foreground">
+        Brak dostępu do profili wag scoringu.
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -350,7 +378,7 @@ export default function ScoringWeightsPage() {
             seniorów&quot; → boost skills).
           </p>
         </div>
-        {editing === null && (
+        {canEdit && editing === null && (
           <button
             onClick={() => setEditing("new")}
             className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-xs"
@@ -361,6 +389,13 @@ export default function ScoringWeightsPage() {
           </button>
         )}
       </div>
+
+      {!canEdit && (
+        <p className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">
+          Tryb podglądu. Profile może zmieniać wyłącznie administrator z prawem
+          zapisu do sekcji Insights.
+        </p>
+      )}
 
       {editing === "new" && (
         <ProfileEditor
@@ -395,9 +430,12 @@ export default function ScoringWeightsPage() {
             <ProfileRow
               key={p.id}
               profile={p}
+              canEdit={canEdit}
               onEdit={() => setEditing(p)}
               onDelete={() => {
-                if (confirm(`Usunąć profil "${p.name}"?`)) deleteMut.mutate(p.id);
+                if (canEdit && confirm(`Usunąć profil "${p.name}"?`)) {
+                  deleteMut.mutate(p.id);
+                }
               }}
             />
           ))}

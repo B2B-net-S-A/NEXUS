@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import OperationalUser, get_current_user
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.interview_question import (
     InterviewQuestion,
@@ -38,7 +39,7 @@ from app.models.job import Job
 from app.models.user import User, UserRole
 from app.services.question_suggestions import suggest_questions_for_prep
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 _WHITESPACE_RE = re.compile(r"\s+")
 

@@ -49,6 +49,7 @@ from app.api import (
 )
 from app.api import activities
 from app.api import admin
+from app.api import admin_section_permissions
 from app.api import client_cv_rules as client_cv_rules_api
 from app.api import analytics_v1 as analytics_v1_api
 from app.api import dashboard_v2 as dashboard_v2_api
@@ -1023,6 +1024,11 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"]
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(activities.router, prefix="/api/activities", tags=["activities"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(
+    admin_section_permissions.router,
+    prefix="/api/admin/section-permissions",
+    tags=["admin", "section-permissions"],
+)
 app.include_router(
     admin_traffit.router, prefix="/api/admin/traffit", tags=["admin", "traffit"]
 )

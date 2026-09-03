@@ -1,5 +1,11 @@
 import { getUserRoles, type UserRole } from "@/store/auth";
-import { rolesWithSectionAccess } from "@/lib/section-access";
+import {
+  hasSectionAccess,
+  rolesWithSectionAccess,
+  type ProductSection,
+  type SectionAccess,
+  type SectionUser,
+} from "@/lib/section-access";
 
 /**
  * JEDEN rejestr capability dla całego UI (audyt F-19).
@@ -24,10 +30,7 @@ import { rolesWithSectionAccess } from "@/lib/section-access";
  */
 
 /** Minimalny kształt usera potrzebny do decyzji — zgodny ze store'em auth. */
-export interface CapabilityUser {
-  role: UserRole;
-  roles?: UserRole[];
-}
+export type CapabilityUser = SectionUser;
 
 export type Capability =
   // ── Akcje tworzenia ────────────────────────────────────────────────────────
@@ -197,6 +200,62 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   "nav.finance": ["admin", "finance"],
 };
 
+type SectionRequirement = {
+  section: ProductSection;
+  required: Exclude<SectionAccess, "none">;
+};
+
+/**
+ * Section access is a ceiling over the existing action-specific role rules.
+ * A per-user exception may open the section, but it never silently turns a
+ * recruiter into a Delivery Lead or grants an admin-only operation.
+ */
+const CAPABILITY_SECTION_REQUIREMENTS: Partial<
+  Record<Capability, SectionRequirement>
+> = {
+  "candidate.create": { section: "sourcing", required: "write" },
+  "job.create": { section: "pipeline", required: "write" },
+  "job.update": { section: "pipeline", required: "write" },
+  "client.create": { section: "delivery", required: "write" },
+  "client.update": { section: "delivery", required: "write" },
+  "cv_rule.manage": { section: "delivery", required: "write" },
+  "contract.create": { section: "delivery", required: "write" },
+  "contact.create": { section: "delivery", required: "write" },
+  "calendar_event.create": { section: "pipeline", required: "write" },
+  "invite_link.create": { section: "pipeline", required: "write" },
+  "candidate.document.manage": { section: "sourcing", required: "write" },
+  "candidate.profile_fact.manage": { section: "sourcing", required: "write" },
+  "client.portfolio.manage": { section: "delivery", required: "write" },
+  "nav.candidates": { section: "sourcing", required: "read" },
+  "nav.talents": { section: "sourcing", required: "read" },
+  "nav.talent_radar": { section: "sourcing", required: "read" },
+  "nav.sourcing": { section: "sourcing", required: "read" },
+  "nav.clients": { section: "delivery", required: "read" },
+  "nav.my_clients": { section: "delivery", required: "read" },
+  "nav.order_mail": { section: "delivery", required: "read" },
+  "nav.my_relationships": { section: "delivery", required: "read" },
+  "nav.contracts": { section: "delivery", required: "read" },
+  "nav.cortex": { section: "insights", required: "read" },
+  "nav.manager": { section: "delivery", required: "read" },
+  "nav.finance": { section: "finance", required: "read" },
+};
+
+export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([
+  "candidate.create",
+  "job.create",
+  "job.update",
+  "client.create",
+  "client.update",
+  "cv_rule.manage",
+  "contract.create",
+  "contact.create",
+  "calendar_event.create",
+  "invite_link.create",
+  "candidate.document.manage",
+  "candidate.profile_fact.manage",
+  "client.portfolio.manage",
+]);
+
 /**
  * Czy user ma daną capability. Fail-closed: brak usera = brak uprawnień.
  * Multi-role aware — sprawdza primary `role` ∪ secondary `roles`.
@@ -208,7 +267,12 @@ export function hasCapability(
   if (!user) return false;
   const allowed = CAPABILITY_ROLES[capability];
   if (!allowed) return false;
-  return getUserRoles(user).some((role) => allowed.includes(role));
+  if (!getUserRoles(user).some((role) => allowed.includes(role))) return false;
+  const requirement = CAPABILITY_SECTION_REQUIREMENTS[capability];
+  return (
+    !requirement ||
+    hasSectionAccess(user, requirement.section, requirement.required)
+  );
 }
 
 /** Czy user ma CHOĆ JEDNĄ z wymienionych capability (np. „czy pokazać menu"). */

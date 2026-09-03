@@ -20,7 +20,7 @@ import {
   formatMoney,
 } from "@/components/finance/FinanceResultsTable";
 
-export function FinanceResultsTab() {
+export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -92,12 +92,14 @@ export function FinanceResultsTab() {
 
   return (
     <div className="space-y-4">
-      <FinanceImportPanel
-        onImported={(result) => {
-          setSelected({ year: result.year, month: result.month });
-          refreshAll();
-        }}
-      />
+      {canWrite && (
+        <FinanceImportPanel
+          onImported={(result) => {
+            setSelected({ year: result.year, month: result.month });
+            refreshAll();
+          }}
+        />
+      )}
 
       {/* Kolejność gałęzi jest istotna: awaria → „jeszcze nie wiem" → pustka →
           dane. Wcześniej warunek pustki brzmiał `periods.length === 0 &&
@@ -117,7 +119,9 @@ export function FinanceResultsTab() {
         </div>
       ) : periods.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          Nie zaimportowano jeszcze żadnego miesiąca. Wgraj plik Excel powyżej.
+          {canWrite
+            ? "Nie zaimportowano jeszcze żadnego miesiąca. Wgraj plik Excel powyżej."
+            : "Nie zaimportowano jeszcze żadnego miesiąca."}
         </div>
       ) : (
         <>
@@ -194,7 +198,7 @@ export function FinanceResultsTab() {
             </div>
           ) : (
             <>
-              {(resultsQuery.data?.needs_completion_count ?? 0) > 0 && (
+              {canWrite && (resultsQuery.data?.needs_completion_count ?? 0) > 0 && (
                 <p className="text-xs text-muted-foreground">
                   Kliknij dwukrotnie komórkę, aby ją edytować. Pola oznaczone jako{" "}
                   <span className="rounded bg-destructive/10 px-1 text-destructive">
@@ -216,6 +220,7 @@ export function FinanceResultsTab() {
                 onEdit={handleEdit}
                 onError={(msg) => showToast(msg, "error")}
                 searching={searching}
+                readOnly={!canWrite}
               />
             </>
           )}

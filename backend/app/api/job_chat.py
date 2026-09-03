@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.api.deps import DeliveryLeadPlus
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.ws import notify_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
@@ -45,7 +46,7 @@ from app.services.job_membership import (
 )
 from app.services.mention_parser import parse_mentions
 
-router = APIRouter()
+router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 DELETED_PLACEHOLDER = "[wiadomość usunięta]"
 MAX_PINNED_PER_JOB = 3

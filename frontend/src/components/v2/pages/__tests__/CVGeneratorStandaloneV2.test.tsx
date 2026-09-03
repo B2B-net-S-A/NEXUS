@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
 import { CVGeneratorStandaloneV2 } from "../CVGeneratorStandaloneV2";
+import { useAuthStore } from "@/store/auth";
 
 // The page GETs the generated-CV list on mount and POSTs the multipart upload.
 const getMock = vi.fn((..._args: unknown[]) => Promise.resolve({ data: [] }));
@@ -18,6 +19,28 @@ vi.mock("@/lib/api", () => ({
   },
   extractErrorMsg: (e: unknown) => String(e),
 }));
+
+function setSourcingAccess(
+  access: "read" | "write",
+  impersonating = false,
+) {
+  const user = {
+    id: 12,
+    email: "rekruter@example.com",
+    name: "Rekruter",
+    role: "recruiter",
+    profile_completed: true,
+    profile_completed_at: null,
+    force_password_change: false,
+    force_password_change_at: null,
+    effective_section_access: { sourcing: access },
+  } as const;
+  useAuthStore.setState({
+    user: user as never,
+    realUser: impersonating ? ({ ...user, id: 1, role: "admin" } as never) : null,
+    hydrated: true,
+  });
+}
 
 function renderPage() {
   const qc = new QueryClient({
@@ -64,6 +87,7 @@ function confirmOutsideAssignment() {
 
 describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
   beforeEach(() => {
+    setSourcingAccess("write");
     getMock.mockClear();
     postMock.mockClear();
   });
@@ -150,6 +174,7 @@ describe("CVGeneratorStandaloneV2 — champion upload rejection", () => {
 
 describe("CVGeneratorStandaloneV2 — tryb obróbki treści", () => {
   beforeEach(() => {
+    setSourcingAccess("write");
     getMock.mockClear();
     postMock.mockClear();
   });
@@ -192,5 +217,63 @@ describe("CVGeneratorStandaloneV2 — tryb obróbki treści", () => {
         /Nie używaj dla klientów wymagających profili nieprofilowanych/,
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe("CVGeneratorStandaloneV2 — sourcing read-only", () => {
+  beforeEach(() => {
+    getMock.mockClear();
+    getMock.mockImplementation((..._args: unknown[]) =>
+      Promise.resolve({ data: [] }),
+    );
+    postMock.mockClear();
+  });
+
+  it.each([
+    ["read access", "read", false],
+    ["impersonation", "write", true],
+  ] as const)("blocks generation for %s", async (_label, access, impersonating) => {
+    setSourcingAccess(access, impersonating);
+
+    renderPage();
+
+    expect(
+      await screen.findByText("Tryb tylko do odczytu"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Generuj CV/i }),
+    ).not.toBeInTheDocument();
+    expect(postMock).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Brak wygenerowanych CV/),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps downloads available but hides share and delete actions", async () => {
+    setSourcingAccess("read");
+    getMock.mockResolvedValue({
+      data: [
+        {
+          id: 21,
+          candidate_name: "Jan Kowalski",
+          language: "pl",
+          blind: false,
+          mode: "candidate",
+          filename: "Jan_Kowalski.docx",
+          status: "ready",
+          warnings: [],
+          can_download: true,
+          can_delete: true,
+        },
+      ],
+    } as never);
+
+    renderPage();
+
+    expect(await screen.findByTitle("Pobierz DOCX")).toBeInTheDocument();
+    expect(
+      screen.queryByTitle("Udostępnij klientowi (link)"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń z listy")).not.toBeInTheDocument();
   });
 });

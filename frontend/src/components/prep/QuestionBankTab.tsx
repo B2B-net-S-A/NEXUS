@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from"react";
+import { useCallback, useEffect, useState } from"react";
 import {
  Card,
- CardTitle,
  CardDescription,
  Badge,
  Button,
@@ -51,9 +50,14 @@ const TYPE_OPTIONS: {
 interface QuestionBankTabProps {
  jobId: number;
  clientId: number | null;
+ readOnly?: boolean;
 }
 
-export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
+export function QuestionBankTab({
+ jobId,
+ clientId,
+ readOnly = false,
+}: QuestionBankTabProps) {
  const [pinned, setPinned] = useState<JobQuestionLink[]>([]);
  const [loading, setLoading] = useState(true);
  const [error, setError] = useState<string | null>(null);
@@ -81,6 +85,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  }, [loadPinned]);
 
  const handleUnpin = async (questionId: number) => {
+ if (readOnly) return;
  try {
  await interviewQuestionsApi.unpinFromJob(jobId, questionId);
  await loadPinned();
@@ -91,6 +96,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  };
 
  const handleMove = async (questionId: number, direction: "up" |"down") => {
+ if (readOnly) return;
  const idx = pinned.findIndex((p) => p.question.id === questionId);
  if (idx === -1) return;
  const swap = direction === "up" ? idx - 1 : idx + 1;
@@ -123,6 +129,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  proponuje pytania z podobnych projektów.
  </CardDescription>
  </div>
+ {!readOnly ? (
  <div className="flex items-center gap-2">
  <Button
  variant="outline"
@@ -139,6 +146,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  + Dodaj pytanie
  </Button>
  </div>
+ ) : null}
  </div>
 
  {error && (
@@ -152,7 +160,9 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  {!loading && pinned.length === 0 && (
  <Card variant="default" size="md">
  <CardDescription>
- Brak przypiętych pytań. Dodaj pierwsze albo wyszukaj w globalnej bazie.
+ {readOnly
+ ? "Brak przypiętych pytań."
+ : "Brak przypiętych pytań. Dodaj pierwsze albo wyszukaj w globalnej bazie."}
  </CardDescription>
  </Card>
  )}
@@ -162,6 +172,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  <li key={link.id}>
  <Card variant="default" size="sm">
  <div className="flex items-start gap-3">
+ {!readOnly ? (
  <div className="flex flex-col gap-1 shrink-0">
  <button
  type="button"
@@ -182,6 +193,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  ▼
  </button>
  </div>
+ ) : null}
  <div className="flex-1 min-w-0">
  <div className="flex flex-wrap items-center gap-1.5 mb-1">
  <Badge variant="success" size="sm">
@@ -225,6 +237,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  </p>
  )}
  </div>
+ {!readOnly ? (
  <Button
  variant="ghost"
  size="sm"
@@ -232,13 +245,14 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  >
  Odepnij
  </Button>
+ ) : null}
  </div>
  </Card>
  </li>
  ))}
  </ul>
 
- {showCreate && (
+ {!readOnly && showCreate && (
  <CreateQuestionDialog
  jobId={jobId}
  clientId={clientId}
@@ -250,7 +264,7 @@ export function QuestionBankTab({ jobId, clientId }: QuestionBankTabProps) {
  />
  )}
 
- {showSearch && (
+ {!readOnly && showSearch && (
  <SearchGlobalQuestionsDialog
  jobId={jobId}
  clientId={clientId}

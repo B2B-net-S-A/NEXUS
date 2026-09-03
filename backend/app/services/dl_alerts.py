@@ -42,24 +42,24 @@ from app.models.dl_alert import (
     DL_ALERT_STATUS_NEW,
     DlAlert,
 )
-from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services.client_identity import client_display_name_expression
+from app.services.delivery_alert_recipients import (
+    load_delivery_alert_recipient_scope,
+)
 from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
 
 
 async def dl_user_ids_for_client(db: AsyncSession, client_id: int) -> list[int]:
-    """Delivery Leadzi przypisani do klienta — odbiorcy alertów.
+    """Active, authorised Delivery Leads assigned to this client.
 
     Jeden warunek daje tyle wierszy, ilu DL jest przypisanych. Raport ma
     odpowiadać na pytanie „ile spraw KTO zignorował", a nie „ile było
-    zdarzeń", więc alert nie może być współdzielony.
+    zdarzeń", więc alert nie może być współdzielony. Sam historyczny wpis w
+    tabeli przypisań nie jest grantem: odbiorca musi nadal mieć rolę Delivery
+    Leada i effective ``delivery >= read``.
     """
-    res = await db.execute(
-        select(DeliveryLeadClientAssignment.delivery_lead_user_id).where(
-            DeliveryLeadClientAssignment.client_id == client_id
-        )
-    )
-    return sorted({row[0] for row in res.all()})
+    scope = await load_delivery_alert_recipient_scope(db)
+    return sorted(scope.delivery_lead_ids_by_client.get(client_id, frozenset()))
 
 
 def repeat_window(first_seen: datetime, now: datetime, *, every_days: int) -> int:

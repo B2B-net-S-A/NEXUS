@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import {
   rolesWithSectionAccess,
+  type ProductSection,
   type SectionAccess,
 } from "@/lib/section-access";
 import type { UserRole } from "@/store/auth";
@@ -26,7 +27,8 @@ import type { UserRole } from "@/store/auth";
  * logowania. Nowa trasa dodana do `app/` jest teraz chroniona automatycznie —
  * nikt nie musi pamiętać o dopisaniu jej do listy.
  *
- * `ROLE_ROUTES` zawęża dostęp tam, gdzie sam login nie wystarcza.
+ * `ROLE_ROUTES` zawęża dostęp na podstawie podpisanej mapy sekcji i — dla
+ * wybranych akcji — dodatkowej listy ról.
  *
  * Uwaga: to *defense in depth*. Guardy backendu (deps.py) pozostają ostatecznym
  * arbitrem — middleware blokuje tylko nawigację do UI, nie chroni API.
@@ -60,50 +62,119 @@ const INSIGHTS_ROLES = sectionRoles("insights");
 const SYSTEM_ADMIN_ROLES = sectionRoles("system_admin");
 const CORTEX_ROLES = INSIGHTS_ROLES.filter((role) => role !== "user");
 
-// Trasy wymagające KONKRETNYCH ról. Każda inna (niepubliczna) trasa wymaga
-// wyłącznie ważnego tokenu — patrz deny-by-default w nagłówku pliku.
+// Trasy wymagające dostępu do sekcji lub KONKRETNYCH ról. Każda inna
+// (niepubliczna) trasa wymaga wyłącznie ważnego tokenu — patrz deny-by-default.
 // Kolejność prefixów nie ma znaczenia — dopasowywany jest najdłuższy pasujący
-// prefix (patrz resolveAllowedRoles).
-const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
-  { prefix: "/manager", roles: ["admin", "delivery_lead"] },
+// prefix (patrz resolveAccessRule).
+type RouteAccessRule = {
+  prefix: string;
+  roles: UserRole[] | null;
+  /**
+   * Gdy JWT zawiera claim `sa`, dostęp do tej trasy wynika z podpisanej mapy
+   * sekcji. `roles` pozostaje kontrolowanym fallbackiem dla starszych tokenów.
+   */
+  section?: ProductSection;
+  required?: Exclude<SectionAccess, "none">;
+  /** Dodatkowa, węższa reguła operacyjna obowiązująca także po section grant. */
+  enforceRoles?: boolean;
+};
+
+const ROLE_ROUTES: RouteAccessRule[] = [
+  {
+    prefix: "/manager",
+    roles: ["admin", "delivery_lead"],
+    section: "delivery",
+    enforceRoles: true,
+  },
   // Longest-prefix exceptions must precede only conceptually; resolver sorts
   // them. B2B Generator belongs to Sourcing despite living under /contracts.
-  { prefix: "/contracts/b2b-generator", roles: SOURCING_ROLES },
-  { prefix: "/contracts/analytics", roles: ["admin", "finance"] },
-  { prefix: "/contractors", roles: DELIVERY_ROLES },
-  { prefix: "/contracts", roles: DELIVERY_ROLES },
-  { prefix: "/my-relationships", roles: DELIVERY_ROLES },
-  { prefix: "/my-clients", roles: DELIVERY_ROLES },
-  { prefix: "/clients", roles: DELIVERY_ROLES },
-  { prefix: "/jobs", roles: PIPELINE_ROLES },
-  { prefix: "/calendar", roles: PIPELINE_ROLES },
-  // Moduł „Finanse" — wyniki miesięczne kontraktorów, Archiwum importów oraz
-  // import zużycia MD. Lustro backendowych `FinanceModuleUser` /
-  // `FinanceManageUser` (oba: admin + rola Finanse). Bramka po stronie UI to
-  // UX; ten wpis pilnuje, żeby wejście z paska adresu kończyło się /403,
-  // a nie pustym ekranem.
-  { prefix: "/finance", roles: ["admin", "finance"] },
+  {
+    prefix: "/contracts/b2b-generator",
+    roles: SOURCING_ROLES,
+    section: "sourcing",
+  },
+  { prefix: "/cv-generator", roles: SOURCING_ROLES, section: "sourcing" },
+  {
+    prefix: "/contracts/analytics",
+    roles: ["admin", "finance"],
+    section: "finance",
+    enforceRoles: true,
+  },
+  { prefix: "/contractors", roles: DELIVERY_ROLES, section: "delivery" },
+  { prefix: "/contracts", roles: DELIVERY_ROLES, section: "delivery" },
+  {
+    prefix: "/my-relationships",
+    roles: DELIVERY_ROLES,
+    section: "delivery",
+  },
+  { prefix: "/my-clients", roles: DELIVERY_ROLES, section: "delivery" },
+  { prefix: "/clients", roles: DELIVERY_ROLES, section: "delivery" },
+  { prefix: "/jobs", roles: PIPELINE_ROLES, section: "pipeline" },
+  { prefix: "/calendar", roles: PIPELINE_ROLES, section: "pipeline" },
+  // Moduł „Finanse" — podpisany claim sekcji pozwala także na indywidualny
+  // wyjątek, a lista ról zachowuje bezpieczny fallback dla starszych tokenów.
+  {
+    prefix: "/finance",
+    roles: ["admin", "finance"],
+    section: "finance",
+  },
   // Zamówienia z maila są powierzchnią Delivery; scope rekordu liczy backend.
-  { prefix: "/order-mail", roles: DELIVERY_ROLES },
+  { prefix: "/order-mail", roles: DELIVERY_ROLES, section: "delivery" },
   // DynaReporter (migracja B.0, 0112): zalogowani; fine-grained access per moduł
   // przez `user.allowed_sections` (sprawdzane client-side w komponentach —
   // middleware nie ma dostępu do user object, tylko JWT payload).
   { prefix: "/dynareporter", roles: null },
   // Granularne podstrony settings (defense in depth) — kolejność nie ma
-  // znaczenia, resolveAllowedRoles bierze najdłuższy pasujący prefix.
+  // znaczenia, resolveAccessRule bierze najdłuższy pasujący prefix.
   { prefix: "/settings/chats", roles: ["admin", "finance"] },
   // Techniczna administracja jest osobną sekcją i zostaje Admin-only.
   // Ustawienia biznesowe niżej zachowują własne, węższe publiczności.
-  { prefix: "/settings/ai", roles: SYSTEM_ADMIN_ROLES },
-  { prefix: "/settings/api-integration", roles: SYSTEM_ADMIN_ROLES },
-  { prefix: "/settings/diagnostics", roles: SYSTEM_ADMIN_ROLES },
-  { prefix: "/settings/dictionaries", roles: SYSTEM_ADMIN_ROLES },
-  { prefix: "/settings/entity-fields", roles: SYSTEM_ADMIN_ROLES },
+  {
+    prefix: "/settings/ai",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
+  {
+    prefix: "/settings/api-integration",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
+  {
+    prefix: "/settings/diagnostics",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
+  {
+    prefix: "/settings/dictionaries",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
+  {
+    prefix: "/settings/entity-fields",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
   {
     prefix: "/settings/pipeline-templates",
     roles: ["admin", "delivery_lead"],
+    section: "pipeline",
+    required: "write",
+    enforceRoles: true,
   },
-  { prefix: "/settings/scoring", roles: ["admin", "delivery_lead"] },
+  {
+    prefix: "/settings/scoring",
+    roles: ["admin", "delivery_lead"],
+    section: "insights",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
+    prefix: "/settings/cv-rules",
+    roles: ["admin", "delivery_lead"],
+    section: "delivery",
+    required: "write",
+    enforceRoles: true,
+  },
   { prefix: "/settings/templates", roles: NON_FINANCE_ROLES },
   {
     prefix: "/settings/team-structure",
@@ -112,27 +183,51 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   {
     prefix: "/settings/linkedin-metrics",
     roles: ["admin", "head_of_recruitment", "finance"],
+    section: "insights",
+    required: "read",
+    enforceRoles: true,
   },
   // Benchmarki stawek rynkowych: Admin ma CRUD, Finance pełny odczyt.
   // POST/PATCH/DELETE/import pozostają po stronie API na `AdminUser`.
-  { prefix: "/settings/rate-benchmarks", roles: ["admin", "finance"] },
+  {
+    prefix: "/settings/rate-benchmarks",
+    roles: ["admin", "finance"],
+    section: "finance",
+    enforceRoles: true,
+  },
   // Clients overview pokazuje lifetime/active revenue. Finance ma organizacyjny
   // odczyt, spójnie z backendowym `FinanceReadUser`.
-  { prefix: "/settings/clients-overview", roles: ["admin", "finance"] },
+  {
+    prefix: "/settings/clients-overview",
+    roles: ["admin", "finance"],
+    section: "finance",
+    enforceRoles: true,
+  },
   {
     prefix: "/settings/hiring-managers",
     roles: ["admin", "head_of_recruitment", "finance"],
+    section: "insights",
+    enforceRoles: true,
   },
-  { prefix: "/settings/contract-templates", roles: ["admin", "finance"] },
+  {
+    prefix: "/settings/contract-templates",
+    roles: ["admin", "finance"],
+    section: "finance",
+    enforceRoles: true,
+  },
   {
     prefix: "/settings/client-portfolio-preview",
     roles: ["admin", "finance"],
+    section: "finance",
+    enforceRoles: true,
   },
   // Cortex — dane kompetencyjne kandydatów (RODO gate, parytet z backendowym
   // CortexUser i zakładką Insights → Klienci & Delivery).
   {
     prefix: "/cortex",
     roles: CORTEX_ROLES,
+    section: "insights",
+    enforceRoles: true,
   },
   // Wykonywanie telefonów jest ograniczone do ról operacyjnych (lustro
   // backendowego `ContactCaller`); sama strona odbija resztę własnym
@@ -162,18 +257,24 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   {
     prefix: "/candidates",
     roles: SOURCING_OPERATIONAL_ROLES,
+    section: "sourcing",
+    enforceRoles: true,
   },
   {
     prefix: "/talents",
     roles: SOURCING_OPERATIONAL_ROLES,
+    section: "sourcing",
+    enforceRoles: true,
   },
-  // `/talent-radar` CELOWO nie ma wpisu: radar i powiązane funkcje są
-  // dostępne dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08),
-  // a brak wpisu = brak zawężenia ról przy zachowaniu wymogu logowania.
-  // Backend lustrzanie: oba endpointy radaru na CurrentUser.
+  // Talent Radar należy do Sourcing. Wszystkie obecne role operacyjne mają
+  // ten dostęp w polityce startowej, ale jawny override użytkownika musi móc
+  // go odebrać bez pozostawiania bocznego wejścia przez URL.
+  { prefix: "/talent-radar", roles: null, section: "sourcing" },
   {
     prefix: "/sourcing",
     roles: SOURCING_OPERATIONAL_ROLES,
+    section: "sourcing",
+    enforceRoles: true,
   },
   // Kolejka zgłoszeń z publicznych aplikacji — dane osobowe aplikanta
   // (imię, e-mail, telefon, LinkedIn, CV). Backend gatuje ją przez
@@ -182,8 +283,11 @@ const ROLE_ROUTES: Array<{ prefix: string; roles: UserRole[] | null }> = [
   {
     prefix: "/applications",
     roles: SOURCING_OPERATIONAL_ROLES,
+    section: "sourcing",
+    enforceRoles: true,
   },
-  // `/profile`, `/insights`, `/settings` (i każda inna trasa bez wpisu) nie
+  { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
+  // `/profile`, `/settings` (i każda inna trasa bez wpisu) nie
   // potrzebują osobnej bramki rolowej — deny-by-default już wymaga logowania.
 ];
 
@@ -254,14 +358,32 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
-function resolveAllowedRoles(pathname: string): UserRole[] | null | undefined {
+function resolveAccessRule(pathname: string): RouteAccessRule | undefined {
   // Sortuj po długości prefiksu malejąco — /candidates/123/edit pasuje do /candidates,
   // ale /admin/users pasuje do /admin (a nie do /, gdyby taki był).
   const sorted = [...ROLE_ROUTES].sort(
     (a, b) => b.prefix.length - a.prefix.length,
   );
-  const match = sorted.find((r) => pathname.startsWith(r.prefix));
-  return match ? match.roles : undefined;
+  return sorted.find((r) => pathname.startsWith(r.prefix));
+}
+
+const ACCESS_RANK: Record<SectionAccess, number> = {
+  none: 0,
+  read: 1,
+  write: 2,
+};
+
+function hasSignedSectionAccess(
+  access: NonNullable<ReturnType<typeof decodeJwtPayload>>["sa"],
+  section: ProductSection,
+  required: Exclude<SectionAccess, "none">,
+): boolean {
+  if (!access) return false;
+  const granted = access[section];
+  if (granted !== "none" && granted !== "read" && granted !== "write") {
+    return false;
+  }
+  return ACCESS_RANK[granted] >= ACCESS_RANK[required];
 }
 
 // Dekodowanie payloadu JWT (bez weryfikacji podpisu) współdzielone z warstwą
@@ -280,7 +402,7 @@ export function middleware(request: NextRequest) {
 
   // Deny by default: wszystko poza PUBLIC_PATHS wymaga tokenu. `undefined`
   // oznacza tu tylko „brak zawężenia ról", a NIE „trasa niechroniona".
-  const allowedRoles = resolveAllowedRoles(pathname);
+  const accessRule = resolveAccessRule(pathname);
 
   // Brak tokena na chronionej trasie → login.
   if (!token) {
@@ -303,12 +425,29 @@ export function middleware(request: NextRequest) {
   // secondary z claim `roles`) — spójnie z Sidebar/RequireRole, które używają
   // roles[]. Fallback na sam `role` dla starych tokenów (sprzed deploya) bez
   // claim `roles`, żeby nie wyrzucać zalogowanych na /403 w okresie przejściowym.
-  if (allowedRoles) {
-    const userRoles = new Set<string>([
-      payload.role as string,
-      ...(payload.roles ?? []),
-    ]);
-    if (!allowedRoles.some((r) => userRoles.has(r as string))) {
+  const userRoles = new Set<string>([
+    payload.role as string,
+    ...(payload.roles ?? []),
+  ]);
+  if (accessRule?.section && payload.sa) {
+    if (
+      !hasSignedSectionAccess(
+        payload.sa,
+        accessRule.section,
+        accessRule.required ?? "read",
+      )
+    ) {
+      return NextResponse.redirect(new URL("/403", request.url));
+    }
+    if (
+      accessRule.enforceRoles &&
+      accessRule.roles &&
+      !accessRule.roles.some((role) => userRoles.has(role))
+    ) {
+      return NextResponse.redirect(new URL("/403", request.url));
+    }
+  } else if (accessRule?.roles) {
+    if (!accessRule.roles.some((r) => userRoles.has(r as string))) {
       return NextResponse.redirect(new URL("/403", request.url));
     }
   }

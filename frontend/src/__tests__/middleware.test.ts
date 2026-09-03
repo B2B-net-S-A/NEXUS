@@ -110,6 +110,7 @@ const PRIVATE_ROUTES = [
   "/settings",
   "/candidates",
   "/talents",
+  "/talent-radar",
   "/manager",
   "/cortex",
   "/preview/shell",
@@ -228,6 +229,122 @@ describe("linki publiczne działają bez tokenu", () => {
 })
 
 describe("zawężenia ról nadal obowiązują", () => {
+  it("podpisany claim sa steruje dostępem do sekcji niezależnie od bazowej roli", () => {
+    const configuredRecruiter = makeToken({
+      role: "recruiter",
+      roles: ["recruiter"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "none",
+        pipeline: "read",
+        delivery: "read",
+        insights: "none",
+        finance: "write",
+        system_admin: "none",
+      },
+    })
+
+    expect(destination("/clients", configuredRecruiter)).toBe("pass")
+    expect(destination("/finance", configuredRecruiter)).toBe("pass")
+    expect(destination("/candidates", configuredRecruiter)).toBe("/403")
+    expect(destination("/cv-generator", configuredRecruiter)).toBe("/403")
+    expect(destination("/talent-radar", configuredRecruiter)).toBe("/403")
+    expect(destination("/insights", configuredRecruiter)).toBe("/403")
+    expect(destination("/settings/linkedin-metrics", configuredRecruiter)).toBe(
+      "/403",
+    )
+
+    const configuredDeliveryLead = makeToken({
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "none",
+        delivery: "write",
+        insights: "none",
+        finance: "none",
+        system_admin: "none",
+      },
+    })
+    expect(
+      destination("/settings/pipeline-templates", configuredDeliveryLead),
+    ).toBe("/403")
+    expect(destination("/settings/scoring", configuredDeliveryLead)).toBe(
+      "/403",
+    )
+
+    const readOnlyDeliveryLead = makeToken({
+      role: "delivery_lead",
+      roles: ["delivery_lead"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "write",
+        delivery: "write",
+        insights: "read",
+        finance: "none",
+        system_admin: "none",
+      },
+    })
+    expect(destination("/settings/scoring", readOnlyDeliveryLead)).toBe(
+      "pass",
+    )
+
+    const readOnlyFinance = makeToken({
+      role: "finance",
+      roles: ["finance"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "write",
+        delivery: "write",
+        insights: "read",
+        finance: "write",
+        system_admin: "none",
+      },
+    })
+    expect(destination("/settings/linkedin-metrics", readOnlyFinance)).toBe(
+      "pass",
+    )
+  })
+
+  it("nie używa claimu sekcji do obchodzenia węższych reguł akcji", () => {
+    const configuredAdmin = makeToken({
+      role: "admin",
+      roles: ["admin"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "write",
+        delivery: "write",
+        insights: "write",
+        finance: "write",
+        system_admin: "write",
+      },
+    })
+
+    expect(destination("/candidates/contact-queue", configuredAdmin)).toBe(
+      "/403",
+    )
+
+    const configuredViewer = makeToken({
+      role: "user",
+      roles: ["user"],
+      exp: now() + HOUR,
+      sa: {
+        sourcing: "write",
+        pipeline: "read",
+        delivery: "none",
+        insights: "write",
+        finance: "none",
+        system_admin: "none",
+      },
+    })
+    expect(destination("/candidates", configuredViewer)).toBe("/403")
+    expect(destination("/cortex", configuredViewer)).toBe("/403")
+  })
+
   it("viewer nie wchodzi na /candidates", () => {
     expect(destination("/candidates", validViewer)).toBe("/403")
   })
@@ -264,7 +381,14 @@ describe("zawężenia ról nadal obowiązują", () => {
     ["tac", validTac],
     ["head_of_recruitment", validHeadOfRecruitment],
   ])("%s ma Sourcing, Pipeline i Insights, ale nie Delivery ani Finanse", (_role, token) => {
-    for (const route of ["/candidates", "/jobs", "/calendar", "/insights", "/cortex"]) {
+    for (const route of [
+      "/candidates",
+      "/talent-radar",
+      "/jobs",
+      "/calendar",
+      "/insights",
+      "/cortex",
+    ]) {
       expect(destination(route, token), route).toBe("pass")
     }
     for (const route of [

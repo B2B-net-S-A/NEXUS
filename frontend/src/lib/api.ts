@@ -2,6 +2,13 @@ import axios, { AxiosError } from "axios";
 
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
+import type {
+  RoleSectionPermissionChange,
+  SectionPermissionMutationResponse,
+  SectionPermissionsResponse,
+  UserSectionPermissionChange,
+  UserSectionPermissionsResponse,
+} from "./section-access";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -814,6 +821,33 @@ export const adminApi = {
   getTalentRadarImportStatus: (taskId: string) =>
     api.get<ImportTaskStatus>(`/api/admin/import-talent-radar/${taskId}`),
   listImportTasks: () => api.get<ImportTaskStatus[]>("/api/admin/import-tasks"),
+  getSectionPermissions: () =>
+    api.get<SectionPermissionsResponse>("/api/admin/section-permissions"),
+  searchUserSectionPermissions: (search = "") =>
+    api.get<UserSectionPermissionsResponse>(
+      "/api/admin/section-permissions/users",
+      { params: search.trim() ? { search: search.trim() } : undefined },
+    ),
+  updateRoleSectionPermissions: (
+    revision: number,
+    changes: RoleSectionPermissionChange[],
+  ) =>
+    api.put<SectionPermissionMutationResponse>(
+      "/api/admin/section-permissions/roles",
+      {
+        revision,
+        changes,
+      },
+    ),
+  updateUserSectionPermissions: (
+    userId: number,
+    revision: number,
+    changes: UserSectionPermissionChange[],
+  ) =>
+    api.put<SectionPermissionMutationResponse>(
+      `/api/admin/section-permissions/users/${userId}`,
+      { revision, changes },
+    ),
 };
 
 // ── Job Postings ──────────────────────────────────────────────────────────────

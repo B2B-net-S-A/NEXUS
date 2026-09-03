@@ -65,6 +65,7 @@ from app.api.financial_access import (
     FinanceReadUser,
     redact_financial_fields,
 )
+from app.services.notification_access import user_can_receive_notification
 from app.models.notification import NotificationType
 from app.models.contract import RateUnit
 from app.models.user import User, UserRole
@@ -969,24 +970,23 @@ def test_finance_notification_allowlist_contains_only_account_security_types():
         assert recruitment_type not in notifications._FINANCE_SAFE_NOTIFICATION_TYPES
 
 
-def test_finance_notification_visibility_matches_operational():
-    """Od 19.08 finance widzi feed jak role operacyjne (bez allowlisty).
-
-    Kontrakt: predykat widoczności czystej persony finance jest IDENTYCZNY
-    z predykatem recruitera (wszystko poza pending_verification) — a nie
-    admin-true() i nie dawna lista „finance-safe"."""
+def test_finance_notification_visibility_tracks_section_policy():
+    """Finance keeps its broad defaults; Recruiter has no Delivery feed."""
     finance = _user(UserRole.finance)
     recruiter = _user(UserRole.recruiter)
 
-    def rendered(user):
-        return str(
-            notifications._notification_visibility(user).compile(
-                compile_kwargs={"literal_binds": True}
-            )
-        )
-
-    assert rendered(finance) == rendered(recruiter)
-    assert "pending_verification" in rendered(finance)
+    assert user_can_receive_notification(
+        finance, NotificationType.contract_ending, link="/contracts/1"
+    )
+    assert not user_can_receive_notification(
+        recruiter, NotificationType.contract_ending, link="/contracts/1"
+    )
+    assert user_can_receive_notification(
+        finance, NotificationType.candidate_added, link="/candidates/1"
+    )
+    assert user_can_receive_notification(
+        recruiter, NotificationType.candidate_added, link="/candidates/1"
+    )
 
 
 def test_activity_redaction_covers_job_budget_and_generic_amount_keys():

@@ -18,11 +18,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_roles
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.services.insights_hiring_managers import compute_hiring_manager_kpis
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 HiringManagersReadUser = Annotated[
     User,

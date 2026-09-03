@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import CurrentUser, require_roles
 from app.api.financial_access import FinanceReadUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
 from app.models.candidate import Candidate
@@ -37,7 +38,7 @@ from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 # ── Rate-unit aware helpers (Phase 9 A3) ───────────────────────────────────────

@@ -26,6 +26,7 @@ from app.api.ws import (
     _authenticate_ws_token,
     _extract_ws_token,
     _ws_payload_authorizes_user,
+    ConnectionManager,
     ws_notifications,
 )
 from app.core.config import settings
@@ -51,13 +52,18 @@ class _EndpointWS(_FakeWS):
 
     def __init__(self) -> None:
         super().__init__()
+        self.accepted = False
+        self.sent: list[dict] = []
         self.closed: tuple[int, str] | None = None
+
+    async def accept(self, *, subprotocol: str | None = None) -> None:
+        self.accepted = True
 
     async def receive_text(self) -> str:
         return "ping"
 
-    async def send_json(self, _payload: dict) -> None:
-        return None
+    async def send_json(self, payload: dict) -> None:
+        self.sent.append(payload)
 
     async def close(self, *, code: int, reason: str) -> None:
         self.closed = (code, reason)
@@ -141,10 +147,35 @@ async def test_connected_socket_is_closed_after_authorization_change(
 
     await ws_notifications(websocket, token="signed-jwt")
 
-    connect.assert_awaited_once_with(user.id, websocket, subprotocol=None)
+    connect.assert_awaited_once_with(
+        user.id,
+        websocket,
+        subprotocol=None,
+        auth_token="signed-jwt",
+    )
     assert websocket.closed == (4001, "Unauthorized")
     disconnect.assert_awaited_once_with(user.id, websocket)
     assert authenticate.await_count == 2
+
+
+async def test_outbound_notification_reauthorizes_before_sending(
+    monkeypatch,
+) -> None:
+    """A policy revoke closes a live socket before its next server push."""
+
+    manager = ConnectionManager()
+    websocket = _EndpointWS()
+    monkeypatch.setattr(ws_module, "_stamp_last_seen", AsyncMock())
+    authenticate = AsyncMock(return_value=None)
+    monkeypatch.setattr(ws_module, "_authenticate_ws_token", authenticate)
+
+    await manager.connect(991003, websocket, auth_token="stale-token")
+    await manager.notify_user(991003, {"type": "notification"})
+
+    authenticate.assert_awaited_once_with("stale-token")
+    assert websocket.closed == (4001, "Unauthorized")
+    assert websocket.sent == []
+    assert manager.get_connected_user_ids() == []
 
 
 # ── End-to-end auth of the resolved token (real DB) ──────────────────────────

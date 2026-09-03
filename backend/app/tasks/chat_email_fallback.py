@@ -39,6 +39,11 @@ from app.api.candidate_access import (
     CANDIDATE_READ_ROLES,
     user_can_access_candidate_domain,
 )
+from app.services.section_permissions import (
+    resolve_effective_section_access,
+    resolve_effective_section_access_for_users,
+)
+from app.services.notification_access import user_can_receive_notification
 from app.services.email import send_chat_fallback_email
 
 logger = logging.getLogger(__name__)
@@ -202,12 +207,21 @@ async def _process_one_pass(db: AsyncSession) -> int:
     if not pairs:
         return 0
 
+    await resolve_effective_section_access_for_users(db, [user for _, user in pairs])
+
     sent = 0
     for notif, user in pairs:
         # Role changes can race with the SELECT. Re-evaluate the complete,
         # current role union before even claiming the notification; a stale
         # unread chat row must never email candidate/recruitment PII to Finance.
-        if not _eligible_chat_email_recipient(user):
+        if not _eligible_chat_email_recipient(
+            user
+        ) or not user_can_receive_notification(
+            user,
+            notif.notification_type,
+            related_entity_type=notif.related_entity_type,
+            link=notif.link,
+        ):
             continue
         # Reserve the row atomically BEFORE sending so an overlapping pass can't
         # send the same email twice. The reservation is NOT the "sent" stamp.
@@ -218,7 +232,15 @@ async def _process_one_pass(db: AsyncSession) -> int:
         # transition to Finance/viewer (or deactivation) cannot leak the stale
         # notification body.
         await db.refresh(user, attribute_names=["role", "roles", "is_active"])
-        if not _eligible_chat_email_recipient(user):
+        await resolve_effective_section_access(db, user)
+        if not _eligible_chat_email_recipient(
+            user
+        ) or not user_can_receive_notification(
+            user,
+            notif.notification_type,
+            related_entity_type=notif.related_entity_type,
+            link=notif.link,
+        ):
             await _release_claim(db, notif.id)
             continue
         ok = False

@@ -4,11 +4,13 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds";
-import { RequireRole } from "@/components/RequireRole";
+import { RequireSectionAccess } from "@/components/RequireSectionAccess";
 import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
+import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 
 type ViewMode = "results" | "archive" | "md";
 
@@ -26,18 +28,26 @@ type ViewMode = "results" | "archive" | "md";
  * jego arkusz), stoją jako zakładki. Przełącznik jest ten sam co w module
  * Kontrakty.
  *
- * Widoczne wyłącznie dla ról `admin` i `finance`. `RequireRole` to warstwa UX;
- * realną bramką są `FinanceModuleUser` / `FinanceManageUser` na backendzie plus
- * wpis w `ROLE_ROUTES` (middleware), który zamienia wejście z paska adresu
- * w /403 zamiast pustego ekranu.
+ * Widoczne dla osób z efektywnym dostępem do sekcji Finance (rola lub wyjątek
+ * indywidualny). `RequireSectionAccess` to warstwa UX; realną bramką jest
+ * database-backed section guard na backendzie plus podpisany snapshot w
+ * `ROLE_ROUTES` (middleware).
  *
  * Stan zakładki żyje w URL przez History API, nie `useSearchParams` — ten drugi
  * wymusza w Next 15 granicę Suspense wokół całej strony (ten sam powód co
  * w /contracts, skąd pochodzi przełącznik).
  */
 export default function FinancePage() {
+  const user = useAuthStore((state) => state.user);
+  const impersonating = useAuthStore((state) => state.realUser !== null);
   const [view, setView] = useState<ViewMode>("results");
   const [mounted, setMounted] = useState(false);
+  // Podgląd jako użytkownik jest zawsze read-only, także gdy target ma
+  // Finance=write. Backend odrzuca takie mutacje; UI nie może sugerować, że
+  // import, restore lub edycja komórek zadziałają.
+  const canWrite =
+    !impersonating && hasSectionAccess(user, "finance", "write");
+  const visibleView = view === "md" && !canWrite ? "results" : view;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -63,8 +73,8 @@ export default function FinancePage() {
   }
 
   return (
-    <RequireRole
-      roles={["admin", "finance"]}
+    <RequireSectionAccess
+      section="finance"
       fallback={
         <QueryStateNotice
           state="forbidden"
@@ -78,22 +88,30 @@ export default function FinancePage() {
           aria-label="Tryb modułu Finanse"
           className="inline-flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1"
         >
-          <ModeButton active={view === "results"} onClick={() => changeView("results")}>
+          <ModeButton
+            active={visibleView === "results"}
+            onClick={() => changeView("results")}
+          >
             Wyniki miesięczne
           </ModeButton>
-          <ModeButton active={view === "archive"} onClick={() => changeView("archive")}>
+          <ModeButton
+            active={visibleView === "archive"}
+            onClick={() => changeView("archive")}
+          >
             Archiwum
           </ModeButton>
-          <ModeButton active={view === "md"} onClick={() => changeView("md")}>
-            Import zużycia MD
-          </ModeButton>
+          {canWrite && (
+            <ModeButton active={view === "md"} onClick={() => changeView("md")}>
+              Import zużycia MD
+            </ModeButton>
+          )}
         </div>
 
         <PageHeader
           eyebrow="Finanse · Wyniki kontraktorów"
           title="Finanse"
           description={
-            view === "md"
+            visibleView === "md"
               ? "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów"
               : "Miesięczne wyniki finansowe kontraktorów — koszt, przychód i marża"
           }
@@ -103,15 +121,15 @@ export default function FinancePage() {
           <div className="py-10 text-center text-sm text-muted-foreground">
             Ładowanie…
           </div>
-        ) : view === "results" ? (
-          <FinanceResultsTab />
-        ) : view === "archive" ? (
-          <FinanceArchiveTab />
+        ) : visibleView === "results" ? (
+          <FinanceResultsTab canWrite={canWrite} />
+        ) : visibleView === "archive" ? (
+          <FinanceArchiveTab canWrite={canWrite} />
         ) : (
           <MdImportWorkspace />
         )}
       </div>
-    </RequireRole>
+    </RequireSectionAccess>
   );
 }
 

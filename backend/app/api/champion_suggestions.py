@@ -24,6 +24,7 @@ from app.api.recruitment_access import (
     ensure_champion_job_read_visible,
     ensure_champion_job_visible,
 )
+from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.champion_suggestion import ChampionProfileSuggestion
 from app.models.job import Job
@@ -38,7 +39,11 @@ from app.services.champion_draft_service import apply_suggestion, reject_suggest
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/champion-suggestions", tags=["champion-suggestions"])
+router = APIRouter(
+    prefix="/champion-suggestions",
+    tags=["champion-suggestions"],
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
 
 
 ChampionSuggestionReadUser = Annotated[

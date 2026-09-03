@@ -36,7 +36,9 @@ from app.services.candidate_activity_summary_service import (
     get_summary_state,
 )
 
-router = APIRouter()
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 class CandidateActivitySummaryOut(BaseModel):

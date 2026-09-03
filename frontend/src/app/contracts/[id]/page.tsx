@@ -9,7 +9,6 @@ import api, {
   extractErrorMsg,
   type ContractSiblingRef,
 } from "@/lib/api";
-import { RequireRole } from "@/components/RequireRole";
 import { AppModal } from "@/components/ds/AppModal";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
@@ -38,7 +37,8 @@ import {
   sanitizeDecimalInput,
 } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
-import { getAccessToken } from "@/lib/session";
+import { getAuthenticatedRequestHeaders } from "@/lib/session";
+import { hasSectionAccess } from "@/lib/section-access";
 import {
   canManageCandidateFinance,
   canViewCandidateFinance,
@@ -221,12 +221,11 @@ function GenerateDocumentButton({
   if (!templates || templates.length === 0) return null;
 
   const openRendered = async (templateId: number) => {
-    const token = getAccessToken();
     const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     const url = `${base}/api/contract-templates/${templateId}/render?contract_id=${contractId}`;
     try {
       const resp = await fetch(url, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: getAuthenticatedRequestHeaders(),
       });
       if (!resp.ok) {
         alert(`Błąd renderowania: ${resp.status}`);
@@ -424,9 +423,14 @@ export default function ContractDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
+  const impersonating = useAuthStore((state) => state.realUser !== null);
   const canManageFinance = canManageCandidateFinance(user);
   const canViewFinance = canViewCandidateFinance(user);
   const isAdmin = hasRole(user, "admin");
+  const canEditContract =
+    !impersonating &&
+    hasRole(user, "admin", "delivery_lead") &&
+    hasSectionAccess(user, "delivery", "write");
   const isReadOnlyTcm =
     hasRole(user, "talent_community_manager") &&
     !hasRole(user, "admin", "delivery_lead", "finance");
@@ -845,7 +849,7 @@ export default function ContractDetailPage() {
           </p>
         </div>
 
-        <RequireRole roles={["admin", "delivery_lead"]}>
+        {canEditContract && (
           <div className="flex gap-2 flex-wrap">
             <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
             {contract.candidate_id != null && (
@@ -864,22 +868,20 @@ export default function ContractDetailPage() {
                 <Pencil className="w-4 h-4" /> Edytuj
               </button>
             )}
-            <RequireRole roles={["admin", "delivery_lead"]}>
-              <button
-                onClick={handleDelete}
-                disabled={deleteMutation.isPending}
-                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-              >
-                {deleteMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4" />
-                )}{" "}
-                Usuń
-              </button>
-            </RequireRole>
+            <button
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              {deleteMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}{" "}
+              Usuń
+            </button>
           </div>
-        </RequireRole>
+        )}
       </div>
 
       {/* Zakładki per klient — widoczne tylko dla osoby wieloklientowej.
@@ -2001,13 +2003,15 @@ export default function ContractDetailPage() {
       )}
 
       {/* Tab: Dokumenty */}
-      {activeTab === "documents" && <ContractDocumentsTab contractId={id} />}
+      {activeTab === "documents" && (
+        <ContractDocumentsTab contractId={id} readOnly={!canEditContract} />
+      )}
 
       {/* Tab: Aneksy */}
       {activeTab === "amendments" && (
         <ContractAmendmentsTab
           contractId={id}
-          readOnly={!hasRole(user, "admin", "delivery_lead")}
+          readOnly={!canEditContract}
         />
       )}
 
@@ -2015,7 +2019,7 @@ export default function ContractDetailPage() {
       {activeTab === "onboarding" && (
         <ContractOnboardingTab
           contractId={id}
-          readOnly={!hasRole(user, "admin", "delivery_lead")}
+          readOnly={!canEditContract}
         />
       )}
 
@@ -2024,7 +2028,7 @@ export default function ContractDetailPage() {
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6">
           <ContractEquipmentTab
             contractId={id}
-            readOnly={hasRole(user, "finance") || isReadOnlyTcm}
+            readOnly={!canEditContract}
           />
         </div>
       )}

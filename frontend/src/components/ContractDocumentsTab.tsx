@@ -72,6 +72,7 @@ function formatBytes(n: number | null | undefined): string {
 
 interface Props {
   contractId: number;
+  readOnly?: boolean;
 }
 
 const COMPLIANCE_TYPES = new Set(["nip", "zus_certificate", "oc_policy"]);
@@ -109,7 +110,7 @@ export function summariseComplianceRisk(docs: ContractDocument[] | undefined): {
   };
 }
 
-export function ContractDocumentsTab({ contractId }: Props) {
+export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [docType, setDocType] = useState<string>("contract");
@@ -190,7 +191,8 @@ export function ContractDocumentsTab({ contractId }: Props) {
 
   return (
     <div className="space-y-4">
-      <RequireRole roles={["admin", "delivery_lead"]}>
+      {!readOnly && (
+        <RequireRole roles={["admin", "delivery_lead"]}>
         <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <div>
@@ -251,7 +253,8 @@ export function ContractDocumentsTab({ contractId }: Props) {
             system powiadomi o wygaśnięciu.
           </div>
         </div>
-      </RequireRole>
+        </RequireRole>
+      )}
 
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
         {isLoading ? (
@@ -345,16 +348,18 @@ export function ContractDocumentsTab({ contractId }: Props) {
                             <Download className="w-4 h-4" />
                           )}
                         </button>
-                        <RequireRole roles={["admin", "delivery_lead"]}>
-                          <button
-                            onClick={() => handleDelete(d)}
-                            disabled={deleteMutation.isPending}
-                            className="p-1.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
-                            title="Usuń"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </RequireRole>
+                        {!readOnly && (
+                          <RequireRole roles={["admin", "delivery_lead"]}>
+                            <button
+                              onClick={() => handleDelete(d)}
+                              disabled={deleteMutation.isPending}
+                              className="p-1.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
+                              title="Usuń"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </RequireRole>
+                        )}
                       </div>
                     </td>
                   </tr>

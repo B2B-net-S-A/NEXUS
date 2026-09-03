@@ -59,7 +59,7 @@ interface JobDetailCompactHeaderProps {
   presence?: ReactNode;
   activeTab: JobDetailTab;
   onTabChange: (tab: JobDetailTab) => void;
-  onAddCandidate: () => void;
+  onAddCandidate?: () => void;
   onEdit?: () => void;
   onWriteAnnouncement?: () => void;
   onGenerateInviteLink?: () => void;
@@ -153,16 +153,18 @@ export function JobDetailCompactHeader({
             actions={
               <>
                 {presence}
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={onAddCandidate}
-                  data-testid="open-add-candidates"
-                  title="Wyszukaj kandydatów i dodaj ich do pipeline"
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Dodaj kandydata
-                </Button>
+                {onAddCandidate ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={onAddCandidate}
+                    data-testid="open-add-candidates"
+                    title="Wyszukaj kandydatów i dodaj ich do pipeline"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    Dodaj kandydata
+                  </Button>
+                ) : null}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

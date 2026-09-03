@@ -33,7 +33,13 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api";
-import { hasRole, ROLE_LABELS, UserRole, useAuthStore } from "@/store/auth";
+import {
+  hasRole,
+  ROLE_LABELS,
+  type User,
+  UserRole,
+  useAuthStore,
+} from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import {
   Tooltip,
@@ -323,7 +329,6 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/finance",
         label: "Finanse",
         icon: Wallet,
-        roles: ["admin", "finance"],
       },
     ],
   },
@@ -346,11 +351,15 @@ const NAV_SECTIONS: NavSection[] = [
  * dostawała cztery pozycje (Dashboard · Finanse · Pomoc · Ustawienia), mimo że
  * KAŻDA lista `roles` w `NAV_SECTIONS` już ją wymienia — backend przepuszcza ją
  * wszędzie tam, gdzie recruitera (decyzja 19.08), więc menu było jedyną
- * warstwą, która ją odcinała. Własny moduł „Finanse" zostaje: wpis `/finance`
- * ma `roles: ["admin", "finance"]`.
+ * warstwą, która ją odcinała. Własny moduł „Finanse" jest filtrowany przez
+ * autorytatywny `section: "finance"`, dzięki czemu działa też indywidualny
+ * wyjątek nadany w panelu uprawnień.
  */
 export function visibleNavSections(
-  user: Parameters<typeof hasRole>[0],
+  user:
+    | Pick<User, "role" | "roles" | "effective_section_access">
+    | null
+    | undefined,
   opts: { contactQueueEnabled: boolean },
 ): NavSection[] {
   return NAV_SECTIONS.filter(
@@ -470,13 +479,41 @@ export function SidebarV2({
   const { user, logout } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
-  const canUseContactQueue = hasRole(
-    user,
-    "talent_community_manager",
-    "tac",
-    "recruiter",
-    "sourcer",
-  );
+  const canReadCandidates =
+    hasSectionAccess(user, "sourcing") &&
+    hasRole(
+      user,
+      "admin",
+      "head_of_recruitment",
+      "delivery_lead",
+      "talent_community_manager",
+      "tac",
+      "recruiter",
+      "finance",
+      "sourcer",
+    );
+  const canReviewApplications =
+    hasSectionAccess(user, "sourcing", "write") &&
+    hasRole(
+      user,
+      "admin",
+      "delivery_lead",
+      "talent_community_manager",
+      "tac",
+      "recruiter",
+      "finance",
+      "sourcer",
+    );
+  const canReadJobs = hasSectionAccess(user, "pipeline");
+  const canUseContactQueue =
+    hasSectionAccess(user, "sourcing") &&
+    hasRole(
+      user,
+      "talent_community_manager",
+      "tac",
+      "recruiter",
+      "sourcer",
+    );
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
   });
@@ -517,50 +554,70 @@ export function SidebarV2({
   const collapsed = !expanded;
 
   const { data: stats } = useQuery({
-    queryKey: ["sidebar-badges-v2"],
+    queryKey: [
+      "sidebar-badges-v2",
+      user?.id,
+      canReadCandidates,
+      canReadJobs,
+      canReviewApplications,
+    ],
     // Czekamy na rozstrzygnięcie auth, zanim strzelimy — bez tej bramki
     // liczniki (/candidates, /jobs) lecą raz przed hydracją store'u i drugi
     // raz po niej, na każdym wejściu na stronę.
-    enabled: !!user,
+    enabled:
+      !!user && (canReadCandidates || canReadJobs || canReviewApplications),
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayIso = today.toISOString().slice(0, 10);
-      const promises: Promise<unknown>[] = [
-        api.get("/api/candidates", {
-          params: { page_size: 1, created_after: todayIso },
-        }),
-        api.get("/api/jobs", { params: { page_size: 1, status: "published" } }),
-      ];
+      const promises: Promise<unknown>[] = [];
+      const slots: string[] = [];
+      if (canReadCandidates) {
+        promises.push(
+          api.get("/api/candidates", {
+            params: { page_size: 1, created_after: todayIso },
+          }),
+        );
+        slots.push("candidates");
+      }
+      if (canReadJobs) {
+        promises.push(
+          api.get("/api/jobs", {
+            params: { page_size: 1, status: "published" },
+          }),
+        );
+        slots.push("jobs");
+      }
       // Indeksy nazwane zamiast pozycyjnych: `settled[2]` wymagało ręcznego
       // śledzenia, gdzie w tablicy wylądowało dane zapytanie, więc dołożenie
       // kolejnego licznika cicho przesunęłoby odczyt o jeden.
-      const slots: string[] = ["candidates", "jobs"];
       // Zgłoszenia z publicznych aplikacji czekające na decyzję. Bez licznika
       // ekran kolejki istnieje, ale nikt na niego nie wchodzi — a zgłoszenie,
       // którego nikt nie widzi, jest tym samym co zgłoszenie utracone.
-      promises.push(
-        api.get("/api/application-submissions", {
-          params: { status: "pending_review", limit: 200 },
-        }),
-      );
-      slots.push("applicationSubmissions");
+      if (canReviewApplications) {
+        promises.push(
+          api.get("/api/application-submissions", {
+            params: { status: "pending_review", limit: 200 },
+          }),
+        );
+        slots.push("applicationSubmissions");
+      }
       const settled = await Promise.allSettled(promises);
       const bySlot = Object.fromEntries(
         slots.map((name, i) => [name, settled[i]]),
       ) as Record<string, (typeof settled)[number] | undefined>;
-      const candidatesRes = bySlot.candidates!;
-      const jobsRes = bySlot.jobs!;
+      const candidatesRes = bySlot.candidates;
+      const jobsRes = bySlot.jobs;
       const submissionsRes = bySlot.applicationSubmissions;
 
       return {
         candidates:
-          candidatesRes.status === "fulfilled"
+          candidatesRes?.status === "fulfilled"
             ? ((candidatesRes.value as { data?: { total?: number } }).data
                 ?.total ?? 0)
             : 0,
         jobs:
-          jobsRes.status === "fulfilled"
+          jobsRes?.status === "fulfilled"
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ??
               0)
             : 0,

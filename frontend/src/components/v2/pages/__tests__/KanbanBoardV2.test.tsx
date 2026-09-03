@@ -176,6 +176,7 @@ function overflowColumns() {
 function renderBoard(
   columns = pendingColumns(),
   scoreMap?: Map<number, number>,
+  readOnly = false,
 ) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -183,7 +184,12 @@ function renderBoard(
   return render(
     <QueryClientProvider client={qc}>
       <TooltipProvider>
-        <KanbanBoardV2 columns={columns} jobId={10} scoreMap={scoreMap} />
+        <KanbanBoardV2
+          columns={columns}
+          jobId={10}
+          scoreMap={scoreMap}
+          readOnly={readOnly}
+        />
       </TooltipProvider>
     </QueryClientProvider>
   );
@@ -262,6 +268,27 @@ describe("KanbanBoardV2 — pending verification card", () => {
     const btn = await screen.findByTitle("Akceptuj weryfikację");
     await userEvent.click(btn);
     await waitFor(() => expect(acceptVerification).toHaveBeenCalledWith(777));
+  });
+
+  it("w trybie tylko do odczytu ukrywa mutacje, ale zachowuje eksport CV", async () => {
+    useAuthStore.setState({
+      user: { role: "admin", roles: ["admin"] } as never,
+    });
+    useUiStore.setState({ density: "compact" } as never);
+
+    renderBoard(pendingColumns(), undefined, true);
+
+    expect(await screen.findByRole("link", { name: "Anna Kowalska" })).toBeTruthy();
+    const checkbox = screen.getByRole("checkbox", { name: "Zaznacz Anna Kowalska" });
+    expect(checkbox).toBeInTheDocument();
+    await userEvent.click(checkbox);
+    expect(screen.getByRole("button", { name: /Pobierz CV/ })).toBeInTheDocument();
+    expect(screen.queryByText("Przenieś do:")).toBeNull();
+    expect(screen.queryByTitle("Akceptuj weryfikację")).toBeNull();
+    expect(screen.queryByTitle("Odrzuć weryfikację")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Usuń Anna Kowalska z rekrutacji" }),
+    ).toBeNull();
   });
 });
 

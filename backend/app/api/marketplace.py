@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import RecruiterPlus, get_db
+from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.services.marketplace_service import (
     add_candidate_to_marketplace,
@@ -37,7 +38,7 @@ from app.services.marketplace_service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────

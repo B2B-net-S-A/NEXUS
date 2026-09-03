@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import FinanceModuleUser
+from app.api.section_access import FINANCE_SECTION_DEPENDENCIES, FinanceSectionUser
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.finance import (
@@ -57,7 +57,7 @@ from app.services.finance_import import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 _ALLOWED_EXT = (".xlsx",)
@@ -187,7 +187,7 @@ async def _current_run(
 
 @router.get("/periods", response_model=list[FinancePeriod])
 async def list_periods(
-    _user: FinanceModuleUser,
+    _user: FinanceSectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Miesiące, które MAJĄ aktualny import — nic więcej.
@@ -226,7 +226,7 @@ async def list_periods(
 
 @router.get("/results", response_model=FinanceResultsResponse)
 async def get_results(
-    _user: FinanceModuleUser,
+    _user: FinanceSectionUser,
     year: int = Query(...),
     month: int = Query(...),
     q: Optional[str] = Query(None, description="Szukaj po konsultancie lub kliencie"),
@@ -298,7 +298,7 @@ async def get_results(
 async def update_result_row(
     row_id: int,
     payload: FinanceRowUpdate,
-    user: FinanceModuleUser,
+    user: FinanceSectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Ręczna korekta jednej komórki — WYŁĄCZNIE w aktualnej wersji miesiąca.
@@ -373,7 +373,7 @@ async def update_result_row(
     status_code=http_status.HTTP_201_CREATED,
 )
 async def import_workbook(
-    user: FinanceModuleUser,
+    user: FinanceSectionUser,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     year: int = Form(...),
@@ -577,7 +577,7 @@ async def _persist_import(
 
 @router.get("/imports", response_model=list[FinanceImportRunRead])
 async def list_imports(
-    _user: FinanceModuleUser,
+    _user: FinanceSectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     runs = (
@@ -601,7 +601,7 @@ async def list_imports(
 @router.get("/imports/{run_id}/file")
 async def download_import(
     run_id: int,
-    _user: FinanceModuleUser,
+    _user: FinanceSectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Pobierz ORYGINALNY arkusz.
@@ -628,7 +628,7 @@ async def download_import(
 @router.post("/imports/{run_id}/restore", response_model=FinanceImportRunRead)
 async def restore_import(
     run_id: int,
-    user: FinanceModuleUser,
+    user: FinanceSectionUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Przywróć zastąpioną wersję miesiąca jako aktualną.

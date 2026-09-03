@@ -42,6 +42,8 @@ from app.models.team_structure import (
     DeliveryLeadClientAssignment,
 )
 from app.models.user import User, UserRole
+from app.models.notification import NotificationType
+from app.services.notification_access import filter_notification_recipients
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +328,14 @@ async def resolve_recipients(
     # Filtruj nieaktywnych userów (np. urlopowy admin może być w role-based regule).
     candidate_ids = set(inapp_by_user.keys()) | set(email_by_user.keys())
     active_ids = await _filter_active_users(db, candidate_ids)
+    allowed_users = await filter_notification_recipients(
+        db,
+        active_ids,
+        NotificationType.stage_rule,
+        related_entity_type="candidate_stage",
+        link=f"/candidates/{candidate.id}",
+    )
+    active_ids = {user.id for user in allowed_users}
 
     return [
         ResolvedRecipient(

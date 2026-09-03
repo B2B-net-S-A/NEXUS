@@ -58,7 +58,7 @@ import {
  restoreContractsListScroll,
  takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
-import { getAccessToken } from "@/lib/session";
+import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import {
  hasAnalyticsCapability,
  hasRole,
@@ -413,9 +413,8 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  if (endingSoon) params.set("expiring_in_days", "30");
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
- const token = getAccessToken();
  const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
- headers: token ? { Authorization: `Bearer ${token}` } : {},
+ headers: getAuthenticatedRequestHeaders(),
  });
  if (!res.ok) {
  flashToast("Eksport nie powiódł się.");
