@@ -17,7 +17,7 @@ import logging
 import os
 import re
 
-from app.services.cv_generator_b2b.ai_client import (
+from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     analyze_with_ai,
 )

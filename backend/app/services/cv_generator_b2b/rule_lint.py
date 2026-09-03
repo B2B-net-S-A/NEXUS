@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.core.config import settings
-from app.services.cv_generator_b2b.ai_client import CVGeneratorAIError, analyze_with_ai
+from app.services.cv_generator_b2b.provider import CVGeneratorAIError, analyze_with_ai
 
 logger = logging.getLogger(__name__)
 
