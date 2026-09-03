@@ -594,9 +594,51 @@ export function sortUnifiedOrderItems(
 }
 
 /** Predykaty są wspólne dla liczników i zawartości pigułek. */
+/**
+ * Umowa ZAMKNIĘTA = status końcowy ORAZ data końca, która już minęła.
+ *
+ * Reguła zakładki „Zakończeni" (09.2026): o przynależności decyduje wyłącznie
+ * umowa z modułu Kontrakty — status i data zakończenia — nigdy sam upływ
+ * okresu zamówienia. Do daty końca włącznie osoba pracuje, więc jest
+ * w „Aktywni"; od dnia następnego przechodzi do „Zakończonych". Umowa bez daty
+ * (bezterminowa) nie ma czego minąć — „ended" bez daty to zaszłość danych,
+ * którą backend leczy na `active`, nie zakończenie współpracy.
+ */
+export function contractClosed(
+  contractor: Pick<ContractWithOrdersRead, "contract_status" | "contract_end_date">,
+  todayIso = localTodayIso(),
+): boolean {
+  if (
+    contractor.contract_status !== "ended" &&
+    contractor.contract_status !== "completed"
+  ) {
+    return false;
+  }
+  const end = dateOnly(contractor.contract_end_date);
+  return end !== null && end < todayIso;
+}
+
+/**
+ * Kontraktor bez zamówienia, które obejmuje dziś albo dopiero się zacznie:
+ * okres zamówienia minął, a umowa trwa. To powód do dopisku „Brak aktywnego
+ * zamówienia" przy osobie w „Aktywnych" — NIE do przeniesienia jej do
+ * „Zakończonych" (patrz `contractClosed`).
+ */
+export function lacksCurrentOrder(
+  contractor: Pick<ContractWithOrdersRead, "orders">,
+  todayIso = localTodayIso(),
+): boolean {
+  return !contractor.orders.some((order) => {
+    if (order.status === "completed" || order.status === "cancelled") return false;
+    const end = dateOnly(order.end_date);
+    return end === null || end >= todayIso;
+  });
+}
+
 export function contractorMatchesPill(
   contractor: ContractWithOrdersRead,
   pill: UnifiedOrderPill,
+  todayIso = localTodayIso(),
 ): boolean {
   if (pill === "all") return true;
   if (pill === "active") {
@@ -604,7 +646,12 @@ export function contractorMatchesPill(
       contractor.contract_status === "active" ||
       contractor.contract_status === "ending" ||
       (contractor.contract_status === "draft" &&
-        contractor.orders.some((order) => order.status === "active"))
+        contractor.orders.some((order) => order.status === "active")) ||
+      // Umowa z datą końca dziś albo później: do tego dnia włącznie osoba
+      // pracuje, więc jest tu, a nie w „Zakończonych".
+      ((contractor.contract_status === "ended" ||
+        contractor.contract_status === "completed") &&
+        !contractClosed(contractor, todayIso))
     );
   }
   if (pill === "ending_30d") {
@@ -615,10 +662,7 @@ export function contractorMatchesPill(
     );
   }
   if (pill === "completed") {
-    return (
-      contractor.contract_status === "ended" ||
-      contractor.contract_status === "completed"
-    );
+    return contractClosed(contractor, todayIso);
   }
   if (pill === "draft") {
     return (

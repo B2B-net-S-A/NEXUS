@@ -33,7 +33,16 @@ typ.
 Nad listą masz:
 
 * sześć filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Kończące się 30d**,
-  **Zakończeni**, **Wyczerpane**, **📝 Draft (do uzupełnienia)**,
+  **Zakończeni**, **Wyczerpane**, **📝 Draft (do uzupełnienia)**.
+  **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu
+  Kontrakty** — jej status i data zakończenia — nigdy sam upływ okresu
+  zamówienia. Osoba z datą końca umowy 30.09 jest w „Aktywnych" do 30.09
+  włącznie i od 1.10 sama przechodzi do „Zakończonych". Gdy skończył się tylko
+  okres zamówienia, a umowa trwa i nikt nie dodał przedłużenia, osoba zostaje
+  w „Aktywnych" z dopiskiem **„Brak aktywnego zamówienia"** — to sygnał dla
+  Ciebie: dodaj przedłużenie albo poproś administrację o zakończenie umowy
+  w Kontraktach. Data końca wpisana tam w umowie od razu staje się datą końca
+  jej otwartego zamówienia (zamówienie zaczynające się później jest anulowane),
 * wyszukiwarkę po numerze zamówienia albo imieniu i nazwisku konsultanta,
 * **Filtry i sortowanie** (zakresy dat, „Bliskie wyczerpania budżetu (≥80%)",
   „Kończące się w ciągu N dni"),
@@ -390,9 +399,11 @@ MD jest wielkością operacyjną, nie finansową.
   zamówieniach MD następca czeka dodatkowo, aż poprzednikowi skończą się dni,
   więc mimo minionej daty startu potrafi jeszcze przez jakiś czas figurować jako
   przyszły.
-* **Domyka po dacie zakończenia poszczególne osoby** — zarówno zamówienia
-  okresowe, jak i konsultantów na zamówieniach kosztowych i na zamówieniach MD
-  ze wspólną pulą. Po minięciu daty ich linie same przechodzą do „Zakończeni".
+* **Domyka po dacie zakończenia poszczególne zamówienia** — zarówno okresowe,
+  jak i konsultantów na zamówieniach kosztowych i na zamówieniach MD ze wspólną
+  pulą. Domknięte zamówienie NIE przenosi osoby do „Zakończonych" — o tym
+  decyduje umowa (patrz opis filtrów wyżej); osoba bez kolejnego zamówienia
+  dostaje dopisek „Brak aktywnego zamówienia".
   **Jedynym wyjątkiem są konsultanci z własnym budżetem MD** — tam o końcu
   decyduje budżet, nie kalendarz, więc osoba z niewykorzystanymi dniami pracuje
   dalej.
