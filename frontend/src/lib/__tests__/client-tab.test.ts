@@ -47,12 +47,18 @@ describe("useClientTab", () => {
     rerender({ tab: "zamowienia" });
     expect(result.current[0]).toBe("analityka");
   });
+
+  it("zakładka „zasady” (karta klienta) jest adresowalna — link „Edytuj kartę” ze strony oferty i z Pomocy", () => {
+    const { result } = renderHook(() => useClientTab("zasady"));
+    expect(result.current[0]).toBe("zasady");
+  });
 });
 
 describe("isClientTab", () => {
   it("przyjmuje tylko znane zakładki", () => {
     expect(isClientTab("zamowienia")).toBe(true);
     expect(isClientTab("umowy-ramowe")).toBe(true);
+    expect(isClientTab("zasady")).toBe(true);
     expect(isClientTab("nie-ma-takiej")).toBe(false);
     expect(isClientTab(null)).toBe(false);
   });
