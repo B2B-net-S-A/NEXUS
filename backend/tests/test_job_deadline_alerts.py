@@ -47,6 +47,9 @@ async def _setup(deadline: date, status: JobStatus = JobStatus.published):
             title="Senior Backend Engineer",
             client_id=client.id,
             status=status,
+            # Alert o terminie trafia do osoby, która rekrutację PROWADZI —
+            # skaner pyta o `is_open` (0270), nie o `status`.
+            is_open=status is JobStatus.published,
             deadline=deadline,
             recruiter_id=recruiter.id,
         )

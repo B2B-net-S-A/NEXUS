@@ -53,8 +53,14 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
   // `isSuccess`, nie `!isLoading`: w przerwie między ponowieniami react-query
   // ma `isLoading === false` i puste `data`, a wtedy „brak braków" znaczyłoby
   // „gotowa", zanim cokolwiek jest wiadomo.
+  // `?? []` nie jest kosmetyką: gdy endpoint jest starszy, za proxy albo
+  // zamockowany innym kształtem, `blockers` bywa `undefined` — a `.length`
+  // na nim wywala CAŁY komponent, czyli zabiera przycisk „Przekaż do searchu"
+  // zamiast tylko listy braków.
   const knownBlockers =
-    readinessQuery.isSuccess && readiness ? readiness.blockers : [];
+    readinessQuery.isSuccess && Array.isArray(readiness?.blockers)
+      ? readiness.blockers
+      : [];
 
   const recruitersQuery = useQuery({
     queryKey: ["handoff-recruiters"],
