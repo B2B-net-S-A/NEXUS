@@ -741,6 +741,7 @@ async def resync_aad_groups(
             target=user,
             next_roles=[role.value for role in user.get_all_roles()],
             next_active=False,
+            protect_self=False,
         )
         await fail_closed_invalid_aad_mapping(
             db,
@@ -774,6 +775,7 @@ async def resync_aad_groups(
             target=user,
             next_roles=[role.value for role in user.get_all_roles()],
             next_active=False,
+            protect_self=False,
         )
         if user.is_active:
             user.authorization_version += 1
@@ -815,6 +817,7 @@ async def resync_aad_groups(
             target=user,
             next_roles=[role.value for role in user.get_all_roles()],
             next_active=False,
+            protect_self=False,
         )
         await fail_closed_invalid_aad_mapping(
             db,

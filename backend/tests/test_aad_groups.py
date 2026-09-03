@@ -884,6 +884,57 @@ async def test_resync_cannot_remove_calling_admin_access(
 
 
 @pytest.mark.asyncio
+async def test_resync_self_no_match_fails_closed_when_another_admin_exists(
+    app_client_no_redirect, monkeypatch, admin_token, cleanup_users
+):
+    """Broken IdP membership deactivates self when a break-glass admin remains."""
+
+    admin_id, token = admin_token
+    unique = uuid.uuid4().hex[:8]
+    group_id = f"grp-self-unmapped-{unique}"
+    break_glass_email = f"resync-break-glass-{unique}@b2bnetwork.pl"
+    cleanup_users.append(break_glass_email)
+
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        admin.aad_group_ids = [{"id": group_id, "displayName": "Unmapped"}]
+        db.add(
+            User(
+                email=break_glass_email,
+                password_hash=None,
+                name="Resync break-glass admin",
+                role=UserRole.admin,
+                roles=[UserRole.admin.value],
+                is_active=True,
+                profile_completed=True,
+            )
+        )
+        await db.commit()
+
+    monkeypatch.setattr(settings, "AAD_GROUP_RBAC_ENABLED", True)
+    monkeypatch.setattr(
+        settings,
+        "AAD_GROUP_ROLE_MAP_JSON",
+        json.dumps({"different-group": "recruiter"}),
+    )
+
+    response = await app_client_no_redirect.post(
+        f"/api/admin/users/{admin_id}/resync-aad-groups",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["is_active"] is False
+    async with AsyncSessionLocal() as db:
+        admin = await db.get(User, admin_id)
+        assert admin is not None
+        assert admin.is_active is False
+        assert admin.has_role(UserRole.admin)
+        assert admin.tokens_valid_after is not None
+
+
+@pytest.mark.asyncio
 async def test_resync_exclusive_mapping_revokes_existing_admin_state(
     app_client_no_redirect, monkeypatch, admin_token, cleanup_users
 ):
