@@ -375,3 +375,48 @@ def test_radar_routes_require_login_and_share_the_same_guard():
         f"parse-champion guard != search guard: {parse & auth_deps} vs "
         f"{search & auth_deps}"
     )
+
+
+def test_parser_prompt_leaves_client_card_fields_to_nexus():
+    """Prompt v6 nie wydobywa pól karty klienta — te żyją w `client_playbooks`.
+
+    Sprawdzamy podciąg od `"client": {`, bo `"project": {"about"` zostaje i
+    globalne `'"about"' not in PROMPT` oblałoby na poprawnym prompcie.
+    """
+    from app.services.champion_profile_ingest import PROMPT
+
+    assert PARSER_VERSION == "champion_parse:v6:haiku-4.5"
+    client_block = PROMPT.split('"client": {', 1)[1]
+    for key in (
+        '"about"',
+        '"priority_rules"',
+        '"offlimit"',
+        '"contract_type"',
+        '"cv_language"',
+    ):
+        assert key not in client_block, key
+    assert '"documents"' not in PROMPT
+    assert "karcie klienta" in PROMPT
+
+
+def test_champion_dict_never_carries_client_card_fields():
+    """Nawet gdy model zwróci pola karty klienta, do JSONB trafiają puste wartości."""
+    parsed = {
+        "client": {
+            "about": "X",
+            "priority_rules": "Y",
+            "offlimit": True,
+            "contract_type": "B2B",
+            "cv_language": "en",
+            "selling_points": "S",
+        },
+        "documents": [{"name": "NDA", "url": "https://sp/nda"}],
+    }
+    d = build_champion_dict(parsed, None)
+    assert d["client"]["about"] == ""
+    assert d["client"]["priority_rules"] == ""
+    assert d["client"]["offlimit"] is None
+    assert d["client"]["contract_type"] is None
+    assert d["client"]["cv_language"] is None
+    assert d["documents"] == []
+    assert d["client"]["selling_points"] == "S"
