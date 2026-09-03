@@ -14,6 +14,7 @@ import {
  Banknote,
  Briefcase,
  Building2,
+ CalendarClock,
  ChevronRight,
  CircleDot,
  Columns3,
@@ -2696,12 +2697,19 @@ export function CandidatesListV2() {
                   setPage(1);
                 }}
               />
-              {/* „Data wysłania do klienta" — zakres dat rekomendacji (cv_sent).
-                  Osobny od panelu etapu: nie wymaga wyboru etapu, dopasowuje
-                  po fakcie wysłania (historycznie). */}
+            </FilterSection>
+
+            {/* Data wysłania do klienta — własna sekcja. Filtr po dacie
+                rekomendacji kandydata do klienta (przejście na etap `cv_sent`);
+                niezależny od panelu etapu i historyczny. */}
+            <FilterSection
+              title="Data wysłania do klienta"
+              icon={<CalendarClock />}
+              accent="violet"
+            >
               <FilterField
-                label="Data wysłania do klienta"
-                hint="Zakres dat rekomendacji kandydata do klienta (przejście na etap CV wysłane), włącznie. Nie wymaga wyboru etapu."
+                label="Zakres dat (od – do)"
+                hint="Kandydaci zarekomendowani do klienta (przejście na etap CV wysłane) w tym oknie. Zakres włącznie; nie wymaga wyboru etapu."
               >
                 <div className="flex items-center gap-2">
                   <div className="flex-1 space-y-1">
