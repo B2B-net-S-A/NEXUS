@@ -1674,7 +1674,22 @@ export function AddJobModal({
           <span className="text-xs text-muted-foreground">Wypełni opis i wymagania automatycznie</span>
         </div>
         {aiError && <div className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{aiError}</div>}
-        {previewTotal > 0 && previewQuery.data && (
+        {/* Awaria zapytania o podobne requesty MUSI być widoczna. Do 0270 cała
+            gałąź wisiała na `previewTotal > 0`, więc padnięte zapytanie
+            renderowało się identycznie jak „u tego klienta nie było nic
+            podobnego" — czyli jako twierdzenie o danych klienta zamiast
+            informacji o awarii. Kolejność jak w TalentRadarResults: błąd przed
+            stanem pustym. */}
+        {previewQuery.isError && (
+          <div
+            className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive"
+            data-testid="request-history-banner-error"
+          >
+            Nie udało się sprawdzić podobnych requestów u tego klienta — to nie
+            znaczy, że ich nie ma. Spróbuj ponownie za chwilę.
+          </div>
+        )}
+        {previewQuery.isSuccess && previewTotal > 0 && previewQuery.data && (
           <div
             className="rounded-lg bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 px-3 py-2 text-xs"
             data-testid="request-history-banner"
@@ -1701,7 +1716,15 @@ export function AddJobModal({
                     </a>{" "}
                     <span className="text-primary dark:text-primary">
                       ({r.is_in_progress ? "w toku" : r.outcome ?? "zamknięty"}
-                      {r.tth_days != null ? `, ${r.tth_days}d` : ""})
+                      {/* `null` = nie znamy daty otwarcia rekrutacji (wiersze
+                          sprzed backfillu 0270). Pominięcie tej informacji
+                          czytało się jak „czas nieistotny"; do 0270 pole i tak
+                          zawsze pokazywało „0d", bo liczyło od daty importu. */}
+                      {r.is_in_progress
+                        ? ""
+                        : r.tth_days != null
+                          ? `, ${r.tth_days}d`
+                          : ", czas nieznany"})
                     </span>
                   </li>
                 ))}
