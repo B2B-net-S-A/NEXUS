@@ -2926,7 +2926,14 @@ export const b2bGeneratorApi = {
       .then((r) => r.data),
   checkUop: (body: { text: string; language: string }) =>
     api
-      .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
+      // Sonnet po tekście do 6000 znaków, w serwisie DWIE próby przy
+      // nieparsowalnym JSON-ie. Zmierzone na prodzie: 15,4 s dla jednego
+      // zdania — domyślne 30 s instancji to za mało, a zerwane połączenie
+      // nie anuluje generacji, tylko każe użytkownikowi kliknąć ponownie
+      // i zapłacić drugi raz (`lib/http-timeouts.ts`).
+      .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
       .then((r) => r.data),
 };
 

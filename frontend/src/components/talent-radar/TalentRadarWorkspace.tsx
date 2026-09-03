@@ -66,6 +66,11 @@ export function TalentRadarWorkspace() {
   const [client, setClient] = useState<ClientRef | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
+  // Lokalizacja: API przyjmowało ją od początku, interfejs nie miał pola.
+  // W trybie tekstowym KAŻDY kandydat dostawał przez to „lokalizacja nieznana"
+  // (3,2 z 5 punktów) — zmierzone: z podaną lokalizacją pierwszy wynik zmienia
+  // się na osobę z właściwego miasta.
+  const [location, setLocation] = useState("");
   const [response, setResponse] = useState<TalentRadarSearchResponse | null>(
     null,
   );
@@ -112,6 +117,8 @@ export function TalentRadarWorkspace() {
       setClient(saved.client);
       setTitle(saved.title);
       setText(saved.text);
+      setLocation(saved.location ?? "");
+      setChampionSkills(saved.championSkills ?? null);
       setBudgetMax(saved.budgetMax);
       setExcludeRemoteOnly(saved.excludeRemoteOnly);
       setChampionProfile(saved.championProfile);
@@ -127,10 +134,12 @@ export function TalentRadarWorkspace() {
       client,
       title,
       text,
+      location,
       budgetMax,
       excludeRemoteOnly,
       championProfile,
       championSummary,
+      championSkills,
       response,
     });
   }, [
@@ -138,10 +147,12 @@ export function TalentRadarWorkspace() {
     client,
     title,
     text,
+    location,
     budgetMax,
     excludeRemoteOnly,
     championProfile,
     championSummary,
+    championSkills,
     response,
   ]);
 
@@ -156,6 +167,11 @@ export function TalentRadarWorkspace() {
         title: championProfile
           ? championSummary?.role_name || undefined
           : title.trim() || undefined,
+        // Przy wgranym profilu lokalizacja idzie z niego — pole obok jest
+        // wtedy tylko do odczytu, żeby nie było drugiego źródła prawdy.
+        location:
+          (championProfile ? championSummary?.location : location.trim()) ||
+          undefined,
         top_k: 20,
         // Puste listy pomijamy (`undefined`), żeby nie wysyłać `[]` — dla
         // backendu „brak wymagań wprost" i „pusta lista" to ta sama decyzja,
@@ -374,6 +390,22 @@ export function TalentRadarWorkspace() {
               {championSummary?.rate_value
                 ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
                 : "Wpisana stawka to twardy sufit: nie pokażemy osób ze ZNANĄ stawką powyżej niej. Brak danych zawsze przechodzi; ukrytych policzymy w wynikach."}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="tr-location">Lokalizacja</Label>
+            <Input
+              id="tr-location"
+              value={hasProfile ? (championSummary?.location ?? "") : location}
+              onChange={(e) => setLocation(e.target.value)}
+              readOnly={hasProfile}
+              placeholder="np. Warszawa"
+              maxLength={200}
+            />
+            <p className="text-xs text-muted-foreground">
+              {hasProfile
+                ? "Lokalizacja z profilu Championa — edytuj profil, żeby ją zmienić."
+                : "Bez niej każdy kandydat dostaje „lokalizacja nieznana”, więc ta warstwa nikogo nie różnicuje."}
             </p>
           </div>
           {!hasProfile && (

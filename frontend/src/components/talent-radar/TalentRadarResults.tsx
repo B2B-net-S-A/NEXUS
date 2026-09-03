@@ -50,16 +50,38 @@ function candidateRole(result: TalentRadarResult): string | undefined {
 }
 
 /**
- * Powody: trafione i brakujące wymagania twarde, potem trochę miękkich.
- * Warstwa wynagrodzenia świadomie pominięta — radar nie ma widełek, więc jej
- * `status: "not_applicable"` nie niesie nic dla czytającego.
+ * Powody: najpierw BRAKI, potem trafienia, na końcu trochę miękkich.
+ *
+ * Kolejność jest istotna, bo lista jest przycinana do ośmiu pozycji: przy
+ * dopasowaniach na początku kandydat z ośmioma trafionymi wymaganiami i jednym
+ * brakiem pokazywał osiem zielonych chipów i zero czerwonych — czyli karta
+ * milczała dokładnie o tym, na co rekruter patrzy przed kliknięciem.
+ *
+ * Warstwa wynagrodzenia ma OSOBNY chip niżej: jej `status` rozróżnia „nie było
+ * czego porównać" od „policzone, liczb nie pokazujemy", a to druga wartość
+ * tłumaczy spadek w rankingu.
  */
 function matchReasons(result: TalentRadarResult): MatchReason[] {
   return [
-    ...result.matching_must.map((label) => ({ label, ok: true })),
     ...result.gap_must.map((label) => ({ label: `brak: ${label}`, ok: false })),
+    ...result.matching_must.map((label) => ({ label, ok: true })),
     ...result.matching_nice.slice(0, 3).map((label) => ({ label, ok: true })),
   ].slice(0, 8);
+}
+
+/**
+ * Chip warstwy wynagrodzenia — bez kwot.
+ *
+ * `redacted` znaczy „warstwa weszła do wyniku, ale liczb nie pokazujemy": są
+ * liniową funkcją stawki Championa, którą rekruter zna, więc odsłoniłyby
+ * oczekiwania kandydata co do złotówki. Bez tego chipa kandydat obniżony za
+ * stawkę wyglądał na obniżonego bez powodu — a `not_applicable` (brak stawki
+ * po którejkolwiek stronie) i tak nie niesie nic dla czytającego.
+ */
+function salaryNote(result: TalentRadarResult): string | null {
+  return result.salary?.status === "redacted"
+    ? "stawka wzięta pod uwagę w ocenie"
+    : null;
 }
 
 export interface TalentRadarResultsProps {
@@ -206,7 +228,9 @@ export function TalentRadarResults({
             <MatchCard
               key={result.candidate_id}
               name={candidateName(result)}
-              role={candidateRole(result)}
+              role={[candidateRole(result), salaryNote(result)]
+                .filter(Boolean)
+                .join(" · ")}
               score={result.total}
               reasons={matchReasons(result)}
               actions={
