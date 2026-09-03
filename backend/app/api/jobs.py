@@ -1929,6 +1929,42 @@ _HANDOFF_RECRUITER_ROLES = (
 )
 
 
+@router.get("/{job_id}/readiness")
+async def get_job_readiness(
+    job_id: int,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Czego brakuje, żeby przekazać rekrutację do searchu — PRZED kliknięciem.
+
+    Ta sama lista, którą `POST /jobs/{id}/handoff` zwraca w 422. Wystawiona
+    osobno, bo dowiadywanie się o brakach dopiero z odrzuconego żądania jest
+    najgorszym momentem: na próbce 100 rekrutacji z produkcji bramkę przechodzą
+    23, więc trzy na cztery kliknięcia kończyły się błędem, który dało się
+    pokazać wcześniej.
+
+    Odczyt, nie mutacja — świadomie NIE tworzy snapshotu ani niczego nie
+    stempluje, żeby dało się to wołać przy każdym renderze zakładki.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+
+    blockers = _compute_job_readiness(job)
+    # Zamknięta rekrutacja nie jest „niegotowa" — jej się po prostu nie
+    # przekazuje. Lustro guardu 409 w samym handoffie; bez tego przycisk
+    # wyglądałby na możliwy do odblokowania uzupełnieniem Championa.
+    is_closed = job.status == JobStatus.closed
+    return {
+        "job_id": job.id,
+        "ready": not blockers and not is_closed,
+        "blockers": blockers,
+        "closed": is_closed,
+        "already_handed_off": job.is_open,
+    }
+
+
 @router.post("/{job_id}/handoff", status_code=202)
 async def handoff_job_to_search(
     job_id: int,
