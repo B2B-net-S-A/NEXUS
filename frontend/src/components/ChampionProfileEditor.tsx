@@ -5,9 +5,11 @@
  *
  * Used by Delivery Leads / admins on /jobs/[id] to capture the "idealny
  * kandydat" briefing before recruiters start shortlisting. Mirrors the internal
- * Word template, restructured 09.2026 into seven sections: podstawowe
+ * Word template, restructured 09.2026 into six sections: podstawowe
  * informacje, co wpisać (search), stack technologiczny, o projekcie, pytania
- * screeningowe, o kliencie, dokumenty.
+ * screeningowe, o kliencie. Fakty o kliencie i dokumenty żyją w karcie
+ * klienta (`ClientPlaybookCard`, 09.2026) — sekcja 6 pokazuje ją do odczytu,
+ * a edytuje tylko to, co jest per rekrutacja.
  *
  * Formularz jest krótszy niż poprzedni celowo — Delivery Leadowie opisywali 80%
  * starego profilu jako szum. Skrócenie prozy jest jednak bezpieczne dla jakości
@@ -39,7 +41,6 @@ import {
   championApi,
   championSuggestionsApi,
   EMPTY_CHAMPION_PROFILE,
-  type ChampionDocument,
   type ChampionProfile,
   type ChampionProfileSuggestion,
   type StackItem,
@@ -51,6 +52,7 @@ import {
 } from "@/hooks/useNotifications";
 import { useAuthStore } from "@/store/auth";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
+import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { cn } from "@/lib/utils";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
@@ -197,22 +199,6 @@ export function ChampionProfileEditor({
     setDraft((d) => ({ ...d, project: { ...d.project, ...patch } }));
   const patchClient = (patch: Partial<ChampionProfile["client"]>) =>
     setDraft((d) => ({ ...d, client: { ...d.client, ...patch } }));
-
-  const addDocument = () =>
-    setDraft((d) => ({ ...d, documents: [...d.documents, { name: "", url: "" }] }));
-
-  const updateDocument = (i: number, patch: Partial<ChampionDocument>) =>
-    setDraft((d) => {
-      const next = [...d.documents];
-      next[i] = { ...next[i], ...patch };
-      return { ...d, documents: next };
-    });
-
-  const removeDocument = (i: number) =>
-    setDraft((d) => ({
-      ...d,
-      documents: d.documents.filter((_, idx) => idx !== i),
-    }));
 
   if (isLoading)
     return (
@@ -721,20 +707,31 @@ export function ChampionProfileEditor({
       </Section>
 
 
-      {/* 6. O kliencie */}
+      {/* 6. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
+          „co powiedzieć kandydatowi", reguły priorytetu) żyją w KARCIE KLIENTA
+          (DL: profil klienta → Zasady współpracy albo /settings/cv-rules →
+          Karta klienta) i są tu tylko do odczytu. Pola
+          `client.about/priority_rules/contract_type/offlimit` i `documents`
+          zostają w `draft` i jadą w PUT nietknięte (serwer scala płytko) —
+          usunięcie kontrolek NIE kasuje zapisanych danych. */}
       <Section title="6. O kliencie">
         <div className="space-y-3">
+          {clientId ? (
+            <ClientPlaybookCard
+              clientId={clientId}
+              variant="compact"
+              editHref={`/clients/${clientId}?tab=zasady`}
+            />
+          ) : (
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="champion-client-playbook-missing"
+            >
+              Wybierz klienta rekrutacji, żeby zobaczyć jego kartę.
+            </p>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Labeled label="Co powiedzieć o kliencie">
-              <textarea
-                disabled={disabled}
-                value={draft.client.about}
-                onChange={(e) => patchClient({ about: e.target.value })}
-                rows={3}
-                className={textareaClass}
-              />
-            </Labeled>
-            <Labeled label="Co przekona kandydata do oferty">
+            <Labeled label="Co przekona kandydata do TEJ oferty">
               <textarea
                 disabled={disabled}
                 value={draft.client.selling_points}
@@ -761,32 +758,10 @@ export function ChampionProfileEditor({
                 className={textareaClass}
               />
             </Labeled>
-          </div>
-          <Labeled label="Reguły priorytetu">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.client.priority_rules}
-              onChange={(e) => patchClient({ priority_rules: e.target.value })}
-              placeholder="np. kandydaci z bankowością w pierwszej kolejności"
-              className={inputClass}
-            />
-          </Labeled>
-          {/* Język CV celowo NIE jest tu edytowalny — pokazuje go sekcja 1,
-              z reguł klienta, bo to ich słucha generator. Wartość sparsowana
-              ze starego dokumentu zostaje w danych, ale nie jest przepisywana
-              ręcznie, żeby nie powstały dwie prawdy o jednym fakcie. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Labeled label="Typ kontraktu">
-              <input
-                type="text"
-                disabled={disabled}
-                value={draft.client.contract_type ?? ""}
-                onChange={(e) => patchClient({ contract_type: e.target.value })}
-                placeholder="np. B2B"
-                className={inputClass}
-              />
-            </Labeled>
+            {/* Język CV celowo NIE jest tu edytowalny — pokazuje go sekcja 1,
+                z reguł klienta, bo to ich słucha generator. Wartość sparsowana
+                ze starego dokumentu zostaje w danych, ale nie jest przepisywana
+                ręcznie, żeby nie powstały dwie prawdy o jednym fakcie. */}
             <Labeled label="Branże">
               <input
                 type="text"
@@ -800,81 +775,7 @@ export function ChampionProfileEditor({
               />
             </Labeled>
           </div>
-          <label className="inline-flex items-center gap-2 text-xs text-foreground dark:text-foreground">
-            <input
-              type="checkbox"
-              disabled={disabled}
-              checked={draft.client.offlimit === true}
-              onChange={(e) => patchClient({ offlimit: e.target.checked })}
-              className="rounded border-border"
-            />
-            Klient off-limits
-          </label>
         </div>
-      </Section>
-
-      {/* 7. Dokumenty */}
-      <Section
-        title="7. Dokumenty"
-        action={
-          canEdit && (
-            <button
-              type="button"
-              onClick={addDocument}
-              className="text-xs inline-flex items-center gap-1 text-primary hover:text-primary/80"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Dodaj dokument
-            </button>
-          )
-        }
-      >
-        {/* Linki, nie pliki: dokumenty żyją na SharePoincie, a kopia w NEXUSIE
-            byłaby drugim egzemplarzem do pilnowania i ścieżką retencji dla
-            danych, których nie jesteśmy właścicielem. */}
-        {draft.documents.length === 0 ? (
-          <div className="rounded border border-dashed border-border dark:border-border p-4 text-xs text-muted-foreground text-center">
-            Brak dokumentów. Wklej linki do SharePointa — NDA, wzór CV klienta,
-            klauzula RODO.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {draft.documents.map((doc, i) => (
-              <div
-                key={i}
-                className="flex items-start gap-2"
-                data-testid={`champion-document-${i}`}
-              >
-                <input
-                  type="text"
-                  disabled={disabled}
-                  value={doc.name}
-                  onChange={(e) => updateDocument(i, { name: e.target.value })}
-                  placeholder="Nazwa"
-                  className={cn(inputClass, "sm:w-1/3")}
-                />
-                <input
-                  type="url"
-                  disabled={disabled}
-                  value={doc.url}
-                  onChange={(e) => updateDocument(i, { url: e.target.value })}
-                  placeholder="https://b2bnetsa.sharepoint.com/…"
-                  className={inputClass}
-                />
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => removeDocument(i)}
-                    className="p-1 text-destructive hover:text-destructive"
-                    aria-label="Usuń dokument"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </Section>
 
       {!canEdit && (

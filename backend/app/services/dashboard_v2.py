@@ -69,6 +69,7 @@ from app.schemas.dashboard_v2 import (
     RecruitmentTrendMonth,
 )
 from app.services import dashboard_v2_sources as sources
+from app.services.metric_definitions import VERIFIER_ANCHORED_MILESTONES
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,11 @@ async def _capture(
         return None
     quality.set(name, "complete")
     return value
+
+
+# Sekcje, których degradacja jest STRUKTURALNA (stan świata, nie awaria):
+# nie mija po ponowieniu, więc nie skraca TTL cache'a.
+_STRUCTURAL_QUALITY_SECTIONS = frozenset({"funnel_conversions"})
 
 
 def _mark_partial(quality: _Quality, name: str, warning: str) -> None:
@@ -261,6 +267,7 @@ def _kpi(
     target: str | int | float | None = None,
     comparison: str | int | float | None = None,
     href: str | None = None,
+    definition_code: str | None = None,
 ) -> DashboardKpi:
     return DashboardKpi(
         value=value,
@@ -269,6 +276,7 @@ def _kpi(
         target=target,
         comparison=comparison,
         definition=definition,
+        definition_code=definition_code,
         drilldown_href=href,
     )
 
@@ -1757,36 +1765,44 @@ async def build_recruitment_stats_dashboard(
     kpi_quality = _source_kpi_quality(quality, "team_funnel", team)
     totals = team.totals if team is not None else None
     kpis = RecruitmentStatsKpis(
+        # Pięć kafli liczy TĘ SAMĄ regułę atrybucji — stąd jeden kod definicji.
+        # Insights liczy `first_hired_per_candidate_job`, więc kody RÓŻNIĄ SIĘ
+        # świadomie: to dwa różne pytania, nie rozjazd do naprawy.
         verifications=_kpi(
             totals.weryfikacje if totals else None,
             "count",
             "Pierwsze przejścia na etap Zweryfikowany w oknie "
             "(atrybucja verifier-anchored).",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         recommendations=_kpi(
             totals.rekomendacje if totals else None,
             "count",
             "CV wysłane do klienta — pierwsze cv_sent per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         interviews=_kpi(
             totals.interview if totals else None,
             "count",
             "Pierwsze interview per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         acceptances=_kpi(
             totals.akceptacje if totals else None,
             "count",
             "Klient zaakceptował kandydata — pierwsze acceptance per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
         placements=_kpi(
             totals.placementy if totals else None,
             "count",
             "Pierwsze hired per proces.",
             quality=kpi_quality,
+            definition_code=VERIFIER_ANCHORED_MILESTONES,
         ),
     )
 
@@ -1827,12 +1843,15 @@ async def build_recruitment_stats_dashboard(
         )
         from app.services.recruitment_trend import funnel_conversions
 
+        from app.services.funnel_coverage import uncovered_stages_for_window
+
         fc = funnel_conversions(
             weryfikacje=team.totals.weryfikacje,
             rekomendacje=team.totals.rekomendacje,
             interview=team.totals.interview,
             akceptacje=team.totals.akceptacje,
             placementy=team.totals.placementy,
+            uncovered_stages=uncovered_stages_for_window(period.start),
         )
         conversions = RecruitmentFunnelConversions(
             verified_to_recommendation_pct=fc.verified_to_recommendation_pct,
@@ -1841,7 +1860,15 @@ async def build_recruitment_stats_dashboard(
             acceptance_to_placement_pct=fc.acceptance_to_placement_pct,
             interview_to_placement_pct=fc.interview_to_placement_pct,
             overall_pct=fc.overall_pct,
+            uncovered=list(fc.uncovered),
+            coverage_note=fc.coverage_note,
         )
+        if fc.uncovered and fc.coverage_note:
+            # Sekcja WŁASNA, nie `team_funnel` — liczniki są uczciwe (7 akceptacji
+            # to prawdziwe 7 ręcznych ruchów), zepsuty jest wyłącznie iloraz.
+            # Zlanie tego z `team_funnel` zdegradowałoby też kafle i złamało
+            # `test_source_failure_yields_null_block_and_partial_quality`.
+            _mark_partial(quality, "funnel_conversions", fc.coverage_note)
 
     quarterly_league = None
     if league is not None:
@@ -1966,6 +1993,17 @@ async def build_recruitment_stats_dashboard(
         ),
     )
     # Krótszy TTL dla stanu zdegradowanego — awaria nie „zamraża się" na 2 min.
-    ttl = 120 if data_quality.status == "complete" else 30
+    #
+    # Ale degradacja STRUKTURALNA (znany brak pokrycia etapu w imporcie) nie
+    # zmieni się ani przez 30 s, ani przez 30 dni, a jest stała — skracanie
+    # TTL z jej powodu kazałoby liczyć ciężkie `VERIFIER_ANCHORED_CTE` cztery
+    # razy częściej na stronie głównej, dla każdej roli. Krótki TTL zostaje dla
+    # stanów PRZEJŚCIOWYCH, gdzie ponowienie może się udać.
+    degraded_transiently = any(
+        section.status != "complete"
+        for name, section in data_quality.sections.items()
+        if name not in _STRUCTURAL_QUALITY_SECTIONS
+    )
+    ttl = 30 if degraded_transiently else 120
     await cache_set(cache_key, response.model_dump(mode="json"), ttl_seconds=ttl)
     return response

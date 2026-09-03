@@ -1411,7 +1411,14 @@ async def build_job_scoring_context(
                 CandidateStage.screening_answers.is_not(None),
             )
             .distinct(CandidateStage.candidate_id)
-            .order_by(CandidateStage.candidate_id, CandidateStage.moved_at.desc())
+            .order_by(
+                CandidateStage.candidate_id,
+                CandidateStage.moved_at.desc(),
+                # Bez `id` remis `moved_at` dawałby raz jedne odpowiedzi
+                # screeningowe, raz drugie — czyli inny wynik dopasowania
+                # dla tych samych danych.
+                CandidateStage.id.desc(),
+            )
         )
     ).all()
 
@@ -1494,7 +1501,7 @@ async def _score_champion_fit(
                 CandidateStage.job_id == job.id,
                 CandidateStage.screening_answers.is_not(None),
             )
-            .order_by(CandidateStage.moved_at.desc())
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
             .limit(1)
         )
         raw_answers = stage.screening_answers if stage is not None else None

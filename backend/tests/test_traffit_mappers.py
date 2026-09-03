@@ -967,3 +967,67 @@ class TestTraffitUserToNexus:
             {"id": 1, "email": "FOO@B2B.pl", "is_active": True}
         )
         assert result["email"] == "foo@b2b.pl"
+
+
+class TestStateNameMapping:
+    """Semantyka, której `state.type` nie niesie.
+
+    Traffit nie ma typu odpowiadającego „rozmowa u klienta" ani „klient
+    zaakceptował": `client_verification` mapuje na `cv_sent`, a `initial_accept`
+    na `verified`. Fakt żyje w NAZWIE stanu — i to ją widzi rekruter. Bez tego
+    mapowania `acceptance` miał 7 wystąpień w 2026 (same ręczne ruchy) wobec
+    228 placementów, przez co kafel pokazywał 3257,1%.
+    """
+
+    def test_client_interview_comes_from_the_state_name(self):
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "interview", "name": "Interview u klienta"}
+        )
+        assert mapping["legacy"] == "client_interview"
+        assert mapping["category"] == "external"
+
+    def test_client_acceptance_comes_from_the_state_name(self):
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "initial_accept", "name": "Zaakceptowany"}
+        )
+        assert mapping["legacy"] == "acceptance"
+
+    def test_duplicate_suffix_added_by_the_importer_does_not_break_matching(self):
+        """Importer dokleja `(#41)` przy zdublowanych nazwach w jednym workflow."""
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "screening", "name": "Zaakceptowany (#41)"}
+        )
+        assert mapping["legacy"] == "acceptance"
+
+    def test_diacritics_and_case_do_not_matter(self):
+        assert (
+            map_traffit_state_to_pipeline({"name": "ZAAKCEPTOWANY"})["legacy"]
+            == "acceptance"
+        )
+
+    def test_verification_stage_is_not_swallowed_by_the_acceptance_rule(self):
+        """„Kandydat Zweryfikowany" MUSI zostać `verified` — to kotwica KPI."""
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "initial_accept", "name": "Kandydat Zweryfikowany"}
+        )
+        assert mapping["legacy"] == "verified"
+
+    def test_unrelated_names_still_fall_through_to_the_type_map(self):
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "client_verification", "name": "Wysłany do Klienta"}
+        )
+        assert mapping["legacy"] == "cv_sent"
+
+    def test_rejection_flag_still_wins_over_the_name(self):
+        """`is_rejection` jest nadrzędne — inaczej odrzucenie udawałoby akceptację."""
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "initial_accept", "name": "Zaakceptowany", "is_rejection": True}
+        )
+        assert mapping["legacy"] == "rejected"
+        assert mapping["terminal_type"] == "rejected"
+
+    def test_sid_is_used_when_the_state_has_no_name(self):
+        mapping = map_traffit_state_to_pipeline(
+            {"type": "interview", "name": "", "sid": "Interview u klienta"}
+        )
+        assert mapping["legacy"] == "client_interview"

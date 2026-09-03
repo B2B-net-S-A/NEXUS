@@ -109,6 +109,7 @@ export function RecruitmentTrendChart({
       </div>
 
       {conversions && totals ? (
+        <div className="space-y-2">
         <FunnelChart
           title="Efektywność lejka (wybrany okres)"
           summary={`Overall ${pct(conversions.overall_pct)}`}
@@ -132,14 +133,28 @@ export function RecruitmentTrendChart({
             {
               label: "Placements",
               count: totals.placements,
-              // Review: etap wizualnie następuje po Akceptacjach, więc
-              // konwersja też musi być akceptacje→placements (nie int→plac) —
-              // przy rzadko używanym etapie Akceptacja bywa >100%, ale to
-              // uczciwa liczba, nie błąd.
+              // Etap wizualnie następuje po Akceptacjach, więc konwersja też
+              // musi być akceptacje→placements (nie int→plac).
+              //
+              // Backend wygasza to pole do `null`, gdy `acceptance` nie ma
+              // pokrycia w imporcie — wtedy `conv()` renderuje „—", a powód
+              // stoi pod lejkiem. Dawny komentarz twierdził, że 3257,1% to
+              // „uczciwa liczba, nie błąd"; to nieprawda, bo mianownik nie
+              // opisywał rzeczywistości. Konwersje >100% na etapach, które
+              // REALNIE prowadzimy, nadal pokazujemy bez przycinania.
               conv: conv(conversions.acceptance_to_placement_pct),
             },
           ]}
         />
+        {conversions.uncovered.length > 0 && conversions.coverage_note ? (
+          // Bez tego „—" z braku pokrycia jest wizualnie nieodróżnialne od
+          // „—" z zerowego mianownika — czyli poprawa kończyłaby się na
+          // zamianie złej liczby na cichą dwuznaczność.
+          <p className="text-xs text-muted-foreground">
+            {conversions.coverage_note}
+          </p>
+        ) : null}
+        </div>
       ) : (
         <div className="rounded-xl border border-dashed border-border bg-card px-4 py-6 text-center text-xs text-muted-foreground">
           Lejek konwersji: dane chwilowo niedostępne (to NIE jest zero).

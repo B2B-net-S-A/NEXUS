@@ -37,6 +37,7 @@ from app.models.competition_winner import CompetitionType, CompetitionWinner
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
+from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
 from app.services.insights_scoring_config import (
     get_scoring_config,
     league_points_formula,
@@ -293,10 +294,21 @@ async def _rank_recruiters_by_points(
             bucket["placements"] += cnt
         elif r.stage == "interview":
             # D3: składnik „interview" liczy stage `interview`, NIE
-            # `client_interview`. Import z Traffita nie mapuje
-            # `client_interview` na nic (`traffit/mappers.py:404-449`), więc
-            # ten składnik formuły był W PRAKTYCE ZAWSZE ZEROWY — przy
-            # nagrodach 5000/3000/2000 PLN liczonych z tej sumy.
+            # `client_interview`.
+            #
+            # Historycznie ten składnik był ZEROWY, bo import nie mapował
+            # `client_interview` na nic. Od domknięcia mapowania po nazwie
+            # stanu (migracja 0269 + `_TRAFFIT_STATE_NAME_MAP`) „Interview
+            # u klienta" trafia do `client_interview`, więc do TEJ sumy już
+            # nie wchodzi — a `interview` zbiera pozostałe stany workflow.
+            #
+            # UWAGA PRZY ZMIANIE MAPOWANIA: ten składnik niesie pieniądze.
+            # Zmierzone Q3 2026 przy wagach 150/15/5: u zwycięzcy 2 040 z 3 080
+            # punktów (66%) pochodziło z `interview`, a osoba z 4 placementami
+            # wygrała 5 000 zł z osobą, która miała 6 (3 000 zł). Właściciel
+            # świadomie zostawił wagi bez zmian (decyzja 2026-09-03) — każda
+            # kolejna zmiana mapowania Traffita przesuwa tę sumę i wymaga
+            # policzenia rankingu przed/po, ZANIM kwartał zostanie zamrożony.
             bucket["interviews"] += cnt
         elif r.stage == "cv_sent":
             bucket["recommendations"] += cnt
@@ -718,7 +730,7 @@ async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedU
 # Własny wariant („..._by_mover") wyglądałby na precyzyjniejszy, a dawałby
 # maszynowo „różne" tam, gdzie reguła jest identyczna — czyli odwrotność tego,
 # do czego to pole służy. Rozjazdu pilnuje test.
-HALL_OF_FAME_ATTRIBUTION = "first_hired_per_candidate_job"
+HALL_OF_FAME_ATTRIBUTION = FIRST_HIRED_PER_CANDIDATE_JOB
 
 
 HALL_OF_FAME_ROLES = [

@@ -78,7 +78,7 @@ alembic -c alembic/alembic.ini upgrade heads 2>&1 || echo "alembic upgrade faile
 # back to alembic-only behavior if anything unexpected happens.
 echo "Backfilling critical Phase 8 columns (idempotent)..."
 python - <<'PY' || echo "column backfill failed; continuing"
-import asyncio, os, re
+import asyncio, json, os, re
 import asyncpg
 
 # Every statement here is idempotent. Order matters for enum ADD VALUE
@@ -2977,6 +2977,56 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_client_cv_rule_previews_client_created "
     "ON client_cv_rule_previews (client_id, created_at)",
+    # 0272: karta klienta — standardy współpracy per klient (SLA, limity,
+    # hold, onboarding, dokumenty). Sąsiad `client_cv_rules`: 1:1 z klientem,
+    # wersja + historia. Lustro migracji 0272 — zmieniasz tu, zmień też tam.
+    """CREATE TABLE IF NOT EXISTS client_playbooks (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        sla_business_days INTEGER,
+        sla_min_candidates INTEGER,
+        cv_limit_per_process INTEGER,
+        hold_hours INTEGER,
+        multi_project_cooldown_days INTEGER,
+        rate_policy VARCHAR(500),
+        about_for_candidate TEXT,
+        priority_rules TEXT,
+        process_rules_md TEXT,
+        onboarding_md TEXT,
+        documents JSONB,
+        version INTEGER NOT NULL DEFAULT 1,
+        seed_key VARCHAR(64),
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_playbooks_client "
+    "ON client_playbooks (client_id)",
+    "CREATE INDEX IF NOT EXISTS ix_client_playbooks_seed_key "
+    "ON client_playbooks (seed_key)",
+    """DO $$ BEGIN
+        ALTER TABLE client_playbooks
+            ADD CONSTRAINT ck_client_playbooks_numbers
+            CHECK ((sla_business_days IS NULL
+                    OR (sla_business_days >= 0 AND sla_business_days <= 365))
+                   AND (sla_min_candidates IS NULL OR sla_min_candidates > 0)
+                   AND (cv_limit_per_process IS NULL OR cv_limit_per_process > 0)
+                   AND (hold_hours IS NULL OR hold_hours > 0)
+                   AND (multi_project_cooldown_days IS NULL
+                        OR multi_project_cooldown_days > 0));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """CREATE TABLE IF NOT EXISTS client_playbook_events (
+        id SERIAL PRIMARY KEY,
+        client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        playbook_version INTEGER NOT NULL,
+        action VARCHAR(24) NOT NULL,
+        changes JSONB,
+        actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_client_playbook_events_client_created "
+    "ON client_playbook_events (client_id, created_at)",
     "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
     "client_rule_version INTEGER",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_cv_rules_client "
@@ -4228,6 +4278,27 @@ _DATA_STATEMENTS = [
            SELECT 1 FROM rbac_role_section_permissions
        )
        ON CONFLICT (role, section) DO NOTHING""",
+    # 0271: domyślny szablon dostaje kolumnę dla legacy `interview`.
+    #
+    # Bez niej karty z tego etapu (1 633 na produkcji) nie miały gdzie się
+    # wyrenderować. Mapowanie wyrównane do szablonu importowanego z Traffita,
+    # który kolumnę o TEJ SAMEJ nazwie mapuje na `interview`.
+    #
+    # Warunkowo (`IS NULL`) — ręczna korekta wygrywa; oraz `NOT EXISTS`, bo
+    # `get_kanban` buduje `enum_to_def` jako słownik i druga kolumna z tą samą
+    # wartością wygrywałaby zależnie od kolejności.
+    """UPDATE pipeline_stage_defs AS sd
+          SET legacy_enum_value = 'interview', updated_at = NOW()
+         FROM pipeline_templates AS t
+        WHERE t.id = sd.template_id
+          AND t.is_default IS TRUE
+          AND sd.name = 'Przepuszczony przez DZ'
+          AND sd.legacy_enum_value IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM pipeline_stage_defs other
+               WHERE other.template_id = sd.template_id
+                 AND other.legacy_enum_value = 'interview'
+          )""",
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
     # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie
@@ -5256,6 +5327,26 @@ _DATA_STATEMENTS = [
            NULL, TRUE, 53, TRUE, now(), now()
        )
        ON CONFLICT (slug) DO NOTHING""",
+    # 0272 (decyzja produktowa 03.09.2026): 14 wzorów Championa per klient
+    # schodzi z Pomocy; ich treść przejęła karta klienta, a wzór jest jeden,
+    # ogólny. Wiersze ZOSTAJĄ (przegląd reguł CV linkuje `template_url` po
+    # slugu) — zmienia się tylko `is_published`. Marker w app_settings jest
+    # wstawiany TYM SAMYM statementem, więc ponowna publikacja przez admina
+    # nie jest cofana przy każdym starcie kontenera.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('0272_champion_client_templates_unpublished', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE help_materials SET is_published = false, updated_at = now() "
+    "WHERE slug IN ("
+    "'profil-championa-wzor-alior-docx', 'profil-championa-wzor-bank-pocztowy-docx', "
+    "'profil-championa-wzor-bik-docx', 'profil-championa-wzor-bnp-paribas-docx', "
+    "'profil-championa-wzor-credit-agricole-docx', 'profil-championa-wzor-energa-docx', "
+    "'profil-championa-wzor-kir-docx', 'profil-championa-wzor-nordea-docx', "
+    "'profil-championa-wzor-orlen-docx', 'profil-championa-wzor-pansa-docx', "
+    "'profil-championa-wzor-pfron-docx', 'profil-championa-wzor-pko-bp-docx', "
+    "'profil-championa-wzor-santander-docx', 'profil-championa-wzor-tauron-docx') "
+    "AND EXISTS (SELECT 1 FROM marker)",
     """INSERT INTO help_materials
            (slug, category, title, url, description,
             is_editable_template, sort_order, is_published,
@@ -6351,6 +6442,84 @@ async def _seed_repo_procedures(conn):
             print(f"procedure seed skip: {procedure['slug']} -> {e!r}")
 
 
+# ── Karta klienta: seed z pliku w repo ──────────────────────────────────────
+# Lustro seeda migracji 0272. Źródło prawdy: `app/data/client_playbooks/
+# seed.json` (treść dawnych 14 wzorów Championa per klient). Wiersz powstaje
+# wyłącznie przy DOKŁADNIE JEDNYM żywym kliencie pasującym do wzorca nazwy
+# i NIGDY nie nadpisuje istniejącego (ON CONFLICT DO NOTHING) — edycja
+# Delivery Leada wygrywa z seedem na każdym kolejnym starcie.
+#
+# Wszystkie parametry rzutowane jawnie: w `INSERT … SELECT` Postgres nie
+# wywnioskuje typu NULL-a. `documents` idzie jako string JSON → `::jsonb`.
+_PLAYBOOK_SEED_SQL = """
+    INSERT INTO client_playbooks
+        (client_id, sla_business_days, sla_min_candidates, cv_limit_per_process,
+         hold_hours, multi_project_cooldown_days, rate_policy, about_for_candidate,
+         priority_rules, process_rules_md, onboarding_md, documents,
+         version, seed_key, created_at, updated_at)
+    SELECT c.id, $2::integer, $3::integer, $4::integer, $5::integer, $6::integer,
+           $7::varchar, $8::text, $9::text, $10::text, $11::text, $12::jsonb,
+           1, $13::varchar, now(), now()
+    FROM clients c
+    WHERE lower(c.name) LIKE $1
+      AND c.hidden = FALSE
+      AND c.merged_into_client_id IS NULL
+      AND (SELECT count(*) FROM clients c2
+            WHERE lower(c2.name) LIKE $1
+              AND c2.hidden = FALSE
+              AND c2.merged_into_client_id IS NULL) = 1
+    ON CONFLICT (client_id) DO NOTHING
+"""
+
+
+def _read_playbook_seed():
+    """Wpisy z seed.json albo None. Dwie ścieżki jak `_read_procedure`.
+
+    Łapiemy też ValueError (zepsuty JSON): ta funkcja biegnie MIĘDZY
+    `_DATA_STATEMENTS` a `_CONSTRAINT_STATEMENTS` i wyjątek urwałby
+    constraints + indeksy całego startu.
+    """
+    for base in (
+        "/app/app/data/client_playbooks",
+        os.path.join(os.getcwd(), "app", "data", "client_playbooks"),
+    ):
+        path = os.path.join(base, "seed.json")
+        try:
+            with open(path, encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+async def _seed_client_playbooks(conn):
+    entries = _read_playbook_seed()
+    if not entries:
+        print("client playbook seed skip: brak app/data/client_playbooks/seed.json")
+        return
+    for entry in entries:
+        try:
+            await conn.execute(
+                _PLAYBOOK_SEED_SQL,
+                entry["name_pattern"],
+                entry.get("sla_business_days"),
+                entry.get("sla_min_candidates"),
+                entry.get("cv_limit_per_process"),
+                entry.get("hold_hours"),
+                entry.get("multi_project_cooldown_days"),
+                entry.get("rate_policy"),
+                entry.get("about_for_candidate"),
+                entry.get("priority_rules"),
+                entry.get("process_rules_md"),
+                entry.get("onboarding_md"),
+                json.dumps(entry.get("documents") or [], ensure_ascii=False),
+                entry["seed_key"],
+            )
+            print(f"client playbook seed ok: {entry['seed_key']}")
+        except Exception as e:
+            print(f"client playbook seed skip: {entry.get('seed_key')} -> {e!r}")
+
+
 _INDEX_NAME_RE = re.compile(
     r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"
     r"([A-Za-z_][A-Za-z0-9_]*)",
@@ -6449,6 +6618,7 @@ async def backfill():
             except Exception as e:
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
         await _seed_repo_procedures(conn)
+        await _seed_client_playbooks(conn)
         await _apply_limits(conn, lock="'3s'", statement="'60s'")
         for stmt in _CONSTRAINT_STATEMENTS:
             try:

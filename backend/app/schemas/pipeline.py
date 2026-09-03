@@ -184,9 +184,39 @@ class KanbanColumn(BaseModel):
     terminal_type: Optional[Literal["hired", "rejected", "withdrawn"]] = None
 
 
+class OffTemplateColumn(BaseModel):
+    """Karty, których etap nie ma kolumny w szablonie tej rekrutacji.
+
+    Powstał, bo bucketowanie tablicy miało dwie ścieżki wyjścia i brak trzeciej:
+    karta, która nie trafiła w żadną kolumnę, **znikała bez śladu** — bez
+    kolumny, bez licznika, bez ostrzeżenia. Produkcyjny „Default B2B" nie ma
+    kolumny dla etapu `interview`, więc pomiar z 2026-09-02 pokazał 1 633
+    niewidoczne karty na 1 009 z 3 950 rekrutacji.
+
+    **ŚWIADOMIE bez `stage`, `stage_def_id`, `category` i `terminal_type`.**
+    Bez identyfikatora na drucie kubełek jest nieadresowalny jako cel
+    `POST /api/pipeline/move`, więc nie da się do niego przenieść kandydata —
+    ani przeciągnięciem, ani zbiorczo. Gdyby niósł `stage`, front wysłałby go
+    w ruchu (`sendMove` posyła `stage: dst.stage`), backend rozwiązałby etap po
+    `legacy_enum_value` i **po cichu** przeniósłby kandydata na przypadkowy
+    etap. Nie uzupełniaj tych pól przez analogię do `KanbanColumn` — pilnuje
+    tego `test_off_template_bucket_carries_no_move_target_identity`.
+    """
+
+    name: str
+    count: int
+    items: List[CandidateStageResponse]
+    # Nazwy etapów, na których te karty stoją. Bez nich rekruter widzi kubełek,
+    # ale nie wie, skąd karta przyszła ani dokąd ją wyprowadzić.
+    missing_stage_labels: List[str] = Field(default_factory=list)
+
+
 class KanbanView(BaseModel):
     job_id: int
     columns: List[KanbanColumn]
+    # `None` na zdrowej tablicy — stale pusty kubełek na 2 941 rekrutacjach bez
+    # sierot uczyłby go ignorować.
+    off_template: Optional[OffTemplateColumn] = None
 
 
 class StageInfo(BaseModel):

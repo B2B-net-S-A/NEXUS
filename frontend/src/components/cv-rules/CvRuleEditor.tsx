@@ -1,7 +1,9 @@
 "use client";
 
 /**
- * Edytor reguły CV klienta — pełna recepta Delivery Leada w pięciu zakładkach.
+ * Edytor reguły CV klienta — pełna recepta Delivery Leada w sześciu zakładkach
+ * (podstawy, generator, treść i AI, karta klienta — osobny zapis, podgląd,
+ * historia).
  *
  * Jeden ekran prowadzi wszystko, co decyduje o CV u klienta: nazwę pliku
  * i język (0255), instrukcje dla modelu (0266), blokady dla rekrutera,
@@ -40,26 +42,41 @@ import { CvRuleBasicsTab } from "./CvRuleBasicsTab";
 import { CvRuleContentTab } from "./CvRuleContentTab";
 import { CvRuleGeneratorTab } from "./CvRuleGeneratorTab";
 import { CvRuleHistoryTab } from "./CvRuleHistoryTab";
+import { CvRulePlaybookTab } from "./CvRulePlaybookTab";
 import { CvRulePreviewTab } from "./CvRulePreviewTab";
 
 const TABS = [
   { value: "basics", label: "Podstawy" },
   { value: "generator", label: "Generator" },
   { value: "content", label: "Treść i AI" },
+  { value: "playbook", label: "Karta klienta" },
   { value: "preview", label: "Podgląd" },
   { value: "history", label: "Historia" },
 ];
+const TAB_VALUES = new Set(TABS.map((t) => t.value));
+/** `?tab=` z adresu bywa dowolnym stringiem — nieznana wartość wraca na „Podstawy". */
+function resolveInitialTab(requested?: string): string {
+  return requested && TAB_VALUES.has(requested) ? requested : "basics";
+}
 
 interface Props {
   clientId: number;
   onChanged?: (rule: ClientCvRule) => void;
   onDeleted?: () => void;
   allowDelete?: boolean;
+  /** Zakładka startowa (deep link `?tab=` z `/settings/cv-rules`). */
+  initialTab?: string;
 }
 
-export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = false }: Props) {
+export function CvRuleEditor({
+  clientId,
+  onChanged,
+  onDeleted,
+  allowDelete = false,
+  initialTab,
+}: Props) {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState("basics");
+  const [tab, setTab] = useState(() => resolveInitialTab(initialTab));
   const [rule, setRule] = useState<ClientCvRule | null>(null);
   const [form, setForm] = useState<CvRuleForm | null>(null);
   const [savedForm, setSavedForm] = useState<CvRuleForm | null>(null);
@@ -73,6 +90,16 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
   // odmontowuje jej stan, a zadanie w tle (i dwa obciążenia kwoty) już
   // poszło — wynik musi dać się obejrzeć po powrocie.
   const [previewId, setPreviewId] = useState<number | null>(null);
+  // Karta ma WŁASNY szkic w zakładce. Odmontowanie przy przełączeniu zakładki
+  // (jak robią pozostałe) kasowałoby niezapisane 20 000 znaków markdownu, więc
+  // po pierwszym wejściu zakładka zostaje zamontowana i tylko chowana. Montaż
+  // dopiero po wejściu: edytor otwierany dla reguły nie ma strzelać po kartę.
+  const [playbookVisited, setPlaybookVisited] = useState(
+    () => resolveInitialTab(initialTab) === "playbook",
+  );
+  useEffect(() => {
+    if (tab === "playbook") setPlaybookVisited(true);
+  }, [tab]);
 
   const load = async (cancelledRef?: { current: boolean }) => {
     try {
@@ -100,7 +127,12 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
     setConfirmingDelete(false);
     setCopySource(null);
     setPreviewId(null);
-    setTab("basics");
+    // Zakładka startowa liczona TU, nie z efektu po `tab`: przy starcie na
+    // karcie oba efekty biegną w jednym przebiegu i sam reset `visited`
+    // zostawiłby ją niezamontowaną, mimo że jest aktywna.
+    const startTab = resolveInitialTab(initialTab);
+    setTab(startTab);
+    setPlaybookVisited(startTab === "playbook");
     void load(cancelled);
     return () => {
       cancelled.current = true;
@@ -259,6 +291,11 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
           {tab === "content" ? (
             <CvRuleContentTab form={form} set={set} clientId={clientId} />
           ) : null}
+          {playbookVisited ? (
+            <div className={tab === "playbook" ? undefined : "hidden"}>
+              <CvRulePlaybookTab clientId={clientId} />
+            </div>
+          ) : null}
           {tab === "preview" ? (
             <CvRulePreviewTab
               clientId={clientId}
@@ -274,61 +311,66 @@ export function CvRuleEditor({ clientId, onChanged, onDeleted, allowDelete = fal
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {info ? <p className="text-sm text-emerald-600">{info}</p> : null}
 
-      <div className="flex flex-wrap items-center gap-2 border-t pt-3">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => save(true)}
-          className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
-        >
-          Zapisz i zatwierdź
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => save(false)}
-          className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-        >
-          Zapisz jako propozycję
-        </button>
-        {dirty ? (
-          <span className="text-xs text-amber-700 dark:text-amber-400">
-            Niezapisane zmiany
-          </span>
-        ) : null}
-        {allowDelete && stored ? (
-          confirmingDelete ? (
-            <span className="ml-auto flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Usunąć regułę?</span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={remove}
-                className="rounded-md bg-destructive px-3 py-1.5 text-sm text-destructive-foreground disabled:opacity-50"
-              >
-                Tak, usuń
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setConfirmingDelete(false)}
-                className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
-              >
-                Anuluj
-              </button>
+      {/* Na zakładce karty jedynym przyciskiem zapisu ma być „Zapisz kartę"
+          (w formularzu karty) — stopka reguły jest tam chowana, żeby nie
+          sugerować, że „Zapisz i zatwierdź" obejmuje kartę. */}
+      {tab !== "playbook" ? (
+        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => save(true)}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
+          >
+            Zapisz i zatwierdź
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => save(false)}
+            className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+          >
+            Zapisz jako propozycję
+          </button>
+          {dirty ? (
+            <span className="text-xs text-amber-700 dark:text-amber-400">
+              Niezapisane zmiany
             </span>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setConfirmingDelete(true)}
-              className="ml-auto rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-            >
-              Usuń regułę
-            </button>
-          )
-        ) : null}
-      </div>
+          ) : null}
+          {allowDelete && stored ? (
+            confirmingDelete ? (
+              <span className="ml-auto flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Usunąć regułę?</span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={remove}
+                  className="rounded-md bg-destructive px-3 py-1.5 text-sm text-destructive-foreground disabled:opacity-50"
+                >
+                  Tak, usuń
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmingDelete(false)}
+                  className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
+                >
+                  Anuluj
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmingDelete(true)}
+                className="ml-auto rounded-md px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                Usuń regułę
+              </button>
+            )
+          ) : null}
+        </div>
+      ) : null}
       {rule?.confirmed_at ? (
         <p className="text-xs text-muted-foreground">
           Zatwierdzona {new Date(rule.confirmed_at).toLocaleDateString("pl-PL")}

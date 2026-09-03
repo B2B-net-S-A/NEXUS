@@ -476,3 +476,140 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     expect(post).not.toHaveBeenCalled();
   });
 });
+
+// ── Kubełek „poza szablonem" ────────────────────────────────────────────────
+//
+// Karta, której etap nie ma kolumny w szablonie, znikała z tablicy bez śladu
+// (1 633 karty na produkcji, pomiar 2026-09-02). Backend zwraca je teraz
+// osobnym polem `off_template`. Te testy pilnują dwóch rzeczy naraz: że kubełek
+// jest widoczny ORAZ że nie da się do niego nic przenieść.
+
+function offTemplateFixture(count = 2) {
+  return {
+    name: "Poza szablonem",
+    count,
+    missing_stage_labels: ["Interview Wewnętrzny"],
+    items: Array.from({ length: count }, (_, i) => ({
+      id: 9000 + i,
+      candidate_id: 500 + i,
+      name: "Zofia",
+      lastname: `Sierota${i}`,
+      stage: "interview",
+      days_in_stage: 7,
+    })),
+  } as never;
+}
+
+function renderWithBucket(
+  columns = focusColumns(),
+  offTemplate: unknown = offTemplateFixture(),
+) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <TooltipProvider>
+        <KanbanBoardV2
+          columns={columns}
+          jobId={10}
+          offTemplate={offTemplate as never}
+        />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("KanbanBoardV2 — karty poza szablonem", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin" } } as never);
+    useUiStore.setState({ density: "cozy" } as never);
+  });
+
+  it("renderuje kubełek z kartami zamiast je gubić", async () => {
+    const { container } = renderWithBucket();
+
+    await screen.findByTestId("pipeline-board");
+    const bucket = container.querySelector(
+      '[data-colid="stage:__off_template__"]',
+    );
+    expect(bucket).toBeTruthy();
+    expect(screen.getByText("Zofia Sierota0")).toBeTruthy();
+  });
+
+  it("nie zmienia układu desktopowego ani licznika „W procesie”", async () => {
+    renderWithBucket();
+
+    const board = await screen.findByTestId("pipeline-board");
+    // 15 kolumn szablonu + kubełek — próg NIE może przeskoczyć na "scroll",
+    // inaczej 1 009 rekrutacji dostałoby inny layout w nagrodę za bugfix.
+    expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
+    // Kubełek nie dolicza się do sumy pipeline'u (to nie jest etap procesu).
+    expect(screen.getByText("W procesie: 4")).toBeTruthy();
+  });
+
+  it("nie oferuje kubełka jako celu przeniesienia zbiorczego", async () => {
+    const { container } = renderWithBucket();
+    await screen.findByTestId("pipeline-board");
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Zaznacz Zofia Sierota0" }),
+    );
+    const bulkTrigger = screen
+      .getAllByRole("combobox")
+      .find((el) => el.textContent?.includes("Wybierz etap"));
+    await userEvent.click(bulkTrigger as Element);
+
+    const options = await screen.findAllByRole("option");
+    expect(options).toHaveLength(15);
+    expect(
+      options.some((o) => o.textContent?.includes("Poza szablonem")),
+    ).toBe(false);
+  });
+
+  it("nie oferuje kubełka w nawigatorze etapów", async () => {
+    renderWithBucket();
+
+    expect(
+      await screen.findByRole("combobox", { name: /etap 2 z 15/ }),
+    ).toBeTruthy();
+  });
+
+  it("blokuje upuszczenie w kubełku, ale nie w kolumnie szablonu", async () => {
+    const { container } = renderWithBucket();
+    await screen.findByTestId("pipeline-board");
+
+    // Wiążemy się z TĄ SAMĄ wartością, którą dostaje `isDropDisabled` —
+    // DnD nie jest odpalalne w jsdom, więc kopia flagi nic by nie dowiodła.
+    expect(
+      container.querySelector('[data-colid="stage:__off_template__"]'),
+    ).toHaveAttribute("data-drop-disabled", "true");
+    expect(
+      container.querySelector('[data-colid="def:201"]'),
+    ).toHaveAttribute("data-drop-disabled", "false");
+  });
+
+  it("baner nazywa brakujący etap i prowadzi do szablonów", async () => {
+    renderWithBucket();
+    await screen.findByTestId("pipeline-board");
+
+    expect(screen.getByText(/Interview Wewnętrzny/)).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Otwórz szablony" }),
+    ).toHaveAttribute("href", "/settings/pipeline-templates");
+  });
+
+  it("zdrowa tablica nie dostaje ani kubełka, ani banera", async () => {
+    const { container } = renderWithBucket(focusColumns(), null);
+    await screen.findByTestId("pipeline-board");
+
+    expect(
+      container.querySelector('[data-colid="stage:__off_template__"]'),
+    ).toBeNull();
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(15);
+    expect(screen.queryByRole("link", { name: "Otwórz szablony" })).toBeNull();
+  });
+});

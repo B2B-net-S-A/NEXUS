@@ -538,12 +538,16 @@ do modelu.
 - **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w edytorze
   i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
 
-## Profil Championa — siedem sekcji (przebudowa 09.2026)
+## Profil Championa — sześć sekcji + karta klienta (przebudowa 09.2026)
 
-Szablon skrócony do siedmiu sekcji: **1. Podstawowe informacje · 2. Co wpisać
+Szablon skrócony do sześciu sekcji: **1. Podstawowe informacje · 2. Co wpisać
 (search) · 3. Stack technologiczny · 4. O projekcie · 5. Pytania screeningowe ·
-6. O kliencie · 7. Dokumenty**. Powód: Delivery Leadowie opisywali 80% starego
-profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
+6. O kliencie**. Powód: Delivery Leadowie opisywali 80% starego profilu jako
+szum. Sekcja 6 niesie WYŁĄCZNIE treść zależną od roli (co przekona kandydata
+do tej oferty, insight konsultanta, historyczne pytania, branże). Standardy
+klienta i dokumenty żyją w **karcie klienta** (`client_playbooks`, osobna
+sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
+(nadal deklaruje siedem sekcji — patrz niżej), warstwa odczytu
 `app/services/champion_view.py`, wzór Word `scripts/generate_champion_template.py`.
 
 - **Skrócenie „O projekcie" do 2 zdań jest bezpieczne WYŁĄCZNIE dzięki sekcji 3.**
@@ -595,10 +599,16 @@ profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
   Zdjęcie któregokolwiek zamieniłoby te pliki w CV bez sekcji — po cichu, bo brak
   sekcji jest u nas poprawnym wynikiem, nie błędem. Pilnuje tego
   `test_champion_template_agenda.py` czytający tytuły WPROST z generatora wzoru.
-- **Prompt parsera to v4** (`champion_parse:v4:haiku-4.5`) i opisuje nagłówki OBU
-  szablonów. `ingest_parsed_profile` czyta skille z `stack.must` **oraz** z płaskiego
-  `must_skills` — czytanie jednego kształtu zepsułoby albo każdy nowy dokument, albo
-  każde ponowne przetworzenie starego, a objaw byłby ten sam i cichy.
+- **Prompt parsera to v6** (`champion_parse:v6:haiku-4.5`), opisuje TRZY układy
+  (6 sekcji, 7 sekcji, stary) i NIE wydobywa pól karty klienta
+  (`client.about/priority_rules/offlimit/contract_type/cv_language`, `documents`)
+  — `build_champion_dict` emituje dla nich puste wartości, a kształt siedmiu
+  kluczy JSONB zostaje (konsumenci czytają `.get()`, test kształtu tego pilnuje).
+  `schemas/champion.py` CELOWO nadal deklaruje te pola: migracja leniwa starych
+  profili i 949 wierszy produkcji. `ingest_parsed_profile` czyta skille
+  z `stack.must` **oraz** z płaskiego `must_skills` — czytanie jednego kształtu
+  zepsułoby albo każdy nowy dokument, albo każde ponowne przetworzenie starego,
+  a objaw byłby ten sam i cichy.
 - **Publiczna karta Championa dostaje WĄSKĄ projekcję**, nie surowy JSONB
   (`_public_champion_projection`). Do 09.2026 endpoint zwracał cały profil, więc
   każdy z linkiem miał w JSON-ie także NASZĄ stawkę dla kandydata, firmy docelowe,
@@ -619,23 +629,73 @@ profilu jako szum. Schemat `app/schemas/champion.py`, warstwa odczytu
   DOKUMENTU CV — per klient i to jego słucha generator. W edytorze język CV jest
   **tylko do odczytu**, bo edytowalne pole obok reguły klienta byłoby drugim
   źródłem prawdy, które przy pierwszej zmianie zaczyna kłamać.
-- **Standardy klienta stoją w ramce POD TYTUŁEM wzoru**, nie na końcu sekcji 6:
-  KPI czasu na kandydata, język i konwencja nazwy pliku CV to jedyne fakty,
-  które rekruter musi znać ZANIM zacznie pracę. Na końcu czytał je już po
-  podjęciu decyzji, których dotyczą. Delivery Lead ich nie pisze — wstrzykiwane
-  per klient z `champion_template_clients.json`.
-- **Wzory Word leżą na SharePoincie, nie w repo** — NEXUS trzyma do nich wyłącznie
-  linki (`help_materials`, migracja 0219: 1 ogólny + 14 per klient). Wszystkie 15
-  podmieniono 01.09.2026 w `.../02_Rekrutacja i HR/Wzory/Profil Championa/`;
-  biblioteka ma wersjonowanie (limit 500), więc poprzednie wersje są w historii.
-  Generator: `scripts/generate_champion_template.py --all`.
-- **Treść kliencka wzorów jest w repo, nie tylko w Wordzie.**
-  `scripts/champion_template_clients.json` trzyma to, co odróżniało 14 wzorów per
-  klient: KPI czasu na kandydata, konwencję nazwy pliku CV, język CV, reguły
-  priorytetu i wymagane dokumenty z linkami. Bez tego pliku regeneracja wzoru
-  produkuje generyk i **kasuje wiedzę, której nie ma nigdzie indziej** — sekcje
-  6 i 7 starych dokumentów były jedynym jej nośnikiem. Zmieniasz wzór u klienta:
-  najpierw zaktualizuj JSON, potem regeneruj.
+- **Wzór Word NIE ma ramki standardów ani sekcji „Dokumenty"** — wskazówka pod
+  nagłówkiem sekcji 6 kieruje do karty klienta w NEXUSIE. Do 09.2026 ramka
+  „Standardy tego klienta" i sekcja 7 niosły treść per klient kopiowaną do
+  każdej rekrutacji; teraz ma ona jedno miejsce.
+- **Wzór Word leży na SharePoincie, nie w repo** — NEXUS trzyma do niego wyłącznie
+  link (`help_materials`). Jest JEDEN, ogólny; 14 wzorów per klient wycofano
+  z Pomocy migracją 0272 (`is_published=false`; wiersze zostają, bo przegląd
+  reguł CV linkuje je po slugu; pliki na SharePoincie zostają w bibliotece).
+  Generator: `scripts/generate_champion_template.py --out-dir …` (bez
+  `--client`/`--all`).
+- **Treść kliencka dawnych wzorów żyje w `app/data/client_playbooks/seed.json`**
+  — źródło seeda migracji 0272 i lustra w entrypoint. Dawny
+  `scripts/champion_template_clients.json` został usunięty po jednorazowej
+  konwersji skryptem `scripts/build_client_playbook_seed.py`, który sprawdza
+  KOMPLETNOŚĆ: każda linia 14 wzorów musi trafić do karty (inaczej pada).
+
+## Karta klienta (`client_playbooks`)
+
+Jedno miejsce prawdy „jak pracujemy z tym klientem" (migracja `0272`, decyzje
+Artura 03.09.2026). Tabela 1:1 z klientem + `client_playbook_events` (historia
+z diffem pól). Pola: SLA w dniach roboczych, minimum kandydatów, limit CV na
+proces, blokada kandydata (h), karencja między projektami (dni), polityka
+stawek, „co powiedzieć kandydatowi o kliencie", reguły priorytetu, zasady
+procesu (Markdown), onboarding po akceptacji (Markdown), dokumenty (nazwa +
+link). API: `app/api/client_playbooks.py`.
+
+- **Zapis = obowiązuje.** Bez `confirmed_at` jak w regułach CV: seed NIGDY nie
+  nadpisuje istniejącego wiersza (`ON CONFLICT (client_id) DO NOTHING`), więc
+  nie ma propozycji do odróżnienia od decyzji człowieka. `version` bumpuje się
+  tylko przy realnym diffie; identyczny zapis nie zostawia wpisu w historii.
+- **Tabela-siostra reguł CV, nie kolumny w `client_cv_rules`** — edycja
+  obowiązującej reguły CV zdejmuje zatwierdzenie; adres biura na tym samym
+  wierszu wyłączałby wymuszanie nazwy pliku do ponownego zatwierdzenia.
+- **Bramki (lustro reguł CV po #1351):** zapis i historia = `DeliverySectionUser`
+  (sekcja Delivery) + graf klienta `resolve_client_access` (admin org-wide,
+  Delivery Lead tylko własny portfel). **Odczyt karty i przeglądu = `OperationalUser`,
+  org-wide, bez grafu klienta** — świadome odstępstwo: karta zastępuje 14 wzorów
+  Word w Pomocy, które czytał każdy zalogowany, a rekruter czyta ją PRZED
+  przypisaniem do rekrutacji. `off_limits` (z `client_contract_terms`) jedzie
+  w odpowiedzi tylko do ról z odczytem sekcji Delivery. `client_playbooks.router`
+  NIE trafia na listę routerów Delivery w `test_section_access.py` (bramki per
+  handler, jak `client_cv_rules.router`).
+- **Trzy powierzchnie odczytu, jeden formularz:** profil klienta → „Zasady
+  współpracy" (edycja w miejscu dla DL/admina), rekrutacja → sekcja 6 Championa
+  (wariant compact; link „Pełna karta klienta →" prowadzi do Pomocy, bo `/clients/*`
+  jest w middleware bramkowane sekcją Delivery), Pomoc → Klienci (procedura per
+  klient generowana z karty, `?tab=clients&client=<id>`). Edycja także jako
+  zakładka „Karta klienta" w `/settings/cv-rules?client=<id>&tab=playbook`.
+  Formularz jest JEDEN (`ClientPlaybookForm`); capability `client_playbook.manage`
+  = admin + delivery_lead z wymogiem sekcji Delivery/write.
+- **Seed jest KOMPLETNY** (decyzja: „żeby nic nie uciekło z aktualnych plików"):
+  każda linia standardów, opisu klienta i dokumentów z 14 wzorów trafia do karty,
+  w tym linie o nazwie pliku/języku CV (dublują regułę CV — DL usuwa je z karty,
+  gdy reguła CV jest zatwierdzona) i linie o pochodzeniu kandydata (przeniesione
+  jak są). Liczby (SLA, limity) zasiano tylko tam, gdzie wzór podawał je WPROST.
+  Wzorce dopasowania klienta są z 0255; wieloznaczne (np. `%bnp%` przy kilku
+  klientach BNP) nie zasieją nic — DL zakłada kartę ręcznie z treści `seed.json`.
+- **Trzy miejsca rejestracji modelu** (`models/__init__`, lokalne importy sondy
+  startowej i lista probe tuples w `main.py`) i **lustro w `entrypoint.sh`**
+  (DDL w `_COLUMN_STATEMENTS`, `_seed_client_playbooks(conn)` po procedurach,
+  odpublikowanie wzorów w `_DATA_STATEMENTS` z markerem
+  `0272_champion_client_templates_unpublished` w `app_settings`, który nie cofa
+  ponownej publikacji przez admina). Prod alembic jest osierocony — entrypoint
+  JEST wdrożeniem.
+- **Nie przenoś na kartę `selling_points`/`consultant_insight`/`historical_questions`
+  bez A/B** — zasilają wektor oferty i prompt generatora CV (949 ofert).
+- Poza zakresem MVP: `DELETE`/`copy-from` karty, alerty z pól strukturalnych (SLA).
 ## Delivery Lead widzi kwoty własnego portfela (profil klienta + Analityka)
 
 Kwoty JEDNEGO klienta redaguje wspólna reguła **`can_read_client_finance`

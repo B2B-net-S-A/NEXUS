@@ -8,7 +8,14 @@ który nie filtruje `kpi_eligible`.
 
 Konwersje to stosunek ZLICZEŃ w tym samym oknie (period conversions), nie
 kohorty — kandydat zweryfikowany w maju może mieć placement w lipcu, więc
-przy małych mianownikach wartości mogą przekraczać 100%.
+przy małych mianownikach wartości mogą przekraczać 100%. To zostaje: >100%
+na etapie, który REALNIE prowadzimy, jest uczciwą obserwacją i nie przycinamy
+go do stu.
+
+Czym innym jest iloraz przez etap, którego import w ogóle nie zapełnia
+(`acceptance`, `client_interview`, …) — taka liczba nie opisuje niczego
+i jest wygaszana do `None` wraz z powodem. Zbiór etapów bez pokrycia:
+`app.services.funnel_coverage`.
 """
 
 from __future__ import annotations
@@ -20,6 +27,11 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.funnel_coverage import (
+    coverage_note,
+    uncovered_conversions,
+    uncovered_stages_for_window,
+)
 from app.services.kpi_engine import WARSAW
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
@@ -64,7 +76,12 @@ class MonthlyTrendPoint:
 
 @dataclass(frozen=True)
 class FunnelConversions:
-    """Konwersje lejka w %, zaokrąglone do 0.1; None gdy mianownik == 0."""
+    """Konwersje lejka w %, zaokrąglone do 0.1.
+
+    `None` znaczy jedną z dwóch rzeczy i tylko `uncovered` je rozróżnia:
+    mianownik był zerowy („brak próby"), albo któryś operand pochodzi z etapu
+    bez pokrycia w imporcie („nie ma z czego policzyć").
+    """
 
     verified_to_recommendation_pct: Optional[float]
     recommendation_to_interview_pct: Optional[float]
@@ -72,6 +89,9 @@ class FunnelConversions:
     acceptance_to_placement_pct: Optional[float]
     interview_to_placement_pct: Optional[float]
     overall_pct: Optional[float]  # weryfikacje → placementy
+    # Nazwy pól wygaszonych z braku pokrycia (nie z braku próby).
+    uncovered: tuple[str, ...] = ()
+    coverage_note: Optional[str] = None
 
 
 def _month_key(year: int, month: int) -> str:
@@ -172,19 +192,38 @@ def funnel_conversions(
     interview: int,
     akceptacje: int,
     placementy: int,
+    uncovered_stages: Optional[frozenset[str]] = None,
 ) -> FunnelConversions:
     """Konwersje lejka z sum okresu (czysta funkcja, bez DB).
 
     Mianownik 0 → None („—" na froncie) — nigdy 0.0, bo „brak próby" to nie
-    to samo co „0% skuteczności".
+    to samo co „0% skuteczności". Prawdziwe zero (0 z 10) zostaje `0.0`.
+
+    Konwersja, której KTÓRYKOLWIEK operand pochodzi z etapu bez pokrycia,
+    też wraca jako `None` — ale wymieniona w `uncovered`, żeby dało się te dwa
+    przypadki odróżnić.
+
+    Default parametru jest WYGASZAJĄCY, nie neutralny: wywołujący, który
+    o nim zapomni, dostanie zachowanie uczciwe, a nie defektowe.
     """
+    if uncovered_stages is None:
+        # Bez okna → najszersze wygaszenie (patrz `uncovered_stages_for_window`).
+        uncovered_stages = uncovered_stages_for_window(None)
+    values = {
+        "verified_to_recommendation_pct": _ratio_pct(rekomendacje, weryfikacje),
+        "recommendation_to_interview_pct": _ratio_pct(interview, rekomendacje),
+        "interview_to_acceptance_pct": _ratio_pct(akceptacje, interview),
+        "acceptance_to_placement_pct": _ratio_pct(placementy, akceptacje),
+        "interview_to_placement_pct": _ratio_pct(placementy, interview),
+        "overall_pct": _ratio_pct(placementy, weryfikacje),
+    }
+    suppressed = uncovered_conversions(uncovered_stages)
+    for field in suppressed:
+        values[field] = None
     return FunnelConversions(
-        verified_to_recommendation_pct=_ratio_pct(rekomendacje, weryfikacje),
-        recommendation_to_interview_pct=_ratio_pct(interview, rekomendacje),
-        interview_to_acceptance_pct=_ratio_pct(akceptacje, interview),
-        acceptance_to_placement_pct=_ratio_pct(placementy, akceptacje),
-        interview_to_placement_pct=_ratio_pct(placementy, interview),
-        overall_pct=_ratio_pct(placementy, weryfikacje),
+        **values,
+        uncovered=suppressed,
+        coverage_note=coverage_note(uncovered_stages) if suppressed else None,
     )
 
 

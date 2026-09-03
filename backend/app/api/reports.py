@@ -36,6 +36,7 @@ from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.insights_workdays import working_days_for
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.metric_definitions import VERIFIER_ANCHORED_MILESTONES
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,15 @@ def _period_start(period: str) -> datetime:
 
 
 def _safe_pct(numerator: int, denominator: int) -> float:
+    """Legacy: zerowy mianownik → 0.0.
+
+    Kontrakt ZOSTAJE, mimo że miesza „policzone, wyszło zero" z „nie było
+    czego dzielić". Trzej konsumenci na nim stoją arytmetycznie
+    (`hit_ratio >= HIT_RATIO_TARGET_PCT` oraz dwa `sum(...)` w raporcie
+    Delivery Leadów), a komentarz przy `invite-links` jawnie opisuje
+    rozdzielenie obu konwencji jako świadome. Do NOWYCH powierzchni używaj
+    `_pct_or_none`.
+    """
     if denominator == 0:
         return 0.0
     return round(numerator / denominator * 100, 1)
@@ -223,9 +233,15 @@ async def report_recruitment(
     period: str = Query("month", enum=["week", "month", "quarter", "year"]),
     recruitment_type: Optional[str] = Query(None),
 ):
-    """
-    Recruitment funnel report with per-recruiter breakdown and Liga Mistrzów top 3.
-    Cached for 5 minutes.
+    """Lejek rekrutacyjny + rozbicie per rekruter (atrybucja verifier-anchored).
+
+    UWAGA na okno: `_period_start` daje okno KROCZĄCE bez górnej granicy
+    (`period="year"` = ostatnie 365 dni), a `dashboard_v2` liczy okna
+    KALENDARZOWE w Europe/Warsaw. To osobna oś rozjazdu wobec kafli i nie
+    należy jej mylić z atrybucją — obie powierzchnie mogą liczyć tę samą
+    regułę i wciąż podać różne liczby, bo pytają o różne przedziały czasu.
+
+    Cache 5 min; klucz nie zawiera okna, bo okno jest funkcją `period`.
     """
     cache_key = f"reports:recruitment:{period}:{recruitment_type}"
     cached = await cache_get(cache_key)
@@ -255,27 +271,39 @@ async def report_recruitment(
     # PR 4 (plan analytics 2026-07-16): liczymy PIERWSZE osiągnięcia
     # milestone'ów z kanonicznego view — koniec multi-countu tego samego
     # kandydata przy cofnięciu i ponownym przejściu przez etap (§3.2).
+    # Nagłówek liczy z TEJ SAMEJ atrybucji co wiersze per rekruter (poniżej).
+    #
+    # Do 09.2026 czytał surowy `analytics_first_milestones`, a wiersze szły
+    # przez `VERIFIER_ANCHORED_CTE` — dwie różne populacje w JEDNEJ odpowiedzi
+    # HTTP. Zmierzone na produkcji (rok 2026): kolumna „interview" sumowała się
+    # do 3 833 pod nagłówkiem mówiącym 3 339, czyli rozjazd 15%. Tabela, która
+    # nie sumuje się do własnego nagłówka, podważa obie liczby naraz.
     totals_sql = text(
-        f"""
-        SELECT fm.stage, count(*) AS cnt
-        FROM analytics_first_milestones fm
-        JOIN jobs j ON j.id = fm.job_id
-        WHERE fm.first_reached_at >= :period_start
+        VERIFIER_ANCHORED_CTE
+        + f"""
+        SELECT c.stage,
+               count(*) AS cnt,
+               count(*) FILTER (WHERE c.credit_user IS NULL) AS unattributed
+        FROM credited c
+        JOIN jobs j ON j.id = c.job_id
+        WHERE c.reached_at >= :period_start
+          AND c.stage IN ('verified', 'cv_sent', 'interview', 'hired')
           {rtype_clause}
-        GROUP BY fm.stage
+        GROUP BY c.stage
         """
     )
     totals_rows = (await db.execute(totals_sql, base_params)).mappings().all()
     totals_by_stage = {r["stage"]: int(r["cnt"]) for r in totals_rows}
+    unattributed_by_stage = {r["stage"]: int(r["unattributed"]) for r in totals_rows}
     weryfikacje = totals_by_stage.get("verified", 0)
     rekomendacje = totals_by_stage.get("cv_sent", 0)
     interviews = totals_by_stage.get("interview", 0)
     placements = totals_by_stage.get("hired", 0)
 
     funnel_efficiency = {
-        "weryfikacje_to_rekomendacje": _safe_pct(rekomendacje, weryfikacje),
-        "rekomendacje_to_interviews": _safe_pct(interviews, rekomendacje),
-        "interviews_to_placements": _safe_pct(placements, interviews),
+        "weryfikacje_to_rekomendacje": _pct_or_none(rekomendacje, weryfikacje),
+        "rekomendacje_to_interviews": _pct_or_none(interviews, rekomendacje),
+        "interviews_to_placements": _pct_or_none(placements, interviews),
     }
 
     # Per-recruiter breakdown — atrybucja **verifier-anchored** (spójna z panelem
@@ -390,7 +418,17 @@ async def report_recruitment(
                 "rekomendacje": b["rekomendacje"],
                 "interviews": b["interviews"],
                 "placements": p,
-                "hit_ratio": _safe_pct(p, w),
+                "hit_ratio": _pct_or_none(p, w),
+                # `hit_ratio` powyżej 100% NIE znaczy nadludzkiej skuteczności —
+                # znaczy, że osoba zamknęła więcej procesów, niż otworzyła.
+                # Kredyt za placement wraca do autora ruchu na parach, których
+                # nikt nie zweryfikował (gałąź fallback), więc konto masowo
+                # domykające pipeline zbiera placementy bez weryfikacji.
+                # Zmierzone na produkcji 2026: 117 placementów przy 2
+                # weryfikacjach (5 850%), 8 przy 1 (800%), 18 przy 5 (360%).
+                # Flaga nazywa wzorzec zamiast zostawiać liczbę do odczytania
+                # jako skuteczność.
+                "closes_more_than_verifies": p > w,
             }
         )
 
@@ -413,6 +451,23 @@ async def report_recruitment(
             "placements_count": placements,
         },
         "funnel_efficiency": funnel_efficiency,
+        # Którą regułę atrybucji pokazują te liczby. Konsument porównuje kod
+        # z kodem innego ekranu i dostaje odpowiedź „ta sama reguła / inna" —
+        # bez tego rozjazd wobec Insights (te liczą
+        # `first_hired_per_candidate_job`) wygląda jak błąd, a jest różnicą
+        # pytania, nie defektem.
+        "definition_code": VERIFIER_ANCHORED_MILESTONES,
+        # Kamienie milowe BEZ przypisanego autora. Nagłówek liczy całą populację
+        # atrybucji, wiersze wyłącznie to, co dało się komuś przypisać — bez tego
+        # pola różnica byłaby niewytłumaczalna, a zawężenie nagłówka do
+        # przypisanych po cichu chowałoby wykonaną pracę.
+        # Inwariant: `<stage>_count == sum(wiersze) + unattributed[<stage>]`.
+        "unattributed": {
+            "weryfikacje": unattributed_by_stage.get("verified", 0),
+            "rekomendacje": unattributed_by_stage.get("cv_sent", 0),
+            "interviews": unattributed_by_stage.get("interview", 0),
+            "placements": unattributed_by_stage.get("hired", 0),
+        },
         "per_recruiter": per_recruiter,
         "top3_liga_mistrzow": top3,
     }
@@ -748,12 +803,17 @@ async def _compute_dl_metrics(
             bucket["client_names"].add(r.client_name)
 
     # 2. Placements per DL w okresie (liczymy `hired` stage ruchy z `hired` in period).
+    # Placement = PIERWSZE wejście pary na „Zatrudniony" (definicja kanoniczna,
+    # ta sama co `/insights` i `app/services/job_fill.py`). Do 09.2026 liczyło
+    # się tu `count(candidate_stages.id)` po WSZYSTKICH wierszach `hired`, więc
+    # kandydat z powtórzonym etapem podbijał wynik Delivery Leada dwa razy —
+    # i ta sama rekrutacja miała inną liczbę placementów tutaj niż w Insights.
     placements_q = (
         select(
             Job.id.label("job_id"),
             Job.delivery_lead_id,
             Job.client_id,
-            func.count(CandidateStage.id).label("cnt"),
+            func.count(func.distinct(CandidateStage.candidate_id)).label("cnt"),
         )
         .join(CandidateStage, CandidateStage.job_id == Job.id)
         .where(
