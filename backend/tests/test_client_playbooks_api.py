@@ -484,21 +484,12 @@ async def test_overview_skips_hidden_and_merged_clients_and_orders_by_display_na
 
 
 def _all_paths() -> set[str]:
+    # Nie pętla po `app.routes`: od FastAPI 0.139 `include_router()` nie spłaszcza
+    # tras (widać 4 trasy health zamiast ~800) — helper składa prefiksy sam.
     from app.main import app
+    from tests._route_introspection import iter_api_routes
 
-    paths: set[str] = set()
-
-    def walk(routes, prefix=""):
-        for route in routes:
-            path = getattr(route, "path", None)
-            sub = getattr(route, "routes", None)
-            if sub is not None:
-                walk(sub, prefix + (path or ""))
-            elif path:
-                paths.add(prefix + path)
-
-    walk(app.router.routes)
-    return paths
+    return {path for path, _route in iter_api_routes(app)}
 
 
 def test_routes_are_registered_under_api_prefix():
@@ -557,3 +548,71 @@ def test_seed_file_matches_migration_and_entrypoint_mirror():
     for slug, _ in CHAMPION_SEED_KEYS:
         assert slug in migration, slug
         assert slug in entrypoint, slug
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_create_is_409_not_500(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Dwa PIERWSZE zapisy karty naraz: oba widzą brak wiersza, drugi INSERT pada
+    na ``ux_client_playbooks_client``. Bez mapowania wyjątek leci jako 500 bez
+    CORS („Network Error"); tu ma być 409 z komunikatem, a ponowny zapis ma
+    przejść, bo sesja została odwinięta."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    cid = await _make_client(_unique("Playbook race"))
+    try:
+        headers = await _headers_for(app_client, "admin")
+        real_flush = AsyncSession.flush
+        armed = {"on": False}
+
+        async def flush_like_a_lost_race(self, *args, **kwargs):
+            if armed["on"]:
+                armed["on"] = False
+                raise IntegrityError(
+                    "INSERT INTO client_playbooks",
+                    {},
+                    Exception(
+                        "duplicate key value violates unique constraint "
+                        '"ux_client_playbooks_client"'
+                    ),
+                )
+            return await real_flush(self, *args, **kwargs)
+
+        monkeypatch.setattr(AsyncSession, "flush", flush_like_a_lost_race)
+        armed["on"] = True
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=headers
+        )
+        assert r.status_code == 409, r.text
+        assert "ktoś inny" in r.json()["detail"]
+        assert armed["on"] is False, "atrapa flush nie została użyta w handlerze"
+
+        r2 = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=headers
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["version"] == 1
+    finally:
+        await _cleanup([cid])
+
+
+def test_seed_never_names_another_client_in_card_text():
+    """Wzór PFRON niósł zdanie „sprzęt zapewnia bank Nordea" skopiowane z wzoru
+    Nordei — na karcie innego klienta to fałsz pokazywany rekruterom od pierwszego
+    startu. Nazwa banku może paść wyłącznie na jego własnej karcie."""
+    seed_path = BACKEND_ROOT / "app" / "data" / "client_playbooks" / "seed.json"
+    entries = json.loads(seed_path.read_text(encoding="utf-8"))
+    text_fields = (
+        "about_for_candidate",
+        "priority_rules",
+        "process_rules_md",
+        "onboarding_md",
+        "rate_policy",
+    )
+    for entry in entries:
+        if "nordea" in entry["seed_key"]:
+            continue
+        text = " ".join(str(entry.get(field) or "") for field in text_fields)
+        assert "Nordea" not in text, entry["seed_key"]

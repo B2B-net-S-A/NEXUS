@@ -100,6 +100,12 @@ Wzorce dopasowania klienta (z 0255) wieloznaczne przy kilku żywych klientach (n
 `%bnp%`) NIE zasieją nic — po deployu lista kart, które powstały, jest w logach startu
 (`client playbook seed ok: …`); brakujące DL zakłada z edytora, treść w `seed.json`.
 
+Jedna korekta treści źródłowej w seedzie: wzór PFRON niósł zdanie o sprzęcie „zapewniany
+przez **bank Nordea**" (kopiuj-wklej z wzoru Nordei) — na karcie PFRON zneutralizowane do
+„przez klienta"; DL potwierdza przy pierwszej edycji. Pilnuje tego
+`test_seed_never_names_another_client_in_card_text`. Pozostałe wady źródła (literówki
+w ENERGA/ORLEN) zostają — to treść wzorów, poprawia ją DL w edytorze.
+
 ## Testy (lokalnie, 03.09.2026)
 
 Backend (obraz `nexus-verify:img`, świeża baza `nexus_playbook`, `alembic upgrade heads`
@@ -107,7 +113,7 @@ Backend (obraz `nexus-verify:img`, świeża baza `nexus_playbook`, `alembic upgr
 
 | Zestaw | Wynik |
 |---|---|
-| `test_client_playbooks_api.py` (14 kontraktów: wersjonowanie, diff, walidacja, sekcje/role, portfel DL, off_limits, przegląd, trasy, seed + lustro) | 14 passed |
+| `test_client_playbooks_api.py` (16 kontraktów: wersjonowanie, diff, walidacja, sekcje/role, portfel DL, off_limits, przegląd, trasy, seed + lustro, wyścig pierwszego zapisu → 409, seed bez cudzej nazwy klienta) | 16 passed |
 | `test_champion_template_agenda.py` + `test_champion_profile_ingest.py` (wzór 6-sekcyjny, prompt v6, kształt słownika) | 49 passed |
 | `test_route_authz_contract.py` + `test_section_access.py` + `test_no_new_alembic_heads` | 20 passed |
 | `test_entrypoint_ddl_guards.py` + `test_ai_feature_enum_entrypoint_mirror.py` + `test_help_materials.py` | zielone solo; para `ddl_guards` → `help_materials` daje 36 błędów TAKŻE na `origin/main` (test podmienia `asyncpg` atrapą bez sprzątania — stan zastany, poza zakresem) |

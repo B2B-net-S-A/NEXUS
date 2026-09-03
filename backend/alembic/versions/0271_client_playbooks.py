@@ -36,7 +36,11 @@ depends_on = None
 
 # backend/alembic/versions/0271_… → parents[2] == backend/
 _SEED_FILE = (
-    Path(__file__).resolve().parents[2] / "app" / "data" / "client_playbooks" / "seed.json"
+    Path(__file__).resolve().parents[2]
+    / "app"
+    / "data"
+    / "client_playbooks"
+    / "seed.json"
 )
 
 # Slugi 14 wzorów Championa per klient (migracja 0219) — wycofywane z Pomocy.
@@ -96,6 +100,27 @@ _SEED_SQL = sa.text(
 )
 
 
+# Slugi idą jako bind z `expanding=True` (lista → `IN (:s_1, :s_2, …)`), nie
+# jako f-string: wartości są stałymi z tego pliku, ale skaner bezpieczeństwa
+# nie odróżnia stałej od wejścia, a wzorzec w repo to zapytania parametryzowane.
+_PUBLISH_SQL = {
+    False: sa.text(
+        "UPDATE help_materials SET is_published = false, updated_at = now() "
+        "WHERE slug IN :slugs"
+    ).bindparams(sa.bindparam("slugs", expanding=True)),
+    True: sa.text(
+        "UPDATE help_materials SET is_published = true, updated_at = now() "
+        "WHERE slug IN :slugs"
+    ).bindparams(sa.bindparam("slugs", expanding=True)),
+}
+
+
+def _set_client_templates_published(conn, *, published: bool) -> None:
+    conn.execute(
+        _PUBLISH_SQL[published], {"slugs": list(_CHAMPION_CLIENT_TEMPLATE_SLUGS)}
+    )
+
+
 def _seed_entries() -> list[dict]:
     # Czytane W `upgrade()`, nie przy imporcie: `alembic heads` importuje
     # wszystkie rewizje i nie może paść na brakującym pliku danych.
@@ -125,9 +150,7 @@ def upgrade() -> None:
         sa.Column("process_rules_md", sa.Text(), nullable=True),
         sa.Column("onboarding_md", sa.Text(), nullable=True),
         sa.Column("documents", postgresql.JSONB(), nullable=True),
-        sa.Column(
-            "version", sa.Integer(), nullable=False, server_default=sa.text("1")
-        ),
+        sa.Column("version", sa.Integer(), nullable=False, server_default=sa.text("1")),
         sa.Column("seed_key", sa.String(length=64), nullable=True),
         sa.Column(
             "updated_by",
@@ -221,20 +244,12 @@ def upgrade() -> None:
 
     # ── Wycofanie 14 wzorów per klient z Pomocy (decyzja 03.09.2026) ─────
     # Lustro w entrypoint: krok 5.7c (marker w app_settings).
-    slugs = ", ".join(f"'{slug}'" for slug in _CHAMPION_CLIENT_TEMPLATE_SLUGS)
-    op.execute(
-        "UPDATE help_materials SET is_published = false, updated_at = now() "
-        f"WHERE slug IN ({slugs})"
-    )
+    _set_client_templates_published(conn, published=False)
 
 
 def downgrade() -> None:
     # Lustro: przywróć publikację (bez tego downgrade zostawiałby Pomoc pustą).
-    slugs = ", ".join(f"'{slug}'" for slug in _CHAMPION_CLIENT_TEMPLATE_SLUGS)
-    op.execute(
-        "UPDATE help_materials SET is_published = true, updated_at = now() "
-        f"WHERE slug IN ({slugs})"
-    )
+    _set_client_templates_published(op.get_bind(), published=True)
     op.drop_index("ix_client_playbook_events_client_created", "client_playbook_events")
     op.drop_table("client_playbook_events")
     op.drop_index("ix_client_playbooks_seed_key", "client_playbooks")

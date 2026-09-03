@@ -33,6 +33,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -404,22 +405,38 @@ async def upsert_client_playbook(
     _apply_payload(row, payload)
     changes = _diff(before, _state(row))
 
-    if created or changes:
-        if created:
-            row.version = await _next_version(db, client.id)
-        else:
-            row.version = int(row.version or 1) + 1
-        row.updated_by = current_user.id
-        await db.flush()
-        _record_event(
-            db,
-            client_id=client.id,
-            version=int(row.version or 1),
-            action="saved",
-            changes=changes,
-            actor=current_user,
-        )
-    await db.commit()
+    try:
+        if created or changes:
+            if created:
+                row.version = await _next_version(db, client.id)
+            else:
+                row.version = int(row.version or 1) + 1
+            row.updated_by = current_user.id
+            await db.flush()
+            _record_event(
+                db,
+                client_id=client.id,
+                version=int(row.version or 1),
+                action="saved",
+                changes=changes,
+                actor=current_user,
+            )
+        await db.commit()
+    except IntegrityError as exc:
+        # Dwa PIERWSZE zapisy karty tego samego klienta naraz: oba widzą
+        # `row is None`, drugi INSERT pada na `ux_client_playbooks_client`.
+        # Bez tej gałęzi wyjątek leci jako 500 bez CORS („Network Error”);
+        # 409 mówi, co się stało, a ponowny zapis trafia już w UPDATE.
+        await db.rollback()
+        if "ux_client_playbooks_client" not in str(exc.orig or exc):
+            raise
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Kartę tego klienta właśnie zapisał ktoś inny. "
+                "Odśwież widok i zapisz ponownie."
+            ),
+        ) from exc
     await db.refresh(row)
     updated_by_name = current_user.name
     if row.updated_by and row.updated_by != current_user.id:

@@ -15,6 +15,14 @@ Na końcu skrypt sprawdza KOMPLETNOŚĆ: każda niepusta linia źródłowa musi 
 
 Uruchomienie z katalogu backend/:
     python3 scripts/build_client_playbook_seed.py [--drop-sensitive]
+
+UWAGA: plik źródłowy `scripts/champion_template_clients.json` został usunięty po
+tej jednorazowej konwersji, więc skrypt nie ma dziś czego czytać — zostaje jako
+zapis reguł podziału treści. Wygenerowany `seed.json` ma JEDNĄ ręczną korektę
+niesioną przez źródło: wzór PFRON mówił, że sprzęt zapewnia „bank Nordea"
+(kopiuj-wklej ze wzoru Nordei) — na karcie PFRON zdanie mówi „przez klienta".
+Odtwarzając seed ze starego źródła, powtórz tę poprawkę; pilnuje jej
+`test_seed_never_names_another_client_in_card_text`.
 """
 
 from __future__ import annotations
