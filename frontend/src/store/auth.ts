@@ -146,6 +146,16 @@ export interface User {
       "none" | "read" | "write"
     >
   >
+  /**
+   * Uprawnienia do konkretnych operacji wewnątrz dostępnej sekcji. Dla
+   * generatora B2B rozdziela podgląd rejestru, generowanie i zarządzanie.
+   */
+  effective_action_access?: Partial<
+    Record<
+      "b2b_contract_generator",
+      "none" | "view" | "generate" | "manage"
+    >
+  >
   /** Jawny zakres danych; frontend używa go tylko do UX i query keys. */
   data_scope?: DataScope
   /** Tryb rolloutu Analytics v1 (off|shadow|live) z GET /api/auth/me.

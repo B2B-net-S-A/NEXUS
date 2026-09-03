@@ -21,6 +21,8 @@ _SECTION_VALUES = (
     "'sourcing', 'pipeline', 'delivery', 'insights', 'finance', 'system_admin'"
 )
 _ACCESS_VALUES = "'none', 'read', 'write'"
+_ACTION_VALUES = "'b2b_contract_generator'"
+_ACTION_ACCESS_VALUES = "'none', 'view', 'generate', 'manage'"
 _ROLE_VALUES = (
     "'admin', 'head_of_recruitment', 'delivery_lead', "
     "'talent_community_manager', 'finance', 'tac', 'recruiter', 'sourcer', 'user'"
@@ -108,6 +110,70 @@ class UserSectionOverride(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     section: Mapped[str] = mapped_column(String(32), primary_key=True)
+    access: Mapped[str] = mapped_column(String(16), nullable=False)
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class RoleActionPermission(Base):
+    """Base access level for one role and one privileged product action."""
+
+    __tablename__ = "rbac_role_action_permissions"
+    __table_args__ = (
+        CheckConstraint(
+            f"role IN ({_ROLE_VALUES})",
+            name="ck_rbac_role_action_permissions_role",
+        ),
+        CheckConstraint(
+            f"action IN ({_ACTION_VALUES})",
+            name="ck_rbac_role_action_permissions_action",
+        ),
+        CheckConstraint(
+            f"access IN ({_ACTION_ACCESS_VALUES})",
+            name="ck_rbac_role_action_permissions_access",
+        ),
+    )
+
+    role: Mapped[str] = mapped_column(String(64), primary_key=True)
+    action: Mapped[str] = mapped_column(String(64), primary_key=True)
+    access: Mapped[str] = mapped_column(String(16), nullable=False)
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class UserActionOverride(Base):
+    """Explicit replacement of the role union for one user and action."""
+
+    __tablename__ = "rbac_user_action_overrides"
+    __table_args__ = (
+        CheckConstraint(
+            f"action IN ({_ACTION_VALUES})",
+            name="ck_rbac_user_action_overrides_action",
+        ),
+        CheckConstraint(
+            f"access IN ({_ACTION_ACCESS_VALUES})",
+            name="ck_rbac_user_action_overrides_access",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    action: Mapped[str] = mapped_column(String(64), primary_key=True)
     access: Mapped[str] = mapped_column(String(16), nullable=False)
     updated_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

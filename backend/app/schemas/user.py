@@ -94,6 +94,11 @@ class UserResponse(BaseModel):
     effective_section_access: dict[str, Literal["none", "read", "write"]] = Field(
         default_factory=dict
     )
+    # Additional action-level ceiling for privileged workflows inside a
+    # permitted section. It never grants entry to a section by itself.
+    effective_action_access: dict[
+        str, Literal["none", "view", "generate", "manage"]
+    ] = Field(default_factory=dict)
     # Tryb rolloutu Analytics v1 (off|shadow|live) — frontend NIE wykonuje
     # requestów do /api/analytics/v1 dopóki tryb != live (fail-closed;
     # w shadow legacy UI pozostaje nietknięte — plan §8).

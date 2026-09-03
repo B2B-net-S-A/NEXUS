@@ -89,13 +89,15 @@ import api, {
   type B2BUopCheckResult,
 } from "@/lib/api";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
+import { hasActionAccess } from "@/lib/action-access";
+import { hasSectionAccess } from "@/lib/section-access";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
-// Router generatora ma szeroką bramkę Sourcing, ale operacje na rate-bearing
-// dokumentach mają dodatkowe guardy. Plain TCM dostaje wyłącznie bezpieczny,
-// pozbawiony finansów rejestr; 403 musi być nazwany wprost, nie udawać pustki.
+// Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
+// ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
+// wyłącznie bezpieczny, pozbawiony finansów rejestr.
 function isForbidden(error: unknown): boolean {
   return (
     (error as { response?: { status?: number } } | null)?.response?.status === 403
@@ -438,16 +440,14 @@ const PHONE_PREFIXES = [
 export function B2BContractGeneratorV2() {
   const { user } = useAuthStore();
   const isAdmin = hasRole(user, "admin");
+  const canView = hasActionAccess(
+    user,
+    "b2b_contract_generator",
+    "view",
+  );
   const canGenerate =
-    !hasRole(user, "talent_community_manager") ||
-    hasRole(
-      user,
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "tac",
-      "finance",
-    );
+    hasSectionAccess(user, "sourcing", "write") &&
+    hasActionAccess(user, "b2b_contract_generator", "generate");
 
   return (
     // max-w-7xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
@@ -469,46 +469,60 @@ export function B2BContractGeneratorV2() {
         </div>
       </div>
 
-      <Tabs defaultValue={canGenerate ? "generator" : "generated"}>
-        <TabsList className="mb-4">
-          {canGenerate ? (
-            <TabsTrigger value="generator">Generator</TabsTrigger>
+      {!canView ? (
+        <Alert title={NO_ACCESS_TITLE} description={NO_ACCESS_DESC} />
+      ) : (
+        <div className="space-y-4">
+          {!canGenerate ? (
+            <Alert
+              variant="info"
+              title="Dostęp tylko do rejestru"
+              description="Możesz przeglądać umowy bez danych finansowych. Generowanie wymaga poziomu „Generowanie” oraz prawa zapisu w sekcji Sourcing."
+            />
           ) : null}
-          <TabsTrigger value="generated">
-            Umowy aktywne i w trakcie podpisu
-          </TabsTrigger>
-          <TabsTrigger value="no-project">Umowy bez projektu</TabsTrigger>
-          <TabsTrigger value="closed">Zakończone umowy</TabsTrigger>
-          {isAdmin ? (
-            <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
-          ) : null}
-        </TabsList>
-        {/* forceMount: nie odmontowuj formularza przy przejściu na inną
-            zakładkę — inaczej wpisane dane znikają (zgłoszone przez Artura). */}
-        {canGenerate ? (
-          <TabsContent
-            value="generator"
-            forceMount
-            className="data-[state=inactive]:hidden"
-          >
-            <GeneratorForm />
-          </TabsContent>
-        ) : null}
-        <TabsContent value="generated">
-          <GeneratedContractsTab />
-        </TabsContent>
-        <TabsContent value="no-project">
-          <NoProjectContractsTab />
-        </TabsContent>
-        <TabsContent value="closed">
-          <ClosedContractsTab />
-        </TabsContent>
-        {isAdmin ? (
-          <TabsContent value="roles">
-            <RoleScopeEditor />
-          </TabsContent>
-        ) : null}
-      </Tabs>
+
+          <Tabs defaultValue={canGenerate ? "generator" : "generated"}>
+            <TabsList className="mb-4">
+              {canGenerate ? (
+                <TabsTrigger value="generator">Generator</TabsTrigger>
+              ) : null}
+              <TabsTrigger value="generated">
+                Umowy aktywne i w trakcie podpisu
+              </TabsTrigger>
+              <TabsTrigger value="no-project">Umowy bez projektu</TabsTrigger>
+              <TabsTrigger value="closed">Zakończone umowy</TabsTrigger>
+              {isAdmin ? (
+                <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
+              ) : null}
+            </TabsList>
+            {/* forceMount: nie odmontowuj formularza przy przejściu na inną
+                zakładkę — inaczej wpisane dane znikają (zgłoszone przez Artura). */}
+            {canGenerate ? (
+              <TabsContent
+                value="generator"
+                forceMount
+                className="data-[state=inactive]:hidden"
+              >
+                <GeneratorForm />
+              </TabsContent>
+            ) : null}
+            <TabsContent value="generated">
+              <GeneratedContractsTab />
+            </TabsContent>
+            <TabsContent value="no-project">
+              <NoProjectContractsTab />
+            </TabsContent>
+            <TabsContent value="closed">
+              <ClosedContractsTab />
+            </TabsContent>
+            {isAdmin ? (
+              <TabsContent value="roles">
+                <RoleScopeEditor />
+              </TabsContent>
+            ) : null}
+          </Tabs>
+        </div>
+      )}
     </div>
   );
 }

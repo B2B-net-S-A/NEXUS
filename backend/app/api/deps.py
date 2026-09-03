@@ -18,6 +18,7 @@ from app.core.security import (
 )
 from app.models.service_account import ServiceScope
 from app.models.user import User, UserRole
+from app.services.action_permissions import resolve_effective_action_access
 from app.services.onboarding_access import onboarding_persona_for_user
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import resolve_effective_section_access
@@ -169,6 +170,7 @@ async def get_authenticated_user(
     # Authoritative request-local snapshot. No process cache: policy edits are
     # immediately consistent across multiple API workers/pods.
     await resolve_effective_section_access(db, effective_user)
+    await resolve_effective_action_access(db, effective_user)
     return effective_user
 
 

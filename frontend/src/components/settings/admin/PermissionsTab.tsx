@@ -32,15 +32,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { adminApi, extractErrorMsg } from "@/lib/api";
+import {
+  ACTION_ACCESS_RANK,
+  PRODUCT_ACTIONS,
+  ROLE_ACTION_ACCESS,
+  type ActionAccess,
+  type ProductAction,
+  type UserActionOverrideAccess,
+} from "@/lib/action-access";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   ALL_USER_ROLES,
   PRODUCT_SECTIONS,
   type ProductSection,
+  type RoleActionPermissionChange,
   type RoleSectionPermissionChange,
   type RoleSectionPermissions,
   type SectionAccess,
   type SectionPermissionsResponse,
+  type UserActionPermissionChange,
   type UserSectionOverrideAccess,
   type UserSectionPermissionChange,
   type UserSectionPermissions,
@@ -50,11 +60,17 @@ import { ROLE_LABELS } from "./types";
 
 type PermissionsView = "roles" | "users";
 type RoleDraft = Record<string, Partial<Record<ProductSection, SectionAccess>>>;
+type RoleActionDraft = Record<
+  string,
+  Partial<Record<ProductAction, ActionAccess>>
+>;
 type UserDraft = Record<ProductSection, UserSectionOverrideAccess>;
+type UserActionDraft = Record<ProductAction, UserActionOverrideAccess>;
 type UserDraftState = {
   key: string;
   revision: number;
   values: UserDraft;
+  actionValues: UserActionDraft;
 } | null;
 
 const SECTION_LABELS: Record<
@@ -110,6 +126,36 @@ const ACCESS_BADGE_VARIANTS: Record<SectionAccess, BadgeProps["variant"]> = {
   write: "success",
 };
 
+const ACTION_LABELS: Record<
+  ProductAction,
+  { label: string; description: string }
+> = {
+  b2b_contract_generator: {
+    label: "Generator umów B2B",
+    description:
+      "Podgląd rejestru, generowanie dokumentów ze stawką i zarządzanie umowami",
+  },
+};
+
+const ACTION_ACCESS_LABELS: Record<ActionAccess, string> = {
+  none: "Brak",
+  view: "Podgląd rejestru",
+  generate: "Generowanie",
+  manage: "Zarządzanie",
+};
+
+const ACTION_OVERRIDE_LABELS: Record<UserActionOverrideAccess, string> = {
+  inherit: "Dziedzicz z roli",
+  ...ACTION_ACCESS_LABELS,
+};
+
+const ACTION_BADGE_VARIANTS: Record<ActionAccess, BadgeProps["variant"]> = {
+  none: "neutral",
+  view: "info",
+  generate: "success",
+  manage: "warning",
+};
+
 function responseStatus(error: unknown): number | null {
   const status = (error as { response?: { status?: unknown } })?.response?.status;
   return typeof status === "number" ? status : null;
@@ -126,9 +172,29 @@ function emptyUserDraft(
   ) as UserDraft;
 }
 
+function emptyUserActionDraft(user: UserSectionPermissions): UserActionDraft {
+  return Object.fromEntries(
+    PRODUCT_ACTIONS.map((action) => [
+      action,
+      user.action_overrides?.[action] ?? "inherit",
+    ]),
+  ) as UserActionDraft;
+}
+
 function roleDraftFromPolicy(policy: SectionPermissionsResponse): RoleDraft {
   return Object.fromEntries(
     policy.roles.map((entry) => [entry.role, { ...entry.permissions }]),
+  );
+}
+
+function roleActionDraftFromPolicy(
+  policy: SectionPermissionsResponse,
+): RoleActionDraft {
+  return Object.fromEntries(
+    policy.roles.map((entry) => [
+      entry.role,
+      { ...(entry.action_permissions ?? ROLE_ACTION_ACCESS[entry.role]) },
+    ]),
   );
 }
 
@@ -154,10 +220,37 @@ function inheritedAccess(
   return effective;
 }
 
+function inheritedActionAccess(
+  policy: SectionPermissionsResponse,
+  user: UserSectionPermissions,
+  action: ProductAction,
+): ActionAccess {
+  const byRole = policyByRole(policy);
+  const roles = new Set<UserRole>([user.role, ...(user.roles ?? [])]);
+  let effective: ActionAccess = "none";
+  for (const role of roles) {
+    const candidate =
+      byRole.get(role)?.action_permissions?.[action] ??
+      ROLE_ACTION_ACCESS[role][action];
+    if (ACTION_ACCESS_RANK[candidate] > ACTION_ACCESS_RANK[effective]) {
+      effective = candidate;
+    }
+  }
+  return effective;
+}
+
 function AccessBadge({ access }: { access: SectionAccess }) {
   return (
     <Badge variant={ACCESS_BADGE_VARIANTS[access]}>
       {ACCESS_LABELS[access]}
+    </Badge>
+  );
+}
+
+function ActionAccessBadge({ access }: { access: ActionAccess }) {
+  return (
+    <Badge variant={ACTION_BADGE_VARIANTS[access]}>
+      {ACTION_ACCESS_LABELS[access]}
     </Badge>
   );
 }
@@ -216,6 +309,63 @@ function OverrideSelect({
   );
 }
 
+function ActionAccessSelect({
+  value,
+  onChange,
+  disabled,
+  ariaLabel,
+}: {
+  value: ActionAccess;
+  onChange: (value: ActionAccess) => void;
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as ActionAccess)}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className="h-9 w-full min-w-40 rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+    >
+      <option value="none">Brak</option>
+      <option value="view">Podgląd rejestru</option>
+      <option value="generate">Generowanie</option>
+      <option value="manage">Zarządzanie</option>
+    </select>
+  );
+}
+
+function ActionOverrideSelect({
+  value,
+  onChange,
+  disabled,
+  ariaLabel,
+}: {
+  value: UserActionOverrideAccess;
+  onChange: (value: UserActionOverrideAccess) => void;
+  disabled?: boolean;
+  ariaLabel: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(event) =>
+        onChange(event.target.value as UserActionOverrideAccess)
+      }
+      disabled={disabled}
+      aria-label={ariaLabel}
+      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+    >
+      <option value="inherit">Dziedzicz z roli</option>
+      <option value="none">Brak</option>
+      <option value="view">Podgląd rejestru</option>
+      <option value="generate">Generowanie</option>
+      <option value="manage">Zarządzanie</option>
+    </select>
+  );
+}
+
 function ChangeList({
   changes,
 }: {
@@ -245,6 +395,9 @@ function RolePermissionsEditor({
   const [draft, setDraft] = useState<RoleDraft>(() =>
     roleDraftFromPolicy(policy),
   );
+  const [actionDraft, setActionDraft] = useState<RoleActionDraft>(() =>
+    roleActionDraftFromPolicy(policy),
+  );
   const [draftRevision, setDraftRevision] = useState(policy.revision);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -269,21 +422,44 @@ function RolePermissionsEditor({
     return result;
   }, [draft, policy.roles]);
 
+  const actionChanges = useMemo<RoleActionPermissionChange[]>(() => {
+    const result: RoleActionPermissionChange[] = [];
+    for (const rolePolicy of policy.roles) {
+      for (const action of PRODUCT_ACTIONS) {
+        const current =
+          rolePolicy.action_permissions?.[action] ??
+          ROLE_ACTION_ACCESS[rolePolicy.role][action];
+        const next = actionDraft[rolePolicy.role]?.[action];
+        if (next && next !== current) {
+          result.push({ role: rolePolicy.role, action, access: next });
+        }
+      }
+    }
+    return result;
+  }, [actionDraft, policy.roles]);
+
+  const changesCount = changes.length + actionChanges.length;
+
   useEffect(() => {
     if (draftRevision === policy.revision) return;
 
     // This draft belongs to an older snapshot. Never silently rebase it onto
     // the new revision or leave an open confirmation modal able to submit it.
-    const staleDraftDiffersFromCurrentPolicy = changes.length > 0;
+    const staleDraftDiffersFromCurrentPolicy = changesCount > 0;
     setConfirmOpen(false);
     setDraft(roleDraftFromPolicy(policy));
+    setActionDraft(roleActionDraftFromPolicy(policy));
     setDraftRevision(policy.revision);
     setConflict((current) => current || staleDraftDiffersFromCurrentPolicy);
-  }, [changes.length, draftRevision, policy]);
+  }, [changesCount, draftRevision, policy]);
 
   const mutation = useMutation({
     mutationFn: () =>
-      adminApi.updateRoleSectionPermissions(draftRevision, changes),
+      adminApi.updateRoleSectionPermissions(
+        draftRevision,
+        changes,
+        actionChanges,
+      ),
     onSuccess: async (response) => {
       setConfirmOpen(false);
       setConflict(false);
@@ -317,6 +493,7 @@ function RolePermissionsEditor({
 
   const resetDraft = () => {
     setDraft(roleDraftFromPolicy(policy));
+    setActionDraft(roleActionDraftFromPolicy(policy));
     setDraftRevision(policy.revision);
     setConflict(false);
   };
@@ -332,17 +509,42 @@ function RolePermissionsEditor({
     }));
   };
 
-  const confirmationChanges = changes.map((change) => {
-    const previous = policyByRole(policy).get(change.role)?.permissions[
-      change.section
-    ] ?? "none";
-    return {
-      key: `${change.role}:${change.section}`,
-      title: `${ROLE_LABELS[change.role] ?? change.role} · ${SECTION_LABELS[change.section].label}`,
-      before: ACCESS_LABELS[previous],
-      after: ACCESS_LABELS[change.access],
-    };
-  });
+  const setActionAccess = (
+    role: UserRole,
+    action: ProductAction,
+    access: ActionAccess,
+  ) => {
+    setActionDraft((current) => ({
+      ...current,
+      [role]: { ...current[role], [action]: access },
+    }));
+  };
+
+  const confirmationChanges = [
+    ...changes.map((change) => {
+      const previous = policyByRole(policy).get(change.role)?.permissions[
+        change.section
+      ] ?? "none";
+      return {
+        key: `${change.role}:${change.section}`,
+        title: `${ROLE_LABELS[change.role] ?? change.role} · ${SECTION_LABELS[change.section].label}`,
+        before: ACCESS_LABELS[previous],
+        after: ACCESS_LABELS[change.access],
+      };
+    }),
+    ...actionChanges.map((change) => {
+      const rolePolicy = policyByRole(policy).get(change.role);
+      const previous =
+        rolePolicy?.action_permissions?.[change.action] ??
+        ROLE_ACTION_ACCESS[change.role][change.action];
+      return {
+        key: `${change.role}:action:${change.action}`,
+        title: `${ROLE_LABELS[change.role] ?? change.role} · ${ACTION_LABELS[change.action].label}`,
+        before: ACTION_ACCESS_LABELS[previous],
+        after: ACTION_ACCESS_LABELS[change.access],
+      };
+    }),
+  ];
 
   return (
     <div className="space-y-4">
@@ -456,23 +658,73 @@ function RolePermissionsEditor({
         })}
       </div>
 
+      <section className="rounded-xl border border-border bg-card">
+        <div className="border-b border-border px-4 py-3">
+          <h4 className="font-semibold text-foreground">Funkcje specjalne</h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Dodatkowe poziomy dostępu wewnątrz dozwolonej sekcji. Nie otwierają
+            samodzielnie Sourcingu ani Finansów.
+          </p>
+        </div>
+        <Table density="compact">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="min-w-52">Rola</TableHead>
+              {PRODUCT_ACTIONS.map((action) => (
+                <TableHead key={action} className="min-w-56 normal-case tracking-normal">
+                  {ACTION_LABELS[action].label}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {orderedRoles.map((rolePolicy) => {
+              const rowLocked = rolePolicy.locked || rolePolicy.role === "admin";
+              return (
+                <TableRow key={`action:${rolePolicy.role}`}>
+                  <TableCell className="font-medium">
+                    {ROLE_LABELS[rolePolicy.role] ?? rolePolicy.role}
+                  </TableCell>
+                  {PRODUCT_ACTIONS.map((action) => (
+                    <TableCell key={action}>
+                      <ActionAccessSelect
+                        value={
+                          actionDraft[rolePolicy.role]?.[action] ??
+                          rolePolicy.action_permissions?.[action] ??
+                          ROLE_ACTION_ACCESS[rolePolicy.role][action]
+                        }
+                        onChange={(access) =>
+                          setActionAccess(rolePolicy.role, action, access)
+                        }
+                        disabled={rowLocked}
+                        ariaLabel={`${ROLE_LABELS[rolePolicy.role] ?? rolePolicy.role}: ${ACTION_LABELS[action].label}`}
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </section>
+
       <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/95 p-3 shadow-sm backdrop-blur-sm">
         <p className="text-sm text-muted-foreground">
-          {changes.length === 0
+          {changesCount === 0
             ? "Brak niezapisanych zmian"
-            : `${changes.length} ${changes.length === 1 ? "zmiana" : "zmian"} do zapisania`}
+            : `${changesCount} ${changesCount === 1 ? "zmiana" : "zmian"} do zapisania`}
         </p>
         <div className="flex gap-2">
           <Button
             variant="outline"
             onClick={resetDraft}
-            disabled={changes.length === 0 || mutation.isPending}
+            disabled={changesCount === 0 || mutation.isPending}
           >
             <RotateCcw className="size-4" aria-hidden /> Cofnij
           </Button>
           <Button
             onClick={() => setConfirmOpen(true)}
-            disabled={changes.length === 0}
+            disabled={changesCount === 0}
             loading={mutation.isPending}
           >
             <Save className="size-4" aria-hidden /> Zapisz zmiany
@@ -542,6 +794,11 @@ function UserPermissionsEditor({
       ? draftState.values
       : emptyUserDraft(selectedUser)
     : null;
+  const actionDraft = selectedUser
+    ? draftState?.key === selectedDraftKey
+      ? draftState.actionValues
+      : emptyUserActionDraft(selectedUser)
+    : null;
 
   const changes = useMemo<UserSectionPermissionChange[]>(() => {
     if (!selectedUser || !draft) return [];
@@ -551,6 +808,17 @@ function UserPermissionsEditor({
       return before === after ? [] : [{ section, access: after }];
     });
   }, [draft, selectedUser]);
+
+  const actionChanges = useMemo<UserActionPermissionChange[]>(() => {
+    if (!selectedUser || !actionDraft) return [];
+    return PRODUCT_ACTIONS.flatMap((action) => {
+      const before = selectedUser.action_overrides?.[action] ?? "inherit";
+      const after = actionDraft[action];
+      return before === after ? [] : [{ action, access: after }];
+    });
+  }, [actionDraft, selectedUser]);
+
+  const changesCount = changes.length + actionChanges.length;
 
   const revision = usersQuery.data?.revision ?? policy.revision;
   useEffect(() => {
@@ -576,7 +844,7 @@ function UserPermissionsEditor({
         !selectedUser ||
         !draftState ||
         draftState.key !== selectedDraftKey ||
-        changes.length === 0
+        changesCount === 0
       ) {
         throw new Error("Uprawnienia zostały odświeżone. Sprawdź zmiany ponownie.");
       }
@@ -584,6 +852,7 @@ function UserPermissionsEditor({
         selectedUser.user_id,
         draftState.revision,
         changes,
+        actionChanges,
       );
     },
     onSuccess: async (response) => {
@@ -627,19 +896,30 @@ function UserPermissionsEditor({
   };
 
   const discardDraft = (): boolean =>
-    changes.length === 0 ||
+    changesCount === 0 ||
     window.confirm(
       "Masz niezapisane zmiany uprawnień. Odrzucić je i przejść dalej?",
     );
 
   const confirmationChanges = selectedUser
-    ? changes.map((change) => ({
-        key: change.section,
-        title: SECTION_LABELS[change.section].label,
-        before:
-          OVERRIDE_LABELS[selectedUser.overrides[change.section] ?? "inherit"],
-        after: OVERRIDE_LABELS[change.access],
-      }))
+    ? [
+        ...changes.map((change) => ({
+          key: change.section,
+          title: SECTION_LABELS[change.section].label,
+          before:
+            OVERRIDE_LABELS[selectedUser.overrides[change.section] ?? "inherit"],
+          after: OVERRIDE_LABELS[change.access],
+        })),
+        ...actionChanges.map((change) => ({
+          key: `action:${change.action}`,
+          title: ACTION_LABELS[change.action].label,
+          before:
+            ACTION_OVERRIDE_LABELS[
+              selectedUser.action_overrides?.[change.action] ?? "inherit"
+            ],
+          after: ACTION_OVERRIDE_LABELS[change.access],
+        })),
+      ]
     : [];
 
   return (
@@ -699,7 +979,9 @@ function UserPermissionsEditor({
             <div className="space-y-1" aria-label="Użytkownicy">
               {users.map((entry) => {
                 const selected = entry.user_id === selectedUser?.user_id;
-                const overridesCount = Object.keys(entry.overrides).length;
+                const overridesCount =
+                  Object.keys(entry.overrides).length +
+                  Object.keys(entry.action_overrides ?? {}).length;
                 return (
                   <button
                     key={entry.user_id}
@@ -740,7 +1022,7 @@ function UserPermissionsEditor({
             </div>
           </div>
 
-          {selectedUser && draft ? (
+          {selectedUser && draft && actionDraft ? (
             <section className="rounded-xl border border-border bg-card">
               <header className="border-b border-border px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -806,6 +1088,7 @@ function UserPermissionsEditor({
                             key: selectedDraftKey,
                             revision,
                             values: { ...draft, [section]: access },
+                            actionValues: actionDraft,
                           })
                         }
                         disabled={locked}
@@ -814,25 +1097,71 @@ function UserPermissionsEditor({
                     </div>
                   );
                 })}
+
+                <div className="bg-muted/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Funkcje specjalne
+                </div>
+                {PRODUCT_ACTIONS.map((action) => {
+                  const override = actionDraft[action];
+                  const effective =
+                    override === "inherit"
+                      ? inheritedActionAccess(policy, selectedUser, action)
+                      : override;
+                  return (
+                    <div
+                      key={action}
+                      className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,0.8fr)] sm:items-center"
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium text-foreground">
+                            {ACTION_LABELS[action].label}
+                          </p>
+                          <ActionAccessBadge access={effective} />
+                          <span className="text-[11px] text-muted-foreground">
+                            {override === "inherit" ? "z roli" : "wyjątek"}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {ACTION_LABELS[action].description}
+                        </p>
+                      </div>
+                      <ActionOverrideSelect
+                        value={override}
+                        onChange={(access) =>
+                          selectedDraftKey &&
+                          setDraftState({
+                            key: selectedDraftKey,
+                            revision,
+                            values: draft,
+                            actionValues: { ...actionDraft, [action]: access },
+                          })
+                        }
+                        disabled={selectedUser.locked}
+                        ariaLabel={`${selectedUser.name}: ${ACTION_LABELS[action].label}`}
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
                 <p className="text-sm text-muted-foreground">
-                  {changes.length === 0
+                  {changesCount === 0
                     ? "Brak niezapisanych zmian"
-                    : `${changes.length} ${changes.length === 1 ? "zmiana" : "zmian"} do zapisania`}
+                    : `${changesCount} ${changesCount === 1 ? "zmiana" : "zmian"} do zapisania`}
                 </p>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     onClick={resetDraft}
-                    disabled={changes.length === 0 || mutation.isPending}
+                    disabled={changesCount === 0 || mutation.isPending}
                   >
                     <RotateCcw className="size-4" aria-hidden /> Cofnij
                   </Button>
                   <Button
                     onClick={() => setConfirmOpen(true)}
-                    disabled={changes.length === 0}
+                    disabled={changesCount === 0}
                     loading={mutation.isPending}
                   >
                     <Save className="size-4" aria-hidden /> Zapisz wyjątek
@@ -862,7 +1191,7 @@ function UserPermissionsEditor({
             <Button
               onClick={() => mutation.mutate()}
               disabled={
-                changes.length === 0 ||
+                changesCount === 0 ||
                 !draftState ||
                 draftState.key !== selectedDraftKey
               }
