@@ -1,7 +1,7 @@
 """Dwa ostatnie klucze kwot AI + tokeny w ``ai_usage_log``.
 
-Revision ID: 0270_ai_quota_keys_and_tokens
-Revises: 0269_configurable_section_rbac
+Revision ID: 0275_ai_quota_keys_and_tokens
+Revises: 0274_ended_tab_contract_repair
 
 Domyka audyt z 02.09 (``docs/talent-radar-and-ai-features-audit-2026-09-02.md``).
 

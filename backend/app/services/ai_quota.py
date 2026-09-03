@@ -485,7 +485,9 @@ def declared_call(
     Synchroniczny, bo nie dotyka bazy — naliczenie już się odbyło. Tokeny
     zebrane w tle NIE są dopisywane: sesja handlera dawno zamknięta, a
     otwieranie własnej z zadania w tle po to, żeby doliczyć telemetrię,
-    kosztowałoby więcej niż jest warte. Licznik wywołań jest poprawny.
+    kosztowałoby więcej niż jest warte. Licznik WYWOŁAŃ jest poprawny — a alarm
+    wydatków (``ai_spend_alerts``) liczy właśnie ``count``, nie tokeny, więc
+    pominięcie telemetrii tokenów w tej ścieżce nie osłabia ochrony budżetu.
     """
     token = _AI_CALL_CONTEXT.set(
         AiCallContext(feature=feature, user_id=user_id, state=state)

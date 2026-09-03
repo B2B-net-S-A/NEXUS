@@ -92,6 +92,10 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.order_parser: ModelChoice(
         default="claude-sonnet-5",
         env_vars=("ORDER_PARSER_MODEL",),
+        # settings_attr obok tego samego env: wierne odtworzenie oryginału
+        # `os.environ.get("ORDER_PARSER_MODEL","") or settings.ORDER_PARSER_MODEL`.
+        # env_vars (os.environ) wygrywa i zwykle to wystarcza; settings_attr
+        # łapie wariant z pliku .env, który pydantic czyta, a os.environ nie widzi.
         settings_attr="ORDER_PARSER_MODEL",
     ),
     AIFeatureKey.cv_requirement_map: ModelChoice(
