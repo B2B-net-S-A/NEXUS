@@ -60,7 +60,6 @@ from app.services.client_access import (
 from app.services.ai_quota import (
     AIQuotaExceeded,
     QuotaState,
-    ai_feature,
     check_and_increment,
     declared_call,
 )
@@ -1050,48 +1049,56 @@ async def lint_client_cv_rule(
     request_id = f"cvlint_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}"
     findings: list[LintFindingRead] = []
     try:
-        # Jedno pole = jedno wywołanie modelu = jedno obciążenie. Wszystkie
-        # naliczane PRZED pierwszym wywołaniem (`units=len(fields)`): odmowa
-        # z powodu wyczerpanego limitu cofa całość, więc Delivery Lead dostaje
-        # pełną ocenę albo czyste 503 — nigdy połowy, bo limit skończył się
-        # w środku pętli. BŁĄD MODELU po naliczeniu NIE zwraca kwoty: liczymy
-        # decyzję o dopuszczeniu, nie sukces round-tripu, bo nieudane wywołanie
-        # też kosztowało tokeny.
+        # Jedno pole = jedno obciążenie (kontrakt billingowy: per pole, NIE jeden
+        # batch N jednostek). Naliczamy WSZYSTKIE pola PRZED jakimkolwiek
+        # wywołaniem modelu: jeśli limit skończy się na którymś polu,
+        # check_and_increment rzuca AIQuotaExceeded, łapie to `except` niżej,
+        # a rollback cofa naliczenia — Delivery Lead dostaje pełną ocenę albo
+        # czyste 503, nigdy połowy. Błąd modelu PO naliczeniu nie zwraca kwoty
+        # (liczymy decyzję o dopuszczeniu, nie sukces round-tripu).
         #
-        # `ai_feature`, nie gołe `check_and_increment`: bez deklaracji te
-        # wywołania dolatują do granicy dostawcy jako niezadeklarowane. Blok
-        # obejmuje CAŁĄ pętlę, bo deklaracja żyje tylko na czas swojego bloku.
-        async with ai_feature(
-            db,
-            AIFeatureKey.cv_rule_lint,
-            user_id=current_user.id,
-            units=len(fields),
-        ):
-            await db.commit()
-            for name, text in fields:
-                try:
+        # check_and_increment bezpośrednio + wywołanie modelu w `declared_call`,
+        # a nie `ai_feature`: (1) `ai_feature` zdedupikowałby N wywołań tej samej
+        # cechy do jednego obciążenia, (2) pod AI_QUOTA_STRICT niezadeklarowane
+        # wywołanie dolatuje do granicy dostawcy jako UNGATED — declared_call
+        # deklaruje już-naliczone wywołanie na czas swojego bloku (contextvar
+        # kopiowany do wątku run_in_threadpool).
+        charged: list[tuple[str, str, QuotaState]] = []
+        for name, text in fields:
+            state = await check_and_increment(
+                db, AIFeatureKey.cv_rule_lint, user_id=current_user.id
+            )
+            charged.append((name, text or "", state))
+        await db.commit()
+        for name, text, state in charged:
+            try:
+                with declared_call(
+                    AIFeatureKey.cv_rule_lint, user_id=current_user.id, state=state
+                ):
                     results = await run_in_threadpool(
                         lint_instructions,
-                        text or "",
+                        text,
                         request_id=f"{request_id}_{name}",
                     )
-                except Exception as err:  # noqa: BLE001 — lint nie wywraca edytora
-                    logger.warning("[cv_rule_lint] %s failed: %s", name, err)
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail="Nie udało się ocenić instrukcji — spróbuj za chwilę.",
-                    ) from err
-                findings.extend(
-                    LintFindingRead(
-                        field=name,
-                        index=f.index,
-                        line=f.line,
-                        verdict=f.verdict,
-                        reason=f.reason,
-                        suggestion=f.suggestion,
-                    )
-                    for f in results
+            except HTTPException:
+                raise
+            except Exception as err:  # noqa: BLE001 — lint nie wywraca edytora
+                logger.warning("[cv_rule_lint] %s failed: %s", name, err)
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Nie udało się ocenić instrukcji — spróbuj za chwilę.",
+                ) from err
+            findings.extend(
+                LintFindingRead(
+                    field=name,
+                    index=f.index,
+                    line=f.line,
+                    verdict=f.verdict,
+                    reason=f.reason,
+                    suggestion=f.suggestion,
                 )
+                for f in results
+            )
     except AIQuotaExceeded as exc:
         await db.rollback()
         raise HTTPException(
@@ -1350,10 +1357,15 @@ async def enqueue_client_cv_rule_preview(
         )
     )
     try:
-        # Dwie generacje = dwie jednostki, naliczone JEDNYM sprawdzeniem, żeby
-        # DL nie dostał połowy podglądu przy limicie kończącym się w środku.
+        # Dwie generacje (z regułą i bez) = DWA obciążenia cv_generator
+        # (kontrakt billingowy: per generację). Naliczamy sekwencyjnie PRZED
+        # zakolejkowaniem: jeśli limit skończy się na drugim, rollback cofa oba,
+        # więc DL dostaje pełny podgląd albo czyste 503 — nigdy połowy.
+        await check_and_increment(
+            db, AIFeatureKey.cv_generator, user_id=current_user.id
+        )
         quota_state = await check_and_increment(
-            db, AIFeatureKey.cv_generator, user_id=current_user.id, units=2
+            db, AIFeatureKey.cv_generator, user_id=current_user.id
         )
     except AIQuotaExceeded as exc:
         await db.rollback()
