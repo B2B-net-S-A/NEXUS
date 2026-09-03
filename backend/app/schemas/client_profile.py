@@ -47,9 +47,16 @@ class ClientProfileSummary(BaseModel):
     ltv: Optional[int] = (
         None  # lifetime revenue (PLN, monthly_rate_client * duration_months)
     )
-    avg_time_to_fill_days: Optional[float] = (
-        None  # mean (Contract.start_date - Job.created_at) for placed jobs
-    )
+    # Średnia z (Contract.start_date − Job.opened_at) dla obsadzonych rekrutacji.
+    # `None` znaczy „nie da się policzyć", nie „zero dni" — patrz
+    # `services/job_data_trust.py`.
+    avg_time_to_fill_days: Optional[float] = None
+    # "opened_at" gdy policzone, "unavailable" gdy żadna rekrutacja nie miała
+    # daty otwarcia. Front ma pokazać wyjaśnienie zamiast liczby.
+    avg_time_to_fill_source: Optional[str] = None
+    # Ile obsadzeń odpadło z licznika przez brak `opened_at`. Bez tego „—" nie
+    # odróżnia „nie ma obsadzeń" od „są, ale nie wiemy kiedy ruszyły".
+    avg_time_to_fill_not_assessable: int = 0
 
 
 class OpenJobItem(BaseModel):
@@ -57,7 +64,9 @@ class OpenJobItem(BaseModel):
     title: str
     seniority: Optional[Seniority] = None
     priority: JobPriority
-    days_open: int
+    # `None` gdy nie znamy daty otwarcia rekrutacji. Zero znaczyłoby „otwarta
+    # dzisiaj" — dla 4206 wierszy z Traffita byłaby to data migracji.
+    days_open: Optional[int] = None
     candidate_count: int  # distinct candidates in pipeline
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None

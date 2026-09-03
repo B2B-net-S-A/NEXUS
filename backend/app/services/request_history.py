@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
+from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
@@ -221,9 +222,13 @@ async def find_similar_requests(
         else:
             outcome = "cancelled"
 
-        tth_days: Optional[int] = None
-        if job.closed_at and job.created_at:
-            tth_days = max((job.closed_at - job.created_at).days, 0)
+        # Czas realizacji liczony od `opened_at`, nie od `created_at`.
+        # `created_at` dla 4206 rekrutacji z Traffita to znacznik importu, więc
+        # ta różnica dawała medianę ZERO dni — a wynik trafia wprost do banera
+        # „u tego klienta było już N podobnych requestów", czytanego przez
+        # Delivery Leada w chwili zakładania nowej rekrutacji. `None` znaczy
+        # „nie wiemy" i front ma to napisać wprost, zamiast pokazywać „0d".
+        tth_days = job_data_trust.duration_days(job)
 
         entries.append(
             RequestHistoryEntry(
