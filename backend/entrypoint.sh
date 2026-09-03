@@ -174,6 +174,13 @@ _ENUM_STATEMENTS = [
     # osobny kubełek kwoty; bez wartości enuma seed niżej i INSERT do
     # ai_usage_log przy lincie => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_rule_lint'",
+    # 0270: dwie ostatnie ścieżki Claude'a wciągnięte pod kwoty —
+    # `uop_check` (sprawdzenie znamion umowy o pracę w Generatorze Umów B2B)
+    # i `cv_name_backfill` (uzupełnianie imion z CV w nocnym syncu Traffita).
+    # Bez tych wartości seed niżej ORAZ każdy INSERT do ai_usage_log przy
+    # tych wywołaniach => InvalidTextRepresentationError.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'uop_check'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_name_backfill'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -204,6 +211,14 @@ _ENUM_STATEMENTS = [
     # a prod alembic bywa osierocony, więc lustro jest tu jedyną gwarancją.
     "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS spend_alert_period DATE NULL",
     "ALTER TABLE ai_features ADD COLUMN IF NOT EXISTS spend_alert_level INTEGER NULL",
+    # Migracja 0270: tokeny w logu zużycia. Trzymane TU, obok kolumn 0241,
+    # a nie w `_COLUMN_STATEMENTS` — mimo nazwy tej listy — bo cała DDL
+    # podsystemu kwot AI ma być w jednym miejscu dla następnego czytelnika;
+    # obie listy i tak biegną przed `_DATA_STATEMENTS`. Bez tych kolumn
+    # `ai_feature` pada na UndefinedColumnError przy zapisie tokenów, czyli
+    # w bloku `finally` po UDANYM wywołaniu modelu — najgorszy moment.
+    "ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS input_tokens BIGINT NOT NULL DEFAULT 0",
+    "ALTER TABLE ai_usage_log ADD COLUMN IF NOT EXISTS output_tokens BIGINT NOT NULL DEFAULT 0",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS train_name VARCHAR(128) NULL",
     "CREATE INDEX IF NOT EXISTS ix_jobs_train_name_partial "
     "ON jobs (client_id, train_name) WHERE train_name IS NOT NULL",
@@ -4369,6 +4384,13 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_rule_lint', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_rule_lint')",
+    # 0270: seed feature'ów AI `uop_check` i `cv_name_backfill`.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'uop_check', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'uop_check')",
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_name_backfill', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_name_backfill')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
