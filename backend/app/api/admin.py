@@ -41,6 +41,7 @@ from app.services.onboarding_access import (
     onboarding_persona_for_roles,
 )
 from app.services.admin_membership import protect_active_admin_membership
+from app.services.action_permissions import resolve_effective_action_access
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.user_response import build_user_response
 
@@ -471,6 +472,7 @@ async def start_impersonation(
     )
     await db.flush()
     await resolve_effective_section_access(db, target)
+    await resolve_effective_action_access(db, target)
     return await build_user_response(target, db)
 
 

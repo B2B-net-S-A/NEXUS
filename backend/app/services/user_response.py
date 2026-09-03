@@ -38,9 +38,9 @@ def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
 async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
     """Return the one canonical frontend auth/profile snapshot.
 
-    Authentication dependencies attach ``effective_section_access`` before
-    calling this builder. Administrative impersonation resolves the target's
-    snapshot explicitly, then uses the same enrichment path as ``/auth/me``.
+    Authentication dependencies attach section and action access before calling
+    this builder. Administrative impersonation resolves the target snapshots
+    explicitly, then uses the same enrichment path as ``/auth/me``.
     """
 
     from app.analytics.capabilities import capabilities_for  # noqa: PLC0415
@@ -67,5 +67,8 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
     response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
     response.effective_section_access = dict(
         getattr(user, "effective_section_access", {})
+    )
+    response.effective_action_access = dict(
+        getattr(user, "effective_action_access", {})
     )
     return response

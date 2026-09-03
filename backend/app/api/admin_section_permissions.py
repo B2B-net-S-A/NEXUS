@@ -15,10 +15,19 @@ from app.core.database import get_db
 from app.models.section_permission import (
     RbacPermissionAudit,
     RbacPolicyState,
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.user import User, UserRole
+from app.services.action_permissions import (
+    ActionAccess,
+    ProductAction,
+    base_action_policy_from_rows,
+    effective_action_policy_from_rows,
+    serialize_action_access,
+)
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -32,6 +41,8 @@ router = APIRouter()
 
 AccessName = Literal["none", "read", "write"]
 OverrideName = Literal["inherit", "none", "read", "write"]
+ActionAccessName = Literal["none", "view", "generate", "manage"]
+ActionOverrideName = Literal["inherit", "none", "view", "generate", "manage"]
 
 
 class RolePermissionChange(BaseModel):
@@ -40,9 +51,18 @@ class RolePermissionChange(BaseModel):
     access: AccessName
 
 
+class RoleActionPermissionChange(BaseModel):
+    role: UserRole
+    action: ProductAction
+    access: ActionAccessName
+
+
 class RolePermissionUpdate(BaseModel):
     revision: int = Field(..., ge=1)
-    changes: list[RolePermissionChange] = Field(..., min_length=1, max_length=54)
+    changes: list[RolePermissionChange] = Field(default_factory=list, max_length=54)
+    action_changes: list[RoleActionPermissionChange] = Field(
+        default_factory=list, max_length=9
+    )
 
 
 class UserPermissionChange(BaseModel):
@@ -50,9 +70,17 @@ class UserPermissionChange(BaseModel):
     access: OverrideName
 
 
+class UserActionPermissionChange(BaseModel):
+    action: ProductAction
+    access: ActionOverrideName
+
+
 class UserPermissionUpdate(BaseModel):
     revision: int = Field(..., ge=1)
-    changes: list[UserPermissionChange] = Field(..., min_length=1, max_length=6)
+    changes: list[UserPermissionChange] = Field(default_factory=list, max_length=6)
+    action_changes: list[UserActionPermissionChange] = Field(
+        default_factory=list, max_length=1
+    )
 
 
 async def _policy_state(db: AsyncSession, *, lock: bool = False) -> RbacPolicyState:
@@ -112,18 +140,29 @@ def _assert_revision(state_row: RbacPolicyState, expected: int) -> None:
 
 
 def _role_payload(
-    role: UserRole, rows: list[RoleSectionPermission]
+    role: UserRole,
+    section_rows: list[RoleSectionPermission],
+    action_rows: list[RoleActionPermission],
 ) -> dict[str, object]:
     if role is UserRole.admin:
         permissions = {
             section.value: SectionAccess.write.name for section in ProductSection
         }
+        action_permissions = {
+            action.value: ActionAccess.manage.name for action in ProductAction
+        }
     else:
-        permissions = serialize_section_access(base_policy_from_rows([role], rows))
+        permissions = serialize_section_access(
+            base_policy_from_rows([role], section_rows)
+        )
         permissions[ProductSection.system_admin.value] = SectionAccess.none.name
+        action_permissions = serialize_action_access(
+            base_action_policy_from_rows([role], action_rows)
+        )
     return {
         "role": role.value,
         "permissions": permissions,
+        "action_permissions": action_permissions,
         "locked": role is UserRole.admin,
         "locked_sections": [ProductSection.system_admin.value],
     }
@@ -131,11 +170,13 @@ def _role_payload(
 
 async def _role_snapshot(db: AsyncSession) -> dict[str, object]:
     state_row = await _policy_state(db)
-    rows = (await db.scalars(select(RoleSectionPermission))).all()
+    section_rows = list((await db.scalars(select(RoleSectionPermission))).all())
+    action_rows = list((await db.scalars(select(RoleActionPermission))).all())
     return {
         "revision": state_row.revision,
         "sections": [section.value for section in ProductSection],
-        "roles": [_role_payload(role, list(rows)) for role in UserRole],
+        "actions": [action.value for action in ProductAction],
+        "roles": [_role_payload(role, section_rows, action_rows) for role in UserRole],
         "updated_at": state_row.updated_at,
         "updated_by": state_row.updated_by,
     }
@@ -174,6 +215,7 @@ async def read_user_section_permissions(
     users = list((await db.scalars(query.limit(limit))).all())
     total = int((await db.scalar(count_query)) or 0)
     role_rows = list((await db.scalars(select(RoleSectionPermission))).all())
+    action_role_rows = list((await db.scalars(select(RoleActionPermission))).all())
     user_ids = [user.id for user in users]
     override_rows = list(
         (
@@ -187,10 +229,23 @@ async def read_user_section_permissions(
     overrides_by_user: dict[int, list[UserSectionOverride]] = {}
     for override in override_rows:
         overrides_by_user.setdefault(override.user_id, []).append(override)
+    action_override_rows = list(
+        (
+            await db.scalars(
+                select(UserActionOverride).where(
+                    UserActionOverride.user_id.in_(user_ids or [-1])
+                )
+            )
+        ).all()
+    )
+    action_overrides_by_user: dict[int, list[UserActionOverride]] = {}
+    for override in action_override_rows:
+        action_overrides_by_user.setdefault(override.user_id, []).append(override)
 
     payload_users: list[dict[str, object]] = []
     for user in users:
         user_overrides = overrides_by_user.get(user.id, [])
+        user_action_overrides = action_overrides_by_user.get(user.id, [])
         inherited = (
             {section: SectionAccess.write for section in ProductSection}
             if user.has_role(UserRole.admin)
@@ -199,6 +254,14 @@ async def read_user_section_permissions(
         if not user.has_role(UserRole.admin):
             inherited[ProductSection.system_admin] = SectionAccess.none
         effective = effective_policy_from_rows(user, role_rows, user_overrides)
+        inherited_actions = (
+            {action: ActionAccess.manage for action in ProductAction}
+            if user.has_role(UserRole.admin)
+            else base_action_policy_from_rows(user.get_all_roles(), action_role_rows)
+        )
+        effective_actions = effective_action_policy_from_rows(
+            user, action_role_rows, user_action_overrides
+        )
         payload_users.append(
             {
                 "user_id": user.id,
@@ -211,6 +274,15 @@ async def read_user_section_permissions(
                 "overrides": {row.section: row.access for row in user_overrides},
                 "inherited_permissions": serialize_section_access(inherited),
                 "effective_permissions": serialize_section_access(effective),
+                "action_overrides": {
+                    row.action: row.access for row in user_action_overrides
+                },
+                "inherited_action_permissions": serialize_action_access(
+                    inherited_actions
+                ),
+                "effective_action_permissions": serialize_action_access(
+                    effective_actions
+                ),
                 "scope_summary": (
                     "Tylko przypisani klienci"
                     if user.has_role(UserRole.delivery_lead)
@@ -229,10 +301,22 @@ async def update_role_section_permissions(
     admin: AdminUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Atomically apply role changes, audit them and revoke affected sessions."""
+    """Atomically apply section/action changes and revoke affected sessions."""
 
+    if not payload.changes and not payload.action_changes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "empty_permission_change"},
+        )
     _assert_unique(
-        [(change.role.value, change.section.value) for change in payload.changes]
+        [
+            (change.role.value, f"section:{change.section.value}")
+            for change in payload.changes
+        ]
+        + [
+            (change.role.value, f"action:{change.action.value}")
+            for change in payload.action_changes
+        ]
     )
     for change in payload.changes:
         if (
@@ -243,11 +327,19 @@ async def update_role_section_permissions(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"code": "immutable_technical_admin_access"},
             )
+    if any(change.role is UserRole.admin for change in payload.action_changes):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "immutable_admin_access"},
+        )
 
     state_row = await _policy_state(db, lock=True)
     admin = await _revalidate_locked_admin(db, admin)
     _assert_revision(state_row, payload.revision)
-    requested_roles = sorted({change.role.value for change in payload.changes})
+    requested_roles = sorted(
+        {change.role.value for change in payload.changes}
+        | {change.role.value for change in payload.action_changes}
+    )
     existing_rows = list(
         (
             await db.scalars(
@@ -258,6 +350,16 @@ async def update_role_section_permissions(
         ).all()
     )
     by_key = {(row.role, row.section): row for row in existing_rows}
+    existing_action_rows = list(
+        (
+            await db.scalars(
+                select(RoleActionPermission)
+                .where(RoleActionPermission.role.in_(requested_roles))
+                .with_for_update()
+            )
+        ).all()
+    )
+    action_by_key = {(row.role, row.action): row for row in existing_action_rows}
     before: dict[str, str] = {}
     after: dict[str, str] = {}
     changed_roles: set[str] = set()
@@ -283,6 +385,29 @@ async def update_role_section_permissions(
             )
             db.add(row)
             by_key[key] = row
+        else:
+            row.access = change.access
+        row.updated_by = admin.id
+        row.updated_at = now
+
+    for change in payload.action_changes:
+        key = (change.role.value, change.action.value)
+        row = action_by_key.get(key)
+        old_access = row.access if row is not None else ActionAccess.none.name
+        audit_key = f"{key[0]}:action:{key[1]}"
+        before[audit_key] = row.access if row is not None else "missing"
+        after[audit_key] = change.access
+        if row is not None and old_access == change.access:
+            continue
+        changed_roles.add(change.role.value)
+        if row is None:
+            row = RoleActionPermission(
+                role=change.role.value,
+                action=change.action.value,
+                access=change.access,
+            )
+            db.add(row)
+            action_by_key[key] = row
         else:
             row.access = change.access
         row.updated_by = admin.id
@@ -343,7 +468,21 @@ async def update_user_section_permissions(
 ):
     """Replace selected user overrides; ``inherit`` removes the stored row."""
 
-    _assert_unique([(str(user_id), change.section.value) for change in payload.changes])
+    if not payload.changes and not payload.action_changes:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "empty_permission_change"},
+        )
+    _assert_unique(
+        [
+            (str(user_id), f"section:{change.section.value}")
+            for change in payload.changes
+        ]
+        + [
+            (str(user_id), f"action:{change.action.value}")
+            for change in payload.action_changes
+        ]
+    )
     if any(change.section is ProductSection.system_admin for change in payload.changes):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -374,7 +513,18 @@ async def update_user_section_permissions(
         ).all()
     )
     by_section = {row.section: row for row in rows}
+    action_rows = list(
+        (
+            await db.scalars(
+                select(UserActionOverride)
+                .where(UserActionOverride.user_id == user_id)
+                .with_for_update()
+            )
+        ).all()
+    )
+    by_action = {row.action: row for row in action_rows}
     before = {row.section: row.access for row in rows}
+    before.update({f"action:{row.action}": row.access for row in action_rows})
     now = datetime.now(timezone.utc)
     changed = False
     for change in payload.changes:
@@ -403,6 +553,32 @@ async def update_user_section_permissions(
             row.updated_at = now
             changed = True
 
+    for change in payload.action_changes:
+        action = change.action.value
+        row = by_action.get(action)
+        if change.access == "inherit":
+            if row is not None:
+                await db.delete(row)
+                by_action.pop(action)
+                changed = True
+            continue
+        if row is None:
+            row = UserActionOverride(
+                user_id=user_id,
+                action=action,
+                access=change.access,
+                updated_by=admin.id,
+                updated_at=now,
+            )
+            db.add(row)
+            by_action[action] = row
+            changed = True
+        elif row.access != change.access:
+            row.access = change.access
+            row.updated_by = admin.id
+            row.updated_at = now
+            changed = True
+
     if not changed:
         return {
             "revision": state_row.revision,
@@ -417,6 +593,9 @@ async def update_user_section_permissions(
     target.authorization_version += 1
     target.tokens_valid_after = now
     after = {section: row.access for section, row in sorted(by_section.items())}
+    after.update(
+        {f"action:{action}": row.access for action, row in sorted(by_action.items())}
+    )
     db.add(
         RbacPermissionAudit(
             actor_user_id=admin.id,

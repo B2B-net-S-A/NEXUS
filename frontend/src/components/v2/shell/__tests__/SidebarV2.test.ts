@@ -86,6 +86,29 @@ describe("visibleNavSections", () => {
     expect(deliveryLeadWithoutDelivery).not.toContain("/contracts");
   });
 
+  it("ukrywa Generator Umów B2B po indywidualnym odebraniu funkcji", () => {
+    const href = "/contracts/b2b-generator";
+    const hidden = visibleNavSections(
+      {
+        role: "talent_community_manager",
+        roles: ["talent_community_manager"],
+        effective_action_access: { b2b_contract_generator: "none" },
+      },
+      { contactQueueEnabled: false },
+    ).flatMap((section) => section.items.map((item) => item.href));
+    const visible = visibleNavSections(
+      {
+        role: "talent_community_manager",
+        roles: ["talent_community_manager"],
+        effective_action_access: { b2b_contract_generator: "view" },
+      },
+      { contactQueueEnabled: false },
+    ).flatMap((section) => section.items.map((item) => item.href));
+
+    expect(hidden).not.toContain(href);
+    expect(visible).toContain(href);
+  });
+
   it.each([
     "sourcer",
     "recruiter",

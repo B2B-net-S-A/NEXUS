@@ -667,6 +667,40 @@ _COLUMN_STATEMENTS = [
                access IN ('none','read','write')
            )
        )""",
+    # 0273: granular action permissions. Section access remains the outer
+    # ceiling; these rows distinguish register view, document generation and
+    # management without granting the Finance section.
+    """CREATE TABLE IF NOT EXISTS rbac_role_action_permissions (
+           role VARCHAR(64) NOT NULL,
+           action VARCHAR(64) NOT NULL,
+           access VARCHAR(16) NOT NULL,
+           updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           PRIMARY KEY (role, action),
+           CONSTRAINT ck_rbac_role_action_permissions_role CHECK (
+               role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user')
+           ),
+           CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
+               action IN ('b2b_contract_generator')
+           ),
+           CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
+               access IN ('none','view','generate','manage')
+           )
+       )""",
+    """CREATE TABLE IF NOT EXISTS rbac_user_action_overrides (
+           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+           action VARCHAR(64) NOT NULL,
+           access VARCHAR(16) NOT NULL,
+           updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+           updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+           PRIMARY KEY (user_id, action),
+           CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
+               action IN ('b2b_contract_generator')
+           ),
+           CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
+               access IN ('none','view','generate','manage')
+           )
+       )""",
     """CREATE TABLE IF NOT EXISTS rbac_permission_audit (
            id BIGSERIAL PRIMARY KEY,
            actor_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
@@ -4299,6 +4333,25 @@ _DATA_STATEMENTS = [
                WHERE other.template_id = sd.template_id
                  AND other.legacy_enum_value = 'interview'
           )""",
+    # 0273: mirror the migration defaults. These values preserve the existing
+    # generator behavior; only TCM and the legacy viewer start view-only.
+    """INSERT INTO rbac_role_action_permissions (role, action, access)
+       SELECT defaults.role, defaults.action, defaults.access
+       FROM (VALUES
+           ('admin', 'b2b_contract_generator', 'manage'),
+           ('finance', 'b2b_contract_generator', 'manage'),
+           ('head_of_recruitment', 'b2b_contract_generator', 'manage'),
+           ('delivery_lead', 'b2b_contract_generator', 'manage'),
+           ('talent_community_manager', 'b2b_contract_generator', 'view'),
+           ('tac', 'b2b_contract_generator', 'manage'),
+           ('recruiter', 'b2b_contract_generator', 'manage'),
+           ('sourcer', 'b2b_contract_generator', 'manage'),
+           ('user', 'b2b_contract_generator', 'view')
+       ) AS defaults(role, action, access)
+       WHERE NOT EXISTS (
+           SELECT 1 FROM rbac_role_action_permissions
+       )
+       ON CONFLICT (role, action) DO NOTHING""",
     # 0256: seed domyślnej punktacji Insights. `ON CONFLICT DO NOTHING`, więc
     # wartości ustawione wcześniej przez admina zostają nietknięte — ten blok
     # biegnie przy KAŻDYM starcie kontenera, a nadpisanie cofałoby strojenie

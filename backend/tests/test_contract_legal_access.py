@@ -1,5 +1,4 @@
-"""Macierz autoryzacji dla legal-document surfaces kontraktów (M5 PR-01) +
-otwarcie generatora B2B na każdą rolę (decyzja produktowa, 20.08).
+"""Authorization matrix for legal-document and B2B generator surfaces.
 
 P0.11 containment (historia): B2B generator + contract-template render
 używały bare ``CurrentUser``, więc read-only viewer (`user`) oraz
@@ -8,21 +7,13 @@ audytu wprowadził wspólną ``ContractLegalAccess`` (admin / head_of_recruitmen
 / delivery_lead / tac — grono legal-team, spójne z
 ``client_access.can_view_legal_documents``) dla OBU powierzchni naraz.
 
-20.08: generator B2B dostał WŁASNĄ, szerszą bramkę — ``contract_templates``
-(rendering dla dowolnego typu kontraktu, NIE tylko B2B) nadal stoi za
-``ContractLegalAccess`` i ten plik go nie testuje. Sidebar nigdy nie miał tu
-`roles` ("Generator Umów B2B — dostępny dla wszystkich ról"), więc restrykcja
-backendu z P0.11 containment produkowała dokładnie ten sam gap co przy Talent
-Radar (19.08): link widoczny, klik = 403. ``require_b2b_generator_access``
-teraz przepuszcza każdą rolę; ``_generator_unscoped``
-(``b2b_contract_generator.py``) poszerzony w lockstep — inaczej nowo
-wpuszczone role dostawałyby pustą listę zamiast 403
-(``resolve_client_team_client_ids`` zna tylko DL/TAC).
+Generator B2B ma własną, konfigurowalną bramkę akcji wewnątrz Sourcingu.
+Domyślny poziom zachowuje dotychczasowe operacje wszystkich ról poza TCM i
+legacy viewerem, którzy zaczynają od bezpiecznego podglądu rejestru.
 
 Delivery Lead zachowuje istniejący, granularny zakres klientów również w tym
-narzędziu. Talent Community Manager widzi globalny katalog i bezpieczny rejestr
-operacyjny, ale nie może generować, renderować, pobierać ani modyfikować
-rate-bearing dokumentów.
+narzędziu. Poziom ``view`` nie może generować, renderować, pobierać ani
+modyfikować dokumentów zawierających stawkę.
 """
 
 from __future__ import annotations
@@ -39,8 +30,8 @@ NEXT_NUMBER_URL = "/api/b2b-generator/next-number"
 GENERATED_URL = "/api/b2b-generator/generated"
 GENERATE_URL = "/api/b2b-generator/generate"
 
-# KAŻDA rola przechodzi bramkę wejściową generatora B2B (20.08). Konkretne
-# operacje mogą mieć węższy guard, np. finansowe dokumenty są niedostępne TCM.
+# Każda rola ma domyślnie co najmniej podgląd. Administrator może to jednak
+# odebrać lub podnieść niezależnie od dostępu do całej sekcji Sourcing.
 ALL_ROLES = [
     "admin",
     "head_of_recruitment",
@@ -138,7 +129,7 @@ async def _headers_for(
 async def test_every_role_passes_generator_auth(
     app_client: AsyncClient, role_value: str
 ):
-    """Every role can browse in its valid scope; TCM stops at finance writes."""
+    """Every role can browse in its valid scope; TCM stops at generation."""
     headers = await _headers_for(app_client, role_value)
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         r = await app_client.get(url, headers=headers)
@@ -155,7 +146,12 @@ async def test_every_role_passes_generator_auth(
     )
     if role_value == "talent_community_manager":
         assert r.status_code == 403, r.text
-        assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+        assert r.json()["detail"] == {
+            "code": "action_access_denied",
+            "action": "b2b_contract_generator",
+            "required": "generate",
+            "granted": "view",
+        }
     elif role_value == "user":
         assert r.status_code == 403, r.text
         assert r.json()["detail"] == {
@@ -227,6 +223,8 @@ async def test_unscoped_roles_can_browse_generator(
             "required": "write",
             "granted": "read",
         }
+    elif role_value == "talent_community_manager":
+        assert r.json()["detail"]["code"] == "action_access_denied"
 
     # Opaque DOCX can contain rates. Missing id therefore produces the same
     # split: TCM is rejected before lookup, read-authorized roles reach the 404.
@@ -249,6 +247,8 @@ async def test_unscoped_roles_can_browse_generator(
         )
         assert patch.status_code == 403, patch.text
         assert delete.status_code == 403, delete.text
+        assert patch.json()["detail"]["required"] == "manage"
+        assert delete.json()["detail"]["required"] == "manage"
 
 
 async def test_unauthenticated_is_rejected(app_client: AsyncClient):

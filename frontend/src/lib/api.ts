@@ -3,9 +3,11 @@ import axios, { AxiosError } from "axios";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type {
+  RoleActionPermissionChange,
   RoleSectionPermissionChange,
   SectionPermissionMutationResponse,
   SectionPermissionsResponse,
+  UserActionPermissionChange,
   UserSectionPermissionChange,
   UserSectionPermissionsResponse,
 } from "./section-access";
@@ -831,22 +833,25 @@ export const adminApi = {
   updateRoleSectionPermissions: (
     revision: number,
     changes: RoleSectionPermissionChange[],
+    actionChanges: RoleActionPermissionChange[] = [],
   ) =>
     api.put<SectionPermissionMutationResponse>(
       "/api/admin/section-permissions/roles",
       {
         revision,
         changes,
+        action_changes: actionChanges,
       },
     ),
   updateUserSectionPermissions: (
     userId: number,
     revision: number,
     changes: UserSectionPermissionChange[],
+    actionChanges: UserActionPermissionChange[] = [],
   ) =>
     api.put<SectionPermissionMutationResponse>(
       `/api/admin/section-permissions/users/${userId}`,
-      { revision, changes },
+      { revision, changes, action_changes: actionChanges },
     ),
 };
 

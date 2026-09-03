@@ -2,7 +2,9 @@ from app.models.user import User
 from app.models.section_permission import (  # noqa: F401
     RbacPermissionAudit,
     RbacPolicyState,
+    RoleActionPermission,
     RoleSectionPermission,
+    UserActionOverride,
     UserSectionOverride,
 )
 from app.models.candidate import Candidate
