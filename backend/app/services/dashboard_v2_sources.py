@@ -57,6 +57,9 @@ class DeliveryJobSnapshot:
     open_vacancies: int
     tac_user_id: int | None
     created_at: datetime
+    # Data otwarcia rekrutacji u klienta (0270). `None` = nie wiemy; wiek
+    # liczony wtedy od `created_at` mierzyłby czas od importu, nie od startu.
+    opened_at: datetime | None
     first_recommendation_at: datetime | None
 
 
@@ -249,6 +252,7 @@ async def load_delivery_metrics(
                 Job.tac_id,
                 Job.client_id,
                 Job.created_at,
+                Job.opened_at,
                 Client.name.label("client_name"),
             )
             .join(Client, Client.id == Job.client_id)
@@ -351,6 +355,7 @@ async def load_delivery_metrics(
             ),
             tac_user_id=row.tac_id,
             created_at=row.created_at,
+            opened_at=row.opened_at,
             first_recommendation_at=first_recommendations.get(int(row.id)),
         )
         for row in rows

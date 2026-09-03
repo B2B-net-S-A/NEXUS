@@ -26,6 +26,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.contract import Contract, ContractStatus
+from app.services import job_data_trust
 from app.models.job import Job, JobCloseReason, JobStatus, RecruitmentType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -153,6 +154,23 @@ def _period_start(period: str) -> datetime:
 def _safe_pct(numerator: int, denominator: int) -> float:
     if denominator == 0:
         return 0.0
+    return round(numerator / denominator * 100, 1)
+
+
+def _pct_or_none(numerator: int, denominator: int) -> Optional[float]:
+    """Procent albo ``None`` — dla metryk, gdzie „nie wiemy" musi być widoczne.
+
+    Świadomie OBOK `_safe_pct`, a nie zamiast niego. Tamten ma czternaście
+    miejsc użycia, a część z nich jawnie polega na zwracanym zerze (patrz
+    komentarz przy `conversion_pct` w sekcji linków zaproszeniowych) — zmiana
+    globalna przeniosłaby `None` do odpowiedzi, których konsumentów nikt przy
+    tej okazji nie audytował.
+
+    Kontrakt ten sam co `insights_clients.ratio_pct`: zerowy mianownik to brak
+    podstawy do oceny, nie wynik zerowy.
+    """
+    if denominator <= 0:
+        return None
     return round(numerator / denominator * 100, 1)
 
 
@@ -1036,6 +1054,10 @@ async def _compute_client_hit_ratio(
             Job.client_id,
             Job.headcount,
             Job.close_reason,
+            # Potrzebne `job_data_trust.vacancies_declared`: importer wpisuje
+            # `headcount = 1` jako stałą, więc pochodzenie wiersza jest jedynym
+            # sposobem odróżnienia zadeklarowanej jedynki od braku deklaracji.
+            Job.external_source,
             Client.name.label("client_name"),
             Client.status.label("client_status"),
         )
@@ -1071,6 +1093,8 @@ async def _compute_client_hit_ratio(
                 ),
                 "closed_jobs": 0,
                 "total_vacancies": 0,
+                "vacancies_declared_jobs": 0,
+                "outcome_known_jobs": 0,
                 "filled_job_ids": set(),
                 "placements": 0,
                 "active_jobs": 0,
@@ -1078,7 +1102,15 @@ async def _compute_client_hit_ratio(
             },
         )
         bucket["closed_jobs"] += 1
-        bucket["total_vacancies"] += int(r.headcount or 1)
+        # `headcount` sumujemy TYLKO z rekrutacji, które go naprawdę
+        # deklarują. Dla wierszy z Traffita jest to zahardkodowana jedynka —
+        # wliczanie jej zaniżało mianownik i produkowało `fill_rate` powyżej
+        # 100% (na produkcji u siedmiu klientów: Xperi 176,5%, PFRON 105%).
+        if job_data_trust.vacancies_declared(r):
+            bucket["total_vacancies"] += int(r.headcount or 1)
+            bucket["vacancies_declared_jobs"] += 1
+        if job_data_trust.outcome_available(r):
+            bucket["outcome_known_jobs"] += 1
         reason_key = (
             r.close_reason.value
             if r.close_reason is not None and hasattr(r.close_reason, "value")
@@ -1159,7 +1191,11 @@ async def _compute_client_hit_ratio(
         placements = bucket["placements"]
         vacancies = bucket["total_vacancies"]
         hit_ratio = _safe_pct(filled, closed)
-        fill_rate = _safe_pct(placements, vacancies)
+        # `None`, gdy żadna zamknięta rekrutacja okresu nie miała
+        # zadeklarowanego headcountu — czyli gdy mianownika po prostu nie ma.
+        # Zero byłoby zdaniem „obsadziliśmy 0% zamówionych etatów", a to nie
+        # jest to, co wiemy.
+        fill_rate = _pct_or_none(placements, vacancies)
         per_client_out.append(
             {
                 "client_id": bucket["client_id"],
@@ -1172,9 +1208,21 @@ async def _compute_client_hit_ratio(
                 "placements": placements,
                 "hit_ratio": hit_ratio,
                 "fill_rate": fill_rate,
+                "fill_rate_source": (
+                    "declared_headcount"
+                    if fill_rate is not None
+                    else job_data_trust.SOURCE_UNAVAILABLE
+                ),
                 "active_jobs": bucket["active_jobs"],
                 "target_achieved": hit_ratio >= HIT_RATIO_TARGET_PCT,
                 "close_reasons": bucket["close_reasons"],
+                # Jaki odsetek zamknięć ma znany powód. Na produkcji to dziś
+                # 0,0 u każdego klienta (`close_reason` NULL na 3924 z 3924),
+                # więc kubełek `unknown` niżej jest luką w danych, a nie
+                # kategorią obok pozostałych — i front ma to napisać wprost.
+                "outcome_coverage_pct": job_data_trust.coverage_pct(
+                    bucket["outcome_known_jobs"], closed
+                ),
             }
         )
 
@@ -1184,7 +1232,7 @@ async def _compute_client_hit_ratio(
     total_placements = sum(d["placements"] for d in per_client_out)
     total_vacancies = sum(d["total_vacancies"] for d in per_client_out)
     global_hit_ratio = _safe_pct(total_filled, total_closed)
-    global_fill_rate = _safe_pct(total_placements, total_vacancies)
+    global_fill_rate = _pct_or_none(total_placements, total_vacancies)
     # Avg ratios: średnia z klientów z ≥1 closed job.
     clients_with_jobs = [d for d in per_client_out if d["closed_jobs"] > 0]
     avg_hit = (
@@ -1196,14 +1244,17 @@ async def _compute_client_hit_ratio(
         if clients_with_jobs
         else 0.0
     )
+    # Średnia po klientach, u których `fill_rate` W OGÓLE się policzył.
+    # Wliczanie `None` jako zera ciągnęłoby średnią w dół tym mocniej, im
+    # więcej klientów nie da się ocenić — czyli mierzyłoby lukę w danych
+    # i podawało wynik jako wydajność.
+    clients_with_fill = [d for d in clients_with_jobs if d["fill_rate"] is not None]
     avg_fill = (
         round(
-            sum(d["fill_rate"] for d in clients_with_jobs)
-            / max(len(clients_with_jobs), 1),
-            1,
+            sum(d["fill_rate"] for d in clients_with_fill) / len(clients_with_fill), 1
         )
-        if clients_with_jobs
-        else 0.0
+        if clients_with_fill
+        else None
     )
     target_count = sum(1 for d in clients_with_jobs if d["target_achieved"])
 

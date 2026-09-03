@@ -66,6 +66,10 @@ async def _seed_job(status: JobStatus = JobStatus.published) -> int:
             title=f"Senior FE {unique}",
             location="Warszawa",
             status=status,
+            # `is_open` (0270) — „przekazana do searchu". Bramka pyta o nią,
+            # a nie o `status`, bo ten jest lustrem Traffita i po naprawie
+            # mapowania obejmuje też rekrutacje, których nikt tu nie przejął.
+            is_open=status is JobStatus.published,
             remote_policy=RemotePolicy.hybrid,
             client_id=cli.id,
         )

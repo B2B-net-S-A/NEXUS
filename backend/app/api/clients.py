@@ -17,6 +17,7 @@ from app.models.client import Client
 from app.models.client_directory import ClientPortfolioScope, PortfolioCategory
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.services import job_data_trust
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -517,7 +518,11 @@ async def get_client_profile(
     open_jobs: list[OpenJobItem] = []
     for job, cnt, recruiter_user in open_rows:
         created = job.created_at
-        days_open = (datetime.now(timezone.utc) - created).days if created else 0
+        # Wiek rekrutacji liczony od `opened_at`, nie od `created_at`, który dla
+        # wierszy z Traffita jest znacznikiem importu. `None` zamiast dawnego
+        # `0`: zero znaczyłoby „otwarta dzisiaj", a to jest zdanie o kliencie,
+        # którego nie mamy prawa wypowiedzieć na podstawie daty migracji.
+        days_open = job_data_trust.duration_days(job, until=datetime.now(timezone.utc))
         open_jobs.append(
             OpenJobItem(
                 id=job.id,
@@ -770,20 +775,29 @@ async def get_client_profile(
         if rev:
             ltv += rev
 
-    # avg_time_to_fill = mean (Contract.start_date - Job.created_at) for placed
-    # jobs. Uses both active and ended contracts that have a job_id.
+    # avg_time_to_fill = średnia z (Contract.start_date − Job.opened_at).
+    #
+    # Dwie zmiany wobec wersji sprzed 0270 i obie są konieczne:
+    #
+    # 1. Kotwicą jest `opened_at`, nie `created_at`. Dla wierszy z Traffita
+    #    `created_at` to data migracji, więc licznik mierzył odległość od maja
+    #    2026 — u Nordei dawało to „66,7 dnia" dla klienta z 2005 rekrutacjami.
+    # 2. Zniknął filtr `delta >= 0`. Odsiewał każdy kontrakt rozpoczęty PRZED
+    #    importem, czyli większość historii, i robił z reszty tendencyjną
+    #    próbkę — przy czym wynik wyglądał na policzony z całości.
+    #
+    # Rekrutacje bez `opened_at` nie są pomijane po cichu: liczymy je jako
+    # nieocenialne i mówimy o tym w odpowiedzi (`avg_time_to_fill_source`).
     fill_days: list[int] = []
+    ttf_not_assessable = 0
     for c in list(active_contracts) + list(ended_contracts):
-        if c.job is None or c.start_date is None or c.job.created_at is None:
+        if c.job is None or c.start_date is None:
             continue
-        job_created = (
-            c.job.created_at.date()
-            if hasattr(c.job.created_at, "date")
-            else c.job.created_at
-        )
-        delta = (c.start_date - job_created).days
-        if delta >= 0:
-            fill_days.append(delta)
+        delta = job_data_trust.duration_days(c.job, until=c.start_date)
+        if delta is None:
+            ttf_not_assessable += 1
+            continue
+        fill_days.append(delta)
     avg_ttf = (sum(fill_days) / len(fill_days)) if fill_days else None
 
     total_placements = len(active_consultants) + len(placements)
@@ -797,6 +811,10 @@ async def get_client_profile(
         active_mrr=int(active_mrr) if active_mrr is not None else None,
         ltv=int(ltv) if ltv_complete else None,
         avg_time_to_fill_days=round(avg_ttf, 1) if avg_ttf is not None else None,
+        avg_time_to_fill_source=(
+            "opened_at" if avg_ttf is not None else job_data_trust.SOURCE_UNAVAILABLE
+        ),
+        avg_time_to_fill_not_assessable=ttf_not_assessable,
     )
 
     response = ClientProfileResponse(

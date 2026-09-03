@@ -50,6 +50,11 @@ export interface ClientProfileSummary {
   active_mrr: number | null;
   ltv: number | null;
   avg_time_to_fill_days: number | null;
+  /** "opened_at" gdy policzone, "unavailable" gdy żadna rekrutacja nie ma daty
+   *  otwarcia. `null` w `avg_time_to_fill_days` znaczy „nie wiemy", nie „zero dni". */
+  avg_time_to_fill_source?: string | null;
+  /** Ile obsadzeń odpadło z licznika przez brak daty otwarcia. */
+  avg_time_to_fill_not_assessable?: number;
 }
 
 export interface OpenJobItem {
@@ -57,7 +62,8 @@ export interface OpenJobItem {
   title: string;
   seniority: Seniority | null;
   priority: JobPriority;
-  days_open: number;
+  /** `null` gdy nie znamy daty otwarcia rekrutacji (wiersze sprzed backfillu). */
+  days_open: number | null;
   candidate_count: number;
   salary_min: number | null;
   salary_max: number | null;

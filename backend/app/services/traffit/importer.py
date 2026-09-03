@@ -762,14 +762,28 @@ _UPDATE_CANDIDATE_ADOPT = text(
 )
 
 
+# Lista `DO UPDATE SET` niżej MUSI równać się `SYNC_WRITABLE`
+# z `app/services/job_column_ownership.py` — pilnuje tego
+# `tests/test_job_column_ownership.py`. Dopisanie tu kolumny bez decyzji
+# „czyja ona jest" znaczyłoby, że sync po cichu nadpisuje pracę zrobioną
+# w NEXUSIE, a to jest dokładnie ten tryb awarii, który 0270 zamyka.
+#
+# Dwie różne semantyki dat i to nie jest niedopatrzenie:
+#   `opened_at` idzie przez COALESCE — data otwarcia się nie zmienia, więc
+#   payload bez `created_at` nie ma prawa skasować dobrej wartości.
+#   `closed_at` jest nadpisywane BEZWARUNKOWO — na produkcji trzyma dziś
+#   sfabrykowane znaczniki syncu (backfill `closed_at = updated_at` z
+#   entrypointu, usunięty w 0270) i pełny bieg importera ma je zastąpić
+#   prawdą. Bezwarunkowość zeruje je też, gdy rekrutacja wróci do otwartych.
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
         external_id, external_source, title, status, client_id,
         pipeline_template_id, recruiter_id, reference_number, deadline,
+        opened_at, closed_at,
         custom_fields,
         remote_policy, priority, recruitment_type, work_mode, headcount,
-        needs_sourcing,
+        needs_sourcing, is_open,
         created_at, updated_at
     ) VALUES (
         :external_id, :external_source, :title,
@@ -777,12 +791,14 @@ _UPSERT_JOB = text(
         :client_id, :pipeline_template_id, :recruiter_id,
         :reference_number,
         CAST(:deadline AS DATE),
+        CAST(:opened_at AS TIMESTAMPTZ),
+        CAST(:closed_at AS TIMESTAMPTZ),
         CAST(:custom_fields AS JSONB),
         CAST('hybrid' AS remotepolicy),
         CAST('medium' AS jobpriority),
         CAST('body_leasing' AS recruitmenttype),
         CAST('fulltime' AS workmode),
-        1, false,
+        1, false, false,
         NOW(), NOW()
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
@@ -798,6 +814,8 @@ _UPSERT_JOB = text(
             EXCLUDED.reference_number, jobs.reference_number
         ),
         deadline             = COALESCE(EXCLUDED.deadline, jobs.deadline),
+        opened_at            = COALESCE(EXCLUDED.opened_at, jobs.opened_at),
+        closed_at            = EXCLUDED.closed_at,
         custom_fields        = jobs.custom_fields || EXCLUDED.custom_fields,
         updated_at           = NOW()
     RETURNING id, (xmax = 0) AS was_insert

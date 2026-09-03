@@ -455,12 +455,32 @@ class TestNormalizeJobStatus:
             ("draft", "draft"),
             ("closed", "closed"),
             ("zamknięta", "closed"),
-            ("unknown", "draft"),
-            (None, "draft"),
+            # 0270: nieznana wartość i BRAK wartości znaczą „otwarta", nie
+            # „szkic" — patrz `test_absent_status_means_open`.
+            ("unknown", "published"),
+            (None, "published"),
         ],
     )
     def test_mapping(self, raw, expected):
         assert normalize_job_status(raw) == expected
+
+    def test_absent_status_means_open_not_draft(self):
+        """Regresja na 291 rekrutacji ukrytych przed całym systemem.
+
+        Odpowiedź LISTY `/recruitments/` — jedyna, którą czyta importer — nie
+        ma klucza `status`; potwierdza to fixture `recruitments_list.json`
+        oraz produkcja, gdzie `custom_fields.traffit_raw_status` jest NULL na
+        4206 z 4206 zaimportowanych wierszy. Dawne `draft` nie było więc
+        informacją ze źródła, tylko wartością domyślną — a ponad dwadzieścia
+        powierzchni pyta o `status == published`, żeby ustalić, czy rekrutacja
+        jest otwarta. Na produkcji zostawało im 14 rekordów seeda demo.
+        """
+        assert normalize_job_status(None, is_closed=False) == "published"
+
+    def test_is_closed_still_wins_over_everything(self):
+        """Zamknięcie jest jedynym stanem, który źródło podaje wiarygodnie."""
+        assert normalize_job_status(None, is_closed=True) == "closed"
+        assert normalize_job_status("active", is_closed=True) == "closed"
 
 
 class TestTraffitRecruitmentToJob:
@@ -504,6 +524,57 @@ class TestTraffitRecruitmentToJob:
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):
             traffit_recruitment_to_job({"name": "X"}, {}, {}, None)
+
+    def test_opened_at_comes_from_the_source_not_from_import_time(self):
+        """Bez tego mediana czasu realizacji wynosi 0 dni.
+
+        `jobs.created_at` jest stemplowane `NOW()` przez `_UPSERT_JOB`, więc dla
+        4206 zaimportowanych rekrutacji opisuje moment migracji, a nie start
+        u klienta. Prawdziwa data jest w odpowiedzi LISTY i nic nie kosztuje.
+        """
+        from datetime import datetime, timezone
+
+        payload = _load("recruitments_list.json")[0]
+        result = traffit_recruitment_to_job(payload, {}, {}, None)
+
+        assert result["opened_at"] == datetime(
+            2022, 8, 9, 9, 59, 10, tzinfo=timezone.utc
+        )
+        # tz-aware, bo kolumna jest `timestamp with time zone`, a asyncpg
+        # odrzuca naiwne wartości.
+        assert result["opened_at"].tzinfo is not None
+
+    def test_closed_at_is_set_only_for_a_closed_recruitment(self):
+        """`closing_date` otwartej rekrutacji to PLANOWANY termin.
+
+        Wpisanie go do `closed_at` twierdziłoby, że rekrutacja się zamknęła —
+        i wpuszczałoby ją do okien czasowych raportów, które filtrują po tej
+        kolumnie.
+        """
+        from datetime import date, datetime, timezone
+
+        payload = dict(_load("recruitments_list.json")[0])
+        assert payload["is_closed"] is True
+        closed = traffit_recruitment_to_job(payload, {}, {}, None)
+        assert closed["closed_at"] == datetime(
+            2023, 2, 22, 9, 54, 21, tzinfo=timezone.utc
+        )
+
+        payload["is_closed"] = False
+        still_open = traffit_recruitment_to_job(payload, {}, {}, None)
+        assert still_open["closed_at"] is None
+        # Termin zostaje — to dwie różne informacje.
+        assert still_open["deadline"] == date(2023, 2, 22)
+
+    def test_missing_source_dates_are_none_not_now(self):
+        """Brak daty w źródle nie może zostać podmieniony na „dzisiaj".
+
+        `None` jest sygnałem dla `job_data_trust.duration_available`, żeby
+        metryki czasu odpowiedziały „brak danych źródłowych".
+        """
+        result = traffit_recruitment_to_job({"id": 7, "name": "X"}, {}, {}, None)
+        assert result["opened_at"] is None
+        assert result["closed_at"] is None
 
 
 # ── Faza 5: talent → talent_pool ────────────────────────────────────────────

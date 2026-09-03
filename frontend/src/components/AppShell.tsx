@@ -1163,7 +1163,7 @@ function JobFormFields({
       <FieldGroup label="Tytuł stanowiska" required>
         <Input value={form.title} onChange={e => onChange("title", e.target.value)} placeholder="Senior Java Developer" />
       </FieldGroup>
-      <FieldGroup label="Klient">
+      <FieldGroup label="Klient" required>
         <Select value={form.client_id} onChange={e => onChange("client_id", e.target.value)}>
           <option value="">— wybierz klienta —</option>
           {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1224,10 +1224,10 @@ function JobFormFields({
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Stawka godzinowa min (PLN/h)">
+        <FieldGroup label="Wynagrodzenie min (PLN/mies.)">
           <Input type="number" value={form.salary_min} onChange={e => onChange("salary_min", e.target.value)} placeholder="90" />
         </FieldGroup>
-        <FieldGroup label="Stawka godzinowa max (PLN/h)">
+        <FieldGroup label="Wynagrodzenie max (PLN/mies.)">
           <Input type="number" value={form.salary_max} onChange={e => onChange("salary_max", e.target.value)} placeholder="150" />
         </FieldGroup>
       </div>
@@ -1244,7 +1244,7 @@ function JobFormFields({
             <option value="low">Niski</option>
             <option value="medium">Średni</option>
             <option value="high">Wysoki</option>
-            <option value="critical">Krytyczny</option>
+            <option value="urgent">Krytyczny</option>
           </Select>
         </FieldGroup>
         <FieldGroup label="Deadline">
@@ -1557,6 +1557,12 @@ export function AddJobModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
+    // Backend wymaga `client_id` (JobCreate), a bez tej walidacji użytkownik
+    // dostawał surowe 422 po angielsku: „client_id: Field required".
+    if (!form.client_id) {
+      setError("Wybierz klienta — bez niego nie da się zapisać rekrutacji");
+      return;
+    }
     if (form.client_id && clientTacCount === null) {
       setError("Poczekaj, aż wczytamy TAC-ów przypisanych do klienta");
       return;
@@ -1619,12 +1625,16 @@ export function AddJobModal({
           // Non-fatal: user can still edit collaborators on the job page.
         }
       }
-      onSuccess("Projekt utworzony — AI szuka kandydatów…");
+      // P0-A przeniosło ranking do handoffu („Przekaż do searchu"), więc przy
+      // tworzeniu NIC nie szuka. Komunikat obiecywał pracę, która się nie dzieje,
+      // a redirect prowadził na pustą sekcję propozycji AI — przez co użytkownik
+      // uczył się jej nie ufać.
+      onSuccess("Rekrutacja utworzona. Uzupełnij Profil Championa, żeby przekazać ją do searchu.");
       onClose();
       // Phase 13: redirect to the job detail page with AI proposals section
       // highlighted so the recruiter sees the snapshot load progress.
       if (newJob?.id) {
-        router.push(`/jobs/${newJob.id}?highlight=ai-proposals`);
+        router.push(`/jobs/${newJob.id}?tab=champion-profile`);
       }
     } catch (err: any) {
       setError(formErrorMsg(err, "Błąd podczas zapisywania"));
@@ -1664,7 +1674,22 @@ export function AddJobModal({
           <span className="text-xs text-muted-foreground">Wypełni opis i wymagania automatycznie</span>
         </div>
         {aiError && <div className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{aiError}</div>}
-        {previewTotal > 0 && previewQuery.data && (
+        {/* Awaria zapytania o podobne requesty MUSI być widoczna. Do 0270 cała
+            gałąź wisiała na `previewTotal > 0`, więc padnięte zapytanie
+            renderowało się identycznie jak „u tego klienta nie było nic
+            podobnego" — czyli jako twierdzenie o danych klienta zamiast
+            informacji o awarii. Kolejność jak w TalentRadarResults: błąd przed
+            stanem pustym. */}
+        {previewQuery.isError && (
+          <div
+            className="rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2 text-xs text-destructive"
+            data-testid="request-history-banner-error"
+          >
+            Nie udało się sprawdzić podobnych requestów u tego klienta — to nie
+            znaczy, że ich nie ma. Spróbuj ponownie za chwilę.
+          </div>
+        )}
+        {previewQuery.isSuccess && previewTotal > 0 && previewQuery.data && (
           <div
             className="rounded-lg bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/30 px-3 py-2 text-xs"
             data-testid="request-history-banner"
@@ -1691,7 +1716,15 @@ export function AddJobModal({
                     </a>{" "}
                     <span className="text-primary dark:text-primary">
                       ({r.is_in_progress ? "w toku" : r.outcome ?? "zamknięty"}
-                      {r.tth_days != null ? `, ${r.tth_days}d` : ""})
+                      {/* `null` = nie znamy daty otwarcia rekrutacji (wiersze
+                          sprzed backfillu 0270). Pominięcie tej informacji
+                          czytało się jak „czas nieistotny"; do 0270 pole i tak
+                          zawsze pokazywało „0d", bo liczyło od daty importu. */}
+                      {r.is_in_progress
+                        ? ""
+                        : r.tth_days != null
+                          ? `, ${r.tth_days}d`
+                          : ", czas nieznany"})
                     </span>
                   </li>
                 ))}

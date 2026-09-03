@@ -16,6 +16,14 @@ interface JobHandoffButtonProps {
   jobId: number;
 }
 
+interface JobReadiness {
+  job_id: number;
+  ready: boolean;
+  blockers: string[];
+  closed: boolean;
+  already_handed_off: boolean;
+}
+
 /**
  * DL "Przekaż do searchu" — assign a recruiter and start the (Champion-aware)
  * ranking. Replaces the create-time auto-ranking (P0-A): the recruiter never
@@ -29,6 +37,30 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
   const [blockers, setBlockers] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+
+  // Braki pokazujemy ZANIM ktoś kliknie. Na próbce 100 rekrutacji z produkcji
+  // bramkę przechodzą 23, więc trzy na cztery kliknięcia kończyły się 422
+  // z listą, którą dało się pokazać od razu. Odczyt, nic nie mutuje.
+  const readinessQuery = useQuery({
+    queryKey: ["job-readiness", jobId],
+    queryFn: () =>
+      api
+        .get(`/api/jobs/${jobId}/readiness`)
+        .then((r) => r.data as JobReadiness),
+    staleTime: 30_000,
+  });
+  const readiness = readinessQuery.data;
+  // `isSuccess`, nie `!isLoading`: w przerwie między ponowieniami react-query
+  // ma `isLoading === false` i puste `data`, a wtedy „brak braków" znaczyłoby
+  // „gotowa", zanim cokolwiek jest wiadomo.
+  // `?? []` nie jest kosmetyką: gdy endpoint jest starszy, za proxy albo
+  // zamockowany innym kształtem, `blockers` bywa `undefined` — a `.length`
+  // na nim wywala CAŁY komponent, czyli zabiera przycisk „Przekaż do searchu"
+  // zamiast tylko listy braków.
+  const knownBlockers =
+    readinessQuery.isSuccess && Array.isArray(readiness?.blockers)
+      ? readiness.blockers
+      : [];
 
   const recruitersQuery = useQuery({
     queryKey: ["handoff-recruiters"],
@@ -106,13 +138,40 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
           <button
             type="button"
             onClick={() => setOpen(true)}
+            disabled={knownBlockers.length > 0 || readiness?.closed === true}
             data-testid="handoff-open"
-            className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Przekaż do searchu
           </button>
         )}
       </div>
+
+      {readiness?.closed && (
+        <p
+          data-testid="handoff-closed"
+          className="mt-3 text-xs text-muted-foreground"
+        >
+          Rekrutacja jest zamknięta — nie przekazuje się jej do searchu.
+        </p>
+      )}
+
+      {!readiness?.closed && knownBlockers.length > 0 && (
+        <div
+          data-testid="handoff-readiness-blockers"
+          className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2"
+        >
+          <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Zanim przekażesz do searchu, uzupełnij:
+          </div>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-amber-700 dark:text-amber-300">
+            {knownBlockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {open && (
         <div className="mt-3 space-y-3">

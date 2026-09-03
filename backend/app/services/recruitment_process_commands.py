@@ -22,7 +22,7 @@ from sqlalchemy import Select, and_, delete, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
     CandidateStage,
@@ -654,7 +654,11 @@ async def transition_process(
         frozen_origin_assignment_id=frozen_origin_assignment_id,
         frozen_priority_compliant=frozen_priority_compliant,
         work_channel=work_channel,
-        job_is_open=job.status == JobStatus.published,
+        # `is_open` (0270), nie `status`: to pytanie brzmi „czy MY prowadzimy
+        # tę rekrutację", a nie „czy żyje u klienta". Status jest lustrem
+        # Traffita i po naprawie mapowania obejmuje ~305 rekrutacji, z których
+        # zdecydowanej większości nikt nie przekazał do searchu.
+        job_is_open=job.is_open,
     )
 
     values = dict(candidate_stage_values)

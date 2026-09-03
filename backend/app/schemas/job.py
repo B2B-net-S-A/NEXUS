@@ -187,6 +187,9 @@ class JobResponse(BaseModel):
     rate_budget_hourly: Optional[float] = None
     remote_policy: RemotePolicy
     status: JobStatus
+    # Czy rekrutacja jest aktywnie prowadzona w NEXUSIE (0270). NIE to samo co
+    # `status`, który jest lustrem Traffita — patrz `models/job.py`.
+    is_open: bool = False
     priority: JobPriority
     needs_sourcing: bool = False
     recruitment_type: RecruitmentType
@@ -214,6 +217,7 @@ class JobResponse(BaseModel):
     criteria_generated_at: Optional[datetime] = None
     pipeline_template_id: Optional[int] = None
     competence_category_id: Optional[int] = None
+    opened_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
     close_reason: Optional[JobCloseReason] = None
     close_notes: Optional[str] = None

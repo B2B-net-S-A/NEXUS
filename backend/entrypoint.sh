@@ -3871,6 +3871,12 @@ _COLUMN_STATEMENTS = [
         stats JSONB NULL,
         updated_at TIMESTAMPTZ NULL
     )""",
+    # 0270: rekrutacje — data otwarcia ze źródła + własna „otwartość" NEXUSA.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS opened_at TIMESTAMPTZ",
+    """ALTER TABLE jobs
+        ADD COLUMN IF NOT EXISTS is_open BOOLEAN NOT NULL DEFAULT false""",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_opened_at ON jobs (opened_at)",
+    "CREATE INDEX IF NOT EXISTS ix_jobs_is_open ON jobs (is_open) WHERE is_open",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -4624,9 +4630,14 @@ _DATA_STATEMENTS = [
        FROM ranked
        WHERE document.id = ranked.id
          AND ranked.position > 1""",
-    # Backfill closed_at for historical closed rows so reports sort by "real
-    # close date" instead of NULL. Safe because only touches NULL rows.
-    "UPDATE jobs SET closed_at = updated_at WHERE status = 'closed' AND closed_at IS NULL",
+    # USUNIĘTE w 0270: `UPDATE jobs SET closed_at = updated_at ...`.
+    # Ta linia leciała przy KAŻDYM starcie kontenera, a `_UPSERT_JOB` stempluje
+    # `updated_at = NOW()` przy każdym dotknięciu wiersza — więc `closed_at`
+    # wychodził znacznikiem syncu, nie datą zamknięcia (3584 zamknięcia
+    # wylądowały w maju 2026, mediana czasu realizacji = 0 dni). Komentarz
+    # „safe because only touches NULL rows" był prawdziwy co do bezpieczeństwa
+    # zapisu i mylący co do skutku: każdy świeżo zamknięty wiersz JEST NULL-em.
+    # Datę zamknięcia mapuje teraz importer z `closing_date` ze źródła.
     # Pre-flag roles that don't need onboarding (mirrors migration 0035 step)
     """UPDATE users
           SET profile_completed = TRUE,

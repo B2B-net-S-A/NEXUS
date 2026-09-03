@@ -22,7 +22,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.invite_link import CandidateInviteLink
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.recruitment_priority import PriorityChannel, PriorityMemberStatus
 from app.models.user import User, UserRole
 from app.schemas.invite_link import (
@@ -116,10 +116,13 @@ async def create_invite_link(
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.status != JobStatus.published:
+    if not job.is_open:
         raise HTTPException(
             status_code=400,
-            detail="Job must be published to generate an invite link",
+            detail=(
+                "Job must be handed off to search before an invite link can be "
+                "generated"
+            ),
         )
 
     decision = await assert_priority_work_access(

@@ -622,14 +622,26 @@ async def build_delivery_lead_dashboard(
     risk_board: list[DeliveryRiskBoardRow] = []
     alerts: list[DashboardAlert] = []
     for job in jobs:
-        created_at = (
-            job.created_at
-            if job.created_at.tzinfo
-            else job.created_at.replace(tzinfo=timezone.utc)
-        )
-        age_days = max(0, (now - created_at).days)
+        # Wiek rekrutacji liczony od `opened_at` (0270). `created_at` dla 4206
+        # wierszy z Traffita to znacznik importu, więc każda z nich wyglądała
+        # na starą — i bez rekomendacji wpadała prosto do kubełka „critical".
+        opened_at = job.opened_at
+        if opened_at is not None and opened_at.tzinfo is None:
+            opened_at = opened_at.replace(tzinfo=timezone.utc)
+        age_days = None if opened_at is None else max(0, (now - opened_at).days)
+
         missing_recommendation = job.first_recommendation_at is None
-        if missing_recommendation and (age_days >= 7 or job.priority == "urgent"):
+        if age_days is None:
+            # Nie wiemy, ile ta rekrutacja czeka — a „brak rekomendacji od
+            # nieznanego czasu" to nie to samo co „od siedmiu dni". Priorytet
+            # nadal wystarcza, żeby podnieść alarm, bo on nie zależy od wieku.
+            if missing_recommendation and job.priority == "urgent":
+                risk = "critical"
+            elif missing_recommendation and job.priority == "high":
+                risk = "warning"
+            else:
+                risk = "info"
+        elif missing_recommendation and (age_days >= 7 or job.priority == "urgent"):
             risk = "critical"
         elif missing_recommendation and (age_days >= 3 or job.priority == "high"):
             risk = "warning"

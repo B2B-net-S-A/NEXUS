@@ -1071,9 +1071,14 @@ interface CoopStatsRow {
   placements: number;
   total_vacancies: number;
   hit_ratio: number;
-  fill_rate: number;
+  /** `null` = nie da się policzyć (żadna zamknięta rekrutacja nie deklaruje
+   *  headcountu). NIE to samo co 0% — patrz `services/job_data_trust.py`. */
+  fill_rate: number | null;
+  fill_rate_source?: string;
   active_jobs: number;
   target_achieved: boolean;
+  /** Odsetek zamknięć ze znanym powodem; `null` gdy brak zamknięć. */
+  outcome_coverage_pct?: number | null;
 }
 
 interface CoopStatsResponse {
@@ -1177,9 +1182,9 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
                 {row!.placements}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {row!.total_vacancies > 0
+                {row!.fill_rate !== null && row!.total_vacancies > 0
                   ? `z ${row!.total_vacancies} miejsc · fill ${row!.fill_rate.toFixed(1)}%`
-                  : "—"}
+                  : "brak zadeklarowanych etatów"}
               </div>
             </div>
             <div className="bg-card dark:bg-muted rounded-lg border border-border dark:border-border p-4">

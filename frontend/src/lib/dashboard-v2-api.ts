@@ -105,7 +105,9 @@ export interface DeliveryRiskBoardRow {
   priority: string;
   open_vacancies: number;
   tac_user_id: number | null;
-  age_days: number;
+  /** `null` = nie znamy daty otwarcia rekrutacji (0270). Zero znaczyłoby
+   *  „otwarta dzisiaj”, a przed backfillem byłaby to data importu. */
+  age_days: number | null;
   first_recommendation_at: string | null;
   risk: DashboardSeverity;
   next_action_href: string;
