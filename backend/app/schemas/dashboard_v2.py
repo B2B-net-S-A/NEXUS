@@ -364,7 +364,12 @@ class RecruitmentTeamTable(DashboardModel):
 
 
 class RecruitmentFunnelConversions(DashboardModel):
-    """Konwersje ze zliczeń okresu (nie kohorty); mianownik 0 → None."""
+    """Konwersje ze zliczeń okresu (nie kohorty).
+
+    `None` ma dwa znaczenia i rozróżnia je wyłącznie `uncovered`: mianownik
+    był zerowy, albo któryś operand pochodzi z etapu bez pokrycia w imporcie
+    (wtedy nazwa pola jest w `uncovered`, a `coverage_note` mówi dlaczego).
+    """
 
     verified_to_recommendation_pct: float | None = None
     recommendation_to_interview_pct: float | None = None
@@ -372,6 +377,8 @@ class RecruitmentFunnelConversions(DashboardModel):
     acceptance_to_placement_pct: float | None = None
     interview_to_placement_pct: float | None = None
     overall_pct: float | None = None
+    uncovered: list[str] = Field(default_factory=list)
+    coverage_note: str | None = None
 
 
 class CompetitionRankingEntry(DashboardModel):

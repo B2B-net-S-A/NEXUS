@@ -127,6 +127,8 @@ function fullResponse(): RecruitmentStatsResponse {
         acceptance_to_placement_pct: 58.3,
         interview_to_placement_pct: 17.1,
         overall_pct: 5.3,
+        uncovered: [],
+        coverage_note: null,
       },
       quarterly_league: null,
       monthly_races: null,

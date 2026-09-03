@@ -198,8 +198,16 @@ def test_funnel_conversions_null_denominator_and_rounding():
     assert empty.interview_to_placement_pct is None
     assert empty.overall_pct is None
 
+    # `uncovered_stages=frozenset()` — to jest test ZAOKRĄGLEŃ, więc pytamy
+    # o świat, w którym każdy etap ma pokrycie. Bez tego guard pokrycia
+    # wygasiłby dwa stopnie i asercje mówiłyby o czymś innym, niż nazwa testu.
     conv = funnel_conversions(
-        weryfikacje=132, rekomendacje=97, interview=41, akceptacje=12, placementy=7
+        weryfikacje=132,
+        rekomendacje=97,
+        interview=41,
+        akceptacje=12,
+        placementy=7,
+        uncovered_stages=frozenset(),
     )
     assert conv.verified_to_recommendation_pct == 73.5
     assert conv.recommendation_to_interview_pct == 42.3
@@ -215,3 +223,62 @@ def test_funnel_conversions_null_denominator_and_rounding():
     assert partial.verified_to_recommendation_pct == 0.0
     assert partial.recommendation_to_interview_pct is None
     assert partial.overall_pct == 20.0
+
+
+# ── Guard pokrycia: metryka bez danych mówi „nie wiem" ───────────────────────
+
+
+def test_conversions_through_an_unrecorded_stage_are_none_not_a_number():
+    """Odtworzenie kafla z produkcji: 3257,1% i 0,2% z tej samej siódemki."""
+    conv = funnel_conversions(
+        weryfikacje=6975,
+        rekomendacje=5232,
+        interview=3416,
+        akceptacje=7,
+        placementy=228,
+    )
+
+    # Dwie liczby psute przez ten sam etap bez pokrycia — raz przez mianownik,
+    # raz przez licznik.
+    assert conv.acceptance_to_placement_pct is None  # było 3257.1
+    assert conv.interview_to_acceptance_pct is None  # było 0.2
+    assert set(conv.uncovered) == {
+        "interview_to_acceptance_pct",
+        "acceptance_to_placement_pct",
+    }
+    assert conv.coverage_note and "Akceptacja" in conv.coverage_note
+
+    # Zdrowe zostają nietknięte — guard nie jest sufitem na wszystko.
+    assert conv.verified_to_recommendation_pct == 75.0
+    assert conv.recommendation_to_interview_pct == 65.3
+    assert conv.interview_to_placement_pct == 6.7
+    assert conv.overall_pct == 3.3
+
+
+def test_a_real_zero_is_still_zero_and_is_distinguishable_from_no_coverage():
+    """Trzy różne rzeczy, trzy różne odpowiedzi — `None` bez `uncovered` to luka."""
+    conv = funnel_conversions(
+        weryfikacje=10, rekomendacje=0, interview=0, akceptacje=0, placementy=0
+    )
+
+    assert conv.verified_to_recommendation_pct == 0.0  # obserwacja, nie brak
+    assert conv.recommendation_to_interview_pct is None  # mianownik 0
+    assert conv.interview_to_acceptance_pct is None  # brak pokrycia
+    assert "recommendation_to_interview_pct" not in conv.uncovered
+    assert "interview_to_acceptance_pct" in conv.uncovered
+
+
+def test_closing_the_traffit_mapping_brings_the_metric_back():
+    """Wygaszenie nie jest wieczne — po domknięciu mapowania liczba wraca."""
+    conv = funnel_conversions(
+        weryfikacje=132,
+        rekomendacje=97,
+        interview=41,
+        akceptacje=12,
+        placementy=7,
+        uncovered_stages=frozenset(),
+    )
+
+    assert conv.acceptance_to_placement_pct == 58.3
+    assert conv.uncovered == ()
+    assert conv.coverage_note is None

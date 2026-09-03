@@ -457,6 +457,22 @@ _DEFAULT_STATE_MAPPING = {
     "is_terminal": False,
 }
 
+# Etapy NEXUSA, na które import z Traffita w ogóle potrafi trafić.
+#
+# WYPROWADZONE z mapy powyżej, nie przepisane — i stoi tuż obok niej celowo,
+# żeby nie dało się zmienić jednego bez drugiego. Dopełnienie tego zbioru
+# (`PipelineStage` minus ten zbiór) to etapy BEZ POKRYCIA: nie ma ich skąd
+# zapełnić, więc metryka licząca iloraz przez taki etap podaje liczbę, która
+# nie opisuje rzeczywistości (na produkcji: `akceptacja → placement = 3257,1%`
+# przy 7 akceptacjach rocznie wobec 228 placementów).
+#
+# Konsument: `app.services.funnel_coverage`. Gdy mapowanie zostanie domknięte,
+# zbiór etapów bez pokrycia skurczy się SAM.
+TRAFFIT_MAPPED_LEGACY_STAGES: frozenset[str] = frozenset(
+    {mapping["legacy"] for mapping in _TRAFFIT_STATE_TYPE_MAP.values()}
+    | {_DEFAULT_STATE_MAPPING["legacy"]}
+)
+
 
 def map_traffit_state_to_pipeline(state: dict[str, Any]) -> dict[str, Any]:
     """Zwraca mapping z PipelineStageDef-friendly polami dla Traffit state.

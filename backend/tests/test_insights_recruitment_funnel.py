@@ -780,3 +780,36 @@ async def test_invite_links_conversion_is_none_not_zero_on_empty_window(
     assert body["channels"] == []
     assert body["totals"]["links"] == 0
     assert body["totals"]["conversion_pct"] is None
+
+
+def test_no_insights_conversion_leans_on_an_unrecorded_stage():
+    """Strażnik na przyszłość — nie dla dzisiejszego stanu.
+
+    Dziś wszystkie cztery konwersje tego lejka operują na etapach mapowanych,
+    więc guard pokrycia (kafle dashboardu) nie ma tu czego wygaszać. Gdyby ktoś
+    dołożył „Rozmowy → Akceptacja", musi świadomie przejść przez ten sam
+    mechanizm zamiast po cichu dodać metrykę bez danych.
+    """
+    from app.api.insights_recruitment import CONVERSIONS
+    from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
+
+    for conversion in CONVERSIONS:
+        operands = {conversion["numerator"], conversion["denominator"]}
+        assert operands.isdisjoint(STAGES_WITHOUT_TRAFFIT_COVERAGE), conversion["key"]
+
+
+def test_stage_coverage_flag_matches_the_shared_source_of_truth():
+    """Kontrakt API jest wiązany ze wspólną stałą, nie z ręczną kopią listy."""
+    from app.api.insights_recruitment import FUNNEL_STAGES
+    from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
+
+    unmapped = {s["stage"] for s in FUNNEL_STAGES if not s["mapped_from_traffit"]}
+    assert unmapped == set(STAGES_WITHOUT_TRAFFIT_COVERAGE)
+    # Literał — derywacja porównana sama ze sobą nie dowodzi niczego.
+    assert unmapped == {
+        "prep_call",
+        "client_interview",
+        "acceptance",
+        "negotiation",
+        "onboarding",
+    }
