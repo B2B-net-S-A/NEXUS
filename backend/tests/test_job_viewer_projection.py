@@ -39,6 +39,17 @@ class _StubUser:
     def has_any_role(self, *rs) -> bool:
         return any(self.has_role(r) for r in rs)
 
+    def get_all_roles(self) -> set[UserRole]:
+        resolved: set[UserRole] = set()
+        if self.role is not None:
+            resolved.add(self.role)
+        for role in self.roles or []:
+            try:
+                resolved.add(UserRole(role))
+            except ValueError:
+                continue
+        return resolved
+
 
 def _make_job_dict() -> dict:
     return {

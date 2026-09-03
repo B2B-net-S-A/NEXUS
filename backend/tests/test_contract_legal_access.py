@@ -156,6 +156,14 @@ async def test_every_role_passes_generator_auth(
     if role_value == "talent_community_manager":
         assert r.status_code == 403, r.text
         assert r.json()["detail"]["code"] == "finance_fields_forbidden"
+    elif role_value == "user":
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"] == {
+            "code": "section_access_denied",
+            "section": "sourcing",
+            "required": "write",
+            "granted": "read",
+        }
     else:
         assert r.status_code == 404, (
             f"{role_value} POST generate → {r.status_code}: {r.text}"
@@ -202,21 +210,29 @@ async def test_unscoped_roles_can_browse_generator(
         )
 
     # Drafting is reachable for document operators. TCM is a deliberate 403 at
-    # the finance boundary, not a client-scope denial.
+    # the finance boundary; the plain viewer is read-only in Sourcing.
     r = await app_client.post(
         GENERATE_URL,
         json={"role_id": 999999, "start_date": "2026-01-01"},
         headers=headers,
     )
-    expected = 403 if role_value == "talent_community_manager" else 404
-    assert r.status_code == expected, (
+    post_expected = 403 if role_value in {"talent_community_manager", "user"} else 404
+    assert r.status_code == post_expected, (
         f"unassigned {role_value} POST generate → {r.status_code}: {r.text}"
     )
+    if role_value == "user":
+        assert r.json()["detail"] == {
+            "code": "section_access_denied",
+            "section": "sourcing",
+            "required": "write",
+            "granted": "read",
+        }
 
     # Opaque DOCX can contain rates. Missing id therefore produces the same
-    # split: TCM is rejected before lookup, other roles reach the 404.
+    # split: TCM is rejected before lookup, read-authorized roles reach the 404.
     r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
-    assert r.status_code == expected, (
+    docx_expected = 403 if role_value == "talent_community_manager" else 404
+    assert r.status_code == docx_expected, (
         f"unassigned {role_value} GET generated/docx → {r.status_code}: {r.text}"
     )
 

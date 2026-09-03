@@ -9,6 +9,7 @@ notification type cannot silently become visible to every authenticated user.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any
 
@@ -24,6 +25,9 @@ from app.services.section_permissions import (
     resolve_effective_section_access_for_users,
     section_access_for_user,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
@@ -348,6 +352,11 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
         try:
             notification_type = NotificationType(raw_type)
         except (TypeError, ValueError):
+            logger.warning(
+                "Dropping realtime notification with unknown type=%r for user_id=%s",
+                raw_type,
+                user.id,
+            )
             return False
         return user_can_receive_notification(
             user,

@@ -447,7 +447,6 @@ async def run_contract_alerts_cycle() -> dict:
 
     # Compliance: NIP / OC / ZUS expiring soon
     async with AsyncSessionLocal() as db:
-        recipient_scope = await load_delivery_alert_recipient_scope(db)
         if not recipient_scope.is_empty:
             expiring = await _compliance_documents_expiring(db)
             client_ids = await _client_ids_by_contract_id(
@@ -495,7 +494,6 @@ async def run_contract_alerts_cycle() -> dict:
 
     # Equipment returns due within 14 days.
     async with AsyncSessionLocal() as db:
-        recipient_scope = await load_delivery_alert_recipient_scope(db)
         if not recipient_scope.is_empty:
             due = await _equipment_due_for_return(db)
             client_ids = await _client_ids_by_contract_id(
@@ -547,7 +545,6 @@ async def run_contract_alerts_cycle() -> dict:
 
     # Client orders expiring in 30 days (often earlier than the consultant contract).
     async with AsyncSessionLocal() as db:
-        recipient_scope = await load_delivery_alert_recipient_scope(db)
         if not recipient_scope.is_empty:
             orders = await _client_orders_ending(db)
             already = await _client_order_already_notified(db)

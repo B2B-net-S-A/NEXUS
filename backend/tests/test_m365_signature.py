@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.core.config import settings
+from app.models.section_permission import RoleSectionPermission, UserSectionOverride
 from app.models.user import User, UserRole
 from app.services.m365 import sender as sender_mod
 from app.services.m365 import signature_cache
@@ -35,6 +36,7 @@ from app.services.m365.signature_cache import (
     extract_signature,
     get_outlook_signature,
 )
+from app.services.section_permissions import DEFAULT_ROLE_SECTION_ACCESS
 
 
 # ── extract_signature ────────────────────────────────────────────────────────
@@ -420,6 +422,15 @@ class _FakeAsyncSession:
             roles=[UserRole.recruiter.value],
             is_active=True,
         )
+        self.role_rows = [
+            RoleSectionPermission(
+                role=role.value,
+                section=section.value,
+                access=access.name,
+            )
+            for role, policy in DEFAULT_ROLE_SECTION_ACCESS.items()
+            for section, access in policy.items()
+        ]
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)
@@ -431,6 +442,12 @@ class _FakeAsyncSession:
         if model is User and row_id == self.owner.id:
             return self.owner
         return None
+
+    async def scalars(self, statement: Any) -> Any:
+        entity = statement.column_descriptions[0].get("entity")
+        rows = self.role_rows if entity is RoleSectionPermission else []
+        assert entity in {RoleSectionPermission, UserSectionOverride}
+        return SimpleNamespace(all=lambda: rows)
 
 
 class _FakeGraphClient:

@@ -11,6 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User, UserRole
 
 
+# Process-wide PostgreSQL advisory key reserved for serialising changes that
+# could remove the final active administrator. Parameterising it keeps the lock
+# visible to database observability without embedding a magic literal in SQL.
+_ACTIVE_ADMIN_MEMBERSHIP_LOCK_KEY = 72_622_401
+
+
 async def protect_active_admin_membership(
     db: AsyncSession,
     *,
@@ -48,7 +54,10 @@ async def protect_active_admin_membership(
 
     bind = db.get_bind()
     if bind.dialect.name == "postgresql":
-        await db.execute(text("SELECT pg_advisory_xact_lock(72622401)"))
+        await db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": _ACTIVE_ADMIN_MEMBERSHIP_LOCK_KEY},
+        )
     remaining = await db.scalar(
         select(func.count(User.id)).where(
             User.id != target.id,

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.api import email_threads, microsoft365
-from app.api.candidate_access import CandidatePIIAccess
+from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
 from app.models.m365 import M365Connection
 from app.models.user import User, UserRole
 
@@ -28,10 +28,10 @@ def _user(role: UserRole) -> User:
     )
 
 
-def test_all_user_facing_m365_and_mailbox_routes_use_candidate_pii_guard() -> None:
+def test_all_user_facing_m365_and_mailbox_routes_use_candidate_guard() -> None:
     """A future sibling route must not silently fall back to plain auth."""
 
-    handlers = (
+    read_handlers = (
         microsoft365.authorize,
         microsoft365.get_connection,
         microsoft365.disconnect,
@@ -41,15 +41,20 @@ def test_all_user_facing_m365_and_mailbox_routes_use_candidate_pii_guard() -> No
         email_threads.list_thread_messages,
         email_threads.get_email,
         email_threads.download_attachment,
-        email_threads.compose_email,
         email_threads.search_emails,
+    )
+    write_handlers = (
+        email_threads.compose_email,
         email_threads.reply_email,
         email_threads.bulk_email_action,
     )
 
-    for handler in handlers:
+    for handler in read_handlers:
         annotation = get_type_hints(handler, include_extras=True)["current_user"]
         assert annotation == CandidatePIIAccess, handler.__name__
+    for handler in write_handlers:
+        annotation = get_type_hints(handler, include_extras=True)["current_user"]
+        assert annotation == CandidateWriteAccess, handler.__name__
 
 
 def test_email_search_openapi_keeps_current_user_as_dependency() -> None:
