@@ -257,6 +257,8 @@ async def test_restore_revives_the_ended_contract(
 
     Konsultant zostaje w zakładce „Zakończeni" mimo aktywnej linii, a nocny
     cron widzi ``end_date < today``, stawia ``ended`` i ponownie domyka linię.
+    Od 09.2026 wskrzeszona umowa jest BEZTERMINOWA, więc cron w ogóle jej nie
+    ogląda (pomija ``end_date IS NULL``) — to ta sama ochrona, mocniejsza.
     """
     seed = await _seed_pending_case()
     _enable_multi(monkeypatch, seed["client_id"])
@@ -274,9 +276,10 @@ async def test_restore_revives_the_ended_contract(
 
     contract = await _contract_state(seed["contract_id"])
     assert contract["status"] == "active"
-    # Horyzont umowy musi sięgać co najmniej tak daleko jak zamówienie —
-    # inaczej nocna promocja statusów zdemotuje ją tej samej nocy.
-    assert contract["end_date"] >= seed["group_end"]
+    # Data końca umowy nie pochodzi z zamówienia (reguła zakładki
+    # „Zakończeni"): wskrzeszona umowa jest bezterminowa, więc nocna promocja
+    # statusów jej nie dotyka. Datę wpisuje administracja w Kontraktach.
+    assert contract["end_date"] is None
 
 
 async def test_restore_records_its_own_event(
