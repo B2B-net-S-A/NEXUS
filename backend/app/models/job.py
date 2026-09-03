@@ -102,6 +102,22 @@ class Job(Base, TimestampMixin):
         Enum(JobStatus), default=JobStatus.draft, nullable=False, index=True
     )
 
+    # „Czy MY aktywnie prowadzimy tę rekrutację" (migracja 0270) — kolumna
+    # NEXUSA, której sync Traffita NIGDY nie dotyka (patrz
+    # `services/job_column_ownership.py`).
+    #
+    # Nie myl ze `status` wyżej: ten mówi, czy rekrutacja żyje U KLIENTA, i jest
+    # lustrem Traffita. Do 0270 oba pytania dzieliły jedną kolumnę, przez co
+    # odpowiedź na oba była zła. Rozdzielenie pozwala mechanizmom działającym
+    # (Priority Work, digest dopasowań, alerty deadline'ów, linki zaproszeniowe)
+    # ruszać tylko dla rekrutacji faktycznie przekazanych do searchu, a licznikom
+    # — pokazywać wszystko, co u klienta otwarte.
+    #
+    # Ustawiane przez `POST /jobs/{id}/handoff`, zerowane przy zamknięciu.
+    is_open: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False, index=True
+    )
+
     priority: Mapped[JobPriority] = mapped_column(
         Enum(JobPriority), default=JobPriority.medium, nullable=False
     )
@@ -171,9 +187,26 @@ class Job(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    # Data OTWARCIA rekrutacji (migracja 0270). `created_at` niżej mówi, kiedy
+    # wiersz trafił do NEXUSA — dla 4206 rekrutacji z Traffita jest to moment
+    # importu, nie moment startu u klienta. Prawda biznesowa mieszka tutaj:
+    # dla wierszy z Traffita z `created_at` odpowiedzi `/recruitments/`, dla
+    # założonych w NEXUSIE równa `created_at`.
+    #
+    # NULL znaczy „nie wiemy", a nie „brak" — `services/job_data_trust.py`
+    # czyta to i każe metrykom czasu odpowiedzieć „brak danych źródłowych"
+    # zamiast liczyć od daty importu (co dawało medianę TTH równą 0 dni).
+    opened_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+
     # Timestamp zamknięcia zapytania — ustawiany przy zmianie statusu na `closed`.
     # Używany przez /api/reports/clients (hit ratio per client) do filtra okresu.
-    # Historycznie backfillowany z `updated_at` w migracji 0047_job_closed_at.
+    #
+    # Do 0270 wiersze z Traffita dostawały tu `updated_at` przez backfill
+    # odpalany w `entrypoint.sh` przy KAŻDYM starcie kontenera — czyli znacznik
+    # syncu, nie datę zamknięcia. Teraz importer mapuje `closing_date` ze
+    # źródła, a backfill został usunięty.
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )

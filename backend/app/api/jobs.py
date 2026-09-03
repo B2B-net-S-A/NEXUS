@@ -1394,6 +1394,11 @@ async def update_job(
     if status_flipped:
         if new_status == JobStatus.closed:
             job.closed_at = datetime.now(timezone.utc)
+            # Lustro `close_job`. Odwrotnie NIE działa: wyjście ze stanu
+            # `closed` nie wskrzesza `is_open`, bo „prowadzimy tę rekrutację"
+            # jest decyzją człowieka (handoff), a nie skutkiem ubocznym
+            # odblokowania statusu przez sync Traffita.
+            job.is_open = False
             await maybe_close_job_contact_opportunities(
                 db,
                 job_id=job_id,
@@ -1571,6 +1576,9 @@ async def close_job(
 
     job.status = JobStatus.closed
     job.closed_at = datetime.now(timezone.utc)
+    # Zamknięta rekrutacja nie jest przez nikogo prowadzona — bez tego digest
+    # dopasowań i alerty terminów chodziłyby po niej dalej (0270).
+    job.is_open = False
     job.close_reason = data.reason
     job.close_notes = data.notes
     await maybe_close_job_contact_opportunities(
@@ -1761,9 +1769,14 @@ async def update_champion_profile(
     # wszystkiego, co naprawdę go czyta.
     stack_must = [{"name": item.name, "level": None} for item in profile.stack.must]
     stack_nice = [{"name": item.name, "level": None} for item in profile.stack.nice]
-    if stack_must:
+    # Synchronizujemy, gdy edytor PRZYSŁAŁ sekcję `stack` — także wtedy, gdy
+    # przysłał ją pustą. Warunek `if stack_must:` sprawiał, że wyczyszczenie
+    # stacku w edytorze nigdy nie czyściło kolumn: Delivery Lead widział pustą
+    # sekcję, a scoring, filtry i mapa wymagań dalej czytały skasowane
+    # technologie. Payload BEZ sekcji `stack` nadal nie rusza kolumn — to
+    # odróżnia „wyczyściłem" od „nie dotykałem".
+    if "stack" in (payload or {}):
         job.must_skills = stack_must
-    if stack_nice:
         job.nice_skills = stack_nice
 
     # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
@@ -1969,6 +1982,12 @@ async def handoff_job_to_search(
         )
 
     job.recruiter_id = recruiter.id
+    # Handoff jest MOMENTEM, w którym rekrutacja staje się nasza (0270). Do tej
+    # pory „prowadzimy ją" znaczyło `status == published`, czyli pole będące
+    # lustrem Traffita — przez co Priority Work, digest dopasowań, alerty
+    # terminów i linki zaproszeniowe działały dla 14 rekordów demo i dla niczego
+    # więcej. Teraz włącza je ta jedna linia.
+    job.is_open = True
     db.add(
         Activity(
             entity_type="job",

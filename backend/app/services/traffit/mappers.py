@@ -686,11 +686,28 @@ _JOB_STATUS_MAP: dict[str, str] = {
 
 
 def normalize_job_status(raw: Optional[str], is_closed: bool = False) -> str:
+    """Status rekrutacji z payloadu Traffita.
+
+    `is_closed` rządzi, bo jest to JEDYNE pole o stanie rekrutacji, które
+    odpowiedź LISTY `/recruitments/` naprawdę niesie — i niesie wiarygodnie
+    (wyprodukowało 3924 poprawnie zamknięte rekrutacje na produkcji).
+
+    Brak `raw` znaczy „nie wiemy", a nie „szkic". Importer czyta listę, a ta
+    — w odróżnieniu od odpowiedzi szczegółowej — nie ma w ogóle klucza
+    `status`; potwierdza to fixture `recruitments_list.json` oraz produkcja,
+    gdzie `custom_fields.traffit_raw_status` jest NULL na 4206 z 4206
+    zaimportowanych wierszy. Zwracany do 0270 `draft` nie był więc informacją,
+    tylko wartością domyślną — i ukrywał 291 realnie otwartych rekrutacji
+    przed kilkunastoma powierzchniami pytającymi o `status == published`.
+
+    Mapa niżej zostaje na wypadek, gdyby Traffit zaczął kiedyś podawać `status`
+    w liście albo gdyby ktoś dołożył pobieranie szczegółów.
+    """
     if is_closed:
         return "closed"
     if not raw:
-        return "draft"
-    return _JOB_STATUS_MAP.get(raw.strip().lower(), "draft")
+        return "published"
+    return _JOB_STATUS_MAP.get(raw.strip().lower(), "published")
 
 
 def traffit_recruitment_to_job(
@@ -733,13 +750,20 @@ def traffit_recruitment_to_job(
     is_closed = bool(payload.get("is_closed") or False)
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
 
-    deadline: Optional[date] = None
-    if isinstance(closing_date, str) and closing_date.strip():
-        # Take date portion (yyyy-MM-dd) and convert to datetime.date for asyncpg.
-        try:
-            deadline = date.fromisoformat(closing_date.split(" ")[0])
-        except ValueError:
-            deadline = None
+    closing_dt = _parse_traffit_datetime(closing_date)
+    deadline: Optional[date] = closing_dt.date() if closing_dt else None
+
+    # Data otwarcia rekrutacji U KLIENTA. `jobs.created_at` jest stemplowane
+    # `NOW()` przy insercie, więc dla 4206 zaimportowanych wierszy opisuje
+    # moment importu — stąd mediana czasu realizacji równa 0 dni. Traffit
+    # podaje prawdziwą datę w `created_at` i podaje ją w odpowiedzi LISTY,
+    # więc nie kosztuje ani jednego dodatkowego zapytania.
+    opened_at = _parse_traffit_datetime(payload.get("created_at"))
+
+    # Data zamknięcia — TYLKO dla rekrutacji faktycznie zamkniętych. Dla
+    # otwartych `closing_date` znaczy „planowany termin", nie „zamknięto”,
+    # i trafia wyłącznie do `deadline` wyżej.
+    closed_at = closing_dt if is_closed else None
 
     return {
         "external_id": str(traffit_id),
@@ -751,6 +775,8 @@ def traffit_recruitment_to_job(
         "recruiter_id": recruiter_id,
         "reference_number": _pick_nonempty(payload.get("nrRef")),
         "deadline": deadline,
+        "opened_at": opened_at,
+        "closed_at": closed_at,
         "custom_fields": {
             "traffit_is_confidential": bool(payload.get("is_confidential") or False),
             "traffit_raw_status": payload.get("status"),

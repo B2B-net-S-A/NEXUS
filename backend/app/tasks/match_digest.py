@@ -37,7 +37,7 @@ from sqlalchemy import select, text
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 
@@ -224,7 +224,10 @@ async def run_match_digest() -> dict[str, Any]:
             (
                 await db.execute(
                     select(Job).where(
-                        Job.status == JobStatus.published,
+                        # Digest chodzi po rekrutacjach REALNIE prowadzonych
+                        # w NEXUSIE (0270). Na `status` wysyłałby maile o ~305
+                        # ofertach z Traffita, których nikt tu nie obsługuje.
+                        Job.is_open.is_(True),
                         (Job.recruiter_id.isnot(None)) | (Job.tac_id.isnot(None)),
                     )
                 )
