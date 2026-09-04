@@ -826,6 +826,13 @@ function AIMatchingSection({
   // Server echoes the effective location filter it applied (param, or the
   // job's own location). Non-empty → results are location-restricted.
   const locationActive = Boolean(data?.location_filter);
+  // Dealbreaker-switche: liczniki ukrytych per powód. „Ukrywanie nigdy nie jest
+  // ciche" (dealbreaker_filters) — pokazujemy pasek z rozbiciem. Bramka
+  // dopuszczalności NIE trafia tu: `warn` są widoczni z powodem na wierszu,
+  // a `hidden` (globalna blacklista) świadomie nie są liczeni (wyrocznia NDA).
+  const hiddenMeta = data?.meta?.hidden;
+  const hiddenTotal =
+    (hiddenMeta?.over_budget ?? 0) + (hiddenMeta?.remote_only ?? 0);
 
   return (
     <div className="space-y-4">
@@ -898,6 +905,29 @@ function AIMatchingSection({
         </div>
       )}
 
+      {!isLoading && !isError && hiddenTotal > 0 && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+        >
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Ukryto <strong>{hiddenTotal}</strong>
+            {hiddenMeta?.over_budget
+              ? `: stawka ponad budżet ${hiddenMeta.over_budget}`
+              : ""}
+            {hiddenMeta?.remote_only
+              ? `${hiddenMeta?.over_budget ? ", " : ": "}tylko zdalnie ${hiddenMeta.remote_only}`
+              : ""}
+            .
+          </span>
+          <span className="text-muted-foreground">
+            Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka
+            zawsze przechodzi.
+          </span>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -932,9 +962,26 @@ function AIMatchingSection({
             const isAdding = addingId === c.id;
             const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
             const avatarColor = getAvatarColor(fullName);
+            // Bramka dopuszczalności: `warn` (konflikt klienta / NDA / konkurent /
+            // weto HM) wraca z powodem i `assignment_allowed=false`. Miękkie
+            // ostrzeżenia (current_employment, excluded_client) mają
+            // `assignment_allowed=true` — pokazujemy plakietkę, ale akcji nie blokujemy.
+            const elig = match.eligibility as
+              | { reason: string; assignment_allowed: boolean; severity: string }
+              | null
+              | undefined;
+            const assignBlocked = elig?.assignment_allowed === false;
 
             return (
-              <div key={c.id} className="flex items-start gap-4 p-4 bg-card dark:bg-muted rounded-xl border border-border dark:border-border hover:shadow-xs transition-shadow">
+              <div
+                key={c.id}
+                className={
+                  "flex items-start gap-4 p-4 rounded-xl border transition-shadow hover:shadow-xs " +
+                  (assignBlocked
+                    ? "bg-destructive/5 border-destructive/30"
+                    : "bg-card dark:bg-muted border-border dark:border-border")
+                }
+              >
                 {/* Rank */}
                 <div className="shrink-0 w-6 h-6 rounded-full bg-muted dark:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                   {idx + 1}
@@ -967,6 +1014,24 @@ function AIMatchingSection({
                     </div>
                   </div>
 
+                  {/* Eligibility badge — bramka dopuszczalności (warn / miękkie ostrzeżenie) */}
+                  {elig && (
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={
+                          "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium " +
+                          (assignBlocked
+                            ? "bg-destructive/10 text-destructive border border-destructive/30"
+                            : "bg-warning-muted text-warning-muted-foreground border border-warning/25")
+                        }
+                        title={elig.reason}
+                      >
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        {elig.reason}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Skills badges */}
                   {(match.matching_skills.length > 0 || match.gaps.length > 0) && (
                     <div className="flex flex-wrap gap-1.5">
@@ -983,10 +1048,16 @@ function AIMatchingSection({
                   {!readOnly ? <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => addToPipelineMutation.mutate({ candidateId: c.id, fullName })}
-                      disabled={isAdding || isAdded}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-default transition-colors"
+                      disabled={isAdding || isAdded || assignBlocked}
+                      title={assignBlocked ? elig?.reason : undefined}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {isAdded ? (
+                      {assignBlocked ? (
+                        <>
+                          <AlertCircle className="w-3 h-3" />
+                          Nie można dodać
+                        </>
+                      ) : isAdded ? (
                         <>
                           <Check className="w-3 h-3" />
                           W pipeline

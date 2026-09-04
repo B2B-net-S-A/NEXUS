@@ -22,8 +22,13 @@ from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import get_db
 from app.core.config import settings
 from app.models.candidate import Candidate
-from app.models.job import Job
-from app.services.pipeline_eligibility import filter_eligible_candidates
+from app.models.job import Job, RemotePolicy
+from app.services.candidate_job_eligibility import Visibility
+from app.services.dealbreaker_filters import (
+    apply_dealbreakers,
+    resolve_job_budget_hourly,
+)
+from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.location_utils import (
     location_matches as _location_matches,
     location_tokens as _location_tokens,
@@ -183,6 +188,93 @@ def _build_match_info(
         "matching_skills": matching,
         "gaps": gaps,
     }
+
+
+def _eligibility_annotation(decision) -> dict | None:
+    """UI annotation for a candidate whose eligibility is not plainly clean.
+
+    Returns ``None`` for a fully-eligible candidate with no secondary signal.
+    Otherwise a dict the ranking row renders as a badge and uses to disable the
+    assign/promote action when ``assignment_allowed`` is ``False``. ``reason``
+    is the ready Polish label from ``_REASON_LABELS_PL``.
+    """
+    if decision is None:
+        return None
+    if decision.eligible and not decision.secondary_reasons:
+        return None
+    return {
+        "reason_code": decision.reason_code.value,
+        "reason": decision.reason,
+        "assignment_allowed": decision.assignment_allowed,
+        "visibility": decision.visibility.value,
+        "severity": decision.severity.value,
+        "secondary": [r.value for r in decision.secondary_reasons],
+    }
+
+
+async def _gate_and_dealbreakers(
+    db: AsyncSession,
+    *,
+    job: Job,
+    ordered: list[Candidate],
+    now: datetime,
+) -> tuple[list[Candidate], dict[int, dict], dict]:
+    """Apply the eligibility gate and dealbreakers, preserving input order.
+
+    Returns ``(kept, annotations_by_id, hidden_meta)``:
+      * ``hidden``-visibility candidates (global blacklist, already-in-job) are
+        DROPPED — they must never surface in a job-scoped search.
+      * ``warn``-visibility candidates (active client blacklist / NDA /
+        competitor conflict, standing hiring-manager veto) are KEPT and
+        annotated with the Polish reason and ``assignment_allowed=False`` so
+        the row shows the block and the action is disabled.
+      * soft ``visible`` warnings (current employment, candidate-excluded
+        client) are kept and annotated too.
+      * dealbreakers then hide over-budget and (for office/hybrid jobs)
+        remote-only candidates; their counts come back in ``hidden_meta``.
+
+    PRODUKTOWY OVERRIDE (decyzja Artura, 2026-09). Do 2026-08-20 ta ścieżka
+    wołała ``filter_eligible_candidates``, które WYCINAŁO wszystkich
+    z ``assignment_allowed=False`` (w tym ``warn``), a licznik ukrytych szedł
+    wyłącznie do logu — świadomie, jako ochrona przed „wyrocznią na NDA".
+    Właściciel produktu zdecydował pokazywać zablokowanych z powodem wprost
+    w rankingu; realizujemy to przez trójstanowe ``Visibility`` (``warn``
+    widoczny z plakietką, ``hidden`` nadal ukryty), więc globalna blacklista
+    i duplikaty pozostają niewidoczne. Dealbreaker ``hidden_meta`` (budżet /
+    zdalnie) nie jest poufny per klient i moduł sam zwraca liczniki.
+    """
+    empty_meta = {"over_budget": 0, "remote_only": 0}
+    if not ordered:
+        return [], {}, empty_meta
+
+    decisions = await evaluate_candidates_for_job(
+        db, job=job, candidate_ids=[c.id for c in ordered], now=now
+    )
+    visible = [
+        c
+        for c in ordered
+        if not (
+            (d := decisions.get(c.id)) is not None and d.visibility == Visibility.hidden
+        )
+    ]
+
+    wants_office = getattr(job, "remote_policy", None) in (
+        RemotePolicy.onsite,
+        RemotePolicy.hybrid,
+    )
+    db_res = apply_dealbreakers(
+        visible,
+        budget_hourly=resolve_job_budget_hourly(job),
+        exclude_over_budget=True,
+        exclude_remote_only=bool(wants_office),
+    )
+    kept = db_res.kept
+    annotations: dict[int, dict] = {}
+    for c in kept:
+        ann = _eligibility_annotation(decisions.get(c.id))
+        if ann is not None:
+            annotations[c.id] = ann
+    return kept, annotations, db_res.hidden_meta()
 
 
 def _build_job_query(job: Job) -> str:
@@ -370,8 +462,8 @@ async def get_ai_matches(
         ordered: list[Candidate] = [
             c for cid in candidate_ids if (c := candidates_by_id.get(cid))
         ]
-        ordered = await filter_eligible_candidates(
-            db, job=job, candidates=ordered, now=datetime.now(timezone.utc)
+        ordered, elig_annotations, hidden_meta = await _gate_and_dealbreakers(
+            db, job=job, ordered=ordered, now=datetime.now(timezone.utc)
         )
 
         search_type = "semantic"
@@ -392,10 +484,11 @@ async def get_ai_matches(
                 scores_by_idx = {i: score for i, (_, score) in enumerate(pairs)}
             # Passthrough / failure → keep Qdrant order + scores as-is.
 
-        matches = [
-            _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
-            for i, c in enumerate(ordered)
-        ]
+        matches = []
+        for i, c in enumerate(ordered):
+            m = _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
+            m["eligibility"] = elig_annotations.get(c.id)
+            matches.append(m)
         # Location filter (when active): keep only candidates whose location
         # matches the request, preserving the semantic ranking order.
         if location_active:
@@ -415,7 +508,12 @@ async def get_ai_matches(
             "min_score": round(threshold, 3),
             "location_filter": requested_location if location_active else None,
             "matches": matches,
-            "meta": {"mode": search_type, "degraded": False, "reason": None},
+            "meta": {
+                "mode": search_type,
+                "degraded": False,
+                "reason": None,
+                "hidden": hidden_meta,
+            },
         }
 
     # ── Fallback: tag-based matching ─────────────────────────────────────────
@@ -427,34 +525,16 @@ async def get_ai_matches(
     )
     all_candidates = list(all_result.scalars().all())
 
-    # Ta sama reguła zawierania co w gałęzi semantycznej. Do 2026-08-20 ten
-    # fallback filtrował WYŁĄCZNIE `status != "blacklisted"`, a wchodzi się
-    # w niego TRZEMA drogami: wyjątek z retrievalu, wyjątek z czegokolwiek
-    # w gałęzi semantycznej — i CICHO, gdy Qdrant zwróci pustą listę (wtedy
-    # `if hits:` jest fałszywe i nie leci żaden wyjątek, więc sterowanie po
-    # prostu tu schodzi). Aktywny blacklist klienta, NDA, konflikt
-    # konkurencyjny i weto hiring managera przechodziły prosto na listę, którą
-    # strona oferty renderuje z przyciskiem „dodaj do pipeline'u" przy każdym
-    # wierszu. Samo dodanie zwróciłoby 409 — ale nazwisko zostało już pokazane
-    # w kontekście klienta, który je zablokował, więc 409 jest za późno.
-    before_gate = len(all_candidates)
-    all_candidates = await filter_eligible_candidates(
-        db, job=job, candidates=all_candidates, now=datetime.now(timezone.utc)
+    # Ta sama reguła zawierania co w gałęzi semantycznej (`_gate_and_dealbreakers`):
+    # `hidden` (globalna blacklista, duplikat) wypada, `warn` (blacklista klienta /
+    # NDA / konkurent / weto HM) wraca z powodem i zablokowaną akcją, a dealbreakery
+    # (budżet / zdalnie) liczą się do `hidden_meta`. Wchodzi się tu TRZEMA drogami:
+    # wyjątek z retrievalu, wyjątek z gałęzi semantycznej — i CICHO, gdy Qdrant
+    # zwróci pustą listę. `status != "blacklisted"` w SQL zostaje jako tani
+    # prefiltr (globalna blacklista i tak jest `hidden`).
+    all_candidates, elig_annotations, hidden_meta = await _gate_and_dealbreakers(
+        db, job=job, ordered=all_candidates, now=datetime.now(timezone.utc)
     )
-
-    # Licznik idzie WYŁĄCZNIE do logu, świadomie nie do odpowiedzi. „Ukryto N"
-    # w body byłoby wyrocznią na NDA: rekruter dowiedziałby się, że u tego
-    # klienta istnieje N osób, których nie wolno mu zobaczyć. W logu jest po to,
-    # żeby zgłoszenie „lista jest podejrzanie krótka" dało się rozstrzygnąć
-    # bez zgadywania — bez niego skrócenie listy jest niediagnozowalne.
-    hidden = before_gate - len(all_candidates)
-    if hidden:
-        logger.info(
-            "[AIMatch] tag-fallback job=%s: bramka dopuszczalności odsiała %s z %s",
-            job_id,
-            hidden,
-            before_gate,
-        )
 
     matches = []
     for c in all_candidates:
@@ -462,6 +542,7 @@ async def get_ai_matches(
         if location_active and not _location_matches(requested_tokens, c.location):
             continue
         match = _build_match_info(c, required_skills, score=None)
+        match["eligibility"] = elig_annotations.get(c.id)
         # No required_skills → score is a profile-completeness proxy; keep the
         # threshold floor so junk profiles don't surface as "matches".
         if match["match_score"] >= threshold:
@@ -493,5 +574,6 @@ async def get_ai_matches(
             "reason": (
                 "semantic_unavailable" if semantic_unavailable else "no_semantic_hits"
             ),
+            "hidden": hidden_meta,
         },
     }
