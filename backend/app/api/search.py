@@ -433,9 +433,13 @@ async def advanced_candidate_search(
         # czyta się jak brak ludzi w bazie, nie jak zła paginacja.
         # Jedno dodatkowe zapytanie po same `id` (pula jest ograniczona do
         # `_HYBRID_POOL`, więc to skan po znanym, krótkim zbiorze).
+        # Bez `.params(q=...)`, w odróżnieniu od `count_query` wyżej: w trybie
+        # hybrydowym `where_clause` nie niesie bindparamu `:q` w ogóle (klauzula
+        # FTS jest dodawana tylko w gałęzi `elif q_text`), a `_fts_clause` i tak
+        # wiąże wartość w miejscu konstrukcji. Wywołanie byłoby więc martwe,
+        # a martwe wywołanie w tym miejscu sugeruje następnemu czytelnikowi, że
+        # ta ścieżka jest sterowana zapytaniem tekstowym — nie jest.
         surviving_query = select(Candidate.id).where(where_clause)
-        if q_text:
-            surviving_query = surviving_query.params(q=q_text)
         surviving = set((await db.execute(surviving_query)).scalars().all())
         ranked_ids = [cid for cid in hybrid_order if cid in surviving]
         page_start = (body.page - 1) * body.page_size
