@@ -1410,7 +1410,7 @@ async def export_client_orders(
             group = await _group_to_read(
                 db,
                 group_model,
-                with_finance=_can_see_finance(user),
+                with_finance=await _can_see_finance(db, user, client_id),
                 precomputed_md_budget_used=(
                     shared_md_used_by_group[group_id]
                     if uses_shared_md_pool(group_model)

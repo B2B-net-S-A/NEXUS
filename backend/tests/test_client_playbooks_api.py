@@ -546,9 +546,9 @@ async def test_seed_backfill_unknown_client_is_404(app_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncClient):
-    """Ta sama bramka co PUT: role operacyjne bez sekcji Delivery i obcy DL → 403;
-    admin (org-wide) → 200."""
+    """Ta sama bramka co PUT: role bez Delivery → 403; każdy DL i admin → 200."""
     cid = await _make_client(_unique("Playbook seed authz"))
+    admin_cid = await _make_client(_unique("Playbook seed admin authz"))
     try:
         for role in ("tac", "recruiter", "head_of_recruitment"):
             headers = await _headers_for(app_client, role)
@@ -561,15 +561,15 @@ async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncC
         r = await app_client.post(
             SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=stranger
         )
-        assert r.status_code == 403, r.text
+        assert r.status_code == 200, r.text
 
         admin = await _headers_for(app_client, "admin")
         r = await app_client.post(
-            SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=admin
+            SEED_URL.format(cid=admin_cid), json={"seed_key": SEED_KEY}, headers=admin
         )
         assert r.status_code == 200, r.text
     finally:
-        await _cleanup([cid])
+        await _cleanup([cid, admin_cid])
 
 
 def test_every_seed_entry_builds_a_valid_payload():
