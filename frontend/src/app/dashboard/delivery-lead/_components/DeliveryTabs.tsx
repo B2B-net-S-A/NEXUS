@@ -45,7 +45,7 @@ export function DeliveryTabs({ userId }: DeliveryTabsProps) {
       <TabsList>
         <TabsTrigger value="clients">
           <Building2 className="h-3.5 w-3.5" />
-          Moi klienci
+          Klienci
         </TabsTrigger>
         <TabsTrigger value="team">
           <Users className="h-3.5 w-3.5" />

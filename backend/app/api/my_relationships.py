@@ -90,9 +90,8 @@ async def list_my_key_relationships(
     )
 
     if not is_organization_reader:
-        # DL widzi tylko swoje relacje i tylko we własnym portfolio. Drugi
-        # warunek chroni przed starym ownerem pozostawionym po zmianie
-        # przypisania klienta.
+        # DL widzi swoje relacje u każdego klienta. Warunek klienta utrzymuje
+        # tę samą konkretną granicę co pozostałe powierzchnie Delivery.
         stmt = stmt.where(
             Contact.key_relationship_owner_id == user.id,
             Contact.client_id.in_(sorted(delivery_lead_client_ids or ()) or [-1]),

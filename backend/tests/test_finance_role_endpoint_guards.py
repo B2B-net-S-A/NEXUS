@@ -768,7 +768,7 @@ def test_order_safe_gets_and_rate_bearing_documents_use_distinct_readers():
         assert _user_annotation(endpoint) == client_order_groups.OrderGroupSafeReadUser
     assert (
         _user_annotation(client_order_groups.add_line)
-        == client_order_groups.DlAssignedOrAdmin
+        == client_order_groups.DeliveryLeadOrAdmin
     )
 
 

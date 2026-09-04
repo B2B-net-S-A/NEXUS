@@ -6,6 +6,7 @@ import {
   canManageCandidateFinance,
   canManageMultiConsultantOrders,
   canViewCandidateFinance,
+  canViewClientFinance,
   hasSection,
   hasRole,
   hasMinRole,
@@ -177,6 +178,7 @@ describe("canViewCandidateFinance", () => {
           kind: "delivery_clients",
           user_id: 1,
           allowed_client_ids: [17],
+          finance_client_ids: [17],
           allowed_tac_user_ids: [],
           allowed_operator_user_ids: [],
         },
@@ -190,11 +192,30 @@ describe("canViewCandidateFinance", () => {
           kind: "delivery_clients",
           user_id: 1,
           allowed_client_ids: [17],
+          finance_client_ids: [17],
           allowed_tac_user_ids: [],
           allowed_operator_user_ids: [],
         },
       })
     ).toBe(true)
+  })
+
+  it("nie myli globalnego zakresu operacyjnego DL z portfelem finansowym", () => {
+    const deliveryLead = {
+      role: "delivery_lead" as const,
+      data_scope: {
+        kind: "delivery_clients" as const,
+        user_id: 1,
+        allowed_client_ids: [17, 18],
+        finance_client_ids: [17],
+        allowed_tac_user_ids: [],
+        allowed_operator_user_ids: [],
+      },
+    }
+
+    expect(canViewCandidateFinance(deliveryLead)).toBe(true)
+    expect(canViewClientFinance(deliveryLead, 17)).toBe(true)
+    expect(canViewClientFinance(deliveryLead, 18)).toBe(false)
   })
 
   it("nie zamienia prawa odczytu Finance w prawo edycji", () => {
@@ -407,10 +428,35 @@ describe("canManageMultiConsultantOrders", () => {
   // prowadzi delivery, więc wymóg admina czynił zakładkę bezużyteczną dla
   // osób, które ją faktycznie obsługują.
   it("przepuszcza admina i delivery leada", () => {
-    expect(canManageMultiConsultantOrders({ role: "admin", roles: [] })).toBe(true)
+    expect(canManageMultiConsultantOrders({ role: "admin", roles: [] }, 17)).toBe(true)
     expect(
-      canManageMultiConsultantOrders({ role: "delivery_lead", roles: [] })
+      canManageMultiConsultantOrders({
+        role: "delivery_lead",
+        roles: [],
+        data_scope: {
+          kind: "delivery_clients",
+          user_id: 1,
+          allowed_client_ids: [17, 18],
+          finance_client_ids: [17],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+        },
+      }, 17)
     ).toBe(true)
+    expect(
+      canManageMultiConsultantOrders({
+        role: "delivery_lead",
+        roles: [],
+        data_scope: {
+          kind: "delivery_clients",
+          user_id: 1,
+          allowed_client_ids: [17, 18],
+          finance_client_ids: [17],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+        },
+      }, 18)
+    ).toBe(false)
   })
 
   it("nie przepuszcza pozostałych ról", () => {
@@ -424,14 +470,25 @@ describe("canManageMultiConsultantOrders", () => {
       "finance",
       "user",
     ] as UserRole[]) {
-      expect(canManageMultiConsultantOrders({ role, roles: [] })).toBe(false)
+      expect(canManageMultiConsultantOrders({ role, roles: [] }, 17)).toBe(false)
     }
-    expect(canManageMultiConsultantOrders(null)).toBe(false)
+    expect(canManageMultiConsultantOrders(null, 17)).toBe(false)
   })
 
   it("czyta też role dodatkowe, nie tylko primary", () => {
     expect(
-      canManageMultiConsultantOrders({ role: "tac", roles: ["delivery_lead"] })
+      canManageMultiConsultantOrders({
+        role: "tac",
+        roles: ["delivery_lead"],
+        data_scope: {
+          kind: "delivery_clients",
+          user_id: 1,
+          allowed_client_ids: [17],
+          finance_client_ids: [17],
+          allowed_tac_user_ids: [],
+          allowed_operator_user_ids: [],
+        },
+      }, 17)
     ).toBe(true)
   })
 })

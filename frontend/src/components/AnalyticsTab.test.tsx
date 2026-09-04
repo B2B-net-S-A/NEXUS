@@ -36,6 +36,7 @@ function deliveryLead(): User {
       kind: "delivery_clients",
       user_id: 17,
       allowed_client_ids: [10, 11],
+      finance_client_ids: [10],
       allowed_tac_user_ids: [21, 22],
       allowed_operator_user_ids: [21, 22],
       allowed_client_tac_pairs: [
@@ -145,10 +146,9 @@ describe("AnalyticsTab finance redaction", () => {
     expect(screen.queryByText("Revenue per waluta")).not.toBeInTheDocument();
   });
 
-  it("nie pokazuje kwot hybrydzie head_of_recruitment + delivery_lead", async () => {
-    // Jej zakres to `recruitment_org` — nadzór nieoskopowany, więc „własny
-    // portfel" nie miałby czego zawęzić. Test roli zamiast granicy rozdałby
-    // jej kwoty u wszystkich klientów, a backend i tak odpowie bez nich.
+  it("nie pokazuje kwot hybrydzie HoR + DL bez przypisania finansowego", async () => {
+    // Hybryda z rolą DL dostaje globalny zakres operacyjny Delivery, ale pusta
+    // lista finansowa nadal musi ją zatrzymać przed kwotami.
     act(() => {
       useAuthStore.setState({
         user: {
@@ -156,9 +156,10 @@ describe("AnalyticsTab finance redaction", () => {
           role: "head_of_recruitment",
           roles: ["head_of_recruitment", "delivery_lead"],
           data_scope: {
-            kind: "recruitment_org",
+            kind: "delivery_clients",
             user_id: 17,
-            allowed_client_ids: [],
+            allowed_client_ids: [10, 11],
+            finance_client_ids: [],
             allowed_tac_user_ids: [21, 22],
             allowed_operator_user_ids: [21, 22],
             allowed_client_tac_pairs: [],

@@ -210,12 +210,12 @@ const NAV_SECTIONS: NavSection[] = [
       },
       {
         href: "/my-clients",
-        label: "Moi klienci",
+        label: "Panel klientów",
         icon: Briefcase,
       },
       {
         // Zamówienia z maila są częścią Delivery. Backend daje TCM wyłącznie
-        // bezpieczny odczyt, a DL zawęża do przypisanego portfela.
+        // bezpieczny odczyt, a DL widzi wszystkich klientów bez obcych kwot.
         href: "/order-mail",
         label: "Zamówienia z maila",
         icon: Inbox,
@@ -230,8 +230,8 @@ const NAV_SECTIONS: NavSection[] = [
       // "Kontraktorzy" item was folded in — /contractors redirects to
       // /contracts?view=operations. Operations mode is role-gated inside
       // the page (same roles the old nav item used).
-      // Backend zwraca TCM bezpieczny rejestr bez stawek; DL widzi pełne dane
-      // tylko dla przypisanych klientów. Dokumenty prawne mają osobny gate.
+      // Backend zwraca TCM bezpieczny rejestr bez stawek; DL widzi wszystkich
+      // klientów, a stawki tylko dla przypisanych. Dokumenty mają osobny gate.
       {
         href: "/contracts",
         label: "Kontrakty",

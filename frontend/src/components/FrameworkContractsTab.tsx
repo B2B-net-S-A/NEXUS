@@ -88,8 +88,8 @@ export function FrameworkContractsTab({ clientId }: FrameworkContractsTabProps) 
 
   const contracts = data?.items ?? [];
 
-  // Odczyt stoi za `can_view_legal_documents`: Admin i Finance globalnie,
-  // Delivery Lead po przypisaniu. TCM celowo nie czyta surowych dokumentów.
+  // Odczyt stoi za `can_view_legal_documents`: Admin, Finance i Delivery Lead
+  // globalnie. Zapis DL nadal wymaga przypisania; TCM nie czyta dokumentów.
   // „Brak umów ramowych. Dodaj pierwszą MSA…" mówiło im wtedy nieprawdę
   // handlową — w body leasingu brak MSA znaczy „nie możemy obsadzić klienta" —
   // i zapraszało do zduplikowania umowy, która już istnieje.

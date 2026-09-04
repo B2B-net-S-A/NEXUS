@@ -98,10 +98,9 @@ async def generate_prep_kit(
     if not job:
         raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
 
-    # The legacy client-access resolver deliberately grants every Delivery Lead
-    # organization-wide access. Dashboard/RBAC v2 uses the authoritative
-    # DeliveryLeadClientAssignment boundary instead, including jobs without a
-    # client (which are outside a plain DL's scope).
+    # Delivery Lead works across every concrete client. Jobs without a client
+    # remain outside that scope because there is no client relationship to
+    # authorize.
     assert_delivery_lead_client_visible(
         job.client_id,
         await resolve_delivery_lead_client_ids(current_user, db),

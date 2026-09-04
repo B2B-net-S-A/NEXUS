@@ -43,7 +43,7 @@ import {
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import {
-  canViewCandidateFinance,
+  canViewClientFinance,
   canManageMultiConsultantOrders,
   canManageOrderLifecycle,
   hasRole,
@@ -124,8 +124,8 @@ export function MultiConsultantOrdersTab({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
-  const canViewFinance = canViewCandidateFinance(user);
-  const canManage = canManageMultiConsultantOrders(user);
+  const canViewFinance = canViewClientFinance(user, clientId);
+  const canManage = canManageMultiConsultantOrders(user, clientId);
   const canLifecycle = canManageOrderLifecycle(user);
   const canExport =
     !hasRole(user, "talent_community_manager") ||

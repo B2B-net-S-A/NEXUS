@@ -30,7 +30,7 @@ vi.mock("@/store/auth", () => ({
   canManageMultiConsultantOrders: () => true,
   canManageOrderLifecycle: () => true,
   canManageCandidateFinance: () => true,
-  canViewCandidateFinance: () => true,
+  canViewClientFinance: () => true,
 }));
 
 vi.mock("@/lib/api/orderGroups", () => ({
