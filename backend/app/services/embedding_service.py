@@ -99,6 +99,15 @@ async def _run_qdrant(fn):
     and the indexing-side calls reported nothing at all. Routing the read paths
     through here gives the healthcheck a Qdrant-specific signal without
     instrumenting every call site.
+
+    WSZYSTKIE ścieżki ODCZYTU muszą iść tędy, a nie przez gołe
+    ``asyncio.to_thread``. Trzy z nich wołały wątek wprost
+    (``similarity_for_candidate_ids``, ``search_jobs_semantic``,
+    ``search_similar_jobs_by_job_id``), więc ich awarie nie wchodziły do okna
+    zdrowia Qdranta. Pierwsza z tych trzech obsługuje kanban i scoring
+    pipeline'u — czyli ruch, który przy padniętym Qdrancie milczy najgłośniej,
+    a `/api/health` nadal raportował `qdrant: healthy`, bo widział wyłącznie
+    ruch z wyszukiwarki. Dokładając kolejny odczyt: użyj tej funkcji.
     """
     from app.services.ai_health import record_provider_call
 
@@ -782,7 +791,7 @@ async def similarity_for_candidate_ids(
         return scores
 
     try:
-        return await asyncio.to_thread(_search)
+        return await _run_qdrant(_search)
     except Exception as e:
         logger.error(f"[Search] similarity_for_candidate_ids error: {e}")
         return {}
@@ -1223,7 +1232,7 @@ async def search_jobs_semantic(
         ]
 
     try:
-        return await asyncio.to_thread(_search)
+        return await _run_qdrant(_search)
     except Exception as e:
         logger.error(f"[Search] Qdrant jobs search error: {e}")
         if raise_on_error:
@@ -1341,7 +1350,7 @@ async def search_similar_jobs_by_job_id(
         return results
 
     try:
-        return await asyncio.to_thread(_run)
+        return await _run_qdrant(_run)
     except Exception as e:
         logger.error("[Search] search_similar_jobs_by_job_id error: %s", e)
         return None

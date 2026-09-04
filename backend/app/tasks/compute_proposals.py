@@ -176,7 +176,19 @@ async def compute_proposal_for_job(
             # Degraded retrieval (Qdrant down/empty) — mirror recommendations:
             # composites liczone z neutralnym semantic NIE mogą trafić do
             # wspólnego score cache jako świeże (M3-CACHE-01).
-            semantic_degraded = not candidate_ids
+            #
+            # Pustka nie jest jedynym kształtem degradacji: fasada puli oznacza
+            # `semantic_unknown` wiersze, dla których kosinusu NIE zmierzono
+            # (padła dosypka po udanym BM25 albo kandydat nie ma wektora).
+            # `score` wynosi tam 0.0, ale to „nie wiem", nie „zmierzono zero" —
+            # a taka pula JEST niepusta, więc sam `not candidate_ids` wpuszczał
+            # warstwę semantyczną 0/60 do wspólnego cache'u jako wynik świeży.
+            semantic_unknown_ids = {
+                h["candidate_id"] for h in hits if h.get("semantic_unknown")
+            }
+            semantic_degraded = not candidate_ids or bool(semantic_unknown_ids)
+            for cid in semantic_unknown_ids:
+                similarity_map.pop(cid, None)
 
             # Fallback when Qdrant is empty / job not indexed yet.
             if not candidate_ids:
