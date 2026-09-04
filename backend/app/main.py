@@ -74,6 +74,8 @@ from app.api import insights_delivery_leads
 from app.api import insights_scoring
 from app.api import insights_campaigns
 from app.api import insights_charts
+from app.api import insights_reconciliation
+from app.api import integrations_compass
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import client_knowledge
@@ -1120,6 +1122,22 @@ app.include_router(
     insights_charts.router,
     prefix="/api/insights/charts",
     tags=["insights"],
+)
+# Uzgodnienie placementów: JEDEN wiersz na placement w OBU rodzinach
+# atrybucji. Read-only — raport ma tłumaczyć rozjazd, nie go usuwać.
+app.include_router(
+    insights_reconciliation.router,
+    prefix="/api/insights/reconciliation",
+    tags=["insights"],
+)
+# Eksport dla COMPASSA. Uwierzytelnienie żyje w `require_service_scope`
+# na endpointach, nie na routerze — jak przy kontach serwisowych Traffita.
+# Ścieżka CELOWO obok `/api/candidates|jobs|clients|users`, nie pod nimi:
+# `test_key_cannot_reach_domain_data` wymaga, żeby klucz API dostawał tam 401.
+app.include_router(
+    integrations_compass.router,
+    prefix="/api/integrations/compass",
+    tags=["integrations"],
 )
 # Plakietki ostrzeżeń i baner kampanii — obie powierzchnie mają ODCZYT dla
 # każdego zalogowanego (D7) i ZAPIS zawężony wewnątrz modułu. Ostrzeżenie
