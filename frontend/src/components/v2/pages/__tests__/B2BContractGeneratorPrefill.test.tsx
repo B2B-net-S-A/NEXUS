@@ -179,11 +179,13 @@ describe("partnerNameAfterLookup", () => {
     );
   });
 
-  // Spółka → rejestr zwraca `person = null`; pole zostaje takie, jakie było
-  // (nazwisko kandydata albo puste), nigdy nie ląduje tam „null"/"undefined".
-  it("dla spółki (person = null) zostawia bieżącą wartość", () => {
+  // Spółka → rejestr zwraca `person = null`; pole z realną treścią zostaje bez
+  // zmian, a puste/białe znaki normalizują się do "" — nigdy „null"/"undefined"
+  // ani surowe spacje.
+  it("dla spółki (person = null) zachowuje treść, a pustkę/spacje normalizuje do pustego", () => {
     expect(partnerNameAfterLookup("Rafał Korecki", null)).toBe("Rafał Korecki");
     expect(partnerNameAfterLookup("", null)).toBe("");
     expect(partnerNameAfterLookup("", undefined)).toBe("");
+    expect(partnerNameAfterLookup("   ", null)).toBe("");
   });
 });

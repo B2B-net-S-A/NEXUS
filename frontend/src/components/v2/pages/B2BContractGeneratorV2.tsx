@@ -279,7 +279,10 @@ export function partnerNameAfterLookup(
 ): string {
   const current = currentName.trim();
   if (current) return currentName;
-  return registryPerson?.trim() ? registryPerson : currentName;
+  // Pole bez realnej treści (puste albo same białe znaki) i rejestr bez nazwiska
+  // → normalizujemy do "", nie zostawiamy surowych spacji (spójnie z gałęzią
+  // wypełniającą, która białe znaki traktuje jak pustkę).
+  return registryPerson?.trim() ? registryPerson : current;
 }
 
 /** Needle'e wpisów rejestru klauzul, które NIE dają modyfikacji umowy.
