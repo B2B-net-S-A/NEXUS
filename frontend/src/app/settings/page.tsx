@@ -153,18 +153,8 @@ const ADVANCED_LINKS: Array<{
     roles: ["admin", "finance"],
     section: "finance",
   },
-  {
-    href: "/settings/cv-rules",
-    title: "Reguły CV per klient",
-    description:
-      "Nazwa pliku, język, wymogi i instrukcje dla generatora CV per klient. Delivery Lead dodaje i zatwierdza reguły sam.",
-    icon: <FileCheck2 className="w-5 h-5" />,
-    // PUT/POST/DELETE /api/clients/{id}/cv-rule → DeliveryLeadPlus. Odczyt
-    // ma każda rola operacyjna, ale link prowadzi tam, gdzie da się coś ZROBIĆ.
-    roles: ["admin", "delivery_lead"],
-    section: "delivery",
-    required: "write",
-  },
+  // „Reguły CV per klient" ma teraz WŁASNĄ zakładkę w nagłówku Ustawień
+  // (patrz `canManageCvRules`), więc nie dublujemy jej w siatce „Zaawansowane".
   {
     href: "/settings/contract-templates",
     title: "Szablony umów",
@@ -457,6 +447,13 @@ export default function SettingsPage() {
   }
 
   const financeReadOnly = hasRole(user, "finance") && !hasRole(user, "admin");
+  // „Reguły CV" to własna zakładka (a nie kafel zagrzebany w „Zaawansowane"),
+  // bo DL konfiguruje reguły regularnie — to nie jest sekcja techniczna. Bramka
+  // = ta sama co dawny link zaawansowany: admin/DL z zapisem sekcji Delivery.
+  const canManageCvRules =
+    !financeReadOnly &&
+    hasRole(user, "admin", "delivery_lead") &&
+    hasSectionAccess(user, "delivery", "write");
   const visibleTabs = TABS.filter(
     (tab) =>
       (!financeReadOnly || FINANCE_READ_ONLY_TABS.has(tab.id)) &&
@@ -503,6 +500,17 @@ export default function SettingsPage() {
             {tab.label}
           </button>
         ))}
+        {canManageCvRules && (
+          // Zakładka-link: treść żyje pod osobną trasą /settings/cv-rules, więc
+          // klik nawiguje (nie przełącza panelu in-page) — nigdy nie jest „active".
+          <Link
+            href="/settings/cv-rules"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
+          >
+            <FileCheck2 className="w-4 h-4" />
+            Reguły CV
+          </Link>
+        )}
       </div>
 
       {visibleActiveTab === "integracje" && (

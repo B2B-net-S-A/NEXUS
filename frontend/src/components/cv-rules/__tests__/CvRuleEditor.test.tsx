@@ -7,16 +7,18 @@ import { makeClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRule } from "@/test/fixtures/cv-rule";
 
 /**
- * Edytor reguły — pełna recepta DL w sześciu zakładkach.
+ * Edytor reguły — pełna recepta DL w czterech zakładkach (Ustawienia, Podgląd,
+ * Karta klienta, Historia) z progresywnym odsłanianiem.
  *
  * Cztery kontrakty, które łatwo cofnąć „przy okazji":
  *  * zakładka „Karta klienta" montuje się LENIWIE (edytor otwierany dla reguły
  *    nie strzela po kartę) i po pierwszym wejściu jest tylko chowana — szkic
  *    karty przeżywa przełączenie zakładki; na niej nie ma stopki reguły;
- *  * „Zapisz i zatwierdź" wysyła `confirm: true` i KOMPLET pól (blokady,
+ *  * „Zapisz i włącz regułę" wysyła `confirm: true` i KOMPLET pól (blokady,
  *    polityka, słownik, flagi klienta) — pominięte pole w payloadzie
  *    oznaczałoby ciche wyzerowanie go na serwerze;
- *  * blokada trybu i wymagane wejścia są edytowalne w zakładce Generator;
+ *  * blokada trybu i wymagane wejścia są edytowalne w zwiniętej sekcji
+ *    „Zaawansowane" w zakładce „Ustawienia";
  *  * lint woła osobny endpoint i pokazuje werdykt per linia.
  */
 
@@ -69,6 +71,12 @@ function renderEditor(onChanged = vi.fn(), initialTab?: string) {
 }
 
 describe("CvRuleEditor", () => {
+  // Scalona zakładka „Ustawienia" renderuje komplet pól naraz (dawniej rozbite
+  // na trzy zakładki), więc każdy `fireEvent` przerenderowuje cięższy DOM. Pod
+  // obciążeniem CI te integracyjne scenariusze RTL przekraczają domyślne 5 s —
+  // to koszt jsdom, nie feature'a. Wspólny, hojny limit dla całego pliku.
+  vi.setConfig({ testTimeout: 20000 });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.get.mockImplementation(async (url: string) => {
@@ -98,21 +106,22 @@ describe("CvRuleEditor", () => {
     }));
   });
 
-  it("„Zapisz i zatwierdź” wysyła komplet pól z confirm=true, w tym blokady i słownik", async () => {
+  it("„Zapisz i włącz regułę” wysyła komplet pól z confirm=true, w tym blokady i słownik", async () => {
     const onChanged = renderEditor();
     expect(await screen.findByText("Reguły CV · wersja 1")).toBeInTheDocument();
 
-    // Generator: zablokuj tryb + wymagany numer projektu.
-    switchTab("Generator");
+    // Blokady, polityka i słownik siedzą pod zwiniętym „Zaawansowane".
+    fireEvent.click(screen.getByRole("button", { name: /Zaawansowane/ }));
+
+    // Zablokuj tryb + wymagany numer projektu.
     fireEvent.click(await screen.findByRole("radio", { name: "Zawsze ten tryb" }));
     fireEvent.change(screen.getByLabelText("Tryb obróbki treści"), {
       target: { value: "basic" },
     });
     fireEvent.click(screen.getByLabelText("Wymagany numer / nazwa projektu"));
 
-    // Treść: sekcja do pominięcia + słownik.
-    switchTab("Treść i AI");
-    fireEvent.click(await screen.findByLabelText("Języki"));
+    // Sekcja do pominięcia + słownik.
+    fireEvent.click(screen.getByLabelText("Języki"));
     fireEvent.click(screen.getByRole("button", { name: "Dodaj parę" }));
     fireEvent.change(screen.getByLabelText("Słownik 1: z"), {
       target: { value: "Business Analyst" },
@@ -121,7 +130,7 @@ describe("CvRuleEditor", () => {
       target: { value: "Analityk Biznesowy" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Zapisz i zatwierdź" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz i włącz regułę" }));
 
     await waitFor(() => expect(mocks.put).toHaveBeenCalledTimes(1));
     const [url, body] = mocks.put.mock.calls[0] as [string, Record<string, unknown>];
@@ -167,7 +176,7 @@ describe("CvRuleEditor", () => {
     });
     renderEditor();
     await screen.findByText("Reguły CV · wersja 1");
-    switchTab("Treść i AI");
+    // Lint jest w zakładce „Ustawienia" (domyślnej) i zawsze widoczny.
     fireEvent.click(await screen.findByRole("button", { name: /Sprawdź instrukcje/ }));
 
     await waitFor(() =>
@@ -206,12 +215,12 @@ describe("CvRuleEditor", () => {
     const sla = await screen.findByLabelText("SLA: dni robocze na pierwszego kandydata");
     expect(mocks.get).toHaveBeenCalledWith("/api/clients/5/playbook");
     // Na zakładce karty jedynym zapisem jest „Zapisz kartę".
-    expect(screen.queryByRole("button", { name: "Zapisz i zatwierdź" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zapisz i włącz regułę" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zapisz kartę" })).toBeInTheDocument();
 
     fireEvent.change(sla, { target: { value: "9" } });
-    switchTab("Podstawy");
-    expect(screen.getByRole("button", { name: "Zapisz i zatwierdź" })).toBeInTheDocument();
+    switchTab("Ustawienia");
+    expect(screen.getByRole("button", { name: "Zapisz i włącz regułę" })).toBeInTheDocument();
     switchTab("Karta klienta");
     // Szkic przeżył przełączenie — zakładka była chowana, nie odmontowana.
     expect(screen.getByLabelText("SLA: dni robocze na pierwszego kandydata")).toHaveValue(9);
@@ -230,7 +239,7 @@ describe("CvRuleEditor", () => {
 
     renderEditor(vi.fn(), "nope");
     await screen.findByText("Reguły CV · wersja 1");
-    expect(screen.getByRole("tab", { name: "Podstawy" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Ustawienia" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

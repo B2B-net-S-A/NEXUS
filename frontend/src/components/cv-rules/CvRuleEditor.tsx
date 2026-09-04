@@ -1,20 +1,23 @@
 "use client";
 
 /**
- * Edytor reguły CV klienta — pełna recepta Delivery Leada w sześciu zakładkach
- * (podstawy, generator, treść i AI, karta klienta — osobny zapis, podgląd,
- * historia).
+ * Edytor reguły CV klienta — pełna recepta Delivery Leada w czterech
+ * zakładkach: „Ustawienia" (plik i język → wskazówki → zaawansowane, wszystko
+ * w jednej zakładce z progresywnym odsłanianiem), „Podgląd", „Karta klienta"
+ * (osobny zapis) i „Historia".
  *
- * Jeden ekran prowadzi wszystko, co decyduje o CV u klienta: nazwę pliku
- * i język (0255), instrukcje dla modelu (0266), blokady dla rekrutera,
- * politykę prezentacji egzekwowaną w kodzie, słownik, podgląd promptu, CV
- * próbne, historię i sygnał zwrotny (0267). Okno „Edytuj firmę" w profilu
- * klienta już formularza nie ma — odsyła tutaj.
+ * Do 09.2026 recepta była rozbita na trzy równorzędne zakładki („Podstawy" +
+ * „Generator" + „Treść i AI") z 25 polami różnej wagi na jednym poziomie — DL
+ * nie wiedział, które trzy są ważne. Teraz codzienne 90% (nazwa pliku, język,
+ * notatka, instrukcje) jest zawsze widoczne, a blokady/polityka/słownik siedzą
+ * pod zwiniętym „Zaawansowane". Nad zakładkami pasek „Ta reguła robi" streszcza
+ * efekt zwykłym językiem.
  *
- * Dwa przyciski zapisu, bo są dwie różne sytuacje:
- *  * „Zapisz i zatwierdź" — reguła wpisana świadomie przez DL JEST decyzją;
- *  * „Zapisz jako propozycję" — wersja robocza; edycja obowiązującej reguły tą
- *    ścieżką ZDEJMUJE zatwierdzenie (robi to serwer).
+ * Zmienia się układ i etykiety, NIE kontrakt zapisu: `formToPayload` nadal
+ * wysyła KOMPLET pól (pominięte pole = ciche wyzerowanie na serwerze), a dwa
+ * przyciski to te same wywołania co dawniej — „Zapisz i włącz regułę"
+ * (confirm=true, dawne „Zapisz i zatwierdź") i „Zapisz szkic" (propozycja;
+ * edycja obowiązującej reguły tą ścieżką ZDEJMUJE zatwierdzenie — robi to serwer).
  *
  * Usuwanie ma dwustopniowe potwierdzenie W KOMPONENCIE, nie `window.confirm`
  * — natywny dialog zamraża automatyzację przeglądarki, którą weryfikujemy UI.
@@ -24,7 +27,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { extractErrorMsg } from "@/lib/api";
+import { CV_CONTENT_MODES } from "@/lib/cv-generator";
+import type { CvContentMode } from "@/lib/cv-generator";
 import {
+  countActiveAdvanced,
   cvRulesApi,
   formToPayload,
   hasStoredRule,
@@ -38,25 +44,65 @@ import {
 } from "@/components/clients/ClientSinglePicker";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 
-import { CvRuleBasicsTab } from "./CvRuleBasicsTab";
-import { CvRuleContentTab } from "./CvRuleContentTab";
-import { CvRuleGeneratorTab } from "./CvRuleGeneratorTab";
 import { CvRuleHistoryTab } from "./CvRuleHistoryTab";
 import { CvRulePlaybookTab } from "./CvRulePlaybookTab";
 import { CvRulePreviewTab } from "./CvRulePreviewTab";
+import { CvRuleSettingsTab } from "./CvRuleSettingsTab";
+
+const MODE_LABEL: Record<CvContentMode, string> = Object.fromEntries(
+  CV_CONTENT_MODES.map((m) => [m.value, m.label]),
+) as Record<CvContentMode, string>;
 
 const TABS = [
-  { value: "basics", label: "Podstawy" },
-  { value: "generator", label: "Generator" },
-  { value: "content", label: "Treść i AI" },
-  { value: "playbook", label: "Karta klienta" },
+  { value: "settings", label: "Ustawienia" },
   { value: "preview", label: "Podgląd" },
+  { value: "playbook", label: "Karta klienta" },
   { value: "history", label: "Historia" },
 ];
 const TAB_VALUES = new Set(TABS.map((t) => t.value));
-/** `?tab=` z adresu bywa dowolnym stringiem — nieznana wartość wraca na „Podstawy". */
+/** `?tab=` z adresu bywa dowolnym stringiem — nieznana wartość wraca na „Ustawienia". */
 function resolveInitialTab(requested?: string): string {
-  return requested && TAB_VALUES.has(requested) ? requested : "basics";
+  return requested && TAB_VALUES.has(requested) ? requested : "settings";
+}
+
+/** Jedno zdanie „co ta reguła robi" — czytane wprost z formularza. */
+function ruleSummary(form: CvRuleForm) {
+  const file = form.filename_pattern.trim() || "nazwa ogólna";
+  const language =
+    form.cv_language === "pl"
+      ? "PL"
+      : form.cv_language === "en"
+        ? "EN"
+        : form.requires_en_copy
+          ? "PL + EN"
+          : "dowolny";
+  const mode = !form.content_mode
+    ? "wolny wybór"
+    : `${MODE_LABEL[form.content_mode] ?? form.content_mode} ${
+        form.content_mode_locked ? "(zablokowany)" : "(domyślny)"
+      }`;
+  const lines = form.generator_instructions
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean).length;
+  const instructions =
+    lines === 0 ? "brak" : lines === 1 ? "1 linia" : `${lines} linie`;
+  return {
+    file,
+    language,
+    mode,
+    instructions,
+    advanced: countActiveAdvanced(form),
+  };
+}
+
+function SummaryFact({ k, v }: { k: string; v: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1 text-xs">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-medium">{v}</span>
+    </span>
+  );
 }
 
 interface Props {
@@ -232,6 +278,7 @@ export function CvRuleEditor({
   }
 
   const stored = hasStoredRule(rule);
+  const summary = ruleSummary(form);
 
   return (
     <div className="space-y-3">
@@ -254,11 +301,33 @@ export function CvRuleEditor({
         )}
       </div>
 
+      {/* Pasek „co ta reguła robi" — efekt zwykłym językiem, zanim DL wejdzie w pola. */}
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
+          Ta reguła robi
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <SummaryFact k="Plik" v={summary.file} />
+          <SummaryFact k="Język" v={summary.language} />
+          <SummaryFact k="Tryb" v={summary.mode} />
+          <SummaryFact k="Instrukcje AI" v={summary.instructions} />
+          <SummaryFact
+            k="Zaawansowane"
+            v={summary.advanced === 0 ? "brak" : `${summary.advanced} aktywne`}
+          />
+        </div>
+      </div>
+
       <TabbedNav tabs={TABS} value={tab} onValueChange={setTab} ariaLabel="Sekcje reguły">
         <div className="pt-3">
-          {tab === "basics" ? (
+          {tab === "settings" ? (
             <div className="space-y-4">
-              <CvRuleBasicsTab form={form} set={set} filenamePreview={rule?.filename_preview} />
+              <CvRuleSettingsTab
+                form={form}
+                set={set}
+                clientId={clientId}
+                filenamePreview={rule?.filename_preview}
+              />
               <div className="rounded-md border border-dashed p-3">
                 <p className="mb-2 text-xs font-medium">Skopiuj regułę z innego klienta</p>
                 <div className="flex flex-wrap items-center gap-2">
@@ -287,10 +356,6 @@ export function CvRuleEditor({
               </div>
             </div>
           ) : null}
-          {tab === "generator" ? <CvRuleGeneratorTab form={form} set={set} /> : null}
-          {tab === "content" ? (
-            <CvRuleContentTab form={form} set={set} clientId={clientId} />
-          ) : null}
           {playbookVisited ? (
             <div className={tab === "playbook" ? undefined : "hidden"}>
               <CvRulePlaybookTab clientId={clientId} />
@@ -313,7 +378,7 @@ export function CvRuleEditor({
 
       {/* Na zakładce karty jedynym przyciskiem zapisu ma być „Zapisz kartę"
           (w formularzu karty) — stopka reguły jest tam chowana, żeby nie
-          sugerować, że „Zapisz i zatwierdź" obejmuje kartę. */}
+          sugerować, że „Zapisz i włącz regułę" obejmuje kartę. */}
       {tab !== "playbook" ? (
         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
           <button
@@ -322,7 +387,7 @@ export function CvRuleEditor({
             onClick={() => save(true)}
             className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
           >
-            Zapisz i zatwierdź
+            Zapisz i włącz regułę
           </button>
           <button
             type="button"
@@ -330,7 +395,7 @@ export function CvRuleEditor({
             onClick={() => save(false)}
             className="rounded-md border px-3 py-1.5 text-sm disabled:opacity-50"
           >
-            Zapisz jako propozycję
+            Zapisz szkic
           </button>
           {dirty ? (
             <span className="text-xs text-amber-700 dark:text-amber-400">
