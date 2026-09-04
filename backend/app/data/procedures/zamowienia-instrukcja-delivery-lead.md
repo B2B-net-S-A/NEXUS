@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-03
+> **Zgodność z systemem sprawdzona:** 2026-09-04
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -377,10 +377,11 @@ dwie daty i pierwszą kwotę z dokumentu, a **numeru zamówienia sam nie znajduj
 numer wyszukiwany jest po etykiecie i działa też w trybie awaryjnym). Poznasz go
 po powodzie „Odczyt awaryjny (bez AI) — zweryfikuj wszystkie pola" w banerze.
 
-**Przycisk „Zczytaj dane z dokumentu" kliknie administrator i Delivery Lead
-przypisany do tego klienta.** Pozostałe role — w tym Finanse, Talent Community
-Manager, Head of Recruitment i nieprzypisany Delivery Lead — dostaną odmowę.
-(To osobna sprawa od oglądania listy zamówień, opisanego w „Kto co może".)
+**W interfejsie przycisk „Zczytaj dane z dokumentu" jest dostępny administratorowi
+i Delivery Leadowi przypisanemu do tego klienta.** Nieprzypisany Delivery Lead
+widzi klienta i jego dane operacyjne, ale bez formularzy zawierających stawki
+i bez pliku źródłowego PO. Pozostałe role — w tym Finanse, Talent Community
+Manager i Head of Recruitment — nie wykonują tego odczytu.
 
 **Kwoty z odczytu widzi tylko administrator i przypisany Delivery Lead.** Liczba
 MD jest wielkością operacyjną, nie finansową.
@@ -540,13 +541,14 @@ pytań „dlaczego nie widzę przycisku".
 
 | Poziom | Kto |
 |---|---|
-| **Bezpieczny odczyt zamówień** | administrator i Finanse — wszyscy klienci; Delivery Lead — wyłącznie przypisani klienci; Talent Community Manager — wszyscy klienci, ale bez kwot, plików PO i eksportu |
-| **Cykl życia** (zakończ, przywróć, usuń — także usunięcie konsultanta) | administrator i przypisany Delivery Lead; Finanse dodatkowo przy zamówieniach zbiorczych |
-| **Stawki i obsada** (dodanie/edycja konsultanta, edycja zamówienia) | **wyłącznie** administrator i przypisany Delivery Lead |
+| **Bezpieczny odczyt zamówień** | administrator i Finanse — wszyscy klienci; każdy Delivery Lead — wszyscy klienci, ale poza przypisanym portfelem bez kwot i plików PO; Talent Community Manager — wszyscy klienci, ale bez kwot, plików PO i eksportu |
+| **Cykl życia** (zakończ, przywróć, usuń — także usunięcie konsultanta) | administrator i każdy Delivery Lead; Finanse dodatkowo przy zamówieniach zbiorczych |
+| **Stawki, budżety, pliki PO i obsada** (dodanie/edycja konsultanta, finansowa edycja zamówienia) | **wyłącznie** administrator i Delivery Lead przypisany do klienta |
 
 **Finanse przechodzą bramkę odczytu u wszystkich klientów bez przypisania**
-i widzą kwoty, ale nie zapisują stawek ani obsady. Delivery Lead **zawsze**
-wymaga jawnego przypisania do klienta.
+i widzą kwoty, ale nie zapisują stawek ani obsady. Delivery Lead nie potrzebuje
+przypisania, aby widzieć i obsługiwać klienta operacyjnie; przypisanie nadal
+wyznacza jego dostęp do stawek, budżetów, plików PO i operacji, które je zapisują.
 
 **Talent Community Manager ma globalny, bezpieczny odczyt Delivery.** Widzi
 dane operacyjne, ale nie widzi kwot, marż, przychodów, plików źródłowych PO ani
@@ -887,10 +889,11 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ## Najczęstsze pułapki
 
-1. **„Nie dostaję żadnych powiadomień o tym kliencie."** Sprawdź aktywność
-   konta, rolę i dostęp do sekcji Delivery oraz przypisanie na zakładce
-   „Delivery Lead" w profilu klienta. Bez przypisania nie powstaną dla Ciebie
-   **sprawy z pulpitu** — i nie trafią wtedy do nikogo. Powiadomienia o **końcu
+1. **„Widzę klienta, ale nie dostaję o nim powiadomień."** Globalny dostęp do
+   klienta nie zmienia routingu alertów. Sprawdź aktywność konta, rolę, dostęp
+   do sekcji Delivery oraz przypisanie na zakładce „Delivery Lead" w profilu
+   klienta. Bez przypisania nie powstaną dla Ciebie **sprawy z pulpitu** — i nie
+   trafią wtedy do nikogo. Powiadomienia o **końcu
    zamówienia** (30/14/7 dni) dostaje globalnie także aktywny administrator,
    ale nie Head of Recruitment; Delivery Lead dostaje je tylko dla przypisanych
    klientów.
@@ -913,12 +916,12 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
    drugi raz.
 6. **„Kliknąłem Oznacz jako obsłużone, a problem trwa."** Ta sprawa już nie
    wróci. Trzymaj to kliknięcie na moment, w którym naprawdę ją zamykasz.
-7. **„Kwoty pokazują myślnik."** Myślnik wygląda tak samo w dwóch różnych
-   sytuacjach i **nie da się ich po nim rozróżnić**: stawki nie ma w systemie
-   albo Twoja rola jej nie widzi. Jako Delivery Lead przypisany do klienta
-   stawki widzisz — u Ciebie myślnik znaczy więc **brak wpisanej stawki**;
-   uzupełnij ją. Przy brakującej stawce przychodowej na aktywnym zamówieniu
-   przyjdzie o tym osobne powiadomienie.
+7. **„Kwoty pokazują myślnik."** Jeżeli nie jesteś przypisany do klienta, to
+   oczekiwany bezpieczny widok: widzisz dane operacyjne, ale nie stawki ani
+   budżety. Jako Delivery Lead przypisany do klienta stawki widzisz — wtedy
+   myślnik oznacza **brak wpisanej stawki** i trzeba ją uzupełnić. Przy brakującej
+   stawce przychodowej na aktywnym zamówieniu przyjdzie o tym osobne
+   powiadomienie.
 8. **„Osoba wzięta z Bazy Nexus nie liczy się do przychodów."** Powstał jej
    **szkic umowy** — trzeba go domknąć osobno.
 

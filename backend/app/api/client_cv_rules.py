@@ -5,7 +5,7 @@ Dwa wejścia, jedna prawda w bazie:
 * profil klienta (``/api/clients/{id}/cv-rule``) — odczyt i zapis reguły;
 * przegląd zbiorczy (``/api/settings/cv-rules``) — wszystkie reguły w zasięgu
   użytkownika (dla administratora cała baza), nie tylko zasiane szablony.
-  Delivery Lead zarządza z niego wyłącznie własnym portfelem klientów.
+  Delivery Lead zarządza z niego wszystkimi klientami.
 
 ``confirmed_at IS NULL`` znaczy **propozycja, która nie obowiązuje**. Generator
 czyta wyłącznie reguły zatwierdzone (``resolve_client_rule``), więc zasiane
@@ -13,8 +13,8 @@ dopasowanie po nazwie klienta nie może wejść w życie bez decyzji człowieka.
 Własną regułę autor zatwierdza tym samym zapisem (``confirm=true``).
 
 Bramka zarządzania to centralne uprawnienie sekcji Delivery oraz resolver
-dostępu do konkretnego klienta. Admin ma zasięg globalny, a Delivery Lead
-wyłącznie klientów z ``DeliveryLeadClientAssignment``. Pojedynczy odczyt
+dostępu do konkretnego klienta. Admin i Delivery Lead mają zasięg globalny.
+Pojedynczy odczyt
 reguły pozostaje dostępny z Pipeline dla rekrutera pracującego przy Jobie tego
 klienta — nadal przez ten sam resolver, nigdy organizacyjnie.
 
@@ -685,7 +685,7 @@ async def get_client_cv_rule(
 
     Jest to wąski odczyt współdzielony przez Delivery i Pipeline. Rekruter
     zobaczy regułę wyłącznie klienta osiągalnego przez przypisany Job;
-    Delivery Lead wyłącznie klienta ze swojego portfela.
+    Delivery Lead każdego klienta.
     """
     client = await _client_or_404(db, client_id)
     _require_shared_rule_section_read(current_user)

@@ -136,7 +136,9 @@ from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
+    resolve_delivery_lead_assigned_client_ids,
     resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
 )
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -165,7 +167,8 @@ ContractReadUser = Annotated[
 # binary content can contain rates even when the structured API response is
 # redacted. TCM may read the operational Delivery register, but cannot cross
 # the Finance boundary through an unstructured document. Delivery Lead keeps
-# document access and is scoped to assigned clients by the existing resolver.
+# document access but opaque content remains scoped to assigned clients by the
+# dedicated guard below.
 async def require_contract_document_read_access(
     current_user: User = Depends(get_current_user),
 ) -> User:
@@ -912,25 +915,33 @@ def _assert_contract_finance_write_allowed(
         )
 
 
-def _redact_contract_finance(item):
-    """Wyzeruj pola kwotowe na zbudowanym ContractResponse/DetailResponse."""
-    for field in _CONTRACT_FINANCE_SCALARS:
-        if hasattr(item, field):
-            setattr(item, field, None)
-    for field in _CONTRACT_FINANCE_LISTS:
-        if hasattr(item, field):
-            setattr(item, field, [])
+def _redact_contract_finance(
+    item,
+    allowed_client_ids: frozenset[int] | None = None,
+):
+    """Redact finance globally or outside a DL's assigned-client exception."""
+    redact_primary = (
+        allowed_client_ids is None or item.client_id not in allowed_client_ids
+    )
+    if redact_primary:
+        for field in _CONTRACT_FINANCE_SCALARS:
+            if hasattr(item, field):
+                setattr(item, field, None)
+        for field in _CONTRACT_FINANCE_LISTS:
+            if hasattr(item, field):
+                setattr(item, field, [])
     # Zgrupowany wiersz (group_by_candidate) niesie stawki per klient w
     # `group_members` — redakcja musi objąć też członków, inaczej rola bez
     # VIEW_FINANCE odczytałaby ukryte kwoty z rozbicia per klient.
     for member in getattr(item, "group_members", None) or []:
-        member.rate_candidate = None
-        member.rate_client = None
-        member.margin = None
-        member.rate_unit = None
-        member.currency = None
-        member.rate_client_currency = None
-        member.rate_candidate_currency = None
+        if allowed_client_ids is None or member.client_id not in allowed_client_ids:
+            member.rate_candidate = None
+            member.rate_client = None
+            member.margin = None
+            member.rate_unit = None
+            member.currency = None
+            member.rate_client_currency = None
+            member.rate_candidate_currency = None
     return item
 
 
@@ -1026,6 +1037,39 @@ async def _ensure_delivery_lead_contract_visible(
     return delivery_lead_client_ids
 
 
+async def _assert_contract_document_client_access(
+    contract: Contract,
+    current_user: User,
+    db: AsyncSession,
+) -> None:
+    """Keep opaque legal/rate-bearing contract content assignment-bound.
+
+    Structured contract data is safe to expose organization-wide after its
+    financial fields are redacted. Draft HTML and uploaded files cannot be
+    redacted reliably, so a plain Delivery Lead still needs ownership of the
+    concrete client. Admin and the Finance reader retain their existing global
+    access.
+    """
+
+    if current_user.has_role(UserRole.admin):
+        return
+    if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
+        return
+    if current_user.has_role(UserRole.delivery_lead):
+        assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(
+            current_user, db
+        )
+        if (
+            assigned_client_ids is not None
+            and contract.client_id in assigned_client_ids
+        ):
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Dokument umowy wymaga przypisania Delivery Leada do klienta",
+    )
+
+
 async def _can_read_contract_finance(
     contract: Contract,
     current_user: User,
@@ -1036,8 +1080,8 @@ async def _can_read_contract_finance(
     return can_read_client_finance(
         current_user,
         client_id=contract.client_id,
-        delivery_lead_client_ids=await resolve_delivery_lead_client_ids(
-            current_user, db
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
         ),
     )
 
@@ -1112,15 +1156,20 @@ async def list_contracts(
 ):
     """List contracts with advanced filters (Phase 9 C5)."""
     allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
-    # Every DL row below is already constrained to ``allowed_client_ids``. The
-    # role may therefore use financial filters and see rates on that bounded
-    # result set without receiving the global VIEW_FINANCE capability.
-    finance_ok = user_has_capability(
-        current_user, AnalyticsCapability.VIEW_FINANCE
-    ) or (
-        allowed_client_ids is not None and current_user.has_role(UserRole.delivery_lead)
+    finance_client_ids = (
+        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
     )
-    if not finance_ok:
+    global_finance = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    has_finance_filter = any(
+        value is not None for value in (rate_client_min, rate_client_max, margin_min)
+    )
+    restrict_finance_filter_to_assigned = (
+        not global_finance
+        and current_user.has_role(UserRole.delivery_lead)
+        and bool(finance_client_ids)
+        and has_finance_filter
+    )
+    if not global_finance and not restrict_finance_filter_to_assigned:
         # F-13: the amount fields are redacted from the response below. The
         # rate/margin FILTERS must be ignored too — otherwise a non-finance
         # caller can binary-search a hidden rate/margin by watching which rows
@@ -1148,12 +1197,12 @@ async def list_contracts(
 
     def _scoped_filtered(base_query):
         """Scope DL + komplet filtrów — jedna reguła dla obu trybów listy."""
-        return _apply_contract_list_filters(
-            apply_delivery_lead_client_scope(
-                base_query, Contract.client_id, allowed_client_ids
-            ),
-            **filter_kwargs,
+        scoped = apply_delivery_lead_client_scope(
+            base_query, Contract.client_id, allowed_client_ids
         )
+        if restrict_finance_filter_to_assigned:
+            scoped = scoped.where(Contract.client_id.in_(sorted(finance_client_ids)))
+        return _apply_contract_list_filters(scoped, **filter_kwargs)
 
     load_options = (
         selectinload(Contract.candidate),
@@ -1275,9 +1324,9 @@ async def list_contracts(
         )
         items = [_contract_list_item(c, latest_order_dates, _today) for c in contracts]
 
-    if not finance_ok:
+    if not global_finance:
         for item in items:
-            _redact_contract_finance(item)
+            _redact_contract_finance(item, finance_client_ids)
     return ContractList(
         items=items,
         total=total,
@@ -2242,16 +2291,15 @@ async def expiring_contracts(
         )
         for c in result.scalars().all()
     ]
-    # Banner is operational. TCM sees dates without rates; DL sees finance only
-    # because all rows above are constrained to the assigned-client boundary.
-    finance_ok = user_has_capability(
-        current_user, AnalyticsCapability.VIEW_FINANCE
-    ) or (
-        allowed_client_ids is not None and current_user.has_role(UserRole.delivery_lead)
+    # Banner is operational and all-client. TCM sees dates without rates; DL
+    # sees rates only for rows in its still-assigned finance portfolio.
+    global_finance = user_has_capability(current_user, AnalyticsCapability.VIEW_FINANCE)
+    finance_client_ids = (
+        await resolve_delivery_lead_finance_client_ids(current_user, db) or frozenset()
     )
-    if not finance_ok:
+    if not global_finance:
         for item in items:
-            _redact_contract_finance(item)
+            _redact_contract_finance(item, finance_client_ids)
     return items
 
 
@@ -2275,15 +2323,15 @@ async def get_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    delivery_lead_client_ids = await _ensure_delivery_lead_contract_visible(
-        contract, current_user, db
-    )
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     detail = _to_detail(contract)
     detail.related_contracts = await _related_contracts_for(db, contract, current_user)
     can_view_finance = can_read_client_finance(
         current_user,
         client_id=contract.client_id,
-        delivery_lead_client_ids=delivery_lead_client_ids,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
+        ),
     )
     contract_currencies = {
         contract.resolved_rate_client_currency,
@@ -2310,10 +2358,10 @@ async def _related_contracts_for(
 ) -> list[ContractSiblingRef]:
     """Pozostałe kontrakty tej samej osoby — zasilają zakładki per klient.
 
-    Bez `void` (anulowane nie są zakładką do przeglądania) i w obrębie scope'u
-    Delivery Leada: DL ograniczony do swojego portfela nie może odczytać z chipów,
-    u jakich INNYCH klientów pracuje konsultant. Kolejność: żywe przed
-    papierowymi, w obrębie statusu najnowsza pierwsza (jak `group_members`).
+    Bez `void` (anulowane nie są zakładką do przeglądania) i w operacyjnym
+    scope Delivery Leada, który obejmuje wszystkich klientów. Referencje nie
+    niosą kwot; pełny detal redaguje je niezależnie per klient. Kolejność:
+    żywe przed papierowymi, w obrębie statusu najnowsza pierwsza.
     """
     if contract.candidate_id is None:
         return []
@@ -2359,16 +2407,16 @@ async def contract_activities(
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
     if contract is None:
         raise HTTPException(status_code=404, detail="Contract not found")
-    delivery_lead_client_ids = await _ensure_delivery_lead_contract_visible(
-        contract, current_user, db
-    )
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     # An ``updated`` row can carry rates. DL sees them only for an assigned
     # client; TCM and other non-finance readers receive the redacted feed.
     finance_ok = can_read_client_finance(
         current_user,
         client_id=contract.client_id,
-        delivery_lead_client_ids=delivery_lead_client_ids,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
+        ),
     )
 
     result = await db.execute(
@@ -2413,9 +2461,7 @@ async def contract_rate_history(
     contract = contract_result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
-    delivery_lead_client_ids = await _ensure_delivery_lead_contract_visible(
-        contract, current_user, db
-    )
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
     history_query = select(RateHistory).where(
         RateHistory.candidate_id == contract.candidate_id
@@ -2429,7 +2475,9 @@ async def contract_rate_history(
     finance_ok = can_read_client_finance(
         current_user,
         client_id=contract.client_id,
-        delivery_lead_client_ids=delivery_lead_client_ids,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(current_user, db)
+        ),
     )
 
     result = await db.execute(history_query)
@@ -2891,6 +2939,7 @@ async def get_contract_draft(
     response carries an empty body.
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
     contract_type_value = (
         contract.contract_type.value
         if hasattr(contract.contract_type, "value")
@@ -2973,6 +3022,7 @@ async def update_contract_draft(
         )
 
     contract = await _load_contract_with_relations(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
 
     if payload.template_id is not None:
         tpl = await db.scalar(
@@ -3028,6 +3078,7 @@ async def render_draft_for_print(
     server-side PDF dependency required.
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
     body = contract.draft_content_html
     if (
         not body
@@ -3081,6 +3132,7 @@ async def finalize_contract_draft(
     contract is not signed yet.
     """
     contract = await _load_contract_with_relations(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
 
     if contract.status != ContractStatus.draft:
         raise HTTPException(
@@ -3342,7 +3394,8 @@ async def list_contract_documents(
     current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
     result = await db.execute(
         select(ContractDocument)
         .where(ContractDocument.contract_id == contract_id)
@@ -3365,7 +3418,8 @@ async def upload_contract_document(
     doc_type: ContractDocumentType = Form(ContractDocumentType.other),
     expiry_date: Optional[date] = Form(None),
 ):
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
 
     # Rudimentary size guard — FastAPI's UploadFile is a SpooledTemporaryFile,
     # so we only know the true size after reading. We read via storage_service
@@ -3424,7 +3478,8 @@ async def update_contract_document(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
     result = await db.execute(
         select(ContractDocument).where(
             ContractDocument.id == document_id,
@@ -3449,7 +3504,8 @@ async def download_contract_document(
     current_user: ContractDocumentReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
     result = await db.execute(
         select(ContractDocument).where(
             ContractDocument.id == document_id,
@@ -3480,7 +3536,8 @@ async def delete_contract_document(
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
 ):
-    await _assert_contract(db, contract_id, current_user)
+    contract = await _assert_contract(db, contract_id, current_user)
+    await _assert_contract_document_client_access(contract, current_user, db)
     result = await db.execute(
         select(ContractDocument).where(
             ContractDocument.id == document_id,

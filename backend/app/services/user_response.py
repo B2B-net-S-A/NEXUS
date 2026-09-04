@@ -7,7 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.user import User, UserRole
 from app.schemas.user import DashboardDataScope, DashboardPreset, UserResponse
-from app.services.access_scope import resolve_dashboard_scope
+from app.services.access_scope import (
+    resolve_dashboard_scope,
+    resolve_delivery_lead_finance_client_ids,
+)
 
 
 def _dashboard_presets_for(user: User) -> list[DashboardPreset]:
@@ -53,8 +56,10 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
     response.available_dashboard_presets = presets
     response.default_dashboard_preset = presets[0] if presets else None
     # ``data_scope`` also drives client-level Delivery affordances. Any
-    # account carrying Delivery Lead must expose its exact assigned portfolio,
-    # even when its default dashboard preset is HoR/TCM.
+    # account carrying Delivery Lead receives all operational client ids, even
+    # when its default dashboard preset is HoR/TCM. The assigned-client finance
+    # exception is exposed separately so the frontend never mistakes that
+    # global operational scope for global access to rates.
     scope = await resolve_dashboard_scope(
         user,
         db,
@@ -63,7 +68,15 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
             and not user.has_any_role(UserRole.admin, UserRole.finance)
         ),
     )
-    response.data_scope = DashboardDataScope(**scope.as_payload())
+    scope_payload = scope.as_payload()
+    if user.has_role(UserRole.delivery_lead) and not user.has_any_role(
+        UserRole.admin,
+        UserRole.finance,
+    ):
+        scope_payload["finance_client_ids"] = sorted(
+            await resolve_delivery_lead_finance_client_ids(user, db) or frozenset()
+        )
+    response.data_scope = DashboardDataScope(**scope_payload)
     response.analytics_v1_mode = settings.ANALYTICS_V1_MODE
     response.effective_section_access = dict(
         getattr(user, "effective_section_access", {})

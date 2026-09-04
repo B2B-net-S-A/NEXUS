@@ -21,18 +21,16 @@ from sqlalchemy import (
     Integer,
     Select,
     column,
-    false,
     func,
     or_,
     select,
     table,
     true,
-    tuple_,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
-from app.api.recruitment_access import delivery_lead_job_pairs, job_scope_clause
+from app.api.recruitment_access import job_scope_clause
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -58,6 +56,7 @@ from app.schemas.recruitment_operations import (
     SimilarityStatus,
 )
 from app.services.client_identity import client_display_name_expression
+from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 from app.services.similar_job_candidates import SimilarJobRef, fetch_similar_jobs
 
 
@@ -118,7 +117,7 @@ class _LatestStage:
 @dataclass(frozen=True)
 class _RecruitmentOperationsScope:
     preset: RecruitmentOperationsPreset
-    delivery_pairs: frozenset[tuple[int, int]] | None = None
+    delivery_client_ids: frozenset[int] | None = None
 
 
 async def _resolve_operations_scope(
@@ -128,19 +127,27 @@ async def _resolve_operations_scope(
 ) -> _RecruitmentOperationsScope:
     if preset != "delivery-lead":
         return _RecruitmentOperationsScope(preset=preset)
-    delivery_pairs = await delivery_lead_job_pairs(
+    if user.has_role(UserRole.admin):
+        return _RecruitmentOperationsScope(
+            preset=preset,
+            delivery_client_ids=None,
+        )
+    dashboard_scope = await resolve_dashboard_scope(
         user,
         db,
-        head_of_recruitment_bypass=False,
+        delivery_lead_persona=True,
     )
-    if delivery_pairs is None and not user.has_role(UserRole.admin):
-        # The resolver uses ``None`` both for oversight and for non-DL callers.
-        # Route validation rejects the latter, while the service still fails
-        # closed when called directly.
-        delivery_pairs = frozenset()
+    if (
+        dashboard_scope.kind is not ScopeKind.delivery_clients
+        or dashboard_scope.user_id != user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Delivery scope belongs to a different user",
+        )
     return _RecruitmentOperationsScope(
         preset=preset,
-        delivery_pairs=delivery_pairs,
+        delivery_client_ids=dashboard_scope.allowed_client_ids,
     )
 
 
@@ -159,12 +166,10 @@ def _job_filters(
         # does not make Finance its recruiter/TAC/DL owner.
         filters.append(true())
     elif scope.preset == "delivery-lead":
-        if scope.delivery_pairs is None:
+        if scope.delivery_client_ids is None:
             filters.append(true())
-        elif not scope.delivery_pairs:
-            filters.append(false())
         else:
-            filters.append(tuple_(Job.client_id, Job.tac_id).in_(scope.delivery_pairs))
+            filters.append(Job.client_id.in_(sorted(scope.delivery_client_ids) or [-1]))
     else:
         filters.append(
             job_scope_clause(

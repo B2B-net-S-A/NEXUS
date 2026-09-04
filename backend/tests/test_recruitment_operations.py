@@ -645,11 +645,11 @@ def test_finance_scope_is_org_wide_and_keeps_published_only() -> None:
     assert "job_collaborators" not in finance_sql
 
 
-def test_delivery_lead_scope_uses_exact_client_tac_pairs_only() -> None:
+def test_delivery_lead_scope_uses_all_resolved_clients_regardless_of_tac() -> None:
     user = _user(UserRole.delivery_lead)
     allowed_scope = service._RecruitmentOperationsScope(
         preset="delivery-lead",
-        delivery_pairs=frozenset({(12, 34)}),
+        delivery_client_ids=frozenset({12, 56}),
     )
     allowed_sql = str(
         service.select(Job.id)
@@ -663,21 +663,22 @@ def test_delivery_lead_scope_uses_exact_client_tac_pairs_only() -> None:
                 user,
                 scope=service._RecruitmentOperationsScope(
                     preset="delivery-lead",
-                    delivery_pairs=frozenset(),
+                    delivery_client_ids=frozenset(),
                 ),
             )
         )
         .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
     )
 
-    assert "(jobs.client_id, jobs.tac_id) IN ((12, 34))" in allowed_sql
+    assert "jobs.client_id IN (12, 56)" in allowed_sql
+    assert "jobs.tac_id" not in allowed_sql
     assert "jobs.recruiter_id =" not in allowed_sql
     assert "job_collaborators" not in allowed_sql
-    assert "false" in denied_sql
+    assert "jobs.client_id IN (-1)" in denied_sql
 
 
 @pytest.mark.asyncio
-async def test_hybrid_hor_delivery_lead_preset_resolves_exact_pairs() -> None:
+async def test_hybrid_hor_delivery_lead_preset_resolves_all_clients() -> None:
     class _Values:
         def __init__(self, values: list[object]) -> None:
             self._values = values
@@ -690,7 +691,7 @@ async def test_hybrid_hor_delivery_lead_preset_resolves_exact_pairs() -> None:
             return _Values([12])
 
         async def execute(self, _statement: object) -> _Values:
-            return _Values([SimpleNamespace(client_id=12, tac_user_id=34)])
+            return _Values([])
 
     hybrid = _user(
         UserRole.head_of_recruitment,
@@ -703,7 +704,7 @@ async def test_hybrid_hor_delivery_lead_preset_resolves_exact_pairs() -> None:
         "delivery-lead",
     )
 
-    assert scope.delivery_pairs == frozenset({(12, 34)})
+    assert scope.delivery_client_ids == frozenset({12})
     assert scope.preset == "delivery-lead"
 
 

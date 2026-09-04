@@ -524,9 +524,9 @@ async def delivery_lead_job_pairs(
     """Resolve Job scope for either Pipeline or the explicit Delivery persona.
 
     Pipeline is organization-wide for HoR, DL and TCM, so the default returns
-    ``None`` for those roles. Callers bound to the Delivery Lead dashboard pass
-    ``head_of_recruitment_bypass=False`` and receive exact client/TAC pairs;
-    an empty set is then authoritative deny-all and never a global fallback.
+    ``None`` for those roles. The legacy explicit-persona mode returns the
+    relationship pairs for team attribution only; client access itself is
+    resolved separately as organization-wide for every Delivery Lead.
     """
     from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 

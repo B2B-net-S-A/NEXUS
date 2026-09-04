@@ -397,11 +397,8 @@ async def test_grouped_list_redacts_member_rates_for_non_finance(app_client):
         assert member["margin"] is None
 
 
-async def test_grouped_list_and_siblings_respect_delivery_lead_scope(app_client):
-    """DL przypisany do klienta A nie może przez konsolidację odczytać, że
-    konsultant pracuje też u klienta B: zgrupowany wiersz zawiera wyłącznie
-    umowy z portfela DL-a, a `related_contracts` nie wystawia chipa klienta
-    spoza scope'u."""
+async def test_grouped_list_and_siblings_give_dl_all_clients_with_redaction(app_client):
+    """DL widzi umowy obu klientów, ale finanse tylko klienta przypisanego."""
     marker = f"Dls{uuid.uuid4().hex[:6]}"
     cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
     client_a = await _seed_client(f"PortfelDL {marker}")
@@ -422,18 +419,20 @@ async def test_grouped_list_and_siblings_respect_delivery_lead_scope(app_client)
     body = grouped.json()
     assert body["total"] == 1
     [row] = body["items"]
-    assert [m["id"] for m in row["group_members"]] == [id_a]
-    assert all(
-        f"ObcyKlient {marker}" != (m["client_name"] or "") for m in row["group_members"]
-    )
+    members = {member["id"]: member for member in row["group_members"]}
+    assert set(members) == {id_a, id_b}
+    assert members[id_a]["rate_client"] is not None
+    assert members[id_b]["rate_client"] is None
 
     detail = await app_client.get(f"/api/contracts/{id_a}", headers=dl_headers)
     assert detail.status_code == 200, detail.text
-    assert detail.json()["related_contracts"] == []
+    assert [item["id"] for item in detail.json()["related_contracts"]] == [id_b]
 
-    # Kontrakt spoza portfela pozostaje niedostępny wprost.
+    # Kontrakt poza portfelem finansowym jest widoczny, ale bez kwot.
     outside = await app_client.get(f"/api/contracts/{id_b}", headers=dl_headers)
-    assert outside.status_code == 403, outside.text
+    assert outside.status_code == 200, outside.text
+    assert outside.json()["rate_client"] is None
+    assert outside.json()["rate_candidate"] is None
 
 
 # ── 2. Zakładki per klient w szczegółach ─────────────────────────────────────

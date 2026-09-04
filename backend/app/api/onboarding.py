@@ -16,7 +16,7 @@ Contract:
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,12 +70,10 @@ async def require_onboarding_user(
 OnboardingUser = Annotated[User, Depends(require_onboarding_user)]
 
 
-def _apply_delivery_lead_onboarding_scope(query, allowed_pairs):
-    """Apply the exact DL client–TAC relationship graph; empty means deny-all."""
+def _apply_delivery_lead_onboarding_scope(query, allowed_client_ids):
+    """Apply the resolved all-client DL boundary; empty means deny-all."""
 
-    return query.where(
-        tuple_(Job.client_id, Job.tac_id).in_(sorted(allowed_pairs) or [(-1, -1)])
-    )
+    return query.where(Job.client_id.in_(sorted(allowed_client_ids) or [-1]))
 
 
 async def _scoped_onboarding_jobs_query(
@@ -98,7 +96,7 @@ async def _scoped_onboarding_jobs_query(
             )
         return _apply_delivery_lead_onboarding_scope(
             query,
-            scope.allowed_client_tac_pairs,
+            scope.allowed_client_ids,
         )
     if persona is UserRole.recruiter:
         return query.where(job_scope_clause(user, Job.id))

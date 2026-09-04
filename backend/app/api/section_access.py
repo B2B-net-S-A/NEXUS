@@ -10,7 +10,8 @@ It deliberately treats safe HTTP methods as read access and every other method
 as write access.  Talent Community Manager therefore gets organization-wide,
 finance-redacted Delivery reads, while mutations fail before a handler runs.
 Delivery Lead keeps write access, with client assignment enforced by the
-existing resource-scope guards underneath this dependency.
+resource-scope guards only for finance and consequential legal operations.
+Ordinary client operations are organization-wide for every Delivery Lead.
 """
 
 from __future__ import annotations

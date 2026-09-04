@@ -8,8 +8,7 @@ Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
    z DIFFEM pól; identyczna treść nie bumpuje i nie zostawia wpisu.
 3. Odczyt karty i przeglądu jest org-wide dla ról operacyjnych (karta
    zastępuje wzory Word czytane w Pomocy przez każdego); zapis i historia
-   wymagają sekcji Delivery + grafu klienta (DL tylko własny portfel) —
-   lustro reguł CV po #1351.
+   wymagają sekcji Delivery, a każdy DL może zarządzać każdym klientem.
 4. ``off_limits`` z umowy ramowej jedzie tylko do ról z odczytem sekcji
    Delivery.
 5. Seed w repo (14 kart) i lustro DDL/seeda w ``entrypoint.sh`` są spójne
@@ -343,7 +342,7 @@ async def test_write_needs_delivery_section_write_read_is_operational(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_writes_only_for_clients_in_own_portfolio(
+async def test_delivery_lead_writes_for_all_clients(
     app_client: AsyncClient,
 ):
     cid = await _make_client(_unique("Playbook portfolio"))
@@ -352,7 +351,11 @@ async def test_delivery_lead_writes_only_for_clients_in_own_portfolio(
         r = await app_client.put(
             URL.format(cid=cid), json=_full_payload(), headers=stranger
         )
-        assert r.status_code == 403, r.text
+        assert r.status_code == 200, r.text
+        stranger_history = await app_client.get(
+            URL.format(cid=cid) + "/history", headers=stranger
+        )
+        assert stranger_history.status_code == 200, stranger_history.text
 
         owner = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
         r = await app_client.put(
@@ -543,9 +546,9 @@ async def test_seed_backfill_unknown_client_is_404(app_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncClient):
-    """Ta sama bramka co PUT: role operacyjne bez sekcji Delivery i obcy DL → 403;
-    admin (org-wide) → 200."""
+    """Ta sama bramka co PUT: role bez Delivery → 403; każdy DL i admin → 200."""
     cid = await _make_client(_unique("Playbook seed authz"))
+    admin_cid = await _make_client(_unique("Playbook seed admin authz"))
     try:
         for role in ("tac", "recruiter", "head_of_recruitment"):
             headers = await _headers_for(app_client, role)
@@ -558,15 +561,15 @@ async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncC
         r = await app_client.post(
             SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=stranger
         )
-        assert r.status_code == 403, r.text
+        assert r.status_code == 200, r.text
 
         admin = await _headers_for(app_client, "admin")
         r = await app_client.post(
-            SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=admin
+            SEED_URL.format(cid=admin_cid), json={"seed_key": SEED_KEY}, headers=admin
         )
         assert r.status_code == 200, r.text
     finally:
-        await _cleanup([cid])
+        await _cleanup([cid, admin_cid])
 
 
 def test_every_seed_entry_builds_a_valid_payload():

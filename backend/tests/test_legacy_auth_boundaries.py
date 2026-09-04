@@ -140,7 +140,7 @@ def test_invalid_finance_or_viewer_hybrid_fails_before_domain_access() -> None:
 
 
 @pytest.mark.asyncio
-async def test_dl_onboarding_jobs_use_exact_client_tac_relationships(
+async def test_dl_onboarding_jobs_use_all_clients_regardless_of_tac(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     scope = DashboardScope(
@@ -170,9 +170,9 @@ async def test_dl_onboarding_jobs_use_exact_client_tac_relationships(
         ).split()
     )
 
-    assert "(jobs.client_id, jobs.tac_id) IN ((10, 101), (20, 202))" in sql
-    assert "(10, 202)" not in sql
-    assert "(20, 101)" not in sql
+    assert "jobs.client_id IN (10, 20)" in sql
+    where_sql = sql.partition(" WHERE ")[2]
+    assert "jobs.tac_id" not in where_sql
     assert "jobs.status = 'published'" in sql
 
 

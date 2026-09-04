@@ -809,7 +809,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   },
   "nav.order_mail": {
     productDecision:
-      "Order-mail is a Delivery surface: Admin/Finance/TCM read organization-wide, DL reads its portfolio, and only Admin/scoped DL may apply.",
+      "Order-mail is a Delivery surface: Admin/Finance/TCM/DL read organization-wide, and only Admin/assigned DL may apply rate-bearing data.",
   },
   "nav.my_relationships": {
     productDecision:

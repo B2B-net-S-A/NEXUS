@@ -4,10 +4,10 @@ import { Suspense } from "react";
 import { OrderMailQueue } from "@/components/order-mail/OrderMailQueue";
 
 /**
- * Dostęp: admin, head_of_recruitment, finance (cała firma) oraz delivery_lead
- * (własny portfel) — zakres wylicza BACKEND (`_visible_client_ids`), a
+ * Dostęp: admin, finance oraz delivery_lead (wszyscy klienci) — zakres
+ * wylicza BACKEND (`_visible_client_ids`), a
  * middleware pilnuje wejścia z paska adresu. „Zastosuj" jest osobno bramkowane
- * (`can_apply`): HoR widzi kolejkę bez przycisku.
+ * (`can_apply`): TCM widzi kolejkę bez przycisku.
  */
 export default function OrderMailPage() {
   return (

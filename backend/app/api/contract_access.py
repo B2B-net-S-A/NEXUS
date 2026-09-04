@@ -21,18 +21,19 @@ delivery ``recruiter``/``sourcer`` personas — do things they must not:
 
 **Fix:** legal surfaces use the same authoritative client relationship graph as
 ``client_access.can_view_legal_documents``. Admin/Head of Recruitment and
-Finance keep organization-wide read oversight. Delivery Lead and TAC require
-an explicit assignment for the concrete client; an empty graph is deny-all.
+Finance keep organization-wide read oversight. Delivery Lead may read legal
+metadata for every concrete client, while consequential writes still require
+an explicit assignment. TAC keeps its relationship-bound client graph.
 Recruiter/Sourcer and the legacy viewer are excluded from legal PII.
 
 Owner/admin checks that already gate mutating ``generated`` rows
 (PATCH/DELETE) stay in place as a second layer; this guard only ensures the
 caller is legal-team at all.
 
-Global catalogs (role names, templates, numbering helpers) require at least one
-explicit client assignment for DL/TAC. Entity routes additionally resolve the
-exact client before reading, rendering, mutating, or downloading a document.
-Rows without an authoritative ``client_id`` are visible only to Admin/HoR.
+Global catalogs (role names, templates, numbering helpers) require a non-empty
+client graph for DL/TAC. Entity routes additionally resolve the exact client
+before reading, rendering, mutating, or downloading a document. Rows without
+an authoritative ``client_id`` are visible only to Admin/HoR.
 """
 
 from __future__ import annotations
@@ -84,7 +85,7 @@ async def require_contract_legal_access(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Gate global legal tools; empty DL/TAC assignment graphs fail closed."""
+    """Gate global legal tools; an empty resolved client graph fails closed."""
 
     client_ids = await resolve_client_team_client_ids(db, current_user)
     if client_ids is None or client_ids:
@@ -122,8 +123,12 @@ async def assert_contract_legal_client_access(
         access.can_edit_legal_documents if write else access.can_view_legal_documents
     )
     if not allowed:
-        operation = "edycja" if write else "odczyt"
-        raise deny(f"{operation} dokumentu wymaga jawnego przypisania klienta")
+        detail = (
+            "edycja dokumentu wymaga jawnego przypisania klienta"
+            if write
+            else "brak dostępu do dokumentu tego klienta"
+        )
+        raise deny(detail)
 
 
 async def assert_contract_legal_contract_access(
@@ -231,11 +236,11 @@ async def require_b2b_generator_access(
     database-backed action policy controls whether the sidebar and this gate
     expose the generator at all.
 
-    Delivery Lead keeps its established fail-closed contract: an empty DL
-    client graph is denied, and concrete entities stay inside its portfolio.
-    The configurable action policy independently selects view, generation or
-    management. A view-only user sees the finance-redacted register; stronger
-    levels are checked by the concrete commands in ``b2b_contract_generator``.
+    Delivery Lead receives the concrete graph of all current clients; an empty
+    graph is still denied and clientless entities stay fail-closed. The
+    configurable action policy independently selects view, generation or
+    management. Rate-bearing generation and management additionally require
+    ownership assignment in ``b2b_contract_generator``.
     """
 
     assert_b2b_generator_action_access(current_user, ActionAccess.view)
@@ -245,7 +250,7 @@ async def require_b2b_generator_access(
         client_ids = await resolve_client_team_client_ids(db, current_user)
         if client_ids:
             return current_user
-        raise deny("dostęp prawny wymaga jawnego przypisania klienta")
+        raise deny("Generator wymaga co najmniej jednego klienta w organizacji")
     raise deny(
         "Generator umów B2B: nieznana rola bez jawnej decyzji dostępu "
         "(require_b2b_generator_access)"

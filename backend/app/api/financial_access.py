@@ -38,7 +38,7 @@ def can_read_client_finance(
     user: User,
     *,
     client_id: int,
-    delivery_lead_client_ids: frozenset[int] | None,
+    delivery_lead_finance_client_ids: frozenset[int] | None,
 ) -> bool:
     """Czy odbiorca widzi kwoty JEDNEGO klienta: stawki, marżę, przychód, MRR.
 
@@ -56,10 +56,9 @@ def can_read_client_finance(
 
     Zakres jest wąski i trzeba go pilnować:
 
-    * ``client_id`` musi leżeć w granicy portfela wyznaczonej przez
-      ``resolve_delivery_lead_client_ids``. Trasy i tak odrzucają klienta spoza
-      niej, ale finanse nie mogą wisieć na tym, że wcześniejsza linijka nie
-      rzuciła wyjątku,
+    * ``client_id`` musi leżeć w finansowej granicy portfela wyznaczonej przez
+      ``resolve_delivery_lead_finance_client_ids``. Jest ona niezależna od
+      organizacyjnego dostępu operacyjnego DL do wszystkich klientów,
     * ``None`` jako granica znaczy „ten odbiorca NIE jest rządzony personą DL"
       (admin, Finance albo rola nie-DL) i finansów stąd nie dostaje. Każda
       multi-rola zawierająca ``delivery_lead`` dostaje z resolvera konkretny
@@ -76,14 +75,15 @@ def can_read_client_finance(
 
     if has_financial_access(user):
         return True
-    if delivery_lead_client_ids is None:
+    if delivery_lead_finance_client_ids is None:
         return False
     # Test roli jest redundantny wobec kontraktu
-    # ``resolve_delivery_lead_client_ids`` (niepusta granica = persona DL) —
+    # ``resolve_delivery_lead_finance_client_ids`` (konkretny zbiór = persona DL) —
     # i ma taki zostać. Gdyby ta funkcja zaczęła kiedyś zwracać zbiór dla innej
     # persony, sam warunek na granicy po cichu rozdałby jej kwoty.
     return (
-        user.has_role(UserRole.delivery_lead) and client_id in delivery_lead_client_ids
+        user.has_role(UserRole.delivery_lead)
+        and client_id in delivery_lead_finance_client_ids
     )
 
 

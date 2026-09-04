@@ -107,8 +107,8 @@ async def _seed_client() -> int:
         return client.id
 
 
-async def _seed_delivery_scope() -> tuple[str, str, int, int, int]:
-    """Create one exact DL→client→TAC relationship and an unrelated TAC."""
+async def _seed_delivery_scope() -> tuple[str, str, int, int, int, int]:
+    """Create assigned and unassigned-to-DL clients with their TACs."""
 
     dl_email, dl_password = await _seed_user(UserRole.delivery_lead)
     tac_email, _ = await _seed_user(UserRole.tac)
@@ -120,7 +120,8 @@ async def _seed_delivery_scope() -> tuple[str, str, int, int, int]:
         assert dl is not None and tac is not None and other is not None
 
         client = Client(name=f"Analytics DL Scope {uuid.uuid4().hex[:10]}")
-        db.add(client)
+        other_client = Client(name=f"Analytics Global DL {uuid.uuid4().hex[:10]}")
+        db.add_all([client, other_client])
         await db.flush()
         db.add_all(
             [
@@ -134,10 +135,15 @@ async def _seed_delivery_scope() -> tuple[str, str, int, int, int]:
                     client_id=client.id,
                     is_primary=False,
                 ),
+                ClientTacAssignment(
+                    tac_user_id=other.id,
+                    client_id=other_client.id,
+                    is_primary=False,
+                ),
             ]
         )
         await db.commit()
-        return dl_email, dl_password, client.id, tac.id, other.id
+        return dl_email, dl_password, client.id, other_client.id, tac.id, other.id
 
 
 # ── Gating trybu ─────────────────────────────────────────────────────────────
@@ -265,13 +271,14 @@ async def test_user_recruitment_scope(v1_client: AsyncClient, analytics_shadow):
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_team_and_user_scope_follow_exact_client_tac_relation(
+async def test_delivery_lead_team_scope_covers_tacs_across_all_clients(
     v1_client: AsyncClient, analytics_shadow
 ):
     (
         dl_email,
         dl_password,
         client_id,
+        other_client_id,
         tac_id,
         unrelated_tac_id,
     ) = await _seed_delivery_scope()
@@ -283,19 +290,27 @@ async def test_delivery_lead_team_and_user_scope_follow_exact_client_tac_relatio
     assert team_body["scope"] == {
         "kind": "delivery_clients",
         "user_id": team_body["scope"]["user_id"],
-        "allowed_user_ids": [tac_id],
+        "allowed_user_ids": sorted([tac_id, unrelated_tac_id]),
         "client_tac_pairs": [
             {"client_id": client_id, "tac_user_id": tac_id},
+            {"client_id": other_client_id, "tac_user_id": unrelated_tac_id},
         ],
     }
-    assert {row["user_id"] for row in team_body["data"]["rows"]} == {tac_id}
+    assert {row["user_id"] for row in team_body["data"]["rows"]} == {
+        tac_id,
+        unrelated_tac_id,
+    }
 
     calls = await v1_client.get("/api/analytics/v1/team/calls", headers=headers)
     assert calls.status_code == 200, calls.text
     assert calls.json()["scope"]["client_tac_pairs"] == [
         {"client_id": client_id, "tac_user_id": tac_id},
+        {"client_id": other_client_id, "tac_user_id": unrelated_tac_id},
     ]
-    assert {row["user_id"] for row in calls.json()["data"]["rows"]} == {tac_id}
+    assert {row["user_id"] for row in calls.json()["data"]["rows"]} == {
+        tac_id,
+        unrelated_tac_id,
+    }
 
     allowed = await v1_client.get(
         f"/api/analytics/v1/recruitment/users/{tac_id}", headers=headers
@@ -305,11 +320,14 @@ async def test_delivery_lead_team_and_user_scope_follow_exact_client_tac_relatio
         {"client_id": client_id, "tac_user_id": tac_id},
     ]
 
-    denied = await v1_client.get(
+    other_allowed = await v1_client.get(
         f"/api/analytics/v1/recruitment/users/{unrelated_tac_id}",
         headers=headers,
     )
-    assert denied.status_code == 403
+    assert other_allowed.status_code == 200, other_allowed.text
+    assert other_allowed.json()["scope"]["client_tac_pairs"] == [
+        {"client_id": other_client_id, "tac_user_id": unrelated_tac_id},
+    ]
 
 
 def test_delivery_lead_cache_key_contains_exact_relationship_pairs():

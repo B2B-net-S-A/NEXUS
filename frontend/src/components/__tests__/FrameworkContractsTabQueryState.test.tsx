@@ -1,9 +1,9 @@
 /**
  * Zakładka „Umowy" (MSA): 403 NIE może twierdzić, że klient nie ma umowy ramowej.
  *
- * Odczyt stoi za `can_view_legal_documents` (admin/HoR/DL/TAC + przypisanie do
- * klienta), a sam profil klienta otwiera każdy `OperationalUser`. Recruiter,
- * sourcer, finance i nieprzypisany DL/TAC dostawali więc „Brak umów ramowych.
+ * Odczyt stoi za `can_view_legal_documents`, a sam profil klienta otwiera
+ * szerszy zestaw ról operacyjnych. Recruiter, sourcer i TAC bez dostępu
+ * dostawali więc „Brak umów ramowych.
  * Dodaj pierwszą MSA aby móc tworzyć zamówienia." — w body leasingu to zdanie
  * jest różnicą między „możemy obsadzić tego klienta" a „nie możemy", a przycisk
  * zapraszał do zduplikowania MSA, która już istnieje (POST i tak zwracał 403).
