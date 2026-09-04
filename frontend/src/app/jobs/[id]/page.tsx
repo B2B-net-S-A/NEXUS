@@ -24,7 +24,11 @@ import { jobChatApi } from "@/lib/api";
 import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
+import {
+  JobShortlist,
+  jobShortlistQueryKey,
+} from "@/components/v2/jobs/JobShortlist";
 import { buildJobSearchPrefill } from "@/lib/job-search-prefill";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -759,6 +763,18 @@ function AIMatchingSection({
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
+  // Przełącznik dwóch stanów tego samego ekranu (makieta C2): „Ranking"
+  // (szukam) ↔ „Shortlista" (oceniam i prowadzę).
+  const [matchView, setMatchView] = useState<"ranking" | "shortlist">("ranking");
+  const [shortlistingId, setShortlistingId] = useState<number | null>(null);
+  // Licznik do etykiety przełącznika — ten sam klucz co tablica shortlisty,
+  // więc react-query deduplikuje fetch.
+  const shortlistCountQuery = useQuery({
+    queryKey: jobShortlistQueryKey(jobId),
+    queryFn: () => shortlistApi.list(jobId),
+    staleTime: 30_000,
+  });
+  const shortlistCount = shortlistCountQuery.data?.length ?? 0;
   // Location filter — restricts matches to candidates whose location matches.
   // Pre-fill from the job's own location when it has one (rare for imported
   // jobs), otherwise the recruiter types a city (e.g. "Warszawa").
@@ -807,6 +823,28 @@ function AIMatchingSection({
     onSettled: () => setAddingId(null),
   });
 
+  // Staged evaluation przed pipeline (kanon z SuggestedCandidatesWidget):
+  // dodanie na shortlistę, nie od razu do pipeline'u.
+  const shortlistMutation = useMutation({
+    mutationFn: ({ candidateId }: { candidateId: number; fullName: string }) => {
+      if (readOnly) {
+        throw new Error("Shortlista jest dostępna tylko do odczytu.");
+      }
+      return shortlistApi.add(jobId, [candidateId]);
+    },
+    onMutate: ({ candidateId }) => setShortlistingId(candidateId),
+    onSuccess: (res, { fullName }) => {
+      queryClient.invalidateQueries({ queryKey: jobShortlistQueryKey(jobId) });
+      showSuccess(
+        res.total_added > 0
+          ? `${fullName} — dodano na shortlistę`
+          : `${fullName} jest już na shortliście`,
+      );
+    },
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
+    onSettled: () => setShortlistingId(null),
+  });
+
   const matches = data?.matches ?? [];
   const searchType = data?.search_type;
   // Sygnałem degradacji jest koperta `meta` — `/api/jobs/{id}/ai-matches`
@@ -843,6 +881,52 @@ function AIMatchingSection({
         readOnly={readOnly}
       />
 
+      {/* Przełącznik Ranking / Shortlista (makieta C2) */}
+      <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-sm">
+        <button
+          type="button"
+          onClick={() => setMatchView("ranking")}
+          className={
+            "px-3 py-1 rounded-md transition-colors " +
+            (matchView === "ranking"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent")
+          }
+        >
+          Ranking
+        </button>
+        <button
+          type="button"
+          onClick={() => setMatchView("shortlist")}
+          className={
+            "px-3 py-1 rounded-md transition-colors inline-flex items-center gap-1.5 " +
+            (matchView === "shortlist"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent")
+          }
+        >
+          Shortlista
+          {shortlistCount > 0 && (
+            <span
+              className={
+                "rounded-full px-1.5 text-[11px] tabular-nums " +
+                (matchView === "shortlist"
+                  ? "bg-primary-foreground/20"
+                  : "bg-muted text-muted-foreground")
+              }
+            >
+              {shortlistCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {matchView === "shortlist" && (
+        <JobShortlist jobId={jobId} readOnly={readOnly} />
+      )}
+
+      {matchView === "ranking" && (
+        <>
       {/* Header info + location filter */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -1070,6 +1154,15 @@ function AIMatchingSection({
                       )}
                     </button>
                     <button
+                      onClick={() => shortlistMutation.mutate({ candidateId: c.id, fullName })}
+                      disabled={shortlistingId === c.id || assignBlocked}
+                      title={assignBlocked ? elig?.reason : "Dodaj na shortlistę (ocena przed pipeline)"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <UserCheck className="w-3 h-3" />
+                      {shortlistingId === c.id ? "Dodawanie…" : "Na shortlistę"}
+                    </button>
+                    <button
                       onClick={() => setEmailTarget(c)}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted transition-colors"
                     >
@@ -1082,6 +1175,8 @@ function AIMatchingSection({
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* Email modal */}

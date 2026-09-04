@@ -13,7 +13,7 @@ nie retrofit `/candidates` (ai-matches już tam żył z działającym UI; retrof
 | 1 | Kontekst rekrutacji | Wrodzony — to strona oferty (`/jobs/[id]`) |
 | 2 | Bramka na wierszu + pasek „ukryto N" | **Zrobione** (frontend `/jobs/[id]`) |
 | 3 | Zakładka „Dopasowanie" | Już istnieje: `components/v2/pages/DopasowanieTab.tsx` |
-| 4 | Tablica shortlisty (ocena → kontakt → właściciel → termin → promocja) | **Pozostaje** (osobna duża powierzchnia) |
+| 4 | Tablica shortlisty (ocena → kontakt → promocja) | **Zrobione** (`JobShortlist.tsx` + przełącznik w `AIMatchingSection`) |
 
 ## Faza 0 — backend (`backend/app/api/matching.py`)
 
@@ -67,18 +67,38 @@ standalone na realnym pliku (4/4). Testy integracyjne (Postgres + Py 3.12) — w
 
 Weryfikacja: type-check/build w CI (worktree bez `node_modules` w chwili pisania).
 
-## Faza 4 — pozostaje (shortlista)
+## Faza 4 — shortlista (zrobione)
 
-Backend gotowy (`job_shortlist.py`) i FE API gotowe (`shortlistApi` w `lib/candidate-search-api.ts`:
-add/list/update/remove/promote; typy `EvaluationStatus`/`OutreachStatus`). Brakuje **powierzchni
-zarządzania**: sekcja/zakładka na `/jobs/[id]` z ocena (4) × kontakt (5) × właściciel (domyślnie
-dodający) × termin (`next_action_at`) × notatka × snapshot dryfu (`score_snapshot`) × promocja
-(`promote`, przez tę samą bramkę → 409 z powodem) + blokada optymistyczna (`version`).
-To osobny, samodzielny komponent — kolejny krok.
+Nowy komponent `frontend/src/components/v2/jobs/JobShortlist.tsx` + przełącznik
+Ranking/Shortlista w `AIMatchingSection` (zgodnie z makietą — dwa stany jednej sekcji,
+nie osobna globalna zakładka).
+
+- **Wejście:** akcja „Na shortlistę" na każdym wierszu rankingu (`shortlistApi.add`,
+  staged evaluation przed pipeline; zablokowana dla `assignment_allowed=false`).
+  Licznik w przełączniku dzieli ten sam `queryKey` co tablica (react-query dedupe).
+- **Tablica:** ocena — segment 4 (`evaluation_status`); kontakt — select 5
+  (`outreach_status`); snapshot wyniku (`score_snapshot`); termin (`next_action_at`,
+  „po terminie" na czerwono); promocja (`promote`) i usunięcie. Etykiety PL zdefiniowane
+  w komponencie (model nie ma jeszcze mapy FE).
+- **Blokada optymistyczna:** PATCH z `version`; 409 → toast „ktoś zapisał równolegle,
+  odśwież" + refetch (bez cichego nadpisania).
+- **Promocja przez bramkę:** `promote` przechodzi eligibility; 409 pokazywany z `detail`
+  po polsku (ten sam powód co w rankingu).
+- **RBAC:** `readOnly` wyłącza wszystkie mutacje. Stany loading/empty/error obsłużone.
+
+Świadomie poza tym przejściem (mniejsze, opcjonalne): edycja notatki/właściciela/terminu
+w tablicy (dziś tylko wyświetlane) — API (`shortlistApi.update`) je już przyjmuje.
 
 ## Pliki
 
 - `backend/app/api/matching.py` — helpery `_eligibility_annotation`, `_gate_and_dealbreakers`; obie gałęzie.
 - `backend/tests/test_ai_matches_eligibility.py`, `test_ai_matches_fallback_eligibility.py` — kontrakt.
 - `frontend/src/lib/api.ts` — typ `MatchEligibility` + pole `eligibility`.
-- `frontend/src/app/jobs/[id]/page.tsx` — bramka na wierszu + pasek „ukryto N".
+- `frontend/src/app/jobs/[id]/page.tsx` — bramka na wierszu + pasek „ukryto N" + przełącznik Ranking/Shortlista + akcja „Na shortlistę".
+- `frontend/src/components/v2/jobs/JobShortlist.tsx` — tablica shortlisty (nowy plik).
+
+## Weryfikacja (lokalnie)
+
+- Backend: `ruff check` + `ruff format --check` czyste; asercje AST 4/4 na realnym pliku.
+- Frontend: `tsc --noEmit` czyste; `eslint` 0 błędów (8 istniejących ostrzeżeń `any`, nie z tych zmian).
+- Testy integracyjne (Postgres + Py 3.12) i pełny `next build` — w CI.
