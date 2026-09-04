@@ -264,6 +264,24 @@ export function areaPrefillDescription(params: {
   return smartDescription(role, language, clientName);
 }
 
+/** Imię i nazwisko Partnera po odpytaniu rejestru o NIP.
+ *
+ * Nazwisko należy do KANDYDATA ze „Źródła danych" (prefill) albo do ręcznej
+ * poprawki — rejestr może je UZUPEŁNIĆ tylko wtedy, gdy pole jest puste, i NIGDY
+ * nie kasuje wartości, która już tam jest. NIP kandydata bywa cudzy (błąd
+ * w profilu) albo należy do spółki, więc `person` z rejestru potrafił wstawić
+ * inne nazwisko niż wybrany kandydat (regresja: wybrany „Rafał Korecki", w polu
+ * „RAFAŁ WASILEWSKI" — właściciel JDG z NIP-u firmy NERTHUS). `name` firmy,
+ * REGON i adres to dane rejestrowe i nadpisują się osobno, bez tej ochrony. */
+export function partnerNameAfterLookup(
+  currentName: string,
+  registryPerson: string | null | undefined,
+): string {
+  const current = currentName.trim();
+  if (current) return currentName;
+  return registryPerson?.trim() ? registryPerson : currentName;
+}
+
 /** Needle'e wpisów rejestru klauzul, które NIE dają modyfikacji umowy.
  *
  * „BNP Paribas Cardif" to odrębny Klient (ubezpieczyciel), nie Bank BNP Paribas
@@ -2977,9 +2995,14 @@ function GeneratorForm() {
       try {
         const d = await b2bGeneratorApi.companyLookup({ nip });
         if (cancelled) return;
-        // JDG → `person` = imię i nazwisko właściciela (osobne pole);
-        // `name` = nazwa firmy (pełna z CEIDG, lub nazwisko z Białej Listy).
-        if (d.person) setPartnerName(d.person);
+        // JDG → `person` = imię i nazwisko właściciela; `name` = nazwa firmy
+        // (pełna z CEIDG, lub nazwisko z Białej Listy). Nazwisko UZUPEŁNIAMY
+        // tylko gdy puste — rejestr nie może nadpisać nazwiska kandydata ze
+        // „Źródła danych" (jego NIP bywa cudzy/spółkowy → `person` był inną
+        // osobą). Updater funkcyjny czyta świeży stan bez dokładania
+        // `partnerName` do zależności efektu (inaczej lookup leciałby na każdy
+        // znak nazwiska). Reszta pól to dane rejestrowe — nadpisują się.
+        setPartnerName((prev) => partnerNameAfterLookup(prev, d.person));
         if (d.name) setPartnerLegalName(d.name);
         if (d.regon) setPartnerRegon(d.regon);
         if (d.address) setPartnerBusinessAddress(d.address);
