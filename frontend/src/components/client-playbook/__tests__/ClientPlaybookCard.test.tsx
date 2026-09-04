@@ -291,6 +291,26 @@ describe("ClientPlaybookCard", () => {
     expect(screen.queryByTestId("client-playbook-edit")).not.toBeInTheDocument();
   });
 
+  it("wariant compact: „Edytuj →” tylko z editHref i capability; Pomoc zostaje", async () => {
+    const editHref = "/clients/1?tab=zasady";
+
+    const dl = renderCard({ variant: "compact", editHref });
+    const edit = await screen.findByTestId("client-playbook-edit");
+    expect(edit.tagName).toBe("A");
+    expect(edit).toHaveAttribute("href", editHref);
+    // Link do Pomocy zostaje obok edycji, niezależnie od uprawnień.
+    expect(
+      screen.getByRole("link", { name: /Pełna karta klienta/ }),
+    ).toHaveAttribute("href", "/help?tab=clients&client=1");
+    dl.unmount();
+
+    // Rekruter (bez client_playbook.manage) — compact bez „Edytuj →".
+    mocks.user = RECRUITER_USER;
+    renderCard({ variant: "compact", editHref });
+    await screen.findByRole("link", { name: /Pełna karta klienta/ });
+    expect(screen.queryByTestId("client-playbook-edit")).not.toBeInTheDocument();
+  });
+
   it("onEdit zamiast editHref renderuje przyciski, nie linki", async () => {
     const onEdit = vi.fn();
 
