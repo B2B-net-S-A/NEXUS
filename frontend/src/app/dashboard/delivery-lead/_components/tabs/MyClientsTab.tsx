@@ -42,7 +42,7 @@ export function MyClientsTab() {
     return (
       <Card className="p-8! text-center text-sm text-muted-foreground">
         <Inbox className="h-10 w-10 mx-auto mb-3 opacity-40" />
-        Brak przypisanych klientów. Skontaktuj się z HoR aby dostać przypisanie.
+        Brak klientów w organizacji.
       </Card>
     )
   }

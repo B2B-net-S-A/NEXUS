@@ -8,7 +8,7 @@ mógł zmieniać kontakty i prywatne notatki relacyjne. Teraz decyzje podejmuje
 - odczyt listy jest współdzielony z Pipeline i zawężany grafem klient/Job;
 - ``relationship_notes`` (dane prywatne) tylko admin lub uprawniony owner —
   pozostali dostają projekcję BEZ tego pola (nie ``null``);
-- create/update/delete: admin lub przypisany Delivery Lead;
+- create/update/delete: admin lub Delivery Lead dla każdego klienta;
 - owner relacji może edytować pola relacyjne swojego kontaktu;
 - zmiana ``key_relationship_owner_id``: admin (wyjątek: claim None → self);
 - każda mutacja zostawia audit event w ``activities`` (bez wartości pól
@@ -232,8 +232,9 @@ async def list_all_contacts(
     """Kontakty cross-client (globalna wyszukiwarka).
 
     Admin, HoR, Finance i TCM widzą organizację w zakresie swojej projekcji.
-    DL/TAC widzą jawne przypisania, a recruiter/sourcer klientów osiągalnych
-    przez Job. Pusty graf relacji jest deny-all.
+    DL widzi wszystkich klientów, TAC swoje jawne przypisania, a
+    recruiter/sourcer klientów osiągalnych przez Job. Pusty graf relacji jest
+    deny-all.
     """
     current_user = scope.user
     visible_client_ids = scope.visible_client_ids
@@ -326,7 +327,7 @@ async def create_contact(
     await assert_client_exists(db, data.client_id)
     access = await resolve_client_access(db, current_user, data.client_id)
     if not access.can_edit_contacts:
-        raise deny("tworzenie kontaktów wymaga roli admin lub przypisanego DL")
+        raise deny("tworzenie kontaktów wymaga roli admin lub Delivery Lead")
     if (
         data.key_relationship_owner_id is not None
         and data.key_relationship_owner_id != current_user.id
@@ -391,7 +392,7 @@ async def update_contact(
                     f"swojego kontaktu (niedozwolone: {sorted(illegal)})"
                 )
         else:
-            raise deny("edycja kontaktu wymaga roli admin lub przypisanego DL")
+            raise deny("edycja kontaktu wymaga roli admin lub Delivery Lead")
 
     for k, v in payload.items():
         setattr(contact, k, v)
@@ -421,7 +422,7 @@ async def delete_contact(
     contact = await _load_contact(db, contact_id)
     access = await resolve_client_access(db, current_user, contact.client_id)
     if not access.can_edit_contacts:
-        raise deny("usunięcie kontaktu wymaga roli admin lub przypisanego DL")
+        raise deny("usunięcie kontaktu wymaga roli admin lub Delivery Lead")
 
     record_client_audit(
         db,

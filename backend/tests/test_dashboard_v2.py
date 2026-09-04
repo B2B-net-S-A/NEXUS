@@ -375,7 +375,7 @@ def test_multi_role_operator_can_narrow_oversight_scope_to_my_work(
     )
 
 
-def test_delivery_scope_uses_exact_client_tac_pairs_not_cartesian_product() -> None:
+def test_delivery_scope_uses_all_clients_regardless_of_job_tac() -> None:
     delivery_lead = _user(UserRole.delivery_lead, user_id=71)
     scope = ResolvedDashboardScope(
         raw=object(),
@@ -398,15 +398,12 @@ def test_delivery_scope_uses_exact_client_tac_pairs_not_cartesian_product() -> N
     )
 
     assert "jobs.client_id" in rendered
-    assert "jobs.tac_id" in rendered
-    assert "(8, 21)" in rendered
-    assert "(9, 22)" in rendered
-    assert "(8, 22)" not in rendered
-    assert "(9, 21)" not in rendered
+    assert "jobs.client_id IN (8, 9)" in rendered
+    assert "jobs.tac_id" not in rendered
     assert "jobs.delivery_lead_id" not in rendered
 
 
-def test_delivery_scope_without_relationship_pairs_is_empty() -> None:
+def test_delivery_scope_without_relationship_pairs_still_uses_clients() -> None:
     delivery_lead = _user(UserRole.delivery_lead, user_id=71)
     scope = ResolvedDashboardScope(
         raw=object(),
@@ -424,7 +421,7 @@ def test_delivery_scope_without_relationship_pairs_is_empty() -> None:
         for condition in _delivery_job_conditions(delivery_lead, scope)
     )
 
-    assert "(-1, -1)" in rendered
+    assert "jobs.client_id IN (8)" in rendered
 
 
 def test_delivery_milestone_actor_scope_preserves_client_relationship() -> None:

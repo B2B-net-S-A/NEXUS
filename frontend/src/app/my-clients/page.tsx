@@ -19,6 +19,9 @@ export default function MyClientsPage() {
         kind: user.data_scope.kind,
         userId: user.data_scope.user_id,
         clientIds: [...user.data_scope.allowed_client_ids].sort((a, b) => a - b),
+        financeClientIds: [...(user.data_scope.finance_client_ids ?? [])].sort(
+          (a, b) => a - b,
+        ),
         tacUserIds: [...user.data_scope.allowed_tac_user_ids].sort(
           (a, b) => a - b,
         ),
@@ -49,7 +52,7 @@ export default function MyClientsPage() {
   if (error) {
     return (
       <div className="p-6 text-destructive">
-        Błąd ładowania. Sprawdź uprawnienia (rola: delivery_lead / admin / head_of_recruitment).
+        Błąd ładowania. Sprawdź uprawnienia do sekcji Delivery.
       </div>
     );
   }
@@ -61,19 +64,18 @@ export default function MyClientsPage() {
       <header>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Building2 className="w-6 h-6 text-primary" />
-          Moi klienci
+          Panel klientów
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Klienci do których jesteś przypisany jako Delivery Lead. Klikając
-          klienta otworzysz pełny panel z umowami ramowymi, zamówieniami i
-          analityką.
+          Wszyscy klienci organizacji. Przypisanie Delivery Leada nadal
+          wskazuje odpowiedzialność oraz zakres danych finansowych. Kliknij
+          klienta, aby otworzyć jego panel operacyjny.
         </p>
       </header>
 
       {clients.length === 0 ? (
         <div className="border border-dashed border-border rounded-lg p-12 text-center text-muted-foreground">
-          Nie masz jeszcze przypisanych klientów. Skontaktuj się z Head of
-          Recruitment aby dodać przypisanie.
+          W Nexusie nie ma jeszcze klientów do wyświetlenia.
         </div>
       ) : (
         <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">

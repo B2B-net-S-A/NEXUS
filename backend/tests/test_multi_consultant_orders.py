@@ -230,16 +230,10 @@ async def test_assigned_delivery_lead_can_add_a_consultant_with_rates(
     )
 
 
-async def test_unassigned_delivery_lead_is_rejected(
+async def test_unassigned_delivery_lead_reads_redacted_but_cannot_write_rates(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """DL BEZ przypisania do klienta nie dotknie ani zapisu, ani odczytu.
-
-    To jest niezmiennik, na którym stoi cała bramka:
-    ``_has_md_line_management_role`` sprawdza WYŁĄCZNIE rolę, a zawężenie do
-    klienta robi trasa. Gdyby ten test padł, każdy Delivery Lead miałby stawki
-    wszystkich klientów.
-    """
+    """Każdy DL widzi grupę; stawki i ich zapis pozostają przy właścicielu."""
     client_id, contracts, _ = await _seed_client_with_contracts(1)
     _enable_for(monkeypatch, client_id)
     group = await _create_group(
@@ -280,21 +274,19 @@ async def test_unassigned_delivery_lead_is_rejected(
     )
     assert swap.status_code == 403, swap.text
 
-    # Odczyt też — `_require_group_read` wymaga jawnego przypisania DL/TAC.
+    # Odczyt operacyjny jest globalny, ale kwoty są zredagowane.
     read = await app_client.get(
         f"/api/clients/{client_id}/order-groups", headers=other_dl
     )
-    assert read.status_code == 403, read.text
+    assert read.status_code == 200, read.text
+    line = read.json()["groups"][0]["lines"][0]
+    assert line["rate_cost"] is None
+    assert line["rate_revenue"] is None
 
 
-async def test_who_sees_line_rates():
-    """Widoczność stawek linii — dokładnie ten sam zbiór ról, co zapis.
-
-    Sprawdzane na poziomie reguły, nie przez HTTP: TAC bez przypisania do
-    klienta nie przeczyta nawet grupy, więc test przez API mierzyłby bramkę
-    dostępu do klienta, a nie redakcję stawek.
-    """
-    from app.api.client_order_groups import _can_see_finance
+async def test_who_sees_line_rates(monkeypatch):
+    """Stawki widzi Finance/Admin oraz DL przypisany do danego klienta."""
+    from app.api import client_order_groups
     from app.models.user import UserRole
 
     class _StubUser:
@@ -312,10 +304,30 @@ async def test_who_sees_line_rates():
         def get_all_roles(self):
             return [self._role]
 
-    for role in (UserRole.admin, UserRole.delivery_lead, UserRole.finance):
-        assert _can_see_finance(_StubUser(role)) is True, role
+    async def _finance_scope(user, _db):
+        if user.has_role(UserRole.delivery_lead):
+            return frozenset({101})
+        return None
+
+    monkeypatch.setattr(
+        client_order_groups,
+        "resolve_delivery_lead_finance_client_ids",
+        _finance_scope,
+    )
+    db = object()
+
+    for role in (UserRole.admin, UserRole.finance):
+        assert await client_order_groups._can_see_finance(db, _StubUser(role), 101)
+    assert await client_order_groups._can_see_finance(
+        db, _StubUser(UserRole.delivery_lead), 101
+    )
+    assert not await client_order_groups._can_see_finance(
+        db, _StubUser(UserRole.delivery_lead), 202
+    )
     for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer):
-        assert _can_see_finance(_StubUser(role)) is False, role
+        assert not await client_order_groups._can_see_finance(
+            db, _StubUser(role), 101
+        ), role
 
 
 async def test_legacy_order_finance_guard_is_untouched(
@@ -350,13 +362,8 @@ async def test_legacy_order_finance_guard_is_untouched(
 
 
 async def test_head_of_recruitment_cannot_set_line_rates(monkeypatch):
-    """HoR przechodzi przez DlAssignedOrAdmin globalnie, bez przypisania.
-
-    Repo konsekwentnie trzyma go poza powierzchniami finansowymi (np.
-    `/settings/clients-overview` jest admin-only właśnie z tego powodu), więc
-    nie może ustawiać stawek mimo że przejdzie bramkę trasy.
-    """
-    from app.api.client_order_groups import _assert_line_finance_write_allowed
+    """HoR i nieprzypisany DL nie ustawiają stawek linii."""
+    from app.api import client_order_groups
     from app.models.user import UserRole
     from fastapi import HTTPException
 
@@ -370,14 +377,40 @@ async def test_head_of_recruitment_cannot_set_line_rates(monkeypatch):
         def has_any_role(self, *roles):
             return self._role in roles
 
+    async def _finance_scope(user, _db):
+        if user.has_role(UserRole.delivery_lead):
+            return frozenset({101})
+        return None
+
+    monkeypatch.setattr(
+        client_order_groups,
+        "resolve_delivery_lead_finance_client_ids",
+        _finance_scope,
+    )
+    db = object()
+
     with pytest.raises(HTTPException) as exc:
-        _assert_line_finance_write_allowed(
-            _StubUser(UserRole.head_of_recruitment), {"rate_cost"}
+        await client_order_groups._assert_line_finance_write_allowed(
+            db,
+            _StubUser(UserRole.head_of_recruitment),
+            101,
+            {"rate_cost"},
         )
     assert exc.value.status_code == 403
 
     for role in (UserRole.admin, UserRole.delivery_lead):
-        _assert_line_finance_write_allowed(_StubUser(role), {"rate_cost"})
+        await client_order_groups._assert_line_finance_write_allowed(
+            db, _StubUser(role), 101, {"rate_cost"}
+        )
+
+    with pytest.raises(HTTPException) as exc:
+        await client_order_groups._assert_line_finance_write_allowed(
+            db,
+            _StubUser(UserRole.delivery_lead),
+            202,
+            {"rate_cost"},
+        )
+    assert exc.value.status_code == 403
 
 
 # ── Budżet MD ───────────────────────────────────────────────────────────────

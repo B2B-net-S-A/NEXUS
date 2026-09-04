@@ -418,7 +418,9 @@ async def test_order_rate_zero_not_masked_by_contract_rate(
 # ── Permissions ─────────────────────────────────────────────────────────────
 
 
-async def test_dl_unassigned_cannot_create_order(app_client: AsyncClient):
+async def test_dl_unassigned_can_create_operational_order_without_finance(
+    app_client: AsyncClient,
+):
     client_id = await _new_client()
     cand_id = await _new_candidate()
     contract_id = await _new_contract(client_id, cand_id)
@@ -429,12 +431,16 @@ async def test_dl_unassigned_cannot_create_order(app_client: AsyncClient):
             f"/api/clients/{client_id}/orders",
             data={
                 "contract_id": str(contract_id),
-                "title": "should fail",
+                "title": "Global DL operational order",
                 "order_status": "draft",
             },
             headers=headers,
         )
-        assert resp.status_code == 403, resp.text
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["title"] == "Global DL operational order"
+        assert body["rate_candidate"] is None
+        assert body["rate_client"] is None
     finally:
         await _cleanup([client_id], [dl_id], [cand_id])
 
@@ -621,13 +627,15 @@ async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient
         rows = resp.json()
         ids = [r["client_id"] for r in rows]
         assert own in ids
-        # Granica portfela zostaje granicą — obcy klient nie wchodzi na listę
-        # ani z kwotami, ani bez nich.
-        assert other not in ids
+        assert other in ids
         row = next(r for r in rows if r["client_id"] == own)
         assert row["active_orders_count"] == 1
         assert Decimal(str(row["total_revenue_all_time"])) == Decimal("25000.00")
         assert Decimal(str(row["active_revenue"])) == Decimal("25000.00")
+        other_row = next(r for r in rows if r["client_id"] == other)
+        assert other_row["is_head_dl"] is False
+        assert "total_revenue_all_time" not in other_row
+        assert "active_revenue" not in other_row
 
         dashboard = await app_client.get(
             f"/api/my-clients/{own}/dashboard",
@@ -646,10 +654,10 @@ async def test_my_clients_dl_sees_money_of_own_portfolio(app_client: AsyncClient
         await _cleanup([own, other], [dl_id], [candidate_id])
 
 
-async def test_my_clients_dashboard_denies_dl_outside_the_portfolio(
+async def test_my_clients_dashboard_redacts_finance_outside_the_portfolio(
     app_client: AsyncClient,
 ):
-    """Kwoty DL kończą się na granicy jego portfela — i robi to trasa, nie redakcja."""
+    """Dashboard jest globalny dla DL, lecz kwoty kończą się na portfelu."""
     own = await _new_client()
     other = await _new_client()
     dl_id, dl_email, dl_pwd = await _new_user(UserRole.delivery_lead)
@@ -659,7 +667,15 @@ async def test_my_clients_dashboard_denies_dl_outside_the_portfolio(
         resp = await app_client.get(
             f"/api/my-clients/{other}/dashboard", headers=headers
         )
-        assert resp.status_code == 403, resp.text
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["client_id"] == other
+        assert "total_revenue_all_time" not in body
+        assert "active_revenue" not in body
+        assert "completed_revenue" not in body
+        assert "currency_breakdown" not in body
+        assert "monthly_margin_total" not in body
+        assert "monthly_margin_pct" not in body
     finally:
         await _cleanup([own, other], [dl_id], [])
 

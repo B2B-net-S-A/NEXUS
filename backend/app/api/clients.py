@@ -34,6 +34,7 @@ from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
     resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
 )
 from app.services.client_identity import (
     client_display_name,
@@ -410,9 +411,9 @@ async def create_client(
         source_system="manual",
     )
     db.add(scope)
-    # Delivery Lead may operate only its explicit portfolio. Without creating
-    # this relationship in the same transaction, a client created by a DL
-    # disappears from that user's list immediately after the POST succeeds.
+    # The creator becomes the responsible Head DL. Access itself is now
+    # organization-wide, but this relationship still controls ownership,
+    # routing and the narrow client-finance exception.
     if current_user.has_role(UserRole.delivery_lead) and not current_user.has_role(
         UserRole.admin
     ):
@@ -474,11 +475,13 @@ async def get_client_profile(
     Contract model's own `monthly_rate_client` / `monthly_margin` properties
     so the math stays consistent with the Contracts module.
     """
-    # Granica portfela DL jest potrzebna DWA razy: raz jako guard dostępu,
-    # a raz przy decyzji o finansach niżej — dlatego trzymana w zmiennej,
-    # a nie liczona ponownie.
+    # Operacyjna granica DL obejmuje wszystkich klientów. Finansowy wyjątek
+    # jest rozwiązywany osobno i nadal obejmuje wyłącznie własny portfel.
     delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
     assert_delivery_lead_client_visible(client_id, delivery_lead_client_ids)
+    delivery_lead_finance_client_ids = await resolve_delivery_lead_finance_client_ids(
+        current_user, db
+    )
     # 404 early so we don't hand back empty sections for a phantom client.
     client = await db.scalar(select(Client).where(Client.id == client_id))
     if client is None:
@@ -836,7 +839,7 @@ async def get_client_profile(
     if not can_read_client_finance(
         current_user,
         client_id=client_id,
-        delivery_lead_client_ids=delivery_lead_client_ids,
+        delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
     ):
         response.summary.active_mrr = None
         response.summary.ltv = None

@@ -596,21 +596,22 @@ async def test_delivery_lead_sees_the_same_columns_in_the_archive(
     assert row["monthly_margin"] == 6000
 
 
-async def test_delivery_lead_outside_the_portfolio_gets_403_not_rates(
+async def test_delivery_lead_outside_finance_portfolio_gets_redacted_profile(
     app_client: AsyncClient,
 ) -> None:
-    """Finanse DL kończą się na granicy JEGO portfela.
-
-    Trasa odcina obcego klienta wcześniej niż redakcja, więc to 403, nie
-    wyzerowane kwoty — ale granica musi być zmierzona, bo to na niej stoi
-    zawężenie zamiast globalnej capability.
-    """
-    client_id, _ = await _seed_scheduled_contract(ended=False)
+    """DL opens every client profile, while foreign-client rates stay hidden."""
+    client_id, contract_id = await _seed_scheduled_contract(ended=False)
     email, password = await _seed_delivery_lead(None)
     headers = await _login_headers(app_client, email, password)
 
     resp = await app_client.get(f"/api/clients/{client_id}/profile", headers=headers)
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(r for r in body["active_consultants"] if r["contract_id"] == contract_id)
+    assert row["monthly_rate_candidate"] is None
+    assert row["monthly_rate_client"] is None
+    assert row["monthly_margin"] is None
+    assert body["summary"]["active_mrr"] is None
 
 
 async def test_head_of_recruitment_with_dl_role_sees_rates_only_in_dl_portfolio(

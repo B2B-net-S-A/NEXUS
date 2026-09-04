@@ -21,7 +21,7 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
   Treść to procedura, nie kwoty.
 * ZAPIS i historia idą jak reguły CV po #1351: sekcja Delivery
   (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``):
-  admin org-wide, Delivery Lead wyłącznie klient ze swojego portfela.
+  admin i Delivery Lead org-wide.
 * ``off_limits`` pochodzi z umowy ramowej (``client_contract_terms``), więc
   jedzie w odpowiedzi tylko do ról z odczytem sekcji Delivery; reszta dostaje
   ``null`` — karta nie może być bocznym wejściem do warunków umowy.

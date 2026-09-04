@@ -26,6 +26,9 @@ export function AnalyticsTab({ clientId }: AnalyticsTabProps) {
         kind: user.data_scope.kind,
         userId: user.data_scope.user_id,
         clientIds: [...user.data_scope.allowed_client_ids].sort((a, b) => a - b),
+        financeClientIds: [...(user.data_scope.finance_client_ids ?? [])].sort(
+          (a, b) => a - b,
+        ),
         tacUserIds: [...user.data_scope.allowed_tac_user_ids].sort(
           (a, b) => a - b,
         ),

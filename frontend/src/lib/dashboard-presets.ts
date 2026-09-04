@@ -31,7 +31,7 @@ export const DASHBOARD_PRESETS: Record<
     label: "Delivery Lead",
     shortLabel: "Delivery",
     title: "Delivery Lead",
-    description: "Procesy przypisanych klientów, kandydaci na etapach i podobne zapytania.",
+    description: "Procesy wszystkich klientów, kandydaci na etapach i podobne zapytania.",
     defaultPeriod: "month",
   },
   "head-of-recruitment": {

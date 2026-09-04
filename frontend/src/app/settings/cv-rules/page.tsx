@@ -14,10 +14,10 @@
  * zatwierdzanie i usuwanie w miejscu. Akcje widzi rola z capability
  * `cv_rule.manage` (lustro backendowego `DeliveryLeadPlus`: admin /
  * delivery_lead — TAC edytuje kartę klienta, ale reguł CV nie prowadzi);
- * pozostałe role operacyjne mają odczyt. Dla Delivery Leada lista startuje
- * zawężona do jego portfela (`data_scope` z GET /api/auth/me) — to filtr do
- * wyłączenia, nie granica: backend nie skopuje zapisu do portfela, bo reguła
- * CV jest konfiguracją klienta tak jak jego karta.
+ * pozostałe role operacyjne mają odczyt. Delivery Lead dostaje z
+ * `GET /api/auth/me` globalny operacyjny zakres klientów, więc picker i lista
+ * obejmują całą organizację — reguła CV jest konfiguracją klienta tak jak jego
+ * karta.
  *
  * Szablony Championa bez przypisanej reguły idą osobną sekcją — ukrycie ich
  * sprawiłoby, że brak reguły wyglądałby identycznie jak jej nieistnienie
@@ -155,20 +155,21 @@ export default function CvRulesSettingsPage() {
   // „Podstawy".
   const deepLinkTab = searchParams.get("tab");
 
-  // Portfel Delivery Leada z `data_scope` — liczy go backend w GET /api/auth/me
-  // z tego samego `resolve_dashboard_scope`, którego używają trasy DL. Nie
-  // z roli: hybryda HoR+DL dostaje `recruitment_org` i nie ma czego zawężać.
-  const myClientIds = useMemo<ReadonlySet<number> | null>(() => {
+  // Jawne przypisania Delivery Leada są opcjonalnym filtrem wygody. Główny
+  // `allowed_client_ids` obejmuje wszystkich klientów, więc do oznaczenia
+  // własnej odpowiedzialności używamy wąskiego `finance_client_ids`.
+  const assignedClientIds = useMemo<ReadonlySet<number> | null>(() => {
     const scope = user?.data_scope;
     if (!scope || scope.kind !== "delivery_clients") return null;
-    return new Set(scope.allowed_client_ids ?? []);
+    return new Set(scope.finance_client_ids ?? []);
   }, [user]);
 
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
-  // `null` = domyślnie: DL widzi swój portfel, reszta wszystko.
+  // Domyślnie każdy Delivery Lead widzi całą organizację. Filtr przypisań jest
+  // dobrowolny i nie stanowi granicy autoryzacji.
   const [onlyMineChoice, setOnlyMineChoice] = useState<boolean | null>(null);
-  const onlyMine = myClientIds !== null && (onlyMineChoice ?? true);
+  const onlyMine = assignedClientIds !== null && (onlyMineChoice ?? false);
 
   const [editor, setEditor] = useState<{
     clientId: number;
@@ -245,7 +246,11 @@ export default function CvRulesSettingsPage() {
     return rows.filter((row) => {
       if (stateFilter === "active" && !row.is_active) return false;
       if (stateFilter === "proposed" && row.is_active) return false;
-      if (onlyMine && myClientIds && !myClientIds.has(row.client_id)) {
+      if (
+        onlyMine &&
+        assignedClientIds &&
+        !assignedClientIds.has(row.client_id)
+      ) {
         return false;
       }
       if (!q) return true;
@@ -260,7 +265,7 @@ export default function CvRulesSettingsPage() {
       );
       return haystack.includes(q);
     });
-  }, [rows, stateFilter, onlyMine, myClientIds, search]);
+  }, [rows, stateFilter, onlyMine, assignedClientIds, search]);
 
   const viewState = resolveViewState({
     isLoading: query.isLoading,
@@ -372,14 +377,14 @@ export default function CvRulesSettingsPage() {
                 </button>
               ))}
             </div>
-            {myClientIds !== null ? (
+            {assignedClientIds !== null ? (
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={onlyMine}
                   onChange={(e) => setOnlyMineChoice(e.target.checked)}
                 />
-                Tylko moi klienci
+                Tylko przypisani mi klienci
               </label>
             ) : null}
             <p className="ml-auto text-sm text-muted-foreground">
@@ -416,7 +421,7 @@ export default function CvRulesSettingsPage() {
                 <tbody>
                   {filtered.map((row) => {
                     const name = row.client_name ?? `#${row.client_id}`;
-                    const mine = myClientIds?.has(row.client_id) ?? false;
+                    const mine = assignedClientIds?.has(row.client_id) ?? false;
                     const confirming =
                       confirmMutation.isPending &&
                       confirmMutation.variables === row.client_id;
@@ -449,7 +454,7 @@ export default function CvRulesSettingsPage() {
                             >
                               {name}
                             </Link>
-                            {mine ? <Chip>Twój klient</Chip> : null}
+                            {mine ? <Chip>Przypisany</Chip> : null}
                           </div>
                           {row.template_label ? (
                             <p className="mt-0.5 text-xs text-muted-foreground">
