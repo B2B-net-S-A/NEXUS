@@ -658,7 +658,7 @@ async def test_contact_delete_matrix(cam_client: AsyncClient) -> None:
     resp = await cam_client.delete(f"/api/contacts/{contact_id}", headers=t_headers)
     assert resp.status_code == 403
 
-    # Delivery Lead przypisany do klienta może usunąć kontakt.
+    # Każdy Delivery Lead może usunąć kontakt klienta.
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     dl_headers = await _login(cam_client, dl_email, dl_pass)
@@ -678,13 +678,14 @@ async def test_global_contacts_list_requires_managing_role(
 
     dl_id, dl_email, dl_pass = await _seed_user(UserRole.delivery_lead)
     unassigned_dl = await _login(cam_client, dl_email, dl_pass)
-    denied = await cam_client.get("/api/contacts", headers=unassigned_dl)
-    assert denied.status_code == 403
+    allowed_global = await cam_client.get("/api/contacts", headers=unassigned_dl)
+    assert allowed_global.status_code == 200
+    assert client_id in {row["client_id"] for row in allowed_global.json()}
 
     await _assign_client(dl_id, client_id, UserRole.delivery_lead)
     allowed_dl = await cam_client.get("/api/contacts", headers=unassigned_dl)
     assert allowed_dl.status_code == 200
-    assert {row["client_id"] for row in allowed_dl.json()} == {client_id}
+    assert client_id in {row["client_id"] for row in allowed_dl.json()}
 
     recruiter_id, r_email, r_pass = await _seed_user(UserRole.recruiter)
     r_headers = await _login(cam_client, r_email, r_pass)

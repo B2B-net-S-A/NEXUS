@@ -2,18 +2,19 @@
 
 Capabilities answer *what* a user may see.  This module answers *whose / which
 client's* rows may participate in that view.  Keeping the two concerns separate
-prevents a Delivery Lead assignment from accidentally becoming organization-wide
-access to every activity of a TAC.
+lets every Delivery Lead work across the full client portfolio without turning
+the role into an Admin or Finance persona.
 """
 
 from dataclasses import dataclass
 from enum import Enum
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, or_, select, tuple_
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
+from app.models.client import Client
 from app.models.job import Job
 from app.models.team_structure import (
     ClientTacAssignment,
@@ -84,8 +85,8 @@ async def resolve_dashboard_scope(
     exclusive Finance persona can query organization-wide rows, with the
     capability matrix still limiting the domains/fields they may consume.
     Head of Recruitment and Talent Community Manager see active recruitment
-    operators. Delivery Lead sees only the intersection of their clients and
-    TACs assigned to those clients. Operators see only their own work.
+    operators. Delivery Lead sees every client and the authoritative TAC
+    relationships attached to those clients. Operators see only their own work.
     ``delivery_lead_persona=True`` lets a recruitment+DL hybrid explicitly
     select its DL dashboard without inheriting the wider recruitment
     precedence; admin remains organization-wide.
@@ -131,13 +132,7 @@ async def resolve_dashboard_scope(
 
     if UserRole.delivery_lead in roles:
         client_ids = frozenset(
-            (
-                await db.scalars(
-                    select(DeliveryLeadClientAssignment.client_id).where(
-                        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
-                    )
-                )
-            ).all()
+            int(client_id) for client_id in (await db.scalars(select(Client.id))).all()
         )
         client_tac_pairs: frozenset[tuple[int, int]] = frozenset()
         if client_ids:
@@ -182,26 +177,59 @@ async def resolve_delivery_lead_client_ids(
     user: User,
     db: AsyncSession,
 ) -> frozenset[int] | None:
-    """Return the canonical client boundary for a plain Delivery Lead.
+    """Return the canonical all-client boundary for a Delivery Lead.
 
     ``None`` means the caller is not governed by the DL persona boundary
     (Admin/Finance oversight or a non-DL operational role). Any account that
-    actually holds Delivery Lead is scoped to its explicit portfolio, even if
-    it also holds a recruitment role. An empty set is a real deny-all scope
-    and must never fall back to all clients.
+    actually holds Delivery Lead receives every current client id, even if it
+    also holds a recruitment role. Returning the concrete ids (rather than
+    ``None``) preserves the role's narrow, Delivery-only finance exceptions
+    without granting the global ``VIEW_FINANCE`` capability.
     """
 
     if user.has_any_role(UserRole.admin, UserRole.finance):
         return None
     if not user.has_role(UserRole.delivery_lead):
         return None
-    scope = await resolve_dashboard_scope(user, db, delivery_lead_persona=True)
-    if scope.kind is not ScopeKind.delivery_clients or scope.user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Delivery scope belongs to a different user",
-        )
-    return scope.allowed_client_ids
+    return frozenset(
+        int(client_id) for client_id in (await db.scalars(select(Client.id))).all()
+    )
+
+
+async def resolve_delivery_lead_assigned_client_ids(
+    user: User,
+    db: AsyncSession,
+) -> frozenset[int] | None:
+    """Return clients for which the Delivery Lead is an explicit owner.
+
+    Operational access is organization-wide, but ownership still gates narrow
+    finance exceptions, rate-bearing opaque files and consequential legal
+    writes. ``None`` means the caller is not governed by the DL ownership path.
+    """
+
+    if user.has_any_role(UserRole.admin, UserRole.finance):
+        return None
+    if not user.has_role(UserRole.delivery_lead):
+        return None
+    return frozenset(
+        int(client_id)
+        for client_id in (
+            await db.scalars(
+                select(DeliveryLeadClientAssignment.client_id).where(
+                    DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+                )
+            )
+        ).all()
+    )
+
+
+async def resolve_delivery_lead_finance_client_ids(
+    user: User,
+    db: AsyncSession,
+) -> frozenset[int] | None:
+    """Assigned-client boundary for the narrow DL finance exception."""
+
+    return await resolve_delivery_lead_assigned_client_ids(user, db)
 
 
 def apply_delivery_lead_client_scope(
@@ -231,13 +259,13 @@ def apply_delivery_lead_activity_scope(
     statement,
     scope: DashboardScope,
 ):
-    """Keep a DL feed inside exact client and client/TAC relationships.
+    """Keep a DL feed inside the organization-wide client boundary.
 
     Activity has a polymorphic ``entity_id`` and no direct client foreign key.
-    Client rows therefore use the DL's explicit client assignments, while job
-    rows are resolved through the authoritative ``(client_id, tac_id)`` pairs.
-    Empty assignments are represented by impossible sentinels and remain
-    deny-all.
+    Client rows therefore use the resolved all-client set, while job rows are
+    admitted by their client id. TAC relationship pairs remain available on
+    the dashboard scope for team attribution, but they are no longer an access
+    boundary. An empty database is represented by an impossible sentinel.
     """
 
     if scope.kind is not ScopeKind.delivery_clients or scope.user_id is None:
@@ -247,10 +275,7 @@ def apply_delivery_lead_activity_scope(
         )
 
     client_ids = sorted(scope.allowed_client_ids) or [-1]
-    client_tac_pairs = sorted(scope.allowed_client_tac_pairs) or [(-1, -1)]
-    allowed_job_ids = select(Job.id).where(
-        tuple_(Job.client_id, Job.tac_id).in_(client_tac_pairs)
-    )
+    allowed_job_ids = select(Job.id).where(Job.client_id.in_(client_ids))
     return statement.where(
         or_(
             and_(

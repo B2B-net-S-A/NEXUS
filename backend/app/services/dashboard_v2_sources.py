@@ -16,7 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import select, text, tuple_
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics import metrics
@@ -190,17 +190,10 @@ def _delivery_job_conditions(
     if scope.payload.kind == "organization":
         return conditions
 
-    # Defense in depth: the canonical Delivery Lead assignment is an exact set
-    # of client–TAC relationships.  Filtering the client and TAC unions
-    # independently would create a cartesian product and expose e.g. TAC B's
-    # job for client A when only (A, TAC A) and (B, TAC B) are assigned.
-    # Empty relationship scope means no rows, never "all".
-    allowed_pairs = [
-        (pair.client_id, pair.tac_user_id) for pair in scope.payload.client_tac_pairs
-    ]
-    conditions.append(
-        tuple_(Job.client_id, Job.tac_id).in_(allowed_pairs or [(-1, -1)])
-    )
+    # Every Delivery Lead operates across the complete client portfolio.  TAC
+    # relationships still drive actor attribution below, but they must not
+    # remove a client's job merely because that job has no TAC yet.
+    conditions.append(Job.client_id.in_(scope.payload.client_ids or [-1]))
     if scope.payload.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

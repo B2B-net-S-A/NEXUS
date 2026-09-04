@@ -80,6 +80,12 @@ export interface DataScope {
   allowed_tac_user_ids: number[]
   allowed_operator_user_ids: number[]
   /**
+   * Clients for which a Delivery Lead owns the narrow rates/margins and
+   * rate-bearing document exception. Missing in an old cached session means
+   * no finance access, never all operational clients.
+   */
+  finance_client_ids?: number[]
+  /**
    * Authoritative Delivery Lead relationships. Optional only for hydration
    * from pre-cutover localStorage; a missing value must be treated as empty.
    */
@@ -323,10 +329,9 @@ export function canManageCandidateFinance(
 
 /**
  * Candidate-bearing Delivery resources expose rates to Admin/Finance and to a
- * Delivery Lead only inside the portfolio returned by `/api/auth/me`.
- * Individual API routes still enforce the concrete client id. Requiring the
- * authoritative `delivery_clients` scope here keeps old cached DL sessions
- * fail-closed without granting the global `view_finance` capability.
+ * Delivery Lead only when `/api/auth/me` reports at least one client in the
+ * narrow finance portfolio. Row-level APIs remain authoritative and redact
+ * each unassigned client independently.
  */
 export function canViewCandidateFinance(
   user:
@@ -347,22 +352,11 @@ export function canViewCandidateFinance(
   }
   return (
     hasRole(user, "delivery_lead") &&
-    user.data_scope?.kind === "delivery_clients"
+    user.data_scope?.kind === "delivery_clients" &&
+    (user.data_scope.finance_client_ids?.length ?? 0) > 0
   )
 }
 
-/**
- * Linie konsultantów na zamówieniu wielo-konsultantowym (BIK/Polkomtel/BNP).
- *
- * Lustro backendowego `_has_md_line_management_role` w `api/client_order_groups.py`:
- * admin oraz Delivery Lead, bo to delivery układa obsadę zamówienia i
- * negocjuje stawki per konsultant. Świadomie SZERSZE niż
- * `canManageCandidateFinance` — tam chodzi o finanse kandydata poza wąskim
- * kontekstem przypisanego klienta.
- *
- * To gate KOSMETYCZNE. Ostatecznym arbitrem jest backend, który dodatkowo
- * sprawdza, czy ten DL jest przypisany do TEGO klienta — czego front nie wie.
- */
 /** Kto może usuwać / kończyć / przywracać / przedłużać zamówienia klienta.
  *
  *  ŚWIADOMIE szerszy zbiór niż `canManageMultiConsultantOrders`, który rządzi
@@ -378,10 +372,23 @@ export function canManageOrderLifecycle(
   return hasRole(user, "admin", "delivery_lead", "finance")
 }
 
+/**
+ * Stawki i obsada zamówienia wielo-konsultantowego: Admin globalnie, Delivery
+ * Lead tylko w finansowym portfelu konkretnego klienta. Backend pozostaje
+ * ostatecznym arbitrem, a stary cache bez `finance_client_ids` fail-closed.
+ */
 export function canManageMultiConsultantOrders(
-  user: Pick<User, "role" | "roles"> | null | undefined
+  user:
+    | Pick<
+        User,
+        "role" | "roles" | "analytics_capabilities" | "capabilities" | "data_scope"
+      >
+    | null
+    | undefined,
+  clientId: number
 ): boolean {
-  return hasRole(user, "admin", "delivery_lead")
+  if (hasRole(user, "admin")) return true
+  return hasRole(user, "delivery_lead") && canViewClientFinance(user, clientId)
 }
 
 /**
@@ -389,15 +396,12 @@ export function canManageMultiConsultantOrders(
  * Analityka, zasilana przez `/api/my-clients/{id}/dashboard`).
  *
  * Lustro backendowego `can_read_client_finance` (`api/financial_access.py`):
- * capability `view_finance` ALBO Delivery Lead w granicach WŁASNEGO portfela.
- * Granicę bierzemy z `data_scope`, bo backend liczy ją z tego samego źródła
- * (`resolve_dashboard_scope` w GET /api/auth/me) — to nie jest zgadywanie po
- * roli, tylko ta sama lista klientów.
+ * capability `view_finance` ALBO Delivery Lead w finansowej granicy WŁASNEGO
+ * portfela. Operacyjne `allowed_client_ids` obejmują teraz wszystkich klientów,
+ * dlatego kwoty muszą korzystać z osobnego `finance_client_ids`.
  *
  * Dlaczego nie sam `hasRole(user, "delivery_lead")`: również hybryda HoR/TCM
- * + Delivery Lead musi mieć `delivery_clients` z konkretną listą przypisań.
- * Sam test roli rozdałby jej kwoty u wszystkich klientów; test scope pozwala
- * je pokazać wyłącznie we własnym portfelu.
+ * + Delivery Lead musi mieć `delivery_clients` z konkretną listą finansową.
  *
  * Fail-closed: brak `data_scope` (stary cache localStorage) = false.
  */
@@ -415,7 +419,7 @@ export function canViewClientFinance(
   if (hasAnalyticsCapability(user, "view_finance")) return true
   const scope = user.data_scope
   if (!scope || scope.kind !== "delivery_clients") return false
-  return (scope.allowed_client_ids ?? []).includes(clientId)
+  return (scope.finance_client_ids ?? []).includes(clientId)
 }
 
 // ── Store ───────────────────────────────────────────────────────────────────

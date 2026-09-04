@@ -41,7 +41,7 @@ import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";
 import {
   canManageCandidateFinance,
-  canViewCandidateFinance,
+  canViewClientFinance,
   hasRole,
   useAuthStore,
 } from "@/store/auth";
@@ -425,16 +425,11 @@ export default function ContractDetailPage() {
   const user = useAuthStore((state) => state.user);
   const impersonating = useAuthStore((state) => state.realUser !== null);
   const canManageFinance = canManageCandidateFinance(user);
-  const canViewFinance = canViewCandidateFinance(user);
   const isAdmin = hasRole(user, "admin");
   const canEditContract =
     !impersonating &&
     hasRole(user, "admin", "delivery_lead") &&
     hasSectionAccess(user, "delivery", "write");
-  const isReadOnlyTcm =
-    hasRole(user, "talent_community_manager") &&
-    !hasRole(user, "admin", "delivery_lead", "finance");
-  const canViewContractDocuments = !isReadOnlyTcm;
   const id = Number(params.id);
 
   // A profile can be opened from many places (candidate, any contracts view,
@@ -461,6 +456,13 @@ export default function ContractDetailPage() {
     queryFn: () => contractsApi.get(id).then((r) => r.data),
     enabled: !Number.isNaN(id),
   });
+  const canViewFinance = contract
+    ? canViewClientFinance(user, contract.client_id)
+    : false;
+  // Opaque documents and rendered drafts can contain rates that cannot be
+  // redacted safely. They retain the same assigned-client boundary as finance.
+  const canViewContractDocuments = Boolean(contract) && (isAdmin || canViewFinance);
+  const canEditContractDocuments = canEditContract && canViewContractDocuments;
 
   // Fetch activity timeline (lazy)
   const { data: activities } = useQuery<ActivityEntry[]>({
@@ -766,7 +768,7 @@ export default function ContractDetailPage() {
 
   const visibleTabs = TABS.filter(
     (tab) =>
-      (!isReadOnlyTcm || tab.key !== "documents") &&
+      (canViewContractDocuments || tab.key !== "documents") &&
       (canViewFinance ||
         (tab.key !== "invoices" && tab.key !== "rateHistory")),
   );
@@ -2004,13 +2006,17 @@ export default function ContractDetailPage() {
 
       {/* Tab: Dokumenty */}
       {activeTab === "documents" && (
-        <ContractDocumentsTab contractId={id} readOnly={!canEditContract} />
+        <ContractDocumentsTab
+          contractId={id}
+          readOnly={!canEditContractDocuments}
+        />
       )}
 
       {/* Tab: Aneksy */}
       {activeTab === "amendments" && (
         <ContractAmendmentsTab
           contractId={id}
+          clientId={contract.client_id}
           readOnly={!canEditContract}
         />
       )}

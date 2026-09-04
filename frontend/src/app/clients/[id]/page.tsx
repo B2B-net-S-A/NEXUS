@@ -488,7 +488,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   // POST /api/clients/{id}/contacts → ClientAccess.can_edit_contacts
-  // przecięte z zapisem sekcji Delivery. Zostają Admin i przypisany DL;
+  // przecięte z zapisem sekcji Delivery. Zostają Admin i Delivery Lead;
   // pozostali czytelnicy nie dostają formularza prowadzącego w 403 (F-19).
   const canCreateContact = useCapability("contact.create");
 

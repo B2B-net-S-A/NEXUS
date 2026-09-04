@@ -63,7 +63,7 @@ vi.mock("@/store/auth", () => ({
     ...roles: string[]
   ) => roles.includes(mocks.role),
   canManageCandidateFinance: () => mocks.canManageFinance,
-  canViewCandidateFinance: () => mocks.role === "admin",
+  canViewClientFinance: () => mocks.role === "admin",
 }));
 
 vi.mock("@/components/RequireRole", () => ({

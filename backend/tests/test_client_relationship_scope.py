@@ -27,6 +27,7 @@ from app.services.client_access import (
     resolve_client_team_client_ids,
     resolve_client_visible_client_ids,
 )
+from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 
 
 class _Rows:
@@ -78,9 +79,7 @@ async def test_admin_and_head_keep_unrestricted_client_oversight(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_and_tac_use_only_their_explicit_assignment_tables() -> (
-    None
-):
+async def test_delivery_lead_uses_all_clients_while_tac_uses_assignments() -> None:
     dl_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 20])))
     tac_db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([30, 40])))
 
@@ -89,7 +88,8 @@ async def test_delivery_lead_and_tac_use_only_their_explicit_assignment_tables()
         _user(UserRole.delivery_lead),
     ) == frozenset({10, 20})
     dl_sql = str(dl_db.scalars.await_args.args[0])
-    assert "delivery_lead_client_assignments" in dl_sql
+    assert "FROM clients" in dl_sql
+    assert "delivery_lead_client_assignments" not in dl_sql
     assert "client_tac_assignments" not in dl_sql
 
     assert await resolve_client_team_client_ids(
@@ -112,16 +112,16 @@ async def test_valid_dl_tac_hybrid_uses_only_dl_assignments() -> None:
     assert await resolve_client_team_client_ids(db, hybrid) == frozenset({10, 20})
     assert db.scalars.await_count == 1
     rendered = str(db.scalars.await_args.args[0])
-    assert "delivery_lead_client_assignments" in rendered
+    assert "FROM clients" in rendered
+    assert "delivery_lead_client_assignments" not in rendered
     assert "client_tac_assignments" not in rendered
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", [UserRole.delivery_lead, UserRole.tac])
-async def test_unassigned_client_team_role_is_deny_all(role: UserRole) -> None:
+async def test_unassigned_tac_client_team_role_is_deny_all() -> None:
     db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([])))
 
-    access = await resolve_client_access(db, _user(role), client_id=77)
+    access = await resolve_client_access(db, _user(UserRole.tac), client_id=77)
 
     assert not access.is_client_team
     assert not access.can_view_contacts
@@ -283,8 +283,8 @@ def test_tcm_hor_hybrid_keeps_safe_client_and_directory_projection() -> None:
 
 
 @pytest.mark.asyncio
-async def test_tcm_dl_hybrid_cannot_borrow_global_tcm_delivery_scope() -> None:
-    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10])))
+async def test_tcm_dl_hybrid_uses_global_delivery_lead_client_scope() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 77])))
     hybrid = _user(
         UserRole.talent_community_manager,
         roles=[
@@ -297,12 +297,10 @@ async def test_tcm_dl_hybrid_cannot_borrow_global_tcm_delivery_scope() -> None:
     assert allowed.is_client_team
     assert not allowed.is_organization_reader
 
-    db.scalars.reset_mock()
-    db.scalars.return_value = _Rows([10])
-    denied = await resolve_client_access(db, hybrid, client_id=77)
-    assert not denied.is_client_team
-    assert not denied.is_organization_reader
-    assert not denied.can_view_contacts
+    other_client = await resolve_client_access(db, hybrid, client_id=77)
+    assert other_client.is_client_team
+    assert not other_client.is_organization_reader
+    assert other_client.can_view_contacts
 
 
 @pytest.mark.asyncio
@@ -371,15 +369,31 @@ async def test_recruitment_operator_global_client_scope_uses_only_assigned_jobs(
 
 
 @pytest.mark.asyncio
-async def test_hybrid_visible_scope_stays_inside_dl_assignments() -> None:
-    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10])))
+async def test_hybrid_visible_scope_uses_all_clients_from_dl_role() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10, 77])))
     hybrid = _user(
         UserRole.delivery_lead,
         roles=[UserRole.delivery_lead.value, UserRole.recruiter.value],
     )
 
-    assert await resolve_client_visible_client_ids(db, hybrid) == frozenset({10})
+    assert await resolve_client_visible_client_ids(db, hybrid) == frozenset({10, 77})
     assert db.scalars.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_finance_scope_still_uses_assignments() -> None:
+    db = SimpleNamespace(scalars=AsyncMock(return_value=_Rows([10])))
+    delivery_lead = _user(UserRole.delivery_lead)
+
+    finance_client_ids = await resolve_delivery_lead_finance_client_ids(
+        delivery_lead,
+        db,
+    )
+
+    assert finance_client_ids == frozenset({10})
+    rendered = str(db.scalars.await_args.args[0])
+    assert "delivery_lead_client_assignments" in rendered
+    assert "FROM clients" not in rendered
 
 
 @pytest.mark.asyncio

@@ -275,19 +275,21 @@ async def test_client_orders_list_shows_finance_to_assigned_delivery_lead(
     assert body["can_manage_finance"] is True
 
 
-async def test_client_orders_hidden_from_unassigned_delivery_lead(
+async def test_client_orders_visible_but_redacted_for_unassigned_delivery_lead(
     app_client: AsyncClient,
 ) -> None:
-    """DL BEZ przypisania do klienta nie dostaje ani kwot, ani rekordów.
-
-    To jest właściwy dowód domknięcia poszerzenia: samo posiadanie roli
-    `delivery_lead` niczego nie otwiera — liczy się jawne przypisanie.
-    """
-    client_id, _order_id, _contract_id = await _seed_client_order()
+    """Każdy DL widzi zamówienia klienta, ale kwoty tylko po przypisaniu."""
+    client_id, _order_id, contract_id = await _seed_client_order()
     dl = await _headers_for(app_client, "delivery_lead", assigned_client_id=None)
 
     resp = await app_client.get(f"/api/clients/{client_id}/orders", headers=dl)
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(c for c in body["contractors"] if c["contract_id"] == contract_id)
+    assert body["can_manage_finance"] is False
+    assert row["rate_candidate"] is None
+    assert row["latest_order_rate_client"] is None
+    assert row["latest_order_monthly_margin"] is None
 
 
 async def test_get_order_redacted_for_non_finance(app_client: AsyncClient) -> None:
@@ -421,39 +423,39 @@ async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
     )
 
 
-async def test_client_order_reads_require_explicit_dl_assignment(
+async def test_client_order_structured_reads_are_global_but_file_stays_assigned(
     app_client: AsyncClient,
 ) -> None:
     client_id, order_id, _contract_id = await _seed_client_order()
 
-    paths = (
-        f"/api/clients/{client_id}/orders",
-        f"/api/clients/{client_id}/orders/{order_id}",
-        f"/api/clients/{client_id}/orders/{order_id}/file",
-    )
+    list_path = f"/api/clients/{client_id}/orders"
+    detail_path = f"/api/clients/{client_id}/orders/{order_id}"
+    file_path = f"/api/clients/{client_id}/orders/{order_id}/file"
     unassigned = await _headers_for(app_client, "delivery_lead")
-    for path in paths:
-        denied = await app_client.get(path, headers=unassigned)
-        assert denied.status_code == 403, (
-            f"delivery_lead without explicit client assignment read {path}: "
-            f"{denied.status_code} {denied.text}"
-        )
+    allowed_list = await app_client.get(list_path, headers=unassigned)
+    assert allowed_list.status_code == 200, allowed_list.text
+    assert allowed_list.json()["can_manage_finance"] is False
+    allowed_detail = await app_client.get(detail_path, headers=unassigned)
+    assert allowed_detail.status_code == 200, allowed_detail.text
+    assert allowed_detail.json()["rate_client"] is None
+    denied_file = await app_client.get(file_path, headers=unassigned)
+    assert denied_file.status_code == 403, denied_file.text
 
     assigned = await _headers_for(
         app_client,
         "delivery_lead",
         assigned_client_id=client_id,
     )
-    allowed_list = await app_client.get(paths[0], headers=assigned)
+    allowed_list = await app_client.get(list_path, headers=assigned)
     assert allowed_list.status_code == 200, allowed_list.text
-    allowed_detail = await app_client.get(paths[1], headers=assigned)
+    allowed_detail = await app_client.get(detail_path, headers=assigned)
     assert allowed_detail.status_code == 200, allowed_detail.text
-    missing_file = await app_client.get(paths[2], headers=assigned)
+    missing_file = await app_client.get(file_path, headers=assigned)
     assert missing_file.status_code == 404, missing_file.text
 
     # A legacy TAC-client relationship must not reopen the Delivery section.
     tac = await _headers_for(app_client, "tac", assigned_client_id=client_id)
-    for path in paths:
+    for path in (list_path, detail_path, file_path):
         denied = await app_client.get(path, headers=tac)
         assert denied.status_code == 403, denied.text
 

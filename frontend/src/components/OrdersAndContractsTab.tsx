@@ -61,7 +61,7 @@ import { OrderListControls } from "@/components/client-profile/orders/OrderListC
 import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
 import { OrderTypeBadge } from "@/components/client-profile/orders/OrderTypeBadge";
 import { normalizeOrderCurrency } from "@/components/orders/OrderRateUnitToggle";
-import { canViewCandidateFinance, useAuthStore } from "@/store/auth";
+import { canViewClientFinance, useAuthStore } from "@/store/auth";
 
 interface OrdersAndContractsTabProps {
   clientId: number;
@@ -147,12 +147,11 @@ export function OrdersAndContractsTab({
     },
   });
 
-  // Serwer wylicza to per klient (admin albo przypisany Delivery Lead). Front
-  // nie zna przypisań DL, więc bramkowanie po samej roli pokazywałoby pola
-  // stawek komuś, kto na zapisie dostanie 403.
+  // Serwer wylicza zapis per klient (admin albo przypisany Delivery Lead), a
+  // `/api/auth/me` przekazuje osobny, wąski portfel finansowy. Operacyjny
+  // zakres DL obejmuje wszystkich klientów i nie może odsłaniać stawek.
   const canManageFinance = data?.can_manage_finance ?? false;
-  const canViewFinance =
-    canManageFinance || canViewCandidateFinance(user);
+  const canViewFinance = canManageFinance || canViewClientFinance(user, clientId);
   // Ta sama odpowiedź serwera jest obecnie kanoniczną bramką zapisu
   // zamówień okresowych: admin albo DL przypisany do tego klienta.
   const canManageOrders = canManageFinance;

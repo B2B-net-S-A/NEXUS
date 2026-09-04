@@ -12,7 +12,7 @@ the join and exposes it as a dedicated listing so backoffice can:
 Role scoping:
 - admin / finance → sees the whole organization with financial fields
 - talent_community_manager → sees the whole organization without financial fields
-- delivery_lead → sees assigned clients with their financial fields
+- delivery_lead → sees all clients; financial fields only for assigned clients
 - every other role → 403 at the Delivery section boundary
 
 The "incomplete drafts" subcount drives the dashboard widget
@@ -50,13 +50,14 @@ from app.services.contractor_identity import count_unique_contractors
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
 )
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 
-# Organization-wide readers. Delivery Lead is handled first and always stays
-# inside its assigned-client portfolio unless the account is Admin/Finance.
+# Organization-wide readers. Delivery Lead is handled first so its concrete
+# all-client set and narrower assigned-client finance exception stay explicit.
 _FULL_VISIBILITY_ROLES = {
     UserRole.admin,
     UserRole.finance,
@@ -65,7 +66,7 @@ _FULL_VISIBILITY_ROLES = {
 
 
 async def _apply_contractor_scope(query, current_user, db):  # type: ignore[no-untyped-def]
-    """Keep every contractor query inside the Delivery Lead client portfolio."""
+    """Apply the concrete all-client Delivery Lead boundary."""
 
     if current_user.has_role(UserRole.delivery_lead) and not current_user.has_any_role(
         UserRole.admin,
@@ -200,7 +201,9 @@ async def list_contractors(
     else:
         query = query.where(Contract.status.in_(_LIST_STATUSES))
 
-    delivery_lead_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    delivery_lead_finance_client_ids = await resolve_delivery_lead_finance_client_ids(
+        current_user, db
+    )
     query = await _apply_contractor_scope(query, current_user, db)
 
     # Ordering: drafts first (they need attention), then by start_date desc
@@ -226,13 +229,13 @@ async def list_contractors(
     result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
     contracts = list(result.scalars().all())
     items = [_to_item(c) for c in contracts]
-    # TCM widzi globalny roster bez finansów. DL widzi stawki tylko w wierszach
-    # należących do przypisanego portfela; zapytanie wyżej ma ten sam scope.
+    # TCM widzi globalny roster bez finansów. DL widzi wszystkie wiersze, ale
+    # stawki tylko dla klientów należących do przypisanego portfela.
     for item in items:
         if not can_read_client_finance(
             current_user,
             client_id=item.client_id,
-            delivery_lead_client_ids=delivery_lead_client_ids,
+            delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
         ):
             item.rate_candidate = None
             item.rate_client = None

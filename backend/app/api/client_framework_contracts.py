@@ -1,6 +1,6 @@
 """Router `/api/clients/{client_id}/framework-contracts` — MSA per klient.
 
-Reads (GET) — admin/Finance globalnie albo Delivery Lead przypisany do klienta.
+Reads (GET) — admin/Finance i Delivery Lead globalnie.
 Talent Community Manager ma bezpieczny odczyt Delivery, ale nie dostaje
 nieprzezroczystych dokumentów prawnych, które mogą zawierać stawki.
 Writes (POST/PATCH/DELETE) — `DlAssignedOrAdmin` (admin globalnie albo DL
@@ -80,9 +80,7 @@ async def _require_legal_docs_reader(
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny(
-            "umowy ramowe klienta wymagają roli admin/Finance lub przypisanego DL"
-        )
+        raise deny("umowy ramowe klienta wymagają dostępu prawnego do klienta")
     return current_user
 
 

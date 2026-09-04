@@ -11,7 +11,7 @@ Generator B2B ma własną, konfigurowalną bramkę akcji wewnątrz Sourcingu.
 Domyślny poziom zachowuje dotychczasowe operacje wszystkich ról poza TCM i
 legacy viewerem, którzy zaczynają od bezpiecznego podglądu rejestru.
 
-Delivery Lead zachowuje istniejący, granularny zakres klientów również w tym
+Delivery Lead ma dostęp do wszystkich konkretnych klientów również w tym
 narzędziu. Poziom ``view`` nie może generować, renderować, pobierać ani
 modyfikować dokumentów zawierających stawkę.
 """
@@ -166,7 +166,9 @@ async def test_every_role_passes_generator_auth(
         )
 
 
-async def test_unassigned_delivery_lead_fails_closed(app_client: AsyncClient):
+async def test_delivery_lead_without_assignment_can_browse_generator(
+    app_client: AsyncClient,
+):
     headers = await _headers_for(
         app_client,
         "delivery_lead",
@@ -174,9 +176,8 @@ async def test_unassigned_delivery_lead_fails_closed(app_client: AsyncClient):
     )
     for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
         response = await app_client.get(url, headers=headers)
-        assert response.status_code == 403, (
-            f"unassigned delivery_lead GET {url} → "
-            f"{response.status_code}: {response.text}"
+        assert response.status_code == 200, (
+            f"global delivery_lead GET {url} → {response.status_code}: {response.text}"
         )
 
 
@@ -230,9 +231,7 @@ async def test_unscoped_roles_can_browse_generator(
     # split: view-only roles are rejected before lookup, document operators
     # reach the 404.
     r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
-    docx_expected = (
-        403 if role_value in {"talent_community_manager", "user"} else 404
-    )
+    docx_expected = 403 if role_value in {"talent_community_manager", "user"} else 404
     assert r.status_code == docx_expected, (
         f"unassigned {role_value} GET generated/docx → {r.status_code}: {r.text}"
     )

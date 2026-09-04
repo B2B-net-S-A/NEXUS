@@ -69,13 +69,13 @@ async def _require_amendment_legal_read(
     istnienia client/framework, więc read-only viewer (``user``) oraz
     recruiter/sourcer mogli iterować i pobierać aneksy dowolnego klienta.
     Mirrors ``client_framework_contracts._require_legal_docs_reader`` — raw
-    legal content is limited to Admin, Finance and an assigned Delivery Lead.
+    legal content is limited to Admin, Finance and Delivery Lead.
     TCM receives only structured, finance-redacted Delivery data.
     """
     await _assert_fc(db, client_id, fc_id)
     access = await resolve_client_access(db, current_user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("aneksy wymagają roli admin, finance lub przypisanego DL")
+        raise deny("aneksy wymagają roli admin, finance lub Delivery Lead")
     return current_user
 
 

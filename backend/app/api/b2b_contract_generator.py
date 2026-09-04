@@ -63,6 +63,7 @@ from app.services.action_permissions import (
     ProductAction,
     action_access_for_user,
 )
+from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
 from app.schemas.b2b_contract_generator import (
     B2B_CLOSING_STATUSES,
     B2BClosureReason,
@@ -365,7 +366,7 @@ def _has_signature_role(user: User) -> bool:
 def _generator_unscoped(user: User) -> bool:
     """Roles that operate the generator without the client-team scope.
 
-    Every role is a full-access generator persona except Delivery Lead
+    Every role is a client-unscoped generator persona except Delivery Lead
     (product decision, 20.08 — the generator is open to every role, see
     ``require_b2b_generator_access``). TAC was the original full-access
     persona (business decision): it may draft, render, list and download
@@ -377,8 +378,9 @@ def _generator_unscoped(user: User) -> bool:
     ``DeliveryLeadClientAssignment`` to be scoped by, so leaving them off this
     list would mean they pass ``require_b2b_generator_access`` and then hit a
     permanently empty list/403 on every entity — auth without access, not a
-    real access decision. Delivery Lead is deliberately excluded — it keeps
-    the per-client assignment scope, unchanged by the 20.08 decision.
+    real access decision. Delivery Lead is deliberately excluded so clientless
+    entities stay fail-closed. It can browse every concrete client, while rate
+    content and document mutations still require ownership assignment.
 
     Reuses ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` from ``contract_access``
     instead of its own copy of the role tuple (auto-review on #1216 flagged
@@ -391,6 +393,21 @@ def _generator_unscoped(user: User) -> bool:
     return user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES)
 
 
+async def _generator_rate_content_visible(
+    db: AsyncSession,
+    user: User,
+    client_id: int | None,
+) -> bool:
+    """Keep rate-bearing content inside a plain DL's assigned portfolio."""
+
+    if _generator_unscoped(user):
+        return True
+    if not user.has_role(UserRole.delivery_lead) or client_id is None:
+        return False
+    assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(user, db)
+    return assigned_client_ids is not None and client_id in assigned_client_ids
+
+
 async def _assert_generator_client_access(
     db: AsyncSession,
     user: User,
@@ -398,11 +415,12 @@ async def _assert_generator_client_access(
     *,
     write: bool = False,
 ) -> None:
-    """Client-entity authorization for the generator, bypassed for TAC.
+    """Client-entity authorization for the generator, bypassed for unscoped roles.
 
     Full-access personas (see :func:`_generator_unscoped`) skip the client-team
-    check entirely; everyone else falls through to the shared, relationship-aware
-    :func:`assert_contract_legal_client_access` so Delivery Lead stays scoped.
+    check entirely; everyone else falls through to the shared client-aware
+    guard. Delivery Lead reads all concrete clients and writes only assigned
+    ones.
     """
 
     if _generator_unscoped(user):
@@ -416,11 +434,12 @@ async def _scope_generator_query(
     db: AsyncSession,
     user: User,
 ) -> Select:
-    """Scope the generated-contracts list, unrestricted for TAC.
+    """Scope the generated-contracts list to every concrete client for DL.
 
     A full-access TAC must see every generated contract — including ones it just
     drafted for a client it is not assigned to — so the client-team scope is not
-    applied. Delivery Lead keeps its assignment-bounded view.
+    applied. Delivery Lead receives all current client ids, while clientless
+    rows remain restricted to unscoped personas.
     """
 
     if _generator_unscoped(user):
@@ -581,16 +600,31 @@ async def _serialize_generated_contracts(
     )
     can_generate_documents = generator_access >= ActionAccess.generate
     can_manage_documents = generator_access >= ActionAccess.manage
+    delivery_scoped = current_user.has_role(
+        UserRole.delivery_lead
+    ) and not _generator_unscoped(current_user)
+    assigned_client_ids = (
+        await resolve_delivery_lead_assigned_client_ids(current_user, db)
+        if delivery_scoped
+        else None
+    )
     items: list[B2BGeneratedContractItem] = []
     for row in rows:
         is_signed = row.signature_status == "signed_both"
+        can_write_client = not delivery_scoped or (
+            assigned_client_ids is not None and row.client_id in assigned_client_ids
+        )
         can_manage = (
             can_manage_documents
+            and can_write_client
             and not is_signed
             and (is_admin or row.created_by == current_user.id)
         )
         can_confirm = (
-            can_manage_documents and _has_signature_role(current_user) and not is_signed
+            can_manage_documents
+            and can_write_client
+            and _has_signature_role(current_user)
+            and not is_signed
         )
         blocked_reason: str | None = None
         if is_signed:
@@ -599,6 +633,11 @@ async def _serialize_generated_contracts(
             blocked_reason = (
                 "Oznaczenie podpisu wymaga uprawnienia do zarządzania "
                 "Generatorem Umów B2B."
+            )
+            can_confirm = False
+        elif not can_write_client:
+            blocked_reason = (
+                "Oznaczenie podpisu wymaga przypisania Delivery Leada do klienta."
             )
             can_confirm = False
         elif not _has_signature_role(current_user):
@@ -633,7 +672,7 @@ async def _serialize_generated_contracts(
                 # Status handlowy wymaga poziomu `manage`; zakres wierszy nadal
                 # ogranicza `_scope_generator_query`. Korekta TREŚCI dokumentu
                 # (`can_edit`) pozostaje dodatkowo przy autorze albo adminie.
-                can_change_status=can_manage_documents,
+                can_change_status=can_manage_documents and can_write_client,
                 contract_status=row.contract_status,
                 closure_reason=row.closure_reason,
                 closure_reason_other=row.closure_reason_other,
@@ -653,7 +692,9 @@ async def _serialize_generated_contracts(
                 can_delete=can_manage,
                 can_edit=can_manage,
                 can_download=(
-                    row.render_payload is not None and can_generate_documents
+                    row.render_payload is not None
+                    and can_generate_documents
+                    and can_write_client
                 ),
                 signature_status=row.signature_status,
                 signature_source=row.signature_source,
@@ -1078,7 +1119,13 @@ async def get_detail(
         contract.client_id,
     )
     d = contract.b2b_detail
-    redact_finance = _is_view_only_generator_user(current_user)
+    redact_finance = _is_view_only_generator_user(
+        current_user
+    ) or not await _generator_rate_content_visible(
+        db,
+        current_user,
+        contract.client_id,
+    )
     return B2BContractDetailResponse(
         contract_id=contract.id,
         candidate_id=contract.candidate_id,
@@ -1112,6 +1159,7 @@ async def download_docx(
         db,
         current_user,
         contract.client_id,
+        write=True,
     )
     detail_lang = contract.b2b_detail.language if contract.b2b_detail else "pl"
     lang = normalize_language(language or detail_lang)
@@ -1657,6 +1705,7 @@ async def download_generated_contract(
         db,
         current_user,
         row.client_id,
+        write=True,
     )
     if not row.render_payload:
         raise HTTPException(

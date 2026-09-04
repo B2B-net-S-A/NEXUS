@@ -552,11 +552,12 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert "<client_presentation_rules>" in body["prompt_block"]
         assert seen_rules[0] is not None and seen_rules[1] is None
 
-        # Cudzy klient jest odcięty zanim endpoint ujawni podgląd.
+        # Każdy DL może otworzyć klienta, ale ID podglądu nie przechodzi między
+        # klientami i nie ujawnia, do którego z nich naprawdę należy.
         g = await app_client.get(
             RULE_URL.format(cid=other) + f"/preview/{preview_id}", headers=headers
         )
-        assert g.status_code == 403
+        assert g.status_code == 404
     finally:
         async with AsyncSessionLocal() as db:
             if stage_id:

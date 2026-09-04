@@ -54,6 +54,9 @@ class DashboardDataScope(BaseModel):
     allowed_tac_user_ids: list[int] = Field(default_factory=list)
     allowed_operator_user_ids: list[int] = Field(default_factory=list)
     allowed_client_tac_pairs: list[DashboardClientTacPair] = Field(default_factory=list)
+    # Narrow ownership exception used for client-level rates/margins and
+    # rate-bearing legal/order artefacts. Operational DL scope is broader.
+    finance_client_ids: list[int] = Field(default_factory=list)
 
 
 class UserResponse(BaseModel):
