@@ -1010,6 +1010,22 @@ class Settings(BaseSettings):
     COMPASS_WORKDAYS_LOOKBACK_MONTHS: int = 3
     COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
 
+    # ── COMPASS: cykl zycia pracownika ───────────────────────────────────
+    # COMPASS jest zrodlem prawdy o zatrudnieniu (`employment_status` odbiera
+    # tam dostep w trzech warstwach), a NEXUS flipuje `users.is_active`
+    # RECZNIE — wiec konto osoby, ktora odeszla, bywa aktywne tygodniami.
+    #
+    # Znowu WLASNY sekret, nie `CRON_SECRET` COMPASSA (patrz wyzej) i nie ten
+    # od dni roboczych: `WORKDAYS_EXPORT_SECRET` otwiera dokladnie jedna trase
+    # i ta wlasnosc ma zostac.
+    #
+    # Domyslnie WYLACZONE. Ta petla ODBIERA ludziom dostep, wiec wlaczenie jej
+    # jest decyzja operatora, nie efektem ubocznym deployu.
+    COMPASS_LIFECYCLE_ENABLED: bool = False
+    COMPASS_LIFECYCLE_URL: str = ""
+    COMPASS_LIFECYCLE_SECRET: str = ""
+    COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
+
     TRAFFIT_SYNC_ENABLED: bool = False
     # Skutki uboczne dla etapów przychodzących z importu.
     #

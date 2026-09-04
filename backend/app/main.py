@@ -656,6 +656,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
+    from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
@@ -713,6 +714,7 @@ async def lifespan(app: FastAPI):
         # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
         # tylko po to, zeby sprawdzic te sama flage.
         "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
+        "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
         "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
         "weekly_eval": asyncio.create_task(weekly_eval_loop()),
         "match_digest": asyncio.create_task(match_digest_loop()),
