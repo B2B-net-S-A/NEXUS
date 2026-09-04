@@ -62,6 +62,7 @@ from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
+from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
@@ -1811,6 +1812,51 @@ async def api_health_check():
         except Exception:
             checks["order_mail"] = "degraded"
 
+    # COMPASS: dni robocze (D5). Ta sama drabina co traffit/order_mail.
+    #
+    # Do 09.2026 była to JEDYNA integracja bez sondy — i jedyna, której awarii
+    # nie dało się wykryć niczym innym: pętla `return`uje czysto przy
+    # wyłączonej fladze i przy braku sekretu (`classify_background_tasks` →
+    # `exited_cleanly`, stan cichy), a jej ciało łyka każdy wyjątek, więc nigdy
+    # nie osiąga `crashed`.
+    #
+    # `healthy` WYMAGA `last_status == "ok"`. `fetch_failed:` i
+    # `basis_mismatch:` nie rzucają wyjątku — `sync_workdays` wraca z nich
+    # normalnie, nic nie zapisawszy — więc gdyby liczyła się tylko świeżość
+    # biegu, niedostępny COMPASS raportowałby `healthy`. Cicha awaria oznacza
+    # regres do stanu sprzed D5: mianownikiem znów jest stała 5, a osoba na
+    # urlopie ląduje na IMIENNEJ liście „poniżej progu".
+    if not settings.COMPASS_WORKDAYS_ENABLED:
+        checks["compass_workdays"] = "unconfigured"
+    elif not (settings.COMPASS_WORKDAYS_URL and settings.COMPASS_WORKDAYS_SECRET):
+        checks["compass_workdays"] = "misconfigured"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            async with AsyncSessionLocal() as session:
+                row = await asyncio.wait_for(
+                    session.execute(
+                        text(
+                            "SELECT last_run_finished_at, last_status "
+                            "FROM compass_workdays_sync_state WHERE id = 1"
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            r = row.fetchone()
+            from app.services.insights_workdays import workdays_sync_verdict
+
+            checks["compass_workdays"] = workdays_sync_verdict(
+                finished_at=r[0] if r is not None else None,
+                last_status=r[1] if r is not None else None,
+                interval_seconds=settings.COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS,
+                now=_dt.now(_tz.utc),
+            )
+        except Exception:
+            checks["compass_workdays"] = "degraded"
+
     # Cortex extraction — informational. Świeżość ostatniego przebiegu faktów
     # skilli (cortex_extraction_runs). Overall status pozostaje DB-only; to tylko
     # uwidacznia stale/failed backfill po deployu. `unconfigured` (brak runów) /
@@ -2329,6 +2375,11 @@ async def api_health_deep_check():
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
+        # 0276: stan pętli D5. Sonda SCHEMATU, nie żywotności COMPASSA —
+        # `/api/health/deep` blokuje deploy, więc awaria cudzej aplikacji nie
+        # może tu trafić. O tym, czy integracja działa, mówi
+        # `checks.compass_workdays` w płytkim `/api/health`.
+        ("compass_workdays_sync_state", CompassWorkdaysSyncState),
         # 0258/0259: plakietki ostrzeżeń i baner kampanii. Bez tych sond
         # zielony deploy nic nie mówi o tym, czy tabele powstały — a brak
         # którejkolwiek wywala CAŁĄ zakładkę Rekrutacja na UndefinedTable

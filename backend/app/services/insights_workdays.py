@@ -34,7 +34,7 @@ okres, w którym e-mail wystarcza.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
@@ -50,6 +50,44 @@ logger = logging.getLogger(__name__)
 # Kopertowa etykieta znaczenia liczby. Musi zgadzać się z tym, co zwraca
 # COMPASS — rozjazd oznaczałby, że UI podpisuje liczbę inaczej niż jej źródło.
 EXPECTED_BASIS = "business_days_minus_approved_leave"
+
+# Podłoga progu świeżości sondy. Domyślny odstęp pętli to 6 h, więc trzy
+# odstępy to 18 h — mniej niż doba, czyli jeden nocny przestój dawałby alarm.
+_STALE_FLOOR_SECONDS = 86_400
+
+
+def workdays_sync_verdict(
+    finished_at: datetime | None,
+    last_status: str | None,
+    interval_seconds: int,
+    now: datetime,
+) -> str:
+    """``"healthy"`` albo ``"degraded"`` dla ``checks.compass_workdays``.
+
+    Czysta funkcja, bo cała wartość tej sondy siedzi w tych warunkach, a wersja
+    wpleciona w handler daje się przetestować wyłącznie przez gałąź
+    ``except`` — czyli zwracałaby właściwy wynik z niewłaściwego powodu.
+
+    **``healthy`` wymaga ``last_status == "ok"``, nie samej świeżości.**
+    ``sync_workdays`` wraca z ``fetch_failed:`` i ``basis_mismatch:``
+    NORMALNIE, nic nie zapisawszy i nie rzucając wyjątku. Gdyby liczyła się
+    tylko data ostatniego biegu, niedostępny COMPASS raportowałby ``healthy``
+    tak długo, jak długo pętla się budzi — czyli dokładnie ta ślepa plamka,
+    dla której ta sonda powstała.
+
+    ``running`` nie jest osobnym przypadkiem: to albo bieg w toku, albo bieg
+    przerwany restartem (Coolify podmienia kontener przy każdym pushu na main).
+    O świeżości mówi data ostatniego KOŃCA, więc ``running`` degraduje dopiero
+    wtedy, gdy ten koniec jest stary.
+    """
+    if finished_at is None:
+        return "degraded"
+    stale_after = timedelta(
+        seconds=max(3 * int(interval_seconds), _STALE_FLOOR_SECONDS)
+    )
+    if (now - finished_at) > stale_after:
+        return "degraded"
+    return "healthy" if last_status == "ok" else "degraded"
 
 
 @dataclass
