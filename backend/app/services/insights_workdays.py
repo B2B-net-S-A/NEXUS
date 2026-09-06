@@ -75,10 +75,12 @@ def workdays_sync_verdict(
     tak długo, jak długo pętla się budzi — czyli dokładnie ta ślepa plamka,
     dla której ta sonda powstała.
 
-    ``running`` nie jest osobnym przypadkiem: to albo bieg w toku, albo bieg
-    przerwany restartem (Coolify podmienia kontener przy każdym pushu na main).
-    O świeżości mówi data ostatniego KOŃCA, więc ``running`` degraduje dopiero
-    wtedy, gdy ten koniec jest stary.
+    ``running`` degraduje ZAWSZE, także przy świeżej dacie końca. To albo bieg
+    w toku — a wtedy jego wynik jest jeszcze nieznany — albo bieg przerwany
+    restartem (Coolify podmienia kontener przy każdym pushu na main). Żaden
+    z tych stanów nie jest potwierdzeniem udanej synchronizacji, a data
+    ostatniego KOŃCA pochodzi wtedy z poprzedniego przebiegu, nie z tego,
+    o którym mówi status.
     """
     if finished_at is None:
         return "degraded"
