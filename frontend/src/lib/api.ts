@@ -985,6 +985,7 @@ export const matchingApi = {
         match_score: number | null;
         matching_skills: string[];
         gaps: string[];
+        eligibility?: MatchEligibility | null;
       }>;
       meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/ai-matches`, {
@@ -2436,6 +2437,24 @@ export interface RecommendationMeta {
    * mimo tradeoffu „wyroczni na NDA" — mirror Talent Radaru (`eligible_size`).
    */
   eligibility_filtered?: number;
+}
+
+/**
+ * Anotacja dopuszczalności na wierszu rankingu (`/ai-matches`). Obecna tylko dla
+ * kandydatów, których dopuszczalność nie jest „czysta": `warn` (aktywny konflikt
+ * klienta / NDA / konkurent / weto hiring managera) — pokazywani z powodem
+ * i `assignment_allowed=false` — oraz miękkie ostrzeżenia (`current_employment`,
+ * `excluded_client`). Kandydaci `hidden` (globalna blacklista, duplikat) nie
+ * trafiają na listę w ogóle, więc nigdy nie mają tej anotacji. `reason` jest
+ * gotową polską etykietą z `_REASON_LABELS_PL`.
+ */
+export interface MatchEligibility {
+  reason_code: string;
+  reason: string;
+  assignment_allowed: boolean;
+  visibility: "visible" | "warn" | "hidden";
+  severity: "warning" | "blocking" | string;
+  secondary: string[];
 }
 
 export interface JobMatch {
