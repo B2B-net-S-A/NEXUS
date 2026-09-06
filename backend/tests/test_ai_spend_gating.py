@@ -145,7 +145,7 @@ async def test_mindy_charges_its_own_quota_bucket(monkeypatch) -> None:
 
     seen: dict[str, object] = {}
 
-    async def _accept(_db, feature, user_id=None):
+    async def _accept(_db, feature, user_id=None, *, units=1):
         seen["feature"] = feature
         seen["user_id"] = user_id
         return None
@@ -166,7 +166,7 @@ async def test_mindy_quota_propagates_refusal(monkeypatch) -> None:
     from app.api import dynareporter_mindy
     from app.services import ai_quota
 
-    async def _refuse(_db, feature, user_id=None):
+    async def _refuse(_db, feature, user_id=None, *, units=1):
         raise ai_quota.AIQuotaExceeded(feature, "Funkcje AI są wyłączone globalnie")
 
     monkeypatch.setattr(ai_quota, "check_and_increment", _refuse)

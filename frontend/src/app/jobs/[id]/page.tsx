@@ -940,6 +940,19 @@ function AIMatchingSection({
               </>
             )}
           </span>
+          {/* Licznik warstwy `hidden` — mirror Talent Radaru. Po decyzji „pokaż
+              wiersze" (2026-09) bramka pokazuje warn (NDA / konflikt / weto) jako
+              wiersze z powodem, więc TU liczą się już tylko realnie ukryci:
+              globalna blacklista i duplikaty w tej rekrutacji. */}
+          {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
+            <span
+              className="text-[11px] px-2 py-0.5 border border-warning/25 bg-warning-muted text-warning-muted-foreground rounded-full font-medium"
+              title="Globalna blacklista lub kandydat już w tej rekrutacji"
+              data-testid="ai-matches-eligibility-filtered"
+            >
+              {data!.meta!.eligibility_filtered} pominięto (globalna blacklista / już w rekrutacji)
+            </span>
+          )}
           {searchType?.startsWith("semantic") && (
             <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
           )}

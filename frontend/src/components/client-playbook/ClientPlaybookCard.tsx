@@ -139,7 +139,12 @@ export function ClientPlaybookCard({
   const rule = cvRule.data?.is_active ? cvRule.data : null;
 
   return variant === "compact" ? (
-    <CompactCard playbook={playbook} rule={rule} className={className} />
+    <CompactCard
+      playbook={playbook}
+      rule={rule}
+      editHref={canManage ? (editHref ?? null) : null}
+      className={className}
+    />
   ) : (
     <FullCard
       playbook={playbook}
@@ -377,10 +382,12 @@ function FactChip({ children }: { children: React.ReactNode }) {
 function CompactCard({
   playbook,
   rule,
+  editHref,
   className,
 }: {
   playbook: ClientPlaybook;
   rule: ClientCvRule | null;
+  editHref?: string | null;
   className?: string;
 }) {
   const chips = compactChips(playbook, rule);
@@ -393,15 +400,29 @@ function CompactCard({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           {`Karta klienta${playbook.client_name ? ` · ${playbook.client_name}` : ""}`}
         </span>
-        {/* Do Pomocy, nie do profilu klienta: /clients/* jest w middleware
-            bramkowane sekcją Delivery, a compact czyta głównie rekruter
-            (delivery = none). Pomoc czyta każdy zalogowany (D13). */}
-        <Link
-          href={`/help?tab=clients&client=${playbook.client_id}`}
-          className="text-xs text-primary hover:underline"
-        >
-          Pełna karta klienta →
-        </Link>
+        <span className="flex items-center gap-3">
+          {/* „Pełna karta klienta →" celowo do Pomocy, nie do profilu klienta:
+              /clients/* jest w middleware bramkowane sekcją Delivery, a compact
+              czyta głównie rekruter (delivery = none). Pomoc czyta każdy
+              zalogowany (D13). „Edytuj →" dochodzi tylko z uprawnieniem
+              `client_playbook.manage` (zbramkowane w call-site), spójnie ze
+              stanem pustym „Załóż kartę" i wariantem full. */}
+          <Link
+            href={`/help?tab=clients&client=${playbook.client_id}`}
+            className="text-xs text-primary hover:underline"
+          >
+            Pełna karta klienta →
+          </Link>
+          {editHref ? (
+            <Link
+              href={editHref}
+              data-testid="client-playbook-edit"
+              className="text-xs text-primary hover:underline"
+            >
+              Edytuj →
+            </Link>
+          ) : null}
+        </span>
       </div>
       {chips.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">

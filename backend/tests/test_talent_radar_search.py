@@ -635,3 +635,132 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
 
     assert result.degraded is False
     assert result.pool_size == 1, "kandydat z puli musi dojść do rankingu"
+
+
+# ── 0270: radar czyta CAŁY wklejony request ─────────────────────────────────
+
+
+def test_radar_reads_the_whole_pasted_request_not_just_the_opening():
+    """DEFEKT ZMIERZONY NA PRODUKCJI 02.09. Interfejs przyjmuje 20 000 znaków,
+    a silnik embedował 1200 i szukał umiejętności w 4000 — mail od klienta
+    z wymaganiami na końcu, po akapicie grzeczności, był rankowany po tym
+    akapicie. Zmierzone wtedy: `must 1/2` i podobieństwo 0,65 zamiast 0,73 dla
+    tego samego zapytania bez wstępu.
+
+    Test pada po cofnięciu poprawki: bez `max_field_chars=None` technologia
+    stojąca za 4700 znakiem nie istnieje dla żadnej z dwóch ścieżek.
+    """
+    from app.services.embedding_service import _build_job_text
+    from app.services.scoring_service import (
+        _extract_skills_from_champion,
+        set_alias_map,
+    )
+
+    filler = "Dzień dobry, w nawiązaniu do naszej rozmowy przesyłam kontekst. " * 80
+    assert len(filler) > 4_000
+    text = filler + " Wymagania: Kubernetes."
+
+    job = tr.build_ephemeral_job(
+        tr.RadarQuery(client_id=1, text=text, title="Senior Java Developer")
+    )
+
+    # 1) Tekst embeddingu niesie ogon, nie sam wstęp.
+    assert "Kubernetes" in _build_job_text(job, max_field_chars=None)
+
+    # 2) Derywacja umiejętności widzi technologię z końca requestu. Taksonomia
+    #    wczytywana ręcznie: bez `ALIAS_MAP` `_alias_pattern()` zwraca `None`
+    #    i Tier 2 nie rusza w ogóle — test przechodziłby wtedy z pustym
+    #    zbiorem po obu stronach poprawki, czyli nic by nie dowodził.
+    set_alias_map({"kubernetes": "Kubernetes", "java": "Java"})
+    try:
+        derived = {d["name"].lower() for d in _extract_skills_from_champion(job)}
+    finally:
+        set_alias_map({})
+    assert "kubernetes" in derived
+
+
+def test_a_real_job_keeps_the_old_caps_so_the_index_is_not_invalidated():
+    """Sufit podnosimy WYŁĄCZNIE dla oferty efemerycznej. `index_outbox_service`
+    liczy SHA-256 z tego tekstu, żeby zdecydować o reindeksie, a
+    `compute_proposals` używa go jako odcisku świeżości snapshotów — globalna
+    zmiana przestawiłaby 949 ofert na „do przeliczenia" bez żadnego zysku."""
+    from app.services.embedding_service import _build_job_text
+
+    real_job = SimpleNamespace(
+        title="Rola",
+        description="A" * 3_000,
+        requirements=None,
+        champion_profile=None,
+        must_skills=None,
+        nice_skills=None,
+        seniority=None,
+        subcategory=None,
+        industry=None,
+        train_name=None,
+    )
+    # Bez jawnego argumentu — dokładnie tak, jak woła to indeksowanie ofert.
+    assert _build_job_text(real_job).count("A") == 1_200
+
+
+def test_role_words_from_the_title_do_not_become_requirements():
+    """„Senior Java Developer" wstrzykiwał must `software developer`, którego
+    nie ma w CV nikogo — więc KAŻDY kandydat dostawał czerwony chip przy
+    trafionym dopasowaniu. Odsiewamy je z TYTUŁU, nie z taksonomii: w treści
+    wymagań to samo słowo bywa realnym wymogiem."""
+    from app.services.scoring_service import _extract_skills_from_champion
+
+    from app.services.scoring_service import set_alias_map
+
+    job = tr.build_ephemeral_job(
+        tr.RadarQuery(
+            client_id=1, text="Projekt bankowy.", title="Senior Java Developer"
+        )
+    )
+    # Taksonomia zna „software developer" jako alias — o to właśnie chodzi:
+    # bez filtra tytuł wstrzykiwałby go jako wymaganie.
+    set_alias_map(
+        {"software developer": "Software Developer", "java": "Java"}
+    )
+    try:
+        derived = {d["name"].lower() for d in _extract_skills_from_champion(job)}
+    finally:
+        set_alias_map({})
+    assert "software developer" not in derived
+    assert "java" in derived  # technologia z tytułu ZOSTAJE
+
+
+def test_radar_weight_profile_sums_to_one_hundred():
+    """Przy wyłączonej renormalizacji (domyślnej) wyzerowana warstwa nie znika
+    z mianownika, tylko oddaje zero punktów. Bez rozdzielenia budżetu
+    `champion_fit` KAŻDY wynik radaru spadłby o 6,5 względem dzisiejszego —
+    co wyglądałoby jak regres jakości, a byłoby błędem arytmetycznym."""
+    p = tr.RADAR_PROFILE
+    total = p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    assert total == 100.0
+    # Dwie warstwy, które w radarze nie mają czego oceniać.
+    assert p.champion_fit == 0.0
+    assert p.availability == 0.0
+    # Własna tożsamość: gdyby radar kiedyś zaczął cache'ować, `id=0`
+    # kolidowałoby z profilem domyślnym.
+    assert p.id != 0 and p.name == "talent_radar"
+
+
+def test_seniority_note_is_serialized_so_the_penalty_is_diagnosable():
+    """Kara seniority tnie `total` o 16-32%. Pole istniało w dataclassie
+    z komentarzem obiecującym diagnozowalność, ale nie było serializowane —
+    więc kara była niewidoczna wszędzie, gdzie ktoś mógłby ją zobaczyć."""
+    from app.services.scoring_service import LayerResult, ScoreBreakdown
+
+    layer = LayerResult(points=1.0, max_points=2.0, reason="x")
+    breakdown = ScoreBreakdown(
+        candidate_id=1,
+        job_id=2,
+        total=68.0,
+        semantic=layer,
+        skills=layer,
+        salary=layer,
+        location=layer,
+        availability=layer,
+        seniority_note="wymagane 10 lat, kandydat ma 7",
+    )
+    assert breakdown.as_dict()["seniority_note"] == "wymagane 10 lat, kandydat ma 7"

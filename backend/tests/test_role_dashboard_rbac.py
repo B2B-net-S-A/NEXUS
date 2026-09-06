@@ -497,7 +497,9 @@ async def test_delivery_scope_preserves_exact_client_tac_relationships() -> None
     assert scope.cache_token().endswith("p=10-101,20-202")
 
 
-def test_delivery_activity_feed_uses_exact_pairs_and_only_client_job_entities() -> None:
+def test_delivery_activity_feed_uses_all_client_ids_for_client_and_job_entities() -> (
+    None
+):
     from sqlalchemy import select
 
     scope = DashboardScope(
@@ -516,9 +518,8 @@ def test_delivery_activity_feed_uses_exact_pairs_and_only_client_job_entities() 
     assert "activities.entity_type = 'client'" in scoped_sql
     assert "activities.entity_id IN (10, 20)" in scoped_sql
     assert "activities.entity_type = 'job'" in scoped_sql
-    assert "(jobs.client_id, jobs.tac_id) IN ((10, 101), (20, 202))" in scoped_sql
-    assert "(10, 202)" not in scoped_sql
-    assert "(20, 101)" not in scoped_sql
+    assert "jobs.client_id IN (10, 20)" in scoped_sql
+    assert "jobs.tac_id" not in scoped_sql
 
 
 def test_delivery_activity_feed_empty_scope_is_deny_all() -> None:
@@ -535,4 +536,4 @@ def test_delivery_activity_feed_empty_scope_is_deny_all() -> None:
     )
 
     assert "activities.entity_id IN (-1)" in scoped_sql
-    assert "(jobs.client_id, jobs.tac_id) IN ((-1, -1))" in scoped_sql
+    assert "jobs.client_id IN (-1)" in scoped_sql

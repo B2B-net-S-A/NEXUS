@@ -427,6 +427,12 @@ class ScoreBreakdown:
                 "max": self.champion_fit.max_points,
                 "reason": self.champion_fit.reason,
             },
+            # Powód kary seniority (16-32% cięcia na `total`). Do 0270 pole
+            # istniało w dataclassie z komentarzem obiecującym diagnozowalność
+            # („68 po karze" vs „68 bez kary"), ale nie było serializowane —
+            # więc kara była niewidoczna w radarze, rekomendacjach i zakładce
+            # Dopasowanie, czyli wszędzie, gdzie ktoś mógłby ją zobaczyć.
+            "seniority_note": self.seniority_note,
             "matching_must": self.matching_must,
             "gap_must": self.gap_must,
             "matching_nice": self.matching_nice,
@@ -623,6 +629,72 @@ def _alias_pattern() -> Optional[re.Pattern]:
     return _CHAMPION_ALIAS_PATTERN
 
 
+# Słowa opisujące ROLĘ, nie technologię. Taksonomia zna je jako poprawne
+# aliasy (bo bywają wymaganiem: „Software Developer" jako stanowisko), ale
+# w derywacji must z TYTUŁU są trucizną: „Senior Java Developer" wstrzykiwał
+# wymaganie `software developer`, którego nie ma w CV nikogo — więc KAŻDY
+# kandydat dostawał czerwony chip przy w pełni trafionym dopasowaniu.
+#
+# Odsiewamy je z tytułu, a NIE z taksonomii: w treści wymagań to samo słowo
+# bywa realnym wymogiem i tam ma dalej działać.
+_ROLE_WORDS = frozenset(
+    {
+        "developer",
+        "software developer",
+        "engineer",
+        "software engineer",
+        "specialist",
+        "specjalista",
+        "programista",
+        "programmer",
+        "konsultant",
+        "consultant",
+        "architekt",
+        "architect",
+        "analityk",
+        "analyst",
+        "tester",
+        "manager",
+        "menedżer",
+        "lead",
+        "senior",
+        "junior",
+        "mid",
+    }
+)
+
+_ROLE_WORD_RE = re.compile(
+    r"(?<![A-Za-z0-9_])("
+    + "|".join(sorted(map(re.escape, _ROLE_WORDS), key=len, reverse=True))
+    + r")(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+
+
+def _strip_role_words(title: str) -> str:
+    """Usuń z tytułu słowa opisujące rolę, zostaw technologie.
+
+    „Senior Java Developer" → „ Java ". Zostaje dokładnie to, co jest sygnałem
+    technologicznym; reszta trafiała do wymagań jako must, którego nikt nie
+    spełnia.
+    """
+    return _ROLE_WORD_RE.sub(" ", title)
+
+
+def _skill_scan_cap(job) -> Optional[int]:
+    """Sufit znaków na pole przy wywodzeniu umiejętności z prozy.
+
+    ``None`` = „nie tnij", i ustawia to wyłącznie oferta efemeryczna Talent
+    Radaru (`skill_scan_cap` na jej obiekcie). Prawdziwa oferta nie ma tego
+    atrybutu i dostaje dotychczasowe 4000.
+    """
+    cap = getattr(job, "skill_scan_cap", _RAW_CV_SKILL_SCAN_CAP_DEFAULT)
+    return cap
+
+
+_RAW_CV_SKILL_SCAN_CAP_DEFAULT = 4000
+
+
 def _extract_skills_from_champion(job: Job) -> list[dict]:
     """Return [{name: canonical}, ...] derived from job narrative text.
 
@@ -678,12 +750,15 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
 
     # Tier 2: JD text (when Champion not yet populated — current prod state).
     if not parts:
+        cap = _skill_scan_cap(job)
         for attr in ("requirements", "description"):
             v = getattr(job, attr, None)
             if isinstance(v, str) and v.strip():
-                # Cap each field at 4K chars — long JDs (8K+) drag regex time
-                # and add little signal beyond the headline requirements.
-                parts.append(v[:4000])
+                # Sufit na pole. Domyślne 4K trzyma czas regexa w ryzach przy
+                # długich ogłoszeniach, ale dla oferty EFEMERYCZNEJ radaru
+                # obcinało wklejony request tak, że wymagania stojące na końcu
+                # maila w ogóle nie istniały dla scoringu.
+                parts.append(v[:cap] if cap else v)
 
     # Tier 3: title only (Traffit imports often have empty desc/req but the
     # title carries the role + tech: "Senior Angular Developer", "PKO BP:
@@ -691,7 +766,7 @@ def _extract_skills_from_champion(job: Job) -> list[dict]:
     # well-described jobs get title-extracted skills folded in.
     title = getattr(job, "title", None)
     if isinstance(title, str) and title.strip():
-        parts.append(title)
+        parts.append(_strip_role_words(title))
 
     text = " ".join(parts)
     if not text.strip():

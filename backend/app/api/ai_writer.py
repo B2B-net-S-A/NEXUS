@@ -19,6 +19,8 @@ from app.api.deps import OperationalUser, get_db
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.client import Client
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -224,7 +226,7 @@ class GenerateJobResponse(BaseModel):
 
 # Model tej trasy nie ma własnego wpisu w `Settings` — literał zostaje tutaj,
 # w jednym miejscu, zamiast w środku wywołania.
-_JOB_WRITER_MODEL = "claude-sonnet-5"
+_JOB_WRITER_MODEL = model_for(AIFeatureKey.job_description_generator)
 
 
 class _ClaudeNotConfigured(RuntimeError):

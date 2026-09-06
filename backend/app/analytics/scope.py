@@ -15,14 +15,12 @@ from dataclasses import dataclass
 from enum import Enum
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
     AnalyticsCapability,
     user_has_capability,
 )
-from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.access_scope import (
     ScopeKind as DashboardScopeKind,
@@ -84,9 +82,8 @@ async def ensure_client_scope(db: AsyncSession, user: User, client_id: int) -> S
 
     Zasady (plan §4.3):
     - admin / head_of_recruitment — każdy klient,
-    - delivery_lead — wyłącznie klient z własnym
-      ``DeliveryLeadClientAssignment`` (sekundarna rola DL u hybrydy nie
-      poszerza listy przypisań — przypisania są per-user, nie per-rola),
+    - delivery_lead — każdy klient; przypisanie wskazuje odpowiedzialność,
+      a nie granicę dostępu,
     - tac — każdy klient operacyjnie (VIEW_CLIENT_OPERATIONS), bez finansów
       (finanse per endpoint przez VIEW_FINANCE),
     - pozostali — brak dostępu.
@@ -102,24 +99,16 @@ async def ensure_client_scope(db: AsyncSession, user: User, client_id: int) -> S
     if user.has_any_role(
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
         UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.finance,
     ):
         return Scope(kind=ScopeKind.client, client_id=client_id)
-    # delivery_lead: tylko przypisani klienci
-    assigned = await db.scalar(
-        select(DeliveryLeadClientAssignment.id).where(
-            DeliveryLeadClientAssignment.delivery_lead_user_id == user.id,
-            DeliveryLeadClientAssignment.client_id == client_id,
-        )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Brak uprawnień do danych klientów",
     )
-    if assigned is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Klient poza Twoim przypisaniem delivery",
-        )
-    return Scope(kind=ScopeKind.client, client_id=client_id)
 
 
 def ensure_finance_client_scope(user: User, client_id: int) -> Scope:
@@ -149,10 +138,9 @@ async def ensure_team_scope(db: AsyncSession, user: User) -> Scope:
     """Resolve the manager boundary for team aggregates.
 
     Admin and Head of Recruitment retain their explicit organization/recruitment
-    oversight.  A Delivery Lead receives only TAC users that occur in the exact
-    client–TAC relationships reachable through their assigned clients.  An
-    empty relationship set is deny-all data (an empty team), never a fallback
-    to the organization.
+    oversight. A Delivery Lead receives TAC users that occur in the exact
+    client–TAC relationships across all clients. An empty relationship set is
+    empty team data, never a fallback to unrelated users.
     """
 
     if not user_has_capability(user, AnalyticsCapability.VIEW_TEAM_KPI):

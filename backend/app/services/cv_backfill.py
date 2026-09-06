@@ -30,9 +30,12 @@ from typing import Any, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.models.candidate_document import CandidateDocument
 from app.services.cv_enrichment import _CV_PLACEHOLDER_NAMES, _apply_cv_enrichment
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +187,14 @@ async def enrich_candidate_from_cv_bytes(
     if raw_text and raw_text.strip():
         result["text_extracted"] = True
         try:
-            parsed = await parse_cv(raw_text, prefer_llm=prefer_llm) or {}
+            parsed = (
+                await parse_cv(
+                    raw_text,
+                    prefer_llm=prefer_llm,
+                    model=model_for(AIFeatureKey.cv_name_backfill),
+                )
+                or {}
+            )
             result["parsed"] = True
             if parsed.get("first_name"):
                 result["name_source"] = "cv"
@@ -384,14 +394,38 @@ async def backfill_missing_names(
         if candidate is None:
             continue
         try:
-            await backfill_candidate_from_stored_cv(
-                db, candidate, prefer_llm=prefer_llm
-            )
-            await db.commit()
+            # Kwota `cv_name_backfill` — OSOBNY kubełek od `cv_backfill`, mimo
+            # mylnie podobnych nazw modułów: tamten należy do
+            # `cv_field_backfill.py`. Bramka stoi na poziomie BIEGU, a nie
+            # w `enrich_candidate_from_cv_bytes`, z dwóch powodów. Pierwszy
+            # jest projektowy: hamulec kwotowy dotyczy przebiegu, nie
+            # pojedynczego CV, więc mieszka tam, gdzie przebieg da się
+            # zatrzymać — dokładnie jak w `cv_field_backfill`. Drugi wyszedł
+            # z testów: w funkcji enrichmentu każda awaria bramki wpadałaby
+            # w tamtejsze `except Exception` („parse is best-effort") i CICHO
+            # degradowała odczyt CV do imienia z nazwy pliku.
+            async with ai_feature(db, AIFeatureKey.cv_name_backfill):
+                await backfill_candidate_from_stored_cv(
+                    db, candidate, prefer_llm=prefer_llm
+                )
+                # Commit WEWNĄTRZ bloku: `_persist_token_usage` w `finally`
+                # ai_feature otwiera własną sesję i UPDATE-uje wiersz zużycia —
+                # bez wcześniejszego commitu wiersz check_and_increment jest
+                # niewidoczny (READ COMMITTED) i tokeny przepadają.
+                await db.commit()
             if _name_resolved(candidate):
                 stats["resolved"] += 1
             else:
                 stats["unresolved"] += 1
+        except AIQuotaExceeded as quota_exc:
+            # Hamulec organizacyjny: zatrzymuje BIEG, nie wiersz. Wyczerpana
+            # kwota to decyzja administratora, nie zepsute CV — mielenie
+            # reszty bazy w trybie „imię z nazwy pliku" zapisałoby gorsze dane
+            # pod tym samym stemplem co dobre.
+            await db.rollback()
+            stats["stopped_reason"] = f"quota: {quota_exc}"
+            logger.warning("[cv_backfill] stop przez kwotę AI: %s", quota_exc)
+            break
         except Exception as e:  # noqa: BLE001
             await db.rollback()
             stats["errors"] += 1

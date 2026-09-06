@@ -113,8 +113,8 @@ def _user_roles(user) -> set:
 def _is_read_only_tcm(user) -> bool:
     """TCM ceiling for Delivery mail, irrespective of HoR/TAC secondary roles.
 
-    HoR and TAC do not independently enter Delivery, so only Admin, assigned
-    Delivery Lead, or Finance can supersede the TCM read-only projection here.
+    HoR and TAC do not independently enter Delivery, so only Admin, Delivery
+    Lead, or Finance can supersede the TCM read-only projection here.
     """
 
     roles = _user_roles(user)
@@ -300,7 +300,7 @@ async def list_queue(
         )
     visible = await _visible_client_ids(db, user)
     if visible is not None and not visible:
-        raise HTTPException(status_code=403, detail="Brak przypisanych klientów")
+        raise HTTPException(status_code=403, detail="Brak dostępnych klientów")
     stmt = select(OrderMailDocument).where(OrderMailDocument.outcome == outcome)
     count_stmt = (
         select(func.count())
@@ -344,6 +344,17 @@ async def download_queue_file(
     doc_id: int, user: OrderMailFileUser, db: AsyncSession = Depends(get_db)
 ):
     doc = await _load_visible(db, doc_id, user)
+    dl_assigned = (
+        await _dl_assigned_to_client(db, user, doc.client_id)
+        if doc.client_id
+        else False
+    )
+    can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
+    if not _order_finance_visible(user, can_finance=can_finance):
+        raise HTTPException(
+            status_code=403,
+            detail="Plik zamówienia z kwotami wymaga przypisania do klienta",
+        )
     if not doc.storage_path:
         raise HTTPException(status_code=404, detail="Brak pliku")
     path = storage_service.get_order_mail_attachment_path(doc.storage_path)

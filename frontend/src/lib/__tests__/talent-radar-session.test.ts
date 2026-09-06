@@ -15,6 +15,8 @@ const FULL_STATE: TalentRadarSessionState = {
   text: "Szukamy osoby z Pythonem, FastAPI i Postgresem — min. 5 lat.",
   budgetMax: "180",
   excludeRemoteOnly: true,
+  location: "Warszawa",
+  championSkills: { must: ["Java"], nice: ["AWS"] },
   championProfile: { role_name: "Senior Python Developer", must: ["python"] },
   championSummary: {
     role_name: "Senior Python Developer",
@@ -81,6 +83,8 @@ describe("talent-radar-session", () => {
       text: "",
       budgetMax: "",
       excludeRemoteOnly: false,
+      location: "",
+      championSkills: null,
       championProfile: null,
       championSummary: null,
       response: null,

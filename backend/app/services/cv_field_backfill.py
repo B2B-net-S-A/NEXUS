@@ -46,6 +46,7 @@ from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.cv_enrichment import CvWritePolicy, _apply_cv_enrichment
 from app.services.cv_parser import parse_cv_with_claude
 from app.services.llm_prompts import CV_ENRICHMENT_BULK
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ async def backfill_cv_fields(
     stats["stopped_reason"] = None
 
     max_calls = int(getattr(settings, "CV_BACKFILL_MAX_CALLS", 45_000) or 45_000)
-    bulk_model = settings.CLAUDE_MODEL_CV_BULK
+    bulk_model = model_for(AIFeatureKey.cv_backfill)
 
     calibration_handle = None
     if calibration_log_path:

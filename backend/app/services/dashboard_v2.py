@@ -718,13 +718,13 @@ async def build_delivery_lead_dashboard(
             open_requests=_kpi(
                 open_requests,
                 "count",
-                "Opublikowane joby w przecięciu przypisanych klientów i TAC.",
+                "Opublikowane joby wszystkich klientów.",
                 quality="complete" if metrics_snapshot is not None else "unavailable",
             ),
             open_vacancies=_kpi(
                 open_vacancies,
                 "count",
-                "Suma headcount opublikowanych jobów w scoped portfolio.",
+                "Suma headcount opublikowanych jobów wszystkich klientów.",
                 quality="complete" if metrics_snapshot is not None else "unavailable",
             ),
             first_recommendation_sla_pct=_unavailable_kpi(

@@ -76,12 +76,30 @@ class AIFeatureKey(str, enum.Enum):
     # Osobny kubełek: inny strumień wydatku niż generacja, inna osoba płaci
     # (Delivery Lead przy setupie, nie rekruter przy każdym CV).
     cv_rule_lint = "cv_rule_lint"
+    # Sprawdzenie opisu zakresu usług pod kątem znamion umowy o pracę
+    # (Generator Umów B2B). Do 0270 stało CAŁKOWICIE poza systemem kwot:
+    # ani sufitu, ani wiersza w `ai_usage_log`, a główny wyłącznik go nie
+    # dotyczył — potwierdzone na prodzie 02.09 (15,4 s wywołania, licznik bez
+    # ruchu). Klucz jest też WARUNKIEM zdjęcia `cv_generator_b2b/ai_client.py`
+    # z `_RAW_CLIENT_BASELINE`: bez niego `_assert_declared` zaczyna widzieć tę
+    # trasę, a handler łapie tylko `CVGeneratorAIError`/`ValueError`, więc
+    # `AIQuotaUngated` wychodzi jako nieobsłużone 500.
+    uop_check = "uop_check"
+    # Uzupełnianie IMION z tekstu CV w nocnym syncu Traffita (faza
+    # `candidates_enrich_names`). OSOBNY kubełek od `cv_backfill`, choć nazwy
+    # modułów mylą: `cv_backfill` należy do `cv_field_backfill.py` i ma
+    # ODWROTNĄ semantykę wyczerpanej kwoty — tam bieg się ZATRZYMUJE, a
+    # `parse_cv(db=…)` tylko pomija Claude i leci fallbackiem. Dwa przeciwne
+    # zachowania pod jednym kluczem są nie do wytłumaczenia operatorowi.
+    # `cv_parser` też odpada: bieg na dziesiątkach tysięcy CV zjadłby sufit
+    # rekruterów pracujących interaktywnie.
+    cv_name_backfill = "cv_name_backfill"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
 # of NEXUS recruiters; we don't expose the keys directly).
 FEATURE_LABELS: dict[AIFeatureKey, str] = {
-    AIFeatureKey.scoring: "Scoring kandydatów",
+    AIFeatureKey.scoring: "Uzasadnienie dopasowania (AI)",
     AIFeatureKey.job_description_generator: "Generator ogłoszeń",
     AIFeatureKey.cv_parser: "Tworzenie kandydata z CV",
     AIFeatureKey.candidate_summary: "Podsumowanie kandydata",
@@ -95,6 +113,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_generator: "Generator CV B2B",
     AIFeatureKey.mindy_chat: "MINDY — komentarz i czat (DynaReporter)",
     AIFeatureKey.cv_rule_lint: "Reguły CV klienta — lint instrukcji dla generatora",
+    AIFeatureKey.uop_check: "Generator Umów B2B — sprawdzenie znamion umowy o pracę",
+    AIFeatureKey.cv_name_backfill: "Uzupełnianie imion z CV (sync Traffita)",
 }
 
 
@@ -160,6 +180,13 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Treść wygenerowanego CV B2B (render_payload — bez notatek i stawek)",
         "Mapa wymagań z dowodami",
         "Pytania hiring managera z publicznego linku",
+    ],
+    AIFeatureKey.uop_check: [
+        "Opis projektu i zakres usług wpisany do umowy B2B",
+        "(bez danych kandydata, bez stawek — sam tekst zakresu)",
+    ],
+    AIFeatureKey.cv_name_backfill: [
+        "Zapisany tekst CV kandydatów bez imienia (bieg nocny, tylko puste pola)",
     ],
 }
 
@@ -270,6 +297,28 @@ class AIUsageLog(Base):
     )
 
     count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Tokeny sumowane w tym samym oknie co `count` (0270). Osobno od licznika
+    # wywołań, bo jedna generacja CV B2B (16 384 tokeny outputu, łańcuch dwóch
+    # modeli) waży tyle co kilkadziesiąt linii MINDY — alarm o skoku liczący
+    # WYWOŁANIA nie widzi tej różnicy i milczy dokładnie wtedy, gdy rachunek
+    # rośnie najszybciej.
+    #
+    # Zapisywane DRUGIM UPDATE-em, nie w upsercie naliczającym: kwota jest
+    # naliczana PRZED wywołaniem dostawcy (charge-before-spend, patrz
+    # `ai_quota.ai_feature`), a `message.usage` znamy dopiero PO. Wypełnia je
+    # `ai_feature` w bloku `finally`, z akumulatora, który karmi `call_claude`.
+    #
+    # BigInteger, nie Integer: 105,8 mln tokenów wejściowych w jednym biegu
+    # masowym (Fala 3, 08.2026) to jedna dziesiąta zakresu `int4` — przy
+    # sumowaniu miesięcznym przepełnienie jest kwestią czasu, a objawiłoby się
+    # wyjątkiem w ścieżce, która ma być niewidoczna dla użytkownika.
+    input_tokens: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    output_tokens: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
 
     last_call_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True

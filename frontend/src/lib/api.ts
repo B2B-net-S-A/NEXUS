@@ -2431,6 +2431,12 @@ export interface RecommendationMeta {
   scoring_version?: string | null;
   /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
   hidden?: { over_budget: number; remote_only: number };
+  /**
+   * Ilu kandydatów odsiała bramka dopuszczalności (blacklista klienta / NDA /
+   * konflikt / weto). P-B (decyzja Artura, 2026-09-03): publikowane w /ai-matches
+   * mimo tradeoffu „wyroczni na NDA" — mirror Talent Radaru (`eligible_size`).
+   */
+  eligibility_filtered?: number;
 }
 
 /**
@@ -2958,7 +2964,14 @@ export const b2bGeneratorApi = {
       .then((r) => r.data),
   checkUop: (body: { text: string; language: string }) =>
     api
-      .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body)
+      // Sonnet po tekście do 6000 znaków, w serwisie DWIE próby przy
+      // nieparsowalnym JSON-ie. Zmierzone na prodzie: 15,4 s dla jednego
+      // zdania — domyślne 30 s instancji to za mało, a zerwane połączenie
+      // nie anuluje generacji, tylko każe użytkownikowi kliknąć ponownie
+      // i zapłacić drugi raz (`lib/http-timeouts.ts`).
+      .post<B2BUopCheckResult>("/api/b2b-generator/check-uop", body, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
       .then((r) => r.data),
 };
 
@@ -5101,12 +5114,22 @@ export type AIFeatureKey =
   | "champion_draft"
   | "order_parser"
   | "cv_requirement_map"
-  | "cv_interactive_chat";
+  | "cv_interactive_chat"
+  | "cv_backfill"
+  | "notes_extraction"
+  | "champion_profile_parse"
+  | "cv_generator"
+  | "mindy_chat"
+  | "cv_rule_lint"
+  | "uop_check"
+  | "cv_name_backfill";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;
   enabled: boolean;
   monthly_limit: number;
+  /** Efektywny model LLM z rejestru backendu (funkcja → model). */
+  model: string;
   label: string;
   data_sent_to_ai: string[];
 }
@@ -5114,6 +5137,8 @@ export interface AIFeatureConfigDto {
 export interface AIFeatureUsageDto {
   feature: AIFeatureKey;
   used: number;
+  input_tokens: number;
+  output_tokens: number;
   limit: number;
   period_start: string;
   period_end: string;

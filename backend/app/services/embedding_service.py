@@ -952,19 +952,37 @@ async def job_has_vector(job_id: int, embedding_id: Optional[str]) -> Optional[b
 # ---------------------------------------------------------------------------
 
 
-def _build_job_text(job) -> str:
+def _build_job_text(job, *, max_field_chars: int | None = 1200) -> str:
     """Dispatch job embedding text by schema version (plan PR7).
 
     ``AI_TEXT_SCHEMA_V2`` on ⇒ the PII-free canonical builder; off ⇒ legacy.
+
+    ``max_field_chars`` — sufit na POJEDYNCZE pole tekstowe. ``None`` znaczy
+    „nie tnij" i używa tego wyłącznie Talent Radar: jego oferta jest efemeryczna,
+    a wklejony przez rekrutera request bywa mailem, w którym wymagania stoją na
+    końcu, po akapicie grzeczności. Domyślne 1200 znaków obcinało go tak, że
+    silnik rankował po wstępie — zmierzone: `must 1/2` i podobieństwo 0,65
+    zamiast 0,73 dla tego samego zapytania bez wstępu.
+
+    Domyślna wartość zostaje 1200 i to jest istotne: ``index_outbox_service``
+    liczy SHA-256 z tego tekstu, żeby zdecydować o reindeksie, a
+    ``compute_proposals`` używa go jako odcisku świeżości snapshotów. Globalne
+    podniesienie limitu przestawiłoby 949 ofert na „do przeliczenia" i
+    unieważniło snapshoty propozycji — bez żadnej korzyści, bo indeksowana
+    oferta i tak niesie te pola w kolumnach.
+
+    Parametr przechodzi przez OBA buildery świadomie: gdyby trafił tylko do v1,
+    zmiana przestałaby działać w dniu, w którym ktoś włączy ``AI_TEXT_SCHEMA_V2``
+    — i to po cichu, bo krótszy tekst nadal daje poprawny wynik, tylko gorszy.
     """
     if getattr(settings, "AI_TEXT_SCHEMA_V2", False):
         from app.services.canonical_text import build_job_text_v2
 
-        return build_job_text_v2(job)
-    return _build_job_text_v1(job)
+        return build_job_text_v2(job, max_field_chars=max_field_chars)
+    return _build_job_text_v1(job, max_field_chars=max_field_chars)
 
 
-def _build_job_text_v1(job) -> str:
+def _build_job_text_v1(job, *, max_field_chars: int | None = 1200) -> str:
     """Build a rich text blob from job fields for embedding (legacy).
 
     When `job.champion_profile` exists, its narrative content (project context,
@@ -978,9 +996,9 @@ def _build_job_text_v1(job) -> str:
     if job.title:
         parts.append(job.title)
     if job.description:
-        parts.append(job.description[:1200])
+        parts.append(job.description[:max_field_chars])
     if job.requirements:
-        parts.append(job.requirements[:1200])
+        parts.append(job.requirements[:max_field_chars])
 
     # Structured fields (Phase 1)
     if getattr(job, "seniority", None):

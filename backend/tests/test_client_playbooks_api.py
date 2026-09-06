@@ -8,8 +8,7 @@ Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
    z DIFFEM pól; identyczna treść nie bumpuje i nie zostawia wpisu.
 3. Odczyt karty i przeglądu jest org-wide dla ról operacyjnych (karta
    zastępuje wzory Word czytane w Pomocy przez każdego); zapis i historia
-   wymagają sekcji Delivery + grafu klienta (DL tylko własny portfel) —
-   lustro reguł CV po #1351.
+   wymagają sekcji Delivery, a każdy DL może zarządzać każdym klientem.
 4. ``off_limits`` z umowy ramowej jedzie tylko do ról z odczytem sekcji
    Delivery.
 5. Seed w repo (14 kart) i lustro DDL/seeda w ``entrypoint.sh`` są spójne
@@ -322,7 +321,9 @@ async def test_write_needs_delivery_section_write_read_is_operational(
             assert r.status_code == 403, (role, r.text)
 
         admin = await _headers_for(app_client, "admin")
-        r = await app_client.put(URL.format(cid=cid), json=_full_payload(), headers=admin)
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=admin
+        )
         assert r.status_code == 200, r.text
 
         tac = await _headers_for(app_client, "tac")
@@ -341,7 +342,7 @@ async def test_write_needs_delivery_section_write_read_is_operational(
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_writes_only_for_clients_in_own_portfolio(
+async def test_delivery_lead_writes_for_all_clients(
     app_client: AsyncClient,
 ):
     cid = await _make_client(_unique("Playbook portfolio"))
@@ -350,12 +351,16 @@ async def test_delivery_lead_writes_only_for_clients_in_own_portfolio(
         r = await app_client.put(
             URL.format(cid=cid), json=_full_payload(), headers=stranger
         )
-        assert r.status_code == 403, r.text
-
-        owner = await _headers_for(
-            app_client, "delivery_lead", assigned_client_id=cid
+        assert r.status_code == 200, r.text
+        stranger_history = await app_client.get(
+            URL.format(cid=cid) + "/history", headers=stranger
         )
-        r = await app_client.put(URL.format(cid=cid), json=_full_payload(), headers=owner)
+        assert stranger_history.status_code == 200, stranger_history.text
+
+        owner = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=owner
+        )
         assert r.status_code == 200, r.text
         h = await app_client.get(URL.format(cid=cid) + "/history", headers=owner)
         assert h.status_code == 200, h.text
@@ -387,10 +392,10 @@ async def test_off_limits_only_for_delivery_readers(app_client: AsyncClient):
             )
             await db.commit()
 
-        owner = await _headers_for(
-            app_client, "delivery_lead", assigned_client_id=cid
+        owner = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=owner
         )
-        r = await app_client.put(URL.format(cid=cid), json=_full_payload(), headers=owner)
         assert r.status_code == 200, r.text
         assert r.json()["off_limits"] == {
             "months": 12,
@@ -429,21 +434,158 @@ async def test_version_continues_after_row_is_recreated(app_client: AsyncClient)
 
     cid = await _make_client(_unique("Playbook recreate"))
     try:
-        owner = await _headers_for(
-            app_client, "delivery_lead", assigned_client_id=cid
+        owner = await _headers_for(app_client, "delivery_lead", assigned_client_id=cid)
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=owner
         )
-        r = await app_client.put(URL.format(cid=cid), json=_full_payload(), headers=owner)
         assert r.json()["version"] == 1
         async with AsyncSessionLocal() as db:
             await db.execute(
                 delete(ClientPlaybook).where(ClientPlaybook.client_id == cid)
             )
             await db.commit()
-        r = await app_client.put(URL.format(cid=cid), json=_full_payload(), headers=owner)
+        r = await app_client.put(
+            URL.format(cid=cid), json=_full_payload(), headers=owner
+        )
         assert r.status_code == 200, r.text
         assert r.json()["version"] == 2
     finally:
         await _cleanup([cid])
+
+
+# ── Backfill z seeda ────────────────────────────────────────────────────────
+
+SEED_URL = "/api/clients/{cid}/playbook/seed"
+# Wpis z documents + kompletem liczb — dobre pokrycie mapowania seed → payload.
+SEED_KEY = "profil-championa-wzor-pansa-docx"
+
+
+@pytest.mark.asyncio
+async def test_seed_backfill_creates_card_with_seed_key_and_event(
+    app_client: AsyncClient,
+):
+    """Backfill zakłada kartę z GOTOWEJ treści seeda: pola z pliku, `seed_key`
+    ustawiony (proweniencja), wpis historii `seeded` (odróżnia od ręcznego)."""
+    cid = await _make_client(_unique("Playbook seed"))
+    try:
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        r = await app_client.post(
+            SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=headers
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["exists"] is True
+        assert body["version"] == 1
+        assert body["seed_key"] == SEED_KEY
+        assert body["sla_business_days"] == 5
+        assert body["cv_limit_per_process"] == 3
+        assert len(body["documents"]) == 2
+
+        h = await app_client.get(URL.format(cid=cid) + "/history", headers=headers)
+        assert h.status_code == 200, h.text
+        assert h.json()[0]["action"] == "seeded"
+        assert h.json()[0]["playbook_version"] == 1
+    finally:
+        await _cleanup([cid])
+
+
+@pytest.mark.asyncio
+async def test_seed_backfill_does_not_overwrite_existing_card(app_client: AsyncClient):
+    """Karta istnieje → 409; decyzja człowieka wygrywa z seedem (jak automatyczny
+    ``ON CONFLICT DO NOTHING``)."""
+    cid = await _make_client(_unique("Playbook seed dup"))
+    try:
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        first = await app_client.post(
+            SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=headers
+        )
+        assert first.status_code == 200, first.text
+        again = await app_client.post(
+            SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=headers
+        )
+        assert again.status_code == 409, again.text
+    finally:
+        await _cleanup([cid])
+
+
+@pytest.mark.asyncio
+async def test_seed_backfill_unknown_seed_key_is_400_and_creates_nothing(
+    app_client: AsyncClient,
+):
+    cid = await _make_client(_unique("Playbook seed 400"))
+    try:
+        headers = await _headers_for(
+            app_client, "delivery_lead", assigned_client_id=cid
+        )
+        r = await app_client.post(
+            SEED_URL.format(cid=cid),
+            json={"seed_key": "nie-ma-takiego-szablonu"},
+            headers=headers,
+        )
+        assert r.status_code == 400, r.text
+        g = await app_client.get(URL.format(cid=cid), headers=headers)
+        assert g.json()["exists"] is False
+    finally:
+        await _cleanup([cid])
+
+
+@pytest.mark.asyncio
+async def test_seed_backfill_unknown_client_is_404(app_client: AsyncClient):
+    headers = await _headers_for(app_client, "admin")
+    r = await app_client.post(
+        SEED_URL.format(cid=999_999_999),
+        json={"seed_key": SEED_KEY},
+        headers=headers,
+    )
+    assert r.status_code == 404, r.text
+
+
+@pytest.mark.asyncio
+async def test_seed_backfill_needs_delivery_write_same_as_put(app_client: AsyncClient):
+    """Ta sama bramka co PUT: role bez Delivery → 403; każdy DL i admin → 200."""
+    cid = await _make_client(_unique("Playbook seed authz"))
+    admin_cid = await _make_client(_unique("Playbook seed admin authz"))
+    try:
+        for role in ("tac", "recruiter", "head_of_recruitment"):
+            headers = await _headers_for(app_client, role)
+            r = await app_client.post(
+                SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=headers
+            )
+            assert r.status_code == 403, (role, r.text)
+
+        stranger = await _headers_for(app_client, "delivery_lead")
+        r = await app_client.post(
+            SEED_URL.format(cid=cid), json={"seed_key": SEED_KEY}, headers=stranger
+        )
+        assert r.status_code == 200, r.text
+
+        admin = await _headers_for(app_client, "admin")
+        r = await app_client.post(
+            SEED_URL.format(cid=admin_cid), json={"seed_key": SEED_KEY}, headers=admin
+        )
+        assert r.status_code == 200, r.text
+    finally:
+        await _cleanup([cid, admin_cid])
+
+
+def test_every_seed_entry_builds_a_valid_payload():
+    """Każdy z 14 wpisów seed.json buduje poprawny payload karty (granice liczb,
+    allowlista URL dokumentów) — backfill nie może paść 422 na treści, którą sami
+    wgraliśmy."""
+    from app.api.client_playbooks import _payload_from_seed
+    from app.services.client_playbook_seed import load_playbook_seed
+
+    entries = load_playbook_seed()
+    assert len(entries) == 14
+    for entry in entries:
+        # Rzuci ValidationError, gdy wpis łamie granice/URL — to jest asercja.
+        payload = _payload_from_seed(entry)
+        assert payload.sla_business_days == entry.get("sla_business_days")
+        assert len(payload.documents) == len(entry.get("documents") or [])
 
 
 # ── Przegląd ────────────────────────────────────────────────────────────────
@@ -496,6 +638,7 @@ def test_routes_are_registered_under_api_prefix():
     paths = _all_paths()
     for expected in (
         "/api/clients/{client_id}/playbook",
+        "/api/clients/{client_id}/playbook/seed",
         "/api/clients/{client_id}/playbook/history",
         "/api/settings/client-playbooks",
     ):
@@ -527,7 +670,9 @@ def test_seed_file_matches_migration_and_entrypoint_mirror():
         assert isinstance(entry["documents"], list)
         for doc in entry["documents"]:
             assert doc["name"] and doc["url"].startswith("https://"), doc
-        assert (entry.get("rate_policy") or "") == "" or len(entry["rate_policy"]) <= 500
+        assert (entry.get("rate_policy") or "") == "" or len(
+            entry["rate_policy"]
+        ) <= 500
 
     entrypoint = (BACKEND_ROOT / "entrypoint.sh").read_text(encoding="utf-8")
     for needle in (

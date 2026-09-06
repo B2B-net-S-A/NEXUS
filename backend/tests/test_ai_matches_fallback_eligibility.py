@@ -182,6 +182,14 @@ async def test_fallback_reached_by_empty_hits_still_gates(
     clean_match = _match(body, clean_id)
     assert clean_match is not None, "bramka wycięła kandydata bez żadnej blokady"
     assert clean_match["eligibility"] is None
+    # PRODUKTOWY OVERRIDE (2026-09): `warn` (NDA) jest POKAZYWANY jako wiersz,
+    # więc NIE jest liczony w `meta.eligibility_filtered` — ten licznik obejmuje
+    # wyłącznie warstwę `hidden` (globalna blacklista / duplikat), której ten
+    # fixture nie zasiewa. Odwraca asercję P-B (`>= 1`): klucz zostaje w API dla
+    # parytetu z Talent Radarem, ale liczy tylko realnie ukrytych.
+    assert body["meta"]["eligibility_filtered"] == 0, (
+        "warn nie może być liczony jako odsiany — jest pokazywany z powodem"
+    )
 
 
 @pytest.mark.integration

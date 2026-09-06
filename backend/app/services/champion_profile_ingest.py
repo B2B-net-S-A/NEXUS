@@ -29,12 +29,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.models.job import Job
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 10 * 1024 * 1024
 ALLOWED_EXTENSIONS = ("docx", "pdf")
-PARSE_MODEL = "claude-haiku-4-5-20251001"
+PARSE_MODEL = model_for(AIFeatureKey.champion_profile_parse)
 
 # Prompt v4 — szablon 7-sekcyjny (09.2026). v3 był sprawdzony na 1095 plikach
 # importu sierpniowego; v4 zmienia KSZTAŁT WYJŚCIA (siedem sekcji zamiast

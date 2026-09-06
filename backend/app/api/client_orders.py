@@ -40,7 +40,7 @@ from app.api.contracts import (
     _normalize_contract_currency,
     _raise_currency_conflict,
 )
-from app.api.deps import DlAssignedOrAdmin, require_roles
+from app.api.deps import DeliveryLeadOrAdmin, require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.order_engagement_separation import assert_no_open_md_group_line
@@ -78,7 +78,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import storage_service
-from app.services.ai_quota import AIQuotaExceeded, check_and_increment
+from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import deny, resolve_client_access
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
@@ -125,7 +125,7 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 # The combined export can contain group cards. The section gate narrows this
 # legacy role alias to Admin, Finance and Delivery Lead; standalone order items
-# still pass their own client-assignment guards inside the handler below.
+# still pass their own client-aware guards inside the handler below.
 UnifiedOrderExportReader = Annotated[
     User,
     Depends(
@@ -183,12 +183,12 @@ async def _require_client_order_read(
     user,
     client_id: int,
 ) -> None:
-    """Require Finance access or an explicit DL relationship for raw orders."""
+    """Require operational Delivery access before any order-specific guard."""
 
     await _assert_client(db, client_id)
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają roli Finance lub przypisanego DL")
+        raise deny("zamówienia klienta wymagają dostępu operacyjnego Delivery")
 
 
 async def _require_safe_client_order_read(
@@ -202,6 +202,24 @@ async def _require_safe_client_order_read(
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_knowledge:
         raise deny("zamówienia klienta wymagają dostępu operacyjnego do klienta")
+
+
+async def _can_read_order_file(db: AsyncSession, user: User, client_id: int) -> bool:
+    """Opaque PO files keep the assigned-client finance boundary for DLs."""
+
+    dl_assigned = await _dl_assigned_to_client(db, user, client_id)
+    can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
+    return _order_finance_visible(user, can_finance=can_finance)
+
+
+async def _require_order_file_read(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+) -> None:
+    await _require_client_order_read(db, user, client_id)
+    if not await _can_read_order_file(db, user, client_id):
+        raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
 
 
 async def _read_upload_within_limit(file: UploadFile) -> bytes:
@@ -813,9 +831,8 @@ _DL_ORDER_FINANCE_WRITE_FIELDS = frozenset(
 async def _dl_assigned_to_client(db: AsyncSession, user, client_id: int) -> bool:
     """Czy ten user ma JAWNE przypisanie Delivery Leada do tego klienta.
 
-    To samo zapytanie co w ``require_dl_assigned_or_admin`` (deps.py), ale
-    liczone tutaj i wprost — patrz ``_can_manage_order_finance`` po powód,
-    dla którego nie wystarczy „request przeszedł tamten guard".
+    Dostęp operacyjny do klienta jest globalny dla roli DL, ale ten helper
+    celowo zachowuje węższy wyjątek finansowy własnego portfela.
     """
 
     from app.models.team_structure import DeliveryLeadClientAssignment
@@ -838,9 +855,8 @@ def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
     odsyłanie każdej stawki do admina zamieniało rejestr w prośbę o czynność,
     której adresat nie mógł wykonać.
 
-    Predykat CELOWO sprawdza rolę i przypisanie niezależnie, zamiast ufać
-    wyłącznie zewnętrznemu guardowi trasy. TAC, HoR, TCM, recruiter i sourcer:
-    zawsze False.
+    Predykat CELOWO sprawdza rolę i przypisanie niezależnie. TAC, HoR, TCM,
+    recruiter i sourcer: zawsze False.
 
     Odczyt ma osobny predykat ``_order_finance_visible``: Finance widzi kwoty
     przez ``VIEW_FINANCE``, ale nie przechodzi przez ten guard zapisu.
@@ -1394,7 +1410,7 @@ async def export_client_orders(
             group = await _group_to_read(
                 db,
                 group_model,
-                with_finance=_can_see_finance(user),
+                with_finance=await _can_see_finance(db, user, client_id),
                 precomputed_md_budget_used=(
                     shared_md_used_by_group[group_id]
                     if uses_shared_md_pool(group_model)
@@ -1575,7 +1591,7 @@ async def get_order(
 )
 async def create_order_extension(
     client_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: Optional[UploadFile] = File(None),
     contract_id: int = Form(...),
@@ -1617,6 +1633,8 @@ async def create_order_extension(
         if value is not None
     }
     await _assert_client(db, client_id)
+    if file is not None:
+        await _require_order_file_read(db, user, client_id)
     _assert_allowed_order_type(client_id, order_type)
     can_finance = _can_manage_order_finance(
         user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
@@ -1833,7 +1851,7 @@ async def create_order_extension(
 )
 async def extract_order_pdf(
     client_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     candidate_id: Optional[int] = Form(None, gt=0),
@@ -1849,7 +1867,7 @@ async def extract_order_pdf(
     ``uncertain=True`` → front pokazuje baner „Sprawdź dane!". Kwoty zredagowane
     dla ról bez VIEW_FINANCE.
 
-    Bramkowane: DL przypisany do klienta lub Admin (jak create), plus quota AI
+    Bramkowane: Delivery Lead lub Admin, plus quota AI
     ``AIFeatureKey.order_parser`` (master → feature → miesięczny limit).
     """
     await _assert_client(db, client_id)
@@ -1934,23 +1952,6 @@ async def extract_order_pdf(
             ),
         )
 
-    # Quota AI — liczone po udanej ekstrakcji, przed wywołaniem Claude, żeby
-    # blokada zwróciła 503 bez palenia wywołania modelu (wzorzec cv_match_preview).
-    try:
-        await check_and_increment(db, AIFeatureKey.order_parser, user_id=user.id)
-        await db.commit()
-    except AIQuotaExceeded as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "feature": exc.feature.value,
-                "reason": exc.reason,
-                "used": exc.used,
-                "limit": exc.limit,
-            },
-        ) from exc
-
     # Które reguły klientowe obowiązują i jak kształtują wywołanie parsera —
     # patrz ``app.services.order_policies``. Dwa wpływy na SAMO parsowanie:
     #  - dokument jednoosobowy bez nazwiska (BNP): parser dostaje sam tekst,
@@ -1962,26 +1963,29 @@ async def extract_order_pdf(
     policies = active_policies(client_id)
     plan = parse_plan(policies)
 
-    if plan.single_consultant_document:
-        extraction = await parse_order_document(text)
-    elif target_consultant and plan.rate_unit_default:
-        extraction = await parse_order_document(
-            text,
-            consultant_name=target_consultant,
-            consultant_given_names=target_given_names,
-            consultant_rate_unit_default=plan.rate_unit_default,
-        )
-    elif target_consultant:
-        # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
-        # ich matchery zachowują dotychczasowe, fail-closed zachowanie.
-        extraction = await parse_order_document(
-            text,
-            consultant_name=target_consultant,
-            consultant_given_names=target_given_names,
-        )
-    else:
-        # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
-        extraction = await parse_order_document(text)
+    # Bramka kwoty MUSI obejmować wywołanie modelu: `ai_feature` deklaruje
+    # kontekst tylko na czas swojego bloku, a bez deklaracji `parse_order_document`
+    # dolatywałby do granicy dostawcy jako niezadeklarowany.
+    try:
+        async with ai_feature(db, AIFeatureKey.order_parser, user_id=user.id):
+            await db.commit()
+            extraction = await _extract_with_plan(
+                text,
+                plan=plan,
+                target_consultant=target_consultant,
+                target_given_names=target_given_names,
+            )
+    except AIQuotaExceeded as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "feature": exc.feature.value,
+                "reason": exc.reason,
+                "used": exc.used,
+                "limit": exc.limit,
+            },
+        ) from exc
 
     extraction, applied_policies = apply_policies(
         extraction,
@@ -2064,7 +2068,7 @@ async def update_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderUpdate,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_client(db, client_id)
@@ -2338,7 +2342,7 @@ async def close_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderClose,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Zakończ JEDNO zamówienie — bez dotykania umowy i pozostałych zamówień.
@@ -2453,7 +2457,7 @@ async def close_order(
 async def delete_order(
     client_id: int,
     order_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft cancel: status=cancelled. Hard delete tylko gdy status=draft."""
@@ -2496,7 +2500,7 @@ async def download_order_po(
     user: UnifiedOrderExportReader,
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_client_order_read(db, user, client_id)
+    await _require_order_file_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
             ClientOrder.id == order_id, ClientOrder.client_id == client_id
@@ -2554,7 +2558,7 @@ async def list_contract_order_documents(
     contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
     if contract is None:
         raise HTTPException(404, detail="Contract not found")
-    await _require_client_order_read(db, user, contract.client_id)
+    await _require_order_file_read(db, user, contract.client_id)
 
     orders = (
         (
@@ -2618,8 +2622,7 @@ async def list_candidate_order_documents(
     for o in orders:
         can = access_cache.get(o.client_id)
         if can is None:
-            access = await resolve_client_access(db, user, o.client_id)
-            can = access.can_view_legal_documents
+            can = await _can_read_order_file(db, user, o.client_id)
             access_cache[o.client_id] = can
         if can:
             visible.append(_order_to_document_item(o))
@@ -2637,7 +2640,7 @@ async def list_candidate_order_documents(
 async def create_contract_with_order(
     client_id: int,
     payload: NewContractorOrderRequest,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Flow B — "Nowy kontraktor / zamówienie": atomic Contract + Order create."""
@@ -2788,7 +2791,7 @@ async def create_contract_with_order(
 async def replace_order_po(
     client_id: int,
     order_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ):
@@ -2805,6 +2808,7 @@ async def replace_order_po(
     w Wordzie.
     """
     await _assert_client(db, client_id)
+    await _require_order_file_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract))
@@ -2867,12 +2871,13 @@ async def replace_order_po(
 async def delete_order_po(
     client_id: int,
     order_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń wyłącznie aktualny PDF zamówienia, bez zmiany innych pól."""
 
     await _assert_client(db, client_id)
+    await _require_order_file_read(db, user, client_id)
     order = await db.scalar(
         select(ClientOrder).where(
             ClientOrder.id == order_id, ClientOrder.client_id == client_id
@@ -2905,3 +2910,39 @@ async def delete_order_po(
     # cofnąć poprawnego usunięcia z formularza ani zostawić bazy wskazującej na
     # nieistniejący plik.
     storage_service.delete_client_order_po(previous_path)
+
+
+async def _extract_with_plan(
+    text: str,
+    *,
+    plan,
+    target_consultant: Optional[str],
+    target_given_names: Optional[str],
+):
+    """Wywołanie parsera zamówienia w wariancie wynikającym z reguł klienta.
+
+    Wyodrębnione z handlera, bo bramka kwoty musi teraz OBEJMOWAĆ wywołanie
+    modelu — a wcięcie czterech gałęzi w `async with` dawałoby diff, w którym
+    łatwo pomylić, która gałąź dostaje który zestaw argumentów. Rozróżnienia
+    są tu istotne: BNP dostaje sam tekst (fail-closed matcher nie miałby czego
+    dopasować), PFRON i Erste dokładają domyślną jednostkę stawki.
+    """
+    if plan.single_consultant_document:
+        return await parse_order_document(text)
+    if target_consultant and plan.rate_unit_default:
+        return await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+            consultant_rate_unit_default=plan.rate_unit_default,
+        )
+    if target_consultant:
+        # Nie rozszerzamy kontraktu wywołania parsera dla pozostałych klientów:
+        # ich matchery zachowują dotychczasowe, fail-closed zachowanie.
+        return await parse_order_document(
+            text,
+            consultant_name=target_consultant,
+            consultant_given_names=target_given_names,
+        )
+    # Zachowanie formularzy grupy/jednoosobowych pozostaje bez zmian.
+    return await parse_order_document(text)

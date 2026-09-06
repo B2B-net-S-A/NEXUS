@@ -218,7 +218,7 @@ async def test_finance_can_export_requested_standalone_order_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_consultant_options_preserve_dl_scope_and_add_finance():
+async def test_consultant_options_allow_every_dl_and_add_finance():
     class AssignedResult:
         def scalar_one_or_none(self):
             return object()
@@ -259,13 +259,14 @@ async def test_consultant_options_preserve_dl_scope_and_add_finance():
         async def execute(self, statement):
             return UnassignedResult()
 
-    with pytest.raises(HTTPException) as exc_info:
+    assert (
         await client_order_groups.require_consultant_options_reader(
             client_id=5,
             current_user=delivery_lead,
             db=UnassignedDb(),
         )
-    assert exc_info.value.status_code == 403
+        is delivery_lead
+    )
 
     for role in (
         UserRole.head_of_recruitment,

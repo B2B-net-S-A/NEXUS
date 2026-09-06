@@ -21,7 +21,7 @@ Model dostępu (decyzja 03.09.2026, świadome odstępstwo od reguł CV):
   Treść to procedura, nie kwoty.
 * ZAPIS i historia idą jak reguły CV po #1351: sekcja Delivery
   (``DeliverySectionUser``) plus graf klienta (``resolve_client_access``):
-  admin org-wide, Delivery Lead wyłącznie klient ze swojego portfela.
+  admin i Delivery Lead org-wide.
 * ``off_limits`` pochodzi z umowy ramowej (``client_contract_terms``), więc
   jedzie w odpowiedzi tylko do ról z odczytem sekcji Delivery; reszta dostaje
   ``null`` — karta nie może być bocznym wejściem do warunków umowy.
@@ -47,6 +47,7 @@ from app.models.client_playbook import ClientPlaybook
 from app.models.client_playbook_event import ClientPlaybookEvent
 from app.models.user import User
 from app.services.client_access import deny, resolve_client_access
+from app.services.client_playbook_seed import seed_entry
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -125,6 +126,12 @@ class ClientPlaybookPayload(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+
+class PlaybookSeedRequest(BaseModel):
+    """Backfill: który wzór z seed.json przypisać wskazanemu klientowi."""
+
+    seed_key: str = Field(min_length=1, max_length=64)
 
 
 class OffLimitsRead(BaseModel):
@@ -316,6 +323,20 @@ def _apply_payload(row: ClientPlaybook, payload: ClientPlaybookPayload) -> None:
     ] or None
 
 
+def _payload_from_seed(entry: dict[str, Any]) -> ClientPlaybookPayload:
+    """Payload karty z wpisu seed.json — te same walidacje co PUT (granice, URL-e).
+
+    `entry` niesie dokładnie pola `PLAYBOOK_FIELDS` (+ `seed_key`, `name_pattern`,
+    które tu nie wchodzą). Klucze `None` pomijamy, żeby wpaść w domyślne pola
+    payloadu (None / pusta lista), a nie karmić walidatora `None`-em tam, gdzie
+    typ to lista.
+    """
+    data = {
+        field: entry[field] for field in PLAYBOOK_FIELDS if entry.get(field) is not None
+    }
+    return ClientPlaybookPayload(**data)
+
+
 def _to_read(
     row: Optional[ClientPlaybook],
     *,
@@ -449,6 +470,74 @@ async def upsert_client_playbook(
         client_name=_client_label(client),
         off_limits=await _off_limits_for(db, current_user, client.id),
         updated_by_name=updated_by_name,
+    )
+
+
+@router.post("/clients/{client_id}/playbook/seed", response_model=ClientPlaybookRead)
+async def seed_client_playbook(
+    client_id: int,
+    body: PlaybookSeedRequest,
+    current_user: DeliverySectionUser,
+    db: AsyncSession = Depends(get_db),
+) -> ClientPlaybookRead:
+    """Backfill: załóż kartę klienta z gotowej treści seeda (rodziny nazw).
+
+    Automatyczny seed 0272 wstawia kartę TYLKO przy dokładnie jednym żywym
+    kliencie pasującym do wzorca nazwy, więc rodziny (BNP/PKO/Bank Pocztowy) i
+    klienci przemianowani przez Traffita zostają bez karty. Ten endpoint
+    przypisuje istniejącą treść seeda wskazanemu `client_id`. NIE nadpisuje
+    istniejącej karty (409) — decyzja człowieka wygrywa z seedem, jak w
+    automatycznym `ON CONFLICT DO NOTHING`.
+    """
+    client = await _client_or_404(db, client_id)
+    await _require_client_playbook_access(db, current_user, client.id, write=True)
+    entry = seed_entry(body.seed_key)
+    if entry is None:
+        raise HTTPException(
+            status_code=400, detail=f"Nieznany szablon karty: {body.seed_key}."
+        )
+    if await _playbook_for(db, client.id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ten klient ma już kartę — backfill nie nadpisuje istniejącej.",
+        )
+
+    payload = _payload_from_seed(entry)
+    before = _state(None)
+    row = ClientPlaybook(client_id=client.id, seed_key=body.seed_key)
+    db.add(row)
+    _apply_payload(row, payload)
+    row.version = await _next_version(db, client.id)
+    row.updated_by = current_user.id
+    changes = _diff(before, _state(row))
+    try:
+        await db.flush()
+        _record_event(
+            db,
+            client_id=client.id,
+            version=int(row.version or 1),
+            action="seeded",
+            changes=changes,
+            actor=current_user,
+        )
+        await db.commit()
+    except IntegrityError as exc:
+        # Wyścig z równoległym backfillem/zapisem tego samego klienta → 409
+        # zamiast 500 bez CORS („Network Error”); patrz `upsert_client_playbook`.
+        await db.rollback()
+        if "ux_client_playbooks_client" not in str(exc.orig or exc):
+            raise
+        raise HTTPException(
+            status_code=409,
+            detail="Kartę tego klienta właśnie założył ktoś inny. Odśwież widok.",
+        ) from exc
+    await db.refresh(row)
+    return _to_read(
+        row,
+        client_id=client.id,
+        client_name=_client_label(client),
+        off_limits=await _off_limits_for(db, current_user, client.id),
+        updated_by_name=current_user.name,
     )
 
 

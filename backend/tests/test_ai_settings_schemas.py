@@ -57,6 +57,15 @@ class TestFeatureKeyEnum:
             "cv_generator",
             "mindy_chat",
             "cv_rule_lint",
+            # 0270: dwie ostatnie ścieżki Claude'a poza systemem kwot.
+            # `uop_check` — sprawdzenie znamion umowy o pracę w Generatorze
+            # Umów B2B; potwierdzone na prodzie 02.09, że wywołanie trwa 15 s,
+            # a licznik nie drga. `cv_name_backfill` — uzupełnianie imion
+            # z CV w nocnym syncu Traffita; osobny kubełek od `cv_backfill`,
+            # bo tamten ZATRZYMUJE bieg przy wyczerpanej kwocie, a ta ścieżka
+            # ma tylko pominąć płatny krok.
+            "uop_check",
+            "cv_name_backfill",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

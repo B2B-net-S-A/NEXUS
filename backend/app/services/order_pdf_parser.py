@@ -39,12 +39,14 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.services.claude_client import call_claude
 from app.services.llm_prompts import ORDER_EXTRACTION
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
 # Model przez env (spójne z candidate_summary/champion_draft/match_justification),
 # z fallbackiem na typed setting.
-_MODEL = os.environ.get("ORDER_PARSER_MODEL", "") or settings.ORDER_PARSER_MODEL
+_MODEL = model_for(AIFeatureKey.order_parser)
 _MAX_TOKENS = 1200
 _MAX_TARGETED_TOKENS = 2400
 # Tryb all-rows zwraca KAŻDĄ osobę z dokumentu z własnym okresem — wiersz jest

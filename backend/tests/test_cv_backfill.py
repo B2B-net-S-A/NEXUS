@@ -101,7 +101,7 @@ async def test_enrich_prefers_cv_content_over_filename(monkeypatch):
     async def fake_extract(_bytes, _name):
         return "Marek Zielinski\nPython developer\nmarek@z.pl"
 
-    async def fake_parse(_text, *, prefer_llm=True):
+    async def fake_parse(_text, *, prefer_llm=True, model=None):
         return {"first_name": "Marek", "last_name": "Zielinski", "email": "marek@z.pl"}
 
     monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)
@@ -121,7 +121,7 @@ async def test_enrich_falls_back_to_filename_when_cv_has_no_name(monkeypatch):
     async def fake_extract(_bytes, _name):
         return "Some CV text without a clear header name"
 
-    async def fake_parse(_text, *, prefer_llm=True):
+    async def fake_parse(_text, *, prefer_llm=True, model=None):
         return {"first_name": None, "last_name": None, "skills": []}
 
     monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)
@@ -167,7 +167,7 @@ async def test_enrich_drops_colliding_email_but_keeps_name(monkeypatch):
     async def fake_extract(_b, _n):
         return "cv text"
 
-    async def fake_parse(_t, *, prefer_llm=True):
+    async def fake_parse(_t, *, prefer_llm=True, model=None):
         return {
             "first_name": "Wojciech",
             "last_name": "Krzysiek",
@@ -195,7 +195,7 @@ async def test_enrich_keeps_unique_email(monkeypatch):
     async def fake_extract(_b, _n):
         return "cv text"
 
-    async def fake_parse(_t, *, prefer_llm=True):
+    async def fake_parse(_t, *, prefer_llm=True, model=None):
         return {"first_name": "Ula", "last_name": "Nowak", "email": "ula@example.com"}
 
     monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", fake_extract)

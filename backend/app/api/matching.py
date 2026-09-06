@@ -218,10 +218,10 @@ async def _gate_and_dealbreakers(
     job: Job,
     ordered: list[Candidate],
     now: datetime,
-) -> tuple[list[Candidate], dict[int, dict], dict]:
+) -> tuple[list[Candidate], dict[int, dict], dict, int]:
     """Apply the eligibility gate and dealbreakers, preserving input order.
 
-    Returns ``(kept, annotations_by_id, hidden_meta)``:
+    Returns ``(kept, annotations_by_id, hidden_meta, eligibility_filtered)``:
       * ``hidden``-visibility candidates (global blacklist, already-in-job) are
         DROPPED — they must never surface in a job-scoped search.
       * ``warn``-visibility candidates (active client blacklist / NDA /
@@ -232,6 +232,11 @@ async def _gate_and_dealbreakers(
         client) are kept and annotated too.
       * dealbreakers then hide over-budget and (for office/hybrid jobs)
         remote-only candidates; their counts come back in ``hidden_meta``.
+      * ``eligibility_filtered`` is the count of ``hidden``-visibility
+        candidates dropped by the gate — the ONLY people the gate removes now
+        that ``warn`` are surfaced. Published in ``meta`` for parity with Talent
+        Radar (bliźniaczy ekran). Because ``warn`` (client blacklist / NDA /
+        competitor / HM veto) are shown as rows, they are NOT counted here.
 
     PRODUKTOWY OVERRIDE (decyzja Artura, 2026-09). Do 2026-08-20 ta ścieżka
     wołała ``filter_eligible_candidates``, które WYCINAŁO wszystkich
@@ -245,7 +250,7 @@ async def _gate_and_dealbreakers(
     """
     empty_meta = {"over_budget": 0, "remote_only": 0}
     if not ordered:
-        return [], {}, empty_meta
+        return [], {}, empty_meta, 0
 
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=[c.id for c in ordered], now=now
@@ -257,6 +262,7 @@ async def _gate_and_dealbreakers(
             (d := decisions.get(c.id)) is not None and d.visibility == Visibility.hidden
         )
     ]
+    eligibility_filtered = len(ordered) - len(visible)
 
     wants_office = getattr(job, "remote_policy", None) in (
         RemotePolicy.onsite,
@@ -274,7 +280,7 @@ async def _gate_and_dealbreakers(
         ann = _eligibility_annotation(decisions.get(c.id))
         if ann is not None:
             annotations[c.id] = ann
-    return kept, annotations, db_res.hidden_meta()
+    return kept, annotations, db_res.hidden_meta(), eligibility_filtered
 
 
 def _build_job_query(job: Job) -> str:
@@ -462,7 +468,12 @@ async def get_ai_matches(
         ordered: list[Candidate] = [
             c for cid in candidate_ids if (c := candidates_by_id.get(cid))
         ]
-        ordered, elig_annotations, hidden_meta = await _gate_and_dealbreakers(
+        (
+            ordered,
+            elig_annotations,
+            hidden_meta,
+            eligibility_filtered,
+        ) = await _gate_and_dealbreakers(
             db, job=job, ordered=ordered, now=datetime.now(timezone.utc)
         )
 
@@ -513,6 +524,7 @@ async def get_ai_matches(
                 "degraded": False,
                 "reason": None,
                 "hidden": hidden_meta,
+                "eligibility_filtered": eligibility_filtered,
             },
         }
 
@@ -532,9 +544,23 @@ async def get_ai_matches(
     # wyjątek z retrievalu, wyjątek z gałęzi semantycznej — i CICHO, gdy Qdrant
     # zwróci pustą listę. `status != "blacklisted"` w SQL zostaje jako tani
     # prefiltr (globalna blacklista i tak jest `hidden`).
-    all_candidates, elig_annotations, hidden_meta = await _gate_and_dealbreakers(
+    (
+        all_candidates,
+        elig_annotations,
+        hidden_meta,
+        eligibility_filtered,
+    ) = await _gate_and_dealbreakers(
         db, job=job, ordered=all_candidates, now=datetime.now(timezone.utc)
     )
+    # Log zostaje (P-B): rozstrzyga „lista jest podejrzanie krótka" bez zgadywania,
+    # także gdy front licznika nie pokaże. Liczy WYŁĄCZNIE warstwę `hidden`
+    # (globalna blacklista / duplikat) — `warn` są teraz widoczni jako wiersze.
+    if eligibility_filtered:
+        logger.info(
+            "[AIMatch] tag-fallback job=%s: bramka ukryła %s (globalna blacklista / duplikat)",
+            job_id,
+            eligibility_filtered,
+        )
 
     matches = []
     for c in all_candidates:
@@ -575,5 +601,6 @@ async def get_ai_matches(
                 "semantic_unavailable" if semantic_unavailable else "no_semantic_hits"
             ),
             "hidden": hidden_meta,
+            "eligibility_filtered": eligibility_filtered,
         },
     }

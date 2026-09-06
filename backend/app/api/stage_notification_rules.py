@@ -8,7 +8,7 @@ Dwa routery:
 
 - ``client_router`` (mount pod ``/api/clients``) — overrides per klient,
   wypierają baseline. Sekcja Delivery plus autorytatywny graf klienta:
-  admin globalnie, Delivery Lead tylko przez ``DeliveryLeadClientAssignment``.
+  admin i Delivery Lead globalnie.
 
 Walidacje cross-field żyją w schematach Pydantic (`schemas/stage_notification.py`),
 dodatkowo CHECK constraints w DB pełnią rolę safety net.

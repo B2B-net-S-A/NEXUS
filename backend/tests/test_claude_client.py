@@ -51,6 +51,32 @@ def _install_fake_client(monkeypatch, side_effects):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def _declare_provider_calls():
+    """Zadeklaruj wywołania AI na czas testów w tym pliku.
+
+    Te testy podmieniają KLIENTA SDK, nie `call_claude` — więc realnie wchodzą
+    w `_assert_declared`. Od 0270 CI biegnie z `AI_QUOTA_STRICT=true`, gdzie
+    niezadeklarowane wywołanie rzuca `AIQuotaUngated`; bez tej deklaracji test
+    padałby na bramce kwot zamiast sprawdzać to, po co istnieje (polityka
+    ponowień, łańcuch modeli, telemetria zdrowia).
+
+    Deklaracja, nie wyłączenie STRICT: dzięki temu testy przechodzą tą samą
+    ścieżką, którą chodzi produkcja.
+    """
+    from datetime import date
+
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_quota import QuotaState, declared_call
+
+    with declared_call(
+        AIFeatureKey.scoring,
+        user_id=None,
+        state=QuotaState(used=1, limit=0, period_start=date(2026, 9, 1)),
+    ):
+        yield
+
+
 def test_is_retryable_classification():
     assert is_retryable_anthropic_error(_FakeErr(429)) is True
     assert is_retryable_anthropic_error(_FakeErr(529)) is True

@@ -36,9 +36,10 @@ from app.schemas.ai_settings import (
     FeatureUsage,
     MasterToggleUpdate,
 )
+from app.services.ai_models import model_for
 from app.services.ai_quota import (
     _current_period_start,
-    get_total_usage_for_period,
+    get_usage_summary_for_period,
 )
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,10 @@ async def get_ai_settings(
     period_start = _current_period_start()
     period_end = _end_of_month(period_start)
 
+    # Jeden GROUP BY na całe zużycie okresu zamiast pętli per funkcja (N+1);
+    # tokeny podwoiłyby ten koszt. Klucz = wartość enuma (string).
+    usage_summary = await get_usage_summary_for_period(db, period_start)
+
     feature_configs: List[FeatureConfig] = []
     feature_usage: List[FeatureUsage] = []
 
@@ -131,16 +136,21 @@ async def get_ai_settings(
                 feature=feature,
                 enabled=enabled,
                 monthly_limit=monthly_limit,
+                # Efektywny model z rejestru (ai_models) — jedno miejsce prawdy
+                # „funkcja → model", to samo, którego używa runtime.
+                model=model_for(feature),
                 label=FEATURE_LABELS.get(feature, feature.value),
                 data_sent_to_ai=FEATURE_DATA_SENT.get(feature, []),
             )
         )
 
-        used = await get_total_usage_for_period(db, feature, period_start)
+        used, input_tokens, output_tokens = usage_summary.get(feature.value, (0, 0, 0))
         feature_usage.append(
             FeatureUsage(
                 feature=feature,
                 used=used,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
                 limit=monthly_limit,
                 period_start=period_start,
                 period_end=period_end,

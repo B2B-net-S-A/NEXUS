@@ -358,11 +358,11 @@ async def test_http_create_rule_unauthenticated_returns_401(app_client):
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_lists_client_overrides_only_for_assigned_client(
+async def test_delivery_lead_lists_client_overrides_for_all_clients(
     app_client,
     app_auth_headers,
 ):
-    """Delivery section access never widens a DL beyond its client graph."""
+    """Client overrides are operational and visible to every Delivery Lead."""
     import uuid
 
     from sqlalchemy import delete
@@ -420,7 +420,7 @@ async def test_delivery_lead_lists_client_overrides_only_for_assigned_client(
         foreign_response = await app_client.get(
             f"/api/clients/{foreign_id}/notification-overrides", headers=headers
         )
-        assert foreign_response.status_code == 403, foreign_response.text
+        assert foreign_response.status_code == 200, foreign_response.text
 
         admin_response = await app_client.get(
             f"/api/clients/{foreign_id}/notification-overrides",

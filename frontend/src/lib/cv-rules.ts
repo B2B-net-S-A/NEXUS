@@ -10,6 +10,7 @@
  */
 
 import api from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import type { CvContentMode } from "@/lib/cv-generator";
 
 export type CvRuleLanguage = "pl" | "en";
@@ -240,7 +241,9 @@ export const cvRulesApi = {
   ) =>
     (
       await api.post<LintResponse>(`/api/clients/${clientId}/cv-rule/lint`, body, {
-        timeout: 60_000,
+        // N sekwencyjnych wywołań modelu, po jednym na pole. Wspólna stała
+        // zamiast lokalnej liczby — kopie sufitu rozjeżdżają się cicho.
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
       })
     ).data,
   promptPreview: async (clientId: number, language: CvRuleLanguage) =>
@@ -370,6 +373,34 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
     cv_interactive_enabled: form.cv_interactive_enabled,
     confirm,
   };
+}
+
+/**
+ * Ile „zaawansowanych" ustawień reguły odbiega od domyślnych. Licznik zasila
+ * plakietkę zwiniętej sekcji „Zaawansowane" w edytorze ORAZ pasek podsumowania
+ * — jedno źródło, żeby obie liczby się nie rozjechały. Domyślne wartości nie
+ * są liczone: `content_mode` pusty = wolny wybór, `cv_interactive_enabled`
+ * domyślnie WŁĄCZONE (więc liczy się dopiero WYŁĄCZENIE), `0` znaków notatek =
+ * brak wymogu (`intOrNull("0")` → 0 → falsy).
+ */
+export function countActiveAdvanced(form: CvRuleForm): number {
+  let n = 0;
+  if (form.content_mode) n += 1;
+  if (form.cv_content_mode_cap) n += 1;
+  if (!form.cv_interactive_enabled) n += 1;
+  if (intOrNull(form.require_screening_notes_min_chars)) n += 1;
+  if (form.require_project_ref) n += 1;
+  if (form.require_position) n += 1;
+  if (form.require_champion) n += 1;
+  if (form.auto_second_language) n += 1;
+  if (form.omit_sections.length) n += 1;
+  if (intOrNull(form.max_roles)) n += 1;
+  if (intOrNull(form.max_bullets_per_role)) n += 1;
+  if (intOrNull(form.max_bullet_chars)) n += 1;
+  if (intOrNull(form.why_points_max)) n += 1;
+  if (form.date_format) n += 1;
+  if (form.glossary.some((g) => g.from.trim() && g.to.trim())) n += 1;
+  return n;
 }
 
 /** Etykiety akcji historii — warstwa prezentacji, nie kontrakt API. */

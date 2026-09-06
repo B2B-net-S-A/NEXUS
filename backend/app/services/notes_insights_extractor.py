@@ -35,6 +35,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.models.candidate import AvailabilityStatus, Candidate
 from app.services.cv_enrichment import normalize_llm_skills
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ logger = logging.getLogger(__name__)
 # unieważnia ekstrakcje policzone starszą wersją (płacą ponownie dopiero gdy
 # pętla do nich dojdzie, w ramach budżetu per bieg).
 PROMPT_VERSION = "v3-union"
-EXTRACTION_MODEL = "claude-haiku-4-5-20251001"
+EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
 MIN_BLOB_CHARS = 60

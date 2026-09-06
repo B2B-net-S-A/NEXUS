@@ -35,6 +35,8 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.dr_kpi_body_leasing import DrKpiBodyLeasing
 from app.models.dr_kpi_sales import DrKpiSales
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import model_for
 
 if TYPE_CHECKING:  # tylko dla typów — import w runtime jest lokalny (koszt ładowania)
     from app.services.ai_quota import AIQuotaExceeded
@@ -255,7 +257,7 @@ async def commentary(
                 # backoff), offloaded off the single-worker event loop.
                 message = await run_in_threadpool(
                     call_claude,
-                    model=settings.CLAUDE_MODEL_CV,
+                    model=model_for(AIFeatureKey.mindy_chat),
                     max_tokens=400,
                     system=MINDY_SYSTEM_PROMPT,
                     messages=[{"role": "user", "content": user_prompt}],
@@ -265,7 +267,7 @@ async def commentary(
                 )
                 return MindyResponse(
                     content=content,
-                    model=settings.CLAUDE_MODEL_CV,
+                    model=model_for(AIFeatureKey.mindy_chat),
                     context_summary=context,
                 )
             except Exception as e:
@@ -326,7 +328,7 @@ async def chat(
                 # backoff), offloaded off the single-worker event loop.
                 message = await run_in_threadpool(
                     call_claude,
-                    model=settings.CLAUDE_MODEL_CV,
+                    model=model_for(AIFeatureKey.mindy_chat),
                     max_tokens=800,
                     system=full_system,
                     messages=api_messages,
@@ -334,7 +336,9 @@ async def chat(
                 content = "".join(
                     block.text for block in message.content if hasattr(block, "text")
                 )
-                return MindyResponse(content=content, model=settings.CLAUDE_MODEL_CV)
+                return MindyResponse(
+                    content=content, model=model_for(AIFeatureKey.mindy_chat)
+                )
             except Exception as e:
                 logger.exception("MINDY chat failed")
                 raise HTTPException(status_code=502, detail=f"AI call failed: {e}")

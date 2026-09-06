@@ -77,3 +77,32 @@ async def test_ai_settings_panel_responds(
     assert isinstance(body["master_enabled"], bool)
     assert isinstance(body["features"], list)
     assert isinstance(body["usage"], list)
+
+
+@pytest.mark.asyncio
+async def test_panel_carries_model_and_token_usage(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """C13: każda funkcja niesie efektywny model z rejestru, a zużycie — tokeny.
+
+    Model wprost z ``ai_models`` (jedno miejsce prawdy funkcja → model), więc
+    panel nie może rozjechać się z tym, czego używa runtime. Tokeny są sumą
+    z jednego GROUP BY — pola muszą być obecne, nawet gdy zerowe.
+    """
+    from app.models.ai_feature import AIFeatureKey
+    from app.services.ai_models import model_for
+
+    resp = await app_client.get("/api/settings/ai", headers=app_auth_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    for feat in body["features"]:
+        key = AIFeatureKey(feat["feature"])
+        assert feat["model"] == model_for(key), (
+            f"{feat['feature']}: panel pokazuje inny model niż rejestr runtime"
+        )
+        assert feat["model"], f"{feat['feature']}: pusty model w panelu"
+
+    for row in body["usage"]:
+        assert "input_tokens" in row and "output_tokens" in row
+        assert row["input_tokens"] >= 0 and row["output_tokens"] >= 0

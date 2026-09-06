@@ -10,8 +10,8 @@ import { makeCvRuleRow } from "@/test/fixtures/cv-rule";
  * Ekran „Reguły CV per klient" po przebudowie na zarządzanie (09.2026).
  *
  * Trzy rzeczy, które łatwo cofnąć „przy okazji":
- *  * Delivery Lead widzi domyślnie SWÓJ portfel, ale filtr da się wyłączyć —
- *    zawężenie jest wygodą, nie granicą (backend zapisu nie skopuje);
+ *  * Delivery Lead widzi domyślnie WSZYSTKICH klientów, ale może włączyć filtr
+ *    własnych przypisań — zawężenie jest wygodą, nie granicą;
  *  * akcje (dodaj / zatwierdź / edytuj / usuń) widzi rola z `client.update`,
  *    reszta ma czysty odczyt — inaczej recruiter wypełniałby formularz i
  *    dostawał 403 na zapisie;
@@ -66,7 +66,8 @@ const DL_USER = {
   data_scope: {
     kind: "delivery_clients",
     user_id: 7,
-    allowed_client_ids: [1],
+    allowed_client_ids: [1, 2],
+    finance_client_ids: [1],
     allowed_tac_user_ids: [],
     allowed_operator_user_ids: [],
   },
@@ -137,18 +138,19 @@ describe("CvRulesSettingsPage", () => {
     mocks.post.mockResolvedValue({ data: { ...OVERVIEW.rules[1], is_active: true } });
   });
 
-  it("Delivery Lead startuje na swoim portfelu, może go wyłączyć i zatwierdza w miejscu", async () => {
+  it("Delivery Lead startuje na wszystkich klientach i może filtrować przypisania", async () => {
     mocks.user = DL_USER;
     renderPage();
 
     expect(await screen.findByText("Nordea Bank Abp")).toBeInTheDocument();
-    expect(screen.getByText("Twój klient")).toBeInTheDocument();
-    // Klient spoza portfela jest odfiltrowany, ale NIE ukryty na stałe.
+    expect(screen.getByText("Przypisany")).toBeInTheDocument();
+    expect(screen.getByText("Tauron Polska Energia")).toBeInTheDocument();
+
+    const onlyMine = screen.getByLabelText("Tylko przypisani mi klienci");
+    expect(onlyMine).not.toBeChecked();
+    fireEvent.click(onlyMine);
     expect(screen.queryByText("Tauron Polska Energia")).not.toBeInTheDocument();
     expect(screen.getByText(/pokazuję 1/)).toBeInTheDocument();
-
-    const onlyMine = screen.getByLabelText("Tylko moi klienci");
-    expect(onlyMine).toBeChecked();
     fireEvent.click(onlyMine);
     expect(await screen.findByText("Tauron Polska Energia")).toBeInTheDocument();
 
@@ -192,7 +194,9 @@ describe("CvRulesSettingsPage", () => {
 
     expect(await screen.findByText("Nordea Bank Abp")).toBeInTheDocument();
     expect(screen.getByText("Tauron Polska Energia")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Tylko moi klienci")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Tylko przypisani mi klienci"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Dodaj regułę/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edytuj regułę/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Zatwierdź regułę/ })).not.toBeInTheDocument();
