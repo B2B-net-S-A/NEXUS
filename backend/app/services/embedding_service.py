@@ -6,8 +6,10 @@ Semantic search for Nexus ATS candidates.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
+from collections import OrderedDict
 from typing import Optional
 
 import httpx
@@ -33,6 +35,62 @@ _VOYAGE_RETRY_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 _VOYAGE_RETRY_BACKOFF_SECONDS = 0.5
 
 JOBS_COLLECTION = "nexus_jobs"
+
+# ── Pamięć podręczna embeddingów ZAPYTAŃ (w procesie, krótkotrwała) ─────────
+# Cache postgresowy (`embedding_cache`) obsługuje wyłącznie `input_type=
+# "document"`, bo zapytanie rekrutera bywa unikalne i wiersz per literówka nie
+# miałby sensu. Ale JEDEN request potrafi poprosić o TO SAMO zapytanie dwa razy:
+# `retrieve_candidate_pool` w trybie hybrydowym embeduje je raz w nodze gęstej
+# (`search_candidates_semantic`) i drugi raz w dosypce kosinusów
+# (`similarity_for_candidate_ids`). To samo robi ścieżka wielo-zapytaniowa.
+# Dopóki `HYBRID_POOL_ENABLED` było wyłączone, płaciliśmy za to tylko w teorii;
+# po włączeniu to podwójny koszt i podwójna latencja na KAŻDEJ ofercie.
+#
+# Cache jest w procesie i celowo mały: te dwa wywołania dzieli ułamek sekundy,
+# więc TTL liczony w minutach wystarcza z ogromnym zapasem, a proces
+# restartowany przy każdym deployu i tak zaczyna od zera. Klucz niesie model
+# i wymiar, bo embedding z innego modelu żyje w innej przestrzeni — pomyłka tu
+# to ciche zatrucie kosinusów, dokładnie ta klasa co fallback na Ollamę.
+_QUERY_EMBED_CACHE_MAX = 256
+_QUERY_EMBED_CACHE_TTL_SECONDS = 300.0
+_QUERY_EMBED_CACHE: "OrderedDict[str, tuple[float, list[float]]]" = OrderedDict()
+
+
+def _query_cache_key(text: str, model: str, dim: int) -> str:
+    h = hashlib.sha256()
+    h.update(model.encode("utf-8"))
+    h.update(b"|query|")
+    h.update(str(dim).encode("utf-8"))
+    h.update(b"|")
+    h.update(text.encode("utf-8"))
+    return h.hexdigest()
+
+
+def _query_cache_get(key: str) -> Optional[list[float]]:
+    entry = _QUERY_EMBED_CACHE.get(key)
+    if entry is None:
+        return None
+    expires_at, embedding = entry
+    if expires_at <= time.monotonic():
+        _QUERY_EMBED_CACHE.pop(key, None)
+        return None
+    _QUERY_EMBED_CACHE.move_to_end(key)
+    return list(embedding)
+
+
+def _query_cache_put(key: str, embedding: list[float]) -> None:
+    _QUERY_EMBED_CACHE[key] = (
+        time.monotonic() + _QUERY_EMBED_CACHE_TTL_SECONDS,
+        list(embedding),
+    )
+    _QUERY_EMBED_CACHE.move_to_end(key)
+    while len(_QUERY_EMBED_CACHE) > _QUERY_EMBED_CACHE_MAX:
+        _QUERY_EMBED_CACHE.popitem(last=False)
+
+
+def reset_query_embedding_cache() -> None:
+    """Wyczyść cache zapytań — dla testów, żeby nie przeciekał między nimi."""
+    _QUERY_EMBED_CACHE.clear()
 
 
 class SemanticSearchUnavailable(RuntimeError):
@@ -311,6 +369,16 @@ async def generate_embedding(
         except Exception as e:  # noqa: BLE001
             logger.debug("[embedding] cache miss path error: %s", e)
 
+    # Zapytania: cache W PROCESIE, nie w Postgresie — patrz komentarz przy
+    # `_QUERY_EMBED_CACHE`. Chodzi o jeden request, który pyta o to samo dwa
+    # razy, a nie o trwałe składowanie unikalnych fraz.
+    query_cache_key: Optional[str] = None
+    if use_cache and input_type == "query":
+        query_cache_key = _query_cache_key(text, _voyage_model(), VECTOR_SIZE)
+        cached_query = _query_cache_get(query_cache_key)
+        if cached_query is not None:
+            return cached_query
+
     emb = await _voyage_embed(text, input_type=input_type)
     from_voyage = emb is not None
     if emb is None:
@@ -346,6 +414,13 @@ async def generate_embedding(
             await _cache_store(text, emb, model=_voyage_model(), input_type=input_type)
         except Exception as e:  # noqa: BLE001
             logger.debug("[embedding] cache store error: %s", e)
+
+    # Ten sam warunek `from_voyage` co wyżej i z DOKŁADNIE tego samego powodu:
+    # wektor z Ollamy ma te same 1024 wymiary, ale żyje w innej przestrzeni.
+    # Zapisany pod kluczem modelu Voyage'a zatruwałby kosinusy tak samo cicho —
+    # tyle że w pamięci procesu, więc jeszcze trudniej byłoby to zauważyć.
+    if query_cache_key is not None and from_voyage:
+        _query_cache_put(query_cache_key, emb)
 
     return emb
 

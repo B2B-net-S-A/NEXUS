@@ -517,6 +517,9 @@ async def _recommend_candidates_core(
         similarity_map=similarity_map,
         profile=profile,
         allow_cache_write=not semantic_degraded,
+        # Ci, dla których kosinusu NIE zmierzono — breakdown ma to powiedzieć
+        # wprost („pomiar niedostępny"), zamiast obwiniać profil kandydata.
+        semantic_unavailable_ids=semantic_unknown_ids,
     )
 
     # Phase 14: apply historical-boost from semantically-similar past jobs.
@@ -1710,6 +1713,13 @@ async def seeking_contractors(
             "returned": 0,
             "truncated": False,
             "items": [],
+            # `meta` jest w KAŻDEJ gałęzi, także tam, gdzie wyszukiwanie się nie
+            # odbyło. Konsument czytający `body.meta.degraded` dostawał tu
+            # `undefined`, czyli wartość fałszywą — przypadkiem poprawną, ale
+            # nie do odróżnienia od „sprawdziliśmy i jest dobrze". Odpowiedź,
+            # która raz niesie sygnał uczciwości, a raz go milcząco pomija, każe
+            # konsumentowi zgadywać, którą wersję właśnie dostał.
+            "meta": {"degraded": False, "reason": "no_candidates"},
         }
 
     cand_res = await db.execute(
@@ -1751,6 +1761,11 @@ async def seeking_contractors(
                 }
                 for c in candidates
             ],
+            # Jak wyżej — pusty wynik z powodu braku ofert to inne zdanie niż
+            # pusty wynik z powodu awarii, a bez `meta` oba wyglądają tak samo.
+            # Nazwa powodu jest lustrem `no_open_jobs` z endpointu wyżej w tym
+            # samym pliku.
+            "meta": {"degraded": False, "reason": "no_open_jobs"},
         }
 
     user_filters = RecommendationFilters(

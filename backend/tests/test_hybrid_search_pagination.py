@@ -171,10 +171,13 @@ async def test_meta_says_when_total_is_only_the_retrieval_ceiling(
     najtrafniejszych". Sufit obniżamy do rozmiaru zaseedowanej puli, żeby test
     nie zależał od 200 wierszy.
     """
-    from app.api import search as search_api
+    from app.core.config import settings
 
     all_ids, _ = await _seed_pool()
-    monkeypatch.setattr(search_api, "_HYBRID_POOL", len(all_ids))
+    # Przestawiamy USTAWIENIE, nie stałą modułową — bo to ustawienie jest
+    # teraz produkcyjnym pokrętłem i test ma sprawdzać tę samą drogę, którą
+    # pójdzie zmiana wartości na produkcji.
+    monkeypatch.setattr(settings, "SEARCH_HYBRID_POOL_SIZE", len(all_ids))
     _stub_hybrid(all_ids)
 
     async def _ask(order: list[int]) -> dict:

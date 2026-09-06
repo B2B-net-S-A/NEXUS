@@ -269,6 +269,9 @@ async def compute_proposal_for_job(
                         similarity_map=similarity_map,
                         profile=profile,
                         allow_cache_write=not semantic_degraded,
+                        # Patrz `/recommendations`: „pomiar niedostępny" zamiast
+                        # zarzutu wobec profilu kandydata (#414).
+                        semantic_unavailable_ids=semantic_unknown_ids,
                     )
                     # Boost historyczny — TA SAMA składowa, którą /recommendations
                     # dokłada PRZED odcięciem po min-score. Snapshot jej nie
