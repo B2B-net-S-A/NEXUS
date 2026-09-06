@@ -12,11 +12,14 @@ powtórzone przebiegi nadpisują, a nie dublują.
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
+from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.services.insights_workdays import sync_workdays
 
 logger = logging.getLogger(__name__)
@@ -29,6 +32,30 @@ _MIN_INTERVAL_SECONDS = 900
 # tydzien, a wnioski urlopowe bywaja akceptowane wstecznie — samo biezace
 # okno by ich nie dogonilo.
 _WEEKS_BACK = 6
+
+
+async def _stamp(**values) -> None:
+    """Zapisuje stan biegu — ZAWSZE we własnej sesji i nigdy nie rzuca.
+
+    Własna sesja, bo po nieudanym ``sync_workdays`` sesja robocza potrafi być
+    w stanie wymagającym rollbacku, a zapis końca poleciałby wtedy na
+    ``PendingRollbackError`` — czyli bookkeeping zjadłby informację o awarii,
+    którą miał zapisać.
+
+    Nie rzuca, bo pętla ma synchronizować dni robocze, a nie prowadzić własną
+    księgowość. Gdy baza jest niedostępna, mówi o tym ``checks.database``.
+    """
+    values["updated_at"] = datetime.now(timezone.utc)
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(CompassWorkdaysSyncState)
+                .where(CompassWorkdaysSyncState.id == 1)
+                .values(**values)
+            )
+            await db.commit()
+    except Exception as exc:  # noqa: BLE001 — księgowość nie może ubić pętli
+        logger.warning("compass_workdays_sync state write failed: %s", exc)
 
 
 def _first_of_month(d):
@@ -61,6 +88,10 @@ async def compass_workdays_sync_loop() -> None:
 
     while True:
         try:
+            await _stamp(
+                last_run_started_at=datetime.now(timezone.utc),
+                last_status="running",
+            )
             # `business_today()`, nie `date.today()`: okna liczymy kalendarzem
             # Europe/Warsaw, a zegar kontenera chodzi w UTC.
             today = business_today()
@@ -75,7 +106,8 @@ async def compass_workdays_sync_loop() -> None:
                 months = await sync_workdays(db, date_from, date_to, bucket="month")
                 weeks = await sync_workdays(db, week_from, today, bucket="week")
 
-            for label, result in (("month", months), ("week", weeks)):
+            buckets = (("month", months), ("week", weeks))
+            for label, result in buckets:
                 logger.info(
                     "compass_workdays_sync done bucket=%s rows=%s matched=%s "
                     "unmatched_compass=%s nexus_without_compass=%s error=%s",
@@ -86,10 +118,31 @@ async def compass_workdays_sync_loop() -> None:
                     len(result.nexus_users_without_compass),
                     result.error,
                 )
+
+            # Cokolwiek innego niż `ok` degraduje sondę. `fetch_failed:`
+            # i `basis_mismatch:` NIE rzucają wyjątku — `sync_workdays` wraca
+            # z nich normalnie, nic nie zapisawszy. Gdyby liczył się tylko
+            # wyjątek, niedostępny COMPASS raportowałby `healthy`, czyli
+            # dokładnie tę ślepą plamkę, którą ta zmiana zamyka.
+            failed = [label for label, r in buckets if r.error]
+            await _stamp(
+                last_run_finished_at=datetime.now(timezone.utc),
+                last_status="errors" if failed else "ok",
+                last_error=(
+                    "; ".join(f"{label}: {r.error}" for label, r in buckets if r.error)
+                    or None
+                ),
+                stats={label: r.as_payload() for label, r in buckets},
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — pętla ma przeżyć awarię COMPASSA
             logger.exception("compass_workdays_sync failed: %s", exc)
+            await _stamp(
+                last_run_finished_at=datetime.now(timezone.utc),
+                last_status="error",
+                last_error=f"{type(exc).__name__}: {exc}"[:2000],
+            )
 
         await asyncio.sleep(interval)
 

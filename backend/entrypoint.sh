@@ -3976,6 +3976,22 @@ _COLUMN_STATEMENTS = [
         ADD COLUMN IF NOT EXISTS is_open BOOLEAN NOT NULL DEFAULT false""",
     "CREATE INDEX IF NOT EXISTS ix_jobs_opened_at ON jobs (opened_at)",
     "CREATE INDEX IF NOT EXISTS ix_jobs_is_open ON jobs (is_open) WHERE is_open",
+    # 0276: stan pętli dni roboczych z COMPASSA. Bez tej tabeli sonda
+    # `checks.compass_workdays` nie ma czego czytać, a cicha awaria integracji
+    # wraca do stanu sprzed D5 (mianownik = stała 5, osoba na urlopie na
+    # imiennej liście „poniżej progu").
+    """CREATE TABLE IF NOT EXISTS compass_workdays_sync_state (
+        id INTEGER PRIMARY KEY,
+        last_run_started_at TIMESTAMPTZ NULL,
+        last_run_finished_at TIMESTAMPTZ NULL,
+        last_status VARCHAR(20) NULL,
+        last_error TEXT NULL,
+        stats JSONB NULL,
+        updated_at TIMESTAMPTZ NULL
+    )""",
+    # Wiersz-kotwica: odróżnia „pętla nigdy nie wystartowała" (wiersz jest,
+    # kolumny NULL) od „migracja nie doszła" (brak wiersza).
+    "INSERT INTO compass_workdays_sync_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

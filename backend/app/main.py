@@ -62,6 +62,7 @@ from app.api import postings
 from app.api import calls
 from app.api import cloudtalk as cloudtalk_api
 from app.api import reports
+from app.models.compass_workdays_sync_state import CompassWorkdaysSyncState
 from app.models.user_workday_period import UserWorkdayPeriod
 from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
@@ -73,6 +74,8 @@ from app.api import insights_delivery_leads
 from app.api import insights_scoring
 from app.api import insights_campaigns
 from app.api import insights_charts
+from app.api import insights_reconciliation
+from app.api import integrations_compass
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import client_knowledge
@@ -653,6 +656,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
+    from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
@@ -710,6 +714,7 @@ async def lifespan(app: FastAPI):
         # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
         # tylko po to, zeby sprawdzic te sama flage.
         "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
+        "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
         "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
         "weekly_eval": asyncio.create_task(weekly_eval_loop()),
         "match_digest": asyncio.create_task(match_digest_loop()),
@@ -1119,6 +1124,22 @@ app.include_router(
     insights_charts.router,
     prefix="/api/insights/charts",
     tags=["insights"],
+)
+# Uzgodnienie placementów: JEDEN wiersz na placement w OBU rodzinach
+# atrybucji. Read-only — raport ma tłumaczyć rozjazd, nie go usuwać.
+app.include_router(
+    insights_reconciliation.router,
+    prefix="/api/insights/reconciliation",
+    tags=["insights"],
+)
+# Eksport dla COMPASSA. Uwierzytelnienie żyje w `require_service_scope`
+# na endpointach, nie na routerze — jak przy kontach serwisowych Traffita.
+# Ścieżka CELOWO obok `/api/candidates|jobs|clients|users`, nie pod nimi:
+# `test_key_cannot_reach_domain_data` wymaga, żeby klucz API dostawał tam 401.
+app.include_router(
+    integrations_compass.router,
+    prefix="/api/integrations/compass",
+    tags=["integrations"],
 )
 # Plakietki ostrzeżeń i baner kampanii — obie powierzchnie mają ODCZYT dla
 # każdego zalogowanego (D7) i ZAPIS zawężony wewnątrz modułu. Ostrzeżenie
@@ -1811,6 +1832,51 @@ async def api_health_check():
         except Exception:
             checks["order_mail"] = "degraded"
 
+    # COMPASS: dni robocze (D5). Ta sama drabina co traffit/order_mail.
+    #
+    # Do 09.2026 była to JEDYNA integracja bez sondy — i jedyna, której awarii
+    # nie dało się wykryć niczym innym: pętla `return`uje czysto przy
+    # wyłączonej fladze i przy braku sekretu (`classify_background_tasks` →
+    # `exited_cleanly`, stan cichy), a jej ciało łyka każdy wyjątek, więc nigdy
+    # nie osiąga `crashed`.
+    #
+    # `healthy` WYMAGA `last_status == "ok"`. `fetch_failed:` i
+    # `basis_mismatch:` nie rzucają wyjątku — `sync_workdays` wraca z nich
+    # normalnie, nic nie zapisawszy — więc gdyby liczyła się tylko świeżość
+    # biegu, niedostępny COMPASS raportowałby `healthy`. Cicha awaria oznacza
+    # regres do stanu sprzed D5: mianownikiem znów jest stała 5, a osoba na
+    # urlopie ląduje na IMIENNEJ liście „poniżej progu".
+    if not settings.COMPASS_WORKDAYS_ENABLED:
+        checks["compass_workdays"] = "unconfigured"
+    elif not (settings.COMPASS_WORKDAYS_URL and settings.COMPASS_WORKDAYS_SECRET):
+        checks["compass_workdays"] = "misconfigured"
+    else:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
+
+            async with AsyncSessionLocal() as session:
+                row = await asyncio.wait_for(
+                    session.execute(
+                        text(
+                            "SELECT last_run_finished_at, last_status "
+                            "FROM compass_workdays_sync_state WHERE id = 1"
+                        )
+                    ),
+                    timeout=1.0,
+                )
+            r = row.fetchone()
+            from app.services.insights_workdays import workdays_sync_verdict
+
+            checks["compass_workdays"] = workdays_sync_verdict(
+                finished_at=r[0] if r is not None else None,
+                last_status=r[1] if r is not None else None,
+                interval_seconds=settings.COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS,
+                now=_dt.now(_tz.utc),
+            )
+        except Exception:
+            checks["compass_workdays"] = "degraded"
+
     # Cortex extraction — informational. Świeżość ostatniego przebiegu faktów
     # skilli (cortex_extraction_runs). Overall status pozostaje DB-only; to tylko
     # uwidacznia stale/failed backfill po deployu. `unconfigured` (brak runów) /
@@ -2329,6 +2395,11 @@ async def api_health_deep_check():
         # 0257: mianownik wskaznikow „na dzien" (D5). Prod alembic bywa
         # osierocony, wiec to jest jedyny realny dowod, ze tabela powstala.
         ("user_workday_periods", UserWorkdayPeriod),
+        # 0276: stan pętli D5. Sonda SCHEMATU, nie żywotności COMPASSA —
+        # `/api/health/deep` blokuje deploy, więc awaria cudzej aplikacji nie
+        # może tu trafić. O tym, czy integracja działa, mówi
+        # `checks.compass_workdays` w płytkim `/api/health`.
+        ("compass_workdays_sync_state", CompassWorkdaysSyncState),
         # 0258/0259: plakietki ostrzeżeń i baner kampanii. Bez tych sond
         # zielony deploy nic nie mówi o tym, czy tabele powstały — a brak
         # którejkolwiek wywala CAŁĄ zakładkę Rekrutacja na UndefinedTable
