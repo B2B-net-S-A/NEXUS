@@ -195,8 +195,13 @@ export function InlinePeriod({
     return (
       <span className="inline-flex items-center gap-1">
         <Calendar className="w-3 h-3" />
-        <span>
-          okres zamówienia: {fmtDate(startDate) ?? "—"} →{" "}
+        {/* „okres:", nie „okres zamówienia:" — ta etykieta stoi w jednej
+            zawijającej się linii obok numeru zamówienia i obu stawek, a
+            poprzedza ją ikona kalendarza, więc słowo „zamówienia" niczego tu
+            nie doprecyzowuje, a wypychało stawki do kolejnego wiersza. Pełne
+            brzmienie niesie `title`. */}
+        <span title="Okres zamówienia">
+          okres: {fmtDate(startDate) ?? "—"} →{" "}
           {fmtDate(endDate) ?? "bezterminowo"}
         </span>
         {editable ? (
@@ -224,7 +229,9 @@ export function InlinePeriod({
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commit();
       }}
     >
-      <span className="text-muted-foreground">okres zamówienia:</span>
+      <span className="text-muted-foreground" title="Okres zamówienia">
+        okres:
+      </span>
       <input
         autoFocus
         type="text"

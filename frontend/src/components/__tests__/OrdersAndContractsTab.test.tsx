@@ -411,6 +411,26 @@ describe("OrdersAndContractsTab card", () => {
     ).toBeInTheDocument();
   });
 
+  it("trzyma numer i OBIE stawki w jednej linii meta kafelka", async () => {
+    // Regresja układu: numer zamówienia, stawka kosztowa i stawka przychodowa
+    // stały wcześniej w TRZECH osobnych kontenerach (`div` na numer + `div` na
+    // stawki), więc kafelek rósł o wiersz niezależnie od szerokości ekranu.
+    // Test kotwiczy się na WSPÓLNYM rodzicu, a nie na klasach CSS — zawijanie
+    // przy wąskim oknie jest dozwolone, rozbicie na osobne bloki nie.
+    renderTab();
+    await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
+
+    const numberRow = screen.getByTitle("Numer zamówienia").closest("div");
+    const costRow = screen.getByTitle("Stawka kosztowa").closest("div");
+    const revenueRow = screen.getByTitle("Stawka przychodowa").closest("div");
+    const periodRow = screen.getByTitle("Okres zamówienia").closest("div");
+
+    expect(numberRow).not.toBeNull();
+    expect(costRow).toBe(numberRow);
+    expect(revenueRow).toBe(numberRow);
+    expect(periodRow).toBe(numberRow);
+  });
+
   it("renames the section to Przyszłe zamówienie and lists the future order", async () => {
     renderTab();
     expect(await screen.findByText(/Przyszłe zamówienie \(1\)/)).toBeInTheDocument();
@@ -435,10 +455,14 @@ describe("OrdersAndContractsTab card", () => {
       } as never);
       renderTab();
       await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-      expect(screen.queryByText(/stawka kosztowa/)).not.toBeInTheDocument();
-      expect(screen.queryByText(/stawka przychodowa/)).not.toBeInTheDocument();
+      // Kotwica na `title`, nie na widocznej etykiecie: kafelek skraca ją do
+      // „koszt."/„przych.", żeby obie stawki mieściły się w jednej linii, a
+      // kontrakt, którego pilnuje ten test, dotyczy WIDOCZNOŚCI pola, nie
+      // jego brzmienia.
+      expect(screen.queryByTitle("Stawka kosztowa")).not.toBeInTheDocument();
+      expect(screen.queryByTitle("Stawka przychodowa")).not.toBeInTheDocument();
       // Period is not finance-gated — it stays visible.
-      expect(screen.getByText(/okres zamówienia:/)).toBeInTheDocument();
+      expect(screen.getByTitle("Okres zamówienia")).toBeInTheDocument();
     },
   );
 
@@ -457,8 +481,8 @@ describe("OrdersAndContractsTab card", () => {
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
-    expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
-    expect(screen.getByText(/stawka przychodowa/)).toBeInTheDocument();
+    expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
+    expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
     expect(screen.queryAllByLabelText(/^Edytuj:/)).toHaveLength(0);
     expect(
       screen.queryByRole("button", { name: "Uzupełnij zamówienie" }),
@@ -521,8 +545,8 @@ describe("OrdersAndContractsTab card", () => {
   it("shows candidate finance rows when the server grants manage_finance", async () => {
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-    expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
-    expect(screen.getByText(/stawka przychodowa/)).toBeInTheDocument();
+    expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
+    expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
   });
 
   it("shows finance rows to an assigned Delivery Lead", async () => {
@@ -532,8 +556,8 @@ describe("OrdersAndContractsTab card", () => {
     authState.capabilities = [];
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
-    expect(screen.getByText(/stawka kosztowa/)).toBeInTheDocument();
-    expect(screen.getByText(/stawka przychodowa/)).toBeInTheDocument();
+    expect(screen.getByTitle("Stawka kosztowa")).toBeInTheDocument();
+    expect(screen.getByTitle("Stawka przychodowa")).toBeInTheDocument();
   });
 
   it("reveals history behind the toggle", async () => {

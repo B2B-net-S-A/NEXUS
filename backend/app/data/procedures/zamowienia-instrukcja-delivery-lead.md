@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-04
+> **Zgodność z systemem sprawdzona:** 2026-09-06
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -107,7 +107,7 @@ już w rejestrze klienta.
 założył jej kartę sam — po przestawieniu kandydata na etap „zatrudniony" albo po
 potwierdzeniu obustronnie podpisanej umowy. Powstaje wtedy **szkic umowy** i **szkic
 zamówienia** ze stawką przepisaną z umowy i notatką „Uzupełnij stawkę klienta,
-daty i wgraj PDF zamówienia". W rubryce **Numer zamówienia** stoi wtedy wartość
+daty i wgraj PDF zamówienia". W rubryce **nr zam.** stoi wtedy wartość
 zastępcza: **„(bez numeru)"** u klientów rozliczanych w MD lub kosztowo, a u
 pozostałych **„Imię Nazwisko — Tytuł rekrutacji"**. Jedno i drugie trzeba
 zastąpić prawdziwym numerem z dokumentu klienta. Szkic znajdziesz pod filtrem
@@ -118,8 +118,10 @@ od klienta.
 
 **2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Numer zamówienia,
 obie stawki i okres edytujesz **klikając wprost w tekst na karcie** — bez
-otwierania okienka. Jeżeli ta osoba nie ma jeszcze żadnego zamówienia, pierwszy
-taki zapis sam założy szkic.
+otwierania okienka. Na karcie stoją one w jednej linii pod nazwiskiem, skrócone
+do **nr zam.**, **koszt.**, **przych.** i **okres:**; najechanie myszą na
+etykietę pokazuje jej pełne brzmienie. Jeżeli ta osoba nie ma jeszcze żadnego
+zamówienia, pierwszy taki zapis sam założy szkic.
 
 **3. Osoby nie ma jeszcze w rejestrze.** Kliknij **Nowe zamówienie**, wybierz typ
 **Okresowe** — otworzy się formularz **„Nowy kontraktor / zamówienie"**, który

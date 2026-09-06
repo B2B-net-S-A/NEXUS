@@ -280,7 +280,7 @@ function OrderLineRow({
   return (
     <li
       className={cn(
-        "flex flex-wrap items-center gap-x-6 gap-y-3 py-3",
+        "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
         !line.is_active && !pendingOffboarding && "opacity-60",
         searchQuery.trim() &&
           consultantMatchesQuery(line.consultant_name, searchQuery) &&
@@ -359,46 +359,51 @@ function OrderLineRow({
       </div>
 
       {/* Stawki — „—" gdy rola nie ma uprawnień finansowych. Zniknięcie
-          kolumny zostawiłoby pustkę bez wyjaśnienia. */}
-      <div className="min-w-[8rem]">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Stawka kosztowa
-        </p>
-        <p className="text-sm font-medium text-foreground">
-          {line.rate_cost === null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
-        </p>
-      </div>
-      <div className="min-w-[8rem]">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Stawka przychodowa
-        </p>
-        <p className="text-sm font-medium text-foreground">
-          {line.rate_revenue === null
-            ? "—"
-            : `${formatPLN(line.rate_revenue)}/MD`}
-        </p>
+          kolumny zostawiłoby pustkę bez wyjaśnienia.
+
+          Etykieta stoi OBOK wartości, nie nad nią: układ dwuwierszowy robił
+          z każdej stawki dwie linijki i podwajał wysokość wiersza obsady.
+          Skróty są lustrem kafelka jednoosobowego (`koszt.`/`przych.`) —
+          pełne brzmienie niesie `title`. */}
+      <div className="flex min-w-[15rem] flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+        {/* `min-w-[15rem]` zastępuje dwa dawne `min-w-[8rem]` na kolumnach
+            etykieta-nad-wartością. Bez podłogi blok stawek ma szerokość swojej
+            treści, więc w liście kilkunastu konsultantów kolejna kolumna
+            (pasek MD / „zafakturowano") zaczynałaby się w innym miejscu
+            w każdym wierszu. Kompaktowość dotyczy WYSOKOŚCI — wyrównanie
+            kolumn zostaje. */}
+        <span className="text-muted-foreground" title="Stawka kosztowa">
+          koszt.{" "}
+          <span className="font-medium text-foreground">
+            {line.rate_cost === null ? "—" : `${formatPLN(line.rate_cost)}/MD`}
+          </span>
+        </span>
+        <span className="text-muted-foreground" title="Stawka przychodowa">
+          przych.{" "}
+          <span className="font-medium text-foreground">
+            {line.rate_revenue === null
+              ? "—"
+              : `${formatPLN(line.rate_revenue)}/MD`}
+          </span>
+        </span>
       </div>
 
       {group.is_cost_based ? (
-        <div className="ml-auto min-w-[8rem]">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Zafakturowano
-          </p>
-          <p className="text-sm font-medium text-foreground">
+        <span className="ml-auto text-xs text-muted-foreground">
+          zafakturowano{" "}
+          <span className="font-medium text-foreground">
             {/* „—" dla braku faktur, nie „0 zł": zero znaczyłoby
                 „wystawiono zero", a tu nic jeszcze nie przyszło. */}
             {line.invoiced_total == null || line.invoiced_total === 0
               ? "—"
               : formatPLN(line.invoiced_total)}
-          </p>
-        </div>
+          </span>
+        </span>
       ) : sharedMd ? (
-        <div className="ml-auto min-w-[8rem] text-right">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Budżet MD
-          </p>
-          <p className="text-sm font-medium text-foreground">Wspólna pula</p>
-        </div>
+        <span className="ml-auto text-xs text-muted-foreground">
+          budżet MD{" "}
+          <span className="font-medium text-foreground">Wspólna pula</span>
+        </span>
       ) : (
         <MdBudgetBar
           remaining={line.md_remaining}

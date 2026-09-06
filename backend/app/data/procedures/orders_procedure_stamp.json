@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-04",
+  "reviewed_at": "2026-09-06",
   "sources": {
     "backend/app/api/admin_order_mail.py": "9906e4d5b834ca51e95b0f765f64e5194706f5202029c0128960a899b7ed836a",
     "backend/app/api/client_order_groups.py": "f4b031bc0fa579bec430818e4e3e06c445963f02dd452c4a4fbf80f1254c10c5",
@@ -53,14 +53,14 @@
     "frontend/src/components/ExtendOrderDialog.tsx": "b05c69bc30c3a8527fa5f21283f7426cec62f2c65b770149b4d0fc8327c2271d",
     "frontend/src/components/NewContractorOrderDialog.tsx": "2a71c4958bcf6d328eccc143cff165977eb61dc21c8fcab227acd188346aa978",
     "frontend/src/components/OrderDocumentsSection.tsx": "750c49ec2456414632a38af8ebb94343fd3d63044b79f8f695c6f37d325ce41f",
-    "frontend/src/components/OrdersAndContractsTab.tsx": "d713e085d2024d05f87a07205ba3f85388fd7f7b2648458f3ae28fcfb74301e5",
+    "frontend/src/components/OrdersAndContractsTab.tsx": "889e7bd128caf4d37f53a57bdd8fc5ddffd42dc50145a6bf5e3a28c2da58819e",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx": "6dbc4e77d755bea610d2fe5dd7fadbefdf6c4aaf477afcd0f1bf4866c8240f8b",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx": "883fd63bb570f558a12cbee28bac256aa539c59a0cb3bd7e8732804f074bb474",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "b04dba9d3076fb4501db287fa39cfc7d52f067b39b9969d0bfa5803c6d5b2dff",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "539cd7158909107ee35f0e5de04d507debcea6d41784b928805be423a5550a3c",
     "frontend/src/components/order-mail/OrderMailQueue.tsx": "0fbfcd7f4d95c8c1499ed79ba2398c62661d5363a1a51f3d1a943db1282d2a33",
-    "frontend/src/components/orders/InlineOrderFields.tsx": "9c2852f7af383738d6d14e1a69959a02e8e75396e132c2c59811d9b0338a564f",
+    "frontend/src/components/orders/InlineOrderFields.tsx": "672f58f5dbfcc956ef1c416c94f92ef69842768e3d6623df8c5447b2dc34dbd9",
     "frontend/src/components/orders/OrderTypeSwitch.tsx": "c945cf8167010eaeb36f0592877127639dc86a48a98c6e1692a0df6ca6ba85a5",
     "frontend/src/lib/api/orderMail.ts": "f8aec9b2ea00a5bd1314a2fd6fec47eb736bbbd45c99d0a3975841b757cf92da",
     "frontend/src/lib/order-extraction.ts": "64f96f17b6d1a3adf9dc6e3d36263a385f652995079721f736de51fdfae8c90c"
