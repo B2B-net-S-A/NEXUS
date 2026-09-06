@@ -314,6 +314,28 @@ describe("MultiConsultantOrdersTab", () => {
     expect(screen.getByText("/ 63 MD")).toBeInTheDocument();
   });
 
+  it("trzyma etykietę stawki w jednej linii z jej wartością", async () => {
+    // Regresja układu: etykieta stała NAD wartością (dwa osobne `<p>`), więc
+    // każda stawka zajmowała dwie linijki i wiersz obsady był dwukrotnie
+    // wyższy niż niesiona przez niego treść. Test sprawdza, że etykieta i
+    // kwota siedzą w JEDNYM elemencie — nie klasy CSS, tylko strukturę,
+    // z której wynika jedna linia.
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [group({ lines: [line()], active_consultants: 1 })],
+        total_groups: 1,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    const cost = await screen.findByTitle("Stawka kosztowa");
+    expect(cost).toHaveTextContent(/koszt\..*1\D?000/);
+    const revenue = screen.getByTitle("Stawka przychodowa");
+    expect(revenue).toHaveTextContent(/przych\..*1\D?200/);
+  });
+
   it("wyszukuje na żywo po nazwisku w dowolnej kolejności i podświetla osobę", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: {
@@ -1072,7 +1094,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(budget).toHaveTextContent(/wykorzystano/);
     expect(budget).toHaveTextContent(/pozostało/);
     expect(budget).toHaveTextContent(/30.*000,375 zł/);
-    expect(screen.getByText("Zafakturowano")).toBeInTheDocument();
+    expect(screen.getByText("zafakturowano")).toBeInTheDocument();
   });
 
   it("przenosi zakończoną osobę kosztową do sekcji Zakończone z numerem i fakturami", async () => {

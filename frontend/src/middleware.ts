@@ -312,6 +312,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //                  i wystawiło go publicznie.
 //   `/preview/candidates`, `/preview/candidate-profile`, `/preview/contact-queue`,
 //   `/preview/talent-radar`, `/preview/order-consultant-picker`,
+//   `/preview/order-tile`,
 //   `/preview/procedure-help`, `/preview/champion-profile`,
 //   `/preview/client-playbook`
 //                — konkretne harnessy designu, po których może chodzić nightly
@@ -345,6 +346,7 @@ const PUBLIC_PATHS = [
   "/preview/talent-radar",
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
+  "/preview/order-tile",
   "/preview/dl-alerts",
   "/preview/order-mail",
   "/preview/insights-campaign",

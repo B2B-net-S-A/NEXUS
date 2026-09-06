@@ -605,10 +605,10 @@ function CompleteOrderButton({
       className={
         compact
           ? "inline-flex items-center gap-1 text-xs text-violet-700 hover:underline"
-          : "flex items-center gap-1.5 px-3 py-1.5 text-sm border border-violet-300 text-violet-700 rounded hover:bg-violet-50"
+          : "flex items-center gap-1 px-2 py-1 text-xs border border-violet-300 text-violet-700 rounded hover:bg-violet-50"
       }
     >
-      <FilePlus2 className={compact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+      <FilePlus2 className="w-3.5 h-3.5" />
       Uzupełnij zamówienie
     </button>
   );
@@ -974,16 +974,28 @@ function ContractorCard({
       : suggestedOrderType;
 
   return (
-    <li className="border border-border rounded-lg bg-card p-4 space-y-3">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex-1 min-w-0">
+    // Kafelek jest KOMPAKTOWY świadomie: lista klienta pokazuje kilkudziesięciu
+    // kontraktorów, więc każdy wiersz treści kosztuje przewijanie na każdym
+    // kolejnym. Wysokość trzymają trzy rzeczy — `p-3`, jedna zawijająca się
+    // linia meta (numer + stawki + okres) zamiast czterech osobnych oraz
+    // przyciski w rozmiarze `text-xs`.
+    <li className="border border-border rounded-lg bg-card p-3 space-y-2">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        {/* `basis-80` (20rem), nie samo `flex-1 min-w-0`: pasek czterech
+            przycisków jest `shrink-0`, więc bez podłogi bazowej kolumna
+            tekstu ściskała się do kilkudziesięciu pikseli i kafelek rozsypywał
+            się na kilkanaście jednowyrazowych linijek — czyli dokładnie na to,
+            czego ten ticket zabrania. Z bazą 20rem wiersz się nie mieści i
+            przyciski wędrują POD tekst. `min-w-0` zostaje, żeby na naprawdę
+            wąskim ekranie kolumna mogła zejść poniżej bazy. */}
+        <div className="flex-1 basis-80 min-w-0">
           {/* Header: imię i nazwisko + numer kontraktu szarą, mniejszą czcionką.
               Numer BEZ dopisku statusu — słowo „draft" obok nazwiska mówiło
               o stanie rekordu, nie o czymkolwiek, co rekruter może z tym zrobić.
               (Wcześniejszy ticket zdjął ten numer w całości; obecny go
               przywraca — to nowsze zamówienie produktowe.) */}
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-base">
+            <h3 className="font-semibold text-sm">
               👤 {contractor.candidate_name}
             </h3>
             <span className="text-xs text-muted-foreground">
@@ -991,14 +1003,14 @@ function ContractorCard({
             </span>
             <OrderTypeBadge type={cardOrderType} />
             {expiringWarn && (
-              <span className="text-xs text-orange-700 bg-orange-100 px-2 py-0.5 rounded flex items-center gap-1">
+              <span className="text-[11px] text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" />
                 kończy się za {contractor.days_to_latest_end} dni
               </span>
             )}
             {noCurrentOrder && (
               <span
-                className="text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded flex items-center gap-1"
+                className="text-[11px] text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded flex items-center gap-1"
                 title="Okres zamówienia minął, a umowa trwa — dodaj przedłużenie albo zakończ współpracę w module Kontrakty"
                 data-testid="no-active-order-note"
               >
@@ -1007,38 +1019,44 @@ function ContractorCard({
               </span>
             )}
           </div>
-          {/* Numer zamówienia (from the active order's title) */}
-          <div className="mt-1 text-sm">
-            <span className="text-muted-foreground">Numer zamówienia </span>
-            <InlineText
-              value={activeOrder?.title ?? ""}
-              display={
-                activeOrder ? (
-                  <span className="font-medium text-foreground">
-                    {activeOrder.title}
-                  </span>
-                ) : (
-                  <em className="text-muted-foreground">wpisz numer</em>
-                )
-              }
-              ariaLabel="Numer zamówienia"
-              editable={canManageOrders}
-              placeholder="np. 45767"
-              onError={onError}
-              onSave={async (raw) => {
-                if (!raw) throw new Error("Numer zamówienia nie może być pusty");
-                await saveOntoOrder({ title: raw }, { title: raw });
-                onSuccess("Numer zamówienia zaktualizowany");
-                onChange();
-              }}
-            />
-          </div>
-
-          {/* Finance + period row */}
-          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
+          {/* JEDNA zawijająca się linia meta: numer zamówienia, obie stawki,
+              [część umowy], okres i rekrutacja. Wcześniej były to CZTERY
+              osobne wiersze (`div` na numer, `div` na stawki+okres, `div` na
+              rekrutację), przez co kafelek rósł niezależnie od tego, ile
+              danych faktycznie niósł. Etykiety są skrócone (`nr zam.`,
+              `koszt.`, `przych.`), bo to one — nie wartości — wypychały
+              stawki do osobnych linii; pełne brzmienie zostaje w `title`
+              i w `ariaLabel` edytora, więc czytnik ekranu i testy nadal
+              dostają „Stawka kosztowa"/„Stawka przychodowa". */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-xs text-muted-foreground">
+            <span>
+              <span title="Numer zamówienia">nr zam. </span>
+              <InlineText
+                value={activeOrder?.title ?? ""}
+                display={
+                  activeOrder ? (
+                    <span className="font-medium text-foreground">
+                      {activeOrder.title}
+                    </span>
+                  ) : (
+                    <em className="text-muted-foreground">wpisz numer</em>
+                  )
+                }
+                ariaLabel="Numer zamówienia"
+                editable={canManageOrders}
+                placeholder="np. 45767"
+                onError={onError}
+                onSave={async (raw) => {
+                  if (!raw) throw new Error("Numer zamówienia nie może być pusty");
+                  await saveOntoOrder({ title: raw }, { title: raw });
+                  onSuccess("Numer zamówienia zaktualizowany");
+                  onChange();
+                }}
+              />
+            </span>
             {canViewFinance && (
-              <span>
-                stawka kosztowa{" "}
+              <span title="Stawka kosztowa">
+                koszt.{" "}
                 <InlineText
                   value={
                     displayedRateCandidate != null
@@ -1082,8 +1100,8 @@ function ContractorCard({
                 przychodowej i wyglądała, jakby tej drugiej u tego klienta nie
                 było wcale. */}
             {canViewFinance && (
-              <span>
-                stawka przychodowa{" "}
+              <span title="Stawka przychodowa">
+                przych.{" "}
                 <InlineText
                   value={
                     activeOrder?.rate_client != null
@@ -1178,22 +1196,23 @@ function ContractorCard({
                 onChange();
               }}
             />
-          </div>
-
-          {/* Rekrutacja, z której wyszedł ten kontraktor. Dane przychodzą
-              z `/orders` od dawna (`initial_job_title`) — wcześniejszy ticket
-              zdjął tylko render, obecny go przywraca. */}
-          {contractor.initial_job_title && (
-            <div className="mt-1 text-xs text-muted-foreground">
-              z rekrutacji:{" "}
-              <span className="text-foreground">
-                {contractor.initial_job_title}
+            {/* Rekrutacja, z której wyszedł ten kontraktor. Dane przychodzą
+                z `/orders` od dawna (`initial_job_title`) — wcześniejszy ticket
+                zdjął tylko render, obecny go przywraca. Siedzi w tej samej
+                zawijającej się linii co reszta meta: własny `div` dokładał
+                kafelkowi wiersz nawet wtedy, gdy obok było mnóstwo miejsca. */}
+            {contractor.initial_job_title && (
+              <span>
+                z rekrutacji:{" "}
+                <span className="text-foreground">
+                  {contractor.initial_job_title}
+                </span>
               </span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           {/* Bez `activeOrder &&` — kontraktor bez zamówienia też musi mieć
               czym je założyć; dialog otwiera się pusty, a POST leci dopiero
               przy zapisie. */}
@@ -1202,9 +1221,9 @@ function ContractorCard({
               <CompleteOrderButton onClick={() => openOrderDialog(activeOrder)} />
               <button
                 onClick={onExtend}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-violet-600 text-white rounded hover:bg-violet-700"
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-violet-600 text-white rounded hover:bg-violet-700"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3.5 h-3.5" />
                 Dodaj przedłużenie
               </button>
             </>
@@ -1218,9 +1237,9 @@ function ContractorCard({
           {canManageOrders && activeOrder && canCloseActiveOrder && (
             <button
               onClick={() => onCloseOrder(activeOrder)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-foreground border border-border rounded hover:bg-muted"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted"
             >
-              <CalendarX className="w-4 h-4" />
+              <CalendarX className="w-3.5 h-3.5" />
               Zakończ zamówienie
             </button>
           )}
@@ -1229,9 +1248,9 @@ function ContractorCard({
           {canTerminateContractor(contractor.contract_status) && (
             <button
               onClick={onTerminate}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-destructive border border-destructive/40 rounded hover:bg-destructive/10"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-3.5 h-3.5" />
               Zakończ współpracę
             </button>
           )}
