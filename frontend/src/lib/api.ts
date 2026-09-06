@@ -262,9 +262,7 @@ function isRetryable(err: AxiosError, method: string): boolean {
 api.interceptors.response.use(
   (res) => res,
   async (err: AxiosError) => {
-    const config = err.config as
-      | (typeof err.config & RetryableConfig)
-      | undefined;
+    const config = err.config as (typeof err.config & RetryableConfig) | undefined;
     if (!config) return Promise.reject(err);
 
     const attempts = config._transientRetryCount ?? 0;
@@ -278,7 +276,7 @@ api.interceptors.response.use(
     const delay = TRANSIENT_RETRY_BASE_MS * Math.pow(2, attempts);
     await new Promise((r) => setTimeout(r, delay));
     return api.request(config);
-  },
+  }
 );
 
 // Session-expired auto-redirect.
@@ -328,8 +326,7 @@ function triggerSessionExpiredRedirect(): void {
 // untouched and still handled in place by the component.
 function isMissingCredentials403(err: AxiosError): boolean {
   if (err.response?.status !== 403) return false;
-  const detail = (err.response.data as { detail?: unknown } | undefined)
-    ?.detail;
+  const detail = (err.response.data as { detail?: unknown } | undefined)?.detail;
   return typeof detail === "string" && detail.trim() === "Not authenticated";
 }
 
@@ -493,7 +490,11 @@ export const clientTeamApi = {
     api.get<ClientTeamResponse>(`/api/clients/${clientId}/team`),
   addTac: (clientId: number, payload: ClientTacAssignmentInput) =>
     api.post(`/api/clients/${clientId}/tacs`, payload),
-  removeTac: (clientId: number, userId: number, successorClientId?: number) =>
+  removeTac: (
+    clientId: number,
+    userId: number,
+    successorClientId?: number,
+  ) =>
     api.delete(`/api/clients/${clientId}/tacs/${userId}`, {
       params:
         successorClientId === undefined
@@ -505,7 +506,10 @@ export const clientTeamApi = {
     userId: number,
     payload: ClientTacFirstPriorityInput,
   ) =>
-    api.put(`/api/clients/${clientId}/tacs/${userId}/first-priority`, payload),
+    api.put(
+      `/api/clients/${clientId}/tacs/${userId}/first-priority`,
+      payload,
+    ),
 };
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -591,18 +595,15 @@ export interface CandidateExperienceEntry {
 }
 
 export const candidatesApi = {
-  list: (params?: Record<string, unknown>) =>
-    api.get("/api/candidates", { params }),
+  list: (params?: Record<string, unknown>) => api.get("/api/candidates", { params }),
   get: (id: number) => api.get(`/api/candidates/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/candidates", data),
-  update: (id: number, data: Record<string, unknown>) =>
-    api.patch(`/api/candidates/${id}`, data),
+  update: (id: number, data: Record<string, unknown>) => api.patch(`/api/candidates/${id}`, data),
   delete: (id: number) => api.delete(`/api/candidates/${id}`),
   getTimeline: (id: number, limit = 50) =>
     api.get(`/api/candidates/${id}/timeline?limit=${limit}`),
   getHistory: (id: number) => api.get(`/api/candidates/${id}/history`),
-  search: (body: Record<string, unknown>) =>
-    api.post("/api/search/candidates", body),
+  search: (body: Record<string, unknown>) => api.post("/api/search/candidates", body),
   // Stawka do klienta (sell rate) dla konkretnej rekrutacji. rate_value=null
   // czyści stawkę. Zapis ląduje na najnowszym etapie tej (candidate, job).
   setRecruitmentClientRate: (
@@ -803,10 +804,8 @@ export const adminApi = {
    *  usera. Zwraca jego autorytatywny profil (UserResponse) + zapisuje audyt.
    *  Faktyczna podmiana danych dzieje się przez nagłówek X-Impersonate-User-Id. */
   startImpersonation: (id: number) => api.post(`/api/admin/impersonate/${id}`),
-  createUser: (data: Record<string, unknown>) =>
-    api.post("/api/admin/users", data),
-  updateUser: (id: number, data: Record<string, unknown>) =>
-    api.put(`/api/admin/users/${id}`, data),
+  createUser: (data: Record<string, unknown>) => api.post("/api/admin/users", data),
+  updateUser: (id: number, data: Record<string, unknown>) => api.put(`/api/admin/users/${id}`, data),
   deactivateUser: (id: number) => api.delete(`/api/admin/users/${id}`),
   resetPassword: (id: number, new_password: string) =>
     api.post(`/api/admin/users/${id}/reset-password`, { new_password }),
@@ -841,7 +840,9 @@ export const adminApi = {
       {
         revision,
         changes,
-        ...(actionChanges.length > 0 ? { action_changes: actionChanges } : {}),
+        ...(actionChanges.length > 0
+          ? { action_changes: actionChanges }
+          : {}),
       },
     ),
   updateUserSectionPermissions: (
@@ -855,7 +856,9 @@ export const adminApi = {
       {
         revision,
         changes,
-        ...(actionChanges.length > 0 ? { action_changes: actionChanges } : {}),
+        ...(actionChanges.length > 0
+          ? { action_changes: actionChanges }
+          : {}),
       },
     ),
 };
@@ -865,15 +868,11 @@ export const postingsApi = {
   list: (jobId: number) => api.get(`/api/jobs/${jobId}/postings`),
   create: (jobId: number, data: { portal: string; expires_days?: number }) =>
     api.post(`/api/jobs/${jobId}/postings`, data),
-  update: (
-    id: number,
-    data: { status?: string; views?: number; applications?: number },
-  ) => api.put(`/api/postings/${id}`, data),
+  update: (id: number, data: { status?: string; views?: number; applications?: number }) =>
+    api.put(`/api/postings/${id}`, data),
   delete: (id: number) => api.delete(`/api/postings/${id}`),
-  publishAll: (
-    jobId: number,
-    data: { portals: string[]; expires_days?: number },
-  ) => api.post(`/api/jobs/${jobId}/publish-all`, data),
+  publishAll: (jobId: number, data: { portals: string[]; expires_days?: number }) =>
+    api.post(`/api/jobs/${jobId}/publish-all`, data),
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────────
@@ -1117,8 +1116,7 @@ export const talentPoolsApi = {
   removeCandidate: (poolId: number, candidateId: number) =>
     api.delete(`/api/talent-pools/${poolId}/remove/${candidateId}`),
   deletePool: (poolId: number) => api.delete(`/api/talent-pools/${poolId}`),
-  getCandidates: (poolId: number) =>
-    api.get(`/api/talent-pools/${poolId}/candidates`),
+  getCandidates: (poolId: number) => api.get(`/api/talent-pools/${poolId}/candidates`),
   getPoolsForCandidate: (candidateId: number) =>
     api.get(`/api/talent-pools/for-candidate/${candidateId}`),
 };
@@ -1217,7 +1215,7 @@ export const marketplaceApi = {
     api.delete(`/api/marketplace/candidates/${candidateId}`),
   matches: (candidateId: number) =>
     api.get<MarketplaceMatchesResponse>(
-      `/api/marketplace/candidates/${candidateId}/matches`,
+      `/api/marketplace/candidates/${candidateId}/matches`
     ),
 };
 
@@ -1226,8 +1224,7 @@ export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
   get: (id: number) => api.get(`/api/jobs/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/jobs", data),
-  update: (id: number, data: Record<string, unknown>) =>
-    api.patch(`/api/jobs/${id}`, data),
+  update: (id: number, data: Record<string, unknown>) => api.patch(`/api/jobs/${id}`, data),
   delete: (id: number) => api.delete(`/api/jobs/${id}`),
   /** "Przekaż do searchu" — DL assigns a recruiter and starts the ranking.
    *  422 body carries `{ message, blockers: string[] }` when the recruitment
@@ -1274,8 +1271,7 @@ export const calendarApi = {
     mine_only?: boolean;
     limit?: number;
   }) => api.get("/api/calendar/events", { params }),
-  createEvent: (data: Record<string, unknown>) =>
-    api.post("/api/calendar/events", data),
+  createEvent: (data: Record<string, unknown>) => api.post("/api/calendar/events", data),
   getEvent: (id: number) => api.get(`/api/calendar/events/${id}`),
   updateEvent: (id: number, data: Record<string, unknown>) =>
     api.patch(`/api/calendar/events/${id}`, data),
@@ -1466,13 +1462,7 @@ export interface ContractGroupMember {
   id: number;
   client_id: number;
   client_name: string | null;
-  status:
-    | "draft"
-    | "ready_for_signature"
-    | "active"
-    | "ending"
-    | "ended"
-    | "void";
+  status: "draft" | "ready_for_signature" | "active" | "ending" | "ended" | "void";
   contract_type: "b2b" | "uop" | "uzlecenie";
   start_date: string | null;
   end_date: string | null;
@@ -1492,30 +1482,21 @@ export interface ContractSiblingRef {
   id: number;
   client_id: number;
   client_name: string | null;
-  status:
-    | "draft"
-    | "ready_for_signature"
-    | "active"
-    | "ending"
-    | "ended"
-    | "void";
+  status: "draft" | "ready_for_signature" | "active" | "ending" | "ended" | "void";
   contract_type: "b2b" | "uop" | "uzlecenie";
   start_date: string | null;
   end_date: string | null;
 }
 
 export const contractsApi = {
-  list: (params?: Record<string, unknown>) =>
-    api.get("/api/contracts", { params }),
+  list: (params?: Record<string, unknown>) => api.get("/api/contracts", { params }),
   get: (id: number) => api.get(`/api/contracts/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/contracts", data),
-  update: (id: number, data: Record<string, unknown>) =>
-    api.patch(`/api/contracts/${id}`, data),
+  update: (id: number, data: Record<string, unknown>) => api.patch(`/api/contracts/${id}`, data),
   delete: (id: number) => api.delete(`/api/contracts/${id}`),
   forceDeleteSigned: (id: number, confirmation: string) =>
     api.post(`/api/contracts/${id}/force-delete-signed`, { confirmation }),
-  expiring: (days?: number) =>
-    api.get("/api/contracts/expiring", { params: days ? { days } : undefined }),
+  expiring: (days?: number) => api.get("/api/contracts/expiring", { params: days ? { days } : undefined }),
   activities: (id: number) => api.get(`/api/contracts/${id}/activities`),
   rateHistory: (id: number) => api.get(`/api/contracts/${id}/rate-history`),
   documents: (id: number) => api.get(`/api/contracts/${id}/documents`),
@@ -1559,18 +1540,18 @@ export const contractsApi = {
 // endpoint or an env-injected build flag — Phase 2 just hides the button when
 // the request returns 404 / 503).
 
-export type AutentiSignatureType = "SES" | "AdES" | "QES";
+export type AutentiSignatureType ="SES" | "AdES" | "QES";
 
 export type SignatureStatus =
-  | "draft"
-  | "sending"
-  | "sent"
-  | "in_progress"
-  | "completed"
-  | "rejected"
-  | "withdrawn"
-  | "failed"
-  | "expired";
+  |"draft"
+  |"sending"
+  |"sent"
+  |"in_progress"
+  |"completed"
+  |"rejected"
+  |"withdrawn"
+  |"failed"
+  |"expired";
 
 export interface DocumentSignatureEvent {
   id: number;
@@ -1632,7 +1613,9 @@ export const autentiApi = {
       `/api/autenti/contracts/${contractId}/signatures`,
     ),
   get: (signatureId: number) =>
-    api.get<DocumentSignatureDetail>(`/api/autenti/signatures/${signatureId}`),
+    api.get<DocumentSignatureDetail>(
+      `/api/autenti/signatures/${signatureId}`,
+    ),
   withdraw: (signatureId: number) =>
     api.post<DocumentSignature>(
       `/api/autenti/signatures/${signatureId}/withdraw`,
@@ -2276,31 +2259,16 @@ export const pipelineTemplatesApi = {
     api.get<PipelineTemplateSummary[]>("/api/pipeline-templates", {
       params: { include_archived },
     }),
-  get: (id: number) =>
-    api.get<PipelineTemplateDetail>(`/api/pipeline-templates/${id}`),
-  create: (data: {
-    name: string;
-    description?: string;
-    is_default?: boolean;
-  }) => api.post<PipelineTemplateDetail>("/api/pipeline-templates", data),
-  update: (
-    id: number,
-    data: Partial<{
-      name: string;
-      description: string;
-      is_default: boolean;
-      archived: boolean;
-    }>,
-  ) => api.patch(`/api/pipeline-templates/${id}`, data),
+  get: (id: number) => api.get<PipelineTemplateDetail>(`/api/pipeline-templates/${id}`),
+  create: (data: { name: string; description?: string; is_default?: boolean }) =>
+    api.post<PipelineTemplateDetail>("/api/pipeline-templates", data),
+  update: (id: number, data: Partial<{ name: string; description: string; is_default: boolean; archived: boolean }>) =>
+    api.patch(`/api/pipeline-templates/${id}`, data),
   archive: (id: number) => api.delete(`/api/pipeline-templates/${id}`),
   clone: (id: number, newName: string) =>
-    api.post<PipelineTemplateDetail>(
-      `/api/pipeline-templates/${id}/clone`,
-      null,
-      {
-        params: { new_name: newName },
-      },
-    ),
+    api.post<PipelineTemplateDetail>(`/api/pipeline-templates/${id}/clone`, null, {
+      params: { new_name: newName },
+    }),
   addStage: (
     id: number,
     data: {
@@ -2309,7 +2277,7 @@ export const pipelineTemplatesApi = {
       category: "internal" | "external" | "terminal";
       is_terminal?: boolean;
       terminal_type?: "hired" | "rejected" | "withdrawn" | null;
-    },
+    }
   ) => api.post<StageDef>(`/api/pipeline-templates/${id}/stages`, data),
   updateStage: (id: number, stageId: number, data: Partial<StageDef>) =>
     api.patch(`/api/pipeline-templates/${id}/stages/${stageId}`, data),
@@ -2319,37 +2287,21 @@ export const pipelineTemplatesApi = {
     api.delete(`/api/pipeline-templates/${id}/stages/${stageId}`),
   addRejectionReason: (
     id: number,
-    data: {
-      name: string;
-      category: "hired" | "rejected" | "withdrawn";
-      order?: number;
-      stage_def_id?: number | null;
-    },
-  ) =>
-    api.post<RejectionReasonDef>(
-      `/api/pipeline-templates/${id}/rejection-reasons`,
-      data,
-    ),
+    data: { name: string; category: "hired" | "rejected" | "withdrawn"; order?: number; stage_def_id?: number | null }
+  ) => api.post<RejectionReasonDef>(`/api/pipeline-templates/${id}/rejection-reasons`, data),
   updateRejectionReason: (
     id: number,
     reasonId: number,
-    data: {
-      name?: string;
-      order?: number;
-      active?: boolean;
-      disqualifies_person?: boolean;
-    },
+    data: { name?: string; order?: number; active?: boolean; disqualifies_person?: boolean }
   ) =>
     api.patch<RejectionReasonDef>(
       `/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`,
-      data,
+      data
     ),
   deactivateRejectionReason: (id: number, reasonId: number) =>
     api.delete(`/api/pipeline-templates/${id}/rejection-reasons/${reasonId}`),
   assignToJob: (jobId: number, templateId: number) =>
-    api.post(`/api/pipeline-templates/assign-to-job/${jobId}`, {
-      template_id: templateId,
-    }),
+    api.post(`/api/pipeline-templates/assign-to-job/${jobId}`, { template_id: templateId }),
 };
 
 // ── Pipeline stages (server-driven) ──────────────────────────────────────────
@@ -2578,10 +2530,8 @@ export interface ConflictRow {
 export const phase5Api = {
   diagnostics: () => api.get("/api/embed-diagnostics"),
   initCollections: () => api.post("/api/embed-init"),
-  clientsLookup: () =>
-    api.get<{ id: number; name: string }[]>("/api/clients-lookup"),
-  jobsLookup: () =>
-    api.get<{ id: number; title: string }[]>("/api/jobs-lookup"),
+  clientsLookup: () => api.get<{ id: number; name: string }[]>("/api/clients-lookup"),
+  jobsLookup: () => api.get<{ id: number; title: string }[]>("/api/jobs-lookup"),
   rateHistory: {
     list: (candidateId: number) =>
       api.get<RateHistoryRow[]>(`/api/candidates/${candidateId}/rate-history`),
@@ -2597,11 +2547,7 @@ export const phase5Api = {
         job_id?: number | null;
         notes?: string | null;
       },
-    ) =>
-      api.post<RateHistoryRow>(
-        `/api/candidates/${candidateId}/rate-history`,
-        data,
-      ),
+    ) => api.post<RateHistoryRow>(`/api/candidates/${candidateId}/rate-history`, data),
     delete: (rateId: number) => api.delete(`/api/rate-history/${rateId}`),
   },
   conflicts: {
@@ -2617,8 +2563,7 @@ export const phase5Api = {
         reason?: string;
         expires_at?: string;
       },
-    ) =>
-      api.post<ConflictRow>(`/api/candidates/${candidateId}/conflicts`, data),
+    ) => api.post<ConflictRow>(`/api/candidates/${candidateId}/conflicts`, data),
     deactivate: (conflictId: number) =>
       api.patch(`/api/conflicts/${conflictId}/deactivate`),
   },
@@ -2626,11 +2571,9 @@ export const phase5Api = {
 
 export const phase3Api = {
   getScorecardSchema: (stageDefId: number) =>
-    api.get<{
-      stage_def_id: number;
-      stage_name: string;
-      schema: ScorecardSchema;
-    }>(`/api/pipeline-stages/${stageDefId}/scorecard`),
+    api.get<{ stage_def_id: number; stage_name: string; schema: ScorecardSchema }>(
+      `/api/pipeline-stages/${stageDefId}/scorecard`,
+    ),
   setScorecardSchema: (stageDefId: number, schema: ScorecardSchema) =>
     api.put(`/api/pipeline-stages/${stageDefId}/scorecard`, schema),
   submitAnswers: (
@@ -2643,8 +2586,7 @@ export const phase3Api = {
       notes?: string;
     },
   ) => api.patch(`/api/pipeline/${candidateStageId}/scorecard`, data),
-  slaAlerts: () =>
-    api.get<{ count: number; alerts: unknown[] }>("/api/pipeline/overview-sla"),
+  slaAlerts: () => api.get<{ count: number; alerts: unknown[] }>("/api/pipeline/overview-sla"),
   candidatePipelines: (candidateId: number) =>
     api.get<{
       candidate_id: number;
@@ -2653,13 +2595,9 @@ export const phase3Api = {
       pipelines: CandidatePipelineRow[];
     }>(`/api/candidates/${candidateId}/pipelines`),
   funnel: (templateId?: number) =>
-    api.get("/api/reports/funnel", {
-      params: templateId ? { template_id: templateId } : {},
-    }),
+    api.get("/api/reports/funnel", { params: templateId ? { template_id: templateId } : {} }),
   timeToHire: (daysLookback = 180) =>
-    api.get("/api/reports/time-to-hire", {
-      params: { days_lookback: daysLookback },
-    }),
+    api.get("/api/reports/time-to-hire", { params: { days_lookback: daysLookback } }),
   embedAllJobs: (limit = 200) =>
     api.post("/api/jobs/embed-all", null, { params: { limit } }),
 };
@@ -2899,9 +2837,7 @@ export const b2bGeneratorApi = {
       })
       .then((r) => r.data),
   updateRole: (id: number, body: Partial<B2BRole>) =>
-    api
-      .patch<B2BRole>(`/api/b2b-generator/roles/${id}`, body)
-      .then((r) => r.data),
+    api.patch<B2BRole>(`/api/b2b-generator/roles/${id}`, body).then((r) => r.data),
   generate: (body: B2BGeneratePayload) =>
     api
       .post<B2BGenerateResult>("/api/b2b-generator/generate", body)
@@ -2913,11 +2849,9 @@ export const b2bGeneratorApi = {
     }),
   nextNumber: () =>
     api
-      .get<{
-        contract_number: string;
-        year: number;
-        seq: number;
-      }>("/api/b2b-generator/next-number")
+      .get<{ contract_number: string; year: number; seq: number }>(
+        "/api/b2b-generator/next-number",
+      )
       .then((r) => r.data),
   renderDocx: (body: B2BRenderPayload) =>
     api.post("/api/b2b-generator/render", body, {
@@ -2926,10 +2860,11 @@ export const b2bGeneratorApi = {
     }),
   renderHtml: (body: B2BRenderPayload) =>
     api
-      .post<{
-        html: string;
-        contract_number: string | null;
-      }>("/api/b2b-generator/render", body, { params: { format: "html" } })
+      .post<{ html: string; contract_number: string | null }>(
+        "/api/b2b-generator/render",
+        body,
+        { params: { format: "html" } },
+      )
       .then((r) => r.data),
   companyLookup: (params: { nip?: string; krs?: string }) =>
     api
@@ -2981,9 +2916,9 @@ export const b2bGeneratorApi = {
       .then((r) => r.data),
   statusHistory: (id: number) =>
     api
-      .get<
-        B2BStatusEvent[]
-      >(`/api/b2b-generator/generated/${id}/status-history`)
+      .get<B2BStatusEvent[]>(
+        `/api/b2b-generator/generated/${id}/status-history`,
+      )
       .then((r) => r.data),
   updateGenerated: (id: number, body: B2BGeneratedContractUpdate) =>
     api
@@ -2998,7 +2933,10 @@ export const b2bGeneratorApi = {
     api.get(`/api/b2b-generator/generated/${id}/docx`, {
       responseType: "blob",
     }),
-  confirmFullySigned: (id: number, body: B2BConfirmFullySignedRequest = {}) =>
+  confirmFullySigned: (
+    id: number,
+    body: B2BConfirmFullySignedRequest = {},
+  ) =>
     api
       .post<B2BConfirmFullySignedResult>(
         `/api/b2b-generator/generated/${id}/confirm-fully-signed`,
@@ -3019,7 +2957,9 @@ export const b2bGeneratorApi = {
 };
 
 export type B2BSignatureStatus = "unsigned" | "signed_both";
-export type B2BSignatureSource = "manual_confirmation" | "validated_upload";
+export type B2BSignatureSource =
+  | "manual_confirmation"
+  | "validated_upload";
 
 /**
  * Status handlowy umowy — niezależny od `B2BSignatureStatus`.
@@ -3225,12 +3165,8 @@ export const matchHistoryApi = {
     api.get<MatchHistoryRow[]>(`/api/match-history/${jobId}/${candidateId}`, {
       params: { limit },
     }),
-  log: (data: {
-    job_id: number;
-    candidate_id: number;
-    total_score: number;
-    breakdown?: ScoreBreakdown;
-  }) => api.post("/api/match-history", data),
+  log: (data: { job_id: number; candidate_id: number; total_score: number; breakdown?: ScoreBreakdown }) =>
+    api.post("/api/match-history", data),
 };
 
 // ── Historical candidates (Phase 14 — from similar past jobs) ──────────────
@@ -3238,7 +3174,11 @@ export const matchHistoryApi = {
 export type HistoricalTier = "A" | "B";
 // „degraded" to nie próg podobieństwa, tylko odpowiedź „nie wiem": wyszukiwanie
 // podobnych ofert nie odpowiedziało, więc pusta lista NIE znaczy braku historii.
-export type HistoricalTierUsed = "primary" | "extended" | "empty" | "degraded";
+export type HistoricalTierUsed =
+  | "primary"
+  | "extended"
+  | "empty"
+  | "degraded";
 export type HistoricalAvailability = "available" | "busy" | "unknown";
 
 export interface HistoricalSource {
@@ -3381,7 +3321,10 @@ export const requestHistoryApi = {
       params: opts,
     }),
   preview: (body: RequestHistoryPreviewBody) =>
-    api.post<RequestHistoryResponse>("/api/jobs/request-history/preview", body),
+    api.post<RequestHistoryResponse>(
+      "/api/jobs/request-history/preview",
+      body,
+    ),
   addCandidate: (
     jobId: number,
     body: { candidate_id: number; source_job_id?: number | null },
@@ -3420,29 +3363,26 @@ export const recommendationsApi = {
       /** Optional for one-release compatibility with older backends. */
       meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/recommendations`, { params: opts }),
-  forCandidate: (
-    candidateId: number,
-    opts?: { top_k?: number; include_breakdown?: boolean },
-  ) =>
+  forCandidate: (candidateId: number, opts?: { top_k?: number; include_breakdown?: boolean }) =>
     api.get<{
       candidate_id: number;
       candidate_name: string;
       matches: JobMatch[];
       meta?: RecommendationMeta;
-    }>(`/api/candidates/${candidateId}/recommendations`, { params: opts }),
+    }>(
+      `/api/candidates/${candidateId}/recommendations`,
+      { params: opts },
+    ),
   // Cztery wywołania poniżej liczą po stronie modelu (kryteria, klasyfikacja
   // technologii) albo przeliczają scoring całej puli, a użytkownik czeka na
   // wynik przy otwartym ekranie — 120 s zamiast domyślnych 30 s instancji
   // (uzasadnienie: `lib/http-timeouts.ts`).
   refreshCriteria: (jobId: number) =>
-    api.post<{
-      job_id: number;
-      must_skills: unknown;
-      nice_skills: unknown;
-      criteria_generated_at: string;
-    }>(`/api/jobs/${jobId}/refresh-criteria`, undefined, {
-      timeout: SLOW_ENDPOINT_TIMEOUT_MS,
-    }),
+    api.post<{ job_id: number; must_skills: unknown; nice_skills: unknown; criteria_generated_at: string }>(
+      `/api/jobs/${jobId}/refresh-criteria`,
+      undefined,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+    ),
   previewCriteria: (jobId: number) =>
     api.post<{
       job_id: number;
@@ -3474,10 +3414,7 @@ export const recommendationsApi = {
     ),
   // Oba zwracają wygenerowaną przez LLM treść, na którą użytkownik patrzy
   // w oknie — dlatego 120 s (patrz `lib/http-timeouts.ts`).
-  sendCandidateShortlistEmail: (payload: {
-    candidate_id: number;
-    job_ids: number[];
-  }) =>
+  sendCandidateShortlistEmail: (payload: { candidate_id: number; job_ids: number[] }) =>
     api.post<ShortlistEmailDraftResponse>(
       "/api/recommendations/send-candidate-shortlist-email",
       payload,
@@ -3645,11 +3582,7 @@ export interface CvUploadPreviewResponse {
     city: string | null;
     current_position: string | null;
     years_it_experience: number | null;
-    skills: Array<{
-      name?: string;
-      level?: string | null;
-      years?: number | null;
-    }>;
+    skills: Array<{ name?: string; level?: string | null; years?: number | null }>;
     languages: Array<{ name?: string; level?: string | null }>;
     linkedin_url: string | null;
     source: string | null;
@@ -3735,17 +3668,11 @@ export const proposalsApi = {
       total: number;
       page: number;
       page_size: number;
-    }>(`/api/jobs/${jobId}/proposals`, {
-      params: { page, page_size: pageSize },
-    }),
+    }>(`/api/jobs/${jobId}/proposals`, { params: { page, page_size: pageSize } }),
   regenerate: (jobId: number, topK = 20) =>
-    api.post<ProposalSnapshot>(
-      `/api/jobs/${jobId}/proposals/regenerate`,
-      null,
-      {
-        params: { top_k: topK },
-      },
-    ),
+    api.post<ProposalSnapshot>(`/api/jobs/${jobId}/proposals/regenerate`, null, {
+      params: { top_k: topK },
+    }),
 };
 
 // ── Skill taxonomy (Phase B1) ───────────────────────────────────────────────
@@ -3763,12 +3690,7 @@ export const skillsApi = {
     }),
   list: (limit = 100) =>
     api.get<{
-      items: Array<{
-        id: number;
-        name: string;
-        category: string | null;
-        aliases: string[];
-      }>;
+      items: Array<{ id: number; name: string; category: string | null; aliases: string[] }>;
       total: number;
     }>("/api/skills", { params: { limit } }),
 };
@@ -4038,18 +3960,15 @@ export const championApi = {
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
   put: (jobId: number, profile: ChampionProfile) =>
-    api.put<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile`,
-      profile,
-    ),
+    api.put<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`, profile),
   verify: (jobId: number, payload: ChampionVerificationRequest) =>
     api.post<ChampionProfileResponse>(
       `/api/jobs/${jobId}/champion-profile/verification`,
-      payload,
+      payload
     ),
   consultantSuggestions: (jobId: number) =>
     api.get<ChampionConsultantSuggestion[]>(
-      `/api/jobs/${jobId}/champion-profile/consultant-suggestions`,
+      `/api/jobs/${jobId}/champion-profile/consultant-suggestions`
     ),
   // Synchroniczne wywołanie Claude w requeście — z map-reduce transkryptu
   // (jeden sekwencyjny call na 30k znaków), więc sufit CRUD-a 30 s realnego
@@ -4060,30 +3979,30 @@ export const championApi = {
     api.post<ChampionProfileResponse & { suggestion_id?: number | null }>(
       `/api/jobs/${jobId}/champion-profile/briefing`,
       { note_id: noteId, enrich },
-      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
   clearBriefing: (jobId: number) =>
     api.delete<ChampionProfileResponse>(
-      `/api/jobs/${jobId}/champion-profile/briefing`,
+      `/api/jobs/${jobId}/champion-profile/briefing`
     ),
   briefingAudioUrl: (jobId: number) =>
     api.get<{ url: string }>(
-      `/api/jobs/${jobId}/champion-profile/briefing/audio-url`,
+      `/api/jobs/${jobId}/champion-profile/briefing/audio-url`
     ),
   generateRecommendedSearches: (jobId: number) =>
     api.post<ChampionProfileResponse>(
       `/api/jobs/${jobId}/champion-profile/recommended-searches/generate`,
       undefined,
-      { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
   decideRecommendedSearch: (
     jobId: number,
     searchId: string,
-    action: "approve" | "reject" | "reset",
+    action: "approve" | "reject" | "reset"
   ) =>
     api.post<ChampionProfileResponse>(
       `/api/jobs/${jobId}/champion-profile/recommended-searches/decision`,
-      { search_id: searchId, action },
+      { search_id: searchId, action }
     ),
 };
 
@@ -4196,9 +4115,7 @@ export const championSuggestionsApi = {
     );
   },
   get: (suggestionId: number) =>
-    api.get<ChampionProfileSuggestion>(
-      `/api/champion-suggestions/${suggestionId}`,
-    ),
+    api.get<ChampionProfileSuggestion>(`/api/champion-suggestions/${suggestionId}`),
   apply: (suggestionId: number, acceptedSections: ChampionSectionName[]) =>
     api.post<ChampionProfileSuggestion>(
       `/api/champion-suggestions/${suggestionId}/apply`,
@@ -4214,11 +4131,7 @@ export const championSuggestionsApi = {
   // modal works without changes.
   generateFromHistory: (
     jobId: number,
-    opts: {
-      topK?: number;
-      crossClient?: boolean;
-      rawDescription?: string;
-    } = {},
+    opts: { topK?: number; crossClient?: boolean; rawDescription?: string } = {},
   ) =>
     api.post<ChampionProfileSuggestion>(
       `/api/jobs/${jobId}/champion-profile/generate-from-history`,
@@ -4340,9 +4253,7 @@ export interface StageScreeningResponse {
 
 export const screeningApi = {
   getForStage: (stageId: number) =>
-    api.get<StageScreeningResponse>(
-      `/api/pipeline/stages/${stageId}/screening`,
-    ),
+    api.get<StageScreeningResponse>(`/api/pipeline/stages/${stageId}/screening`),
   submit: (stageId: number, answers: ScreeningAnswers) =>
     api.post<{
       stage_id: number;
@@ -4355,9 +4266,7 @@ export const screeningApi = {
       token: string;
       expires_at: string;
       share_url_suffix: string;
-    }>(
-      `/api/pipeline/stages/${stageId}/share-token?expires_in_days=${expiresInDays}`,
-    ),
+    }>(`/api/pipeline/stages/${stageId}/share-token?expires_in_days=${expiresInDays}`),
   revokeShareToken: (token: string) =>
     api.delete(`/api/pipeline/stages/share-token/${token}`),
 };
@@ -4519,12 +4428,7 @@ export const microsoft365Api = {
     api.get<EmailMessage>(`/api/emails/${emailId}`),
   compose: (
     candidateId: number,
-    payload: {
-      to: string[];
-      cc?: string[];
-      subject: string;
-      body_html: string;
-    },
+    payload: { to: string[]; cc?: string[]; subject: string; body_html: string },
   ) =>
     api.post<EmailMessage>(
       `/api/candidates/${candidateId}/emails/compose`,
@@ -4558,7 +4462,10 @@ export const microsoft365Api = {
     action: BulkEmailAction;
     candidate_id?: number;
   }) =>
-    api.post<BulkEmailActionResponse>("/api/microsoft365/emails/bulk", payload),
+    api.post<BulkEmailActionResponse>(
+      "/api/microsoft365/emails/bulk",
+      payload,
+    ),
   checkFreeBusy: (payload: {
     start: string;
     end: string;
@@ -4600,14 +4507,16 @@ export interface UserEmailTemplateRenderResponse {
 }
 
 export const userEmailTemplatesApi = {
-  list: () => api.get<UserEmailTemplate[]>("/api/user-email-templates"),
+  list: () =>
+    api.get<UserEmailTemplate[]>("/api/user-email-templates"),
   get: (id: number) =>
     api.get<UserEmailTemplate>(`/api/user-email-templates/${id}`),
   create: (data: UserEmailTemplateInput) =>
     api.post<UserEmailTemplate>("/api/user-email-templates", data),
   update: (id: number, data: Partial<UserEmailTemplateInput>) =>
     api.put<UserEmailTemplate>(`/api/user-email-templates/${id}`, data),
-  delete: (id: number) => api.delete<void>(`/api/user-email-templates/${id}`),
+  delete: (id: number) =>
+    api.delete<void>(`/api/user-email-templates/${id}`),
   render: (id: number, ctx: UserEmailTemplateRenderRequest) =>
     api.post<UserEmailTemplateRenderResponse>(
       `/api/user-email-templates/${id}/render`,
@@ -4752,10 +4661,8 @@ export const interviewQuestionsApi = {
   listForJob: (jobId: number) =>
     api.get<JobQuestionLink[]>(`/api/jobs/${jobId}/questions`),
 
-  pinToJob: (
-    jobId: number,
-    payload: { question_id: number; order_index?: number },
-  ) => api.post<JobQuestionLink>(`/api/jobs/${jobId}/questions/pin`, payload),
+  pinToJob: (jobId: number, payload: { question_id: number; order_index?: number }) =>
+    api.post<JobQuestionLink>(`/api/jobs/${jobId}/questions/pin`, payload),
 
   unpinFromJob: (jobId: number, questionId: number) =>
     api.delete(`/api/jobs/${jobId}/questions/${questionId}`),
@@ -4764,9 +4671,10 @@ export const interviewQuestionsApi = {
     jobId: number,
     items: { question_id: number; order_index: number }[],
   ) =>
-    api.patch<JobQuestionLink[]>(`/api/jobs/${jobId}/questions/reorder`, {
-      items,
-    }),
+    api.patch<JobQuestionLink[]>(
+      `/api/jobs/${jobId}/questions/reorder`,
+      { items },
+    ),
 
   /**
    * Zwraca kopertę `{ items, meta }`, nie gołą listę.
@@ -4823,7 +4731,9 @@ export const jobChatApi = {
   deleteMessage: (jobId: number, msgId: number) =>
     api.delete<void>(`/api/jobs/${jobId}/chat/messages/${msgId}`),
   pinMessage: (jobId: number, msgId: number) =>
-    api.post<ChatPinResponse>(`/api/jobs/${jobId}/chat/messages/${msgId}/pin`),
+    api.post<ChatPinResponse>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/pin`,
+    ),
   unpinMessage: (jobId: number, msgId: number) =>
     api.delete<ChatPinResponse>(
       `/api/jobs/${jobId}/chat/messages/${msgId}/pin`,
@@ -4848,7 +4758,9 @@ export const jobChatApi = {
     ),
   // Read receipts (Feature 9)
   getReadBy: (jobId: number, msgId: number) =>
-    api.get<ReadByUser[]>(`/api/jobs/${jobId}/chat/messages/${msgId}/read-by`),
+    api.get<ReadByUser[]>(
+      `/api/jobs/${jobId}/chat/messages/${msgId}/read-by`,
+    ),
 };
 
 // ── Candidate Chat (Feature 2) ───────────────────────────────────────────────
@@ -4870,11 +4782,7 @@ export const candidateChatApi = {
       `/api/candidates/${candidateId}/chat/messages`,
       data,
     ),
-  editMessage: (
-    candidateId: number,
-    msgId: number,
-    data: { content: string },
-  ) =>
+  editMessage: (candidateId: number, msgId: number, data: { content: string }) =>
     api.patch<CandidateChatMessage>(
       `/api/candidates/${candidateId}/chat/messages/${msgId}`,
       data,
@@ -4965,11 +4873,7 @@ export const stageNotificationRulesApi = {
     api.get<StageNotificationRule[]>(
       `/api/pipeline-templates/${templateId}/stages/${stageDefId}/notification-rules`,
     ),
-  create: (
-    templateId: number,
-    stageDefId: number,
-    data: StageNotificationRuleInput,
-  ) =>
+  create: (templateId: number, stageDefId: number, data: StageNotificationRuleInput) =>
     api.post<StageNotificationRule>(
       `/api/pipeline-templates/${templateId}/stages/${stageDefId}/notification-rules`,
       data,
@@ -5304,10 +5208,14 @@ export const oauthClientsApi = {
   list: () => api.get<OAuthClientDto[]>("/api/settings/oauth-clients"),
   scopes: () => api.get<ScopeInfoDto[]>("/api/settings/oauth-clients/scopes"),
   create: (payload: OAuthClientCreatePayload) =>
-    api.post<OAuthClientCreateResponse>("/api/settings/oauth-clients", payload),
+    api.post<OAuthClientCreateResponse>(
+      "/api/settings/oauth-clients",
+      payload,
+    ),
   update: (id: number, payload: OAuthClientUpdate) =>
     api.patch<OAuthClientDto>(`/api/settings/oauth-clients/${id}`, payload),
-  remove: (id: number) => api.delete<void>(`/api/settings/oauth-clients/${id}`),
+  remove: (id: number) =>
+    api.delete<void>(`/api/settings/oauth-clients/${id}`),
 };
 
 // ── Multi-source attribution (Traffit gap #4) ────────────────────────────────
@@ -5539,7 +5447,10 @@ export const entityFieldsApi = {
   create: (payload: EntityFieldDefCreatePayload) =>
     api.post<EntityFieldDefDto>("/api/settings/entity-fields", payload),
   update: (id: number, payload: EntityFieldDefUpdatePayload) =>
-    api.patch<EntityFieldDefDto>(`/api/settings/entity-fields/${id}`, payload),
+    api.patch<EntityFieldDefDto>(
+      `/api/settings/entity-fields/${id}`,
+      payload,
+    ),
 };
 
 export const dictionariesApi = {
@@ -5550,7 +5461,8 @@ export const dictionariesApi = {
     }),
 
   // Admin
-  list: () => api.get<DictionarySummaryDto[]>("/api/settings/dictionaries"),
+  list: () =>
+    api.get<DictionarySummaryDto[]>("/api/settings/dictionaries"),
   get: (slug: string) =>
     api.get<DictionaryDto>(`/api/settings/dictionaries/${slug}`),
   createItem: (slug: string, payload: DictionaryItemCreatePayload) =>
@@ -5762,8 +5674,7 @@ export const applicationSubmissionsApi = {
 };
 
 export const teamsChannelsApi = {
-  list: () =>
-    api.get<TeamsChannel[]>("/api/teams-channels").then((r) => r.data),
+  list: () => api.get<TeamsChannel[]>("/api/teams-channels").then((r) => r.data),
   create: (data: TeamsChannelCreateInput) =>
     api.post<TeamsChannel>("/api/teams-channels", data).then((r) => r.data),
   update: (id: number, data: TeamsChannelUpdateInput) =>
@@ -5819,7 +5730,12 @@ export const dynareporterApi = {
 
 // ── B.2.1 KPI Body Leasing ─────────────────────────────────────────────────
 
+
+
+
 // ── B.2.2 KPI Sales ────────────────────────────────────────────────────────
+
+
 
 // `dynareporterSalesApi` usunięty 2026-07-20 — obsługiwał wyłącznie stronę raportową,
 // której katalog został skasowany (następcą jest moduł Insights).
@@ -5889,7 +5805,7 @@ export type DrRekrutacjaDashboard = {
   // Liga Mistrzów aggregowana po kwartale (Apr-Jun for Q2 2026) niezależnie
   // od filtru `period`. DR pokazuje quarterly podium.
   league_ranking_quarterly: DrRekrutacjaTeamMember[];
-  quarter_label: string; // np. "Q2 2026"
+  quarter_label: string;  // np. "Q2 2026"
   quarter_start: string | null;
   quarter_end: string | null;
   /** Dni do końca kwartału (0 jeśli zakończony). */
@@ -5962,6 +5878,8 @@ export type DrDLTeamHistoryRow = {
   fill_rate: number;
 };
 
+
+
 // ============================================================
 // DynaReporter Rada Nadzorcza (Board) dashboard (Session 3 port)
 // ============================================================
@@ -6029,12 +5947,9 @@ export const dynareporterAdminApi = {
       .then((r) => r.data),
   uploadHistory: (limit = 50) =>
     api
-      .get<DrUploadHistoryRow[]>(
-        "/api/dynareporter/admin-dashboard/upload-history",
-        {
-          params: { limit },
-        },
-      )
+      .get<DrUploadHistoryRow[]>("/api/dynareporter/admin-dashboard/upload-history", {
+        params: { limit },
+      })
       .then((r) => r.data),
   auditLog: (limit = 100) =>
     api
@@ -6089,10 +6004,7 @@ export const dynareporterAdminConfigApi = {
 
 // === Admin HoF Manager (Session 3) ======================================
 export type DrHoFWinnerCreatePayload = {
-  competition_type:
-    | "quarterly"
-    | "monthly_recommendations"
-    | "monthly_placements";
+  competition_type: "quarterly" | "monthly_recommendations" | "monthly_placements";
   period: string;
   user_id: number;
   rank: 1 | 2 | 3;
@@ -6104,15 +6016,10 @@ export type DrHoFWinnerCreatePayload = {
 export const dynareporterAdminHofApi = {
   addWinner: (payload: DrHoFWinnerCreatePayload) =>
     api
-      .post<{
-        id: number;
-        ok: boolean;
-      }>("/api/dynareporter/admin-hof/winner", payload)
+      .post<{ id: number; ok: boolean }>("/api/dynareporter/admin-hof/winner", payload)
       .then((r) => r.data),
   deleteWinner: (winnerId: number) =>
-    api
-      .delete(`/api/dynareporter/admin-hof/winner/${winnerId}`)
-      .then((r) => r.data),
+    api.delete(`/api/dynareporter/admin-hof/winner/${winnerId}`).then((r) => r.data),
 };
 
 // === Admin Master Data Manager (Session 3) ==============================
@@ -6137,9 +6044,7 @@ export const dynareporterAdminMasterDataApi = {
       .then((r) => r.data),
   consultants: () =>
     api
-      .get<
-        DrAdminConsultantRow[]
-      >("/api/dynareporter/admin-master-data/consultants")
+      .get<DrAdminConsultantRow[]>("/api/dynareporter/admin-master-data/consultants")
       .then((r) => r.data),
   createClient: (payload: { name: string; is_active?: boolean }) =>
     api
@@ -6201,8 +6106,8 @@ export const dynareporterAdminMasterDataApi = {
 export type DrEmployeeRow = {
   id: number;
   email: string;
-  name: string; // Nexus users.name (single column)
-  first_name: string | null; // derived split (compat z DR)
+  name: string;  // Nexus users.name (single column)
+  first_name: string | null;  // derived split (compat z DR)
   last_name: string | null;
   role: string;
   department: string | null;
@@ -6260,23 +6165,24 @@ export const dynareporterAdminUsersApi = {
     },
   ) =>
     api
-      .post<{
-        ok: boolean;
-      }>(`/api/dynareporter/admin-users/employees/${userId}/seniority`, payload)
+      .post<{ ok: boolean }>(
+        `/api/dynareporter/admin-users/employees/${userId}/seniority`,
+        payload,
+      )
       .then((r) => r.data),
   toggleActive: (userId: number, isActive: boolean) =>
     api
-      .post<{
-        ok: boolean;
-        is_active: boolean;
-      }>(`/api/dynareporter/admin-users/employees/${userId}/active`, { is_active: isActive })
+      .post<{ ok: boolean; is_active: boolean }>(
+        `/api/dynareporter/admin-users/employees/${userId}/active`,
+        { is_active: isActive },
+      )
       .then((r) => r.data),
   updateAllowedSections: (userId: number, sections: string[]) =>
     api
-      .post<{
-        ok: boolean;
-        allowed_sections: string[];
-      }>(`/api/dynareporter/admin-users/employees/${userId}/allowed-sections`, { allowed_sections: sections })
+      .post<{ ok: boolean; allowed_sections: string[] }>(
+        `/api/dynareporter/admin-users/employees/${userId}/allowed-sections`,
+        { allowed_sections: sections },
+      )
       .then((r) => r.data),
   teamMembers: () =>
     api
@@ -6288,9 +6194,9 @@ export const dynareporterAdminUsersApi = {
       .then((r) => r.data),
   sourcerCategories: () =>
     api
-      .get<
-        DrSourcerCategoryAssignment[]
-      >("/api/dynareporter/admin-users/team/sourcer-categories")
+      .get<DrSourcerCategoryAssignment[]>(
+        "/api/dynareporter/admin-users/team/sourcer-categories",
+      )
       .then((r) => r.data),
   dlClients: () =>
     api
@@ -6302,18 +6208,17 @@ export const dynareporterAdminUsersApi = {
     is_head?: boolean;
   }) =>
     api
-      .post<{
-        id: number | null;
-        ok: boolean;
-      }>("/api/dynareporter/admin-users/dl-clients", payload)
+      .post<{ id: number | null; ok: boolean }>(
+        "/api/dynareporter/admin-users/dl-clients",
+        payload,
+      )
       .then((r) => r.data),
   patchDlClient: (assignmentId: number, isHead: boolean) =>
     api
-      .patch<{
-        id: number;
-        is_head: boolean;
-        ok: boolean;
-      }>(`/api/dynareporter/admin-users/dl-clients/${assignmentId}`, { is_head: isHead })
+      .patch<{ id: number; is_head: boolean; ok: boolean }>(
+        `/api/dynareporter/admin-users/dl-clients/${assignmentId}`,
+        { is_head: isHead },
+      )
       .then((r) => r.data),
   deleteDlClient: (assignmentId: number) =>
     api
@@ -6322,15 +6227,16 @@ export const dynareporterAdminUsersApi = {
   // === Recruitment Team — Categories + TAC-DL + Sourcer-Category CRUD ====
   competenceCategories: () =>
     api
-      .get<
-        DrCompetenceCategoryRow[]
-      >("/api/dynareporter/admin-users/team/categories")
+      .get<DrCompetenceCategoryRow[]>(
+        "/api/dynareporter/admin-users/team/categories",
+      )
       .then((r) => r.data),
   addTacDl: (payload: { tac_user_id: number; delivery_lead_user_id: number }) =>
     api
-      .post<{
-        ok: boolean;
-      }>("/api/dynareporter/admin-users/team/tac-dl", payload)
+      .post<{ ok: boolean }>(
+        "/api/dynareporter/admin-users/team/tac-dl",
+        payload,
+      )
       .then((r) => r.data),
   deleteTacDl: (tacUserId: number, dlUserId: number) =>
     api
@@ -6344,9 +6250,10 @@ export const dynareporterAdminUsersApi = {
     priority: number;
   }) =>
     api
-      .post<{
-        ok: boolean;
-      }>("/api/dynareporter/admin-users/team/sourcer-categories", payload)
+      .post<{ ok: boolean }>(
+        "/api/dynareporter/admin-users/team/sourcer-categories",
+        payload,
+      )
       .then((r) => r.data),
   deleteSourcerCategory: (userId: number, categoryId: number) =>
     api
@@ -6372,7 +6279,7 @@ export type DrCompetenceCategoryRow = {
 
 // Sub-sections: Hall of Fame, Yearly Stats, Monthly Race, Power Calling, LinkedIn
 export type DrHallOfFameEntry = {
-  id: number; // PK z dr_competition_winners — używane przez admin delete UI
+  id: number;  // PK z dr_competition_winners — używane przez admin delete UI
   competition_type:
     | "quarterly"
     | "monthly_recommendations"
@@ -6463,19 +6370,14 @@ export const dynareporterRekrutacjaApi = {
     year?: number;
   }) =>
     api
-      .get<DrRekrutacjaDashboard>("/api/dynareporter/rekrutacja/dashboard", {
-        params,
-      })
+      .get<DrRekrutacjaDashboard>("/api/dynareporter/rekrutacja/dashboard", { params })
       .then((r) => r.data),
 
   availableWeeks: (params?: { limit?: number }) =>
     api
-      .get<DrRekrutacjaAvailableWeek[]>(
-        "/api/dynareporter/rekrutacja/available-weeks",
-        {
-          params,
-        },
-      )
+      .get<DrRekrutacjaAvailableWeek[]>("/api/dynareporter/rekrutacja/available-weeks", {
+        params,
+      })
       .then((r) => r.data),
 
   hallOfFame: (limit = 100) =>
@@ -6504,12 +6406,9 @@ export const dynareporterRekrutacjaApi = {
 
   powerCalling: (params?: { week_number?: number; year?: number }) =>
     api
-      .get<DrPowerCallingEntry[]>(
-        "/api/dynareporter/rekrutacja/power-calling",
-        {
-          params,
-        },
-      )
+      .get<DrPowerCallingEntry[]>("/api/dynareporter/rekrutacja/power-calling", {
+        params,
+      })
       .then((r) => r.data),
 
   linkedinPerformance: (params: {
@@ -6519,9 +6418,10 @@ export const dynareporterRekrutacjaApi = {
     year?: number;
   }) =>
     api
-      .get<
-        DrLinkedInPerformanceRow[]
-      >("/api/dynareporter/rekrutacja/linkedin-performance", { params })
+      .get<DrLinkedInPerformanceRow[]>(
+        "/api/dynareporter/rekrutacja/linkedin-performance",
+        { params },
+      )
       .then((r) => r.data),
 
   accelerationPath: () =>

@@ -3,7 +3,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, RefreshCcw, TriangleAlert, Users } from "lucide-react";
-import { recommendationsApi, type SeekingContractorsParams } from "@/lib/api";
+import {
+  recommendationsApi,
+  type SeekingContractorsParams,
+} from "@/lib/api";
 import { Alert } from "@/components/ui/alert";
 import { ContractorMatchCard } from "./ContractorMatchCard";
 import { RecommendationFiltersBar } from "./RecommendationFiltersBar";
@@ -17,8 +20,7 @@ const DEFAULT_FILTERS: SeekingContractorsParams = {
 };
 
 export function SeekingContractorsBoard() {
-  const [filters, setFilters] =
-    useState<SeekingContractorsParams>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useState<SeekingContractorsParams>(DEFAULT_FILTERS);
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["seeking-contractors", filters],
