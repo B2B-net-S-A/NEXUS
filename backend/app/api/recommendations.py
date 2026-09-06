@@ -366,7 +366,22 @@ async def _recommend_candidates_core(
     # layer — persisting them would poison the shared score cache as "fresh"
     # long after the provider recovers (M3-CACHE-01), so cache writes are
     # disabled for this request.
-    semantic_degraded = not candidate_ids
+    #
+    # PUSTKA NIE JEST JEDYNYM KSZTAŁTEM DEGRADACJI. Fasada puli oddaje wiersze
+    # z `semantic_unknown`, gdy kosinusu nie zmierzono (padła dosypka po udanym
+    # BM25 albo kandydat nie ma wektora) — `score` wynosi wtedy 0.0, ale to
+    # „nie wiem", nie „zmierzono zero". Taka pula JEST niepusta, więc sam warunek
+    # `not candidate_ids` przepuszczał ją jako zdrową i zapisywał warstwę
+    # semantyczną 0/60 do cache'u jako wynik świeży — czyli dokładnie ten sam
+    # M3-CACHE-01, przed którym ta gałąź miała bronić.
+    semantic_unknown_ids = {
+        h["candidate_id"] for h in hits if h.get("semantic_unknown")
+    }
+    semantic_degraded = not candidate_ids or bool(semantic_unknown_ids)
+    # Kandydat bez ZMIERZONEGO kosinusu nie może dostać zera jako wartości —
+    # `score_semantic(None)` zna stan „brak pomiaru", `score_semantic(0.0)` nie.
+    for cid in semantic_unknown_ids:
+        similarity_map.pop(cid, None)
 
     # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
     # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.

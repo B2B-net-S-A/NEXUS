@@ -173,6 +173,13 @@ class SearchMeta(BaseModel):
     # the UI can say how many of them genuinely match. Empty when no such chip
     # was sent. Keys: "experience", "location".
     soft_match_counts: dict[str, int] = Field(default_factory=dict)
+    # True gdy tryb semantyczny obejrzał PEŁNĄ pulę retrievalu, czyli `total`
+    # jest sufitem puli, a nie liczbą pasujących osób w bazie. Bez tego pola
+    # przełączenie „Semantycznie" na zapytaniu ogólnym („java") zamieniało
+    # „11 091 wyników" w „200" i wyglądało jak utrata bazy, a nie jak
+    # „200 najtrafniejszych". Zawsze False w trybie boolowskim, gdzie `total`
+    # naprawdę zlicza całą bazę.
+    result_cap_reached: bool = False
 
 
 class CandidateSearchResponse(BaseModel):

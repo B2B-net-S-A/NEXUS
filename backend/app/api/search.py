@@ -54,6 +54,13 @@ from app.services.structured_candidate_search import (
 
 router = APIRouter()
 
+# Ile osób ogląda tryb semantyczny na jedno zapytanie. To jest SUFIT WYNIKU,
+# nie tylko szczegół retrievalu: `total` w trybie hybrydowym nigdy nie przekroczy
+# tej liczby, bo zbiór wynikowy jest przecięciem puli z filtrami. Zmiana tej
+# stałej zmienia więc to, co rekruter widzi jako „liczbę wyników" — i koszt
+# rerankera Voyage, który dostaje całą pulę przy każdym żądaniu strony.
+_HYBRID_POOL = 200
+
 
 def _can_read_section(user: Any, section: ProductSection) -> bool:
     """Non-raising section check for a mixed-entity search response."""
@@ -239,17 +246,40 @@ async def candidate_search_diagnostics(
         if count == 0 and first_zeroing is None:
             first_zeroing = key
 
-    # Free-text / boolean buckets (semantic/hybrid retrieval is not diagnosed).
+    # Free-text / boolean buckets.
     query_clauses: list[Any] = []
     boolean = build_advanced_filter(
         body.q_all, body.q_any, body.q_none, body.q_any_groups
     )
     if boolean is not None:
         query_clauses.append(boolean)
-    if q_text:
+
+    # Wodospad MUSI diagnozować TO zapytanie, które padło — a w trybie
+    # semantycznym (domyślnym w `CandidateSearchView`) tekstu NIE filtruje
+    # `websearch_to_tsquery`, tylko pula retrievalu. Do teraz obie ścieżki
+    # dostawały tu FTS, czyli KONIUNKCJĘ leksemów: „senior python architekt
+    # danych" pokazywało się jako etap zerujący i dostawało czerwony pasek
+    # „to ten filtr", choć prawdziwe wyszukiwanie tej klauzuli w ogóle nie
+    # użyło. Panel otwiera się WYŁĄCZNIE przy zerze wyników, więc to jedyny
+    # ekran, na którym rekruter szuka przyczyny — i był kierowany pod zły adres.
+    query_label = "Zapytanie tekstowe"
+    if q_text and body.search_mode == "hybrid":
+        from app.services.hybrid_search import hybrid_candidates  # noqa: PLC0415
+
+        # `use_rerank=False`: wodospad pyta o CZŁONKOSTWO puli, nie o kolejność,
+        # a przy `final_top_k == pool` reranker członkostwa nie zmienia. Ścieżka
+        # zerowego wyniku nie musi płacić za przestawianie 200 dokumentów.
+        pool = await hybrid_candidates(
+            db, q_text, pool=_HYBRID_POOL, final_top_k=_HYBRID_POOL, use_rerank=False
+        )
+        pool_ids = [cid for cid, _ in pool.pairs]
+        query_clauses.append(Candidate.id.in_(pool_ids) if pool_ids else text("false"))
+        query_label = "Zapytanie (dopasowanie semantyczne)"
+    elif q_text:
         query_clauses.append(_fts_clause(q_text))
+
     if query_clauses:
-        await step("query", "Zapytanie tekstowe", query_clauses)
+        await step("query", query_label, query_clauses)
 
     # Structured filters, cumulative, in group order.
     for group in build_filter_groups(body):
@@ -331,7 +361,7 @@ async def advanced_candidate_search(
         # Ścieżka OFERTOWA podaje terminy jawnie, bo tam „query" to dokument.
         # Nie ujednolicać tych dwóch wejść — to nie jest ta sama rzecz.
         hybrid = await hybrid_candidates(
-            db, q_text, pool=200, final_top_k=200, use_rerank=None
+            db, q_text, pool=_HYBRID_POOL, final_top_k=_HYBRID_POOL, use_rerank=None
         )
         # Outage on the semantic leg: results fell back to BM25 alone. Surface
         # it in meta so the UI can say "semantic search unavailable" — an empty
@@ -391,14 +421,31 @@ async def advanced_candidate_search(
 
     # === Sort ================================================================
     if use_hybrid:
-        # Hybrid path: respect the orchestrator's RRF/rerank ordering. Load
-        # *all* matching rows from the slice, then reorder in Python by
-        # `hybrid_order` and slice by page.
+        # Hybrid path: respect the orchestrator's RRF/rerank ordering.
+        #
+        # Stronę wolno wycinać DOPIERO z listy przefiltrowanej. `hybrid_order`
+        # to surowa pula retrievalu (do `_HYBRID_POOL`), a `where_clause` niesie
+        # WSZYSTKIE pozostałe filtry — chipy strukturalne, kubełki boolowskie,
+        # wykluczenie z rekrutacji, blacklistę. `total` liczy przecięcie obu,
+        # więc wycinanie strony z niefiltrowanej puli opisywało inny zbiór niż
+        # licznik nad nią: strony wychodziły dziurawe, a przy chipie trafiającym
+        # w koniec puli PIERWSZA strona bywała PUSTA przy `total > 0` — pustka
+        # czyta się jak brak ludzi w bazie, nie jak zła paginacja.
+        # Jedno dodatkowe zapytanie po same `id` (pula jest ograniczona do
+        # `_HYBRID_POOL`, więc to skan po znanym, krótkim zbiorze).
+        # Bez `.params(q=...)`, w odróżnieniu od `count_query` wyżej: w trybie
+        # hybrydowym `where_clause` nie niesie bindparamu `:q` w ogóle (klauzula
+        # FTS jest dodawana tylko w gałęzi `elif q_text`), a `_fts_clause` i tak
+        # wiąże wartość w miejscu konstrukcji. Wywołanie byłoby więc martwe,
+        # a martwe wywołanie w tym miejscu sugeruje następnemu czytelnikowi, że
+        # ta ścieżka jest sterowana zapytaniem tekstowym — nie jest.
+        surviving_query = select(Candidate.id).where(where_clause)
+        surviving = set((await db.execute(surviving_query)).scalars().all())
+        ranked_ids = [cid for cid in hybrid_order if cid in surviving]
         page_start = (body.page - 1) * body.page_size
-        page_end = page_start + body.page_size
-        page_ids = hybrid_order[page_start:page_end]
+        page_ids = ranked_ids[page_start : page_start + body.page_size]
         if page_ids:
-            base = select(Candidate).where(Candidate.id.in_(page_ids), where_clause)
+            base = select(Candidate).where(Candidate.id.in_(page_ids))
             loaded = (await db.execute(base)).scalars().all()
             by_id = {c.id: c for c in loaded}
             candidates = [by_id[cid] for cid in page_ids if cid in by_id]
@@ -460,6 +507,9 @@ async def advanced_candidate_search(
             took_ms=took_ms,
             search_degraded=search_degraded,
             soft_match_counts=soft_counts,
+            # Pula wyczerpana ⇒ `total` jest sufitem retrievalu, nie liczbą
+            # pasujących osób w bazie. UI ma to powiedzieć wprost.
+            result_cap_reached=use_hybrid and len(hybrid_order) >= _HYBRID_POOL,
         ),
     )
 

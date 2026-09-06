@@ -138,6 +138,14 @@ export interface SearchMeta {
    *  bazy — a rekruter widzi tylko, że wpisał wąski przedział i dostał wszystko.
    *  Puste na zwykłym wyszukiwaniu. Klucze: `experience`, `location`. */
   soft_match_counts?: Record<string, number>;
+  /** Tryb semantyczny obejrzał CAŁĄ swoją pulę, więc `total` jest jej sufitem,
+   *  a nie liczbą pasujących osób w bazie.
+   *
+   *  Bez tego przełączenie „Semantycznie” na zapytaniu ogólnym („java”)
+   *  zamienia „11 091 wyników” w „200” i czyta się jak utrata bazy zamiast jak
+   *  „200 najtrafniejszych”. Zawsze `false` w trybie boolowskim, gdzie `total`
+   *  naprawdę zlicza całą bazę. */
+  result_cap_reached?: boolean;
 }
 
 export interface CandidateSearchResponse {
