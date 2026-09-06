@@ -78,7 +78,7 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, isSuccess, refetch } = useQuery({
     queryKey: jobShortlistQueryKey(jobId),
     queryFn: () => shortlistApi.list(jobId),
     staleTime: 30_000,
@@ -138,7 +138,11 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
     onError: () => showError("Nie udało się usunąć wpisu."),
   });
 
-  if (isLoading) {
+  // Limbo między retry TanStack Query (isLoading=false, isError=false,
+  // data=undefined) też traktujemy jak ładowanie — inaczej `entries=[]` mignęłoby
+  // pustym stanem, zanim dane dojdą (znany gotcha z CLAUDE.md: pusty stan wisi
+  // na `isSuccess`, nie na `!isLoading`).
+  if (isLoading || (!isSuccess && !isError)) {
     return (
       <div className="flex flex-col items-center py-12 text-muted-foreground gap-3">
         <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -162,7 +166,7 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
     );
   }
 
-  if (entries.length === 0) {
+  if (isSuccess && entries.length === 0) {
     return (
       <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
         <UserCheck className="w-12 h-12 opacity-30" />
