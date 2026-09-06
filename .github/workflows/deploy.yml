@@ -3,10 +3,20 @@ name: Deploy
 # Unified deployment workflow per ~/.claude/rules/deployment.md.
 # Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
 #
-# Push do main → CI ("CI" workflow) runs → on its success this workflow fires
-# (via workflow_run, see the `on:` block) → trigger Coolify deploy via API →
-# poll deployment status by UUID → smoke test /api/health. Coolify samo buduje
-# + restart kontenerów. Red CI → deploy skipped (P1-CI-01 gate).
+# Push do main → "CI Gate" (gitleaks + ruff + alembic + import smoke, ~2 min)
+# → on its success this workflow fires (via workflow_run, see the `on:` block)
+# → trigger Coolify deploy via API → poll deployment status by UUID → smoke
+# test /api/health. Coolify samo buduje + restart kontenerów.
+#
+# BRAMKĄ JEST "CI Gate", NIE pełne "CI" (przeniesione 2026-08-07 — uzasadnienie
+# i świadomy kompromis w komentarzu przy `workflow_run` niżej). Dwie
+# konsekwencje, obie łatwe do przeoczenia:
+#   - czerwona BRAMKA → deploy pominięty (P1-CI-01);
+#   - czerwone pełne "CI" na main deployu NIE zatrzymuje. Leci RÓWNOLEGLE
+#     i jest sygnałem do ROLLBACKU, nie blokadą przed wdrożeniem.
+# Stąd też czas od merge'u do produkcji liczy się w minutach bramki (~2), a nie
+# całego "CI" (~24) — ten nagłówek do 09.2026 mówił "CI" i mylił o rząd
+# wielkości w obie strony.
 #
 # 2026-07-16 (analytics plan PR 0): the old flow fired the webhook and then
 # blind-slept 180s before polling /api/health. Two real failure modes slipped
