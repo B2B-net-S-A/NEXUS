@@ -157,6 +157,16 @@ _REQUIRED_CLIENT_SECTIONS = (
     # require=True)`), więc bez tej sekcji instrukcja przemilczałaby pole,
     # bez którego zapis zamówienia u tego klienta po prostu nie przechodzi.
     "Centrum e-Zdrowia",
+    # Polityki odczytu PDF z korpusu 09.2026 — każda ma własny plik w
+    # order_policies/ (patrz ORDERS_LOGIC_SOURCES). Audyt 09.2026 wykrył, że
+    # instrukcja ich nie opisywała (a Alior twierdził „brak reguły”), więc
+    # przypinamy je jawnie: sekcja per polityka z własnym plikiem.
+    "PKO BP",
+    "KIR",
+    "mLeasing",
+    "VeloBank",
+    "Cardif",
+    "Alior",
 )
 
 
