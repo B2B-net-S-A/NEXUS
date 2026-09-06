@@ -70,17 +70,35 @@ def test_search_hybrid_pool_size_is_read_at_call_time(monkeypatch):
     assert _hybrid_pool_size() == 200
 
 
-def test_search_hybrid_pool_size_never_returns_zero(monkeypatch):
-    """Zero albo wartość ujemna zamieniłyby wyszukiwarkę w pustkę.
+def test_nonsense_pool_size_falls_back_to_the_default(monkeypatch):
+    """Zero i wartość ujemna wracają do DOMYŚLNEJ — obie tak samo.
 
-    Pula 0 znaczy „nikt nie wchodzi", a to jest nie do odróżnienia od „nikogo
-    nie ma w bazie" — ta sama klasa pomyłki, którą naprawia `search_degraded`.
+    Asercja jest na konkretną liczbę, nie na `>= 1`. Luźniejszy warunek
+    przepuszczał pierwotną wersję tej funkcji, w której `0` i `-5` kończyły
+    w DWÓCH różnych miejscach (200 i 1), bo `or` zwierał się przed `max` —
+    rozjazd niewidoczny dla testu, który pyta tylko „czy dodatnia".
+
+    Pula 1 nie jest sensowniejsza od zera: wyszukiwarka oglądałaby jedną osobę
+    i wyglądałoby to jak pusta baza.
     """
-    from app.api.search import _hybrid_pool_size
+    from app.api.search import _HYBRID_POOL_DEFAULT, _hybrid_pool_size
     from app.core.config import settings
 
-    monkeypatch.setattr(settings, "SEARCH_HYBRID_POOL_SIZE", 0)
-    assert _hybrid_pool_size() >= 1
+    for nonsense in (0, -5):
+        monkeypatch.setattr(settings, "SEARCH_HYBRID_POOL_SIZE", nonsense)
+        assert _hybrid_pool_size() == _HYBRID_POOL_DEFAULT, (
+            f"{nonsense} ma wrócić do wartości domyślnej"
+        )
 
-    monkeypatch.setattr(settings, "SEARCH_HYBRID_POOL_SIZE", -5)
-    assert _hybrid_pool_size() >= 1
+
+def test_unparsable_pool_size_falls_back_instead_of_exploding(monkeypatch):
+    """Śmieć w zmiennej środowiskowej nie może wywalić wyszukiwarki.
+
+    `SEARCH_HYBRID_POOL_SIZE=dużo` w Coolify to literówka operatora, a nie
+    powód, żeby każde wyszukiwanie kończyło się 500-tką.
+    """
+    from app.api.search import _HYBRID_POOL_DEFAULT, _hybrid_pool_size
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "SEARCH_HYBRID_POOL_SIZE", "dużo")
+    assert _hybrid_pool_size() == _HYBRID_POOL_DEFAULT

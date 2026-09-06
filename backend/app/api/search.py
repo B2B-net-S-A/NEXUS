@@ -73,11 +73,25 @@ router = APIRouter()
 # Czy 200 wygrywa ze 100, wie wyłącznie pomiar (`scripts/eval_matching.py`),
 # a nie ten komentarz. Dlatego wartość jest teraz POKRĘTŁEM, nie stałą wbitą
 # w kod: da się ją przestawić zmienną środowiskową i zmierzyć obie, bez deployu.
+_HYBRID_POOL_DEFAULT = 200
+
+
 def _hybrid_pool_size() -> int:
     from app.core.config import settings  # noqa: PLC0415
 
-    raw = int(getattr(settings, "SEARCH_HYBRID_POOL_SIZE", 200) or 200)
-    return max(1, raw)
+    # Wartość bezsensowna (0, ujemna, `None`) wraca do DOMYŚLNEJ, nie do 1.
+    # Pierwsza wersja robiła `max(1, raw or 200)`, co dawało dwa różne
+    # zachowania dla dwóch równie bezsensownych wejść: `0` → 200 (bo `or`
+    # zwierał się przed `max`), a `-5` → 1. Pula równa 1 nie jest zresztą
+    # sensowniejsza od zera — wyszukiwarka oglądałaby jedną osobę i wyglądałoby
+    # to jak pusta baza, czyli ta sama pomyłka, przed którą broni
+    # `search_degraded`.
+    raw = getattr(settings, "SEARCH_HYBRID_POOL_SIZE", _HYBRID_POOL_DEFAULT)
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return _HYBRID_POOL_DEFAULT
+    return parsed if parsed > 0 else _HYBRID_POOL_DEFAULT
 
 
 def _can_read_section(user: Any, section: ProductSection) -> bool:

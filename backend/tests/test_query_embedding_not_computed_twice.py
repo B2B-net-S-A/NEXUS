@@ -77,11 +77,14 @@ async def test_different_queries_are_not_confused(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_documents_still_go_through_the_postgres_cache(monkeypatch):
-    """Dokumenty NIE wchodzą do cache'u zapytań — mają własny, trwały.
+async def test_documents_do_not_bleed_into_the_query_cache(monkeypatch):
+    """Dokument NIE może zostać złapany przez cache ZAPYTAŃ.
 
-    Gdyby wpadły, indeksowanie 55 tys. kandydatów zapychałoby pamięć procesu
-    wektorami, których i tak nikt nie odczyta drugi raz w tym samym biegu.
+    `use_cache=False` wyłącza obie ścieżki cache'u, więc ten test nie dowodzi
+    niczego o cache'u postgresowym — dowodzi, że nowy cache w procesie nie
+    łapie tego, czego łapać nie powinien. Gdyby łapał, indeksowanie 55 tys.
+    kandydatów zapychałoby pamięć procesu wektorami, których nikt nie odczyta
+    drugi raz w tym samym biegu.
     """
     from app.services import embedding_service as es
 
