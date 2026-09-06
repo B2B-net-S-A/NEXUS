@@ -27,9 +27,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +45,7 @@ from app.api.candidates import (
 )
 from app.api.oauth_token import ClientPrincipal, require_scope
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -56,6 +57,12 @@ router = APIRouter()
 # match far too much even under exact comparison once a CRM name normalises
 # down to them, and the SQL prefilter would scan the whole candidate table.
 _MIN_NAME_LEN = 3
+
+# Per-name character cap. `max_length` on the list bounds how MANY names arrive,
+# not how long each one is — without this a single 50 000-char name becomes a
+# `LIKE '%…%'` pattern handed to Postgres. Matches ATLAS `companies.name`
+# (VARCHAR(500)), so no legitimate CRM name is rejected.
+_MAX_NAME_CHARS = 500
 
 # Hard ceiling on returned people. A company like a large bank legitimately has
 # hundreds of matches; the caller renders a panel, not an export.
@@ -123,7 +130,7 @@ Relationship = Literal["via_us", "current", "past"]
 class CompanyPeopleRequest(BaseModel):
     """Look up one company, optionally under several known aliases."""
 
-    names: list[str] = Field(
+    names: list[Annotated[str, Field(max_length=_MAX_NAME_CHARS)]] = Field(
         ...,
         min_length=1,
         max_length=10,
@@ -348,8 +355,13 @@ async def _resolve_client(
     response_model=CompanyPeopleResponse,
     summary="People from the NEXUS base connected to a company",
 )
+# Every call scans candidates through the JSONB predicates, so the scope check
+# alone is not a throughput bound. 60/min is far above a CRM panel's real need
+# (ATLAS caches each answer for 5 minutes) and far below useful enumeration.
+@limiter.limit("60/minute")
 async def company_people(
     payload: CompanyPeopleRequest,
+    request: Request,  # required by slowapi limiter
     principal: ClientPrincipal = Depends(require_scope(OAuthScope.candidate_read)),
     db: AsyncSession = Depends(get_db),
 ) -> CompanyPeopleResponse:
