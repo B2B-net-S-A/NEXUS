@@ -86,8 +86,11 @@ nie osobna globalna zakładka).
   po polsku (ten sam powód co w rankingu).
 - **RBAC:** `readOnly` wyłącza wszystkie mutacje. Stany loading/empty/error obsłużone.
 
-Świadomie poza tym przejściem (mniejsze, opcjonalne): edycja notatki/właściciela/terminu
-w tablicy (dziś tylko wyświetlane) — API (`shortlistApi.update`) je już przyjmuje.
+Edycja **właściciela / terminu / notatki** w tablicy (drugi rząd karty): właściciel — select
+z `/api/users` (OperationalUser, ownership-eligible, nie admin-only); termin — `datetime-local`
+(zapis ISO, „po terminie" na czerwono); notatka — pole tekstowe z zapisem na blur (uncontrolled,
+żeby refetch innego pola nie kasował wpisywanego tekstu). Każda zmiana → PATCH z `version`
+(blokada optymistyczna → 409 obsłużone). Widok `readOnly` pokazuje te pola tylko do odczytu.
 
 ## Pliki
 

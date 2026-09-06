@@ -76,12 +76,20 @@ class ServiceScope(str, enum.Enum):
     traffit_sync = "traffit:sync"
     traffit_read = "traffit:read"
     ops_snapshot = "ops:snapshot"
+    # Eksport kontraktorów dla COMPASSA. Nazwa CELOWO nie brzmi
+    # ``candidate:read`` ani ``client:read`` — te dwie są przez
+    # `test_no_candidate_data_scope_exists` jawnie zakazane w tym słowniku,
+    # bo klucz API nie ma sięgać po dane domenowe. Ten scope otwiera JEDNĄ
+    # wąską trasę: tożsamość i zaangażowanie osób pracujących u klientów,
+    # bez stawek i bez marż.
+    contractors_read = "contractors:read"
 
 
 SCOPE_LABELS: dict[ServiceScope, str] = {
     ServiceScope.traffit_sync: "Uruchamianie synchronizacji Traffit",
     ServiceScope.traffit_read: "Odczyt statusu synchronizacji Traffit",
     ServiceScope.ops_snapshot: "Odczyt migawki operacyjnej (/api/admin/snapshot)",
+    ServiceScope.contractors_read: "Eksport kontraktorów dla COMPASSA (bez kwot)",
 }
 
 

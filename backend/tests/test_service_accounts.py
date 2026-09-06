@@ -821,3 +821,73 @@ class TestDatabaseIntegrity:
                 )
                 await db.commit()
             await db.rollback()
+
+
+class TestContractorsReadScope:
+    """`contractors:read` musi realnie czegoś strzec.
+
+    Reguła domu (patrz `TestOpsSnapshotScope`): scope, którego żaden endpoint
+    nie sprawdza, to obietnica bez pokrycia — admin nadaje go wierząc, że coś
+    robi. Ta klasa jest tym pokryciem dla eksportu do COMPASSA.
+    """
+
+    EXPORT = "/api/integrations/compass/contractors"
+
+    async def test_key_with_contractors_scope_is_accepted(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        _, api_key, _ = await _account_with_key(
+            app_client, app_auth_headers, ["contractors:read"]
+        )
+        resp = await app_client.get(self.EXPORT, headers={"X-API-Key": api_key})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert "items" in body and "total" in body
+
+    async def test_key_without_contractors_scope_is_denied(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        _, api_key, _ = await _account_with_key(
+            app_client, app_auth_headers, ["traffit:read"]
+        )
+        resp = await app_client.get(self.EXPORT, headers={"X-API-Key": api_key})
+        assert resp.status_code == 403
+
+    async def test_revoked_key_cannot_read_the_export(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        account, api_key, key = await _account_with_key(
+            app_client, app_auth_headers, ["contractors:read"]
+        )
+        await app_client.post(
+            f"{ACCOUNTS_URL}/{account['id']}/keys/{key['key_id']}/revoke",
+            headers=app_auth_headers,
+            json={"reason": "test"},
+        )
+        resp = await app_client.get(self.EXPORT, headers={"X-API-Key": api_key})
+        assert resp.status_code == 401
+
+    async def test_export_never_carries_money(
+        self, app_client: AsyncClient, app_auth_headers: dict
+    ):
+        """Decyzja produktowa 04.09: eksport niesie tożsamość, nie kwoty.
+
+        Test pilnuje KSZTAŁTU odpowiedzi, a nie dyscypliny autora — dołożenie
+        stawki „przy okazji" otwiera dane finansowe każdemu z dostępem do
+        People Ops w COMPASSIE, i nie zobaczyłby tego nikt poza tym testem.
+        """
+        _, api_key, _ = await _account_with_key(
+            app_client, app_auth_headers, ["contractors:read"]
+        )
+        resp = await app_client.get(self.EXPORT, headers={"X-API-Key": api_key})
+        assert resp.status_code == 200
+        forbidden = {
+            "rate_candidate",
+            "rate_client",
+            "margin",
+            "rate_unit",
+            "currency",
+            "monthly_margin",
+        }
+        for item in resp.json()["items"]:
+            assert not (forbidden & set(item)), f"kwoty w eksporcie: {item}"
