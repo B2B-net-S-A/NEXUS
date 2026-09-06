@@ -146,6 +146,20 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
     if not similarity_map:
         return []
 
+    # Kandydaci, dla których kosinusu NIE zmierzono (padła dosypka po udanym
+    # BM25 albo brak wektora). `score` wynosi tam 0.0, ale to „nie wiem", nie
+    # „zmierzono zero" — a ta funkcja PISZE do wspólnego `match_score_cache`,
+    # więc bez tego rozróżnienia warstwa semantyczna warta 60 pkt lądowała tam
+    # jako 0/60 ŚWIEŻE i przeżywała powrót dostawcy (M3-CACHE-01). Digest jest
+    # nocny i masowy, więc jedna taka noc zatruwa cache całej bazy naraz.
+    semantic_unknown_ids = {
+        h["candidate_id"] for h in hits if h.get("semantic_unknown")
+    }
+    for cid in semantic_unknown_ids:
+        similarity_map.pop(cid, None)
+    if not similarity_map:
+        return []
+
     staged = set(
         (
             await db.execute(
@@ -196,6 +210,12 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
         return []
 
     profile = await resolve_active_profile(db)
+    # Zapis do cache'u zostaje włączony (domyślnie), i to jest bezpieczne
+    # WYŁĄCZNIE dlatego, że `semantic_unknown` wycięło wyżej wszystkich bez
+    # zmierzonego kosinusu — każdy wiersz, który tu dociera, ma realny sygnał
+    # semantyczny. Dokładając tu gałąź degradacji, podaj `allow_cache_write`
+    # jawnie: cache jest WSPÓLNY z `/recommendations`, więc zatruty tutaj
+    # wiersz wychodzi rekruterowi w zupełnie innym miejscu produktu.
     breakdowns = await bulk_get_or_compute(
         job, candidates, db, similarity_map=similarity_map, profile=profile
     )

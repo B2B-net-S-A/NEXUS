@@ -28,7 +28,10 @@ vi.mock("@/lib/api", () => ({
   signingApi: {},
 }));
 
-import { areaPrefillDescription } from "@/components/v2/pages/B2BContractGeneratorV2";
+import {
+  areaPrefillDescription,
+  partnerNameAfterLookup,
+} from "@/components/v2/pages/B2BContractGeneratorV2";
 
 function role(overrides: Partial<B2BRole> = {}): B2BRole {
   return {
@@ -144,5 +147,45 @@ describe("areaPrefillDescription", () => {
     });
     expect(out).not.toBeNull();
     expect((out ?? "").length).toBeGreaterThan(0);
+  });
+});
+
+describe("partnerNameAfterLookup", () => {
+  // Sedno zgłoszenia: wybrany „Rafał Korecki", a lookup NIP-u firmy (JDG) zwraca
+  // „RAFAŁ WASILEWSKI" — rejestr NIE może nadpisać nazwiska kandydata.
+  it("nie nadpisuje nazwiska kandydata właścicielem JDG z rejestru", () => {
+    expect(partnerNameAfterLookup("Rafał Korecki", "RAFAŁ WASILEWSKI")).toBe(
+      "Rafał Korecki",
+    );
+  });
+
+  it("nie nadpisuje ręcznie wpisanego nazwiska", () => {
+    expect(partnerNameAfterLookup("Jan Kowalski", "ANNA NOWAK")).toBe(
+      "Jan Kowalski",
+    );
+  });
+
+  // Fallback: gdy pole jest puste (np. brak nazwiska kandydata), rejestr może je
+  // uzupełnić właścicielem JDG.
+  it("uzupełnia puste pole właścicielem z rejestru", () => {
+    expect(partnerNameAfterLookup("", "RAFAŁ WASILEWSKI")).toBe(
+      "RAFAŁ WASILEWSKI",
+    );
+  });
+
+  it("traktuje same białe znaki jak pole puste", () => {
+    expect(partnerNameAfterLookup("   ", "RAFAŁ WASILEWSKI")).toBe(
+      "RAFAŁ WASILEWSKI",
+    );
+  });
+
+  // Spółka → rejestr zwraca `person = null`; pole z realną treścią zostaje bez
+  // zmian, a puste/białe znaki normalizują się do "" — nigdy „null"/"undefined"
+  // ani surowe spacje.
+  it("dla spółki (person = null) zachowuje treść, a pustkę/spacje normalizuje do pustego", () => {
+    expect(partnerNameAfterLookup("Rafał Korecki", null)).toBe("Rafał Korecki");
+    expect(partnerNameAfterLookup("", null)).toBe("");
+    expect(partnerNameAfterLookup("", undefined)).toBe("");
+    expect(partnerNameAfterLookup("   ", null)).toBe("");
   });
 });

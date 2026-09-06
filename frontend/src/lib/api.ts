@@ -3531,6 +3531,28 @@ export interface SeekingContractorsResponse {
   /** `total > returned` — lista jest przycięta i ktoś może nie być widoczny. */
   truncated: boolean;
   items: SeekingContractorRow[];
+  /**
+   * Stan wyszukiwania, którym powstała ta lista.
+   *
+   * `degraded: true` znaczy, że dla CO NAJMNIEJ JEDNEGO konsultanta warstwa
+   * semantyczna nie odpowiedziała — jego pusty `top_matches` mówi „nie wiemy",
+   * a nie „nic dla tej osoby nie ma". Bez odczytania tej flagi awaria renderuje
+   * się identycznie jak zero trafień, czyli dokładnie tak, jak nie wolno.
+   *
+   * Pole jest OPCJONALNE, bo w oknie wdrożenia przeglądarka może dostać
+   * odpowiedź ze starszej wersji backendu, która tego klucza nie niosła.
+   * Brak `meta` czytamy jak `degraded: false` — to jedyna interpretacja, która
+   * nie zamienia normalnego pustego stanu w fałszywy alarm.
+   */
+  meta?: {
+    degraded: boolean;
+    /**
+     * `semantic_unavailable` — padł dostawca (Qdrant/Voyage), lista jest
+     * niepełna. `no_candidates` / `no_open_jobs` — nie było czego szukać, czyli
+     * NORMALNY pusty stan, nie awaria. Rozstrzyga `degraded`, nie ten napis.
+     */
+    reason: "semantic_unavailable" | "no_candidates" | "no_open_jobs" | null;
+  };
 }
 
 export interface ShortlistEmailDraftResponse {

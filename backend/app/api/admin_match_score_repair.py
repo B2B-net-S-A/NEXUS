@@ -134,6 +134,18 @@ router = APIRouter()
 # Test kontraktowy pilnuje, że dziś oba są równe; rozjazd ma być decyzją.
 NO_EMBEDDING_REASON = "brak embeddingu"
 
+# Drugi powód zerowej warstwy semantycznej, wprowadzony w 09.2026 (#414):
+# „nie zmierzyliśmy" zamiast „zmierzono i nie ma wektora". Narzędzie musi znać
+# OBA, i to na zawsze: wiersze zapisane przed tą zmianą niosą wyłącznie ten
+# pierwszy, a wiersze zapisane po niej — ten, który pasuje do przyczyny.
+# Szukanie tylko jednego z nich znajduje połowę zatrutych wierszy i raportuje
+# to jako komplet, czyli dokładnie ten tryb cichej porażki, przed którym
+# ostrzega komentarz wyżej.
+SEMANTIC_UNAVAILABLE_REASON = "pomiar niedostępny"
+
+# Oba powody razem — jedyna lista, po której wolno filtrować „podejrzane".
+ZEROED_SEMANTIC_REASONS = (NO_EMBEDDING_REASON, SEMANTIC_UNAVAILABLE_REASON)
+
 # Domyślny sufit jednego biegu. Tabela ma na produkcji rzędy wielkości setek
 # tysięcy wierszy, a UPDATE bez limitu trzyma blokady przez cały czas trwania —
 # na gorącej tabeli czytanej przez każdy kanban to jest widoczne dla ludzi.
@@ -172,8 +184,11 @@ def _semantic_reason():
 
 
 def _looks_semantically_empty() -> list:
-    """Warstwa semantyczna zeruje wynik i tłumaczy to brakiem embeddingu."""
-    return [_semantic_reason() == NO_EMBEDDING_REASON]
+    """Warstwa semantyczna zeruje wynik i tłumaczy to brakiem POMIARU.
+
+    Oba powody naraz (`ZEROED_SEMANTIC_REASONS`) — patrz komentarz przy nich.
+    """
+    return [_semantic_reason().in_(ZEROED_SEMANTIC_REASONS)]
 
 
 # Kolumny, którymi ``fresh_score_conditions`` ZAWĘŻA zapytanie do jednej oferty

@@ -101,6 +101,13 @@ UNKNOWN_NEUTRAL_FRACTION: float = float(
 # tej warstwy (fallback −24%, konflikt −4% R@20n). Historia: 35/30/12/8/5
 # → 45/25/10/8/2 (17.08, siatka 7 profili) → obecne.
 SEMANTIC_MAX = 60.0
+
+# Dwa powody, dla których warstwa semantyczna daje 0 punktów. Rozróżnialne od
+# 09.2026 (#414) — patrz `score_semantic`. Oba są KLUCZAMI dopasowywanymi w SQL
+# przez `admin_match_score_repair`, więc traktuj je jak schemat, nie jak napisy
+# do wygładzenia: wiersze zapisane przed tą zmianą niosą wyłącznie ten pierwszy.
+NO_EMBEDDING_REASON = "brak embeddingu"
+SEMANTIC_UNAVAILABLE_REASON = "pomiar niedostępny"
 SKILLS_MAX = 10.0
 # Pochodne z SKILLS_MAX (klasyczny podział 2:1), nie osobne literały — przy
 # strojeniu wag rozjeżdżały się z budżetem warstwy (zostały 20/10 przy 25).
@@ -1645,7 +1652,10 @@ async def _check_penalties(
 
 
 def score_semantic(
-    semantic_similarity: Optional[float], profile: WeightProfile = DEFAULT_PROFILE
+    semantic_similarity: Optional[float],
+    profile: WeightProfile = DEFAULT_PROFILE,
+    *,
+    unavailable: bool = False,
 ) -> LayerResult:
     """Convert Qdrant cosine similarity (0-1) → profile.semantic points.
 
@@ -1659,25 +1669,28 @@ def score_semantic(
     """
     max_pts = profile.semantic
     if semantic_similarity is None:
-        # UWAGA przy zmianie tego napisu: `None` dociera tu z DWÓCH powodów —
-        # kandydat naprawdę nie ma wektora ALBO wyszukiwanie/embedding nie
-        # odpowiedziało. Ta funkcja nie ma jak ich odróżnić, więc „brak
-        # embeddingu" twierdzi więcej, niż wiadomo, i przy awarii Qdranta
-        # wysyła diagnozę w stronę profilu kandydata (#414).
+        # `None` dociera tu z DWÓCH powodów — kandydat naprawdę nie ma wektora
+        # ALBO nie udało się zmierzyć (awaria Qdranta/Voyage). Do 09.2026 ta
+        # funkcja nie miała jak ich odróżnić i mówiła „brak embeddingu" w obu,
+        # czyli przy awarii dostawcy wysyłała diagnozę w stronę profilu
+        # kandydata (#414). Teraz przyczynę podaje WOŁAJĄCY — bo tylko on wie,
+        # czy pytał dostawcę i dostał odpowiedź.
         #
-        # Napis mimo to ZOSTAJE dosłowny, bo jest KLUCZEM, nie tylko tekstem:
-        # `admin_match_score_repair.NO_EMBEDDING_REASON` dopasowuje go w SQL
-        # (`breakdown->'semantic'->>'reason' = 'brak embeddingu'`), żeby znaleźć
-        # zatrute wiersze cache'u z #130. Zmiana samego napisu sprawiłaby, że
-        # narzędzie naprawcze przestaje je znajdować — CICHO, bo raportuje
-        # wtedy „0 do naprawy" zamiast błędu. Na produkcji takie wiersze
-        # istnieją DZIŚ (#130 nie zostało jeszcze uruchomione).
+        # Punkty zostają 0.0 w obu przypadkach: zmienia się DIAGNOZA, nie
+        # wynik, więc żaden ranking nie drgnie od tej zmiany.
         #
-        # Uczciwa naprawa #414 wymaga rozdzielenia przyczyny U ŹRÓDŁA (wołający
-        # wie, czy pytał Qdranta i dostał odpowiedź) oraz dopasowywania OBU
-        # napisów w narzędziu naprawczym przez czas życia historycznych wierszy
-        # — to osobna zmiana, nie poprawka tekstu.
-        return LayerResult(points=0.0, max_points=max_pts, reason="brak embeddingu")
+        # OBA napisy są KLUCZAMI, nie tylko tekstem: `admin_match_score_repair`
+        # dopasowuje je w SQL (`breakdown->'semantic'->>'reason'`), żeby znaleźć
+        # zatrute wiersze cache'u z #130. Narzędzie MUSI znać oba przez cały
+        # czas życia historycznych wierszy — te zapisane przed tą zmianą niosą
+        # wyłącznie „brak embeddingu". Zmiana któregokolwiek napisu bez
+        # aktualizacji narzędzia sprawia, że przestaje ono cokolwiek znajdować
+        # CICHO, bo raportuje „0 do naprawy" zamiast błędu.
+        if unavailable:
+            return LayerResult(
+                points=0.0, max_points=max_pts, reason=SEMANTIC_UNAVAILABLE_REASON
+            )
+        return LayerResult(points=0.0, max_points=max_pts, reason=NO_EMBEDDING_REASON)
     sim = max(0.0, min(1.0, float(semantic_similarity)))
     gamma = SEMANTIC_CALIBRATION_GAMMA
     calibrated = sim**gamma if gamma and gamma > 0 else sim
@@ -1694,12 +1707,15 @@ async def score_candidate_job(
     semantic_similarity: Optional[float] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
     context: Optional[JobScoringContext] = None,
+    semantic_unavailable: bool = False,
 ) -> ScoreBreakdown:
     """Compute the full ScoreBreakdown for one (candidate, job) pair."""
     import time as _time
 
     t0 = _time.perf_counter()
-    semantic = score_semantic(semantic_similarity, profile)
+    semantic = score_semantic(
+        semantic_similarity, profile, unavailable=semantic_unavailable
+    )
     skills, must_match, must_gap, nice_match, nice_gap = _score_skills(
         candidate, job, profile
     )
