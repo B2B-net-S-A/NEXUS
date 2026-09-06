@@ -40,6 +40,44 @@ async def test_diagnostics_shape(app_client: AsyncClient, app_auth_headers: dict
 
 
 @pytest.mark.asyncio
+async def test_retrieval_levers_are_observable(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Dźwignię, której nie da się zaobserwować, przestawia się na ślepo.
+
+    `HYBRID_POOL_ENABLED` przełącza pulę dla CAŁEGO ruchu AI, a do 09.2026 nie
+    było go w tej odpowiedzi — więc pytanie „czy produkcja liczy dziś hybrydą?"
+    nie miało odpowiedzi inaczej niż przez zajrzenie do Coolify. Ten test broni
+    obietnicy z docstringu modułu: rollout ma być operowany OBSERWACJĄ.
+
+    Progi liczbowe są tu z tego samego powodu — ustawione w Coolify inaczej niż
+    domyślnie zmieniają liczbę wyników widoczną dla rekrutera, a z zewnątrz nie
+    widać, która wartość naprawdę obowiązuje.
+    """
+    resp = await app_client.get(
+        "/api/admin/ai-matching/diagnostics", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    flags = resp.json()["flags"]
+
+    for key in (
+        "HYBRID_POOL_ENABLED",
+        "HYBRID_BM25_POOL_LIMIT",
+        "SEARCH_HYBRID_POOL_SIZE",
+        "MULTI_QUERY_RETRIEVAL_ENABLED",
+        "CV_PASSAGES_ENABLED",
+        "RERANKER_ENABLED",
+    ):
+        assert key in flags, f"dźwignia retrievalu {key} niewidoczna w diagnostyce"
+
+    # Wartość, nie samo istnienie klucza: `None` znaczyłoby, że pole zniknęło
+    # z `Settings` i `getattr` zwraca zaślepkę — czyli że diagnostyka pokazuje
+    # dźwignię, której już nie ma.
+    assert flags["HYBRID_POOL_ENABLED"] is not None
+    assert isinstance(flags["SEARCH_HYBRID_POOL_SIZE"], int)
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_requires_auth(app_client: AsyncClient):
     resp = await app_client.get("/api/admin/ai-matching/diagnostics")
     assert resp.status_code in (401, 403)
