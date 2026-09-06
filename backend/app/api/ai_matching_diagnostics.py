@@ -22,17 +22,44 @@ from app.models.user import User, UserRole
 router = APIRouter()
 
 
+# Dźwignie RETRIEVALU — czyli tego, KOGO w ogóle oglądamy.
+#
+# Do 09.2026 ta lista miała wyłącznie flagi planu AI-matching, a `HYBRID_POOL_ENABLED`
+# w niej NIE BYŁO. To jest dziura dokładnie w obietnicy z docstringu modułu
+# („flip a flag, watch …, decide promote-or-stop"): flaga hybrydy przełącza pulę
+# dla CAŁEGO ruchu AI (rekomendacje, Talent Radar, propozycje, harness), a jedynym
+# sposobem sprawdzenia, czy na produkcji faktycznie działa, było zajrzenie do
+# zmiennych środowiskowych w Coolify — czyli w miejsce, którego ten endpoint ma
+# oszczędzać. Flaga, którą da się przestawić, ale nie da się zaobserwować, nie jest
+# dźwignią; jest zgadywanką.
+#
+# Dwa progi (`HYBRID_BM25_POOL_LIMIT`, `SEARCH_HYBRID_POOL_SIZE`) są tu z tego samego
+# powodu, choć nie są bool-ami: ustawione w Coolify na wartość inną niż domyślna
+# zmieniają liczbę wyników widoczną dla rekrutera i liczbę dokumentów wysyłanych do
+# rerankera, a rozjazd „co miało być ustawione" vs „co obowiązuje" jest z zewnątrz
+# niewidoczny.
+_RETRIEVAL_FLAGS = [
+    "HYBRID_POOL_ENABLED",
+    "HYBRID_BM25_POOL_LIMIT",
+    "SEARCH_HYBRID_POOL_SIZE",
+    "MULTI_QUERY_RETRIEVAL_ENABLED",
+    "CV_PASSAGES_ENABLED",
+    "RERANKER_ENABLED",
+]
+
+_PLAN_FLAGS = [
+    "AI_MATCH_TELEMETRY_ENABLED",
+    "AI_SCORING_CONTRACT_V2",
+    "AI_INDEX_OUTBOX_ENABLED",
+    "AI_INDEX_WORKER_ENABLED",
+    "AI_TEXT_SCHEMA_V2",
+    "AI_UNIFIED_RETRIEVAL_ENABLED",
+    "AI_UNIFIED_RETRIEVAL_SURFACES",
+]
+
+
 def _flags() -> dict:
-    keys = [
-        "AI_MATCH_TELEMETRY_ENABLED",
-        "AI_SCORING_CONTRACT_V2",
-        "AI_INDEX_OUTBOX_ENABLED",
-        "AI_INDEX_WORKER_ENABLED",
-        "AI_TEXT_SCHEMA_V2",
-        "AI_UNIFIED_RETRIEVAL_ENABLED",
-        "AI_UNIFIED_RETRIEVAL_SURFACES",
-    ]
-    return {k: getattr(settings, k, None) for k in keys}
+    return {k: getattr(settings, k, None) for k in (_PLAN_FLAGS + _RETRIEVAL_FLAGS)}
 
 
 async def _outbox(db: AsyncSession) -> dict:

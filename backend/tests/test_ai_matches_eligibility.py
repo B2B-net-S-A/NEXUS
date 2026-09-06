@@ -36,25 +36,38 @@ def _endpoint_name(module_rel: str, path_fragment: str) -> str:
     raise AssertionError(f"no handler for {path_fragment} in {module_rel}")
 
 
-def test_ai_matches_runs_the_same_eligibility_filter_as_recommendations():
+def test_ai_matches_runs_the_eligibility_gate():
+    """`/ai-matches` musi przepuszczać pulę przez bramkę dopuszczalności.
+
+    PRODUKTOWY OVERRIDE (2026-09): bramka nie WYCINA już zablokowanych —
+    `_gate_and_dealbreakers` zostawia `warn` (konflikt klienta / NDA /
+    konkurent / weto HM) z anotacją i zablokowaną akcją, a wycina wyłącznie
+    `hidden` (globalna blacklista, duplikat). Kontraktem jest więc obecność
+    tej bramki w handlerze, nie starego `filter_eligible_candidates`.
+    """
     handler = _endpoint_name("app/api/matching.py", "ai-matches")
     calls = _calls_in("app/api/matching.py", handler)
 
-    assert "filter_eligible_candidates" in calls, (
-        "/ai-matches surfaces candidates the recruiter cannot assign — client "
-        "blacklist, NDA, competitor conflict, hiring-manager veto — next to an "
-        "add-to-pipeline button"
+    assert "_gate_and_dealbreakers" in calls, (
+        "/ai-matches nie przepuszcza puli przez bramkę dopuszczalności — "
+        "kandydat z blokadą, którego nie wolno przypisać, trafia na listę "
+        "renderowaną z przyciskiem „dodaj do pipeline'u”"
     )
 
 
 def test_both_ranking_surfaces_share_the_containment_rule():
-    """Guard the guard: neither surface may quietly drop the filter."""
-    for module, fragment in (
-        ("app/api/matching.py", "ai-matches"),
-        ("app/api/recommendations.py", "recommendations"),
+    """Guard the guard: żadna z powierzchni nie może po cichu zdjąć bramki.
+
+    `/recommendations` nadal wycina twardo (`filter_eligible_candidates`);
+    `/ai-matches` po zmianie kontraktu anotuje (`_gate_and_dealbreakers`).
+    Obie MUSZĄ wołać swoją bramkę.
+    """
+    for module, fragment, gate in (
+        ("app/api/matching.py", "ai-matches", "_gate_and_dealbreakers"),
+        ("app/api/recommendations.py", "recommendations", "filter_eligible_candidates"),
     ):
         handler = _endpoint_name(module, fragment)
-        assert "filter_eligible_candidates" in _calls_in(module, handler), (
+        assert gate in _calls_in(module, handler), (
             f"{module}:{handler} no longer enforces assignment eligibility"
         )
 
@@ -130,7 +143,7 @@ def test_gate_cannot_fail_open_into_the_ungated_branch():
     """
     handler = _handler_node("app/api/matching.py", "ai-matches")
     for node in _swallowing_tries(handler):
-        assert "filter_eligible_candidates" not in _calls_within(node), (
+        assert "_gate_and_dealbreakers" not in _calls_within(node), (
             "bramka dopuszczalności stoi pod `except Exception` bez `raise` — "
             "jej własna awaria (padnięty DB na candidate_conflicts, timeout, "
             "niekompletny `job`) zdegraduje request do gałęzi BEZ bramki"
@@ -160,7 +173,7 @@ def test_tag_fallback_branch_gates_too():
     for stmt in body[try_idx[-1] + 1 :]:
         after |= _calls_within(stmt)
 
-    assert "filter_eligible_candidates" in after, (
+    assert "_gate_and_dealbreakers" in after, (
         "gałąź tag-fallback (kod po bloku `try`) nie przepuszcza puli przez "
         "bramkę dopuszczalności — wchodzi się w nią również przy pustym wyniku "
         "Qdranta, czyli bez żadnej awarii"
