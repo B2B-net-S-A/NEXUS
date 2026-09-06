@@ -217,11 +217,18 @@ async def _seeking_pool():
 
     yield ids
 
+    # Kolejność Job → Candidate → Client respektuje FK `jobs.client_id`.
+    # Brakujący wiersz jest POMIJANY, nie przekazywany do `db.delete(None)` —
+    # ta wywala `ArgumentError` w teardownie, czyli błąd, który przykrywa
+    # PRAWDZIWĄ przyczynę padnięcia testu własnym komunikatem o czymś innym.
+    # Dokładnie ta klasa pomyłki jest tematem tego PR-a; sprzątanie nie może
+    # jej wnosić z powrotem.
     async with AsyncSessionLocal() as db:
         cand_id, job_id, client_id = ids
-        await db.delete(await db.get(Job, job_id))
-        await db.delete(await db.get(Candidate, cand_id))
-        await db.delete(await db.get(Client, client_id))
+        for model, row_id in ((Job, job_id), (Candidate, cand_id), (Client, client_id)):
+            row = await db.get(model, row_id)
+            if row is not None:
+                await db.delete(row)
         await db.commit()
 
 
