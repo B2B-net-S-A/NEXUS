@@ -21,6 +21,7 @@ import ast
 import pathlib
 
 import pytest
+import pytest_asyncio
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 
@@ -118,6 +119,48 @@ def test_degraded_flag_reaches_the_response():
         )
 
 
+def test_every_seeking_contractors_return_carries_meta():
+    """`meta` musi być w KAŻDEJ gałęzi wyjścia, nie tylko w tej głównej.
+
+    Handler ma dwa wcześniejsze wyjścia (pusta pula kandydatów, brak
+    opublikowanych ofert) i do 09.2026 żadne z nich nie niosło `meta`. Konsument
+    czytający `body.meta.degraded` dostawał tam `undefined` — wartość fałszywą,
+    przypadkiem poprawną, ale nie do odróżnienia od „sprawdziliśmy i jest
+    dobrze". Odpowiedź, która raz niesie sygnał uczciwości, a raz go milcząco
+    pomija, każe konsumentowi zgadywać, którą wersję dostał.
+
+    Test czyta ŹRÓDŁO, bo trafienie we wczesne wyjście wymagałoby pustej bazy —
+    a baza testowa jest wspólna i nieczyszczona, więc „pusta" znaczyłoby tu
+    „taka, jaką zostawił sąsiedni plik". Dokładnie ten stan ujawnił ten defekt
+    w CI i dokładnie na nim nie wolno opierać dowodu.
+    """
+    tree = ast.parse(
+        (BACKEND / "app/api/recommendations.py").read_text(encoding="utf-8")
+    )
+    fn = next(
+        (
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and n.name == "seeking_contractors"
+        ),
+        None,
+    )
+    assert fn is not None, "nie znaleziono handlera — zmienił się kształt pliku"
+
+    missing = []
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Dict):
+            continue
+        keys = {k.value for k in node.value.keys if isinstance(k, ast.Constant)}
+        if "meta" not in keys:
+            missing.append(node.lineno)
+    assert not missing, (
+        f"gałęzie wyjścia bez `meta` w liniach {missing} — front nie odróżni "
+        "„nic nie znaleziono” od „nie wiadomo, bo wyszukiwanie padło”"
+    )
+
+
 # ── Test WYKONANIOWY dla `seeking_contractors` ──────────────────────────────
 # Testy wyżej sprawdzają KSZTAŁT źródła i nie zobaczą zmiany nazwy flagi ani
 # rozluźnienia warunku fallbacku w tej jednej pętli. `seeking_contractors` ma
@@ -125,9 +168,66 @@ def test_degraded_flag_reaches_the_response():
 # dostaje własny dowód przez wykonanie.
 
 
+@pytest_asyncio.fixture
+async def _seeking_pool():
+    """Kandydat „szukający" + opublikowana oferta — WŁASNE dane testu.
+
+    Bez tego test stał na stanie ubocznym wspólnej bazy: gdy pula kandydatów
+    albo zbiór ofert były puste, handler wychodził wcześniej i pytanie o awarię
+    w ogóle nie padało. W CI wyszło to dopiero po zmianie przydziału shardów
+    (round-robin po posortowanej liście plików — dołożenie pliku przesuwa
+    wszystkie alfabetycznie późniejsze), czyli w sposób nie do powiązania ze
+    zmianą, która to ujawniła. Test, który zieleni się dlatego, że sąsiedni
+    plik coś po sobie zostawił, nie mówi nic o kodzie.
+
+    Dane są usuwane po teście — wspólna baza nie jest czyszczona między
+    przebiegami, a kandydat „actively_looking" wisiałby w puli każdego
+    kolejnego biegu tego endpointu.
+    """
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import AvailabilityStatus, Candidate
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"OutageClient-{tag}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+
+        candidate = Candidate(
+            name="Outage",
+            lastname=f"Tester-{tag}",
+            availability_status=AvailabilityStatus.actively_looking,
+        )
+        job = Job(
+            title=f"Outage Job {tag}",
+            description="Backend engineer with Python",
+            status=JobStatus.published,
+            client_id=client.id,
+        )
+        db.add_all([candidate, job])
+        await db.commit()
+        await db.refresh(candidate)
+        await db.refresh(job)
+        ids = (candidate.id, job.id, client.id)
+
+    yield ids
+
+    async with AsyncSessionLocal() as db:
+        cand_id, job_id, client_id = ids
+        await db.delete(await db.get(Job, job_id))
+        await db.delete(await db.get(Candidate, cand_id))
+        await db.delete(await db.get(Client, client_id))
+        await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_seeking_contractors_reports_outage_instead_of_random_jobs(
-    app_client, app_auth_headers, monkeypatch
+    app_client, app_auth_headers, monkeypatch, _seeking_pool
 ):
     from app.api import recommendations as rec
     from app.services.embedding_service import SemanticSearchUnavailable
