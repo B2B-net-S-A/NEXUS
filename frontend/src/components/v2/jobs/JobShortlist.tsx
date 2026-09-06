@@ -106,14 +106,14 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
 
   const entries = data ?? [];
 
-  // Directory ownership-eligible userów do dropdownu właściciela. Współdzielony
-  // queryKey z filtrem „Dodany przez" → react-query deduplikuje. Nie ładujemy,
-  // gdy tablica jest tylko do odczytu.
+  // Directory ownership-eligible userów. Ładowany ZAWSZE (także w readOnly),
+  // bo readOnly renderuje nazwę właściciela z tej listy — z `enabled:!readOnly`
+  // spadała do „#id". Współdzielony queryKey z filtrem „Dodany przez" +
+  // 5-min staleTime → react-query i tak nie dubluje fetcha (PR #1374 review).
   const { data: owners = [] } = useQuery<OwnerOption[]>({
     queryKey: ["users-directory"],
     queryFn: () => api.get("/api/users").then((r) => r.data),
     staleTime: 5 * 60_000,
-    enabled: !readOnly,
   });
   const ownerName = (id: number | null | undefined): string | null => {
     if (id == null) return null;
@@ -384,21 +384,29 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
                   ))}
                 </select>
 
-                {/* Termin następnej akcji */}
+                {/* Termin następnej akcji — zapis na blur, nie na każdy krok
+                    (datetime-local emituje onChange przy każdej cyfrze/kliknięciu
+                    strzałki; kolejne PATCH-e z tą samą `version` dawały 409).
+                    Uncontrolled + porównanie po czasie, żeby identyczna wartość
+                    nie generowała zapisu. (PR #1374 review.) */}
                 <input
                   type="datetime-local"
-                  value={isoToLocalInput(entry.next_action_at)}
+                  defaultValue={isoToLocalInput(entry.next_action_at)}
                   disabled={busy}
-                  onChange={(e) =>
+                  onBlur={(e) => {
+                    const nextIso = e.target.value
+                      ? new Date(e.target.value).toISOString()
+                      : null;
+                    const curMs = entry.next_action_at
+                      ? new Date(entry.next_action_at).getTime()
+                      : null;
+                    const nextMs = nextIso ? new Date(nextIso).getTime() : null;
+                    if (curMs === nextMs) return;
                     patchMutation.mutate({
                       entry,
-                      patch: {
-                        next_action_at: e.target.value
-                          ? new Date(e.target.value).toISOString()
-                          : null,
-                      },
-                    })
-                  }
+                      patch: { next_action_at: nextIso },
+                    });
+                  }}
                   className={
                     "h-8 shrink-0 rounded-lg border bg-card px-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 " +
                     (overdue
