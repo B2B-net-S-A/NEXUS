@@ -312,6 +312,20 @@ class Settings(BaseSettings):
     # retrieval_pool.py. Włączać dopiero PO pomiarze pasaży (dźwignie się
     # nakładają i włączone razem są niemierzalne).
     HYBRID_POOL_ENABLED: bool = False
+    # Sufit członkostwa nogi BM25 w puli (zawór na zalew: termin trafiający
+    # w dziesiątki tysięcy CV mógłby zająć całą pulę i wypchnąć trafienia
+    # gęste). `_bm25_pool_limit` czytało to przez `getattr` z domyślną 200,
+    # a pole NIE BYŁO tu zadeklarowane — więc zmienną środowiskową nie dało się
+    # go przestawić i kod sam to przyznawał w komentarzu. Deklaracja zamienia
+    # martwe pokrętło w działające; wartość domyślna bez zmian, więc samo
+    # dodanie tej linii niczego nie przestawia.
+    HYBRID_BM25_POOL_LIMIT: int = 200
+    # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
+    # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
+    # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony
+    # (endpoint jest bezstanowy). Pokrętło istnieje, żeby dało się zmierzyć
+    # 200 vs 100 evalem bez deployu — patrz `_hybrid_pool_size` w api/search.py.
+    SEARCH_HYBRID_POOL_SIZE: int = 200
     # Talent Radar: wymagania MUST/NICE podane WPROST (z `parse-champion`)
     # zamiast wywodzonych regexem z prozy. Flip zmienia CZTERY rzeczy naraz,
     # nie jedną warstwę punktową:
@@ -1009,6 +1023,22 @@ class Settings(BaseSettings):
     # w produkcji COMPASSA), wiec sam biezacy miesiac by ich nie dogonil.
     COMPASS_WORKDAYS_LOOKBACK_MONTHS: int = 3
     COMPASS_WORKDAYS_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
+
+    # ── COMPASS: cykl zycia pracownika ───────────────────────────────────
+    # COMPASS jest zrodlem prawdy o zatrudnieniu (`employment_status` odbiera
+    # tam dostep w trzech warstwach), a NEXUS flipuje `users.is_active`
+    # RECZNIE — wiec konto osoby, ktora odeszla, bywa aktywne tygodniami.
+    #
+    # Znowu WLASNY sekret, nie `CRON_SECRET` COMPASSA (patrz wyzej) i nie ten
+    # od dni roboczych: `WORKDAYS_EXPORT_SECRET` otwiera dokladnie jedna trase
+    # i ta wlasnosc ma zostac.
+    #
+    # Domyslnie WYLACZONE. Ta petla ODBIERA ludziom dostep, wiec wlaczenie jej
+    # jest decyzja operatora, nie efektem ubocznym deployu.
+    COMPASS_LIFECYCLE_ENABLED: bool = False
+    COMPASS_LIFECYCLE_URL: str = ""
+    COMPASS_LIFECYCLE_SECRET: str = ""
+    COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
 
     TRAFFIT_SYNC_ENABLED: bool = False
     # Skutki uboczne dla etapów przychodzących z importu.

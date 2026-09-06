@@ -308,9 +308,12 @@ def _bm25_pool_limit(pool: int) -> int:
     zabił pasaże CV (pomiar 2026-08-12: sufit −1,8 p.p. przy rosnących
     P@5/MRR). 200 = najwyżej 1/5 puli 1000, na pozycjach o wadze RRF ≤ 1/61.
 
-    Czytane przez `getattr`, bo `HYBRID_BM25_POOL_LIMIT` nie jest jeszcze
-    zadeklarowane w `core/config.py` — do czasu deklaracji pokrętło ma stałą
-    wartość domyślną i NIE da się go przestawić zmienną środowiskową.
+    `HYBRID_BM25_POOL_LIMIT` JEST zadeklarowane w `core/config.py` (od 09.2026),
+    więc pokrętło naprawdę działa: zmienna środowiskowa je przestawia. Wcześniej
+    ten sam `getattr` czytał pole NIEISTNIEJĄCE — Pydantic wczytuje env wyłącznie
+    dla pól zadeklarowanych, więc wartość była stała, mimo że kod wyglądał na
+    konfigurowalny. `getattr` zostaje jako zabezpieczenie dla wywołań z podmienioną
+    atrapą ustawień w testach, a nie dlatego, że pola brakuje.
     """
     from app.core.config import settings  # noqa: PLC0415
 

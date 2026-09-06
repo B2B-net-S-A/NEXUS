@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,20 +41,31 @@ class WeightsPayload(BaseModel):
     # layer — this closes the champion-budget-110 gap at the API boundary.
     champion_fit: int = Field(0, ge=0, le=100)
 
-    @field_validator("champion_fit")
-    @classmethod
-    def _sum_to_100(cls, v: int, info) -> int:  # type: ignore[no-untyped-def]
+    # `model_validator(mode="after")`, NIE `field_validator("champion_fit")`.
+    # Walidator POLA w Pydantic v2 nie odpala się, gdy pola NIE MA w żądaniu
+    # i wchodzi wartość domyślna (bez `validate_default=True`) — a `champion_fit`
+    # jest opcjonalne właśnie po to, żeby stary, pięciowagowy payload dalej
+    # działał. Suma nie była więc sprawdzana DOKŁADNIE w tym przypadku, którego
+    # komentarz wyżej broni: `POST /api/scoring-weights` z pięcioma wagami
+    # sumującymi się do 99 zwracał 201 i zapisywał profil.
+    #
+    # To nie jest kosmetyka walidacji: `WeightProfile.from_record` bierze te
+    # liczby wprost jako budżety warstw, więc profil o sumie 99 liczy KAŻDY
+    # match score względem innego maksimum niż 100, którego oczekują progi
+    # i procenty w UI. Bramka API była tu jedynym miejscem, które tego pilnuje.
+    @model_validator(mode="after")
+    def _sum_to_100(self) -> "WeightsPayload":
         s = (
-            info.data.get("semantic", 0)
-            + info.data.get("skills", 0)
-            + info.data.get("salary", 0)
-            + info.data.get("location", 0)
-            + info.data.get("availability", 0)
-            + v
+            self.semantic
+            + self.skills
+            + self.salary
+            + self.location
+            + self.availability
+            + self.champion_fit
         )
         if s != 100:
             raise ValueError(f"weights must sum to 100, got {s}")
-        return v
+        return self
 
 
 class ScoringWeightProfileCreate(BaseModel):

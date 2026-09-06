@@ -100,9 +100,21 @@ async def _multi_query_pool(
             cosine_by_id = {}
         for cid in extra_ids:
             pool_by_id[cid] = float(cosine_by_id.get(cid) or 0.0)
+        # Ci, dla których kosinusu NIE zmierzono — patrz `semantic_unknown`
+        # w :func:`retrieve_candidate_pool`. Bez tego zero z awarii dosypki
+        # jedzie do scoringu jako pełna kara w warstwie wartej 60 pkt i zostaje
+        # zapisane w cache'u jako wynik świeży.
+        unknown = {cid for cid in extra_ids if cosine_by_id.get(cid) is None}
+    else:
+        unknown = set()
 
     ranked = sorted(pool_by_id.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
-    return [{"candidate_id": cid, "score": score} for cid, score in ranked]
+    return [
+        {"candidate_id": cid, "score": score}
+        if cid not in unknown
+        else {"candidate_id": cid, "score": score, "semantic_unknown": True}
+        for cid, score in ranked
+    ]
 
 
 async def retrieve_candidate_pool(
@@ -116,10 +128,18 @@ async def retrieve_candidate_pool(
 ) -> list[dict]:
     """Zwróć pulę kandydatów w kształcie `[{candidate_id, score}]`.
 
-    Kontrakt zwrotu jest IDENTYCZNY z `search_candidates_semantic`, żeby pięć
+    Kontrakt zwrotu jest ROZSZERZENIEM `search_candidates_semantic`, żeby pięć
     miejsc wywołania (rekomendacje, Talent Radar, propozycje, digest, eval) nie
     musiało wiedzieć, która strategia jest pod spodem. `score` to zawsze
     kosinus — patrz docstring modułu.
+
+    Rozszerzenie to opcjonalny klucz `semantic_unknown: True` na wierszach, dla
+    których kosinusu NIE zmierzono (padła dosypka albo kandydat nie ma wektora).
+    Ich `score` wynosi 0.0, ale to jest „nie wiem", nie „zmierzono zero" —
+    a warstwa semantyczna scoringu waży 60 pkt, więc pomylenie tych dwóch
+    rzeczy zamienia awarię dostawcy w trwały, zapisany w cache'u wynik. Wołający,
+    który pisze do `candidate_job_match_scores`, MUSI ten klucz czytać; kto tylko
+    rankuje w pamięci, może go zignorować.
 
     `raise_on_error` obowiązuje na OBU ścieżkach. Konsumenci fasady (poza
     harnessem ewaluacyjnym) wołają z domyślnym `False` i liczą na łagodną
@@ -227,10 +247,25 @@ async def retrieve_candidate_pool(
     for candidate_id in ids:
         score = cosine_by_id.get(candidate_id)
         if score is None:
-            # Kandydat znaleziony przez BM25, ale bez wektora w indeksie.
-            # Dziś pokrycie indeksu to 100%, więc to gałąź przyszłościowa:
+            # Kandydat znaleziony przez BM25, ale bez ZMIERZONEGO kosinusu:
+            # albo dosypka padła (gałąź wyżej), albo nie ma wektora w indeksie.
             # 0.0 = „brak sygnału semantycznego", a nie wykluczenie — pozostałe
             # warstwy scoringu (skills, lokalizacja) wciąż mogą go wynieść.
-            score = 0.0
+            #
+            # `semantic_unknown` niesie tę różnicę DALEJ i jest tu jedyną rzeczą,
+            # która broni cache'u score'ów. Wołający rozpoznawał degradację
+            # wyłącznie po PUSTCE puli (`semantic_degraded = not candidate_ids`),
+            # a ta gałąź z definicji zwraca listę niepustą — więc warstwa
+            # semantyczna warta 60 pkt lądowała w `candidate_job_match_scores`
+            # jako 0/60 ŚWIEŻE i przeżywała powrót dostawcy (klucz cache'u nie
+            # zna zdrowia providera). To jest dokładnie M3-CACHE-01.
+            pool.append(
+                {
+                    "candidate_id": int(candidate_id),
+                    "score": 0.0,
+                    "semantic_unknown": True,
+                }
+            )
+            continue
         pool.append({"candidate_id": int(candidate_id), "score": float(score)})
     return pool
