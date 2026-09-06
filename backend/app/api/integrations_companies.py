@@ -23,7 +23,20 @@ are still used as a cheap SQL prefilter — the exact decision happens in
 ``_match_experience`` against ``normalize_company_name``.
 """
 
-from __future__ import annotations
+# NIE dodawaj tu `from __future__ import annotations`.
+#
+# Ten moduł łączy `@limiter.limit` z modelem Pydantic jako body (`payload:
+# CompanyPeopleRequest`). Przy PEP 563 + slowapi #579 taka trójka potrafi
+# skończyć się tym, że FastAPI weźmie body za parametr Query i odda 422 na
+# każde poprawne żądanie (patrz CLAUDE.md oraz `talent_radar.py` /
+# `service_accounts.py`, które unikają tego importu z tego samego powodu).
+#
+# Zmierzone 2026-09-06: z tym importem endpoint MIMO WSZYSTKO działał poprawnie
+# (`openapi()` pokazywał `requestBody`, zero parametrów query) — warunkiem
+# awarii jest dopiero `Annotated` guard jako parametr, nie sam import. Import
+# usunięty mimo to: nic go tu nie potrzebuje (żadna adnotacja w tym pliku nie
+# wymaga leniwej ewaluacji), a 25 z 28 modułów z limiterem go nie ma. Dołożenie
+# `Annotated`-owego parametru w przyszłości nie powinno wysadzać endpointu.
 
 import re
 import unicodedata
@@ -183,7 +196,15 @@ class CompanyPeopleResponse(BaseModel):
     query: str
     canonical: str
     matched_client: Optional[MatchedClient] = None
-    counts: dict[str, int]
+    counts: dict[str, int] = Field(
+        ...,
+        description=(
+            "Matches per bucket BEFORE `limit` is applied — so the caller can "
+            "say 'we know 150 people there' while listing 100. When "
+            "`truncated` is true, sum(counts) is larger than len(people); "
+            "render the two from the same source or the UI contradicts itself."
+        ),
+    )
     truncated: bool = Field(
         False, description="True when more matches exist than `limit` returned."
     )
