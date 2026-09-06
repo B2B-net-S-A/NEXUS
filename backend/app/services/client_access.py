@@ -13,7 +13,8 @@ Polityka (fail-closed; decyzje produktowe "wg polityki" domyślnie NA NIE):
   współdzielonym narzędziom Sourcing/Pipeline, ale bramka sekcji odcina ich od
   endpointów Delivery.
 - ``delivery_lead`` — zarządzanie kontaktami/wiedzą i wgląd w dokumenty
-  prawne wyłącznie klienta z jawnym ``DeliveryLeadClientAssignment``.
+  prawne wszystkich klientów. Przypisanie wskazuje właściciela i nadal
+  bramkuje finanse oraz konsekwentne zapisy prawne.
 - ``tac`` — ten sam resolver wyłącznie klienta z jawnym
   ``ClientTacAssignment``. Brak przypisań jest prawdziwym deny-all, nigdy
   fallbackiem do całej organizacji.
@@ -56,11 +57,9 @@ from app.models.client import Client
 from app.models.contact import Contact
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
-from app.models.team_structure import (
-    ClientTacAssignment,
-    DeliveryLeadClientAssignment,
-)
+from app.models.team_structure import ClientTacAssignment
 from app.models.user import User, UserRole
+from app.services.access_scope import resolve_delivery_lead_assigned_client_ids
 
 # Historyczny graf organizacyjny używany również przez współdzielone narzędzia
 # Pipeline. Prawa Delivery wynikają dodatkowo z centralnej bramki sekcji.
@@ -88,6 +87,7 @@ class ClientAccess:
     is_admin_like: bool
     is_organization_reader: bool
     is_client_team: bool
+    is_delivery_lead_assigned: bool
     is_job_assigned: bool
 
     can_view_contacts: bool
@@ -204,14 +204,14 @@ async def resolve_client_team_client_ids(
     db: AsyncSession,
     user: User,
 ) -> frozenset[int] | None:
-    """Resolve the explicit client graph for DL/TAC client-team capabilities.
+    """Resolve the client graph for DL/TAC client-team capabilities.
 
     ``None`` means unrestricted Admin or plain Head of Recruitment oversight.
-    Every account holding Delivery Lead receives only its
-    ``DeliveryLeadClientAssignment`` rows, even when it also has TAC/HoR/TCM.
-    That keeps the Delivery persona inside its own client portfolio. A plain
-    TAC receives its ``ClientTacAssignment`` rows. An empty set is
-    authoritative deny-all.
+    Delivery Lead receives the concrete set of every client; keeping a set
+    preserves fail-closed handling for client-less legal entities and the
+    role's narrow finance exceptions. DL assignments remain ownership metadata
+    used for routing and notifications, not an authorization boundary. A plain
+    TAC still receives only its ``ClientTacAssignment`` rows.
     """
 
     if user.has_role(UserRole.admin) or (
@@ -222,15 +222,7 @@ async def resolve_client_team_client_ids(
 
     client_ids: set[int] = set()
     if user.has_role(UserRole.delivery_lead):
-        client_ids.update(
-            (
-                await db.scalars(
-                    select(DeliveryLeadClientAssignment.client_id).where(
-                        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
-                    )
-                )
-            ).all()
-        )
+        client_ids.update((await db.scalars(select(Client.id))).all())
         return frozenset(int(client_id) for client_id in client_ids)
     if user.has_role(UserRole.tac):
         client_ids.update(
@@ -251,11 +243,11 @@ async def resolve_client_visible_client_ids(
 ) -> frozenset[int] | None:
     """Resolve all clients whose operational surface the user may read.
 
-    Admin/HoR and organization readers remain unrestricted. DL/TAC contribute
-    only explicit relationship assignments. Recruiter/Sourcer contribute only
-    clients reached through their exact Job or JobCollaborator membership,
-    unless the account also holds Delivery Lead — then the DL portfolio is the
-    authoritative ceiling.
+    Admin/HoR, Delivery Lead and organization readers remain unrestricted. TAC
+    contributes only explicit relationship assignments. Recruiter/Sourcer
+    contribute only clients reached through their exact Job or JobCollaborator
+    membership, unless the account also holds Delivery Lead — then all clients
+    are visible.
     Empty is authoritative deny-all and never means organization-wide fallback.
     """
 
@@ -299,6 +291,15 @@ async def resolve_client_access(
     is_client_team = (
         client_team_client_ids is None or client_id in client_team_client_ids
     )
+    delivery_lead_assignment_required = user.has_role(
+        UserRole.delivery_lead
+    ) and not user.has_role(UserRole.admin)
+    is_delivery_lead_assigned = False
+    if delivery_lead_assignment_required:
+        assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(user, db)
+        is_delivery_lead_assigned = (
+            assigned_client_ids is not None and client_id in assigned_client_ids
+        )
     is_delivery = user.has_any_role(*DELIVERY_ROLES) and not delivery_scoped
 
     # Query o przypisanie do Joba tylko gdy może zmienić decyzję.
@@ -317,6 +318,7 @@ async def resolve_client_access(
         is_admin_like=is_admin_like,
         is_organization_reader=is_organization_reader,
         is_client_team=is_client_team,
+        is_delivery_lead_assigned=is_delivery_lead_assigned,
         is_job_assigned=is_job_assigned,
         can_view_contacts=can_view_team_surfaces,
         can_edit_contacts=can_edit,
@@ -331,7 +333,10 @@ async def resolve_client_access(
             not is_read_only_tcm
             and (is_admin_like or is_finance_reader or is_client_team)
         ),
-        can_edit_legal_documents=can_edit,
+        can_edit_legal_documents=(
+            can_edit
+            and (not delivery_lead_assignment_required or is_delivery_lead_assigned)
+        ),
         can_view_financials=can_view_team_surfaces and has_financial_access(user),
         can_manage_client=is_admin_like and has_delivery_write,
         private_contact_notes_allowed=not is_read_only_tcm,

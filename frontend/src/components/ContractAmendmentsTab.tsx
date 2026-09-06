@@ -7,7 +7,7 @@ import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
 import {
   canManageCandidateFinance,
-  canViewCandidateFinance,
+  canViewClientFinance,
   useAuthStore,
 } from "@/store/auth";
 import {
@@ -75,15 +75,17 @@ const EMPTY: FormState = {
 
 export function ContractAmendmentsTab({
   contractId,
+  clientId,
   readOnly = false,
 }: {
   contractId: number;
+  clientId: number;
   readOnly?: boolean;
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const canManageFinance = canManageCandidateFinance(user);
-  const canViewFinance = canViewCandidateFinance(user);
+  const canViewFinance = canViewClientFinance(user, clientId);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [error, setError] = useState("");

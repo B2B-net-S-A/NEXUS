@@ -75,7 +75,11 @@ async def _require_material_write(
     access = await resolve_client_access(db, current_user, client_id)
     allowed = access.can_edit_legal_documents if legal else access.can_edit_materials
     if not allowed:
-        raise deny("zapis materiałów wymaga roli admin lub przypisanego DL")
+        if legal:
+            raise deny(
+                "zapis dokumentów prawnych wymaga roli admin lub przypisanego DL"
+            )
+        raise deny("zapis materiałów wymaga roli admin lub Delivery Lead")
 
 
 async def require_client_material_read_access(

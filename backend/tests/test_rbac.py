@@ -186,7 +186,7 @@ ADMIN_ONLY_ENDPOINTS = [
     ("GET", "/api/admin/users"),
     ("GET", "/api/admin/system"),
     # Client deletion is an organization-wide destructive operation. Delivery
-    # Lead is scoped to assigned clients and may update them, but cannot delete.
+    # Delivery Lead may update clients operationally, but cannot delete them.
     ("DELETE", "/api/clients/99999"),
     # Candidate-specific rate data carries recruitment PII; Finance uses
     # person-free financial endpoints and Delivery Lead stays operational-only.
@@ -852,10 +852,10 @@ async def test_me_returns_analytics_capabilities(
 
 
 @pytest.mark.asyncio
-async def test_me_hybrid_tcm_delivery_lead_exposes_assigned_delivery_scope(
+async def test_me_hybrid_tcm_delivery_lead_exposes_all_client_delivery_scope(
     rbac_client: AsyncClient,
 ):
-    """TCM+DL keeps the TCM dashboard and a strict assigned-client boundary."""
+    """TCM+DL keeps the TCM dashboard and receives every client as DL."""
     from app.models.client import Client
     from app.models.team_structure import DeliveryLeadClientAssignment
 
@@ -868,7 +868,8 @@ async def test_me_hybrid_tcm_delivery_lead_exposes_assigned_delivery_scope(
             UserRole.delivery_lead.value,
         ]
         client = Client(name=f"RBAC hybrid client {uuid.uuid4().hex[:8]}")
-        db.add(client)
+        unassigned = Client(name=f"RBAC global client {uuid.uuid4().hex[:8]}")
+        db.add_all([client, unassigned])
         await db.flush()
         db.add(
             DeliveryLeadClientAssignment(
@@ -876,7 +877,7 @@ async def test_me_hybrid_tcm_delivery_lead_exposes_assigned_delivery_scope(
                 client_id=client.id,
             )
         )
-        expected_client_id = client.id
+        expected_client_ids = {client.id, unassigned.id}
         await db.commit()
 
     headers = await _login(rbac_client, email, password)
@@ -890,7 +891,8 @@ async def test_me_hybrid_tcm_delivery_lead_exposes_assigned_delivery_scope(
     ]
     assert body["default_dashboard_preset"] == "head-of-recruitment"
     assert body["data_scope"]["kind"] == "delivery_clients"
-    assert body["data_scope"]["allowed_client_ids"] == [expected_client_id]
+    assert expected_client_ids.issubset(body["data_scope"]["allowed_client_ids"])
+    assert body["data_scope"]["finance_client_ids"] == [client.id]
     assert "view_finance" not in body["capabilities"]
 
 

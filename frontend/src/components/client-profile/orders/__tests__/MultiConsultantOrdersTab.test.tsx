@@ -44,8 +44,9 @@ vi.mock("@/store/auth", () => ({
     ["admin", "delivery_lead", "finance"].includes(
       user?.role ?? "",
     ),
-  canViewCandidateFinance: (
+  canViewClientFinance: (
     user: { role?: string; capabilities?: string[] } | null,
+    _clientId: number,
   ) =>
     user?.role === "admin" ||
     (user?.role === "finance" &&

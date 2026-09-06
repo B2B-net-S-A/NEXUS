@@ -391,13 +391,14 @@ async def require_dl_assigned_or_admin(
     current_user: Annotated[User, Depends(get_current_user)],
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency: Admin globalnie OR DL z `DeliveryLeadClientAssignment`.
+    """Dependency: Admin globally or an explicitly assigned Delivery Lead.
 
     FastAPI inferruje ``client_id`` z path parametru routera. Inne role
     (recruiter, sourcer, tac, user) — zawsze 403.
 
-    Reads dla MyClients/dashboard używają tego samego guarda — DL widzi
-    tylko swoich klientów (admin widzi wszystkich).
+    Ten wąski guard pozostaje dla stawek, plików finansowych i konsekwentnych
+    zapisów prawnych. Zwykły dostęp operacyjny do klienta korzysta z
+    ``require_delivery_lead_or_admin`` albo centralnego ``ClientAccess``.
     """
     from sqlalchemy import select
 
@@ -425,6 +426,22 @@ async def require_dl_assigned_or_admin(
 
 
 DlAssignedOrAdmin = Annotated[User, Depends(require_dl_assigned_or_admin)]
+
+
+async def require_delivery_lead_or_admin(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """Dependency for organization-wide operational Delivery client actions."""
+
+    if current_user.has_any_role(UserRole.admin, UserRole.delivery_lead):
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only Delivery Leads or admin may access this",
+    )
+
+
+DeliveryLeadOrAdmin = Annotated[User, Depends(require_delivery_lead_or_admin)]
 
 
 # ── Konta serwisowe / klucze API (nagłówek X-API-Key) ────────────────────────

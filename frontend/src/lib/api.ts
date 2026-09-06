@@ -985,6 +985,7 @@ export const matchingApi = {
         match_score: number | null;
         matching_skills: string[];
         gaps: string[];
+        eligibility?: MatchEligibility | null;
       }>;
       meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/ai-matches`, {
@@ -2438,6 +2439,24 @@ export interface RecommendationMeta {
   eligibility_filtered?: number;
 }
 
+/**
+ * Anotacja dopuszczalności na wierszu rankingu (`/ai-matches`). Obecna tylko dla
+ * kandydatów, których dopuszczalność nie jest „czysta": `warn` (aktywny konflikt
+ * klienta / NDA / konkurent / weto hiring managera) — pokazywani z powodem
+ * i `assignment_allowed=false` — oraz miękkie ostrzeżenia (`current_employment`,
+ * `excluded_client`). Kandydaci `hidden` (globalna blacklista, duplikat) nie
+ * trafiają na listę w ogóle, więc nigdy nie mają tej anotacji. `reason` jest
+ * gotową polską etykietą z `_REASON_LABELS_PL`.
+ */
+export interface MatchEligibility {
+  reason_code: string;
+  reason: string;
+  assignment_allowed: boolean;
+  visibility: "visible" | "warn" | "hidden";
+  severity: "warning" | "blocking" | string;
+  secondary: string[];
+}
+
 export interface JobMatch {
   job: {
     id: number;
@@ -3512,6 +3531,28 @@ export interface SeekingContractorsResponse {
   /** `total > returned` — lista jest przycięta i ktoś może nie być widoczny. */
   truncated: boolean;
   items: SeekingContractorRow[];
+  /**
+   * Stan wyszukiwania, którym powstała ta lista.
+   *
+   * `degraded: true` znaczy, że dla CO NAJMNIEJ JEDNEGO konsultanta warstwa
+   * semantyczna nie odpowiedziała — jego pusty `top_matches` mówi „nie wiemy",
+   * a nie „nic dla tej osoby nie ma". Bez odczytania tej flagi awaria renderuje
+   * się identycznie jak zero trafień, czyli dokładnie tak, jak nie wolno.
+   *
+   * Pole jest OPCJONALNE, bo w oknie wdrożenia przeglądarka może dostać
+   * odpowiedź ze starszej wersji backendu, która tego klucza nie niosła.
+   * Brak `meta` czytamy jak `degraded: false` — to jedyna interpretacja, która
+   * nie zamienia normalnego pustego stanu w fałszywy alarm.
+   */
+  meta?: {
+    degraded: boolean;
+    /**
+     * `semantic_unavailable` — padł dostawca (Qdrant/Voyage), lista jest
+     * niepełna. `no_candidates` / `no_open_jobs` — nie było czego szukać, czyli
+     * NORMALNY pusty stan, nie awaria. Rozstrzyga `degraded`, nie ten napis.
+     */
+    reason: "semantic_unavailable" | "no_candidates" | "no_open_jobs" | null;
+  };
 }
 
 export interface ShortlistEmailDraftResponse {

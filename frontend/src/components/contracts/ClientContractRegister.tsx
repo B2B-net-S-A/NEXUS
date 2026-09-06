@@ -476,7 +476,7 @@ export function ClientContractRegister({
   const pageSize = data?.page_size ?? PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // 403 (zmienione przypisanie klienta dla DL) i 5xx NIE mogą renderować się
+  // 403 (zmienione uprawnienie użytkownika) i 5xx NIE mogą renderować się
   // jako „Brak kontraktów dla tego klienta." z zachętą „Dodaj pierwszy kontrakt"
   // — CTA na nieudanym pobraniu produkuje duplikat kontraktu konsultanta, który
   // wpływa dalej do MRR, skanera wygasania i marży klienta (audyt F-20).

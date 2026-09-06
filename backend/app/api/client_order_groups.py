@@ -11,8 +11,9 @@ przycisk nie jest zabezpieczeniem, a wywołane wprost API założyłoby zamówie
 u klienta, którego zakładka nigdy go nie pokaże — czyli dane nie do zobaczenia
 i nie do poprawienia z interfejsu.
 
-Obsadę zamówienia prowadzi **delivery**: stawki linii MD ustawia admin albo
-Delivery Lead przypisany do klienta (``_has_md_line_management_role``). To
+Obsadę zamówienia prowadzi **delivery**: operacyjny rejestr obejmuje wszystkich
+klientów, ale stawki linii MD ustawia admin albo Delivery Lead przypisany do
+klienta (``_has_md_line_management_access``). To
 świadome poszerzenie względem modułu zamówień, gdzie ``rate_client`` /
 ``rate_candidate`` zostają admin-only — tamte pola są interpretowane przez
 ``Contract.rate_unit`` i zasilają marżę miesięczną wszystkich klientów, te są
@@ -45,9 +46,9 @@ from sqlalchemy.orm import selectinload
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.financial_access import has_financial_access
 from app.api.deps import (
-    DlAssignedOrAdmin,
+    DeliveryLeadOrAdmin,
     get_current_user,
-    require_dl_assigned_or_admin,
+    require_delivery_lead_or_admin,
     require_roles,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -86,6 +87,7 @@ from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.user import User, UserRole
+from app.services.access_scope import resolve_delivery_lead_finance_client_ids
 from app.schemas.client_order_group import (
     ConsultantOptionRead,
     ConsultantOptionsResponse,
@@ -228,12 +230,22 @@ def _is_technical_event(event_type: str, payload: Optional[dict]) -> bool:
     return set(changed) <= _TECHNICAL_EDIT_FIELDS
 
 
-# Pola pieniężne linii. Nazwy są WŁASNE, nie z `_ORDER_FINANCE_WRITE_FIELDS`
+# Pola pieniężne grupy i linii. Nazwy są WŁASNE, nie z
+# `_ORDER_FINANCE_WRITE_FIELDS`
 # w `client_orders.py` — tamten zbiór opisuje `rate_client`/`rate_candidate`,
 # czyli stawki interpretowane przez `Contract.rate_unit`. Tutaj stawki są
 # per MD i mają osobne kolumny, więc muszą mieć też własną bramkę; użycie
 # tamtego zbioru przepuściłoby te pola bez żadnej kontroli.
-_LINE_FINANCE_FIELDS = frozenset({"rate_cost", "rate_revenue"})
+_GROUP_FINANCE_FIELDS = frozenset(
+    {
+        "rate_cost",
+        "rate_revenue",
+        "budget_amount",
+        "budget_manual_adjustment",
+        "md_budget_total",
+        "md_budget_manual_adjustment",
+    }
+)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -249,9 +261,9 @@ async def _assert_client(db: AsyncSession, client_id: int) -> Client:
 async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> None:
     """Ta sama decyzja dostępu co przy zamówieniach jednoosobowych.
 
-    Lustro ``client_orders._require_client_order_read``: linia niesie kandydata
-    i stawki, więc Delivery Lead wymaga jawnego przypisania. Finance ma
-    organizacyjny business-read niezależny od przypisania.
+    Lustro ``client_orders._require_client_order_read``: Delivery Lead widzi
+    operacyjny rekord każdego klienta, a serializer osobno redaguje stawki poza
+    przypisanym portfelem. Finance ma organizacyjny business-read.
     """
     await _assert_client(db, client_id)
     # Finance ma organizacyjny odczyt. Head of Recruitment nie omija już
@@ -260,7 +272,7 @@ async def _require_group_read(db: AsyncSession, user: User, client_id: int) -> N
         return
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają roli Finance lub przypisanego DL")
+        raise deny("zamówienia klienta wymagają dostępu operacyjnego Delivery")
 
 
 async def _require_safe_group_read(
@@ -279,8 +291,8 @@ async def _require_safe_group_read(
 def _is_read_only_tcm(user: User) -> bool:
     """TCM ceiling for Delivery orders, irrespective of HoR/TAC secondary roles.
 
-    HoR and TAC do not independently enter Delivery, so only Admin, assigned
-    Delivery Lead, or Finance can supersede the TCM read-only projection here.
+    HoR and TAC do not independently enter Delivery, so only Admin, Delivery
+    Lead, or Finance can supersede the TCM read-only projection here.
     """
 
     return user.has_role(UserRole.talent_community_manager) and not user.has_any_role(
@@ -315,11 +327,9 @@ def _assert_multi_client(client_id: int) -> None:
 def _has_md_line_management_role(user: User) -> bool:
     """Czy ROLA użytkownika prowadzi linie MD: admin albo Delivery Lead.
 
-    **Nazwa mówi „rola" celowo — ta funkcja NIE sprawdza klienta.** Zawężenie do
-    klienta, do którego DL jest przypisany, robi ``DlAssignedOrAdmin`` na trasie
-    (zapis) i ``_require_group_read`` (odczyt). Nowy endpoint, który zawoła
-    poniższe guardy z pominięciem tamtych, dałby każdemu DL stawki wszystkich
-    klientów — i nic tutaj by tego nie zatrzymało.
+    **Nazwa mówi „rola" celowo — ta funkcja NIE sprawdza klienta.** Każdy zapis
+    kwoty musi dodatkowo przejść przez ``_has_md_line_management_access``, który
+    sprawdza finansowy zakres przypisań.
 
     Delivery jest tu CELOWO, mimo że nie ma ``VIEW_FINANCE``: to delivery układa
     obsadę zamówienia i negocjuje stawki per konsultant, a wymóg admina do
@@ -332,7 +342,7 @@ def _has_md_line_management_role(user: User) -> bool:
       legacy ``rate_client`` / ``rate_candidate`` / ``total_value`` w module
       zamówień zostają admin-only (``_ORDER_FINANCE_WRITE_FIELDS``),
     * tylko klient, do którego DL jest jawnie przypisany — pilnuje tego
-      ``DlAssignedOrAdmin`` na trasie, a ``_require_group_read`` na odczycie,
+      ``_has_md_line_management_access`` w guardzie pola,
     * **head_of_recruitment NIE** — bramka sekcji Delivery odcina tę rolę,
       a przy powierzchniach finansowych repo konsekwentnie trzyma ją poza,
     * rola ``finance`` NIE zapisuje stawek linii MD, ale widzi je przez osobny
@@ -341,8 +351,23 @@ def _has_md_line_management_role(user: User) -> bool:
     Odczyt i zapis są celowo rozdzielone: role zapisujące nadal widzą stawki,
     a Finance ma wyłącznie organizacyjny odczyt.
     """
-    # Sam test roli. Przypisanie do klienta MUSI być sprawdzone przez trasę.
+    # Sam test roli. Przypisanie do klienta sprawdza osobny helper access.
     return user.has_any_role(UserRole.admin, UserRole.delivery_lead)
+
+
+async def _has_md_line_management_access(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+) -> bool:
+    """Keep the MD-rate exception inside the DL's assigned finance portfolio."""
+
+    if user.has_role(UserRole.admin):
+        return True
+    if not user.has_role(UserRole.delivery_lead):
+        return False
+    finance_client_ids = await resolve_delivery_lead_finance_client_ids(user, db)
+    return finance_client_ids is not None and client_id in finance_client_ids
 
 
 async def _assert_no_pending_offboarding_case(
@@ -594,22 +619,18 @@ async def require_consultant_options_reader(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Preserve the legacy DL assignment guard and add Finance read only."""
+    """Allow operational Delivery Leads globally and add Finance read only."""
 
     if current_user.has_role(UserRole.finance) and has_financial_access(current_user):
         return current_user
-    return await require_dl_assigned_or_admin(
-        client_id=client_id,
-        current_user=current_user,
-        db=db,
-    )
+    return await require_delivery_lead_or_admin(current_user=current_user)
 
 
 ConsultantOptionsReader = Annotated[User, Depends(require_consultant_options_reader)]
 
 
 def _has_order_lifecycle_role(user: User) -> bool:
-    """Sam test ROLI — przypisanie do klienta sprawdza `_require_order_lifecycle`."""
+    """Sam test roli dla operacyjnego cyklu życia zamówienia."""
     return user.has_any_role(UserRole.admin, UserRole.delivery_lead) or (
         user.has_role(UserRole.finance)
         and user_has_capability(user, AnalyticsCapability.MANAGE_FINANCE)
@@ -621,10 +642,8 @@ async def _require_order_lifecycle(
 ) -> None:
     """Bramka czterech akcji cyklu życia zamówienia.
 
-    NIE reużywa `DlAssignedOrAdmin`, bo tamta odrzuca rolę Finanse, a ticket
-    wprost jej te akcje przyznaje. Delivery Lead nadal potrzebuje jawnego
-    przypisania do klienta — bez tego każdy DL kasowałby zamówienia wszystkich
-    klientów, czego żadna wersja ticketu nie żąda.
+    Nie reużywa wąskiego guarda przypisań, bo Delivery Lead zarządza operacyjnie
+    wszystkimi klientami, a Finance ma te akcje przez ``MANAGE_FINANCE``.
     """
     await _assert_client(db, client_id)
     if not _has_order_lifecycle_role(user):
@@ -636,28 +655,33 @@ async def _require_order_lifecycle(
         return
     access = await resolve_client_access(db, user, client_id)
     if not access.can_view_legal_documents:
-        raise deny("zamówienia klienta wymagają jawnego przypisania DL")
+        raise deny("zamówienia klienta wymagają dostępu operacyjnego Delivery")
 
 
-def _assert_line_finance_write_allowed(user: User, supplied: set[str]) -> None:
-    """Stawki linii MD pisze admin albo przypisany Delivery Lead."""
-    forbidden = sorted(supplied & _LINE_FINANCE_FIELDS)
-    if forbidden and not _has_md_line_management_role(user):
+async def _assert_line_finance_write_allowed(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+    supplied: set[str],
+) -> None:
+    """Kwoty grupy i linii pisze admin albo przypisany Delivery Lead."""
+    forbidden = sorted(supplied & _GROUP_FINANCE_FIELDS)
+    if forbidden and not await _has_md_line_management_access(db, user, client_id):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail={"code": "finance_fields_forbidden", "fields": forbidden},
         )
 
 
-def _can_see_finance(user: User) -> bool:
+async def _can_see_finance(db: AsyncSession, user: User, client_id: int) -> bool:
     """Stawki linii MD widzi ten, kto może je ustawiać, oraz role z VIEW_FINANCE.
 
     TAC zostaje przy redakcji: jest w zespole klienta i widzi konsultantów oraz
     zużycie MD, ale nie prowadzi obsady zamówienia, więc stawki go nie dotyczą.
     """
-    return _has_md_line_management_role(user) or user_has_capability(
+    return user_has_capability(
         user, AnalyticsCapability.VIEW_FINANCE
-    )
+    ) or await _has_md_line_management_access(db, user, client_id)
 
 
 def _initial_group_status(start_date: date) -> str:
@@ -1390,7 +1414,7 @@ async def list_order_groups(
             ClientOrderGroup.created_at.desc(), ClientOrderGroup.id.desc()
         )
     )
-    with_finance = _can_see_finance(user)
+    with_finance = await _can_see_finance(db, user, client_id)
     models = list(result.scalars())
     shared_md_used_by_group = await shared_md_used_totals(
         db, (group.id for group in models if uses_shared_md_pool(group))
@@ -1621,7 +1645,7 @@ async def export_order_groups(
         group = await _group_to_read(
             db,
             by_id[group_id],
-            with_finance=_can_see_finance(user),
+            with_finance=await _can_see_finance(db, user, client_id),
             precomputed_md_budget_used=(
                 shared_md_used_by_group[group_id]
                 if uses_shared_md_pool(by_id[group_id])
@@ -1670,7 +1694,7 @@ async def list_consultant_options_for_client(
     options, total = await list_consultant_options(
         db, client_id=client_id, query=q, limit=limit
     )
-    include_rate_suggestions = _can_see_finance(user)
+    include_rate_suggestions = await _can_see_finance(db, user, client_id)
     return ConsultantOptionsResponse(
         options=[
             ConsultantOptionRead(
@@ -1736,7 +1760,7 @@ async def list_group_events(
             ClientOrderGroupEvent.created_at.desc(), ClientOrderGroupEvent.id.desc()
         )
     )
-    with_finance = _can_see_finance(user)
+    with_finance = await _can_see_finance(db, user, client_id)
     events: list[OrderGroupEventRead] = []
     for ev in result.scalars():
         if _is_technical_event(ev.event_type, ev.payload):
@@ -1803,6 +1827,8 @@ async def download_order_group_file(
     """Pobierz master PDF zamówienia wielo-konsultantowego."""
 
     await _require_group_read(db, user, client_id)
+    if not await _can_see_finance(db, user, client_id):
+        raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     if not group.file_path:
@@ -1825,13 +1851,15 @@ async def download_order_group_file(
 async def replace_order_group_file(
     client_id: int,
     group_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Zapisz master PDF i upsertuj jego kopię na każdym kontrakcie z grupy."""
 
     await _assert_client(db, client_id)
+    if not await _can_see_finance(db, user, client_id):
+        raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
 
@@ -1872,7 +1900,11 @@ async def replace_order_group_file(
     for path in superseded_paths:
         storage_service.delete_contract_document(path)
     await db.refresh(group)
-    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.delete(
@@ -1882,7 +1914,7 @@ async def replace_order_group_file(
 async def delete_order_group_file(
     client_id: int,
     group_id: int,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Usuń master i tylko automatyczne kopie PDF z kontraktów.
@@ -1893,6 +1925,8 @@ async def delete_order_group_file(
     """
 
     await _assert_client(db, client_id)
+    if not await _can_see_finance(db, user, client_id):
+        raise deny("plik zamówienia z kwotami wymaga przypisania do klienta")
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
     if not group.file_path:
@@ -1943,12 +1977,21 @@ async def delete_order_group_file(
 async def create_order_group(
     client_id: int,
     payload: OrderGroupCreate,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Nowe zamówienie klienta wraz z jedną lub wieloma liniami konsultantów."""
-    if payload.lines:
-        _assert_line_finance_write_allowed(user, {"rate_cost", "rate_revenue"})
+    if payload.lines or payload.budget_amount is not None:
+        await _assert_line_finance_write_allowed(
+            db,
+            user,
+            client_id,
+            {"rate_cost", "rate_revenue", "budget_amount"},
+        )
+    if payload.md_budget_total is not None:
+        await _assert_line_finance_write_allowed(
+            db, user, client_id, {"md_budget_total"}
+        )
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     if payload.end_date and payload.end_date < payload.start_date:
@@ -2100,7 +2143,11 @@ async def create_order_group(
     )
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.patch("/{client_id}/order-groups/{group_id}", response_model=OrderGroupRead)
@@ -2108,7 +2155,7 @@ async def update_order_group(
     client_id: int,
     group_id: int,
     payload: OrderGroupUpdate,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Edycja numeru i okresu zamówienia (bez dotykania linii)."""
@@ -2118,7 +2165,11 @@ async def update_order_group(
 
     data = payload.model_dump(exclude_unset=True)
     if not data:
-        return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+        return await _group_to_read(
+            db,
+            group,
+            with_finance=await _can_see_finance(db, user, client_id),
+        )
 
     # Contract offboarding locks the affected line before it creates a pending
     # decision.  Use the same lock order here so a concurrent PATCH cannot
@@ -2140,6 +2191,12 @@ async def update_order_group(
 
     cost_budget_fields = {"budget_amount", "budget_manual_adjustment"}
     md_budget_fields = {"md_budget_total", "md_budget_manual_adjustment"}
+    await _assert_line_finance_write_allowed(
+        db,
+        user,
+        client_id,
+        set(data) & (cost_budget_fields | md_budget_fields),
+    )
     if data.keys() & cost_budget_fields and not group.is_cost_based:
         raise HTTPException(
             422,
@@ -2262,7 +2319,11 @@ async def update_order_group(
     await materialize_scheduled_order_groups(db, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.delete(
@@ -2585,7 +2646,11 @@ async def close_order_group(
     )
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.post(
@@ -2660,7 +2725,11 @@ async def reopen_order_group(
     )
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.post(
@@ -2686,8 +2755,22 @@ async def extend_order_group(
     kosztowego jest kosztowe, przedłużenie MD jest MD. Zmiana modelu
     rozliczeniowego w połowie współpracy to nowe zamówienie, nie przedłużenie.
     """
-    if payload.lines:
-        _assert_line_finance_write_allowed(user, {"rate_cost", "rate_revenue"})
+    if (
+        payload.lines
+        or payload.budget_amount is not None
+        or payload.md_budget_total is not None
+    ):
+        await _assert_line_finance_write_allowed(
+            db,
+            user,
+            client_id,
+            {
+                "rate_cost",
+                "rate_revenue",
+                "budget_amount",
+                "md_budget_total",
+            },
+        )
     await _require_order_lifecycle(db, user, client_id)
     _assert_multi_client(client_id)
     source = await _load_group(db, client_id, group_id)
@@ -2797,7 +2880,11 @@ async def extend_order_group(
     await materialize_scheduled_order_groups(db, client_id=client_id)
     await commit_order_write(db)
     await db.refresh(group)
-    return await _group_to_read(db, group, with_finance=_can_see_finance(user))
+    return await _group_to_read(
+        db,
+        group,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.post(
@@ -2809,11 +2896,13 @@ async def add_line(
     client_id: int,
     group_id: int,
     payload: OrderLineCreate,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Dodaje konsultanta do istniejącego zamówienia."""
-    _assert_line_finance_write_allowed(user, {"rate_cost", "rate_revenue"})
+    await _assert_line_finance_write_allowed(
+        db, user, client_id, {"rate_cost", "rate_revenue"}
+    )
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
@@ -2870,7 +2959,10 @@ async def add_line(
     # loaderów obok kanonicznej jest jednak miną dla pierwszej zmiany kształtu
     # odpowiedzi, a nie oszczędnością.
     refreshed = await db.scalar(_line_query().where(ClientOrder.id == line.id))
-    return _line_to_read(refreshed, with_finance=_can_see_finance(user))
+    return _line_to_read(
+        refreshed,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.patch(
@@ -2882,12 +2974,12 @@ async def update_line(
     group_id: int,
     line_id: int,
     payload: OrderLineUpdate,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Edycja linii: stawki, budżet albo ręczna korekta pozostałych MD."""
     supplied = payload.model_fields_set
-    _assert_line_finance_write_allowed(user, set(supplied))
+    await _assert_line_finance_write_allowed(db, user, client_id, set(supplied))
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
@@ -3010,7 +3102,10 @@ async def update_line(
         )
     await commit_order_write(db)
     await db.refresh(line)
-    return _line_to_read(line, with_finance=_can_see_finance(user))
+    return _line_to_read(
+        line,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.post(
@@ -3022,7 +3117,7 @@ async def resolve_md_offboarding_case(
     group_id: int,
     case_id: int,
     payload: OrderOffboardingResolutionRequest,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Resolve the Delivery Lead decision after an MD consultant leaves.
@@ -3036,7 +3131,7 @@ async def resolve_md_offboarding_case(
 
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
-    if not _has_md_line_management_role(user):
+    if not await _has_md_line_management_access(db, user, client_id):
         raise deny("decyzję o puli MD podejmuje Delivery Lead albo administrator")
 
     group = await db.scalar(
@@ -3280,7 +3375,10 @@ async def resolve_md_offboarding_case(
     )
     await commit_order_write(db)
     await db.refresh(case)
-    return _offboarding_case_to_read(case, with_finance=_can_see_finance(user))
+    return _offboarding_case_to_read(
+        case,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )
 
 
 @router.post(
@@ -3293,7 +3391,7 @@ async def swap_consultant(
     group_id: int,
     line_id: int,
     payload: OrderLineSwapRequest,
-    user: DlAssignedOrAdmin,
+    user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
     """Zamiana kontraktora — nowa linia z MD przeliczonymi na nową stawkę.
@@ -3306,7 +3404,9 @@ async def swap_consultant(
     zostają nietknięte, a obie stawki i obie liczby MD lądują w historii —
     bez nich nie da się rozliczyć faktury za miesiąc zamiany.
     """
-    _assert_line_finance_write_allowed(user, {"rate_cost", "rate_revenue"})
+    await _assert_line_finance_write_allowed(
+        db, user, client_id, {"rate_cost", "rate_revenue"}
+    )
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
@@ -3513,4 +3613,7 @@ async def swap_consultant(
         )
         .where(ClientOrder.id == new_line.id)
     )
-    return _line_to_read(refreshed, with_finance=_can_see_finance(user))
+    return _line_to_read(
+        refreshed,
+        with_finance=await _can_see_finance(db, user, client_id),
+    )

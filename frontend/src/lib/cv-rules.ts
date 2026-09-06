@@ -375,6 +375,34 @@ export function formToPayload(form: CvRuleForm, confirm: boolean): ClientCvRuleP
   };
 }
 
+/**
+ * Ile „zaawansowanych" ustawień reguły odbiega od domyślnych. Licznik zasila
+ * plakietkę zwiniętej sekcji „Zaawansowane" w edytorze ORAZ pasek podsumowania
+ * — jedno źródło, żeby obie liczby się nie rozjechały. Domyślne wartości nie
+ * są liczone: `content_mode` pusty = wolny wybór, `cv_interactive_enabled`
+ * domyślnie WŁĄCZONE (więc liczy się dopiero WYŁĄCZENIE), `0` znaków notatek =
+ * brak wymogu (`intOrNull("0")` → 0 → falsy).
+ */
+export function countActiveAdvanced(form: CvRuleForm): number {
+  let n = 0;
+  if (form.content_mode) n += 1;
+  if (form.cv_content_mode_cap) n += 1;
+  if (!form.cv_interactive_enabled) n += 1;
+  if (intOrNull(form.require_screening_notes_min_chars)) n += 1;
+  if (form.require_project_ref) n += 1;
+  if (form.require_position) n += 1;
+  if (form.require_champion) n += 1;
+  if (form.auto_second_language) n += 1;
+  if (form.omit_sections.length) n += 1;
+  if (intOrNull(form.max_roles)) n += 1;
+  if (intOrNull(form.max_bullets_per_role)) n += 1;
+  if (intOrNull(form.max_bullet_chars)) n += 1;
+  if (intOrNull(form.why_points_max)) n += 1;
+  if (form.date_format) n += 1;
+  if (form.glossary.some((g) => g.from.trim() && g.to.trim())) n += 1;
+  return n;
+}
+
 /** Etykiety akcji historii — warstwa prezentacji, nie kontrakt API. */
 export const RULE_EVENT_LABELS: Record<string, string> = {
   saved: "Zapisano jako propozycję",

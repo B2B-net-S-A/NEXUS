@@ -1236,7 +1236,7 @@ export function PermissionsTab() {
       <Alert
         variant="info"
         title="Zakres danych i reguły operacyjne pozostają aktywne"
-        description="Ten ekran steruje wejściem do sekcji. Na przykład Delivery Lead nadal widzi wyłącznie przypisanych klientów, a dostęp do konkretnej akcji może wymagać dodatkowego uprawnienia. Administracja techniczna pozostaje tylko dla Administratora."
+        description="Ten ekran steruje wejściem do sekcji. Delivery Lead widzi operacyjnie wszystkich klientów, natomiast przypisanie nadal ogranicza finanse i wrażliwe dokumenty. Dostęp do konkretnej akcji może wymagać dodatkowego uprawnienia. Administracja techniczna pozostaje tylko dla Administratora."
       />
 
       <TabbedNav

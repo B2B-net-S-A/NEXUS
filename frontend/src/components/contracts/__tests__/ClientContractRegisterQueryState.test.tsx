@@ -2,7 +2,7 @@
  * Rejestr kontraktów klienta: awaria NIE może zapraszać do duplikatu kontraktu.
  *
  * Zapytanie destrukturyzowało tylko `{ data, isLoading, isFetching }`, więc 500
- * albo 403 (zmienione przypisanie klienta dla Delivery Leada) renderowało
+ * albo 403 (zmienione uprawnienie użytkownika) renderowało
  * „0 kontraktów" nad „Brak kontraktów dla tego klienta." i przycisk „Dodaj
  * pierwszy kontrakt". Skorzystanie z tej zachęty tworzy drugi kontrakt dla
  * konsultanta, który już ma aktywny — a ten wpływa dalej do MRR, skanera

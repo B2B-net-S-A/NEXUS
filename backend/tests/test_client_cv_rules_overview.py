@@ -3,17 +3,17 @@
 Do 09.2026 ``GET /api/settings/cv-rules`` zwracało wyłącznie 14 zasianych
 szablonów Championa, a ekran w Ustawieniach był podglądem bez żadnej akcji.
 Ekran zarządzania pozwala zapisać i zatwierdzić regułę jednym kliknięciem, ale
-backend musi pozostać źródłem prawdy dla portfela klienta — filtr w interfejsie
+backend musi pozostać źródłem prawdy dla zakresu klienta — filtr w interfejsie
 nie jest granicą bezpieczeństwa.
 
 Ten plik dowodzi trzech rzeczy, które ekran zarządzania zakłada, a które
 łatwo cofnąć „przy okazji":
 
-1. Delivery Lead zakłada i zatwierdza regułę JEDNYM zapisem (``confirm=true``),
-   ale wyłącznie dla klienta z ``DeliveryLeadClientAssignment``.
+1. Delivery Lead zakłada i zatwierdza regułę JEDNYM zapisem (``confirm=true``)
+   dla każdego klienta.
 2. Przegląd zbiorczy administratora pokazuje KAŻDĄ regułę, nie tylko zasiane.
-   Delivery Lead widzi tylko własny portfel i nie widzi nieprzypisanych
-   szablonów, których zakresu nie da się powiązać z klientem.
+   Delivery Lead widzi wszystkich klientów, ale nadal nie widzi szablonów,
+   których zakresu nie da się powiązać z klientem.
 3. Domyślny zapis nadal jest propozycją, a edycja bez ``confirm`` ZDEJMUJE
    zatwierdzenie — zmiana wzoru nie wchodzi na produkcję bez decyzji.
    Role bez odczytu Delivery nie otwierają przeglądu. Finance zachowuje
@@ -136,10 +136,10 @@ async def _rule_is_active_in_db(client_id: int) -> bool:
 
 
 @pytest.mark.asyncio
-async def test_delivery_lead_manages_only_assigned_client_rules(
+async def test_delivery_lead_manages_rules_for_all_clients(
     app_client: AsyncClient,
 ):
-    """DL: jeden zapis zatwierdza regułę, ale scope kończy się na portfelu."""
+    """DL zarządza regułami CV także dla klienta bez przypisania."""
     tag = uuid.uuid4().hex[:6]
     mine = await _make_client(f"CV rules portfolio {tag}")
     other = await _make_client(f"CV rules outside {tag}")
@@ -156,14 +156,15 @@ async def test_delivery_lead_manages_only_assigned_client_rules(
             app_client, "delivery_lead", assigned_client_id=mine
         )
 
-        denied = await app_client.put(
+        updated_outside = await app_client.put(
             _rule_url(other),
-            json={"filename_pattern": "FORBIDDEN_{IMIE_NAZWISKO}", "confirm": True},
+            json={"filename_pattern": "GLOBAL_{IMIE_NAZWISKO}", "confirm": True},
             headers=headers,
         )
-        assert denied.status_code == 403, denied.text
-        denied_read = await app_client.get(_rule_url(other), headers=headers)
-        assert denied_read.status_code == 403, denied_read.text
+        assert updated_outside.status_code == 200, updated_outside.text
+        outside_read = await app_client.get(_rule_url(other), headers=headers)
+        assert outside_read.status_code == 200, outside_read.text
+        assert outside_read.json()["filename_pattern"] == "GLOBAL_{IMIE_NAZWISKO}"
 
         r = await app_client.put(
             _rule_url(mine),
@@ -201,14 +202,14 @@ async def test_delivery_lead_manages_only_assigned_client_rules(
             assert found is not None and found.cv_language == "pl"
             assert found.generator_instructions == "Bez sekcji zainteresowań."
 
-        # Przegląd DL obejmuje wyłącznie jawnie przypisanego klienta.
+        # Przegląd DL obejmuje wszystkich klientów.
         r = await app_client.get(OVERVIEW_URL, headers=headers)
         assert r.status_code == 200, r.text
         overview = r.json()
         assert set(overview) == {"rules", "unassigned_templates"}
         by_client = {row["client_id"]: row for row in overview["rules"]}
         assert mine in by_client
-        assert other not in by_client
+        assert other in by_client
         assert overview["unassigned_templates"] == []
         row = by_client[mine]
         assert row["seed_key"] is None

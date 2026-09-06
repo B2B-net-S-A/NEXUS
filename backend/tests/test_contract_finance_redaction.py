@@ -346,7 +346,7 @@ async def test_delivery_lead_sees_assigned_client_rates(app_client: AsyncClient)
     assert body["rate_candidate_currency"] == "PLN"
 
 
-async def test_delivery_lead_cannot_read_unassigned_client_contract(
+async def test_delivery_lead_reads_unassigned_client_contract_without_finance(
     app_client: AsyncClient,
 ):
     cid = await _seed_contract()
@@ -354,7 +354,39 @@ async def test_delivery_lead_cannot_read_unassigned_client_contract(
 
     response = await app_client.get(f"/api/contracts/{cid}", headers=headers)
 
-    assert response.status_code == 403, response.text
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "active"
+    assert body["rate_candidate"] is None
+    assert body["rate_client"] is None
+    assert body["margin"] is None
+    assert body["candidate_rate_schedule"] == []
+    assert body["currency"] is None
+
+
+async def test_delivery_lead_opaque_contract_documents_stay_assignment_bound(
+    app_client: AsyncClient,
+):
+    """Structured detail is global, but an unredactable file must not be."""
+
+    cid = await _seed_contract()
+    unassigned = await _headers_for(app_client, "delivery_lead")
+    denied = await app_client.get(
+        f"/api/contracts/{cid}/documents",
+        headers=unassigned,
+    )
+    assert denied.status_code == 403, denied.text
+
+    assigned = await _headers_for(
+        app_client,
+        "delivery_lead",
+        assigned_contract_id=cid,
+    )
+    allowed = await app_client.get(
+        f"/api/contracts/{cid}/documents",
+        headers=assigned,
+    )
+    assert allowed.status_code == 200, allowed.text
 
 
 async def test_export_requires_finance(app_client: AsyncClient, app_auth_headers: dict):

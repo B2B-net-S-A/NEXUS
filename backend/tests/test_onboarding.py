@@ -278,7 +278,7 @@ async def test_onboarding_invalid_job_ids(
 
 
 @pytest.mark.asyncio
-async def test_dl_onboarding_jobs_are_exactly_relationship_scoped_and_minimal(
+async def test_dl_onboarding_jobs_include_all_clients_and_are_minimal(
     app_client: AsyncClient, dl_auth: tuple[User, dict[str, str]]
 ):
     user, headers = dl_auth
@@ -291,8 +291,8 @@ async def test_dl_onboarding_jobs_are_exactly_relationship_scoped_and_minimal(
     body = resp.json()
     returned_ids = {item["id"] for item in body["items"]}
     assert set(allowed).issubset(returned_ids)
-    assert returned_ids.isdisjoint(foreign)
-    assert body["total"] >= len(allowed)
+    assert set(foreign).issubset(returned_ids)
+    assert body["total"] >= len(allowed) + len(foreign)
     assert set(body["items"][0]) == {
         "id",
         "title",
