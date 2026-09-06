@@ -517,6 +517,9 @@ async def _recommend_candidates_core(
         similarity_map=similarity_map,
         profile=profile,
         allow_cache_write=not semantic_degraded,
+        # Ci, dla których kosinusu NIE zmierzono — breakdown ma to powiedzieć
+        # wprost („pomiar niedostępny"), zamiast obwiniać profil kandydata.
+        semantic_unavailable_ids=semantic_unknown_ids,
     )
 
     # Phase 14: apply historical-boost from semantically-similar past jobs.
