@@ -294,11 +294,7 @@ async def _gate_and_dealbreakers(
     kept_dealbreakable_ids = {c.id for c in db_res.kept}
     # Zachowaj oryginalną kolejność rankingu: `warn` zostają na swoich pozycjach,
     # nie-`warn` tylko jeśli przeszły dealbreakery.
-    kept = [
-        c
-        for c in visible
-        if c.id in warn_ids or c.id in kept_dealbreakable_ids
-    ]
+    kept = [c for c in visible if c.id in warn_ids or c.id in kept_dealbreakable_ids]
     annotations: dict[int, dict] = {}
     for c in kept:
         ann = _eligibility_annotation(decisions.get(c.id))
