@@ -42,7 +42,39 @@ BOARD_URL = "/api/insights/board"
 # ISO 4217 rezerwuje XTS na potrzeby testów, więc NBP nigdy go nie opublikuje —
 # kurs dla tej waluty nie może się „przypadkiem znaleźć" w cache'u i uczynić
 # testu degradacji zielonym z niewłaściwego powodu.
+#
+# NBP to jednak nie jedyny autor wierszy w `fx_rates`. `test_fx_backfill.py`
+# wybrał TEN SAM kod z tego samego powodu („kod testowy ISO 4217, nigdy nie
+# użyty przez NBP") i go WSTAWIA — m.in. na 2019-03-01, czyli w środku okna
+# tego testu. Dwa pliki, to samo rozumowanie, przeciwne wymagania: tamten
+# potrzebuje kursu XTS, ten potrzebuje jego BRAKU.
+#
+# Baza testowa jest wspólna dla całego przebiegu i nie jest czyszczona, więc
+# o wyniku decydowało wyłącznie to, czy oba pliki trafią do jednego sharda —
+# a shardy dzielą się round-robin po POSORTOWANEJ liście plików
+# (`_apply_ci_shard_filter` w conftest). Dołożenie dowolnego pliku testowego
+# o nazwie sortującej się wcześniej przesuwa ten podział i skleja te dwa pliki
+# w jednym shardzie. Objawem jest wtedy `assert 0 >= 1` w teście, którego
+# nikt nie ruszał, w PR-ze, który z FX nie ma nic wspólnego.
 NO_FX_CURRENCY = "XTS"
+
+
+async def _purge_fx_rates(currency: str) -> None:
+    """Usuń kursy tej waluty — warunek wstępny testu degradacji FX.
+
+    Test sprawdza, co się dzieje przy BRAKU kursu, więc brak musi być
+    ZAGWARANTOWANY, a nie założony. Bez tego test mierzy nie swoją tezę, tylko
+    kolejność plików w shardzie (patrz komentarz przy `NO_FX_CURRENCY`).
+    `fx_rates` jest trwałym cache'em kursów — nie ma obok niego cache'u
+    w pamięci, więc skasowanie wierszy w zupełności wystarcza.
+    """
+    from sqlalchemy import delete
+
+    from app.models.fx_rate import FxRate
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(FxRate).where(FxRate.currency == currency))
+        await db.commit()
 
 
 def _ensure_board_router_mounted(app) -> None:
@@ -315,6 +347,10 @@ async def test_missing_fx_rate_degrades_the_tile_instead_of_shrinking_it(
     _, email, password = await _seed_user(UserRole.admin, "fx")
     headers = await _login(board_client, email, password)
     params = _window("2019-03-01", "2019-03-31")
+
+    # PRZED pomiarem bazowym: gdyby kurs XTS istniał, wszedłby już do
+    # `baseline_revenue` i test porównywałby dwie różne rzeczywistości.
+    await _purge_fx_rates(NO_FX_CURRENCY)
 
     before = await _board(board_client, headers, params)
     baseline_revenue = before["kpis"]["finance"]["revenue_monthly_pln"] or 0.0

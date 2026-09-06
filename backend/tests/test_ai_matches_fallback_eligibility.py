@@ -1,9 +1,16 @@
 """Gałąź tag-fallback `/ai-matches` też musi przepuszczać przez bramkę.
 
-Do 2026-08-20 bramka dopuszczalności (`filter_eligible_candidates`) stała
-wyłącznie w gałęzi semantycznej, i to WEWNĄTRZ `try`. Fallback filtrował
-`Candidate.status != "blacklisted"` i nic więcej. Wchodzi się w niego trzema
-drogami i tylko jedna z nich jest awarią:
+PRODUKTOWY OVERRIDE (2026-09): bramka (`_gate_and_dealbreakers`) nie WYCINA już
+`warn` — kandydat z aktywnym NDA/konfliktem u klienta oferty jest POKAZYWANY
+z anotacją `eligibility` i `assignment_allowed=false`, żeby rekruter widział
+blokadę zamiast dostać 409 dopiero po kliknięciu. Wycinane są wyłącznie `hidden`
+(globalna blacklista, duplikat). Te testy pilnują więc, że NDA-kandydat WRACA
+z zablokowaną akcją (a nie że znika) i że fail-closed bramki został zachowany.
+
+Do 2026-08-20 bramka (`filter_eligible_candidates`) stała wyłącznie w gałęzi
+semantycznej, i to WEWNĄTRZ `try`. Fallback filtrował `Candidate.status !=
+"blacklisted"` i nic więcej. Wchodzi się w niego trzema drogami i tylko jedna
+z nich jest awarią:
 
 1. wyjątek z `search_candidates_semantic` (Qdrant/Voyage padł),
 2. wyjątek z czegokolwiek innego w gałęzi semantycznej — **w tym z samej
@@ -112,6 +119,13 @@ def _ids(body: dict) -> list[int]:
     return [m["candidate"]["id"] for m in body["matches"]]
 
 
+def _match(body: dict, cid: int) -> dict | None:
+    for m in body["matches"]:
+        if m["candidate"]["id"] == cid:
+            return m
+    return None
+
+
 def _widen_pool(monkeypatch) -> None:
     """Fallback bierze `LIMIT effective_pool` BEZ `ORDER BY`.
 
@@ -149,15 +163,32 @@ async def test_fallback_reached_by_empty_hits_still_gates(
     body = resp.json()
     assert body["search_type"] == "tag_fallback"
     returned = _ids(body)
-    assert blocked_id not in returned, (
-        "kandydat z aktywnym NDA u klienta tej oferty trafił na listę "
-        "renderowaną z przyciskiem „dodaj do pipeline'u”"
+    # PRODUKTOWY OVERRIDE: NDA-kandydat (visibility=warn) jest POKAZYWANY
+    # z anotacją i zablokowaną akcją — nie wycinany.
+    assert blocked_id in returned, (
+        "kandydat z aktywnym NDA (warn) zniknął z listy — kontrakt wymaga "
+        "pokazania go z powodem i zablokowaną akcją"
     )
-    assert clean_id in returned, "bramka wycięła kandydata bez żadnej blokady"
-    # P-B (2026-09-03): licznik odsianych bramką jest teraz w odpowiedzi.
-    # Co najmniej zablokowany kandydat musi być policzony.
-    assert body["meta"]["eligibility_filtered"] >= 1, (
-        "meta.eligibility_filtered nie liczy odsianych bramką dopuszczalności"
+    blocked_match = _match(body, blocked_id)
+    assert blocked_match is not None
+    elig = blocked_match["eligibility"]
+    assert elig is not None, "brak anotacji dopuszczalności na zablokowanym wierszu"
+    assert elig["assignment_allowed"] is False, (
+        "akcja przypisania musi być zablokowana dla kandydata z NDA"
+    )
+    assert elig["reason_code"] == "client_nda"
+    assert elig["reason"], "powód po polsku musi być obecny"
+    # Czysty kandydat: obecny, bez anotacji.
+    clean_match = _match(body, clean_id)
+    assert clean_match is not None, "bramka wycięła kandydata bez żadnej blokady"
+    assert clean_match["eligibility"] is None
+    # PRODUKTOWY OVERRIDE (2026-09): `warn` (NDA) jest POKAZYWANY jako wiersz,
+    # więc NIE jest liczony w `meta.eligibility_filtered` — ten licznik obejmuje
+    # wyłącznie warstwę `hidden` (globalna blacklista / duplikat), której ten
+    # fixture nie zasiewa. Odwraca asercję P-B (`>= 1`): klucz zostaje w API dla
+    # parytetu z Talent Radarem, ale liczy tylko realnie ukrytych.
+    assert body["meta"]["eligibility_filtered"] == 0, (
+        "warn nie może być liczony jako odsiany — jest pokazywany z powodem"
     )
 
 
@@ -187,7 +218,10 @@ async def test_fallback_reached_by_retrieval_exception_still_gates(
     body = resp.json()
     assert body["search_type"] == "tag_fallback"
     returned = _ids(body)
-    assert blocked_id not in returned
+    assert blocked_id in returned
+    blocked_match = _match(body, blocked_id)
+    assert blocked_match is not None and blocked_match["eligibility"] is not None
+    assert blocked_match["eligibility"]["assignment_allowed"] is False
     assert clean_id in returned
 
 
@@ -203,6 +237,10 @@ async def test_gate_failure_does_not_degrade_into_an_ungated_list(
     Dopóki stała pod `try`, jej wyjątek był łapany jako degradacja retrievalu
     i request wjeżdżał w gałąź, która bramki nie ma — czyli awaria bramki
     bezpieczeństwa omijała bramkę bezpieczeństwa. Poprawną odpowiedzią jest 500.
+
+    Bramka to teraz `_gate_and_dealbreakers`, które woła `evaluate_candidates_for_job`
+    (poza `try` retrievalu) — psujemy tę funkcję, żeby udowodnić, że jej awaria
+    propaguje jako 500, a nie degraduje do listy bez bramki.
 
     Własny klient z `raise_app_exceptions=False`, bo `conftest.app_client` go nie
     ustawia (wyjątek wyszedłby z klienta zamiast stać się odpowiedzią), a
@@ -220,7 +258,7 @@ async def test_gate_failure_does_not_degrade_into_an_ungated_list(
     monkeypatch.setattr(
         "app.services.embedding_service.search_candidates_semantic", _one_hit
     )
-    monkeypatch.setattr("app.api.matching.filter_eligible_candidates", _gate_boom)
+    monkeypatch.setattr("app.api.matching.evaluate_candidates_for_job", _gate_boom)
 
     from app.main import app
 
@@ -237,4 +275,106 @@ async def test_gate_failure_does_not_degrade_into_an_ungated_list(
     assert resp.status_code == 500, (
         "awaria bramki dopuszczalności zdegradowała się do listy BEZ bramki "
         f"({resp.status_code}, {resp.text[:200]})"
+    )
+
+
+# ── warn + over-budget: compliance zawsze widoczny (PR #1369 review) ─────────
+#
+# Dealbreaker budżetu NIE może wchłonąć kandydata `warn`: inaczej kandydat
+# z NDA i stawką ponad budżet znika do `meta.hidden.over_budget` bez plakietki
+# compliance, co przeczy decyzji „pokaż zablokowanych z powodem".
+
+
+@pytest_asyncio.fixture
+async def gated_over_budget_fixture():
+    from decimal import Decimal
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"AIMatch OverBudget Client {unique}")
+        db.add(client)
+        await db.flush()
+
+        job = Job(
+            title=f"AIMatch OverBudget Job {unique}",
+            client_id=client.id,
+            description="Python backend engineer, FastAPI, PostgreSQL",
+            requirements="python, fastapi, postgresql",
+            hiring_manager_contact_id=None,
+            rate_budget_hourly=Decimal("100.00"),
+        )
+        # `warn` (NDA u klienta) i JEDNOCZEŚNIE stawka 300 PLN/h > budżet 100.
+        blocked = Candidate(
+            name="Drogi",
+            lastname=f"ZNDA{unique}",
+            email=f"overbudget-{unique}@example.com",
+            status=CandidateStatus.active,
+            skills=[{"name": "python"}, {"name": "fastapi"}],
+            raw_cv_text="python fastapi postgresql",
+            expected_rate_hourly=Decimal("300.00"),
+            expected_rate_currency="PLN",
+        )
+        db.add_all([job, blocked])
+        await db.flush()
+        db.add(
+            CandidateConflict(
+                candidate_id=blocked.id,
+                client_id=client.id,
+                type=ConflictType.nda,
+                reason="pytest — NDA + ponad budżet",
+                active=True,
+            )
+        )
+        await db.commit()
+        ids = (job.id, blocked.id, client.id)
+
+    yield ids
+
+    job_id, blocked_id, client_id = ids
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(CandidateConflict).where(CandidateConflict.client_id == client_id)
+        )
+        await db.execute(delete(Candidate).where(Candidate.id == blocked_id))
+        await db.execute(delete(Job).where(Job.id == job_id))
+        await db.execute(delete(Client).where(Client.id == client_id))
+        await db.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_warn_over_budget_still_surfaces_with_reason(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    gated_over_budget_fixture,
+    monkeypatch,
+):
+    """Kandydat `warn` ponad budżet: widoczny z powodem, NIE liczony jako over_budget."""
+    job_id, blocked_id, _client_id = gated_over_budget_fixture
+    _widen_pool(monkeypatch)
+
+    async def _no_hits(*_a, **_kw):
+        return []
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic", _no_hits
+    )
+
+    resp = await app_client.get(
+        f"/api/jobs/{job_id}/ai-matches",
+        params={"min_score": 0.0, "limit": 500},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert blocked_id in _ids(body), (
+        "warn ponad budżet zniknął — dealbreaker wchłonął blokadę compliance"
+    )
+    m = _match(body, blocked_id)
+    assert m is not None and m["eligibility"] is not None
+    assert m["eligibility"]["assignment_allowed"] is False
+    assert m["eligibility"]["reason_code"] == "client_nda"
+    # warn NIE jest liczony jako odsiany budżetem.
+    assert body["meta"]["hidden"]["over_budget"] == 0, (
+        "warn nie może trafić do licznika over_budget — ma być wierszem z powodem"
     )

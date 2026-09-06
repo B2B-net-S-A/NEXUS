@@ -342,6 +342,7 @@ async def bulk_get_or_compute(
     similarity_map: Optional[dict[int, float]] = None,
     profile: WeightProfile = DEFAULT_PROFILE,
     allow_cache_write: bool = True,
+    semantic_unavailable_ids: Optional[set[int]] = None,
 ) -> list[ScoreBreakdown]:
     """Score N candidates against one job, preferring cache, sorted desc by total.
 
@@ -355,6 +356,7 @@ async def bulk_get_or_compute(
         return []
 
     sims = similarity_map or {}
+    unavailable_ids = semantic_unavailable_ids or set()
     cached_rows = (
         (
             await db.execute(
@@ -399,6 +401,10 @@ async def bulk_get_or_compute(
             semantic_similarity=sims.get(c.id),
             profile=profile,
             context=context,
+            # „Nie zmierzyliśmy" vs „zmierzono i nie ma wektora" (#414). Bez
+            # tego rozróżnienia awaria dostawcy zapisuje się w breakdownie jako
+            # zarzut wobec profilu kandydata.
+            semantic_unavailable=c.id in unavailable_ids,
         )
         results.append(breakdown)
         pending_writes.append(breakdown)

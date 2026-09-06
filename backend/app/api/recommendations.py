@@ -366,7 +366,22 @@ async def _recommend_candidates_core(
     # layer — persisting them would poison the shared score cache as "fresh"
     # long after the provider recovers (M3-CACHE-01), so cache writes are
     # disabled for this request.
-    semantic_degraded = not candidate_ids
+    #
+    # PUSTKA NIE JEST JEDYNYM KSZTAŁTEM DEGRADACJI. Fasada puli oddaje wiersze
+    # z `semantic_unknown`, gdy kosinusu nie zmierzono (padła dosypka po udanym
+    # BM25 albo kandydat nie ma wektora) — `score` wynosi wtedy 0.0, ale to
+    # „nie wiem", nie „zmierzono zero". Taka pula JEST niepusta, więc sam warunek
+    # `not candidate_ids` przepuszczał ją jako zdrową i zapisywał warstwę
+    # semantyczną 0/60 do cache'u jako wynik świeży — czyli dokładnie ten sam
+    # M3-CACHE-01, przed którym ta gałąź miała bronić.
+    semantic_unknown_ids = {
+        h["candidate_id"] for h in hits if h.get("semantic_unknown")
+    }
+    semantic_degraded = not candidate_ids or bool(semantic_unknown_ids)
+    # Kandydat bez ZMIERZONEGO kosinusu nie może dostać zera jako wartości —
+    # `score_semantic(None)` zna stan „brak pomiaru", `score_semantic(0.0)` nie.
+    for cid in semantic_unknown_ids:
+        similarity_map.pop(cid, None)
 
     # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
     # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
@@ -502,6 +517,9 @@ async def _recommend_candidates_core(
         similarity_map=similarity_map,
         profile=profile,
         allow_cache_write=not semantic_degraded,
+        # Ci, dla których kosinusu NIE zmierzono — breakdown ma to powiedzieć
+        # wprost („pomiar niedostępny"), zamiast obwiniać profil kandydata.
+        semantic_unavailable_ids=semantic_unknown_ids,
     )
 
     # Phase 14: apply historical-boost from semantically-similar past jobs.
@@ -1695,6 +1713,13 @@ async def seeking_contractors(
             "returned": 0,
             "truncated": False,
             "items": [],
+            # `meta` jest w KAŻDEJ gałęzi, także tam, gdzie wyszukiwanie się nie
+            # odbyło. Konsument czytający `body.meta.degraded` dostawał tu
+            # `undefined`, czyli wartość fałszywą — przypadkiem poprawną, ale
+            # nie do odróżnienia od „sprawdziliśmy i jest dobrze". Odpowiedź,
+            # która raz niesie sygnał uczciwości, a raz go milcząco pomija, każe
+            # konsumentowi zgadywać, którą wersję właśnie dostał.
+            "meta": {"degraded": False, "reason": "no_candidates"},
         }
 
     cand_res = await db.execute(
@@ -1736,6 +1761,11 @@ async def seeking_contractors(
                 }
                 for c in candidates
             ],
+            # Jak wyżej — pusty wynik z powodu braku ofert to inne zdanie niż
+            # pusty wynik z powodu awarii, a bez `meta` oba wyglądają tak samo.
+            # Nazwa powodu jest lustrem `no_open_jobs` z endpointu wyżej w tym
+            # samym pliku.
+            "meta": {"degraded": False, "reason": "no_open_jobs"},
         }
 
     user_filters = RecommendationFilters(

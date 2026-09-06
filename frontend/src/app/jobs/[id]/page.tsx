@@ -24,7 +24,11 @@ import { jobChatApi } from "@/lib/api";
 import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import { proposalsBulkApi } from "@/lib/candidate-search-api";
+import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
+import {
+  JobShortlist,
+  jobShortlistQueryKey,
+} from "@/components/v2/jobs/JobShortlist";
 import { buildJobSearchPrefill } from "@/lib/job-search-prefill";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { DeleteButton } from "@/components/ConfirmDialog";
@@ -759,6 +763,18 @@ function AIMatchingSection({
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [emailTarget, setEmailTarget] = useState<any>(null);
+  // Przełącznik dwóch stanów tego samego ekranu (makieta C2): „Ranking"
+  // (szukam) ↔ „Shortlista" (oceniam i prowadzę).
+  const [matchView, setMatchView] = useState<"ranking" | "shortlist">("ranking");
+  const [shortlistingId, setShortlistingId] = useState<number | null>(null);
+  // Licznik do etykiety przełącznika — ten sam klucz co tablica shortlisty,
+  // więc react-query deduplikuje fetch.
+  const shortlistCountQuery = useQuery({
+    queryKey: jobShortlistQueryKey(jobId),
+    queryFn: () => shortlistApi.list(jobId),
+    staleTime: 30_000,
+  });
+  const shortlistCount = shortlistCountQuery.data?.length ?? 0;
   // Location filter — restricts matches to candidates whose location matches.
   // Pre-fill from the job's own location when it has one (rare for imported
   // jobs), otherwise the recruiter types a city (e.g. "Warszawa").
@@ -807,6 +823,28 @@ function AIMatchingSection({
     onSettled: () => setAddingId(null),
   });
 
+  // Staged evaluation przed pipeline (kanon z SuggestedCandidatesWidget):
+  // dodanie na shortlistę, nie od razu do pipeline'u.
+  const shortlistMutation = useMutation({
+    mutationFn: ({ candidateId }: { candidateId: number; fullName: string }) => {
+      if (readOnly) {
+        throw new Error("Shortlista jest dostępna tylko do odczytu.");
+      }
+      return shortlistApi.add(jobId, [candidateId]);
+    },
+    onMutate: ({ candidateId }) => setShortlistingId(candidateId),
+    onSuccess: (res, { fullName }) => {
+      queryClient.invalidateQueries({ queryKey: jobShortlistQueryKey(jobId) });
+      showSuccess(
+        res.total_added > 0
+          ? `${fullName} — dodano na shortlistę`
+          : `${fullName} jest już na shortliście`,
+      );
+    },
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
+    onSettled: () => setShortlistingId(null),
+  });
+
   const matches = data?.matches ?? [];
   const searchType = data?.search_type;
   // Sygnałem degradacji jest koperta `meta` — `/api/jobs/{id}/ai-matches`
@@ -826,6 +864,13 @@ function AIMatchingSection({
   // Server echoes the effective location filter it applied (param, or the
   // job's own location). Non-empty → results are location-restricted.
   const locationActive = Boolean(data?.location_filter);
+  // Dealbreaker-switche: liczniki ukrytych per powód. „Ukrywanie nigdy nie jest
+  // ciche" (dealbreaker_filters) — pokazujemy pasek z rozbiciem. Bramka
+  // dopuszczalności NIE trafia tu: `warn` są widoczni z powodem na wierszu,
+  // a `hidden` (globalna blacklista) świadomie nie są liczeni (wyrocznia NDA).
+  const hiddenMeta = data?.meta?.hidden;
+  const hiddenTotal =
+    (hiddenMeta?.over_budget ?? 0) + (hiddenMeta?.remote_only ?? 0);
 
   return (
     <div className="space-y-4">
@@ -836,6 +881,52 @@ function AIMatchingSection({
         readOnly={readOnly}
       />
 
+      {/* Przełącznik Ranking / Shortlista (makieta C2) */}
+      <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-sm">
+        <button
+          type="button"
+          onClick={() => setMatchView("ranking")}
+          className={
+            "px-3 py-1 rounded-md transition-colors " +
+            (matchView === "ranking"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent")
+          }
+        >
+          Ranking
+        </button>
+        <button
+          type="button"
+          onClick={() => setMatchView("shortlist")}
+          className={
+            "px-3 py-1 rounded-md transition-colors inline-flex items-center gap-1.5 " +
+            (matchView === "shortlist"
+              ? "bg-primary text-primary-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent")
+          }
+        >
+          Shortlista
+          {shortlistCount > 0 && (
+            <span
+              className={
+                "rounded-full px-1.5 text-[11px] tabular-nums " +
+                (matchView === "shortlist"
+                  ? "bg-primary-foreground/20"
+                  : "bg-muted text-muted-foreground")
+              }
+            >
+              {shortlistCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {matchView === "shortlist" && (
+        <JobShortlist jobId={jobId} readOnly={readOnly} />
+      )}
+
+      {matchView === "ranking" && (
+        <>
       {/* Header info + location filter */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -849,16 +940,17 @@ function AIMatchingSection({
               </>
             )}
           </span>
-          {/* P-B (2026-09-03): ilu odsiała bramka dopuszczalności — mirror
-              Talent Radaru. Widoczne, bo skrócona lista bez wyjaśnienia czyta
-              się jak „nikt nie pasuje", a nie „część jest zablokowana". */}
+          {/* Licznik warstwy `hidden` — mirror Talent Radaru. Po decyzji „pokaż
+              wiersze" (2026-09) bramka pokazuje warn (NDA / konflikt / weto) jako
+              wiersze z powodem, więc TU liczą się już tylko realnie ukryci:
+              globalna blacklista i duplikaty w tej rekrutacji. */}
           {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
             <span
               className="text-[11px] px-2 py-0.5 border border-warning/25 bg-warning-muted text-warning-muted-foreground rounded-full font-medium"
-              title="Blacklista klienta, NDA, konflikt konkurencyjny lub weto hiring managera"
+              title="Globalna blacklista lub kandydat już w tej rekrutacji"
               data-testid="ai-matches-eligibility-filtered"
             >
-              {data!.meta!.eligibility_filtered} pominięto (blacklista / NDA / weto)
+              {data!.meta!.eligibility_filtered} pominięto (globalna blacklista / już w rekrutacji)
             </span>
           )}
           {searchType?.startsWith("semantic") && (
@@ -910,6 +1002,29 @@ function AIMatchingSection({
         </div>
       )}
 
+      {!isLoading && !isError && hiddenTotal > 0 && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+        >
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Ukryto <strong>{hiddenTotal}</strong>
+            {hiddenMeta?.over_budget
+              ? `: stawka ponad budżet ${hiddenMeta.over_budget}`
+              : ""}
+            {hiddenMeta?.remote_only
+              ? `${hiddenMeta?.over_budget ? ", " : ": "}tylko zdalnie ${hiddenMeta.remote_only}`
+              : ""}
+            .
+          </span>
+          <span className="text-muted-foreground">
+            Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka
+            zawsze przechodzi.
+          </span>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -944,9 +1059,26 @@ function AIMatchingSection({
             const isAdding = addingId === c.id;
             const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
             const avatarColor = getAvatarColor(fullName);
+            // Bramka dopuszczalności: `warn` (konflikt klienta / NDA / konkurent /
+            // weto HM) wraca z powodem i `assignment_allowed=false`. Miękkie
+            // ostrzeżenia (current_employment, excluded_client) mają
+            // `assignment_allowed=true` — pokazujemy plakietkę, ale akcji nie blokujemy.
+            const elig = match.eligibility as
+              | { reason: string; assignment_allowed: boolean; severity: string }
+              | null
+              | undefined;
+            const assignBlocked = elig?.assignment_allowed === false;
 
             return (
-              <div key={c.id} className="flex items-start gap-4 p-4 bg-card dark:bg-muted rounded-xl border border-border dark:border-border hover:shadow-xs transition-shadow">
+              <div
+                key={c.id}
+                className={
+                  "flex items-start gap-4 p-4 rounded-xl border transition-shadow hover:shadow-xs " +
+                  (assignBlocked
+                    ? "bg-destructive/5 border-destructive/30"
+                    : "bg-card dark:bg-muted border-border dark:border-border")
+                }
+              >
                 {/* Rank */}
                 <div className="shrink-0 w-6 h-6 rounded-full bg-muted dark:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                   {idx + 1}
@@ -979,6 +1111,24 @@ function AIMatchingSection({
                     </div>
                   </div>
 
+                  {/* Eligibility badge — bramka dopuszczalności (warn / miękkie ostrzeżenie) */}
+                  {elig && (
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={
+                          "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium " +
+                          (assignBlocked
+                            ? "bg-destructive/10 text-destructive border border-destructive/30"
+                            : "bg-warning-muted text-warning-muted-foreground border border-warning/25")
+                        }
+                        title={elig.reason}
+                      >
+                        <AlertCircle className="w-3 h-3 shrink-0" />
+                        {elig.reason}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Skills badges */}
                   {(match.matching_skills.length > 0 || match.gaps.length > 0) && (
                     <div className="flex flex-wrap gap-1.5">
@@ -995,10 +1145,16 @@ function AIMatchingSection({
                   {!readOnly ? <div className="flex gap-2 pt-1">
                     <button
                       onClick={() => addToPipelineMutation.mutate({ candidateId: c.id, fullName })}
-                      disabled={isAdding || isAdded}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-default transition-colors"
+                      disabled={isAdding || isAdded || assignBlocked}
+                      title={assignBlocked ? elig?.reason : undefined}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
-                      {isAdded ? (
+                      {assignBlocked ? (
+                        <>
+                          <AlertCircle className="w-3 h-3" />
+                          Nie można dodać
+                        </>
+                      ) : isAdded ? (
                         <>
                           <Check className="w-3 h-3" />
                           W pipeline
@@ -1009,6 +1165,15 @@ function AIMatchingSection({
                           {isAdding ? "Dodawanie…" : "Dodaj do pipeline"}
                         </>
                       )}
+                    </button>
+                    <button
+                      onClick={() => shortlistMutation.mutate({ candidateId: c.id, fullName })}
+                      disabled={shortlistingId === c.id || assignBlocked}
+                      title={assignBlocked ? elig?.reason : "Dodaj na shortlistę (ocena przed pipeline)"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <UserCheck className="w-3 h-3" />
+                      {shortlistingId === c.id ? "Dodawanie…" : "Na shortlistę"}
                     </button>
                     <button
                       onClick={() => setEmailTarget(c)}
@@ -1023,6 +1188,8 @@ function AIMatchingSection({
             );
           })}
         </div>
+      )}
+        </>
       )}
 
       {/* Email modal */}

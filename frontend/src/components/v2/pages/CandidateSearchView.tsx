@@ -569,6 +569,23 @@ export function CandidateSearchView({
         </div>
       )}
 
+      {/* Tryb semantyczny ocenia trafność, więc ogląda ograniczoną pulę
+          najbliższych znaczeniowo osób — `total` jest wtedy sufitem tej puli,
+          a nie liczbą pasujących w bazie. Bez tego zdania przełączenie
+          „Semantycznie” na zapytaniu ogólnym zamienia „11 091 wyników” w „200”
+          i czyta się jak utrata bazy. Mówimy też, czym to odkręcić. */}
+      {data?.meta?.result_cap_reached && (
+        <div
+          role="status"
+          className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300"
+        >
+          Tryb semantyczny pokazuje <strong>najtrafniejsze {data.total}</strong>{" "}
+          osób, a nie wszystkie pasujące — to sufit tego trybu, nie rozmiar bazy.
+          Doprecyzuj zapytanie, albo wyłącz „Semantycznie”, żeby przeszukać całą
+          bazę filtrami.
+        </div>
+      )}
+
       {data?.meta && data.meta.ai_status !== "ok" && (
         <AiStatusBanner status={data.meta.ai_status} />
       )}
