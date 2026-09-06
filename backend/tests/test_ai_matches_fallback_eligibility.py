@@ -276,3 +276,105 @@ async def test_gate_failure_does_not_degrade_into_an_ungated_list(
         "awaria bramki dopuszczalności zdegradowała się do listy BEZ bramki "
         f"({resp.status_code}, {resp.text[:200]})"
     )
+
+
+# ── warn + over-budget: compliance zawsze widoczny (PR #1369 review) ─────────
+#
+# Dealbreaker budżetu NIE może wchłonąć kandydata `warn`: inaczej kandydat
+# z NDA i stawką ponad budżet znika do `meta.hidden.over_budget` bez plakietki
+# compliance, co przeczy decyzji „pokaż zablokowanych z powodem".
+
+
+@pytest_asyncio.fixture
+async def gated_over_budget_fixture():
+    from decimal import Decimal
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"AIMatch OverBudget Client {unique}")
+        db.add(client)
+        await db.flush()
+
+        job = Job(
+            title=f"AIMatch OverBudget Job {unique}",
+            client_id=client.id,
+            description="Python backend engineer, FastAPI, PostgreSQL",
+            requirements="python, fastapi, postgresql",
+            hiring_manager_contact_id=None,
+            rate_budget_hourly=Decimal("100.00"),
+        )
+        # `warn` (NDA u klienta) i JEDNOCZEŚNIE stawka 300 PLN/h > budżet 100.
+        blocked = Candidate(
+            name="Drogi",
+            lastname=f"ZNDA{unique}",
+            email=f"overbudget-{unique}@example.com",
+            status=CandidateStatus.active,
+            skills=[{"name": "python"}, {"name": "fastapi"}],
+            raw_cv_text="python fastapi postgresql",
+            expected_rate_hourly=Decimal("300.00"),
+            expected_rate_currency="PLN",
+        )
+        db.add_all([job, blocked])
+        await db.flush()
+        db.add(
+            CandidateConflict(
+                candidate_id=blocked.id,
+                client_id=client.id,
+                type=ConflictType.nda,
+                reason="pytest — NDA + ponad budżet",
+                active=True,
+            )
+        )
+        await db.commit()
+        ids = (job.id, blocked.id, client.id)
+
+    yield ids
+
+    job_id, blocked_id, client_id = ids
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(CandidateConflict).where(CandidateConflict.client_id == client_id)
+        )
+        await db.execute(delete(Candidate).where(Candidate.id == blocked_id))
+        await db.execute(delete(Job).where(Job.id == job_id))
+        await db.execute(delete(Client).where(Client.id == client_id))
+        await db.commit()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_warn_over_budget_still_surfaces_with_reason(
+    app_client: AsyncClient,
+    app_auth_headers: dict,
+    gated_over_budget_fixture,
+    monkeypatch,
+):
+    """Kandydat `warn` ponad budżet: widoczny z powodem, NIE liczony jako over_budget."""
+    job_id, blocked_id, _client_id = gated_over_budget_fixture
+    _widen_pool(monkeypatch)
+
+    async def _no_hits(*_a, **_kw):
+        return []
+
+    monkeypatch.setattr(
+        "app.services.embedding_service.search_candidates_semantic", _no_hits
+    )
+
+    resp = await app_client.get(
+        f"/api/jobs/{job_id}/ai-matches",
+        params={"min_score": 0.0, "limit": 500},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert blocked_id in _ids(body), (
+        "warn ponad budżet zniknął — dealbreaker wchłonął blokadę compliance"
+    )
+    m = _match(body, blocked_id)
+    assert m is not None and m["eligibility"] is not None
+    assert m["eligibility"]["assignment_allowed"] is False
+    assert m["eligibility"]["reason_code"] == "client_nda"
+    # warn NIE jest liczony jako odsiany budżetem.
+    assert body["meta"]["hidden"]["over_budget"] == 0, (
+        "warn nie może trafić do licznika over_budget — ma być wierszem z powodem"
+    )

@@ -232,6 +232,9 @@ async def _gate_and_dealbreakers(
         client) are kept and annotated too.
       * dealbreakers then hide over-budget and (for office/hybrid jobs)
         remote-only candidates; their counts come back in ``hidden_meta``.
+        ``warn`` candidates are EXEMPT from dealbreakers — a compliance block
+        must always surface with its reason, never be swallowed into a budget
+        count, so they stay in the list even when over budget.
       * ``eligibility_filtered`` is the count of ``hidden``-visibility
         candidates dropped by the gate — the ONLY people the gate removes now
         that ``warn`` are surfaced. Published in ``meta`` for parity with Talent
@@ -264,17 +267,38 @@ async def _gate_and_dealbreakers(
     ]
     eligibility_filtered = len(ordered) - len(visible)
 
+    # Dealbreakery (budżet / zdalnie) NIE mogą wchłonąć kandydatów `warn`
+    # (assignment_allowed=False: aktywny konflikt klienta / NDA / konkurent /
+    # weto HM). Inaczej `warn` nad budżetem znika do `hidden_meta.over_budget`
+    # BEZ plakietki compliance — rekruter widzi „ukryto N (budżet)" i nie wie,
+    # że część z nich to blokada prawna. Celem decyzji było „pokaż zablokowanych
+    # z powodem", więc `warn` zawsze wychodzi z anotacją; sufit budżetu ścina
+    # wyłącznie kandydatów przypisywalnych (eligible + miękkie ostrzeżenia).
+    warn_ids = {
+        c.id
+        for c in visible
+        if (d := decisions.get(c.id)) is not None and not d.assignment_allowed
+    }
+    dealbreakable = [c for c in visible if c.id not in warn_ids]
+
     wants_office = getattr(job, "remote_policy", None) in (
         RemotePolicy.onsite,
         RemotePolicy.hybrid,
     )
     db_res = apply_dealbreakers(
-        visible,
+        dealbreakable,
         budget_hourly=resolve_job_budget_hourly(job),
         exclude_over_budget=True,
         exclude_remote_only=bool(wants_office),
     )
-    kept = db_res.kept
+    kept_dealbreakable_ids = {c.id for c in db_res.kept}
+    # Zachowaj oryginalną kolejność rankingu: `warn` zostają na swoich pozycjach,
+    # nie-`warn` tylko jeśli przeszły dealbreakery.
+    kept = [
+        c
+        for c in visible
+        if c.id in warn_ids or c.id in kept_dealbreakable_ids
+    ]
     annotations: dict[int, dict] = {}
     for c in kept:
         ann = _eligibility_annotation(decisions.get(c.id))

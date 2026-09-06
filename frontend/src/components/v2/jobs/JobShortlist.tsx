@@ -180,8 +180,15 @@ export function JobShortlist({ jobId, readOnly = false }: JobShortlistProps) {
         const fullName =
           `${entry.candidate_name ?? ""} ${entry.candidate_lastname ?? ""}`.trim() ||
           `Kandydat #${entry.candidate_id}`;
+        // Zajętość PER WIERSZ, nie globalna: mutacje są współdzielone między
+        // wpisami, więc zakres po `variables` — inaczej promocja wpisu A
+        // zamrażałaby cały stół. (PR #1369 review.)
         const busy =
-          patchMutation.isPending || promoteMutation.isPending || removeMutation.isPending;
+          (patchMutation.isPending &&
+            patchMutation.variables?.entry.id === entry.id) ||
+          (promoteMutation.isPending &&
+            promoteMutation.variables?.id === entry.id) ||
+          (removeMutation.isPending && removeMutation.variables?.id === entry.id);
         const due = formatDatePl(entry.next_action_at);
         const promoted = Boolean(entry.promoted_to_pipeline_at);
 
