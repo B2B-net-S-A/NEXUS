@@ -1858,6 +1858,45 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   REKRUTACJI** (gamifikacja i źródła kandydatów to rozmowa o zespole, nie
   o kokpicie Rady). Dokładając sekcję, zacznij od pytania, na czyje pytanie
   odpowiada — nie od tego, gdzie jest wolne miejsce.
+- **Tabele rok-do-roku Rady (`GET /api/insights/board/yoy`)** — dwanaście
+  miesięcy × trzy lata, z deltą i kolumną „Ocena". Endpoint świadomie NIE
+  przyjmuje paska okresu: patrzy na pełne lata kalendarzowe, a wpuszczenie tam
+  `period`/`offset` dałoby siatkę „ostatnie 12 miesięcy" podpisaną nazwami
+  miesięcy, czyli dwie różne rzeczy pod jedną etykietą. Okno wybiera się
+  latami (`end_year`, `years`; 2–5, domyślnie 3).
+  - **Backend zwraca WYŁĄCZNIE liczby.** Delta, „Ocena" i wiersz podsumowania
+    to czysta arytmetyka w `frontend/src/lib/insights-yoy.ts` — testowana na
+    wartościach, nie na zrzucie ekranu.
+  - **Każda metryka niesie `aggregate`** (`sum` dla przepływów, `avg` dla
+    stanów i wskaźników) oraz `lower_is_better`. Bez pierwszego widok
+    potrzebuje własnej listy „co się sumuje", czyli drugiego lustra tej wiedzy
+    — w DynaReporterze go nie było i wiersz „Suma" pod kolumną procentów
+    pokazywał 874%. Bez drugiego wzrost zejść i kosztów dostaje zieloną
+    strzałkę w górę, czyli komunikat odwrotny do prawdy.
+  - **Miesiąc PRZYSZŁY to `null`, miesiąc BIEŻĄCY jest oznaczony**
+    (`partial_month`). Zera w kolumnie bieżącego roku czytają się jak awaria,
+    a siedem dni danych — jak załamanie wyniku.
+  - **Podsumowanie roku niepełnego porównuje się z TYMI SAMYMI miesiącami**
+    roku poprzedniego (YTD). To jedyne miejsce, gdzie mianownik porównania jest
+    inny niż liczba w komórce obok — i dlatego wiersz to mówi.
+  - **Pieniądze liczy `insights_board_money.fold_money`, ta sama funkcja co
+    kafle** — wyniesiona z `insights_board.py` w chwili, gdy pojawił się drugi
+    konsument. Kopia przechodziłaby każdy test wartości do dnia, w którym ktoś
+    poprawi jedną z nich; wtedy kafel „Marża / mc" i komórka „Marża" w tabeli
+    obok pokazują dwie różne kwoty pod jedną nazwą, na jednym ekranie.
+    Pilnuje tego test TOŻSAMOŚCI obiektu funkcji, nie zachowania.
+  - **Rezygnacje to PODZBIÓR zejść** (`consultant_resigned`, `better_offer`,
+    `personal_reasons`); `poached_by_client` świadomie poza — to klient zabiera
+    człowieka, inne zjawisko i inny wniosek. Data zejścia to
+    `COALESCE(terminated_at, end_date)`, jak w `contract_analytics`.
+  - **Marża na godzinę wyklucza ryczałt z LICZNIKA i MIANOWNIKA naraz.**
+    Kwota miesięczna nie niesie godzin, a podstawienie 160 zamieniłoby
+    wskaźnik w marżę podzieloną przez wymyśloną stałą.
+  - **Poza zakresem świadomie: „Zysk" (marża − pozostałe koszty)** — NEXUS nie
+    zna „pozostałych kosztów", a w DynaReporterze ta tabela była pusta we
+    wszystkich 36 miesiącach. Tabela rok-do-roku NIE wchodzi też do eksportu
+    CSV zakładki: tamten jest przycinany oknem z paska, a ta siatka jest
+    latami — jeden plik pod jedną nazwą oznaczałby dwa różne zakresy.
 - **Stare identyfikatory zakładek ŻYJĄ jako aliasy** (`LEGACY_TAB_ALIASES`
   w `InsightsView.tsx`): `?tab=klienci` → `delivery-lead`, `?tab=zarzad` →
   `rada`. Nie kasuj ich: te linki są w zakładkach przeglądarki i na stronie

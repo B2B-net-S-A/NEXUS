@@ -710,6 +710,56 @@ export interface InsightsHitRatioOptions {
  * IDENTYCZNYM kluczu, więc klucz ma jedno źródło — dwie literalne tablice
  * rozjechałyby się po pierwszym refaktorze i panel odpalałby drugie zapytanie.
  */
+// ── Rada Nadzorcza: tabele rok-do-roku ───────────────────────────────────────
+
+/** Jak czytać metrykę przez cały rok. Serwer to deklaruje, front się kieruje. */
+export type InsightsYoYAggregate = "sum" | "avg";
+export type InsightsYoYUnit = "pln" | "pct" | "count";
+export type InsightsYoYGroup = "finanse" | "hr" | "dywersyfikacja" | "operacyjne";
+
+export interface InsightsYoYMetric {
+  key: string;
+  group: InsightsYoYGroup;
+  label: string;
+  unit: InsightsYoYUnit;
+  /** `sum` dla przepływów, `avg` dla stanów i wskaźników — NIGDY nie zgaduj. */
+  aggregate: InsightsYoYAggregate;
+  /** Wzrost jest złą wiadomością (zejścia, koszty, koncentracja klienta). */
+  lower_is_better: boolean;
+  definition: string | null;
+  note: string | null;
+  /** Rok → 12 wartości. `null` = miesiąc się nie wydarzył. */
+  series: Record<string, Array<number | null>>;
+}
+
+export interface InsightsYoYClientMonth {
+  clients: Array<{ name: string; count: number }>;
+  other_count: number;
+  unassigned_count: number;
+  total: number;
+}
+
+export interface InsightsYoYResponse {
+  years: number[];
+  asof: string;
+  /** Miesiąc, który JESZCZE TRWA — jego wartości są niepełne, nie słabe. */
+  partial_month: { year: number; month: number } | null;
+  month_labels: string[];
+  metrics: InsightsYoYMetric[];
+  placements_by_client: Record<string, Array<InsightsYoYClientMonth | null>>;
+  degraded: {
+    reasons: string[];
+    fx: { currencies: string[]; months_affected: string[] };
+    contracts_without_termination_reason: number;
+    message: string;
+  } | null;
+}
+
+export interface InsightsYoYParams {
+  end_year?: number;
+  years?: number;
+}
+
 export const insightsQueryKeys = {
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
@@ -728,6 +778,9 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "invite-links", p] as const,
   hiringManagers: (p: InsightsPeriodParams) =>
     ["insights", "clients", "hiring-managers", p] as const,
+  // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata
+  // kalendarzowe, więc klucz nie może nieść `period`.
+  boardYoY: (p: InsightsYoYParams) => ["insights", "board", "yoy", p] as const,
 };
 
 export const insightsBoardApi = {
@@ -736,6 +789,11 @@ export const insightsBoardApi = {
       .get<InsightsBoardResponse>("/api/insights/board", {
         params: periodQuery(p),
       })
+      .then((r) => r.data),
+
+  boardYoY: (p: InsightsYoYParams = {}) =>
+    api
+      .get<InsightsYoYResponse>("/api/insights/board/yoy", { params: p })
       .then((r) => r.data),
 
   clientsRanking: (p: InsightsPeriodParams) =>
