@@ -50,11 +50,20 @@ from app.models.user import User, UserRole
 
 YOY_URL = "/api/insights/board/yoy"
 
-# Rok bazowy testu. Musi być WOLNY od fixture'ów innych plików: baza testowa
-# jest wspólna dla przebiegu i NIE jest czyszczona, więc rok zajęty przez
-# sąsiedni plik wraca jako „regresja" w kodzie, którym nikt nie ruszał.
-# Sprawdzone: 1975–1977 nie występuje w `backend/tests/`.
-BASE_YEAR = 1976
+# Rok bazowy testu. Dwa warunki naraz, i pierwsze podejście spełniało tylko
+# jeden z nich:
+#
+# 1. **Musi być WOLNY od fixture'ów innych plików.** Baza testowa jest wspólna
+#    dla przebiegu i NIE jest czyszczona, więc rok zajęty przez sąsiedni plik
+#    wraca jako „regresja" w kodzie, którym nikt nie ruszał.
+# 2. **Musi przejść walidację endpointu** (`end_year >= 2000`). Rok 1976
+#    spełniał warunek pierwszy i łamał drugi — osiem testów dostawało 422
+#    zamiast danych. Bramka w endpointcie jest sanity-checkiem produkcyjnym
+#    i to TEST się do niej dostosowuje, nie odwrotnie.
+#
+# Testy sięgają w dół do `BASE_YEAR - 2`, a `years=2` dokłada jeszcze jeden rok
+# wstecz — potrzebne są więc cztery kolejne wolne lata (2005–2008).
+BASE_YEAR = 2008
 
 
 @pytest_asyncio.fixture
