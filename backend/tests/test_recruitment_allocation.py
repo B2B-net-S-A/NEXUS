@@ -184,6 +184,35 @@ def test_cancel_and_change_recompute_without_mutating_nominal_owner():
 
 
 @pytest.mark.parametrize(
+    "owner_role,substitute_role,expected_performer",
+    [
+        (UserRole.talent_community_manager, UserRole.talent_community_manager, 2),
+        (UserRole.finance, UserRole.finance, 2),
+        (UserRole.talent_community_manager, UserRole.recruiter, 1),
+        (UserRole.finance, UserRole.recruiter, 1),
+    ],
+)
+def test_operational_cover_retains_tcm_and_finance_role_boundaries(
+    owner_role, substitute_role, expected_performer
+):
+    owner, substitute = user(1), user(2)
+    owner.role, owner.roles = owner_role, [owner_role.value]
+    substitute.role, substitute.roles = substitute_role, [substitute_role.value]
+    result = resolve_workforce(
+        snapshot(), [owner, substitute, user(3)], now=NOW, last_success_at=NOW
+    )
+    assert result.performer(1) == expected_performer
+    assert (
+        "substitute_role_invalid" in {issue["code"] for issue in result.issues}
+    ) == (expected_performer == 1)
+    owner.email = "missing@example.com"
+    unmapped = resolve_workforce(
+        snapshot(), [owner, substitute, user(3)], now=NOW, last_success_at=NOW
+    )
+    assert {"user_id": 1, "code": "identity_missing"} in unmapped.issues
+
+
+@pytest.mark.parametrize(
     "options,reason",
     [
         ({"substitute": None}, "substitute_missing"),

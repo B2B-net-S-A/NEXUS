@@ -30,7 +30,16 @@ from app.models.user import User
 WARSAW = ZoneInfo("Europe/Warsaw")
 STALE_SECONDS = 300
 OPERATIONAL_COVER_ROLES = frozenset(
-    {"recruiter", "sourcer", "tac", "delivery_lead", "head_of_recruitment", "admin"}
+    {
+        "recruiter",
+        "sourcer",
+        "tac",
+        "delivery_lead",
+        "talent_community_manager",
+        "finance",
+        "head_of_recruitment",
+        "admin",
+    }
 )
 
 
@@ -144,6 +153,8 @@ def compatible_substitute(owner: User, substitute: User) -> bool:
         "sourcer": {"sourcer", "recruiter", "tac"},
         "tac": {"tac"},
         "delivery_lead": {"delivery_lead"},
+        "talent_community_manager": {"talent_community_manager"},
+        "finance": {"finance"},
         "head_of_recruitment": {"head_of_recruitment"},
     }
     required = _roles(owner) & capability_groups.keys()
