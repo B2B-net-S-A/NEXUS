@@ -161,6 +161,23 @@ class Settings(BaseSettings):
     AI_MATCH_MIN_SCORE: float = 0.5
     # ile kandydatów retrieve z Qdrant przed filtrem progu (koszt rerank ~liniowy)
     AI_MATCH_POOL_SIZE: int = 100
+
+    # `/ai-matches` na WSPÓLNYM silniku (0278, domyślnie OFF). Włączona:
+    # ta powierzchnia pobiera pulę `MATCH_POOL_SIZE` i liczy kompozyt 0–100
+    # przez `bulk_get_or_compute` — czyli dokładnie to samo, co
+    # `/recommendations`, snapshot handoffu i digest. Dziś liczy inaczej:
+    # pula 100, „wynik" to surowy kosinus Qdranta (albo wynik rerankera),
+    # a więc dwa widoki TEJ SAMEJ rekrutacji na jednej zakładce układają
+    # kandydatów w innej kolejności i nazywają to tak samo.
+    #
+    # Kontrakt `match_score` ZOSTAJE na skali 0–1 (`total / 100`), bo czyta go
+    # `MatchScoreBar` (×100), `min_score` (ge=0, le=1) i `JobShortlist`.
+    # Flip dopiero po A/B na zamrożonym zbiorze 50 ofert — patrz raport.
+    AI_MATCHES_SHARED_ENGINE: bool = False
+    # Rerank pod wspólnym silnikiem: 0 = wyłączony. Zmienia KOLEJNOŚĆ pierwszych
+    # N wierszy, nigdy `match_score` — inaczej pasek pokazywałby liczbę z innej
+    # skali niż próg, który go przepuścił.
+    AI_MATCHES_RERANK_TOP_N: int = 0
     # hybrydowe /recommendations + proposals (skala 0-100). Po recalibracji
     # (2026-06-23) skala jest realistyczna, więc próg podniesiony z 25 → 40.
     RECOMMENDATION_MIN_SCORE: float = 40.0
