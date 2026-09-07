@@ -528,3 +528,32 @@ async def test_year_count_out_of_range_is_422_not_500(yoy_client: AsyncClient):
     for params in ({"years": 20}, {"years": 1}, {"end_year": 1500}):
         resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
         assert resp.status_code == 422, f"{params}: {resp.status_code}"
+
+
+def test_zero_billing_hours_is_a_value_not_a_missing_field():
+    """Jawne zero godzin wyklucza kontrakt, nie udaje etatu 160 h.
+
+    `billing_hours_per_month or 160` zamieniało zero na 160, zanim guard
+    w `fold_money` („hours <= 0") zdążył je zobaczyć — czyli mechanizm
+    wykluczania był martwy dla dokładnie tego przypadku, który miał łapać.
+    Fallback należy się WYŁĄCZNIE brakowi wartości.
+    """
+    from types import SimpleNamespace
+
+    from app.models.contract import RateUnit
+    from app.services.insights_board_money import (
+        DEFAULT_BILLING_HOURS,
+        _billable_hours,
+    )
+
+    hourly = lambda h: SimpleNamespace(  # noqa: E731
+        rate_unit=RateUnit.hourly, billing_hours_per_month=h
+    )
+    assert _billable_hours(hourly(None)) == DEFAULT_BILLING_HOURS
+    assert _billable_hours(hourly(120)) == 120
+    # Zero przechodzi dalej jako zero i dopiero `fold_money` je odrzuca —
+    # kontrakt wypada z licznika I mianownika marży na godzinę.
+    assert _billable_hours(hourly(0)) == 0
+
+    monthly = SimpleNamespace(rate_unit=RateUnit.monthly, billing_hours_per_month=None)
+    assert _billable_hours(monthly) is None

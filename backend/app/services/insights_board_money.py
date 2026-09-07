@@ -61,6 +61,9 @@ MONTH_LABELS_PL = (
 # indziej, a tutaj tylko się spotykają.
 HOURS_PER_WORKDAY = 8
 WORKDAYS_PER_MONTH = 22
+# Domyślny wymiar godzin, gdy kontrakt godzinowy go nie podaje — ta sama
+# wartość, którą zakłada `Contract.monthly_rate`.
+DEFAULT_BILLING_HOURS = 160
 
 
 def ratio(
@@ -154,7 +157,12 @@ def _billable_hours(contract: Contract) -> Optional[Decimal]:
     więc średnia zostaje liczona z kontraktów, o których naprawdę wiemy.
     """
     if contract.rate_unit == RateUnit.hourly:
-        return Decimal(contract.billing_hours_per_month or 160)
+        # `or 160` zamieniałoby JAWNE zero na 160, czyli dokładnie odwrotnie
+        # do intencji: guard w `fold_money` (`hours <= 0`) nigdy by takiego
+        # kontraktu nie zobaczył, bo dostałby już podmienioną liczbę. Fallback
+        # należy się wyłącznie brakowi wartości.
+        hours = contract.billing_hours_per_month
+        return Decimal(DEFAULT_BILLING_HOURS if hours is None else hours)
     if contract.rate_unit == RateUnit.daily:
         return Decimal(WORKDAYS_PER_MONTH * HOURS_PER_WORKDAY)
     return None

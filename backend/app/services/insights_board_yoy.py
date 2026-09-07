@@ -66,7 +66,12 @@ from app.services.insights_board_money import (
 )
 from app.services.metric_definitions import (
     CLOSED_JOBS_WITH_PLACEMENT,
+    CONTRACTOR_DEPARTURE,
+    CONTRACTOR_RESIGNATION,
+    DISTINCT_CLIENTS_WITH_PLACEMENT,
     FIRST_HIRED_PER_CANDIDATE_JOB,
+    MARGIN_PER_BILLABLE_HOUR,
+    TOP_CLIENT_SHARE,
 )
 
 # Ile lat naraz. Trzy to układ z DynaReportera (bieżący + dwa wstecz) i zarazem
@@ -91,12 +96,6 @@ RESIGNATION_REASONS = frozenset(
 # z liczbą — obcięcie bez reszty zamieniłoby sumę wiersza w liczbę mniejszą
 # niż placementy tego samego miesiąca w wierszu wyżej.
 CLIENTS_PER_MONTH = 8
-
-CONTRACTOR_DEPARTURE = "ended_contracts_by_effective_end_date"
-CONTRACTOR_RESIGNATION = "ended_contracts_with_contractor_side_reason"
-MARGIN_PER_BILLABLE_HOUR = "margin_per_billable_hour_known_units_only"
-TOP_CLIENT_SHARE = "top_client_share_of_monthly_placements"
-DISTINCT_CLIENTS_WITH_PLACEMENT = "distinct_clients_with_at_least_one_placement"
 
 
 @dataclass(frozen=True)
