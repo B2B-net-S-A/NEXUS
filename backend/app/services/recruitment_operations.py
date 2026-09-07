@@ -60,29 +60,21 @@ from app.services.access_scope import ScopeKind, resolve_dashboard_scope
 from app.services.similar_job_candidates import SimilarJobRef, fetch_similar_jobs
 
 
-# Published recruitment rows retain ``hired`` in the Finalization group and as
-# a possible final favorite. Only negative exits disappear from row counts and
-# favorite options. Cross-process sharing is deliberately stricter below:
-# a hired person is a historical outcome, not an operational overlap signal.
+# Published recruitment rows retain ``hired`` in the total candidate count and
+# as a possible final favorite. The five dashboard status counters below are
+# intentionally exact and omit every other stage. Only negative exits disappear
+# from row counts and favorite options. Cross-process sharing is deliberately
+# stricter: a hired person is a historical outcome, not an operational overlap.
 _PROCESS_HIDDEN_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdrawn})
 _OVERLAP_INACTIVE_STAGES = frozenset(
     {PipelineStage.rejected, PipelineStage.withdrawn, PipelineStage.hired}
 )
-_STAGE_GROUPS: dict[str, frozenset[PipelineStage]] = {
-    "sourcing": frozenset(
-        {PipelineStage.new, PipelineStage.prep_call, PipelineStage.screening}
-    ),
-    "verified": frozenset({PipelineStage.verified}),
-    "recommended": frozenset({PipelineStage.cv_sent}),
-    "interview": frozenset({PipelineStage.interview, PipelineStage.client_interview}),
-    "accepted": frozenset(
-        {
-            PipelineStage.acceptance,
-            PipelineStage.negotiation,
-            PipelineStage.onboarding,
-            PipelineStage.hired,
-        }
-    ),
+_DASHBOARD_STAGE_FIELDS: dict[PipelineStage, str] = {
+    PipelineStage.new: "new",
+    PipelineStage.screening: "screening",
+    PipelineStage.cv_sent: "cv_sent",
+    PipelineStage.client_interview: "client_interview",
+    PipelineStage.acceptance: "acceptance",
 }
 _CURRENT_PIPELINE = table(
     "analytics_current_pipeline",
@@ -395,12 +387,11 @@ def _overlap_candidate_ids(rows: Iterable[_LatestStage]) -> set[int]:
 
 
 def _stage_counts(rows: Iterable[_LatestStage]) -> RecruitmentOperationsStageCounts:
-    counts = {name: 0 for name in _STAGE_GROUPS}
+    counts = {field: 0 for field in _DASHBOARD_STAGE_FIELDS.values()}
     for row in rows:
-        for group, stages in _STAGE_GROUPS.items():
-            if row.stage in stages:
-                counts[group] += 1
-                break
+        field = _DASHBOARD_STAGE_FIELDS.get(row.stage)
+        if field is not None:
+            counts[field] += 1
     return RecruitmentOperationsStageCounts(**counts)
 
 

@@ -57,11 +57,11 @@ const STAGES: Array<{
   key: keyof RecruitmentOperationsStageCounts
   label: string
 }> = [
-  { key: "sourcing", label: "Start / sourcing" },
-  { key: "verified", label: "Weryfikacja" },
-  { key: "recommended", label: "Rekomendacje" },
-  { key: "interview", label: "Rozmowy łącznie" },
-  { key: "accepted", label: "Finalizacja" },
+  { key: "new", label: "Nowy" },
+  { key: "screening", label: "Screening" },
+  { key: "cv_sent", label: "Wysłany do klienta" },
+  { key: "client_interview", label: "Interview" },
+  { key: "acceptance", label: "Akceptacje" },
 ]
 
 function friendlyStage(stage: string): string {
@@ -71,8 +71,8 @@ function friendlyStage(stage: string): string {
     screening: "Screening",
     verified: "Zweryfikowany",
     interview: "Rozmowa wewnętrzna",
-    cv_sent: "CV wysłane",
-    client_interview: "Rozmowa u klienta",
+    cv_sent: "Wysłany do klienta",
+    client_interview: "Interview",
     acceptance: "Akceptacja klienta",
     negotiation: "Negocjacje",
     onboarding: "Onboarding",
@@ -163,7 +163,7 @@ function StageGrid({ counts }: { counts: RecruitmentOperationsStageCounts }) {
   return (
     <div
       className="grid grid-cols-2 gap-2 sm:grid-cols-5"
-      aria-label="Kandydaci według grup etapów"
+      aria-label="Kandydaci według aktualnego statusu lejka"
     >
       {STAGES.map((stage) => {
         const count = counts[stage.key]
@@ -804,8 +804,8 @@ export function RecruitmentCompetenceDashboard({
             Rekrutacje według kompetencji
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Podsumowanie grup statusów, nie kolejność lejka. Niżej: przypisani,
-            faworyci i osoby obecne w kilku rekrutacjach.
+            Aktualne statusy kandydatów w lejku. Niżej: przypisani, faworyci i
+            osoby obecne w kilku rekrutacjach.
           </p>
         </div>
         {query.data ? (

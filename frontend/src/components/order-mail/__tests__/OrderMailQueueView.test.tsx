@@ -51,6 +51,17 @@ const base = {
 };
 
 describe("OrderMailQueueView", () => {
+  it("refreshes the existing plan only with write rights and a saved PDF", () => {
+    const onRefreshPlan = vi.fn();
+    const { rerender } = render(<OrderMailQueueView {...base} onRefreshPlan={onRefreshPlan} state="ready" items={[doc({ can_apply: true, has_file: true })]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Przelicz plan" }));
+    expect(onRefreshPlan).toHaveBeenCalledWith(1);
+    rerender(<OrderMailQueueView {...base} onRefreshPlan={onRefreshPlan} busy state="ready" items={[doc({ can_apply: true, has_file: true })]} />);
+    expect(screen.getByRole("button", { name: "Przelicz plan" })).toBeDisabled();
+    rerender(<OrderMailQueueView {...base} onRefreshPlan={onRefreshPlan} state="ready" items={[doc({ can_apply: false, has_file: true })]} />);
+    expect(screen.queryByRole("button", { name: "Przelicz plan" })).toBeNull();
+  });
+
   it("renders gate reasons and redacted money as dashes", () => {
     render(<OrderMailQueueView {...base} state="ready" items={[doc()]} />);
     expect(screen.getByTestId("gate-reasons")).toHaveTextContent("Dopasowanie z literówką");

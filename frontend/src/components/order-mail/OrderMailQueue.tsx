@@ -146,6 +146,7 @@ export interface OrderMailQueueViewProps {
   onSelect: (id: number) => void;
   onApply: (id: number) => void;
   onDismiss: (id: number) => void;
+  onRefreshPlan?: (id: number) => void;
   onRetry: () => void;
   busy: boolean;
   applyError: string | null;
@@ -212,7 +213,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
             ))}
           </ul>
           {selected && (
-            <Detail doc={selected} onApply={() => p.onApply(selected.id)} onDismiss={() => p.onDismiss(selected.id)} busy={p.busy} applyError={p.applyError} />
+            <Detail doc={selected} onApply={() => p.onApply(selected.id)} onDismiss={() => p.onDismiss(selected.id)} onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined} busy={p.busy} applyError={p.applyError} />
           )}
         </div>
       )}
@@ -240,7 +241,13 @@ export function OrderMailQueue() {
     mutationFn: (id: number) => orderMailApi.dismiss(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["order-mail"] }),
   });
-  const applyError = apply.error
+  const refreshPlan = useMutation({
+    mutationFn: (id: number) => orderMailApi.refreshPlan(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["order-mail"] }),
+  });
+  const applyError = refreshPlan.error
+    ? errorDetail(refreshPlan.error, "Nie udało się przeliczyć planu")
+    : apply.error
     ? String((apply.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? "Nie udało się zapisać")
     : null;
 
@@ -303,8 +310,9 @@ export function OrderMailQueue() {
       onSelect={setSelectedId}
       onApply={(id) => apply.mutate(id)}
       onDismiss={(id) => dismiss.mutate(id)}
+      onRefreshPlan={(id) => refreshPlan.mutate(id)}
       onRetry={() => list.refetch()}
-      busy={apply.isPending || dismiss.isPending}
+      busy={apply.isPending || dismiss.isPending || refreshPlan.isPending}
       applyError={applyError}
     />
   );
@@ -319,7 +327,7 @@ function errorDetail(error: unknown, fallback: string): string {
   return typeof detail === "string" && detail ? detail : fallback;
 }
 
-function Detail({ doc, onApply, onDismiss, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; busy: boolean; applyError: string | null }) {
+function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { doc: OrderMailDocument; onApply: () => void; onDismiss: () => void; onRefreshPlan?: () => void; busy: boolean; applyError: string | null }) {
   const ex = doc.extraction;
   return (
     <section className="rounded-lg border p-4" data-testid="order-mail-detail">
@@ -355,7 +363,17 @@ function Detail({ doc, onApply, onDismiss, busy, applyError }: { doc: OrderMailD
             <tr key={r.row_index} className="border-t align-top">
               <td className="py-1 pr-2">{r.row_name}</td>
               <td className="pr-2">{period(r.start_date, r.end_date)}</td>
-              <td className="pr-2">{money(r.rate_client, r.rate_unit)}</td>
+              <td className="pr-2">
+                {money(r.rate_client, r.rate_unit)}
+                {ex?.consultant_rows[r.row_index]?.rate_client_gross != null && (
+                  <>
+                    {" netto"}
+                    <div className="text-xs text-muted-foreground">
+                      {money(ex.consultant_rows[r.row_index].rate_client_gross ?? null, r.rate_unit)} brutto ÷ 1,23
+                    </div>
+                  </>
+                )}
+              </td>
               <td>
                 <div>{ORDER_MAIL_ACTION_LABEL[r.action]}</div>
                 {r.reasons.map((x) => <div key={x} className="text-xs text-muted-foreground">{x}</div>)}
@@ -378,7 +396,12 @@ function Detail({ doc, onApply, onDismiss, busy, applyError }: { doc: OrderMailD
       {applyError && <div className="mt-3 text-sm text-destructive">{applyError}</div>}
 
       {doc.outcome === "needs_review" && (
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap gap-2">
+          {onRefreshPlan && doc.can_apply && doc.has_file && (
+            <Button variant="outline" onClick={onRefreshPlan} disabled={busy} title="Sprawdź stawki z PDF i dopasuj osoby do aktualnej listy konsultantów klienta">
+              Przelicz plan
+            </Button>
+          )}
           <Button onClick={onApply} disabled={!doc.can_apply || busy || !(doc.proposal?.rows?.length)} title={doc.can_apply ? undefined : "Zapis wymaga admina albo przypisanego Delivery Leada"}>
             <Check className="mr-1 h-4 w-4" /> Zastosuj
           </Button>
