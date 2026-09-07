@@ -828,6 +828,47 @@ Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydat
 - Wyjście plaintext (nie JSON) + `thinking={"type": "disabled"}` (trap truncacji
   Sonnet 5). Tabela ma lustro DDL w entrypoint.sh (jak każda zmiana schematu).
 
+## Integracja COMPASS ↔ NEXUS (kontraktorzy + cykl życia)
+
+Druga apka (COMPASS, HR, Next.js/Supabase) i NEXUS wymieniają dwie rzeczy poza
+dniami roboczymi z D5. **Kod wdrożony (#1368), aktywacja częściowo credential-gated.**
+
+**Dwa kierunki, dwa różne sekrety — łatwo pomylić:**
+
+| Przepływ | Endpoint (źródło) | Uwierzytelnienie | Konsument |
+|---|---|---|---|
+| Kontraktorzy: **Compass ← NEXUS** | `GET /api/integrations/compass/contractors` | `X-API-Key` = klucz konta serwisowego scope `contractors:read` | cron Compassa |
+| Cykl życia: **NEXUS ← Compass** | Compass `GET /api/internal/roster` | `Bearer` = `COMPASS_LIFECYCLE_SECRET` | pętla `compass_lifecycle_sync` |
+
+- **`/api/integrations/compass/contractors`** (`app/api/integrations_compass.py`) —
+  tożsamość + zaangażowanie, **BEZ kwot** (decyzja produktowa). Reużywa kształtu
+  `contractors.list_contractors` minus stawki, więc NIE woła `effective_rate_fields`
+  (brak pułapki `RATE_SCHEDULE_LOADS`). `lacks_current_order` = sygnał ławki (Etap 4).
+  Ścieżka CELOWO pod `/api/integrations/…`, nie pod `/api/candidates|jobs|clients|users`
+  — `test_key_cannot_reach_domain_data` wymaga tam 401 dla klucza. Moduł **bez**
+  `from __future__ import annotations` (slowapi #579) i **na liście `_RATE_LIMITED_MODULES`**
+  w `test_public_surface_hardening.py`.
+- **Scope `contractors:read`** (`app/models/service_account.py`) — nazwa NIE może brzmieć
+  `candidate:read`/`client:read` (`test_no_candidate_data_scope_exists` je zakazuje).
+- **`compass_lifecycle_sync`** (`app/services/compass_lifecycle.py` + `app/tasks/`) —
+  pętla tła, deaktywuje `users.is_active` osób ze statusem `exited` w Compassie.
+  **Jednokierunkowa** (nigdy nie reaktywuje), **`offboarding` NIE deaktywuje**
+  (offboarding trwa po ostatnim dniu pracy), **pusty roster = awaria, nie masowe
+  odejście**. Nie rusza rankingów wypłacających nagrody (`competitions.py:194`
+  zostaje). Domyślnie WYŁĄCZONA (`COMPASS_LIFECYCLE_ENABLED=false`).
+- **`GET /api/insights/reconciliation/placements`** (`app/api/insights_reconciliation.py`)
+  — read-only raport uzgadniający placementy w OBU rodzinach atrybucji (FULL OUTER,
+  LEFT JOIN na sieroty). Tłumaczy rozjazd 213/228/317/332, **nie usuwa go**; NIE
+  rusza `VERIFIER_ANCHORED_CTE`.
+- **Sonda `checks.compass_workdays`** w `/api/health` (0276 `CompassWorkdaysSyncState`) —
+  patrz sekcja o D5; `healthy` wymaga `last_status=='ok'`, nie samej świeżości.
+
+**Env (Coolify, przez workflow „Coolify set env"):** `COMPASS_LIFECYCLE_ENABLED`,
+`COMPASS_LIFECYCLE_URL` (`https://compass.dynaminds.pl/api/internal/roster`),
+`COMPASS_LIFECYCLE_SECRET` (**= Compass `ROSTER_EXPORT_SECRET`**). Klucz konta
+serwisowego wydaje admin przez Ustawienia → Konta serwisowe (mintuje żywe
+poświadczenie — nie da się z CI: `coolify-ops.yml` świadomie nie ma `command`).
+
 ## CloudTalk (telefonia)
 
 5-fazowa integracja zdeployowana w PR #157 (Fazy 1-5 razem). Dormant na prod do momentu provisioning secret + flipnięcia killswitcha.
