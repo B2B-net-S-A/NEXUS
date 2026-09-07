@@ -5,13 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import {
+  InsightsSection,
+  InsightsSectionNav,
+} from "@/components/insights/InsightsSectionNav";
+import {
   readPeriodFromParams,
   writePeriodToParams,
 } from "@/lib/insights-period-url";
-import { buildBoardCsvExport } from "@/lib/insights-csv";
-import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
+import { buildRadaCsvExport } from "@/lib/insights-csv";
 import { InsightsBoardKPI } from "@/components/insights/sections/InsightsBoardKPI";
-import { InsightsInviteLinks } from "@/components/insights/sections/InsightsInviteLinks";
+import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
 import {
   insightsBoardApi,
   insightsQueryKeys,
@@ -19,11 +22,16 @@ import {
 } from "@/lib/insights-api";
 
 // Domyślne okno zakładki — JEDNA stała dla odczytu z URL-a i dla „Resetu".
-// Zarząd patrzy KWARTAŁAMI; wspólna stała dla trzech zakładek cofałaby go
+// Rada patrzy KWARTAŁAMI; wspólna stała dla trzech zakładek cofałaby ją
 // w miejsce, od którego nigdy nie zaczyna.
 const DEFAULT_PERIOD: InsightsPeriodParams = { period: "quarter", offset: 0 };
 
-export function ZarzadPanel() {
+const SECTIONS = [
+  { id: "kpi", label: "KPI i finanse" },
+  { id: "klienci", label: "Klienci (MRR)" },
+];
+
+export function RadaNadzorczaPanel() {
   // URL jest jedynym źródłem prawdy okresu — jak w `RekrutacjaPanel`. Dawny
   // `useState` gubił wybór przy odświeżeniu i nie dawał się udostępnić linkiem.
   const router = useRouter();
@@ -31,8 +39,6 @@ export function ZarzadPanel() {
 
   // Odczyt i zapis okresu żyją w JEDNYM module dla trzech zakładek —
   // trzy kopie tej logiki zgubiły wcześniej daty granulacji „Wszystko".
-  // Domyślne (kwartał, bieżący) zostają takie jak były: Zarząd patrzy
-  // kwartałami i ujednolicenie ich tutaj byłoby cichą zmianą jego widoku.
   const period: InsightsPeriodParams = useMemo(
     () => readPeriodFromParams(searchParams, DEFAULT_PERIOD),
     [searchParams],
@@ -53,35 +59,43 @@ export function ZarzadPanel() {
     queryFn: () => insightsBoardApi.board(period),
   });
 
+  // Ranking klientów do eksportu — klucz identyczny z sekcją niżej, więc to
+  // nie jest drugie wywołanie endpointu, tylko odczyt tego samego cache'u.
+  const { data: ranking } = useQuery({
+    queryKey: insightsQueryKeys.clientsRanking(period),
+    queryFn: () => insightsBoardApi.clientsRanking(period),
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Kokpit zarządu — KPI, pieniądze, trendy i Liga Mistrzów.
+          Kokpit Rady Nadzorczej — KPI, pieniądze i trendy firmy oraz ranking
+          klientów z MRR.
         </p>
         <PeriodPicker
           value={period}
           onChange={setPeriod}
           defaultValue={DEFAULT_PERIOD}
           resolved={board?.period ?? null}
-          csv={buildBoardCsvExport(board)}
+          csv={buildRadaCsvExport(board, ranking)}
         />
       </div>
 
-      <InsightsBoardKPI period={period} />
+      <InsightsSectionNav items={SECTIONS} ariaLabel="Sekcje Rady Nadzorczej" />
 
-      <div className="grid grid-cols-1 gap-6">
-        <ChampionsSection />
+      <InsightsSection id="kpi">
+        <InsightsBoardKPI period={period} />
+      </InsightsSection>
 
-        {/* Sekcja linków jedzie na `/api/insights/recruitment/invite-links`
-            (`CurrentUser`), więc przyjmuje TO SAMO okno co reszta kokpitu.
-            Zniknął razem z tym `Degraded` ostrzegający, że legacy
-            `/api/reports/invite-links` pokazuje BIEŻĄCY okres niezależnie od
-            wybranej granulacji i przesunięcia — i zniknęło 403, które ten
-            raport zwracał recruiterowi, sourcerowi i tacowi na zakładce
-            otwartej pod D7 dla każdej zalogowanej roli. */}
-        <InsightsInviteLinks period={period} />
-      </div>
+      {/* Ranking klientów i MRR PRZENIESIONE tu z dawnej zakładki „Klienci
+          & Delivery" (układ DynaReportera): to pytanie o pieniądze firmy —
+          przychód, marżę i koncentrację portfela — a nie o obsadę, którą
+          prowadzi Delivery Lead. Sekcja przyjmuje okno Rady (kwartał), więc
+          wycena kafli i tabeli jest tą samą wyceną co w KPI powyżej. */}
+      <InsightsSection id="klienci">
+        <InsightsClientsRanking period={period} />
+      </InsightsSection>
     </div>
   );
 }

@@ -15,6 +15,7 @@
 import type {
   InsightsBoardResponse,
   InsightsClientsRankingResponse,
+  InsightsDeliveryLeadsResponse,
   RecruitmentFunnelResponse,
 } from "@/lib/insights-api";
 import type { InsightsCsvExport } from "@/components/insights/PeriodPicker";
@@ -51,70 +52,129 @@ export function buildFunnelCsvExport(
 }
 
 /**
- * Ranking klientów — kwoty tak, jak przyszły z serwera, bez zaokrągleń.
+ * Ranking Delivery Leadów — jeden wiersz na osobę plus wiersz org-level.
  *
- * Kolumna „Kwoty pełne" niesie `revenue_complete && margin_complete`: brak
- * kursu NBP kasuje składnik z sumy wiersza, a arkusz bez tej informacji
- * podaje kwotę zaniżoną jako kompletną.
+ * Wiersz „Bez przypisanego DL" MUSI trafić do arkusza: bez niego kolumny nie
+ * sumują się do wartości, którą pokazuje kokpit, i ktoś liczący średnią
+ * z eksportu dostanie inną liczbę niż z ekranu. To ta sama reguła co przy
+ * wierszu „Nieprzypisane" w tabeli zespołu — brak atrybucji jest faktem
+ * o danych, nie wierszem do pominięcia.
  */
-export function buildClientsCsvExport(
-  ranking: InsightsClientsRankingResponse | undefined,
+export function buildDeliveryLeadsCsvExport(
+  dls: InsightsDeliveryLeadsResponse | undefined,
 ): InsightsCsvExport | null {
-  if (!ranking) return null;
+  if (!dls) return null;
+  const u = dls.unattributed;
   return {
-    filename: "insights-klienci-ranking",
+    filename: "insights-delivery-lead-ranking",
     headers: [
-      "Klient",
       "Delivery Lead",
-      "Aktywni konsultanci",
-      "Aktywne kontrakty",
-      "Przychód aktywny",
-      "Marża miesięczna",
-      "Kwoty pełne",
+      "Aktywny",
+      "Zapytania",
+      "Wakaty",
+      "Placementy",
+      "Hit ratio %",
+      "Fill rate %",
+      "Otwarte zapytania",
     ],
-    rows: ranking.clients.map((c) => [
-      c.name,
-      c.head_dl_name,
-      c.active_consultants,
-      c.active_contracts,
-      c.active_revenue,
-      c.monthly_margin_total,
-      c.revenue_complete && c.margin_complete ? "tak" : "nie",
-    ]),
+    rows: [
+      ...dls.per_dl.map((d) => [
+        d.name,
+        d.is_active ? "tak" : "nie",
+        d.total_requests,
+        d.total_vacancies,
+        d.placements,
+        d.hit_ratio,
+        d.fill_rate,
+        d.open_requests,
+      ]),
+      [
+        "Bez przypisanego DL",
+        "",
+        u.requests,
+        u.vacancies,
+        u.placements,
+        null,
+        null,
+        u.open_requests,
+      ],
+    ],
   };
 }
 
 /**
- * KPI zarządu — jedna para „metryka / wartość" na wiersz.
+ * Rada Nadzorcza — KPI firmy i ranking klientów w JEDNYM arkuszu.
+ *
+ * Dwa bloki pod wspólnym nagłówkiem, rozróżniane kolumną „Sekcja" — ten sam
+ * kompromis co w eksporcie lejka wyżej. Powód jest mechaniczny: `PeriodPicker`
+ * przyjmuje JEDEN eksport, a zakładka pokazuje dwie tabele. Osobny builder na
+ * ranking klientów, którego nikt by nie podał, byłby martwym kodem ze 100%
+ * pokryciem — dokładnie ta klasa błędu, którą złapał PR #1316.
  *
  * `null` zostaje pustą komórką: marża bez kursu NBP jest NIEZNANA, a zero
  * w arkuszu czyta się jako „policzone i wyszło zero".
  */
-export function buildBoardCsvExport(
+export function buildRadaCsvExport(
   board: InsightsBoardResponse | undefined,
+  ranking: InsightsClientsRankingResponse | undefined,
 ): InsightsCsvExport | null {
+  // Bez KPI nie ma czego eksportować — sam ranking klientów wyszedłby pod
+  // nagłówkiem obiecującym kokpit Rady.
   if (!board) return null;
   const k = board.kpis;
-  return {
-    filename: "insights-zarzad-kpi",
-    headers: ["Metryka", "Wartość"],
-    rows: [
-      ["Placementy", k.placements],
-      ["Weryfikacje", k.verified],
-      ["Rekomendacje", k.cv_sent],
-      ["Interviews", k.interview],
-      ["Efektywność lejka %", k.funnel_efficiency_pct],
-      ["Rekrutacje zamknięte", k.jobs_closed],
-      ["…w tym z placementem", k.jobs_closed_with_placement],
-      ["Hit ratio %", k.hit_ratio_pct],
-      ["Przychód miesięczny PLN", k.finance.revenue_monthly_pln],
-      ["Koszt konsultantów PLN", k.finance.consultant_cost_monthly_pln],
-      ["Marża miesięczna PLN", k.finance.margin_monthly_pln],
-      ["Marża %", k.finance.margin_pct],
-      ["Aktywni konsultanci", k.finance.active_consultants],
-      ["Aktywne kontrakty", k.finance.active_contracts],
-      ["Kontrakty bez stawki kandydata", k.finance.contracts_without_cost_leg],
-      ["Kwoty pełne", k.finance.complete ? "tak" : "nie"],
+  const kpi: InsightsCsvExport["rows"] = [
+    ["KPI", "Placementy", k.placements, "", "", "", ""],
+    ["KPI", "Weryfikacje", k.verified, "", "", "", ""],
+    ["KPI", "Rekomendacje", k.cv_sent, "", "", "", ""],
+    ["KPI", "Interviews", k.interview, "", "", "", ""],
+    ["KPI", "Efektywność lejka %", k.funnel_efficiency_pct, "", "", "", ""],
+    ["KPI", "Rekrutacje zamknięte", k.jobs_closed, "", "", "", ""],
+    ["KPI", "…w tym z placementem", k.jobs_closed_with_placement, "", "", "", ""],
+    ["KPI", "Hit ratio %", k.hit_ratio_pct, "", "", "", ""],
+    ["KPI", "Przychód miesięczny PLN", k.finance.revenue_monthly_pln, "", "", "", ""],
+    ["KPI", "Koszt konsultantów PLN", k.finance.consultant_cost_monthly_pln, "", "", "", ""],
+    ["KPI", "Marża miesięczna PLN", k.finance.margin_monthly_pln, "", "", "", ""],
+    ["KPI", "Marża %", k.finance.margin_pct, "", "", "", ""],
+    ["KPI", "Aktywni konsultanci", k.finance.active_consultants, "", "", "", ""],
+    ["KPI", "Aktywne kontrakty", k.finance.active_contracts, "", "", "", ""],
+    [
+      "KPI",
+      "Kontrakty bez stawki kandydata",
+      k.finance.contracts_without_cost_leg,
+      "",
+      "",
+      "",
+      "",
     ],
+    // WŁASNY wiersz, nie ostatnia kolumna wiersza wyżej. Flaga dotyczy CAŁEGO
+    // bloku KPI, więc doczepiona do „Kontraktów bez stawki kandydata" czytałaby
+    // się jak kwalifikator tej jednej liczby — a w kolumnie „Kwoty pełne"
+    // stałaby samotnie wśród czternastu pustych komórek i pod wierszami
+    // klientów, gdzie ta sama kolumna znaczy co innego (kompletność wiersza).
+    ["KPI", "Kwoty pełne", k.finance.complete ? "tak" : "nie", "", "", "", ""],
+  ];
+  const clients: InsightsCsvExport["rows"] = (ranking?.clients ?? []).map(
+    (c) => [
+      "Klient",
+      c.name,
+      c.monthly_margin_total,
+      c.head_dl_name,
+      c.active_consultants,
+      c.active_revenue,
+      c.revenue_complete && c.margin_complete ? "tak" : "nie",
+    ],
+  );
+  return {
+    filename: "insights-rada-nadzorcza",
+    headers: [
+      "Sekcja",
+      "Pozycja",
+      "Wartość / marża miesięczna",
+      "Delivery Lead",
+      "Aktywni konsultanci",
+      "Przychód aktywny",
+      "Kwoty pełne",
+    ],
+    rows: [...kpi, ...clients],
   };
 }

@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, Building2, Briefcase } from "lucide-react";
+import { BarChart3, Landmark, Target } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore, type UserRole } from "@/store/auth";
 import { RekrutacjaPanel } from "@/components/insights/RekrutacjaPanel";
-import { KlienciPanel } from "@/components/insights/KlienciPanel";
-import { ZarzadPanel } from "@/components/insights/ZarzadPanel";
+import { DeliveryLeadPanel } from "@/components/insights/DeliveryLeadPanel";
+import { RadaNadzorczaPanel } from "@/components/insights/RadaNadzorczaPanel";
 
-type TabId = "rekrutacja" | "klienci" | "zarzad";
+export type TabId = "rekrutacja" | "delivery-lead" | "rada";
 
 type TabDef = {
   id: TabId;
@@ -27,11 +27,32 @@ type TabDef = {
 // i musi iść w parze z guardem backendu — inaczej robi się split-brain: albo
 // front chowa sekcję, której API i tak by nie odmówiło, albo menu jest
 // widoczne, a klik kończy się 403 (tak ugryzło przy Talent Radarze, #1215).
+//
+// Trójka zakładek jest lustrem DynaReportera (Rekrutacja / Delivery Lead /
+// Rada Nadzorcza), bo zespół zna tamten podział i tamtą kolejność sekcji.
+// Skutek dla zawartości, o którym trzeba pamiętać przy dokładaniu sekcji:
+// ranking klientów i MRR mieszkają w RADZIE (to pytanie o pieniądze firmy),
+// a Delivery Lead odpowiada za obsadę i hit ratio.
 const TABS: TabDef[] = [
   { id: "rekrutacja", label: "Rekrutacja", icon: BarChart3, roles: null },
-  { id: "klienci", label: "Klienci & Delivery", icon: Building2, roles: null },
-  { id: "zarzad", label: "Zarząd", icon: Briefcase, roles: null },
+  { id: "delivery-lead", label: "Delivery Lead", icon: Target, roles: null },
+  { id: "rada", label: "Rada Nadzorcza", icon: Landmark, roles: null },
 ];
+
+/**
+ * Stare identyfikatory zakładek → nowe.
+ *
+ * `?tab=klienci` i `?tab=zarzad` żyją w linkach, których nie kontrolujemy:
+ * w zakładkach przeglądarki, w notatkach zespołu i na stronie `/dynareporter`.
+ * Bez tej mapy trafiałyby w gałąź „nieznany tab" i lądowały na Rekrutacji —
+ * czyli link do kokpitu zarządu po cichu otwierałby coś innego, bez słowa
+ * wyjaśnienia. Mapowanie przepisuje URL na nowy identyfikator, więc kolejne
+ * odświeżenie i udostępnienie linku niosą już aktualny adres.
+ */
+export const LEGACY_TAB_ALIASES: Record<string, TabId> = {
+  klienci: "delivery-lead",
+  zarzad: "rada",
+};
 
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
@@ -50,8 +71,45 @@ export function getVisibleInsightTabIds(_user: AuthUser): TabId[] {
   return TABS.map((tab) => tab.id);
 }
 
-function isTabId(v: string | null): v is TabId {
-  return v === "rekrutacja" || v === "klienci" || v === "zarzad";
+export function isTabId(v: string | null): v is TabId {
+  return v === "rekrutacja" || v === "delivery-lead" || v === "rada";
+}
+
+/**
+ * Rozstrzyga, którą zakładkę pokazać dla wartości z URL-a.
+ *
+ * Zwraca też `rewrite`: `true` znaczy „adres w pasku mówi co innego niż ekran"
+ * i musi skończyć się podmianą URL-a. Trzy różne przyczyny są tu celowo
+ * rozdzielone od siebie, bo prowadzą do różnych adresów końcowych: brak
+ * parametru (wstaw domyślny), stary identyfikator (przepisz na nowy),
+ * literówka (wróć na domyślny).
+ *
+ * Funkcja jest czysta, żeby dało się ją przetestować bez montowania widoku —
+ * to ta sama lekcja co przy martwych przyciskach paska okresu (PR #1316):
+ * test kończący się na argumencie callbacka nie dowodzi, że nawigacja działa.
+ */
+export function resolveInsightsTab(
+  rawTab: string | null,
+  /**
+   * Zakładki, które wolno pokazać. Pod D7 to zawsze komplet, ale parametr
+   * ZOSTAJE: gdyby ktoś kiedyś zawęził `getVisibleInsightTabIds`, bez tego
+   * filtra `activeTab` wskazywałby zakładkę, której nie ma w pasku — a wtedy
+   * kontener treści renderuje pustkę i wygląda to jak utrata danych, nie jak
+   * brak dostępu.
+   */
+  allowed: readonly TabId[] = ["rekrutacja", "delivery-lead", "rada"],
+): {
+  tab: TabId;
+  rewrite: boolean;
+} {
+  const ok = (t: TabId) => allowed.includes(t);
+  if (isTabId(rawTab) && ok(rawTab)) return { tab: rawTab, rewrite: false };
+  const alias = rawTab ? LEGACY_TAB_ALIASES[rawTab] : undefined;
+  if (alias && ok(alias)) return { tab: alias, rewrite: true };
+  const fallback = ok(DEFAULT_INSIGHTS_TAB)
+    ? DEFAULT_INSIGHTS_TAB
+    : (allowed[0] ?? DEFAULT_INSIGHTS_TAB);
+  return { tab: fallback, rewrite: true };
 }
 
 export function InsightsView() {
@@ -65,37 +123,29 @@ export function InsightsView() {
     [user],
   );
 
+  const visibleTabIds = useMemo(
+    () => visibleTabs.map((t) => t.id),
+    [visibleTabs],
+  );
+
   const rawTab = searchParams.get("tab");
-  const requestedTab = isTabId(rawTab) ? rawTab : null;
+  const activeTab: TabId = useMemo(
+    () => resolveInsightsTab(rawTab, visibleTabIds).tab,
+    [rawTab, visibleTabIds],
+  );
 
-  const activeTab: TabId = useMemo(() => {
-    if (requestedTab && visibleTabs.some((t) => t.id === requestedTab)) {
-      return requestedTab;
-    }
-    return getDefaultTabForUser(user);
-  }, [requestedTab, visibleTabs, user]);
-
-  // Po hydration auth store: jeśli URL nie ma `?tab=` → wstaw default,
-  // jeśli ma nieznane `?tab=X` → korekta na domyślną.
+  // Po hydration auth store: URL ma nieść dokładnie to, co widać na ekranie —
+  // brakujący `?tab=`, stary identyfikator i literówkę doprowadzamy do postaci
+  // kanonicznej. `replace`, nie `push`: korekta adresu nie jest krokiem
+  // nawigacji, więc nie może zapychać przycisku Wstecz.
   useEffect(() => {
     if (!hydrated || !user) return;
-
-    if (!rawTab) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("tab", getDefaultTabForUser(user));
-      router.replace(`/insights?${params.toString()}`, { scroll: false });
-      return;
-    }
-
-    if (!isTabId(rawTab) || !visibleTabs.some((t) => t.id === rawTab)) {
-      // Nieznany `?tab=` (literówka, stary link) — korygujemy na domyślną.
-      // Świadomie BEZ komunikatu o braku dostępu: po D7 żadna rola nie jest
-      // odcięta, więc taki toast kłamałby o przyczynie.
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("tab", getDefaultTabForUser(user));
-      router.replace(`/insights?${params.toString()}`);
-    }
-  }, [hydrated, user, rawTab, visibleTabs, router, searchParams]);
+    const { tab, rewrite } = resolveInsightsTab(rawTab, visibleTabIds);
+    if (!rewrite) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tab);
+    router.replace(`/insights?${params.toString()}`, { scroll: false });
+  }, [hydrated, user, rawTab, visibleTabIds, router, searchParams]);
 
   const handleTabChange = (next: TabId) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -138,8 +188,8 @@ export function InsightsView() {
 
       <div>
         {activeTab === "rekrutacja" && <RekrutacjaPanel />}
-        {activeTab === "klienci" && <KlienciPanel />}
-        {activeTab === "zarzad" && <ZarzadPanel />}
+        {activeTab === "delivery-lead" && <DeliveryLeadPanel />}
+        {activeTab === "rada" && <RadaNadzorczaPanel />}
       </div>
     </div>
   );

@@ -14,12 +14,18 @@ import { InsightsPlacementAnalysis } from "@/components/insights/sections/Insigh
 import { InsightsPowerCalling } from "@/components/insights/sections/InsightsPowerCalling";
 import { InsightsLinkedIn } from "@/components/insights/sections/InsightsLinkedIn";
 import { InsightsTeamActivity } from "@/components/insights/sections/InsightsTeamActivity";
+import { InsightsInviteLinks } from "@/components/insights/sections/InsightsInviteLinks";
+import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
 import { RecruitmentFunnel } from "@/components/insights/sections/RecruitmentFunnel";
 import { RecruitmentConversions } from "@/components/insights/sections/RecruitmentConversions";
 import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
 import { InsightsSeniority } from "@/components/insights/sections/InsightsSeniority";
 import { SourcesFunnelSection } from "@/components/insights/sections/SourcesFunnelSection";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
+import {
+  InsightsSection,
+  InsightsSectionNav,
+} from "@/components/insights/InsightsSectionNav";
 import {
   readPeriodFromParams,
   writePeriodToParams,
@@ -37,6 +43,21 @@ const DEFAULT_PERIOD: InsightsPeriodParams = {
   period: "month",
   offset: DEFAULT_INSIGHTS_OFFSET,
 };
+
+// Kolejność sekcji jest lustrem DynaReportera — zespół zna tamten porządek
+// i tamte nazwy. Ta tablica jest jednocześnie spisem treści i kontraktem
+// kotwic: każdy `id` musi mieć odpowiadający `InsightsSection` niżej.
+const SECTIONS = [
+  { id: "podsumowanie", label: "Podsumowanie" },
+  { id: "lejek", label: "Lejek" },
+  { id: "zespol", label: "Zespół" },
+  { id: "liga", label: "Liga i wyścigi" },
+  { id: "trendy", label: "Trendy roczne" },
+  { id: "placementy", label: "Placementy" },
+  { id: "aktywnosc", label: "Power Calling · LinkedIn" },
+  { id: "sciezka-rozwoju", label: "Ścieżka rozwoju" },
+  { id: "zrodla", label: "Źródła" },
+];
 
 export function RekrutacjaPanel() {
   // URL jest jedynym źródłem prawdy okresu — back/forward odtwarza wybór,
@@ -70,8 +91,8 @@ export function RekrutacjaPanel() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Lejek, konwersje, time-to-hire, wyniki per osoba, wyścigi miesiąca i
-          źródła kandydatów.
+          Lejek, konwersje, time-to-hire, wyniki per osoba, Liga Mistrzów,
+          wyścigi miesiąca i źródła kandydatów.
         </p>
         <PeriodPicker
           value={period}
@@ -95,20 +116,30 @@ export function RekrutacjaPanel() {
           wyłącznie dla admina i sam z siebie znika dla reszty zespołu. */}
       <InsightsCampaignAdmin />
 
+      <InsightsSectionNav items={SECTIONS} ariaLabel="Sekcje Rekrutacji" />
+
       {/* Cztery liczby, od których zaczyna się rozmowa o rekrutacji —
           nad lejkiem, jak w DynaReporterze. Ta sama koperta co lejek
           i konwersje (jeden klucz react-query), więc kafel nie ma jak
           rozjechać się z paskiem pod nim. */}
-      <InsightsKpiTiles period={period} />
+      <InsightsSection id="podsumowanie">
+        <InsightsKpiTiles period={period} />
+      </InsightsSection>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <RecruitmentFunnel period={period} />
-        <RecruitmentConversions period={period} />
-      </div>
+      <InsightsSection id="lejek" className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <RecruitmentFunnel period={period} />
+          <RecruitmentConversions period={period} />
+        </div>
+        <InsightsTimeToHire period={period} />
+      </InsightsSection>
 
-      <InsightsTimeToHire period={period} />
+      {/* „Performance per osoba" — serce zakładki w oryginale, więc stoi
+          bezpośrednio pod lejkiem, a nie za wykresami rocznymi. Plakietki
+          ostrzeżeń wstrzykiwane z osobnego zapytania, żeby ich awaria nie
+          przewracała tabeli wyników (patrz InsightsTeamPerformance).
 
-      {/* D7: bramka rolowa na imiennym rankingu zdjęta — /insights widzi każda
+          D7: bramka rolowa na imiennym rankingu zdjęta — /insights widzi każda
           zalogowana rola. Nie przywracaj jej tutaj bez zmiany decyzji w
           docs/insights-dynareporter-migration-plan.md §0 D7; ukryta sekcja
           przy otwartym API to split-brain, nie zabezpieczenie.
@@ -120,47 +151,65 @@ export function RekrutacjaPanel() {
           na `/api/insights/recruitment/team-activity` (`CurrentUser`), które
           w dodatku przyjmuje TO SAMO okno co reszta zakładki — legacy liczył
           okno kroczące i ignorował `PeriodPicker`. */}
-      <InsightsTeamActivity period={period} />
+      <InsightsSection id="zespol" className="space-y-6">
+        <InsightsTeamPerformance period={period} />
+        <InsightsTeamActivity period={period} />
+      </InsightsSection>
+
+      {/* Liga Mistrzów PRZENIESIONA tu z dawnej zakładki „Zarząd" (układ
+          DynaReportera): gamifikacja rekrutacyjna żyje na stronie zespołu,
+          obok wyścigów i Hall of Fame, a nie w kokpicie Rady. Sekcja
+          świadomie NIE przyjmuje `period` z paska u góry — tak samo jak
+          wyścigi: konkurs jest rozstrzygany w KWARTALE i MIESIĄCU, a
+          podpięcie go pod dowolne okno obiecywałoby wynik, którego regulamin
+          nie zna. */}
+      <InsightsSection id="liga" className="space-y-6">
+        <ChampionsSection />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <InsightsRaces />
+          <InsightsHallOfFame />
+        </div>
+      </InsightsSection>
 
       {/* Wykresy roczne. Świadomie POZA `PeriodPicker`em: to widok
           dwunastu miesięcy roku, a przycięcie go oknem miesiąca zostawiłoby
           jeden punkt i wykres bez sensu. Rok domyślny bierze SERWER. */}
-      <InsightsYearlyStats />
+      <InsightsSection id="trendy">
+        <InsightsYearlyStats />
+      </InsightsSection>
 
       {/* Analiza placementów — kto i u kogo. Ta sekcja PRZYJMUJE okno z paska:
           pytanie „kto dowiózł w tym miesiącu" ma sens tylko z okresem. */}
-      <InsightsPlacementAnalysis period={period} />
-
-      {/* „Performance per osoba" — serce zakładki w oryginale. Plakietki
-          ostrzeżeń wstrzykiwane z osobnego zapytania, żeby ich awaria nie
-          przewracała tabeli wyników (patrz InsightsTeamPerformance). */}
-      <InsightsTeamPerformance period={period} />
-
-      {/* Wyścigi miesiąca i Hall of Fame. Świadomie NIE przyjmują `period`
-          z paska u góry: konkurs jest rozstrzygany w MIESIĄCU i KWARTALE,
-          a podpięcie ich pod tydzień albo dowolne okno obiecywałoby wynik,
-          którego regulamin nie zna. */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <InsightsRaces />
-        <InsightsHallOfFame />
-      </div>
+      <InsightsSection id="placementy">
+        <InsightsPlacementAnalysis period={period} />
+      </InsightsSection>
 
       {/* Power Calling ma własny wybór TYGODNIA (endpoint zna wyłącznie
           `offset_weeks`), a LinkedIn własny przełącznik okresu — obie sekcje
           są tu opisane w swoich plikach i celowo nie udają, że słuchają
           `PeriodPicker`a. */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <InsightsPowerCalling />
-        <InsightsLinkedIn />
-      </div>
+      <InsightsSection id="aktywnosc">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <InsightsPowerCalling />
+          <InsightsLinkedIn />
+        </div>
+      </InsightsSection>
 
       {/* Ścieżka rozwoju (D6) — poziom z liczby placementów, liczony przy
           odczycie. Sekcja świadomie NIE przyjmuje `period`: poziom jest
           funkcją CAŁEJ historii, a przycięcie jej oknem `PeriodPicker`a
           zamieniłoby zapadkę awansu w licznik, który spada. */}
-      <InsightsSeniority />
+      <InsightsSection id="sciezka-rozwoju">
+        <InsightsSeniority />
+      </InsightsSection>
 
-      <SourcesFunnelSection />
+      {/* Źródła kandydatów. Linki aplikacyjne PRZENIESIONE tu z dawnej
+          zakładki „Zarząd": to pytanie „skąd przyszli kandydaci", czyli ta
+          sama rozmowa co lejek źródeł obok, a nie temat kokpitu Rady. */}
+      <InsightsSection id="zrodla" className="space-y-6">
+        <SourcesFunnelSection />
+        <InsightsInviteLinks period={period} />
+      </InsightsSection>
     </div>
   );
 }
