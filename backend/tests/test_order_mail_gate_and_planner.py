@@ -7,6 +7,8 @@ powód po polsku. Fixture'y syntetyczne; lata 2031+.
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
 from app.services.order_mail_gate import (
     VERDICT_AUTO,
     VERDICT_REVIEW,
@@ -178,6 +180,63 @@ class TestResolveRows:
     def test_far_name_still_unmatched(self):
         r = resolve_rows([_row("Zenon Zupełnie Inny")], self.roster)
         assert r[0].match_kind == MATCH_NONE
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Konrad Korcz",
+            "Konrada Korcza",
+            "Konradowi Korczowi",
+            "Konradem Korczem",
+            "Korcza Konrada",
+            "Konard Korcz",
+            "Konrad Krcz",
+            "Konrada Korzca",
+        ],
+    )
+    def test_pfron_name_forms_are_included_in_plan(self, name):
+        roster = [
+            RosterPerson(
+                7, "Konrad", "Korcz", (RosterContract(70, "active", None, None),)
+            )
+        ]
+        rows = [_row(name)]
+        resolved = resolve_rows(rows, roster)
+        proposal = plan_document(
+            client_id=1,
+            extraction=_extraction(rows),
+            resolved=resolved,
+            existing_orders_by_contract={},
+            is_group_client=False,
+            today=TODAY,
+        )
+        assert resolved[0].candidate_id == 7
+        assert proposal.rows[0].contract_id == 70
+        assert proposal.rows[0].action == ACTION_NEW
+
+    def test_inflected_first_and_last_name(self):
+        resolved = resolve_rows([_row("Jana Kowalskiego")], self.roster)
+        assert resolved[0].match_kind == MATCH_RESCUED
+        assert resolved[0].candidate_id == 1
+
+    def test_short_surname_typo_requires_remaining_name_to_match(self):
+        roster = [RosterPerson(7, "Konrad", "Korcz", ())]
+        for name in ("Robert Korcz", "Konard Krcz", "Konrad Nowak"):
+            resolved = resolve_rows([_row(name)], roster)
+            assert resolved[0].match_kind == MATCH_NONE
+            assert (
+                resolved[0].reason
+                == "Brak takiej osoby wśród konsultantów tego klienta"
+            )
+
+    def test_inflection_collision_requires_manual_choice(self):
+        roster = [
+            RosterPerson(7, "Konrad", "Korcz", ()),
+            RosterPerson(8, "Konrad", "Korcza", ()),
+        ]
+        resolved = resolve_rows([_row("Konrada Korcza")], roster)
+        assert resolved[0].match_kind == MATCH_AMBIGUOUS
+        assert resolved[0].candidate_ids == (7, 8)
 
 
 # ── Planer ───────────────────────────────────────────────────────────────────

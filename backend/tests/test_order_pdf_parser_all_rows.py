@@ -15,18 +15,20 @@ from app.services import order_pdf_parser as m
 from app.services.llm_prompts import ORDER_EXTRACTION
 from app.services.order_pdf_parser import parse_order_document
 
-# ── prompt v4 ────────────────────────────────────────────────────────────────
+# ── prompt v5 ────────────────────────────────────────────────────────────────
 
 
-def test_prompt_is_v4_and_knows_the_all_rows_switch():
+def test_prompt_is_v5_and_knows_the_all_rows_switch_and_document_vat():
     """Bump wersji jest kluczem cache'u; brak placeholdera = render() rzuca."""
-    assert ORDER_EXTRACTION.version == 4
+    assert ORDER_EXTRACTION.version == 5
     rendered = ORDER_EXTRACTION.render(
         document_text="x",
         target_consultant="(not provided)",
         list_all_consultants="yes",
     )
     assert "LIST ALL CONSULTANTS" in rendered
+    assert "Never divide by VAT yourself" in rendered
+    assert "Never infer this from the client identity" in rendered
     # Trzy pułapki z korpusu muszą być w prompcie — to one odróżniają v4 od v3.
     assert "FRAMEWORK vs ORDER NUMBER" in rendered
     assert "POLISH NUMBER FORMATS" in rendered

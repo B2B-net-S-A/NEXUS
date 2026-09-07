@@ -26,6 +26,7 @@ export interface OrderMailConsultantRow {
   start_date: string | null;
   end_date: string | null;
   rate_client: string | null;
+  rate_client_gross?: string | null;
   rate_unit: string | null;
   md_total: string | null;
   uncertain: boolean;
@@ -147,6 +148,7 @@ export const orderMailApi = {
       timeout: 120_000,
     }),
   dismiss: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/dismiss`),
+  refreshPlan: (id: number) => api.post<OrderMailDocument>(`/api/order-mail/queue/${id}/refresh-plan`, undefined, { timeout: 120_000 }),
   fileUrl: (id: number) => `/api/order-mail/queue/${id}/file`,
   syncStatus: () => api.get<OrderMailSyncStatus>("/api/order-mail/sync/status"),
   /** Bieg startuje w tle — wynik czyta się z `syncStatus` (patrz `lib/order-mail-sync.ts`). */
