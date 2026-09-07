@@ -38,11 +38,11 @@ const process = {
   candidate_count: 12,
   shared_candidate_count: 2,
   stage_counts: {
-    sourcing: 4,
-    verified: 3,
-    recommended: 2,
-    interview: 2,
-    accepted: 1,
+    new: 4,
+    screening: 3,
+    cv_sent: 2,
+    client_interview: 2,
+    acceptance: 1,
   },
   favorite_candidate: { id: 501, name: "Anna Test", stage: "client_interview" },
   owners: {
@@ -109,8 +109,13 @@ describe("RecruitmentCompetenceDashboard", () => {
     expect(
       within(dashboard).getByText("Na tej stronie: 1 z 60"),
     ).toBeInTheDocument()
-    expect(within(dashboard).getByText("Weryfikacja")).toBeInTheDocument()
-    expect(within(dashboard).getByText("Finalizacja")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Nowy")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Screening")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Wysłany do klienta")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Interview")).toBeInTheDocument()
+    expect(within(dashboard).getByText("Akceptacje")).toBeInTheDocument()
+    expect(within(dashboard).queryByText("Weryfikacja")).toBeNull()
+    expect(within(dashboard).queryByText("Finalizacja")).toBeNull()
     expect(within(dashboard).getByText("Renata Rekruter")).toBeInTheDocument()
     expect(within(dashboard).getByText("Anna Test")).toBeInTheDocument()
     expect(
