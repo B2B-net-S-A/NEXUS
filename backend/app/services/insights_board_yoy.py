@@ -312,7 +312,6 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "top_client_share_pct",
             "margin_per_hour_pln",
             "hit_ratio_pct",
-            "jobs_closed",
         )
     }
     by_client: dict = {str(y): [None] * 12 for y in years}
@@ -356,8 +355,12 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "total": total_placements,
         }
 
+        # `closed_total` jest MIANOWNIKIEM hit ratio i świadomie nie wychodzi
+        # osobną metryką: Rada w układzie DynaReportera nie ma wiersza
+        # „zamknięte rekrutacje", a dokładanie tabeli, której nikt nie zamawiał,
+        # rozsadza siatkę uzgodnioną na makietach. Liczba jest w zakładce
+        # Delivery Lead, gdzie stoi obok obsady, której dotyczy.
         closed_total, closed_filled = jobs_map.get((slot.year, slot.month), (0, 0))
-        series["jobs_closed"][y][idx] = closed_total
         series["hit_ratio_pct"][y][idx] = ratio(closed_filled, closed_total)
 
         # — stan (pieniądze i ludzie) —

@@ -218,7 +218,14 @@ async def test_future_months_are_null_and_the_running_month_is_flagged(
     payload = await _yoy(yoy_client, headers)
 
     assert payload["years"][-1] == today.year
-    assert payload["partial_month"] == {"year": today.year, "month": today.month}
+    # OSTATNIEGO dnia miesiąca `partial_month` jest puste i tak ma być: dzień
+    # wyceny równa się wtedy ostatniemu dniowi, więc miesiąc nie jest już
+    # „w trakcie". Test asertuje KONTRAKT (jeśli pole jest, wskazuje miesiąc
+    # bieżący), a nie kalendarz dnia, w którym akurat leci CI — inaczej byłby
+    # zielony przez 11 miesięcy w roku i czerwony 30 września.
+    partial = payload["partial_month"]
+    if partial is not None:
+        assert partial == {"year": today.year, "month": today.month}
 
     for metric in payload["metrics"]:
         current = metric["series"][str(today.year)]
@@ -245,7 +252,7 @@ async def test_a_closed_year_has_no_null_holes_in_flow_metrics(
 
     payload = await _yoy(yoy_client, headers, end_year=BASE_YEAR, years=2)
 
-    for key in ("placements", "departures", "resignations", "jobs_closed"):
+    for key in ("placements", "departures", "resignations"):
         for year in payload["years"]:
             series = _metric(payload, key)["series"][str(year)]
             assert all(v is not None for v in series), (
