@@ -50,6 +50,13 @@ vi.mock("@/components/v2/filters/CompetenceCategoryMultiSelect", () => ({
   CompetenceCategoryMultiSelect: () => null,
 }))
 
+// Dok „Gotowość zlecenia" (krok 01 programu C2) używa `useToast`, a ten test
+// renderuje listę bez ToastProvidera — dok ma własne testy
+// (`JobReadinessDock.test.tsx`), tu jest poza zakresem.
+vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({
+  JobReadinessDock: () => null,
+}))
+
 function renderJobs() {
   const queryClient = new QueryClient({
     defaultOptions: {

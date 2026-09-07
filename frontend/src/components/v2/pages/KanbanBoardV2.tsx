@@ -493,6 +493,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
 
  return (
  <div
+ data-kanban-card=""
  onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
