@@ -35,6 +35,7 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.services import champion_view
+from app.services.champion_job_sync import champion_work_mode_to_remote
 from app.services.location_utils import location_tokens, tokens_overlap
 
 logger = logging.getLogger(__name__)
@@ -1059,15 +1060,6 @@ def _notes_insights(candidate: Candidate) -> dict:
     return insights if isinstance(insights, dict) else {}
 
 
-# Tryb pracy z dokumentu Championa → słownik remote_policy używany przez
-# warstwę lokalizacji po stronie kandydata (preferences.remote_modes).
-_CHAMPION_WORK_MODE_TO_REMOTE = {
-    "zdalnie": "remote",
-    "hybrydowo": "hybrid",
-    "stacjonarnie": "onsite",
-}
-
-
 def _score_salary(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> LayerResult:
@@ -1182,7 +1174,7 @@ def _score_location(
         # rekruter zapisał twardy warunek, którego nie wolno zgubić.
         if not job_remote:
             champion_mode = _champion_dict(job).get("work_mode")
-            job_remote = _CHAMPION_WORK_MODE_TO_REMOTE.get(champion_mode)
+            job_remote = champion_work_mode_to_remote(champion_mode)
         if not remote_modes:
             pref = _notes_insights(candidate).get("preferences")
             # isinstance, nie .get w łańcuchu: dane kształtuje AI i "preferences"
