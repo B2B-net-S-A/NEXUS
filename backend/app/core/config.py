@@ -320,6 +320,38 @@ class Settings(BaseSettings):
     # martwe pokrętło w działające; wartość domyślna bez zmian, więc samo
     # dodanie tej linii niczego nie przestawia.
     HYBRID_BM25_POOL_LIMIT: int = 200
+    # Pula SQL-first po must-have (0278): zamiast wektora/hybrydy, członkostwo
+    # wybiera Postgres — AND-of-OR po jawnych rodzinach umiejętności must-have
+    # (`hybrid_search.bm25_must_candidates`). Kosinus dla wybranych liczony jak
+    # zawsze przez `similarity_for_candidate_ids` — skala semantyczna bez zmian,
+    # patrz `retrieval_pool._structured_pool`. Sprawdzana PRZED hybrydą/wektorem
+    # w fasadzie; `False` = dosłownie dzisiejsza ścieżka. Włączać dopiero po
+    # A/B na zamrożonym zbiorze ofert z Championami (harness `eval_matching.py
+    # --structured-pool`).
+    STRUCTURED_POOL_ENABLED: bool = False
+    # Sufit członkostwa nogi SQL-first — ta sama rola co `HYBRID_BM25_POOL_LIMIT`,
+    # inny mechanizm (tu SQL wybiera całą pulę, nie tylko jedną nogę hybrydy).
+    STRUCTURED_POOL_LIMIT: int = 2000
+    # Poniżej tej liczby trafień SQL-first pula nie jest ufana — zbyt wąskie
+    # członkostwo (np. rzadka rodzina must-have) spada na hybrydę/wektor
+    # zamiast rankować garstkę kandydatów jako całą pulę. Oba pokrętła (limit,
+    # próg) zmieniają wyłącznie CZŁONKOSTWO puli — kosinus per kandydat jest
+    # ten sam niezależnie od tego, która strategia go wybrała — dlatego oba
+    # są celowo POZA `scoring_service._SCORING_CACHE_INPUTS` (jak
+    # `HYBRID_POOL_ENABLED`/`HYBRID_BM25_POOL_LIMIT` wyżej): istniejące wiersze
+    # cache score'ów zostają poprawne, zmienia się tylko to, kogo w ogóle
+    # oglądamy.
+    STRUCTURED_POOL_MIN_MEMBERS: int = 20
+    # Kill-switch trzech rubryk (0278): must-have / dni w biurze / miasto biura
+    # jako dealbreakery na 5 powierzchniach (Rekomendacje, Radar, snapshot,
+    # digest, /ai-matches). `False` przywraca dokładnie przedwczesne zachowanie
+    # (sam budżet + jawny `exclude_remote_only`) — trzy nowe predykaty i AUTO
+    # uzbrajanie `exclude_remote_only` z `wants_office` stają się no-opem; jawnie
+    # przekazane `exclude_remote_only=True` nadal działa (reguła C2 na
+    # `/ai-matches` przeżywa wyłącznik). Tylko członkostwo — celowo POZA
+    # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
+    # scoringu, nie zmieniają punktacji, którą cache przechowuje).
+    RUBRIC_DEALBREAKERS_ENABLED: bool = True
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony

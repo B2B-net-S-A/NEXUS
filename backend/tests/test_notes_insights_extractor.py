@@ -30,6 +30,7 @@ def _cand(**kw):
         availability_date=None,
         availability_status="unknown",
         cv_extracted_data=None,
+        max_onsite_days_per_week=None,
     )
     defaults.update(kw)
     return SimpleNamespace(**defaults)
@@ -148,6 +149,68 @@ def test_asap_sets_status_and_iso_fills_date():
     assert status == "actively_looking"
 
 
+def test_onsite_days_fill_empty_from_explicit_value():
+    cand = _cand()
+    stats = _apply(cand, {"preferences": {"max_onsite_days_per_week": 2}})
+    assert cand.max_onsite_days_per_week == 2
+    assert stats["onsite_days_filled"] == 1
+    assert cand.cv_extracted_data["_notes_insights"]["_onsite_days_from_notes"] is True
+
+
+def test_onsite_days_zero_derived_from_remote_only():
+    # "tylko zdalnie" bez jawnej liczby dni = 0 — ten sam wniosek co S4
+    # w migracji 0278 dla wierszy zaznaczonych remote_only wcześniej.
+    cand = _cand()
+    stats = _apply(cand, {"preferences": {"remote_only": True}})
+    assert cand.max_onsite_days_per_week == 0
+    assert stats["onsite_days_filled"] == 1
+
+    # remote_only=False/None nie zgaduje 0 — brak sygnału zostaje brakiem.
+    cand2 = _cand()
+    stats2 = _apply(cand2, {"preferences": {"remote_only": False}})
+    assert cand2.max_onsite_days_per_week is None
+    assert stats2["onsite_days_filled"] == 0
+
+
+def test_onsite_days_human_value_never_overwritten():
+    # Bez "aktualizacji własnego wpisu" jak przy stawce — liczba wprost
+    # nazwana przez kandydata (albo wpisana ręcznie w modalu) jest nietykalna,
+    # niezależnie od tego, co mówi świeższa notatka.
+    cand = _cand(max_onsite_days_per_week=3)
+    stats = _apply(cand, {"preferences": {"max_onsite_days_per_week": 5}})
+    assert cand.max_onsite_days_per_week == 3, "ludzki wpis nietykalny"
+    assert stats["onsite_days_filled"] == 0
+
+
+def test_onsite_days_out_of_range_and_bool_ignored():
+    cand = _cand()
+    _apply(cand, {"preferences": {"max_onsite_days_per_week": 8}})
+    assert cand.max_onsite_days_per_week is None
+
+    cand2 = _cand()
+    _apply(cand2, {"preferences": {"max_onsite_days_per_week": -1}})
+    assert cand2.max_onsite_days_per_week is None
+
+    # bool jest podtypem int w Pythonie — musi być jawnie wykluczony, inaczej
+    # "max_onsite_days_per_week": true z JSON-a zapisałoby się jako 1.
+    cand3 = _cand()
+    _apply(cand3, {"preferences": {"max_onsite_days_per_week": True}})
+    assert cand3.max_onsite_days_per_week is None
+
+    # Brzeg zakresu (0) przechodzi.
+    cand4 = _cand()
+    stats4 = _apply(cand4, {"preferences": {"max_onsite_days_per_week": 0}})
+    assert cand4.max_onsite_days_per_week == 0
+    assert stats4["onsite_days_filled"] == 1
+
+
+def test_prompt_mentions_onsite_days_and_version_bumped():
+    from app.services.notes_insights_extractor import PROMPT, PROMPT_VERSION
+
+    assert "max_onsite_days_per_week" in PROMPT
+    assert PROMPT_VERSION == "v4-onsite-days"
+
+
 def test_rate_guards_reject_md_and_absurd_values():
     cand = _cand()
     _apply(cand, {"expected_rate": {"value": 1200, "period": "md"}})
@@ -191,6 +254,21 @@ def test_is_due_daily_schedule(monkeypatch):
     assert _is_due(yesterday, before_window) is False, "przed godziną okna"
     today_already = datetime(2026, 8, 17, 4, 30, tzinfo=timezone.utc)
     assert _is_due(today_already, now) is False, "dzisiejszy bieg już był"
+
+
+def test_run_stats_include_onsite_days_filled():
+    """`onsite_days_filled` musi być zainicjalizowany w `stats` ORAZ wymieniony
+    w krotce agregującej `row_stats` do `stats` w `run_notes_insights_sync` —
+    brak jednego z dwóch miejsc jest ciszej niż się wydaje: `stats[key] += ...`
+    bez initu wywala `KeyError` (crash pierwszego kandydata z tym statem),
+    a init bez wpisu w krotce agregującej daje statystykę zamrożoną na 0 na
+    zawsze — bez crasha, więc bez szans, że ktoś to zauważy."""
+    import inspect
+
+    from app.tasks.notes_insights_sync import run_notes_insights_sync
+
+    source = inspect.getsource(run_notes_insights_sync)
+    assert source.count("onsite_days_filled") == 2
 
 
 def test_malformed_rate_strings_never_raise():

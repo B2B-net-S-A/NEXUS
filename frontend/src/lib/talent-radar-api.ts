@@ -8,7 +8,7 @@
  * Nic tutaj nie ma z tamtym importem wspólnego.
  */
 
-import { api } from "@/lib/api";
+import { api, type HiddenCounters } from "@/lib/api";
 // Sufit czasu dla endpointów LLM/scoringowych — jedna stała dla całej
 // aplikacji, nie kopia w każdym kliencie (kopie rozjeżdżają się cicho).
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
@@ -76,8 +76,8 @@ export interface TalentRadarMeta {
    */
   degraded: boolean;
   reason: string | null;
-  /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
-  hidden?: { over_budget?: number; remote_only?: number };
+  /** Dealbreaker-switche: liczniki ukrytych per powód (0278: pięć rubryk). */
+  hidden?: HiddenCounters;
 }
 
 export interface TalentRadarSearchResponse {
@@ -105,6 +105,14 @@ export interface TalentRadarSearchRequest {
    */
   budget_hourly_max?: number;
   exclude_remote_only?: boolean;
+  /**
+   * Rubryki 0278: dni w biurze / tydzień i miasto biura, podane WPROST przez
+   * rekrutera (radar nie ma ani kolumn oferty, ani profilu Championa do
+   * odpytania). `onsite_days_per_week` uzbraja dealbreakery dni/miasta TYLKO
+   * gdy > 0 — 0 jest legalną, „znaną" wartością (praca wyłącznie zdalna).
+   */
+  onsite_days_per_week?: number;
+  office_location?: string;
   /**
    * Wymagania twarde/miękkie WPROST, prosto z `parse-champion`. Bez nich
    * ranking wywodzi wymagania regexem z prozy, a plakietka „8 must · 5 nice"

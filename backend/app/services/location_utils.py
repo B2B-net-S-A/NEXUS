@@ -113,17 +113,37 @@ def _notes_insights_dict(candidate) -> dict | None:
 
 
 def candidate_location_tokens(candidate, source: str = "all") -> set[str]:
-    """Tokeny miejsc kandydata z wybranego źródła (``all``/``cv``/``notes``)."""
+    """Tokeny miejsc kandydata z wybranego źródła (``all``/``cv``/``notes``).
+
+    Ludzkie ``preferences.office_cities`` (0278, modal edycji kandydata) żyją
+    w kubełku ``cv``/``all`` obok `location`/`city` — to też fakt WPISANY
+    przez człowieka, nie wywiedziony przez AI. Gdy są niepuste, w kubełku
+    ``all`` PRZESŁANIAJĄ notatkowe ``_notes_insights.preferences.locations``:
+    człowiek nadpisuje to, co AI wyczytało z rozmowy. ``relocation.targets``
+    dokłada się zawsze, niezależnie od `office_cities` — to inny fakt (dokąd
+    kandydat CHCE się przeprowadzić), nie preferencja biura. Wywołanie z
+    `source="notes"` w izolacji zostaje czysto-AI: `office_cities` nigdy nie
+    jest tam czytane, więc nic go tam nie może przesłonić.
+    """
     tokens: set[str] = set()
+    office_city_tokens: set[str] = set()
     if source in ("all", "cv"):
         tokens |= location_tokens(getattr(candidate, "location", None))
         tokens |= location_tokens(getattr(candidate, "city", None))
+        prefs = getattr(candidate, "preferences", None)
+        if isinstance(prefs, dict):
+            office_cities = prefs.get("office_cities")
+            if isinstance(office_cities, list):
+                for item in office_cities:
+                    if isinstance(item, str):
+                        office_city_tokens |= location_tokens(item)
+        tokens |= office_city_tokens
     if source in ("all", "notes"):
         ins = _notes_insights_dict(candidate)
         if ins is not None:
-            prefs = ins.get("preferences")
-            if isinstance(prefs, dict):
-                locs = prefs.get("locations")
+            notes_prefs = ins.get("preferences")
+            if isinstance(notes_prefs, dict) and not office_city_tokens:
+                locs = notes_prefs.get("locations")
                 if isinstance(locs, list):
                     for item in locs:
                         if isinstance(item, str):
@@ -136,3 +156,34 @@ def candidate_location_tokens(candidate, source: str = "all") -> set[str]:
                         if isinstance(item, str):
                             tokens |= location_tokens(item)
     return tokens
+
+
+# Tokeny, które NIE są nazwami miejsc, więc nie mogą liczyć się jako „biuro
+# kandydata" — bez tego odsiania kandydat z jedyną deklaracją „zdalnie"/„remote"
+# miałby niepusty zbiór tokenów biurowych i był ukrywany na KAŻDEJ ofercie
+# biurowej (dokładna odwrotność tego, co ta deklaracja mówi). Same regiony
+# (np. „Mazowieckie" bez miasta) ZOSTAJĄ tokenami biura — znane ograniczenie:
+# region jest realnym miejscem, tylko mniej precyzyjnym niż miasto.
+_NON_PLACE_TOKENS = frozenset(
+    {
+        "polska",
+        "poland",
+        "pl",
+        "remote",
+        "zdalnie",
+        "zdalna",
+        "zdalny",
+        "hybrid",
+        "hybrydowo",
+    }
+)
+
+
+def candidate_office_tokens(candidate) -> set[str]:
+    """Tokeny miejsc, w których kandydat gotów jest bywać w biurze.
+
+    `candidate_location_tokens(candidate, "all")` minus tokeny, które nie są
+    nazwami miejsc (patrz `_NON_PLACE_TOKENS`) — dealbreaker dni/miasta biura
+    (`dealbreaker_filters.office_city_mismatch`) porównuje WYŁĄCZNIE to.
+    """
+    return candidate_location_tokens(candidate, "all") - _NON_PLACE_TOKENS

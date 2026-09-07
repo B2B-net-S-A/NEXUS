@@ -2,9 +2,28 @@ import { describe, it, expect, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { AddClientModal } from "@/components/AppShell";
-import api from "@/lib/api";
+import { AddClientModal, AddCandidateModal, AddJobModal } from "@/components/AppShell";
+import api, { phase5Api, pipelineTemplatesApi } from "@/lib/api";
+
+// `AddJobModal` woła `useRouter()` (next/navigation), debounce hooka i dwóch
+// komponentów podrzędnych z własnymi zapytaniami — bez zaślepek renderowałby
+// się poza tym testem (i poza jsdom). Zaślepki no-op, bo tu interesuje nas
+// wyłącznie kontrakt `<label htmlFor>` jednego pola, nie te ścieżki.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/jobs",
+}));
+vi.mock("@/lib/use-debounced-value", () => ({
+  useDebouncedValue: (value: unknown) => value,
+}));
+vi.mock("@/components/jobs/CompetenceCategoryPicker", () => ({
+  CompetenceCategoryPicker: () => null,
+}));
+vi.mock("@/components/jobs/AutoAssignedCollaborators", () => ({
+  AutoAssignedCollaborators: () => null,
+}));
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -16,8 +35,9 @@ vi.mock("@/lib/api", () => ({
   },
   aiWriterApi: {},
   phase5Api: { clientsLookup: vi.fn() },
-  pipelineTemplatesApi: {},
-  requestHistoryApi: {},
+  pipelineTemplatesApi: { list: vi.fn() },
+  requestHistoryApi: { preview: vi.fn() },
+  clientTeamApi: { get: vi.fn() },
 }));
 
 /**
@@ -90,6 +110,51 @@ describe("AppShell FieldGroup — dostępna nazwa kontrolki", () => {
       screen.getByPlaceholderText("https://firma.pl").id,
     ];
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("AppShell — pole „Maks. dni w biurze / tydzień” kandydata (0278)", () => {
+  it("wystawia numeryczny input pod etykietą przez htmlFor/id", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AddCandidateModal onClose={() => {}} onSuccess={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    const input = await screen.findByLabelText(/Maks\. dni w biurze/i);
+    expect(input).toHaveAttribute("type", "number");
+  });
+});
+
+describe("AppShell — pole „Dni w biurze / tydzień” oferty (0278)", () => {
+  it("wystawia numeryczny input pod etykietą przez htmlFor/id", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    vi.mocked(pipelineTemplatesApi.list).mockResolvedValue({
+      data: [],
+    } as never);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AddJobModal onClose={() => {}} onSuccess={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    const input = await screen.findByLabelText(/Dni w biurze \/ tydzień/i);
+    expect(input).toHaveAttribute("type", "number");
   });
 });
 

@@ -40,6 +40,14 @@ export interface TalentRadarSessionState {
   location: string;
   budgetMax: string;
   excludeRemoteOnly: boolean;
+  /**
+   * Rubryki 0278 (dni w biurze / tydzień, miasto biura). Jak `location`:
+   * doszły PO pierwszym zapisie klucza `v1`, więc snapshot sprzed tej wersji
+   * ich nie ma — `isValidState` przyjmuje `undefined`, `loadTalentRadarSession`
+   * i tak restartuje je do `""`.
+   */
+  onsiteDaysPerWeek?: string;
+  officeLocation?: string;
   championProfile: Record<string, unknown> | null;
   championSummary: ChampionParseSummary | null;
   /**
@@ -71,6 +79,18 @@ function isValidState(value: unknown): value is TalentRadarSessionState {
   // odrzucony; walidacja przyjmuje `undefined` po to, żeby restore nie zależał
   // od kolejności deployu frontu i klucza w przeglądarce.
   if (value.location !== undefined && typeof value.location !== "string") {
+    return false;
+  }
+  if (
+    value.onsiteDaysPerWeek !== undefined &&
+    typeof value.onsiteDaysPerWeek !== "string"
+  ) {
+    return false;
+  }
+  if (
+    value.officeLocation !== undefined &&
+    typeof value.officeLocation !== "string"
+  ) {
     return false;
   }
   if (

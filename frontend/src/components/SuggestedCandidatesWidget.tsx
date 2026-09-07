@@ -9,7 +9,10 @@ import {
   proposalsApi,
   recommendationsApi,
   matchHistoryApi,
+  hiddenTotal as computeHiddenTotal,
+  HIDDEN_LABELS_PL,
   type CandidateMatch,
+  type HiddenReason,
   type ProposalSnapshot,
   type RecommendationMeta,
   type ScoreBreakdown,
@@ -151,7 +154,12 @@ export function SuggestedCandidatesWidget({
         // Jawnie zawsze: backend defaultuje na true, więc wyłączenie sufitu
         // MUSI pojechać jako false — `|| undefined` cofałoby je do defaultu.
         exclude_over_budget: excludeOverBudget,
-        exclude_remote_only: excludeRemoteOnly || undefined,
+        // Jawnie zawsze (0278): backend domyślnie AUTO-uzbraja to wykluczenie
+        // z rubryki „chce biura", więc pominięcie parametru przy WYŁĄCZONYM
+        // przełączniku widgetu mogłoby po cichu włączyć filtr, którego
+        // rekruter tu nie zaznaczył. Ten widget ma WŁASNY, prosty binarny
+        // przełącznik — zawsze wygrywa nad AUTO.
+        exclude_remote_only: excludeRemoteOnly,
       });
       return r.data;
     },
@@ -348,8 +356,7 @@ export function SuggestedCandidatesWidget({
     : mode === "snapshot"
       ? (snapshot?.hidden ?? null)
       : (liveMeta?.hidden ?? null);
-  const hiddenTotal =
-    (hiddenCounts?.over_budget ?? 0) + (hiddenCounts?.remote_only ?? 0);
+  const hiddenTotal = computeHiddenTotal(hiddenCounts);
   // Snapshot sprzed 0237 NIE przeszedł przez sufit budżetu — `hidden` jest
   // wtedy puste. Etykieta „Poza budżetem: ukryci" obiecywała nad taką listą
   // filtr, którego nie było, i to bez chipa „Ukryto N", bo nie ma czego
@@ -612,15 +619,19 @@ export function SuggestedCandidatesWidget({
             data-testid="dealbreaker-hidden-notice"
             className="mb-3 flex flex-wrap gap-2 text-xs"
           >
-            {(hiddenCounts?.over_budget ?? 0) > 0 && (
-              <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
-                Ukryto {hiddenCounts!.over_budget} powyżej budżetu oferty
-              </span>
-            )}
-            {(hiddenCounts?.remote_only ?? 0) > 0 && (
-              <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
-                Ukryto {hiddenCounts!.remote_only} tylko-zdalnych
-              </span>
+            {(Object.entries(HIDDEN_LABELS_PL) as [HiddenReason, string][]).map(
+              ([reason, label]) => {
+                const count = hiddenCounts?.[reason] ?? 0;
+                if (count <= 0) return null;
+                return (
+                  <span
+                    key={reason}
+                    className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+                  >
+                    Ukryto {count} {label}
+                  </span>
+                );
+              },
             )}
           </div>
         );

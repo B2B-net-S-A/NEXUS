@@ -27,7 +27,9 @@ from scripts.eval_matching import (
     JobEval,
     ProfileEval,
     WeightProfile,
+    _apply_structured_pool_args,
     _metrics,
+    _parse_args,
     _to_scoring_profile,
     recall_ceiling_at_20,
 )
@@ -273,3 +275,49 @@ def test_relevance_is_monotonic_along_the_funnel():
     )
     scores = [STAGE_RELEVANCE[s] for s in funnel]
     assert scores == sorted(scores), f"funnel relevance not monotonic: {scores}"
+
+
+# ── 0278: --structured-pool must actually reach `settings` ──────────────────
+#
+# `_apply_structured_pool_args` is the pure, DB-free slice of `_run` that
+# applies these two CLI flags — extracted specifically so this is testable
+# without a live Postgres/Qdrant/Voyage (the rest of `_run` needs all three;
+# see the module docstring above).
+
+
+def test_structured_pool_arg_sets_the_setting(monkeypatch):
+    """Without this, `--structured-pool` is cosmetic: the harness would keep
+    measuring the OLD pool regardless of the flag, and an A/B comparing "on"
+    vs "off" would silently compare the same run against itself."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "STRUCTURED_POOL_ENABLED", False, raising=False)
+    monkeypatch.setattr(settings, "STRUCTURED_POOL_LIMIT", 2000, raising=False)
+
+    args = _parse_args(["--structured-pool", "--structured-pool-limit", "500"])
+    assert args.structured_pool is True
+    assert args.structured_pool_limit == 500
+
+    _apply_structured_pool_args(args)
+
+    assert settings.STRUCTURED_POOL_ENABLED is True
+    assert settings.STRUCTURED_POOL_LIMIT == 500
+
+
+def test_structured_pool_arg_off_leaves_settings_at_their_defaults(monkeypatch):
+    """A run without `--structured-pool` must reproduce today's pool exactly —
+    a bare invocation flipping a global as a side effect would be the kind of
+    bug an A/B run is supposed to catch, not cause."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "STRUCTURED_POOL_ENABLED", False, raising=False)
+    monkeypatch.setattr(settings, "STRUCTURED_POOL_LIMIT", 2000, raising=False)
+
+    args = _parse_args([])
+    assert args.structured_pool is False
+    assert args.structured_pool_limit is None
+
+    _apply_structured_pool_args(args)
+
+    assert settings.STRUCTURED_POOL_ENABLED is False
+    assert settings.STRUCTURED_POOL_LIMIT == 2000

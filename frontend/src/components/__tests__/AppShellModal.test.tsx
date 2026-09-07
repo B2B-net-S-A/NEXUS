@@ -255,6 +255,62 @@ describe("EditCandidateModal — profile rate boundary", () => {
     expect(payload).not.toHaveProperty("lastname");
   });
 
+  it("sends the office-presence rubric with explicit nulls for cleared preference keys (0278)", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    vi.mocked(api.patch).mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EditCandidateModal
+          candidate={{
+            id: 11,
+            name: "Jan",
+            lastname: "Kowalski",
+            preferences: { remote_modes: ["hybrid"], industries: ["Fintech"] },
+          }}
+          onClose={() => {}}
+          onSuccess={() => {}}
+        />
+      </QueryClientProvider>,
+    );
+
+    // Odczekać, aż dwa `useQuery` (users/clients) się rozstrzygną, ZANIM
+    // klikniemy w kontrolowany checkbox. W przeciwnym razie ich rezolucja
+    // (mikrotaska z mocka) potrafi trafić DOKŁADNIE między click a commit
+    // stanu z `onMulti`, a React na kolejnym renderze cofa DOM checkboxa do
+    // stanu SPRZED kliknięcia — nie regresja produktu, pułapka jsdom/RTL.
+    await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+
+    // Wartość checkboxa musi być "onsite", nie stara literówka "on_site"
+    // (naprawiona w danych migracją 0278 — formularz nie ma prawa jej wysłać).
+    await user.click(screen.getByLabelText("Stacjonarnie"));
+    await user.type(screen.getByLabelText(/Maks\. dni w biurze/i), "2");
+    // Odznaczenie pola niepustego wcześniej musi wysłać jawny `null`, nie
+    // po prostu zniknąć z payloadu — merge po stronie backendu jest płytki
+    // i klucz nieobecny w ogóle zostawia starą wartość nietkniętą.
+    await user.clear(screen.getByPlaceholderText("Fintech, E-commerce"));
+
+    await user.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.patch).mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.max_onsite_days_per_week).toBe(2);
+    const preferences = payload.preferences as Record<string, unknown>;
+    expect(preferences.remote_modes).toEqual(["hybrid", "onsite"]);
+    expect(preferences.industries).toBeNull();
+    expect(preferences.office_cities).toBeNull();
+  });
+
   it("submits only the identity field that the recruiter actually changed", async () => {
     vi.mocked(api.get).mockResolvedValue({ data: [] });
     vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
