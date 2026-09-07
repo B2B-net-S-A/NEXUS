@@ -5,7 +5,9 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  ClipboardCheck,
   Ellipsis,
+  FileText,
   History,
   LayoutGrid,
   Link2,
@@ -45,7 +47,11 @@ export type JobDetailTab =
   | "portals"
   | "champion"
   | "questions"
-  | "chat";
+  | "chat"
+  // Kroki 05 i 06 programu „flow w języku C2" (PR 6/7) — NOWE wartości,
+  // żadna istniejąca nie jest przepinana (kontrakt wspólny programu).
+  | "screening"
+  | "cv";
 
 const SOURCING_TABS = new Set<JobDetailTab>([
   "ai-matching",
@@ -70,6 +76,11 @@ interface JobDetailCompactHeaderProps {
    *  policzono jeszcze (kanban ładuje się na zakładce Pipeline) — listwa nie
    *  pokazuje wtedy liczby, zamiast pokazywać zero. */
   pipelineCount?: number;
+  /** Krok 05 — kolejka screeningu (etap „Screening" + oczekujący na akceptację
+   *  stawki). `undefined` = jeszcze nie policzono; ta sama zasada co wyżej. */
+  screeningCount?: number;
+  /** Krok 06 — zweryfikowani czekający na wysyłkę CV do klienta. */
+  cvCount?: number;
   contextOpen: boolean;
   onContextOpenChange: (open: boolean) => void;
   contextContent: ReactNode;
@@ -143,6 +154,8 @@ export function JobDetailCompactHeader({
   onGenerateInviteLink,
   chatUnreadCount = 0,
   pipelineCount,
+  screeningCount,
+  cvCount,
   contextOpen,
   onContextOpenChange,
   contextContent,
@@ -307,6 +320,30 @@ export function JobDetailCompactHeader({
               {typeof pipelineCount === "number" ? (
                 <CountBadge value={pipelineCount} />
               ) : null}
+            </WorkspaceButton>
+
+            {/* Krok 05 — stanowisko screeningu (program „flow w języku C2"). */}
+            <WorkspaceButton
+              active={activeTab === "screening"}
+              onClick={() => onTabChange("screening")}
+              data-testid="tab-screening"
+            >
+              <ClipboardCheck className="h-4 w-4" />
+              Screening
+              {typeof screeningCount === "number" ? (
+                <CountBadge value={screeningCount} />
+              ) : null}
+            </WorkspaceButton>
+
+            {/* Krok 06 — CV do klienta (program „flow w języku C2"). */}
+            <WorkspaceButton
+              active={activeTab === "cv"}
+              onClick={() => onTabChange("cv")}
+              data-testid="tab-cv"
+            >
+              <FileText className="h-4 w-4" />
+              CV do klienta
+              {typeof cvCount === "number" ? <CountBadge value={cvCount} /> : null}
             </WorkspaceButton>
 
             <WorkspaceButton
