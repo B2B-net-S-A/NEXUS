@@ -242,6 +242,15 @@ export function PipelineCandidateDock({
     queryFn: () => candidatesApi.get(item.candidate_id).then((r) => r.data),
     enabled: openEmail,
   });
+  // Modal montuje się dopiero z DANYMI (patrz render niżej) — w oknie między
+  // kliknięciem a odpowiedzią pole „Do" byłoby puste. Gdy zapytanie padnie,
+  // intencja wysyłki jest zamykana z toastem, a nie wisi na spinnerze.
+  const emailLookupFailed = openEmail && candidateDetailQuery.isError;
+  useEffect(() => {
+    if (!emailLookupFailed) return;
+    showError("Nie udało się pobrać adresu e-mail kandydata.");
+    setOpenEmail(false);
+  }, [emailLookupFailed, showError]);
 
   return (
     <div className="flex max-h-[calc(100vh-2rem)] flex-col rounded-xl border border-border bg-card">
@@ -597,6 +606,7 @@ export function PipelineCandidateDock({
             size="sm"
             variant="outline"
             onClick={() => setOpenEmail(true)}
+            loading={openEmail && !candidateDetailQuery.data && candidateDetailQuery.isFetching}
             className="justify-start"
           >
             <Mail className="h-3.5 w-3.5" /> Wyślij wiadomość
@@ -646,13 +656,15 @@ export function PipelineCandidateDock({
           candidateName={fullName}
         />
       )}
-      {openEmail && (
+      {/* Dopiero z danymi — modal nigdy nie otwiera się z pustym adresem
+          (adres nie jest na karcie kanbanu, dociągamy go leniwie wyżej). */}
+      {openEmail && candidateDetailQuery.data && (
         <SendEmailV2
           open
           onOpenChange={setOpenEmail}
           candidateId={item.candidate_id}
           candidateName={fullName}
-          candidateEmail={candidateDetailQuery.data?.email ?? ""}
+          candidateEmail={candidateDetailQuery.data.email ?? ""}
         />
       )}
     </div>
