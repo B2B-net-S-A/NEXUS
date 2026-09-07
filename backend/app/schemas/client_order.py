@@ -135,6 +135,18 @@ class ClientOrderRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ClientOrderDefaultRateUnit(BaseModel):
+    """Domyślna jednostka stawki proponowana w formularzach zamówień klienta.
+
+    Wyliczona z istniejących zamówień klienta (najczęstsza NIE-miesięczna); front
+    używa jej jako wartości POCZĄTKOWEJ pola „jednostka stawki" — użytkownik może
+    ją zmienić. Nigdy `monthly`. Jednostka nie jest kwotą, więc nie podlega
+    redakcji finansowej (jak `rate_unit` w `ContractWithOrdersRead`).
+    """
+
+    rate_unit: RateUnit
+
+
 class ContractWithOrdersRead(BaseModel):
     """Wynik `GET /api/clients/{client_id}/orders` — grupowane po Contract.
 

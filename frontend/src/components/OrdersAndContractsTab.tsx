@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { countPl } from "@/lib/plural-pl";
 import { PROJECT_PARTS, isEzdrowieClient } from "@/lib/ezdrowie";
@@ -150,6 +151,10 @@ export function OrdersAndContractsTab({
   // Serwer wylicza zapis per klient (admin albo przypisany Delivery Lead), a
   // `/api/auth/me` przekazuje osobny, wąski portfel finansowy. Operacyjny
   // zakres DL obejmuje wszystkich klientów i nie może odsłaniać stawek.
+  // Domyślna jednostka stawki dopasowana do klienta (nigdy `monthly`) — dla
+  // formularzy zamówień. Pobrana raz tutaj (cache), więc osadzone dialogi
+  // dostają ją z cache już przy pierwszym renderze, bez migotania `monthly`.
+  const { data: defaultRateUnit } = useClientDefaultRateUnit(clientId);
   const canManageFinance = data?.can_manage_finance ?? false;
   const canViewFinance = canManageFinance || canViewClientFinance(user, clientId);
   // Ta sama odpowiedź serwera jest obecnie kanoniczną bramką zapisu
@@ -366,6 +371,7 @@ export function OrdersAndContractsTab({
         <NewContractorOrderDialog
           clientId={clientId}
           canManageFinance={canManageFinance}
+          defaultRateUnit={defaultRateUnit}
           onClose={() => setNewContractor(false)}
           onCreated={() => {
             setNewContractor(false);
