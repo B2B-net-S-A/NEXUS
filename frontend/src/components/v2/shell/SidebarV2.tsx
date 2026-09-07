@@ -49,6 +49,7 @@ import {
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
+import { useSidebarPinned } from "./useSidebarPinned";
 import {
   hasActionAccess,
   type ProductAction,
@@ -477,8 +478,6 @@ function NavLink({
   );
 }
 
-const SIDEBAR_PINNED_KEY = "sidebar_pinned_v2";
-
 export function SidebarV2({
   mobileOpen,
   onClose,
@@ -533,12 +532,7 @@ export function SidebarV2({
   });
 
   const [hovered, setHovered] = useState(false);
-  const [pinned, setPinned] = useState<boolean>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem(SIDEBAR_PINNED_KEY) !== "false";
-    }
-    return true;
-  });
+  const [pinned, setPinned] = useSidebarPinned();
 
   useEffect(() => {
     setSidebarCollapsed(!pinned);
@@ -555,9 +549,6 @@ export function SidebarV2({
     // paska, poza szyną 60px), więc mouseenter nie odpali się natychmiast.
     if (!next) {
       setHovered(false);
-    }
-    if (typeof window !== "undefined") {
-      localStorage.setItem(SIDEBAR_PINNED_KEY, String(next));
     }
   };
 

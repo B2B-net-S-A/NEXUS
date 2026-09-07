@@ -2289,6 +2289,19 @@ export default function JobDetailPage() {
             : undefined
         }
         chatUnreadCount={chatUnread?.unread_count ?? 0}
+        // Licznik „w procesie" na listwie kroków — ten sam wzór co
+        // StageFocusNavigator (suma kolumn nie-terminalnych). Kanban ładuje się
+        // dopiero na zakładce Pipeline; do tego czasu listwa nie pokazuje liczby.
+        pipelineCount={
+          kanban
+            ? ((kanban.columns ?? []) as Array<{ category?: string; count?: number }>)
+                .reduce(
+                  (sum, col) =>
+                    sum + (col.category === "terminal" ? 0 : (col.count ?? 0)),
+                  0,
+                )
+            : undefined
+        }
         contextOpen={!headerCollapsed}
         onContextOpenChange={(open) => setHeaderCollapsed(!open)}
         contextContent={

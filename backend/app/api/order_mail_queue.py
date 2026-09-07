@@ -43,6 +43,7 @@ from app.services.order_mail_apply import apply_document
 from app.services.order_mail_ingest import (
     ingest_is_running,
     read_state,
+    refresh_review_plan,
     start_ingest_task,
     sync_snapshot,
 )
@@ -143,7 +144,7 @@ def _redact_extraction(
     out["consultant_rows"] = [
         {
             **r,
-            "rate_client": None,
+            **{key: None for key in _FINANCE_KEYS if key in r},
             "uncertain_reason": (
                 "Sprawdź odczytane dane przed zapisem."
                 if r.get("uncertain_reason")
@@ -226,8 +227,18 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
     }
 
 
-async def _load_visible(db: AsyncSession, doc_id: int, user) -> OrderMailDocument:
-    doc = await db.get(OrderMailDocument, doc_id)
+async def _load_visible(
+    db: AsyncSession, doc_id: int, user, *, for_update=False
+) -> OrderMailDocument:
+    doc = (
+        await db.scalar(
+            select(OrderMailDocument)
+            .where(OrderMailDocument.id == doc_id)
+            .with_for_update()
+        )
+        if for_update
+        else await db.get(OrderMailDocument, doc_id)
+    )
     if doc is None:
         raise HTTPException(status_code=404, detail="Nie ma takiego dokumentu")
     visible = await _visible_client_ids(db, user)
@@ -380,11 +391,44 @@ async def _require_apply_rights(db: AsyncSession, doc: OrderMailDocument, user) 
         )
 
 
+@router.post("/queue/{doc_id}/refresh-plan")
+async def refresh_queue_plan(
+    doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    doc = await _load_visible(db, doc_id, user, for_update=True)
+    await _require_apply_rights(db, doc, user)
+    applied_rows = ((doc.proposal or {}).get("apply_result") or {}).get("rows") or []
+    if (
+        doc.outcome != OUTCOME_NEEDS_REVIEW
+        or doc.applied_order_id
+        or any(r.get("order_id") for r in applied_rows)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Można przeliczyć wyłącznie plan bez zapisanych zamówień",
+        )
+    if not doc.client_id or not doc.extraction:
+        raise HTTPException(
+            status_code=422, detail="Brak odczytu lub rozpoznanego klienta"
+        )
+    if (
+        not doc.storage_path
+        or not storage_service.get_order_mail_attachment_path(
+            doc.storage_path
+        ).is_file()
+    ):
+        raise HTTPException(status_code=404, detail="Brak zapisanego pliku PDF")
+    await refresh_review_plan(db, doc)
+    await db.commit()
+    await db.refresh(doc)
+    return await _serialize(db, doc, user)
+
+
 @router.post("/queue/{doc_id}/apply")
 async def apply_queue_item(
     doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    doc = await _load_visible(db, doc_id, user)
+    doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)
     if doc.outcome != OUTCOME_NEEDS_REVIEW:
         raise HTTPException(
@@ -418,7 +462,7 @@ async def apply_queue_item(
 async def dismiss_queue_item(
     doc_id: int, user: OrderMailUser, db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    doc = await _load_visible(db, doc_id, user)
+    doc = await _load_visible(db, doc_id, user, for_update=True)
     await _require_apply_rights(db, doc, user)
     if doc.outcome != OUTCOME_NEEDS_REVIEW:
         raise HTTPException(

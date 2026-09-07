@@ -797,3 +797,62 @@ def test_msal_client_credentials_refresh_contract():
         app.acquire_token_for_client(
             scopes=["https://graph.microsoft.com/.default"], force_refresh=True
         )
+
+
+@pytest.mark.asyncio
+async def test_roster_includes_old_contract_and_refreshes_only_its_client(db_session):
+    from app.services.order_mail_resolver import load_roster, resolve_rows
+
+    client = Client(name=f"Roster PFRON {RUN}")
+    other = Client(name=f"Other roster {RUN}")
+    db_session.add_all([client, other])
+    await db_session.flush()
+    person = Candidate(
+        name="Konrad", lastname="Korcz", email=f"roster-{uuid.uuid4().hex}@example.test"
+    )
+    outsider = Candidate(
+        name="Konrad",
+        lastname="Korcz",
+        email=f"outsider-{uuid.uuid4().hex}@example.test",
+    )
+    db_session.add_all([person, outsider])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            Contract(
+                candidate_id=person.id,
+                client_id=client.id,
+                status=ContractStatus.ended,
+                start_date=date(2020, 1, 1),
+                end_date=date(2020, 12, 31),
+            ),
+            Contract(
+                candidate_id=outsider.id,
+                client_id=other.id,
+                status=ContractStatus.active,
+                start_date=date(2031, 1, 1),
+            ),
+        ]
+    )
+    await db_session.flush()
+    roster = await load_roster(db_session, client.id)
+    assert [p.candidate_id for p in roster] == [person.id]
+    resolved = resolve_rows(
+        [ConsultantOrderRow(consultant_name="Konrada Korcza")], roster
+    )
+    assert resolved[0].candidate_id == person.id
+    assert resolved[0].contract_id is not None
+    assert not resolved[0].has_single_live_contract
+    # The next read must include an assignment made since the previous read.
+    db_session.add(
+        Contract(
+            candidate_id=outsider.id,
+            client_id=client.id,
+            status=ContractStatus.draft,
+            start_date=date(2031, 1, 1),
+        )
+    )
+    await db_session.flush()
+    refreshed = await load_roster(db_session, client.id)
+    assert {p.candidate_id for p in refreshed} == {person.id, outsider.id}
+    await db_session.rollback()

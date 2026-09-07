@@ -257,6 +257,7 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
             "consultant_rows": [
                 {
                     **doc.extraction["consultant_rows"][0],
+                    "rate_client_gross": "1168.50",
                     "uncertain_reason": "Stawka 950 wymaga kontroli",
                 }
             ],
@@ -271,6 +272,7 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
     body = response.json()
     assert body["extraction"]["rate_client"] is None
     assert body["extraction"]["consultant_rows"][0]["rate_client"] is None
+    assert body["extraction"]["consultant_rows"][0]["rate_client_gross"] is None
     assert body["extraction"]["uncertain_reasons"] == [
         "Sprawdź odczytane dane przed zapisem."
     ]
@@ -371,3 +373,78 @@ async def test_reapply_after_partial_failure_does_not_duplicate_orders(seeded):
             .all()
         )
         assert len(orders) == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_plan_uses_saved_pdf_without_writing_orders(
+    seeded, app_client, monkeypatch
+):
+    from app.services.order_document_text import OrderDocumentText
+
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", True)
+    monkeypatch.setattr(
+        svc,
+        "extract_order_text",
+        lambda *args: OrderDocumentText(
+            text="Stawka brutto za jeden dzień świadczenia usług: 950,00 PLN",
+            page_count=1,
+            ocr_used=False,
+            ocr_capped=False,
+            reextracted_with=None,
+            letter_spacing_ratio=0.0,
+        ),
+    )
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    before = (
+        await app_client.get(
+            f"/api/order-mail/queue/{seeded['doc_id']}", headers=headers
+        )
+    ).json()
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    after = response.json()
+    assert after["client_id"] == before["client_id"]
+    assert after["extraction"]["title"] == before["extraction"]["title"]
+    assert after["outcome"] == "needs_review"
+    assert after["applied_order_id"] is None
+    assert after["proposal"]["rows"][0]["rate_client"] == "772.36"
+    assert after["proposal"]["rows"][0]["action"] != "skip"
+    again = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert again.status_code == 200
+    assert again.json()["proposal"]["rows"][0]["rate_client"] == "772.36"
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.execute(
+                select(ClientOrder).where(
+                    ClientOrder.contract_id == seeded["contract_id"]
+                )
+            )
+        ).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_plan_rejects_read_only_roles_and_partially_applied_document(
+    seeded, app_client
+):
+    for role in (UserRole.finance, UserRole.talent_community_manager):
+        headers = await _headers_for_role(app_client, role)
+        response = await app_client.post(
+            f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+        )
+        assert response.status_code == 403
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(OrderMailDocument, seeded["doc_id"])
+        doc.proposal = {
+            **doc.proposal,
+            "apply_result": {"rows": [{"row_index": 0, "order_id": 42}]},
+        }
+        await db.commit()
+    headers = await _headers_for_role(app_client, UserRole.admin)
+    response = await app_client.post(
+        f"/api/order-mail/queue/{seeded['doc_id']}/refresh-plan", headers=headers
+    )
+    assert response.status_code == 409

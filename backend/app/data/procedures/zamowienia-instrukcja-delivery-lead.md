@@ -390,6 +390,36 @@ MD jest wielkością operacyjną, nie finansową.
 
 ---
 
+## Zamówienia ze skrzynki — „Osoby i plan zapisu"
+
+Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
+przygotowuje plan dla osób rozpoznanych w dokumencie. Przy dopasowaniu osoby
+sprawdza **pełną, aktualną listę konsultantów przypisanych umową do tego
+klienta**, także z dawniej zakończonymi umowami. Nie szuka wśród osób innego
+klienta.
+
+**Drobna literówka albo odmiana imienia i nazwiska nie wyklucza dopasowania.**
+Na przykład „Konrada Korcza" może zostać powiązany z „Konrad Korcz".
+Takie dopasowanie wymaga potwierdzenia osoby przed zapisem. Gdy pasuje kilka
+osób, system zgłasza niejednoznaczność; gdy nie pasuje żadna, wiersz zostaje
+**„Pomijany"** z komunikatem **„Brak takiej osoby wśród konsultantów tego klienta"**.
+
+**Brutto/netto jest sprawdzane dla każdej odczytanej stawki na podstawie
+dokumentu.** Przy oznaczeniu brutto system dzieli kwotę przez **1,23** przed
+wpisaniem jej do planu. Na przykład **100,08 zł/h brutto → 81,37 zł/h netto**;
+obok stawki netto widać oryginalną kwotę brutto. Jawne netto pozostaje bez
+przeliczenia. Brak jednoznacznego oznaczenia oznacza niepewny odczyt do
+weryfikacji — sam klient nie rozstrzyga rodzaju stawki.
+
+**„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
+listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczytu.
+Zachowuje rozpoznanego klienta, numer i okres zamówienia; ponownie sprawdza
+stawki oraz dopasowanie osób. **Przeliczenie nie zapisuje zamówienia** — plan
+nadal czeka na weryfikację. Przycisk jest dostępny administratorowi albo
+Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
+Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
+z danego wpisu.
+
 ## Co system robi sam
 
 * **Zakłada szkic umowy i szkic zamówienia** po przejściu kandydata na etap
@@ -811,11 +841,11 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Erste Bank Polska
 
-* **Kwota w dokumencie jest brutto.** System dzieli ją przez **1,23** i zapisuje
-  wartość netto, a obok pola pokazuje kwotę brutto z dokumentu do porównania.
-* **Jednostka stawki jest twardo ustawiana na godzinę** — nawet jeśli dokument
-  mówił „za dzień" albo nie mówił nic. Dotyczy to wyłącznie sytuacji, w której
-  jakąkolwiek stawkę udało się odczytać.
+* **Rodzaj stawki wynika z dokumentu.** Przy oznaczeniu brutto system dzieli
+  kwotę przez **1,23** i pokazuje oryginał obok; netto pozostawia bez zmian.
+  Brak jednoznacznego oznaczenia wymaga weryfikacji.
+* **Jednostka stawki jest ustawiana na MD (dzień)** — kwota pochodzi ze wzoru
+  „dni roboczych × stawka". Dotyczy to sytuacji, w której stawkę udało się odczytać.
 * Ta reguła działa **na końcu**, czyli na wyniku pozostałych reguł.
 * **Wartość całkowita zamówienia nie jest przeliczana** — jeśli dokument ją
   podaje, sprawdź ją samodzielnie.
@@ -850,9 +880,11 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   **dokładnie jedna** jednoznaczna data końca usług. Przy zerze albo kilku
   różnych datach system nie poda żadnej, a w banerze pojawi się o tym komunikat —
   ale **wcześniejszej wartości w polu nie skasuje**, więc sprawdź, co tam stoi.
-* **Stawka jest przeliczana z brutto na netto** (dzielona przez 1,23),
-  a jednostka ustawiana na **godzinę**. Pod polem zobaczysz podpis
-  „Z dokumentu: X/h brutto → Y/h netto (÷ 1,23)".
+* **Stawka oznaczona w dokumencie jako brutto jest przeliczana na netto**
+  (dzielona przez 1,23), a jednostka ustawiana na **godzinę**. Przy przeliczeniu
+  pod polem zobaczysz podpis „Z dokumentu: X/h brutto → Y/h netto (÷ 1,23)".
+  Jawne netto nie jest dzielone; brak jednoznacznego oznaczenia wymaga
+  weryfikacji. Nie ma domyślnej reguły brutto dla tego klienta.
 * **Wartość całkowita zamówienia nie jest przeliczana** — sprawdź ją sam.
 * Ta reguła **działa zawsze**, bez żadnej konfiguracji.
 * **Powiadomienia:** standardowe.
@@ -966,7 +998,8 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   każdego zamówienia z osobna — nie z ustawienia klienta.** Gdy przy kwocie
   stawki stoi „brutto", stawka jest dzielona przez **1,23** (obok pola widać
   kwotę brutto z dokumentu do porównania); gdy stoi „netto" albo nie ma żadnego
-  oznaczenia, kwota zostaje bez zmian. Dotyczy to **każdego klienta**, także
+  oznaczenia, kwota zostaje bez zmian; **brak oznaczenia albo konflikt
+  brutto/netto wymaga weryfikacji**. Dotyczy to **każdego klienta**, także
   spoza listy wyżej — jeżeli więc dokument nowego klienta ma stawkę brutto,
   system ją przeliczy. U Erste i PFRON dokumenty są zwykle brutto, ale i tam
   decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy

@@ -836,7 +836,7 @@ class TestConsultantRowMatching:
             "Natalia Prus-Rudzińska",
         )
 
-        converted = m.apply_erste_order_policy(matched, "")
+        converted = m.apply_erste_order_policy(matched, "Stawka 1230 PLN brutto")
         protected = m.enforce_consultant_policy_safety(converted)
 
         assert protected.rate_client == Decimal("1000.00")
@@ -1370,7 +1370,7 @@ class TestPfronOrderPolicy:
         )
         document = (
             "Termin realizacji usług: od 01.09.2026 do 31.12.2026 "
-            "z możliwością przedłużenia."
+            "z możliwością przedłużenia. Stawka 1230 PLN brutto."
         )
 
         enforced = m.apply_pfron_order_policy(result, document)
@@ -1409,7 +1409,7 @@ class TestPfronOrderPolicy:
         )
         document = (
             "Okres podstawowy od 01.09.2026 do 31.12.2026. "
-            "Okres opcjonalny od 01.01.2027 do 31.03.2027."
+            "Okres opcjonalny od 01.01.2027 do 31.03.2027. Stawka 1230 PLN brutto."
         )
 
         enforced = m.apply_pfron_order_policy(result, document)
@@ -1444,7 +1444,9 @@ class TestPfronOrderPolicy:
             uncertain=False,
             source="claude",
         )
-        document = "Termin realizacji: od 01.09.2026 do 31.12.2026"
+        document = (
+            "Termin realizacji: od 01.09.2026 do 31.12.2026. Stawka 1230 PLN brutto"
+        )
 
         once = m.apply_pfron_order_policy(result, document)
         twice = m.apply_pfron_order_policy(once, document)
@@ -1461,7 +1463,9 @@ class TestErsteGrossToNetPolicy:
 
     def test_gross_is_divided_by_vat_and_rounded_to_two_places(self):
         result = m.OrderExtraction(rate_client=Decimal("1230"), source="claude")
-        enforced = m.apply_erste_order_policy(result, "Erste Bank Polska S.A.")
+        enforced = m.apply_erste_order_policy(
+            result, "Erste Bank Polska S.A. Stawka 1230 PLN brutto"
+        )
         assert enforced.rate_client == Decimal("1000.00")
         # Oryginał brutto zostaje widoczny obok — operator konfrontuje z PDF-em.
         assert enforced.rate_client_gross == Decimal("1230")
@@ -1503,7 +1507,7 @@ class TestErsteGrossToNetPolicy:
     def test_rounding_is_half_up_to_two_places(self):
         # 1000 / 1,23 = 813,00813… → 813,01
         result = m.OrderExtraction(rate_client=Decimal("1000"), source="claude")
-        enforced = m.apply_erste_order_policy(result, "")
+        enforced = m.apply_erste_order_policy(result, "Stawka 1000 PLN brutto")
         assert enforced.rate_client == Decimal("813.01")
 
     def test_total_value_is_left_untouched(self):
@@ -1530,8 +1534,8 @@ class TestErsteGrossToNetPolicy:
         """
         result = m.OrderExtraction(rate_client=Decimal("1230"), source="claude")
 
-        once = m.apply_erste_order_policy(result, "")
-        twice = m.apply_erste_order_policy(once, "")
+        once = m.apply_erste_order_policy(result, "Stawka 1230 PLN brutto")
+        twice = m.apply_erste_order_policy(once, "Stawka 1230 PLN brutto")
 
         assert twice is once
         assert twice.rate_client_gross == Decimal("1230")
@@ -1824,7 +1828,7 @@ class TestParseOrderDocument:
         )
         enforced = m.apply_pfron_order_policy(
             parsed,
-            "Natalia Prus-Rudzińska — termin realizacji usług do 31.12.2026",
+            "Natalia Prus-Rudzińska — termin realizacji usług do 31.12.2026. Stawka brutto 1230 PLN za godzinę",
         )
         enforced = m.enforce_consultant_policy_safety(enforced)
 
