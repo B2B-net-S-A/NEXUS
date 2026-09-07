@@ -76,6 +76,8 @@ from app.services.job_membership import is_member_of_job
 from app.services.workforce_availability import (
     operational_owner_clause,
     operational_job_owner_clause,
+    operational_owner_ids,
+    inherited_collaborator_work_clause,
 )
 from app.services.priority_work_policy import (
     combine_priority_modes,
@@ -436,6 +438,9 @@ def job_scope_clause(
         )
     )
     scope_clauses = [job_id_col.is_(None), job_id_col.in_(member_jobs)]
+    inherited = operational_owner_ids(user) - {user.id}
+    if inherited:
+        scope_clauses.append(inherited_collaborator_work_clause(job_id_col, inherited))
 
     if settings.RECRUITMENT_ALLOCATION_ENABLED:
         working_jobs = (

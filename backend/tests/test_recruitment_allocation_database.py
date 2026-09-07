@@ -184,6 +184,9 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
     monkeypatch,
 ):
     from app.api.candidate_contact import get_my_contact_queue, _caller_may_act_on_case
+    from app.api.recruitment_access import job_scope_clause
+    from app.models.job_collaborator import JobCollaborator
+    from app.services.job_membership import is_member_of_job, list_job_member_ids
 
     monkeypatch.setattr(settings, "COMPASS_AVAILABILITY_ENABLED", True)
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
@@ -198,7 +201,16 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
         db.info["workforce_context"] = context
         operator = await db.get(User, users[1])
         job = await db.get(Job, jobs[0])
-        job.recruiter_id = users[0]
+        job.recruiter_id = users[2]
+        other_job = await db.get(Job, jobs[1])
+        other_job.recruiter_id = users[2]
+        db.add_all(
+            [
+                JobCollaborator(job_id=jobs[0], user_id=users[0]),
+                JobCollaborator(job_id=jobs[1], user_id=users[1]),
+                JobCollaborator(job_id=jobs[2], user_id=users[0]),  # observer only
+            ]
+        )
         for n in range(24):
             candidate = Candidate(
                 name="Allocation", lastname=f"Queue {n}", status=CandidateStatus.active
@@ -210,15 +222,22 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
                 owner_user_id=users[n // 12],
                 queue_slot=n % 12 + 1,
                 state="queued",
-                primary_job_id=job.id,
+                primary_job_id=jobs[n // 12],
             )
             db.add(case)
             await db.flush()
             db.add(
                 CandidateContactOpportunity(
-                    case_id=case.id, candidate_id=candidate.id, job_id=job.id
+                    case_id=case.id, candidate_id=candidate.id, job_id=jobs[n // 12]
                 )
             )
+            if n == 0:
+                # A shared candidate must not reveal an unrelated opportunity.
+                db.add(
+                    CandidateContactOpportunity(
+                        case_id=case.id, candidate_id=candidate.id, job_id=jobs[3]
+                    )
+                )
         await db.flush()
         page = await get_my_contact_queue(
             current_user=operator, db=db, cursor=None, limit=20
@@ -233,6 +252,23 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
             item.substitution and item.effective_owner.id == users[1]
             for item in page.items
         )
+        assert all(
+            opportunity.job_id in jobs[:2]
+            for item in [*page.items, *next_page.items]
+            for opportunity in item.opportunities
+        )
+        assert await is_member_of_job(db, operator, jobs[0])
+        assert not await is_member_of_job(db, operator, jobs[2])
+        assert users[1] not in await list_job_member_ids(db, jobs[2])
+        for outside_job in jobs[2:4]:
+            assert (
+                await db.scalar(
+                    select(Job.id).where(
+                        Job.id == outside_job, job_scope_clause(operator, Job.id)
+                    )
+                )
+                is None
+            )
         loads = await load_workloads(db, context, now=datetime.now(timezone.utc))
         assert loads[users[1]].followups == 24
         own_case = await db.scalar(

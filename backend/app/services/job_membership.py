@@ -65,8 +65,23 @@ async def is_member_of_job(
         return False
 
     owners = await effective_owner_ids(db, user.id)
+    inherited = owners - {user.id}
+    if inherited:
+        from app.services.workforce_availability import (
+            inherited_collaborator_work_clause,
+        )
+
+        if (
+            await db.scalar(
+                select(Job.id).where(
+                    Job.id == job_id,
+                    inherited_collaborator_work_clause(Job.id, inherited),
+                )
+            )
+            is not None
+        ):
+            return True
     if not job.is_open or job.status == JobStatus.closed:
-        inherited = owners - {user.id}
         has_open_work = inherited and await db.scalar(
             select(Job.id).where(
                 Job.id == job_id, open_operational_job_clause(Job.id, inherited)
@@ -166,13 +181,15 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
     for (uid,) in admins.all():
         member_ids.add(uid)
 
-    if (
-        settings.COMPASS_AVAILABILITY_ENABLED
-        and job.is_open
-        and job.status != JobStatus.closed
-    ):
+    if settings.COMPASS_AVAILABILITY_ENABLED:
         context = await workforce_context(db)
-        member_ids = {context.performer(user_id) for user_id in member_ids}
+        # Notifications use the same resource boundary as interactive access.
+        # An observer's absence alone must not subscribe the substitute.
+        for owner_id in member_ids & context.delegations.keys():
+            substitute = await db.get(User, context.performer(owner_id))
+            if substitute and await is_member_of_job(db, substitute, job_id):
+                member_ids.discard(owner_id)
+                member_ids.add(substitute.id)
 
     if not member_ids:
         return []

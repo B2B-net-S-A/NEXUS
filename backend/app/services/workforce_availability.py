@@ -364,6 +364,70 @@ def open_operational_job_clause(job_id_column, owners: set[int]):
     return or_(job_id_column.in_(processes), job_id_column.in_(events))
 
 
+def inherited_collaborator_work_clause(job_id_column, owners: set[int]):
+    """Cover a collaborator's actual work, retaining that owner's job boundary.
+
+    A contact case can contain opportunities the nominal owner cannot read.
+    Only an active collaboration on the SAME owned task's job grants cover
+    access; observing another job or sharing a candidate never grants it.
+    """
+    from sqlalchemy import func, union_all
+    from app.models.calendar_event import CalendarEvent, EventStatus
+    from app.models.candidate_contact import (
+        CandidateContactCase,
+        CandidateContactOpportunity,
+    )
+    from app.models.job_collaborator import JobCollaborator
+    from app.models.recruitment_process import RecruitmentProcess, ProcessStatus
+
+    event_owner = func.coalesce(
+        CalendarEvent.operational_owner_id, CalendarEvent.created_by
+    )
+    tasks = union_all(
+        select(
+            RecruitmentProcess.job_id.label("job_id"),
+            RecruitmentProcess.owner_user_id.label("owner_id"),
+        ).where(
+            RecruitmentProcess.owner_user_id.in_(owners),
+            RecruitmentProcess.status == ProcessStatus.open,
+        ),
+        select(CalendarEvent.job_id, event_owner).where(
+            event_owner.in_(owners),
+            CalendarEvent.status == EventStatus.scheduled,
+        ),
+        select(CandidateContactOpportunity.job_id, CandidateContactCase.owner_user_id)
+        .join(
+            CandidateContactCase,
+            CandidateContactCase.id == CandidateContactOpportunity.case_id,
+        )
+        .where(
+            CandidateContactCase.owner_user_id.in_(owners),
+            CandidateContactCase.state.in_(
+                (
+                    "queued",
+                    "callback_due",
+                    "handoff_pending",
+                    "blocked_no_phone",
+                    "awaiting_capacity",
+                )
+            ),
+            CandidateContactOpportunity.closed_at.is_(None),
+        ),
+    ).subquery()
+    scoped_jobs = (
+        select(tasks.c.job_id)
+        .join(
+            JobCollaborator,
+            and_(
+                JobCollaborator.job_id == tasks.c.job_id,
+                JobCollaborator.user_id == tasks.c.owner_id,
+            ),
+        )
+        .where(JobCollaborator.removed_from_auto_cc.is_(False))
+    )
+    return job_id_column.in_(scoped_jobs)
+
+
 def operational_owner_clause(column, user: User):
     owners = operational_owner_ids(user)
     if owners != {user.id} and getattr(column.table, "name", None) == "jobs":

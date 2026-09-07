@@ -314,3 +314,56 @@ def test_favorite_pause_is_visible_and_does_not_block_lower_priority_work():
         member, {2: {"verifications": 1, "recommendations": 1}}, {}, paused_job_ids={11}
     )
     assert state == {1: "sourcing_paused", 2: "target_reached"}
+
+
+def test_cover_scope_requires_open_work_and_the_same_owners_membership():
+    import sqlite3
+    from sqlalchemy import literal, select
+    from sqlalchemy.dialects import sqlite
+    from app.services.workforce_availability import inherited_collaborator_work_clause
+
+    with sqlite3.connect(":memory:") as db:
+        db.executescript("""
+            CREATE TABLE recruitment_processes(job_id INTEGER, owner_user_id INTEGER, status TEXT);
+            CREATE TABLE calendar_events(job_id INTEGER, created_by INTEGER, operational_owner_id INTEGER, status TEXT);
+            CREATE TABLE candidate_contact_cases(id INTEGER, owner_user_id INTEGER, state TEXT);
+            CREATE TABLE candidate_contact_opportunities(case_id INTEGER, job_id INTEGER, closed_at TEXT);
+            CREATE TABLE job_collaborators(job_id INTEGER, user_id INTEGER, removed_from_auto_cc BOOLEAN);
+            INSERT INTO job_collaborators VALUES
+                (1,10,0), (2,20,0), (3,10,0), (4,10,0),
+                (5,10,0), (6,10,0), (7,10,0), (8,10,1);
+            INSERT INTO recruitment_processes VALUES (4,10,'open'), (5,10,'closed');
+            INSERT INTO calendar_events VALUES
+                (6,99,10,'scheduled'), (7,10,NULL,'completed');
+            INSERT INTO candidate_contact_cases VALUES
+                (1,10,'queued'), (2,10,'completed'), (3,10,'queued');
+            INSERT INTO candidate_contact_opportunities VALUES
+                (1,1,NULL), (1,2,NULL), (1,9,NULL), (2,5,NULL), (3,8,NULL);
+        """)
+
+        def visible_jobs():
+            visible = []
+            for job_id in range(1, 10):
+                column = literal(job_id)
+                statement = select(column).where(
+                    inherited_collaborator_work_clause(column, {10, 20})
+                )
+                sql = str(
+                    statement.compile(
+                        dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True}
+                    )
+                )
+                if db.execute(sql).fetchone():
+                    visible.append(job_id)
+            return visible
+
+        # Covering two people must not combine one's case with the other's
+        # unrelated collaboration. An observer, completed task, removed access
+        # and a candidate's unrelated opportunity remain outside the scope.
+        assert visible_jobs() == [1, 4, 6]
+        db.executescript("""
+            UPDATE recruitment_processes SET status='closed';
+            UPDATE calendar_events SET status='completed';
+            UPDATE candidate_contact_cases SET state='completed';
+        """)
+        assert visible_jobs() == []
