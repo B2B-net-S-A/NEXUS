@@ -3,20 +3,23 @@
 > Makiety: artefakt „Rekrutacja od zlecenia do umowy" (claude.ai/code, 53c9c6e4…).
 > Inwentarz 200 funkcji z kodu (agent, 7.09.2026) — sekcja „Nic nie znika" artefaktu.
 > Zasada nadrzędna: **C2 (warsztat AI Matching, `AIMatchingSection` + `JobMatchDock`)
-> zostaje bez zmian.** Każdy krok = osobny PR, prod działa po każdym, żadna funkcja
-> z inwentarza nie znika (tabela w artefakcie mapuje każdą jako zostaje / przeniesione / nowe).
+> zostaje bez zmian.** Kroki wchodzą **FALAMI**, nie per krok: fundament (#1388) osobno,
+> fala 1 = kroki 01 · 03 · 04 (jeden PR), fala 2 = 02 · 05–08 (jeden PR) — każdy merge na
+> `main` to pełny rebuild Coolify, więc trzy PR-y naraz = trzy rebuildy bez powodu. Prod działa
+> po każdej fali, żadna funkcja z inwentarza nie znika (tabela w artefakcie mapuje każdą
+> jako zostaje / przeniesione / nowe).
 
 ## Kolejność PR-ów i status
 
 | # | PR | Zakres | Status |
 |---|---|---|---|
-| 1 | listwa kroków | `JobDetailCompactHeader`: kroki w kolejności procesu (Zlecenie i Champion · Pozyskiwanie ▾ · Pipeline [N] · Baza pytań ‖ Historia · Chat [N] · Zespół i priorytet). Zdjęte „Narzędzia ▾" i „Pozyskaj ▾" z rzędu 1. Zero zmian w treści zakładek. | **w tym PR** |
-| 2 | 03 Pozyskiwanie — rama źródeł | 4 karty nad C2 (AI Matching · Wyszukaj manualnie · Podobne projekty · Portale) z licznikami; „Podobne projekty" i „Rekomendowani" jako karty, nie bloki nad rankingiem; Historia requestu pod ramą + „N kandydatów → źródło" | do zrobienia (agent A) |
-| 3 | 04 Pipeline — dok „Karta w procesie" | dok obok kanbana (etapy, „Przenieś na etap" z bramką wyszarzoną z powodem, notatki, CV, warunki), karta z wiekiem/następną akcją/flagą, filtry lewej kolumny, „Ukryj puste" | do zrobienia (agent B) |
-| 4 | 01 Lista | lewa kolumna filtrów (typ, szybkie z licznikami: Moje/Niezamknięte/Potrzebny search/Aktywni/Brak ownera/Deadline ≤ 7 d), mini-lejek w wierszu, dok „Gotowość zlecenia" | do zrobienia (agent C) |
-| 5 | 02 Zlecenie i Champion | Champion na pełną szerokość ze stanem sekcji, dok „Gotowość" (readiness + weryfikacja + briefing + zespół + HM), handoff jako główna akcja | po 1 |
-| 6 | 05 Screening + 06 CV do klienta | stanowisko screeningu (kolejka → arkusz → dok „Weryfikacja"); CV do klienta (reguły klienta przed generacją, jedna akcja „Wyślij") | po 3 |
-| 7 | 07 Rozmowy i decyzja + 08 Umowa | karta rozmowy z feedbackiem HM (małe rozszerzenie `hiring_manager_verdicts`), karta zamknięcia + „Zamknij rekrutację z powodem" (`POST /jobs/{id}/close`) | po 3 |
+| 1 | listwa kroków | `JobDetailCompactHeader`: kroki w kolejności procesu (Zlecenie i Champion · Pozyskiwanie ▾ · Pipeline [N] · Baza pytań ‖ Historia · Chat [N] · Zespół i priorytet). Zdjęte „Narzędzia ▾" i „Pozyskaj ▾" z rzędu 1. Zero zmian w treści zakładek. | **zmergowany #1388 (`aec2f246`), na prodzie** |
+| 2 | 03 Pozyskiwanie — rama źródeł | 4 karty nad C2 (AI Matching · Wyszukaj manualnie · Podobne projekty · Portale) z licznikami; „Podobne projekty" i „Rekomendowani" jako karty, nie bloki nad rankingiem; Historia requestu pod ramą + „N kandydatów → źródło" | **fala 1 — w tym PR** (zebrane z #1391) |
+| 3 | 04 Pipeline — dok „Karta w procesie" | dok obok kanbana (etapy, „Przenieś na etap" z bramką wyszarzoną z powodem, notatki, CV, warunki), karta z wiekiem/następną akcją/flagą, filtry lewej kolumny, „Ukryj puste" | **fala 1 — w tym PR** |
+| 4 | 01 Lista | lewa kolumna filtrów (typ, szybkie z licznikami: Moje/Niezamknięte/Potrzebny search/Aktywni/Brak ownera/Deadline ≤ 7 d), mini-lejek w wierszu, dok „Gotowość zlecenia" | **fala 1 — w tym PR** |
+| 5 | 02 Zlecenie i Champion | Champion na pełną szerokość ze stanem sekcji, dok „Gotowość" (readiness + weryfikacja + briefing + zespół + HM), handoff jako główna akcja | fala 2 (jeden PR z 6 i 7) |
+| 6 | 05 Screening + 06 CV do klienta | stanowisko screeningu (kolejka → arkusz → dok „Weryfikacja"); CV do klienta (reguły klienta przed generacją, jedna akcja „Wyślij") | fala 2 |
+| 7 | 07 Rozmowy i decyzja + 08 Umowa | karta rozmowy z feedbackiem HM (małe rozszerzenie `hiring_manager_verdicts`), karta zamknięcia + „Zamknij rekrutację z powodem" (`POST /jobs/{id}/close`) | fala 2 |
 
 ## Kontrakt wspólny (obowiązuje każdy PR)
 
@@ -42,7 +45,12 @@
 - **Weryfikacja przed PR:** `tsc --noEmit` (bez `| tail`!), `eslint` 0 błędów, vitest dla
   dotkniętych testów (`--no-file-parallelism`), zrzut z produkcji przez Chrome po deployu.
   Testy jednostkowe dla nowych helperów/komponentów z logiką (filtry, liczniki, stany).
-- **Merge:** `scripts/merge-train.sh <pr>` (main rusza co ~20 min; `strict=true`).
+- **Merge FALAMI, nie per krok:** agent kończy PR-em bez merge'a; koordynator zbiera commity
+  agentów cherry-pickiem na gałąź integracyjną fali (od `origin/main` — gałęzie agentów
+  bazowały na listwie kroków sprzed squasha, więc `merge` zdublowałby ją), robi przegląd
+  i poprawki, weryfikuje raz centralnie i otwiera JEDEN PR fali; PR-y agentów zamyka
+  z odnośnikiem „zebrane w #X". Potem `scripts/merge-train.sh <pr>` (main rusza co ~20 min;
+  `strict=true`).
 
 ## Briefy per krok (dla agentów)
 
