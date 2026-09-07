@@ -34,7 +34,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.client import Client
-from app.models.client_order_group import ClientOrderGroup, ClientOrderGroupEvent
+from app.models.client_order_group import (
+    GROUP_STATUS_EXHAUSTED,
+    ClientOrderGroup,
+    ClientOrderGroupEvent,
+)
 from app.models.dl_alert import (
     ALERT_COST_ORDER_EXHAUSTED,
     ALERT_MD_CONSULTANT_ENDED,
@@ -367,6 +371,56 @@ async def _emit_budget_exhausted(
         order_group_id=group.id,
         repeat_every_days=None,
     )
+
+
+async def reconcile_exhausted_group_budget_alerts(db: AsyncSession) -> int:
+    """Backstop: dostarcz alert wyczerpania, który przepadł przy braku DL.
+
+    Alert wyczerpania budżetu (kosztowego albo wspólnej puli MD) jest
+    JEDNORAZOWY i emitowany w chwili przejścia ``active → exhausted``. Jeśli
+    w tym momencie klient nie miał przypisanego Delivery Leada, ``emit`` szedł do
+    PUSTEJ listy odbiorców i alert przepadał bez śladu — a dla zamówień
+    kosztowych i wspólnej puli MD to JEDYNY sygnał o końcu budżetu. Ta funkcja
+    (dobowa) dostarcza go po przypisaniu DL.
+
+    Zbiór jest naturalnie ograniczony: bierzemy WYŁĄCZNIE grupy ``exhausted``,
+    dla których NIE istnieje ani jeden wiersz alertu wyczerpania — czyli takie,
+    gdzie emisja poszła w próżnię. Gdy tylko powstanie pierwszy wiersz (po
+    przypisaniu DL), grupa wypada ze zbioru, więc pętla nie rośnie w
+    nieskończoność ani nie ponawia dostarczonego alertu.
+    ``with_for_update(skip_locked=True)`` rozdziela współbieżne skany, a sama
+    emisja jest idempotentna (klucz per epizod + ``ON CONFLICT DO NOTHING``).
+
+    Świadome ograniczenie: filtr „brak JAKIEGOKOLWIEK alertu wyczerpania" jest
+    per grupa, nie per epizod. Re-wyczerpanie (nowy epizod) grupy, która ma już
+    historyczny wiersz, obsługuje ścieżka emisji w chwili przejścia — a ta ma
+    wtedy odbiorcę (inaczej pierwszego wiersza by nie było). Backstop celuje
+    w klienta, który przy wyczerpaniu nie miał DL w ogóle.
+    """
+    if not settings.DL_ALERTS_ENABLED:
+        return 0
+    stmt = (
+        select(ClientOrderGroup)
+        .where(
+            ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+            ~select(DlAlert.id)
+            .where(
+                DlAlert.order_group_id == ClientOrderGroup.id,
+                DlAlert.alert_type == ALERT_COST_ORDER_EXHAUSTED,
+            )
+            .exists(),
+        )
+        .order_by(ClientOrderGroup.id.asc())
+        .with_for_update(skip_locked=True)
+    )
+    created = 0
+    for group in (await db.execute(stmt)).scalars().all():
+        if group.is_cost_based:
+            alerts = await emit_cost_order_exhausted(db, group)
+        else:
+            alerts = await emit_shared_md_pool_exhausted(db, group)
+        created += len(alerts)
+    return created
 
 
 def reaction_seconds(alert: DlAlert) -> Optional[int]:

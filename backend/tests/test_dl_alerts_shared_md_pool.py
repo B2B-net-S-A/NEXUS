@@ -57,7 +57,13 @@ async def _seed_delivery_lead(client_id: int) -> int:
         return user.id
 
 
-async def _seed_group(*, client_id: int, remaining: str, total: str = "100.000000"):
+async def _seed_group(
+    *,
+    client_id: int,
+    remaining: str,
+    total: str = "100.000000",
+    status: str | None = None,
+):
     from app.core.database import AsyncSessionLocal
     from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
     from datetime import date
@@ -67,7 +73,7 @@ async def _seed_group(*, client_id: int, remaining: str, total: str = "100.00000
             client_id=client_id,
             order_number=f"CP-{uuid.uuid4().hex[:6]}",
             start_date=date(2026, 1, 1),
-            status=GROUP_STATUS_ACTIVE,
+            status=status or GROUP_STATUS_ACTIVE,
             order_type="md",
             is_cost_based=False,
             is_md_budget_based=True,
@@ -213,3 +219,82 @@ async def test_exhausted_pool_alerts_once_per_episode():
     assert "Zwiększ pulę MD" in rows[0].message, (
         "treść ma mówić o dniach, nie o rozliczeniu kwoty"
     )
+
+
+async def test_backstop_delivers_exhaustion_alert_missed_without_dl():
+    """Wyczerpanie u klienta BEZ przypisanego DL → alert przepada (emisja do
+    pustej listy). Dobowy backstop dostarcza go po przypisaniu DL, i tylko raz.
+
+    To była realna, trwała utrata: alert wyczerpania jest jednorazowy, a dla
+    wspólnej puli MD (i zamówień kosztowych) to JEDYNY sygnał o końcu budżetu.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import (
+        GROUP_STATUS_EXHAUSTED,
+        ClientOrderGroup,
+        ClientOrderGroupEvent,
+    )
+    from app.models.dl_alert import ALERT_COST_ORDER_EXHAUSTED, DlAlert
+    from app.services.dl_alerts import (
+        emit_shared_md_pool_exhausted,
+        reconcile_exhausted_group_budget_alerts,
+    )
+    from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
+    from sqlalchemy import select
+
+    client_id = await _seed_shared_pool_client()
+    group_id = await _seed_group(
+        client_id=client_id, remaining="0.000000", status=GROUP_STATUS_EXHAUSTED
+    )
+
+    # 1) Wyczerpanie, gdy nikt nie jest przypisany → emisja do pustej listy.
+    async with AsyncSessionLocal() as db:
+        group = await db.get(ClientOrderGroup, group_id)
+        db.add(
+            ClientOrderGroupEvent(
+                group_id=group_id,
+                event_type=EVENT_BUDGET_EXHAUSTED,
+                description="Budżet MD wyczerpany.",
+            )
+        )
+        await db.flush()
+        await emit_shared_md_pool_exhausted(db, group)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(select(DlAlert).where(DlAlert.order_group_id == group_id))
+        ).all()
+    assert rows == [], "bez przypisanego DL alert nie powinien nigdzie powstać"
+
+    # 2) Przypisujemy DL i uruchamiamy backstop → alert dostarczony.
+    user_id = await _seed_delivery_lead(client_id)
+    async with AsyncSessionLocal() as db:
+        created = await reconcile_exhausted_group_budget_alerts(db)
+        await db.commit()
+    assert created == 1
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(DlAlert).where(
+                    DlAlert.order_group_id == group_id,
+                    DlAlert.user_id == user_id,
+                    DlAlert.alert_type == ALERT_COST_ORDER_EXHAUSTED,
+                )
+            )
+        ).all()
+    assert len(rows) == 1
+    assert "Zwiększ pulę MD" in rows[0].message
+
+    # 3) Idempotencja — grupa ma już alert, więc backstop jej nie rusza.
+    async with AsyncSessionLocal() as db:
+        created_again = await reconcile_exhausted_group_budget_alerts(db)
+        await db.commit()
+    assert created_again == 0
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(select(DlAlert).where(DlAlert.order_group_id == group_id))
+        ).all()
+    assert len(rows) == 1
