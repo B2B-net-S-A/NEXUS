@@ -320,6 +320,16 @@ class Settings(BaseSettings):
     # martwe pokrętło w działające; wartość domyślna bez zmian, więc samo
     # dodanie tej linii niczego nie przestawia.
     HYBRID_BM25_POOL_LIMIT: int = 200
+    # Kill-switch trzech rubryk (0278): must-have / dni w biurze / miasto biura
+    # jako dealbreakery na 5 powierzchniach (Rekomendacje, Radar, snapshot,
+    # digest, /ai-matches). `False` przywraca dokładnie przedwczesne zachowanie
+    # (sam budżet + jawny `exclude_remote_only`) — trzy nowe predykaty i AUTO
+    # uzbrajanie `exclude_remote_only` z `wants_office` stają się no-opem; jawnie
+    # przekazane `exclude_remote_only=True` nadal działa (reguła C2 na
+    # `/ai-matches` przeżywa wyłącznik). Tylko członkostwo — celowo POZA
+    # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
+    # scoringu, nie zmieniają punktacji, którą cache przechowuje).
+    RUBRIC_DEALBREAKERS_ENABLED: bool = True
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony

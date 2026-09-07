@@ -7,7 +7,16 @@ import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { getAvatarColor } from "@/lib/colors";
-import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
+import api, {
+  postingsApi,
+  aiWriterApi,
+  matchingApi,
+  phase3Api,
+  recommendationsApi,
+  hiddenTotal as computeHiddenTotal,
+  HIDDEN_LABELS_PL,
+  type HiddenReason,
+} from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
@@ -903,8 +912,15 @@ function AIMatchingSection({
   // dopuszczalności NIE trafia tu: `warn` są widoczni z powodem na wierszu,
   // a `hidden` (globalna blacklista) świadomie nie są liczeni (wyrocznia NDA).
   const hiddenMeta = data?.meta?.hidden;
-  const hiddenTotal =
-    (hiddenMeta?.over_budget ?? 0) + (hiddenMeta?.remote_only ?? 0);
+  const hiddenTotal = computeHiddenTotal(hiddenMeta);
+  // Rozbicie „ukryto N" per powód (0278: pięć rubryk) — jedno zdanie,
+  // renderowane tylko z powodami, które faktycznie coś ukryły.
+  const hiddenBreakdown = (
+    Object.entries(HIDDEN_LABELS_PL) as [HiddenReason, string][]
+  )
+    .filter(([reason]) => (hiddenMeta?.[reason] ?? 0) > 0)
+    .map(([reason, label]) => `${label}: ${hiddenMeta?.[reason]}`)
+    .join(", ");
   const niceSkills: string[] = data?.nice_skills ?? [];
   const budgetHourly = data?.meta?.budget_hourly ?? null;
 
@@ -1358,13 +1374,7 @@ function AIMatchingSection({
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>
                 Ukryto <strong>{hiddenTotal}</strong>
-                {hiddenMeta?.over_budget
-                  ? `: stawka ponad budżet ${hiddenMeta.over_budget}`
-                  : ""}
-                {hiddenMeta?.remote_only
-                  ? `${hiddenMeta?.over_budget ? ", " : ": "}tylko zdalnie ${hiddenMeta.remote_only}`
-                  : ""}
-                .
+                {hiddenBreakdown ? `: ${hiddenBreakdown}` : ""}.
               </span>
               <span className="text-muted-foreground">
                 Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka

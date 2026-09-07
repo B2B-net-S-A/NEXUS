@@ -22,10 +22,12 @@ from app.api.candidate_access import CandidateSearchAccess
 from app.api.deps import get_db
 from app.core.config import settings
 from app.models.candidate import Candidate
-from app.models.job import Job, RemotePolicy
+from app.models.job import Job
 from app.services.candidate_job_eligibility import Visibility
 from app.services.dealbreaker_filters import (
+    DealbreakerResult,
     apply_dealbreakers,
+    dealbreaker_inputs_for_job,
     resolve_job_budget_hourly,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
@@ -34,7 +36,11 @@ from app.services.location_utils import (
     location_tokens as _location_tokens,
 )
 from app.services.reranker_service import rerank_or_passthrough
-from app.services.scoring_service import candidate_skill_names, canonical_skill_names
+from app.services.scoring_service import (
+    candidate_skill_names,
+    canonical_skill_names,
+    skill_present as _candidate_has_skill,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -87,26 +93,6 @@ def _extract_tags(raw) -> list[str]:
     if isinstance(raw, str):
         return [t.strip().lower() for t in raw.split(",") if t.strip()]
     return []
-
-
-def _canon_skill(s: str) -> str:
-    """Canonicalize a skill for tolerant comparison (drop punctuation/spaces
-    and a few well-known suffix variants so e.g. ``postgresql``/``postgres``
-    and ``node.js``/``nodejs`` compare equal)."""
-    canon = "".join(ch for ch in s.lower() if ch.isalnum())
-    for a, b in (("postgresql", "postgres"), ("nodejs", "node")):
-        if canon == a:
-            canon = b
-    return canon
-
-
-def _candidate_has_skill(required: str, candidate_skills: set[str]) -> bool:
-    """True if a required skill is present among the candidate's skills, using
-    exact match plus tolerant canonicalization for common name variants."""
-    if required in candidate_skills:
-        return True
-    req_canon = _canon_skill(required)
-    return any(_canon_skill(c) == req_canon for c in candidate_skills)
 
 
 def _build_match_info(
@@ -292,7 +278,7 @@ async def _gate_and_dealbreakers(
     i duplikaty pozostają niewidoczne. Dealbreaker ``hidden_meta`` (budżet /
     zdalnie) nie jest poufny per klient i moduł sam zwraca liczniki.
     """
-    empty_meta = {"over_budget": 0, "remote_only": 0}
+    empty_meta = DealbreakerResult().hidden_meta()
     if not ordered:
         return [], {}, empty_meta, 0
 
@@ -322,15 +308,18 @@ async def _gate_and_dealbreakers(
     }
     dealbreakable = [c for c in visible if c.id not in warn_ids]
 
-    wants_office = getattr(job, "remote_policy", None) in (
-        RemotePolicy.onsite,
-        RemotePolicy.hybrid,
-    )
+    # Rubryki (0278): jedno rozwiązanie budżetu/must-have/dni/miasta biura dla
+    # tej oferty, dzielone przez WSZYSTKIE pięć powierzchni rubryk. `wants_office`
+    # wchodzi tu SZERZEJ niż dawny odczyt samej kolumny `remote_policy` — uwzględnia
+    # też fallback do Championa (za CHAMPION_MATCH_SIGNALS_ENABLED) i dni w biurze
+    # > 0, więc oferta z pustym `remote_policy`, ale wypełnionym Championem, też
+    # poprawnie uzbraja auto-wykluczanie „tylko zdalnie".
+    inputs = dealbreaker_inputs_for_job(job)
     db_res = apply_dealbreakers(
         dealbreakable,
-        budget_hourly=resolve_job_budget_hourly(job),
+        inputs=inputs,
         exclude_over_budget=True,
-        exclude_remote_only=bool(wants_office),
+        exclude_remote_only=bool(inputs.wants_office),
     )
     kept_dealbreakable_ids = {c.id for c in db_res.kept}
     # Zachowaj oryginalną kolejność rankingu: `warn` zostają na swoich pozycjach,

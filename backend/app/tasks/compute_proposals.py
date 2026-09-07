@@ -220,7 +220,7 @@ async def compute_proposal_for_job(
             from app.services.dealbreaker_filters import (
                 DealbreakerResult,
                 apply_dealbreakers,
-                resolve_job_budget_hourly,
+                dealbreaker_inputs_for_job,
             )
 
             snap.hidden = DealbreakerResult().hidden_meta()
@@ -251,12 +251,15 @@ async def compute_proposal_for_job(
                 # snapshot jest DOMYŚLNYM widokiem rekrutera, więc znany budżet
                 # oferty musi ukrywać znane stawki powyżej także tutaj — nie
                 # tylko na żywej ścieżce /recommendations. Liczniki idą do
-                # `snap.hidden`, bo ukrywanie nigdy nie jest ciche; remote_only
-                # zostaje opt-in per wyszukiwanie (snapshot nie niesie tej
-                # deklaracji rekrutera).
+                # `snap.hidden`, bo ukrywanie nigdy nie jest ciche. Rubryki 0278
+                # (must-have / dni w biurze / miasto) i AUTO `exclude_remote_only`
+                # (uzbraja się, gdy oferta chce biura) liczone RAZ przez
+                # `dealbreaker_inputs_for_job` — ta sama funkcja co na żywej
+                # ścieżce, więc handoff-snapshot i /recommendations zgadzają się
+                # co do tego, kogo ukrywają.
                 dealbreakers = apply_dealbreakers(
                     candidates,
-                    budget_hourly=resolve_job_budget_hourly(job),
+                    inputs=dealbreaker_inputs_for_job(job),
                 )
                 candidates = dealbreakers.kept
                 snap.hidden = dealbreakers.hidden_meta()

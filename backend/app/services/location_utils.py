@@ -156,3 +156,34 @@ def candidate_location_tokens(candidate, source: str = "all") -> set[str]:
                         if isinstance(item, str):
                             tokens |= location_tokens(item)
     return tokens
+
+
+# Tokeny, które NIE są nazwami miejsc, więc nie mogą liczyć się jako „biuro
+# kandydata" — bez tego odsiania kandydat z jedyną deklaracją „zdalnie"/„remote"
+# miałby niepusty zbiór tokenów biurowych i był ukrywany na KAŻDEJ ofercie
+# biurowej (dokładna odwrotność tego, co ta deklaracja mówi). Same regiony
+# (np. „Mazowieckie" bez miasta) ZOSTAJĄ tokenami biura — znane ograniczenie:
+# region jest realnym miejscem, tylko mniej precyzyjnym niż miasto.
+_NON_PLACE_TOKENS = frozenset(
+    {
+        "polska",
+        "poland",
+        "pl",
+        "remote",
+        "zdalnie",
+        "zdalna",
+        "zdalny",
+        "hybrid",
+        "hybrydowo",
+    }
+)
+
+
+def candidate_office_tokens(candidate) -> set[str]:
+    """Tokeny miejsc, w których kandydat gotów jest bywać w biurze.
+
+    `candidate_location_tokens(candidate, "all")` minus tokeny, które nie są
+    nazwami miejsc (patrz `_NON_PLACE_TOKENS`) — dealbreaker dni/miasta biura
+    (`dealbreaker_filters.office_city_mismatch`) porównuje WYŁĄCZNIE to.
+    """
+    return candidate_location_tokens(candidate, "all") - _NON_PLACE_TOKENS

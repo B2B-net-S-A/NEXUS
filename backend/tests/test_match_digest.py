@@ -297,7 +297,7 @@ async def test_digest_uses_the_same_dealbreaker_parameters_as_the_default_tab(
         job = await db.scalar(select(Job).where(Job.id == job_id))
         await fresh(db, job)
 
-    assert seen.get("budget_hourly") == 333.0
+    assert seen["inputs"].budget_hourly == 333.0
     assert seen.get("exclude_over_budget", True) is True
     assert seen.get("exclude_remote_only", False) is False
 

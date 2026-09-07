@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,12 @@ from app.core.config import settings
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.services.canonical_text import build_job_query_variants
+
+if TYPE_CHECKING:
+    # Wyłącznie dla adnotacji typu (`dealbreaker_inputs_for_radar`) — realny
+    # import jest LOKALNY (w ciele funkcji), zgodnie z konwencją tego modułu
+    # (leniwe importy trzymają koszt załadowania modułu niskim).
+    from app.services.dealbreaker_filters import DealbreakerInputs
 from app.services.retrieval_pool import retrieve_candidate_pool
 from app.services.embedding_service import (
     _build_job_text,
@@ -103,6 +109,12 @@ class RadarQuery:
     # produktowa 19.08). Nieznana stawka/preferencja kandydata PRZECHODZI.
     budget_hourly_max: Optional[float] = None
     exclude_remote_only: bool = False
+    # Rubryki 0278: dni w biurze / tydzień i miasto biura, podane WPROST przez
+    # rekrutera (radar nie ma kolumn oferty do fallbacku). `onsite_days_per_week`
+    # aktywuje dealbreakery dni/miasta TYLKO gdy > 0 — patrz
+    # `dealbreaker_inputs_for_radar`.
+    onsite_days_per_week: Optional[int] = None
+    office_location: Optional[str] = None
     # Wymagania podane WPROST (front bierze je z `parse-champion`). Puste =
     # dotychczasowe zachowanie: `_score_skills` wywodzi must regexem z profilu
     # Championa albo z prozy. `list`, nie `tuple`, mimo `frozen=True`:
@@ -248,6 +260,13 @@ def build_ephemeral_job(query: RadarQuery) -> SimpleNamespace:
         nice_skills=_structured_skills(query.nice_skills),
         location=(query.location or "").strip() or None,
         remote_policy=None,
+        # Rubryki 0278: radar nie ma kolumny `onsite_days_per_week`, ale
+        # niesie ją tu POD PRZYSZŁY strażnik AST (`test_ephemeral_job_sets_
+        # every_attribute_the_scoring_path_reads`) — gdyby scoring kiedyś
+        # zaczął czytać `job.onsite_days_per_week`, oferta efemeryczna go nie
+        # zgubi. `dealbreaker_inputs_for_radar` czyta ten sygnał wprost z
+        # `RadarQuery`, nie stąd.
+        onsite_days_per_week=query.onsite_days_per_week,
         salary_min=None,
         salary_max=None,
         deadline=None,
@@ -285,6 +304,37 @@ async def _load_candidates(
     # Preserve retrieval order; a missing row means the vector outlived its
     # candidate (there are ~1 900 such orphans in Qdrant) and is skipped.
     return [by_id[cid] for cid in candidate_ids if cid in by_id]
+
+
+def dealbreaker_inputs_for_radar(query: RadarQuery) -> DealbreakerInputs:
+    """Rubryki 0278 dla UNA wyszukiwania radaru — z pól `RadarQuery` wprost.
+
+    W odróżnieniu od `dealbreaker_filters.dealbreaker_inputs_for_job` (oferty
+    prawdziwe, z fallbackiem do Championa za flagą), radar nie ma kolumn ani
+    profilu Championa do odpytania — rekruter wpisuje budżet/must/dni/miasto
+    wprost w formularzu, więc konstrukcja jest prostym przepisaniem pól.
+
+    `wants_office = query.exclude_remote_only or dni > 0`: istniejący
+    przełącznik „wyklucz tylko-zdalnych" ORAZ nowe pole dni w biurze OBA
+    uzbrajają AUTO-wykluczanie „wyłącznie zdalnie" w `apply_dealbreakers` —
+    rekruter, który wpisał wymaganą liczbę dni, nie musi PONADTO zaznaczać
+    osobnego checkboxa, żeby dostać spójny wynik.
+    """
+    from app.services.dealbreaker_filters import DealbreakerInputs
+    from app.services.location_utils import location_tokens
+    from app.services.scoring_service import canonical_skill_names
+
+    days = query.onsite_days_per_week
+    office_tokens = frozenset(location_tokens(query.office_location))
+    wants_office = bool(query.exclude_remote_only) or bool(days and days > 0)
+
+    return DealbreakerInputs(
+        budget_hourly=query.budget_hourly_max,
+        must_skills=tuple(canonical_skill_names(query.must_skills or [])),
+        onsite_days_per_week=days,
+        office_tokens=office_tokens,
+        wants_office=wants_office,
+    )
 
 
 async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
@@ -327,6 +377,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # że baner awarii przestaje cokolwiek znaczyć. `/ai-matches` rozróżnia je
     # od 08.2026 (`no_semantic_hits`); tu doganiamy tamten kontrakt.
     from app.services.embedding_service import SemanticSearchUnavailable
+    from app.services.dealbreaker_filters import DealbreakerResult
 
     try:
         hits = await retrieve_candidate_pool(
@@ -345,6 +396,9 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
             eligible_size=0,
             degraded=True,
             reason="semantic_unavailable",
+            # Pięć kluczy, choćby zerowych — pustka bez wyjaśnienia czyta się
+            # jak utrata danych (reguła „awaria ≠ pustka").
+            hidden=DealbreakerResult().hidden_meta(),
         )
     if not hits:
         # Zdrowe zapytanie, zero trafień. NIE jest to awaria — interfejs ma
@@ -355,6 +409,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
             eligible_size=0,
             degraded=False,
             reason="no_semantic_hits",
+            hidden=DealbreakerResult().hidden_meta(),
         )
 
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
@@ -367,13 +422,15 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     eligible_size = len(candidates)
 
     # Dealbreaker-switche: twarde ukrywanie na życzenie, liczniki do meta —
-    # ukrywanie nigdy nie jest ciche (reguła „awaria ≠ pustka").
+    # ukrywanie nigdy nie jest ciche (reguła „awaria ≠ pustka"). Rubryki 0278
+    # (must/dni/miasto) i AUTO `exclude_remote_only` (z `wants_office`) liczone
+    # RAZEM przez `dealbreaker_inputs_for_radar` — bez jawnego
+    # `exclude_remote_only=` tutaj, bo `inputs.wants_office` już go niesie.
     from app.services.dealbreaker_filters import apply_dealbreakers
 
     dealbreakers = apply_dealbreakers(
         candidates,
-        budget_hourly=query.budget_hourly_max,
-        exclude_remote_only=query.exclude_remote_only,
+        inputs=dealbreaker_inputs_for_radar(query),
     )
     candidates = dealbreakers.kept
 

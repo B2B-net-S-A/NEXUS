@@ -2435,14 +2435,53 @@ export interface CandidateMatch {
   breakdown?: ScoreBreakdown | null;
 }
 
+/**
+ * Dealbreaker-switche: pięć rubryk-powodów, dla których kandydat mógł zostać
+ * ukryty (0278: must-have / dni w biurze / miasto biura dołączają do
+ * istniejących budżetu i „wyłącznie zdalnie"). Kolejność jest tu tylko
+ * deklaratywna — backend liczy je w STAŁEJ kolejności (budżet → must-have →
+ * dni → miasto → zdalnie), pierwszy pasujący powód wygrywa.
+ */
+export type HiddenReason =
+  | "over_budget"
+  | "missing_must"
+  | "office_days_exceeded"
+  | "office_city_mismatch"
+  | "remote_only";
+
+/** `meta.hidden` / `snapshot.hidden` — liczniki per powód, wszystkie opcjonalne
+ *  (starszy backend albo snapshot sprzed 0237/0278 może nie znać części kluczy). */
+export type HiddenCounters = Partial<Record<HiddenReason, number>>;
+
+/** Etykiety PL renderowane jako chipy „Ukryto N — <etykieta>" wszędzie tam,
+ *  gdzie `meta.hidden`/`snapshot.hidden` się pojawia — ukrywanie nigdy nie
+ *  jest ciche (reguła „awaria ≠ pustka"). */
+export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
+  over_budget: "powyżej budżetu oferty",
+  missing_must: "bez technologii must-have",
+  office_days_exceeded: "za mało dni w biurze",
+  office_city_mismatch: "inne miasto niż biuro",
+  remote_only: "tylko-zdalnych",
+};
+
+/** Suma wszystkich liczników ukrytych, niezależnie od tego, ile rubryk backend
+ *  akurat zna — `undefined`/`null` liczy się jako zero na każdym kluczu. */
+export function hiddenTotal(hidden?: HiddenCounters | null): number {
+  if (!hidden) return 0;
+  return (Object.keys(HIDDEN_LABELS_PL) as HiddenReason[]).reduce(
+    (sum, reason) => sum + (hidden[reason] ?? 0),
+    0,
+  );
+}
+
 export interface RecommendationMeta {
   mode: string;
   degraded: boolean;
   reason: string | null;
   index_version?: string | null;
   scoring_version?: string | null;
-  /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
-  hidden?: { over_budget: number; remote_only: number };
+  /** Dealbreaker-switche: liczniki ukrytych per powód (0278: pięć rubryk). */
+  hidden?: HiddenCounters;
   /**
    * Ilu kandydatów odsiała bramka dopuszczalności (blacklista klienta / NDA /
    * konflikt / weto). P-B (decyzja Artura, 2026-09-03): publikowane w /ai-matches
@@ -3390,6 +3429,11 @@ export const recommendationsApi = {
        */
       exclude_over_budget?: boolean;
       exclude_remote_only?: boolean;
+      /** Dealbreakery 0278 (domyślnie WŁĄCZONE po stronie backendu — pomiń,
+       *  żeby zostawić domyślne zachowanie). */
+      exclude_missing_must?: boolean;
+      exclude_office_days_exceeded?: boolean;
+      exclude_office_city_mismatch?: boolean;
     },
   ) =>
     api.get<{
@@ -3680,7 +3724,7 @@ export interface ProposalSnapshot {
   stale: boolean;
   /** Liczniki dealbreakerów z generacji — budżet oferty działa z automatu
    *  jako twardy sufit (decyzja 19.08); null/brak = snapshot sprzed 0237. */
-  hidden?: { over_budget?: number; remote_only?: number } | null;
+  hidden?: HiddenCounters | null;
   /** Correlates this ranking with match telemetry (impressions/outcomes). */
   run_id: string | null;
   candidates: ProposalCandidateItem[];
