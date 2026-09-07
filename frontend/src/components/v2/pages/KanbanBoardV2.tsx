@@ -108,6 +108,9 @@ const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment"]);
 interface KanbanBoardV2Props {
  columns: KanbanColumn[];
  jobId: number;
+ /** Tytuł rekrutacji — nagłówki modali CV i zakładka „Dopasowanie" w doku
+  *  „Karta w procesie" (krok 04). Nie mylić z nazwą etapu. */
+ jobTitle?: string;
  // AI match scores (0-100) keyed by candidate_id → score ring on each card.
  // Kept as a candidate-keyed map (not embedded in items) so it survives the
  // optimistic-move / "verified" item rebuilds below.
@@ -556,7 +559,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  kropkę` w brief programu C2 (04 Pipeline). */}
  {gateFlagReason && (
  <span
- className="absolute left-4 top-0 z-10 h-2 w-2 rounded-full bg-destructive ring-2 ring-card"
+ className={cn("absolute left-4 top-0 z-10 h-2 w-2 rounded-full ring-2 ring-card",
+ item.hm_veto ?"bg-destructive" :"bg-warning"
+ )}
  title={gateFlagReason}
  aria-hidden="true"
  />
@@ -572,13 +577,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  )}
 
- <Link
- href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
- className="block"
- aria-label={fullName}
- aria-describedby={accessibleDetails ? detailsId : undefined}
- onClick={(e) => e.stopPropagation()}
- >
+ {/* Krok 04 Pipeline (flow C2): klik w TREŚĆ karty otwiera dok „Karta
+ w procesie" (`handleCardClick` na kontenerze). Do profilu prowadzi
+ wyłącznie nazwisko (link niżej) oraz „Pełny profil" w doku. Wcześniej
+ link owijał całą treść, więc dok dało się otworzyć tylko z paddingu. */}
  <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
@@ -589,14 +591,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {initials}
  </div>
  <div className="min-w-0 flex-1">
- <div
- className={cn("font-medium text-foreground truncate",
+ <Link
+ href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+ aria-label={fullName}
+ aria-describedby={accessibleDetails ? detailsId : undefined}
+ onClick={(e) => e.stopPropagation()}
+ className={cn("block font-medium text-foreground truncate hover:underline",
  density === "compact" ?"text-sm" :"text-2xl",
  desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3"
  )}
  >
  {fullName}
- </div>
+ </Link>
  <div
  className={cn(
  "mt-1 flex min-w-0 items-center gap-1 text-muted-foreground",
@@ -676,7 +682,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  )}
  </div>
- </Link>
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
@@ -910,7 +915,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1669,11 +1674,16 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  const canRejectDockItem = Boolean(rejectedTemplateCol) && dockItemTerminal == null;
 
  // Pigułki „Przenieś na etap": wszystkie kolumny szablonu poza tą, na której
- // kandydat dziś stoi. Bramka jest DOKŁADNIE ta z brief-u PR3 — dane karty,
- // nie osobny call do `pipeline_eligibility` (backend nie ma dziś endpointu
- // podglądu, tylko egzekwuje bramkę WEWNĄTRZ `POST /pipeline/move`).
- // Terminalne (`rejected`/`withdrawn`) ZAWSZE przechodzą — kontrakt programu
- // C2 („Terminalne zawsze przechodzą").
+ // kandydat dziś stoi. Bramka liczona z DANYCH KARTY (backend nie ma endpointu
+ // podglądu — egzekwuje ją WEWNĄTRZ `POST /pipeline/move`,
+ // `assert_candidate_move_eligible`), więc wyszarzamy dokładnie to, co karta
+ // wie: weto hiring managera blokuje KAŻDY ruch nie-terminalny (także
+ // „Zatrudniony"). Terminalne (`rejected`/`withdrawn`) ZAWSZE przechodzą —
+ // kontrakt programu C2. Pozostałe twarde powody (czarna lista, NDA, klient
+ // konkurencyjny, zatrudnienie u tego klienta) nie są na karcie — te kończą się
+ // 409 z polskim powodem w toaście, tą samą ścieżką co drag&drop. `pending`
+ // NIE jest bramką ruchu (backend jej nie zna; drag przenosi takich
+ // kandydatów dziś bez przeszkód), więc dok też go nie blokuje.
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
  if (!dockItem || !dockItemColId) return [];
  return stageCols
@@ -1685,10 +1695,8 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  blockedReason = "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
  } else if (terminal === "rejected" || terminal === "withdrawn") {
  blockedReason = null;
- } else if (dockItem.verification_status === "pending") {
- blockedReason = "Kandydat czeka na akceptację weryfikacji — zaakceptuj lub odrzuć weryfikację, zanim przeniesiesz dalej.";
- } else if (dockItem.hm_veto && (c.stage === "cv_sent" || c.stage === "client_interview")) {
- blockedReason = `Weto hiring managera (${formatDate(dockItem.hm_veto.rejected_at)}) — ${dockItem.hm_veto.rejection_reason_name}.`;
+ } else if (dockItem.hm_veto) {
+ blockedReason = `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie (${formatDate(dockItem.hm_veto.rejected_at)}) — ${dockItem.hm_veto.rejection_reason_name}.`;
  }
  return { col: c, blockedReason };
  });
@@ -2132,13 +2140,14 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  </DragDropContext>
  </div>
 
- <aside className="xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start">
+ <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start">
  {dockItem && dockItemColLabel !== null ? (
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
  jobId={jobId}
  currentStageLabel={dockItemColLabel}
+ jobTitle={jobTitle}
  matchScore={scoreMap?.get(dockItem.candidate_id)}
  scoresLoading={scoresLoading}
  moveTargets={dockMoveTargets}

@@ -51,6 +51,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TabbedNav } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
+import { countPl } from "@/lib/plural-pl";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -102,6 +103,9 @@ export interface PipelineCandidateDockProps {
   item: KanbanItem;
   jobId: number;
   currentStageLabel: string;
+  /** Tytuł rekrutacji — nagłówki modali CV i zakładka „Dopasowanie". Bez
+   *  niego fallback „Rekrutacja #id"; nigdy nazwa etapu (to inna rzecz). */
+  jobTitle?: string;
   matchScore?: number | null;
   scoresLoading?: boolean;
   moveTargets: PipelineMoveTarget[];
@@ -118,6 +122,7 @@ export function PipelineCandidateDock({
   item,
   jobId,
   currentStageLabel,
+  jobTitle,
   matchScore,
   scoresLoading,
   moveTargets,
@@ -147,6 +152,7 @@ export function PipelineCandidateDock({
   }, [item.candidate_id]);
 
   const fullName = `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
+  const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
   const initials = fullName
     .split(/\s+/)
     .map((w) => w[0])
@@ -243,7 +249,7 @@ export function PipelineCandidateDock({
       <div className="space-y-2.5 border-b border-border p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
               {initials}
             </div>
             <div className="min-w-0">
@@ -388,8 +394,8 @@ export function PipelineCandidateDock({
                   </Badge>
                 </div>
                 <div className="text-muted-foreground">
-                  {screeningAnswers.answers.length}{" "}
-                  {screeningAnswers.answers.length === 1 ? "pytanie" : "pytań"} odpowiedziane
+                  Odpowiedziano na{" "}
+                  {countPl(screeningAnswers.answers.length, "pytanie", "pytania", "pytań")}
                   {screeningAnswers.answers.some((a) => a.deal_breaker_hit) && (
                     <span className="ml-1 inline-flex items-center gap-0.5 text-destructive">
                       <AlertTriangle className="h-3 w-3" /> deal-breaker trafiony
@@ -483,7 +489,7 @@ export function PipelineCandidateDock({
         {activeTab === "match" && (
           <DopasowanieTab
             candidateId={item.candidate_id}
-            recruitments={[{ job_id: jobId, job_title: currentStageLabel }]}
+            recruitments={[{ job_id: jobId, job_title: jobLabel }]}
             defaultJobId={jobId}
             readOnly={readOnly}
           />
@@ -619,7 +625,7 @@ export function PipelineCandidateDock({
           open
           onOpenChange={setOpenOriginal}
           stageId={item.id}
-          jobTitle={currentStageLabel}
+          jobTitle={jobLabel}
           candidateName={fullName}
         />
       )}
@@ -628,7 +634,7 @@ export function PipelineCandidateDock({
           open
           onOpenChange={setOpenBranded}
           stageId={item.id}
-          jobTitle={currentStageLabel}
+          jobTitle={jobLabel}
           candidateName={fullName}
         />
       )}

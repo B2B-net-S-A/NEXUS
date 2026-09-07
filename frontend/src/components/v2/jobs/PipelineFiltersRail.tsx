@@ -24,7 +24,7 @@ import { colId, columnLabel, type KanbanColumn } from "@/components/v2/pages/kan
 const STAGE_DOT_COLOR: Record<string, string> = {
   internal: "bg-primary",
   external: "bg-card border border-border",
-  terminal: "bg-[hsl(var(--muted-foreground))]",
+  terminal: "bg-muted-foreground",
 };
 
 function FilterPill({

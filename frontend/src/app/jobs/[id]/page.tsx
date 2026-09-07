@@ -2373,6 +2373,7 @@ export default function JobDetailPage() {
               columns={kanban?.columns ?? []}
               offTemplate={kanban?.off_template ?? null}
               jobId={Number(id)}
+              jobTitle={job?.title}
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}
               headerCollapsed={headerCollapsed}
