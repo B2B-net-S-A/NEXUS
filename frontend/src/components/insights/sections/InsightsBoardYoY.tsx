@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Info } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import {
   insightsBoardApi,
   insightsQueryKeys,
@@ -80,11 +80,20 @@ export function InsightsBoardYoY() {
       {YOY_GROUPS.map((group) => {
         const metrics = data.metrics.filter((m) => m.group === group.id);
         if (metrics.length === 0) return null;
+        // Ostrzeżenie o pokryciu stoi PRZY tabelach, których dotyczy, a nie
+        // jednym banerem na górze strony: grupy „Dywersyfikacja" i część
+        // „Wskaźników" liczą się z historii pipeline'u i są porównywalne
+        // między latami. Baner zbiorczy podważałby także je, a ostrzeżenie
+        // podważające wszystko uczy ignorować ostrzeżenia.
+        const contractBased = metrics.some((m) => m.basis === "contracts");
         return (
           <div key={group.id} className="space-y-4">
             <h3 className="text-base font-semibold text-foreground">
               {group.label}
             </h3>
+            {contractBased && !data.coverage.money_comparable_across_years ? (
+              <CoverageWarning data={data} />
+            ) : null}
             <div className="grid gap-4 xl:grid-cols-2">
               {metrics.map((metric) => (
                 <MetricTable key={metric.key} metric={metric} data={data} />
@@ -94,6 +103,47 @@ export function InsightsBoardYoY() {
         );
       })}
       <ClientBreakdown data={data} />
+    </div>
+  );
+}
+
+/**
+ * Podstawa liczb, bez której tabela kłamie.
+ *
+ * Metryki pieniężne i liczba konsultantów liczą się z kontraktów zapisanych
+ * w NEXUSIE, a ta ewidencja jest MŁODSZA niż firma. Zmierzone na produkcji
+ * (08.09.2026): styczeń 2024 → 17 kontraktów, sierpień 2026 → 452, przy realnej
+ * liczbie ~320 konsultantów w 2024. Bez tego bloku wiersz „Przychody" pokazuje
+ * +935% wzrostu, który jest arytmetycznie poprawny i semantycznie fałszywy.
+ *
+ * Świadomie NIE ukrywamy tych liczb: rok 2026 jest prawdziwy i użyteczny,
+ * a schowanie kolumn zabrałoby jedyną działającą część tabeli. Zamiast tego
+ * mówimy wprost, czego dotyczy różnica między latami.
+ */
+function CoverageWarning({ data }: { data: InsightsYoYResponse }) {
+  const perYear = data.years
+    .map((y) => {
+      const n = data.coverage.contracts_by_year[String(y)];
+      return n === null || n === undefined ? null : `${y}: ${count(n)}`;
+    })
+    .filter((x): x is string => x !== null);
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+    >
+      <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+      <div className="space-y-0.5">
+        <p className="font-medium">
+          Porównanie między latami opisuje tu głównie ewidencję, nie wynik
+        </p>
+        <p className="opacity-90">{data.coverage.message}</p>
+        {perYear.length > 0 ? (
+          <p className="opacity-90">
+            Średnia liczba wycenionych kontraktów w miesiącu — {perYear.join(" · ")}.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

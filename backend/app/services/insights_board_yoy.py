@@ -97,6 +97,13 @@ RESIGNATION_REASONS = frozenset(
 # niż placementy tego samego miesiąca w wierszu wyżej.
 CLIENTS_PER_MONTH = 8
 
+# Poniżej tego udziału podstawa najstarszego roku jest tak mała wobec
+# najnowszego, że porównanie rok-do-roku opisuje ROZRASTANIE SIĘ EWIDENCJI,
+# a nie biznes. Próg jest celowo luźny: fałszywy alarm każe czytelnikowi
+# spojrzeć na podstawę, a przeoczenie każe mu uwierzyć w dziesięciokrotny
+# wzrost, którego nie było.
+CONTRACT_COVERAGE_WARN_RATIO = 0.5
+
 
 @dataclass(frozen=True)
 class _MonthSlot:
@@ -253,6 +260,55 @@ def _departures_by_month(contracts) -> tuple:
     return departures, resignations, unspecified
 
 
+def _contract_coverage(priced_by_month: dict, years: list) -> dict:
+    """Ile kontraktów stoi za kwotami każdego roku — i czy da się je porównać.
+
+    **To jest najważniejsza rzecz na tej powierzchni, a nie jej ozdoba.**
+    Metryki pieniężne i liczba konsultantów liczą się z kontraktów ZAPISANYCH
+    W NEXUSIE, a ta ewidencja jest młodsza niż firma: placementy przyszły
+    z importu Traffita i sięgają lat wstecz, kontrakty zaczęły powstawać
+    później i nie zostały uzupełnione wstecz. Zmierzone na produkcji
+    (08.09.2026): styczeń 2024 → 17 kontraktów, styczeń 2026 → 191, sierpień
+    2026 → 452, podczas gdy realna liczba konsultantów w 2024 wynosiła ~320
+    (dane DynaReportera).
+
+    Bez tej informacji tabela pokazuje **+935% wzrostu przychodu**, który jest
+    arytmetycznie poprawny i semantycznie fałszywy: opisuje rozrastanie się
+    ewidencji, nie biznes. Członek Rady czytający taki wiersz wyciągnie wniosek
+    o dziesięciokrotnym wzroście firmy.
+
+    Zwracana podstawa jest FAKTEM (średnia liczba wycenionych kontraktów
+    w miesiącu), a nie heurystyką. Heurystyczny jest wyłącznie próg
+    ostrzeżenia — i celowo tak ustawiony, żeby raczej ostrzec za często niż
+    za rzadko: fałszywy alarm każe spojrzeć na podstawę, przeoczenie każe
+    uwierzyć w nieistniejący wzrost.
+    """
+    per_year: dict = {}
+    for year in years:
+        values = [v for v in priced_by_month[str(year)] if v is not None]
+        per_year[str(year)] = round(sum(values) / len(values), 1) if values else None
+    known = [(y, per_year[str(y)]) for y in years if per_year[str(y)]]
+    comparable = True
+    message = None
+    if len(known) >= 2:
+        oldest, newest = known[0][1], known[-1][1]
+        if newest and oldest / newest < CONTRACT_COVERAGE_WARN_RATIO:
+            comparable = False
+            message = (
+                f"Kwoty i liczba konsultantów liczą się z kontraktów zapisanych "
+                f"w NEXUSIE, a ta ewidencja jest młodsza niż firma: w {known[0][0]} "
+                f"stoi za nimi średnio {oldest:g} kontraktów, w {known[-1][0]} — "
+                f"{newest:g}. Różnica między latami opisuje więc głównie "
+                f"rozrastanie się ewidencji, a nie wynik. Placementy, zejścia "
+                f"i hit ratio idą z historii pipeline'u i tego problemu NIE mają."
+            )
+    return {
+        "contracts_by_year": per_year,
+        "money_comparable_across_years": comparable,
+        "message": message,
+    }
+
+
 async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> dict:
     """Serie miesiąc × rok dla wszystkich metryk kokpitu Rady."""
     span_start = date(min(years), 1, 1)
@@ -314,6 +370,11 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         )
     }
     by_client: dict = {str(y): [None] * 12 for y in years}
+    # Ile kontraktów stoi za kwotami danego miesiąca. To NIE jest metryka do
+    # tabeli, tylko PODSTAWA — bez niej wiersz „Przychody" nie mówi, czy
+    # wzrost bierze się z biznesu, czy z tego, że rok temu tych kontraktów po
+    # prostu nie było w NEXUSIE.
+    priced_by_month: dict = {str(y): [None] * 12 for y in years}
     missing_currencies: set = set()
     months_degraded: list = []
     months_without_hours = 0
@@ -379,7 +440,10 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         series["margin_monthly_pln"][y][idx] = money(fold.margin)
         series["margin_pct"][y][idx] = ratio(fold.margin, fold.revenue)
         series["consultants"][y][idx] = fold.consultants
+        priced_by_month[y][idx] = fold.priced_contracts
         series["margin_per_hour_pln"][y][idx] = margin_per_hour(fold)
+
+    coverage = _contract_coverage(priced_by_month, years)
 
     metrics = [
         _metric(
@@ -432,6 +496,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "sum",
             series,
             definition=FIRST_HIRED_PER_CANDIDATE_JOB,
+            basis="pipeline",
         ),
         _metric(
             "unique_clients",
@@ -441,6 +506,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "avg",
             series,
             definition=DISTINCT_CLIENTS_WITH_PLACEMENT,
+            basis="pipeline",
         ),
         _metric(
             "top_client_share_pct",
@@ -452,6 +518,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             lower_is_better=True,
             definition=TOP_CLIENT_SHARE,
             note="Im niżej, tym mniejsza koncentracja na jednym kliencie.",
+            basis="pipeline",
         ),
         _metric(
             "margin_per_hour_pln",
@@ -474,6 +541,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "avg",
             series,
             definition=CLOSED_JOBS_WITH_PLACEMENT,
+            basis="pipeline",
         ),
     ]
 
@@ -513,6 +581,7 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
     return {
         "years": years,
         "asof": today.isoformat(),
+        "coverage": coverage,
         "partial_month": partial_month,
         "month_labels": list(MONTH_LABELS_PL),
         "metrics": metrics,
@@ -532,6 +601,7 @@ def _metric(
     lower_is_better: bool = False,
     definition: Optional[str] = None,
     note: Optional[str] = None,
+    basis: str = "contracts",
 ) -> dict:
     """Metryka razem z instrukcją, jak ją czytać.
 
@@ -550,6 +620,10 @@ def _metric(
         "lower_is_better": lower_is_better,
         "definition": definition,
         "note": note,
+        # Z czego liczona: `contracts` (ewidencja młodsza niż firma — patrz
+        # `_contract_coverage`) czy `pipeline` (historia z importu Traffita,
+        # sięga wstecz). Widok ostrzega TYLKO przy pierwszym.
+        "basis": basis,
         "series": series[key],
     }
 
