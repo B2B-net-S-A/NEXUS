@@ -358,15 +358,6 @@ export function JobDetailCompactHeader({
               {typeof cvCount === "number" ? <CountBadge value={cvCount} /> : null}
             </WorkspaceButton>
 
-            <WorkspaceButton
-              active={activeTab === "questions"}
-              onClick={() => onTabChange("questions")}
-              data-testid="tab-questions"
-            >
-              <BookOpen className="h-4 w-4" />
-              Baza pytań
-            </WorkspaceButton>
-
             {/* Kroki 07 i 08 (flow C2, PR 7/7). Liczniki liczy strona z tego
                 samego kanbana, którym karmi Pipeline — `undefined` znaczy
                 „jeszcze nie policzono", więc listwa nie pokazuje zera zamiast
@@ -393,6 +384,17 @@ export function JobDetailCompactHeader({
               {typeof contractCount === "number" ? (
                 <CountBadge value={contractCount} />
               ) : null}
+            </WorkspaceButton>
+
+            {/* Baza pytań to materiał pomocniczy, nie krok procesu — stoi za
+                ostatnim krokiem (08 Umowa), jak w makietach programu. */}
+            <WorkspaceButton
+              active={activeTab === "questions"}
+              onClick={() => onTabChange("questions")}
+              data-testid="tab-questions"
+            >
+              <BookOpen className="h-4 w-4" />
+              Baza pytań
             </WorkspaceButton>
           </nav>
 

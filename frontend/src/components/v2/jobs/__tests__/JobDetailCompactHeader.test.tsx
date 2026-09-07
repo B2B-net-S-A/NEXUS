@@ -87,9 +87,11 @@ describe("JobDetailCompactHeader", () => {
       "Pipeline",
       "Screening",
       "CV do klienta",
-      "Baza pytań",
       "Rozmowy i decyzja",
       "Umowa",
+      // Baza pytań to materiał pomocniczy, nie krok procesu — stoi za
+      // ostatnim krokiem (08 Umowa), jak w makietach programu.
+      "Baza pytań",
     ]);
 
     await userEvent.click(
