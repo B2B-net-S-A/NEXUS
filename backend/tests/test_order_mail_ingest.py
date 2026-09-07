@@ -8,7 +8,7 @@ Lata w danych: 2031+ (wolny zakres bazy testowej).
 
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
+from app.models.candidate import Candidate
+from app.models.client import Client
+from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.m365 import M365Connection
 from app.models.order_mail import (
     OUTCOME_DUPLICATE,
@@ -450,6 +453,111 @@ async def test_ingest_end_to_end_with_fake_graph(
     assert snap["last_completed"]["new_messages"] == 0
     assert snap["last_completed"]["messages"] == 5
     assert snap["last_completed"]["reason"] == "test-again"
+
+
+@pytest.mark.asyncio
+async def test_document_marked_gross_rate_is_converted_and_consultant_matched(
+    db_session, monkeypatch, tmp_path
+):
+    """Zgłoszenie Erste: klient rozpoznany po NIP, ale bez env polityki brutto.
+
+    Rodzaj stawki czytamy z DOKUMENTU: „PLN BRUTTO" → ÷ 1,23, mimo braku
+    polityki klientowej. Konsultant z dokumentu jest dopasowany do rostera
+    klienta (nazwisko z diakrytykami).
+    """
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "ORDER_MAIL_DIR", tmp_path / "order_mail")
+    # Erste NIE jest w env polityki — mirror zgłoszenia (polityka nieaktywna).
+    monkeypatch.delenv("ERSTE_GROSS_RATE_CLIENT_IDS", raising=False)
+
+    nip = _synthetic_nip()
+    client = Client(name=f"Erste Testowy {RUN} S.A.", nip=nip)
+    db_session.add(client)
+    await db_session.flush()
+    cand = Candidate(
+        name="Marcin", lastname="Żółtaniecki", email=f"mz-{RUN}@example.test"
+    )
+    db_session.add(cand)
+    await db_session.flush()
+    db_session.add(
+        Contract(
+            candidate_id=cand.id,
+            client_id=client.id,
+            status=ContractStatus.active,
+            start_date=date(2031, 1, 1),
+            end_date=date(2031, 12, 31),
+            rate_candidate=Decimal("900"),
+            rate_client=Decimal("1160"),
+            rate_unit=RateUnit.daily,
+        )
+    )
+    await db_session.commit()
+
+    doc_text = (
+        f"Zlecenie K/2031/194208/JP/828/31ERSTE8\n"
+        f"Erste Bank Polska S.A. NIP {nip}\n"
+        "Dane kontraktora Marcin Żółtaniecki Zlecenie od 2031-04-01 "
+        "Zlecenie do 2031-06-30\n"
+        "Wartość zlecenia 23,00 dni roboczych x 1 426,80 PLN BRUTTO = "
+        "32 816,40 PLN BRUTTO"
+    )
+    monkeypatch.setattr(
+        svc,
+        "extract_order_text",
+        lambda path, filename: OrderDocumentText(
+            text=doc_text,
+            page_count=1,
+            ocr_used=False,
+            ocr_capped=False,
+            reextracted_with=None,
+            letter_spacing_ratio=0.05,
+        ),
+    )
+
+    async def fake_parse(text, *, all_rows=False, **kw):
+        # Model czyta kwotę BRUTTO z dokumentu, tak jak w PDF-ie.
+        return OrderExtraction(
+            title="K/2031/194208/JP/828/31ERSTE8",
+            start_date="2031-04-01",
+            end_date="2031-06-30",
+            rate_client=Decimal("1426.80"),
+            rate_unit="day",
+            consultant_rows=[
+                ConsultantOrderRow(
+                    consultant_name="Marcin Żółtaniecki",
+                    rate_client=Decimal("1426.80"),
+                    rate_unit="day",
+                    uncertain=False,
+                )
+            ],
+            uncertain=False,
+            source="claude",
+        )
+
+    monkeypatch.setattr(svc, "parse_order_document", fake_parse)
+
+    registry = await svc.build_registry_from_db(db_session)
+    row = OrderMailDocument(
+        internet_message_id=f"<erste-gross-{RUN}@example>",
+        received_at=datetime.now(timezone.utc),
+        sender_email="orders@erste.example",
+        attachment_name="zam.pdf",
+    )
+    await svc.process_pdf_bytes(db_session, row, b"%PDF-1.4 erste", registry=registry)
+
+    assert row.client_id == client.id
+    assert row.identification_method == "registry_id"
+    # Bug 1: stawka brutto z dokumentu przeliczona na netto (÷ 1,23).
+    assert row.extraction["rate_client"] == "1160.00"
+    assert row.extraction["rate_client_gross"] == "1426.80"
+    assert row.extraction["consultant_rows"][0]["rate_client"] == "1160.00"
+    assert row.extraction["consultant_rows"][0]["rate_client_gross"] == "1426.80"
+    # Bug 2: konsultant z dokumentu dopasowany do rostera klienta.
+    resolved = row.proposal["resolved"][0]
+    assert resolved["candidate_id"] == cand.id
+    assert resolved["match_kind"] in ("exact", "rescued")
 
 
 @pytest.mark.asyncio

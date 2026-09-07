@@ -32,7 +32,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
-from typing import Any, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from starlette.concurrency import run_in_threadpool
 
@@ -80,6 +80,11 @@ class ConsultantOrderRow:
     rate_client: Optional[Decimal] = None
     rate_unit: Optional[str] = None
     md_total: Optional[Decimal] = None
+    rate_client_gross: Optional[Decimal] = None
+    """Oryginalna kwota BRUTTO tego wiersza, gdy dokument oznaczył stawkę jako
+    brutto (``detect_rate_gross_marking``). Gdy ustawiona, ``rate_client`` niesie
+    już kwotę NETTO (÷ 1,23). Znacznik idempotencji — jak w ``OrderExtraction``:
+    pole raz przeliczone nie jest dzielone drugi raz."""
     uncertain: bool = True
     uncertain_reason: Optional[str] = None
     start_date: Optional[str] = None
@@ -1725,11 +1730,33 @@ def pfron_end_date(document_text: str) -> Optional[str]:
     return candidates[0] if len(candidates) == 1 else None
 
 
-# ── PFRON i Erste: stawka w dokumencie jest BRUTTO ─────────────────────────
+# ── Stawka brutto/netto: rozpoznanie z DOKUMENTU (per zamówienie) ───────────
+#
+# Rodzaj stawki (brutto/netto) czytamy z OZNACZENIA w dokumencie, indywidualnie
+# dla każdego zamówienia — nigdy ze stałego ustawienia klienta. U większości
+# klientów stawki są netto, u Erste i PFRON zwykle brutto, ale to dokument
+# rozstrzyga: jawne „netto" przy kwocie stawki wygrywa nawet u klienta „zwykle
+# brutto", a jawne „brutto" przelicza ÷ 1,23 nawet u klienta bez własnej
+# polityki (przyczyna zgłoszenia: zamówienie Erste, którego ID nie było w env,
+# więc polityka brutto→netto nie zadziałała i stawka trafiła do bazy jako netto).
 
 _GROSS_RATE_VAT_DIVISOR = Decimal("1.23")
 # Alias zachowany dla zgodności kodu/testów odwołujących się do polityki Erste.
 _ERSTE_VAT_DIVISOR = _GROSS_RATE_VAT_DIVISOR
+
+RATE_MARK_GROSS = "gross"
+RATE_MARK_NET = "net"
+
+# Separatory tysięcy (spacje wszelkiej szerokości) usuwane, by „1 426,80"
+# zlało się z „1426,80" — słowa brutto/netto nie stoją między cyframi, więc
+# przeżywają to zwinięcie.
+_DIGIT_GROUP_SEP_RE = re.compile("(?<=\\d)[ \u00a0\u202f\u2009\u2007](?=\\d)")
+# Ile znaków wokół kwoty stawki przeszukujemy pod kątem brutto/netto. Na tyle
+# wąsko, żeby oddzielna „wartość brutto" (total z VAT) w innym miejscu dokumentu
+# nie przykleiła się do stawki podanej netto; na tyle szeroko, by złapać
+# rozbudowaną etykietę tuż przy kwocie („1 040,00 PLN — stawka brutto za …").
+# 24 znaki wycinały „brutto" dokładnie na granicy takich zapisów.
+_RATE_MARK_WINDOW = 32
 
 
 def net_rate_from_gross(gross: Decimal) -> Decimal:
@@ -1744,6 +1771,118 @@ def erste_net_from_gross(gross: Decimal) -> Decimal:
     """Kompatybilny alias historycznej funkcji konwersji Erste."""
 
     return net_rate_from_gross(gross)
+
+
+def _amount_text_variants(amount: Decimal) -> list[str]:
+    """Formy, w jakich kwota może wystąpić w dokumencie (bez separatorów tysięcy).
+
+    Formę CAŁKOWITĄ bez groszy („1426") dopuszczamy wyłącznie dla kwot okrągłych
+    — dla „1426,80" goła „1426" zakotwiczyłaby się w numerach/ID (mniejsze ryzyko
+    trafienia obok słowa brutto/netto, ale niepotrzebne).
+    """
+
+    q = amount.copy_abs().quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    int_part = int(q)
+    cents = int((q - int_part) * 100)
+    base = str(int_part)
+    if cents:
+        return [f"{base},{cents:02d}", f"{base}.{cents:02d}"]
+    return [base, f"{base},00", f"{base}.00"]
+
+
+def detect_rate_gross_marking(
+    document_text: str, rate_amounts: Iterable[Optional[Decimal]]
+) -> Optional[str]:
+    """Czy stawka jest w dokumencie oznaczona jako BRUTTO czy NETTO.
+
+    Zwraca ``RATE_MARK_GROSS`` / ``RATE_MARK_NET`` / ``None`` (brak jednoznacznego
+    oznaczenia — wtedy niczego nie zakładamy). Sygnał jest ZAKOTWICZONY na KWOCIE
+    STAWKI, nie na słowie „brutto" gdziekolwiek w dokumencie: dokument netto
+    często niesie osobną „wartość brutto" (total z VAT), więc gołe wyszukanie
+    „brutto" myliłoby total ze stawką. Patrzymy tylko na wąskie otoczenie miejsc,
+    w których pada sama stawka.
+
+    Bezpieczne wobec fałszywego „gross": ``gross`` wraca WYŁĄCZNIE, gdy przy
+    kwocie stawki widać „brutto" i przy ŻADNEJ kwocie stawki nie widać „netto".
+    Konflikt (obie etykiety) → ``None`` → brak przeliczenia.
+    """
+
+    # Szukamy i wycinamy okno na TYM SAMYM stringu (casefold), by indeksy się
+    # zgadzały: ``casefold`` bywa dłuższe niż oryginał (np. „ß"→„ss") i mieszanie
+    # pozycji z ``text`` z wycinaniem z ``lowered`` przesuwałoby okno. Cyfry
+    # kwoty są niezmienne dla ``casefold``, więc wariant nadal się dopasowuje.
+    lowered = _DIGIT_GROUP_SEP_RE.sub("", (document_text or "").casefold())
+    saw_gross = False
+    saw_net = False
+    seen: set[str] = set()
+    for amount in rate_amounts:
+        if amount is None:
+            continue
+        for variant in _amount_text_variants(amount):
+            if variant in seen:
+                continue
+            seen.add(variant)
+            for match in re.finditer(rf"(?<!\d){re.escape(variant)}(?!\d)", lowered):
+                start = max(0, match.start() - _RATE_MARK_WINDOW)
+                end = min(len(lowered), match.end() + _RATE_MARK_WINDOW)
+                window = lowered[start:end]
+                if "brutto" in window:
+                    saw_gross = True
+                if "netto" in window:
+                    saw_net = True
+    if saw_gross and not saw_net:
+        return RATE_MARK_GROSS
+    if saw_net and not saw_gross:
+        return RATE_MARK_NET
+    return None
+
+
+def _strip_rate_conversion_reasons(reasons: list[str]) -> list[str]:
+    """Usuń powody „stawka może być brutto/inny VAT" — przeliczenie już nastąpiło."""
+
+    return [
+        reason
+        for reason in reasons
+        if "vat" not in _fold_policy_text(reason)
+        and "przeliczenie" not in _fold_policy_text(reason)
+    ]
+
+
+def apply_document_rate_kind(
+    result: OrderExtraction, document_text: str
+) -> OrderExtraction:
+    """Uniwersalne rozpoznanie brutto/netto z dokumentu i przeliczenie ÷ 1,23.
+
+    Działa dla KAŻDEGO klienta, niezależnie od polityki i od env — oznaczenie
+    w dokumencie jest źródłem prawdy. Idempotentne: pole z ustawionym
+    ``rate_client_gross`` zostało już przeliczone (przez politykę klientową albo
+    wcześniejszy przebieg) i nie jest dzielone drugi raz. Przelicza stawkę
+    dokumentu ORAZ stawkę każdego wiersza konsultanta, bo planer poczty i bramka
+    czytają stawki per wiersz.
+
+    Gdy dokument NIE oznacza stawki jako brutto (netto albo brak oznaczenia),
+    funkcja nie zmienia kwoty — nie zgadujemy przeliczenia.
+    """
+
+    amounts: list[Optional[Decimal]] = [result.rate_client_gross or result.rate_client]
+    amounts += [
+        row.rate_client_gross or row.rate_client for row in result.consultant_rows
+    ]
+    if detect_rate_gross_marking(document_text, amounts) != RATE_MARK_GROSS:
+        return result
+
+    if result.rate_client is not None and result.rate_client_gross is None:
+        result.rate_client_gross = result.rate_client
+        result.rate_client = net_rate_from_gross(result.rate_client)
+        result.uncertain_reasons = _strip_rate_conversion_reasons(
+            result.uncertain_reasons
+        )
+        result.uncertain = bool(result.uncertain_reasons)
+    for row in result.consultant_rows:
+        if row.rate_client is not None and row.rate_client_gross is None:
+            row.rate_client_gross = row.rate_client
+            row.rate_client = net_rate_from_gross(row.rate_client)
+    return result
 
 
 def apply_gross_to_net_rate_policy(
@@ -1761,9 +1900,13 @@ def apply_gross_to_net_rate_policy(
     Roboczogodzinę", Erste „23,00 dni roboczych x 1 426,80 PLN BRUTTO". Do
     09.2026 obie polityki wymuszały „hour" — na dokumencie Erste zapisywało to
     stawkę DZIENNĄ jako godzinową z pewnością 1.0.
+
+    Dokument jest źródłem prawdy co do brutto/netto: jawne „netto" przy kwocie
+    stawki WYGRYWA z regułą klientową (ticket: „nigdy na podstawie stałego
+    ustawienia klienta"), więc wtedy przeliczenia nie ma. Brak oznaczenia →
+    reguła klientowa działa jak dotąd (ci klienci rozliczają zwykle brutto).
     """
 
-    del document_text
     if result.rate_client is None:
         return result
 
@@ -1775,17 +1918,15 @@ def apply_gross_to_net_rate_policy(
     if result.rate_client_gross is not None:
         return result
 
+    if detect_rate_gross_marking(document_text, [result.rate_client]) == RATE_MARK_NET:
+        return result
+
     gross = result.rate_client
     result.rate_client_gross = gross
     result.rate_client = net_rate_from_gross(gross)
-    result.uncertain_reasons = [
-        reason
-        for reason in result.uncertain_reasons
-        # Ostrzeżenie „stawka może być w innej jednostce/VAT" przestało opisywać
-        # wynik — przeliczenie właśnie się wydarzyło i jest deterministyczne.
-        if "vat" not in _fold_policy_text(reason)
-        and "przeliczenie" not in _fold_policy_text(reason)
-    ]
+    # Ostrzeżenie „stawka może być w innej jednostce/VAT" przestało opisywać
+    # wynik — przeliczenie właśnie się wydarzyło i jest deterministyczne.
+    result.uncertain_reasons = _strip_rate_conversion_reasons(result.uncertain_reasons)
     result.uncertain = bool(result.uncertain_reasons)
     return result
 
@@ -2046,8 +2187,68 @@ def _safe_token_distance(expected: str, actual: str) -> Optional[int]:
     return None
 
 
+def _osa_distance(expected: str, actual: str, *, max_distance: int) -> int:
+    """Odległość Optimal String Alignment, ucięta na ``max_distance + 1``.
+
+    Liczy substytucję, wstawienie, usunięcie oraz zamianę SĄSIEDNICH znaków —
+    każde jako koszt 1. Gdy odległość przekroczy budżet, zwraca
+    ``max_distance + 1``: interesuje nas tylko „w budżecie czy nie", nie dokładna
+    wartość powyżej progu.
+    """
+
+    len_a, len_b = len(expected), len(actual)
+    if abs(len_a - len_b) > max_distance:
+        return max_distance + 1
+    prev_prev: list[int] = []
+    prev = list(range(len_b + 1))
+    for i in range(1, len_a + 1):
+        current = [i] + [0] * len_b
+        row_min = current[0]
+        for j in range(1, len_b + 1):
+            cost = 0 if expected[i - 1] == actual[j - 1] else 1
+            current[j] = min(prev[j] + 1, current[j - 1] + 1, prev[j - 1] + cost)
+            if (
+                i > 1
+                and j > 1
+                and expected[i - 1] == actual[j - 2]
+                and expected[i - 2] == actual[j - 1]
+            ):
+                current[j] = min(current[j], prev_prev[j - 2] + 1)
+            row_min = min(row_min, current[j])
+        if row_min > max_distance:
+            return max_distance + 1
+        prev_prev, prev = prev, current
+    return prev[len_b]
+
+
+def _edit1_token_distance(expected: str, actual: str) -> Optional[int]:
+    """Dokładny token albo JEDNA drobna literówka (OSA ≤ 1) w dłuższym członie.
+
+    Szerzej niż ``_safe_token_distance`` (sama transpozycja): obejmuje pojedynczą
+    substytucję, wstawienie i usunięcie — realne literówki i błędy OCR, które
+    dzielą zapis w dokumencie od zapisu w bazie. Używa jej WYŁĄCZNIE resolver
+    poczty (``order_mail_resolver``), gdzie dopasowanie „rescued" trafia do
+    KOLEJKI (człowiek potwierdza), a pula jest zawężona do rostera JEDNEGO
+    klienta — dwa czynniki, które czynią ryzyko trafienia w inne realne nazwisko
+    (Nowak/Nowik) akceptowalnym. Ścieżka ręczna (``apply_consultant_row_match``)
+    zostaje przy transpozycji: tam człowiek wskazał już konkretną osobę i nie ma
+    kolejki, więc fałszywe dopasowanie zapisałoby cudzą stawkę bez potwierdzenia.
+
+    Próg długości ≥ 5 jak przy transpozycji: krótkie człony są zbyt kolizyjne.
+    """
+
+    if expected == actual:
+        return 0
+    if max(len(expected), len(actual)) < 5:
+        return None
+    return 1 if _osa_distance(expected, actual, max_distance=1) == 1 else None
+
+
 def _name_token_multiset_score(
-    target_tokens: tuple[str, ...], candidate_tokens: tuple[str, ...]
+    target_tokens: tuple[str, ...],
+    candidate_tokens: tuple[str, ...],
+    *,
+    distance_fn: "Callable[[str, str], Optional[int]]" = _safe_token_distance,
 ) -> Optional[float]:
     """Koszt równoważny permutacjom, bez silniowej liczby porównań.
 
@@ -2074,7 +2275,7 @@ def _name_token_multiset_score(
 
     expected = remaining_target[0]
     actual = remaining_candidate[0]
-    if _safe_token_distance(expected, actual) != 1:
+    if distance_fn(expected, actual) != 1:
         return None
     return 1 / max(len(expected), len(actual))
 
@@ -2084,6 +2285,7 @@ def _name_match_score(
     candidate: str,
     *,
     consultant_given_names: Optional[str] = None,
+    distance_fn: "Callable[[str, str], Optional[int]]" = _safe_token_distance,
 ) -> Optional[float]:
     """Najniższy bezpieczny koszt dopasowania; ``None`` = inna osoba.
 
@@ -2106,7 +2308,9 @@ def _name_match_score(
                 for given_tokens in given_name_variants
             ):
                 continue
-            score = _name_token_multiset_score(target_tokens, candidate_tokens)
+            score = _name_token_multiset_score(
+                target_tokens, candidate_tokens, distance_fn=distance_fn
+            )
             if score is not None and (best is None or score < best):
                 best = score
     return best

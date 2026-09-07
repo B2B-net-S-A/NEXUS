@@ -139,6 +139,46 @@ class TestResolveRows:
         assert r[0].contract_id == 15 and r[0].contract_status == "ended"
         assert r[0].has_single_live_contract is False
 
+    def test_single_char_surname_typo_is_rescued(self):
+        """Zgłoszenie: „drobna różnica w zapisie nazwiska" — literówka, nie tylko
+        transpozycja. Substytucja/usunięcie też ma trafiać do kolejki, nie w
+        „Brak takiej osoby". Ścieżka poczty (człowiek potwierdza)."""
+        r = resolve_rows([_row("Jan Kowarski")], self.roster)  # kowalski→kowarski
+        assert r[0].match_kind == MATCH_RESCUED and r[0].candidate_id == 1
+
+    def test_reported_erste_consultant_matches_despite_diacritics_and_typo(self):
+        roster = [
+            RosterPerson(
+                7,
+                "Marcin",
+                "Żółtaniecki",
+                (RosterContract(70, "active", None, None),),
+            )
+        ]
+        exact = resolve_rows([_row("Marcin Żółtaniecki")], roster)
+        assert exact[0].match_kind == MATCH_EXACT and exact[0].contract_id == 70
+        # Zapis bez diakrytyków (częsty w importach) — nadal EXACT (zwijanie).
+        folded = resolve_rows([_row("Marcin Zoltaniecki")], roster)
+        assert folded[0].match_kind == MATCH_EXACT
+        # Drobna literówka (usunięcie znaku) — RESCUED do kolejki, nie MATCH_NONE.
+        typo = resolve_rows([_row("Marcin Żółtanicki")], roster)
+        assert typo[0].match_kind == MATCH_RESCUED and typo[0].candidate_id == 7
+
+    def test_two_people_within_typo_distance_are_ambiguous(self):
+        roster = self.roster + [
+            RosterPerson(
+                8, "Jan", "Kowalsci", (RosterContract(20, "active", None, None),)
+            )
+        ]
+        # „Kowalski" jest o jedną edycję od „Kowalski"(id1) i „Kowalsci"(id8).
+        r = resolve_rows([_row("Jan Kowalsii")], roster)
+        assert r[0].match_kind == MATCH_AMBIGUOUS
+        assert set(r[0].candidate_ids) == {1, 8}
+
+    def test_far_name_still_unmatched(self):
+        r = resolve_rows([_row("Zenon Zupełnie Inny")], self.roster)
+        assert r[0].match_kind == MATCH_NONE
+
 
 # ── Planer ───────────────────────────────────────────────────────────────────
 
