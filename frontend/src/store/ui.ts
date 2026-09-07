@@ -20,6 +20,9 @@ interface UiStoreState {
    * semantics without bumping `version` and writing a migrator.
    */
   columnPreferences: Record<string, string[]>;
+  /** Pipeline kanban (04 „Pipeline" — flow C2 PR3): ukryj kolumny szablonu bez
+   *  kandydatów. Globalne (nie per-job) — świadomie proste, jak `density`. */
+  hideEmptyKanbanColumns: boolean;
   setDensity: (d: UiDensity) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -27,6 +30,7 @@ interface UiStoreState {
   setJobsView: (v: JobsView) => void;
   setColumnPreference: (entity: string, hidden: string[]) => void;
   clearColumnPreference: (entity: string) => void;
+  setHideEmptyKanbanColumns: (v: boolean) => void;
 }
 
 export const useUiStore = create<UiStoreState>()(
@@ -35,8 +39,9 @@ export const useUiStore = create<UiStoreState>()(
       density: "cozy",
       sidebarCollapsed: false,
       candidatesView: "list",
-      jobsView: "tiles",
+      jobsView: "list",
       columnPreferences: {},
+      hideEmptyKanbanColumns: false,
       setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
@@ -52,10 +57,12 @@ export const useUiStore = create<UiStoreState>()(
           delete next[entity];
           return { columnPreferences: next };
         }),
+      setHideEmptyKanbanColumns: (hideEmptyKanbanColumns) =>
+        set({ hideEmptyKanbanColumns }),
     }),
     {
       name: "nexus-ui",
-      version: 3,
+      version: 5,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
@@ -63,6 +70,19 @@ export const useUiStore = create<UiStoreState>()(
         }
         if (fromVersion < 3) {
           state = { ...state, jobsView: state.jobsView ?? "tiles" };
+        }
+        if (fromVersion < 4) {
+          state = {
+            ...state,
+            hideEmptyKanbanColumns: state.hideEmptyKanbanColumns ?? false,
+          };
+        }
+        if (fromVersion < 5) {
+          // Krok 01 „Lista rekrutacji" (flow C2, PR 4/7): widok listy z
+          // mini-lejkiem i dokiem gotowości jest teraz domyślny. Jednorazowy
+          // reset preferencji — do v4 domyślne „tiles" nie było odróżnialne
+          // od świadomego wyboru; kafelki wracają jednym kliknięciem.
+          state = { ...state, jobsView: "list" };
         }
         return state;
       },

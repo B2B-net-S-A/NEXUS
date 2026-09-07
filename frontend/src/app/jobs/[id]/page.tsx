@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { usePathname, useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -11,9 +10,8 @@ import { getAvatarColor } from "@/lib/colors";
 import api, { postingsApi, aiWriterApi, matchingApi, phase3Api, recommendationsApi } from "@/lib/api";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
-import { SuggestedCandidatesWidget } from "@/components/SuggestedCandidatesWidget";
-import { HistoricalCandidatesSection } from "@/components/HistoricalCandidatesSection";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
@@ -2045,8 +2043,6 @@ const RECRUITMENT_TYPE_CONFIG: Record<
 
 export default function JobDetailPage() {
   const { id } = useParams();
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
@@ -2073,7 +2069,6 @@ export default function JobDetailPage() {
   // nie spychał pipeline'u poza ekran.
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [activeTab, setActiveTab] = useState<JobDetailTab>("pipeline");
-  const [proposalsHighlight, setProposalsHighlight] = useState(false);
   // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
   // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
   // ofertami i sesjami.
@@ -2085,12 +2080,18 @@ export default function JobDetailPage() {
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
   // zakładka AI Matching; scroll + glow robi sama HistoricalCandidatesSection.
+  // ?tab=champion (dok „Gotowość zlecenia" na /jobs, akcja „Otwórz" przy
+  // pozycji Profil Championa) → "champion" jest już literałem `JobDetailTab`,
+  // więc mapowanie jest tożsamościowe — bez tego link lądował po cichu na
+  // domyślnym Pipeline zamiast na Championie.
   useEffect(() => {
     const tab = searchParams?.get("tab");
     if (tab === "chat") {
       setActiveTab("chat");
     } else if (tab === "similar") {
       setActiveTab("ai-matching");
+    } else if (tab === "champion") {
+      setActiveTab("champion");
     }
   }, [searchParams]);
 
@@ -2104,27 +2105,14 @@ export default function JobDetailPage() {
   });
 
   // Phase 13: when redirected from AddJobModal with ?highlight=ai-proposals,
-  // switch to the AI matching tab, scroll to the widget, and glow the panel
-  // briefly so the recruiter sees AI has taken over.
+  // switch to the AI matching tab. Scroll + glow + query-param cleanup for the
+  // "Rekomendowani" card now live in SourcingHub (krok 03, PR 2/7) — ono
+  // renderuje się dopiero po przełączeniu zakładki, więc to jest wszystko,
+  // czego strona sama musi dopilnować.
   useEffect(() => {
     if (searchParams?.get("highlight") !== "ai-proposals") return;
     setActiveTab("ai-matching");
-    setProposalsHighlight(true);
-    // Let React paint the new tab before scrolling.
-    const scrollTimer = window.setTimeout(() => {
-      const el = document.getElementById("ai-proposals-section");
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 150);
-    const glowTimer = window.setTimeout(() => setProposalsHighlight(false), 3000);
-    const cleanupTimer = window.setTimeout(() => {
-      if (pathname) router.replace(pathname, { scroll: false });
-    }, 3200);
-    return () => {
-      window.clearTimeout(scrollTimer);
-      window.clearTimeout(glowTimer);
-      window.clearTimeout(cleanupTimer);
-    };
-  }, [searchParams, pathname, router]);
+  }, [searchParams]);
 
   const {
     data: job,
@@ -2391,6 +2379,7 @@ export default function JobDetailPage() {
               columns={kanban?.columns ?? []}
               offTemplate={kanban?.off_template ?? null}
               jobId={Number(id)}
+              jobTitle={job?.title}
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}
               headerCollapsed={headerCollapsed}
@@ -2409,22 +2398,18 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "ai-matching" && (
-        <div className="space-y-4">
-          <HistoricalCandidatesSection jobId={Number(id)} readOnly={!canWritePipeline} />
-          <div
-            className={cn(
-              "rounded-lg transition-shadow",
-              proposalsHighlight &&
-                "ring-2 ring-primary ring-offset-2 ring-offset-background shadow-lg",
-            )}
-          >
-            <SuggestedCandidatesWidget
-              jobId={Number(id)}
-              defaultLocation={formatCandidateLocation(job?.location)}
-              jobHasBudget={job?.has_budget_hourly ?? true}
-              readOnly={!canWritePipeline}
-            />
-          </div>
+        // Krok 03 „Pozyskiwanie" (program „Flow w języku C2", PR 2/7): rama
+        // czterech kart-źródeł nad C2. „Kandydaci z podobnych projektów" i
+        // „Rekomendowani" — dotąd bloki NAD rankingiem — są teraz kartą/
+        // reveal-em wewnątrz SourcingHub; ono też dokłada kompaktową Historię
+        // requestu pod ramą. C2 (AIMatchingSection) jedzie jako `children`,
+        // dokładnie tak jak dziś — bez żadnych zmian.
+        <SourcingHub
+          jobId={Number(id)}
+          job={job}
+          readOnly={!canWritePipeline}
+          onTabChange={setActiveTab}
+        >
           {/* Warsztat dopasowań C2 — „kto pasuje do tej oferty". Widoczny dla
               wszystkich ról; akcje respektują readOnly. Narzędzia AI (kryteria,
               scoring, embedding) są wewnątrz, zwinięte, tylko dla admina. */}
@@ -2434,7 +2419,7 @@ export default function JobDetailPage() {
             readOnly={!canWritePipeline}
             isAdmin={isAdmin}
           />
-        </div>
+        </SourcingHub>
       )}
 
       {activeTab === "manual-search" && job && (

@@ -78,67 +78,39 @@ import { useToast } from"@/components/Toast";
 import { terminalOf } from"@/lib/kanban-terminal";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
-import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { PipelineFiltersRail } from "@/components/v2/jobs/PipelineFiltersRail";
+import {
+ PipelineCandidateDock,
+ PipelineCandidateDockEmpty,
+ type PipelineMoveTarget,
+} from "@/components/v2/jobs/PipelineCandidateDock";
+import {
+ colId,
+ columnLabel,
+ ScoreRing,
+ type KanbanColumn,
+ type KanbanItem,
+} from "@/components/v2/pages/kanban-shared";
+
+// Re-eksport — `KanbanColumn`/`KanbanItem`/`colId`/`columnLabel`/`ScoreRing`
+// mieszkają teraz w `kanban-shared.tsx` (dok i lewy rail importują je STAMTĄD,
+// nie stąd, żeby uniknąć cyklu: KanbanBoardV2 → dok/rail → KanbanBoardV2).
+// Re-eksport zostaje dla wstecznej zgodności — `KanbanColumn` było publicznym
+// eksportem tego modułu przed PR3 programu „flow w języku C2".
+export type { KanbanColumn, KanbanItem };
+export { colId, columnLabel, ScoreRing };
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-interface KanbanItem {
- id: number;
- candidate_id: number;
- stage: string;
- stage_def_id?: number | null;
- rating?: number;
- days_in_stage?: number;
- name?: string;
- lastname?: string;
- // Kto przypisał kandydata do tej rekrutacji (rekruter z najwcześniejszego
- // etapu pary kandydat/oferta) i kiedy — pokazywane w tooltipie karty.
- added_to_job_by_name?: string | null;
- added_to_job_at?: string | null;
- // Pending verification (migracja 0056)
- verification_status?:"active" |"pending" |"rejected";
- expected_rate_value?: string | number | null;
- expected_rate_unit?: RateUnit | null;
- expected_rate_currency?: string | null;
- budget_max_at_move?: number | null;
- // Hiring manager tej oferty odrzucił już tego kandydata po rozmowie na innej
- // rekrutacji. Manager jest domyślny (to manager tej oferty), więc chip nie
- // niesie nazwiska — kto/kiedy/dlaczego siedzi w tooltipie.
- hm_veto?: {
-  hiring_manager_contact_id: number;
-  hiring_manager_name?: string | null;
-  source_job_id: number;
-  source_job_title?: string | null;
-  rejected_at: string;
-  rejection_reason_name: string;
-  rejection_note?: string | null;
- } | null;
- contact_case?: CandidateContactSummary | null;
-}
-
 const APPROVER_ROLES = new Set(["admin","delivery_lead","head_of_recruitment"]);
-
-export interface KanbanColumn {
- stage: string;
- category?:"internal" |"external" |"terminal";
- count: number;
- items: KanbanItem[];
- stage_def_id?: number | null;
- name?: string | null;
- order?: number | null;
- /** KTÓRY terminal, nie tylko „czy terminal".
-  *
-  *  Kolumna bez mapowania na legacy enum raportuje `stage: "new"`, więc
-  *  rozpoznawanie terminala po `stage` gubiło WŁASNE etapy terminalne:
-  *  „odrzucony" nie otwierał modala powodu (backend odbijał 422), a
-  *  „zatrudniony" pomijał potwierdzenie mimo skutków ubocznych. */
- terminal_type?: "hired" | "rejected" | "withdrawn" | null;
-}
 
 interface KanbanBoardV2Props {
  columns: KanbanColumn[];
  jobId: number;
+ /** Tytuł rekrutacji — nagłówki modali CV i zakładka „Dopasowanie" w doku
+  *  „Karta w procesie" (krok 04). Nie mylić z nazwą etapu. */
+ jobTitle?: string;
  // AI match scores (0-100) keyed by candidate_id → score ring on each card.
  // Kept as a candidate-keyed map (not embedded in items) so it survives the
  // optimistic-move / "verified" item rebuilds below.
@@ -215,11 +187,6 @@ export const composeColumns = (
  },
  ];
 };
-
-const colId = (col: KanbanColumn) =>
- col.stage_def_id ? `def:${col.stage_def_id}` : `stage:${col.stage}`;
-
-const columnLabel = (col: KanbanColumn) => col.name ?? col.stage;
 
 const defaultFocusColumnId = (cols: KanbanColumn[]) => {
  const preferred = cols.find(
@@ -354,100 +321,6 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  );
 });
 
-// ── AI match score ring ──────────────────────────────────────────────
-// Circular badge mirroring the hybrid AI match score (0-100): colored arc +
-// number. Tiers use FIXED hues (not --primary) so the traffic-light reading
-// stays stable across the user-selectable theme palettes / kids mode.
-
-function scoreRingColor(score: number): string {
- if (score >= 75) return "text-emerald-500";
- if (score >= 50) return "text-sky-500";
- if (score >= 25) return "text-amber-500";
- return "text-rose-400";
-}
-
-// `score == null` → loading placeholder (muted, pulsing, no number); shown
-// while the scores query is still resolving so cold pipelines don't look broken.
-const ScoreRing = memo(function ScoreRing({
- score,
- density,
-}: {
- score: number | null;
- density: "cozy" |"compact";
-}) {
- const compact = density === "compact";
- const size = compact ? 28 : 40;
- const stroke = compact ? 3 : 3.5;
- const r = (size - stroke) / 2;
- const circ = 2 * Math.PI * r;
-
- if (score == null) {
- return (
- <div
- className={cn("relative shrink-0 self-center animate-pulse",
- compact ?"h-7 w-7" :"h-10 w-10"
- )}
- aria-label="Obliczanie dopasowania AI…"
- >
- <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full">
- <circle
- cx={size / 2}
- cy={size / 2}
- r={r}
- fill="none"
- strokeWidth={stroke}
- className="stroke-current text-muted-foreground/20"
- />
- </svg>
- </div>
- );
- }
-
- const pct = Math.max(0, Math.min(100, Math.round(score)));
- const dash = (pct / 100) * circ;
- const color = scoreRingColor(pct);
- return (
- <Tooltip>
- <TooltipTrigger asChild>
- <div
- className={cn("relative shrink-0 self-center", compact ?"h-7 w-7" :"h-10 w-10")}
- aria-label={`Dopasowanie AI: ${pct} na 100`}
- >
- <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full -rotate-90">
- <circle
- cx={size / 2}
- cy={size / 2}
- r={r}
- fill="none"
- strokeWidth={stroke}
- className="stroke-current text-muted-foreground/20"
- />
- <circle
- cx={size / 2}
- cy={size / 2}
- r={r}
- fill="none"
- strokeWidth={stroke}
- strokeLinecap="round"
- strokeDasharray={`${dash} ${circ - dash}`}
- className={cn("stroke-current transition-all", color)}
- />
- </svg>
- <span
- className={cn("absolute inset-0 flex items-center justify-center font-bold",
- compact ?"text-[10px]" :"text-xs",
- color
- )}
- >
- {pct}
- </span>
- </div>
- </TooltipTrigger>
- <TooltipContent side="top">Dopasowanie AI: {pct}/100</TooltipContent>
- </Tooltip>
- );
-});
-
 const OverviewScoreBadge = memo(function OverviewScoreBadge({
  normalizedScore,
  loading,
@@ -513,6 +386,14 @@ interface CardProps {
  contactFeatureEnabled: boolean;
  desktopOverview: boolean;
  readOnly: boolean;
+ /** Krok 04 Pipeline (flow C2, PR 3/7): klik na kartę otwiera dok „Karta w
+  *  procesie" obok tablicy — wszędzie poza checkboxem i linkiem do profilu. */
+ onOpenDock: (item: KanbanItem) => void;
+ /** Karta nie pasuje aktywnym filtrom lewej kolumny — przyciemniona, ale
+  *  NADAL w DOM-ie i przeciągalna: usunięcie jej z listy zepsułoby indeksy
+  *  `@hello-pangea/dnd`, na których stoi `onDragEnd`. Ukrywanie liczników w
+  *  rail'u (nie tutaj) jest tym, co czyni przyciemnienie „nie cichym". */
+ dimmed?: boolean;
 }
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
@@ -532,6 +413,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  contactFeatureEnabled,
  desktopOverview,
  readOnly,
+ onOpenDock,
+ dimmed,
 }: CardProps) {
  const isPending = item.verification_status === "pending";
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
@@ -586,9 +469,32 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ]
  .filter(Boolean)
  .join(" ");
+ // Krok 04 Pipeline: otwórz dok na klik gdziekolwiek na karcie POZA
+ // checkboxem, linkiem do profilu i przyciskami akcji hover — te już
+ // robią coś swojego (zaznaczenie / nawigacja / mutacja) i mają własny
+ // `stopPropagation()`. `.closest()` jest odporne na to, że link do
+ // profilu owija dziś większość treści karty (avatar, nazwisko, badge'e).
+ const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+ if ((e.target as HTMLElement).closest('a, button, [role="checkbox"], input')) {
+ return;
+ }
+ onOpenDock(item);
+ };
+ const gateFlagReason = item.hm_veto
+ ? [
+ `${item.hm_veto.hiring_manager_name ?? "Hiring manager tej rekrutacji"} odrzucił(a) tego kandydata po rozmowie ${formatDate(item.hm_veto.rejected_at)}`,
+ `Powód: ${item.hm_veto.rejection_reason_name}`,
+ ]
+ .filter(Boolean)
+ .join(" — ")
+ : isPending
+ ? "Oczekuje akceptacji weryfikacji."
+ : null;
 
  return (
  <div
+ data-kanban-card=""
+ onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
  density === "compact" ?"p-2" :"p-5",
@@ -597,7 +503,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Świadomie bez grayscale/opacity — to sygnatura „pending" i czytałaby
  // się jako „nieaktywny". Ten kandydat jest aktywny, tylko nie dla tego
  // managera.
- item.hm_veto && !isPending &&"border-destructive/50"
+ item.hm_veto && !isPending &&"border-destructive/50",
+ // Filtr lewej kolumny nie pasuje — przyciemnij, ale zostaw w DOM-ie
+ // (patrz komentarz `dimmed` w `CardProps`).
+ dimmed &&"opacity-35"
  )}
  title={
  isPending
@@ -643,6 +552,22 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  />
  </div>
 
+ {/* Kropka bramki — jedyny sygnał hm_veto/pending, który przeżywa gęsty
+ widok pełnego pipeline'u (`desktopOverview`): tekstowe badge'e niżej na
+ karcie (Weto HM / Pending) są tam schowane (`xl:pointer-fine:hidden`),
+ bo w tym trybie karta jest kilkunastopikselowym kafelkiem. Ta kropka
+ NIE jest owinięta tym warunkiem — patrz `dołóż flagę bramki jako
+ kropkę` w brief programu C2 (04 Pipeline). */}
+ {gateFlagReason && (
+ <span
+ className={cn("absolute left-4 top-0 z-10 h-2 w-2 rounded-full ring-2 ring-card",
+ item.hm_veto ?"bg-destructive" :"bg-warning"
+ )}
+ title={gateFlagReason}
+ aria-hidden="true"
+ />
+ )}
+
  {desktopOverview && (
  <div className="absolute right-0 top-0 hidden h-6 min-w-6 items-center justify-center xl:pointer-fine:flex">
  <OverviewScoreBadge
@@ -653,13 +578,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  )}
 
- <Link
- href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
- className="block"
- aria-label={fullName}
- aria-describedby={accessibleDetails ? detailsId : undefined}
- onClick={(e) => e.stopPropagation()}
- >
+ {/* Krok 04 Pipeline (flow C2): klik w TREŚĆ karty otwiera dok „Karta
+ w procesie" (`handleCardClick` na kontenerze). Do profilu prowadzi
+ wyłącznie nazwisko (link niżej) oraz „Pełny profil" w doku. Wcześniej
+ link owijał całą treść, więc dok dało się otworzyć tylko z paddingu. */}
  <div className={cn("flex items-start gap-2", density === "compact" ?"pl-5" :"pl-5", desktopOverview &&"xl:pointer-fine:items-center xl:pointer-fine:gap-1 xl:pointer-fine:pl-0")}>
  <div
  className={cn("rounded-full bg-primary text-white font-semibold flex items-center justify-center shrink-0",
@@ -670,14 +592,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {initials}
  </div>
  <div className="min-w-0 flex-1">
- <div
- className={cn("font-medium text-foreground truncate",
+ <Link
+ href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+ aria-label={fullName}
+ aria-describedby={accessibleDetails ? detailsId : undefined}
+ onClick={(e) => e.stopPropagation()}
+ className={cn("block font-medium text-foreground truncate hover:underline",
  density === "compact" ?"text-sm" :"text-2xl",
  desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3"
  )}
  >
  {fullName}
- </div>
+ </Link>
  <div
  className={cn(
  "mt-1 flex min-w-0 items-center gap-1 text-muted-foreground",
@@ -757,7 +683,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  )}
  </div>
- </Link>
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
@@ -853,7 +778,11 @@ interface ColProps {
  /** Kolumna „poza szablonem" jest wyłącznie ŹRÓDŁEM: kartę można z niej
   *  wyciągnąć, ale nie da się jej tam upuścić (upuszczenie znaczyłoby ruch
   *  na przypadkowy etap). */
- dropDisabled?: boolean;}
+ dropDisabled?: boolean;
+ onOpenDock: (item: KanbanItem) => void;
+ /** `true` = karta nie pasuje aktywnym filtrom lewej kolumny (przyciemnij). */
+ isDimmed: (item: KanbanItem) => boolean;
+}
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
@@ -872,7 +801,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  desktopOverview,
  fullPipelineDesktop,
  readOnly,
- dropDisabled,}: ColProps) {
+ dropDisabled,
+ onOpenDock,
+ isDimmed,
+}: ColProps) {
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -961,6 +893,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  contactFeatureEnabled={contactFeatureEnabled}
  desktopOverview={desktopOverview}
  readOnly={readOnly}
+ onOpenDock={onOpenDock}
+ dimmed={isDimmed(item)}
  />
  </div>
  )}
@@ -982,9 +916,13 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
+ // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
+ // świadomie nie per-job.
+ const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
+ const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
  const { showActionToast, showSuccess, showError } = useToast();
@@ -1019,6 +957,26 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  srcColId: string;
  } | null>(null);
  const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
+
+ // Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" — trzymany po
+ // `candidate_id` (STABILNY), nie po id CandidateStage (`item.id` zmienia się
+ // przy KAŻDYM ruchu — `sendMove`/`submitVerifiedMove` podmieniają je na nowy
+ // wiersz). Po candidate_id dok „podąża" za kandydatem przez ruchy bez żadnej
+ // dodatkowej synchronizacji.
+ const [dockCandidateId, setDockCandidateId] = useState<number | null>(null);
+ const openDock = useCallback((item: KanbanItem) => {
+ setDockCandidateId(item.candidate_id);
+ }, []);
+ const closeDock = useCallback(() => setDockCandidateId(null), []);
+
+ // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
+ // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).
+ // Przyciemniają niepasujące karty; `isDimmed` musi mieć stabilną referencję
+ // (memo na `KanbanColumnV2`/`CandidateKanbanCard` — patrz komentarz niżej przy
+ // `toggleSelect`), stąd `useCallback` z zależnościami tylko od samych filtrów.
+ const [stuckFilter, setStuckFilter] = useState(false);
+ const [blockedFilter, setBlockedFilter] = useState(false);
+ const [recruiterFilter, setRecruiterFilter] = useState<string | null>(null);
 
  // --- Wysokość kolumn liczona dynamicznie od realnej pozycji boardu ---------
  // Problem: stary `h-[calc(100vh-350px)]` miał na sztywno offset 350px = wysokość
@@ -1398,6 +1356,64 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  ]
  );
 
+ // Krok 04 Pipeline (flow C2, PR 3/7): wyodrębnione z `onDragEnd`, żeby dok
+ // „Karta w procesie" mogło wołać DOKŁADNIE tę samą decyzję co przeciągnięcie
+ // karty — bez kopiowania gałęzi „Zweryfikowany"/„CV Wysłane"/„Zatrudniony"/
+ // terminal. Zachowanie drag&drop jest bit w bit takie samo jak przed tym
+ // refaktorem (czysta ekstrakcja, zero zmiany logiki).
+ const requestMove = useCallback(
+ (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
+ if (readOnly) return;
+ if (srcColId === colId(dst)) return;
+
+ // Pending verification (migracja 0056) — najpierw zapytaj o rate,
+ // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
+ // recruiter może anulować w modalu.
+ if (dst.stage === "verified") {
+ setVerifiedQueue([]);
+ setVerifiedBulkTotal(1);
+ setVerifiedRatePrompt({
+ item,
+ destCol: dst,
+ srcColId,
+ });
+ return;
+ }
+
+ // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (recruiter może
+ // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
+ if (dst.stage === "cv_sent") {
+ setClientRateQueue([]);
+ setClientRateBulkTotal(1);
+ setClientRatePrompt({ item, destCol: dst, srcColId });
+ return;
+ }
+
+ // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
+ // — wymaga jawnego potwierdzenia zamiast samego drop-u.
+ if (terminalOf(dst) === "hired") {
+ setHiredConfirm({ item, destCol: dst, srcColId });
+ return;
+ }
+
+ // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
+ // żeby anulowanie nie zostawiało karty w złej kolumnie.
+ const dropTerminal = terminalOf(dst);
+ if (dropTerminal === "rejected" || dropTerminal === "withdrawn") {
+ setPendingRejection({
+ entries: [{ item, srcColId }],
+ destCol: dst,
+ terminalType: dropTerminal,
+ });
+ return;
+ }
+
+ applyOptimistic(item, srcColId, dst);
+ sendMove(item, dst);
+ },
+ [readOnly, applyOptimistic, sendMove]
+ );
+
  const onDragEnd = useCallback(
  (res: DropResult) => {
  if (readOnly) return;
@@ -1409,53 +1425,9 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  if (!src || !dst || colId(src) === colId(dst)) return;
  const item = src.items[res.source.index];
  if (!item) return;
-
- // Pending verification (migracja 0056) — najpierw zapytaj o rate,
- // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
- // recruiter może anulować w modalu.
- if (dst.stage === "verified") {
- setVerifiedQueue([]);
- setVerifiedBulkTotal(1);
- setVerifiedRatePrompt({
- item,
- destCol: dst,
- srcColId: colId(src),
- });
- return;
- }
-
- // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (recruiter może
- // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
- if (dst.stage === "cv_sent") {
- setClientRateQueue([]);
- setClientRateBulkTotal(1);
- setClientRatePrompt({ item, destCol: dst, srcColId: colId(src) });
- return;
- }
-
- // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
- // — wymaga jawnego potwierdzenia zamiast samego drop-u.
- if (terminalOf(dst) === "hired") {
- setHiredConfirm({ item, destCol: dst, srcColId: colId(src) });
- return;
- }
-
- // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
- // żeby anulowanie nie zostawiało karty w złej kolumnie.
- const dropTerminal = terminalOf(dst);
- if (dropTerminal === "rejected" || dropTerminal === "withdrawn") {
- setPendingRejection({
- entries: [{ item, srcColId: colId(src) }],
- destCol: dst,
- terminalType: dropTerminal,
- });
- return;
- }
-
- applyOptimistic(item, colId(src), dst);
- sendMove(item, dst);
+ requestMove(item, colId(src), dst);
  },
- [cols, stageCols, applyOptimistic, sendMove, readOnly]
+ [cols, stageCols, requestMove, readOnly]
  );
 
  // Submit z modala"Zweryfikowany — podaj rate"
@@ -1666,6 +1638,141 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  setPendingRemoval(item);
  }, []);
 
+ // ── Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" ─────────
+ //
+ // `dockItem` szuka po `candidate_id`, nie po `id` (patrz komentarz przy
+ // `dockCandidateId`). Jedno przejście po `cols` starcza na trójkę: samą
+ // kartę, id kolumny w której dziś stoi (do wykluczenia z pigułek ruchu i
+ // do `requestMove`) i etykietę tej kolumny (do nagłówka „Etap ·" w doku).
+ const { dockItem, dockItemColId, dockItemColLabel } = useMemo((): {
+ dockItem: KanbanItem | null;
+ dockItemColId: string | null;
+ dockItemColLabel: string | null;
+ } => {
+ if (dockCandidateId != null) {
+ for (const c of cols) {
+ const found = c.items.find((i) => i.candidate_id === dockCandidateId);
+ if (found) {
+ return { dockItem: found, dockItemColId: colId(c), dockItemColLabel: columnLabel(c) };
+ }
+ }
+ }
+ return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
+ }, [cols, dockCandidateId]);
+
+ // Kolumna terminala „Odrzucony" tego szablonu — potrzebna zarówno „Odrzuć
+ // z powodem" w doku, jak i sprawdzeniu, czy dana karta w ogóle DA się
+ // jeszcze odrzucić (kandydat już `hired`/`rejected`/`withdrawn` — nie ma
+ // po co proponować ponowne odrzucenie).
+ const rejectedTemplateCol = useMemo(
+ () => stageCols.find((c) => terminalOf(c) === "rejected"),
+ [stageCols]
+ );
+ const dockItemColumn = dockItemColId
+ ? (cols.find((c) => colId(c) === dockItemColId) ?? null)
+ : null;
+ const dockItemTerminal = dockItemColumn ? terminalOf(dockItemColumn) : null;
+ const canRejectDockItem = Boolean(rejectedTemplateCol) && dockItemTerminal == null;
+
+ // Pigułki „Przenieś na etap": wszystkie kolumny szablonu poza tą, na której
+ // kandydat dziś stoi. Bramka liczona z DANYCH KARTY (backend nie ma endpointu
+ // podglądu — egzekwuje ją WEWNĄTRZ `POST /pipeline/move`,
+ // `assert_candidate_move_eligible`), więc wyszarzamy dokładnie to, co karta
+ // wie: weto hiring managera blokuje KAŻDY ruch nie-terminalny (także
+ // „Zatrudniony"). Terminalne (`rejected`/`withdrawn`) ZAWSZE przechodzą —
+ // kontrakt programu C2. Pozostałe twarde powody (czarna lista, NDA, klient
+ // konkurencyjny, zatrudnienie u tego klienta) nie są na karcie — te kończą się
+ // 409 z polskim powodem w toaście, tą samą ścieżką co drag&drop. `pending`
+ // NIE jest bramką ruchu (backend jej nie zna; drag przenosi takich
+ // kandydatów dziś bez przeszkód), więc dok też go nie blokuje.
+ const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
+ if (!dockItem || !dockItemColId) return [];
+ return stageCols
+ .filter((c) => colId(c) !== dockItemColId)
+ .map((c) => {
+ const terminal = terminalOf(c);
+ let blockedReason: string | null = null;
+ if (readOnly) {
+ blockedReason = "Tylko do odczytu — brak prawa zapisu w tym pipeline.";
+ } else if (terminal === "rejected" || terminal === "withdrawn") {
+ blockedReason = null;
+ } else if (dockItem.hm_veto) {
+ blockedReason = `Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie (${formatDate(dockItem.hm_veto.rejected_at)}) — ${dockItem.hm_veto.rejection_reason_name}.`;
+ }
+ return { col: c, blockedReason };
+ });
+ }, [dockItem, dockItemColId, stageCols, readOnly]);
+
+ const handleDockMove = useCallback(
+ (dst: KanbanColumn) => {
+ if (!dockItem || !dockItemColId) return;
+ requestMove(dockItem, dockItemColId, dst);
+ },
+ [dockItem, dockItemColId, requestMove]
+ );
+
+ const handleDockReject = useCallback(() => {
+ if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
+ setPendingRejection({
+ entries: [{ item: dockItem, srcColId: dockItemColId }],
+ destCol: rejectedTemplateCol,
+ terminalType: "rejected",
+ });
+ }, [dockItem, dockItemColId, rejectedTemplateCol]);
+
+ // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
+ // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
+ const allItems = useMemo(() => cols.flatMap((c) => c.items), [cols]);
+ const stuckCount = useMemo(
+ () => allItems.filter((i) => (i.days_in_stage ?? 0) > 7).length,
+ [allItems]
+ );
+ const blockedCount = useMemo(
+ () =>
+ allItems.filter(
+ (i) => Boolean(i.hm_veto) || i.verification_status === "pending"
+ ).length,
+ [allItems]
+ );
+ const recruiterNames = useMemo(() => {
+ const names = new Set<string>();
+ for (const i of allItems) {
+ const n = i.added_to_job_by_name?.trim();
+ if (n) names.add(n);
+ }
+ return Array.from(names).sort((a, b) => a.localeCompare(b, "pl"));
+ }, [allItems]);
+
+ // Stabilna referencja — patrz komentarz nad `toggleSelect` (memo na
+ // kolumnach/kartach). Zmienia tożsamość WYŁĄCZNIE gdy zmieni się któryś
+ // z trzech filtrów, nigdy przy niepowiązanym re-renderze (np. checkbox).
+ const isDimmed = useCallback(
+ (item: KanbanItem) => {
+ if (stuckFilter && !((item.days_in_stage ?? 0) > 7)) return true;
+ if (
+ blockedFilter &&
+ !(Boolean(item.hm_veto) || item.verification_status === "pending")
+ ) {
+ return true;
+ }
+ if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
+ return true;
+ }
+ return false;
+ },
+ [stuckFilter, blockedFilter, recruiterFilter]
+ );
+
+ // „Ukryj puste kolumny" usuwa CAŁE kolumny bez kandydatów z renderu — to
+ // jest bezpieczne dla `@hello-pangea/dnd` (w odróżnieniu od filtrowania
+ // ITEMÓW wewnątrz kolumny, patrz `isDimmed`): pusta kolumna nie ma żadnych
+ // indeksów do zepsucia, a `onDragEnd`/`bulkMove`/`stageCols` i tak liczą po
+ // PEŁNYM `cols`, więc ukrycie jej z widoku nie rusza celów ruchu.
+ const visibleCols = useMemo(
+ () => (hideEmptyColumns ? cols.filter((c) => c.count > 0) : cols),
+ [cols, hideEmptyColumns]
+ );
+
  // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
  // recruiter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
  // nowy CandidateStage), potem PATCH stawki na ten najnowszy etap. Obsługuje
@@ -1844,6 +1951,30 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
 
  return (
  <div className="relative space-y-3">
+ {/* Krok 04 Pipeline (flow C2, PR 3/7): ten sam grid co warsztat C2
+ (`AIMatchingSection`/`JobMatchDock`) — lewa kolumna filtrów, środek,
+ dok. Poniżej `xl` dok spływa pod tablicę, nie obok niej. */}
+ <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+ <PipelineFiltersRail
+ stageCols={stageCols}
+ focusedColId={focusedColId}
+ onFocusColumn={focusColumn}
+ offTemplateCount={offTemplate?.count ?? 0}
+ onFocusOffTemplate={() => focusColumn(`stage:${OFF_TEMPLATE_STAGE}`)}
+ stuckFilter={stuckFilter}
+ onToggleStuckFilter={() => setStuckFilter((v) => !v)}
+ stuckCount={stuckCount}
+ blockedFilter={blockedFilter}
+ onToggleBlockedFilter={() => setBlockedFilter((v) => !v)}
+ blockedCount={blockedCount}
+ recruiters={recruiterNames}
+ recruiterFilter={recruiterFilter}
+ onSetRecruiterFilter={setRecruiterFilter}
+ hideEmptyColumns={hideEmptyColumns}
+ onToggleHideEmptyColumns={() => setHideEmptyColumns(!hideEmptyColumns)}
+ />
+
+ <div className="min-w-0 space-y-3">
  {offTemplate && offTemplate.count > 0 && (
  <Alert
  variant="warning"
@@ -1962,13 +2093,26 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
- {cols.length === 0 ? (
+ {visibleCols.length === 0 ? (
  <div className="w-full py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
- Brak kolumn w tej kategorii.
+ {cols.length === 0 ? (
+ "Brak kolumn w tej kategorii."
+ ) : (
+ <>
+ Wszystkie kolumny są dziś puste.{" "}
+ <button
+ type="button"
+ className="underline underline-offset-2 font-medium"
+ onClick={() => setHideEmptyColumns(false)}
+ >
+ Pokaż puste kolumny
+ </button>
+ </>
+ )}
  </div>
  ) : (
- cols.map((col) => (
+ visibleCols.map((col) => (
  <KanbanColumnV2
  key={colId(col)}
  col={col}
@@ -1988,11 +2132,39 @@ export function KanbanBoardV2({ columns, jobId, scoreMap, scoresLoading, headerC
  fullPipelineDesktop={fullPipelineDesktop}
  readOnly={readOnly}
  dropDisabled={isOffTemplate(col)}
+ onOpenDock={openDock}
+ isDimmed={isDimmed}
  />
  ))
  )}
  </div>
  </DragDropContext>
+ </div>
+
+ <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start">
+ {dockItem && dockItemColLabel !== null ? (
+ <PipelineCandidateDock
+ key={dockItem.candidate_id}
+ item={dockItem}
+ jobId={jobId}
+ currentStageLabel={dockItemColLabel}
+ jobTitle={jobTitle}
+ matchScore={scoreMap?.get(dockItem.candidate_id)}
+ scoresLoading={scoresLoading}
+ moveTargets={dockMoveTargets}
+ readOnly={readOnly}
+ contactFeatureEnabled={contactFeature.enabled}
+ canReject={canRejectDockItem}
+ onClose={closeDock}
+ onMoveTo={handleDockMove}
+ onOpenScreening={handleOpenScreening}
+ onReject={handleDockReject}
+ />
+ ) : (
+ <PipelineCandidateDockEmpty />
+ )}
+ </aside>
+ </div>
 
  {/* Modals */}
  <RejectionV2
