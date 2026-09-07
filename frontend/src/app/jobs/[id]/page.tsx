@@ -1480,12 +1480,28 @@ function AIMatchingSection({
                 const mustTotal = requiredSkills.length;
                 const mustHit = (match.matching_skills ?? []).length;
                 const rate = c.expected_rate_hourly as number | null | undefined;
+                // Rubryki 0278: `match.rate_fit` jest autorytatywne (ten sam
+                // status, którego używa dealbreaker — uwzględnia też walutę),
+                // klient liczy sam TYLKO gdy backend go jeszcze nie wysyła.
                 const rateBand =
-                  rate == null || budgetHourly == null
-                    ? "unknown"
-                    : rate <= budgetHourly
+                  match.rate_fit === "over_budget"
+                    ? "over"
+                    : match.rate_fit === "ok"
                       ? "in"
-                      : "over";
+                      : match.rate_fit === "unknown"
+                        ? "unknown"
+                        : rate == null || budgetHourly == null
+                          ? "unknown"
+                          : rate <= budgetHourly
+                            ? "in"
+                            : "over";
+                const officeFit = match.office_fit;
+                const officeFitLabel =
+                  officeFit === "days_exceeded"
+                    ? "za mało dni w biurze"
+                    : officeFit === "city_mismatch"
+                      ? "inne miasto niż biuro"
+                      : null;
                 const inPipe = pipelineSet.has(c.id);
                 const roleLine =
                   [c.current_title, c.current_company]
@@ -1605,6 +1621,14 @@ function AIMatchingSection({
                             }
                           >
                             {Math.round(rate)} PLN/h
+                          </span>
+                        )}
+                        {officeFitLabel && (
+                          <span
+                            className="font-medium text-destructive"
+                            title="Rubryka biura (0278): deklaracja kandydata nie pokrywa wymogu oferty"
+                          >
+                            {officeFitLabel}
                           </span>
                         )}
                         {inPipe && (
@@ -1798,16 +1822,34 @@ function JobMatchDock({
   const assignBlocked = elig?.assignment_allowed === false;
   const isAdded = added.has(c.id);
   const rate = c.expected_rate_hourly as number | null | undefined;
+  // Rubryki 0278: `match.rate_fit` jest autorytatywne (uwzględnia walutę),
+  // klient liczy sam TYLKO gdy backend go jeszcze nie wysyła.
   const rateBand =
-    rate == null || budgetHourly == null
-      ? "unknown"
-      : rate <= budgetHourly
+    match.rate_fit === "over_budget"
+      ? "over"
+      : match.rate_fit === "ok"
         ? "in"
-        : "over";
+        : match.rate_fit === "unknown"
+          ? "unknown"
+          : rate == null || budgetHourly == null
+            ? "unknown"
+            : rate <= budgetHourly
+              ? "in"
+              : "over";
+  const officeFit = match.office_fit;
+  const officeFitLabel =
+    officeFit === "days_exceeded"
+      ? "za mało dni w biurze"
+      : officeFit === "city_mismatch"
+        ? "inne miasto niż biuro"
+        : officeFit === "ok"
+          ? "spełnia wymóg biura"
+          : null;
   const mustMatching: string[] = match.matching_skills ?? [];
   const mustGaps: string[] = match.gaps ?? [];
   const niceMatching: string[] = match.nice_matching ?? [];
   const niceGaps: string[] = match.nice_gaps ?? [];
+  const missingMust: string[] = match.missing_must ?? [];
   const gaugeColor =
     pct == null
       ? "text-muted-foreground"
@@ -1898,6 +1940,14 @@ function JobMatchDock({
           <div className="text-xs font-semibold text-foreground">
             Pokrycie wymagań · {mustMatching.length} z {requiredSkills.length} must
           </div>
+          {missingMust.length > 0 && (
+            <div
+              className="rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1 text-[11px] text-destructive"
+              title="Bramka dealbreakera (0278): bez tych technologii kandydat jest ukrywany na pozostałych powierzchniach rankingu — ta lista jest węższa niż pełne pokrycie wymagań poniżej."
+            >
+              Bramka must-have: brak {missingMust.join(", ")}
+            </div>
+          )}
           <div className="space-y-1">
             {mustMatching.map((s) => (
               <CoverageRow key={`m-${s}`} label={s} tag="must" hit />
@@ -1948,6 +1998,19 @@ function JobMatchDock({
           </span>
           <span className="text-muted-foreground">Lokalizacja</span>
           <span className="text-foreground">{city || "—"}</span>
+          {officeFitLabel && (
+            <>
+              <span className="text-muted-foreground">Biuro</span>
+              <span
+                className={
+                  "font-medium " +
+                  (officeFit === "ok" ? "text-success" : "text-destructive")
+                }
+              >
+                {officeFitLabel}
+              </span>
+            </>
+          )}
           <span className="text-muted-foreground">Etap</span>
           <span>
             {inPipeline ? (

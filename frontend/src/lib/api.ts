@@ -970,12 +970,32 @@ export const matchingApi = {
       job_id: number;
       job_title: string;
       required_skills: string[];
+      /**
+       * Skąd wzięło się `required_skills` (0278): kolumna oferty →
+       * Tier 0 Championa (sekcja „Stack") → narracja/JD Championa (wywiedzione)
+       * → ostatni fallback, regex po treści wymagań. Opcjonalne dla parytetu
+       * ze starszym backendem.
+       */
+      required_skills_source?:
+        | "must_skills"
+        | "champion_stack"
+        | "champion_narrative"
+        | "requirements_text";
       // Nice-to-have skill labels from the job's `nice_skills` JSON — drive the
       // "Mile widziane" column in the C2 workspace. Display-only (never scored).
       nice_skills?: string[];
       search_type: string;
       min_score: number | null;
       location_filter: string | null;
+      /** Rubryki strony OFERTY (0278) — te same trzy, które dealbreakery
+       *  egzekwują na wierszach poniżej. Opcjonalne dla parytetu ze starszym
+       *  backendem. */
+      rubrics?: {
+        budget_hourly: number | null;
+        onsite_days_per_week: number | null;
+        office_location: string | null;
+        must_skills: string[];
+      };
       matches: Array<{
         candidate: {
           id: number;
@@ -997,6 +1017,20 @@ export const matchingApi = {
         nice_matching?: string[];
         nice_gaps?: string[];
         eligibility?: MatchEligibility | null;
+        /** Rubryki 0278 na WIERSZU — status dealbreakerów dla TEGO kandydata,
+         *  widoczny nawet gdy wiersz przetrwał tylko dzięki `warn`-exemption.
+         *  Opcjonalne: starszy backend ich nie wysyła. */
+        rate_fit?: "ok" | "over_budget" | "unknown";
+        office_fit?:
+          | "ok"
+          | "days_exceeded"
+          | "city_mismatch"
+          | "unknown"
+          | "not_required";
+        /** Must-have z `rubrics.must_skills`, których TEMU kandydatowi brakuje
+         *  — węższe niż `gaps` (to porównuje z `required_skills`, który bywa
+         *  wywiedziony regexem; `missing_must` tylko z jawnym must bramki). */
+        missing_must?: string[];
       }>;
       meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/ai-matches`, {

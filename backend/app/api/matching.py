@@ -25,9 +25,13 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.services.candidate_job_eligibility import Visibility
 from app.services.dealbreaker_filters import (
+    DealbreakerInputs,
     DealbreakerResult,
     apply_dealbreakers,
     dealbreaker_inputs_for_job,
+    missing_must_skills,
+    office_fit_status,
+    rate_fit_status,
     resolve_job_budget_hourly,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
@@ -37,8 +41,10 @@ from app.services.location_utils import (
 )
 from app.services.reranker_service import rerank_or_passthrough
 from app.services.scoring_service import (
+    _extract_skills_from_champion,
     candidate_skill_names,
     canonical_skill_names,
+    job_explicit_must_skills,
     skill_present as _candidate_has_skill,
 )
 
@@ -100,6 +106,8 @@ def _build_match_info(
     required_skills: list[str],
     nice_skills: list[str] | None = None,
     score: float | None = None,
+    *,
+    inputs: DealbreakerInputs | None = None,
 ) -> dict:
     """Build the match result dict for a candidate.
 
@@ -114,6 +122,15 @@ def _build_match_info(
     Wymagania porównujemy w przestrzeni kanonicznej, ale wyświetlamy ETYKIETĘ
     z treści rekrutacji — obok chipów stoi lista „Wymagane" zbudowana z tych
     samych surowych stringów i rozjazd nazw czytałby się jak inny wymóg.
+
+    `inputs` (0278, opcjonalne — `None` gdy wołający nie ma jeszcze rubryk,
+    np. stare testy jednostkowe) dokłada etykiety rubryk PO STRONIE WIERSZA:
+    `rate_fit`/`office_fit`/`missing_must`. Świadomie OSOBNE od `gaps`:
+    `gaps` liczy się względem WYŚWIETLANEGO `required_skills` (może pochodzić
+    z regexa po prozie), `missing_must` — wyłącznie względem `inputs.must_skills`
+    (kolumna/Tier 0 Championa, TA SAMA lista, którą egzekwuje twarda bramka).
+    Gdy bramka nie ma czego wymagać (`inputs.must_skills` puste), `missing_must`
+    jest zawsze `[]`, nawet jeśli `gaps` (z prozy) coś pokazuje.
     """
     all_candidate_skills = candidate_skill_names(candidate)
 
@@ -214,6 +231,15 @@ def _build_match_info(
         "gaps": gaps,
         "nice_matching": nice_matching,
         "nice_gaps": nice_gaps,
+        # Rubryki 0278 — status dealbreakerów NA WIERSZU, żeby rekruter widział
+        # „dlaczego" bez otwierania profilu. `rate_fit`/`office_fit` czytają
+        # `expected_rate_hourly` (już w `candidate` wyżej) i deklarację dni w
+        # biurze; sam status wystarcza w tej fali — liczba dni jest follow-upem.
+        "rate_fit": rate_fit_status(candidate, inputs) if inputs else "unknown",
+        "office_fit": office_fit_status(candidate, inputs) if inputs else "unknown",
+        "missing_must": (
+            missing_must_skills(candidate, inputs.must_skills) if inputs else []
+        ),
     }
 
 
@@ -245,10 +271,15 @@ async def _gate_and_dealbreakers(
     job: Job,
     ordered: list[Candidate],
     now: datetime,
-) -> tuple[list[Candidate], dict[int, dict], dict, int]:
+) -> tuple[list[Candidate], dict[int, dict], dict, int, DealbreakerInputs]:
     """Apply the eligibility gate and dealbreakers, preserving input order.
 
-    Returns ``(kept, annotations_by_id, hidden_meta, eligibility_filtered)``:
+    Returns ``(kept, annotations_by_id, hidden_meta, eligibility_filtered, inputs)``.
+    ``inputs`` (0278) is the SAME ``DealbreakerInputs`` used to filter this
+    pool — returned so the row builder can compute ``rate_fit``/``office_fit``/
+    ``missing_must`` against the identical rubric values the gate just applied,
+    instead of re-resolving them (and risking a rare Champion-flag race where
+    the two reads disagree).
       * ``hidden``-visibility candidates (global blacklist, already-in-job) are
         DROPPED — they must never surface in a job-scoped search.
       * ``warn``-visibility candidates (active client blacklist / NDA /
@@ -280,7 +311,7 @@ async def _gate_and_dealbreakers(
     """
     empty_meta = DealbreakerResult().hidden_meta()
     if not ordered:
-        return [], {}, empty_meta, 0
+        return [], {}, empty_meta, 0, dealbreaker_inputs_for_job(job)
 
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=[c.id for c in ordered], now=now
@@ -330,7 +361,7 @@ async def _gate_and_dealbreakers(
         ann = _eligibility_annotation(decisions.get(c.id))
         if ann is not None:
             annotations[c.id] = ann
-    return kept, annotations, db_res.hidden_meta(), eligibility_filtered
+    return kept, annotations, db_res.hidden_meta(), eligibility_filtered, inputs
 
 
 def _build_job_query(job: Job) -> str:
@@ -415,6 +446,35 @@ def _parse_nice_skills(job: Job) -> list[str]:
     return out[:20]
 
 
+def _required_skills_with_source(job: Job) -> tuple[list[str], str]:
+    """Wymagania must dla wiersza + skąd faktycznie pochodzą (0278).
+
+    `nice_skills` czyta `job.nice_skills` — kolumnę STRUKTURALNĄ — od dawna
+    (`_parse_nice_skills`); `required_skills` do tej fali czytał wyłącznie
+    regexem po `job.requirements`, czyli asymetrycznie WOLNIEJSZE i mniej
+    pewne źródło niż to, co dealbreaker must-have już egzekwuje. Cztery źródła
+    w kolejności pierwszeństwa, każde z WŁASNĄ etykietą (w odróżnieniu od
+    `_score_skills`, gdzie warstwa PUNKTOWA zlewa Tier 0-3 Championa w jeden
+    `must_source`):
+
+      1. kolumna `job.must_skills` (jawna, wpisana wprost) → "must_skills"
+      2. sekcja 3 Championa „Stack technologiczny" (Tier 0, też jawna, tylko
+         inne miejsce zapisu) → "champion_stack"
+      3. narracja/JD/tytuł Championa, WYWIEDZIONE regexem
+         (`_extract_skills_from_champion` Tier 1-3) → "champion_narrative"
+      4. regex po treści wymagań oferty (ostatni fallback sprzed Championa)
+         → "requirements_text"
+    """
+    explicit = job_explicit_must_skills(job)
+    if explicit:
+        has_column = bool(canonical_skill_names(getattr(job, "must_skills", None)))
+        return explicit, ("must_skills" if has_column else "champion_stack")
+    narrative = [d["name"] for d in _extract_skills_from_champion(job)]
+    if narrative:
+        return narrative, "champion_narrative"
+    return _parse_required_skills(job), "requirements_text"
+
+
 @router.get("/jobs/{job_id}/ai-matches")
 async def get_ai_matches(
     job_id: int,
@@ -461,8 +521,16 @@ async def get_ai_matches(
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje")
 
     query_text = _build_job_query(job)
-    required_skills = _parse_required_skills(job)
+    required_skills, required_skills_source = _required_skills_with_source(job)
     nice_skills = _parse_nice_skills(job)
+    # Rubryki 0278 strony oferty — jedna definicja dla obu gałęzi odpowiedzi
+    # (semantycznej i tag-fallback), do klucza top-level `rubrics`.
+    job_rubrics = {
+        "budget_hourly": resolve_job_budget_hourly(job),
+        "onsite_days_per_week": getattr(job, "onsite_days_per_week", None),
+        "office_location": getattr(job, "location", None),
+        "must_skills": required_skills,
+    }
 
     # ── Location filter ──────────────────────────────────────────────────────
     # Explicit query param wins; otherwise fall back to the job's own location
@@ -553,6 +621,7 @@ async def get_ai_matches(
             elig_annotations,
             hidden_meta,
             eligibility_filtered,
+            rubric_inputs,
         ) = await _gate_and_dealbreakers(
             db, job=job, ordered=ordered, now=datetime.now(timezone.utc)
         )
@@ -582,6 +651,7 @@ async def get_ai_matches(
                 required_skills,
                 nice_skills=nice_skills,
                 score=scores_by_idx.get(i, 0.0),
+                inputs=rubric_inputs,
             )
             m["eligibility"] = elig_annotations.get(c.id)
             matches.append(m)
@@ -600,11 +670,13 @@ async def get_ai_matches(
             "job_id": job_id,
             "job_title": job.title,
             "required_skills": required_skills,
+            "required_skills_source": required_skills_source,
             "nice_skills": nice_skills,
             "search_type": search_type,
             "min_score": round(threshold, 3),
             "location_filter": requested_location if location_active else None,
             "matches": matches,
+            "rubrics": job_rubrics,
             "meta": {
                 "mode": search_type,
                 "degraded": False,
@@ -640,6 +712,7 @@ async def get_ai_matches(
         elig_annotations,
         hidden_meta,
         eligibility_filtered,
+        rubric_inputs,
     ) = await _gate_and_dealbreakers(
         db, job=job, ordered=all_candidates, now=datetime.now(timezone.utc)
     )
@@ -659,7 +732,11 @@ async def get_ai_matches(
         if location_active and not _location_matches(requested_tokens, c.location):
             continue
         match = _build_match_info(
-            c, required_skills, nice_skills=nice_skills, score=None
+            c,
+            required_skills,
+            nice_skills=nice_skills,
+            score=None,
+            inputs=rubric_inputs,
         )
         match["eligibility"] = elig_annotations.get(c.id)
         # No required_skills → score is a profile-completeness proxy; keep the
@@ -683,11 +760,13 @@ async def get_ai_matches(
         "job_id": job_id,
         "job_title": job.title,
         "required_skills": required_skills,
+        "required_skills_source": required_skills_source,
         "nice_skills": nice_skills,
         "search_type": "tag_fallback",
         "min_score": round(threshold, 3),
         "location_filter": requested_location if location_active else None,
         "matches": matches,
+        "rubrics": job_rubrics,
         "meta": {
             "mode": "tag_fallback",
             "degraded": True,
