@@ -1045,6 +1045,22 @@ class Settings(BaseSettings):
     COMPASS_LIFECYCLE_SECRET: str = ""
     COMPASS_LIFECYCLE_SYNC_INTERVAL_SECONDS: int = 21600  # 6 h
 
+    # ── COMPASS: provisioning klucza konta serwisowego (Etap 2) ──────────
+    # Kierunek Compass→NEXUS (pobranie kontraktorów) uwierzytelnia się kluczem
+    # konta serwisowego (`X-API-Key`, scope `contractors:read`). Klucz wydaje
+    # normalnie admin przez Ustawienia → Konta serwisowe. Ta zmienna to
+    # bramka na sytuacje, w których UI admina jest niedostępne (aktywacja
+    # przez CI/env): jeśli USTAWIONA, startup NEXUSA idempotentnie zakłada
+    # konto `compass-integration` (scope `contractors:read`) i klucz o TAKIM
+    # skrócie, jaki wynika z podanej tu wartości. Wartość MUSI być pełnym
+    # kluczem na drucie `nxs_v2_<24hex>_<sekret>` — ten sam string ustawia się
+    # po stronie Compassa jako `NEXUS_CONTRACTORS_API_KEY`.
+    #
+    # Po aktywacji zmienną należy WYCZYŚCIĆ — klucz już żyje w bazie
+    # (rewokowalny, audytowalny), a pusty env czyni ten mechanizm bezczynnym.
+    # Nie loguje sekretu; przy złym formacie nie wywraca startu (log + no-op).
+    COMPASS_INTEGRATION_BOOTSTRAP_KEY: str = ""
+
     TRAFFIT_SYNC_ENABLED: bool = False
     # Skutki uboczne dla etapów przychodzących z importu.
     #

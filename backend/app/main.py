@@ -680,6 +680,22 @@ async def lifespan(app: FastAPI):
     register_allocation_events()
     from app.services.fx_service import fx_refresh_loop
 
+    # Provisioning klucza konta serwisowego dla integracji z COMPASSEM (Etap 2).
+    # Jednorazowo, bramkowane env-em, idempotentne, nie wywraca startu. Puste
+    # `COMPASS_INTEGRATION_BOOTSTRAP_KEY` = no-op (stan domyślny).
+    try:
+        from app.core.database import AsyncSessionLocal as _BootstrapSession
+        from app.services.compass_service_account_bootstrap import (
+            ensure_bootstrap_service_account,
+        )
+
+        async with _BootstrapSession() as _bootstrap_db:
+            _bootstrap_status = await ensure_bootstrap_service_account(_bootstrap_db)
+        if _bootstrap_status is not None:
+            logger.info("compass_bootstrap status=%s", _bootstrap_status)
+    except Exception as _bootstrap_exc:  # noqa: BLE001 — nie może ubić startu
+        logger.warning("compass_bootstrap: pominięty po wyjątku: %s", _bootstrap_exc)
+
     # Background tasks registry — exposed via app.state so /api/admin/snapshot
     # can introspect running/expected counts. Order matches shutdown order.
     # Autenti sweeper exits immediately when AUTENTI_ENABLED=false; safe to
