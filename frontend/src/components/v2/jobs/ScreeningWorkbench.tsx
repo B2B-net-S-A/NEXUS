@@ -39,9 +39,11 @@ import {
   extractErrorMsg,
   interviewQuestionsApi,
   pipelineApi,
+  screeningApi,
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -149,6 +151,15 @@ export function ScreeningWorkbench({
   onTabChange,
 }: ScreeningWorkbenchProps) {
   const { showSuccess, showError } = useToast();
+  // `/pending-verifications` jest bramkowane rolą approvera (admin / DL / HoR)
+  // — link dla rekrutera prowadziłby wprost w 403.
+  const authUser = useAuthStore((s) => s.user);
+  const canApprove = hasRole(
+    authUser,
+    "admin",
+    "delivery_lead",
+    "head_of_recruitment",
+  );
 
   const queue = useMemo(() => selectScreeningQueue(columns), [columns]);
   const pendingQueue = useMemo(
@@ -163,19 +174,23 @@ export function ScreeningWorkbench({
   const [selectedStageId, setSelectedStageId] = useState<number | null>(null);
   // Pierwsze wejście (i zniknięcie wybranej karty po ruchu) wybiera pierwszą
   // pozycję kolejki. Bez tego stanowisko startuje puste, mimo że ktoś czeka.
+  // Wybierać można z OBU list (kolejka screeningu i „czeka na akceptację") —
+  // klik w pending-a otwiera JEGO arkusz, zamiast gasić całe stanowisko
+  // (karty pending stoją w kolumnie „Zweryfikowany", nie w kolejce screeningu).
+  const allEntries = useMemo(
+    () => [...queue, ...pendingQueue],
+    [queue, pendingQueue],
+  );
   useEffect(() => {
-    if (queue.length === 0) {
-      setSelectedStageId(null);
-      return;
-    }
     setSelectedStageId((prev) =>
-      prev != null && queue.some((e) => e.item.id === prev)
+      prev != null && allEntries.some((e) => e.item.id === prev)
         ? prev
-        : queue[0].item.id,
+        : (queue[0]?.item.id ?? null),
     );
-  }, [queue]);
+  }, [queue, allEntries]);
 
-  const selected = queue.find((e) => e.item.id === selectedStageId) ?? null;
+  const selected =
+    allEntries.find((e) => e.item.id === selectedStageId) ?? null;
 
   // ── Stawka (dok) — resetowana przy zmianie kandydata ────────────────────
   const [rate, setRate] = useState("");
@@ -227,10 +242,31 @@ export function ScreeningWorkbench({
         expected_rate_unit: unit,
         expected_rate_currency: "PLN",
       });
-      return res.data as { verification_status?: "active" | "pending" };
+      const moved = res.data as {
+        id?: number;
+        verification_status?: "active" | "pending";
+      };
+      // Ruch tworzy NOWY `CandidateStage`, a `transition_process` nie kopiuje
+      // `screening_answers` — arkusz zapisany na etapie „Screening" zostałby na
+      // historycznym rekordzie, a portal klienta i generator CV czytają etap
+      // NAJNOWSZY. Przepisujemy zapisane odpowiedzi na nowy etap (tablica
+      // unika tego, otwierając arkusz dopiero PO ruchu).
+      let screeningCopyFailed = false;
+      if (screeningSaved && moved.id != null && moved.id !== selected.item.id) {
+        try {
+          await screeningApi.submit(moved.id, screeningSaved);
+        } catch {
+          screeningCopyFailed = true;
+        }
+      }
+      return { ...moved, screeningCopyFailed };
     },
     onSuccess: (data) => {
-      if (data?.verification_status === "pending") {
+      if (data.screeningCopyFailed) {
+        showError(
+          "Przeniesiono na „Zweryfikowany”, ale nie udało się przepisać arkusza screeningu na nowy etap — otwórz arkusz z tablicy Pipeline i zapisz go ponownie.",
+        );
+      } else if (data?.verification_status === "pending") {
         showSuccess(
           "Wysłano do akceptacji stawki. Karta będzie aktywna po zatwierdzeniu.",
         );
@@ -338,7 +374,7 @@ export function ScreeningWorkbench({
                 <QueueRow
                   key={entry.item.id}
                   entry={entry}
-                  active={false}
+                  active={entry.item.id === selectedStageId}
                   onSelect={() => setSelectedStageId(entry.item.id)}
                   trailing={
                     entry.item.expected_rate_value != null
@@ -353,12 +389,14 @@ export function ScreeningWorkbench({
               Nikt nie czeka na akceptację stawki.
             </p>
           )}
-          <Link
-            href="/pending-verifications"
-            className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-          >
-            <ExternalLink className="h-3 w-3" /> Kolejka akceptacji (globalna)
-          </Link>
+          {canApprove && (
+            <Link
+              href="/pending-verifications"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" /> Kolejka akceptacji (globalna)
+            </Link>
+          )}
         </div>
 
         <div className="border-t border-border pt-3">

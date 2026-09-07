@@ -1,9 +1,11 @@
 /**
  * Sekwencja „Wyślij klientowi" (krok 06 programu „flow w języku C2", PR 6/7).
  *
- * Dwie rzeczy, których nie wolno zgubić: KOLEJNOŚĆ (link musi powstać przed
- * ruchem, bo ruch tworzy nowy `CandidateStage` bez sfinalizowanego CV) i to,
- * że porażka jednego kroku PRZERYWA sekwencję i mówi, co zdążyło się wykonać.
+ * Trzy rzeczy, których nie wolno zgubić: KOLEJNOŚĆ (link przed ruchem, bo
+ * ruch tworzy nowy `CandidateStage` bez sfinalizowanego CV; stawka PO ruchu,
+ * bo zapisuje się na najnowszym etapie), to, że porażka PRZED ruchem przerywa
+ * sekwencję i mówi, co zdążyło się wykonać, oraz to, że porażka stawki PO
+ * ruchu jest ostrzeżeniem, nie porażką (ruch jest faktem).
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -43,11 +45,12 @@ const fullPlan: CvHandoffPlan = {
 };
 
 describe("runCvHandoff", () => {
-  it("idzie w kolejności: stawka → link → ruch", async () => {
+  it("idzie w kolejności: link → ruch → stawka", async () => {
     const order: string[] = [];
     const result = await runCvHandoff(fullPlan, deps(order));
-    expect(order).toEqual(["client_rate", "share_link", "move"]);
-    expect(result.completed).toEqual(["client_rate", "share_link", "move"]);
+    expect(order).toEqual(["share_link", "move", "client_rate"]);
+    expect(result.completed).toEqual(["share_link", "move", "client_rate"]);
+    expect(result.failedAfterMove).toEqual([]);
     expect(result.shareUrlSuffix).toBe("abc123");
   });
 
@@ -58,26 +61,11 @@ describe("runCvHandoff", () => {
       deps(order),
     );
     expect(order).toEqual(["move"]);
-    expect(result.skipped).toEqual(["client_rate", "share_link"]);
+    expect(result.skipped).toEqual(["share_link", "client_rate"]);
     expect(result.completed).toEqual(["move"]);
   });
 
-  it("porażka stawki zatrzymuje sekwencję PRZED linkiem i ruchem", async () => {
-    const order: string[] = [];
-    const d = deps(order, {
-      saveClientRate: vi.fn(async () => {
-        throw new Error("422");
-      }),
-    });
-    await expect(runCvHandoff(fullPlan, d)).rejects.toBeInstanceOf(
-      CvHandoffError,
-    );
-    expect(order).toEqual([]);
-    expect(d.createShareLink).not.toHaveBeenCalled();
-    expect(d.move).not.toHaveBeenCalled();
-  });
-
-  it("porażka linku zatrzymuje sekwencję PRZED ruchem i pamięta zapisaną stawkę", async () => {
+  it("porażka linku zatrzymuje sekwencję PRZED ruchem — nic nie zostało zmienione", async () => {
     const order: string[] = [];
     const d = deps(order, {
       createShareLink: vi.fn(async () => {
@@ -87,11 +75,12 @@ describe("runCvHandoff", () => {
     const error = await runCvHandoff(fullPlan, d).catch((e) => e);
     expect(error).toBeInstanceOf(CvHandoffError);
     expect((error as CvHandoffError).step).toBe("share_link");
-    expect((error as CvHandoffError).completed).toEqual(["client_rate"]);
+    expect((error as CvHandoffError).completed).toEqual([]);
     expect(d.move).not.toHaveBeenCalled();
+    expect(d.saveClientRate).not.toHaveBeenCalled();
   });
 
-  it("porażka ruchu niesie oba wcześniejsze kroki jako wykonane", async () => {
+  it("porażka ruchu niesie utworzony link (sekret jest zwracany RAZ) i nie zapisuje stawki", async () => {
     const order: string[] = [];
     const d = deps(order, {
       move: vi.fn(async () => {
@@ -102,39 +91,74 @@ describe("runCvHandoff", () => {
       (e) => e,
     )) as CvHandoffError;
     expect(error.step).toBe("move");
-    expect(error.completed).toEqual(["client_rate", "share_link"]);
+    expect(error.completed).toEqual(["share_link"]);
+    expect(error.shareUrlSuffix).toBe("abc123");
+    expect(d.saveClientRate).not.toHaveBeenCalled();
+  });
+
+  it("porażka stawki PO ruchu nie jest fatalna — ruch został, stawka raportowana jako niezapisana", async () => {
+    const order: string[] = [];
+    const d = deps(order, {
+      saveClientRate: vi.fn(async () => {
+        throw new Error("403 Requires candidate role: ['admin']");
+      }),
+    });
+    const result = await runCvHandoff(fullPlan, d);
+    expect(order).toEqual(["share_link", "move"]);
+    expect(result.completed).toEqual(["share_link", "move"]);
+    expect(result.failedAfterMove).toHaveLength(1);
+    expect(result.failedAfterMove[0].step).toBe("client_rate");
   });
 });
 
 describe("describeCvHandoffFailure", () => {
   it("mówi, że nic się nie zmieniło, gdy padł pierwszy krok", () => {
     const msg = describeCvHandoffFailure(
-      new CvHandoffError("client_rate", [], new Error("x")),
-      "stawka poza zakresem",
+      new CvHandoffError("share_link", [], new Error("x")),
+      "brak sfinalizowanego CV",
     );
-    expect(msg).toContain("stawka poza zakresem");
+    expect(msg).toContain("brak sfinalizowanego CV");
     expect(msg).toContain("Nic nie zostało zmienione");
   });
 
-  it("wylicza kroki, które ZOSTAŁY wykonane, i ostrzega przed powtórzeniem", () => {
+  it("po padniętym ruchu ostrzega, że link JUŻ ISTNIEJE i jak nie zrobić drugiego", () => {
     const msg = describeCvHandoffFailure(
-      new CvHandoffError("move", ["client_rate", "share_link"], new Error("x")),
+      new CvHandoffError("move", ["share_link"], new Error("x"), "abc123"),
       "weto hiring managera",
     );
-    expect(msg).toContain("zapis stawki do klienta");
+    expect(msg).toContain("przeniesienie na „CV Wysłane”");
     expect(msg).toContain("utworzenie linku dla klienta");
-    expect(msg).toContain("powtórzenie akcji je powtórzy");
+    expect(msg).toContain("JUŻ ISTNIEJE");
+    expect(msg).toContain("odznacz „Utwórz link”");
   });
 });
 
 describe("describeCvHandoffSuccess", () => {
-  it("nazywa też kroki świadomie pominięte", () => {
+  it("nazywa kroki świadomie pominięte bez sugerowania, że stawki brakuje", () => {
     const msg = describeCvHandoffSuccess({
       completed: ["move"],
-      skipped: ["client_rate", "share_link"],
+      skipped: ["share_link", "client_rate"],
+      failedAfterMove: [],
       shareUrlSuffix: null,
     });
-    expect(msg).toContain("Bez stawki do klienta");
+    expect(msg).toContain("Stawka do klienta bez zmian");
     expect(msg).toContain("Bez linku dla klienta");
+  });
+
+  it("stawka padnięta PO ruchu jest nazwana wprost, z powodem i następnym krokiem", () => {
+    const msg = describeCvHandoffSuccess(
+      {
+        completed: ["share_link", "move"],
+        skipped: [],
+        failedAfterMove: [{ step: "client_rate", reason: new Error("403") }],
+        shareUrlSuffix: "abc123",
+      },
+      (r) => (r instanceof Error ? r.message : ""),
+    );
+    expect(msg).toContain("Kandydat przeniesiony");
+    expect(msg).toContain("NIE udało się zapisać");
+    expect(msg).toContain("403");
+    expect(msg).toContain("uzupełnij ją z profilu kandydata");
+    expect(msg).toContain("Link dla klienta utworzony");
   });
 });

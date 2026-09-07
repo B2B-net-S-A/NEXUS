@@ -8,26 +8,36 @@
  * i właśnie dlatego kolejność oraz obsługa błędu muszą być regułą, a nie
  * przypadkiem w komponencie.
  *
- * Kolejność jest LOAD-BEARING: `client-rate → share-token → move`.
- * Ruch na `cv_sent` tworzy po stronie backendu NOWY `CandidateStage`, a link
- * dla klienta jest przypięty do etapu, na którym leży sfinalizowane CV
- * brandowane. Link tworzony PO ruchu celowałby w świeży etap bez dokumentu
- * (409 „brak sfinalizowanego CV"), więc jedyną poprawną kolejnością jest ta,
- * w której link powstaje jeszcze na etapie „Zweryfikowany".
+ * Kolejność jest LOAD-BEARING: `share_link → move → client_rate`.
+ * - Link PRZED ruchem: ruch na `cv_sent` tworzy po stronie backendu NOWY
+ *   `CandidateStage`, a link dla klienta jest przypięty do etapu, na którym
+ *   leży sfinalizowane CV brandowane. Link tworzony PO ruchu celowałby
+ *   w świeży etap bez dokumentu (409 „brak sfinalizowanego CV").
+ * - Stawka PO ruchu: `update_latest_client_rate` pisze na NAJNOWSZYM etapie
+ *   pary (kandydat, rekrutacja), a „każdy ruch na nowy etap startuje z pustą
+ *   stawką" (docstring endpointu). Stawka zapisana przed ruchem lądowałaby na
+ *   etapie „Zweryfikowany", a nowy „CV Wysłane" zostałby z NULL — tablica
+ *   robi ruch → stawkę z dokładnie tego powodu (komentarz w `KanbanBoardV2`).
+ *
+ * Porażka stawki NIE cofa ruchu i nie jest fatalna (lustro tablicy:
+ * „Przeniesiono, ale nie udało się zapisać stawki"): ruch jest faktem,
+ * którego nie da się odkręcić, a endpoint stawki stoi za bramką finansową
+ * (`CandidateFinanceAccess` = wyłącznie admin) — gdyby był pierwszy i fatalny,
+ * blokowałby wysyłkę każdemu poza adminem.
  *
  * Żaden krok nie jest pomijany po cichu: pominięcie jest DECYZJĄ zapisaną
  * w planie (`null` = rekruter świadomie nie podał stawki / nie chce linku),
- * a porażka przerywa sekwencję i mówi, co się udało do tej pory.
+ * a porażka przed ruchem przerywa sekwencję i mówi, co się udało do tej pory.
  */
 
 import type { RateUnit } from "@/lib/api";
 
-export type CvHandoffStep = "client_rate" | "share_link" | "move";
+export type CvHandoffStep = "share_link" | "move" | "client_rate";
 
 export const CV_HANDOFF_STEP_LABEL: Record<CvHandoffStep, string> = {
-  client_rate: "zapis stawki do klienta",
   share_link: "utworzenie linku dla klienta",
   move: "przeniesienie na „CV Wysłane”",
+  client_rate: "zapis stawki do klienta",
 };
 
 export interface CvHandoffPlan {
@@ -52,21 +62,38 @@ export interface CvHandoffDeps {
 export interface CvHandoffResult {
   completed: CvHandoffStep[];
   skipped: CvHandoffStep[];
+  /**
+   * Kroki PO ruchu, które padły, choć ruch już się wykonał (dziś: tylko
+   * stawka do klienta). Ruch jest faktem — to ostrzeżenie, nie porażka.
+   */
+  failedAfterMove: { step: CvHandoffStep; reason: unknown }[];
   shareUrlSuffix: string | null;
 }
 
-/** Porażka JEDNEGO kroku — niesie, co się udało przed nią. */
+/** Porażka kroku PRZED ruchem — niesie, co się udało przed nią. */
 export class CvHandoffError extends Error {
   readonly step: CvHandoffStep;
   readonly completed: CvHandoffStep[];
   readonly reason: unknown;
+  /**
+   * Sekret linku utworzonego przed porażką. Token v2 zwraca go DOKŁADNIE RAZ
+   * (lista tokenów już go nie ma), więc bez tego pola padnięty ruch
+   * zostawiałby żywy link, którego adresu nikt nie odtworzy.
+   */
+  readonly shareUrlSuffix: string | null;
 
-  constructor(step: CvHandoffStep, completed: CvHandoffStep[], reason: unknown) {
+  constructor(
+    step: CvHandoffStep,
+    completed: CvHandoffStep[],
+    reason: unknown,
+    shareUrlSuffix: string | null = null,
+  ) {
     super(`Krok „${CV_HANDOFF_STEP_LABEL[step]}” nie powiódł się.`);
     this.name = "CvHandoffError";
     this.step = step;
     this.completed = completed;
     this.reason = reason;
+    this.shareUrlSuffix = shareUrlSuffix;
   }
 }
 
@@ -76,25 +103,15 @@ export async function runCvHandoff(
 ): Promise<CvHandoffResult> {
   const completed: CvHandoffStep[] = [];
   const skipped: CvHandoffStep[] = [];
+  const failedAfterMove: CvHandoffResult["failedAfterMove"] = [];
   let shareUrlSuffix: string | null = null;
-
-  if (plan.clientRate) {
-    try {
-      await deps.saveClientRate(plan.clientRate);
-    } catch (e) {
-      throw new CvHandoffError("client_rate", completed, e);
-    }
-    completed.push("client_rate");
-  } else {
-    skipped.push("client_rate");
-  }
 
   if (plan.shareLink) {
     try {
       const res = await deps.createShareLink(plan.shareLink);
       shareUrlSuffix = res.shareUrlSuffix;
     } catch (e) {
-      throw new CvHandoffError("share_link", completed, e);
+      throw new CvHandoffError("share_link", completed, e, null);
     }
     completed.push("share_link");
   } else {
@@ -104,37 +121,64 @@ export async function runCvHandoff(
   try {
     await deps.move();
   } catch (e) {
-    throw new CvHandoffError("move", completed, e);
+    throw new CvHandoffError("move", completed, e, shareUrlSuffix);
   }
   completed.push("move");
 
-  return { completed, skipped, shareUrlSuffix };
+  if (plan.clientRate) {
+    try {
+      await deps.saveClientRate(plan.clientRate);
+      completed.push("client_rate");
+    } catch (e) {
+      failedAfterMove.push({ step: "client_rate", reason: e });
+    }
+  } else {
+    skipped.push("client_rate");
+  }
+
+  return { completed, skipped, failedAfterMove, shareUrlSuffix };
 }
 
 /**
- * Zdanie po polsku dla przerwanej sekwencji: co padło, co ZOSTAŁO zrobione
- * i co z tym zrobić. Bez tej drugiej połowy rekruter nie wie, czy powtórzenie
- * akcji zdubluje stawkę albo link.
+ * Zdanie po polsku dla sekwencji przerwanej PRZED ruchem: co padło, co
+ * ZOSTAŁO zrobione i co z tym zrobić. Bez tej drugiej połowy rekruter nie
+ * wie, czy powtórzenie akcji zdubluje link.
  */
 export function describeCvHandoffFailure(
   error: CvHandoffError,
   detail: string,
 ): string {
-  const done = error.completed.map((s) => CV_HANDOFF_STEP_LABEL[s]);
   const head = `Nie udało się: ${CV_HANDOFF_STEP_LABEL[error.step]}${detail ? ` — ${detail}` : "."}`;
-  if (done.length === 0) {
+  if (error.completed.length === 0) {
     return `${head} Nic nie zostało zmienione — popraw przyczynę i spróbuj ponownie.`;
   }
-  return `${head} Wcześniejsze kroki ZOSTAŁY wykonane (${done.join(", ")}) — powtórzenie akcji je powtórzy.`;
+  const done = error.completed.map((s) => CV_HANDOFF_STEP_LABEL[s]);
+  const linkNote = error.completed.includes("share_link")
+    ? " Link dla klienta JUŻ ISTNIEJE (adres w doku) — przy ponowieniu odznacz „Utwórz link”, inaczej powstanie drugi."
+    : "";
+  return `${head} Wcześniejsze kroki ZOSTAŁY wykonane (${done.join(", ")}).${linkNote}`;
 }
 
-/** Podsumowanie udanej sekwencji — mówi też o krokach świadomie pominiętych. */
-export function describeCvHandoffSuccess(result: CvHandoffResult): string {
+/**
+ * Podsumowanie sekwencji, w której ruch się wykonał — mówi też o krokach
+ * świadomie pominiętych i o stawce, która padła PO ruchu (ton ostrzeżenia
+ * wybiera wołający: `failedAfterMove.length > 0`).
+ */
+export function describeCvHandoffSuccess(
+  result: CvHandoffResult,
+  detailOf: (reason: unknown) => string = () => "",
+): string {
   const parts = ["Kandydat przeniesiony na „CV Wysłane”."];
-  if (result.completed.includes("client_rate")) {
+  const rateFailure = result.failedAfterMove.find((f) => f.step === "client_rate");
+  if (rateFailure) {
+    const detail = detailOf(rateFailure.reason);
+    parts.push(
+      `Stawki do klienta NIE udało się zapisać${detail ? ` (${detail})` : ""} — uzupełnij ją z profilu kandydata.`,
+    );
+  } else if (result.completed.includes("client_rate")) {
     parts.push("Stawka do klienta zapisana.");
   } else {
-    parts.push("Bez stawki do klienta — uzupełnij ją później na karcie rekrutacji.");
+    parts.push("Stawka do klienta bez zmian.");
   }
   if (result.completed.includes("share_link")) {
     parts.push("Link dla klienta utworzony.");

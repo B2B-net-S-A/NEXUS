@@ -44,6 +44,8 @@ import {
   type RateUnit,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { useCapability } from "@/hooks/useCapability";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -150,6 +152,16 @@ export function CvHandoffWorkbench({
   const fullName = selected ? itemFullName(selected.item) : "";
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
 
+  // `PATCH …/client-rate` stoi za `CandidateFinanceAccess` = WYŁĄCZNIE admin
+  // (`CANDIDATE_FINANCE_ROLES` w `candidate_access.py`). Rekruterowi nie
+  // pokazujemy pola, które gwarantowanie kończy się 403 — tablica ma ten sam
+  // problem (modal stawki dla każdego), tu naprawiamy go u źródła.
+  const authUser = useAuthStore((s) => s.user);
+  const canWriteClientRate = hasRole(authUser, "admin");
+  // `/settings/cv-rules` jest bramkowane w middleware (admin / DL, sekcja
+  // Delivery write) — link dla innych ról prowadziłby wprost w 403.
+  const canManageCvRules = useCapability("cv_rule.manage");
+
   // ── Reguły klienta (te same, które generator pokazuje po wyborze klienta) ─
   const cvRuleQuery = useClientCvRule(clientId);
   const playbookQuery = useClientPlaybook(clientId);
@@ -197,8 +209,10 @@ export function CvHandoffWorkbench({
     ? (moveBlockedReason({ item: selected.item, readOnly }) ??
       (!cvSentCol
         ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
-        : selected.item.verification_status === "pending"
-          ? "Stawka kandydata czeka na akceptację — ruch po zatwierdzeniu weryfikacji."
+        : brandedQuery.isLoading
+          ? // Bez tego w oknie ładowania `brandedStatus` = "none", więc klik
+            // wysłałby BEZ linku i zaraportował to jako świadomą decyzję.
+            "Sprawdzam stan CV brandowanego…"
           : null))
     : "Wybierz kandydata z kolejki.";
 
@@ -208,7 +222,7 @@ export function CvHandoffWorkbench({
         throw new Error("Brak etapu docelowego.");
       }
       const plan: CvHandoffPlan = {
-        clientRate: clientRateValid
+        clientRate: canWriteClientRate && clientRateValid
           ? {
               value: numericClientRate,
               unit: clientRateUnit,
@@ -248,11 +262,21 @@ export function CvHandoffWorkbench({
     },
     onSuccess: (result) => {
       setLastShareSuffix(result.shareUrlSuffix);
-      showSuccess(describeCvHandoffSuccess(result));
+      const summary = describeCvHandoffSuccess(result, extractErrorMsg);
+      // Stawka pada PO ruchu (jak na tablicy): ruch jest faktem, ale rekruter
+      // musi wiedzieć, że stawki nie ma — stąd ton błędu, nie sukcesu.
+      if (result.failedAfterMove.length > 0) showError(summary);
+      else showSuccess(summary);
       onMoved();
     },
     onError: (e) => {
       if (e instanceof CvHandoffError) {
+        if (e.shareUrlSuffix) {
+          // Sekret tokenu v2 jest zwracany RAZ — pokazujemy go w doku
+          // i odznaczamy „Utwórz link", żeby ponowienie nie wystawiło drugiego.
+          setLastShareSuffix(e.shareUrlSuffix);
+          setCreateLink(false);
+        }
         showError(describeCvHandoffFailure(e, extractErrorMsg(e.reason)));
         return;
       }
@@ -388,12 +412,14 @@ export function CvHandoffWorkbench({
                   Leadem przed kolejną wysyłką.
                 </p>
               )}
-              <Link
-                href={`/settings/cv-rules?client=${clientId}`}
-                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-              >
-                <Settings2 className="h-3 w-3" /> Reguły CV klienta (DL)
-              </Link>
+              {canManageCvRules && (
+                <Link
+                  href={`/settings/cv-rules?client=${clientId}`}
+                  className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                >
+                  <Settings2 className="h-3 w-3" /> Reguły CV klienta (DL)
+                </Link>
+              )}
             </>
           )}
         </div>
@@ -540,6 +566,7 @@ export function CvHandoffWorkbench({
                 </span>
               </div>
 
+              {canWriteClientRate ? (
               <div className="space-y-2">
                 <div className="text-xs font-semibold text-foreground">
                   Stawka do klienta
@@ -583,10 +610,17 @@ export function CvHandoffWorkbench({
                   </div>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Puste pole = wysyłka bez stawki (dawne „Pomiń”). Uzupełnisz ją
-                  później na karcie rekrutacji w profilu kandydata.
+                  Puste pole = wysyłka bez stawki (dawne „Pomiń”). Stawka
+                  zapisuje się PO ruchu, na nowym etapie — jak na tablicy.
                 </p>
               </div>
+              ) : (
+              <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                Stawkę do klienta zapisuje admin (uprawnienie finansowe) —
+                wysyłka idzie bez stawki, uzupełni ją później z profilu
+                kandydata.
+              </p>
+              )}
 
               <div className="space-y-2 border-t border-border pt-3">
                 <div className="text-xs font-semibold text-foreground">
@@ -653,9 +687,10 @@ export function CvHandoffWorkbench({
                     Wyślij klientowi i przenieś na „CV Wysłane”
                   </Button>
                   <p className="text-[11px] text-muted-foreground">
-                    Kolejność: stawka do klienta → link → zmiana etapu. Gdy któryś
-                    krok padnie, sekwencja zatrzymuje się i mówi, co zdążyło się
-                    wykonać.
+                    Kolejność: link → zmiana etapu → stawka do klienta. Link musi
+                    powstać przed ruchem (ruch tworzy nowy etap bez CV), a stawka
+                    po nim (zapisuje się na najnowszym etapie). Gdy któryś krok
+                    padnie, dok mówi, co zdążyło się wykonać.
                   </p>
                 </div>
               )}

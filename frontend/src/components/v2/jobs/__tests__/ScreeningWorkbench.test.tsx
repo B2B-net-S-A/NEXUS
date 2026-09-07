@@ -267,4 +267,82 @@ describe("ScreeningWorkbench", () => {
     await waitFor(() => expect(listForJob).toHaveBeenCalledWith(7));
     expect(await screen.findByText("3")).toBeTruthy();
   });
+
+  it("klik w kartę czekającą na akceptację otwiera JEJ arkusz, zamiast gasić stanowisko", async () => {
+    const pending = item({
+      id: 41,
+      candidate_id: 141,
+      stage: "verified",
+      name: "Anna",
+      lastname: "Pending",
+      verification_status: "pending",
+    });
+    const cols = columns([item()]);
+    cols[1] = { ...cols[1], count: 1, items: [pending] };
+    renderWorkbench({ columns: cols });
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+
+    await userEvent.click(screen.getByRole("button", { name: /Anna Pending/ }));
+    expect(
+      await screen.findByRole("heading", { name: /Screening · Anna Pending/ }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Wybierz kandydata z kolejki po lewej/)).toBeNull();
+  });
+
+  it("po ruchu przepisuje zapisany arkusz na NOWY etap (transition_process go nie kopiuje)", async () => {
+    const answers = { answers: [], overall_fit: "fit", answered_at: "2026-09-07" };
+    getForStage.mockResolvedValue({
+      data: {
+        stage_id: 11,
+        candidate_id: 111,
+        job_id: 7,
+        champion_profile: {
+          screening_questions: [
+            { id: "q1", question: "Kafka?", ideal_answer: "tak", deal_breaker: "" },
+          ],
+        },
+        screening_answers: answers,
+      },
+    });
+    submitScreening.mockResolvedValue({ data: {} });
+    renderWorkbench();
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    await userEvent.type(screen.getByLabelText("Kwota"), "118");
+    const button = screen.getByRole("button", {
+      name: /Zweryfikowany — zapisz stawkę i przenieś/,
+    });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    await userEvent.click(button);
+
+    await waitFor(() => expect(move).toHaveBeenCalledOnce());
+    // Nowy etap ma id 99 (odpowiedź `move`) — tam trafia kopia arkusza.
+    await waitFor(() => expect(submitScreening).toHaveBeenCalledWith(99, answers));
+    expect(showSuccess).toHaveBeenCalled();
+  });
+
+  it("gdy kopia arkusza na nowy etap padnie, ruch zostaje, a komunikat mówi, co zrobić", async () => {
+    const answers = { answers: [], overall_fit: "fit", answered_at: "2026-09-07" };
+    getForStage.mockResolvedValue({
+      data: {
+        stage_id: 11,
+        candidate_id: 111,
+        job_id: 7,
+        champion_profile: { screening_questions: [] },
+        screening_answers: answers,
+      },
+    });
+    submitScreening.mockRejectedValue(new Error("500"));
+    const { onMoved } = renderWorkbench();
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    await userEvent.type(screen.getByLabelText("Kwota"), "118");
+    const button = screen.getByRole("button", {
+      name: /Zweryfikowany — zapisz stawkę i przenieś/,
+    });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    await userEvent.click(button);
+
+    await waitFor(() => expect(showError).toHaveBeenCalled());
+    expect(showError.mock.calls[0][0]).toContain("nie udało się przepisać arkusza");
+    expect(onMoved).toHaveBeenCalled();
+  });
 });
