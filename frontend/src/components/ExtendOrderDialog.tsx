@@ -83,6 +83,9 @@ export function ExtendOrderDialog({
       ? String(latest?.rate_candidate ?? contract.rate_candidate ?? "")
       : "",
   );
+  // Przedłużenie dziedziczy jednostkę z ostatniego zamówienia / kontraktu
+  // (razem z przeliczonymi pod nią kwotami) — nie flipujemy jej na domyślną
+  // jednostkę klienta, bo rozjechałaby się z dziedziczonymi kwotami.
   const [rateUnit, setRateUnit] = useState<OrderRateUnit>(
     latest?.rate_unit ?? contract.rate_unit ?? "monthly",
   );

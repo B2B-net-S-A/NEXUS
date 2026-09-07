@@ -13,7 +13,7 @@ import {
 } from "@/components/orders/OrderRateUnitToggle";
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
-import type { OrderType } from "@/lib/api/dlPortal";
+import type { OrderRateUnit, OrderType } from "@/lib/api/dlPortal";
 import api, { extractErrorMsg } from "@/lib/api";
 import {
   DATE_PATTERN,
@@ -34,6 +34,13 @@ interface NewContractorOrderDialogProps {
   onOrderTypeChange?: (orderType: OrderType) => void;
   allowedOrderTypes?: readonly OrderType[];
   canManageFinance?: boolean;
+  /**
+   * Jednostka stawki proponowana domyślnie (najczęstsza u tego klienta —
+   * `useClientDefaultRateUnit`). Zastępuje twardy `monthly`. `undefined`, dopóki
+   * zapytanie się nie rozwiąże — wtedy inicjujemy `monthly` i adoptujemy wartość
+   * efektem, gdy dojedzie, o ile użytkownik nie tknął pola.
+   */
+  defaultRateUnit?: OrderRateUnit | null;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -77,6 +84,7 @@ export function NewContractorOrderDialog({
   onOrderTypeChange,
   allowedOrderTypes,
   canManageFinance: serverCanManageFinance,
+  defaultRateUnit,
   onClose,
   onCreated,
 }: NewContractorOrderDialogProps) {
@@ -99,9 +107,16 @@ export function NewContractorOrderDialog({
   const [orderEnd, setOrderEnd] = useState("");
   const [rateClient, setRateClient] = useState("");
   const [rateCandidate, setRateCandidate] = useState("");
-  const [rateUnit, setRateUnit] = useState<"monthly" | "daily" | "hourly">(
-    "monthly",
+  // Domyślnie jednostka najczęstsza u klienta (nigdy `monthly`), a nie twardy
+  // `monthly`. Gdy `defaultRateUnit` jeszcze nie dojechał, startujemy `monthly`
+  // i adoptujemy właściwą wartość efektem niżej — o ile pola nie tknięto.
+  const [rateUnit, setRateUnit] = useState<OrderRateUnit>(
+    defaultRateUnit ?? "monthly",
   );
+  // Blokuje adopcję domyślnej jednostki, gdy użytkownik ją wybrał ręcznie lub
+  // gdy nadpisał ją odczyt z dokumentu — inaczej późno dojeżdżający default
+  // przełączyłby świadomie ustawioną jednostkę (i przeliczone pod nią kwoty).
+  const rateUnitTouchedRef = useRef(false);
   const [billingHours, setBillingHours] = useState("160");
   const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
   const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
@@ -153,6 +168,16 @@ export function NewContractorOrderDialog({
     rateUnit,
     billingHours,
   };
+
+  // Adopcja domyślnej jednostki klienta, gdy dojedzie po zamontowaniu dialogu
+  // (zimny cache). Zwykle `defaultRateUnit` jest już w cache (zakładka pobiera
+  // go przy montażu), więc `useState` startuje właściwą wartością i ten efekt
+  // tylko potwierdza. Nie nadpisuje wyboru użytkownika ani jednostki z odczytu.
+  useEffect(() => {
+    if (defaultRateUnit && !rateUnitTouchedRef.current) {
+      setRateUnit(defaultRateUnit);
+    }
+  }, [defaultRateUnit]);
 
   // Dwa szybkie wgrania pliku = dwa równoległe odczyty. Bez licznika epok
   // wolniejsza odpowiedź STARSZEGO pliku wygrywałaby z nowszą — do formularza
@@ -228,6 +253,9 @@ export function NewContractorOrderDialog({
             Number(form.billingHours) || 160,
           ),
         );
+        // Jednostka z dokumentu to świadomy wybór — nie pozwól, by późno
+        // dojeżdżający default klienta ją nadpisał.
+        rateUnitTouchedRef.current = true;
         setRateUnit(detectedUnit);
       }
       // Dokument opisuje pozycję PRZYCHODOWĄ klienta. Stawka kosztowa
@@ -771,7 +799,10 @@ export function NewContractorOrderDialog({
                 value={rateUnit}
                 rateCandidate={rateCandidate}
                 rateClient={rateClient}
-                onValueChange={setRateUnit}
+                onValueChange={(u) => {
+                  rateUnitTouchedRef.current = true;
+                  setRateUnit(u);
+                }}
                 onRateCandidateChange={setRateCandidate}
                 onRateClientChange={setRateClient}
                 billingHoursPerMonth={Number(billingHours) || 160}

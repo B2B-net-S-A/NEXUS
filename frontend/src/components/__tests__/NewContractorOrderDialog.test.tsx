@@ -99,10 +99,12 @@ function renderDialog({
   orderType,
   onOrderTypeChange,
   canManageFinance,
+  defaultRateUnit,
 }: {
   orderType?: OrderType;
   onOrderTypeChange?: (orderType: OrderType) => void;
   canManageFinance?: boolean;
+  defaultRateUnit?: "hourly" | "daily" | "monthly";
 } = {}) {
   // `retry: 1` LUSTRZANIE do produkcji (`QueryProvider`), nie `false`. Przy
   // `retry: false` test przechodziłby, nie dotykając realnego opóźnienia:
@@ -119,6 +121,7 @@ function renderDialog({
           orderType={orderType}
           onOrderTypeChange={onOrderTypeChange}
           canManageFinance={canManageFinance}
+          defaultRateUnit={defaultRateUnit}
           onClose={() => {}}
           onCreated={() => {}}
         />
@@ -308,6 +311,45 @@ describe("NewContractorOrderDialog — jednostka i waluta zamówienia", () => {
   });
 });
 
+
+describe("NewContractorOrderDialog — domyślna jednostka klienta", () => {
+  it("wstępnie ustawia jednostkę najczęstszą u klienta i wysyła ją bez ręcznej zmiany", async () => {
+    // Kontrakt jest nowy (brak historii per-kontrakt), więc jedyny sygnał to
+    // jednostka klienta. Startuje zaznaczona, nie `monthly`, i trafia do payloadu
+    // bez dotykania przełącznika.
+    const user = userEvent.setup({ delay: null });
+    mockApi(() =>
+      Promise.resolve({
+        data: {
+          items: [{ id: 42, name: "Jan", lastname: "Kowalski", email: "jan@example.com" }],
+        },
+      }),
+    );
+    renderDialog({ canManageFinance: true, defaultRateUnit: "daily" });
+
+    await user.type(screen.getByPlaceholderText(/Szukaj po imieniu/i), "Jan");
+    await user.click(
+      await screen.findByRole("button", { name: /Jan Kowalski/ }, { timeout: 2000 }),
+    );
+    await user.type(screen.getByLabelText(/Numer zamówienia/i), "45767");
+    await user.type(screen.getByLabelText(/Contract start/i), "2026-09-01");
+
+    // "MD" (daily) jest zaznaczona domyślnie — nie klikamy w przełącznik.
+    expect(screen.getByRole("radio", { name: "MD" })).toBeChecked();
+
+    await user.type(screen.getByPlaceholderText("np. 215,60"), "544");
+    await user.type(screen.getByPlaceholderText("np. 150,40"), "480");
+    await user.click(
+      screen.getByRole("button", { name: "Stwórz Contract + Order" }),
+    );
+
+    await waitFor(() => expect(createContractWithOrder).toHaveBeenCalledTimes(1));
+    expect(createContractWithOrder).toHaveBeenCalledWith(
+      11,
+      expect.objectContaining({ rate_unit: "daily" }),
+    );
+  });
+});
 
 describe("NewContractorOrderDialog — PDF od klienta", () => {
   it("dropzone jest widoczna od razu, dla każdego klienta", () => {

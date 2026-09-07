@@ -521,6 +521,10 @@ async def test_admin_flow_b_without_activation_fields_stays_draft(
                 "title": "Admin order wymagający uzupełnienia",
                 "rate_client": "18000",
                 "rate_candidate": "14000",
+                # Kwoty są miesięczne — jednostkę podajemy jawnie (jak realny
+                # formularz), bo domyślna jednostka klienta bez historii nie jest
+                # `monthly` i przeliczyłaby marżę na inną jednostkę.
+                "rate_unit": "monthly",
                 # Deliberately omit start/end and work_mode. Flow B has no
                 # contract_type/work_mode fields and therefore can never prove
                 # readiness for activation on create.

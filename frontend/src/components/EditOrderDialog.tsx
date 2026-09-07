@@ -140,6 +140,10 @@ export function EditOrderDialog({
   const [rateRevenue, setRateRevenue] = useState(
     order?.rate_client != null ? String(order.rate_client) : "",
   );
+  // Istniejące zamówienie → zapisana jednostka; nowy szkic → jednostka
+  // kontraktu (którą przy tworzeniu nowego zamówienia ustawia już domyślna
+  // jednostka klienta, więc szkic ją dziedziczy). Nie flipujemy tu jednostki:
+  // kwoty pola są dziedziczone w jednostce kontraktu.
   const [rateUnit, setRateUnit] = useState<OrderRateUnit>(
     order?.rate_unit ?? contractRateUnit ?? "monthly",
   );
