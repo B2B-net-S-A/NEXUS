@@ -8,6 +8,7 @@ import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 import { ContractorOrderCards } from "@/components/OrdersAndContractsTab";
 import { useToast } from "@/components/Toast";
+import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import {
   orderGroupsApi,
@@ -125,6 +126,9 @@ export function MultiConsultantOrdersTab({
   const { showToast } = useToast();
   const user = useAuthStore((s) => s.user);
   const canViewFinance = canViewClientFinance(user, clientId);
+  // Domyślna jednostka stawki dopasowana do klienta (nigdy `monthly`) dla
+  // osadzonych formularzy zamówień; wspólny cache z dialogami.
+  const { data: defaultRateUnit } = useClientDefaultRateUnit(clientId);
   const canManage = canManageMultiConsultantOrders(user, clientId);
   const canLifecycle = canManageOrderLifecycle(user);
   const canExport =
@@ -865,6 +869,7 @@ export function MultiConsultantOrdersTab({
           canManageFinance={
             contractorQuery.data?.can_manage_finance ?? false
           }
+          defaultRateUnit={defaultRateUnit}
           orderType={newOrderType}
           onOrderTypeChange={openNewOrderForm}
           allowedOrderTypes={allowedOrderTypes}
