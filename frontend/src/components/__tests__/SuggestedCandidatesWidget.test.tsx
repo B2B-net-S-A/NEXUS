@@ -6,7 +6,12 @@ import {
   selectMatchesForHistory,
   SuggestedCandidatesWidget,
 } from "@/components/SuggestedCandidatesWidget";
-import type { CandidateMatch, RecommendationMeta, ScoreBreakdown } from "@/lib/api";
+import type {
+  CandidateMatch,
+  HiddenCounters,
+  RecommendationMeta,
+  ScoreBreakdown,
+} from "@/lib/api";
 
 const mocks = vi.hoisted(() => ({
   latest: vi.fn(),
@@ -17,19 +22,26 @@ const mocks = vi.hoisted(() => ({
   shortlistAdd: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({
-  proposalsApi: {
-    latest: (...args: unknown[]) => mocks.latest(...args),
-    regenerate: (...args: unknown[]) => mocks.regenerate(...args),
-  },
-  recommendationsApi: {
-    forJob: (...args: unknown[]) => mocks.forJob(...args),
-    assignToJob: (...args: unknown[]) => mocks.assignToJob(...args),
-  },
-  matchHistoryApi: {
-    log: (...args: unknown[]) => mocks.logHistory(...args),
-  },
-}));
+vi.mock("@/lib/api", async () => {
+  // `hiddenTotal`/`HIDDEN_LABELS_PL` są czystymi funkcjami/stałymi (0278) —
+  // realna implementacja, żeby ten test dowodził PRAWDZIWEGO sumowania i
+  // PRAWDZIWYCH etykiet, nie kopii utrzymywanej ręcznie w mocku.
+  const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
+  return {
+    ...actual,
+    proposalsApi: {
+      latest: (...args: unknown[]) => mocks.latest(...args),
+      regenerate: (...args: unknown[]) => mocks.regenerate(...args),
+    },
+    recommendationsApi: {
+      forJob: (...args: unknown[]) => mocks.forJob(...args),
+      assignToJob: (...args: unknown[]) => mocks.assignToJob(...args),
+    },
+    matchHistoryApi: {
+      log: (...args: unknown[]) => mocks.logHistory(...args),
+    },
+  };
+});
 
 vi.mock("@/lib/candidate-search-api", () => ({
   shortlistApi: {
@@ -118,10 +130,7 @@ function readySnapshot(extra: Record<string, unknown> = {}) {
 }
 
 /** Odpowiedź żywego /recommendations z jawnym zestawem liczników ukrytych. */
-function liveResponse(
-  matches: CandidateMatch[],
-  hidden?: { over_budget: number; remote_only: number },
-) {
+function liveResponse(matches: CandidateMatch[], hidden?: HiddenCounters) {
   return {
     data: {
       job_id: 7,
@@ -346,6 +355,40 @@ describe("SuggestedCandidatesWidget — przełączniki mówią prawdę", () => {
     const notice = await screen.findByTestId("switches-no-results");
     expect(notice).toHaveTextContent("ukryci przez włączone filtry");
     expect(notice.textContent).not.toMatch(/margines/i);
+  });
+
+  it("licznik ukrytych liczy się z KAŻDEJ z pięciu rubryk 0278, nie tylko budżetu/zdalnie", async () => {
+    // Tylko `missing_must` niezerowe — stara suma (`over_budget + remote_only`)
+    // dałaby zero i CAŁY pasek wcale by się nie wyrenderował.
+    mocks.forJob.mockResolvedValue(liveResponse([], { missing_must: 2 }));
+
+    renderWidget();
+    fireEvent.click(screen.getByTestId("switch-remote-only"));
+
+    const notice = await screen.findByTestId("dealbreaker-hidden-notice");
+    expect(notice).toHaveTextContent("Ukryto 2 bez technologii must-have");
+  });
+
+  it("każda z pięciu rubryk renderuje swoją WŁASNĄ etykietę PL", async () => {
+    mocks.forJob.mockResolvedValue(
+      liveResponse([], {
+        over_budget: 1,
+        missing_must: 2,
+        office_days_exceeded: 3,
+        office_city_mismatch: 4,
+        remote_only: 5,
+      }),
+    );
+
+    renderWidget();
+    fireEvent.click(screen.getByTestId("switch-remote-only"));
+
+    const notice = await screen.findByTestId("dealbreaker-hidden-notice");
+    expect(notice).toHaveTextContent("Ukryto 1 powyżej budżetu oferty");
+    expect(notice).toHaveTextContent("Ukryto 2 bez technologii must-have");
+    expect(notice).toHaveTextContent("Ukryto 3 za mało dni w biurze");
+    expect(notice).toHaveTextContent("Ukryto 4 inne miasto niż biuro");
+    expect(notice).toHaveTextContent("Ukryto 5 tylko-zdalnych");
   });
 
   it("komunikat ładowania nie pokazuje pustych cudzysłowów bez filtra lokalizacji", async () => {

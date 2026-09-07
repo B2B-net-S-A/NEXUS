@@ -970,12 +970,32 @@ export const matchingApi = {
       job_id: number;
       job_title: string;
       required_skills: string[];
+      /**
+       * Skąd wzięło się `required_skills` (0278): kolumna oferty →
+       * Tier 0 Championa (sekcja „Stack") → narracja/JD Championa (wywiedzione)
+       * → ostatni fallback, regex po treści wymagań. Opcjonalne dla parytetu
+       * ze starszym backendem.
+       */
+      required_skills_source?:
+        | "must_skills"
+        | "champion_stack"
+        | "champion_narrative"
+        | "requirements_text";
       // Nice-to-have skill labels from the job's `nice_skills` JSON — drive the
       // "Mile widziane" column in the C2 workspace. Display-only (never scored).
       nice_skills?: string[];
       search_type: string;
       min_score: number | null;
       location_filter: string | null;
+      /** Rubryki strony OFERTY (0278) — te same trzy, które dealbreakery
+       *  egzekwują na wierszach poniżej. Opcjonalne dla parytetu ze starszym
+       *  backendem. */
+      rubrics?: {
+        budget_hourly: number | null;
+        onsite_days_per_week: number | null;
+        office_location: string | null;
+        must_skills: string[];
+      };
       matches: Array<{
         candidate: {
           id: number;
@@ -997,6 +1017,20 @@ export const matchingApi = {
         nice_matching?: string[];
         nice_gaps?: string[];
         eligibility?: MatchEligibility | null;
+        /** Rubryki 0278 na WIERSZU — status dealbreakerów dla TEGO kandydata,
+         *  widoczny nawet gdy wiersz przetrwał tylko dzięki `warn`-exemption.
+         *  Opcjonalne: starszy backend ich nie wysyła. */
+        rate_fit?: "ok" | "over_budget" | "unknown";
+        office_fit?:
+          | "ok"
+          | "days_exceeded"
+          | "city_mismatch"
+          | "unknown"
+          | "not_required";
+        /** Must-have z `rubrics.must_skills`, których TEMU kandydatowi brakuje
+         *  — węższe niż `gaps` (to porównuje z `required_skills`, który bywa
+         *  wywiedziony regexem; `missing_must` tylko z jawnym must bramki). */
+        missing_must?: string[];
       }>;
       meta?: RecommendationMeta;
     }>(`/api/jobs/${jobId}/ai-matches`, {
@@ -2435,14 +2469,53 @@ export interface CandidateMatch {
   breakdown?: ScoreBreakdown | null;
 }
 
+/**
+ * Dealbreaker-switche: pięć rubryk-powodów, dla których kandydat mógł zostać
+ * ukryty (0278: must-have / dni w biurze / miasto biura dołączają do
+ * istniejących budżetu i „wyłącznie zdalnie"). Kolejność jest tu tylko
+ * deklaratywna — backend liczy je w STAŁEJ kolejności (budżet → must-have →
+ * dni → miasto → zdalnie), pierwszy pasujący powód wygrywa.
+ */
+export type HiddenReason =
+  | "over_budget"
+  | "missing_must"
+  | "office_days_exceeded"
+  | "office_city_mismatch"
+  | "remote_only";
+
+/** `meta.hidden` / `snapshot.hidden` — liczniki per powód, wszystkie opcjonalne
+ *  (starszy backend albo snapshot sprzed 0237/0278 może nie znać części kluczy). */
+export type HiddenCounters = Partial<Record<HiddenReason, number>>;
+
+/** Etykiety PL renderowane jako chipy „Ukryto N — <etykieta>" wszędzie tam,
+ *  gdzie `meta.hidden`/`snapshot.hidden` się pojawia — ukrywanie nigdy nie
+ *  jest ciche (reguła „awaria ≠ pustka"). */
+export const HIDDEN_LABELS_PL: Record<HiddenReason, string> = {
+  over_budget: "powyżej budżetu oferty",
+  missing_must: "bez technologii must-have",
+  office_days_exceeded: "za mało dni w biurze",
+  office_city_mismatch: "inne miasto niż biuro",
+  remote_only: "tylko-zdalnych",
+};
+
+/** Suma wszystkich liczników ukrytych, niezależnie od tego, ile rubryk backend
+ *  akurat zna — `undefined`/`null` liczy się jako zero na każdym kluczu. */
+export function hiddenTotal(hidden?: HiddenCounters | null): number {
+  if (!hidden) return 0;
+  return (Object.keys(HIDDEN_LABELS_PL) as HiddenReason[]).reduce(
+    (sum, reason) => sum + (hidden[reason] ?? 0),
+    0,
+  );
+}
+
 export interface RecommendationMeta {
   mode: string;
   degraded: boolean;
   reason: string | null;
   index_version?: string | null;
   scoring_version?: string | null;
-  /** Dealbreaker-switche: liczniki ukrytych per powód (runda 3). */
-  hidden?: { over_budget: number; remote_only: number };
+  /** Dealbreaker-switche: liczniki ukrytych per powód (0278: pięć rubryk). */
+  hidden?: HiddenCounters;
   /**
    * Ilu kandydatów odsiała bramka dopuszczalności (blacklista klienta / NDA /
    * konflikt / weto). P-B (decyzja Artura, 2026-09-03): publikowane w /ai-matches
@@ -3390,6 +3463,11 @@ export const recommendationsApi = {
        */
       exclude_over_budget?: boolean;
       exclude_remote_only?: boolean;
+      /** Dealbreakery 0278 (domyślnie WŁĄCZONE po stronie backendu — pomiń,
+       *  żeby zostawić domyślne zachowanie). */
+      exclude_missing_must?: boolean;
+      exclude_office_days_exceeded?: boolean;
+      exclude_office_city_mismatch?: boolean;
     },
   ) =>
     api.get<{
@@ -3680,7 +3758,7 @@ export interface ProposalSnapshot {
   stale: boolean;
   /** Liczniki dealbreakerów z generacji — budżet oferty działa z automatu
    *  jako twardy sufit (decyzja 19.08); null/brak = snapshot sprzed 0237. */
-  hidden?: { over_budget?: number; remote_only?: number } | null;
+  hidden?: HiddenCounters | null;
   /** Correlates this ranking with match telemetry (impressions/outcomes). */
   run_id: string | null;
   candidates: ProposalCandidateItem[];

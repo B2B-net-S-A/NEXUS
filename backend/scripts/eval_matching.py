@@ -60,6 +60,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from sqlalchemy import case, func, select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.models.candidate import Candidate, CandidateStatus  # noqa: E402
 from app.models.job import Job  # noqa: E402
@@ -75,7 +76,10 @@ from app.services.similar_job_candidates import (  # noqa: E402
     fetch_historical_boost_map,
 )
 from app.services.canonical_text import build_job_query_variants  # noqa: E402
-from app.services.hybrid_search import build_job_bm25_query  # noqa: E402
+from app.services.hybrid_search import (  # noqa: E402
+    build_job_bm25_query,
+    build_job_must_groups,
+)
 from app.services.retrieval_pool import retrieve_candidate_pool  # noqa: E402
 
 logger = logging.getLogger("eval_matching")
@@ -528,6 +532,9 @@ async def _score_job_candidates(
             # z 18.08 zapisało metryki identyczne z baselinem i uzasadniło wniosek
             # „sufit architektury".
             bm25_query=build_job_bm25_query(job),
+            # 0278: rodziny must-have dla strategii SQL-first — no-op, dopóki
+            # `STRUCTURED_POOL_ENABLED` jest wyłączona (`--structured-pool`).
+            must_groups=build_job_must_groups(job),
         )
     except Exception as e:
         logger.warning("semantic search failed for job=%s: %s", job.id, e)
@@ -789,17 +796,35 @@ def _go_no_go(
     )
 
 
+def _pool_strategy_label() -> str:
+    """Nazwa strategii puli TEGO biegu — ta sama kolejność sprawdzania flag
+    co w `retrieval_pool.retrieve_candidate_pool` (structured pierwsze).
+
+    Bez tego wiersza w nagłówku raport nie mówi, którą pulę w ogóle
+    zmierzono — a `--structured-pool` (0278) i `HYBRID_POOL_ENABLED` zmieniają
+    CZŁONKOSTWO, więc dwa raporty policzone różnymi pulami pod tym samym
+    tytułem wyglądałyby na porównywalne, choć nie są.
+    """
+    if settings.STRUCTURED_POOL_ENABLED:
+        return f"structured (SQL-first, limit={settings.STRUCTURED_POOL_LIMIT})"
+    if settings.HYBRID_POOL_ENABLED:
+        return "hybrid (BM25+dense+RRF)"
+    return "vector (semantic only)"
+
+
 def _render_markdown(
     profile_results: list[ProfileEval],
     generated_at: datetime,
     data_quality: DataQuality,
     voyage_configured: bool,
     error_cases_max: int = 10,
+    pool_strategy: str | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append("# Matching Quality Audit — Phase 0")
     lines.append("")
     lines.append(f"Generated at: `{generated_at.isoformat()}`")
+    lines.append(f"Pool strategy: **{pool_strategy or _pool_strategy_label()}**")
     lines.append("")
     lines.append("## Data quality snapshot")
     lines.append("")
@@ -970,12 +995,36 @@ def _render_markdown(
     return "\n".join(lines)
 
 
+def _apply_structured_pool_args(args: argparse.Namespace) -> None:
+    """0278: `--structured-pool`/`--structured-pool-limit` mutują `settings`
+    dla tego procesu.
+
+    Wyodrębnione z `_run` do osobnej, synchronicznej funkcji bez DB — tylko
+    dlatego DA SIĘ jej dowieść testem jednostkowym. Reszta `_run` wymaga
+    żywego Postgresa/Qdranta/Voyage i jest ćwiczona osobno (patrz docstring
+    modułu `test_eval_matching.py`).
+
+    Musi być wołane PRZED czymkolwiek innym w `_run`: pula SQL-first jest
+    sprawdzana jako PIERWSZA instrukcja `retrieve_candidate_pool`, więc flip
+    po fakcie (np. w środku pętli po ofertach) nic by nie zmienił dla ofert
+    już policzonych, a nagłówek raportu (`_render_markdown` /
+    `_pool_strategy_label`) czyta te same ustawienia po zakończeniu biegu.
+    """
+    if args.structured_pool:
+        settings.STRUCTURED_POOL_ENABLED = True
+        logger.info("STRUCTURED_POOL_ENABLED=True dla tego biegu (--structured-pool)")
+    if args.structured_pool_limit is not None:
+        settings.STRUCTURED_POOL_LIMIT = args.structured_pool_limit
+
+
 async def _run(args: argparse.Namespace) -> int:
     global _DUMP_HANDLE
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    _apply_structured_pool_args(args)
 
     profiles: list[WeightProfile]
     if args.ablation:
@@ -1328,6 +1377,30 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Include the champion_fit layer. OFF by default: it reads "
             "screening_answers that only exist for ground-truth positives "
             "(label leakage, AI-P0-01), so the honest headline zeroes it."
+        ),
+    )
+    parser.add_argument(
+        "--structured-pool",
+        action="store_true",
+        help=(
+            "0278: set STRUCTURED_POOL_ENABLED=True for this run — SQL-first "
+            "pool membership (Postgres AND-of-OR over explicit must-have skill "
+            "families) instead of the vector/hybrid pool. Membership only: the "
+            "cosine similarity for whoever gets in is still computed the same "
+            "way as today (similarity_for_candidate_ids), so this measures who "
+            "the pool admits, not how a candidate already in it is scored. "
+            "Compare against a baseline run without this flag on the SAME "
+            "--job-ids (the frozen Champion set) for a clean A/B."
+        ),
+    )
+    parser.add_argument(
+        "--structured-pool-limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Override STRUCTURED_POOL_LIMIT (Settings default: "
+            f"{settings.STRUCTURED_POOL_LIMIT}) for this run only."
         ),
     )
     parser.add_argument(

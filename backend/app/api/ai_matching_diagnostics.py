@@ -45,6 +45,13 @@ _RETRIEVAL_FLAGS = [
     "MULTI_QUERY_RETRIEVAL_ENABLED",
     "CV_PASSAGES_ENABLED",
     "RERANKER_ENABLED",
+    # 0278: pula SQL-first po must-have — sprawdzana PRZED hybrydą/wektorem
+    # w tej samej fasadzie (`retrieval_pool.py`), więc obowiązuje ta sama
+    # obietnica: dźwignia, której nie da się zaobserwować, przestawia się
+    # na ślepo.
+    "STRUCTURED_POOL_ENABLED",
+    "STRUCTURED_POOL_LIMIT",
+    "STRUCTURED_POOL_MIN_MEMBERS",
 ]
 
 _PLAN_FLAGS = [

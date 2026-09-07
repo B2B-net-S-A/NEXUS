@@ -60,7 +60,9 @@ async def test_fresh_top_filters_staged_and_floor(monkeypatch):
         nice_skills=None,
     )
 
-    async def fake_pool(db, text, top_k, query_variants=None, bm25_query=None):
+    async def fake_pool(
+        db, text, top_k, query_variants=None, bm25_query=None, must_groups=None
+    ):
         return [
             {"candidate_id": 1, "score": 0.9},  # staged — odpada
             {"candidate_id": 2, "score": 0.8},  # score 70 — wchodzi
@@ -192,7 +194,9 @@ def _wire_digest(monkeypatch, candidate_ids: list[int], scored: list) -> None:
     po zapłaceniu za scoring i zatruciu cache".
     """
 
-    async def fake_pool(db, text, *, top_k, query_variants=None, bm25_query=None):
+    async def fake_pool(
+        db, text, *, top_k, query_variants=None, bm25_query=None, must_groups=None
+    ):
         return [{"candidate_id": cid, "score": 0.9} for cid in candidate_ids]
 
     async def fake_profile(db):
@@ -297,7 +301,7 @@ async def test_digest_uses_the_same_dealbreaker_parameters_as_the_default_tab(
         job = await db.scalar(select(Job).where(Job.id == job_id))
         await fresh(db, job)
 
-    assert seen.get("budget_hourly") == 333.0
+    assert seen["inputs"].budget_hourly == 333.0
     assert seen.get("exclude_over_budget", True) is True
     assert seen.get("exclude_remote_only", False) is False
 

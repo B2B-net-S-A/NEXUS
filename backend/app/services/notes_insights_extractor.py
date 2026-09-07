@@ -42,8 +42,10 @@ logger = logging.getLogger(__name__)
 
 # Bump przy każdej zmianie promptu/schematu — wchodzi do fingerprinta, więc
 # unieważnia ekstrakcje policzone starszą wersją (płacą ponownie dopiero gdy
-# pętla do nich dojdzie, w ramach budżetu per bieg).
-PROMPT_VERSION = "v3-union"
+# pętla do nich dojdzie, w ramach budżetu per bieg). Bump NIE przelicza
+# korpusu wstecz — `_select_stale_candidates` wybiera po dacie notatki vs
+# stemplu ekstrakcji, fingerprint tu tylko pomija duplikaty w pętli.
+PROMPT_VERSION = "v4-onsite-days"
 EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
@@ -58,7 +60,7 @@ PROMPT = """Z wewnętrznych notatek rekruterów o kandydacie wyciągnij FAKTY do
  "availability": {"raw": str|null, "notice_period": str|null, "available_from": str|null},
  "not_looking_until": str|null,
  "current_engagement": {"employer": str|null, "project": str|null, "ends_at": str|null, "raw": str|null},
- "preferences": {"remote_only": bool|null, "locations": [str], "sectors_prefer": [str], "sectors_avoid": [str], "other": str|null},
+ "preferences": {"remote_only": bool|null, "max_onsite_days_per_week": int|null, "locations": [str], "sectors_prefer": [str], "sectors_avoid": [str], "other": str|null},
  "relocation": {"willing": bool|null, "targets": [str]},
  "contract_form_preference": "b2b"|"uop"|"any"|null,
  "languages_observed": [{"name": str, "level": str|null}],
@@ -80,6 +82,9 @@ Zasady:
   NIE przepisuj skilli wspomnianych wyłącznie jako "w CV".
 - "skills_gaps_observed": wyłącznie braki techniczne nazwane wprost; ZERO ocen
   miękkich i opinii personalnych.
+- "max_onsite_days_per_week": TYLKO gdy kandydat wprost nazwał limit dni w
+  biurze (0-7; "tylko zdalnie"/"wyłącznie zdalnie" = 0); bez liczby wprost
+  → null. Nie zgaduj z ogólnych deklaracji trybu pracy bez liczby.
 - "matching_facts": 2-3 zdania samych faktów istotnych przy doborze, bez opinii.
 Zwróć SAM JSON.
 
@@ -301,6 +306,7 @@ def apply_insights(
         "avail_date_filled": 0,
         "status_set": 0,
         "locked_skills": 0,
+        "onsite_days_filled": 0,
     }
     now = now_iso or datetime.now(timezone.utc).isoformat()
     extracted = (
@@ -421,6 +427,29 @@ def apply_insights(
     if current_status == "unknown" and _ASAP_RE.search(raw_txt):
         candidate.availability_status = AvailabilityStatus.actively_looking
         stats["status_set"] = 1
+        changed = True
+
+    # ── dni w biurze → kolumna (FILL_EMPTY, trzecia rubryka rekrutacji 0278) ─
+    # Bez "aktualizacji własnego wpisu" jak przy stawce: to liczba wprost
+    # nazwana przez kandydata, nie coś, co ekstrakcja mogłaby świadomie
+    # "poprawić" świeższą notatką — wartość CZŁOWIEKA (modal edycji) zostaje
+    # nietknięta zawsze, niezależnie od tego, kto ją wpisał.
+    pref = parsed.get("preferences")
+    pref = pref if isinstance(pref, dict) else {}
+    days = pref.get("max_onsite_days_per_week")
+    if days is None and pref.get("remote_only") is True:
+        # "tylko zdalnie" bez jawnej liczby = 0 dni w biurze — ten sam wniosek
+        # co S4 w migracji 0278 dla wierszy zaznaczonych remote_only wcześniej.
+        days = 0
+    if (
+        getattr(candidate, "max_onsite_days_per_week", None) is None
+        and isinstance(days, int)
+        and not isinstance(days, bool)
+        and 0 <= days <= 7
+    ):
+        candidate.max_onsite_days_per_week = days
+        insights["_onsite_days_from_notes"] = True
+        stats["onsite_days_filled"] = 1
         changed = True
 
     extracted["_notes_insights"] = insights

@@ -220,12 +220,39 @@ async def recommend_candidates_for_job(
             "pokazać też przekraczających."
         ),
     ),
-    exclude_remote_only: bool = Query(
-        False,
+    exclude_remote_only: Optional[bool] = Query(
+        None,
         description=(
             "Dealbreaker: ukryj kandydatów z potwierdzonym w rozmowach "
-            "'wyłącznie zdalnie' (preferences.remote_only). Nieznana "
-            "preferencja zawsze przechodzi."
+            "'wyłącznie zdalnie' (preferences.remote_only). Domyślnie AUTO "
+            "(0278): pominięte — aktywuje się samo, gdy oferta wymaga biura "
+            "(kolumna/Champion/dni w biurze > 0). Jawne `true`/`false` zawsze "
+            "wygrywa nad AUTO. Nieznana preferencja zawsze przechodzi."
+        ),
+    ),
+    exclude_missing_must: bool = Query(
+        True,
+        description=(
+            "Dealbreaker (0278, domyślnie WŁĄCZONY): ukryj kandydatów, którym "
+            "brakuje choćby jednej technologii must-have (kolumna oferty albo "
+            "sekcja „Stack technologiczny” Championa). Kandydat bez żadnego "
+            "znanego sygnału umiejętności zawsze przechodzi."
+        ),
+    ),
+    exclude_office_days_exceeded: bool = Query(
+        True,
+        description=(
+            "Dealbreaker (0278): ukryj kandydatów, których deklarowany limit "
+            "dni w biurze jest niższy niż wymóg oferty. Działa tylko gdy "
+            "oferta ma jawną liczbę dni; nieznana deklaracja przechodzi."
+        ),
+    ),
+    exclude_office_city_mismatch: bool = Query(
+        True,
+        description=(
+            "Dealbreaker (0278): ukryj kandydatów, których znane miasta biura "
+            "nie pokrywają się z miastem oferty. Działa tylko gdy oferta "
+            "wymaga dni w biurze i ma jawne miasto."
         ),
     ),
     current_user: User = Depends(require_candidate_read),
@@ -253,6 +280,9 @@ async def recommend_candidates_for_job(
         location_source=location_source,
         exclude_over_budget=exclude_over_budget,
         exclude_remote_only=exclude_remote_only,
+        exclude_missing_must=exclude_missing_must,
+        exclude_office_days_exceeded=exclude_office_days_exceeded,
+        exclude_office_city_mismatch=exclude_office_city_mismatch,
     )
 
 
@@ -292,7 +322,10 @@ async def _recommend_candidates_core(
     location: str | None = None,
     location_source: str = "all",
     exclude_over_budget: bool = True,
-    exclude_remote_only: bool = False,
+    exclude_remote_only: Optional[bool] = None,
+    exclude_missing_must: bool = True,
+    exclude_office_days_exceeded: bool = True,
+    exclude_office_city_mismatch: bool = True,
 ) -> dict:
     """Application-service core of job→candidates recommendations.
 
@@ -349,7 +382,7 @@ async def _recommend_candidates_core(
     # w roli tsquery to koniunkcja setek leksemów, czyli zero trafień zawsze —
     # i to zero jest niewidoczne, bo fuzja RRF z pustą listą zwraca czysty
     # porządek wektora. Bez tego argumentu hybryda kosztuje, a nie wnosi.
-    from app.services.hybrid_search import build_job_bm25_query
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
 
     hits = await retrieve_candidate_pool(
         db,
@@ -357,6 +390,9 @@ async def _recommend_candidates_core(
         top_k=pool_size,
         query_variants=build_job_query_variants(job, query_text),
         bm25_query=build_job_bm25_query(job),
+        # 0278: rodziny must-have dla strategii SQL-first — no-op, dopóki
+        # `STRUCTURED_POOL_ENABLED` jest wyłączona.
+        must_groups=build_job_must_groups(job),
     )
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())
@@ -485,17 +521,23 @@ async def _recommend_candidates_core(
     # Dealbreaker-switche: twardy sufit budżetu działa Z AUTOMATU (decyzja
     # produktowa 19.08) — znany budżet oferty ukrywa znane stawki powyżej.
     # Nieznany przechodzi; liczniki idą do meta.hidden, żeby ukrywanie nigdy
-    # nie było ciche (reguła „awaria ≠ pustka").
+    # nie było ciche (reguła „awaria ≠ pustka"). Rubryki 0278 (must-have / dni
+    # w biurze / miasto) rozwiązane RAZ przez `dealbreaker_inputs_for_job` —
+    # ta sama funkcja, której używa `/ai-matches` i snapshot handoffu, więc
+    # wszystkie powierzchnie liczą te trzy rubryki identycznie.
     from app.services.dealbreaker_filters import (
         apply_dealbreakers,
-        resolve_job_budget_hourly,
+        dealbreaker_inputs_for_job,
     )
 
     dealbreakers = apply_dealbreakers(
         candidates,
+        inputs=dealbreaker_inputs_for_job(job),
         exclude_over_budget=exclude_over_budget,
-        budget_hourly=(resolve_job_budget_hourly(job) if exclude_over_budget else None),
         exclude_remote_only=exclude_remote_only,
+        exclude_missing_must=exclude_missing_must,
+        exclude_office_days_exceeded=exclude_office_days_exceeded,
+        exclude_office_city_mismatch=exclude_office_city_mismatch,
     )
     candidates = dealbreakers.kept
 

@@ -67,6 +67,12 @@ class TalentRadarSearchRequest(BaseModel):
     # wracają w meta.hidden.
     budget_hourly_max: Optional[float] = Field(default=None, gt=0, le=2000)
     exclude_remote_only: bool = False
+    # Rubryki 0278: dni w biurze / tydzień i miasto biura, podane WPROST przez
+    # rekrutera (radar nie ma kolumn oferty). `onsite_days_per_week` uzbraja
+    # dealbreakery dni/miasta TYLKO gdy > 0 — 0 jest legalną, „znaną" wartością
+    # (praca wyłącznie zdalna) i nie aktywuje żadnego z dwóch nowych filtrów.
+    onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+    office_location: Optional[str] = Field(default=None, max_length=200)
     # Wymagania twarde/miękkie WPROST, zamiast wywodzonych regexem z prozy.
     # Wysyła je front po `parse-champion`; przy wklejonej treści zostają puste
     # i działa dotychczasowy fallback scoringu. Same nazwy, nie
@@ -113,6 +119,8 @@ async def talent_radar_search(
                 min_score=payload.min_score,
                 budget_hourly_max=payload.budget_hourly_max,
                 exclude_remote_only=payload.exclude_remote_only,
+                onsite_days_per_week=payload.onsite_days_per_week,
+                office_location=payload.office_location,
                 # Normalizacja TU, nie tylko po stronie `parse-champion`:
                 # request jest sterowany przez klienta i wolno go POST-ować
                 # wprost, z pominięciem parsowania profilu.

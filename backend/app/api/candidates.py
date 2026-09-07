@@ -221,6 +221,10 @@ class CandidateFilterSpec(BaseModel):
     remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = None
     min_rate: Optional[Decimal] = Field(None, ge=0)
     max_rate: Optional[Decimal] = Field(None, ge=0)
+    # Trzecia rubryka rekrutacji (0278) — bez UI w tej fali, backendowy
+    # kontrakt gotowy do podłączenia. Wyklucza NULL, jak stawka: kandydat bez
+    # znanej rubryki nie jest "znanym dopasowaniem" do progu dni w biurze.
+    min_onsite_days: Optional[int] = Field(None, ge=0, le=7)
     min_experience: Optional[int] = Field(None, ge=0, le=60)
     max_experience: Optional[int] = Field(None, ge=0, le=60)
     employment: Optional[list[str]] = None
@@ -952,6 +956,9 @@ async def _build_candidate_filtered_query(
         query = query.where(Candidate.expected_rate_hourly >= f.min_rate)
     if f.max_rate is not None:
         query = query.where(Candidate.expected_rate_hourly <= f.max_rate)
+    if f.min_onsite_days is not None:
+        # `NULL >= x` jest NULL (falsy) w SQL — wyklucza nieznanych, jak stawka.
+        query = query.where(Candidate.max_onsite_days_per_week >= f.min_onsite_days)
 
     if f.min_experience is not None or f.max_experience is not None:
         traffit_exp = Candidate.cv_extracted_data.op("->>")("traffit_experience")
@@ -1299,6 +1306,16 @@ async def list_candidates(
         None,
         ge=0,
         description=("Maximum expected hourly rate (B2B, PLN/h) — see `min_rate`."),
+    ),
+    min_onsite_days: Optional[int] = Query(
+        None,
+        ge=0,
+        le=7,
+        description=(
+            "Minimum candidate office-presence rubric (0278) — matches "
+            "`max_onsite_days_per_week`. Exclusive of nulls, like salary. No "
+            "list UI yet; backend contract only."
+        ),
     ),
     min_experience: Optional[int] = Query(
         None,
@@ -1664,6 +1681,7 @@ async def list_candidates(
         remote_policy=remote_policy,
         min_rate=min_rate,
         max_rate=max_rate,
+        min_onsite_days=min_onsite_days,
         min_experience=min_experience,
         max_experience=max_experience,
         employment=employment,
@@ -4366,6 +4384,28 @@ async def update_candidate(
         )
         current_extracted["_manual_override_experience"] = True
         updates["cv_extracted_data"] = current_extracted
+
+    # `preferences` scala się PŁYTKO (0278): klucz z payloadu nadpisuje, klucz
+    # nieobecny zostaje, jawne `null` kasuje klucz; `preferences: null` czyści
+    # cały słownik. Do 09.2026 PATCH podmieniał całość, więc formularz modelujący
+    # 4 klucze kasował każdy inny przy zapisie telefonu.
+    if "preferences" in updates:
+        incoming = updates["preferences"]
+        current = (
+            dict(candidate.preferences)
+            if isinstance(candidate.preferences, dict)
+            else {}
+        )
+        if incoming is None:
+            current = {}
+        else:
+            for key, value in incoming.items():
+                if value is None:
+                    current.pop(key, None)
+                else:
+                    current[key] = value
+        # NOWY obiekt → ORM widzi zmianę; flag_modified zbędne.
+        updates["preferences"] = current
 
     for field, value in updates.items():
         setattr(candidate, field, value)
