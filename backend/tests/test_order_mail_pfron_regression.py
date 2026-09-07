@@ -11,6 +11,7 @@ from app.services.order_mail_planner import plan_document
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
+    apply_bank_pocztowy_order_policy,
     apply_document_rate_kind,
     apply_pfron_order_policy,
     erste_extract_rows,
@@ -94,6 +95,37 @@ def test_unrelated_vat_uncertainty_is_preserved():
     )
     apply_document_rate_kind(result, "Stawka 100,08 PLN brutto")
     assert result.uncertain_reasons == ["Nieczytelny numer VAT klienta"]
+
+
+@pytest.mark.parametrize("source_rate", ["1600*1,23*20", "1600 PLN netto za 1 MD"])
+def test_document_net_evidence_survives_md_to_hour_conversion(source_rate):
+    text = f"Numer pisma: BP/2031/42\nWynagrodzenie: {source_rate}"
+    result = OrderExtraction(
+        rate_client=Decimal("1600"),
+        start_date="2031-04-01",
+        end_date="2031-06-30",
+    )
+    apply_bank_pocztowy_order_policy(result, text)
+    apply_document_rate_kind(result, text)
+    assert result.rate_client == Decimal("200.00")
+    assert result.rate_client_md == Decimal("1600")
+    assert result.rate_client_gross is None
+    assert result.uncertain is False
+    assert result.uncertain_reasons == []
+
+
+@pytest.mark.parametrize(
+    "text", ["Stawka 1600 PLN za 1 MD", "Wynagrodzenie: 1500*1,23*20"]
+)
+def test_md_conversion_does_not_replace_missing_document_net_evidence(text):
+    result = OrderExtraction(
+        rate_client=Decimal("200.00"),
+        rate_client_md=Decimal("1600"),
+        rate_unit="hour",
+    )
+    apply_document_rate_kind(result, text)
+    assert result.rate_client == Decimal("200.00")
+    assert result.uncertain is True
 
 
 @pytest.mark.parametrize(

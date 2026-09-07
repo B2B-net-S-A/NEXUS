@@ -1898,6 +1898,25 @@ def apply_document_rate_kind(
         marking = detect_rate_gross_marking(
             document_text, [item.rate_client_gross or item.rate_client]
         )
+        if (
+            marking is None
+            and item is result
+            and result.rate_client_md is not None
+            and result.rate_unit == "hour"
+            and result.rate_client
+            == (result.rate_client_md / _BP_HOURS_PER_MD).quantize(
+                Decimal("0.01"), rounding=ROUND_CEILING
+            )
+        ):
+            # Po konwersji MD → h kwoty godzinowej nie ma w dokumencie.
+            # Sprawdź oryginał; wzór <stawka>*1,23 jest dowodem netto,
+            # niezależnym od tożsamości klienta.
+            marking = detect_rate_gross_marking(document_text, [result.rate_client_md])
+            if (
+                marking is None
+                and bank_pocztowy_net_md_rate(document_text) == result.rate_client_md
+            ):
+                marking = RATE_MARK_NET
         confirmed.append(marking is not None or item.rate_client_gross is not None)
         if marking == RATE_MARK_GROSS and item.rate_client_gross is None:
             item.rate_client_gross = item.rate_client
