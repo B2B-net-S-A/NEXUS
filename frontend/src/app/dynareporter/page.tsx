@@ -38,14 +38,14 @@ const MODULES: ModuleCard[] = [
     section: "sales",
     label: "KPI Sales",
     description: "Leady, oferty, wygrane / przegrane per sprzedawca",
-    href: "/insights?tab=klienci",
+    href: "/insights?tab=delivery-lead",
     enabled: true, // B.2.2 deployed
   },
   {
     section: "delivery-lead",
     label: "KPI Delivery Lead",
     description: "Requesty, placementy, vacancy per DL miesięcznie",
-    href: "/insights?tab=klienci",
+    href: "/insights?tab=delivery-lead",
     enabled: true, // B.2.3 deployed
   },
   {
@@ -59,7 +59,7 @@ const MODULES: ModuleCard[] = [
     section: "clients-mrr",
     label: "Klienci + MRR",
     description: "Konsultanci u klientów + miesięczny MRR + finanse",
-    href: "/insights?tab=klienci",
+    href: "/insights?tab=rada",
     enabled: true, // B.2.5 deployed
   },
   {
@@ -73,21 +73,21 @@ const MODULES: ModuleCard[] = [
     section: "przetargi",
     label: "Przetargi",
     description: "Projekty publiczne — allocations, koszty, margin",
-    href: "/insights?tab=zarzad",
+    href: "/insights?tab=rada",
     enabled: true, // B.2.7 deployed
   },
   {
     section: "board",
     label: "Rada Nadzorcza",
     description: "Miesięczny raport — placementy, MRR, P&L",
-    href: "/insights?tab=zarzad",
+    href: "/insights?tab=rada",
     enabled: true, // B.2.8 deployed
   },
   {
     section: "sales-mgmt",
     label: "Sales — Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
-    href: "/insights?tab=klienci",
+    href: "/insights?tab=delivery-lead",
     enabled: true, // B.2.9 deployed
   },
   {

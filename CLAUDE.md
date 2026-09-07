@@ -1850,6 +1850,32 @@ zakresem świadomie:** Sales, AI Analytics, Przetargi, Premie (moduł sprzedaży
 Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-plan.md`
 §0 oraz `docs/insights-etap0-specs.md`.
 
+- **TRZY zakładki, nazwane jak w DynaReporterze: `rekrutacja` ·
+  `delivery-lead` · `rada`** (dawniej `rekrutacja` · `klienci` · `zarzad`).
+  Podział jest treściowy, nie kosmetyczny: **ranking klientów i MRR mieszkają
+  w RADZIE** (pytanie o pieniądze firmy), a Delivery Lead odpowiada za obsadę
+  i hit ratio; **Liga Mistrzów i linki aplikacyjne przeniesione do
+  REKRUTACJI** (gamifikacja i źródła kandydatów to rozmowa o zespole, nie
+  o kokpicie Rady). Dokładając sekcję, zacznij od pytania, na czyje pytanie
+  odpowiada — nie od tego, gdzie jest wolne miejsce.
+- **Stare identyfikatory zakładek ŻYJĄ jako aliasy** (`LEGACY_TAB_ALIASES`
+  w `InsightsView.tsx`): `?tab=klienci` → `delivery-lead`, `?tab=zarzad` →
+  `rada`. Nie kasuj ich: te linki są w zakładkach przeglądarki i na stronie
+  `/dynareporter`, a bez mapy wpadałyby w gałąź „nieznany tab" i po cichu
+  lądowały na Rekrutacji — link do kokpitu Rady otwierałby co innego bez
+  słowa wyjaśnienia. Rozstrzyga czysta `resolveInsightsTab` (testowalna bez
+  montowania widoku), a nie warunek zaszyty w efekcie.
+- **Domyślne okno Delivery Leada to ROK, nie miesiąc.** Ranking stoi na
+  rekrutacjach ZAMKNIĘTYCH w oknie, a tych w miesiącu jest kilkanaście na cały
+  zespół — hit ratio z takiej próbki skacze o dziesiątki punktów i czyta się
+  jak awaria. Trzy zakładki mają trzy różne domyślne okna (Rekrutacja:
+  poprzedni miesiąc, Delivery Lead: rok, Rada: kwartał) i to NIE jest dług.
+- **Sekcje mają kotwice** (`InsightsSection` + `InsightsSectionNav`): tablica
+  `SECTIONS` w panelu jest jednocześnie spisem treści i kontraktem `id`.
+  Dokładając sekcję, dopisz ją do tablicy — inaczej pasek sekcji obiecuje
+  komplet, którego nie ma. `scroll-mt` w `InsightsSection` jest load-bearing:
+  bez niego kotwica chowa nagłówek pod paskiem aplikacji.
+
 - **`/api/insights/*` jest ODDZIELNĄ powierzchnią od `/api/reports/*`
   i `/api/admin/*`.** Tamte trasy są współdzielone z innymi stronami, więc
   poszerzenie ich guardu (D7) albo zmiana semantyki okresu zmieniałaby po cichu
