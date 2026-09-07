@@ -86,9 +86,14 @@ class InterviewFeedback(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
-    calendar_event_id: Mapped[int] = mapped_column(
+    # Nullable od 0278: werdykt hiring managera bywa zbierany bez spotkania
+    # zaplanowanego w NEXUSIE (klient umawia się z kandydatem sam). UNIQUE
+    # (calendar_event_id, feedback_source) zostaje — NULL-e są w Postgresie
+    # różne, więc dalej pilnuje „max jeden feedback danej strony na SPOTKANIE",
+    # a wiersze bez spotkania go nie dotyczą.
+    calendar_event_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("calendar_events.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     candidate_id: Mapped[int] = mapped_column(
@@ -131,6 +136,15 @@ class InterviewFeedback(Base, TimestampMixin):
     )
     client_questions: Mapped[Optional[str]] = mapped_column(Text)
     feedback_summary: Mapped[Optional[str]] = mapped_column(Text)
+    # Powód ze słownika szablonu (0278). To ta sama pozycja, po której
+    # ``services/hiring_manager_verdicts`` rozpoznaje weto — flaga
+    # ``RejectionReason.disqualifies_person``. Nie kopiujemy tu samej flagi:
+    # słownik bywa poprawiany, a weto ma się liczyć z BIEŻĄCEJ definicji powodu,
+    # tak jak liczy je silnik weta.
+    rejection_reason_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("rejection_reasons.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Relationships
     calendar_event = relationship("CalendarEvent", foreign_keys=[calendar_event_id])

@@ -1716,9 +1716,14 @@ _COLUMN_STATEMENTS = [
     # Phase 14 interview_feedback table (migration 0043_interview_feedback).
     # Prod DEBUG=false → Base.metadata.create_all nie leci, alembic multi-head
     # często pada w dev → tabela musi być stworzona explicite idempotent tutaj.
+    # `calendar_event_id` NULL-owalne od 0278 — werdykt hiring managera bywa
+    # zbierany bez spotkania w kalendarzu NEXUSA. UNIQUE zostaje: Postgres
+    # traktuje NULL-e jako różne, więc ograniczenie dalej pilnuje „max jeden
+    # feedback danej strony na SPOTKANIE". Dla baz sprzed 0278 to samo robi
+    # `DROP NOT NULL` niżej (przy bloku `rejection_reasons`, bo tam stoi FK).
     """CREATE TABLE IF NOT EXISTS interview_feedback (
         id SERIAL PRIMARY KEY,
-        calendar_event_id INTEGER NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        calendar_event_id INTEGER NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
         candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
         job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
         author_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -2490,6 +2495,11 @@ _COLUMN_STATEMENTS = [
     # 0197: bez tej kolumny każdy SELECT z rejection_reasons po dodaniu pola do
     # ORM leci UndefinedColumn — a to ścieżka KAŻDEGO terminalnego ruchu w pipeline.
     'ALTER TABLE rejection_reasons ADD COLUMN IF NOT EXISTS disqualifies_person BOOLEAN NOT NULL DEFAULT false',
+    # 0278: werdykt hiring managera bez spotkania w kalendarzu (krok 07).
+    # Stoi TUTAJ, a nie przy bloku `interview_feedback` wyżej, bo dokładana
+    # kolumna ma FK na `rejection_reasons` — ta tabela musi już istnieć.
+    'ALTER TABLE interview_feedback ALTER COLUMN calendar_event_id DROP NOT NULL',
+    'ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS rejection_reason_id INTEGER NULL REFERENCES rejection_reasons(id) ON DELETE SET NULL',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_at TIMESTAMPTZ',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_external_id VARCHAR(255)',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_payload JSONB',

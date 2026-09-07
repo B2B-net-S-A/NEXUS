@@ -172,6 +172,7 @@ from app.api import procedures as procedures_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
+from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import invite_links as invite_links_api
 from app.api import application_submissions as application_submissions_api
@@ -1378,6 +1379,11 @@ app.include_router(help_materials_api.router, prefix="/api", tags=["help-materia
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
+app.include_router(
+    hiring_manager_feedback_api.router,
+    prefix="/api",
+    tags=["hiring-manager-feedback"],
+)
 app.include_router(
     invite_links_api.router, prefix="/api/invite-links", tags=["invite-links"]
 )
