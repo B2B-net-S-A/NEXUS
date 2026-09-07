@@ -1738,6 +1738,8 @@ async def update_champion_profile(
     can refetch and show an inline "someone just updated this" banner.
     """
     from app.schemas.champion import ChampionProfile
+    from app.services.champion_job_sync import fill_job_columns_from_champion
+    from app.services.job_matching_refresh import refresh_job_matching
 
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if not job:
@@ -1804,12 +1806,31 @@ async def update_champion_profile(
         job.must_skills = stack_must
         job.nice_skills = stack_nice
 
+    # Sekcja 1 „Podstawowe informacje" ma odpowiednik w KOLUMNACH oferty
+    # (`rate_budget_hourly`, `onsite_days_per_week`, `remote_policy`,
+    # `location` — 0278). Te napędzają dealbreakery i bramkę handoffu, a bez
+    # tej synchronizacji profil był dla nich martwy poza jednym ekranem
+    # (generator uzasadnień dopasowania). FILL_EMPTY: nigdy nie nadpisuje
+    # kolumny, która już ma wartość (ręczną albo z wcześniejszego zapisu
+    # Championa) — patrz docstring `fill_job_columns_from_champion`.
+    columns_filled = fill_job_columns_from_champion(job, profile.basics.model_dump())
+
     # Diff na ZNORMALIZOWANYM starym profilu. Porównanie kształtu sprzed
     # przebudowy z kształtem po niej zgłosiłoby zmianę każdej sekcji przy
     # pierwszym zapisie każdej z 949 ofert — czyli lawinę powiadomień „Delivery
     # Lead zmienił profil" o zmianie, której nie było.
     fields_changed = diff_champion_profile(normalized_old, new_profile)
     if not fields_changed:
+        # Brak zmiany TREŚCI profilu nie znaczy brak zmiany dla silnika
+        # matchingu: `columns_filled`/synchronizacja stacku żyją na `job`,
+        # niezależnie od `champion_profile`. `get_db` commituje sesję na
+        # wyjściu z handlera nawet bez tego jawnego commitu (kolumny by nie
+        # przepadły), ale re-embed + inwalidacja cache'u wyników NIE
+        # odpaliłyby się same — bez tego wypełnienie pustych kolumn nigdy
+        # nie dotarłoby do rankingu recruitera.
+        if columns_filled or "stack" in (payload or {}):
+            await db.commit()
+            await refresh_job_matching(job.id, db)
         return {
             "job_id": job.id,
             "champion_profile": _champion_response(job.champion_profile),
@@ -1858,8 +1879,6 @@ async def update_champion_profile(
     # top-weighted scoring inputs — re-embed the job and invalidate cached match
     # scores so the Delivery Lead's work actually reaches the recruiter's ranking
     # (previously this write bypassed the refresh update_job does).
-    from app.services.job_matching_refresh import refresh_job_matching
-
     await refresh_job_matching(job.id, db)
 
     now_iso = datetime.now(timezone.utc).isoformat()

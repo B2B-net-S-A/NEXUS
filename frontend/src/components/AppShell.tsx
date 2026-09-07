@@ -1037,6 +1037,8 @@ interface JobFormData {
   requirements: string;
   location: string;
   remote_policy: string;
+  // Trzecia rubryka rekrutacji (0278) — obok must-have i rate_budget_hourly.
+  onsite_days_per_week: string;
   salary_min: string;
   salary_max: string;
   rate_budget_hourly: string;
@@ -1060,7 +1062,10 @@ interface JobFormData {
 
 const EMPTY_JOB: JobFormData = {
   title: "", client_id: "", recruitment_type: "body_leasing", status: "draft",
-  description: "", requirements: "", location: "", remote_policy: "hybrid",
+  // 0278: bez domyślnej "hybrid" — dawny default kłamał dla każdej oferty,
+  // której nikt ręcznie nie ustawił. "— nie ustawiono —" jest opcją w select.
+  description: "", requirements: "", location: "", remote_policy: "",
+  onsite_days_per_week: "",
   salary_min: "", salary_max: "", rate_budget_hourly: "", priority: "medium", deadline: "", recruiter_id: "",
   tac_id: "", delivery_lead_id: "", hiring_manager_contact_id: "",
   pipeline_template_id: "", competence_category_id: "", train_name: "",
@@ -1075,7 +1080,8 @@ function jobToForm(j: any): JobFormData {
     description: j.description ?? "",
     requirements: j.requirements ?? "",
     location: j.location ?? "",
-    remote_policy: j.remote_policy ?? "hybrid",
+    remote_policy: j.remote_policy ?? "",
+    onsite_days_per_week: j.onsite_days_per_week != null ? String(j.onsite_days_per_week) : "",
     salary_min: j.salary_min ? String(j.salary_min) : "",
     salary_max: j.salary_max ? String(j.salary_max) : "",
     rate_budget_hourly: j.rate_budget_hourly ? String(j.rate_budget_hourly) : "",
@@ -1254,18 +1260,35 @@ function JobFormFields({
       <FieldGroup label="Wymagania">
         <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={3} placeholder="Wymagania techniczne..." />
       </FieldGroup>
-      <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Lokalizacja">
-          <Input value={form.location} onChange={e => onChange("location", e.target.value)} placeholder="Warszawa / Remote" />
+      <div className="grid grid-cols-3 gap-3">
+        <FieldGroup label="Miasto biura">
+          {/* Rubryka biura oferty (0278) — miasto, DO KTÓREGO trzeba dojechać
+              przy trybie hybrydowym/stacjonarnym. Kolumna `location` czytana
+              przez dealbreaker `office_city_mismatch` i bramkę handoffu. */}
+          <Input value={form.location} onChange={e => onChange("location", e.target.value)} placeholder="np. Warszawa" />
         </FieldGroup>
-        <FieldGroup label="Remote policy">
+        <FieldGroup label="Tryb pracy (remote policy)">
           {/* Values MUST match backend RemotePolicy enum (onsite|hybrid|remote).
-              "on_site"/"flexible" were rejected server-side (422) — SEARCH-P0-02. */}
+              "on_site"/"flexible" were rejected server-side (422) — SEARCH-P0-02.
+              Puste = "nieznane" (0278, bez domyślnej "hybrid" po stronie DB —
+              importer Traffita przestał stemplować, więc realny brak wyboru
+              zostaje wreszcie odróżnialny od "chce biura"). */}
           <Select value={form.remote_policy} onChange={e => onChange("remote_policy", e.target.value)}>
+            <option value="">— nie ustawiono —</option>
             <option value="onsite">On-site</option>
             <option value="hybrid">Hybrid</option>
             <option value="remote">Remote</option>
           </Select>
+        </FieldGroup>
+        <FieldGroup label="Dni w biurze / tydzień">
+          <Input
+            type="number"
+            min={0}
+            max={7}
+            value={form.onsite_days_per_week}
+            onChange={e => onChange("onsite_days_per_week", e.target.value)}
+            placeholder="np. 2"
+          />
         </FieldGroup>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -1626,7 +1649,11 @@ export function AddJobModal({
         description: form.description || undefined,
         requirements: form.requirements || undefined,
         location: form.location || undefined,
-        remote_policy: form.remote_policy,
+        // 0278: puste = "nieznane" (null), nie "hybrid" — bez domyślnej po
+        // stronie DB od tej migracji.
+        remote_policy: form.remote_policy || null,
+        onsite_days_per_week:
+          form.onsite_days_per_week === "" ? null : Number(form.onsite_days_per_week),
         salary_min: form.salary_min ? Number(form.salary_min) : undefined,
         salary_max: form.salary_max ? Number(form.salary_max) : undefined,
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : undefined,
@@ -1843,10 +1870,19 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         description: form.description || undefined,
         requirements: form.requirements || undefined,
         location: form.location || undefined,
-        remote_policy: form.remote_policy,
+        // 0278: pusty select → jawny `null` (czyści tryb), nie `undefined`
+        // (zachowałoby stary, wybrany wcześniej tryb w PATCH — patrz tac_id
+        // niżej po ten sam wzorzec).
+        remote_policy: form.remote_policy || null,
+        onsite_days_per_week:
+          form.onsite_days_per_week === "" ? null : Number(form.onsite_days_per_week),
         salary_min: form.salary_min ? Number(form.salary_min) : undefined,
         salary_max: form.salary_max ? Number(form.salary_max) : undefined,
-        rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : undefined,
+        // Czyszczalne (`null`, nie `undefined`): PATCH z pustym polem musi
+        // móc zdjąć wcześniej ustawiony budżet, np. gdy DL chce z powrotem
+        // polegać na stawce z Profilu Championa (`resolve_job_budget_hourly`
+        // preferuje kolumnę, więc bez tego budżetu nie dałoby się cofnąć).
+        rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
         priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
