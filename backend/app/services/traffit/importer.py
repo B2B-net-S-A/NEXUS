@@ -778,6 +778,14 @@ _UPDATE_CANDIDATE_ADOPT = text(
 #   sfabrykowane znaczniki syncu (backfill `closed_at = updated_at` z
 #   entrypointu, usunięty w 0270) i pełny bieg importera ma je zastąpić
 #   prawdą. Bezwarunkowość zeruje je też, gdy rekrutacja wróci do otwartych.
+#
+# `remote_policy` NIE jest już stemplowane na insert (0278, decyzja Artura
+# 07.09.2026) — do tej migracji KAŻDA zaimportowana oferta dostawała twarde
+# 'hybrid', więc "nikt nie ustawił trybu" było nieodróżnialne od "oferta
+# chce biura" i dealbreaker `remote_only_refuses_office` ukrywał kandydatów
+# gotowych wyłącznie na zdalną pracę. Nowa oferta z Traffita ma teraz
+# `remote_policy IS NULL`, dopóki ktoś (człowiek albo sync Championa) go
+# nie ustawi.
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
@@ -785,7 +793,7 @@ _UPSERT_JOB = text(
         pipeline_template_id, recruiter_id, reference_number, deadline,
         opened_at, closed_at,
         custom_fields,
-        remote_policy, priority, recruitment_type, work_mode, headcount,
+        priority, recruitment_type, work_mode, headcount,
         needs_sourcing, is_open,
         created_at, updated_at
     ) VALUES (
@@ -797,7 +805,6 @@ _UPSERT_JOB = text(
         CAST(:opened_at AS TIMESTAMPTZ),
         CAST(:closed_at AS TIMESTAMPTZ),
         CAST(:custom_fields AS JSONB),
-        CAST('hybrid' AS remotepolicy),
         CAST('medium' AS jobpriority),
         CAST('body_leasing' AS recruitmenttype),
         CAST('fulltime' AS workmode),

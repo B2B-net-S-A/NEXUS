@@ -375,7 +375,7 @@ def test_location_remote_mode_plus_city_full_points():
 def test_location_no_match_zero_points():
     job = make_job(
         location="Warszawa",
-        remote_policy=SimpleNamespace(value="on_site"),
+        remote_policy=SimpleNamespace(value="onsite"),
     )
     cand = make_candidate(
         location="Kraków",
@@ -388,7 +388,7 @@ def test_location_no_match_zero_points():
 def test_location_same_city_prefix_partial():
     job = make_job(
         location="Warszawa, PL",
-        remote_policy=SimpleNamespace(value="on_site"),
+        remote_policy=SimpleNamespace(value="onsite"),
     )
     cand = make_candidate(location="Warszawa, Mokotów", preferences={})
     r = ss._score_location(cand, job)
@@ -410,7 +410,7 @@ def test_location_no_job_location_both_halves_neutral():
     # Candidate has a real (blob) location, the job has none, candidate states no
     # remote pref → nothing to judge on either half → both go neutral (was a hard
     # 0 before 2026-06-30). Total = LOCATION_MAX * UNKNOWN_NEUTRAL_FRACTION.
-    job = make_job(location=None, remote_policy=SimpleNamespace(value="on_site"))
+    job = make_job(location=None, remote_policy=SimpleNamespace(value="onsite"))
     cand = make_candidate(
         location='{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska"}',
         preferences={},
@@ -435,9 +435,9 @@ def test_location_no_job_location_remote_match_plus_city_neutral():
 
 def test_location_blob_candidate_matches_job_city():
     # Structured JSON blob is parsed so a same-city candidate earns the city
-    # half. Candidate's remote pref is a known mismatch (job on_site, cand wants
+    # half. Candidate's remote pref is a known mismatch (job onsite, cand wants
     # remote) → remote half is a clean 0, isolating the city half at exactly half.
-    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
+    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="onsite"))
     cand = make_candidate(
         location='{"locality":"Warszawa","region1":"Mazowieckie","country":"Polska"}',
         preferences={"remote_modes": ["remote"]},  # mismatch → isolates city half
@@ -449,7 +449,7 @@ def test_location_blob_candidate_matches_job_city():
 
 def test_location_blob_candidate_other_city_no_credit():
     # Different city (known mismatch) + remote known mismatch → both halves 0.
-    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
+    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="onsite"))
     cand = make_candidate(
         location='{"locality":"Gdańsk","region1":"Pomorskie","country":"Polska"}',
         preferences={"remote_modes": ["remote"]},  # mismatch → remote half 0 too
@@ -462,7 +462,7 @@ def test_location_all_unknown_both_halves_neutral():
     # Job specifies a city but the candidate's location is unknown AND the
     # candidate states no remote pref → can't judge either half → both neutral.
     # Total = LOCATION_MAX * UNKNOWN_NEUTRAL_FRACTION. No crash on None location.
-    job = make_job(location="Kraków", remote_policy=SimpleNamespace(value="on_site"))
+    job = make_job(location="Kraków", remote_policy=SimpleNamespace(value="onsite"))
     cand = make_candidate(location=None, preferences={})
     r = ss._score_location(cand, job)
     assert r.points == pytest.approx(ss.LOCATION_MAX * ss.UNKNOWN_NEUTRAL_FRACTION)
@@ -473,7 +473,7 @@ def test_location_known_mismatch_still_zero():
     # The lift only touches NO-SIGNAL cases. A candidate with a stated remote
     # pref the job doesn't offer AND a different city earns a hard 0 — known
     # mismatches are not given benefit of the doubt.
-    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="on_site"))
+    job = make_job(location="Warszawa", remote_policy=SimpleNamespace(value="onsite"))
     cand = make_candidate(
         location='{"locality":"Gdańsk"}', preferences={"remote_modes": ["remote"]}
     )
@@ -855,7 +855,7 @@ def test_legacy_reproduced_with_gamma_1_and_neutral_0(monkeypatch):
     assert ss._score_salary(cand, job).points == 0.0
 
     job_loc = make_job(
-        location="Kraków", remote_policy=SimpleNamespace(value="on_site")
+        location="Kraków", remote_policy=SimpleNamespace(value="onsite")
     )
     cand_loc = make_candidate(location=None, preferences={})
     assert ss._score_location(cand_loc, job_loc).points == 0.0

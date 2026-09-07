@@ -24,7 +24,11 @@ class JobCreate(BaseModel):
     salary_max: Optional[int] = None
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
-    remote_policy: RemotePolicy = RemotePolicy.hybrid
+    # 0278: bez domyślnej — „nieznane” jest stanem uczciwym, „hybrid” domyślne
+    # kłamało dla każdej oferty, której nikt ręcznie nie ustawił.
+    remote_policy: Optional[RemotePolicy] = None
+    # Trzecia rubryka rekrutacji (obok must-have i rate_budget_hourly, 0278).
+    onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
     status: JobStatus = JobStatus.draft
     priority: JobPriority = JobPriority.medium
     needs_sourcing: bool = False
@@ -96,6 +100,7 @@ class JobUpdate(BaseModel):
     # Budżet PLN/h dla kandydata (dealbreaker-switch; 0235).
     rate_budget_hourly: Optional[float] = Field(default=None, gt=0, le=2000)
     remote_policy: Optional[RemotePolicy] = None
+    onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
     status: Optional[JobStatus] = None
     priority: Optional[JobPriority] = None
     needs_sourcing: Optional[bool] = None
@@ -185,7 +190,9 @@ class JobResponse(BaseModel):
     salary_min: Optional[int]
     salary_max: Optional[int]
     rate_budget_hourly: Optional[float] = None
-    remote_policy: RemotePolicy
+    # 0278: nullable — patrz komentarz w JobCreate.
+    remote_policy: Optional[RemotePolicy] = None
+    onsite_days_per_week: Optional[int] = None
     status: JobStatus
     # Czy rekrutacja jest aktywnie prowadzona w NEXUSIE (0270). NIE to samo co
     # `status`, który jest lustrem Traffita — patrz `models/job.py`.
