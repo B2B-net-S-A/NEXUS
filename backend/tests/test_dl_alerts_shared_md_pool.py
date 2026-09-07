@@ -29,6 +29,24 @@ async def _seed_shared_pool_client() -> int:
         return CYFROWY_POLSAT_CLIENT_ID
 
 
+async def _seed_fresh_client() -> int:
+    """Nowy klient BEZ przypisanego DL — do scenariusza „emisja w próżnię".
+
+    Nie reużywamy klienta o STAŁYM id (Cyfrowy Polsat), bo baza testowa jest
+    współdzielona i inne testy w tym pliku przypisały mu już Delivery Leada —
+    wtedy krok „bez DL" nie byłby bez DL i emisja wcale nie poszłaby w próżnię.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Backstop-{uuid.uuid4().hex[:8]}")
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+        return client.id
+
+
 async def _seed_delivery_lead(client_id: int) -> int:
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
@@ -242,7 +260,9 @@ async def test_backstop_delivers_exhaustion_alert_missed_without_dl():
     from app.services.multi_consultant_orders import EVENT_BUDGET_EXHAUSTED
     from sqlalchemy import select
 
-    client_id = await _seed_shared_pool_client()
+    # Świeży klient — gwarancja ZERA przypisanych DL w chwili wyczerpania
+    # (klient o stałym id już DL ma z sąsiednich testów; baza jest wspólna).
+    client_id = await _seed_fresh_client()
     group_id = await _seed_group(
         client_id=client_id, remaining="0.000000", status=GROUP_STATUS_EXHAUSTED
     )
@@ -272,7 +292,9 @@ async def test_backstop_delivers_exhaustion_alert_missed_without_dl():
     async with AsyncSessionLocal() as db:
         created = await reconcile_exhausted_group_budget_alerts(db)
         await db.commit()
-    assert created == 1
+    # >= 1, nie == 1: baza testowa jest wspólna i może mieć inne wyczerpane
+    # grupy bez alertu; asertujemy na WŁASNEJ grupie/użytkowniku niżej.
+    assert created >= 1
 
     async with AsyncSessionLocal() as db:
         rows = (
@@ -287,11 +309,12 @@ async def test_backstop_delivers_exhaustion_alert_missed_without_dl():
     assert len(rows) == 1
     assert "Zwiększ pulę MD" in rows[0].message
 
-    # 3) Idempotencja — grupa ma już alert, więc backstop jej nie rusza.
+    # 3) Idempotencja — moja grupa ma już alert, więc backstop jej nie rusza
+    #    (drugi wiersz by się nie pojawił). Nie asertujemy globalnego licznika
+    #    (inne grupy w wspólnej bazie mogłyby coś dodać) — sprawdzamy MOJĄ grupę.
     async with AsyncSessionLocal() as db:
-        created_again = await reconcile_exhausted_group_budget_alerts(db)
+        await reconcile_exhausted_group_budget_alerts(db)
         await db.commit()
-    assert created_again == 0
 
     async with AsyncSessionLocal() as db:
         rows = (

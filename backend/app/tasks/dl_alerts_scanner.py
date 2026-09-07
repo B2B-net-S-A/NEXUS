@@ -375,9 +375,9 @@ async def _run_rules(db: AsyncSession) -> dict[str, int]:
     # Osobno od ALERT_RULES — to nie reguła stanowa z powtórką co N dni.
     try:
         async with db.begin_nested():
-            created["exhausted_budget_backstop"] = (
-                await reconcile_exhausted_group_budget_alerts(db)
-            )
+            created[
+                "exhausted_budget_backstop"
+            ] = await reconcile_exhausted_group_budget_alerts(db)
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001
