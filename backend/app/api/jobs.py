@@ -94,7 +94,7 @@ from app.services.workforce_availability import (
     operational_job_owner_clause,
 )
 from app.services import champion_view
-from app.services.job_readiness import job_readiness_blockers as _compute_job_readiness
+from app.services.job_readiness import job_handoff_blockers as _compute_job_readiness
 from app.services.champion_profile_events import (
     diff_champion_profile,
     summarize_sections,
