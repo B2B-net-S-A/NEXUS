@@ -68,7 +68,11 @@ from app.services.order_document_text import OrderDocumentText, extract_order_te
 from app.services.order_mail_gate import GateInput, evaluate
 from app.services.order_mail_planner import ExistingOrder, plan_document
 from app.services.order_mail_resolver import load_roster, resolve_rows
-from app.services.order_pdf_parser import OrderExtraction, parse_order_document
+from app.services.order_pdf_parser import (
+    OrderExtraction,
+    apply_document_rate_kind,
+    parse_order_document,
+)
 from app.services.order_policies import (
     PolicyContext,
     active_policies,
@@ -388,6 +392,10 @@ async def process_pdf_bytes(
     extraction, applied = apply_policies(
         extraction, PolicyContext(document_text=doc.text), policies
     )
+    # Rodzaj stawki (brutto/netto) czytamy z DOKUMENTU, dla każdego klienta i
+    # niezależnie od env polityki — inaczej zamówienie Erste spoza listy env
+    # trafiało do bazy ze stawką brutto potraktowaną jak netto (zgłoszenie).
+    extraction = apply_document_rate_kind(extraction, doc.text)
     row.client_policy = " + ".join(applied) or None
     row.extraction = extraction_to_json(extraction)
     row.document_meta = document_meta_to_json(doc, extraction)

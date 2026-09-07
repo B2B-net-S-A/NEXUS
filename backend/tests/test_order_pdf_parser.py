@@ -1542,6 +1542,174 @@ class TestErsteGrossToNetPolicy:
             Decimal("1000")
         )
 
+    def test_explicit_netto_marking_overrides_client_gross_rule(self):
+        """Dokument wygrywa z regułą klientową: jawne „netto" → brak ÷ 1,23."""
+        result = m.OrderExtraction(rate_client=Decimal("1230"), source="claude")
+        enforced = m.apply_erste_order_policy(
+            result, "Stawka 1230,00 PLN netto za dzień roboczy"
+        )
+        assert enforced.rate_client == Decimal("1230")
+        assert enforced.rate_client_gross is None
+        # Jednostka klientowa (reguła deterministyczna) obowiązuje nadal.
+        assert enforced.rate_unit == "day"
+
+    def test_pfron_explicit_netto_marking_overrides_gross_rule(self):
+        result = m.OrderExtraction(
+            rate_client=Decimal("1230"), rate_unit="hour", source="claude"
+        )
+        enforced = m.apply_pfron_order_policy(
+            result,
+            "Stawka za 1 roboczogodzinę: 1230,00 PLN netto. "
+            "Termin realizacji usług do dnia 31.12.2026",
+        )
+        assert enforced.rate_client == Decimal("1230")
+        assert enforced.rate_client_gross is None
+        assert enforced.rate_unit == "hour"
+
+
+class TestDocumentRateGrossMarking:
+    """Rodzaj stawki (brutto/netto) czytany z DOKUMENTU, per zamówienie."""
+
+    def test_gross_marking_next_to_rate_amount(self):
+        doc = "23,00 dni roboczych x 1 426,80 PLN BRUTTO = 32 816,40 PLN BRUTTO"
+        assert (
+            m.detect_rate_gross_marking(doc, [Decimal("1426.80")]) == m.RATE_MARK_GROSS
+        )
+
+    def test_net_rate_with_far_gross_total_is_not_gross(self):
+        """Pułapka: dokument netto niesie osobną „wartość brutto" (total z VAT)."""
+        doc = (
+            "Stawka za 1 MD: 1 040,00 PLN netto.\n"
+            "Łączna wartość zamówienia: 109 200,00 PLN netto "
+            "i 134 316,00 PLN brutto."
+        )
+        assert m.detect_rate_gross_marking(doc, [Decimal("1040.00")]) == m.RATE_MARK_NET
+
+    def test_no_marking_returns_none(self):
+        doc = "Stawka 100,00 PLN za godzinę. Wartość zamówienia 16 800,00 PLN."
+        assert m.detect_rate_gross_marking(doc, [Decimal("100.00")]) is None
+
+    def test_conflicting_markings_on_the_rate_are_ambiguous(self):
+        doc = "Stawka 1 000,00 PLN netto brutto"
+        assert m.detect_rate_gross_marking(doc, [Decimal("1000.00")]) is None
+
+    def test_grouped_and_ungrouped_amount_both_anchor(self):
+        assert (
+            m.detect_rate_gross_marking("1426,80 PLN brutto", [Decimal("1426.80")])
+            == m.RATE_MARK_GROSS
+        )
+        assert (
+            m.detect_rate_gross_marking("1 426,80 PLN brutto", [Decimal("1426.80")])
+            == m.RATE_MARK_GROSS
+        )
+
+    def test_gross_conversion_applies_to_any_client_document(self):
+        """Erste spoza env: brak polityki, a dokument mówi BRUTTO → ÷ 1,23."""
+        ex = m.OrderExtraction(
+            rate_client=Decimal("1426.80"),
+            rate_unit="day",
+            source="claude",
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Marcin Żółtaniecki",
+                    rate_client=Decimal("1426.80"),
+                    rate_unit="day",
+                    uncertain=False,
+                )
+            ],
+        )
+        out = m.apply_document_rate_kind(
+            ex, "23,00 dni roboczych x 1 426,80 PLN BRUTTO"
+        )
+        assert out.rate_client == Decimal("1160.00")
+        assert out.rate_client_gross == Decimal("1426.80")
+        row = out.consultant_rows[0]
+        assert row.rate_client == Decimal("1160.00")
+        assert row.rate_client_gross == Decimal("1426.80")
+
+    def test_net_document_is_left_untouched(self):
+        ex = m.OrderExtraction(
+            rate_client=Decimal("1040.00"),
+            source="claude",
+            consultant_rows=[
+                m.ConsultantOrderRow(
+                    consultant_name="Jan Kowalski",
+                    rate_client=Decimal("1040.00"),
+                    uncertain=False,
+                )
+            ],
+        )
+        out = m.apply_document_rate_kind(ex, "Stawka za 1 MD 1 040,00 PLN netto")
+        assert out.rate_client == Decimal("1040.00")
+        assert out.rate_client_gross is None
+        assert out.consultant_rows[0].rate_client == Decimal("1040.00")
+
+    def test_unknown_marking_does_not_convert(self):
+        ex = m.OrderExtraction(rate_client=Decimal("1000.00"), source="claude")
+        out = m.apply_document_rate_kind(ex, "Stawka 1 000,00 PLN / godzina")
+        assert out.rate_client == Decimal("1000.00")
+        assert out.rate_client_gross is None
+
+    def test_idempotent_after_client_policy_already_converted(self):
+        """Znacznik rate_client_gross chroni przed drugim dzieleniem."""
+        ex = m.OrderExtraction(rate_client=Decimal("1426.80"), source="claude")
+        doc = "1 426,80 PLN BRUTTO"
+        once = m.apply_erste_order_policy(ex, doc)  # policy converts top-level
+        twice = m.apply_document_rate_kind(once, doc)
+        assert twice.rate_client == m.net_rate_from_gross(Decimal("1426.80"))
+        assert twice.rate_client_gross == Decimal("1426.80")
+
+
+class TestNameTypoDistance:
+    """Rozszerzona tolerancja literówek dla resolvera poczty (OSA ≤ 1)."""
+
+    def test_osa_counts_single_edits_and_caps_beyond_budget(self):
+        assert m._osa_distance("kowalski", "kowalska", max_distance=1) == 1  # sub
+        assert m._osa_distance("kowalski", "kowalksi", max_distance=1) == 1  # transp
+        assert m._osa_distance("zoltaniecki", "zoltanicki", max_distance=1) == 1  # del
+        assert m._osa_distance("nowak", "nowakk", max_distance=1) == 1  # ins
+        assert m._osa_distance("nowak", "kowal", max_distance=1) == 2  # capped
+
+    def test_edit1_accepts_minor_typos_but_guards_short_tokens(self):
+        assert m._edit1_token_distance("zoltaniecki", "zoltanicki") == 1
+        assert m._edit1_token_distance("kowalski", "kowalska") == 1
+        assert m._edit1_token_distance("kowalski", "kowalski") == 0
+        assert m._edit1_token_distance("jan", "jon") is None  # < 5 znaków
+        assert m._edit1_token_distance("nowak", "kowal") is None  # > 1 edycja
+
+    def test_edit1_scores_a_substituted_surname_that_default_rejects(self):
+        # Ścieżka ręczna (domyślna transpozycja) uznaje to za inną osobę…
+        assert (
+            m._name_match_score(
+                "Marcin Zoltaniecki",
+                "Marcin Zoltanicki",
+                consultant_given_names="Marcin",
+            )
+            is None
+        )
+        # …resolver poczty (OSA ≤ 1) ratuje literówkę do kolejki.
+        assert (
+            m._name_match_score(
+                "Marcin Zoltaniecki",
+                "Marcin Zoltanicki",
+                consultant_given_names="Marcin",
+                distance_fn=m._edit1_token_distance,
+            )
+            is not None
+        )
+
+    def test_edit1_still_requires_exact_given_name_and_one_matching_token(self):
+        # Inny człon imienia → nadal brak dopasowania (kotwica imienia).
+        assert (
+            m._name_match_score(
+                "Marcin Zoltaniecki",
+                "Marek Zoltaniecki",
+                consultant_given_names="Marcin",
+                distance_fn=m._edit1_token_distance,
+            )
+            is None
+        )
+
 
 class TestParseOrderDocument:
     async def test_empty_document(self):
