@@ -58,6 +58,10 @@ import {
   JobDetailCompactHeader,
   type JobDetailTab,
 } from "@/components/v2/jobs/JobDetailCompactHeader";
+import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
+import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
+import { isContractStage, isInterviewStage } from "@/lib/job-flow-stages";
+import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { Badge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -2128,6 +2132,11 @@ export default function JobDetailPage() {
     } else if (tab === "screening" || tab === "cv") {
       // Kroki 05/06 — deep-link tożsamościowy, jak „champion".
       setActiveTab(tab);
+    } else if (tab === "interviews") {
+      // Kroki 07 i 08 (flow C2) — mapowanie tożsamościowe, jak „champion".
+      setActiveTab("interviews");
+    } else if (tab === "contract") {
+      setActiveTab("contract");
     }
   }, [searchParams]);
 
@@ -2164,6 +2173,10 @@ export default function JobDetailPage() {
   const {
     data: kanban,
     isLoading: kanbanLoading,
+    // Kroki 05–08 renderują pipeline z TEGO zapytania. Bez przekazania im
+    // błędu 403/500 wyglądałby stamtąd jak „nikt nie jest u klienta" — czyli
+    // dokładnie ten wzorzec, przez który brak uprawnień czytało się jako
+    // utratę danych (F-20).
     isError: kanbanIsError,
     error: kanbanError,
     isSuccess: kanbanIsSuccess,
@@ -2201,6 +2214,25 @@ export default function JobDetailPage() {
     }
     return m;
   }, [pipelineScores]);
+
+  // Kolumny kanbana w kształcie, którego oczekują kroki 07 i 08. Jedno źródło
+  // (`["kanban", id]`) karmi tablicę ORAZ obie nowe zakładki — bez tego każda
+  // z nich pobierałaby ten sam pipeline drugi raz.
+  const kanbanColumns = useMemo<KanbanColumn[]>(
+    () => (kanban?.columns ?? []) as KanbanColumn[],
+    [kanban],
+  );
+  const flowCounts = useMemo(() => {
+    if (!kanban) return undefined;
+    const sum = (predicate: (col: KanbanColumn) => boolean) =>
+      kanbanColumns
+        .filter(predicate)
+        .reduce((total, col) => total + (col.items?.length ?? col.count ?? 0), 0);
+    return {
+      interviews: sum(isInterviewStage),
+      contract: sum(isContractStage),
+    };
+  }, [kanban, kanbanColumns]);
 
   // Auto-open tab when job data loads
   useEffect(() => {
@@ -2354,6 +2386,12 @@ export default function JobDetailPage() {
             : undefined
         }
         cvCount={kanban ? selectVerifiedQueue(kanbanColumns).length : undefined}
+        // Kroki 07 i 08 (flow C2, PR 7/7) — liczone z TEGO SAMEGO kanbana co
+        // Pipeline, więc listwa nie dokłada ani jednego zapytania. `undefined`
+        // dopóki kanban się nie wczyta: zero czytałoby się jako „nikt nie jest
+        // u klienta", a to inna wiadomość niż „jeszcze nie wiem".
+        interviewsCount={flowCounts?.interviews}
+        contractCount={flowCounts?.contract}
         contextOpen={!headerCollapsed}
         onContextOpenChange={(open) => setHeaderCollapsed(!open)}
         contextContent={
@@ -2600,6 +2638,38 @@ export default function JobDetailPage() {
           jobId={Number(id)}
           clientId={job?.client_id ?? null}
           readOnly={!canWritePipeline}
+        />
+      )}
+
+      {/* Krok 07 „Rozmowy i decyzja" (flow C2, PR 7/7). Kolumny kanbana idą
+          propsem — zakładka nie pobiera pipeline'u drugi raz. */}
+      {activeTab === "interviews" && (
+        <JobInterviewsTab
+          jobId={Number(id)}
+          jobTitle={job?.title}
+          columns={kanbanColumns}
+          columnsLoading={kanbanLoading}
+          columnsError={kanbanIsError ? (kanbanError ?? true) : undefined}
+          columnsSuccess={kanbanIsSuccess}
+          onColumnsRetry={() => void refetchKanban()}
+          readOnly={!canWritePipeline}
+        />
+      )}
+
+      {/* Krok 08 „Umowa". `canCloseJob` to `job.update` — lustro `TacPlus`,
+          tej samej bramki co `POST /api/jobs/{id}/close`. */}
+      {activeTab === "contract" && (
+        <JobContractTab
+          jobId={Number(id)}
+          jobTitle={job?.title ?? `Rekrutacja #${id}`}
+          clientId={job?.client_id ?? null}
+          columns={kanbanColumns}
+          columnsLoading={kanbanLoading}
+          columnsError={kanbanIsError ? (kanbanError ?? true) : undefined}
+          columnsSuccess={kanbanIsSuccess}
+          onColumnsRetry={() => void refetchKanban()}
+          readOnly={!canWritePipeline}
+          canCloseJob={canUpdateJob}
         />
       )}
 

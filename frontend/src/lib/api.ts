@@ -1247,6 +1247,71 @@ export const jobsApi = {
       channel,
       ...(topK ? { top_k: topK } : {}),
     }),
+  /**
+   * Zamknięcie rekrutacji z powodem (`TacPlus`). Powody i etykiety PL —
+   * `JOB_CLOSE_REASONS` w `types/client-profile`. Drugim konsumentem tej trasy
+   * jest „Zamknij jako przegraną" w profilu klienta; ten helper istnieje, żeby
+   * krok 08 nie wołał surowego `api.post` obok niego.
+   */
+  close: (id: number, reason: string, notes?: string | null) =>
+    api.post(`/api/jobs/${id}/close`, {
+      reason,
+      notes: notes?.trim() || null,
+    }),
+};
+
+// ── Werdykt hiring managera (krok 07 „Rozmowy i decyzja") ────────────────────
+//
+// Lustro `POST|GET /api/jobs/{id}/hiring-manager-feedback`
+// (`backend/app/api/hiring_manager_feedback.py`). Endpoint zapisuje TO, CO
+// MANAGER POWIEDZIAŁ — nie tworzy weta. Weto powstaje dopiero przy terminalnym
+// ruchu z powodem oznaczonym `disqualifies_person`, dlatego odpowiedź niesie
+// trzy różne pola zamiast jednego „zablokowany".
+export type HiringManagerDecision = "advance" | "reject" | "on_hold";
+
+export interface HiringManagerFeedbackPayload {
+  candidate_id: number;
+  decision: HiringManagerDecision;
+  rejection_reason_id?: number | null;
+  note?: string | null;
+  technical_fit?: number | null;
+  soft_fit?: number | null;
+  overall_fit?: number | null;
+}
+
+export interface HiringManagerFeedback {
+  id: number;
+  job_id: number;
+  candidate_id: number;
+  decision: HiringManagerDecision | "";
+  rejection_reason_id: number | null;
+  rejection_reason_name: string | null;
+  note: string | null;
+  technical_fit: number | null;
+  soft_fit: number | null;
+  overall_fit: number | null;
+  hiring_manager_contact_id: number | null;
+  hiring_manager_name: string | null;
+  /** Czy WYBRANY POWÓD w ogóle może zablokować kolejne propozycje. */
+  blocks_future_proposals: boolean;
+  /** Czy weto już STOI (kandydat odrzucony takim powodem na tej rekrutacji). */
+  veto_recorded: boolean;
+  /** Czego brakuje, żeby weto stanęło — po polsku, gotowe do wyświetlenia. */
+  veto_blockers: string[];
+}
+
+export const hiringManagerFeedbackApi = {
+  list: (jobId: number) =>
+    api
+      .get<HiringManagerFeedback[]>(`/api/jobs/${jobId}/hiring-manager-feedback`)
+      .then((r) => r.data),
+  record: (jobId: number, payload: HiringManagerFeedbackPayload) =>
+    api
+      .post<HiringManagerFeedback>(
+        `/api/jobs/${jobId}/hiring-manager-feedback`,
+        payload,
+      )
+      .then((r) => r.data),
 };
 
 // ── Calendar ──────────────────────────────────────────────────────────────────
@@ -2944,6 +3009,7 @@ export const b2bGeneratorApi = {
             : {}),
           ...(params.startFrom ? { start_from: params.startFrom } : {}),
           ...(params.startTo ? { start_to: params.startTo } : {}),
+          ...(params.jobId ? { job_id: params.jobId } : {}),
         },
         // `repeat`, nie domyślny `brackets`: FastAPI czyta listę wyłącznie jako
         // powtórzony parametr. Axios domyślnie wysłałby `contract_status[]=…`,
@@ -3045,6 +3111,12 @@ export interface B2BGeneratedListParams {
   /** Zakres daty ROZPOCZĘCIA USŁUG (`YYYY-MM-DD`), obie granice włącznie. */
   startFrom?: string;
   startTo?: string;
+  /**
+   * Umowy jednej rekrutacji — krok 08 „Umowa". Filtr jest SERWEROWY: bez niego
+   * karta zamknięcia czytałaby tylko najnowsze `limit` wierszy rejestru
+   * i gubiła umowę starszą niż widoczna strona.
+   */
+  jobId?: number;
 }
 
 /** Wpis dziennika zmian statusu — dialog „Historia statusów". */

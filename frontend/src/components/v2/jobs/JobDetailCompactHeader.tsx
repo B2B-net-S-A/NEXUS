@@ -3,10 +3,12 @@
 import type { ReactNode } from "react";
 import {
   BookOpen,
+  CalendarClock,
   ChevronDown,
   ChevronUp,
   ClipboardCheck,
   Ellipsis,
+  FileSignature,
   FileText,
   History,
   LayoutGrid,
@@ -51,7 +53,11 @@ export type JobDetailTab =
   // Kroki 05 i 06 programu „flow w języku C2" (PR 6/7) — NOWE wartości,
   // żadna istniejąca nie jest przepinana (kontrakt wspólny programu).
   | "screening"
-  | "cv";
+  | "cv"
+  // Kroki 07 i 08 programu „flow w języku C2" (PR 7/7). Dochodzą jako NOWE
+  // wartości — żadna istniejąca zakładka nie jest przepinana.
+  | "interviews"
+  | "contract";
 
 const SOURCING_TABS = new Set<JobDetailTab>([
   "ai-matching",
@@ -81,6 +87,10 @@ interface JobDetailCompactHeaderProps {
   screeningCount?: number;
   /** Krok 06 — zweryfikowani czekający na wysyłkę CV do klienta. */
   cvCount?: number;
+  /** Kandydaci na etapach zewnętrznych (krok 07). `undefined` = nie policzono. */
+  interviewsCount?: number;
+  /** Kandydaci na etapach umowy i zatrudnienia (krok 08). `undefined` = nie policzono. */
+  contractCount?: number;
   contextOpen: boolean;
   onContextOpenChange: (open: boolean) => void;
   contextContent: ReactNode;
@@ -135,10 +145,10 @@ function CountBadge({ value }: { value: number }) {
  * The first row keeps identity and the primary action visible. The second row
  * is the **steps strip** (makieta C2 → „listwa kroków"): sections in the
  * order people actually work — Zlecenie i Champion → Pozyskiwanie → Pipeline
- * → Baza pytań — with Historia and Chat on the right and the operational
- * context (team, hiring manager, Priority Work) behind one disclosure. It
- * replaces three earlier entry points (tabs + „Narzędzia ▾" + „Pozyskaj ▾")
- * without dropping a single destination.
+ * → Baza pytań → Rozmowy i decyzja → Umowa — with Historia and Chat on the
+ * right and the operational context (team, hiring manager, Priority Work)
+ * behind one disclosure. It replaces three earlier entry points (tabs +
+ * „Narzędzia ▾" + „Pozyskaj ▾") without dropping a single destination.
  */
 export function JobDetailCompactHeader({
   title,
@@ -156,6 +166,8 @@ export function JobDetailCompactHeader({
   pipelineCount,
   screeningCount,
   cvCount,
+  interviewsCount,
+  contractCount,
   contextOpen,
   onContextOpenChange,
   contextContent,
@@ -353,6 +365,34 @@ export function JobDetailCompactHeader({
             >
               <BookOpen className="h-4 w-4" />
               Baza pytań
+            </WorkspaceButton>
+
+            {/* Kroki 07 i 08 (flow C2, PR 7/7). Liczniki liczy strona z tego
+                samego kanbana, którym karmi Pipeline — `undefined` znaczy
+                „jeszcze nie policzono", więc listwa nie pokazuje zera zamiast
+                niewiedzy (ta sama reguła co `pipelineCount`). */}
+            <WorkspaceButton
+              active={activeTab === "interviews"}
+              onClick={() => onTabChange("interviews")}
+              data-testid="tab-interviews"
+            >
+              <CalendarClock className="h-4 w-4" />
+              Rozmowy i decyzja
+              {typeof interviewsCount === "number" ? (
+                <CountBadge value={interviewsCount} />
+              ) : null}
+            </WorkspaceButton>
+
+            <WorkspaceButton
+              active={activeTab === "contract"}
+              onClick={() => onTabChange("contract")}
+              data-testid="tab-contract"
+            >
+              <FileSignature className="h-4 w-4" />
+              Umowa
+              {typeof contractCount === "number" ? (
+                <CountBadge value={contractCount} />
+              ) : null}
             </WorkspaceButton>
           </nav>
 

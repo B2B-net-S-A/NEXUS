@@ -88,6 +88,8 @@ describe("JobDetailCompactHeader", () => {
       "Screening",
       "CV do klienta",
       "Baza pytań",
+      "Rozmowy i decyzja",
+      "Umowa",
     ]);
 
     await userEvent.click(
@@ -102,6 +104,12 @@ describe("JobDetailCompactHeader", () => {
     expect(onTabChange).toHaveBeenCalledWith("cv");
     await userEvent.click(screen.getByRole("button", { name: "Baza pytań" }));
     expect(onTabChange).toHaveBeenCalledWith("questions");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Rozmowy i decyzja" }),
+    );
+    expect(onTabChange).toHaveBeenCalledWith("interviews");
+    await userEvent.click(screen.getByRole("button", { name: "Umowa" }));
+    expect(onTabChange).toHaveBeenCalledWith("contract");
     await userEvent.click(screen.getByRole("button", { name: "Historia" }));
     expect(onTabChange).toHaveBeenCalledWith("history");
     await userEvent.click(
@@ -133,6 +141,30 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("tab-questions")).toBeTruthy();
     expect(screen.getByTestId("tab-chat")).toBeTruthy();
     expect(screen.getByTestId("tab-history")).toBeTruthy();
+    expect(screen.getByTestId("tab-interviews")).toBeTruthy();
+    expect(screen.getByTestId("tab-contract")).toBeTruthy();
+  });
+
+  it("liczniki kroków 07 i 08 milczą, dopóki nie ma czego policzyć", () => {
+    // `undefined` = kanban jeszcze nie wczytany. Zero w tym miejscu czytałoby
+    // się jako „nikt nie jest u klienta", a to inna wiadomość niż „nie wiem".
+    renderHeader({ interviewsCount: undefined, contractCount: undefined });
+    expect(
+      screen.getByRole("button", { name: "Rozmowy i decyzja" }).textContent,
+    ).toBe("Rozmowy i decyzja");
+    expect(screen.getByRole("button", { name: "Umowa" }).textContent).toBe(
+      "Umowa",
+    );
+  });
+
+  it("policzone zero jest pokazywane — to inna wiadomość niż brak danych", () => {
+    renderHeader({ interviewsCount: 2, contractCount: 0 });
+    expect(
+      screen.getByRole("button", { name: "Rozmowy i decyzja" }).textContent,
+    ).toBe("Rozmowy i decyzja2");
+    expect(screen.getByRole("button", { name: "Umowa" }).textContent).toBe(
+      "Umowa0",
+    );
   });
 
   it("oznacza aktywną grupę i dokładną pozycję menu", async () => {
