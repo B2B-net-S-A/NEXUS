@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resolveViewState } from "@/lib/view-state";
@@ -12,6 +13,12 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
+import {
+  selectPendingVerifications,
+  selectScreeningQueue,
+  selectVerifiedQueue,
+} from "@/lib/pipeline-flow";
+import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
@@ -2039,6 +2046,30 @@ const RECRUITMENT_TYPE_CONFIG: Record<
   tender: { label: "Przetarg", variant: "warning" },
 };
 
+// ── Kroki 05 i 06 za granicą `next/dynamic` ──────────────────────────────────
+//
+// `/jobs/[id]` to gorąca trasa, a stanowisko „CV do klienta" wciąga cały
+// `CVGeneratorStandaloneV2` (1800 linii: combobox, dropzone, modale podglądu
+// i udostępniania). Bez tej granicy za jego wagę płaciłoby KAŻDE otwarcie
+// rekrutacji, także wtedy, gdy nikt nie zajrzy do kroku 06. Oba stanowiska
+// renderują się dopiero po kliknięciu kroku na listwie — dokładnie ten sam
+// wzorzec, którego pilnuje `heavy-bundle-boundaries.test.ts` dla TipTapa
+// i rechartsa.
+const ScreeningWorkbench = dynamic(
+  () =>
+    import("@/components/v2/jobs/ScreeningWorkbench").then(
+      (m) => m.ScreeningWorkbench,
+    ),
+  { ssr: false },
+);
+const CvHandoffWorkbench = dynamic(
+  () =>
+    import("@/components/v2/jobs/CvHandoffWorkbench").then(
+      (m) => m.CvHandoffWorkbench,
+    ),
+  { ssr: false },
+);
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function JobDetailPage() {
@@ -2092,6 +2123,9 @@ export default function JobDetailPage() {
       setActiveTab("ai-matching");
     } else if (tab === "champion") {
       setActiveTab("champion");
+    } else if (tab === "screening" || tab === "cv") {
+      // Kroki 05/06 — deep-link tożsamościowy, jak „champion".
+      setActiveTab(tab);
     }
   }, [searchParams]);
 
@@ -2125,10 +2159,28 @@ export default function JobDetailPage() {
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
   });
 
-  const { data: kanban, isLoading: kanbanLoading } = useQuery({
+  const {
+    data: kanban,
+    isLoading: kanbanLoading,
+    isError: kanbanIsError,
+    error: kanbanError,
+    isSuccess: kanbanIsSuccess,
+    refetch: refetchKanban,
+  } = useQuery({
     queryKey: ["kanban", id],
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
   });
+
+  // Kroki 05 („Screening") i 06 („CV do klienta") czytają TE SAME kolumny co
+  // listwa kroków — bez własnego zapytania (program „flow w języku C2", PR 6/7).
+  const kanbanColumns = useMemo(
+    () => (kanban?.columns ?? []) as KanbanColumn[],
+    [kanban],
+  );
+  const invalidateKanban = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["kanban", id] });
+    queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+  }, [queryClient, id]);
 
   // AI match scores (0-100) for pipeline candidates → score ring on kanban cards.
   // Fetched in parallel with the kanban (cache-first server-side) so cards paint
@@ -2290,6 +2342,16 @@ export default function JobDetailPage() {
                 )
             : undefined
         }
+        // Kroki 05/06 — liczniki z tych samych kolumn co „Pipeline". Dopóki
+        // kanban się nie wczytał, listwa nie pokazuje liczby (zero znaczyłoby
+        // „nikogo tu nie ma", a to jeszcze nie wiadomo).
+        screeningCount={
+          kanban
+            ? selectScreeningQueue(kanbanColumns).length +
+              selectPendingVerifications(kanbanColumns).length
+            : undefined
+        }
+        cvCount={kanban ? selectVerifiedQueue(kanbanColumns).length : undefined}
         contextOpen={!headerCollapsed}
         onContextOpenChange={(open) => setHeaderCollapsed(!open)}
         contextContent={
@@ -2456,6 +2518,45 @@ export default function JobDetailPage() {
             <JobHandoffButton jobId={Number(id)} />
             )}
         </>
+      )}
+
+      {/* Krok 05 „Screening" (program „flow w języku C2", PR 6/7) — kolejka,
+          arkusz Championa inline i dok weryfikacji stawki. Arkusz jako modal
+          na tablicy Pipeline ZOSTAJE bez zmian. */}
+      {activeTab === "screening" && (
+        <ScreeningWorkbench
+          jobId={Number(id)}
+          jobBudgetMax={
+            typeof job?.salary_max === "number" ? job.salary_max : null
+          }
+          columns={kanbanColumns}
+          isLoading={kanbanLoading}
+          isError={kanbanIsError}
+          error={kanbanError}
+          isSuccess={kanbanIsSuccess}
+          onRetry={() => void refetchKanban()}
+          onMoved={invalidateKanban}
+          readOnly={!canWritePipeline}
+          onTabChange={setActiveTab}
+        />
+      )}
+
+      {/* Krok 06 „CV do klienta" — reguły klienta przed generacją, generator
+          osadzony z prefillem i jedna akcja wysyłki. */}
+      {activeTab === "cv" && (
+        <CvHandoffWorkbench
+          jobId={Number(id)}
+          jobTitle={job?.title}
+          clientId={job?.client_id ?? null}
+          columns={kanbanColumns}
+          isLoading={kanbanLoading}
+          isError={kanbanIsError}
+          error={kanbanError}
+          isSuccess={kanbanIsSuccess}
+          onRetry={() => void refetchKanban()}
+          onMoved={invalidateKanban}
+          readOnly={!canWritePipeline}
+        />
       )}
 
       {activeTab === "questions" && (

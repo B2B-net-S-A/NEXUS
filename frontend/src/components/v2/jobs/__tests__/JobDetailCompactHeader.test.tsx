@@ -15,7 +15,7 @@ function renderHeader(
   const onAddCandidate = vi.fn();
   const onEdit = vi.fn();
 
-  render(
+  const { unmount } = render(
     <JobDetailCompactHeader
       title="Senior Java Developer"
       referenceNumber="REF-505734"
@@ -33,7 +33,7 @@ function renderHeader(
     />,
   );
 
-  return { onTabChange, onAddCandidate, onEdit };
+  return { onTabChange, onAddCandidate, onEdit, unmount };
 }
 
 describe("JobDetailCompactHeader", () => {
@@ -75,8 +75,8 @@ describe("JobDetailCompactHeader", () => {
   it("listwa kroków idzie w kolejności procesu i nie gubi żadnej sekcji", async () => {
     const { onTabChange } = renderHeader();
 
-    // Bezpośrednie kroki (bez menu): Zlecenie i Champion · Pipeline · Baza pytań,
-    // po prawej Historia i Chat.
+    // Bezpośrednie kroki (bez menu): Zlecenie i Champion · Pipeline · Screening ·
+    // CV do klienta · Baza pytań, po prawej Historia i Chat.
     const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
     const labels = Array.from(nav.querySelectorAll("button")).map((b) =>
       (b.textContent ?? "").replace(/\d+$/, "").trim(),
@@ -85,6 +85,8 @@ describe("JobDetailCompactHeader", () => {
       "Zlecenie i Champion",
       "Pozyskiwanie",
       "Pipeline",
+      "Screening",
+      "CV do klienta",
       "Baza pytań",
     ]);
 
@@ -92,6 +94,12 @@ describe("JobDetailCompactHeader", () => {
       screen.getByRole("button", { name: "Zlecenie i Champion" }),
     );
     expect(onTabChange).toHaveBeenCalledWith("champion");
+    await userEvent.click(screen.getByRole("button", { name: "Screening" }));
+    expect(onTabChange).toHaveBeenCalledWith("screening");
+    await userEvent.click(
+      screen.getByRole("button", { name: "CV do klienta" }),
+    );
+    expect(onTabChange).toHaveBeenCalledWith("cv");
     await userEvent.click(screen.getByRole("button", { name: "Baza pytań" }));
     expect(onTabChange).toHaveBeenCalledWith("questions");
     await userEvent.click(screen.getByRole("button", { name: "Historia" }));
@@ -167,6 +175,34 @@ describe("JobDetailCompactHeader", () => {
     );
     const pipeline = screen.getByRole("button", { name: /^Pipeline/ });
     expect(pipeline.textContent).toContain("15");
+  });
+
+  it("liczniki kroków 05 i 06 pokazują się dopiero policzone — zero to wynik, nie brak danych", () => {
+    const { unmount } = renderHeader();
+    // Bez `screeningCount`/`cvCount` listwa nie pokazuje żadnej liczby (kanban
+    // może się jeszcze ładować) — pokazane zero znaczyłoby „nikogo tu nie ma".
+    expect(
+      screen.getByTestId("tab-screening").textContent?.replace(/\D/g, ""),
+    ).toBe("");
+    expect(screen.getByTestId("tab-cv").textContent?.replace(/\D/g, "")).toBe("");
+    unmount();
+
+    renderHeader({ screeningCount: 0, cvCount: 2 });
+    expect(screen.getByTestId("tab-screening").textContent).toContain("0");
+    expect(screen.getByTestId("tab-cv").textContent).toContain("2");
+  });
+
+  it("oznacza aktywny krok 05 i 06", () => {
+    const { unmount } = renderHeader({ activeTab: "screening" });
+    expect(screen.getByTestId("tab-screening")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByTestId("tab-cv")).not.toHaveAttribute("aria-current");
+    unmount();
+
+    renderHeader({ activeTab: "cv" });
+    expect(screen.getByTestId("tab-cv")).toHaveAttribute("aria-current", "page");
   });
 
   it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {
