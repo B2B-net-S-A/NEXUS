@@ -14,7 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import httpx
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -266,11 +266,20 @@ async def workforce_context(
     if not refresh and key in db.info:
         return db.info[key]
     state = await db.get(WorkforceAvailabilityState, 1)
-    snapshot = (
-        AvailabilitySnapshot.model_validate(state.snapshot)
-        if state and state.snapshot
-        else None
-    )
+    try:
+        snapshot = (
+            AvailabilitySnapshot.model_validate(state.snapshot)
+            if state and state.snapshot
+            else None
+        )
+    except ValidationError:
+        # This is local persisted-data corruption, not a failed COMPASS read
+        # (sync never replaces a valid snapshot with an invalid response).
+        # Preserve every nominal owner and expose the error without breaking
+        # unrelated authenticated screens or trusting malformed delegation data.
+        context = WorkforceContext(issues=[{"code": "availability_invalid"}])
+        db.info[key] = context
+        return context
     if snapshot is None:
         context = WorkforceContext(issues=[{"code": "availability_unavailable"}])
         db.info[key] = context

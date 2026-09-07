@@ -217,6 +217,26 @@ def test_partial_source_snapshot_is_rejected():
         AvailabilitySnapshot.model_validate(value)
 
 
+@pytest.mark.asyncio
+async def test_corrupt_persisted_snapshot_preserves_owners_and_stops_allocation(
+    monkeypatch,
+):
+    from unittest.mock import AsyncMock
+    from app.services import workforce_availability
+
+    monkeypatch.setattr(
+        workforce_availability.settings, "COMPASS_AVAILABILITY_ENABLED", True
+    )
+    corrupted = {"schema_version": 999, "people": "invalid"}
+    record = SimpleNamespace(snapshot=corrupted)
+    db = SimpleNamespace(info={}, get=AsyncMock(return_value=record))
+    resolved = await workforce_availability.workforce_context(db)
+    assert resolved.issues == [{"code": "availability_invalid"}]
+    assert not resolved.fresh and choose(workforce=resolved) is None
+    assert resolved.owners_for(1) == {1} and resolved.performer(1) == 1
+    assert record.snapshot == corrupted
+
+
 def job(**changes):
     return SimpleNamespace(
         **(

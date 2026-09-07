@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import load_only
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -213,7 +214,13 @@ async def run_allocation_sweep(db):
         from app.services.notification_access import notification_recipient_has_access
 
         users = list(
-            (await db.scalars(select(User).where(User.is_active.is_(True)))).all()
+            (
+                await db.scalars(
+                    select(User)
+                    .where(User.is_active.is_(True))
+                    .options(load_only(User.id, User.is_active, User.role, User.roles))
+                )
+            ).all()
         )
         for user in users:
             if user.has_role(

@@ -82,6 +82,7 @@ export const allocationApi = {
 export const allocationReason: Record<string, string> = {
   brief_not_ready: "Profil rekrutacji wymaga uzupełnienia",
   availability_stale: "Brak aktualnych danych COMPASS — automat czeka",
+  availability_invalid: "Nieprawidłowe dane dostępności COMPASS — automat czeka",
   sourcing_paused: "Poszukiwania wstrzymane",
   allocation_off: "Automat zatrzymany",
   competence_missing: "Brak kompetencji na rekrutacji",

@@ -9,6 +9,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 
 from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.candidate_contact import CandidateContactCase
@@ -41,6 +42,7 @@ from app.models.proposal_snapshot import (
     STATUS_PENDING,
 )
 from app.core.config import settings
+from app.services.job_readiness import job_readiness_blockers
 from app.services.priority_work_service import (
     OPERATIONAL_ROLES,
     allowed_channels,
@@ -164,7 +166,16 @@ async def load_workloads(
     jobs = list(
         (
             await db.scalars(
-                select(Job).where(Job.is_open.is_(True), Job.status != JobStatus.closed)
+                select(Job)
+                .where(Job.is_open.is_(True), Job.status != JobStatus.closed)
+                .options(
+                    load_only(
+                        Job.id,
+                        Job.recruiter_id,
+                        Job.needs_sourcing,
+                        Job.favorite_candidate_id,
+                    )
+                )
             )
         ).all()
     )
@@ -567,9 +578,7 @@ async def allocate_pending(
             request.status = "cancelled"
             request.reason = "already_owned_or_closed"
             continue
-        from app.api.jobs import _compute_job_readiness
-
-        if _compute_job_readiness(job):
+        if job_readiness_blockers(job):
             request.reason = "brief_not_ready"
             request.decision = None
             waiting += 1
