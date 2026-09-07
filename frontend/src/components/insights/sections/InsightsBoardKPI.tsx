@@ -351,7 +351,15 @@ function TrendChart<T extends TrendMonthLike>({
           // tor z podpisem w tooltipie.
           const height = value === null ? 0 : (value / max) * 100;
           return (
-            <div key={m.month} className="flex flex-1 flex-col justify-end">
+            // `h-full` jest tu LOAD-BEARING, nie kosmetyką. Słupek niżej ma
+            // wysokość PROCENTOWĄ, a procent potrzebuje rodzica o wysokości
+            // definitywnej. Wiersz wyżej ma `items-end`, więc kolumny nie są
+            // rozciągane — ich wysokość wynikałaby z zawartości, czyli z tego
+            // samego słupka. Zależność jest kołowa i obie strony zapadają się
+            // do zera: procenty i tooltipy liczą się poprawnie, a wykres
+            // renderuje puste pole z samymi podpisami miesięcy — awaria nie do
+            // odróżnienia od „nie ma danych" (produkcja, 07.09.2026).
+            <div key={m.month} className="flex h-full flex-1 flex-col justify-end">
               <div
                 className={cn(
                   "w-full cursor-help rounded-t opacity-80 transition-opacity hover:opacity-100",
