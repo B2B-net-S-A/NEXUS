@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import object_session
+from sqlalchemy.orm import load_only, object_session
 
 from app.core.config import settings
 from app.models.recruitment_allocation import (
@@ -271,7 +271,26 @@ async def workforce_context(
         if state and state.snapshot
         else None
     )
-    users = list((await db.scalars(select(User).where(User.is_active.is_(True)))).all())
+    if snapshot is None:
+        context = WorkforceContext(issues=[{"code": "availability_unavailable"}])
+        db.info[key] = context
+        return context
+    # Keep identity/role changes immediate; a process-wide authorization cache
+    # would retain revoked delegation access. No profile or credential columns
+    # are needed for the one-to-one mapping.
+    users = list(
+        (
+            await db.scalars(
+                select(User)
+                .where(User.is_active.is_(True))
+                .options(
+                    load_only(
+                        User.id, User.email, User.is_active, User.role, User.roles
+                    )
+                )
+            )
+        ).all()
+    )
     context = resolve_workforce(
         snapshot,
         users,
@@ -286,8 +305,11 @@ async def workforce_context(
             section_access_for_user,
         )
 
-        await resolve_effective_section_access_for_users(db, users)
         by_id = {user.id: user for user in users}
+        substitute_ids = {item.performer_id for item in context.delegations.values()}
+        await resolve_effective_section_access_for_users(
+            db, [by_id[user_id] for user_id in substitute_ids]
+        )
         for owner_id, delegation in list(context.delegations.items()):
             substitute = by_id[delegation.performer_id]
             if any(
@@ -345,7 +367,7 @@ def open_operational_job_clause(job_id_column, owners: set[int]):
 def operational_owner_clause(column, user: User):
     owners = operational_owner_ids(user)
     if owners != {user.id} and getattr(column.table, "name", None) == "jobs":
-        from app.models.job import Job
+        from app.models.job import Job, JobStatus
 
         inherited = owners - {user.id}
         return or_(
@@ -353,7 +375,7 @@ def operational_owner_clause(column, user: User):
             and_(
                 column.in_(inherited),
                 or_(
-                    Job.is_open.is_(True),
+                    and_(Job.is_open.is_(True), Job.status != JobStatus.closed),
                     open_operational_job_clause(Job.id, inherited),
                 ),
             ),
@@ -366,10 +388,12 @@ def operational_job_owner_clause(column, job_id_column, user: User):
     owners = operational_owner_ids(user)
     if owners == {user.id}:
         return column == user.id
-    from app.models.job import Job
+    from app.models.job import Job, JobStatus
 
     inherited = owners - {user.id}
-    current_jobs = select(Job.id).where(Job.is_open.is_(True))
+    current_jobs = select(Job.id).where(
+        Job.is_open.is_(True), Job.status != JobStatus.closed
+    )
     return or_(
         column == user.id,
         and_(

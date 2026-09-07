@@ -107,7 +107,10 @@ async def test_concurrent_requests_recalculate_after_transaction_lock_and_exceed
             await db.commit()
             return result
 
-    await asyncio.gather(*(handoff_and_allocate(job_id) for job_id in jobs[:2]))
+    await asyncio.wait_for(
+        asyncio.gather(*(handoff_and_allocate(job_id) for job_id in jobs[:2])),
+        timeout=60,
+    )
     async with AsyncSessionLocal() as db:
         first = list(
             (
@@ -384,7 +387,9 @@ async def test_open_and_new_calendar_onboarding_and_reminders_follow_cover_with_
         from app.services.job_membership import is_member_of_job
         from app.api.recruitment_access import job_scope_clause
 
-        job.is_open = False
+        job.status = (
+            JobStatus.closed
+        )  # Traffit may close a request before is_open changes
         await db.flush()
         assert await is_member_of_job(db, substitute, job.id)
         assert (

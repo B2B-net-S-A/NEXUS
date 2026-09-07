@@ -1035,11 +1035,9 @@ async def carry_over_rows(
 # wykonaną pracę. Dlatego plan przestaje być wersjonowanym dokumentem i staje
 # się stałą listą, do której DL dopisuje przypisania sam.
 #
-# Zachowany zostaje sufit 5 na osobę — wymuszony przez bazę
-# (`UNIQUE (plan_member_id, rank)` + pięciowartościowy enum rang). To jest
-# świadomie zostawiony limit WIP, tyle że egzekwowany w MOMENCIE PRZYPISANIA
-# (DL od razu widzi „ta osoba ma komplet"), a nie w momencie pracy (rekruter
-# dostaje 409 w połowie zadania).
+# Roster używa liczbowych pozycji bez limitu przydziałów. Rangi A–E są tylko
+# aliasami pierwszych pięciu pozycji; automat porównuje rzeczywistą pracę
+# członka rosteru, łącznie z przejętymi obowiązkami.
 
 
 async def ensure_standing_plan(

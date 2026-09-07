@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.contract_onboarding import ContractOnboardingItem, OnboardingItemStatus
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_allocation import (
     RecruitmentAllocationEvent,
     RecruitmentAllocationRequest,
@@ -177,7 +177,9 @@ async def job_allocation(
     job = await db.get(Job, job_id)
     if not job:
         raise HTTPException(404, "Rekrutacja nie istnieje")
-    payload = await ownership_payload(db, job.recruiter_id, open_task=job.is_open)
+    payload = await ownership_payload(
+        db, job.recruiter_id, open_task=job.is_open and job.status != JobStatus.closed
+    )
     ids = {
         item
         for item in (payload["owner_user_id"], payload["effective_user_id"])

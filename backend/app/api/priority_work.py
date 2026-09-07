@@ -27,7 +27,7 @@ from app.services.recruitment_allocation import allocation_lock, assign_operator
 from app.core.database import get_db
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_priority import (
     PriorityBlockerCategory,
     PriorityBlockerStatus,
@@ -462,7 +462,11 @@ async def _assignment_payloads(
                 "user_id": member.user_id,
                 "user_name": user.name if user else None,
                 **await ownership_payload(
-                    db, member.user_id, open_task=bool(job and job.is_open)
+                    db,
+                    member.user_id,
+                    open_task=bool(
+                        job and job.is_open and job.status != JobStatus.closed
+                    ),
                 ),
                 "sourcing_pause_reason": (
                     "favorite" if job.favorite_sourcing_paused else "manual"

@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import user_can_access_candidate_domain
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
 from app.core.config import settings
@@ -65,7 +65,7 @@ async def is_member_of_job(
         return False
 
     owners = await effective_owner_ids(db, user.id)
-    if not job.is_open:
+    if not job.is_open or job.status == JobStatus.closed:
         inherited = owners - {user.id}
         has_open_work = inherited and await db.scalar(
             select(Job.id).where(
@@ -166,7 +166,11 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
     for (uid,) in admins.all():
         member_ids.add(uid)
 
-    if settings.COMPASS_AVAILABILITY_ENABLED and job.is_open:
+    if (
+        settings.COMPASS_AVAILABILITY_ENABLED
+        and job.is_open
+        and job.status != JobStatus.closed
+    ):
         context = await workforce_context(db)
         member_ids = {context.performer(user_id) for user_id in member_ids}
 

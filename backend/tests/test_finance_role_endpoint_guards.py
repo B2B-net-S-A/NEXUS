@@ -914,6 +914,8 @@ def test_finance_calendar_oversight_is_read_only():
     finance = _user(UserRole.finance)
     event = SimpleNamespace(
         created_by=999,
+        operational_owner_id=999,
+        status=calendar_access.EventStatus.scheduled,
         attendees=["someone@example.com"],
         description="internal",
     )

@@ -187,8 +187,8 @@ def test_job_list_exposes_independent_priority_work_filter_and_context() -> None
     assert 'd["priority_assignment"]' in source
     assert 'd["priority_carry_over_count"]' in source
     assert "Job.recruiter_id" in source  # legacy `mine` remains separate
-    assert "RecruitmentPriorityPlanMember.user_id == current_user.id" in source
-    assert "RecruitmentProcess.owner_user_id == current_user.id" in source
+    assert "operational_job_owner_clause(" in source
+    assert "operational_owner_clause(" in source
 
 
 def test_priority_assignment_and_carry_over_grant_job_scope_without_policy_bypass() -> (
@@ -197,7 +197,7 @@ def test_priority_assignment_and_carry_over_grant_job_scope_without_policy_bypas
     source = inspect.getsource(recruitment_access.ensure_job_membership)
     assert "effective_priority_mode(db, user.id)" in source
     assert "RecruitmentPriorityPlan.status == PriorityPlanStatus.published" in source
-    assert "RecruitmentProcess.owner_user_id == user.id" in source
+    assert "operational_owner_clause(RecruitmentProcess.owner_user_id, user)" in source
     assert "RecruitmentProcess.status == ProcessStatus.open" in source
     # Ownership alone is self-grantable — the frozen compliance verdict is what
     # separates a carried process from one opened to grab access. Both the gate
@@ -733,14 +733,17 @@ async def test_paused_member_without_reason_is_a_422_not_a_500() -> None:
     assert "paused_reason" in str(error.value.detail["errors"])
 
 
-async def test_extra_slot_without_reason_is_a_422_not_a_500() -> None:
+@pytest.mark.parametrize("position", [4, 5, 6, 20])
+async def test_unbounded_positions_do_not_require_an_extra_slot_reason(
+    position,
+) -> None:
     member = priority_work.PlanMemberUpdateRequest(
         user_id=7,
         assignments=[
             priority_work.AssignmentUpdateRequest(
                 job_id=3,
                 demand_id=5,
-                rank="D",
+                position=position,
                 channel="linkedin",
                 verification_target=2,
                 recommendation_target=1,
@@ -748,12 +751,9 @@ async def test_extra_slot_without_reason_is_a_422_not_a_500() -> None:
         ],
     )
 
-    with pytest.raises(HTTPException) as error:
-        await priority_work._resolve_member_inputs(SimpleNamespace(), [member])
-
-    assert error.value.status_code == 422
-    assert error.value.detail["code"] == "PRIORITY_PLAN_INVALID"
-    assert "extra_slot_reason" in str(error.value.detail["errors"])
+    resolved = await priority_work._resolve_member_inputs(SimpleNamespace(), [member])
+    assert resolved[0].assignments[0].position == position
+    assert resolved[0].assignments[0].extra_slot_reason is None
 
 
 async def test_valid_member_input_still_resolves() -> None:
