@@ -25,6 +25,10 @@ export const JOB_CLOSE_REASONS: { value: JobCloseReason; label: string }[] = [
 
 export type Seniority = "junior" | "mid" | "senior" | "lead" | "architect";
 export type JobPriority = "low" | "medium" | "high" | "urgent";
+// Mirrors backend/app/models/job.py::RemotePolicy — jedna unia dla oferty
+// (`Job.remote_policy`) i preferencji kandydata (`preferences.remote_modes`),
+// oba mówią tym samym słownikiem (0278).
+export type RemotePolicy = "onsite" | "hybrid" | "remote";
 
 export interface RecruiterBrief {
   id: number;

@@ -158,6 +158,39 @@ def test_location_sources_cv_notes_all():
     assert {"kraków", "poznań", "wrocław"} <= both
 
 
+def test_office_cities_override_notes_locations():
+    """Ludzkie `preferences.office_cities` (0278) nadpisują notatkowe
+    lokalizacje w kubełku `all` — `relocation.targets` mimo to dokłada się
+    zawsze (inny fakt: dokąd kandydat CHCE się przeprowadzić)."""
+    cand = _cand(
+        preferences={"office_cities": ["Gdańsk"]},
+        cv_extracted_data={
+            "_notes_insights": {
+                "preferences": {"locations": ["Poznań"], "remote_only": None},
+                "relocation": {"willing": True, "targets": ["Wrocław"]},
+            }
+        },
+    )
+    both = candidate_location_tokens(cand, "all")
+    assert "gdańsk" in both
+    assert "poznań" not in both
+    assert "wrocław" in both
+
+
+def test_office_cities_in_cv_bucket_not_notes():
+    """`office_cities` żyje w kubełku `cv`/`all`; `notes` w izolacji zostaje
+    czysto-AI — `office_cities` nigdy nie jest tam czytane, więc nie przesłania
+    notatkowych lokalizacji, gdy ktoś pyta o samo źródło `notes`."""
+    cand = _cand(
+        preferences={"office_cities": ["Gdańsk"]},
+        cv_extracted_data=_notes(locations=["Poznań"]),
+    )
+    assert "gdańsk" in candidate_location_tokens(cand, "cv")
+    notes = candidate_location_tokens(cand, "notes")
+    assert "gdańsk" not in notes
+    assert "poznań" in notes
+
+
 def test_relocation_unwilling_targets_are_not_locations():
     cand = _cand(
         cv_extracted_data={

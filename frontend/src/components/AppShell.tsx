@@ -400,10 +400,14 @@ interface CandidateFormData {
   verifier_id: string;
   verified_tech: string; // comma separated
   // Preferences JSONB
-  pref_remote_modes: string[]; // ['remote','hybrid','on_site']
+  pref_remote_modes: string[]; // ['remote','hybrid','onsite']
   pref_industries: string; // comma separated
   pref_contract_types: string[]; // ['b2b','uop','zlecenie']
   pref_excluded_clients: string; // comma separated client ids
+  pref_office_cities: string; // comma separated — preferences.office_cities (0278)
+  // Trzecia rubryka rekrutacji (0278). KOLUMNA, nie preferences — backend
+  // odrzuca ten klucz W preferences (drugie źródło prawdy o tej samej rubryce).
+  max_onsite_days_per_week: string;
 }
 
 const EMPTY_CANDIDATE: CandidateFormData = {
@@ -413,6 +417,7 @@ const EMPTY_CANDIDATE: CandidateFormData = {
   years_it_experience: "", champion: false, verifier_id: "", verified_tech: "",
   pref_remote_modes: [],
   pref_industries: "", pref_contract_types: [], pref_excluded_clients: "",
+  pref_office_cities: "", max_onsite_days_per_week: "",
 };
 
 type VerifiedTechItem = string | { name?: string; skill?: string } | null;
@@ -458,6 +463,11 @@ function candidateToForm(c: any): CandidateFormData {
     pref_excluded_clients: Array.isArray(prefs.excluded_clients)
       ? prefs.excluded_clients.join(", ")
       : "",
+    pref_office_cities: Array.isArray(prefs.office_cities)
+      ? prefs.office_cities.join(", ")
+      : "",
+    max_onsite_days_per_week:
+      c.max_onsite_days_per_week != null ? String(c.max_onsite_days_per_week) : "",
   };
 }
 
@@ -477,12 +487,23 @@ function candidateFormToPayload(form: CandidateFormData) {
         .map(n => Number(n))
         .filter(n => !Number.isNaN(n))
     : [];
+  const officeCities = form.pref_office_cities
+    ? form.pref_office_cities.split(",").map(t => t.trim()).filter(Boolean)
+    : [];
 
-  const preferences: Record<string, unknown> = {};
-  if (form.pref_remote_modes.length) preferences.remote_modes = form.pref_remote_modes;
-  if (industries.length) preferences.industries = industries;
-  if (form.pref_contract_types.length) preferences.contract_types = form.pref_contract_types;
-  if (excluded.length) preferences.excluded_clients = excluded;
+  // ZAWSZE wysyłamy `preferences` — z jawnym `null` dla wyczyszczonych pól
+  // (0278). Backend scala PŁYTKO (PATCH /api/candidates/{id}): brak klucza w
+  // ogóle zostawia go nietkniętym, ale pusty formularz musi mieć jak wysłać
+  // "wyczyściłem to pole" — inaczej odznaczenie ostatniego checkboxa "Remote"
+  // nie dałoby się zapisać. Create ignoruje `null`, bo nie ma czego usuwać
+  // (walidator z `allow_null_values=False` w schemas/candidate.py).
+  const preferences: Record<string, unknown> = {
+    remote_modes: form.pref_remote_modes.length ? form.pref_remote_modes : null,
+    industries: industries.length ? industries : null,
+    contract_types: form.pref_contract_types.length ? form.pref_contract_types : null,
+    excluded_clients: excluded.length ? excluded : null,
+    office_cities: officeCities.length ? officeCities : null,
+  };
 
   return {
     name: form.name,
@@ -503,7 +524,10 @@ function candidateFormToPayload(form: CandidateFormData) {
     champion: form.champion,
     verifier_id: form.verifier_id ? Number(form.verifier_id) : undefined,
     verified_tech: verifiedTech.length ? verifiedTech : undefined,
-    preferences: Object.keys(preferences).length ? preferences : undefined,
+    preferences,
+    // Trzecia rubryka rekrutacji (0278) — kolumna kandydata, nie preferences.
+    max_onsite_days_per_week:
+      form.max_onsite_days_per_week === "" ? null : Number(form.max_onsite_days_per_week),
   };
 }
 
@@ -705,9 +729,30 @@ function CandidateFormFields({
           <div className="flex flex-wrap gap-2">
             <CB field="pref_remote_modes" value="remote" label="Remote" />
             <CB field="pref_remote_modes" value="hybrid" label="Hybrid" />
-            <CB field="pref_remote_modes" value="on_site" label="On-site" />
+            <CB field="pref_remote_modes" value="onsite" label="Stacjonarnie" />
           </div>
         </FieldGroup>
+        {/* Trzecia rubryka rekrutacji (obok must-have i stawki, 0278) —
+            KOLUMNA `max_onsite_days_per_week`, nie `preferences`. */}
+        <div className="grid grid-cols-2 gap-3">
+          <FieldGroup label="Maks. dni w biurze / tydzień">
+            <Input
+              type="number"
+              min={0}
+              max={7}
+              value={form.max_onsite_days_per_week}
+              onChange={e => onChange("max_onsite_days_per_week", e.target.value)}
+              placeholder="np. 2 — 0 = tylko zdalnie"
+            />
+          </FieldGroup>
+          <FieldGroup label="Lokalizacje biura (miasta, po przecinku)">
+            <Input
+              value={form.pref_office_cities}
+              onChange={e => onChange("pref_office_cities", e.target.value)}
+              placeholder="Warszawa, Kraków"
+            />
+          </FieldGroup>
+        </div>
         <FieldGroup label="Typ kontraktu">
           <div className="flex flex-wrap gap-2">
             <CB field="pref_contract_types" value="b2b" label="B2B" />

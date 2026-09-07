@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { AddClientModal } from "@/components/AppShell";
-import api from "@/lib/api";
+import { AddClientModal, AddCandidateModal } from "@/components/AppShell";
+import api, { phase5Api } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
   default: {
@@ -90,6 +91,27 @@ describe("AppShell FieldGroup — dostępna nazwa kontrolki", () => {
       screen.getByPlaceholderText("https://firma.pl").id,
     ];
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("AppShell — pole „Maks. dni w biurze / tydzień” kandydata (0278)", () => {
+  it("wystawia numeryczny input pod etykietą przez htmlFor/id", async () => {
+    vi.mocked(api.get).mockResolvedValue({ data: [] });
+    vi.mocked(phase5Api.clientsLookup).mockResolvedValue({
+      data: [],
+    } as never);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AddCandidateModal onClose={() => {}} onSuccess={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    const input = await screen.findByLabelText(/Maks\. dni w biurze/i);
+    expect(input).toHaveAttribute("type", "number");
   });
 });
 
