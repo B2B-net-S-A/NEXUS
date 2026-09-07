@@ -143,6 +143,9 @@ def apply_pko_bp_order_policy(
         set_field(result, "rate_client", row.rate_client)
         set_field(result, "rate_unit", "day")
         set_field(result, "md_total", row.md_total)
+        # Jeden wiersz Wykonawców = jedna osoba: stawka jest jej. Potwierdź dla
+        # enforce_consultant_policy_safety (inaczej kasuje ją po no-match, P1).
+        result.consultant_rate_matched = True
     elif rows:
         # Wiele osób: pola dokumentu nie znaczą nic — okres i stawka są per wiersz.
         for name in ("rate_client", "rate_unit", "md_total"):

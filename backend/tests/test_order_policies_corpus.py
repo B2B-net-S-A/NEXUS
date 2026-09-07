@@ -12,6 +12,8 @@ Lata w datach: 2031+ (wolny zakres w bazie testowej, patrz CLAUDE.md).
 
 from decimal import Decimal
 
+import pytest
+
 from app.services.order_pdf_parser import OrderExtraction
 from app.services.order_policies import (
     PolicyContext,
@@ -387,3 +389,99 @@ def test_new_policies_are_env_gated_and_fail_closed(monkeypatch):
         assert policy_by_key(key) not in active_policies(4242)
     monkeypatch.setenv("VELOBANK_ORDER_EXTRACTION_CLIENT_IDS", "4242")
     assert [p.key for p in active_policies(4242)] == ["velobank"]
+
+
+# ── P1: deterministyczna stawka przeżywa enforce po no-match matchera ────────
+#
+# Bug: w manualnym /extract z candidate_id dla klienta z własną regułą (nie-BNP)
+# polityka ustawia rate_client deterministycznie z układu dokumentu, po czym
+# enforce_consultant_policy_safety kasuje ją, gdy matcher nie potwierdził wiersza
+# osoby — czyli DOKŁADNIE w sytuacji, dla której ten deterministyczny parser
+# layoutu istnieje. Fix: polityka ustawia consultant_rate_matched=True tam, gdzie
+# stawkę ustawia jednoznacznie (jeden wiersz albo wspólna stawka dokumentu). Bez
+# flagi bezpiecznik traktuje deterministyczną stawkę jak zgadniętą z globalnej
+# etykiety i ją czyści.
+
+# Warianty przycięte do JEDNEGO wiersza — gałąź len(rows)==1. W korpusie
+# velobank/alior są wielo-wierszowe i CELOWO czyszczą stawkę (per osoba), więc
+# ich gałęzi „set" nie pokrywają dokumenty wyżej.
+VELO_SINGLE = """Zamówienie nr 3/07/2031/BL
+VeloBank S.A. … NIP 7011105189 … Umowy Ramowej z 09.02.2023r.
+1. Dane wykonawców:
+Nazwisko i imię Wartość brutto
+(profil) (dd-mm-rrrr) (dd-mm-rrrr) MD netto/MD netto
+Testowy Marcin Starszy Tester 1.07.2031 31.08.2031 43 1 400,00 60 200,00 zł 74 046,00 zł
+4. Akceptacja wartości zlecenia:
+Wartość zlecenia Podpis Zleceniodawcy
+60 200,00 PLN NETTO
+"""
+
+ALIOR_SINGLE = """Zamówienie:
+Do Umowy Ramowej: OIT/0258/2023/ITVM
+Zamówienie nr: OIT/0189/2031/ITVM
+do realizacji przedmiotu Umowy Ramowej nr: OIT/0258/2023/ITVM,
+Imię i Stawka
+Wiktoria
+Testowa Business
+1 189 1 155,00 13,81% 1 340,00 253 260,00 zł
+(01.04.2031- Analyst
+31.12.2031)
+Razem PLN netto: 253 260,00 zł
+Szczególne warunki zamówienia
+1. Maksymalna wartość Zamówienia (z marżą): 253 260,00 PLN netto
+5. Moment wejścia w życie Zamówienia: 01.04.2031
+czas oznaczony: 31.12.2031 lub do wyczerpania
+"""
+
+_DETERMINISTIC_SINGLE_RATE = [
+    ("pko_bp", PKO),
+    ("kir", KIR),
+    ("mleasing", MLEASING),
+    ("cardif", CARDIF),
+    ("bank_pocztowy", BP),
+    ("velobank", VELO_SINGLE),
+    ("alior", ALIOR_SINGLE),
+]
+
+
+@pytest.mark.parametrize("key,text", _DETERMINISTIC_SINGLE_RATE)
+def test_deterministic_rate_survives_enforce_after_no_match(key, text):
+    from app.services.order_pdf_parser import enforce_consultant_policy_safety
+
+    r = _run(key, text)
+    # Sanity: fixture faktycznie ustawił stawkę z układu dokumentu.
+    assert r.rate_client is not None, f"{key}: fixture nie ustawił stawki"
+    # Fix P1: polityka oznacza, że stawka pochodzi z jednoznacznego wiersza, więc
+    # bezpiecznik jej nie skasuje. Bez fixu ta flaga byłaby False.
+    assert r.consultant_rate_matched is True, f"{key}: brak flagi (regresja P1)"
+
+    enforce_consultant_policy_safety(r)
+    assert r.rate_client is not None, f"{key}: enforce skasował stawkę (regresja P1)"
+
+
+def test_real_matcher_no_confirm_then_deterministic_rate_survives():
+    """Ścieżka z REALNYM matcherem (`apply_consultant_row_match`, którego NIE
+    monkeypatchujemy): matcher nie potwierdza osoby, bo w wyniku „po LLM" nie ma
+    jej wiersza. Mimo to deterministyczna stawka polityki przeżywa enforce."""
+    from app.services.order_pdf_parser import (
+        apply_consultant_row_match,
+        enforce_consultant_policy_safety,
+    )
+
+    ext = OrderExtraction(source="claude")
+    ext.consultant_rows = []  # LLM nie dostarczył wiersza tej osoby
+    ext = apply_consultant_row_match(
+        ext,
+        "Nieobecny Człowiek",
+        consultant_given_names="Nieobecny",
+        rate_unit_default=None,
+    )
+    assert ext.consultant_rate_matched is False  # realny matcher nie potwierdził
+
+    ext, _ = apply_policies(
+        ext,
+        PolicyContext(document_text=PKO, target_consultant="Nieobecny Człowiek"),
+        [policy_by_key("pko_bp")],
+    )
+    ext = enforce_consultant_policy_safety(ext)
+    assert ext.rate_client is not None  # deterministyczna stawka pko_bp przeżyła

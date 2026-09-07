@@ -111,6 +111,9 @@ def apply_mleasing_order_policy(
         set_field(result, "rate_client", rate)
         if unit:
             set_field(result, "rate_unit", unit)
+        # Stawka pozycji z jednoosobowego zamówienia mLeasing — potwierdź dla
+        # enforce (inaczej no-match matchera skasowałby poprawną stawkę, P1).
+        result.consultant_rate_matched = True
     clear_field(result, "md_total")
 
     rows = extract_rows(document_text)

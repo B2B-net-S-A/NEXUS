@@ -87,6 +87,8 @@ def apply_kir_order_policy(
     if len(rows) == 1:
         set_field(result, "rate_client", rows[0].rate_client)
         set_field(result, "rate_unit", "hour")
+        # Jeden wiersz = stawka godzinowa tej osoby. Potwierdź dla enforce (P1).
+        result.consultant_rate_matched = True
     else:
         clear_field(result, "rate_client")
         clear_field(result, "rate_unit")

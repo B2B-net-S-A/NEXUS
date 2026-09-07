@@ -113,6 +113,8 @@ def apply_velobank_order_policy(
     if len(rows) == 1:
         set_field(result, "rate_client", rows[0].rate_client)
         set_field(result, "md_total", rows[0].md_total)
+        # Jeden wiersz = stawka tej osoby. Potwierdź dla enforce (P1).
+        result.consultant_rate_matched = True
     else:
         clear_field(result, "rate_client")
         clear_field(result, "md_total")

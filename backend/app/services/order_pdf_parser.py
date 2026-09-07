@@ -1108,6 +1108,10 @@ def apply_bank_pocztowy_order_policy(
         result.rate_client_md = md_rate
         result.rate_client = hourly
         result.rate_unit = "hour"
+        # Stawka wyliczona deterministycznie z jednoosobowego dokumentu BP —
+        # potwierdź ją dla enforce_consultant_policy_safety, inaczej bezpiecznik
+        # matchera skasowałby poprawną stawkę, gdy LLM nie potwierdził wiersza (P1).
+        result.consultant_rate_matched = True
         if hourly < _BP_HOURLY_MIN or hourly > _BP_HOURLY_MAX:
             rate_warning = (
                 f"Nietypowa stawka godzinowa po przeliczeniu: {hourly} zł/h "

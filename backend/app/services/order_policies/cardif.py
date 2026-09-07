@@ -91,6 +91,8 @@ def apply_cardif_order_policy(
     if rate is not None:
         set_field(result, "rate_client", rate)
         set_field(result, "rate_unit", "day")
+        # Wspólna stawka z dokumentu okresowego Cardif — potwierdź dla enforce (P1).
+        result.consultant_rate_matched = True
     else:
         clear_field(result, "rate_client")
         clear_field(result, "rate_unit")
