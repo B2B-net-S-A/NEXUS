@@ -144,8 +144,14 @@ export function buildRadaCsvExport(
       "",
       "",
       "",
-      k.finance.complete ? "tak" : "nie",
+      "",
     ],
+    // WŁASNY wiersz, nie ostatnia kolumna wiersza wyżej. Flaga dotyczy CAŁEGO
+    // bloku KPI, więc doczepiona do „Kontraktów bez stawki kandydata" czytałaby
+    // się jak kwalifikator tej jednej liczby — a w kolumnie „Kwoty pełne"
+    // stałaby samotnie wśród czternastu pustych komórek i pod wierszami
+    // klientów, gdzie ta sama kolumna znaczy co innego (kompletność wiersza).
+    ["KPI", "Kwoty pełne", k.finance.complete ? "tak" : "nie", "", "", "", ""],
   ];
   const clients: InsightsCsvExport["rows"] = (ranking?.clients ?? []).map(
     (c) => [
