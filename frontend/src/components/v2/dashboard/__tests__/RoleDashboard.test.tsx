@@ -45,6 +45,8 @@ vi.mock("@/components/v2/priority-work", () => ({
   MyPriorityQueue: () => <div>priority-queue</div>,
 }))
 
+vi.mock("@/components/v2/priority-work/AllocationWorkloadBoard", () => ({ AllocationWorkloadBoard: () => <div>allocation-workload</div> }))
+
 function recruiter(): User {
   return {
     id: 33,
@@ -75,6 +77,14 @@ describe("RoleDashboard — unified recruitment view", () => {
     act(() => {
       useAuthStore.setState({ user: null, hydrated: true })
     })
+  })
+
+  it("shows workload immediately for the recruitment manager", () => {
+    navigation.params = new URLSearchParams("preset=head-of-recruitment&period=week")
+    act(() => useAuthStore.setState({ user: { ...recruiter(), role: "head_of_recruitment", roles: ["head_of_recruitment"], available_dashboard_presets: ["head-of-recruitment"], default_dashboard_preset: "head-of-recruitment" } }))
+    render(<RoleDashboard />)
+    expect(screen.getByText("allocation-workload")).toBeVisible()
+    expect(screen.queryByText("team-allocation")).toBeNull()
   })
 
   it("shows activity, personal work and recruitments without legacy tabs", () => {

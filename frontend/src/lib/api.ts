@@ -1241,9 +1241,10 @@ export const jobsApi = {
   /** "Przekaż do searchu" — DL assigns a recruiter and starts the ranking.
    *  422 body carries `{ message, blockers: string[] }` when the recruitment
    *  is not ready (Champion required). */
-  handoff: (id: number, recruiterId: number, topK?: number) =>
+  handoff: (id: number, recruiterId: number, topK?: number, channel: "linkedin" | "database" | "mixed" = "linkedin") =>
     api.post(`/api/jobs/${id}/handoff`, {
       recruiter_id: recruiterId,
+      channel,
       ...(topK ? { top_k: topK } : {}),
     }),
 };

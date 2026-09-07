@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,10 +21,13 @@ from app.api.deps import (
 )
 from app.api.recruitment_access import ensure_job_membership
 from app.core.config import settings
+from app.services.workforce_availability import effective_owner_ids
+from app.services.operational_tasks import ownership_payload
+from app.services.recruitment_allocation import allocation_lock, assign_operator
 from app.core.database import get_db
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.competence_category import UserCompetenceCategory
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_priority import (
     PriorityBlockerCategory,
     PriorityBlockerStatus,
@@ -36,6 +38,7 @@ from app.models.recruitment_priority import (
     PriorityMode,
     PriorityPlanStatus,
     PriorityRank,
+    assignment_position,
     RecruitmentPriorityAlert,
     RecruitmentPriorityAssignment,
     RecruitmentPriorityAuditEvent,
@@ -74,11 +77,8 @@ from app.services.priority_work_service import (
     carry_over_rows,
     create_draft_plan,
     current_plan,
-    ensure_plan_member,
     ensure_priority_state,
-    ensure_standing_plan,
     load_plan,
-    next_free_rank,
     publish_plan,
     replace_draft_members,
     role_values,
@@ -110,6 +110,7 @@ class AssignmentCreateRequest(BaseModel):
     assignee_user_id: int = Field(gt=0)
     channel: PriorityChannel
     rank: Optional[PriorityRank] = None
+    position: Optional[int] = Field(default=None, gt=0)
     verification_target: int = Field(default=0, ge=0)
     recommendation_target: int = Field(default=0, ge=0)
     note: Optional[str] = Field(default=None, max_length=4000)
@@ -134,7 +135,8 @@ class DraftCreateRequest(BaseModel):
 class AssignmentUpdateRequest(BaseModel):
     job_id: int = Field(gt=0)
     demand_id: Optional[int] = Field(default=None, gt=0)
-    rank: PriorityRank
+    rank: Optional[PriorityRank] = None
+    position: Optional[int] = Field(default=None, gt=0)
     channel: PriorityChannel
     verification_target: int = Field(gt=0)
     recommendation_target: int = Field(gt=0)
@@ -261,7 +263,8 @@ def _serialize_plan(
                         "id": assignment.id,
                         "demand_id": assignment.demand_id,
                         "job_id": assignment.job_id,
-                        "rank": assignment.rank.value,
+                        "rank": assignment.rank.value if assignment.rank else None,
+                        "position": assignment_position(assignment),
                         "channel": assignment.channel.value,
                         "verification_target": assignment.verification_target,
                         "recommendation_target": assignment.recommendation_target,
@@ -386,21 +389,27 @@ async def _assignment_payloads(
     only_user_id: Optional[int] = None,
     only_job_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    assignments = [
-        assignment
+    members = [
+        member
         for member in members
-        if only_user_id is None or member.user_id == only_user_id
-        for assignment in member.assignments
-        if only_job_id is None or assignment.job_id == only_job_id
+        if (only_user_id is None or member.user_id == only_user_id)
+        and (
+            only_job_id is None
+            or any(item.job_id == only_job_id for item in member.assignments)
+        )
     ]
-    progress = await assignment_progress(db, (item.id for item in assignments))
-    blockers = await active_blockers(db, (item.id for item in assignments))
+    all_assignments = [item for member in members for item in member.assignments]
+    assignments = [
+        item
+        for item in all_assignments
+        if only_job_id is None or item.job_id == only_job_id
+    ]
+    # A single-job panel must evaluate its higher priorities using their real
+    # progress and sourcing pause, exactly as the command admission policy does.
+    progress = await assignment_progress(db, (item.id for item in all_assignments))
+    blockers = await active_blockers(db, (item.id for item in all_assignments))
     member_by_id = {member.id: member for member in members}
-    gate_states: dict[int, str] = {}
-    for member in members:
-        gate_states.update(assignment_gate_states(member, progress, blockers))
-
-    job_ids = {item.job_id for item in assignments}
+    job_ids = {item.job_id for item in all_assignments}
     jobs = {
         row.id: row
         for row in (
@@ -417,6 +426,16 @@ async def _assignment_payloads(
             else []
         )
     }
+    paused = (
+        {job.id for job in jobs.values() if not job.needs_sourcing}
+        if settings.RECRUITMENT_ALLOCATION_ENABLED
+        else set()
+    )
+    gate_states: dict[int, str] = {}
+    for member in members:
+        gate_states.update(
+            assignment_gate_states(member, progress, blockers, paused_job_ids=paused)
+        )
     user_ids = {member_by_id[item.plan_member_id].user_id for item in assignments}
     users = {
         row.id: row
@@ -442,7 +461,20 @@ async def _assignment_payloads(
                 "id": assignment.id,
                 "user_id": member.user_id,
                 "user_name": user.name if user else None,
-                "rank": assignment.rank.value,
+                **await ownership_payload(
+                    db,
+                    member.user_id,
+                    open_task=bool(
+                        job and job.is_open and job.status != JobStatus.closed
+                    ),
+                ),
+                "sourcing_pause_reason": (
+                    "favorite" if job.favorite_sourcing_paused else "manual"
+                )
+                if job and job.id in paused
+                else None,
+                "rank": assignment.rank.value if assignment.rank else None,
+                "position": assignment_position(assignment),
                 "channel": assignment.channel.value,
                 "job": {
                     "id": assignment.job_id,
@@ -485,11 +517,19 @@ async def get_my_priority_work(
 ) -> dict[str, Any]:
     mode = await effective_priority_mode(db, current_user.id)
     plan = await current_plan(db)
+    owners = await effective_owner_ids(db, current_user.id)
     assignments = (
-        await _assignment_payloads(db, plan.members, only_user_id=current_user.id)
+        await _assignment_payloads(
+            db, [member for member in plan.members if member.user_id in owners]
+        )
         if plan
         else []
     )
+    assignments = [
+        item
+        for item in assignments
+        if item["user_id"] == current_user.id or item.get("substitution")
+    ]
     return {
         "mode": mode.value,
         "plan": _serialize_plan(plan, mode=mode),
@@ -783,6 +823,7 @@ async def create_priority_assignment(
             403, "Przypisać może Delivery Lead albo Head of Recruitment"
         )
 
+    await allocation_lock(db)
     job = await db.scalar(select(Job).where(Job.id == payload.job_id).with_for_update())
     if job is None:
         raise HTTPException(404, "Request nie istnieje")
@@ -802,123 +843,32 @@ async def create_priority_assignment(
             f"Kanał {payload.channel.value} jest poza rolą tej osoby",
         )
 
-    # Assignment wymaga demandu (FK NOT NULL). DL i tak jest właścicielem obu
-    # akcji, więc brakujący demand zakładamy w locie zamiast zmuszać do
-    # dwóch kliknięć.
-    #
-    # Kanał demandu i kanał assignmentu MOGĄ się różnić i nie jest to niespójność:
-    # demand mówi, czego DL potrzebuje, assignment — jak konkretna osoba będzie
-    # nad tym pracować. Jedna rekrutacja bywa obsadzona równolegle sourcerem
-    # (database) i rekruterem (linkedin); wymuszenie równości zablokowałoby ten
-    # układ.
-    demand = await db.scalar(
-        select(RecruitmentPriorityDemand)
-        .where(
-            RecruitmentPriorityDemand.job_id == job.id,
-            RecruitmentPriorityDemand.status.in_(
-                [
-                    PriorityDemandStatus.open,
-                    PriorityDemandStatus.covered,
-                    PriorityDemandStatus.paused,
-                ]
-            ),
-        )
-        .with_for_update()
-    )
-    if demand is None:
-        demand = RecruitmentPriorityDemand(
-            job_id=job.id,
-            created_by_user_id=current_user.id,
-            status=PriorityDemandStatus.open,
-            urgency="normal",
-            expected_recommendations=3,
-            channel=payload.channel,
-            note=payload.note or "Utworzony automatycznie przy przypisaniu.",
-            row_version=1,
-        )
-        db.add(demand)
-        await db.flush()
-
-    plan = await ensure_standing_plan(db, actor_user_id=current_user.id)
-    member = await ensure_plan_member(db, plan=plan, user_id=assignee.id)
-    if member.status != PriorityMemberStatus.active:
-        raise HTTPException(422, "Ta osoba jest wstrzymana w rosterze")
-
-    duplicate = await db.scalar(
-        select(RecruitmentPriorityAssignment.id).where(
-            RecruitmentPriorityAssignment.plan_member_id == member.id,
-            RecruitmentPriorityAssignment.job_id == job.id,
-        )
-    )
-    if duplicate is not None:
-        raise HTTPException(409, "Ta osoba ma już tę rekrutację przypisaną")
-
+    position = payload.position
     if payload.rank is not None:
-        # Jawna ranga MUSI przejść tę samą kontrolę co automatyczna. Bez tego
-        # kolizja wychodziła dopiero jako IntegrityError na INSERT i wracała
-        # jako „ranga zajęta przez równoległe przypisanie" — komunikat mylący,
-        # bo żadnej równoległości nie było.
-        taken = await db.scalar(
-            select(RecruitmentPriorityAssignment.id).where(
-                RecruitmentPriorityAssignment.plan_member_id == member.id,
-                RecruitmentPriorityAssignment.rank == payload.rank,
-            )
-        )
-        if taken is not None:
-            raise HTTPException(
-                409,
-                f"Ranga {payload.rank.value} jest już zajęta u tej osoby",
-            )
-        rank = payload.rank
-    else:
-        rank = await next_free_rank(db, member_id=member.id)
-    if rank is None:
-        raise HTTPException(
-            409,
-            (
-                "Ta osoba ma komplet 5 rekrutacji — zdejmij którąś, "
-                "zanim dołożysz kolejną"
-            ),
-        )
-
-    assignment = RecruitmentPriorityAssignment(
-        plan_member_id=member.id,
-        demand_id=demand.id,
-        job_id=job.id,
-        rank=rank,
+        legacy_position = ord(payload.rank.value) - 64
+        if position is not None and position != legacy_position:
+            raise HTTPException(422, "Pozycja i ranga wskazują różne miejsca")
+        position = legacy_position
+    assignment = await assign_operator(
+        db,
+        job=job,
+        assignee=assignee,
         channel=payload.channel,
+        actor_user_id=current_user.id,
+        source="delivery_lead",
+        as_owner=False,
+        position=position,
         verification_target=payload.verification_target,
         recommendation_target=payload.recommendation_target,
-        suggestion_source="delivery_lead",
-    )
-    db.add(assignment)
-    try:
-        await db.flush()
-    except IntegrityError as exc:  # równoległe przypisanie tej samej rangi
-        await db.rollback()
-        raise HTTPException(409, "Ranga zajęta przez równoległe przypisanie") from exc
-
-    audit_event(
-        db,
-        "assignment_created",
-        actor_user_id=current_user.id,
-        plan_id=plan.id,
-        subject_user_id=assignee.id,
-        job_id=job.id,
-        assignment_id=assignment.id,
-        payload={
-            "rank": rank.value,
-            "channel": payload.channel.value,
-            "by_delivery_lead": not is_hor,
-        },
     )
     await db.commit()
     return {
         "id": assignment.id,
         "job_id": job.id,
         "assignee_user_id": assignee.id,
-        "rank": rank.value,
-        "channel": payload.channel.value,
+        "rank": assignment.rank.value if assignment.rank else None,
+        "position": assignment.position,
+        "channel": assignment.channel.value,
     }
 
 
@@ -933,6 +883,7 @@ async def delete_priority_assignment(
     if not (is_hor or _is_delivery_lead(current_user)):
         raise HTTPException(403, "Zdjąć może Delivery Lead albo Head of Recruitment")
 
+    await allocation_lock(db)
     assignment = await db.scalar(
         select(RecruitmentPriorityAssignment)
         .where(RecruitmentPriorityAssignment.id == assignment_id)
@@ -967,10 +918,20 @@ async def delete_priority_assignment(
         job_id=assignment.job_id,
         assignment_id=assignment.id,
         payload={
-            "rank": assignment.rank.value,
+            "rank": assignment.rank.value if assignment.rank else None,
+            "position": assignment_position(assignment),
             "by_delivery_lead": not is_hor,
         },
     )
+    if job.recruiter_id == member_user_id:
+        published = await db.scalar(
+            select(RecruitmentPriorityPlan.id).where(
+                RecruitmentPriorityPlan.id == member_plan_id,
+                RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            )
+        )
+        if published is not None:
+            job.recruiter_id = None
     await db.delete(assignment)
     await db.commit()
 
@@ -1046,6 +1007,7 @@ async def _resolve_member_inputs(
                     demand_id=demand_id,
                     job_id=item.job_id,
                     rank=item.rank,
+                    position=item.position,
                     channel=item.channel,
                     verification_target=item.verification_target,
                     recommendation_target=item.recommendation_target,
@@ -1102,6 +1064,7 @@ async def publish_priority_plan(
     current_user: HeadOfRecruitmentOnly,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    await allocation_lock(db)
     plan = await publish_plan(
         db,
         plan_id=plan_id,
@@ -1199,7 +1162,11 @@ async def create_priority_blocker(
     )
     if assignment is None:
         raise HTTPException(404, "Aktywny opublikowany assignment nie istnieje")
-    if not _is_hor(current_user) and assignment.plan_member.user_id != current_user.id:
+    if not _is_hor(
+        current_user
+    ) and assignment.plan_member.user_id not in await effective_owner_ids(
+        db, current_user.id
+    ):
         raise HTTPException(403, "Blocker może zgłosić właściciel assignmentu")
     active = await db.scalar(
         select(RecruitmentPriorityBlocker.id).where(
@@ -1281,7 +1248,9 @@ async def update_priority_blocker(
             .with_for_update()
         )
         if not _is_hor(current_user) and (
-            assignment is None or assignment.plan_member.user_id != current_user.id
+            assignment is None
+            or assignment.plan_member.user_id
+            not in await effective_owner_ids(db, current_user.id)
         ):
             raise HTTPException(403, "Brak uprawnień do zamknięcia blockera")
         row.status = PriorityBlockerStatus.resolved
@@ -1556,7 +1525,7 @@ async def update_priority_user_mode(
                     for item in (plan.members if plan else [])
                     if item.user_id == user_id
                     and item.status == PriorityMemberStatus.active
-                    and 3 <= len(item.assignments) <= 5
+                    and bool(item.assignments)
                 ),
                 None,
             )

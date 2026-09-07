@@ -67,3 +67,5 @@ describe("JobPriorityContext", () => {
     ).not.toBeInTheDocument()
   })
 })
+
+vi.mock("../AllocationWorkloadBoard", () => ({ JobAllocationSummary: () => null }))

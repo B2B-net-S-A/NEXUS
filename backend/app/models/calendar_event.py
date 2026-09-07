@@ -89,6 +89,10 @@ class CalendarEvent(Base, TimestampMixin):
     m365_change_key: Mapped[Optional[str]] = mapped_column(String(100))
 
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    # Operational responsibility can differ from the immutable meeting creator.
+    operational_owner_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
 
     reminder_minutes: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
 

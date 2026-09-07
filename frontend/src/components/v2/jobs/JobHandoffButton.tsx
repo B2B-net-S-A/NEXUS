@@ -22,6 +22,7 @@ interface JobReadiness {
   blockers: string[];
   closed: boolean;
   already_handed_off: boolean;
+  allocation_enabled?: boolean;
 }
 
 /**
@@ -36,6 +37,8 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
   const [submitting, setSubmitting] = useState(false);
   const [blockers, setBlockers] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [automatic, setAutomatic] = useState(false);
+  const [channel, setChannel] = useState<"linkedin" | "database" | "mixed">("linkedin");
   const [done, setDone] = useState(false);
 
   // Braki pokazujemy ZANIM ktoś kliknie. Na próbce 100 rekrutacji z produkcji
@@ -78,12 +81,16 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
   });
 
   const submit = async () => {
-    if (!recruiterId) return;
+    if (!automatic && !recruiterId) return;
     setSubmitting(true);
     setBlockers([]);
     setError(null);
     try {
-      await jobsApi.handoff(jobId, recruiterId);
+      if (automatic) {
+        await api.post(`/api/jobs/${jobId}/handoff`, { assignment_mode: "automatic", channel });
+      } else if (recruiterId) {
+        await jobsApi.handoff(jobId, recruiterId, undefined, channel);
+      }
       setDone(true);
     } catch (e: unknown) {
       const resp = (
@@ -116,8 +123,7 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
         className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground"
       >
         <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-        Przekazano do searchu — ranking się generuje. Rekruter dostał dostęp do
-        rekrutacji.
+        {automatic ? "Rekrutacja trafiła do kolejki. W podglądzie system pokaże proponowaną osobę; w trybie automatycznym przydzieli ją po sprawdzeniu dostępności." : "Przekazano do searchu — ranking się generuje. Rekruter dostał dostęp do rekrutacji."}
       </div>
     );
   }
@@ -175,8 +181,19 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
 
       {open && (
         <div className="mt-3 space-y-3">
+          {readiness?.allocation_enabled && <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={automatic} onChange={event => setAutomatic(event.target.checked)} />
+            Dobierz osobę automatycznie według obłożenia i dostępności COMPASS
+          </label>}
+          <label className="flex items-center gap-2 text-sm">Kanał pracy
+            <select aria-label="Kanał pracy" className="rounded border border-border bg-background p-2" value={channel}
+              onChange={event => setChannel(event.target.value as typeof channel)}>
+              <option value="linkedin">LinkedIn</option><option value="database">Baza</option><option value="mixed">Baza i LinkedIn</option>
+            </select>
+          </label>
           <div className="flex flex-wrap items-center gap-2">
             <select
+              disabled={automatic}
               value={recruiterId ?? ""}
               onChange={(e) =>
                 setRecruiterId(e.target.value ? Number(e.target.value) : null)
@@ -194,7 +211,7 @@ export function JobHandoffButton({ jobId }: JobHandoffButtonProps) {
             <button
               type="button"
               onClick={submit}
-              disabled={!recruiterId || submitting}
+              disabled={(!automatic && !recruiterId) || submitting}
               data-testid="handoff-submit"
               className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >

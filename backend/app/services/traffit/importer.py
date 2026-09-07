@@ -812,7 +812,8 @@ _UPSERT_JOB = text(
         pipeline_template_id = COALESCE(
             EXCLUDED.pipeline_template_id, jobs.pipeline_template_id
         ),
-        recruiter_id         = COALESCE(EXCLUDED.recruiter_id, jobs.recruiter_id),
+        recruiter_id         = CASE WHEN jobs.is_open THEN jobs.recruiter_id
+                                   ELSE COALESCE(jobs.recruiter_id, EXCLUDED.recruiter_id) END,
         reference_number     = COALESCE(
             EXCLUDED.reference_number, jobs.reference_number
         ),

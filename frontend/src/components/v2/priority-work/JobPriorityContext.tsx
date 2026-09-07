@@ -1,5 +1,9 @@
 "use client"
 
+import { JobAllocationSummary } from "./AllocationWorkloadBoard"
+
+import { priorityPosition } from "@/lib/priority-work-api"
+
 import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -123,6 +127,7 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
 
   return (
     <Card data-testid="job-priority-context">
+      <JobAllocationSummary jobId={jobId} />
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -169,13 +174,13 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
               <div className="grid gap-2 lg:grid-cols-2">
                 {data.assignments
                   .slice()
-                  .sort((left, right) => left.rank.localeCompare(right.rank))
+                  .sort((left, right) => priorityPosition(left) - priorityPosition(right))
                   .map((assignment) => (
                     <div
                       key={assignment.id}
                       className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
                     >
-                      <RankBadge rank={assignment.rank} />
+                      <RankBadge rank={assignment.rank} position={assignment.position} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">
                           {assignment.user_name ??
