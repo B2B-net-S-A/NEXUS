@@ -64,6 +64,7 @@ from app.models.order_type import OrderType
 from app.models.user import User, UserRole
 from app.schemas.client_order import (
     ClientOrderClose,
+    ClientOrderDefaultRateUnit,
     ClientOrderExportRequest,
     ClientOrderRead,
     ClientOrdersGroupedResponse,
@@ -80,6 +81,7 @@ from app.schemas.new_contractor_order import (
 from app.services import storage_service
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import deny, resolve_client_access
+from app.services.client_default_rate_unit import default_rate_unit_for_client
 from app.services.client_identity import client_display_name
 from app.services.client_order_lines import LIVE_CONTRACT_STATUSES, recompute_remaining
 from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
@@ -976,11 +978,11 @@ def _flow_b_finance_kwargs(
             },
         )
 
-    try:
-        rate_unit = RateUnit(payload.rate_unit or RateUnit.monthly.value)
-    except ValueError:
-        raise HTTPException(400, detail="Invalid rate_unit") from None
-
+    # `rate_unit` NIE jest tu ustawiane: jednostka nie jest kwotą i musi być
+    # nadana KAŻDEMU rekordowi (także czysto operacyjnemu bez stawek), więc
+    # rozstrzyga ją endpoint — z `payload.rate_unit` albo z domyślnej jednostki
+    # klienta. Gdyby wracała w tych kwargach, rekord operacyjny (pusty słownik)
+    # znów dostawałby serwerowy default `monthly`.
     supplied = payload.model_fields_set
     legacy = _normalize_contract_currency(payload.currency or "PLN", "currency")
     client_currency = (
@@ -1010,13 +1012,11 @@ def _flow_b_finance_kwargs(
         "currency": client_currency,
         "rate_client_currency": client_currency,
         "rate_candidate_currency": candidate_currency,
-        "rate_unit": rate_unit,
         "billing_hours_per_month": billing_hours,
     }
     order_kwargs: dict[str, object] = {
         "rate_candidate": payload.rate_candidate,
         "rate_client": payload.rate_client,
-        "rate_unit": rate_unit,
         "billing_hours_per_month": billing_hours,
         "total_value": payload.total_value,
         # Zamówienie reprezentuje przychód od klienta.
@@ -1178,6 +1178,31 @@ async def _order_to_read(db: AsyncSession, order: ClientOrder) -> ClientOrderRea
 
 
 # ── Grouped list (main GET) ────────────────────────────────────────────────
+
+
+@router.get(
+    "/{client_id}/orders/default-rate-unit",
+    response_model=ClientOrderDefaultRateUnit,
+)
+async def get_client_default_rate_unit(
+    client_id: int,
+    user: OrderSafeReadUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Jednostka stawki proponowana domyślnie w formularzach zamówień klienta.
+
+    Wyliczona z istniejących zamówień klienta (najczęstsza NIE-miesięczna).
+    Front używa jej jako wartości początkowej pola „jednostka stawki" w „Nowym
+    kontraktorze" i przy uzupełnianiu — zamiast twardego `monthly`. Sama
+    jednostka nie jest kwotą, więc odczyt ma tę samą bramkę co lista zamówień
+    (bez redakcji finansowej). Zdefiniowana PRZED ``/{client_id}/orders/{order_id}``,
+    bo tamten konwertuje `order_id` do `int` — literalna ścieżka i tak nie
+    trafiłaby w regex `\\d+`, ale kolejność czyni to jawnym.
+    """
+    await _require_safe_client_order_read(db, user, client_id)
+    return ClientOrderDefaultRateUnit(
+        rate_unit=await default_rate_unit_for_client(db, client_id)
+    )
 
 
 @router.get("/{client_id}/orders", response_model=ClientOrdersGroupedResponse)
@@ -1675,6 +1700,12 @@ async def create_order_extension(
         await assert_no_open_md_group_line(db, contract.id)
 
     effective = effective_rate_fields(contract, start_date or business_today())
+    # Przedłużenie DZIEDZICZY jednostkę kontraktu (razem z jego stawkami), więc
+    # NIE wymuszamy tu domyślnej jednostki klienta: kwoty bez jawnej wartości są
+    # przeliczane z `contract.rate_unit` na `resolved_unit`, a podmiana jednostki
+    # na inną niż kontrakt zniekształciłaby dziedziczoną kwotę (×h/×dni). Domyślną
+    # jednostkę klienta stosuje wyłącznie tworzenie NOWEGO zamówienia
+    # (`contract-with-order`), gdzie stawek nie ma skąd dziedziczyć.
     resolved_unit = rate_unit or contract.rate_unit
     resolved_billing_hours = (
         billing_hours_per_month or contract.billing_hours_per_month or 160
@@ -2667,6 +2698,19 @@ async def create_contract_with_order(
         payload, user, can_finance=can_finance
     )
 
+    # Jednostka stawki NIE jest już twardo `monthly`. Jeśli wywołujący ją podał
+    # (tylko rola finansowa — operacyjną odsiewa `_assert_order_finance_write_allowed`),
+    # respektujemy wybór (także `monthly`, gdy ktoś świadomie go zaznaczył).
+    # W przeciwnym razie bierzemy jednostkę najczęstszą u tego klienta — również
+    # dla rekordu czysto operacyjnego bez stawek.
+    if payload.rate_unit is not None:
+        try:
+            resolved_rate_unit = RateUnit(payload.rate_unit)
+        except ValueError:
+            raise HTTPException(400, detail="Invalid rate_unit") from None
+    else:
+        resolved_rate_unit = await default_rate_unit_for_client(db, client_id)
+
     cand = await db.scalar(
         select(Candidate).where(Candidate.id == payload.candidate_id)
     )
@@ -2705,6 +2749,7 @@ async def create_contract_with_order(
         # the complete draft and signed evidence when required.
         status=ContractStatus.draft,
         handover_notes=payload.notes,
+        rate_unit=resolved_rate_unit,
         **contract_finance_kwargs,
     )
     db.add(contract)
@@ -2736,6 +2781,7 @@ async def create_contract_with_order(
         created_by_user_id=user.id,
         notes=payload.notes,
         project_part=order_project_part,
+        rate_unit=resolved_rate_unit,
         **order_finance_kwargs,
     )
     db.add(order)

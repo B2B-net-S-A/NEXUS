@@ -336,19 +336,20 @@ def test_flow_b_admin_keeps_rate_defaults_and_order_snapshot_shape():
         _user(UserRole.admin),
     )
 
+    # `rate_unit` NIE wraca już z `_flow_b_finance_kwargs`: jednostkę rozstrzyga
+    # endpoint (domyślna jednostka klienta albo jawny wybór) i nadaje ją KAŻDEMU
+    # rekordowi, także operacyjnemu bez stawek — dlatego nie ma jej w tych kwargach.
     assert contract_kwargs == {
         "rate_client": Decimal("18000"),
         "rate_candidate": Decimal("14000"),
         "currency": "PLN",
         "rate_client_currency": "PLN",
         "rate_candidate_currency": "PLN",
-        "rate_unit": RateUnit.monthly,
         "billing_hours_per_month": 160,
     }
     assert order_kwargs == {
         "rate_candidate": Decimal("14000"),
         "rate_client": Decimal("18000"),
-        "rate_unit": RateUnit.monthly,
         "billing_hours_per_month": 160,
         "total_value": None,
         "currency": "PLN",
