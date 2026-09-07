@@ -61,7 +61,6 @@ import {
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import { isContractStage, isInterviewStage } from "@/lib/job-flow-stages";
-import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { Badge } from "@/components/ui/badge";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -2186,8 +2185,9 @@ export default function JobDetailPage() {
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
   });
 
-  // Kroki 05 („Screening") i 06 („CV do klienta") czytają TE SAME kolumny co
-  // listwa kroków — bez własnego zapytania (program „flow w języku C2", PR 6/7).
+  // Kroki 05–08 (Screening, CV do klienta, Rozmowy, Umowa) czytają TE SAME
+  // kolumny co listwa kroków — bez własnego zapytania (program „flow w języku
+  // C2", PR 6/7 i 7/7).
   const kanbanColumns = useMemo(
     () => (kanban?.columns ?? []) as KanbanColumn[],
     [kanban],
@@ -2215,13 +2215,8 @@ export default function JobDetailPage() {
     return m;
   }, [pipelineScores]);
 
-  // Kolumny kanbana w kształcie, którego oczekują kroki 07 i 08. Jedno źródło
-  // (`["kanban", id]`) karmi tablicę ORAZ obie nowe zakładki — bez tego każda
-  // z nich pobierałaby ten sam pipeline drugi raz.
-  const kanbanColumns = useMemo<KanbanColumn[]>(
-    () => (kanban?.columns ?? []) as KanbanColumn[],
-    [kanban],
-  );
+  // Kroki 07 i 08 czytają `kanbanColumns` zadeklarowane wyżej — jedno źródło
+  // (`["kanban", id]`) karmi tablicę ORAZ cztery zakładki kroków 05–08.
   const flowCounts = useMemo(() => {
     if (!kanban) return undefined;
     const sum = (predicate: (col: KanbanColumn) => boolean) =>
