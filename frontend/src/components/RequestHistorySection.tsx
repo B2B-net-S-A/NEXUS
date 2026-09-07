@@ -25,6 +25,7 @@ import {
   ArrowUpRight,
   Copy,
   UserPlus,
+  Users,
   Loader2,
   Train,
   AlertCircle,
@@ -42,6 +43,19 @@ interface Props {
   jobId: number;
   clientId?: number | null;
   readOnly?: boolean;
+  /** Krok 03 „Pozyskiwanie" (rama źródeł, SourcingHub): podgląd `maxItems`
+   *  najbliższych requestów jako karty, bez zakładek bucketów — pełny widok
+   *  (dwie zakładki, cały ranking) zostaje pod skrótem „Historia" w listwie
+   *  kroków, niezmieniony. */
+  compact?: boolean;
+  /** Tylko z `compact` — liczba najbliższych requestów (closed + in_progress
+   *  połączone, posortowane po `similarity`). Domyślnie 3. */
+  maxItems?: number;
+  /** Tylko z `compact`. `candidates-from-similar` nie przyjmuje filtra po
+   *  konkretnym requeście, więc wołający (SourcingHub) po prostu otwiera
+   *  kartę „Podobne projekty" — pokazuje wszystkich kandydatów ze
+   *  WSZYSTKICH bliźniaczych projektów, nie tylko z tego requestu. */
+  onCandidatesToSource?: (entry: RequestHistoryEntry) => void;
 }
 
 const STATUS_LABEL_PL: Record<string, string> = {
@@ -98,6 +112,9 @@ export function RequestHistorySection({
   jobId,
   clientId,
   readOnly = false,
+  compact = false,
+  maxItems = 3,
+  onCandidatesToSource,
 }: Props) {
   const [crossClient, setCrossClient] = useState(false);
   const [activeBucket, setActiveBucket] = useState<"in_progress" | "closed">(
@@ -166,6 +183,111 @@ export function RequestHistorySection({
     () => (activeBucket === "closed" ? closed : inProgress),
     [activeBucket, closed, inProgress],
   );
+
+  // Krok 03: „3 najbliższe requesty" = closed + in_progress połączone i
+  // posortowane po similarity malejąco — bucket, w którym akurat siedzi
+  // najbardziej podobny request, nie ma tu znaczenia.
+  const compactVisible = useMemo(
+    () =>
+      [...closed, ...inProgress]
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, maxItems),
+    [closed, inProgress, maxItems],
+  );
+
+  if (compact) {
+    return (
+      <section className="rounded-xl border border-border bg-card p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <History className="h-4 w-4 text-amber-600" />
+          <h3 className="text-sm font-semibold text-foreground">
+            Historia requestu
+          </h3>
+          <span className="text-xs text-muted-foreground">
+            {query.isLoading
+              ? "ładowanie…"
+              : query.isError
+                ? "nie udało się pobrać"
+                : `Zamknięte ${closed.length} · W toku ${inProgress.length}`}
+          </span>
+          <label className="ml-auto inline-flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={crossClient}
+              onChange={(e) => setCrossClient(e.target.checked)}
+              className="accent-amber-600"
+              data-testid="request-history-cross-client"
+            />
+            Wszyscy klienci
+          </label>
+        </div>
+
+        {query.isLoading && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Szukam siostrzanych requestów…
+          </div>
+        )}
+        {query.isError && (
+          <div className="text-sm text-destructive dark:text-destructive inline-flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4" />
+            Nie udało się pobrać historii. Spróbuj ponownie.
+          </div>
+        )}
+        {!query.isLoading && !query.isError && total === 0 && (
+          <EmptyState
+            crossClient={crossClient}
+            onTryCrossClient={() => setCrossClient(true)}
+          />
+        )}
+
+        {!query.isLoading && !query.isError && compactVisible.length > 0 && (
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {compactVisible.map((entry) => (
+              <RequestHistoryRow
+                key={entry.job_id}
+                entry={entry}
+                onOpen={() =>
+                  window.open(`/jobs/${entry.job_id}`, "_blank", "noopener,noreferrer")
+                }
+                onCopyAsTemplate={
+                  readOnly ? undefined : () => setTemplateJobId(entry.job_id)
+                }
+                onAddChampion={
+                  !readOnly && entry.champion_candidate_id != null
+                    ? () =>
+                        addCandidateMutation.mutate({
+                          candidateId: entry.champion_candidate_id as number,
+                          sourceJobId: entry.job_id,
+                        })
+                    : undefined
+                }
+                isAddingChampion={addCandidateMutation.isPending}
+                showMutationActions={!readOnly}
+                onCandidatesToSource={
+                  onCandidatesToSource && entry.candidates_count > 0
+                    ? () => onCandidatesToSource(entry)
+                    : undefined
+                }
+              />
+            ))}
+          </ul>
+        )}
+
+        {!readOnly && templateJobId !== null && (
+          <AddJobModal
+            fromJobId={templateJobId}
+            onClose={() => setTemplateJobId(null)}
+            onSuccess={(msg) => {
+              setTemplateJobId(null);
+              showToast(msg, "success");
+              qc.invalidateQueries({ queryKey: ["jobs"] });
+            }}
+          />
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
@@ -299,6 +421,9 @@ interface RowProps {
   onAddChampion?: () => void;
   isAddingChampion: boolean;
   showMutationActions: boolean;
+  /** Krok 03 (SourcingHub, `compact`) — nawigacja, nie mutacja: widoczna
+   *  niezależnie od `showMutationActions`/readOnly, jak „Otwórz". */
+  onCandidatesToSource?: () => void;
 }
 
 function RequestHistoryRow({
@@ -308,6 +433,7 @@ function RequestHistoryRow({
   onAddChampion,
   isAddingChampion,
   showMutationActions,
+  onCandidatesToSource,
 }: RowProps) {
   const simPct = Math.round(entry.similarity * 100);
   const simSourceLabel =
@@ -383,6 +509,17 @@ function RequestHistoryRow({
                 <UserPlus className="w-3 h-3" />
               )}
               Dodaj championa
+            </button>
+          ) : null}
+          {onCandidatesToSource ? (
+            <button
+              type="button"
+              onClick={onCandidatesToSource}
+              className="text-xs px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-1"
+              title="Otwiera kartę „Podobne projekty” — pokazuje kandydatów ze wszystkich bliźniaczych projektów tego klienta, nie tylko z tego requestu."
+            >
+              <Users className="w-3 h-3" />
+              {entry.candidates_count} kandydatów → źródło
             </button>
           ) : null}
         </div>
