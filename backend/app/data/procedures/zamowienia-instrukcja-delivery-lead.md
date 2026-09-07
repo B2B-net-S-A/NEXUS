@@ -960,8 +960,17 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   obejmujący kilka osób, załóż je również tutaj.
 * Na zamówieniu MD budżet dni jest **przypisany każdej osobie** — wspólna pula
   jest zarezerwowana dla Lotte Wedel i Cyfrowego Polsatu.
-* Odczyt PDF-a działa w wersji ogólnej — bez żadnych przeliczeń specyficznych dla
-  klienta.
+* Odczyt PDF-a działa w wersji ogólnej — bez przeliczeń specyficznych dla
+  klienta, **poza jednym: brutto/netto** (patrz niżej).
+* **Rodzaj stawki (brutto/netto) system czyta z OZNACZENIA w dokumencie, dla
+  każdego zamówienia z osobna — nie z ustawienia klienta.** Gdy przy kwocie
+  stawki stoi „brutto", stawka jest dzielona przez **1,23** (obok pola widać
+  kwotę brutto z dokumentu do porównania); gdy stoi „netto" albo nie ma żadnego
+  oznaczenia, kwota zostaje bez zmian. Dotyczy to **każdego klienta**, także
+  spoza listy wyżej — jeżeli więc dokument nowego klienta ma stawkę brutto,
+  system ją przeliczy. U Erste i PFRON dokumenty są zwykle brutto, ale i tam
+  decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy
+  przeliczenia nie ma. Zawsze zerknij na kwotę brutto pokazaną obok pola.
 * **Powiadomienia:** standardowe, a na zamówieniach MD dodatkowo alert
   **„mało MD"**, gdy konsultantowi zostanie 15 dni lub mniej.
 

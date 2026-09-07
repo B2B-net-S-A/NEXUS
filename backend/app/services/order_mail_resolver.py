@@ -34,6 +34,7 @@ from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
+    _edit1_token_distance,
     _name_match_score,
     _names_exactly_equivalent,
 )
@@ -183,11 +184,20 @@ def resolve_rows(
         ]
         rescued: list[RosterPerson] = []
         if not exact:
+            # Szersza tolerancja niż ścieżka ręczna: pojedyncza literówka/OCR
+            # (substytucja, wstawienie, usunięcie), nie tylko transpozycja.
+            # Bezpieczne, bo „rescued" idzie do KOLEJKI (człowiek potwierdza),
+            # pula jest zawężona do rostera JEDNEGO klienta, a >1 trafienie w tej
+            # tolerancji jest oznaczane jako niejednoznaczne. Diakrytyki i tak
+            # są zwijane wcześniej (``_name_token_variants``).
             rescued = [
                 p
                 for p in roster
                 if _name_match_score(
-                    row.consultant_name, p.full_name, consultant_given_names=p.name
+                    row.consultant_name,
+                    p.full_name,
+                    consultant_given_names=p.name,
+                    distance_fn=_edit1_token_distance,
                 )
                 is not None
             ]

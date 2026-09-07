@@ -101,6 +101,7 @@ from app.services.order_types import (
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
+    apply_document_rate_kind,
     enforce_consultant_policy_safety,
     parse_order_document,
 )
@@ -1996,6 +1997,11 @@ async def extract_order_pdf(
         ),
         policies,
     )
+
+    # Rodzaj stawki (brutto/netto) z OZNACZENIA w dokumencie — dla każdego
+    # klienta, niezależnie od env polityki. Brutto → ÷ 1,23; netto/brak → bez
+    # zmian. Idempotentne wobec polityki Erste/PFRON (znacznik rate_client_gross).
+    extraction = apply_document_rate_kind(extraction, text)
 
     # Polityki mogą przeliczyć pole potwierdzone przez matcher (np. brutto→netto),
     # ale nie mogą utworzyć stawki/MD bez dowodu z wiersza tej osoby. U BNP nie
