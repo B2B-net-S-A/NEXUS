@@ -44,6 +44,9 @@ vi.mock("@/lib/api/dlPortal", () => ({
     closeOrder: vi.fn(),
     createOrderExtension: vi.fn(),
     extractOrderPdf: vi.fn(),
+    // Domyślna jednostka klienta (nigdy `monthly`) — formularze inicjują nią
+    // pole „jednostka stawki" zamiast twardego `monthly`.
+    getDefaultRateUnit: vi.fn().mockResolvedValue({ data: { rate_unit: "hourly" } }),
   },
 }));
 
@@ -1047,6 +1050,9 @@ describe("OrdersAndContractsTab — kontraktor bez zamówienia", () => {
     expect(sent.get("end_date")).toBe("2027-02-28");
     expect(sent.get("rate_candidate")).toBe("120");
     expect(sent.get("rate_client")).toBe("180");
+    // „Uzupełnij zamówienie" DZIEDZICZY jednostkę kontraktu (tu fixture ma
+    // `monthly`); domyślną jednostkę klienta stosuje wyłącznie tworzenie NOWEGO
+    // kontraktora (`contract-with-order`), nie ta ścieżka uzupełniania.
     expect(sent.get("rate_unit")).toBe("monthly");
     expect(sent.get("rate_client_currency")).toBe("PLN");
     expect(sent.get("rate_candidate_currency")).toBe("PLN");

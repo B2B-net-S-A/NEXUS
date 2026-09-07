@@ -82,6 +82,9 @@ vi.mock("@/lib/api/dlPortal", () => ({
       data: { contractors: [], total_contractors: 0, can_manage_finance: true },
     }),
     updateOrder: vi.fn(),
+    // Zakładka woła `useClientDefaultRateUnit` przy montażu (formularze zamówień
+    // dostają domyślną jednostkę klienta zamiast twardego `monthly`).
+    getDefaultRateUnit: vi.fn().mockResolvedValue({ data: { rate_unit: "daily" } }),
   },
 }));
 
