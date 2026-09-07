@@ -2085,12 +2085,18 @@ export default function JobDetailPage() {
   // Deep link z notyfikacji ?tab=chat → otwórz zakładkę Chat od razu.
   // ?tab=similar (notyfikacja „Podobny request — gotowi kandydaci”) →
   // zakładka AI Matching; scroll + glow robi sama HistoricalCandidatesSection.
+  // ?tab=champion (dok „Gotowość zlecenia" na /jobs, akcja „Otwórz" przy
+  // pozycji Profil Championa) → "champion" jest już literałem `JobDetailTab`,
+  // więc mapowanie jest tożsamościowe — bez tego link lądował po cichu na
+  // domyślnym Pipeline zamiast na Championie.
   useEffect(() => {
     const tab = searchParams?.get("tab");
     if (tab === "chat") {
       setActiveTab("chat");
     } else if (tab === "similar") {
       setActiveTab("ai-matching");
+    } else if (tab === "champion") {
+      setActiveTab("champion");
     }
   }, [searchParams]);
 
