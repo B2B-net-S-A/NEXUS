@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 from pydantic_core import PydanticCustomError
 
 from app.models.candidate import AvailabilityStatus, CandidateStatus
+from app.models.job import RemotePolicy
 from app.models.linkedin_snapshot import LinkedinChangeKind, LinkedinSyncStatus
 from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.candidate_contact import ContactCaseSummaryResponse
@@ -110,6 +111,105 @@ def _normalize_skill_list(value: Any) -> Optional[List[dict]]:
     return normalized
 
 
+# 0278: dozwolone wartości `preferences.remote_modes` — jedna unia z
+# `RemotePolicy` (oferta i kandydat mówią tym samym słownikiem). Import z
+# `app.models.job` jest bezpieczny — ten moduł nie importuje `app.schemas.*`.
+REMOTE_MODE_VALUES = tuple(m.value for m in RemotePolicy)
+
+_MAX_OFFICE_CITIES = 20
+_MAX_OFFICE_CITY_LENGTH = 120
+
+
+def _normalize_remote_modes(value: Any) -> List[str]:
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise PydanticCustomError(
+            "candidate_preferences_remote_mode_invalid",
+            "candidate_preferences_remote_mode_invalid",
+        )
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for raw in value:
+        mode = raw.strip()
+        if mode not in REMOTE_MODE_VALUES:
+            raise PydanticCustomError(
+                "candidate_preferences_remote_mode_invalid",
+                "candidate_preferences_remote_mode_invalid",
+            )
+        if mode not in seen:
+            seen.add(mode)
+            ordered.append(mode)
+    return ordered
+
+
+def _normalize_office_cities(value: Any) -> List[str]:
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise PydanticCustomError(
+            "candidate_preferences_office_cities_invalid",
+            "candidate_preferences_office_cities_invalid",
+        )
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for raw in value:
+        city = raw.strip()
+        if not city:
+            continue
+        if len(city) > _MAX_OFFICE_CITY_LENGTH:
+            raise PydanticCustomError(
+                "candidate_preferences_office_cities_invalid",
+                "candidate_preferences_office_cities_invalid",
+            )
+        key = city.casefold()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(city)
+    if len(ordered) > _MAX_OFFICE_CITIES:
+        raise PydanticCustomError(
+            "candidate_preferences_office_cities_invalid",
+            "candidate_preferences_office_cities_invalid",
+        )
+    return ordered
+
+
+def _normalize_candidate_preferences(value: Any, *, allow_null_values: bool) -> Any:
+    """Waliduje i normalizuje `preferences` na wejściu (0278).
+
+    `max_onsite_days_per_week` ma własną kolumnę (`Candidate.max_onsite_days_per_week`)
+    — wpisanie go W `preferences` jest odrzucane, żeby nie powstało drugie,
+    rozjeżdżające się źródło prawdy o tej samej rubryce.
+
+    `allow_null_values` różnicuje Create od Update: Update pozwala na jawny
+    `null` przy kluczu jako marker USUNIĘCIA tego klucza (patrz płytki merge
+    w `update_candidate`, commit 2 tej fali) — Create tworzy słownik od zera,
+    więc nie ma czego usuwać i klucze z `None` są tam po prostu pomijane.
+    """
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise PydanticCustomError(
+            "candidate_preferences_must_be_object",
+            "candidate_preferences_must_be_object",
+        )
+    if "max_onsite_days_per_week" in value:
+        raise PydanticCustomError(
+            "candidate_onsite_days_is_a_column",
+            "candidate_onsite_days_is_a_column",
+        )
+
+    normalized: dict[str, Any] = {}
+    for key, item in value.items():
+        if item is None:
+            if allow_null_values:
+                normalized[key] = None
+            continue
+        if key == "remote_modes":
+            normalized[key] = _normalize_remote_modes(item)
+        elif key == "office_cities":
+            normalized[key] = _normalize_office_cities(item)
+        else:
+            normalized[key] = item
+    return normalized
+
+
 class CandidateCreate(BaseModel):
     name: str
     lastname: str
@@ -133,6 +233,9 @@ class CandidateCreate(BaseModel):
     experience: Optional[List[Any]] = None
     education: Optional[List[Any]] = None
     preferences: Optional[dict] = None
+    # Trzecia rubryka rekrutacji (obok must-have i stawki, 0278). 0 = wyłącznie
+    # zdalnie. Kolumna, nie klucz `preferences` — patrz walidator niżej.
+    max_onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
     champion: bool = False
     verifier_id: Optional[int] = None
     verified_tech: Optional[List[Any]] = None
@@ -175,6 +278,12 @@ class CandidateCreate(BaseModel):
             return v.strip().upper() or None
         return v
 
+    @field_validator("preferences", mode="before")
+    @classmethod
+    def _normalize_preferences(cls, v: Any) -> Any:
+        # Create: nie ma nic do usunięcia jeszcze — klucz z `None` pomijamy.
+        return _normalize_candidate_preferences(v, allow_null_values=False)
+
 
 class CandidateUpdate(BaseModel):
     name: Optional[str] = None
@@ -197,6 +306,9 @@ class CandidateUpdate(BaseModel):
     experience: Optional[List[Any]] = None
     education: Optional[List[Any]] = None
     preferences: Optional[dict] = None
+    # Trzecia rubryka rekrutacji (obok must-have i stawki, 0278). 0 = wyłącznie
+    # zdalnie. Kolumna, nie klucz `preferences` — patrz walidator niżej.
+    max_onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
     champion: Optional[bool] = None
     verifier_id: Optional[int] = None
     verified_tech: Optional[List[Any]] = None
@@ -250,6 +362,13 @@ class CandidateUpdate(BaseModel):
     @classmethod
     def _normalize_skills(cls, v: Any) -> Any:
         return _normalize_skill_list(v)
+
+    @field_validator("preferences", mode="before")
+    @classmethod
+    def _normalize_preferences(cls, v: Any) -> Any:
+        # Update: jawny `null` przy kluczu jest markerem usunięcia (merge w
+        # `update_candidate`, commit 2 tej fali) — zachowujemy go.
+        return _normalize_candidate_preferences(v, allow_null_values=True)
 
 
 class CandidateEngagementUpdate(BaseModel):
@@ -441,6 +560,8 @@ class CandidateResponse(BaseModel):
     education: Optional[Any]
     languages: Optional[Any]
     preferences: Optional[Any] = None
+    # 0278: trzecia rubryka rekrutacji. 0 = wyłącznie zdalnie.
+    max_onsite_days_per_week: Optional[int] = None
     champion: bool = False
     verifier_id: Optional[int] = None
     verified_tech: Optional[Any] = None
