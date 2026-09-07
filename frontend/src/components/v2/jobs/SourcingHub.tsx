@@ -61,12 +61,18 @@ interface JobPostingCount {
   applications: number;
 }
 
+/** Wąski wycinek oferty, którego rama naprawdę używa. `page.tsx` trzyma `job`
+ *  z `useQuery` bez generyku (`any`), więc przypisanie jest bezproblemowe, a
+ *  hub nie udaje, że zna cały kształt oferty. */
+interface SourcingHubJob {
+  location?: string | null;
+  client_id?: number | null;
+  has_budget_hourly?: boolean | null;
+}
+
 interface SourcingHubProps {
   jobId: number;
-  /** Nietypowane jak w sąsiedniej `AIMatchingSection` (page.tsx) — `job`
-   *  pochodzi tam z `useQuery` bez generyku; dorabianie tu ściślejszego typu
-   *  rozjechałoby się z tamtym propem dla tych samych danych. */
-  job: any;
+  job: SourcingHubJob | null | undefined;
   readOnly: boolean;
   onTabChange: (tab: JobDetailTab) => void;
   /** C2 — renderowane DOKŁADNIE tak jak dziś, bez żadnych zmian. */
@@ -227,15 +233,17 @@ export function SourcingHub({
 
   // ── AI Matching · C2 — liczniki ─────────────────────────────────────────
   // C2 (poniżej, w `children`) trzyma filtr lokalizacji we WŁASNYM stanie
-  // i jego klucz zapytania to `["ai-matches", jobId, locationFilter.trim()]`
-  // — rama nie ma dostępu do tego stanu (i nie powinna go duplikować), więc
-  // liczy ranking na klucz BEZ trzeciego segmentu (bez filtra lokalizacji).
-  // To osobne zapytanie sieciowe — react-query dedupe działa tylko po
-  // identycznym kluczu, a `["ai-matches", jobId]` nigdy nim nie jest, nawet
-  // gdy filtr C2 jest pusty (`["ai-matches", jobId, ""]` ma inną długość).
-  // Świadomy, mały koszt: rama pokazuje domyślny (bez-lokalizacyjny) ranking.
+  // i jego klucz zapytania to `["ai-matches", jobId, locationFilter.trim()]`.
+  // Rama liczy ranking DOMYŚLNY (bez filtra lokalizacji), więc używa
+  // DOKŁADNIE klucza C2 z pustym filtrem: `["ai-matches", jobId, ""]`.
+  // W stanie domyślnym (filtr pusty — tak wygląda każde wejście na zakładkę)
+  // react-query deduplikuje: jeden fetch karmi ramę i C2. Osobne zapytanie
+  // powstaje dopiero, gdy rekruter wpisze filtr lokalizacji w C2 — i wtedy
+  // różnica jest zamierzona (rama nadal pokazuje ranking domyślny). Klucz
+  // bez trzeciego segmentu (`["ai-matches", jobId]`) nigdy by się nie
+  // zdeduplikował — inna długość = inny klucz.
   const matchesQuery = useQuery({
-    queryKey: ["ai-matches", jobId],
+    queryKey: ["ai-matches", jobId, ""],
     queryFn: () => matchingApi.getMatches(jobId).then((r) => r.data),
     staleTime: 60_000,
   });

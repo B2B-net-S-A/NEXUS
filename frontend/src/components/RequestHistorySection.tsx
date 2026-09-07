@@ -30,6 +30,7 @@ import {
   Train,
   AlertCircle,
 } from "lucide-react";
+import { countPl } from "@/lib/plural-pl";
 import { requestHistoryApi } from "@/lib/api";
 import { assignErrorMessage } from "@/lib/assign-error";
 import type {
@@ -199,7 +200,7 @@ export function RequestHistorySection({
     return (
       <section className="rounded-xl border border-border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <History className="h-4 w-4 text-amber-600" />
+          <History className="h-4 w-4 text-warning" />
           <h3 className="text-sm font-semibold text-foreground">
             Historia requestu
           </h3>
@@ -215,7 +216,7 @@ export function RequestHistorySection({
               type="checkbox"
               checked={crossClient}
               onChange={(e) => setCrossClient(e.target.checked)}
-              className="accent-amber-600"
+              className="accent-warning"
               data-testid="request-history-cross-client"
             />
             Wszyscy klienci
@@ -519,7 +520,8 @@ function RequestHistoryRow({
               title="Otwiera kartę „Podobne projekty” — pokazuje kandydatów ze wszystkich bliźniaczych projektów tego klienta, nie tylko z tego requestu."
             >
               <Users className="w-3 h-3" />
-              {entry.candidates_count} kandydatów → źródło
+              {countPl(entry.candidates_count, "kandydat", "kandydatów", "kandydatów")} →
+              źródło
             </button>
           ) : null}
         </div>
