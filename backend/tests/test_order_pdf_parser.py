@@ -1593,6 +1593,13 @@ class TestDocumentRateGrossMarking:
         doc = "Stawka 1 000,00 PLN netto brutto"
         assert m.detect_rate_gross_marking(doc, [Decimal("1000.00")]) is None
 
+    def test_verbose_gross_label_next_to_rate_is_caught(self):
+        """Rozbudowana etykieta tuż przy kwocie — okno musi ją objąć (nie 24)."""
+        doc = "1 040,00 PLN — stawka brutto za jeden dzień roboczy"
+        assert (
+            m.detect_rate_gross_marking(doc, [Decimal("1040.00")]) == m.RATE_MARK_GROSS
+        )
+
     def test_grouped_and_ungrouped_amount_both_anchor(self):
         assert (
             m.detect_rate_gross_marking("1426,80 PLN brutto", [Decimal("1426.80")])

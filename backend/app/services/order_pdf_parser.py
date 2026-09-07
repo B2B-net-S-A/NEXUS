@@ -1751,10 +1751,12 @@ RATE_MARK_NET = "net"
 # zlało się z „1426,80" — słowa brutto/netto nie stoją między cyframi, więc
 # przeżywają to zwinięcie.
 _DIGIT_GROUP_SEP_RE = re.compile("(?<=\\d)[ \u00a0\u202f\u2009\u2007](?=\\d)")
-# Ile znaków wokół kwoty stawki przeszukujemy pod kątem brutto/netto. Wąsko,
-# żeby oddzielna „wartość brutto" (total z VAT) w innym miejscu dokumentu nie
-# przykleiła się do stawki podanej netto.
-_RATE_MARK_WINDOW = 24
+# Ile znaków wokół kwoty stawki przeszukujemy pod kątem brutto/netto. Na tyle
+# wąsko, żeby oddzielna „wartość brutto" (total z VAT) w innym miejscu dokumentu
+# nie przykleiła się do stawki podanej netto; na tyle szeroko, by złapać
+# rozbudowaną etykietę tuż przy kwocie („1 040,00 PLN — stawka brutto za …").
+# 24 znaki wycinały „brutto" dokładnie na granicy takich zapisów.
+_RATE_MARK_WINDOW = 32
 
 
 def net_rate_from_gross(gross: Decimal) -> Decimal:
