@@ -445,11 +445,11 @@ def test_hybrid_flag_is_deliberately_absent_from_scoring_cache_inputs():
 _BM25_QUERY_PENDING = {"scripts/eval_matching.py"}
 
 
-def test_all_five_pool_sites_go_through_the_facade():
+def test_all_pool_sites_go_through_the_facade():
     """Częściowy flip to jedyny naprawdę błędny stan — patrz pasaże.
 
-    Każde z pięciu miejsc puli (rekomendacje, Talent Radar, propozycje,
-    digest, eval) woła fasadę; żadne nie woła `search_candidates_semantic`
+    Każde z sześciu miejsc puli (rekomendacje, `/ai-matches`, Talent Radar,
+    propozycje, digest, eval) woła fasadę; żadne nie woła `search_candidates_semantic`
     bezpośrednio dla PULI. (Inne użycia — np. `similarity_for_candidate_ids` —
     zostają.)
 
@@ -461,7 +461,7 @@ def test_all_five_pool_sites_go_through_the_facade():
 
     Trzeci wymóg (0278): każde wywołanie fasady podaje TAKŻE `must_groups`.
     W odróżnieniu od `bm25_query` (który ma jeden świadomy wyjątek —
-    `_BM25_QUERY_PENDING`), `must_groups` jest wymagany na WSZYSTKICH pięciu
+    `_BM25_QUERY_PENDING`), `must_groups` jest wymagany na WSZYSTKICH sześciu
     powierzchniach bez wyjątku: zapomniany argument nie wywala niczego — po
     prostu wyłącza strategię SQL-first dla tej powierzchni, cicho, i A/B na
     zamrożonym zbiorze ofert wyglądałby jak „strategia bez wpływu", mimo że
@@ -470,6 +470,10 @@ def test_all_five_pool_sites_go_through_the_facade():
 
     sites = {
         "app/api/recommendations.py",
+        # `/ai-matches` — powierzchnia produktu na stronie rekrutacji. Dołożona
+        # 09.2026: była jedyną, która pobierała pulę z pominięciem fasady, więc
+        # żadna dźwignia retrievalu jej nie dotyczyła.
+        "app/api/matching.py",
         "app/services/talent_radar_search.py",
         "app/tasks/compute_proposals.py",
         # Digest wołał fasadę od początku, ale nigdy nie był na tej liście —

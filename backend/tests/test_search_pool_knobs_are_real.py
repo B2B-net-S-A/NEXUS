@@ -117,3 +117,18 @@ def test_structured_pool_settings_are_declared():
     assert Settings.model_fields["STRUCTURED_POOL_LIMIT"].default == 2000
     assert "STRUCTURED_POOL_MIN_MEMBERS" in Settings.model_fields
     assert Settings.model_fields["STRUCTURED_POOL_MIN_MEMBERS"].default == 20
+
+
+def test_shared_engine_settings_are_declared():
+    """`/ai-matches` na wspólnym silniku — ta sama zasada co wyżej.
+
+    Domyślne OFF jest częścią kontraktu tego commitu: merge nie może zmienić
+    tego, co rekruter widzi na stronie rekrutacji, dopóki nie ma A/B na
+    zamrożonym zbiorze ofert.
+    """
+    from app.core.config import Settings
+
+    assert "AI_MATCHES_SHARED_ENGINE" in Settings.model_fields
+    assert Settings.model_fields["AI_MATCHES_SHARED_ENGINE"].default is False
+    assert "AI_MATCHES_RERANK_TOP_N" in Settings.model_fields
+    assert Settings.model_fields["AI_MATCHES_RERANK_TOP_N"].default == 0
