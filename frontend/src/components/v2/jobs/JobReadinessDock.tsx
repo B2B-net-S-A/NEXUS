@@ -17,8 +17,11 @@ import {
 } from "lucide-react";
 
 import api, {
+  championApi,
   EMPTY_CHAMPION_VERIFICATION,
+  type ChampionBriefing,
   type ChampionVerification,
+  type RecommendedSearch,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
@@ -29,6 +32,8 @@ import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { TabbedNav } from "@/components/ds";
+import { useCapability } from "@/hooks/useCapability";
 import { extractSkills } from "@/lib/job-skills";
 import {
   buildStageFunnel,
@@ -37,6 +42,14 @@ import {
 import { EditJobModal } from "@/components/AppShell";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
+import { ChampionVerificationChecklist } from "@/components/ChampionVerificationChecklist";
+import { ChampionRecommendedSearches } from "@/components/ChampionRecommendedSearches";
+import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
+import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
+import { JobPriorityContext } from "@/components/v2/priority-work";
+import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
+
+export type JobReadinessDockVariant = "list" | "champion";
 
 interface JobReadinessDockProps {
   jobId: number | null;
@@ -55,7 +68,24 @@ interface JobReadinessDockProps {
    * `/jobs` bez kliknięcia. Domyślnie `true`.
    */
   canOpen?: boolean;
+  /**
+   * "champion" (krok 02 „Zlecenie i Champion", program „flow w języku C2",
+   * PR 5/7): dokłada zakładki „Zespół i priorytet" / „Wyszukiwania (AI)" do
+   * istniejącej „Gotowość" (weryfikacja dwustronna + briefing DL dołączają
+   * tam) i `JobHandoffButton` jako główną akcję. Domyślnie "list" (krok 01,
+   * zachowanie sprzed tej zmiany bit w bit — patrz testy „JobReadinessDock —
+   * dane" wyżej w tym pliku).
+   */
+  variant?: JobReadinessDockVariant;
 }
+
+type ChampionDockTab = "readiness" | "team" | "searches";
+
+const CHAMPION_DOCK_TABS: { value: ChampionDockTab; label: string }[] = [
+  { value: "readiness", label: "Gotowość" },
+  { value: "team", label: "Zespół i priorytet" },
+  { value: "searches", label: "Wyszukiwania (AI)" },
+];
 
 // Lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`:
 // `POST /jobs/{id}/claim` odrzuca 403 („Read-only viewers cannot claim jobs")
@@ -249,6 +279,7 @@ export function JobReadinessDock({
   jobId,
   stageBreakdown,
   canOpen = true,
+  variant = "list",
 }: JobReadinessDockProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -257,8 +288,13 @@ export function JobReadinessDock({
   const canWritePipeline = canMutateSection(authUser, "pipeline", impersonating);
   const claimEligible = authUser ? hasRole(authUser, ...CLAIM_ELIGIBLE_ROLES) : false;
   const canSeeGate = authUser ? hasRole(authUser, ...GATE_ROLES) : false;
+  // Lustro `page.tsx` (dawny header „Zespół i priorytet") dla ról, którym
+  // wolno edytować Championa / dane zlecenia z tej zakładki doku.
+  const canUpdateJob = useCapability("job.update");
+  const canEditChampion = canWritePipeline && hasRole(authUser, "admin", "delivery_lead");
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
+  const [dockTab, setDockTab] = useState<ChampionDockTab>("readiness");
 
   // `retry: false` na obu: 403/404 są deterministyczne — ponowienie tylko
   // dubluje odmowy w logach.
@@ -275,6 +311,25 @@ export function JobReadinessDock({
     enabled: jobId != null && canOpen && canSeeGate,
     retry: false,
   });
+
+  // Weryfikacja/briefing/rekomendowane wyszukiwania żyją pod
+  // `["champion-profile", jobId]` — TEN SAM klucz, którego używa
+  // `ChampionProfileEditor` (współbieżnie zamontowany obok tego doku na
+  // kroku 02), więc React Query dedupe'uje fetch zamiast go podwajać, a
+  // mutacje w checkliście/wyszukiwaniach odświeżają OBA miejsca naraz.
+  const championQuery = useQuery({
+    queryKey: ["champion-profile", jobId],
+    queryFn: () => championApi.get(jobId as number).then((r) => r.data),
+    enabled: jobId != null && canOpen && variant === "champion",
+    retry: false,
+  });
+  const championProfile = championQuery.data?.champion_profile as
+    | {
+        verification?: ChampionVerification;
+        briefing?: ChampionBriefing;
+        recommended_searches?: RecommendedSearch[];
+      }
+    | undefined;
 
   const claimMutation = useMutation({
     mutationFn: () => api.post(`/api/jobs/${jobId}/claim`),
@@ -506,23 +561,87 @@ export function JobReadinessDock({
         </div>
       </div>
 
-      <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
+      {variant === "champion" && (
+        <TabbedNav
+          ariaLabel="Zakładki gotowości zlecenia"
+          value={dockTab}
+          onValueChange={(v) => setDockTab(v as ChampionDockTab)}
+          tabs={CHAMPION_DOCK_TABS}
+          overflow="wrap"
+        />
+      )}
 
-      <div className="divide-y divide-border/60">
-        {items.map((item) => (
-          <ReadinessRow
-            key={item.key}
-            done={item.done}
-            title={item.title}
-            description={item.description}
-            action={item.action}
+      {(variant === "list" || dockTab === "readiness") && (
+        <>
+          <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
+
+          <div className="divide-y divide-border/60">
+            {items.map((item) => (
+              <ReadinessRow
+                key={item.key}
+                done={item.done}
+                title={item.title}
+                description={item.description}
+                action={item.action}
+              />
+            ))}
+          </div>
+
+          <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
+
+          {variant === "champion" && (
+            <div className="border-t border-border pt-3">
+              <ChampionVerificationChecklist
+                jobId={jobId}
+                verification={championProfile?.verification}
+                briefing={championProfile?.briefing}
+                canEdit={canEditChampion}
+              />
+            </div>
+          )}
+        </>
+      )}
+
+      {variant === "champion" && dockTab === "team" && (
+        <div className="space-y-4 border-t border-border pt-3">
+          <JobOwnershipPanel
+            jobId={jobId}
+            jobTitle={job.title}
+            primaryOwner={job.primary_owner ?? null}
+            collaborators={job.collaborators ?? []}
           />
-        ))}
-      </div>
+          <HiringManagerPicker
+            jobId={jobId}
+            clientId={job.client_id ?? null}
+            value={job.hiring_manager_contact_id ?? null}
+            valueName={job.hiring_manager_name ?? null}
+            canEdit={canWritePipeline && canUpdateJob}
+            onSaved={() =>
+              queryClient.invalidateQueries({ queryKey: ["job-readiness-dock", jobId] })
+            }
+          />
+          <JobPriorityContext jobId={jobId} />
+        </div>
+      )}
 
-      <PipelineSummary jobId={jobId} stageBreakdown={stageBreakdown} />
+      {variant === "champion" && dockTab === "searches" && (
+        <div className="border-t border-border pt-3">
+          <ChampionRecommendedSearches
+            jobId={jobId}
+            searches={championProfile?.recommended_searches}
+            canEdit={canEditChampion}
+          />
+        </div>
+      )}
 
       <div className="space-y-2 pt-1">
+        {/* Krok 02: handoff jest GŁÓWNĄ akcją tego doku — dopiero po nim
+            rekruter dostaje dostęp i ranking się generuje. Ten sam warunek
+            widoczności, którego do tej pory używał `page.tsx` na zakładce
+            `champion` (`canWritePipeline && (isAdmin || DL)`). */}
+        {variant === "champion" && canEditChampion && (
+          <JobHandoffButton jobId={jobId} />
+        )}
         {/* Goły <a> ze stylami `buttonVariants`, nie `<Button asChild>` —
             `Button` dokłada slot na spinner, więc Radix `Slot` dostałby dwoje
             dzieci (lustro `PrepInviteActions.tsx`). Nawigacja, nie mutacja —

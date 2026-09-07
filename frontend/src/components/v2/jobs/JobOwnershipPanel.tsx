@@ -70,6 +70,12 @@ export function JobOwnershipPanel({
  queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
  queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
  queryClient.invalidateQueries({ queryKey: ["dashboard","my-jobs"] });
+ // Krok 02 „Zespół i priorytet" (`JobReadinessDock` z `variant="champion"`)
+ // renderuje TEN panel wewnątrz doku, który czyta właściciela/współpracowników
+ // z WŁASNEGO zapytania (`job-readiness-dock`, osobny klucz od `job`) — bez
+ // tego Claim/Reassign/Dodaj współpracownika zostawiałby dok nieaktualny do
+ // czasu ręcznego odświeżenia strony.
+ queryClient.invalidateQueries({ queryKey: ["job-readiness-dock", jobId] });
  };
 
  const claimMutation = useMutation({
