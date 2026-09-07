@@ -557,7 +557,7 @@ async def test_hybrid_user_can_select_each_held_preset(
     assert response.status_code == 418
 
 
-def test_stage_grouping_uses_canonical_operational_buckets() -> None:
+def test_stage_counts_use_only_exact_dashboard_pipeline_stages() -> None:
     rows = [
         service._LatestStage(index, 1, stage)
         for index, stage in enumerate(
@@ -579,11 +579,11 @@ def test_stage_grouping_uses_canonical_operational_buckets() -> None:
     ]
 
     assert service._stage_counts(rows).model_dump() == {
-        "sourcing": 3,
-        "verified": 1,
-        "recommended": 1,
-        "interview": 2,
-        "accepted": 4,
+        "new": 1,
+        "screening": 1,
+        "cv_sent": 1,
+        "client_interview": 1,
+        "acceptance": 1,
     }
 
 

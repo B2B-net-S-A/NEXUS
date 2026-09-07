@@ -66,17 +66,43 @@ describe("JobDetailCompactHeader", () => {
     expect(
       screen.queryByRole("button", { name: "Więcej akcji rekrutacji" }),
     ).toBeNull();
+    // Nawigacja po krokach zostaje także w trybie tylko-do-odczytu.
     expect(
       screen.getByRole("button", { name: "Pozyskaj kandydatów" }),
     ).toBeTruthy();
   });
 
-  it("grupuje pozyskiwanie i narzędzia bez utraty żadnej sekcji", async () => {
+  it("listwa kroków idzie w kolejności procesu i nie gubi żadnej sekcji", async () => {
     const { onTabChange } = renderHeader();
 
-    expect(screen.getByRole("button", { name: "Pipeline" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Historia" })).toBeTruthy();
+    // Bezpośrednie kroki (bez menu): Zlecenie i Champion · Pipeline · Baza pytań,
+    // po prawej Historia i Chat.
+    const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
+    const labels = Array.from(nav.querySelectorAll("button")).map((b) =>
+      (b.textContent ?? "").replace(/\d+$/, "").trim(),
+    );
+    expect(labels).toEqual([
+      "Zlecenie i Champion",
+      "Pozyskiwanie",
+      "Pipeline",
+      "Baza pytań",
+    ]);
 
+    await userEvent.click(
+      screen.getByRole("button", { name: "Zlecenie i Champion" }),
+    );
+    expect(onTabChange).toHaveBeenCalledWith("champion");
+    await userEvent.click(screen.getByRole("button", { name: "Baza pytań" }));
+    expect(onTabChange).toHaveBeenCalledWith("questions");
+    await userEvent.click(screen.getByRole("button", { name: "Historia" }));
+    expect(onTabChange).toHaveBeenCalledWith("history");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Chat, 3 nieprzeczytane" }),
+    );
+    expect(onTabChange).toHaveBeenCalledWith("chat");
+
+    // Pozyskiwanie zostaje menu (AI Matching / manualne / portale), dopóki rama
+    // źródeł nie zastąpi trzech osobnych zakładek jedną powierzchnią.
     await userEvent.click(
       screen.getByRole("button", { name: "Pozyskaj kandydatów" }),
     );
@@ -90,20 +116,15 @@ describe("JobDetailCompactHeader", () => {
       screen.getByRole("menuitem", { name: "Wyszukaj manualnie" }),
     );
     expect(onTabChange).toHaveBeenCalledWith("manual-search");
+  });
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Narzędzia, 3 nieprzeczytane" }),
-    );
-    expect(
-      await screen.findByRole("menuitem", { name: "Profil Championa" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("menuitem", { name: "Baza pytań" }),
-    ).toBeTruthy();
-    await userEvent.click(
-      screen.getByRole("menuitem", { name: "Chat, 3 nieprzeczytane" }),
-    );
-    expect(onTabChange).toHaveBeenCalledWith("chat");
+  it("nie ma już menu Narzędzia — Champion, Baza pytań i Chat są krokami", () => {
+    renderHeader();
+    expect(screen.queryByRole("button", { name: /Narzędzia/ })).toBeNull();
+    expect(screen.getByTestId("tab-champion")).toBeTruthy();
+    expect(screen.getByTestId("tab-questions")).toBeTruthy();
+    expect(screen.getByTestId("tab-chat")).toBeTruthy();
+    expect(screen.getByTestId("tab-history")).toBeTruthy();
   });
 
   it("oznacza aktywną grupę i dokładną pozycję menu", async () => {
@@ -117,6 +138,35 @@ describe("JobDetailCompactHeader", () => {
     expect(
       await screen.findByRole("menuitem", { name: "Wyszukaj manualnie" }),
     ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("pokazuje licznik w procesie na Pipeline tylko, gdy jest policzony", () => {
+    const { unmount } = render(
+      <JobDetailCompactHeader
+        title="Senior Java Developer"
+        activeTab="pipeline"
+        onTabChange={vi.fn()}
+        contextOpen={false}
+        onContextOpenChange={vi.fn()}
+        contextContent={<div />}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Pipeline" })).toBeTruthy();
+    unmount();
+
+    render(
+      <JobDetailCompactHeader
+        title="Senior Java Developer"
+        activeTab="pipeline"
+        onTabChange={vi.fn()}
+        pipelineCount={15}
+        contextOpen={false}
+        onContextOpenChange={vi.fn()}
+        contextContent={<div />}
+      />,
+    );
+    const pipeline = screen.getByRole("button", { name: /^Pipeline/ });
+    expect(pipeline.textContent).toContain("15");
   });
 
   it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {

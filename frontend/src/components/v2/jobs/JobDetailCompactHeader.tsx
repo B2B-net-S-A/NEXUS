@@ -2,15 +2,18 @@
 
 import type { ReactNode } from "react";
 import {
+  BookOpen,
   ChevronDown,
   ChevronUp,
   Ellipsis,
   History,
+  LayoutGrid,
   Link2,
   MessageCircle,
   PencilLine,
   Search,
   Sparkles,
+  Target,
   UserCheck,
   UserPlus,
   Wand2,
@@ -49,7 +52,6 @@ const SOURCING_TABS = new Set<JobDetailTab>([
   "manual-search",
   "portals",
 ]);
-const TOOL_TABS = new Set<JobDetailTab>(["champion", "questions", "chat"]);
 
 interface JobDetailCompactHeaderProps {
   title: ReactNode;
@@ -64,6 +66,10 @@ interface JobDetailCompactHeaderProps {
   onWriteAnnouncement?: () => void;
   onGenerateInviteLink?: () => void;
   chatUnreadCount?: number;
+  /** Kandydaci w procesie (kolumny nie-terminalne kanbana). `undefined` = nie
+   *  policzono jeszcze (kanban ładuje się na zakładce Pipeline) — listwa nie
+   *  pokazuje wtedy liczby, zamiast pokazywać zero. */
+  pipelineCount?: number;
   contextOpen: boolean;
   onContextOpenChange: (open: boolean) => void;
   contextContent: ReactNode;
@@ -85,7 +91,7 @@ function WorkspaceButton({
       variant="ghost"
       size="sm"
       className={cn(
-        "h-10 rounded-none border-b-2 px-3",
+        "h-10 rounded-none border-b-2 px-3 whitespace-nowrap",
         active
           ? "border-primary text-primary"
           : "border-transparent text-muted-foreground",
@@ -99,12 +105,29 @@ function WorkspaceButton({
   );
 }
 
+function CountBadge({ value }: { value: number }) {
+  return (
+    <Badge
+      variant="outline"
+      size="sm"
+      className="tabular-nums"
+      aria-hidden="true"
+    >
+      {value > 999 ? "999+" : value}
+    </Badge>
+  );
+}
+
 /**
  * Compact, two-row recruitment workspace header.
  *
  * The first row keeps identity and the primary action visible. The second row
- * groups the eight workspace sections into two direct destinations and two
- * menus, while the operational context stays available behind one disclosure.
+ * is the **steps strip** (makieta C2 → „listwa kroków"): sections in the
+ * order people actually work — Zlecenie i Champion → Pozyskiwanie → Pipeline
+ * → Baza pytań — with Historia and Chat on the right and the operational
+ * context (team, hiring manager, Priority Work) behind one disclosure. It
+ * replaces three earlier entry points (tabs + „Narzędzia ▾" + „Pozyskaj ▾")
+ * without dropping a single destination.
  */
 export function JobDetailCompactHeader({
   title,
@@ -119,12 +142,16 @@ export function JobDetailCompactHeader({
   onWriteAnnouncement,
   onGenerateInviteLink,
   chatUnreadCount = 0,
+  pipelineCount,
   contextOpen,
   onContextOpenChange,
   contextContent,
 }: JobDetailCompactHeaderProps) {
   const sourcingActive = SOURCING_TABS.has(activeTab);
-  const toolsActive = TOOL_TABS.has(activeTab);
+  const unreadLabel =
+    chatUnreadCount > 0
+      ? `Chat, ${chatUnreadCount > 99 ? "ponad 99" : chatUnreadCount} nieprzeczytane`
+      : "Chat";
 
   return (
     <Collapsible open={contextOpen} onOpenChange={onContextOpenChange}>
@@ -165,48 +192,6 @@ export function JobDetailCompactHeader({
                     Dodaj kandydata
                   </Button>
                 ) : null}
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={cn(sourcingActive && "border-primary text-primary")}
-                      aria-label="Pozyskaj kandydatów"
-                      aria-current={sourcingActive ? "page" : undefined}
-                    >
-                      <Search className="h-4 w-4" />
-                      Pozyskaj
-                      <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel>Pozyskiwanie</DropdownMenuLabel>
-                    <DropdownMenuItem
-                      aria-current={activeTab === "ai-matching" ? "page" : undefined}
-                      onSelect={() => onTabChange("ai-matching")}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      AI Matching
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      data-testid="tab-manual-search"
-                      aria-current={activeTab === "manual-search" ? "page" : undefined}
-                      onSelect={() => onTabChange("manual-search")}
-                    >
-                      <Search className="h-4 w-4" />
-                      Wyszukaj manualnie
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      aria-current={activeTab === "portals" ? "page" : undefined}
-                      onSelect={() => onTabChange("portals")}
-                    >
-                      <Link2 className="h-4 w-4" />
-                      Portale ogłoszeniowe
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
 
                 {onEdit || onWriteAnnouncement || onGenerateInviteLink ? (
                   <DropdownMenu modal={false}>
@@ -260,17 +245,81 @@ export function JobDetailCompactHeader({
           />
         </div>
 
+        {/* Listwa kroków — kolejność procesu, Historia i Chat po prawej. */}
         <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border px-1">
           <nav
             className="flex min-w-0 items-center overflow-x-auto overscroll-x-contain"
             aria-label="Sekcje rekrutacji"
           >
             <WorkspaceButton
+              active={activeTab === "champion"}
+              onClick={() => onTabChange("champion")}
+              data-testid="tab-champion"
+            >
+              <PencilLine className="h-4 w-4" />
+              Zlecenie i Champion
+            </WorkspaceButton>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <WorkspaceButton
+                  active={sourcingActive}
+                  aria-label="Pozyskaj kandydatów"
+                >
+                  <Target className="h-4 w-4" />
+                  Pozyskiwanie
+                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </WorkspaceButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>Pozyskiwanie</DropdownMenuLabel>
+                <DropdownMenuItem
+                  aria-current={activeTab === "ai-matching" ? "page" : undefined}
+                  onSelect={() => onTabChange("ai-matching")}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  AI Matching
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  data-testid="tab-manual-search"
+                  aria-current={activeTab === "manual-search" ? "page" : undefined}
+                  onSelect={() => onTabChange("manual-search")}
+                >
+                  <Search className="h-4 w-4" />
+                  Wyszukaj manualnie
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  aria-current={activeTab === "portals" ? "page" : undefined}
+                  onSelect={() => onTabChange("portals")}
+                >
+                  <Link2 className="h-4 w-4" />
+                  Portale ogłoszeniowe
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <WorkspaceButton
               active={activeTab === "pipeline"}
               onClick={() => onTabChange("pipeline")}
             >
+              <LayoutGrid className="h-4 w-4" />
               Pipeline
+              {typeof pipelineCount === "number" ? (
+                <CountBadge value={pipelineCount} />
+              ) : null}
             </WorkspaceButton>
+
+            <WorkspaceButton
+              active={activeTab === "questions"}
+              onClick={() => onTabChange("questions")}
+              data-testid="tab-questions"
+            >
+              <BookOpen className="h-4 w-4" />
+              Baza pytań
+            </WorkspaceButton>
+          </nav>
+
+          <div className="flex shrink-0 items-center">
             <WorkspaceButton
               active={activeTab === "history"}
               onClick={() => onTabChange("history")}
@@ -279,96 +328,47 @@ export function JobDetailCompactHeader({
               <History className="h-4 w-4" />
               Historia
             </WorkspaceButton>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <WorkspaceButton
-                  active={toolsActive}
-                  aria-label={
-                    chatUnreadCount > 0
-                      ? `Narzędzia, ${chatUnreadCount > 99 ? "ponad 99" : chatUnreadCount} nieprzeczytane`
-                      : "Narzędzia"
-                  }
-                >
-                  Narzędzia
-                  {chatUnreadCount > 0 ? (
-                    <Badge
-                      variant="danger"
-                      size="sm"
-                      className="tabular-nums"
-                      aria-hidden="true"
-                    >
-                      {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                    </Badge>
-                  ) : null}
-                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                </WorkspaceButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Narzędzia rekrutacji</DropdownMenuLabel>
-                <DropdownMenuItem
-                  data-testid="tab-champion"
-                  aria-current={activeTab === "champion" ? "page" : undefined}
-                  onSelect={() => onTabChange("champion")}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  Profil Championa
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-testid="tab-questions"
-                  aria-current={activeTab === "questions" ? "page" : undefined}
-                  onSelect={() => onTabChange("questions")}
-                >
-                  <UserCheck className="h-4 w-4" />
-                  Baza pytań
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-testid="tab-chat"
-                  aria-current={activeTab === "chat" ? "page" : undefined}
-                  aria-label={
-                    chatUnreadCount > 0
-                      ? `Chat, ${chatUnreadCount > 99 ? "ponad 99" : chatUnreadCount} nieprzeczytane`
-                      : "Chat"
-                  }
-                  onSelect={() => onTabChange("chat")}
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  Chat
-                  {chatUnreadCount > 0 ? (
-                    <Badge
-                      variant="danger"
-                      size="sm"
-                      className="ml-auto tabular-nums"
-                      aria-hidden="true"
-                    >
-                      {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
-                    </Badge>
-                  ) : null}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </nav>
-
-          <CollapsibleTrigger asChild>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="shrink-0 text-muted-foreground"
-              aria-expanded={contextOpen}
-              aria-controls="job-operational-context"
-              data-testid="toggle-job-header"
-              title={contextOpen ? "Ukryj zespół i priorytet" : "Pokaż zespół i priorytet"}
+            <WorkspaceButton
+              active={activeTab === "chat"}
+              onClick={() => onTabChange("chat")}
+              data-testid="tab-chat"
+              aria-label={unreadLabel}
             >
-              <UserCheck className="h-4 w-4" />
-              <span className="hidden sm:inline">Zespół i priorytet</span>
-              {contextOpen ? (
-                <ChevronUp className="h-4 w-4" />
-              ) : (
-                <ChevronDown className="h-4 w-4" />
-              )}
-            </Button>
-          </CollapsibleTrigger>
+              <MessageCircle className="h-4 w-4" />
+              Chat
+              {chatUnreadCount > 0 ? (
+                <Badge
+                  variant="danger"
+                  size="sm"
+                  className="tabular-nums"
+                  aria-hidden="true"
+                >
+                  {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                </Badge>
+              ) : null}
+            </WorkspaceButton>
+
+            <CollapsibleTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="shrink-0 text-muted-foreground"
+                aria-expanded={contextOpen}
+                aria-controls="job-operational-context"
+                data-testid="toggle-job-header"
+                title={contextOpen ? "Ukryj zespół i priorytet" : "Pokaż zespół i priorytet"}
+              >
+                <UserCheck className="h-4 w-4" />
+                <span className="hidden sm:inline">Zespół i priorytet</span>
+                {contextOpen ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            </CollapsibleTrigger>
+          </div>
         </div>
 
         <CollapsibleContent id="job-operational-context">
