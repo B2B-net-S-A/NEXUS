@@ -13,7 +13,9 @@ import { EditJobModal } from "@/components/AppShell";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
-import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
+import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
+import { JobSummaryCard } from "@/components/v2/jobs/JobSummaryCard";
+import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
 import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
@@ -2294,24 +2296,38 @@ export default function JobDetailPage() {
         onContextOpenChange={(open) => setHeaderCollapsed(!open)}
         contextContent={
           <>
-            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-              <JobOwnershipPanel
-                jobId={Number(id)}
-                jobTitle={job.title}
-                primaryOwner={job.primary_owner ?? null}
-                collaborators={job.collaborators ?? []}
-              />
-              <HiringManagerPicker
-                jobId={Number(id)}
-                clientId={job.client_id ?? null}
-                value={job.hiring_manager_contact_id ?? null}
-                valueName={job.hiring_manager_name ?? null}
-                canEdit={canWritePipeline && canUpdateJob}
-                onSaved={() =>
-                  queryClient.invalidateQueries({ queryKey: ["job", id] })
-                }
-              />
-            </div>
+            {/* Krok 02 „Zlecenie i Champion" (program „flow w języku C2",
+                PR 5/7) przeniósł Właściciela/Współpracowników, Hiring
+                Managera i Priority Work do zakładki doku „Zespół i
+                priorytet" — na TYM kroku ten panel byłby duplikatem tej
+                samej mutowalnej treści w dwóch miejscach na ekranie
+                jednocześnie. Na pozostałych krokach (Pipeline, Pozyskiwanie,
+                …) panel „Zespół i priorytet" w nagłówku zostaje bez zmian. */}
+            {activeTab === "champion" ? (
+              <p className="text-xs text-muted-foreground">
+                Właściciela, hiring managera i Priority Work znajdziesz teraz
+                w zakładce „Zespół i priorytet" doku obok Profilu Championa.
+              </p>
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+                <JobOwnershipPanel
+                  jobId={Number(id)}
+                  jobTitle={job.title}
+                  primaryOwner={job.primary_owner ?? null}
+                  collaborators={job.collaborators ?? []}
+                />
+                <HiringManagerPicker
+                  jobId={Number(id)}
+                  clientId={job.client_id ?? null}
+                  value={job.hiring_manager_contact_id ?? null}
+                  valueName={job.hiring_manager_name ?? null}
+                  canEdit={canWritePipeline && canUpdateJob}
+                  onSaved={() =>
+                    queryClient.invalidateQueries({ queryKey: ["job", id] })
+                  }
+                />
+              </div>
+            )}
             {job.description ? (
               <div className="border-t border-border pt-3">
                 <button
@@ -2328,7 +2344,7 @@ export default function JobDetailPage() {
                 ) : null}
               </div>
             ) : null}
-            <JobPriorityContext jobId={Number(id)} />
+            {activeTab !== "champion" && <JobPriorityContext jobId={Number(id)} />}
           </>
         }
       />
@@ -2439,23 +2455,43 @@ export default function JobDetailPage() {
       )}
 
       {activeTab === "champion" && (
-        <>
-          <ChampionProfileEditor
-            jobId={Number(id)}
-            clientId={job?.client_id ?? null}
-            // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
-            // recruiter sees a read-only Champion instead of filling a form that
-            // 403s on save (P1-02).
-            canEdit={
-              canWritePipeline &&
-              (isAdmin || hasRole(authUser, "delivery_lead"))
-            }
-          />
-          {canWritePipeline &&
-            (isAdmin || hasRole(authUser, "delivery_lead")) && (
-            <JobHandoffButton jobId={Number(id)} />
-            )}
-        </>
+        // Krok 02 „Zlecenie i Champion" (program „flow w języku C2", PR 5/7):
+        // sam layout kroku, jak C2 — lewa kolumna nawiguje po sekcjach
+        // Championa, środek jest teraz pełną szerokością (bez `max-w`), a
+        // dok „Gotowość" (`variant="champion"`) niesie weryfikację/briefing/
+        // rekomendowane wyszukiwania/zespół i priorytet/handoff, które do tej
+        // pory siedziały nad formularzem i w panelu nagłówka.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+          <aside className="lg:sticky lg:top-4 lg:self-start">
+            <ChampionSectionNav jobId={Number(id)} />
+          </aside>
+
+          <div className="min-w-0 space-y-4">
+            <JobSummaryCard
+              job={job}
+              onEdit={
+                canWritePipeline && canUpdateJob
+                  ? () => setShowEditJob(true)
+                  : undefined
+              }
+            />
+            <ChampionProfileEditor
+              jobId={Number(id)}
+              clientId={job?.client_id ?? null}
+              // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
+              // recruiter sees a read-only Champion instead of filling a form that
+              // 403s on save (P1-02).
+              canEdit={
+                canWritePipeline &&
+                (isAdmin || hasRole(authUser, "delivery_lead"))
+              }
+            />
+          </div>
+
+          <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
+            <JobReadinessDock jobId={Number(id)} variant="champion" />
+          </aside>
+        </div>
       )}
 
       {activeTab === "questions" && (

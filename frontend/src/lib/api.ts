@@ -3928,6 +3928,18 @@ export interface ChampionProfile {
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
   recommended_searches?: RecommendedSearch[];
+  /**
+   * Ingest provenance (`app/schemas/champion.py::ChampionProfile.provenance`,
+   * flattened back onto the top level by its custom `model_dump`). Present
+   * ONLY when the profile was populated by the document parser
+   * (`champion_profile_ingest.py`, LLM-based) — `_source` is
+   * `"champion_upload"` or `"traffit_recruitment_file:<id>"`. Absent on a
+   * hand-written profile. This is the ONLY real "was this AI?" signal in the
+   * data — krok 02's section-state chips read it, never guess.
+   */
+  _source?: string | null;
+  _parsed_at?: string | null;
+  _parser?: string | null;
 }
 
 export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
