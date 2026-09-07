@@ -203,7 +203,8 @@ ORDER_EXTRACTION = PromptTemplate(
     # starych" w rewizjach Work Orderów. Bump JEST konieczny — cache wyników
     # promptu jest kluczowany wersją, więc bez niego zamówienia czytane po
     # wdrożeniu wracałyby ze starego cache'u BEZ wierszy osobowych.
-    version=4,
+    # v5: stawka dokładnie z dokumentu, bez przeliczania VAT przez model.
+    version=5,
     expected_format="json",
     system_prompt=(
         "You extract structured fields from a client purchase order / call-off / "
@@ -229,9 +230,14 @@ ORDER_EXTRACTION = PromptTemplate(
         'day is stated, otherwise "YYYY-MM" when only the month is known, else null.\n'
         '  "end_date": end of the order period, same format as start_date. null = '
         "open-ended / not stated.\n"
-        '  "rate_client": the NET rate the client pays, as a plain number (no '
+        '  "rate_client": the rate the client pays AS PRINTED, as a plain number (no '
         'currency, no thousands separators, dot decimal). Look for "cena netto", '
-        '"Stawka PLN/MD netto", "Price", "rate", "stawka". null if absent.\n'
+        '"Stawka PLN/MD netto", "Price", "rate", "stawka". null if absent. '
+        "Check whether each rate is explicitly gross (brutto) or net (netto), "
+        "including its table header. Never infer this from the client identity. "
+        "Copy gross amounts unchanged: the server converts them to net using "
+        "the document. Never divide by VAT yourself. If the marking is absent "
+        "or conflicting, explain that in uncertain_reasons/uncertain_reason.\n"
         '  "rate_unit": the unit of rate_client — one of "hour"|"day"|"month" '
         "(godzina/roboczodzień-MD/miesiąc) or null if not stated.\n"
         '  "total_value": total order value as a plain number, only if the document '

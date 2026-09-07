@@ -69,6 +69,7 @@ from app.services.order_mail_gate import GateInput, evaluate
 from app.services.order_mail_planner import ExistingOrder, plan_document
 from app.services.order_mail_resolver import load_roster, resolve_rows
 from app.services.order_pdf_parser import (
+    ConsultantOrderRow,
     OrderExtraction,
     apply_document_rate_kind,
     parse_order_document,
@@ -417,6 +418,51 @@ async def process_pdf_bytes(
                 result.error or "; ".join(r.error for r in result.rows if r.error)
             )[:2000]
     return row
+
+
+async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
+    """Przelicz utrwalony odczyt z PDF-em i bieżącym rosterem, bez writera.
+
+    Tożsamość klienta, numer i okres pozostają z zaakceptowanego odczytu.
+    Nie odpytujemy modelu ponownie ani nie wykonujemy auto-zapisu.
+    """
+
+    def restore(cls, data):
+        values = {
+            f.name: data[f.name] for f in dataclasses.fields(cls) if f.name in data
+        }
+        for key in (
+            "rate_client",
+            "rate_client_gross",
+            "rate_client_md",
+            "md_total",
+            "total_value",
+        ):
+            if values.get(key) is not None:
+                values[key] = Decimal(str(values[key]))
+        return cls(**values)
+
+    extraction = restore(OrderExtraction, row.extraction or {})
+    extraction.consultant_rows = [
+        restore(ConsultantOrderRow, value)
+        for value in (row.extraction or {}).get("consultant_rows", [])
+    ]
+    path = storage_service.get_order_mail_attachment_path(row.storage_path)
+    doc = await run_in_threadpool(
+        extract_order_text, str(path), row.attachment_name or "zamowienie.pdf"
+    )
+    extraction = apply_document_rate_kind(extraction, doc.text)
+    row.extraction = extraction_to_json(extraction)
+    await _plan_and_gate(
+        db,
+        row,
+        extraction,
+        doc,
+        active_policies(row.client_id),
+        row.client_id,
+        row.identification_method,
+    )
+    row.error = None
 
 
 async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
