@@ -32,11 +32,11 @@ class RecruitmentOperationsLookup(RecruitmentOperationsModel):
 
 
 class RecruitmentOperationsStageCounts(RecruitmentOperationsModel):
-    sourcing: int = 0
-    verified: int = 0
-    recommended: int = 0
-    interview: int = 0
-    accepted: int = 0
+    new: int = 0
+    screening: int = 0
+    cv_sent: int = 0
+    client_interview: int = 0
+    acceptance: int = 0
 
 
 class RecruitmentOperationsFavorite(RecruitmentOperationsModel):
