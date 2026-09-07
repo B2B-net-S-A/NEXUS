@@ -148,3 +148,48 @@ async def test_full_current_roster_and_net_rate_reach_plan():
     assert plan.rows[0].contract_id == 70
     assert plan.rows[0].rate_client == "81.37"
     assert plan.order_number == "ZAP/2031/42"
+
+
+@pytest.mark.asyncio
+async def test_saved_extraction_refresh_preserves_identity_and_never_calls_model_or_writer(
+    monkeypatch, tmp_path
+):
+    from types import SimpleNamespace
+    from app.services import order_mail_ingest as svc
+    from app.services.order_document_text import OrderDocumentText
+
+    saved = svc.extraction_to_json(extraction())
+    row = SimpleNamespace(
+        client_id=99,
+        identification_method="registry_id",
+        extraction=saved,
+        storage_path="stored.pdf",
+        attachment_name="stored.pdf",
+        error="old error",
+    )
+    doc = OrderDocumentText(
+        text="Stawka brutto za jedną Roboczogodzinę: 100,08 PLN",
+        page_count=1,
+        ocr_used=False,
+        ocr_capped=False,
+        reextracted_with=None,
+        letter_spacing_ratio=0.0,
+    )
+    monkeypatch.setattr(
+        svc.storage_service, "get_order_mail_attachment_path", lambda p: tmp_path / p
+    )
+    monkeypatch.setattr(svc, "extract_order_text", lambda *args: doc)
+    parser = AsyncMock()
+    monkeypatch.setattr(svc, "parse_order_document", parser)
+    planner = AsyncMock()
+    monkeypatch.setattr(svc, "_plan_and_gate", planner)
+    monkeypatch.setattr(svc.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", True)
+    await svc.refresh_review_plan(AsyncMock(), row)
+    assert row.extraction["consultant_rows"][0]["rate_client"] == "81.37"
+    assert row.extraction["title"] == saved["title"]
+    assert row.client_id == 99
+    assert row.error is None
+    parser.assert_not_called()
+    assert planner.call_args.args[-2:] == (99, "registry_id")
+    await svc.refresh_review_plan(AsyncMock(), row)
+    assert row.extraction["consultant_rows"][0]["rate_client"] == "81.37"
