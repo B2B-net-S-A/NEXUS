@@ -122,7 +122,7 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
         dealbreaker_inputs_for_job,
     )
     from app.services.embedding_service import _build_job_text
-    from app.services.hybrid_search import build_job_bm25_query
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
     from app.services.match_score_cache import bulk_get_or_compute
     from app.services.pipeline_eligibility import filter_eligible_candidates
     from app.services.retrieval_pool import retrieve_candidate_pool
@@ -138,6 +138,8 @@ async def _fresh_top_matches(db, job: Job) -> list[tuple[int, float]]:
             # C12: noga BM25 dostaje terminy, nie dokument — inaczej ANDuje
             # setki leksemów i nie trafia w nikogo, cicho i bez awarii.
             bm25_query=build_job_bm25_query(job),
+            # 0278: no-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
+            must_groups=build_job_must_groups(job),
         )
     except Exception as exc:  # noqa: BLE001 — awaria retrievalu = pusta lista
         logger.warning("match-digest: retrieval padł dla job=%s: %s", job.id, exc)

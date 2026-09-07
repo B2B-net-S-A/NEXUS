@@ -368,7 +368,7 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
     # które `build_ephemeral_job` już ustawia. To zmiana CZŁONKOSTWA puli,
     # aktywna tylko przy `HYBRID_POOL_ENABLED=true`, i NIE jest tą zmianą
     # rankingu radaru, która ma własną flagę (tamta dotyczy `_score_skills`).
-    from app.services.hybrid_search import build_job_bm25_query
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
 
     # `raise_on_error=True` rozdziela dwa stany, które do tej pory wyglądały
     # identycznie: AWARIĘ dostawcy i zdrowe zapytanie bez trafień. Przy
@@ -387,6 +387,11 @@ async def search(db: AsyncSession, query: RadarQuery) -> RadarResult:
             raise_on_error=True,
             query_variants=build_job_query_variants(job, query_text),
             bm25_query=build_job_bm25_query(job),
+            # 0278: oferta efemeryczna nie ma `must_skills`, chyba że rekruter
+            # podał je wprost (`RadarQuery.must_skills`, za osobną flagą) —
+            # `build_job_must_groups` czyta wtedy dokładnie ten atrybut.
+            # No-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
+            must_groups=build_job_must_groups(job),
         )
     except SemanticSearchUnavailable as exc:
         logger.warning("[talent-radar] retrieval niedostępny: %s", exc)

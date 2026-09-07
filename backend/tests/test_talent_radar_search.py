@@ -623,6 +623,7 @@ async def test_search_survives_the_real_eligibility_path(monkeypatch):
             raise_on_error=False,
             query_variants=None,
             bm25_query=None,
+            must_groups=None,
         ):
             return [{"candidate_id": cand.id, "score": 0.71}]
 
@@ -686,6 +687,7 @@ async def test_radar_office_fields_arm_the_gate(monkeypatch):
             raise_on_error=False,
             query_variants=None,
             bm25_query=None,
+            must_groups=None,
         ):
             return [{"candidate_id": too_few_days.id, "score": 0.71}]
 

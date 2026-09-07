@@ -382,7 +382,7 @@ async def _recommend_candidates_core(
     # w roli tsquery to koniunkcja setek leksemów, czyli zero trafień zawsze —
     # i to zero jest niewidoczne, bo fuzja RRF z pustą listą zwraca czysty
     # porządek wektora. Bez tego argumentu hybryda kosztuje, a nie wnosi.
-    from app.services.hybrid_search import build_job_bm25_query
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
 
     hits = await retrieve_candidate_pool(
         db,
@@ -390,6 +390,9 @@ async def _recommend_candidates_core(
         top_k=pool_size,
         query_variants=build_job_query_variants(job, query_text),
         bm25_query=build_job_bm25_query(job),
+        # 0278: rodziny must-have dla strategii SQL-first — no-op, dopóki
+        # `STRUCTURED_POOL_ENABLED` jest wyłączona.
+        must_groups=build_job_must_groups(job),
     )
     similarity_map = {h["candidate_id"]: h["score"] for h in hits}
     candidate_ids = list(similarity_map.keys())

@@ -161,7 +161,10 @@ async def compute_proposal_for_job(
             # C12: noga BM25 dostaje TERMINY, nie `query_text`. Dokument
             # w roli tsquery ANDuje setki leksemów, czyli zwraca zero zawsze —
             # cicho, bo fuzja RRF z pustą listą wygląda jak porządek wektora.
-            from app.services.hybrid_search import build_job_bm25_query
+            from app.services.hybrid_search import (
+                build_job_bm25_query,
+                build_job_must_groups,
+            )
 
             hits = await retrieve_candidate_pool(
                 session,
@@ -169,6 +172,8 @@ async def compute_proposal_for_job(
                 top_k=pool_size,
                 query_variants=build_job_query_variants(job, query_text),
                 bm25_query=build_job_bm25_query(job),
+                # 0278: no-op, dopóki `STRUCTURED_POOL_ENABLED` jest wyłączona.
+                must_groups=build_job_must_groups(job),
             )
             similarity_map = {h["candidate_id"]: h["score"] for h in hits}
             candidate_ids = list(similarity_map.keys())

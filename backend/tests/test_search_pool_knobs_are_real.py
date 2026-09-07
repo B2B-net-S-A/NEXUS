@@ -102,3 +102,18 @@ def test_unparsable_pool_size_falls_back_instead_of_exploding(monkeypatch):
 
     monkeypatch.setattr(settings, "SEARCH_HYBRID_POOL_SIZE", "dużo")
     assert _hybrid_pool_size() == _HYBRID_POOL_DEFAULT
+
+
+def test_structured_pool_settings_are_declared():
+    """0278: trzy pokrętła strategii SQL-first muszą być pola Settings, nie
+    tylko `getattr` z domyślną — inaczej zmienna środowiskowa w Coolify jest
+    ignorowana i pokrętło wygląda na konfigurowalne, a nie jest (ten sam
+    defekt co historyczne `HYBRID_BM25_POOL_LIMIT` wyżej w tym pliku)."""
+    from app.core.config import Settings
+
+    assert "STRUCTURED_POOL_ENABLED" in Settings.model_fields
+    assert Settings.model_fields["STRUCTURED_POOL_ENABLED"].default is False
+    assert "STRUCTURED_POOL_LIMIT" in Settings.model_fields
+    assert Settings.model_fields["STRUCTURED_POOL_LIMIT"].default == 2000
+    assert "STRUCTURED_POOL_MIN_MEMBERS" in Settings.model_fields
+    assert Settings.model_fields["STRUCTURED_POOL_MIN_MEMBERS"].default == 20
