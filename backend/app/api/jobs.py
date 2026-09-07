@@ -89,7 +89,10 @@ from app.services.recruitment_allocation import (
     release_operator,
     enqueue_allocation,
 )
-from app.services.workforce_availability import operational_owner_clause
+from app.services.workforce_availability import (
+    operational_owner_clause,
+    operational_job_owner_clause,
+)
 from app.services import champion_view
 from app.services.champion_profile_events import (
     diff_champion_profile,
@@ -607,8 +610,10 @@ async def list_jobs(
         .where(
             RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
             RecruitmentPriorityPlan.effective_from <= priority_now,
-            operational_owner_clause(
-                RecruitmentPriorityPlanMember.user_id, current_user
+            operational_job_owner_clause(
+                RecruitmentPriorityPlanMember.user_id,
+                RecruitmentPriorityAssignment.job_id,
+                current_user,
             ),
             RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
         )
@@ -798,8 +803,10 @@ async def list_jobs(
                     RecruitmentPriorityAssignment.job_id.in_(job_ids),
                     RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
                     RecruitmentPriorityPlan.effective_from <= priority_now,
-                    operational_owner_clause(
-                        RecruitmentPriorityPlanMember.user_id, current_user
+                    operational_job_owner_clause(
+                        RecruitmentPriorityPlanMember.user_id,
+                        RecruitmentPriorityAssignment.job_id,
+                        current_user,
                     ),
                     RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
                 )

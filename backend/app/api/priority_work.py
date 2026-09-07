@@ -511,6 +511,11 @@ async def get_my_priority_work(
         if plan
         else []
     )
+    assignments = [
+        item
+        for item in assignments
+        if item["user_id"] == current_user.id or item.get("substitution")
+    ]
     return {
         "mode": mode.value,
         "plan": _serialize_plan(plan, mode=mode),

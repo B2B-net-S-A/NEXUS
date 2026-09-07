@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_session
@@ -321,24 +321,42 @@ def operational_owner_ids(user: User) -> set[int]:
     return context.owners_for(user.id) if context is not None else {user.id}
 
 
+def open_operational_job_clause(job_id_column, owners: set[int]):
+    """Closed jobs remain actionable only through an explicitly owned open task."""
+    from sqlalchemy import func
+    from app.models.calendar_event import CalendarEvent, EventStatus
+    from app.models.recruitment_process import RecruitmentProcess, ProcessStatus
+
+    processes = select(RecruitmentProcess.job_id).where(
+        RecruitmentProcess.owner_user_id.in_(owners),
+        RecruitmentProcess.status == ProcessStatus.open,
+        RecruitmentProcess.priority_compliant_at_open.is_(True),
+    )
+    events = select(CalendarEvent.job_id).where(
+        func.coalesce(CalendarEvent.operational_owner_id, CalendarEvent.created_by).in_(
+            owners
+        ),
+        CalendarEvent.status == EventStatus.scheduled,
+        CalendarEvent.job_id.is_not(None),
+    )
+    return or_(job_id_column.in_(processes), job_id_column.in_(events))
+
+
 def operational_owner_clause(column, user: User):
     owners = operational_owner_ids(user)
     if owners != {user.id} and getattr(column.table, "name", None) == "jobs":
         from app.models.job import Job
-        from app.models.recruitment_process import RecruitmentProcess, ProcessStatus
 
         inherited = owners - {user.id}
-        open_process = exists(
-            select(RecruitmentProcess.id).where(
-                RecruitmentProcess.job_id == Job.id,
-                RecruitmentProcess.owner_user_id.in_(inherited),
-                RecruitmentProcess.status == ProcessStatus.open,
-                RecruitmentProcess.priority_compliant_at_open.is_(True),
-            )
-        )
         return or_(
             column == user.id,
-            and_(column.in_(inherited), or_(Job.is_open.is_(True), open_process)),
+            and_(
+                column.in_(inherited),
+                or_(
+                    Job.is_open.is_(True),
+                    open_operational_job_clause(Job.id, inherited),
+                ),
+            ),
         )
     return column == user.id if owners == {user.id} else column.in_(sorted(owners))
 
@@ -349,20 +367,17 @@ def operational_job_owner_clause(column, job_id_column, user: User):
     if owners == {user.id}:
         return column == user.id
     from app.models.job import Job
-    from app.models.recruitment_process import RecruitmentProcess, ProcessStatus
 
     inherited = owners - {user.id}
     current_jobs = select(Job.id).where(Job.is_open.is_(True))
-    carry_over = select(RecruitmentProcess.job_id).where(
-        RecruitmentProcess.owner_user_id.in_(inherited),
-        RecruitmentProcess.status == ProcessStatus.open,
-        RecruitmentProcess.priority_compliant_at_open.is_(True),
-    )
     return or_(
         column == user.id,
         and_(
             column.in_(inherited),
-            or_(job_id_column.in_(current_jobs), job_id_column.in_(carry_over)),
+            or_(
+                job_id_column.in_(current_jobs),
+                open_operational_job_clause(job_id_column, inherited),
+            ),
         ),
     )
 

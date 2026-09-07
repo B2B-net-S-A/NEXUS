@@ -20,7 +20,11 @@ from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
 from app.core.config import settings
-from app.services.workforce_availability import workforce_context, effective_owner_ids
+from app.services.workforce_availability import (
+    workforce_context,
+    effective_owner_ids,
+    open_operational_job_clause,
+)
 from app.models.recruitment_priority import (
     RecruitmentPriorityAssignment,
     RecruitmentPriorityPlanMember,
@@ -62,18 +66,11 @@ async def is_member_of_job(
 
     owners = await effective_owner_ids(db, user.id)
     if not job.is_open:
-        from app.models.recruitment_process import RecruitmentProcess, ProcessStatus
-
         inherited = owners - {user.id}
         has_open_work = inherited and await db.scalar(
-            select(RecruitmentProcess.id)
-            .where(
-                RecruitmentProcess.job_id == job_id,
-                RecruitmentProcess.owner_user_id.in_(inherited),
-                RecruitmentProcess.status == ProcessStatus.open,
-                RecruitmentProcess.priority_compliant_at_open.is_(True),
+            select(Job.id).where(
+                Job.id == job_id, open_operational_job_clause(Job.id, inherited)
             )
-            .limit(1)
         )
         if not has_open_work:
             owners = {user.id}

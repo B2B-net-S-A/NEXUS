@@ -450,8 +450,14 @@ async def _load_case_dtos(
         if candidate is None:
             continue
         owner = owners.get(case.owner_user_id)
-        performer = owners.get(context.performer(case.owner_user_id))
-        delegation = context.delegations.get(case.owner_user_id)
+        delegation = (
+            context.delegations.get(case.owner_user_id)
+            if case.state in _OWNER_QUEUE_STATES
+            else None
+        )
+        performer = owners.get(
+            delegation.performer_id if delegation else case.owner_user_id
+        )
         output.append(
             ContactCaseDTO(
                 id=case.id,
