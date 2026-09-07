@@ -970,7 +970,15 @@ export function CVGeneratorStandaloneV2() {
               Brak wygenerowanych CV — wygeneruj pierwsze powyżej.
             </p>
           ) : (
-            <ul className="divide-y divide-border">
+            // Lista „ostatnio wygenerowanych" rośnie bez ograniczeń (na prodzie
+            // 60+ pozycji ≈ 4000 px) i była CAŁĄ resztą strony — cały ekran to
+            // wewnętrzny scroll `main` (overflow-y-auto), a na macOS pasek się
+            // chowa, więc lista uciekała pod dolną krawędź bez sygnału, że coś
+            // jest niżej: użytkownik zgłaszał „dolna część strony znika / ucięta"
+            // (po wgraniu Championa i wygenerowaniu — wtedy patrzy na wynik).
+            // Własny scroll domyka listę w samodzielną kartę z widocznym paskiem;
+            // najnowsze CV jest na górze, a strona przestaje być monolitem ~7000 px.
+            <ul className="max-h-[30rem] divide-y divide-border overflow-y-auto pr-2">
               {generatedQuery.data.map((item) => (
                 <GeneratedCvRow
                   key={item.id}
