@@ -47,7 +47,7 @@ async def seed():
             User(
                 email=f"allocation-{tag}-{n}@example.com",
                 name=f"Allocation {n}",
-                hashed_password="not-a-login",
+                password_hash="not-a-login",
                 role=UserRole.recruiter,
                 roles=["recruiter"],
                 is_active=True,
