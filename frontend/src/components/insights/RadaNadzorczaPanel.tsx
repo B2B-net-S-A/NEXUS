@@ -14,6 +14,7 @@ import {
 } from "@/lib/insights-period-url";
 import { buildRadaCsvExport } from "@/lib/insights-csv";
 import { InsightsBoardKPI } from "@/components/insights/sections/InsightsBoardKPI";
+import { InsightsBoardYoY } from "@/components/insights/sections/InsightsBoardYoY";
 import { InsightsClientsRanking } from "@/components/insights/sections/InsightsClientsRanking";
 import {
   insightsBoardApi,
@@ -28,6 +29,7 @@ const DEFAULT_PERIOD: InsightsPeriodParams = { period: "quarter", offset: 0 };
 
 const SECTIONS = [
   { id: "kpi", label: "KPI i finanse" },
+  { id: "rok-do-roku", label: "Rok do roku" },
   { id: "klienci", label: "Klienci (MRR)" },
 ];
 
@@ -86,6 +88,15 @@ export function RadaNadzorczaPanel() {
 
       <InsightsSection id="kpi">
         <InsightsBoardKPI period={period} />
+      </InsightsSection>
+
+      {/* Tabele rok-do-roku — sedno układu DynaReportera dla Rady: dwanaście
+          miesięcy × trzy lata, z deltą i kolumną „Ocena". Sekcja NIE przyjmuje
+          okna z paska: z definicji patrzy na pełne lata kalendarzowe, a
+          wpuszczenie tu `period` dałoby siatkę „ostatnie 12 miesięcy" podpisaną
+          nazwami miesięcy, czyli dwie różne rzeczy pod jedną etykietą. */}
+      <InsightsSection id="rok-do-roku">
+        <InsightsBoardYoY />
       </InsightsSection>
 
       {/* Ranking klientów i MRR PRZENIESIONE tu z dawnej zakładki „Klienci
