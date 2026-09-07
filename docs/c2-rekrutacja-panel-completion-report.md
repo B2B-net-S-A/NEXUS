@@ -140,6 +140,23 @@ mockup C2 to **dedykowany warsztat**. Ta faza odtwarza wygląd makiety.
 - Zero dodatkowych zapytań (pola z wczytanego wiersza; „w procesie"/etap z `pipelineScores`,
   już wpiętego kluczem `["pipeline-scores", jobId]`).
 
+### Po review PR #1380 (bot Claude, 4 wątki inline — wszystkie zasadne)
+
+- **Zaznaczenie liczy się względem widocznej listy.** `visibleSelectedIds` = przecięcie
+  `selectedIds` z `filtered`; banner pokazuje „Zaznaczono N (+M poza filtrem)", a „Przypisz
+  do rekrutacji" wysyła TYLKO widocznych. Wcześniej zawężenie filtra po zaznaczeniu
+  dodawało do pipeline'u także ukrytych — po cichu. Samo zaznaczenie zostaje (cofnięcie
+  filtra je przywraca).
+- **Dok podąża za widoczną listą.** `effSelectedId` = zaznaczony, o ile przeszedł filtry,
+  inaczej pierwszy widoczny; `selectedMatch` szukany w `filtered`, nie w `matches`. Koniec
+  z dokiem pokazującym kandydata bez podświetlonego wiersza.
+- **Kolory na tokenach DS.** DS ma `success*`/`warning*` (globals.css), więc wszystkie nowe
+  `emerald-*`/`amber-*` zamienione na `bg-success-muted text-success-muted-foreground`,
+  `text-success`, `bg-success`, `bg-warning-muted …`, `text-warning`, `bg-warning`.
+  Pre-existing hardcody poza zakresem PR-a (konfiguracja portali, modale AI/e-mail) nie ruszone.
+- **`_parse_nice_skills` ma własne testy** (`TestParseNiceSkills`): None/nie-lista → `[]`,
+  dicty i gołe stringi, lowercase + dedup + strip, guardy 2–60 znaków, sufit 20 z kolejnością.
+
 ## Weryfikacja (lokalnie)
 
 - Backend: `ruff check` + `ruff format --check` czyste (matching.py + test). Nowe testy

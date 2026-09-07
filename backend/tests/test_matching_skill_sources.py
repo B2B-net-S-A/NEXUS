@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.matching import _build_match_info
+from app.api.matching import _build_match_info, _parse_nice_skills
 from app.services import scoring_service
 
 
@@ -163,3 +163,45 @@ class TestSkillSources:
         assert info["candidate"]["current_title"] is None
         assert info["candidate"]["current_company"] is None
         assert info["nice_gaps"] == ["aws"]
+
+
+@pytest.mark.unit
+class TestParseNiceSkills:
+    """`_parse_nice_skills` czyta JSON `job.nice_skills`: dicty z `name`
+    (kształt z syncu Championa / kryteriów AI) albo gołe stringi. Guardy są
+    nieoczywiste i łatwo je poluzować bez objawu: None / nie-lista → [],
+    puste i za krótkie (< 2) / za długie (> 60) etykiety odpadają, dedup po
+    lowercase, sufit 20 pozycji.
+    """
+
+    def test_none_or_non_list_gives_empty(self) -> None:
+        assert _parse_nice_skills(SimpleNamespace(nice_skills=None)) == []
+        assert _parse_nice_skills(SimpleNamespace(nice_skills=[])) == []
+        # String i dict NIE są listą — nie wolno ich iterować po znakach/kluczach.
+        assert _parse_nice_skills(SimpleNamespace(nice_skills="AWS, Terraform")) == []
+        assert _parse_nice_skills(SimpleNamespace(nice_skills={"name": "AWS"})) == []
+
+    def test_dicts_and_bare_strings_lowercased_and_deduped(self) -> None:
+        job = SimpleNamespace(
+            nice_skills=[
+                {"name": "AWS", "level": "mid"},
+                "Terraform",
+                {"name": "aws"},  # duplikat po lowercase
+                {"level": "senior"},  # dict bez `name`
+                "",
+                None,
+                {"name": "  Angielski C1  "},  # strip
+            ]
+        )
+        assert _parse_nice_skills(job) == ["aws", "terraform", "angielski c1"]
+
+    def test_length_guards(self) -> None:
+        job = SimpleNamespace(nice_skills=["c", "go", "x" * 60, "y" * 61])
+        assert _parse_nice_skills(job) == ["go", "x" * 60]
+
+    def test_capped_at_twenty_keeps_order(self) -> None:
+        job = SimpleNamespace(nice_skills=[f"skill{i}" for i in range(30)])
+        out = _parse_nice_skills(job)
+        assert len(out) == 20
+        assert out[0] == "skill0"
+        assert out[-1] == "skill19"

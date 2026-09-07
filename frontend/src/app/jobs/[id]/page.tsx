@@ -954,10 +954,30 @@ function AIMatchingSection({
   ).length;
   const inProcessCount = pipelineSet.size;
 
+  // Zaznaczenie do doku liczy się WZGLĘDEM widocznej listy: kandydat
+  // odfiltrowany nie może zostać w doku bez podświetlonego wiersza (review
+  // #1380). Gdy zaznaczony wypadł z filtra, dok pokazuje pierwszy widoczny.
+  const effSelectedId: number | null = useMemo(() => {
+    if (
+      selectedId != null &&
+      filtered.some((m: any) => m.candidate?.id === selectedId)
+    ) {
+      return selectedId;
+    }
+    return filtered[0]?.candidate?.id ?? null;
+  }, [selectedId, filtered]);
   const selectedMatch =
-    (selectedId != null
-      ? matches.find((m: any) => m.candidate?.id === selectedId)
-      : null) ?? null;
+    effSelectedId != null
+      ? (filtered.find((m: any) => m.candidate?.id === effSelectedId) ?? null)
+      : null;
+  // Akcja zbiorcza działa TYLKO na zaznaczonych widocznych po filtrach —
+  // zaznaczony, a potem odfiltrowany kandydat nie może trafić do pipeline'u
+  // po cichu (review #1380). Samo zaznaczenie zostaje: cofnięcie filtra
+  // przywraca je bez ponownego klikania.
+  const visibleSelectedIds = useMemo(() => {
+    const visible = new Set(filtered.map((m: any) => m.candidate?.id));
+    return Array.from(selectedIds).filter((id) => visible.has(id));
+  }, [selectedIds, filtered]);
   const ownerName: string | null =
     job?.primary_owner?.full_name ??
     job?.primary_owner?.name ??
@@ -1027,7 +1047,7 @@ function AIMatchingSection({
                 </div>
               </div>
               <div>
-                <div className="text-base font-bold tabular-nums text-emerald-600">
+                <div className="text-base font-bold tabular-nums text-success">
                   {isLoading ? "—" : strongCount}
                 </div>
                 <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -1296,7 +1316,7 @@ function AIMatchingSection({
                 </span>
               )}
               {locationActive && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                <span className="inline-flex items-center gap-1 rounded-full bg-success-muted px-2 py-0.5 text-[10px] font-medium text-success-muted-foreground">
                   <MapPin className="h-3 w-3" /> {data?.location_filter}
                 </span>
               )}
@@ -1355,13 +1375,16 @@ function AIMatchingSection({
             </div>
           )}
 
-          {!readOnly && selectedIds.size > 0 && (
+          {!readOnly && visibleSelectedIds.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
               <span>
-                Zaznaczono <strong>{selectedIds.size}</strong>
+                Zaznaczono <strong>{visibleSelectedIds.length}</strong>
+                {selectedIds.size > visibleSelectedIds.length
+                  ? ` (+${selectedIds.size - visibleSelectedIds.length} poza filtrem)`
+                  : ""}
               </span>
               <button
-                onClick={() => bulkAssignMutation.mutate(Array.from(selectedIds))}
+                onClick={() => bulkAssignMutation.mutate(visibleSelectedIds)}
                 disabled={bulkAssignMutation.isPending}
                 className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
@@ -1464,16 +1487,14 @@ function AIMatchingSection({
                   "—";
                 const city = formatCandidateLocation(c.location);
                 const checked = selectedIds.has(c.id);
-                const effSelectedId =
-                  selectedId ?? filtered[0]?.candidate?.id ?? null;
                 const isSel = effSelectedId === c.id;
                 const scoreColor =
                   pct == null
                     ? "bg-muted text-muted-foreground"
                     : pct >= 80
-                      ? "bg-emerald-100 text-emerald-700"
+                      ? "bg-success-muted text-success-muted-foreground"
                       : pct >= 60
-                        ? "bg-amber-100 text-amber-700"
+                        ? "bg-warning-muted text-warning-muted-foreground"
                         : "bg-muted text-muted-foreground";
 
                 return (
@@ -1549,7 +1570,7 @@ function AIMatchingSection({
                                     className={
                                       "h-1.5 w-2 rounded-sm " +
                                       (i < mustHit
-                                        ? "bg-emerald-500"
+                                        ? "bg-success"
                                         : "bg-muted-foreground/25")
                                     }
                                   />
@@ -1566,7 +1587,7 @@ function AIMatchingSection({
                               (rateBand === "over"
                                 ? "text-destructive"
                                 : rateBand === "in"
-                                  ? "text-emerald-600"
+                                  ? "text-success"
                                   : "text-muted-foreground")
                             }
                             title={
@@ -1627,15 +1648,15 @@ function AIMatchingSection({
         {/* ── Prawy dok: Dopasowanie ───────────────────────────────── */}
         <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
           <JobMatchDock
-            match={selectedMatch ?? filtered[0] ?? null}
+            match={selectedMatch}
             jobId={jobId}
             jobTitle={job?.title ?? null}
             budgetHourly={budgetHourly}
             requiredSkills={requiredSkills}
             niceSkills={niceSkills}
             inPipeline={
-              (selectedMatch ?? filtered[0])?.candidate
-                ? pipelineSet.has((selectedMatch ?? filtered[0]).candidate.id)
+              selectedMatch?.candidate
+                ? pipelineSet.has(selectedMatch.candidate.id)
                 : false
             }
             readOnly={readOnly}
@@ -1686,7 +1707,7 @@ function CoverageRow({
         className={
           "flex h-4 w-4 shrink-0 items-center justify-center rounded-full " +
           (hit
-            ? "bg-emerald-100 text-emerald-700"
+            ? "bg-success-muted text-success-muted-foreground"
             : "bg-destructive/10 text-destructive")
         }
       >
@@ -1783,9 +1804,9 @@ function JobMatchDock({
     pct == null
       ? "text-muted-foreground"
       : pct >= 80
-        ? "text-emerald-600"
+        ? "text-success"
         : pct >= 60
-          ? "text-amber-600"
+          ? "text-warning"
           : "text-muted-foreground";
   const city = formatCandidateLocation(c.location);
   const roleLine =
@@ -1836,9 +1857,9 @@ function JobMatchDock({
               (pct == null
                 ? "bg-muted-foreground/30"
                 : pct >= 80
-                  ? "bg-emerald-500"
+                  ? "bg-success"
                   : pct >= 60
-                    ? "bg-amber-500"
+                    ? "bg-warning"
                     : "bg-muted-foreground/40")
             }
             style={{ width: `${pct ?? 0}%` }}
@@ -1900,7 +1921,7 @@ function JobMatchDock({
                   (rateBand === "over"
                     ? "text-destructive"
                     : rateBand === "in"
-                      ? "text-emerald-600"
+                      ? "text-success"
                       : "text-foreground")
                 }
               >
