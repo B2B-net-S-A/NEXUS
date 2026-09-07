@@ -1039,13 +1039,14 @@ export function JobsListV2() {
                 const skills = extractSkills(job.must_skills);
                 const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
                 const statusLabel = STATUS_LABEL[job.status] ?? job.status;
-                // `candidates_count`/`filled_count`/`target_positions` nie
-                // istnieją w odpowiedzi API (patrz `JobsTable` — poprawny
-                // klucz to `candidate_count` + `headcount`) — ZOSTAWIONE tu
-                // bez zmian celowo: kafelki są poza zakresem tego PR-a
-                // ("kafelki nietknięte"), poprawka idzie osobnym follow-upem.
-                const filledCount = job.candidates_count ?? job.filled_count ?? 0;
-                const targetCount = job.target_positions ?? job.headcount ?? 1;
+                // Te same klucze co w wierszu listy wyżej: `GET /api/jobs`
+                // zwraca `candidate_count` (`list_jobs` w `jobs.py`) i
+                // `headcount` (`JobResponse`). Do 09.2026 kafelek czytał
+                // `candidates_count`/`filled_count`/`target_positions` — pól,
+                // których odpowiedź nigdy nie miała — więc pasek „Kandydaci"
+                // pokazywał na produkcji zawsze 0/N, niezależnie od pipeline'u.
+                const filledCount = job.candidate_count ?? 0;
+                const targetCount = job.headcount ?? 1;
                 const progress = Math.min(
                   100,
                   Math.round((filledCount / Math.max(1, targetCount)) * 100)

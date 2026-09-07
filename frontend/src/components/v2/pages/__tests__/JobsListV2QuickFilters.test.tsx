@@ -300,6 +300,23 @@ describe("JobsListV2 — mini-lejek pipeline'u w wierszu", () => {
   });
 });
 
+describe("JobsListV2 — widok kafelków (domyślny)", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    useUiStore.setState({ jobsView: "tiles" });
+  });
+
+  it("pasek „Kandydaci” czyta `candidate_count`/`headcount` z odpowiedzi API, nie nieistniejące pola", async () => {
+    // Regresja: do 09.2026 kafelek czytał `candidates_count`/`filled_count`/
+    // `target_positions` — pól, których `GET /api/jobs` nigdy nie zwracał —
+    // więc na produkcji każdy kafelek pokazywał „0/N" niezależnie od pipeline'u.
+    mockJobsResponse([jobRow({ candidate_count: 3, headcount: 5 })]);
+    renderJobs();
+    expect(await screen.findByText("3/5")).toBeInTheDocument();
+    expect(screen.queryByText("0/5")).not.toBeInTheDocument();
+  });
+});
+
 describe("JobsListV2 — dok pokazuje pierwszy widoczny wiersz", () => {
   beforeEach(() => {
     getMock.mockReset();
