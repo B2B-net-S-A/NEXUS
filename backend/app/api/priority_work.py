@@ -389,17 +389,27 @@ async def _assignment_payloads(
     only_user_id: Optional[int] = None,
     only_job_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
-    assignments = [
-        assignment
+    members = [
+        member
         for member in members
-        if only_user_id is None or member.user_id == only_user_id
-        for assignment in member.assignments
-        if only_job_id is None or assignment.job_id == only_job_id
+        if (only_user_id is None or member.user_id == only_user_id)
+        and (
+            only_job_id is None
+            or any(item.job_id == only_job_id for item in member.assignments)
+        )
     ]
-    progress = await assignment_progress(db, (item.id for item in assignments))
-    blockers = await active_blockers(db, (item.id for item in assignments))
+    all_assignments = [item for member in members for item in member.assignments]
+    assignments = [
+        item
+        for item in all_assignments
+        if only_job_id is None or item.job_id == only_job_id
+    ]
+    # A single-job panel must evaluate its higher priorities using their real
+    # progress and sourcing pause, exactly as the command admission policy does.
+    progress = await assignment_progress(db, (item.id for item in all_assignments))
+    blockers = await active_blockers(db, (item.id for item in all_assignments))
     member_by_id = {member.id: member for member in members}
-    job_ids = {item.job_id for item in assignments}
+    job_ids = {item.job_id for item in all_assignments}
     jobs = {
         row.id: row
         for row in (

@@ -381,6 +381,31 @@ async def test_open_and_new_calendar_onboarding_and_reminders_follow_cover_with_
             persisted.created_by == substitute.id
             and persisted.operational_owner_id == owner.id
         )
+        from app.services.job_membership import is_member_of_job
+        from app.api.recruitment_access import job_scope_clause
+
+        job.is_open = False
+        await db.flush()
+        assert await is_member_of_job(db, substitute, job.id)
+        assert (
+            await db.scalar(
+                select(Job.id).where(
+                    Job.id == job.id, job_scope_clause(substitute, Job.id)
+                )
+            )
+            == job.id
+        )
+        existing.status = persisted.status = EventStatus.completed
+        await db.flush()
+        assert not await is_member_of_job(db, substitute, job.id)
+        assert (
+            await db.scalar(
+                select(Job.id).where(
+                    Job.id == job.id, job_scope_clause(substitute, Job.id)
+                )
+            )
+            is None
+        )
         await complete_onboarding(
             tasks[0].id, CompleteOnboarding(status="done"), substitute, db
         )

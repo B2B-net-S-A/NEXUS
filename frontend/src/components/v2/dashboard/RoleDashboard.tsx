@@ -1,5 +1,7 @@
 "use client"
 
+import { AllocationWorkloadBoard } from "@/components/v2/priority-work/AllocationWorkloadBoard"
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronDown, Wrench } from "lucide-react"
@@ -150,6 +152,7 @@ function RecruitmentDashboardContent({
 }) {
   return (
     <div className="space-y-6">
+      {preset === "head-of-recruitment" && roles.includes("head_of_recruitment") && <AllocationWorkloadBoard />}
       <RecruitmentActivityDashboard />
       <MyAssignedRecruitments preset={preset} />
       <MyTasksDashboard />

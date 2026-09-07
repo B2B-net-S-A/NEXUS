@@ -1,7 +1,5 @@
 "use client"
 
-import { AllocationWorkloadBoard } from "./AllocationWorkloadBoard"
-
 import { priorityPosition } from "@/lib/priority-work-api"
 
 import { useEffect, useMemo, useState } from "react"
@@ -1666,7 +1664,6 @@ export function TeamAllocationBoard() {
       className="space-y-4"
       aria-labelledby="team-allocation-board-title"
     >
-      <AllocationWorkloadBoard />
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
