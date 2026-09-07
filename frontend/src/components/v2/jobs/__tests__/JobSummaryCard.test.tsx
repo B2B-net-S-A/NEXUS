@@ -36,7 +36,7 @@ describe("JobSummaryCard — dane", () => {
     // `toLocaleString` (żeby "nie zgadywać znaku") byłoby błędem — przeniosłoby
     // nieznormalizowany U+00A0 do matchera i test przestałby cokolwiek
     // znajdować (zweryfikowane empirycznie).
-    expect(screen.getByText("15 000–22 000 PLN")).toBeInTheDocument();
+    expect(screen.getByText("15 000–22 000 PLN/mies.")).toBeInTheDocument();
     expect(screen.getByText("Warszawa / hybryda")).toBeInTheDocument();
     expect(screen.getByText("30.09.2026")).toBeInTheDocument();
   });
@@ -68,12 +68,12 @@ describe("JobSummaryCard — pola brakujące renderują się jako „—”, nie
 
   it("tylko jeden koniec widełek (dolny) formatuje się jako „od X PLN”", () => {
     render(<JobSummaryCard job={{ ...fullJob, salary_max: null }} />);
-    expect(screen.getByText("od 15 000 PLN")).toBeInTheDocument();
+    expect(screen.getByText("od 15 000 PLN/mies.")).toBeInTheDocument();
   });
 
   it("tylko górny koniec widełek formatuje się jako „do X PLN”", () => {
     render(<JobSummaryCard job={{ ...fullJob, salary_min: null }} />);
-    expect(screen.getByText("do 22 000 PLN")).toBeInTheDocument();
+    expect(screen.getByText("do 22 000 PLN/mies.")).toBeInTheDocument();
   });
 
   it("typ nieznany w słowniku pokazuje surową wartość zamiast zniknąć", () => {

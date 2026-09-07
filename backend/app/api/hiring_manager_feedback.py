@@ -51,10 +51,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RecruiterPlus
-from app.api.recruitment_access import ensure_job_membership
+from app.api.recruitment_access import RecruitmentReadAccess, ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
-from app.models.candidate import Candidate
 from app.models.contact import Contact
 from app.models.interview_feedback import (
     FeedbackSource,
@@ -201,23 +200,14 @@ async def _veto_state(
             "odrzucenie nie blokuje kolejnych propozycji."
         )
 
-    met_stage = await db.scalar(
-        select(CandidateStage.id)
-        .where(
-            CandidateStage.candidate_id == candidate_id,
-            CandidateStage.job_id == job.id,
-            CandidateStage.stage.in_(tuple(MANAGER_MET_STAGES)),
-        )
-        .limit(1)
-    )
-    if met_stage is None:
-        blockers.append(
-            "Kandydat nie był jeszcze na etapie, na którym manager go poznał "
-            "(Interview Klient / Akceptacja / Negocjacje)."
-        )
-
-    rejected_with_verdict = await db.scalar(
-        select(CandidateStage.id)
+    # Najpóźniejsze odrzucenie z powodem-werdyktem: silnik (`load_manager_rejections`)
+    # wymaga, żeby spotkanie z managerem POPRZEDZAŁO odrzucenie
+    # (`met.moved_at <= rejected.moved_at`). Agregat „był kiedyś client_interview
+    # i był kiedyś rejected" pasowałby też do `rejected → wznowienie →
+    # client_interview`, czyli odwrotnej historii — UI mówiłoby „weto stoi",
+    # a `/pipeline/move` przepuszczałby ruch.
+    rejected_moved_at = await db.scalar(
+        select(CandidateStage.moved_at)
         .join(RejectionReason, RejectionReason.id == CandidateStage.rejection_reason_id)
         .where(
             CandidateStage.candidate_id == candidate_id,
@@ -225,16 +215,34 @@ async def _veto_state(
             CandidateStage.stage == PipelineStage.rejected,
             RejectionReason.disqualifies_person.is_(True),
         )
+        .order_by(CandidateStage.moved_at.desc())
         .limit(1)
     )
-    if rejected_with_verdict is None:
+    if rejected_moved_at is None:
         blockers.append(
             "Kandydat nie został jeszcze odrzucony na tej rekrutacji z powodem "
             "oznaczonym jako werdykt o osobie."
         )
 
+    met_query = select(CandidateStage.id).where(
+        CandidateStage.candidate_id == candidate_id,
+        CandidateStage.job_id == job.id,
+        CandidateStage.stage.in_(tuple(MANAGER_MET_STAGES)),
+    )
+    if rejected_moved_at is not None:
+        met_query = met_query.where(CandidateStage.moved_at <= rejected_moved_at)
+    met_stage = await db.scalar(met_query.limit(1))
+    if met_stage is None:
+        blockers.append(
+            "Kandydat nie był na etapie, na którym manager go poznał "
+            "(Interview Klient / Akceptacja / Negocjacje), PRZED tym odrzuceniem."
+            if rejected_moved_at is not None
+            else "Kandydat nie był jeszcze na etapie, na którym manager go poznał "
+            "(Interview Klient / Akceptacja / Negocjacje)."
+        )
+
     recorded = job.hiring_manager_contact_id is not None and (
-        met_stage is not None and rejected_with_verdict is not None
+        met_stage is not None and rejected_moved_at is not None
     )
     return recorded, blockers
 
@@ -356,7 +364,11 @@ async def record_hiring_manager_feedback(
 )
 async def list_hiring_manager_feedback(
     job_id: int,
-    current_user: RecruiterPlus,
+    # ODCZYT szerszy niż zapis — parytet z `GET /api/interview-feedback`
+    # (`RecruitmentReadAccess`, z head_of_recruitment). `RecruiterPlus` nie
+    # obejmuje HoR, a HoR ma zapis w sekcji pipeline i przechodzi membership
+    # jako rola nadzoru — panel feedbacku renderował mu 403 na czystym odczycie.
+    current_user: RecruitmentReadAccess,
     db: AsyncSession = Depends(get_db),
 ) -> list[HiringManagerFeedbackResponse]:
     """Werdykty managera dla całej rekrutacji — po jednym na kandydata.
@@ -380,12 +392,11 @@ async def list_hiring_manager_feedback(
     rows = list(
         (
             await db.execute(
-                select(InterviewFeedback, RejectionReason, Candidate)
+                select(InterviewFeedback, RejectionReason)
                 .outerjoin(
                     RejectionReason,
                     RejectionReason.id == InterviewFeedback.rejection_reason_id,
                 )
-                .outerjoin(Candidate, Candidate.id == InterviewFeedback.candidate_id)
                 .where(
                     InterviewFeedback.job_id == job_id,
                     InterviewFeedback.feedback_source == FeedbackSource.client_side,
@@ -403,7 +414,7 @@ async def list_hiring_manager_feedback(
         )
 
     out: list[HiringManagerFeedbackResponse] = []
-    for feedback, reason, _candidate in rows:
+    for feedback, reason in rows:
         veto_recorded, veto_blockers = await _veto_state(
             db, job=job, candidate_id=feedback.candidate_id, reason=reason
         )

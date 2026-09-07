@@ -41,6 +41,7 @@ from typing import Any
 _SCOPED_MODULES = {
     "app.api.candidate_stage_cv",  # CV snapshot + branded CV + share tokens
     "app.api.interview_feedback",  # candidate assessments per job
+    "app.api.hiring_manager_feedback",  # werdykty HM per job (te same dane co wyżej)
     "app.api.application_submissions",  # parked applications w/ candidate PII
     # Champion drafts. Suggestion ids are sequential and `apply` MERGES the
     # draft into `jobs.champion_profile`, so a missing scope check here was a

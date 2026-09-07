@@ -104,7 +104,7 @@ export function JobInterviewsTab({
   columnsSuccess = true,
   onColumnsRetry,
 }: JobInterviewsTabProps) {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showActionToast } = useToast();
   const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(
     null,
@@ -158,10 +158,18 @@ export function JobInterviewsTab({
 
   // Pierwszy kandydat wybiera się sam — pusty środek przy niepustej liście
   // czyta się jak awaria, a nie jak „nic nie kliknąłeś".
+  // …i wybór NIE może wskazywać osoby, której już nie ma w kolejce: po
+  // decyzji (ruch poza etapy zewnętrzne, odrzucenie) invalidacja kanbana
+  // usuwa ją z `entries`, a stary id zostawiałby pusty środek i pusty dok.
   useEffect(() => {
-    if (selectedCandidateId != null) return;
-    if (entries.length > 0) setSelectedCandidateId(entries[0].item.candidate_id);
-  }, [entries, selectedCandidateId]);
+    const stillListed =
+      selectedCandidateId != null &&
+      [...entries, ...vetoedEntries].some(
+        (e) => e.item.candidate_id === selectedCandidateId,
+      );
+    if (stillListed) return;
+    setSelectedCandidateId(entries[0]?.item.candidate_id ?? null);
+  }, [entries, vetoedEntries, selectedCandidateId]);
 
   // Kubełka „Poza szablonem" tu nie ma: backend zwraca go OSOBNYM polem
   // (`KanbanView.off_template`), a strona przekazuje wyłącznie `columns` —
@@ -247,11 +255,31 @@ export function JobInterviewsTab({
         send_rejection_email: vars.sendRejectionEmail ?? undefined,
         candidate_offer_response: vars.offerResponse ?? undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       setPendingTerminal(null);
       showSuccess("Zapisano decyzję.");
+      // 0045_rejection_emails — ta sama afordancja co na tablicy: backend
+      // zaplanował mail odrzucenia za 15 min, rekruter ma 10 s na „Cofnij".
+      // Bez tego decyzja z tej zakładki wysyłałaby mail bez szansy anulowania.
+      const scheduledId = (
+        res as { data?: { scheduled_rejection_email_id?: number | null } }
+      )?.data?.scheduled_rejection_email_id;
+      if (scheduledId) {
+        showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
+          actionLabel: "Cofnij wysyłkę",
+          onAction: async () => {
+            try {
+              await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
+              showSuccess("Anulowano wysyłkę emaila.");
+            } catch {
+              showError("Nie udało się anulować wysyłki.");
+            }
+          },
+          durationMs: 10_000,
+        });
+      }
     },
     onError: (e) => showError(extractErrorMsg(e) || "Nie udało się zapisać"),
   });
@@ -652,6 +680,20 @@ function InterviewCard({
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie
               screeningu…
+            </span>
+          ) : screeningQuery.isError ? (
+            // Backend zwraca 200 + `screening_answers: null` dla niewypełnionego
+            // arkusza, więc błąd to ZAWSZE awaria/403 — nigdy „pusto".
+            <span className="inline-flex items-center gap-1.5 text-destructive">
+              <AlertTriangle className="h-3 w-3" /> Nie udało się pobrać
+              screeningu.
+              <button
+                type="button"
+                className="font-medium text-primary hover:underline"
+                onClick={() => void screeningQuery.refetch()}
+              >
+                Ponów
+              </button>
             </span>
           ) : answers ? (
             <div className="flex flex-wrap items-center gap-2">

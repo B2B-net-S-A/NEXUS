@@ -14,7 +14,7 @@
  * powierzchnie nie mogą się rozjechać co do wartości wysyłanych na backend.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { AppModal } from "@/components/ds";
@@ -49,6 +49,13 @@ export function JobCloseWithReasonDialog({
 }: JobCloseWithReasonDialogProps) {
   const [reason, setReason] = useState<JobCloseReason>(defaultReason);
   const [notes, setNotes] = useState("");
+  // Inicjalizator `useState` odpala się raz, przy montażu zakładki — a
+  // `defaultReason` („obsadzone przez nas" przy zatrudnionych) zależy od
+  // kanbana, który przy wejściu deep-linkiem `?tab=contract` jeszcze się
+  // ładuje. Podpowiedź wchodzi więc przy KAŻDYM otwarciu dialogu.
+  useEffect(() => {
+    if (open) setReason(defaultReason);
+  }, [open, defaultReason]);
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 

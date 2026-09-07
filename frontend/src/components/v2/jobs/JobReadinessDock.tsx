@@ -296,19 +296,29 @@ export function JobReadinessDock({
   const [showAddCandidates, setShowAddCandidates] = useState(false);
   const [dockTab, setDockTab] = useState<ChampionDockTab>("readiness");
 
+  // Klucz `["job", "<id>"]` = DOKŁADNIE ten, pod którym strona rekrutacji
+  // trzyma zlecenie (`page.tsx`: `["job", id]`, `id` to string z `useParams`).
+  // Jeden klucz → jeden fetch na kroku 02 (dok stoi obok edytora) i jedna
+  // kopia zlecenia: edycja z karty „Zlecenie", Claim, HM i zapis Championa
+  // (sync stacku do `must_skills`) odświeżają dok i stronę naraz. Osobny
+  // klucz dawał dwie rozjeżdżające się kopie tego samego zlecenia.
   // `retry: false` na obu: 403/404 są deterministyczne — ponowienie tylko
   // dubluje odmowy w logach.
   const jobQuery = useQuery({
-    queryKey: ["job-readiness-dock", jobId],
+    queryKey: ["job", String(jobId)],
     queryFn: () => api.get(`/api/jobs/${jobId}`).then((r) => r.data),
     enabled: jobId != null && canOpen,
     retry: false,
   });
 
+  // Ten sam klucz i `staleTime` co `JobHandoffButton` (`["job-readiness", jobId]`)
+  // — na kroku 02 oba stoją na jednej karcie; dwa klucze = dwa żądania i dwie
+  // niezależnie starzejące się kopie werdyktu bramki.
   const readinessQuery = useQuery({
-    queryKey: ["job-readiness-dock-gate", jobId],
+    queryKey: ["job-readiness", jobId],
     queryFn: () => api.get(`/api/jobs/${jobId}/readiness`).then((r) => r.data),
     enabled: jobId != null && canOpen && canSeeGate,
+    staleTime: 30_000,
     retry: false,
   });
 
@@ -328,13 +338,34 @@ export function JobReadinessDock({
         verification?: ChampionVerification;
         briefing?: ChampionBriefing;
         recommended_searches?: RecommendedSearch[];
+        stack?: { must?: unknown; nice?: unknown };
       }
     | undefined;
+  // Awaria `GET …/champion-profile` NIE może renderować się jako fakt
+  // „Niezweryfikowany" / „brak propozycji" — bloki Championa montują się
+  // wyłącznie pod `isSuccess`, a błąd dostaje własną notatkę z „Ponów".
+  const championBlocked =
+    variant === "champion" && !championQuery.isSuccess ? (
+      championQuery.isError ? (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+          <span>Nie udało się pobrać Profilu Championa.</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium text-primary hover:underline"
+            onClick={() => void championQuery.refetch()}
+          >
+            Ponów
+          </button>
+        </div>
+      ) : (
+        <Skeleton className="h-16 w-full rounded-md" />
+      )
+    ) : null;
 
   const claimMutation = useMutation({
     mutationFn: () => api.post(`/api/jobs/${jobId}/claim`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["job-readiness-dock", jobId] });
+      queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
       queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
       toast.showSuccess("Przejęto rekrutację.");
     },
@@ -402,10 +433,23 @@ export function JobReadinessDock({
   }
 
   const job = jobQuery.data;
-  const must = extractSkills(job.must_skills);
-  const nice = extractSkills(job.nice_skills);
+  // Na kroku 02 źródłem prawdy o Championie jest `["champion-profile", jobId]`
+  // — ten sam klucz, który unieważnia edytor i checklista obok. Czytanie
+  // weryfikacji i stacku z kopii zlecenia dawało dok, który zaprzeczał
+  // edytorowi stojącemu 300 px obok do czasu odświeżenia strony.
+  const championStack = championProfile?.stack as
+    | { must?: unknown; nice?: unknown }
+    | undefined;
+  const must = extractSkills(
+    variant === "champion" && championStack ? championStack.must : job.must_skills,
+  );
+  const nice = extractSkills(
+    variant === "champion" && championStack ? championStack.nice : job.nice_skills,
+  );
   const verification: ChampionVerification =
-    (job.champion_profile?.verification as ChampionVerification | undefined) ??
+    (variant === "champion"
+      ? championProfile?.verification
+      : (job.champion_profile?.verification as ChampionVerification | undefined)) ??
     EMPTY_CHAMPION_VERIFICATION;
   const clientVerified = verification.client.status === "verified";
   const consultantStatus = verification.consultant.status;
@@ -457,14 +501,17 @@ export function JobReadinessDock({
         : clientVerified || consultantVerified
           ? "Częściowo zweryfikowany — brakuje drugiej strony (klient/konsultant)."
           : "Niezweryfikowany — brak rozmowy z klientem i konsultantem.",
-      action: (
-        <Link
-          href={`/jobs/${jobId}?tab=champion`}
-          className="text-xs font-medium text-primary hover:underline"
-        >
-          Otwórz
-        </Link>
-      ),
+      // Na kroku 02 edytor Championa stoi obok — link „Otwórz" prowadziłby
+      // na ekran, na którym użytkownik już jest.
+      action:
+        variant === "champion" ? undefined : (
+          <Link
+            href={`/jobs/${jobId}?tab=champion`}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Otwórz
+          </Link>
+        ),
     },
     {
       key: "budget",
@@ -492,14 +539,28 @@ export function JobReadinessDock({
       description: job.hiring_manager_name
         ? job.hiring_manager_name
         : "nie przypisano — weto HM nie zadziała.",
-      action: job.hiring_manager_name == null ? (
-        <Link
-          href={`/jobs/${jobId}`}
-          className="text-xs font-medium text-primary hover:underline"
-        >
-          Przypisz
-        </Link>
-      ) : undefined,
+      action:
+        job.hiring_manager_name == null ? (
+          variant === "champion" ? (
+            // Picker HM jest zakładką TEGO doku — przełączamy ją, zamiast
+            // linkować na tę samą trasę (miękka nawigacja bez `?tab=` nie
+            // zmienia niczego widocznego).
+            <button
+              type="button"
+              onClick={() => setDockTab("team")}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Przypisz
+            </button>
+          ) : (
+            <Link
+              href={`/jobs/${jobId}`}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Przypisz
+            </Link>
+          )
+        ) : undefined,
     },
   ];
   const doneCount = items.filter((i) => i.done).length;
@@ -512,18 +573,30 @@ export function JobReadinessDock({
     .join(" · ");
 
   return (
-    <div className="space-y-4 rounded-xl border border-border bg-card p-4">
+    // `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
+    // champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
+    // nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
+    // wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`.
+    <div className="space-y-4 rounded-xl border border-border bg-card p-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
       <div className="flex items-start gap-2.5">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Target className="h-4 w-4" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <Link
-            href={`/jobs/${jobId}`}
-            className="block truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
-          >
-            {job.title}
-          </Link>
+          {variant === "champion" ? (
+            // Na kroku 02 stoimy JUŻ na tej rekrutacji — link do niej samej
+            // nic by nie zrobił.
+            <div className="truncate text-sm font-semibold text-foreground">
+              {job.title}
+            </div>
+          ) : (
+            <Link
+              href={`/jobs/${jobId}`}
+              className="block truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
+            >
+              {job.title}
+            </Link>
+          )}
           {subtitle && (
             <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
           )}
@@ -591,12 +664,14 @@ export function JobReadinessDock({
 
           {variant === "champion" && (
             <div className="border-t border-border pt-3">
-              <ChampionVerificationChecklist
-                jobId={jobId}
-                verification={championProfile?.verification}
-                briefing={championProfile?.briefing}
-                canEdit={canEditChampion}
-              />
+              {championBlocked ?? (
+                <ChampionVerificationChecklist
+                  jobId={jobId}
+                  verification={championProfile?.verification}
+                  briefing={championProfile?.briefing}
+                  canEdit={canEditChampion}
+                />
+              )}
             </div>
           )}
         </>
@@ -617,7 +692,7 @@ export function JobReadinessDock({
             valueName={job.hiring_manager_name ?? null}
             canEdit={canWritePipeline && canUpdateJob}
             onSaved={() =>
-              queryClient.invalidateQueries({ queryKey: ["job-readiness-dock", jobId] })
+              queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
             }
           />
           <JobPriorityContext jobId={jobId} />
@@ -626,11 +701,13 @@ export function JobReadinessDock({
 
       {variant === "champion" && dockTab === "searches" && (
         <div className="border-t border-border pt-3">
-          <ChampionRecommendedSearches
-            jobId={jobId}
-            searches={championProfile?.recommended_searches}
-            canEdit={canEditChampion}
-          />
+          {championBlocked ?? (
+            <ChampionRecommendedSearches
+              jobId={jobId}
+              searches={championProfile?.recommended_searches}
+              canEdit={canEditChampion}
+            />
+          )}
         </div>
       )}
 
@@ -689,7 +766,7 @@ export function JobReadinessDock({
           job={job}
           onClose={() => setShowEdit(false)}
           onSuccess={() => {
-            queryClient.invalidateQueries({ queryKey: ["job-readiness-dock", jobId] });
+            queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
             queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
             setShowEdit(false);
           }}

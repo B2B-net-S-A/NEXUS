@@ -68,7 +68,7 @@ describe("championSectionState", () => {
   it("wypełniony profil ZE znacznikiem pochodzenia — każda wypełniona sekcja jest 'ai'", () => {
     const profile: ChampionProfile = { ...FILLED, _source: "champion_upload" };
     for (const section of CHAMPION_SECTIONS) {
-      expect(championSectionState(section.id, profile)).toBe("ai");
+      expect(championSectionState(section.id, profile)).toBe("filled");
     }
   });
 
@@ -78,7 +78,7 @@ describe("championSectionState", () => {
       basics: { ...EMPTY_CHAMPION_PROFILE.basics, role_name: "Senior Python Developer" },
       _source: "champion_upload",
     };
-    expect(championSectionState("basics", profile)).toBe("ai");
+    expect(championSectionState("basics", profile)).toBe("filled");
     // Sekcje, których import nie dotknął, zostają puste — nie zgadujemy.
     expect(championSectionState("search", profile)).toBe("empty");
     expect(championSectionState("client", profile)).toBe("empty");

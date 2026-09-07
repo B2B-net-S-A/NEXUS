@@ -86,7 +86,7 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     await screen.findByText("1. Podstawowe informacje");
     expect(screen.getAllByText("Pusta")).toHaveLength(6);
     expect(screen.queryByText("Wypełniona")).not.toBeInTheDocument();
-    expect(screen.queryByText("Z AI")).not.toBeInTheDocument();
+    expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
   });
 
   it("profil wypełniony BEZ znacznika pochodzenia — wypełnione sekcje dostają „Wypełniona”, nigdy „Z AI”", async () => {
@@ -104,10 +104,10 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     // Sekcje 1 i 3 wypełnione, 2/4/5/6 puste.
     expect(screen.getAllByText("Wypełniona")).toHaveLength(2);
     expect(screen.getAllByText("Pusta")).toHaveLength(4);
-    expect(screen.queryByText("Z AI")).not.toBeInTheDocument();
+    expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
   });
 
-  it("profil wypełniony ZE znacznikiem pochodzenia (import dokumentu) — wypełnione sekcje dostają „Z AI”", async () => {
+  it("profil wypełniony ZE znacznikiem pochodzenia (import dokumentu) — jeden chip „Z importu (AI)” na nagłówku, sekcje tylko „Wypełniona”", async () => {
     getMock.mockResolvedValue({
       data: {
         job_id: 3,
@@ -119,9 +119,14 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     });
     renderEditor(3);
     await screen.findByText("1. Podstawowe informacje");
-    expect(screen.getAllByText("Z AI")).toHaveLength(1);
+    // Znacznik pochodzenia jest całoprofilowy: JEDEN chip na nagłówku, sekcje
+    // dostają tylko „Wypełniona" (backend nie wie, które sekcje przepisano).
+    expect(screen.getAllByText("Z importu (AI)")).toHaveLength(1);
     expect(screen.getAllByText("Pusta")).toHaveLength(5);
-    expect(screen.queryByText("Wypełniona")).not.toBeInTheDocument();
+    // Sekcja „Podstawowe informacje" jest wypełniona — chip mówi TYLKO tyle;
+    // pochodzenie nie jest stanem sekcji.
+    expect(screen.getAllByText("Wypełniona")).toHaveLength(1);
+    expect(screen.queryByText("Z AI")).not.toBeInTheDocument();
   });
 });
 

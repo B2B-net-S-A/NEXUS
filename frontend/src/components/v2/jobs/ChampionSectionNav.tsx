@@ -31,7 +31,6 @@ import { cn } from "@/lib/utils";
 const STATE_DOT_CLASS: Record<ChampionSectionState, string> = {
   empty: "bg-muted-foreground/40",
   filled: "bg-success",
-  ai: "bg-info",
 };
 
 export interface ChampionSectionNavProps {
@@ -77,6 +76,11 @@ export function ChampionSectionNav({ jobId }: ChampionSectionNavProps) {
                   )}
                 />
                 <span className="min-w-0 flex-1 truncate">{section.label}</span>
+                {/* Stan przekazany nie tylko kolorem — czytnik ekranu i daltonizm.
+                    PO etykiecie, żeby dostępna nazwa linku zaczynała się od niej. */}
+                {state ? (
+                  <span className="sr-only">, {CHAMPION_SECTION_STATE_LABEL[state]}</span>
+                ) : null}
               </a>
             </li>
           );

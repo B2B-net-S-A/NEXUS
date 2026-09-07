@@ -2,20 +2,19 @@
  * Stan sekcji Profilu Championa — krok 02 „Zlecenie i Champion" (program
  * „flow rekrutacyjny w języku C2", PR 5/7).
  *
- * Trzy stany na sekcję: pusta / wypełniona / z AI. „Z AI" pojawia się
- * WYŁĄCZNIE gdy profil niesie realny znacznik pochodzenia z parsera
- * dokumentu (`ChampionProfile._source`/`_parser` — patrz `lib/api.ts` i
- * `backend/app/schemas/champion.py::ChampionProfile.provenance`). Ten
- * znacznik jest CAŁOPROFILOWY, nie per-sekcyjny — backend nie zapisuje,
- * które sekcje ktoś nadpisał ręcznie po imporcie — więc gdy jest obecny,
- * każda WYPEŁNIONA sekcja dostaje chip „z AI"; bez niego (profil pisany
- * ręcznie albo starszy, sprzed ingestu) sekcja ma tylko dwa stany, zgodnie
- * z zasadą „nie zgaduj".
+ * Dwa stany na sekcję: pusta / wypełniona. Pochodzenie „z AI" NIE jest
+ * stanem sekcji: jedyny realny znacznik (`ChampionProfile._source`/`_parser`
+ * — patrz `lib/api.ts` i `backend/app/schemas/champion.py::ChampionProfile.
+ * provenance`) jest CAŁOPROFILOWY — backend nie zapisuje, które sekcje ktoś
+ * nadpisał ręcznie po imporcie, a znacznik przeżywa każdy zapis. Chip „z AI"
+ * przy sekcji byłby więc zgadywaniem per sekcja (i to na zawsze); zamiast
+ * tego edytor pokazuje JEDEN znacznik na nagłówku profilu
+ * (`hasChampionAiProvenance`). Zasada: nie zgaduj.
  */
 
 import type { ChampionProfile } from "@/lib/api";
 
-export type ChampionSectionState = "empty" | "filled" | "ai";
+export type ChampionSectionState = "empty" | "filled";
 
 export const CHAMPION_SECTION_IDS = [
   "basics",
@@ -116,17 +115,18 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
   }
 }
 
-/** Stan jednej sekcji — patrz nagłówek modułu dla zasady „z AI". */
+/** Stan jednej sekcji — pochodzenie profilu jest osobnym, całoprofilowym sygnałem. */
 export function championSectionState(
   id: ChampionSectionId,
   profile: ChampionProfile,
 ): ChampionSectionState {
-  if (!isSectionFilled(id, profile)) return "empty";
-  return hasChampionAiProvenance(profile) ? "ai" : "filled";
+  return isSectionFilled(id, profile) ? "filled" : "empty";
 }
 
 export const CHAMPION_SECTION_STATE_LABEL: Record<ChampionSectionState, string> = {
   empty: "Pusta",
   filled: "Wypełniona",
-  ai: "Z AI",
 };
+
+/** Etykieta znacznika pochodzenia na nagłówku profilu (jedno miejsce, nie per sekcja). */
+export const CHAMPION_AI_PROVENANCE_LABEL = "Z importu (AI)";

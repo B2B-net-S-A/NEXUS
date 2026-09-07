@@ -17,7 +17,7 @@ klasa rozjazdu, przez którą bramki przestają być bramkami.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.models.skill import Skill  # noqa: F401
@@ -368,3 +368,74 @@ async def test_without_auth_it_is_closed(app_client) -> None:
         json={"candidate_id": 1, "decision": "advance"},
     )
     assert resp.status_code in (401, 403), resp.text
+
+
+async def _add_rejection(job_id: int, candidate_id: int, reason_id: int, moved_at) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=candidate_id,
+                job_id=job_id,
+                stage=PipelineStage.rejected,
+                rejection_reason_id=reason_id,
+                moved_at=moved_at,
+            )
+        )
+        await db.commit()
+
+
+async def test_veto_requires_the_meeting_to_precede_the_rejection(
+    app_client, app_auth_headers
+) -> None:
+    """`veto_recorded` liczy się DOKŁADNIE jak silnik (`load_manager_rejections`):
+    spotkanie z managerem musi POPRZEDZAĆ odrzuczenie (`met.moved_at <=
+    rejected.moved_at`). Agregat „był kiedyś client_interview i był kiedyś
+    rejected" pasowałby też do `rejected → wznowienie → client_interview` —
+    UI mówiłoby „weto stoi", a `/pipeline/move` przepuszczałby ruch.
+    """
+    world = await _seed()  # client_interview @ NOW
+
+    # Odrzucenie PRZED spotkaniem (dzień wcześniej) → historia odwrotna → brak weta.
+    await _add_rejection(
+        world["job_id"],
+        world["candidate_id"],
+        world["person_verdict_reason_id"],
+        NOW - timedelta(days=1),
+    )
+    resp = await app_client.post(
+        f"/api/jobs/{world['job_id']}/hiring-manager-feedback",
+        headers=app_auth_headers,
+        json={
+            "candidate_id": world["candidate_id"],
+            "decision": "reject",
+            "rejection_reason_id": world["person_verdict_reason_id"],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["veto_recorded"] is False
+    assert any("PRZED" in blocker for blocker in body["veto_blockers"]), body["veto_blockers"]
+
+    # Odrzucenie PO spotkaniu (dzień później) → weto stoi.
+    await _add_rejection(
+        world["job_id"],
+        world["candidate_id"],
+        world["person_verdict_reason_id"],
+        NOW + timedelta(days=1),
+    )
+    resp = await app_client.post(
+        f"/api/jobs/{world['job_id']}/hiring-manager-feedback",
+        headers=app_auth_headers,
+        json={
+            "candidate_id": world["candidate_id"],
+            "decision": "reject",
+            "rejection_reason_id": world["person_verdict_reason_id"],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["veto_recorded"] is True, body["veto_blockers"]
+    assert body["veto_blockers"] == []

@@ -42,7 +42,7 @@ describe("ChampionSectionNav — lista sekcji", () => {
     getMock.mockReturnValue(new Promise(() => {})); // never resolves
     renderNav();
     for (const section of CHAMPION_SECTIONS) {
-      const link = screen.getByRole("link", { name: section.label });
+      const link = screen.getByRole("link", { name: (n: string) => n.startsWith(section.label) });
       expect(link).toHaveAttribute("href", `#${section.anchor}`);
     }
   });
@@ -60,7 +60,7 @@ describe("ChampionSectionNav — stan sekcji", () => {
     renderNav();
     await waitFor(() => expect(getMock).toHaveBeenCalled());
     for (const section of CHAMPION_SECTIONS) {
-      expect(screen.getByRole("link", { name: section.label })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: (n: string) => n.startsWith(section.label) })).toBeInTheDocument();
     }
   });
 
@@ -72,7 +72,7 @@ describe("ChampionSectionNav — stan sekcji", () => {
     ).toBeInTheDocument();
     // Lista sekcji zostaje mimo awarii — to nawigacja, nie źródło prawdy.
     for (const section of CHAMPION_SECTIONS) {
-      expect(screen.getByRole("link", { name: section.label })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: (n: string) => n.startsWith(section.label) })).toBeInTheDocument();
     }
   });
 
@@ -89,9 +89,11 @@ describe("ChampionSectionNav — stan sekcji", () => {
     renderNav();
     const basicsLabel = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
     await waitFor(() => {
-      const link = screen.getByRole("link", { name: basicsLabel });
+      // Dostępna nazwa = etykieta + stan dla czytnika ekranu („…, Wypełniona").
+      const link = screen.getByRole("link", { name: (n: string) => n.startsWith(basicsLabel) });
       const dot = link.querySelector("span[title]");
-      expect(dot).toHaveAttribute("title", "Z AI");
+      // Pochodzenie „z AI" nie jest stanem sekcji (znacznik całoprofilowy).
+      expect(dot).toHaveAttribute("title", "Wypełniona");
     });
   });
 });

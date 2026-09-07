@@ -35,12 +35,15 @@ interface JobSummaryCardProps {
   onEdit?: () => void;
 }
 
+// `salary_min/max` to WYNAGRODZENIE Z OFERTY (formularz `EditJobModal`
+// podpisuje je „Wynagrodzenie min/max (PLN/mies.)"), nie widełki klienta —
+// stawka klienta żyje na kontraktach (`rate_client`). Jednostka za formularzem.
 function formatSalaryRange(min?: number | null, max?: number | null): string {
   if (min == null && max == null) return "—";
   const fmt = (n: number) => n.toLocaleString("pl-PL");
-  if (min != null && max != null) return `${fmt(min)}–${fmt(max)} PLN`;
-  if (min != null) return `od ${fmt(min)} PLN`;
-  return `do ${fmt(max as number)} PLN`;
+  if (min != null && max != null) return `${fmt(min)}–${fmt(max)} PLN/mies.`;
+  if (min != null) return `od ${fmt(min)} PLN/mies.`;
+  return `do ${fmt(max as number)} PLN/mies.`;
 }
 
 export function JobSummaryCard({ job, onEdit }: JobSummaryCardProps) {
@@ -54,7 +57,7 @@ export function JobSummaryCard({ job, onEdit }: JobSummaryCardProps) {
         : "—",
     },
     {
-      label: "Widełki klienta",
+      label: "Wynagrodzenie (z oferty)",
       value: formatSalaryRange(job.salary_min, job.salary_max),
     },
     { label: "Lokalizacja", value: job.location?.trim() || "—" },

@@ -75,7 +75,7 @@ export function JobOwnershipPanel({
  // z WŁASNEGO zapytania (`job-readiness-dock`, osobny klucz od `job`) — bez
  // tego Claim/Reassign/Dodaj współpracownika zostawiałby dok nieaktualny do
  // czasu ręcznego odświeżenia strony.
- queryClient.invalidateQueries({ queryKey: ["job-readiness-dock", jobId] });
+ queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
  };
 
  const claimMutation = useMutation({

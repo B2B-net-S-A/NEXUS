@@ -59,8 +59,10 @@ import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookC
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
+  CHAMPION_AI_PROVENANCE_LABEL,
   CHAMPION_SECTIONS,
   championSectionState,
+  hasChampionAiProvenance,
   type ChampionSectionState,
 } from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
@@ -148,6 +150,9 @@ export function ChampionProfileEditor({
       }
       setRemoteChange({ by: detail.updated_by_name || "Ktoś", at: Date.now() });
       qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
+      // `PUT …/champion-profile` synchronizuje stack do `Job.must_skills`/
+      // `nice_skills` — strona i dok czytają zlecenie pod `["job", "<id>"]`.
+      qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
     };
     window.addEventListener(CHAMPION_PROFILE_CHANGED_EVENT, handler);
     return () =>
@@ -164,6 +169,9 @@ export function ChampionProfileEditor({
     mutationFn: (p: ChampionProfile) => championApi.put(jobId, p),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
+      // `PUT …/champion-profile` synchronizuje stack do `Job.must_skills`/
+      // `nice_skills` — strona i dok czytają zlecenie pod `["job", "<id>"]`.
+      qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
     },
@@ -230,6 +238,18 @@ export function ChampionProfileEditor({
           <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
             Profil Championa
+            {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
+                parsera dokumentu) — jeden chip tutaj, nie przy sekcjach, bo
+                backend nie wie, które sekcje ktoś od tego czasu przepisał. */}
+            {hasChampionAiProvenance(draft) ? (
+              <Badge
+                variant="info"
+                size="sm"
+                title={`Profil zaimportowany z dokumentu (parser AI${draft._parsed_at ? `, ${draft._parsed_at.slice(0, 10)}` : ""}). Sekcje mogły być od tego czasu edytowane ręcznie — sprawdź przed użyciem.`}
+              >
+                {CHAMPION_AI_PROVENANCE_LABEL}
+              </Badge>
+            ) : null}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
@@ -841,19 +861,10 @@ function Section({
   );
 }
 
-/** Chip „pusta / wypełniona / z AI" obok tytułu sekcji — źródło: dane profilu, nigdy zgadywanie. */
+/** Chip „pusta / wypełniona" obok tytułu sekcji — źródło: dane profilu, nigdy zgadywanie.
+ *  Pochodzenie „z AI" jest CAŁOPROFILOWE i siedzi na nagłówku profilu
+ *  (`ChampionAiProvenanceBadge`), nie przy sekcjach — patrz `lib/champion-section-state.ts`. */
 function SectionStateChip({ state }: { state: ChampionSectionState }) {
-  if (state === "ai") {
-    return (
-      <Badge
-        variant="info"
-        size="sm"
-        title="Wypełnione z importu dokumentu (parser AI) — sprawdź przed użyciem."
-      >
-        Z AI
-      </Badge>
-    );
-  }
   if (state === "filled") {
     return (
       <Badge variant="success" size="sm">

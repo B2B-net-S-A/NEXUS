@@ -45,7 +45,11 @@ import { TabbedNav } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
-import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
+import {
+  colId,
+  type KanbanColumn,
+  type KanbanItem,
+} from "@/components/v2/pages/kanban-shared";
 import {
   dialogUnavailableReason,
   moveDialogFor,
@@ -215,6 +219,10 @@ export function InterviewDecisionDock({
       queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.notes(item.candidate_id),
       });
+      // Notatka jest też wpisem osi czasu profilu (lustro `PipelineCandidateDock`).
+      queryClient.invalidateQueries({
+        queryKey: candidateQueryKeys.timelineRoot(item.candidate_id),
+      });
       showSuccess("Notatka dodana.");
     },
     onError: (e) =>
@@ -308,7 +316,7 @@ export function InterviewDecisionDock({
                     const terminal = terminalOf(col);
                     return (
                       <button
-                        key={col.stage_def_id ?? col.stage}
+                        key={colId(col)}
                         type="button"
                         disabled={Boolean(blockedReason)}
                         title={blockedReason ?? undefined}
