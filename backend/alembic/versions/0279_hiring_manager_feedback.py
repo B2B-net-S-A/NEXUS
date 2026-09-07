@@ -1,7 +1,7 @@
 """Werdykt hiring managera bez wpisu w kalendarzu (krok 07 „Rozmowy i decyzja").
 
-Revision ID: 0278_hiring_manager_feedback
-Revises: 0277_recruitment_allocation
+Revision ID: 0279_hiring_manager_feedback
+Revises: 0278_office_presence_rubric
 
 ``InterviewFeedback`` powstał jako notatka PRZYPIĘTA DO SPOTKANIA: ``UNIQUE
 (calendar_event_id, feedback_source)`` i ``calendar_event_id NOT NULL``. Feedback
@@ -34,8 +34,8 @@ Zdublowane w safety-net ``entrypoint.sh`` — prod alembic bywa orphaned.
 
 from alembic import op
 
-revision = "0278_hiring_manager_feedback"
-down_revision = "0277_recruitment_allocation"
+revision = "0279_hiring_manager_feedback"
+down_revision = "0278_office_presence_rubric"
 branch_labels = None
 depends_on = None
 
