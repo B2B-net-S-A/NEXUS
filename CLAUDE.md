@@ -1562,7 +1562,7 @@ relabelingu stawek w materializerze.
 ## Aktywacja umowy: `end_date` NIE jest wymagane (umowa bezterminowa)
 
 `ACTIVATION_REQUIRED_FIELDS` (`contract_service.py`) to `start_date`,
-`rate_candidate`, `rate_client`, `contract_type`, `work_mode` — **bez daty
+`rate_candidate`, `rate_client`, `contract_type` — **bez daty
 zakończenia**. Umowa bezterminowa jest w body-leasingu normalnym stanem
 docelowym, a nie brakiem danych: rejestr renderuje ją jako „bezterminowo”,
 `_status_after_end_date_change` leczy z niej `ended`/`ending` na `active`,

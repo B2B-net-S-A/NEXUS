@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 2026-09-04
+> **Zgodność z systemem sprawdzona:** 2026-09-07
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -107,7 +107,7 @@ już w rejestrze klienta.
 założył jej kartę sam — po przestawieniu kandydata na etap „zatrudniony" albo po
 potwierdzeniu obustronnie podpisanej umowy. Powstaje wtedy **szkic umowy** i **szkic
 zamówienia** ze stawką przepisaną z umowy i notatką „Uzupełnij stawkę klienta,
-daty i wgraj PDF zamówienia". W rubryce **Numer zamówienia** stoi wtedy wartość
+daty i wgraj PDF zamówienia". W rubryce **nr zam.** stoi wtedy wartość
 zastępcza: **„(bez numeru)"** u klientów rozliczanych w MD lub kosztowo, a u
 pozostałych **„Imię Nazwisko — Tytuł rekrutacji"**. Jedno i drugie trzeba
 zastąpić prawdziwym numerem z dokumentu klienta. Szkic znajdziesz pod filtrem
@@ -118,8 +118,10 @@ od klienta.
 
 **2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Numer zamówienia,
 obie stawki i okres edytujesz **klikając wprost w tekst na karcie** — bez
-otwierania okienka. Jeżeli ta osoba nie ma jeszcze żadnego zamówienia, pierwszy
-taki zapis sam założy szkic.
+otwierania okienka. Na karcie stoją one w jednej linii pod nazwiskiem, skrócone
+do **nr zam.**, **koszt.**, **przych.** i **okres:**; najechanie myszą na
+etykietę pokazuje jej pełne brzmienie. Jeżeli ta osoba nie ma jeszcze żadnego
+zamówienia, pierwszy taki zapis sam założy szkic.
 
 **3. Osoby nie ma jeszcze w rejestrze.** Kliknij **Nowe zamówienie**, wybierz typ
 **Okresowe** — otworzy się formularz **„Nowy kontraktor / zamówienie"**, który
@@ -855,6 +857,78 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 * Ta reguła **działa zawsze**, bez żadnej konfiguracji.
 * **Powiadomienia:** standardowe.
 
+### PKO BP
+
+* **PKO BP ma własną regułę odczytu dokumentu.**
+  * **Numer** bierze z pola **„Zamówienie nr"**; numeru umowy ramowej
+    („Umowa ramowa numer …") za numer zamówienia nie weźmie.
+  * Dokument ma **tabelę Wykonawców** (nazwisko, profil, dwie daty, liczba MD,
+    stawka). Gdy w tabeli jest **jedna osoba**, system wpisuje jej **okres,
+    stawkę dzienną i liczbę MD**. Gdy osób jest **więcej**, stawkę i MD
+    **zostawia puste** — bo są różne dla każdego wiersza; wtedy uzupełniasz je
+    przy dodawaniu konsultantów.
+  * Wiersz bez kompletu (dwie daty + dwie liczby) nie jest brany za wiersz
+    osoby — lepiej puste pole niż zła liczba.
+* Gdy nie znajdzie numeru albo tabeli, powie o tym w banerze i zostawi pola do
+  ręcznego wpisania.
+* **Powiadomienia:** standardowe.
+
+### KIR
+
+* **KIR ma własną regułę odczytu dokumentu.**
+  * **Numer** bierze z **„L.dz. KIR/…"**.
+  * **Stawka jest GODZINOWA** — z zapisu „stawka … zł netto/h". Przelicznik na
+    osobodzień podany w dokumencie („= … zł netto/1 MD") **jest ignorowany**:
+    zapisujemy stawkę tak, jak klient rozlicza, czyli za godzinę.
+  * **Okres** czytany z zakresu „od – do".
+  * **Liczba MD z dokumentu jest pomijana** — to przeliczenie stawki, nie budżet.
+* Gdy nie rozpozna numeru, okresu albo jednej stawki przy nazwisku, powie o tym
+  i zostawi pole do ręcznego wpisania.
+* **Powiadomienia:** standardowe.
+
+### mLeasing
+
+* **mLeasing ma własną regułę odczytu dokumentu.**
+  * **Numer** bierze z **„Numer zamówienia DO/…"**.
+  * **Stawka i jej jednostka** czytane są z komórki pozycji (np. „225,00 dzień
+    869,92 PLN") — jednostka może być dzienna, godzinowa albo miesięczna,
+    zależnie od tego, co stoi w dokumencie.
+  * **Okres** z „Okres zatrudnienia od … do …".
+  * **Liczba MD jest pomijana.**
+* Gdy nie znajdzie numeru, okresu albo ceny jednostkowej pozycji, powie o tym
+  i zostawi pole do ręcznego wpisania.
+* **Powiadomienia:** standardowe.
+
+### VeloBank
+
+* **VeloBank ma własną regułę odczytu dokumentu.**
+  * **Numer** z **„Zamówienie nr"**.
+  * Dokument ma tabelę **„Dane wykonawców"**, w której **każda osoba ma własny
+    okres i własną stawkę** (dzienną). W VeloBanku **każdy konsultant dostaje
+    osobne zamówienie**, więc gdy w tabeli jest kilka osób, system zostawia
+    stawkę i MD puste — wypełniasz je per osoba; okres wpisuje z dokumentu tylko
+    wtedy, gdy wszyscy mają ten sam.
+  * System sprawdza rachunek: **suma (MD × stawka) musi zgadzać się z „Wartość
+    zlecenia NETTO"** — rozbieżność to sygnał źle odczytanego wiersza i dostaniesz
+    o niej ostrzeżenie.
+* **Powiadomienia:** standardowe.
+
+### Cardif (BNP Paribas Cardif)
+
+* **To osobny klient niż „BNP Paribas" powyżej** — inny dokument i inna reguła.
+  Nie pomyl obu przy odczycie.
+* **Cardif ma własną regułę odczytu dokumentu.**
+  * **Dokument nie ma numeru** — identyfikatorem jest **data z „Zamówienie
+    z dnia …"** i to ona trafia w pole numeru.
+  * **Stawka** to liczba w nawiasie **„(… PLN/MD net.)"**, traktowana jako kwota
+    za osobodzień.
+  * **Zamówienie jest OKRESOWE** — liczba MD z tabeli jest tylko informacją,
+    **nie budżetem** (system nie pilnuje jej jako puli).
+  * **Okres** z wiersza specjalisty (gdy w tabeli jest jedna osoba).
+* Gdy nie znajdzie identyfikatora, tabeli albo stawki, powie o tym i zostawi
+  pola do ręcznego wpisania.
+* **Powiadomienia:** standardowe.
+
 ### Centrum e-Zdrowia
 
 * Jedyny klient z polem **„Wybór części umowy \*"** — i jest ono **obowiązkowe**
@@ -865,9 +939,15 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
 
 ### Alior
 
-* **Alior nie ma w module zamówień żadnej własnej reguły.** Obowiązuje wyłącznie
-  opis ogólny — ta sekcja istnieje po to, żebyś nie szukał dalej.
-* Warto natomiast wiedzieć (to działa u każdego klienta, nie tylko tutaj):
+* **Alior ma własną regułę odczytu dokumentu.**
+  * **Numer** bierze z **„Zamówienie nr: OIT/…"** (a nie z „Do Umowy Ramowej:
+    OIT/…").
+  * **Stawka** to pozycja **„Razem stawka dla Banku"**; jednostka ustawiana na
+    dzień.
+  * **Okres** z „Moment wejścia w życie Zamówienia" / „czas oznaczony".
+  * System sprawdza rachunek: suma (MD × stawka) = „Maksymalna wartość
+    Zamówienia" — rozbieżność to sygnał źle odczytanego wiersza.
+* Warto też wiedzieć (to działa u każdego klienta, nie tylko tutaj):
   **stawki godzinowe zapisują się z dokładnością do trzech miejsc po przecinku**
   — np. 164,375 zł/h. System niczego nie zaokrągla, więc wpisuj wartość
   z dokumentu co do trzeciego miejsca.
