@@ -376,7 +376,7 @@ def open_operational_job_clause(job_id_column, owners: set[int]):
 def inherited_collaborator_work_clause(job_id_column, owners: set[int]):
     """Cover a collaborator's actual work, retaining that owner's job boundary.
 
-    A contact case can contain opportunities the nominal owner cannot read.
+    A contact case can summarize offers outside the nominal owner's job scope.
     Only an active collaboration on the SAME owned task's job grants cover
     access; observing another job or sharing a candidate never grants it.
     """

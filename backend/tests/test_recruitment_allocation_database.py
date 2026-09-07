@@ -211,6 +211,7 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
                 JobCollaborator(job_id=jobs[2], user_id=users[0]),  # observer only
             ]
         )
+        source_case_ids = []
         for n in range(24):
             candidate = Candidate(
                 name="Allocation", lastname=f"Queue {n}", status=CandidateStatus.active
@@ -226,18 +227,41 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
             )
             db.add(case)
             await db.flush()
+            source_case_ids.append(case.id)
             db.add(
                 CandidateContactOpportunity(
                     case_id=case.id, candidate_id=candidate.id, job_id=jobs[n // 12]
                 )
             )
             if n == 0:
-                # A shared candidate must not reveal an unrelated opportunity.
+                # The current contact owner presents all offers in this case,
+                # without inheriting membership in every linked recruitment.
                 db.add(
                     CandidateContactOpportunity(
                         case_id=case.id, candidate_id=candidate.id, job_id=jobs[3]
                     )
                 )
+        foreign_candidate = Candidate(
+            name="Allocation", lastname="Other queue", status=CandidateStatus.active
+        )
+        db.add(foreign_candidate)
+        await db.flush()
+        foreign_case = CandidateContactCase(
+            candidate_id=foreign_candidate.id,
+            owner_user_id=users[2],
+            queue_slot=1,
+            state="queued",
+            primary_job_id=jobs[0],
+        )
+        db.add(foreign_case)
+        await db.flush()
+        db.add(
+            CandidateContactOpportunity(
+                case_id=foreign_case.id,
+                candidate_id=foreign_candidate.id,
+                job_id=jobs[0],
+            )
+        )
         await db.flush()
         page = await get_my_contact_queue(
             current_user=operator, db=db, cursor=None, limit=20
@@ -247,16 +271,17 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
         )
         assert len(page.items) == 20 and len(next_page.items) == 4
         assert page.utilization.used == 24 and page.utilization.capacity == 40
-        assert len({item.id for item in [*page.items, *next_page.items]}) == 24
+        all_items = [*page.items, *next_page.items]
+        assert {item.id for item in all_items} == set(source_case_ids)
         assert any(
             item.substitution and item.effective_owner.id == users[1]
             for item in page.items
         )
-        assert all(
-            opportunity.job_id in jobs[:2]
-            for item in [*page.items, *next_page.items]
-            for opportunity in item.opportunities
-        )
+        shared_case = next(item for item in all_items if item.id == source_case_ids[0])
+        assert {offer.job_id for offer in shared_case.opportunities} == {
+            jobs[0],
+            jobs[3],
+        }
         assert await is_member_of_job(db, operator, jobs[0])
         assert not await is_member_of_job(db, operator, jobs[2])
         assert users[1] not in await list_job_member_ids(db, jobs[2])
@@ -277,6 +302,9 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
             )
         )
         await _caller_may_act_on_case(db, case=own_case, user=operator)
+        with pytest.raises(HTTPException) as foreign_error:
+            await _caller_may_act_on_case(db, case=foreign_case, user=operator)
+        assert foreign_error.value.status_code == 403
         outsider = await db.get(User, users[2])
         with pytest.raises(HTTPException) as error:
             await _caller_may_act_on_case(db, case=own_case, user=outsider)
