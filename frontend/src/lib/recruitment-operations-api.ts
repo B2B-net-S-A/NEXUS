@@ -14,11 +14,11 @@ export interface RecruitmentOperationsLookup {
 }
 
 export interface RecruitmentOperationsStageCounts {
-  sourcing: number
-  verified: number
-  recommended: number
-  interview: number
-  accepted: number
+  new: number
+  screening: number
+  cv_sent: number
+  client_interview: number
+  acceptance: number
 }
 
 export interface RecruitmentOperationsFavorite {
