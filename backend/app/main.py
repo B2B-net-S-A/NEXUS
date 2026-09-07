@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 import os
 from contextlib import asynccontextmanager
 
@@ -208,6 +209,7 @@ from app.api import dictionaries as dictionaries_api
 from app.api import entity_fields as entity_fields_api
 from app.api import teams_channels as teams_channels_api
 from app.api import priority_work as priority_work_api
+from app.api import recruitment_allocation as recruitment_allocation_api
 
 # Force-load every SQLAlchemy model into Base.metadata so FKs across tables
 # (e.g. scheduled_rejection_emails.email_id → emails.id from m365.py) can
@@ -668,6 +670,14 @@ async def lifespan(app: FastAPI):
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.priority_work import priority_work_loop
+    from app.tasks.recruitment_allocation import (
+        availability_loop,
+        allocation_loop,
+        allocation_matching_loop,
+    )
+    from app.services.recruitment_allocation_events import register_allocation_events
+
+    register_allocation_events()
     from app.services.fx_service import fx_refresh_loop
 
     # Provisioning klucza konta serwisowego dla integracji z COMPASSEM (Etap 2).
@@ -740,6 +750,9 @@ async def lifespan(app: FastAPI):
         "index_outbox": asyncio.create_task(index_outbox_loop()),
         "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
+        "workforce_availability": asyncio.create_task(availability_loop()),
+        "recruitment_allocation": asyncio.create_task(allocation_loop()),
+        "allocation_matching": asyncio.create_task(allocation_matching_loop()),
     }
 
     # Śmierć pętli musi być ZDARZENIEM, nie zmianą ułamka „running/expected".
@@ -1389,6 +1402,13 @@ app.include_router(
     prefix="/api/competitions",
     tags=["competitions"],
 )
+
+app.include_router(
+    recruitment_allocation_api.router,
+    prefix="/api/recruitment-allocation",
+    tags=["recruitment-allocation"],
+)
+
 app.include_router(
     priority_work_api.router,
     prefix="/api/priority-work",
@@ -1511,7 +1531,6 @@ def _resolve_deployed_at() -> str:
     fall through to mtime gdy env jest starszy od mtime.
     """
     import os
-    from datetime import datetime, timezone
 
     candidates: list[tuple[datetime, str]] = []
 
@@ -1989,6 +2008,51 @@ async def api_health_check():
         except Exception:
             checks["priority_work"] = "degraded"
 
+    for flag, key, model_name in (
+        (settings.COMPASS_AVAILABILITY_ENABLED, "workforce_availability", "source"),
+        (
+            settings.RECRUITMENT_ALLOCATION_ENABLED,
+            "recruitment_allocation",
+            "allocator",
+        ),
+    ):
+        checks[key] = "disabled"
+        if flag:
+            try:
+                from app.models.recruitment_allocation import (
+                    WorkforceAvailabilityState,
+                    RecruitmentAllocationState,
+                )
+
+                async with AsyncSessionLocal() as session:
+                    model = (
+                        WorkforceAvailabilityState
+                        if model_name == "source"
+                        else RecruitmentAllocationState
+                    )
+                    row = await asyncio.wait_for(session.get(model, 1), timeout=1.0)
+                    stamp = (
+                        (
+                            row.last_success_at
+                            if model_name == "source"
+                            else row.last_run_at
+                        )
+                        if row
+                        else None
+                    )
+                    age = (
+                        (datetime.now(timezone.utc) - stamp).total_seconds()
+                        if stamp
+                        else None
+                    )
+                    checks[key] = (
+                        "healthy"
+                        if age is not None and 0 <= age <= 300 and not row.last_error
+                        else "degraded"
+                    )
+            except Exception:
+                checks[key] = "degraded"
+
     # Anthropic key — config-only probe. Bez klucza generator CV (i każdy
     # feature na Claude API) wstaje, ale pierwsza generacja kończy się 502
     # (Sentry NEXUS-BE-F) — lepiej widzieć to w healthchecku po deployu.
@@ -2322,7 +2386,20 @@ async def api_health_deep_check():
     # (check_name, ORM model). Names are table-oriented so a red check in the
     # deploy log points straight at the drifted table. Cortex tables added after
     # the 2026-07-12 incident (green deploy, tables missing → /api/cortex/* 500).
+    from app.models.recruitment_allocation import (
+        WorkforceAvailabilityState,
+        RecruitmentAllocationState,
+        RecruitmentAllocationRequest,
+        RecruitmentAllocationEvent,
+    )
+    from app.models.calendar_event import CalendarEvent
+
     core_checks = [
+        ("workforce_availability_state", WorkforceAvailabilityState),
+        ("recruitment_allocation_state", RecruitmentAllocationState),
+        ("recruitment_allocation_requests", RecruitmentAllocationRequest),
+        ("recruitment_allocation_events", RecruitmentAllocationEvent),
+        ("calendar_events", CalendarEvent),
         ("contracts", Contract),
         ("contract_candidate_rates", ContractCandidateRate),
         ("contract_client_rates", ContractClientRate),
@@ -2452,6 +2529,24 @@ async def api_health_deep_check():
             errors[name] = type(exc).__name__
             logger.warning("health/deep: %s probe failed: %r", name, exc)
 
+    try:
+        async with AsyncSessionLocal() as session:
+            installed = await asyncio.wait_for(
+                session.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'priority_assignment_position_compat' "
+                        "AND tgrelid = 'recruitment_priority_assignments'::regclass AND tgenabled != 'D')"
+                    )
+                ),
+                timeout=3.0,
+            )
+        checks["priority_position_compatibility"] = (
+            "healthy" if installed else "unhealthy"
+        )
+    except Exception as exc:
+        checks["priority_position_compatibility"] = "unhealthy"
+        errors["priority_position_compatibility"] = type(exc).__name__
+
     # The generated-contract ORM probe above resolves every mapped column, but
     # it cannot prove that the fail-open startup safety-net also installed the
     # default, enum labels, constraints and valid relation indexes required by
@@ -2558,6 +2653,7 @@ async def api_health_deep_check():
                 ('priorityplanstatus', 'draft'),
                 ('priorityplanstatus', 'published'),
                 ('priorityplanstatus', 'superseded'),
+                ('notificationtype', 'recruitment_allocation_alert'),
                 ('prioritymemberstatus', 'active'),
                 ('prioritymemberstatus', 'paused'),
                 ('prioritydemandstatus', 'open'),
@@ -2666,13 +2762,15 @@ async def api_health_deep_check():
                 ('recruitment_priority_assignments',
                  'uq_priority_assignment_member_rank', 'u'),
                 ('recruitment_priority_assignments',
+                 'uq_priority_assignment_member_position', 'u'),
+                ('recruitment_priority_assignments',
                  'uq_priority_assignment_member_job', 'u'),
                 ('recruitment_priority_assignments',
                  'ck_priority_assignment_verifications_nonnegative', 'c'),
                 ('recruitment_priority_assignments',
                  'ck_priority_assignment_recommendations_nonnegative', 'c'),
                 ('recruitment_priority_assignments',
-                 'ck_priority_assignment_extra_slot_reason', 'c'),
+                 'ck_priority_assignment_position_positive', 'c'),
                 ('recruitment_priority_assignments',
                  'ck_priority_assignment_cc_exception_reason', 'c'),
                 ('recruitment_priority_blockers',

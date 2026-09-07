@@ -108,3 +108,22 @@ def test_is_open_belongs_to_nexus():
     """
     assert "is_open" in own.NEXUS_OWNED
     assert "is_open" not in own.SYNC_WRITABLE
+
+
+def test_import_preserves_owner_and_pending_automatic_handoff():
+    """Execute the import's real owner expression with both systems' values."""
+    import sqlite3
+
+    source = IMPORTER.read_text()
+    expression = re.search(r"recruiter_id\s*=\s*(CASE.*?END),", source, re.S).group(1)
+    query = f"SELECT {expression} FROM (SELECT ? AS recruiter_id, ? AS is_open) jobs CROSS JOIN (SELECT ? AS recruiter_id) EXCLUDED"
+    with sqlite3.connect(":memory:") as db:
+        for owner, opened, external, expected in [
+            (7, 1, 8, 7),
+            (None, 1, 8, None),
+            (7, 0, 8, 7),
+            (None, 0, 8, 8),
+        ]:
+            assert (
+                db.execute(query, (owner, opened, external)).fetchone()[0] == expected
+            )

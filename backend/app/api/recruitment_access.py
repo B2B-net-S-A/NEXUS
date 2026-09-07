@@ -73,6 +73,12 @@ from app.models.recruitment_priority import (
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.job_membership import is_member_of_job
+from app.services.workforce_availability import (
+    operational_owner_clause,
+    operational_job_owner_clause,
+    operational_owner_ids,
+    inherited_collaborator_work_clause,
+)
 from app.services.priority_work_policy import (
     combine_priority_modes,
     effective_priority_mode,
@@ -260,7 +266,11 @@ async def ensure_job_membership(
             )
             .where(
                 RecruitmentPriorityAssignment.job_id == job_id,
-                RecruitmentPriorityPlanMember.user_id == user.id,
+                operational_job_owner_clause(
+                    RecruitmentPriorityPlanMember.user_id,
+                    RecruitmentPriorityAssignment.job_id,
+                    user,
+                ),
                 RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
                 RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
             )
@@ -284,7 +294,7 @@ async def ensure_job_membership(
             select(RecruitmentProcess.id)
             .where(
                 RecruitmentProcess.job_id == job_id,
-                RecruitmentProcess.owner_user_id == user.id,
+                operational_owner_clause(RecruitmentProcess.owner_user_id, user),
                 RecruitmentProcess.status == ProcessStatus.open,
                 RecruitmentProcess.priority_compliant_at_open.is_(True),
             )
@@ -416,9 +426,9 @@ def job_scope_clause(
 
     member_jobs = select(Job.id).where(
         or_(
-            Job.recruiter_id == user.id,
-            Job.delivery_lead_id == user.id,
-            Job.tac_id == user.id,
+            operational_owner_clause(Job.recruiter_id, user),
+            operational_owner_clause(Job.delivery_lead_id, user),
+            operational_owner_clause(Job.tac_id, user),
             Job.id.in_(
                 select(JobCollaborator.job_id).where(
                     JobCollaborator.user_id == user.id,
@@ -428,6 +438,33 @@ def job_scope_clause(
         )
     )
     scope_clauses = [job_id_col.is_(None), job_id_col.in_(member_jobs)]
+    inherited = operational_owner_ids(user) - {user.id}
+    if inherited:
+        scope_clauses.append(inherited_collaborator_work_clause(job_id_col, inherited))
+
+    if settings.RECRUITMENT_ALLOCATION_ENABLED:
+        working_jobs = (
+            select(RecruitmentPriorityAssignment.job_id)
+            .join(
+                RecruitmentPriorityPlanMember,
+                RecruitmentPriorityPlanMember.id
+                == RecruitmentPriorityAssignment.plan_member_id,
+            )
+            .join(
+                RecruitmentPriorityPlan,
+                RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+            )
+            .where(
+                operational_job_owner_clause(
+                    RecruitmentPriorityPlanMember.user_id,
+                    RecruitmentPriorityAssignment.job_id,
+                    user,
+                ),
+                RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+                RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            )
+        )
+        scope_clauses.append(job_id_col.in_(working_jobs))
 
     # ``job_scope_clause`` jest synchronicznym konstruktorem SQL używanym
     # wewnątrz zapytań listujących, więc per-user rollout również musi zostać
@@ -461,7 +498,11 @@ def job_scope_clause(
                 RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
             )
             .where(
-                RecruitmentPriorityPlanMember.user_id == user.id,
+                operational_job_owner_clause(
+                    RecruitmentPriorityPlanMember.user_id,
+                    RecruitmentPriorityAssignment.job_id,
+                    user,
+                ),
                 RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
                 RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
             )
@@ -471,7 +512,7 @@ def job_scope_clause(
         # zawężeniu list, bo inaczej samonadany proces, który nie przepuszcza
         # przez bramkę, i tak wyciekałby wierszami na listach.
         carry_over_jobs = select(RecruitmentProcess.job_id).where(
-            RecruitmentProcess.owner_user_id == user.id,
+            operational_owner_clause(RecruitmentProcess.owner_user_id, user),
             RecruitmentProcess.status == ProcessStatus.open,
             RecruitmentProcess.priority_compliant_at_open.is_(True),
         )

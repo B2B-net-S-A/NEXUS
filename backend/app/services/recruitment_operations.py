@@ -31,6 +31,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.selectable import Subquery
 
 from app.api.recruitment_access import job_scope_clause
+from app.services.workforce_availability import (
+    operational_owner_ids,
+    operational_owner_clause,
+)
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -177,9 +181,9 @@ def _job_filters(
         # active collaborator row bearing this exact user's id.
         filters.append(
             or_(
-                Job.recruiter_id == user.id,
-                Job.delivery_lead_id == user.id,
-                Job.tac_id == user.id,
+                operational_owner_clause(Job.recruiter_id, user),
+                operational_owner_clause(Job.delivery_lead_id, user),
+                operational_owner_clause(Job.tac_id, user),
                 Job.id.in_(
                     select(JobCollaborator.job_id).where(
                         JobCollaborator.user_id == user.id,
@@ -404,11 +408,14 @@ def _candidate_name(candidate: Candidate) -> str:
 def _can_edit_favorite(user: User, job: Job | _JobRecord) -> bool:
     if user.has_any_role(UserRole.admin, UserRole.head_of_recruitment):
         return True
-    is_owner = user.id in {
-        job.recruiter_id,
-        job.tac_id,
-        job.delivery_lead_id,
-    }
+    is_owner = bool(
+        operational_owner_ids(user)
+        & {
+            job.recruiter_id,
+            job.tac_id,
+            job.delivery_lead_id,
+        }
+    )
     if is_owner and user.has_any_role(
         UserRole.recruiter,
         UserRole.tac,
@@ -952,6 +959,9 @@ async def set_recruitment_operation_favorite(
                 },
             )
         )
+        from app.services.recruitment_favorite_work import reconcile_favorite_work
+
+        await reconcile_favorite_work(db, [job])
         await db.commit()
 
     if candidate is None or latest_stage is None:

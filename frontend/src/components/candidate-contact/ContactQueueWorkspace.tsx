@@ -123,7 +123,19 @@ export function ContactQueueWorkspace({
   });
   const queueQuery = useQuery({
     queryKey: candidateContactQueryKeys.queue(),
-    queryFn: () => candidateContactApi.queue({ limit: 100 }),
+    queryFn: async () => {
+      const first = await candidateContactApi.queue({ limit: 100 });
+      const items = [...first.items];
+      let cursor = first.next_cursor;
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        seen.add(cursor);
+        const page = await candidateContactApi.queue({ limit: 100, cursor });
+        items.push(...page.items);
+        cursor = page.next_cursor;
+      }
+      return { ...first, items, next_cursor: null };
+    },
     enabled: initialData === undefined && contactFeature.enabled,
     initialData,
     staleTime: 30_000,
@@ -410,7 +422,7 @@ export function ContactQueueWorkspace({
                           Próba {Math.min((item.attempts_in_cycle ?? 0) + 1, 2)}
                           /2
                         </span>
-                        {item.owner ? <span>Opiekun: {item.owner.name}</span> : null}
+                        {item.owner ? <span>Opiekun: {item.owner.name}{item.substitution ? ` · Zastępuje: ${item.effective_owner?.name ?? "—"}` : ""}</span> : null}
                       </div>
                     </div>
                   </div>

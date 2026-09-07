@@ -61,7 +61,7 @@ describe("JobHandoffButton", () => {
     });
     fireEvent.click(screen.getByTestId("handoff-submit"));
 
-    await waitFor(() => expect(mocks.handoff).toHaveBeenCalledWith(7, 5));
+    await waitFor(() => expect(mocks.handoff).toHaveBeenCalledWith(7, 5, undefined, "linkedin"));
     expect(await screen.findByTestId("handoff-done")).toBeInTheDocument();
   });
 

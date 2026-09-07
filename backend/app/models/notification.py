@@ -10,6 +10,7 @@ from app.models.base import TimestampMixin
 
 
 class NotificationType(str, enum.Enum):
+    recruitment_allocation_alert = "recruitment_allocation_alert"
     contract_ending = "contract_ending"
     interview_scheduled = "interview_scheduled"
     candidate_added = "candidate_added"

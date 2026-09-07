@@ -1808,7 +1808,12 @@ async def record_contact_attempt(
         return AttemptResult(case=case, call=existing_call, replayed=True)
     if case.version != expected_version:
         raise ContactCaseVersionConflict(expected=expected_version, actual=case.version)
-    if not allow_non_owner and case.owner_user_id != actor_user_id:
+    from app.services.workforce_availability import effective_owner_id
+
+    if (
+        not allow_non_owner
+        and await effective_owner_id(db, case.owner_user_id) != actor_user_id
+    ):
         raise ContactCaseOwnershipError(
             f"user {actor_user_id} is not owner of contact case {case_id}"
         )

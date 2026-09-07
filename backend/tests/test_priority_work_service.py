@@ -315,15 +315,12 @@ async def test_publish_validation_accepts_three_to_five_assignments(
     assert validated[0][0] is member
 
 
-async def test_publish_validation_rejects_two_assignments() -> None:
+async def test_publish_validation_accepts_two_assignments() -> None:
     member = _member(2)
-    with pytest.raises(HTTPException, match="3–5 assignmentów") as caught:
-        await _validate_member_inputs(
-            _validation_db(member),
-            [member],
-            for_publish=True,
-        )
-    assert caught.value.status_code == 422
+    result = await _validate_member_inputs(
+        _validation_db(member), [member], for_publish=True
+    )
+    assert result[0][0] is member
 
 
 async def test_secondary_job_cc_satisfies_competence_match() -> None:
@@ -365,43 +362,35 @@ async def test_secondary_job_cc_satisfies_competence_match() -> None:
     assert validated[0][4] == {item.job_id: {55, 999} for item in member.assignments}
 
 
-def test_schema_rejects_six_assignments() -> None:
+def test_schema_accepts_six_positions_but_rejects_duplicates() -> None:
     assignments = [
-        {
-            "demand_id": 100 + index,
-            "job_id": 200 + index,
-            "rank": rank,
-            "channel": "linkedin",
-            "verification_target": 1,
-            "recommendation_target": 1,
-            "extra_slot_reason": (
-                "Uzasadnienie HoR" if rank in {PriorityRank.D, PriorityRank.E} else None
-            ),
-        }
-        for index, rank in enumerate(
-            [
-                PriorityRank.A,
-                PriorityRank.B,
-                PriorityRank.C,
-                PriorityRank.D,
-                PriorityRank.E,
-            ]
+        dict(
+            demand_id=n,
+            job_id=n,
+            position=n,
+            channel="linkedin",
+            verification_target=1,
+            recommendation_target=1,
         )
+        for n in range(1, 7)
     ]
-    # A sixth assignment cannot even be expressed with the A–E rank enum.
-    assignments.append({**assignments[-1], "job_id": 999, "demand_id": 999})
-    with pytest.raises(ValidationError, match="more than 5 assignments"):
-        PriorityPlanMemberInput(user_id=7, assignments=assignments)
-
-
-def test_extra_slots_and_cc_mismatch_require_explicit_reasons() -> None:
-    with pytest.raises(ValidationError, match="extra_slot_reason"):
-        PriorityAssignmentInput(
-            demand_id=1,
-            job_id=1,
-            rank=PriorityRank.D,
-            channel=PriorityChannel.linkedin,
+    assert (
+        len(PriorityPlanMemberInput(user_id=7, assignments=assignments).assignments)
+        == 6
+    )
+    with pytest.raises(ValidationError, match="positions must be unique"):
+        PriorityPlanMemberInput(
+            user_id=7, assignments=[*assignments, {**assignments[-1], "job_id": 99}]
         )
+
+
+def test_extra_positions_need_no_reason_but_cc_mismatch_does() -> None:
+    assert (
+        PriorityAssignmentInput(
+            demand_id=1, job_id=1, rank=PriorityRank.D, channel=PriorityChannel.linkedin
+        ).position
+        == 4
+    )
     with pytest.raises(ValidationError, match="cc_exception_reason"):
         PriorityAssignmentInput(
             demand_id=1,

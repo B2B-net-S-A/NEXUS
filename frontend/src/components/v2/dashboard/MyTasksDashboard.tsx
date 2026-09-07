@@ -1,5 +1,7 @@
 "use client"
 
+import { MyOnboardingTasks } from "./MyOnboardingTasks"
+
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import {
@@ -340,6 +342,7 @@ export function MyTasksDashboard() {
                 </div>
               )}
             </div>
+            <MyOnboardingTasks />
           </CollapsibleContent>
         </Card>
       </Collapsible>

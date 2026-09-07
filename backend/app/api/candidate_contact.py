@@ -35,6 +35,12 @@ from app.models.candidate_contact import (
 from app.models.client import Client
 from app.models.job import Job
 from app.models.user import User, UserRole
+from app.services.workforce_availability import (
+    operational_owner_clause,
+    operational_owner_ids,
+    effective_owner_id,
+    workforce_context,
+)
 from app.schemas.candidate_contact import ContactAttemptCreate, ContactReassignRequest
 from app.services.candidate_contact import (
     CandidateContactError,
@@ -115,6 +121,8 @@ class ContactCaseDTO(BaseModel):
     id: int
     status: str
     owner: Optional[ContactOwnerDTO] = None
+    effective_owner: Optional[ContactOwnerDTO] = None
+    substitution: Optional[dict] = None
     due_at: Optional[datetime] = None
     callback_at: Optional[datetime] = None
     attempts_in_cycle: int
@@ -349,6 +357,8 @@ async def _load_case_dtos(
     case_ids = [case.id for case in cases]
     candidate_ids = [case.candidate_id for case in cases]
     owner_ids = {case.owner_user_id for case in cases if case.owner_user_id is not None}
+    context = await workforce_context(db)
+    owner_ids.update(context.performer(owner_id) for owner_id in list(owner_ids))
     candidates = {
         row.id: row
         for row in (
@@ -392,7 +402,11 @@ async def _load_case_dtos(
         )
     )
     if not oversight:
-        owner_case_ids = {case.id for case in cases if case.owner_user_id == viewer.id}
+        owner_case_ids = {
+            case.id
+            for case in cases
+            if case.owner_user_id in operational_owner_ids(viewer)
+        }
         visible_opportunities = job_scope_clause(
             viewer, CandidateContactOpportunity.job_id
         )
@@ -436,6 +450,14 @@ async def _load_case_dtos(
         if candidate is None:
             continue
         owner = owners.get(case.owner_user_id)
+        delegation = (
+            context.delegations.get(case.owner_user_id)
+            if case.state in _OWNER_QUEUE_STATES
+            else None
+        )
+        performer = owners.get(
+            delegation.performer_id if delegation else case.owner_user_id
+        )
         output.append(
             ContactCaseDTO(
                 id=case.id,
@@ -445,6 +467,10 @@ async def _load_case_dtos(
                     if owner is not None
                     else None
                 ),
+                effective_owner=ContactOwnerDTO(id=performer.id, name=performer.name)
+                if performer
+                else None,
+                substitution=delegation.as_payload() if delegation else None,
                 due_at=case.due_at,
                 callback_at=case.due_at if case.state == "callback_due" else None,
                 attempts_in_cycle=case.attempt_count,
@@ -535,7 +561,7 @@ async def get_my_contact_queue(
     query = (
         select(CandidateContactCase)
         .where(
-            CandidateContactCase.owner_user_id == current_user.id,
+            operational_owner_clause(CandidateContactCase.owner_user_id, current_user),
             CandidateContactCase.state.in_(_OWNER_QUEUE_STATES),
             _accessible_case_clause(current_user),
         )
@@ -568,14 +594,17 @@ async def get_my_contact_queue(
     items = await _load_case_dtos(db, page, viewer=current_user)
     used = await db.scalar(
         select(func.count(CandidateContactCase.id)).where(
-            CandidateContactCase.owner_user_id == current_user.id,
+            operational_owner_clause(CandidateContactCase.owner_user_id, current_user),
             CandidateContactCase.state.in_(_ACTIONABLE_STATES),
             CandidateContactCase.queue_slot.is_not(None),
         )
     )
     return ContactQueueResponseDTO(
         items=items,
-        utilization=ContactQueueUtilizationDTO(used=int(used or 0)),
+        utilization=ContactQueueUtilizationDTO(
+            used=int(used or 0),
+            capacity=_CAPACITY * len(operational_owner_ids(current_user)),
+        ),
         next_cursor=_encode_cursor(page[-1]) if has_more and page else None,
     )
 
@@ -722,7 +751,7 @@ async def get_contact_oversight(
 async def _caller_may_act_on_case(
     db: AsyncSession, *, case: CandidateContactCase, user: User
 ) -> None:
-    if case.owner_user_id != user.id:
+    if await effective_owner_id(db, case.owner_user_id) != user.id:
         raise HTTPException(
             status_code=403,
             detail="Only the current contact owner may log an attempt",

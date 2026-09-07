@@ -617,3 +617,10 @@ from app.models.analytics_snapshot import (  # noqa: F401
     AnalyticsCutover,
     AnalyticsMetricSnapshot,
 )
+
+from app.models.recruitment_allocation import (  # noqa: F401
+    WorkforceAvailabilityState,
+    RecruitmentAllocationState,
+    RecruitmentAllocationRequest,
+    RecruitmentAllocationEvent,
+)

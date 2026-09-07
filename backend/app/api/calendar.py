@@ -26,6 +26,8 @@ from app.models.job import Job
 from app.models.client import Client
 from app.models.notification import Notification, NotificationType
 from app.services.notification_access import notification_recipient_has_access
+from app.services.operational_tasks import nominal_task_owner, ownership_payload
+from app.services.workforce_availability import effective_owner_ids, effective_owner_id
 from app.models.user import User, UserRole
 from app.api.recruitment_access import (
     CalendarWriteAccess,
@@ -97,7 +99,9 @@ async def _owns_open_contact_opportunity(
             CandidateContactOpportunity.candidate_id == candidate_id,
             CandidateContactOpportunity.job_id == job_id,
             CandidateContactOpportunity.closed_at.is_(None),
-            CandidateContactCase.owner_user_id == user_id,
+            CandidateContactCase.owner_user_id.in_(
+                await effective_owner_ids(db, user_id)
+            ),
         )
         .limit(1)
     )
@@ -178,6 +182,9 @@ class CalendarEventResponse(BaseModel):
     online_meeting_url: Optional[str] = None
     recording_url: Optional[str] = None
     created_by: Optional[int]
+    owner_user_id: Optional[int] = None
+    effective_user_id: Optional[int] = None
+    substitution: Optional[dict] = None
     reminder_minutes: int
     status: str
     created_at: Optional[datetime]
@@ -334,6 +341,12 @@ async def create_event(
         location=body.location,
         teams_link=body.teams_link,
         created_by=current_user.id,
+        operational_owner_id=await nominal_task_owner(
+            db,
+            actor_id=current_user.id,
+            job_id=body.job_id,
+            candidate_id=body.candidate_id,
+        ),
         reminder_minutes=body.reminder_minutes,
         status=EventStatus.scheduled,
     )
@@ -397,6 +410,11 @@ async def create_event(
         online_meeting_url=event.online_meeting_url,
         recording_url=event.recording_url,
         created_by=event.created_by,
+        **await ownership_payload(
+            db,
+            event.operational_owner_id or event.created_by,
+            open_task=event.status == EventStatus.scheduled,
+        ),
         reminder_minutes=event.reminder_minutes,
         status=event.status.value,
         created_at=event.created_at,
@@ -461,6 +479,11 @@ async def get_event(
         online_meeting_url=event.online_meeting_url,
         recording_url=event.recording_url,
         created_by=event.created_by,
+        **await ownership_payload(
+            db,
+            event.operational_owner_id or event.created_by,
+            open_task=event.status == EventStatus.scheduled,
+        ),
         reminder_minutes=event.reminder_minutes,
         status=event.status.value,
         created_at=event.created_at,
@@ -588,6 +611,11 @@ async def update_event(
         online_meeting_url=event.online_meeting_url,
         recording_url=event.recording_url,
         created_by=event.created_by,
+        **await ownership_payload(
+            db,
+            event.operational_owner_id or event.created_by,
+            open_task=event.status == EventStatus.scheduled,
+        ),
         reminder_minutes=event.reminder_minutes,
         status=event.status.value,
         created_at=event.created_at,
@@ -718,7 +746,9 @@ async def list_conflicts(
     )
 
     conditions = [
-        CalendarEvent.created_by == scope_user_id,
+        func.coalesce(CalendarEvent.operational_owner_id, CalendarEvent.created_by).in_(
+            await effective_owner_ids(db, scope_user_id)
+        ),
         CalendarEvent.status != EventStatus.cancelled,
         CalendarEvent.start_time < end,
         effective_end > start,
@@ -799,7 +829,9 @@ async def conflicts_summary(
                 CalendarEvent.end_time,
             )
             .where(
-                CalendarEvent.created_by == scope_user_id,
+                func.coalesce(
+                    CalendarEvent.operational_owner_id, CalendarEvent.created_by
+                ).in_(await effective_owner_ids(db, scope_user_id)),
                 CalendarEvent.status != EventStatus.cancelled,
                 CalendarEvent.start_time < end,
                 func.coalesce(
@@ -950,6 +982,9 @@ async def create_m365_invite(
         with_teams_meeting=body.add_teams_meeting,
     )
     row.job_id = body.job_id
+    row.operational_owner_id = await nominal_task_owner(
+        db, actor_id=current_user.id, job_id=body.job_id, candidate_id=body.candidate_id
+    )
     await db.flush()
     if _is_contact_handoff_event(row):
         await maybe_sync_calendar_handoff(
@@ -984,6 +1019,11 @@ async def create_m365_invite(
         online_meeting_url=row.online_meeting_url,
         recording_url=row.recording_url,
         created_by=row.created_by,
+        **await ownership_payload(
+            db,
+            row.operational_owner_id or row.created_by,
+            open_task=row.status == EventStatus.scheduled,
+        ),
         reminder_minutes=row.reminder_minutes,
         status=row.status.value if row.status else "scheduled",
         created_at=row.created_at,
@@ -1025,7 +1065,10 @@ async def _dispatch_reminder(event_id: int) -> None:
             return
 
         now = datetime.now(timezone.utc)
-        if not event.created_by:
+        recipient_id = await effective_owner_id(
+            db, event.operational_owner_id or event.created_by
+        )
+        if not recipient_id:
             # Nothing to notify, but stamp so we don't re-examine it every tick.
             event.reminder_sent_at = now
             await db.commit()
@@ -1033,7 +1076,7 @@ async def _dispatch_reminder(event_id: int) -> None:
 
         if not await notification_recipient_has_access(
             db,
-            event.created_by,
+            recipient_id,
             NotificationType.interview_scheduled,
             related_entity_type="calendar_event",
             link="/calendar",
@@ -1045,7 +1088,7 @@ async def _dispatch_reminder(event_id: int) -> None:
             return
 
         notif = Notification(
-            user_id=event.created_by,
+            user_id=recipient_id,
             title="Przypomnienie o wydarzeniu",
             message=f"Za 15 minut: {event.title}",
             link="/calendar",
@@ -1057,7 +1100,7 @@ async def _dispatch_reminder(event_id: int) -> None:
 
         # Capture scalars (session uses expire_on_commit=False, so these stay
         # populated) for the post-commit WS push.
-        user_id = event.created_by
+        user_id = recipient_id
         payload = {
             "id": notif.id,
             "title": notif.title,

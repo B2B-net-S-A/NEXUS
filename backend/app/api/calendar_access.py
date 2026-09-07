@@ -36,12 +36,13 @@ from __future__ import annotations
 
 from typing import Any, Iterator, Optional
 
-from sqlalchemy import ColumnElement, or_, text, true
+from sqlalchemy import ColumnElement, and_, func, or_, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
-from app.models.calendar_event import CalendarEvent
+from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.user import User, UserRole
+from app.services.workforce_availability import operational_owner_ids
 
 # Roles that can mutate every event regardless of ownership.
 CALENDAR_OVERRIDE_ROLES: tuple[UserRole, ...] = (
@@ -93,7 +94,18 @@ def user_is_read_override(user: User) -> bool:
 
 
 def user_owns_event(event: CalendarEvent, user: User) -> bool:
-    return event.created_by is not None and event.created_by == user.id
+    owner = getattr(event, "operational_owner_id", None) or event.created_by
+    if event.status == EventStatus.scheduled:
+        return owner in operational_owner_ids(user)
+    return owner == user.id or event.created_by == user.id
+
+
+def operational_event_filter(user: User) -> ColumnElement[bool]:
+    owner = func.coalesce(CalendarEvent.operational_owner_id, CalendarEvent.created_by)
+    return and_(
+        CalendarEvent.status == EventStatus.scheduled,
+        owner.in_(operational_owner_ids(user)),
+    )
 
 
 def user_can_view_event(event: CalendarEvent, user: User) -> bool:
@@ -148,7 +160,11 @@ def personal_event_visibility_filter(user: User) -> ColumnElement[bool]:
     attendee_clause = text(_ATTENDEE_MATCH_SQL).bindparams(
         cal_scope_email=(user.email or "")
     )
-    return or_(CalendarEvent.created_by == user.id, attendee_clause)
+    return or_(
+        CalendarEvent.created_by == user.id,
+        attendee_clause,
+        operational_event_filter(user),
+    )
 
 
 # ── Participant projection ────────────────────────────────────────────────────

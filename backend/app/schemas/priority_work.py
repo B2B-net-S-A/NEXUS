@@ -20,6 +20,8 @@ from app.models.recruitment_priority import (
     PriorityOriginKind,
     PriorityPlanStatus,
     PriorityRank,
+    assignment_position,
+    legacy_priority_rank,
 )
 
 MAX_BLOCKER_EVIDENCE_BYTES = 16 * 1024
@@ -93,7 +95,8 @@ class PriorityDemandRead(PrioritySchema):
 class PriorityAssignmentInput(BaseModel):
     demand_id: int = Field(gt=0)
     job_id: int = Field(gt=0)
-    rank: PriorityRank
+    rank: Optional[PriorityRank] = None
+    position: Optional[int] = Field(default=None, gt=0)
     channel: PriorityChannel
     verification_target: int = Field(default=0, ge=0)
     recommendation_target: int = Field(default=0, ge=0)
@@ -105,10 +108,13 @@ class PriorityAssignmentInput(BaseModel):
 
     @model_validator(mode="after")
     def validate_reasons(self) -> "PriorityAssignmentInput":
-        if self.rank in {PriorityRank.D, PriorityRank.E} and not (
-            self.extra_slot_reason and self.extra_slot_reason.strip()
-        ):
-            raise ValueError("Ranks D and E require extra_slot_reason")
+        if self.rank is None and self.position is None:
+            raise ValueError("Assignment requires position or legacy rank")
+        position = assignment_position(self)
+        if self.rank is not None and self.rank != legacy_priority_rank(position):
+            raise ValueError("Position and legacy rank disagree")
+        self.position = position
+        self.rank = legacy_priority_rank(position)
         if not self.competence_matches and not (
             self.cc_exception_reason and self.cc_exception_reason.strip()
         ):
@@ -123,7 +129,8 @@ class PriorityAssignmentRead(PrioritySchema):
     plan_member_id: int
     demand_id: int
     job_id: int
-    rank: PriorityRank
+    rank: Optional[PriorityRank]
+    position: int
     channel: PriorityChannel
     verification_target: int
     recommendation_target: int
@@ -160,13 +167,9 @@ class PriorityPlanMemberInput(BaseModel):
             return self
 
         assignment_count = len(self.assignments)
-        if assignment_count > 5:
-            raise ValueError("A member cannot have more than 5 assignments")
-
-        actual_ranks = [assignment.rank for assignment in self.assignments]
-        expected_ranks = list(PriorityRank)[:assignment_count]
-        if sorted(actual_ranks, key=lambda rank: rank.value) != expected_ranks:
-            raise ValueError("Assignment ranks must be unique and contiguous from A")
+        positions = [assignment_position(item) for item in self.assignments]
+        if len(set(positions)) != assignment_count:
+            raise ValueError("Assignment positions must be unique")
 
         job_ids = {assignment.job_id for assignment in self.assignments}
         if len(job_ids) != assignment_count:

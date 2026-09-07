@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.recruitment_priority import (
+    assignment_position,
     PriorityBlockerStatus,
     PriorityChannel,
     PriorityExceptionStatus,
@@ -45,9 +46,12 @@ from app.models.recruitment_priority import (
     RecruitmentPriorityUserMode,
 )
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
+from app.models.job import Job
+from app.services.workforce_availability import effective_owner_ids
 
 
 class PriorityWorkReason(str, enum.Enum):
+    sourcing_paused = "SOURCING_PAUSED"
     continuation = "CONTINUATION"
     mode_off = "MODE_OFF"
     assigned = "ACTIVE_ASSIGNMENT"
@@ -95,6 +99,7 @@ class PriorityWorkLocked(HTTPException):
         job_id: int,
     ) -> None:
         message_by_reason = {
+            PriorityWorkReason.sourcing_paused: "Poszukiwania są wstrzymane. Nadal obsługuj rozpoczęte procesy.",
             PriorityWorkReason.job_not_assigned: (
                 "Nie możesz dodać nowej osoby do tego requestu, ponieważ nie "
                 "jest on w Twoim aktywnym planie pracy."
@@ -263,10 +268,13 @@ async def _current_assignment(
             .where(
                 RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
                 RecruitmentPriorityPlan.effective_from <= now,
-                RecruitmentPriorityPlanMember.user_id == user_id,
+                RecruitmentPriorityPlanMember.user_id.in_(
+                    await effective_owner_ids(db, user_id)
+                ),
                 RecruitmentPriorityAssignment.job_id == job_id,
             )
             .order_by(
+                (RecruitmentPriorityPlanMember.user_id == user_id).desc(),
                 RecruitmentPriorityPlan.version.desc(),
                 RecruitmentPriorityAssignment.id.desc(),
             )
@@ -398,7 +406,7 @@ async def _higher_rank_is_behind(
     assignment: RecruitmentPriorityAssignment,
     member: RecruitmentPriorityPlanMember,
 ) -> bool:
-    current_rank = _RANK_ORDER[getattr(assignment.rank, "value", assignment.rank)]
+    current_rank = assignment_position(assignment)
     siblings = (
         (
             await db.execute(
@@ -410,10 +418,23 @@ async def _higher_rank_is_behind(
         .scalars()
         .all()
     )
+    paused_jobs = set()
+    if settings.RECRUITMENT_ALLOCATION_ENABLED:
+        paused_jobs = set(
+            (
+                await db.scalars(
+                    select(Job.id).where(
+                        Job.id.in_([row.job_id for row in siblings]),
+                        Job.needs_sourcing.is_(False),
+                    )
+                )
+            ).all()
+        )
     higher_assignments = []
     for higher in siblings:
-        rank_value = getattr(higher.rank, "value", higher.rank)
-        if _RANK_ORDER[str(rank_value)] >= current_rank:
+        if (paused_jobs and higher.job_id in paused_jobs) or assignment_position(
+            higher
+        ) >= current_rank:
             continue
         higher_assignments.append(higher)
     if not higher_assignments:
@@ -667,6 +688,18 @@ async def decide_priority_work_access(
             kpi_eligible=None,
             priority_compliant=assignment_is_active,
         )
+
+    if settings.RECRUITMENT_ALLOCATION_ENABLED:
+        searching = await db.scalar(select(Job.needs_sourcing).where(Job.id == job_id))
+        if searching is False:
+            return PriorityWorkDecision(
+                allowed=False,
+                mode=mode,
+                reason=PriorityWorkReason.sourcing_paused,
+                is_continuation=False,
+                kpi_eligible=False,
+                priority_compliant=False,
+            )
 
     if mode is PriorityMode.off:
         return PriorityWorkDecision(

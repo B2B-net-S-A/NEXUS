@@ -1,5 +1,7 @@
 "use client"
 
+import { priorityPosition } from "@/lib/priority-work-api"
+
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -380,7 +382,7 @@ function DemandCard({
             <div className="mt-2 space-y-2">
               {assignments
                 .slice()
-                .sort((left, right) => left.rank.localeCompare(right.rank))
+                .sort((left, right) => priorityPosition(left) - priorityPosition(right))
                 .map((assignment) => {
                   const blockers =
                     assignment.blockers ??
@@ -391,7 +393,7 @@ function DemandCard({
                       className="rounded-lg border border-border bg-muted/30 p-3"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <RankBadge rank={assignment.rank} />
+                        <RankBadge rank={assignment.rank} position={assignment.position} />
                         <span className="font-medium text-foreground">
                           {assignment.user_name ??
                             `Osoba #${assignment.user_id ?? "—"}`}

@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
+from app.services.workforce_availability import effective_owner_ids
+from app.services.operational_tasks import ownership_payload
 from app.models.candidate import Candidate
 from app.models.cc_feedback import JobSecondaryCc
 from app.models.client import Client
@@ -32,6 +34,8 @@ from app.models.recruitment_priority import (
     PriorityMemberStatus,
     PriorityPlanStatus,
     PriorityRank,
+    assignment_position,
+    legacy_priority_rank,
     RecruitmentPriorityAssignment,
     RecruitmentPriorityAuditEvent,
     RecruitmentPriorityBlocker,
@@ -379,6 +383,7 @@ async def create_draft_plan(
                         demand_id=old_assignment.demand_id,
                         job_id=old_assignment.job_id,
                         rank=old_assignment.rank,
+                        position=assignment_position(old_assignment),
                         channel=old_assignment.channel,
                         verification_target=old_assignment.verification_target,
                         recommendation_target=old_assignment.recommendation_target,
@@ -469,19 +474,9 @@ async def _validate_member_inputs(
             continue
 
         assignments = list(member.assignments)
-        if len(assignments) > 5 or (for_publish and len(assignments) < 3):
-            raise HTTPException(
-                422,
-                (
-                    "Aktywny członek musi mieć 3–5 assignmentów"
-                    if for_publish
-                    else "Draft może mieć maksymalnie 5 assignmentów na osobę"
-                ),
-            )
-        expected_ranks = list(PriorityRank)[: len(assignments)]
-        actual_ranks = sorted((item.rank for item in assignments), key=RANK_ORDER.get)
-        if actual_ranks != expected_ranks:
-            raise HTTPException(422, "Ranki muszą być unikalne i ciągłe od A")
+        positions = [assignment_position(item) for item in assignments]
+        if len(set(positions)) != len(positions):
+            raise HTTPException(422, "Pozycje muszą być unikalne")
         if assignments and any(
             item.verification_target <= 0 or item.recommendation_target <= 0
             for item in assignments
@@ -585,10 +580,6 @@ async def _validate_member_inputs(
                     422,
                     f"Brak dopasowania CC dla {user.name} / job #{job.id} wymaga uzasadnienia",
                 )
-            if assignment.rank in {PriorityRank.D, PriorityRank.E} and not (
-                assignment.extra_slot_reason and assignment.extra_slot_reason.strip()
-            ):
-                raise HTTPException(422, "Slot D/E wymaga uzasadnienia HoR")
         validated.append((member, user, jobs, user_ccs, job_ccs))
     return validated
 
@@ -638,6 +629,7 @@ async def replace_draft_members(
                     demand_id=item.demand_id,
                     job_id=item.job_id,
                     rank=item.rank,
+                    position=assignment_position(item),
                     channel=item.channel,
                     verification_target=item.verification_target,
                     recommendation_target=item.recommendation_target,
@@ -686,6 +678,7 @@ async def _validate_persisted_plan(
                     "demand_id": assignment.demand_id,
                     "job_id": assignment.job_id,
                     "rank": assignment.rank,
+                    "position": assignment_position(assignment),
                     "channel": assignment.channel,
                     "verification_target": assignment.verification_target,
                     "recommendation_target": assignment.recommendation_target,
@@ -881,12 +874,18 @@ def assignment_gate_states(
     member: RecruitmentPriorityPlanMember,
     progress: dict[int, dict[str, int]],
     blockers: dict[int, list[RecruitmentPriorityBlocker]],
+    *,
+    paused_job_ids: set[int] | None = None,
 ) -> dict[int, str]:
     if member.status == PriorityMemberStatus.paused:
         return {assignment.id: "blocked" for assignment in member.assignments}
-    ordered = sorted(member.assignments, key=lambda item: RANK_ORDER[item.rank])
+    paused_job_ids = paused_job_ids or set()
+    ordered = sorted(member.assignments, key=assignment_position)
     states: dict[int, str] = {}
     for assignment in ordered:
+        if paused_job_ids and assignment.job_id in paused_job_ids:
+            states[assignment.id] = "sourcing_paused"
+            continue
         current = progress.get(
             assignment.id, {"verifications": 0, "recommendations": 0}
         )
@@ -898,8 +897,10 @@ def assignment_gate_states(
         higher_behind = False
         if own_target_reached:
             for higher in ordered:
-                if RANK_ORDER[higher.rank] >= RANK_ORDER[assignment.rank]:
+                if assignment_position(higher) >= assignment_position(assignment):
                     break
+                if paused_job_ids and higher.job_id in paused_job_ids:
+                    continue
                 higher_progress = progress.get(
                     higher.id, {"verifications": 0, "recommendations": 0}
                 )
@@ -941,7 +942,11 @@ async def carry_over_rows(
             )
         )
     elif owner_user_id is not None:
-        conditions.append(RecruitmentProcess.owner_user_id == owner_user_id)
+        conditions.append(
+            RecruitmentProcess.owner_user_id.in_(
+                await effective_owner_ids(db, owner_user_id)
+            )
+        )
     if job_id is not None:
         conditions.append(RecruitmentProcess.job_id == job_id)
     rows = (
@@ -1001,7 +1006,7 @@ async def carry_over_rows(
                     "client_name": client_name,
                 },
                 "current_stage": stage,
-                "owner_user_id": process.owner_user_id,
+                **await ownership_payload(db, process.owner_user_id),
                 "owner_name": owner_name,
                 "owner_active": bool(owner_active),
                 "ownership_action_required": not bool(owner_active),
@@ -1030,11 +1035,9 @@ async def carry_over_rows(
 # wykonaną pracę. Dlatego plan przestaje być wersjonowanym dokumentem i staje
 # się stałą listą, do której DL dopisuje przypisania sam.
 #
-# Zachowany zostaje sufit 5 na osobę — wymuszony przez bazę
-# (`UNIQUE (plan_member_id, rank)` + pięciowartościowy enum rang). To jest
-# świadomie zostawiony limit WIP, tyle że egzekwowany w MOMENCIE PRZYPISANIA
-# (DL od razu widzi „ta osoba ma komplet"), a nie w momencie pracy (rekruter
-# dostaje 409 w połowie zadania).
+# Roster używa liczbowych pozycji bez limitu przydziałów. Rangi A–E są tylko
+# aliasami pierwszych pięciu pozycji; automat porównuje rzeczywistą pracę
+# członka rosteru, łącznie z przejętymi obowiązkami.
 
 
 async def ensure_standing_plan(
@@ -1116,17 +1119,22 @@ async def ensure_plan_member(
     return member
 
 
-async def next_free_rank(db: AsyncSession, *, member_id: int) -> Optional[PriorityRank]:
-    """Najniższa wolna ranga A–E dla członka, albo None gdy komplet."""
+async def next_free_position(db: AsyncSession, *, member_id: int) -> int:
     taken = set(
         (
-            await db.execute(
-                select(RecruitmentPriorityAssignment.rank).where(
+            await db.scalars(
+                select(RecruitmentPriorityAssignment.position).where(
                     RecruitmentPriorityAssignment.plan_member_id == member_id
                 )
             )
-        )
-        .scalars()
-        .all()
+        ).all()
     )
-    return next((rank for rank in PriorityRank if rank not in taken), None)
+    position = 1
+    while position in taken:
+        position += 1
+    return position
+
+
+async def next_free_rank(db: AsyncSession, *, member_id: int) -> Optional[PriorityRank]:
+    """Compatibility helper; allocation itself has no five-position ceiling."""
+    return legacy_priority_rank(await next_free_position(db, member_id=member_id))

@@ -1,0 +1,35 @@
+name: Configure COMPASS availability
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "export configures the connection; consumer enables the NEXUS shadow rollout"
+        type: choice
+        options: [export, consumer]
+        default: export
+      dry_run:
+        description: "Show the exact setting names without changing configuration"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nexus-availability-setup
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Configure the existing Coolify applications
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          AVAILABILITY_STAGE: ${{ inputs.stage }}
+          AVAILABILITY_DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/configure-compass-availability.py
