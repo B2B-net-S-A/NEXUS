@@ -23,10 +23,14 @@ interface Props {
  * recruiter, sourcer, tac i `user` dostawali 403 na otwartej pod D7 stronie.
  * Guard powierzchni legacy zostaje nietknięty.
  *
- * Znika też cała gimnastyka `legacyPeriodFor` z `ZarzadPanel`: tamten endpoint
- * nie znał granulacji rocznej ani przesunięcia okna, więc panel musiał
- * ostrzegać `Degraded`em, że pokazuje BIEŻĄCY okres pod cudzą etykietą. Ten
- * przyjmuje to samo okno co reszta strony.
+ * Znika też cała gimnastyka `legacyPeriodFor` z dawnego panelu Zarządu (dziś
+ * `RadaNadzorczaPanel`): tamten endpoint nie znał granulacji rocznej ani
+ * przesunięcia okna, więc panel musiał ostrzegać `Degraded`em, że pokazuje
+ * BIEŻĄCY okres pod cudzą etykietą. Ten przyjmuje to samo okno co reszta
+ * strony.
+ *
+ * Sekcja mieszka w zakładce REKRUTACJA (sekcja „Źródła"), nie w Radzie:
+ * „skąd przyszli kandydaci" to ta sama rozmowa co lejek źródeł obok.
  */
 export function InsightsInviteLinks({ period }: Props) {
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
