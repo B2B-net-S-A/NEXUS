@@ -475,6 +475,112 @@ def _required_skills_with_source(job: Job) -> tuple[list[str], str]:
     return _parse_required_skills(job), "requirements_text"
 
 
+async def _shared_engine_matches(
+    db: AsyncSession,
+    *,
+    job: Job,
+    ordered: list[Candidate],
+    similarity_map: dict[int, float],
+    semantic_unknown_ids: set[int],
+    current_user,
+    required_skills: list[str],
+    nice_skills: list[str],
+    rubric_inputs,
+    elig_annotations: dict[int, dict],
+    query_text: str,
+) -> tuple[list[dict], bool]:
+    """Policz wiersze `/ai-matches` KOMPOZYTEM 0–100, nie surowym kosinusem.
+
+    Zwraca ``(matches, reranked)`` — wiersze posortowane malejąco po kompozycie,
+    z ``match_score`` przeliczonym na skalę 0–1 (``total / 100``).
+
+    DLACZEGO to w ogóle istnieje: zakładka rekrutacji renderuje dwie listy
+    („Ranking" z `/recommendations` i „Shortlista" z `/ai-matches`) opisane tym
+    samym słowem „dopasowanie", a liczone dwoma różnymi silnikami — jedna
+    kompozytem ważonym profilem (60 pkt semantyki + umiejętności + lokalizacja
+    + dostępność + sygnały Championa), druga surowym kosinusem z Qdranta.
+    Kolejność potrafiła się różnić na tych samych danych, bez żadnego sygnału
+    dla rekrutera, że ogląda dwie różne miary.
+
+    Ta funkcja NIE zmienia kontraktu odpowiedzi: `match_score` zostaje na skali
+    0–1, bo czytają go `MatchScoreBar` (×100), parametr `min_score` (ge=0, le=1)
+    i zamrożony `JobShortlist.score_snapshot`. Zmienia się to, CO ta liczba
+    znaczy — i dlatego siedzi za flagą do czasu A/B.
+
+    Zapisu do cache'u nie ma, gdy któremuś kandydatowi nie zmierzono kosinusu
+    (M3-CACHE-01): kompozyt z neutralną warstwą semantyczną nie może przeżyć
+    awarii dostawcy jako wynik „świeży".
+    """
+
+    from app.api.recommendations import (
+        _apply_historical_boost,
+        _score_breakdown_payload,
+    )
+    from app.analytics.capabilities import AnalyticsCapability, user_has_capability
+    from app.services.match_score_cache import bulk_get_or_compute
+    from app.services.scoring_service import resolve_active_profile
+    from app.services.similar_job_candidates import fetch_historical_boost_map
+
+    profile = await resolve_active_profile(
+        db, user_id=current_user.id, client_id=job.client_id
+    )
+    breakdowns = await bulk_get_or_compute(
+        job,
+        ordered,
+        db,
+        similarity_map=similarity_map,
+        profile=profile,
+        allow_cache_write=not semantic_unknown_ids,
+        semantic_unavailable_ids=semantic_unknown_ids,
+    )
+
+    # Boost historyczny liczony świeżo per request — jak w `/recommendations`;
+    # stan pipeline'u zmienia się za często, żeby dało się go unieważniać
+    # w cache'u score'ów.
+    try:
+        boost_map = await fetch_historical_boost_map(db, job.id)
+    except Exception as e:  # pragma: no cover — best-effort
+        logger.warning("[AIMatch] historical_boost job=%s: %s", job.id, e)
+        boost_map = {}
+    _apply_historical_boost(breakdowns, boost_map)
+
+    by_id = {c.id: c for c in ordered}
+    scored = [(b, by_id[b.candidate_id]) for b in breakdowns if b.candidate_id in by_id]
+
+    reranked = False
+    top_n = int(getattr(settings, "AI_MATCHES_RERANK_TOP_N", 0) or 0)
+    if top_n > 0 and len(scored) > 1:
+        from app.services.embedding_service import _build_candidate_text
+
+        head, tail = scored[:top_n], scored[top_n:]
+        docs = [_build_candidate_text(c)[:4000] for _, c in head]
+        pairs = await rerank_or_passthrough(query_text, docs, top_k=len(docs))
+        if pairs and any(score != 1.0 for _, score in pairs):
+            # Rerank przestawia KOLEJNOŚĆ czołówki; `match_score` zostaje
+            # kompozytem, bo wynik rerankera żyje na innej skali niż próg.
+            head = [head[idx] for idx, _ in pairs]
+            scored = head + tail
+            reranked = True
+
+    include_finance = user_has_capability(
+        current_user, AnalyticsCapability.VIEW_FINANCE
+    )
+    matches: list[dict] = []
+    for b, c in scored:
+        m = _build_match_info(
+            c,
+            required_skills,
+            nice_skills=nice_skills,
+            score=round(b.total / 100.0, 4),
+            inputs=rubric_inputs,
+        )
+        m["eligibility"] = elig_annotations.get(c.id)
+        m["total_score"] = round(b.total, 1)
+        m["breakdown"] = _score_breakdown_payload(b, include_finance=include_finance)
+        matches.append(m)
+    return matches, reranked
+
+
 @router.get("/jobs/{job_id}/ai-matches")
 async def get_ai_matches(
     job_id: int,
@@ -507,12 +613,28 @@ async def get_ai_matches(
                    job's own ``location`` when omitted. Empty when neither is
                    set → no location filter (legacy behaviour preserved).
     """
-    threshold = min_score if min_score is not None else settings.AI_MATCH_MIN_SCORE
+    shared_engine = bool(getattr(settings, "AI_MATCHES_SHARED_ENGINE", False))
     max_results = limit if limit is not None else settings.MATCH_MAX_RESULTS
+    # Próg mieszka na skali WYNIKU, a wynik zmienia znaczenie razem z silnikiem.
+    # Pod wspólnym silnikiem `match_score` to kompozyt/100, więc domyślną
+    # podłogą jest ta sama `RECOMMENDATION_MIN_SCORE`, którą stosuje bliźniacza
+    # lista na tej samej zakładce; jawny `min_score` (0–1) nadal obowiązuje
+    # i jest po prostu przeliczany. Bez tego domyślne 0.5 odsiałoby kompozyty
+    # poniżej 50/100 — czyli WIĘKSZOŚĆ realnych dopasowań.
+    if shared_engine:
+        threshold = (
+            min_score
+            if min_score is not None
+            else settings.RECOMMENDATION_MIN_SCORE / 100.0
+        )
+    else:
+        threshold = min_score if min_score is not None else settings.AI_MATCH_MIN_SCORE
     # Retrieval/rerank pool is independent of the result cap: it bounds how many
     # candidates the (cost-bearing) reranker scores, while max_results bounds the
     # payload. Results are therefore effectively capped at the smaller of the two.
-    pool_size = settings.AI_MATCH_POOL_SIZE
+    pool_size = (
+        settings.MATCH_POOL_SIZE if shared_engine else settings.AI_MATCH_POOL_SIZE
+    )
 
     # Fetch job
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -548,11 +670,21 @@ async def get_ai_matches(
     # kodu, nie degradacja providera — 500 jest tu poprawną odpowiedzią, a
     # trzymanie go pod `try` zostawiało `_build_candidate_text` „possibly
     # unbound" dla każdego, kto puści tu mypy.
+    from app.services.canonical_text import build_job_query_variants
     from app.services.embedding_service import (
         _build_candidate_text,
         SemanticSearchUnavailable,
-        search_candidates_semantic,
     )
+    from app.services.hybrid_search import build_job_bm25_query, build_job_must_groups
+    from app.services.retrieval_pool import retrieve_candidate_pool
+
+    if shared_engine:
+        # Ten sam dokument zapytania, którym pulę pobiera pozostałych pięć
+        # powierzchni. Inny tekst = inna pula = „wspólny silnik", który i tak
+        # ogląda innych ludzi niż lista obok.
+        from app.services.embedding_service import _build_job_text
+
+        query_text = _build_job_text(job)
 
     # Pull a wide pool so "show all who match" isn't artificially capped by
     # retrieval. The threshold filter below — not a fixed top-K — decides
@@ -580,8 +712,25 @@ async def get_ai_matches(
     hits: list = []
     semantic_unavailable = False
     try:
-        hits = await search_candidates_semantic(
-            query_text, top_k=effective_pool, raise_on_error=True
+        # Pula przez FASADĘ, nie przez `search_candidates_semantic` wprost.
+        # Do 09.2026 ta powierzchnia — jedyna, którą rekruter naprawdę oglada
+        # na stronie rekrutacji — była JEDYNĄ z sześciu poza fasadą, więc każda
+        # dźwignia retrievalu (hybryda, multi-query, pula SQL-first po must-have)
+        # działała wszędzie indziej, tylko nie tutaj. Objaw byłby cichy: A/B na
+        # zamrożonym zbiorze ofert pokazywałby wpływ strategii, a ekran
+        # produktu i tak jechałby na starej puli.
+        #
+        # Przy flagach OFF fasada deleguje do `search_candidates_semantic`
+        # wywołanie za wywołanie (`retrieval_pool.py`), więc ten commit sam
+        # w sobie nie zmienia odpowiedzi.
+        hits = await retrieve_candidate_pool(
+            db,
+            query_text,
+            top_k=effective_pool,
+            raise_on_error=True,
+            query_variants=build_job_query_variants(job, query_text),
+            bm25_query=build_job_bm25_query(job),
+            must_groups=build_job_must_groups(job),
         )
     except SemanticSearchUnavailable as e:
         semantic_unavailable = True
@@ -593,6 +742,29 @@ async def get_ai_matches(
         logger.warning(
             f"[AIMatch] Qdrant search failed for job {job_id}: {e} — falling back to tag-based"
         )
+
+    # Wiersze, dla których kosinusu NIE zmierzono (`semantic_unknown` — padła
+    # dosypka po udanym BM25 albo kandydat nie ma wektora), niosą `score` 0.0.
+    # To jest „nie wiem", nie „zmierzono zero", a ta gałąź porównuje
+    # `match_score` WPROST z progiem — zostawione, weszłyby do odpowiedzi jako
+    # najsłabsze dopasowania puli, czyli awaria dostawcy podszyłaby się pod
+    # zmierzony brak dopasowania. Odrzucamy je i mówimy to w logu.
+    semantic_unknown_ids = {
+        h["candidate_id"] for h in hits if h.get("semantic_unknown")
+    }
+    if semantic_unknown_ids:
+        logger.warning(
+            "[AIMatch] job %s: %s wierszy bez zmierzonego kosinusu",
+            job_id,
+            len(semantic_unknown_ids),
+        )
+        if not shared_engine:
+            # Stara ścieżka porównuje kosinus WPROST z progiem, więc 0.0 jako
+            # „nie wiem" udawałoby zmierzony brak dopasowania. Wspólny silnik
+            # takich wierszy nie odrzuca: `bulk_get_or_compute` zna stan „brak
+            # pomiaru" (`semantic_unavailable_ids`) i liczy warstwę semantyczną
+            # neutralnie zamiast obwiniać profil kandydata.
+            hits = [h for h in hits if h["candidate_id"] not in semantic_unknown_ids]
 
     if hits:
         candidate_ids = [h["candidate_id"] for h in hits]
@@ -627,6 +799,59 @@ async def get_ai_matches(
         )
 
         search_type = "semantic"
+
+        if shared_engine:
+            # `search_type` MUSI zaczynać się od "semantic" — front uznaje
+            # odpowiedź za zdegradowaną, gdy tak nie jest (`page.tsx`).
+            matches, reranked = await _shared_engine_matches(
+                db,
+                job=job,
+                ordered=ordered,
+                similarity_map={
+                    cid: sc
+                    for cid, sc in qdrant_scores.items()
+                    if cid not in semantic_unknown_ids
+                },
+                semantic_unknown_ids=semantic_unknown_ids,
+                current_user=current_user,
+                required_skills=required_skills,
+                nice_skills=nice_skills,
+                rubric_inputs=rubric_inputs,
+                elig_annotations=elig_annotations,
+                query_text=query_text,
+            )
+            search_type = "semantic+composite" + ("+rerank" if reranked else "")
+            if location_active:
+                matches = [
+                    m
+                    for m in matches
+                    if _location_matches(requested_tokens, m["candidate"]["location"])
+                ]
+            matches = [m for m in matches if m["match_score"] >= threshold][
+                :max_results
+            ]
+            degraded = bool(semantic_unknown_ids)
+            return {
+                "job_id": job_id,
+                "job_title": job.title,
+                "required_skills": required_skills,
+                "required_skills_source": required_skills_source,
+                "nice_skills": nice_skills,
+                "search_type": search_type,
+                "min_score": round(threshold, 3),
+                "location_filter": requested_location if location_active else None,
+                "matches": matches,
+                "rubrics": job_rubrics,
+                "meta": {
+                    "mode": search_type,
+                    "degraded": degraded,
+                    "reason": "semantic_unavailable" if degraded else None,
+                    "hidden": hidden_meta,
+                    "eligibility_filtered": eligibility_filtered,
+                    "budget_hourly": resolve_job_budget_hourly(job),
+                },
+            }
+
         scores_by_idx: dict[int, float] = {
             i: qdrant_scores.get(c.id, 0.0) for i, c in enumerate(ordered)
         }

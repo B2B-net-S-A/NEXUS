@@ -135,6 +135,48 @@ mogą się rozjechać.
   i kalibracja nietknięte. Flagi celowo POZA `_SCORING_CACHE_INPUTS`.
   Do A/B: `--structured-pool` w `scripts/eval_matching.py`.
 
+### `/ai-matches` przez fasadę puli i na wspólnym silniku (uzupełnienie)
+
+Do 09.2026 `/ai-matches` — jedyna powierzchnia, którą rekruter naprawdę ogląda
+na stronie rekrutacji — pobierała pulę **z pominięciem fasady**, wołając
+`search_candidates_semantic` wprost. Skutek: żadna dźwignia retrievalu jej nie
+dotyczyła, w tym świeżo dodana pula SQL-first po must-have. Objaw byłby cichy —
+A/B na zamrożonym zbiorze ofert pokazywałby wpływ strategii, a ekran produktu
+i tak jechałby na starej puli. Teraz woła `retrieve_candidate_pool` z kompletem
+argumentów (`query_variants`, `bm25_query`, `must_groups`), a strażnik AST
+`test_all_pool_sites_go_through_the_facade` obejmuje **sześć** callsite'ów
+zamiast pięciu (zweryfikowane mutacją: przywrócenie bezpośredniego wywołania
+wywala strażnika).
+
+Przy flagach retrievalu OFF fasada deleguje do `search_candidates_semantic`
+wywołanie za wywołanie, więc samo przekierowanie nie zmienia odpowiedzi. Jedna
+różnica jest zamierzona: wiersze bez ZMIERZONEGO kosinusu (`semantic_unknown`)
+są odrzucane, bo stara ścieżka porównuje kosinus wprost z progiem — zostawione,
+weszłyby jako najsłabsze dopasowania puli, czyli awaria dosypki podszyłaby się
+pod zmierzony brak dopasowania.
+
+**`AI_MATCHES_SHARED_ENGINE`** (domyślnie OFF) przełącza tę listę na kompozyt
+0–100 liczony przez `bulk_get_or_compute` — ten sam silnik, którym liczy
+`/recommendations`, snapshot handoffu i digest. Powód: zakładka rekrutacji
+renderuje dwie listy opisane tym samym słowem „dopasowanie", a liczone dwoma
+różnymi miarami (kompozyt ważony profilem vs surowy kosinus Qdranta z puli 100),
+więc te same dane potrafiły dać dwie różne kolejności bez żadnego sygnału dla
+rekrutera.
+
+Co się przy tym NIE zmienia i dlaczego: `match_score` zostaje na skali **0–1**
+(`total / 100`), bo czyta go `MatchScoreBar` (×100), parametr `min_score`
+(ge=0, le=1) i zamrożony `JobShortlist.score_snapshot`. `search_type` to
+`semantic+composite` — musi zaczynać się od `semantic`, inaczej front uzna
+odpowiedź za zdegradowaną. Domyślna podłoga pod flagą to
+`RECOMMENDATION_MIN_SCORE/100`, nie 0.5: kompozyt hybrydowy ma niski zakres
+bezwzględny, więc stare 0.5 odsiałoby większość realnych dopasowań. Awaria
+dostawcy nadal schodzi na ranking po tagach — flaga nie odbiera ścieżki
+ratunkowej. `AI_MATCHES_RERANK_TOP_N` (0 = off) zmienia wyłącznie KOLEJNOŚĆ
+czołówki, nigdy `match_score`.
+
+Obie flagi są widoczne w `/api/admin/ai-matching/diagnostics` — dźwignia, której
+nie da się zaobserwować, przestawia się na ślepo.
+
 ## Weryfikacja
 
 - `ruff check app/` + `ruff format --check app/` — exit 0.
