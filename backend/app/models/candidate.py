@@ -176,6 +176,15 @@ class Candidate(Base, TimestampMixin):
     #   }
     preferences: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)
 
+    # Dni w biurze, jakie kandydat akceptuje / tydzień (0278, trzecia rubryka
+    # rekrutacji obok must-have i stawki). 0 = wyłącznie zdalnie. Kolumna, nie
+    # klucz JSONB w `preferences` — filtruje się liczbą (>=), a JSONB by tego
+    # nie wspierał bez indeksu wyrażeniowego. Pisze człowiek (modal edycji) i
+    # ekstrakcja notatek AI (FILL_EMPTY, nigdy nie nadpisuje wartości człowieka).
+    max_onsite_days_per_week: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+
     # "Champion" flag — top performer (verified high quality)
     champion: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

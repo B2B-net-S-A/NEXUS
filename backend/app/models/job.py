@@ -94,9 +94,20 @@ class Job(Base, TimestampMixin):
     # legacy PLN/mies. bez polityki konwersji. Fallback: stawka Championa.
     rate_budget_hourly: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 2))
 
-    remote_policy: Mapped[RemotePolicy] = mapped_column(
-        Enum(RemotePolicy), default=RemotePolicy.hybrid, nullable=False
+    # 0278: bez `default=` — przed tą migracją każda oferta bez ręcznie
+    # ustawionego trybu dostawała 'hybrid' (m.in. na sztywno stemplowane przez
+    # importer Traffita), więc "nieznane" było nieodróżnialne od "chce biura".
+    # `default=` na poziomie Pythona nakłada się przy INSERT niezależnie od
+    # `nullable` w bazie — samo `nullable=True` by nie wystarczyło.
+    remote_policy: Mapped[Optional[RemotePolicy]] = mapped_column(
+        Enum(RemotePolicy), nullable=True
     )
+
+    # Dni w biurze wymagane przez klienta (0278, trzecia rubryka rekrutacji
+    # obok must-have i rate_budget_hourly). FILL_EMPTY z Championa
+    # (`champion_job_sync.fill_job_columns_from_champion`). Nie mylić z
+    # `WorkMode` (fulltime/parttime/contract) — to inna oś.
+    onsite_days_per_week: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     status: Mapped[JobStatus] = mapped_column(
         Enum(JobStatus), default=JobStatus.draft, nullable=False, index=True
