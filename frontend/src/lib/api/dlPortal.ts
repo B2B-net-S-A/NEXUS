@@ -432,6 +432,17 @@ export const dlPortalApi = {
   listContractorsWithOrders: (clientId: number) =>
     api.get<ClientOrdersGroupedResponse>(`/api/clients/${clientId}/orders`),
 
+  /**
+   * Domyślna jednostka stawki proponowana w formularzach zamówień klienta —
+   * najczęstsza NIE-miesięczna jednostka z jego istniejących zamówień (serwer
+   * liczy, nigdy `monthly`). Front używa jej jako wartości POCZĄTKOWEJ pola
+   * „jednostka stawki" zamiast twardego `monthly`; użytkownik może ją zmienić.
+   */
+  getDefaultRateUnit: (clientId: number) =>
+    api.get<{ rate_unit: OrderRateUnit }>(
+      `/api/clients/${clientId}/orders/default-rate-unit`
+    ),
+
   listActiveContractsForExtension: (clientId: number) =>
     api.get<ContractWithOrdersRead[]>(
       `/api/clients/${clientId}/contracts-with-orders`
