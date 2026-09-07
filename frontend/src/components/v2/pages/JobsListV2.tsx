@@ -1020,7 +1020,7 @@ export function JobsListV2() {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Card key={i} className="animate-pulse h-48">
                     <div className="h-4 bg-[hsl(var(--border))] rounded w-3/4 mb-3" />
@@ -1082,7 +1082,7 @@ export function JobsListV2() {
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {visibleItems.map((job: any) => {
                 const skills = extractSkills(job.must_skills);
                 const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
@@ -1132,8 +1132,12 @@ export function JobsListV2() {
                       variant={job.can_open === false ? "default" : "interactive"}
                       className="h-full flex flex-col"
                     >
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
+                      {/* `flex-wrap` + `min-w-[160px]`: w środkowej kolumnie
+                          układu C2 kafelek jest wąski, a plakietki statusu
+                          (`shrink-0`) wypychały tytuł (`flex-1 min-w-0`) do
+                          zerowej szerokości — tytuł znikał z kafelka. */}
+                      <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-[160px] flex-1">
                           <h3 className="font-semibold text-foreground text-base truncate">
                             {job.title}
                           </h3>
