@@ -5,14 +5,14 @@ pierwszej pasującej osoby z całej bazy — dopasowuje wyłącznie wśród
 konsultantów pracujących u danego klienta. Roster jest SZERSZY niż picker
 (``active`` + ``ending``): przedłużenie po przerwie dotyczy osoby, której
 kontrakt jest już ``ended`` — to zamówienie go wskrzesza — więc bierzemy też
-``draft`` i zakończone w ostatnich N miesiącach. Roster służy do NAZWANIA
+``draft`` i wszystkie zakończone. Roster służy do NAZWANIA
 osoby; czy automat może na niej zapisać, rozstrzyga bramka (status kontraktu).
 
 Dwa rodzaje trafienia, celowo rozróżniane:
 * **exact** — równoważne po normalizacji (diakrytyki, kolejność imię/nazwisko,
   myślniki); jedyne, które bramka automatu akceptuje;
-* **rescued** — uratowane przez ``_safe_token_distance`` (transpozycja
-  sąsiednich znaków); literówka jest sygnałem, że dokument i baza się nie
+* **rescued** — odmiana gramatyczna lub jedna drobna literówka; różnica
+  jest sygnałem, że dokument i baza się nie
   zgadzają, więc idzie do kolejki (korpus: „Podwin" w dokumencie CA vs
   „Padwin" na karcie).
 
@@ -24,19 +24,20 @@ cichu najpóźniejszy — my nie: to niejednoznaczność do kolejki.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
+from functools import lru_cache
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
-    _edit1_token_distance,
-    _name_match_score,
+    _name_token_variants,
     _names_exactly_equivalent,
+    _osa_distance,
 )
 
 MATCH_EXACT = "exact"
@@ -45,7 +46,6 @@ MATCH_AMBIGUOUS = "ambiguous"
 MATCH_NONE = "none"
 
 LIVE_STATUSES = (ContractStatus.active, ContractStatus.ending)
-ROSTER_STATUSES = LIVE_STATUSES + (ContractStatus.draft,)
 
 
 @dataclass(frozen=True)
@@ -97,13 +97,12 @@ class ResolvedConsultant:
 async def load_roster(
     db: AsyncSession,
     client_id: int,
-    *,
-    ended_within_months: int = 6,
-    today: Optional[date] = None,
 ) -> list[RosterPerson]:
-    """Osoby z kontraktem u klienta: żywe + szkice + zakończone w ostatnich N mies."""
-    today = today or date.today()
-    cutoff = today - timedelta(days=30 * ended_within_months)
+    """Pełna, aktualna lista osób z kontraktem u tego klienta, bez limitu wieku.
+
+    Status kontraktu ogranicza zapis, nie identyfikację osoby. Zapytanie nie
+    używa paginacji ani zapamiętanej listy z chwili importu.
+    """
     stmt = (
         select(
             Candidate.id,
@@ -117,11 +116,6 @@ async def load_roster(
         .join(Contract, Contract.candidate_id == Candidate.id)
         .where(
             Contract.client_id == client_id,
-            or_(
-                Contract.status.in_(ROSTER_STATUSES),
-                (Contract.status == ContractStatus.ended)
-                & (Contract.end_date >= cutoff),
-            ),
         )
         .order_by(Candidate.id, Contract.start_date.desc().nullslast())
     )
@@ -172,6 +166,64 @@ def _pick_contract(
     return (ended[0] if ended else None), live_ids
 
 
+def _inflected_tokens(token: str) -> set[str]:
+    """Ograniczone formy fleksyjne tokenu z bazy, bez obcinania wspólnych rdzeni."""
+    forms = {token}
+    if len(token) < 3:
+        return forms
+    if token.endswith(("ski", "cki", "dzki")):
+        forms.update(token[:-1] + suffix for suffix in ("iego", "iemu", "im"))
+    elif token.endswith(("ska", "cka", "dzka")):
+        forms.add(token[:-1] + "iej")
+    elif token.endswith("a"):
+        forms.update(token[:-1] + suffix for suffix in ("y", "i", "e", "ie"))
+    elif token[-1] not in "aeiouy":
+        forms.update(token + suffix for suffix in ("a", "owi", "em", "u", "ie"))
+        for ending, replacement in (("d", "dzie"), ("t", "cie"), ("r", "rze")):
+            if token.endswith(ending):
+                forms.add(token[:-1] + replacement)
+    return forms
+
+
+def _roster_name_matches(document_name: str, canonical_name: str) -> bool:
+    """Każdy człon musi pasować; odmiana i maks. jedna literówka w całej osobie.
+
+    Kolejność, diakrytyki i myślniki są normalizowane jak dotąd. Nie szukamy
+    podobnego nazwiska w całej bazie: wywołujący podaje wyłącznie roster klienta.
+    Wszystkie trafienia zachowujemy, żeby nie rozstrzygać kolizji arbitralnie.
+    """
+    for canonical in _name_token_variants(canonical_name):
+        forms = [_inflected_tokens(token) for token in canonical]
+        for actual in _name_token_variants(document_name):
+            if len(actual) != len(canonical) or len(actual) > 6:
+                continue
+
+            @lru_cache(maxsize=None)
+            def match(index: int, remaining: tuple[str, ...], typos: int) -> bool:
+                if index == len(canonical):
+                    return True
+                for pos, token in enumerate(remaining):
+                    cost = 0 if token in forms[index] else 1
+                    if cost and (
+                        typos
+                        or min(len(canonical[index]), len(token)) < 4
+                        or not any(
+                            _osa_distance(form, token, max_distance=1) == 1
+                            for form in forms[index]
+                        )
+                    ):
+                        continue
+                    if match(
+                        index + 1, remaining[:pos] + remaining[pos + 1 :], typos + cost
+                    ):
+                        return True
+                return False
+
+            if match(0, actual, 0):
+                return True
+    return False
+
+
 def resolve_rows(
     rows: list[ConsultantOrderRow], roster: list[RosterPerson]
 ) -> list[ResolvedConsultant]:
@@ -184,22 +236,10 @@ def resolve_rows(
         ]
         rescued: list[RosterPerson] = []
         if not exact:
-            # Szersza tolerancja niż ścieżka ręczna: pojedyncza literówka/OCR
-            # (substytucja, wstawienie, usunięcie), nie tylko transpozycja.
-            # Bezpieczne, bo „rescued" idzie do KOLEJKI (człowiek potwierdza),
-            # pula jest zawężona do rostera JEDNEGO klienta, a >1 trafienie w tej
-            # tolerancji jest oznaczane jako niejednoznaczne. Diakrytyki i tak
-            # są zwijane wcześniej (``_name_token_variants``).
             rescued = [
                 p
                 for p in roster
-                if _name_match_score(
-                    row.consultant_name,
-                    p.full_name,
-                    consultant_given_names=p.name,
-                    distance_fn=_edit1_token_distance,
-                )
-                is not None
+                if _roster_name_matches(row.consultant_name, p.full_name)
             ]
         pool, kind = (exact, MATCH_EXACT) if exact else (rescued, MATCH_RESCUED)
         if not pool:
@@ -238,7 +278,7 @@ def resolve_rows(
                 reason=(
                     "Dopasowanie dokładne"
                     if kind == MATCH_EXACT
-                    else "Dopasowanie z literówką — potwierdź osobę"
+                    else "Dopasowanie z literówką lub odmianą — potwierdź osobę"
                 )
                 if contract
                 else (

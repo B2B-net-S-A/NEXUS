@@ -143,7 +143,7 @@ def _redact_extraction(
     out["consultant_rows"] = [
         {
             **r,
-            "rate_client": None,
+            **{key: None for key in _FINANCE_KEYS if key in r},
             "uncertain_reason": (
                 "Sprawdź odczytane dane przed zapisem."
                 if r.get("uncertain_reason")

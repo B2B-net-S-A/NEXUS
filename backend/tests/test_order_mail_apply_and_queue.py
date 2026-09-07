@@ -257,6 +257,7 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
             "consultant_rows": [
                 {
                     **doc.extraction["consultant_rows"][0],
+                    "rate_client_gross": "1168.50",
                     "uncertain_reason": "Stawka 950 wymaga kontroli",
                 }
             ],
@@ -271,6 +272,7 @@ async def test_tcm_gets_safe_order_mail_read_and_hor_is_section_denied(
     body = response.json()
     assert body["extraction"]["rate_client"] is None
     assert body["extraction"]["consultant_rows"][0]["rate_client"] is None
+    assert body["extraction"]["consultant_rows"][0]["rate_client_gross"] is None
     assert body["extraction"]["uncertain_reasons"] == [
         "Sprawdź odczytane dane przed zapisem."
     ]

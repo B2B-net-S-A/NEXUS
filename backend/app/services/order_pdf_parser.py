@@ -1757,6 +1757,8 @@ _DIGIT_GROUP_SEP_RE = re.compile("(?<=\\d)[ \u00a0\u202f\u2009\u2007](?=\\d)")
 # rozbudowaną etykietę tuż przy kwocie („1 040,00 PLN — stawka brutto za …").
 # 24 znaki wycinały „brutto" dokładnie na granicy takich zapisów.
 _RATE_MARK_WINDOW = 32
+_RATE_LABEL_RE = re.compile(r"\b(?:stawka|cena|wynagrodzenie)\b")
+_MONEY_RE = re.compile(r"(?<!\d)\d+[,.]\d{2}(?!\d)")
 
 
 def net_rate_from_gross(gross: Decimal) -> Decimal:
@@ -1825,7 +1827,23 @@ def detect_rate_gross_marking(
             for match in re.finditer(rf"(?<!\d){re.escape(variant)}(?!\d)", lowered):
                 start = max(0, match.start() - _RATE_MARK_WINDOW)
                 end = min(len(lowered), match.end() + _RATE_MARK_WINDOW)
-                window = lowered[start:end]
+                # Nie przyklejaj etykiety sąsiedniej kwoty (np. sumy brutto)
+                # do stawki. Dłuższa etykieta jest dozwolona tylko wtedy, gdy
+                # jawnie nazywa stawkę i nie przechodzi przez inną kwotę.
+                before = lowered[max(0, match.start() - 240) : match.start()]
+                after = lowered[match.end() : end]
+                preceding_amounts = list(_MONEY_RE.finditer(before))
+                if preceding_amounts:
+                    before = before[preceding_amounts[-1].end() :]
+                following_amount = _MONEY_RE.search(after)
+                if following_amount:
+                    after = after[: following_amount.start()]
+                labels = list(_RATE_LABEL_RE.finditer(before))
+                if labels:
+                    before = before[labels[-1].start() :]
+                else:
+                    before = before[-(match.start() - start) :]
+                window = before + " " + after
                 if "brutto" in window:
                     saw_gross = True
                 if "netto" in window:
@@ -1840,12 +1858,19 @@ def detect_rate_gross_marking(
 def _strip_rate_conversion_reasons(reasons: list[str]) -> list[str]:
     """Usuń powody „stawka może być brutto/inny VAT" — przeliczenie już nastąpiło."""
 
-    return [
-        reason
-        for reason in reasons
-        if "vat" not in _fold_policy_text(reason)
-        and "przeliczenie" not in _fold_policy_text(reason)
-    ]
+    return [reason for reason in reasons if not _is_rate_conversion_reason(reason)]
+
+
+def _is_rate_conversion_reason(reason: str) -> bool:
+    folded = _fold_policy_text(reason)
+    return bool(
+        re.search(r"\b(?:staw\w*|cen\w*|wynagrodzeni\w*)\b", folded)
+        and re.search(r"\b(?:brutto|netto|vat|przelicz\w*)\b", folded)
+        and not re.search(
+            r"\b(?:nieczyteln\w*|niejednoznaczn\w*|sprzeczn\w*|dat\w*|okres\w*|osob\w*|nazwisk\w*|md)\b",
+            folded,
+        )
+    )
 
 
 def apply_document_rate_kind(
@@ -1864,24 +1889,45 @@ def apply_document_rate_kind(
     funkcja nie zmienia kwoty — nie zgadujemy przeliczenia.
     """
 
-    amounts: list[Optional[Decimal]] = [result.rate_client_gross or result.rate_client]
-    amounts += [
-        row.rate_client_gross or row.rate_client for row in result.consultant_rows
-    ]
-    if detect_rate_gross_marking(document_text, amounts) != RATE_MARK_GROSS:
-        return result
-
-    if result.rate_client is not None and result.rate_client_gross is None:
-        result.rate_client_gross = result.rate_client
-        result.rate_client = net_rate_from_gross(result.rate_client)
+    # Każda stawka ma własne oznaczenie: netto jednej osoby nie może zablokować
+    # przeliczenia brutto innej ani odziedziczyć jej rodzaju stawki.
+    confirmed = []
+    for item in [result, *result.consultant_rows]:
+        if item.rate_client is None:
+            continue
+        marking = detect_rate_gross_marking(
+            document_text, [item.rate_client_gross or item.rate_client]
+        )
+        confirmed.append(marking is not None or item.rate_client_gross is not None)
+        if marking == RATE_MARK_GROSS and item.rate_client_gross is None:
+            item.rate_client_gross = item.rate_client
+            item.rate_client = net_rate_from_gross(item.rate_client)
+        if item is not result:
+            if (
+                marking
+                and item.uncertain_reason
+                and _is_rate_conversion_reason(item.uncertain_reason)
+            ):
+                item.uncertain_reason = None
+                item.uncertain = False
+            elif not marking and item.rate_client_gross is None:
+                item.uncertain = True
+                item.uncertain_reason = (
+                    item.uncertain_reason
+                    or "Nie ustalono, czy stawka jest brutto czy netto"
+                )
+    if confirmed and all(confirmed):
+        previous_reasons = result.uncertain_reasons
         result.uncertain_reasons = _strip_rate_conversion_reasons(
             result.uncertain_reasons
         )
-        result.uncertain = bool(result.uncertain_reasons)
-    for row in result.consultant_rows:
-        if row.rate_client is not None and row.rate_client_gross is None:
-            row.rate_client_gross = row.rate_client
-            row.rate_client = net_rate_from_gross(row.rate_client)
+        if previous_reasons != result.uncertain_reasons:
+            result.uncertain = bool(result.uncertain_reasons)
+    elif confirmed:
+        reason = "Nie ustalono, czy każda stawka jest brutto czy netto"
+        if reason not in result.uncertain_reasons:
+            result.uncertain_reasons.append(reason)
+        result.uncertain = True
     return result
 
 
@@ -1901,10 +1947,8 @@ def apply_gross_to_net_rate_policy(
     09.2026 obie polityki wymuszały „hour" — na dokumencie Erste zapisywało to
     stawkę DZIENNĄ jako godzinową z pewnością 1.0.
 
-    Dokument jest źródłem prawdy co do brutto/netto: jawne „netto" przy kwocie
-    stawki WYGRYWA z regułą klientową (ticket: „nigdy na podstawie stałego
-    ustawienia klienta"), więc wtedy przeliczenia nie ma. Brak oznaczenia →
-    reguła klientowa działa jak dotąd (ci klienci rozliczają zwykle brutto).
+    Klient określa jednostkę, a rodzaj stawki wynika wyłącznie z dokumentu.
+    Brak oznaczenia lub konflikt nie upoważnia do przeliczenia.
     """
 
     if result.rate_client is None:
@@ -1918,17 +1962,7 @@ def apply_gross_to_net_rate_policy(
     if result.rate_client_gross is not None:
         return result
 
-    if detect_rate_gross_marking(document_text, [result.rate_client]) == RATE_MARK_NET:
-        return result
-
-    gross = result.rate_client
-    result.rate_client_gross = gross
-    result.rate_client = net_rate_from_gross(gross)
-    # Ostrzeżenie „stawka może być w innej jednostce/VAT" przestało opisywać
-    # wynik — przeliczenie właśnie się wydarzyło i jest deterministyczne.
-    result.uncertain_reasons = _strip_rate_conversion_reasons(result.uncertain_reasons)
-    result.uncertain = bool(result.uncertain_reasons)
-    return result
+    return apply_document_rate_kind(result, document_text)
 
 
 def apply_pfron_order_policy(
@@ -1976,8 +2010,7 @@ def apply_pfron_order_policy(
 #
 # Stawka jest DZIENNA i BRUTTO — czynnik za „x" we wzorze, przeliczany ÷ 1,23.
 # Etykiety są jednoznaczne, więc wartości z nich mają proweniencję
-# deterministyczną; gdy wzoru brak, przeliczamy to, co przyszło z modelu
-# (kompatybilność z dotychczasowym zachowaniem dla dokumentów bez wzoru).
+# deterministyczną; rodzaj stawki musi być potwierdzony w dokumencie.
 
 _ERSTE_ORDER_NUMBER_RE = re.compile(
     r"Zlecenie\s+(K/[A-Z0-9/]+)(?![A-Z0-9/])", re.IGNORECASE
@@ -2018,14 +2051,18 @@ def erste_extract_rows(text: str) -> list[ConsultantOrderRow]:
     m_from = _ERSTE_FROM_RE.search(text or "")
     m_to = _ERSTE_TO_RE.search(text or "")
     gross = erste_gross_day_rate(text)
+    marking = detect_rate_gross_marking(text, [gross])
     return [
         ConsultantOrderRow(
             consultant_name=re.sub(r"\s+", " ", m.group("name")).strip(),
             start_date=_normalize_date(m_from.group(1), end=False) if m_from else None,
             end_date=_normalize_date(m_to.group(1), end=True) if m_to else None,
-            rate_client=net_rate_from_gross(gross) if gross is not None else None,
+            rate_client=net_rate_from_gross(gross)
+            if gross is not None and marking == RATE_MARK_GROSS
+            else gross,
+            rate_client_gross=gross if marking == RATE_MARK_GROSS else None,
             rate_unit="day",
-            uncertain=gross is None,
+            uncertain=gross is None or marking is None,
         )
     ]
 
