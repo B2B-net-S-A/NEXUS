@@ -330,15 +330,15 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     const candidate = await screen.findByRole("link", {
       name: "Aleksandra Nowakowska",
     });
-    expect(candidate.parentElement).toHaveClass(
+    expect(candidate.closest("[data-kanban-card]")).toHaveClass(
       "xl:pointer-fine:p-1",
       "xl:pointer-fine:pb-6",
       "xl:pointer-fine:pt-6",
     );
-    expect(candidate.parentElement?.getAttribute("title")).toContain(
+    expect(candidate.closest("[data-kanban-card]")?.getAttribute("title")).toContain(
       "Aleksandra Nowakowska",
     );
-    expect(candidate.parentElement?.getAttribute("title")).toContain(
+    expect(candidate.closest("[data-kanban-card]")?.getAttribute("title")).toContain(
       "Dodano do rekrutacji przez: Ewa Nowak",
     );
     expect(screen.getByTestId("overview-match-score-90")).toHaveTextContent("82");
@@ -370,7 +370,7 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     const candidate = await screen.findByRole("link", {
       name: "Aleksandra Nowakowska",
     });
-    expect(candidate.parentElement).toHaveClass("xl:pointer-fine:pt-6");
+    expect(candidate.closest("[data-kanban-card]")).toHaveClass("xl:pointer-fine:pt-6");
     expect(screen.getByTestId("overview-match-score-90")).toHaveTextContent("—");
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
