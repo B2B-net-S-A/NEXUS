@@ -10,8 +10,8 @@ forgets to validate them:
 
 * at most one published plan,
 * at most one active demand per job,
-* one rank and one job per plan member,
-* explicit reasons for D/E capacity and Competence Category exceptions,
+* one numeric position and one job per plan member,
+* explicit reasons for Competence Category exceptions,
 * a single persisted worker-state row.
 """
 
@@ -75,6 +75,24 @@ class PriorityRank(str, enum.Enum):
     C = "C"
     D = "D"
     E = "E"
+
+
+def legacy_priority_rank(position: int) -> Optional[PriorityRank]:
+    """A–E remains a wire alias for the first five positions."""
+    return PriorityRank(chr(64 + position)) if 1 <= position <= 5 else None
+
+
+def assignment_position(assignment: Any) -> int:
+    position = getattr(assignment, "position", None)
+    if position is not None:
+        return int(position)
+    rank = getattr(assignment, "rank", None)
+    return ord(str(getattr(rank, "value", rank))) - 64 if rank else 1
+
+
+def _legacy_position_default(context) -> int:
+    rank = context.get_current_parameters().get("rank")
+    return ord(str(getattr(rank, "value", rank))) - 64 if rank else 1
 
 
 class PriorityChannel(str, enum.Enum):
@@ -228,7 +246,7 @@ class RecruitmentPriorityPlanMember(Base, TimestampMixin):
         "RecruitmentPriorityAssignment",
         back_populates="plan_member",
         cascade="all, delete-orphan",
-        order_by="RecruitmentPriorityAssignment.rank",
+        order_by="RecruitmentPriorityAssignment.position",
     )
 
 
@@ -294,6 +312,16 @@ class RecruitmentPriorityAssignment(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint(
             "plan_member_id",
+            "position",
+            name="uq_priority_assignment_member_position",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        CheckConstraint(
+            "position > 0", name="ck_priority_assignment_position_positive"
+        ),
+        UniqueConstraint(
+            "plan_member_id",
             "rank",
             name="uq_priority_assignment_member_rank",
         ),
@@ -309,11 +337,6 @@ class RecruitmentPriorityAssignment(Base, TimestampMixin):
         CheckConstraint(
             "recommendation_target >= 0",
             name="ck_priority_assignment_recommendations_nonnegative",
-        ),
-        CheckConstraint(
-            "rank NOT IN ('D', 'E') OR "
-            "NULLIF(btrim(extra_slot_reason), '') IS NOT NULL",
-            name="ck_priority_assignment_extra_slot_reason",
         ),
         CheckConstraint(
             "competence_matches OR NULLIF(btrim(cc_exception_reason), '') IS NOT NULL",
@@ -336,8 +359,11 @@ class RecruitmentPriorityAssignment(Base, TimestampMixin):
     job_id: Mapped[int] = mapped_column(
         ForeignKey("jobs.id", ondelete="RESTRICT"), nullable=False
     )
-    rank: Mapped[PriorityRank] = mapped_column(
-        Enum(PriorityRank, name="priorityrank", create_type=False), nullable=False
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=_legacy_position_default
+    )
+    rank: Mapped[Optional[PriorityRank]] = mapped_column(
+        Enum(PriorityRank, name="priorityrank", create_type=False), nullable=True
     )
     channel: Mapped[PriorityChannel] = mapped_column(
         Enum(PriorityChannel, name="prioritychannel", create_type=False),

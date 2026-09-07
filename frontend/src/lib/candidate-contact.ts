@@ -65,6 +65,8 @@ export interface CandidateContactSummary {
 }
 
 export interface CandidateContactCase extends CandidateContactSummary {
+  effective_owner?: { id: number; name: string } | null;
+  substitution?: { start_date: string; end_date: string } | null;
   candidate: CandidateContactPerson;
   opportunities: CandidateContactOpportunity[];
 }

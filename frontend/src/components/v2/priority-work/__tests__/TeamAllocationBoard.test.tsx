@@ -215,7 +215,7 @@ describe("TeamAllocationBoard", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("Alicja Recruiter")).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Dodaj slot B" }),
+      screen.getByRole("button", { name: "Dodaj pozycję 2" }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole("textbox", {
@@ -226,7 +226,7 @@ describe("TeamAllocationBoard", () => {
     await user.click(screen.getByRole("button", { name: "Opublikuj" }))
     expect(
       await screen.findByText(
-        "Alicja Recruiter: wymagane są 3–5 requestów.",
+        /Alicja Recruiter: suma targetów .* wymaga uzasadnienia pojemności/,
       ),
     ).toBeInTheDocument()
     expect(priorityWorkApi.publishPlan).not.toHaveBeenCalled()
@@ -297,7 +297,8 @@ describe("TeamAllocationBoard", () => {
     const reason = screen.getByRole("textbox", {
       name: "Uzasadnienie pojemności Alicja Recruiter",
     })
-    await user.type(reason, "Pilny carry-over obniża dostępną pojemność")
+    await user.click(reason)
+    await user.paste("Pilny carry-over obniża dostępną pojemność")
     await user.click(screen.getByRole("button", { name: "Zapisz szkic" }))
 
     await waitFor(() => expect(priorityWorkApi.updatePlan).toHaveBeenCalled())
@@ -457,7 +458,7 @@ describe("TeamAllocationBoard", () => {
     )
 
     expect(screen.getByText(/Rekruter · 1 requesty/)).toBeInTheDocument()
-    await user.click(screen.getByRole("combobox", { name: "Kanał A" }))
+    await user.click(screen.getByRole("combobox", { name: "Kanał 1" }))
     expect(
       screen.getByRole("option", { name: "LinkedIn" }),
     ).toBeInTheDocument()
@@ -520,12 +521,12 @@ describe("TeamAllocationBoard", () => {
     await user.click(
       screen.getByRole("button", { name: "Utwórz pierwszy plan" }),
     )
-    await user.click(screen.getByRole("button", { name: "Dodaj slot A" }))
+    await user.click(screen.getByRole("button", { name: "Dodaj pozycję 1" }))
 
     expect(screen.getByText("Wymagany wyjątek CC")).toBeInTheDocument()
     expect(
       screen.getByRole("textbox", {
-        name: "Uzasadnienie wyjątku CC A",
+        name: "Uzasadnienie wyjątku CC 1",
       }),
     ).toBeInTheDocument()
   })
@@ -582,12 +583,12 @@ describe("TeamAllocationBoard", () => {
     await user.click(
       screen.getByRole("button", { name: "Utwórz pierwszy plan" }),
     )
-    await user.click(screen.getByRole("button", { name: "Dodaj slot A" }))
+    await user.click(screen.getByRole("button", { name: "Dodaj pozycję 1" }))
 
     expect(screen.getByText("CC dopasowane")).toBeInTheDocument()
     expect(
       screen.queryByRole("textbox", {
-        name: "Uzasadnienie wyjątku CC A",
+        name: "Uzasadnienie wyjątku CC 1",
       }),
     ).not.toBeInTheDocument()
   })
@@ -668,3 +669,5 @@ describe("TeamAllocationBoard", () => {
     )
   })
 })
+
+vi.mock("../AllocationWorkloadBoard", () => ({ AllocationWorkloadBoard: () => null }))

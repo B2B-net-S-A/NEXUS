@@ -11,6 +11,8 @@ and commit behaviour.  Commands flush, but never commit.
 
 from __future__ import annotations
 
+from app.services.operational_tasks import nominal_task_owner
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -415,7 +417,16 @@ async def _create_process(
         legacy_current_candidate_stage_id=stage.id,
         state_version=1,
         status=ProcessStatus.closed if terminal else ProcessStatus.open,
-        owner_user_id=decision.assignment_owner_user_id,
+        owner_user_id=(
+            await nominal_task_owner(
+                db,
+                actor_id=decision.assignment_owner_user_id,
+                job_id=job.id,
+                candidate_id=stage.candidate_id,
+            )
+            if decision.assignment_owner_user_id is not None
+            else None
+        ),
         source_authority=source_authority,
         opened_at=opened_at,
         closed_at=opened_at if terminal else None,
@@ -776,7 +787,12 @@ async def record_accepted_verification(
     # made an explicit handoff.  A delayed pending-verification approval must
     # never undo that ownership decision.
     if process.ownership_confirmed_at is None:
-        process.owner_user_id = verifier_user_id
+        process.owner_user_id = await nominal_task_owner(
+            db,
+            actor_id=verifier_user_id,
+            job_id=process.job_id,
+            candidate_id=process.candidate_id,
+        )
 
     if process.origin_kind == PriorityOriginKind.approved_exception:
         if process.kpi_eligible is None:

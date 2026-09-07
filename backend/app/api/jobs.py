@@ -83,6 +83,13 @@ from app.api.recruitment_access import (
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
+from app.services.recruitment_allocation import (
+    allocation_lock,
+    assign_operator,
+    release_operator,
+    enqueue_allocation,
+)
+from app.services.workforce_availability import operational_owner_clause
 from app.services import champion_view
 from app.services.champion_profile_events import (
     diff_champion_profile,
@@ -600,12 +607,14 @@ async def list_jobs(
         .where(
             RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
             RecruitmentPriorityPlan.effective_from <= priority_now,
-            RecruitmentPriorityPlanMember.user_id == current_user.id,
+            operational_owner_clause(
+                RecruitmentPriorityPlanMember.user_id, current_user
+            ),
             RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
         )
     )
     priority_carry_job_ids = select(RecruitmentProcess.job_id).where(
-        RecruitmentProcess.owner_user_id == current_user.id,
+        operational_owner_clause(RecruitmentProcess.owner_user_id, current_user),
         RecruitmentProcess.status == ProcessStatus.open,
     )
     # Defense-in-depth: nigdy nie zwracaj jobs z NULL client_id na liście.
@@ -659,7 +668,10 @@ async def list_jobs(
             JobCollaborator.user_id == current_user.id
         )
         query = query.where(
-            or_(Job.recruiter_id == current_user.id, Job.id.in_(collab_subq))
+            or_(
+                operational_owner_clause(Job.recruiter_id, current_user),
+                Job.id.in_(collab_subq),
+            )
         )
     if priority_work == PriorityWorkJobFilter.assigned:
         query = query.where(Job.id.in_(priority_assignment_job_ids))
@@ -770,6 +782,7 @@ async def list_jobs(
                     RecruitmentPriorityAssignment.job_id,
                     RecruitmentPriorityAssignment.id,
                     RecruitmentPriorityAssignment.rank,
+                    RecruitmentPriorityAssignment.position,
                     RecruitmentPriorityAssignment.channel,
                 )
                 .join(
@@ -785,10 +798,12 @@ async def list_jobs(
                     RecruitmentPriorityAssignment.job_id.in_(job_ids),
                     RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
                     RecruitmentPriorityPlan.effective_from <= priority_now,
-                    RecruitmentPriorityPlanMember.user_id == current_user.id,
+                    operational_owner_clause(
+                        RecruitmentPriorityPlanMember.user_id, current_user
+                    ),
                     RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
                 )
-                .order_by(RecruitmentPriorityAssignment.rank)
+                .order_by(RecruitmentPriorityAssignment.position)
             )
         ).all()
         for row in priority_rows:
@@ -796,7 +811,8 @@ async def list_jobs(
                 row.job_id,
                 {
                     "id": row.id,
-                    "rank": row.rank.value,
+                    "rank": row.rank.value if row.rank else None,
+                    "position": row.position,
                     "channel": row.channel.value,
                 },
             )
@@ -809,7 +825,9 @@ async def list_jobs(
                 )
                 .where(
                     RecruitmentProcess.job_id.in_(job_ids),
-                    RecruitmentProcess.owner_user_id == current_user.id,
+                    operational_owner_clause(
+                        RecruitmentProcess.owner_user_id, current_user
+                    ),
                     RecruitmentProcess.status == ProcessStatus.open,
                 )
                 .group_by(RecruitmentProcess.job_id)
@@ -1352,6 +1370,8 @@ async def update_job(
         )
 
     updates = data.model_dump(exclude_unset=True)
+    if "needs_sourcing" in updates:
+        job.favorite_sourcing_paused = False
     prev_status = job.status
     # Snapshot istotnych pól przed mutacją — potrzebne do marketplace diff.
     # Trzymamy kolumny z _SIGNIFICANT_FIELDS, nawet gdy nie ma ich w `updates`
@@ -1959,6 +1979,7 @@ async def get_job_readiness(
         "blockers": blockers,
         "closed": is_closed,
         "already_handed_off": job.is_open,
+        "allocation_enabled": settings.RECRUITMENT_ALLOCATION_ENABLED,
     }
 
 
@@ -1976,10 +1997,11 @@ async def handoff_job_to_search(
     once the recruitment is ready (Champion filled) and a recruiter is assigned,
     so the recruiter never lands on a stale pre-Champion snapshot. Binds the
     recruiter via ``recruiter_id`` (job owner → job member); the Priority Work
-    roster is a later enhancement. A retry produces a fresh snapshot, mirroring
-    ``regenerate``.
+    roster is written in the same transaction. Automatic handoffs are durably
+    queued; an explicit manual retry produces a fresh matching snapshot.
     """
-    job = await db.scalar(select(Job).where(Job.id == job_id))
+    await allocation_lock(db)
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
@@ -2002,6 +2024,31 @@ async def handoff_job_to_search(
             },
         )
 
+    if payload.assignment_mode == "automatic":
+        if not settings.RECRUITMENT_ALLOCATION_ENABLED:
+            raise HTTPException(409, "Automatyczny przydział nie jest jeszcze włączony")
+        if job.recruiter_id is not None:
+            raise HTTPException(409, "Rekrutacja ma już prowadzącego; zmień go ręcznie")
+        job.is_open = True
+        job.needs_sourcing = True
+        job.favorite_sourcing_paused = False
+        request = await enqueue_allocation(
+            db,
+            job=job,
+            actor_user_id=current_user.id,
+            channel=PriorityChannel(payload.channel),
+        )
+        await db.commit()
+        return {
+            "status": "queued",
+            "job_id": job.id,
+            "recruiter_id": None,
+            "snapshot_id": None,
+            "allocation_request_id": request.id,
+        }
+    if payload.recruiter_id is None:
+        raise HTTPException(422, "Wybierz prowadzącego albo przydział automatyczny")
+
     recruiter = await db.scalar(select(User).where(User.id == payload.recruiter_id))
     if recruiter is None or not recruiter.is_active:
         raise HTTPException(
@@ -2014,13 +2061,18 @@ async def handoff_job_to_search(
             detail="Wybrany użytkownik nie może prowadzić rekrutacji.",
         )
 
-    job.recruiter_id = recruiter.id
-    # Handoff jest MOMENTEM, w którym rekrutacja staje się nasza (0270). Do tej
-    # pory „prowadzimy ją" znaczyło `status == published`, czyli pole będące
-    # lustrem Traffita — przez co Priority Work, digest dopasowań, alerty
-    # terminów i linki zaproszeniowe działały dla 14 rekordów demo i dla niczego
-    # więcej. Teraz włącza je ta jedna linia.
+    await assign_operator(
+        db,
+        job=job,
+        assignee=recruiter,
+        channel=PriorityChannel(payload.channel),
+        actor_user_id=current_user.id,
+        source="manual_handoff",
+        as_owner=True,
+    )
     job.is_open = True
+    job.needs_sourcing = True
+    job.favorite_sourcing_paused = False
     db.add(
         Activity(
             entity_type="job",
@@ -3318,7 +3370,8 @@ async def assign_owner(
     db: AsyncSession = Depends(get_db),
 ):
     """Set/change the primary owner (recruiter_id). Admin + Delivery Lead only."""
-    job = await db.scalar(select(Job).where(Job.id == job_id))
+    await allocation_lock(db)
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
@@ -3326,13 +3379,33 @@ async def assign_owner(
     target = await db.scalar(select(User).where(User.id == payload.user_id))
     if not target or not target.is_active:
         raise HTTPException(status_code=409, detail="Target user not found or inactive")
-    if target.role not in _OWNERSHIP_ELIGIBLE_ROLES:
+    if not target.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=409,
             detail=f"Role {target.role.value} cannot own a job",
         )
 
-    job.recruiter_id = target.id
+    if job.is_open and target.has_any_role(
+        UserRole.recruiter, UserRole.sourcer, UserRole.tac
+    ):
+        channel = (
+            PriorityChannel.database
+            if target.has_role(UserRole.sourcer)
+            and not target.has_role(UserRole.recruiter)
+            else PriorityChannel.linkedin
+        )
+        await assign_operator(
+            db,
+            job=job,
+            assignee=target,
+            channel=channel,
+            actor_user_id=current_user.id,
+            source="manual_owner",
+            as_owner=True,
+        )
+    else:
+        await release_operator(db, job=job)
+        job.recruiter_id = target.id
     db.add(
         Activity(
             entity_type="job",
@@ -3354,12 +3427,13 @@ async def release_owner(
     db: AsyncSession = Depends(get_db),
 ):
     """Unassign the primary owner (sets recruiter_id = NULL). Admin + DL only."""
-    job = await db.scalar(select(Job).where(Job.id == job_id))
+    await allocation_lock(db)
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
     previous = job.recruiter_id
-    job.recruiter_id = None
+    await release_operator(db, job=job)
     db.add(
         Activity(
             entity_type="job",
@@ -3392,7 +3466,8 @@ async def claim_job(
             detail="Read-only viewers cannot claim jobs",
         )
 
-    job = await db.scalar(select(Job).where(Job.id == job_id))
+    await allocation_lock(db)
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
@@ -3402,7 +3477,26 @@ async def claim_job(
             detail="Job already has a primary owner",
         )
 
-    job.recruiter_id = current_user.id
+    if job.is_open and current_user.has_any_role(
+        UserRole.recruiter, UserRole.sourcer, UserRole.tac
+    ):
+        channel = (
+            PriorityChannel.database
+            if current_user.has_role(UserRole.sourcer)
+            and not current_user.has_role(UserRole.recruiter)
+            else PriorityChannel.linkedin
+        )
+        await assign_operator(
+            db,
+            job=job,
+            assignee=current_user,
+            channel=channel,
+            actor_user_id=current_user.id,
+            source="manual_claim",
+            as_owner=True,
+        )
+    else:
+        job.recruiter_id = current_user.id
     db.add(
         Activity(
             entity_type="job",
@@ -3468,7 +3562,7 @@ async def add_collaborator(
     target = await db.scalar(select(User).where(User.id == payload.user_id))
     if not target or not target.is_active:
         raise HTTPException(status_code=409, detail="Target user not found or inactive")
-    if target.role not in _OWNERSHIP_ELIGIBLE_ROLES:
+    if not target.has_any_role(*_OWNERSHIP_ELIGIBLE_ROLES):
         raise HTTPException(
             status_code=409,
             detail=f"Role {target.role.value} cannot be a collaborator",

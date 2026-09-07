@@ -214,7 +214,11 @@ async def get_current_user(
     """
 
     current_user = await get_authenticated_user(request, credentials, db)
-    return ensure_onboarding_complete(current_user)
+    current_user = ensure_onboarding_complete(current_user)
+    from app.services.workforce_availability import workforce_context
+
+    await workforce_context(db)
+    return current_user
 
 
 async def require_onboarded_user(

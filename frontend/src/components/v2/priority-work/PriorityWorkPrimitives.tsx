@@ -40,6 +40,7 @@ const GATE_COPY: Record<
   string,
   { label: string; variant: "success" | "warning" | "danger" | "neutral" }
 > = {
+  sourcing_paused: { label: "Poszukiwania wstrzymane", variant: "neutral" },
   open: { label: "Możesz dodawać", variant: "success" },
   available: { label: "Możesz dodawać", variant: "success" },
   target_reached: { label: "Target osiągnięty", variant: "neutral" },
@@ -72,15 +73,16 @@ export function formatPriorityDate(value?: string | null): string {
   }).format(parsed)
 }
 
-export function RankBadge({ rank }: { rank: PriorityRank }) {
+export function RankBadge({ rank, position }: { rank: PriorityRank | null; position?: number }) {
+  const label = rank ?? position ?? "—"
   return (
     <Badge
-      variant={RANK_VARIANT[rank]}
+      variant={rank ? RANK_VARIANT[rank] : "outline"}
       size="lg"
       className="min-w-7 justify-center font-semibold"
-      aria-label={`Priorytet ${rank}`}
+      aria-label={`Priorytet ${label}`}
     >
-      {rank}
+      {label}
     </Badge>
   )
 }

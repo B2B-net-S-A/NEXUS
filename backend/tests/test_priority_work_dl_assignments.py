@@ -5,8 +5,7 @@ do rytmu firmy: nowe rekrutacje wpadają codziennie, a DL rozdaje je na bieżąc
 Te testy pilnują nowego kontraktu — DL przypisuje sam, HoR obserwuje.
 
 Testy są bez bazy: sprawdzają granice ról i gałęzie decyzyjne handlera.
-Zachowanie z bazą (unikalność rangi, sufit 5) pilnują ograniczenia w migracji
-0200 i test kontraktowy migracji.
+Zachowanie z bazą i równoczesne przydziały sprawdzają testy PostgreSQL.
 """
 
 from __future__ import annotations
@@ -24,6 +23,12 @@ from app.models.skill import Skill  # noqa: F401 - rejestracja relacji ORM
 from app.models.user import UserRole
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _transaction_lock_at_unit_boundary(monkeypatch):
+    # Real transaction serialization is covered by PostgreSQL integration tests.
+    monkeypatch.setattr(priority_work, "allocation_lock", AsyncMock())
 
 
 class _FakeUser:
@@ -138,43 +143,23 @@ async def test_rank_is_optional_and_advisory() -> None:
     assert _payload(rank="C").rank is PriorityRank.C
 
 
-async def test_full_roster_reports_the_ceiling_at_assignment_time(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Sufit 5 wychodzi u DL-a przy przypisaniu, nie u rekrutera w trakcie pracy.
-
-    To jest cała różnica względem modelu planowego: friction ląduje na osobie,
-    która ROZDZIELA pracę, a nie na tej, która ją WYKONUJE.
-    """
+async def test_sixth_assignment_uses_shared_unbounded_command(monkeypatch):
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(
-        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
-    )
+    job = SimpleNamespace(id=7, delivery_lead_id=5, is_open=True)
     recruiter = _FakeUser(42, UserRole.recruiter)
-    demand = SimpleNamespace(id=3)
-    plan = SimpleNamespace(id=1)
-    member = SimpleNamespace(id=11, status=priority_work.PriorityMemberStatus.active)
-
+    assignment = SimpleNamespace(
+        id=12, position=6, rank=None, channel=priority_work.PriorityChannel.linkedin
+    )
+    command = AsyncMock(return_value=assignment)
+    monkeypatch.setattr(priority_work, "assign_operator", command)
     db = SimpleNamespace(
-        scalar=AsyncMock(side_effect=[job, recruiter, demand, None]),
-        flush=AsyncMock(),
-        add=lambda *_: None,
+        scalar=AsyncMock(side_effect=[job, recruiter]), commit=AsyncMock()
     )
-    # monkeypatch, nie przypisanie do modułu — przypisanie przeciekłoby na
-    # kolejne testy w tej samej sesji.
-    monkeypatch.setattr(
-        priority_work, "ensure_standing_plan", AsyncMock(return_value=plan)
-    )
-    monkeypatch.setattr(
-        priority_work, "ensure_plan_member", AsyncMock(return_value=member)
-    )
-    monkeypatch.setattr(priority_work, "next_free_rank", AsyncMock(return_value=None))
-
-    with pytest.raises(HTTPException) as err:
-        await priority_work.create_priority_assignment(_payload(), dl, db)
-
-    assert err.value.status_code == 409
-    assert "komplet 5" in err.value.detail
+    result = await priority_work.create_priority_assignment(_payload(), dl, db)
+    assert result["position"] == 6 and result["rank"] is None
+    assert command.await_args.kwargs["job"] is job
+    assert command.await_args.kwargs["assignee"] is recruiter
+    assert command.await_args.kwargs["as_owner"] is False
 
 
 async def test_delete_is_scoped_to_the_requests_delivery_lead() -> None:
@@ -189,46 +174,19 @@ async def test_delete_is_scoped_to_the_requests_delivery_lead() -> None:
     assert err.value.status_code == 403
 
 
-async def test_explicit_rank_that_is_taken_gets_an_honest_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Jawna ranga przechodzi tę samą kontrolę co automatyczna.
-
-    Wcześniej kolizja wychodziła dopiero jako IntegrityError na INSERT i
-    wracała jako „ranga zajęta przez równoległe przypisanie" — a żadnej
-    równoległości nie było.
-    """
+async def test_explicit_rank_is_forwarded_as_numeric_position_and_conflict_is_preserved(
+    monkeypatch,
+):
     dl = _FakeUser(5, UserRole.delivery_lead)
-    job = SimpleNamespace(
-        id=7, delivery_lead_id=5, status=JobStatus.published, is_open=True
-    )
+    job = SimpleNamespace(id=7, delivery_lead_id=5, is_open=True)
     recruiter = _FakeUser(42, UserRole.recruiter)
-    demand = SimpleNamespace(id=3)
-    plan = SimpleNamespace(id=1)
-    member = SimpleNamespace(id=11, status=priority_work.PriorityMemberStatus.active)
-
-    db = SimpleNamespace(
-        # job, assignee, demand, brak duplikatu joba, ranga ZAJĘTA
-        scalar=AsyncMock(side_effect=[job, recruiter, demand, None, 99]),
-        flush=AsyncMock(),
-        add=lambda *_: None,
-    )
-    monkeypatch.setattr(
-        priority_work, "ensure_standing_plan", AsyncMock(return_value=plan)
-    )
-    monkeypatch.setattr(
-        priority_work, "ensure_plan_member", AsyncMock(return_value=member)
-    )
-    free = AsyncMock(return_value=PriorityRank.B)
-    monkeypatch.setattr(priority_work, "next_free_rank", free)
-
-    with pytest.raises(HTTPException) as err:
+    command = AsyncMock(side_effect=HTTPException(409, "Pozycja jest już zajęta"))
+    monkeypatch.setattr(priority_work, "assign_operator", command)
+    db = SimpleNamespace(scalar=AsyncMock(side_effect=[job, recruiter]))
+    with pytest.raises(HTTPException) as error:
         await priority_work.create_priority_assignment(_payload(rank="C"), dl, db)
-
-    assert err.value.status_code == 409
-    assert "Ranga C" in err.value.detail
-    # Jawna ranga NIE może po cichu wylądować na wolnej — DL prosił o konkretną.
-    free.assert_not_awaited()
+    assert error.value.status_code == 409
+    assert command.await_args.kwargs["position"] == 3
 
 
 async def test_plan_member_creation_is_an_upsert_not_select_then_insert() -> None:

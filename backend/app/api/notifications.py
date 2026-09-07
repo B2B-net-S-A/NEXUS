@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -15,6 +15,7 @@ from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.api.deps import CurrentUser
 from app.services.notification_access import notification_visibility_predicate
+from app.services.workforce_availability import operational_owner_ids
 
 router = APIRouter()
 
@@ -74,6 +75,39 @@ def _notification_visibility(current_user: User):
     return notification_visibility_predicate(current_user)
 
 
+_OPERATIONAL_REMINDERS = frozenset(
+    {
+        NotificationType.interview_scheduled,
+        NotificationType.dl_stage_stale_6h,
+        NotificationType.client_feedback_eobd,
+        NotificationType.candidate_feedback_1h,
+        NotificationType.stage_stuck_7d,
+        NotificationType.post_interview_t15,
+        NotificationType.post_interview_t45,
+        NotificationType.post_interview_t2h_escalation,
+        NotificationType.suggest_next_step,
+        NotificationType.job_deadline_7d,
+        NotificationType.job_deadline_3d,
+        NotificationType.job_deadline_1d,
+    }
+)
+
+
+def _notification_owner(current_user: User):
+    inherited = operational_owner_ids(current_user) - {current_user.id}
+    own = Notification.user_id == current_user.id
+    if not inherited:
+        return own
+    return or_(
+        own,
+        and_(
+            Notification.user_id.in_(inherited),
+            Notification.is_read.is_(False),
+            Notification.notification_type.in_(_OPERATIONAL_REMINDERS),
+        ),
+    )
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -87,7 +121,7 @@ async def list_notifications(
     result = await db.execute(
         select(Notification)
         .where(
-            Notification.user_id == current_user.id,
+            _notification_owner(current_user),
             _notification_visibility(current_user),
         )
         .order_by(Notification.is_read.asc(), Notification.created_at.desc())
@@ -99,7 +133,7 @@ async def list_notifications(
         select(func.count())
         .select_from(Notification)
         .where(
-            Notification.user_id == current_user.id,
+            _notification_owner(current_user),
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
         )
@@ -133,7 +167,7 @@ async def get_unread_count(
         select(func.count())
         .select_from(Notification)
         .where(
-            Notification.user_id == current_user.id,
+            _notification_owner(current_user),
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
         )
@@ -157,7 +191,7 @@ async def mark_as_read(
     result = await db.execute(
         select(Notification).where(
             Notification.id == notification_id,
-            Notification.user_id == current_user.id,
+            _notification_owner(current_user),
             _notification_visibility(current_user),
         )
     )
@@ -191,7 +225,7 @@ async def mark_all_read(
     result = await db.execute(
         update(Notification)
         .where(
-            Notification.user_id == current_user.id,
+            _notification_owner(current_user),
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
         )

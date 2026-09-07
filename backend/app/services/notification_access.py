@@ -40,6 +40,7 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 # Context-sensitive types are handled separately below.  Every other enum
 # value must appear here or in ``ALWAYS_VISIBLE_NOTIFICATION_TYPES``.
 NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
+    NotificationType.recruitment_allocation_alert: ProductSection.pipeline,
     NotificationType.contract_ending: ProductSection.delivery,
     NotificationType.interview_scheduled: ProductSection.pipeline,
     NotificationType.candidate_added: ProductSection.sourcing,

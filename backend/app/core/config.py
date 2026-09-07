@@ -1015,6 +1015,11 @@ class Settings(BaseSettings):
     #
     # Domyslnie WYLACZONE: bez tych trzech ustawien sync konczy sie przed
     # wyjsciem na siec, a Power Calling dalej mowi „nie wiem" zamiast zgadywac.
+    COMPASS_AVAILABILITY_ENABLED: bool = False
+    COMPASS_AVAILABILITY_URL: str = ""
+    COMPASS_AVAILABILITY_SECRET: str = ""
+    RECRUITMENT_ALLOCATION_ENABLED: bool = False
+
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
     COMPASS_WORKDAYS_SECRET: str = ""

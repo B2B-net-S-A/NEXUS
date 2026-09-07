@@ -137,3 +137,5 @@ describe("MyTasksDashboard", () => {
     expect(screen.queryByText("Interview z klientem")).toBeNull()
   })
 })
+
+vi.mock("../MyOnboardingTasks", () => ({ MyOnboardingTasks: () => null }))

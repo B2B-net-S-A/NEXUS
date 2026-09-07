@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import Literal, Any, List, Optional
 
 from pydantic import BaseModel, Field, computed_field, field_validator
 
@@ -290,5 +290,7 @@ class JobHandoffRequest(BaseModel):
     enhancement.
     """
 
-    recruiter_id: int = Field(..., gt=0)
+    recruiter_id: Optional[int] = Field(default=None, gt=0)
+    assignment_mode: Literal["manual", "automatic"] = "manual"
+    channel: Literal["linkedin", "database", "mixed"] = "linkedin"
     top_k: Optional[int] = Field(default=None, gt=0)

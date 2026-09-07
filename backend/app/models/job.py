@@ -127,6 +127,9 @@ class Job(Base, TimestampMixin):
     needs_sourcing: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, index=True
     )
+    favorite_sourcing_paused: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     recruitment_type: Mapped[RecruitmentType] = mapped_column(
         Enum(RecruitmentType),

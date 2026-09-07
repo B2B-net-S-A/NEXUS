@@ -1,5 +1,7 @@
 "use client"
 
+import { priorityPosition } from "@/lib/priority-work-api"
+
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -210,7 +212,7 @@ function AssignmentCard({
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <RankBadge rank={assignment.rank} />
+          <RankBadge rank={assignment.rank} position={assignment.position} />
           <div className="min-w-0">
             <PriorityJobLink job={assignment.job} className="block truncate" />
             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -236,6 +238,8 @@ function AssignmentCard({
         ) : null}
       </div>
 
+      {assignment.substitution && <p className="mt-3 text-sm text-muted-foreground">Zastępujesz: {assignment.user_name}. Okres: {assignment.substitution.start_date} – {assignment.substitution.end_date}.</p>}
+      {assignment.sourcing_pause_reason && <p className="mt-2 text-sm text-muted-foreground">{assignment.sourcing_pause_reason === "favorite" ? "Faworyt pokrywa ostatnie wolne miejsce." : "Poszukiwania zatrzymano ręcznie."} Nadal obsługuj kandydatów i terminy.</p>}
       <div className="mt-4">
         <AssignmentProgress assignment={assignment} />
       </div>
@@ -332,7 +336,7 @@ export function MyPriorityQueue() {
   const assignments = useMemo(
     () =>
       [...(query.data?.assignments ?? [])].sort((left, right) =>
-        left.rank.localeCompare(right.rank),
+        priorityPosition(left) - priorityPosition(right),
       ),
     [query.data?.assignments],
   )
@@ -373,7 +377,7 @@ export function MyPriorityQueue() {
                 <CardTitle id="my-priority-work-title">Mój plan pracy</CardTitle>
               </div>
               <CardDescription>
-                Nowy sourcing realizuj według A–E. Rozpoczęte procesy zawsze
+                Nowy sourcing realizuj według kolejności przydziałów. Rozpoczęte procesy zawsze
                 dokończ w osobnej kolejce.
               </CardDescription>
             </div>
@@ -421,7 +425,7 @@ export function MyPriorityQueue() {
               </div>
               <CardDescription>
                 Kandydaci rozpoczęci wcześniej. Ta kolejka nie jest kolejnym
-                priorytetem A–E.
+                pozycją na liście.
               </CardDescription>
             </div>
             <Badge variant={carryOver.length ? "warning" : "success"}>

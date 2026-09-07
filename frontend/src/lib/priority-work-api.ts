@@ -73,7 +73,12 @@ export interface PriorityAssignment {
   id: number
   user_id?: number
   user_name?: string
-  rank: PriorityRank
+  owner_user_id?: number | null
+  effective_user_id?: number | null
+  substitution?: { start_date: string; end_date: string } | null
+  sourcing_pause_reason?: "favorite" | "manual" | null
+  rank: PriorityRank | null
+  position?: number
   channel: PriorityChannel
   job: PriorityJobReference
   demand_id?: number | null
@@ -119,7 +124,8 @@ export interface PriorityPlanAssignmentSnapshot {
   id: number
   demand_id: number
   job_id: number
-  rank: PriorityRank
+  rank: PriorityRank | null
+  position?: number
   channel: PriorityChannel
   verification_target: number
   recommendation_target: number
@@ -235,7 +241,8 @@ export type PriorityDemandUpdate = Partial<PriorityDemandInput> & {
 export interface PriorityAssignmentInput {
   job_id: number
   demand_id?: number | null
-  rank: PriorityRank
+  rank: PriorityRank | null
+  position?: number
   channel: PriorityChannel
   verification_target: number
   recommendation_target: number
@@ -465,4 +472,8 @@ export function priorityWorkErrorMessage(error: unknown): string | null {
   return nextAction
     ? `${conflict.message} ${nextAction}`
     : conflict.message
+}
+
+export function priorityPosition(item: { position?: number; rank?: PriorityRank | null }): number {
+  return item.position ?? (item.rank ? item.rank.charCodeAt(0) - 64 : 1)
 }

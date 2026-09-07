@@ -1,5 +1,9 @@
 "use client"
 
+import { AllocationWorkloadBoard } from "./AllocationWorkloadBoard"
+
+import { priorityPosition } from "@/lib/priority-work-api"
+
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -178,6 +182,7 @@ function assignmentToEditable(
     job_id: isSnapshot ? assignment.job_id : assignment.job.id,
     demand_id: assignment.demand_id ?? null,
     rank: assignment.rank,
+    position: priorityPosition(assignment),
     channel: assignment.channel,
     verification_target: assignment.verification_target,
     recommendation_target: assignment.recommendation_target,
@@ -232,12 +237,12 @@ function membersToEditable(
         member.extra_slots_reason ??
         member.capacity_reason ??
         member.assignments.find((assignment) =>
-          ["D", "E"].includes(assignment.rank),
+          priorityPosition(assignment) > 3,
         )?.extra_slot_reason ??
         null,
       assignments: member.assignments
         .slice()
-        .sort((left, right) => left.rank.localeCompare(right.rank))
+        .sort((left, right) => priorityPosition(left) - priorityPosition(right))
         .map(assignmentToEditable),
     }
   })
@@ -293,7 +298,8 @@ function applyDefaultVerificationTargets(
   const defaults = DEFAULT_VERIFICATION_TARGETS[assignments.length]
   return assignments.map((assignment, index) => ({
     ...assignment,
-    rank: RANKS[index],
+    rank: RANKS[index] ?? null,
+    position: index + 1,
     verification_target:
       defaults?.[index] ?? assignment.verification_target,
   }))
@@ -308,16 +314,8 @@ function validateMembers(members: EditableMember[]): string[] {
       }
       continue
     }
-    if (member.assignments.length < 3 || member.assignments.length > 5) {
-      errors.push(`${member.user_name}: wymagane są 3–5 requestów.`)
-    }
-    if (
-      member.assignments.length > 3 &&
-      (member.extra_slots_reason?.trim().length ?? 0) < 10
-    ) {
-      errors.push(
-        `${member.user_name}: 4–5 slotów wymaga uzasadnienia pojemności.`,
-      )
+    if (member.assignments.length === 0) {
+      errors.push(`${member.user_name}: dodaj co najmniej jeden request albo wstrzymaj osobę.`)
     }
     const verificationCapacity = member.assignments.reduce(
       (total, assignment) => total + assignment.verification_target,
@@ -338,7 +336,7 @@ function validateMembers(members: EditableMember[]): string[] {
     for (const assignment of member.assignments) {
       if (!member.allowed_channels.includes(assignment.channel)) {
         errors.push(
-          `${member.user_name}, priorytet ${assignment.rank}: kanał ${CHANNEL_OPTIONS[assignment.channel]} nie pasuje do roli ${memberRoleLabel(member)}.`,
+          `${member.user_name}, priorytet ${assignment.position ?? assignment.rank}: kanał ${CHANNEL_OPTIONS[assignment.channel]} nie pasuje do roli ${memberRoleLabel(member)}.`,
         )
       }
       if (
@@ -346,7 +344,7 @@ function validateMembers(members: EditableMember[]): string[] {
         assignment.recommendation_target < 1
       ) {
         errors.push(
-          `${member.user_name}, priorytet ${assignment.rank}: targety muszą być większe od zera.`,
+          `${member.user_name}, priorytet ${assignment.position ?? assignment.rank}: targety muszą być większe od zera.`,
         )
       }
       if (
@@ -354,7 +352,7 @@ function validateMembers(members: EditableMember[]): string[] {
         (assignment.cc_exception_reason?.trim().length ?? 0) < 10
       ) {
         errors.push(
-          `${member.user_name}, priorytet ${assignment.rank}: wyjątek CC wymaga uzasadnienia.`,
+          `${member.user_name}, priorytet ${assignment.position ?? assignment.rank}: wyjątek CC wymaga uzasadnienia.`,
         )
       }
     }
@@ -586,7 +584,7 @@ function EditableAssignmentRow({
   return (
     <div className="space-y-3 rounded-lg border border-border bg-card p-3">
       <div className="flex items-start gap-3">
-        <RankBadge rank={assignment.rank} />
+        <RankBadge rank={assignment.rank} position={assignment.position} />
         <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="space-y-1 text-xs text-muted-foreground md:col-span-2">
             <span>Request</span>
@@ -594,7 +592,7 @@ function EditableAssignmentRow({
               value={String(assignment.job_id)}
               onValueChange={changeJob}
             >
-              <SelectTrigger aria-label={`Request ${assignment.rank}`}>
+              <SelectTrigger aria-label={`Request ${assignment.position ?? assignment.rank}`}>
                 <SelectValue placeholder="Wybierz request" />
               </SelectTrigger>
               <SelectContent>
@@ -617,7 +615,7 @@ function EditableAssignmentRow({
                 })
               }
             >
-              <SelectTrigger aria-label={`Kanał ${assignment.rank}`}>
+              <SelectTrigger aria-label={`Kanał ${assignment.position ?? assignment.rank}`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -645,7 +643,7 @@ function EditableAssignmentRow({
                     ),
                   })
                 }
-                aria-label={`Target weryfikacji ${assignment.rank}`}
+                aria-label={`Target weryfikacji ${assignment.position ?? assignment.rank}`}
               />
             </label>
             <label className="space-y-1 text-xs text-muted-foreground">
@@ -663,7 +661,7 @@ function EditableAssignmentRow({
                     ),
                   })
                 }
-                aria-label={`Target rekomendacji ${assignment.rank}`}
+                aria-label={`Target rekomendacji ${assignment.position ?? assignment.rank}`}
               />
             </label>
           </div>
@@ -672,7 +670,7 @@ function EditableAssignmentRow({
           variant="ghost"
           size="icon-sm"
           onClick={onRemove}
-          aria-label={`Usuń priorytet ${assignment.rank}`}
+          aria-label={`Usuń priorytet ${assignment.position ?? assignment.rank}`}
         >
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
@@ -706,7 +704,7 @@ function EditableAssignmentRow({
             })
           }
           placeholder="Dlaczego przydział poza CC jest uzasadniony przez HoR?"
-          aria-label={`Uzasadnienie wyjątku CC ${assignment.rank}`}
+          aria-label={`Uzasadnienie wyjątku CC ${assignment.position ?? assignment.rank}`}
         />
       ) : null}
     </div>
@@ -745,14 +743,13 @@ function EditableMemberCard({
   }
 
   const addAssignment = () => {
-    if (member.assignments.length >= 5) return
     const usedJobIds = new Set(
       member.assignments.map((assignment) => assignment.job_id),
     )
     const demand =
       demands.find((item) => !usedJobIds.has(item.job.id)) ?? demands[0]
     if (!demand) return
-    const rank = RANKS[member.assignments.length]
+    const rank = RANKS[member.assignments.length] ?? null
     const matches = competenceMatch(member, demand)
     const assignments = applyDefaultVerificationTargets([
       ...member.assignments,
@@ -761,6 +758,7 @@ function EditableMemberCard({
         job_id: demand.job.id,
         demand_id: demand.id,
         rank,
+        position: member.assignments.length + 1,
         channel: channelForMember(member, demand.channel),
         verification_target: 1,
         recommendation_target: Math.max(1, demand.expected_recommendations),
@@ -887,7 +885,7 @@ function EditableMemberCard({
                 </label>
               ) : null}
             </div>
-            {member.assignments.length < 5 ? (
+            {(
               <Button
                 variant="outline"
                 size="sm"
@@ -895,27 +893,9 @@ function EditableMemberCard({
                 disabled={demands.length === 0}
               >
                 <Plus className="h-4 w-4" />
-                Dodaj slot {RANKS[member.assignments.length]}
+                Dodaj pozycję {member.assignments.length + 1}
               </Button>
-            ) : null}
-            {member.assignments.length > 3 ? (
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium text-foreground">
-                  Uzasadnienie dodatkowych slotów
-                </span>
-                <Textarea
-                  value={member.extra_slots_reason ?? ""}
-                  onChange={(event) =>
-                    onChange({
-                      ...member,
-                      extra_slots_reason: event.target.value,
-                    })
-                  }
-                  placeholder="Dlaczego ta osoba ma wyjątkowo 4–5 requestów?"
-                  rows={2}
-                />
-              </label>
-            ) : null}
+            )}
           </>
         )}
       </CardContent>
@@ -969,13 +949,13 @@ function ReadOnlyMemberCard({ member }: { member: PriorityTeamMember }) {
           <div className="space-y-2">
             {member.assignments
               .slice()
-              .sort((left, right) => left.rank.localeCompare(right.rank))
+              .sort((left, right) => priorityPosition(left) - priorityPosition(right))
               .map((assignment) => (
                 <div
                   key={assignment.id}
                   className="flex flex-wrap items-center gap-3 rounded-lg border border-border px-3 py-2"
                 >
-                  <RankBadge rank={assignment.rank} />
+                  <RankBadge rank={assignment.rank} position={assignment.position} />
                   <Link
                     href={`/jobs/${assignment.job.id}`}
                     className="min-w-0 flex-1 truncate text-sm font-medium text-foreground hover:text-primary"
@@ -1686,6 +1666,7 @@ export function TeamAllocationBoard() {
       className="space-y-4"
       aria-labelledby="team-allocation-board-title"
     >
+      <AllocationWorkloadBoard />
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">

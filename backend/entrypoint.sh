@@ -6936,6 +6936,35 @@ async def finalize():
 asyncio.run(finalize())
 PY
 
+# Availability/allocation must be in place before ORM reads at login or startup.
+# Reuse the exact idempotent migration in one transaction when the historical
+# Alembic bookmark is orphaned; do not maintain a second divergent SQL copy.
+python - <<'PY_ALLOCATION'
+import asyncio
+import importlib.util
+from pathlib import Path
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import text
+from app.core.database import engine
+
+async def prepare_allocation():
+    path = Path("/app/alembic/versions/0277_recruitment_allocation.py")
+    spec = importlib.util.spec_from_file_location("allocation_schema", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    def upgrade(connection):
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+    async with engine.begin() as connection:
+        await connection.execute(text("SELECT pg_advisory_xact_lock(734092771)"))
+        await connection.run_sync(upgrade)
+    await engine.dispose()
+    print("Availability/allocation schema verified")
+
+asyncio.run(prepare_allocation())
+PY_ALLOCATION
+
 # Cortex: dedup taksonomii (safety-net gdy alembic nie dobija do 0167).
 # Idempotentne + transakcyjne (rollback przy błędzie → worst case brak zmiany);
 # scala tylko faktyczne duplikaty case + 5 par semantycznych, repin-before-delete.

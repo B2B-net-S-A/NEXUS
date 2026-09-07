@@ -19,6 +19,15 @@ from app.api.candidate_access import user_can_access_candidate_domain
 from app.models.job import Job
 from app.models.job_collaborator import JobCollaborator
 from app.models.user import User, UserRole
+from app.core.config import settings
+from app.services.workforce_availability import workforce_context, effective_owner_ids
+from app.models.recruitment_priority import (
+    RecruitmentPriorityAssignment,
+    RecruitmentPriorityPlanMember,
+    RecruitmentPriorityPlan,
+    PriorityPlanStatus,
+    PriorityMemberStatus,
+)
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -51,12 +60,52 @@ async def is_member_of_job(
     if job is None:
         return False
 
+    owners = await effective_owner_ids(db, user.id)
+    if not job.is_open:
+        from app.models.recruitment_process import RecruitmentProcess, ProcessStatus
+
+        inherited = owners - {user.id}
+        has_open_work = inherited and await db.scalar(
+            select(RecruitmentProcess.id)
+            .where(
+                RecruitmentProcess.job_id == job_id,
+                RecruitmentProcess.owner_user_id.in_(inherited),
+                RecruitmentProcess.status == ProcessStatus.open,
+                RecruitmentProcess.priority_compliant_at_open.is_(True),
+            )
+            .limit(1)
+        )
+        if not has_open_work:
+            owners = {user.id}
     if (
-        job.recruiter_id == user.id
-        or job.delivery_lead_id == user.id
-        or job.tac_id == user.id
+        job.recruiter_id in owners
+        or job.delivery_lead_id in owners
+        or job.tac_id in owners
     ):
         return True
+
+    if settings.RECRUITMENT_ALLOCATION_ENABLED:
+        commitment = await db.scalar(
+            select(RecruitmentPriorityAssignment.id)
+            .join(
+                RecruitmentPriorityPlanMember,
+                RecruitmentPriorityPlanMember.id
+                == RecruitmentPriorityAssignment.plan_member_id,
+            )
+            .join(
+                RecruitmentPriorityPlan,
+                RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+            )
+            .where(
+                RecruitmentPriorityAssignment.job_id == job_id,
+                RecruitmentPriorityPlanMember.user_id.in_(owners),
+                RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+                RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            )
+            .limit(1)
+        )
+        if commitment is not None:
+            return True
 
     q = (
         select(JobCollaborator.id)
@@ -91,6 +140,26 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
     for (uid,) in rows.all():
         member_ids.add(uid)
 
+    if settings.RECRUITMENT_ALLOCATION_ENABLED:
+        members = await db.scalars(
+            select(RecruitmentPriorityPlanMember.user_id)
+            .join(
+                RecruitmentPriorityAssignment,
+                RecruitmentPriorityAssignment.plan_member_id
+                == RecruitmentPriorityPlanMember.id,
+            )
+            .join(
+                RecruitmentPriorityPlan,
+                RecruitmentPriorityPlan.id == RecruitmentPriorityPlanMember.plan_id,
+            )
+            .where(
+                RecruitmentPriorityAssignment.job_id == job_id,
+                RecruitmentPriorityPlanMember.status == PriorityMemberStatus.active,
+                RecruitmentPriorityPlan.status == PriorityPlanStatus.published,
+            )
+        )
+        member_ids.update(members.all())
+
     # Wszyscy admini systemu (małych liczb użytkowników — OK)
     admins = await db.execute(
         select(User.id)
@@ -99,6 +168,10 @@ async def list_job_member_ids(db: AsyncSession, job_id: int) -> list[int]:
     )
     for (uid,) in admins.all():
         member_ids.add(uid)
+
+    if settings.COMPASS_AVAILABILITY_ENABLED and job.is_open:
+        context = await workforce_context(db)
+        member_ids = {context.performer(user_id) for user_id in member_ids}
 
     if not member_ids:
         return []
