@@ -970,6 +970,9 @@ export const matchingApi = {
       job_id: number;
       job_title: string;
       required_skills: string[];
+      // Nice-to-have skill labels from the job's `nice_skills` JSON — drive the
+      // "Mile widziane" column in the C2 workspace. Display-only (never scored).
+      nice_skills?: string[];
       search_type: string;
       min_score: number | null;
       location_filter: string | null;
@@ -981,10 +984,18 @@ export const matchingApi = {
           email?: string | null;
           location?: string | null;
           competence_category?: string | null;
+          // C2 workspace: candidate hourly rate (compared with the job budget
+          // in the dock), current role + company (row subtitle). Nullable.
+          expected_rate_hourly?: number | null;
+          current_title?: string | null;
+          current_company?: string | null;
         };
         match_score: number | null;
         matching_skills: string[];
         gaps: string[];
+        // Nice-to-have coverage (parallel to matching_skills/gaps for must).
+        nice_matching?: string[];
+        nice_gaps?: string[];
         eligibility?: MatchEligibility | null;
       }>;
       meta?: RecommendationMeta;
@@ -2437,6 +2448,13 @@ export interface RecommendationMeta {
    * mimo tradeoffu „wyroczni na NDA" — mirror Talent Radaru (`eligible_size`).
    */
   eligibility_filtered?: number;
+  /**
+   * Operacyjny (kandydacki) budżet godzinowy oferty — ten sam sufit, który
+   * bramka egzekwuje jako `over_budget`. Warsztat C2 pokazuje go w pasku
+   * kontekstu i porównuje z nim stawki w doku. `null`, gdy oferta nie ma
+   * budżetu godzinowego (wtedy stawki nie są kolorowane).
+   */
+  budget_hourly?: number | null;
 }
 
 /**

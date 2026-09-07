@@ -13,6 +13,7 @@ Regresja tutaj jest CICHA (zła lista, nie błąd), więc test sprawdza wynik
 
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -38,6 +39,9 @@ def _candidate(**overrides) -> SimpleNamespace:
         raw_cv_text=None,
         ai_summary=None,
         avatar_url=None,
+        expected_rate_hourly=None,
+        linkedin_current_title=None,
+        linkedin_current_company=None,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -105,3 +109,57 @@ class TestSkillSources:
         info = _build_match_info(cand, ["Java", "java", "JAVA"], score=None)
         assert info["match_score"] == 1.0
         assert info["matching_skills"] == ["java"]
+
+    def test_nice_coverage_and_c2_row_fields(self) -> None:
+        """Warsztat C2: pokrycie nice-to-have + stawka/stanowisko/firma w wierszu."""
+        cand = _candidate(
+            skills=[{"name": "Java"}, {"name": "AWS"}],
+            expected_rate_hourly=Decimal("165.00"),
+            linkedin_current_title="Senior Java Developer",
+            linkedin_current_company="Comarch",
+        )
+        info = _build_match_info(
+            cand, ["java", "kubernetes"], nice_skills=["aws", "terraform"]
+        )
+        # must: java ✓, kubernetes ✗ (nice NIE wpływa na must ani na score)
+        assert info["matching_skills"] == ["java"]
+        assert info["gaps"] == ["kubernetes"]
+        # nice: aws ✓, terraform ✗
+        assert info["nice_matching"] == ["aws"]
+        assert info["nice_gaps"] == ["terraform"]
+        # Pola wiersza C2 — Decimal serializowany do float dla FE.
+        assert info["candidate"]["expected_rate_hourly"] == 165.0
+        assert info["candidate"]["current_title"] == "Senior Java Developer"
+        assert info["candidate"]["current_company"] == "Comarch"
+
+    def test_nice_skill_that_is_also_must_is_not_double_counted(self) -> None:
+        """Ten sam skill nie może wyjść raz jako must i raz jako nice."""
+        cand = _candidate(skills=[{"name": "Java"}])
+        info = _build_match_info(cand, ["java"], nice_skills=["java", "aws"])
+        assert info["nice_matching"] == []
+        assert info["nice_gaps"] == ["aws"]
+
+    def test_missing_c2_fields_do_not_break_the_row(self) -> None:
+        """Atrapa bez pól C2 (stary SimpleNamespace) → None, nie AttributeError."""
+        cand = SimpleNamespace(
+            id=2,
+            name="Ada",
+            lastname="Nowak",
+            email=None,
+            phone=None,
+            location=None,
+            status=None,
+            competence_category=None,
+            tags=None,
+            skills=None,
+            verified_tech=None,
+            cv_extracted_data=None,
+            raw_cv_text=None,
+            ai_summary=None,
+            avatar_url=None,
+        )
+        info = _build_match_info(cand, ["java"], nice_skills=["aws"])
+        assert info["candidate"]["expected_rate_hourly"] is None
+        assert info["candidate"]["current_title"] is None
+        assert info["candidate"]["current_company"] is None
+        assert info["nice_gaps"] == ["aws"]

@@ -21,7 +21,8 @@ import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modal
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import JobChatTab from "@/components/v2/pages/JobChatTab";
 import { jobChatApi } from "@/lib/api";
-import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail } from "lucide-react";
+import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, Wand2, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail, Target, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
 import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
@@ -658,27 +659,6 @@ function JobAIActions({
 
 // ── AI Matching Section ───────────────────────────────────────────────────────
 
-function MatchScoreBar({ score }: { score: number | null }) {
-  if (score === null) {
-    return (
-      <span className="inline-flex rounded-full border border-border bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
-        BM25 · tryb awaryjny
-      </span>
-    );
-  }
-  const pct = Math.round(score * 100);
-  const color = pct >= 80 ? "bg-green-500" : pct >= 60 ? "bg-yellow-500" : "bg-destructive";
-  const textColor = pct >= 80 ? "text-green-700" : pct >= 60 ? "text-yellow-700" : "text-destructive";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 bg-muted dark:bg-muted rounded-full h-2 overflow-hidden">
-        <div className={`h-2 rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className={`text-xs font-bold w-10 text-right ${textColor}`}>{pct}%</span>
-    </div>
-  );
-}
-
 function EmailTemplateModal({
   candidate,
   job,
@@ -755,10 +735,12 @@ function AIMatchingSection({
   jobId,
   job,
   readOnly = false,
+  isAdmin = false,
 }: {
   jobId: number;
   job: any;
   readOnly?: boolean;
+  isAdmin?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -767,6 +749,18 @@ function AIMatchingSection({
   // (szukam) ↔ „Shortlista" (oceniam i prowadzę).
   const [matchView, setMatchView] = useState<"ranking" | "shortlist">("ranking");
   const [shortlistingId, setShortlistingId] = useState<number | null>(null);
+  // Wiersz zaznaczony do doku „Dopasowanie" (prawa kolumna warsztatu C2).
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // Filtry lewej kolumny „Wymagania z Championa" — wszystkie po stronie klienta,
+  // bez dodatkowego zapytania: próg wyniku, wybrany skill must, stawka wobec
+  // budżetu, obecność w procesie. Multi-select do akcji zbiorczej „Przypisz".
+  const [minScorePct, setMinScorePct] = useState<number | null>(null);
+  const [skillFilter, setSkillFilter] = useState<string | null>(null);
+  const [rateFilter, setRateFilter] = useState<"all" | "in" | "over" | "unknown">(
+    "all",
+  );
+  const [stageFilter, setStageFilter] = useState<"all" | "in" | "out">("all");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // Licznik do etykiety przełącznika — ten sam klucz co tablica shortlisty,
   // więc react-query deduplikuje fetch.
   const shortlistCountQuery = useQuery({
@@ -845,7 +839,49 @@ function AIMatchingSection({
     onSettled: () => setShortlistingId(null),
   });
 
-  const matches = data?.matches ?? [];
+  // Akcja zbiorcza „Przypisz zaznaczonych" (checkboxy w rankingu → pipeline).
+  const bulkAssignMutation = useMutation({
+    mutationFn: (ids: number[]) => {
+      if (readOnly) {
+        throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
+      }
+      return proposalsBulkApi.add(jobId, { candidate_ids: ids });
+    },
+    onSuccess: (res, ids) => {
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+      setAddedIds((prev) => {
+        const next = new Set(prev);
+        ids.forEach((i) => next.add(i));
+        return next;
+      });
+      setSelectedIds(new Set());
+      showSuccess(
+        res.total_added > 0
+          ? `Dodano ${res.total_added} do pipeline`
+          : "Zaznaczeni są już w pipeline tej rekrutacji",
+      );
+    },
+    onError: (error: unknown) => showError(assignErrorMessage(error)),
+  });
+
+  // Kandydaci już w pipelinie tej rekrutacji — klucze `pipelineScores` (ten sam
+  // klucz co ring na kanbanie → react-query deduplikuje). Napędza pigułkę „w
+  // procesie", KPI i wyszarzenie „Dodaj" dla już dodanych.
+  const pipelineScoresQuery = useQuery({
+    queryKey: ["pipeline-scores", jobId],
+    queryFn: () => matchingApi.pipelineScores(jobId).then((r) => r.data),
+    staleTime: 60_000,
+  });
+  const pipelineSet = useMemo(() => {
+    const out = new Set<number>();
+    const scores = pipelineScoresQuery.data?.scores;
+    if (scores) for (const k of Object.keys(scores)) out.add(Number(k));
+    return out;
+  }, [pipelineScoresQuery.data]);
+
+  const matches = useMemo(() => data?.matches ?? [], [data]);
   const searchType = data?.search_type;
   // Sygnałem degradacji jest koperta `meta` — `/api/jobs/{id}/ai-matches`
   // wypełnia ją na OBU gałęziach (semantycznej i tag-fallback). Warunek na
@@ -871,54 +907,184 @@ function AIMatchingSection({
   const hiddenMeta = data?.meta?.hidden;
   const hiddenTotal =
     (hiddenMeta?.over_budget ?? 0) + (hiddenMeta?.remote_only ?? 0);
+  const niceSkills: string[] = data?.nice_skills ?? [];
+  const budgetHourly = data?.meta?.budget_hourly ?? null;
+
+  // Próg wyniku: domyślnie z odpowiedzi (min_score), edytowalny suwakiem lewej
+  // kolumny. Filtrowanie po stronie klienta — nie odpytujemy backendu ponownie.
+  const baseThresholdPct = Math.round((data?.min_score ?? 0.6) * 100);
+  const effThresholdPct = minScorePct ?? baseThresholdPct;
+
+  const filtered = useMemo(() => {
+    return matches.filter((m: any) => {
+      const pct = Math.round((m.match_score ?? 0) * 100);
+      if (pct < effThresholdPct) return false;
+      if (skillFilter && !(m.matching_skills ?? []).includes(skillFilter)) {
+        return false;
+      }
+      if (rateFilter !== "all") {
+        const rate = m.candidate?.expected_rate_hourly;
+        const band =
+          rate == null || budgetHourly == null
+            ? "unknown"
+            : rate <= budgetHourly
+              ? "in"
+              : "over";
+        if (band !== rateFilter) return false;
+      }
+      if (stageFilter !== "all") {
+        const inPipe = pipelineSet.has(m.candidate?.id);
+        if (stageFilter === "in" && !inPipe) return false;
+        if (stageFilter === "out" && inPipe) return false;
+      }
+      return true;
+    });
+  }, [
+    matches,
+    effThresholdPct,
+    skillFilter,
+    rateFilter,
+    stageFilter,
+    pipelineSet,
+    budgetHourly,
+  ]);
+
+  const strongCount = matches.filter(
+    (m: any) => (m.match_score ?? 0) >= 0.75,
+  ).length;
+  const inProcessCount = pipelineSet.size;
+
+  const selectedMatch =
+    (selectedId != null
+      ? matches.find((m: any) => m.candidate?.id === selectedId)
+      : null) ?? null;
+  const ownerName: string | null =
+    job?.primary_owner?.full_name ??
+    job?.primary_owner?.name ??
+    job?.primary_owner?.email ??
+    null;
 
   return (
     <div className="space-y-4">
-      {/* Phase 4: AI criteria + scoring actions */}
-      <JobAIActions
-        jobId={jobId}
-        onDone={() => refetch()}
-        readOnly={readOnly}
-      />
-
-      {/* Przełącznik Ranking / Shortlista (makieta C2) */}
-      <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-sm">
-        <button
-          type="button"
-          onClick={() => setMatchView("ranking")}
-          className={
-            "px-3 py-1 rounded-md transition-colors " +
-            (matchView === "ranking"
-              ? "bg-primary text-primary-foreground font-medium"
-              : "text-muted-foreground hover:bg-accent")
-          }
-        >
-          Ranking
-        </button>
-        <button
-          type="button"
-          onClick={() => setMatchView("shortlist")}
-          className={
-            "px-3 py-1 rounded-md transition-colors inline-flex items-center gap-1.5 " +
-            (matchView === "shortlist"
-              ? "bg-primary text-primary-foreground font-medium"
-              : "text-muted-foreground hover:bg-accent")
-          }
-        >
-          Shortlista
-          {shortlistCount > 0 && (
-            <span
-              className={
-                "rounded-full px-1.5 text-[11px] tabular-nums " +
-                (matchView === "shortlist"
-                  ? "bg-primary-foreground/20"
-                  : "bg-muted text-muted-foreground")
-              }
-            >
-              {shortlistCount}
+      {/* Pasek kontekstu rekrutacji (makieta C2 „jobbar") — tytuł, klient,
+          budżet kandydacki, deadline, właściciel + KPI + przełącznik. */}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2.5">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Target className="h-5 w-5" />
             </span>
-          )}
-        </button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="font-semibold text-foreground">
+                  {job?.title ?? "Rekrutacja"}
+                </span>
+                {job?.client_name && (
+                  <span className="text-sm text-muted-foreground">
+                    · {job.client_name}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                {formatCandidateLocation(job?.location) && (
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />
+                    {formatCandidateLocation(job?.location)}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1">
+                  <Banknote className="h-3 w-3" />
+                  {budgetHourly != null
+                    ? `budżet do ${Math.round(budgetHourly)} PLN/h`
+                    : job?.salary_min || job?.salary_max
+                      ? `${job?.salary_min?.toLocaleString() ?? "?"}–${job?.salary_max?.toLocaleString() ?? "?"} PLN`
+                      : "budżet nieokreślony"}
+                </span>
+                {job?.deadline && (
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {formatDate(job.deadline)}
+                  </span>
+                )}
+                {ownerName && (
+                  <span className="inline-flex items-center gap-1">
+                    <UserCheck className="h-3 w-3" />
+                    {ownerName}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-4 text-center">
+              <div>
+                <div className="text-base font-bold tabular-nums text-foreground">
+                  {isLoading ? "—" : matches.length}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  w rankingu
+                </div>
+              </div>
+              <div>
+                <div className="text-base font-bold tabular-nums text-emerald-600">
+                  {isLoading ? "—" : strongCount}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  ≥ 75 pkt
+                </div>
+              </div>
+              <div>
+                <div className="text-base font-bold tabular-nums text-foreground">
+                  {inProcessCount}
+                </div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  w procesie
+                </div>
+              </div>
+            </div>
+
+            {/* Przełącznik Ranking / Shortlista (makieta C2) */}
+            <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => setMatchView("ranking")}
+                className={
+                  "px-3 py-1 rounded-md transition-colors " +
+                  (matchView === "ranking"
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent")
+                }
+              >
+                Ranking
+              </button>
+              <button
+                type="button"
+                onClick={() => setMatchView("shortlist")}
+                className={
+                  "px-3 py-1 rounded-md transition-colors inline-flex items-center gap-1.5 " +
+                  (matchView === "shortlist"
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent")
+                }
+              >
+                Shortlista
+                {shortlistCount > 0 && (
+                  <span
+                    className={
+                      "rounded-full px-1.5 text-[11px] tabular-nums " +
+                      (matchView === "shortlist"
+                        ? "bg-primary-foreground/20"
+                        : "bg-muted text-muted-foreground")
+                    }
+                  >
+                    {shortlistCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {matchView === "shortlist" && (
@@ -927,268 +1093,566 @@ function AIMatchingSection({
 
       {matchView === "ranking" && (
         <>
-      {/* Header info + location filter */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2 min-w-0 flex-wrap">
-          <span className="text-sm text-muted-foreground whitespace-nowrap">
-            {isLoading ? (
-              "Wyszukiwanie..."
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+        {/* ── Lewa kolumna: Wymagania z Championa + filtry ─────────── */}
+        <aside className="space-y-4 self-start rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <Target className="h-4 w-4 text-primary" />
+            Wymagania
+            <span className="ml-auto text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
+              z Championa
+            </span>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">
+              Musi mieć · {requiredSkills.length}
+            </div>
+            {requiredSkills.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {requiredSkills.map((s: string) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSkillFilter(skillFilter === s ? null : s)}
+                    title={
+                      skillFilter === s
+                        ? "Kliknij, aby zdjąć filtr"
+                        : "Filtruj ranking po tym wymaganiu"
+                    }
+                    className={
+                      "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
+                      (skillFilter === s
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background text-foreground hover:bg-accent")
+                    }
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             ) : (
-              <>
-                Znaleziono <strong>{matches.length}</strong>{" "}
-                {degraded ? "wyników zastępczych" : "pasujących kandydatów"}
-              </>
+              <p className="text-[11px] text-muted-foreground">
+                Brak — uzupełnij profil Championa lub wymagania rekrutacji.
+              </p>
             )}
-          </span>
-          {/* Licznik warstwy `hidden` — mirror Talent Radaru. Po decyzji „pokaż
-              wiersze" (2026-09) bramka pokazuje warn (NDA / konflikt / weto) jako
-              wiersze z powodem, więc TU liczą się już tylko realnie ukryci:
-              globalna blacklista i duplikaty w tej rekrutacji. */}
-          {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
-            <span
-              className="text-[11px] px-2 py-0.5 border border-warning/25 bg-warning-muted text-warning-muted-foreground rounded-full font-medium"
-              title="Globalna blacklista lub kandydat już w tej rekrutacji"
-              data-testid="ai-matches-eligibility-filtered"
-            >
-              {data!.meta!.eligibility_filtered} pominięto (globalna blacklista / już w rekrutacji)
-            </span>
+          </div>
+
+          {niceSkills.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium text-muted-foreground">
+                Mile widziane · {niceSkills.length}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {niceSkills.map((s) => (
+                  <span
+                    key={s}
+                    className="rounded-full border border-dashed border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
-          {searchType?.startsWith("semantic") && (
-            <span className="text-[10px] px-2 py-0.5 bg-primary/15 text-primary rounded-full font-medium">Semantic AI</span>
-          )}
-          {degraded && (
-            <span className="text-[10px] px-2 py-0.5 border border-warning/25 bg-warning-muted text-warning-muted-foreground rounded-full font-medium">Tryb awaryjny · bez rankingu AI</span>
-          )}
-          {locationActive && (
-            <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium inline-flex items-center gap-1">
-              <MapPin className="w-3 h-3" /> {data?.location_filter}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="w-52">
-            <LocationInput
-              value={locationFilter}
-              onChange={setLocationFilter}
-              placeholder="Lokalizacja (np. Warszawa)"
+
+          <div className="border-t border-border" />
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
+              <span>Próg dopasowania</span>
+              <span className="tabular-nums text-foreground">≥ {effThresholdPct}</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={effThresholdPct}
+              onChange={(e) => setMinScorePct(Number(e.target.value))}
+              className="w-full accent-primary"
+              aria-label="Próg dopasowania"
             />
           </div>
-          <button onClick={() => refetch()} className="text-xs text-primary hover:underline whitespace-nowrap">
-            Odśwież
-          </button>
-        </div>
-      </div>
 
-      {requiredSkills.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          <span className="text-xs text-muted-foreground mr-1">Wymagane:</span>
-          {requiredSkills.map((s: string) => (
-            <span key={s} className="text-[11px] px-2 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded-full">{s}</span>
-          ))}
-        </div>
-      )}
+          <div className="border-t border-border" />
 
-      {degraded && (
-        <div
-          role="status"
-          className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-        >
-          {degradedReason === "no_semantic_hits"
-            ? "Ta rekrutacja nie ma jeszcze trafień w indeksie semantycznym."
-            : "Wyszukiwanie semantyczne jest chwilowo niedostępne."}{" "}
-          Lista poniżej to ranking zastępczy po pokryciu wymaganych umiejętności
-          i kompletności profilu — to NIE jest wynik dopasowania AI. Zweryfikuj
-          profile przed wysłaniem do klienta.
-        </div>
-      )}
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">
+              Stawka wobec budżetu
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  ["all", "Wszystkie"],
+                  ["in", "Mieści się"],
+                  ["over", "Powyżej"],
+                  ["unknown", "Brak danych"],
+                ] as const
+              ).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setRateFilter(val)}
+                  className={
+                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
+                    (rateFilter === val
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-foreground hover:bg-accent")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {!isLoading && !isError && hiddenTotal > 0 && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-        >
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span>
-            Ukryto <strong>{hiddenTotal}</strong>
-            {hiddenMeta?.over_budget
-              ? `: stawka ponad budżet ${hiddenMeta.over_budget}`
-              : ""}
-            {hiddenMeta?.remote_only
-              ? `${hiddenMeta?.over_budget ? ", " : ": "}tylko zdalnie ${hiddenMeta.remote_only}`
-              : ""}
-            .
-          </span>
-          <span className="text-muted-foreground">
-            Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka
-            zawsze przechodzi.
-          </span>
-        </div>
-      )}
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium text-muted-foreground">
+              Etap w tej rekrutacji
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  ["all", "Wszyscy"],
+                  ["out", "Poza procesem"],
+                  ["in", "W procesie"],
+                ] as const
+              ).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setStageFilter(val)}
+                  className={
+                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
+                    (stageFilter === val
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-foreground hover:bg-accent")
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {isLoading ? (
-        <div className="flex flex-col items-center py-16 text-muted-foreground gap-3">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm">Wyszukiwanie pasujących kandydatów...</p>
-        </div>
-      ) : isError ? (
-        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-          <AlertCircle className="w-10 h-10 text-red-400" />
-          <p className="text-sm">Błąd podczas wyszukiwania kandydatów</p>
-          <button onClick={() => refetch()} className="text-sm text-primary hover:underline mt-1">Spróbuj ponownie</button>
-        </div>
-      ) : matches.length === 0 ? (
-        <div className="flex flex-col items-center py-12 text-muted-foreground gap-2">
-          <UserCheck className="w-12 h-12 opacity-30" />
-          <p className="text-sm">
-            {locationActive
-              ? `Brak pasujących kandydatów w lokalizacji „${data?.location_filter}"`
-              : "Brak pasujących kandydatów w bazie"}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {locationActive
-              ? "Zmień lub wyczyść filtr lokalizacji powyżej"
-              : "Dodaj kandydatów do systemu i uruchom indeksowanie"}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {matches.map((match: any, idx: number) => {
-            const c = match.candidate;
-            const fullName = `${c.name} ${c.lastname}`.trim();
-            const isAdded = addedIds.has(c.id);
-            const isAdding = addingId === c.id;
-            const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
-            const avatarColor = getAvatarColor(fullName);
-            // Bramka dopuszczalności: `warn` (konflikt klienta / NDA / konkurent /
-            // weto HM) wraca z powodem i `assignment_allowed=false`. Miękkie
-            // ostrzeżenia (current_employment, excluded_client) mają
-            // `assignment_allowed=true` — pokazujemy plakietkę, ale akcji nie blokujemy.
-            const elig = match.eligibility as
-              | { reason: string; assignment_allowed: boolean; severity: string }
-              | null
-              | undefined;
-            const assignBlocked = elig?.assignment_allowed === false;
+          {(skillFilter ||
+            rateFilter !== "all" ||
+            stageFilter !== "all" ||
+            minScorePct != null) && (
+            <button
+              type="button"
+              onClick={() => {
+                setSkillFilter(null);
+                setRateFilter("all");
+                setStageFilter("all");
+                setMinScorePct(null);
+              }}
+              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+            >
+              <X className="h-3 w-3" /> Wyczyść filtry
+            </button>
+          )}
+        </aside>
 
-            return (
-              <div
-                key={c.id}
-                className={
-                  "flex items-start gap-4 p-4 rounded-xl border transition-shadow hover:shadow-xs " +
-                  (assignBlocked
-                    ? "bg-destructive/5 border-destructive/30"
-                    : "bg-card dark:bg-muted border-border dark:border-border")
-                }
-              >
-                {/* Rank */}
-                <div className="shrink-0 w-6 h-6 rounded-full bg-muted dark:bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
-                  {idx + 1}
-                </div>
-
-                {/* Avatar */}
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold text-sm shrink-0 ${avatarColor}`}>
-                  {initials || "?"}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <Link href={`/candidates/${c.id}?${encodeJobBackRef(jobId).toString()}`} className="font-semibold text-foreground dark:text-foreground hover:text-primary text-sm">
-                        {fullName}
-                      </Link>
-                      {c.competence_category && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{c.competence_category}</p>
-                      )}
-                      {formatCandidateLocation(c.location) && (
-                        <p className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-1">
-                          <MapPin className="w-3 h-3 shrink-0" />
-                          {formatCandidateLocation(c.location)}
-                        </p>
-                      )}
-                    </div>
-                    <div className="w-32 shrink-0">
-                      <MatchScoreBar score={match.match_score} />
-                    </div>
-                  </div>
-
-                  {/* Eligibility badge — bramka dopuszczalności (warn / miękkie ostrzeżenie) */}
-                  {elig && (
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={
-                          "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium " +
-                          (assignBlocked
-                            ? "bg-destructive/10 text-destructive border border-destructive/30"
-                            : "bg-warning-muted text-warning-muted-foreground border border-warning/25")
-                        }
-                        title={elig.reason}
-                      >
-                        <AlertCircle className="w-3 h-3 shrink-0" />
-                        {elig.reason}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Skills badges */}
-                  {(match.matching_skills.length > 0 || match.gaps.length > 0) && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {match.matching_skills.map((s: string) => (
-                        <span key={s} className="text-[11px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">✓ {s}</span>
-                      ))}
-                      {match.gaps.map((s: string) => (
-                        <span key={s} className="text-[11px] px-2 py-0.5 border border-red-300 text-destructive rounded-full">✗ {s}</span>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  {!readOnly ? <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={() => addToPipelineMutation.mutate({ candidateId: c.id, fullName })}
-                      disabled={isAdding || isAdded || assignBlocked}
-                      title={assignBlocked ? elig?.reason : undefined}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {assignBlocked ? (
-                        <>
-                          <AlertCircle className="w-3 h-3" />
-                          Nie można dodać
-                        </>
-                      ) : isAdded ? (
-                        <>
-                          <Check className="w-3 h-3" />
-                          W pipeline
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-3 h-3" />
-                          {isAdding ? "Dodawanie…" : "Dodaj do pipeline"}
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => shortlistMutation.mutate({ candidateId: c.id, fullName })}
-                      disabled={shortlistingId === c.id || assignBlocked}
-                      title={assignBlocked ? elig?.reason : "Dodaj na shortlistę (ocena przed pipeline)"}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <UserCheck className="w-3 h-3" />
-                      {shortlistingId === c.id ? "Dodawanie…" : "Na shortlistę"}
-                    </button>
-                    <button
-                      onClick={() => setEmailTarget(c)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-lg hover:bg-muted transition-colors"
-                    >
-                      <Mail className="w-3 h-3" />
-                      Wyślij wiadomość
-                    </button>
-                  </div> : null}
-                </div>
+        {/* ── Środek: ranking ──────────────────────────────────────── */}
+        <div className="min-w-0 space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="whitespace-nowrap text-sm text-muted-foreground">
+                {isLoading ? (
+                  "Wyszukiwanie..."
+                ) : (
+                  <>
+                    Ranking · <strong>{filtered.length}</strong>
+                    {filtered.length !== matches.length
+                      ? ` z ${matches.length}`
+                      : ""}
+                  </>
+                )}
+              </span>
+              {/* Licznik warstwy `hidden` — mirror Talent Radaru. Po decyzji
+                  „pokaż wiersze" (2026-09) bramka pokazuje warn (NDA / konflikt /
+                  weto) jako wiersze z powodem, więc TU liczą się już tylko
+                  realnie ukryci: globalna blacklista i duplikaty. */}
+              {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
+                <span
+                  className="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
+                  title="Globalna blacklista lub kandydat już w tej rekrutacji"
+                  data-testid="ai-matches-eligibility-filtered"
+                >
+                  {data!.meta!.eligibility_filtered} pominięto (globalna blacklista
+                  / już w rekrutacji)
+                </span>
+              )}
+              {searchType?.startsWith("semantic") && (
+                <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  Semantic AI
+                </span>
+              )}
+              {degraded && (
+                <span className="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[10px] font-medium text-warning-muted-foreground">
+                  Tryb awaryjny · bez rankingu AI
+                </span>
+              )}
+              {locationActive && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                  <MapPin className="h-3 w-3" /> {data?.location_filter}
+                </span>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="w-48">
+                <LocationInput
+                  value={locationFilter}
+                  onChange={setLocationFilter}
+                  placeholder="Lokalizacja (np. Warszawa)"
+                />
               </div>
-            );
-          })}
+              <button
+                onClick={() => refetch()}
+                className="whitespace-nowrap text-xs text-primary hover:underline"
+              >
+                Odśwież
+              </button>
+            </div>
+          </div>
+
+          {degraded && (
+            <div
+              role="status"
+              className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+            >
+              {degradedReason === "no_semantic_hits"
+                ? "Ta rekrutacja nie ma jeszcze trafień w indeksie semantycznym."
+                : "Wyszukiwanie semantyczne jest chwilowo niedostępne."}{" "}
+              Lista poniżej to ranking zastępczy po pokryciu wymaganych
+              umiejętności i kompletności profilu — to NIE jest wynik dopasowania
+              AI. Zweryfikuj profile przed wysłaniem do klienta.
+            </div>
+          )}
+
+          {!isLoading && !isError && hiddenTotal > 0 && (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                Ukryto <strong>{hiddenTotal}</strong>
+                {hiddenMeta?.over_budget
+                  ? `: stawka ponad budżet ${hiddenMeta.over_budget}`
+                  : ""}
+                {hiddenMeta?.remote_only
+                  ? `${hiddenMeta?.over_budget ? ", " : ": "}tylko zdalnie ${hiddenMeta.remote_only}`
+                  : ""}
+                .
+              </span>
+              <span className="text-muted-foreground">
+                Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka
+                zawsze przechodzi.
+              </span>
+            </div>
+          )}
+
+          {!readOnly && selectedIds.size > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+              <span>
+                Zaznaczono <strong>{selectedIds.size}</strong>
+              </span>
+              <button
+                onClick={() => bulkAssignMutation.mutate(Array.from(selectedIds))}
+                disabled={bulkAssignMutation.isPending}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                <Plus className="h-3 w-3" />
+                {bulkAssignMutation.isPending
+                  ? "Dodaję…"
+                  : "Przypisz do rekrutacji"}
+              </button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-xs text-muted-foreground hover:underline"
+              >
+                Wyczyść
+              </button>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <p className="text-sm">Wyszukiwanie pasujących kandydatów...</p>
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+              <AlertCircle className="h-10 w-10 text-red-400" />
+              <p className="text-sm">Błąd podczas wyszukiwania kandydatów</p>
+              <button
+                onClick={() => refetch()}
+                className="mt-1 text-sm text-primary hover:underline"
+              >
+                Spróbuj ponownie
+              </button>
+            </div>
+          ) : matches.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+              <UserCheck className="h-12 w-12 opacity-30" />
+              <p className="text-sm">
+                {locationActive
+                  ? `Brak pasujących kandydatów w lokalizacji „${data?.location_filter}"`
+                  : "Brak pasujących kandydatów w bazie"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {locationActive
+                  ? "Zmień lub wyczyść filtr lokalizacji powyżej"
+                  : "Dodaj kandydatów do systemu i uruchom indeksowanie"}
+              </p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+              <SlidersHorizontal className="h-10 w-10 opacity-30" />
+              <p className="text-sm">Filtry nie przepuściły żadnego kandydata</p>
+              <button
+                onClick={() => {
+                  setSkillFilter(null);
+                  setRateFilter("all");
+                  setStageFilter("all");
+                  setMinScorePct(null);
+                }}
+                className="mt-1 text-sm text-primary hover:underline"
+              >
+                Wyczyść filtry
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filtered.map((match: any, idx: number) => {
+                const c = match.candidate;
+                const fullName = `${c.name} ${c.lastname}`.trim();
+                const initials = fullName
+                  .split(" ")
+                  .map((w: string) => w[0])
+                  .slice(0, 2)
+                  .join("")
+                  .toUpperCase();
+                const avatarColor = getAvatarColor(fullName);
+                const elig = match.eligibility as
+                  | { reason: string; assignment_allowed: boolean; severity: string }
+                  | null
+                  | undefined;
+                const assignBlocked = elig?.assignment_allowed === false;
+                const pct =
+                  match.match_score == null
+                    ? null
+                    : Math.round(match.match_score * 100);
+                const mustTotal = requiredSkills.length;
+                const mustHit = (match.matching_skills ?? []).length;
+                const rate = c.expected_rate_hourly as number | null | undefined;
+                const rateBand =
+                  rate == null || budgetHourly == null
+                    ? "unknown"
+                    : rate <= budgetHourly
+                      ? "in"
+                      : "over";
+                const inPipe = pipelineSet.has(c.id);
+                const roleLine =
+                  [c.current_title, c.current_company]
+                    .filter(Boolean)
+                    .join(" · ") ||
+                  c.competence_category ||
+                  "—";
+                const city = formatCandidateLocation(c.location);
+                const checked = selectedIds.has(c.id);
+                const effSelectedId =
+                  selectedId ?? filtered[0]?.candidate?.id ?? null;
+                const isSel = effSelectedId === c.id;
+                const scoreColor =
+                  pct == null
+                    ? "bg-muted text-muted-foreground"
+                    : pct >= 80
+                      ? "bg-emerald-100 text-emerald-700"
+                      : pct >= 60
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-muted text-muted-foreground";
+
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setSelectedId(c.id)}
+                    className={
+                      "flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-shadow hover:shadow-xs " +
+                      (assignBlocked
+                        ? "border-destructive/30 bg-destructive/5 "
+                        : "border-border bg-card dark:bg-muted ") +
+                      (isSel ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "")
+                    }
+                  >
+                    {!readOnly && (
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(c.id)) next.delete(c.id);
+                            else next.add(c.id);
+                            return next;
+                          });
+                        }}
+                        disabled={assignBlocked}
+                        className="h-4 w-4 shrink-0 accent-primary disabled:opacity-40"
+                        aria-label={`Zaznacz ${fullName}`}
+                      />
+                    )}
+                    <span className="w-5 shrink-0 text-center text-xs font-bold tabular-nums text-muted-foreground">
+                      {idx + 1}
+                    </span>
+                    <div
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ${avatarColor}`}
+                    >
+                      {initials || "?"}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-foreground">
+                            {fullName}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {roleLine}
+                            {city ? ` · ${city}` : ""}
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${scoreColor}`}
+                          title="Wynik dopasowania (0–100)"
+                        >
+                          {pct == null ? "—" : pct}
+                        </span>
+                      </div>
+
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                        {mustTotal > 0 && (
+                          <span
+                            className="inline-flex items-center gap-1 text-muted-foreground"
+                            title={`Pokrycie wymagań must: ${mustHit} z ${mustTotal}`}
+                          >
+                            <span className="inline-flex gap-0.5">
+                              {Array.from({ length: Math.min(mustTotal, 6) }).map(
+                                (_, i) => (
+                                  <span
+                                    key={i}
+                                    className={
+                                      "h-1.5 w-2 rounded-sm " +
+                                      (i < mustHit
+                                        ? "bg-emerald-500"
+                                        : "bg-muted-foreground/25")
+                                    }
+                                  />
+                                ),
+                              )}
+                            </span>
+                            {mustHit}/{mustTotal} must
+                          </span>
+                        )}
+                        {rate != null && (
+                          <span
+                            className={
+                              "font-medium tabular-nums " +
+                              (rateBand === "over"
+                                ? "text-destructive"
+                                : rateBand === "in"
+                                  ? "text-emerald-600"
+                                  : "text-muted-foreground")
+                            }
+                            title={
+                              budgetHourly != null
+                                ? `Budżet do ${Math.round(budgetHourly)} PLN/h`
+                                : "Brak budżetu oferty do porównania"
+                            }
+                          >
+                            {Math.round(rate)} PLN/h
+                          </span>
+                        )}
+                        {inPipe && (
+                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">
+                            w procesie
+                          </span>
+                        )}
+                        {elig && (
+                          <span
+                            className={
+                              "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium " +
+                              (assignBlocked
+                                ? "border border-destructive/30 bg-destructive/10 text-destructive"
+                                : "border border-warning/25 bg-warning-muted text-warning-muted-foreground")
+                            }
+                            title={elig.reason}
+                          >
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            {elig.reason}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Narzędzia diagnostyczne AI — tylko admin (dawna sekcja „legacy"). */}
+          {isAdmin && !readOnly && (
+            <details className="rounded-lg border border-dashed border-border bg-muted/30 p-2 text-xs">
+              <summary className="cursor-pointer select-none text-muted-foreground">
+                Narzędzia AI (admin) — kryteria, scoring, embedding
+              </summary>
+              <div className="pt-2">
+                <JobAIActions
+                  jobId={jobId}
+                  onDone={() => refetch()}
+                  readOnly={readOnly}
+                />
+              </div>
+            </details>
+          )}
         </div>
-      )}
+
+        {/* ── Prawy dok: Dopasowanie ───────────────────────────────── */}
+        <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
+          <JobMatchDock
+            match={selectedMatch ?? filtered[0] ?? null}
+            jobId={jobId}
+            jobTitle={job?.title ?? null}
+            budgetHourly={budgetHourly}
+            requiredSkills={requiredSkills}
+            niceSkills={niceSkills}
+            inPipeline={
+              (selectedMatch ?? filtered[0])?.candidate
+                ? pipelineSet.has((selectedMatch ?? filtered[0]).candidate.id)
+                : false
+            }
+            readOnly={readOnly}
+            added={addedIds}
+            addingId={addingId}
+            shortlistingId={shortlistingId}
+            onAddPipeline={(cid, name) =>
+              addToPipelineMutation.mutate({ candidateId: cid, fullName: name })
+            }
+            onShortlist={(cid, name) =>
+              shortlistMutation.mutate({ candidateId: cid, fullName: name })
+            }
+            onEmail={(cand) => setEmailTarget(cand)}
+            onClose={() => setSelectedId(null)}
+          />
+        </aside>
+      </div>
         </>
       )}
 
@@ -1200,6 +1664,347 @@ function AIMatchingSection({
           onClose={() => setEmailTarget(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ── Dok „Dopasowanie" (prawa kolumna warsztatu C2) ───────────────────────────
+
+// Wiersz pokrycia wymagania (✓/✗ + tag must/nice) w doku.
+function CoverageRow({
+  label,
+  tag,
+  hit = false,
+}: {
+  label: string;
+  tag: "must" | "nice";
+  hit?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span
+        className={
+          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full " +
+          (hit
+            ? "bg-emerald-100 text-emerald-700"
+            : "bg-destructive/10 text-destructive")
+        }
+      >
+        {hit ? <Check className="h-2.5 w-2.5" /> : <X className="h-2.5 w-2.5" />}
+      </span>
+      <span className={hit ? "text-foreground" : "text-muted-foreground"}>
+        {label}
+      </span>
+      <span
+        className={
+          "ml-auto rounded px-1 py-0.5 text-[10px] " +
+          (tag === "must"
+            ? "bg-primary/10 text-primary"
+            : "bg-muted text-muted-foreground")
+        }
+      >
+        {tag}
+      </span>
+    </div>
+  );
+}
+
+function JobMatchDock({
+  match,
+  jobId,
+  jobTitle,
+  budgetHourly,
+  requiredSkills,
+  niceSkills,
+  inPipeline,
+  readOnly,
+  added,
+  addingId,
+  shortlistingId,
+  onAddPipeline,
+  onShortlist,
+  onEmail,
+  onClose,
+}: {
+  match: any | null;
+  jobId: number;
+  jobTitle: string | null;
+  budgetHourly: number | null;
+  requiredSkills: string[];
+  niceSkills: string[];
+  inPipeline: boolean;
+  readOnly: boolean;
+  added: Set<number>;
+  addingId: number | null;
+  shortlistingId: number | null;
+  onAddPipeline: (candidateId: number, fullName: string) => void;
+  onShortlist: (candidateId: number, fullName: string) => void;
+  onEmail: (candidate: any) => void;
+  onClose: () => void;
+}) {
+  const [showJustification, setShowJustification] = useState(false);
+  const candidateId: number | null = match?.candidate?.id ?? null;
+  // Zwiń pełne uzasadnienie AI przy zmianie zaznaczonego kandydata — drogi LLM
+  // liczy się dopiero po jawnym rozwinięciu.
+  useEffect(() => {
+    setShowJustification(false);
+  }, [candidateId]);
+
+  if (!match) {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+        <Sparkles className="mx-auto mb-2 h-6 w-6 opacity-40" />
+        Wybierz kandydata z rankingu, aby zobaczyć rozbiór dopasowania.
+      </div>
+    );
+  }
+
+  const c = match.candidate;
+  const fullName = `${c.name} ${c.lastname}`.trim();
+  const pct = match.match_score == null ? null : Math.round(match.match_score * 100);
+  const elig = match.eligibility as
+    | { reason: string; assignment_allowed: boolean }
+    | null
+    | undefined;
+  const assignBlocked = elig?.assignment_allowed === false;
+  const isAdded = added.has(c.id);
+  const rate = c.expected_rate_hourly as number | null | undefined;
+  const rateBand =
+    rate == null || budgetHourly == null
+      ? "unknown"
+      : rate <= budgetHourly
+        ? "in"
+        : "over";
+  const mustMatching: string[] = match.matching_skills ?? [];
+  const mustGaps: string[] = match.gaps ?? [];
+  const niceMatching: string[] = match.nice_matching ?? [];
+  const niceGaps: string[] = match.nice_gaps ?? [];
+  const gaugeColor =
+    pct == null
+      ? "text-muted-foreground"
+      : pct >= 80
+        ? "text-emerald-600"
+        : pct >= 60
+          ? "text-amber-600"
+          : "text-muted-foreground";
+  const city = formatCandidateLocation(c.location);
+  const roleLine =
+    [c.current_title, c.current_company].filter(Boolean).join(" · ") ||
+    c.competence_category ||
+    "";
+
+  return (
+    <div className="space-y-4 rounded-xl border border-border bg-card p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+            Dopasowanie
+          </div>
+          <div className="truncate text-sm font-semibold text-foreground">
+            {fullName}
+          </div>
+          {(roleLine || city) && (
+            <div className="truncate text-xs text-muted-foreground">
+              {roleLine}
+              {roleLine && city ? " · " : ""}
+              {city}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onClose}
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
+          aria-label="Zamknij dok"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div>
+        <div className="flex items-end gap-2">
+          <span className={`text-3xl font-bold tabular-nums ${gaugeColor}`}>
+            {pct == null ? "—" : pct}
+          </span>
+          <span className="pb-1 text-xs text-muted-foreground">
+            / 100 · dopasowanie do tej rekrutacji
+          </span>
+        </div>
+        <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
+          <div
+            className={
+              "h-2 rounded-full " +
+              (pct == null
+                ? "bg-muted-foreground/30"
+                : pct >= 80
+                  ? "bg-emerald-500"
+                  : pct >= 60
+                    ? "bg-amber-500"
+                    : "bg-muted-foreground/40")
+            }
+            style={{ width: `${pct ?? 0}%` }}
+          />
+        </div>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          Wynik to głównie podobieństwo semantyczne CV do oferty; pokrycie
+          wymagań must to jeden ze składników.
+        </p>
+      </div>
+
+      {elig && (
+        <div
+          className={
+            "flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] " +
+            (assignBlocked
+              ? "border-destructive/30 bg-destructive/10 text-destructive"
+              : "border-warning/25 bg-warning-muted text-warning-muted-foreground")
+          }
+        >
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{elig.reason}</span>
+        </div>
+      )}
+
+      {(requiredSkills.length > 0 || niceSkills.length > 0) && (
+        <div className="space-y-1.5">
+          <div className="text-xs font-semibold text-foreground">
+            Pokrycie wymagań · {mustMatching.length} z {requiredSkills.length} must
+          </div>
+          <div className="space-y-1">
+            {mustMatching.map((s) => (
+              <CoverageRow key={`m-${s}`} label={s} tag="must" hit />
+            ))}
+            {mustGaps.map((s) => (
+              <CoverageRow key={`mg-${s}`} label={`${s} — brak w CV`} tag="must" />
+            ))}
+            {niceMatching.map((s) => (
+              <CoverageRow key={`n-${s}`} label={s} tag="nice" hit />
+            ))}
+            {niceGaps.map((s) => (
+              <CoverageRow key={`ng-${s}`} label={`${s} — brak w CV`} tag="nice" />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <div className="text-xs font-semibold text-foreground">
+          Warunki wobec oferty
+        </div>
+        <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+          <span className="text-muted-foreground">Stawka</span>
+          <span>
+            {rate != null ? (
+              <span
+                className={
+                  "font-medium tabular-nums " +
+                  (rateBand === "over"
+                    ? "text-destructive"
+                    : rateBand === "in"
+                      ? "text-emerald-600"
+                      : "text-foreground")
+                }
+              >
+                {Math.round(rate)} PLN/h
+                {budgetHourly != null && (
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    {rateBand === "over"
+                      ? `· powyżej budżetu ${Math.round(budgetHourly)}`
+                      : `· w budżecie do ${Math.round(budgetHourly)}`}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">brak danych</span>
+            )}
+          </span>
+          <span className="text-muted-foreground">Lokalizacja</span>
+          <span className="text-foreground">{city || "—"}</span>
+          <span className="text-muted-foreground">Etap</span>
+          <span>
+            {inPipeline ? (
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
+                w procesie
+              </span>
+            ) : (
+              <span className="text-muted-foreground">poza procesem</span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {c.ai_summary && (
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-foreground">Podsumowanie</div>
+          <p className="line-clamp-4 text-xs leading-relaxed text-muted-foreground">
+            {c.ai_summary}
+          </p>
+        </div>
+      )}
+
+      {!readOnly && (
+        <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+          <button
+            onClick={() => onAddPipeline(c.id, fullName)}
+            disabled={addingId === c.id || isAdded || assignBlocked}
+            title={assignBlocked ? elig?.reason : undefined}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {assignBlocked ? (
+              <>
+                <AlertCircle className="h-3 w-3" /> Nie można dodać
+              </>
+            ) : isAdded ? (
+              <>
+                <Check className="h-3 w-3" /> W pipeline
+              </>
+            ) : (
+              <>
+                <Plus className="h-3 w-3" />
+                {addingId === c.id ? "Dodawanie…" : "Dodaj do pipeline"}
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => onShortlist(c.id, fullName)}
+            disabled={shortlistingId === c.id || assignBlocked}
+            title={assignBlocked ? elig?.reason : "Ocena przed pipeline"}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <UserCheck className="h-3 w-3" />
+            {shortlistingId === c.id ? "Dodawanie…" : "Na shortlistę"}
+          </button>
+          <button
+            onClick={() => onEmail(c)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+          >
+            <Mail className="h-3 w-3" /> Wyślij
+          </button>
+          <Link
+            href={`/candidates/${c.id}?${encodeJobBackRef(jobId).toString()}`}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
+          >
+            <ExternalLink className="h-3 w-3" /> Profil
+          </Link>
+        </div>
+      )}
+
+      <div className="border-t border-border pt-3">
+        {showJustification ? (
+          <DopasowanieTab
+            candidateId={c.id}
+            recruitments={[{ job_id: jobId, job_title: jobTitle }]}
+            defaultJobId={jobId}
+            readOnly={readOnly}
+          />
+        ) : (
+          <button
+            onClick={() => setShowJustification(true)}
+            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+          >
+            <Sparkles className="h-3 w-3" /> Pełne uzasadnienie AI
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -1586,22 +2391,15 @@ export default function JobDetailPage() {
               readOnly={!canWritePipeline}
             />
           </div>
-          {isAdmin && (
-            <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <h2 className="text-lg font-semibold">Klasyczne AI Matching (legacy)</h2>
-                <span className="text-xs text-muted-foreground ml-1">
-                  Prosty semantic + tag fallback · widok diagnostyczny (admin)
-                </span>
-              </div>
-              <AIMatchingSection
-                jobId={Number(id)}
-                job={job}
-                readOnly={!canWritePipeline}
-              />
-            </div>
-          )}
+          {/* Warsztat dopasowań C2 — „kto pasuje do tej oferty". Widoczny dla
+              wszystkich ról; akcje respektują readOnly. Narzędzia AI (kryteria,
+              scoring, embedding) są wewnątrz, zwinięte, tylko dla admina. */}
+          <AIMatchingSection
+            jobId={Number(id)}
+            job={job}
+            readOnly={!canWritePipeline}
+            isAdmin={isAdmin}
+          />
         </div>
       )}
 
