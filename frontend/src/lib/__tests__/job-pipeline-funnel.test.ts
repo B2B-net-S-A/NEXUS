@@ -28,14 +28,16 @@ describe("buildStageFunnel", () => {
     expect(nowi?.count).toBe(5);
   });
 
-  it("grupuje cv_sent/interview/client_interview pod „u klienta”", () => {
+  it("grupuje cv_sent/client_interview pod „u klienta”, a interview (wewnętrzny) pod „zweryfikowani”", () => {
     const groups = buildStageFunnel({
       cv_sent: 1,
       interview: 2,
       client_interview: 3,
     });
-    const uKlienta = groups.find((g) => g.key === "with_client");
-    expect(uKlienta?.count).toBe(6);
+    // `interview` to etap WEWNĘTRZNY (StageCategory.internal) — kandydat nie
+    // był jeszcze u klienta; liczenie go do „u klienta" zawyżało tę grupę.
+    expect(groups.find((g) => g.key === "with_client")?.count).toBe(4);
+    expect(groups.find((g) => g.key === "verified")?.count).toBe(2);
   });
 
   it("grupuje acceptance/negotiation/onboarding pod „umowa”", () => {

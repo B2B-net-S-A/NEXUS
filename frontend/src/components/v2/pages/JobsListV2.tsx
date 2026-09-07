@@ -63,9 +63,10 @@ import {
 } from "@/lib/jobs-url-filters";
 import { jobsMissingRequestOwner } from "@/lib/jobs-quick-filters";
 import { extractSkills } from "@/lib/job-skills";
-import { classifyJobDeadline } from "@/lib/job-deadline";
+import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
 import {
   buildStageFunnel,
+  funnelRejectedTotal,
   funnelTooltip,
   funnelTotal,
   type FunnelGroupKey,
@@ -338,6 +339,17 @@ function JobsTable({
             ? buildStageFunnel(job.stage_breakdown)
             : [];
           const funnelCount = funnelTotal(funnelGroups);
+          // Odrzuceni/wycofani są POZA sześcioma grupami paska (pokazuje
+          // postęp, nie odpady) — ale w tooltipie ma być widać, że byli.
+          const rejectedTotal = hasStageBreakdown
+            ? funnelRejectedTotal(job.stage_breakdown)
+            : 0;
+          const funnelTitle = [
+            funnelTooltip(funnelGroups),
+            rejectedTotal > 0 ? `Odrzuceni/wycofani: ${rejectedTotal}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
           const targetCount = job.headcount ?? 1;
           const filledCount = job.candidate_count ?? 0;
           const legacyProgress = Math.min(
@@ -359,7 +371,7 @@ function JobsTable({
                 >
                   {job.title}
                 </Link>
-                <div className="mt-0.5 flex items-center gap-1.5">
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                   {job.reference_number && (
                     <span
                       className="font-mono text-[10px] text-muted-foreground/80"
@@ -372,6 +384,23 @@ function JobsTable({
                     <Badge size="sm" variant="neutral">
                       {RECRUITMENT_TYPE_LABEL[job.recruitment_type] ??
                         job.recruitment_type}
+                    </Badge>
+                  )}
+                  {/* Lokalizacja i seniority — dawna kolumna „Lokalizacja";
+                      wracają pod tytułem, żeby nic z inwentarza nie zniknęło
+                      (kontrakt programu C2). */}
+                  {job.location && (
+                    <span
+                      className="inline-flex min-w-0 items-center gap-0.5 text-[11px] text-muted-foreground"
+                      title="Lokalizacja"
+                    >
+                      <MapPin className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{job.location}</span>
+                    </span>
+                  )}
+                  {job.seniority && (
+                    <Badge size="sm" variant="outline" title="Seniority">
+                      {job.seniority}
                     </Badge>
                   )}
                 </div>
@@ -390,9 +419,9 @@ function JobsTable({
                 {hasStageBreakdown ? (
                   <div
                     className="flex items-center gap-1.5"
-                    title={funnelTooltip(funnelGroups)}
+                    title={funnelTitle}
                   >
-                    <div className="flex h-2 w-16 overflow-hidden rounded-full bg-[hsl(var(--border))]/60">
+                    <div className="flex h-2 w-16 overflow-hidden rounded-full bg-border/60">
                       {funnelCount > 0 &&
                         funnelGroups.map((g) =>
                           g.count > 0 ? (
@@ -410,7 +439,7 @@ function JobsTable({
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 min-w-[48px] flex-1 overflow-hidden rounded-full bg-[hsl(var(--border))]/60">
+                    <div className="h-1.5 min-w-[48px] flex-1 overflow-hidden rounded-full bg-border/60">
                       <div
                         className="h-full rounded-full bg-primary"
                         style={{ width: `${legacyProgress}%` }}
@@ -454,11 +483,20 @@ function JobsTable({
                           : "text-muted-foreground",
                     )}
                   >
-                    {formatDate(job.deadline)} ·{" "}
+                    {formatDateOnly(job.deadline)} ·{" "}
                     {deadlineInfo.urgency === "overdue"
                       ? "po terminie"
                       : `${deadlineInfo.daysLeft} d`}
                   </span>
+                )}
+                {/* Dawna kolumna „Dodano" — zostaje jako druga linia. */}
+                {job.created_at && (
+                  <div
+                    className="mt-0.5 whitespace-nowrap text-[10px] text-muted-foreground"
+                    title={`Dodano ${formatDate(job.created_at)}`}
+                  >
+                    dodano {formatRelativeTime(job.created_at)}
+                  </div>
                 )}
               </TableCell>
               <TableCell>
@@ -539,7 +577,7 @@ export function JobsListV2() {
   const canCreateJob = can["job.create"];
   const canInvite = can["invite_link.create"];
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, isSuccess, error, refetch } = useQuery({
     queryKey: ["jobs-v2",
       debouncedSearch,
       statusFilter,
@@ -610,7 +648,13 @@ export function JobsListV2() {
     ) {
       return selectedJobId;
     }
-    return visibleItems[0]?.id ?? null;
+    // Domyślnie pierwszy wiersz, który da się OTWORZYĆ (`can_open` liczone
+    // per wiersz w `jobs.py`): dok strzelałby inaczej w `GET /api/jobs/{id}`
+    // → 403 na każdym wejściu Delivery Leada bez przypisań, bez kliknięcia.
+    // Filtr „Brak ownera requestu" zwraca dla DL WYŁĄCZNIE takie wiersze
+    // (para `(client_id, None)` nigdy nie jest w jego przypisaniach).
+    const openable = visibleItems.find((j: any) => j.can_open !== false);
+    return openable?.id ?? visibleItems[0]?.id ?? null;
   }, [selectedJobId, visibleItems]);
   const selectedListItem = visibleItems.find(
     (j: any) => j.id === effSelectedJobId,
@@ -620,9 +664,13 @@ export function JobsListV2() {
   // Celowo liczone z `items` SERWEROWYCH, nie `visibleItems` — filtr "Brak
   // ownera requestu" jest lokalny dla przeglądarki i nie może udawać, że
   // backend nie ma żadnych rekrutacji.
+  // `isSuccess` obowiązkowe (kontrakt `lib/view-state.ts`): w przerwie między
+  // ponowieniami react-query ma `isLoading=false`, `isError=false` i puste
+  // `data` — bez tej flagi awaria renderowałaby się jako „Brak rekrutacji".
   const viewState = resolveViewState({
     isLoading,
     isError,
+    isSuccess,
     error,
     isEmpty: items.length === 0,
   });
@@ -972,7 +1020,7 @@ export function JobsListV2() {
                 ))}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Card key={i} className="animate-pulse h-48">
                     <div className="h-4 bg-[hsl(var(--border))] rounded w-3/4 mb-3" />
@@ -1034,7 +1082,7 @@ export function JobsListV2() {
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
             />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4">
               {visibleItems.map((job: any) => {
                 const skills = extractSkills(job.must_skills);
                 const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
@@ -1189,7 +1237,7 @@ export function JobsListV2() {
                         {targetCount > 0 && (
                           <div className="flex items-center gap-2">
                             <Users className="h-3 w-3 text-muted-foreground" />
-                            <div className="flex-1 h-1.5 rounded-full bg-[hsl(var(--border))]/60 overflow-hidden">
+                            <div className="flex-1 h-1.5 rounded-full bg-border/60 overflow-hidden">
                               <div
                                 className="h-full bg-primary rounded-full transition-all"
                                 style={{ width: `${progress}%` }}
@@ -1252,6 +1300,7 @@ export function JobsListV2() {
           <JobReadinessDock
             jobId={effSelectedJobId}
             stageBreakdown={selectedListItem?.stage_breakdown}
+            canOpen={selectedListItem?.can_open !== false}
           />
         </aside>
       </div>

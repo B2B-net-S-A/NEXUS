@@ -21,8 +21,9 @@ import api, {
   type ChampionVerification,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { countPl } from "@/lib/plural-pl";
 import { canMutateSection } from "@/lib/section-access";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -46,7 +47,34 @@ interface JobReadinessDockProps {
    * nie renderuje, zamiast kłamać zerami.
    */
   stageBreakdown?: Record<string, number>;
+  /**
+   * `can_open` z wiersza listy (`GET /api/jobs` liczy go per wiersz). `false`
+   * = detal (`GET /api/jobs/{id}`) odpowie 403 (zakres klient–TAC dla Delivery
+   * Leada). Wtedy dok NIE wysyła żadnego zapytania i mówi wprost, jak zdobyć
+   * dostęp — zamiast czerwonej ramki „Brak uprawnień" na każdym wejściu na
+   * `/jobs` bez kliknięcia. Domyślnie `true`.
+   */
+  canOpen?: boolean;
 }
+
+// Lustro `_OWNERSHIP_ELIGIBLE_ROLES` w `backend/app/api/jobs.py`:
+// `POST /jobs/{id}/claim` odrzuca 403 („Read-only viewers cannot claim jobs")
+// każdą inną rolę — także te z zapisem w sekcji pipeline (finance,
+// head_of_recruitment, talent_community_manager). Przycisk bez tego lustra
+// = gwarantowany 403 po kliknięciu.
+const CLAIM_ELIGIBLE_ROLES = [
+  "admin",
+  "delivery_lead",
+  "tac",
+  "recruiter",
+  "sourcer",
+] as const;
+
+// `GET /jobs/{id}/readiness` → `DeliveryLeadPlus` (admin + delivery_lead).
+// Dla pozostałych ról zapytanie kończy się 403 ZAWSZE — nie wysyłamy go
+// (z `retry: 1` byłyby to dwa 403 na każde zaznaczenie wiersza); notatka
+// „kto to widzi" renderuje się bez sieci.
+const GATE_ROLES = ["admin", "delivery_lead"] as const;
 
 interface ReadinessItem {
   key: string;
@@ -80,7 +108,7 @@ function ReadinessRow({ done, title, description, action }: Omit<ReadinessItem, 
 }
 
 /**
- * Bramka oficjalna „Przekaż do searchu" (`GET /api/jobs/{id}/readiness`).
+ * Bramka oficjalna „Przekaż do searchu” (`GET /api/jobs/{id}/readiness`).
  *
  * Widoczna WYŁĄCZNIE dla admina/DL przypisanego do klienta tej rekrutacji
  * (`DeliveryLeadPlus` + zakres klient–DL w handlerze) — dla każdej innej roli
@@ -92,9 +120,20 @@ function ReadinessRow({ done, title, description, action }: Omit<ReadinessItem, 
  */
 function ReadinessGateBlock({
   query,
+  canSeeGate,
 }: {
   query: UseQueryResult<any, unknown>;
+  /** Rola z `GATE_ROLES` — bez niej zapytanie nie jest wysyłane (patrz wyżej). */
+  canSeeGate: boolean;
 }) {
+  if (!canSeeGate) {
+    return (
+      <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
+        Bramka „Przekaż do searchu” — widoczna dla Delivery Lead / admina
+        przypisanego do tego klienta.
+      </p>
+    );
+  }
   if (query.isLoading) {
     return <Skeleton className="h-9 w-full rounded-md" />;
   }
@@ -103,14 +142,14 @@ function ReadinessGateBlock({
     if (status === 403) {
       return (
         <p className="rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-          Bramka „Przekaż do searchu" — widoczna dla Delivery Lead / admina
+          Bramka „Przekaż do searchu” — widoczna dla Delivery Lead / admina
           przypisanego do tego klienta.
         </p>
       );
     }
     return (
       <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-        <span>Nie udało się sprawdzić bramki „Przekaż do searchu".</span>
+        <span>Nie udało się sprawdzić bramki „Przekaż do searchu”.</span>
         <button
           type="button"
           className="shrink-0 font-medium text-primary hover:underline"
@@ -133,7 +172,7 @@ function ReadinessGateBlock({
   if (data.closed) {
     return (
       <p className="rounded-md border border-border bg-muted/20 px-2.5 py-2 text-[11px] text-muted-foreground">
-        Rekrutacja zamknięta — bramka „Przekaż do searchu" nie dotyczy.
+        Rekrutacja zamknięta — bramka „Przekaż do searchu” nie dotyczy.
       </p>
     );
   }
@@ -147,7 +186,7 @@ function ReadinessGateBlock({
       )}
     >
       <div className="font-medium">
-        Bramka „Przekaż do searchu": {data.ready ? "gotowa" : "zablokowana"}
+        Bramka „Przekaż do searchu”: {data.ready ? "gotowa" : "zablokowana"}
       </div>
       {!data.ready && Array.isArray(data.blockers) && data.blockers.length > 0 && (
         <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -177,7 +216,7 @@ function PipelineSummary({
     <div className="space-y-1.5 border-t border-border pt-3">
       <div className="flex items-center justify-between gap-2">
         <h4 className="text-xs font-semibold text-foreground">
-          Pipeline · {total} kandydatów
+          Pipeline · {countPl(total, "kandydat", "kandydatów", "kandydatów")}
         </h4>
         <Link
           href={`/jobs/${jobId}`}
@@ -206,25 +245,35 @@ function PipelineSummary({
   );
 }
 
-export function JobReadinessDock({ jobId, stageBreakdown }: JobReadinessDockProps) {
+export function JobReadinessDock({
+  jobId,
+  stageBreakdown,
+  canOpen = true,
+}: JobReadinessDockProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const canWritePipeline = canMutateSection(authUser, "pipeline", impersonating);
+  const claimEligible = authUser ? hasRole(authUser, ...CLAIM_ELIGIBLE_ROLES) : false;
+  const canSeeGate = authUser ? hasRole(authUser, ...GATE_ROLES) : false;
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
 
+  // `retry: false` na obu: 403/404 są deterministyczne — ponowienie tylko
+  // dubluje odmowy w logach.
   const jobQuery = useQuery({
     queryKey: ["job-readiness-dock", jobId],
     queryFn: () => api.get(`/api/jobs/${jobId}`).then((r) => r.data),
-    enabled: jobId != null,
+    enabled: jobId != null && canOpen,
+    retry: false,
   });
 
   const readinessQuery = useQuery({
     queryKey: ["job-readiness-dock-gate", jobId],
     queryFn: () => api.get(`/api/jobs/${jobId}/readiness`).then((r) => r.data),
-    enabled: jobId != null,
+    enabled: jobId != null && canOpen && canSeeGate,
+    retry: false,
   });
 
   const claimMutation = useMutation({
@@ -247,6 +296,15 @@ export function JobReadinessDock({ jobId, stageBreakdown }: JobReadinessDockProp
       <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
         <Target className="h-6 w-6 opacity-40" aria-hidden="true" />
         Wybierz rekrutację z listy, aby zobaczyć gotowość zlecenia.
+      </div>
+    );
+  }
+
+  if (!canOpen) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+        <Target className="h-6 w-6 opacity-40" aria-hidden="true" />
+        Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu.
       </div>
     );
   }
@@ -295,10 +353,19 @@ export function JobReadinessDock({ jobId, stageBreakdown }: JobReadinessDockProp
     (job.champion_profile?.verification as ChampionVerification | undefined) ??
     EMPTY_CHAMPION_VERIFICATION;
   const clientVerified = verification.client.status === "verified";
-  const consultantVerified = verification.consultant.status !== "pending";
-  const championVerified = clientVerified && consultantVerified;
+  const consultantStatus = verification.consultant.status;
+  const consultantVerified = consultantStatus === "verified";
+  // `skipped` = konsultant świadomie pominięty (jest `skip_reason`) — zamyka
+  // pozycję, ale NIE jest weryfikacją; opis nie może twierdzić, że była
+  // (`ChampionVerificationChecklist` rozróżnia te stany tak samo).
+  const consultantSkipped = consultantStatus === "skipped";
+  const championVerified =
+    clientVerified && (consultantVerified || consultantSkipped);
   const canClaim =
-    canWritePipeline && job.primary_owner == null && !claimMutation.isSuccess;
+    canWritePipeline &&
+    claimEligible &&
+    job.primary_owner == null &&
+    !claimMutation.isSuccess;
 
   const items: ReadinessItem[] = [
     {
@@ -325,7 +392,13 @@ export function JobReadinessDock({ jobId, stageBreakdown }: JobReadinessDockProp
       done: championVerified,
       title: "Profil Championa",
       description: championVerified
-        ? "Zweryfikowany z klientem i konsultantem."
+        ? consultantSkipped
+          ? `Zweryfikowany z klientem; konsultant pominięty${
+              verification.consultant.skip_reason
+                ? ` — ${verification.consultant.skip_reason}`
+                : ""
+            }.`
+          : "Zweryfikowany z klientem i konsultantem."
         : clientVerified || consultantVerified
           ? "Częściowo zweryfikowany — brakuje drugiej strony (klient/konsultant)."
           : "Niezweryfikowany — brak rozmowy z klientem i konsultantem.",
@@ -412,8 +485,14 @@ export function JobReadinessDock({ jobId, stageBreakdown }: JobReadinessDockProp
           >
             {doneCount}
           </span>
+          {/* „Kompletność", NIE „gotowość do searchu": ta checklista liczy
+              właściciela, Championa, budżet, skille i HM — zbiór ROZŁĄCZNY
+              z oficjalną bramką „Przekaż do searchu” (`job_readiness.py`:
+              tytuł, klient, kontekst projektu, ≥2 pytania screeningowe).
+              Werdykt bramki jest niżej, w `ReadinessGateBlock`; dwie liczby
+              pod tą samą nazwą przeczyłyby sobie na jednej karcie. */}
           <span className="pb-0.5 text-xs text-muted-foreground">
-            / {items.length} · gotowość zlecenia do searchu
+            / {items.length} · kompletność zlecenia
           </span>
         </div>
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
@@ -427,7 +506,7 @@ export function JobReadinessDock({ jobId, stageBreakdown }: JobReadinessDockProp
         </div>
       </div>
 
-      <ReadinessGateBlock query={readinessQuery} />
+      <ReadinessGateBlock query={readinessQuery} canSeeGate={canSeeGate} />
 
       <div className="divide-y divide-border/60">
         {items.map((item) => (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyJobDeadline } from "@/lib/job-deadline";
+import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
 
 const TODAY = new Date(2026, 8, 7); // 07.09.2026, lokalnie (miesiące 0-indeksowane)
 
@@ -49,5 +49,20 @@ describe("classifyJobDeadline", () => {
       urgency: "none",
       daysLeft: null,
     });
+  });
+});
+
+describe("formatDateOnly", () => {
+  it("formatuje `YYYY-MM-DD` lokalnie (bez przejścia przez UTC)", () => {
+    // `new Date("2026-09-07")` to północ UTC — w strefie za UTC `formatDate`
+    // z utils pokazałby 06.09; tu data jest budowana z części, więc dzień
+    // zostaje ten sam w każdej strefie.
+    expect(formatDateOnly("2026-09-07")).toBe("7.09.2026");
+  });
+
+  it("brak wartości i śmieci → „—”", () => {
+    expect(formatDateOnly(null)).toBe("—");
+    expect(formatDateOnly(undefined)).toBe("—");
+    expect(formatDateOnly("not-a-date")).toBe("—");
   });
 });

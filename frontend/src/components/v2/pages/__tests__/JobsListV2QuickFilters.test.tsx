@@ -201,6 +201,18 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
       });
     });
 
+    // Realna poprawka w tym kroku: „Sales"/„Przetargi" wysyłają wartości
+    // ENUMA (`sales_project`/`tender`), nie etykiety — stary kod wysyłał
+    // `sales`/`tenders` i dostawał 422.
+    await user.click(screen.getByRole("button", { name: "Sales" }));
+    await waitFor(() => {
+      expect(latestParams()).toMatchObject({ recruitment_type: "sales_project" });
+    });
+    await user.click(screen.getByRole("button", { name: "Przetargi" }));
+    await waitFor(() => {
+      expect(latestParams()).toMatchObject({ recruitment_type: "tender" });
+    });
+
     await user.click(screen.getByText("Wyczyść"));
     await waitFor(() => {
       const params = latestParams();

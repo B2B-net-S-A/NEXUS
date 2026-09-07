@@ -56,7 +56,10 @@ const STAGE_TO_GROUP: Record<string, FunnelGroupKey> = {
   screening: "screening",
   verified: "verified",
   cv_sent: "with_client",
-  interview: "with_client",
+  // `interview` = interview WEWNĘTRZNY / techniczny (`StageCategory.internal`
+  // w `models/recruitment_pipeline.py`) — kandydat nie poszedł jeszcze do
+  // klienta, więc liczy się do „zweryfikowani", nie do „u klienta".
+  interview: "verified",
   client_interview: "with_client",
   acceptance: "contract",
   negotiation: "contract",

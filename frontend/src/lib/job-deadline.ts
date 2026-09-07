@@ -45,3 +45,20 @@ export function classifyJobDeadline(
   if (daysLeft <= 7) return { urgency: "soon", daysLeft };
   return { urgency: "normal", daysLeft };
 }
+
+/**
+ * Format `YYYY-MM-DD` → `DD.MM.YYYY` (pl-PL) BEZ przejścia przez UTC.
+ * `formatDate` z `lib/utils` robi `new Date("2026-09-07")` = północ UTC, więc
+ * na maszynie w strefie za UTC pokazuje dzień wcześniej — ten sam off-by-one,
+ * przed którym broni się `classifyJobDeadline`. Wartość nie-datowa (albo
+ * z czasem) idzie do `Intl` po zwykłym `Date`, jak dotąd.
+ */
+export function formatDateOnly(value: string | null | undefined): string {
+  if (!value) return "—";
+  const match = DATE_ONLY.exec(value);
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pl-PL").format(date);
+}

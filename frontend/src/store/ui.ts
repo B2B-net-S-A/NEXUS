@@ -39,7 +39,7 @@ export const useUiStore = create<UiStoreState>()(
       density: "cozy",
       sidebarCollapsed: false,
       candidatesView: "list",
-      jobsView: "tiles",
+      jobsView: "list",
       columnPreferences: {},
       hideEmptyKanbanColumns: false,
       setDensity: (density) => set({ density }),
@@ -62,7 +62,7 @@ export const useUiStore = create<UiStoreState>()(
     }),
     {
       name: "nexus-ui",
-      version: 4,
+      version: 5,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
@@ -76,6 +76,13 @@ export const useUiStore = create<UiStoreState>()(
             ...state,
             hideEmptyKanbanColumns: state.hideEmptyKanbanColumns ?? false,
           };
+        }
+        if (fromVersion < 5) {
+          // Krok 01 „Lista rekrutacji" (flow C2, PR 4/7): widok listy z
+          // mini-lejkiem i dokiem gotowości jest teraz domyślny. Jednorazowy
+          // reset preferencji — do v4 domyślne „tiles" nie było odróżnialne
+          // od świadomego wyboru; kafelki wracają jednym kliknięciem.
+          state = { ...state, jobsView: "list" };
         }
         return state;
       },
