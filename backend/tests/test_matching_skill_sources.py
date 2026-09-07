@@ -13,11 +13,12 @@ Regresja tutaj jest CICHA (zła lista, nie błąd), więc test sprawdza wynik
 
 from __future__ import annotations
 
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
-from app.api.matching import _build_match_info
+from app.api.matching import _build_match_info, _parse_nice_skills
 from app.services import scoring_service
 
 
@@ -38,6 +39,9 @@ def _candidate(**overrides) -> SimpleNamespace:
         raw_cv_text=None,
         ai_summary=None,
         avatar_url=None,
+        expected_rate_hourly=None,
+        linkedin_current_title=None,
+        linkedin_current_company=None,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -105,3 +109,99 @@ class TestSkillSources:
         info = _build_match_info(cand, ["Java", "java", "JAVA"], score=None)
         assert info["match_score"] == 1.0
         assert info["matching_skills"] == ["java"]
+
+    def test_nice_coverage_and_c2_row_fields(self) -> None:
+        """Warsztat C2: pokrycie nice-to-have + stawka/stanowisko/firma w wierszu."""
+        cand = _candidate(
+            skills=[{"name": "Java"}, {"name": "AWS"}],
+            expected_rate_hourly=Decimal("165.00"),
+            linkedin_current_title="Senior Java Developer",
+            linkedin_current_company="Comarch",
+        )
+        info = _build_match_info(
+            cand, ["java", "kubernetes"], nice_skills=["aws", "terraform"]
+        )
+        # must: java ✓, kubernetes ✗ (nice NIE wpływa na must ani na score)
+        assert info["matching_skills"] == ["java"]
+        assert info["gaps"] == ["kubernetes"]
+        # nice: aws ✓, terraform ✗
+        assert info["nice_matching"] == ["aws"]
+        assert info["nice_gaps"] == ["terraform"]
+        # Pola wiersza C2 — Decimal serializowany do float dla FE.
+        assert info["candidate"]["expected_rate_hourly"] == 165.0
+        assert info["candidate"]["current_title"] == "Senior Java Developer"
+        assert info["candidate"]["current_company"] == "Comarch"
+
+    def test_nice_skill_that_is_also_must_is_not_double_counted(self) -> None:
+        """Ten sam skill nie może wyjść raz jako must i raz jako nice."""
+        cand = _candidate(skills=[{"name": "Java"}])
+        info = _build_match_info(cand, ["java"], nice_skills=["java", "aws"])
+        assert info["nice_matching"] == []
+        assert info["nice_gaps"] == ["aws"]
+
+    def test_missing_c2_fields_do_not_break_the_row(self) -> None:
+        """Atrapa bez pól C2 (stary SimpleNamespace) → None, nie AttributeError."""
+        cand = SimpleNamespace(
+            id=2,
+            name="Ada",
+            lastname="Nowak",
+            email=None,
+            phone=None,
+            location=None,
+            status=None,
+            competence_category=None,
+            tags=None,
+            skills=None,
+            verified_tech=None,
+            cv_extracted_data=None,
+            raw_cv_text=None,
+            ai_summary=None,
+            avatar_url=None,
+        )
+        info = _build_match_info(cand, ["java"], nice_skills=["aws"])
+        assert info["candidate"]["expected_rate_hourly"] is None
+        assert info["candidate"]["current_title"] is None
+        assert info["candidate"]["current_company"] is None
+        assert info["nice_gaps"] == ["aws"]
+
+
+@pytest.mark.unit
+class TestParseNiceSkills:
+    """`_parse_nice_skills` czyta JSON `job.nice_skills`: dicty z `name`
+    (kształt z syncu Championa / kryteriów AI) albo gołe stringi. Guardy są
+    nieoczywiste i łatwo je poluzować bez objawu: None / nie-lista → [],
+    puste i za krótkie (< 2) / za długie (> 60) etykiety odpadają, dedup po
+    lowercase, sufit 20 pozycji.
+    """
+
+    def test_none_or_non_list_gives_empty(self) -> None:
+        assert _parse_nice_skills(SimpleNamespace(nice_skills=None)) == []
+        assert _parse_nice_skills(SimpleNamespace(nice_skills=[])) == []
+        # String i dict NIE są listą — nie wolno ich iterować po znakach/kluczach.
+        assert _parse_nice_skills(SimpleNamespace(nice_skills="AWS, Terraform")) == []
+        assert _parse_nice_skills(SimpleNamespace(nice_skills={"name": "AWS"})) == []
+
+    def test_dicts_and_bare_strings_lowercased_and_deduped(self) -> None:
+        job = SimpleNamespace(
+            nice_skills=[
+                {"name": "AWS", "level": "mid"},
+                "Terraform",
+                {"name": "aws"},  # duplikat po lowercase
+                {"level": "senior"},  # dict bez `name`
+                "",
+                None,
+                {"name": "  Angielski C1  "},  # strip
+            ]
+        )
+        assert _parse_nice_skills(job) == ["aws", "terraform", "angielski c1"]
+
+    def test_length_guards(self) -> None:
+        job = SimpleNamespace(nice_skills=["c", "go", "x" * 60, "y" * 61])
+        assert _parse_nice_skills(job) == ["go", "x" * 60]
+
+    def test_capped_at_twenty_keeps_order(self) -> None:
+        job = SimpleNamespace(nice_skills=[f"skill{i}" for i in range(30)])
+        out = _parse_nice_skills(job)
+        assert len(out) == 20
+        assert out[0] == "skill0"
+        assert out[-1] == "skill19"

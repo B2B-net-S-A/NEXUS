@@ -112,6 +112,7 @@ def _candidate_has_skill(required: str, candidate_skills: set[str]) -> bool:
 def _build_match_info(
     candidate: Candidate,
     required_skills: list[str],
+    nice_skills: list[str] | None = None,
     score: float | None = None,
 ) -> dict:
     """Build the match result dict for a candidate.
@@ -169,6 +170,31 @@ def _build_match_info(
             )
             score = filled / 4
 
+    # Nice-to-have coverage — TYLKO do wyświetlenia (dok „Dopasowanie",
+    # kolumna „Mile widziane"). Świadomie NIE wchodzi do `score`: silnik liczy
+    # wynik z wymagań must (i semantyki), a mile widziane to bonus, nie próg.
+    # Etykiety już będące must są pomijane (`seen`), żeby ten sam skill nie
+    # wyszedł raz jako must i raz jako nice.
+    nice_labels: list[str] = []
+    seen_nice: set[str] = set()
+    for raw in nice_skills or []:
+        if not raw:
+            continue
+        label = str(raw).lower().strip()
+        if not label or label in seen_nice or label in seen:
+            continue
+        seen_nice.add(label)
+        nice_labels.append(label)
+
+    nice_matching: list[str] = []
+    nice_gaps: list[str] = []
+    for label in sorted(nice_labels):
+        canon = canonical_skill_names([label])
+        if _candidate_has_skill(canon[0] if canon else label, all_candidate_skills):
+            nice_matching.append(label)
+        else:
+            nice_gaps.append(label)
+
     return {
         "candidate": {
             "id": candidate.id,
@@ -183,10 +209,25 @@ def _build_match_info(
             "skills": candidate.skills,
             "ai_summary": candidate.ai_summary,
             "avatar_url": candidate.avatar_url,
+            # Warsztat C2: stawka godzinowa (zderzana z budżetem oferty w doku),
+            # aktualne stanowisko i firma (podtytuł wiersza „rola · firma ·
+            # miasto"). Wszystkie z wczytanego wiersza — zero dodatkowych zapytań.
+            # `getattr` z domyślną: realny ORM ma te pola, ale atrapy testowe
+            # (SimpleNamespace) nie muszą — brak pola nie może wywalić rankingu.
+            "expected_rate_hourly": (
+                float(rate_hourly)
+                if (rate_hourly := getattr(candidate, "expected_rate_hourly", None))
+                is not None
+                else None
+            ),
+            "current_title": getattr(candidate, "linkedin_current_title", None),
+            "current_company": getattr(candidate, "linkedin_current_company", None),
         },
         "match_score": round(min(score, 1.0), 3),
         "matching_skills": matching,
         "gaps": gaps,
+        "nice_matching": nice_matching,
+        "nice_gaps": nice_gaps,
     }
 
 
@@ -356,6 +397,35 @@ def _parse_required_skills(job: Job) -> list[str]:
     return skills[:20]
 
 
+def _parse_nice_skills(job: Job) -> list[str]:
+    """Nice-to-have skill labels from the job's ``nice_skills`` JSON.
+
+    Unlike must-have skills (parsed from the free-text ``requirements`` line),
+    nice-to-haves live in the structured ``nice_skills`` column written by the
+    Champion sync / AI-criteria step. Shape is a list of ``{"name": str}`` dicts
+    (with an optional ``level``); we defensively accept bare strings too. Labels
+    are lowercased, deduped and capped — they drive the "Mile widziane" column
+    and the dock's nice-coverage list, never the score.
+    """
+    raw = job.nice_skills
+    if not raw or not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if isinstance(item, dict):
+            name = item.get("name")
+        else:
+            name = item
+        if not name:
+            continue
+        label = str(name).lower().strip()
+        if label and 2 <= len(label) <= 60 and label not in seen:
+            seen.add(label)
+            out.append(label)
+    return out[:20]
+
+
 @router.get("/jobs/{job_id}/ai-matches")
 async def get_ai_matches(
     job_id: int,
@@ -403,6 +473,7 @@ async def get_ai_matches(
 
     query_text = _build_job_query(job)
     required_skills = _parse_required_skills(job)
+    nice_skills = _parse_nice_skills(job)
 
     # ── Location filter ──────────────────────────────────────────────────────
     # Explicit query param wins; otherwise fall back to the job's own location
@@ -517,7 +588,12 @@ async def get_ai_matches(
 
         matches = []
         for i, c in enumerate(ordered):
-            m = _build_match_info(c, required_skills, score=scores_by_idx.get(i, 0.0))
+            m = _build_match_info(
+                c,
+                required_skills,
+                nice_skills=nice_skills,
+                score=scores_by_idx.get(i, 0.0),
+            )
             m["eligibility"] = elig_annotations.get(c.id)
             matches.append(m)
         # Location filter (when active): keep only candidates whose location
@@ -535,6 +611,7 @@ async def get_ai_matches(
             "job_id": job_id,
             "job_title": job.title,
             "required_skills": required_skills,
+            "nice_skills": nice_skills,
             "search_type": search_type,
             "min_score": round(threshold, 3),
             "location_filter": requested_location if location_active else None,
@@ -545,6 +622,11 @@ async def get_ai_matches(
                 "reason": None,
                 "hidden": hidden_meta,
                 "eligibility_filtered": eligibility_filtered,
+                # Operational (candidate) budget the gate enforces — the C2
+                # context bar shows it and the dock compares each rate to it,
+                # so "stawka vs budżet" reads the SAME ceiling as "ukryto:
+                # over_budget". Null when the job has no hourly budget.
+                "budget_hourly": resolve_job_budget_hourly(job),
             },
         }
 
@@ -587,7 +669,9 @@ async def get_ai_matches(
         # Location filter (when active): skip non-matching candidates up front.
         if location_active and not _location_matches(requested_tokens, c.location):
             continue
-        match = _build_match_info(c, required_skills, score=None)
+        match = _build_match_info(
+            c, required_skills, nice_skills=nice_skills, score=None
+        )
         match["eligibility"] = elig_annotations.get(c.id)
         # No required_skills → score is a profile-completeness proxy; keep the
         # threshold floor so junk profiles don't surface as "matches".
@@ -610,6 +694,7 @@ async def get_ai_matches(
         "job_id": job_id,
         "job_title": job.title,
         "required_skills": required_skills,
+        "nice_skills": nice_skills,
         "search_type": "tag_fallback",
         "min_score": round(threshold, 3),
         "location_filter": requested_location if location_active else None,
@@ -622,5 +707,6 @@ async def get_ai_matches(
             ),
             "hidden": hidden_meta,
             "eligibility_filtered": eligibility_filtered,
+            "budget_hourly": resolve_job_budget_hourly(job),
         },
     }
