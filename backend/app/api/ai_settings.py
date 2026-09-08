@@ -158,20 +158,12 @@ async def get_ai_settings(
         ).all()
     )
     webhook = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
+    from app.tasks.ai_spend_alerts import pending_alert_predicate
+
     pending = await db.scalar(
         select(func.count())
         .select_from(AISpendAlert)
-        .where(
-            AISpendAlert.in_app_at.is_(None)
-            | (
-                (
-                    AISpendAlert.slack_sent_at.is_(None)
-                    & AISpendAlert.recipient_id.is_(None)
-                )
-                if webhook
-                else False
-            )
-        )
+        .where(pending_alert_predicate(webhook))
     )
     last_delivered = await db.scalar(select(func.max(AISpendAlert.in_app_at)))
 

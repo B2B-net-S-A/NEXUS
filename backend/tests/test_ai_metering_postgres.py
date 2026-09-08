@@ -284,3 +284,77 @@ async def test_legacy_manual_skill_audit_blocks_cv_resurrection():
         )
         assert stats["locked_skills"] == 1
         await db.rollback()
+
+
+@pytest.mark.parametrize("revoked", ["inactive", "role"])
+async def test_orphaned_control_alerts_do_not_starve_active_recipients(revoked):
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User, UserRole
+    from app.models.notification import Notification
+    from app.tasks.ai_spend_alerts import (
+        queue_alert,
+        deliver_alerts,
+        pending_alert_predicate,
+    )
+
+    prefix = "test:" + str(uuid4())
+    async with AsyncSessionLocal() as db:
+        removed = User(
+            name="Former admin",
+            email=prefix + "-old@example.test",
+            role=UserRole.admin if revoked == "inactive" else UserRole.recruiter,
+            roles=["admin"] if revoked == "inactive" else ["recruiter"],
+            is_active=revoked != "inactive",
+        )
+        active = User(
+            name="Current admin",
+            email=prefix + "-current@example.test",
+            role=UserRole.admin,
+            roles=["admin"],
+            is_active=True,
+        )
+        db.add_all([removed, active])
+        await db.flush()
+        for i in range(25):
+            await queue_alert(
+                db, f"{prefix}:{i}", "Dormant test", recipient_id=removed.id
+            )
+        await queue_alert(db, prefix + ":active", "Active test", recipient_id=active.id)
+        await db.commit()
+        try:
+            count_query = (
+                select(func.count())
+                .select_from(AISpendAlert)
+                .where(pending_alert_predicate(False))
+            )
+            assert await db.scalar(count_query) == 1
+            assert await deliver_alerts(db, "") == 1
+            assert await db.scalar(count_query) == 0
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Notification)
+                    .where(Notification.user_id == active.id)
+                )
+                == 1
+            )
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(Notification)
+                    .where(Notification.user_id == removed.id)
+                )
+                == 0
+            )
+        finally:
+            await db.execute(
+                delete(Notification).where(
+                    Notification.user_id.in_([active.id, removed.id])
+                )
+            )
+            await db.execute(
+                delete(AISpendAlert).where(AISpendAlert.key.startswith(prefix))
+            )
+            await db.delete(active)
+            await db.delete(removed)
+            await db.commit()

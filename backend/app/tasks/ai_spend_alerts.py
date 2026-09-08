@@ -41,7 +41,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,6 +170,38 @@ async def _queue_daily_alerts(db: AsyncSession) -> None:
                 )
 
 
+def pending_alert_predicate(webhook: bool):
+    """Deliverable backlog only; revoked test recipients stay dormant.
+
+    Keep the original row for audit and never pretend an undelivered alert
+    was delivered. It becomes eligible again if its recipient regains access.
+    Apply before LIMIT so orphaned control alerts cannot starve real alerts.
+    """
+    from app.models.user import User
+
+    current_admin = (
+        select(User.id)
+        .where(
+            User.id == AISpendAlert.recipient_id,
+            User.is_active.is_(True),
+            User.roles.contains(["admin"]),
+        )
+        .exists()
+    )
+    return and_(
+        or_(AISpendAlert.recipient_id.is_(None), current_admin),
+        or_(
+            AISpendAlert.in_app_at.is_(None),
+            and_(
+                AISpendAlert.slack_sent_at.is_(None),
+                AISpendAlert.recipient_id.is_(None),
+            )
+            if webhook
+            else False,
+        ),
+    )
+
+
 async def deliver_alerts(
     db: AsyncSession, webhook: str, *, alert_id: int | None = None
 ) -> int:
@@ -181,17 +213,7 @@ async def deliver_alerts(
         (
             await db.scalars(
                 select(AISpendAlert)
-                .where(
-                    AISpendAlert.in_app_at.is_(None)
-                    | (
-                        (
-                            AISpendAlert.slack_sent_at.is_(None)
-                            & AISpendAlert.recipient_id.is_(None)
-                        )
-                        if webhook
-                        else False
-                    )
-                )
+                .where(pending_alert_predicate(bool(webhook)))
                 .where(AISpendAlert.id == alert_id if alert_id is not None else True)
                 .order_by(AISpendAlert.id)
                 .limit(25)

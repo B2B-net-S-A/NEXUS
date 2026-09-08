@@ -997,6 +997,7 @@ def _score_skills(
     must_source = (
         "structured"
         if getattr(job, "must_skills", None)
+        or getattr(job, "requirements_reviewed", False)
         else ("champion" if getattr(job, "champion_profile", None) else "jd_text")
     )
 
