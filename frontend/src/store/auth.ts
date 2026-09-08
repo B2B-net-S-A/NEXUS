@@ -1,6 +1,7 @@
 import { create } from "zustand"
 
 import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
+import { hasSectionAccess } from "@/lib/section-access"
 
 // ── Role model ──────────────────────────────────────────────────────────────
 //
@@ -370,6 +371,19 @@ export function canManageOrderLifecycle(
   user: Pick<User, "role" | "roles"> | null | undefined
 ): boolean {
   return hasRole(user, "admin", "delivery_lead", "finance")
+}
+
+/** Status kontraktu jest operacyjnie utrzymywany także przez TCM.
+ * Pozostałe pola kontraktu, dokumenty i finanse zachowują dotychczasowe bramki. */
+export function canManageContractStatus(
+  user: Pick<User, "role" | "roles" | "effective_section_access"> | null | undefined
+): boolean {
+  if (!hasRole(user, "admin", "delivery_lead", "talent_community_manager")) {
+    return false
+  }
+  return hasRole(user, "talent_community_manager")
+    ? hasSectionAccess(user, "delivery", "read")
+    : hasSectionAccess(user, "delivery", "write")
 }
 
 /**

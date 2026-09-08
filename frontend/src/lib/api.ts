@@ -1631,6 +1631,8 @@ export const contractsApi = {
   get: (id: number) => api.get(`/api/contracts/${id}`),
   create: (data: Record<string, unknown>) => api.post("/api/contracts", data),
   update: (id: number, data: Record<string, unknown>) => api.patch(`/api/contracts/${id}`, data),
+  updateStatus: (id: number, status: string) =>
+    api.patch(`/api/contracts/${id}/status`, { status }),
   delete: (id: number) => api.delete(`/api/contracts/${id}`),
   forceDeleteSigned: (id: number, confirmation: string) =>
     api.post(`/api/contracts/${id}/force-delete-signed`, { confirmation }),

@@ -171,6 +171,14 @@ async def test_delivery_dependency_is_read_only_for_talent_community_manager() -
     assert getattr(exc_info.value, "status_code", None) == 403
     assert exc_info.value.detail["code"] == "section_access_denied"
 
+    assert (
+        await dependency(_request("PATCH", "/api/contracts/42/status"), tcm) is tcm
+    )
+    with pytest.raises(HTTPException):
+        await dependency(_request("PATCH", "/api/contracts/42"), tcm)
+    with pytest.raises(HTTPException):
+        await dependency(_request("PATCH", "/api/contracts/not-a-number/status"), tcm)
+
 
 @pytest.mark.asyncio
 async def test_exact_read_only_post_uses_read_level_without_opening_sibling_mutation() -> (

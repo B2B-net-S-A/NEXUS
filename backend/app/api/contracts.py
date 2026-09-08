@@ -70,6 +70,7 @@ from app.schemas.contract import (
     ContractRateHistoryEntry,
     ContractSiblingRef,
     ContractSignedDeleteRequest,
+    ContractStatusUpdate,
     ContractReopenRequest,
     ContractResponse,
     ContractTemplateBrief,
@@ -158,6 +159,17 @@ ContractReadUser = Annotated[
             UserRole.talent_community_manager,
             UserRole.tac,
             UserRole.finance,
+        )
+    ),
+]
+
+ContractStatusWriteUser = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin,
+            UserRole.delivery_lead,
+            UserRole.talent_community_manager,
         )
     ),
 ]
@@ -2722,6 +2734,56 @@ async def update_contract(
         detail = _to_detail(contract)
     # Operacyjny PATCH bez pól finansowych pozostaje dostępny. Kwoty z
     # odpowiedzi widzi tylko globalna rola finansowa albo DL tego klienta.
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+@router.patch("/{contract_id}/status", response_model=ContractDetailResponse)
+async def update_contract_status(
+    contract_id: int,
+    data: ContractStatusUpdate,
+    current_user: ContractStatusWriteUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Change only the operational status; TCM cannot mutate other fields."""
+
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+    )
+    contract = result.scalar_one_or_none()
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+
+    previous_status = contract.status
+    await _apply_contract_status_change(
+        db, contract, data.status, actor_id=current_user.id
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract_id,
+            action="status_updated",
+            user_id=current_user.id,
+            details={
+                "from_status": previous_status.value,
+                "to_status": contract.status.value,
+            },
+        )
+    )
+    await db.flush()
+    await db.refresh(contract)
+    detail = _to_detail(contract)
     if not await _can_read_contract_finance(contract, current_user, db):
         _redact_contract_finance(detail)
     return detail

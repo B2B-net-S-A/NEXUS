@@ -41,6 +41,7 @@ import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";
 import {
   canManageCandidateFinance,
+  canManageContractStatus,
   canViewClientFinance,
   hasRole,
   useAuthStore,
@@ -430,6 +431,7 @@ export default function ContractDetailPage() {
     !impersonating &&
     hasRole(user, "admin", "delivery_lead") &&
     hasSectionAccess(user, "delivery", "write");
+  const canEditContractStatus = !impersonating && canManageContractStatus(user);
   const id = Number(params.id);
 
   // A profile can be opened from many places (candidate, any contracts view,
@@ -510,6 +512,18 @@ export default function ContractDetailPage() {
     onError: (err: unknown) => {
       setError(extractErrorMsg(err));
     },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (status: string) => contractsApi.updateStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["contract", id] });
+      queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contract-activities", id] });
+      setError("");
+    },
+    onError: (err: unknown) => setError(extractErrorMsg(err)),
   });
 
   // Usuwanie: modal potwierdzenia zamiast natywnego `window.confirm` (ten
@@ -805,6 +819,20 @@ export default function ContractDetailPage() {
           <h1 className="text-2xl font-bold flex items-center gap-3 flex-wrap">
             Kontrakt #{contract.id}
             <StatusBadge status={contract.status} />
+            {canEditContractStatus && !editing && (
+              <select
+                aria-label="Zmień status kontraktu"
+                value={contract.status}
+                disabled={statusMutation.isPending}
+                onChange={(event) => statusMutation.mutate(event.target.value)}
+                className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium"
+              >
+                <option value="draft">Draft</option>
+                <option value="active">Aktywny</option>
+                <option value="ending">Kończący się</option>
+                <option value="ended">Zakończony</option>
+              </select>
+            )}
             {complianceRisk.risk === "overdue" && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive border border-destructive/20">
                 Compliance: dokument wygasł

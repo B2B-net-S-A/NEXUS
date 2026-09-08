@@ -178,6 +178,12 @@ class ContractCreate(BaseModel):
     order_consumption_unit: Optional[OrderConsumptionUnit] = None
 
 
+class ContractStatusUpdate(BaseModel):
+    """Narrow payload for operational status changes, including TCM."""
+
+    status: ContractRegisterStatus
+
+
 class ContractUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
