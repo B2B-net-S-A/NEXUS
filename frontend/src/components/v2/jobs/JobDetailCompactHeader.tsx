@@ -244,6 +244,14 @@ export function JobDetailCompactHeader({
         <div className="px-4 py-2.5">
           <EntityHeader
             density="compact"
+            avatar={
+              <span
+                aria-hidden="true"
+                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              >
+                <Target className="h-4 w-4" />
+              </span>
+            }
             title={
               clientName ? (
                 <>
