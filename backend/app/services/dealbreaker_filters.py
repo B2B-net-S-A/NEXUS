@@ -292,6 +292,37 @@ _PROSE_WORDS = frozenset(
 # Nazwa technologii bywa trzywyrazowa („Amazon Web Services", „Microsoft SQL
 # Server"), ale nigdy nie jest zdaniem. Sufit trzymamy przy trzech słowach
 # i 40 znakach — powyżej tego w produkcji leżą wyłącznie punkty wymagań.
+# Frazy CZYNNOŚCIOWE: „tworzenie dokumentacji technicznej", „pisanie zapytań
+# sql", „zarządzanie ryzykiem", „budowa aplikacji webowych", „wykształcenie
+# wyższe". Przechodzą testy wyżej (krótkie, bez separatorów, bez słów z
+# `_PROSE_WORDS`), ale opisują CZYNNOŚĆ albo wymóg formalny, nie technologię —
+# nikt nie ma ich w profilu jako umiejętności, więc bramkowanie nimi opróżnia
+# listę tak samo jak proza. Zmierzone po pierwszej naprawie: 20 ofert i 25
+# unikalnych wpisów wciąż tak bramkowało.
+#
+# Rozpoznajemy je po GŁOWIE frazy: polski rzeczownik odczasownikowy kończy się
+# na -anie/-enie/-cie, plus krótka lista rzeczowników czynności, które tej
+# końcówki nie mają. Wymóg ≥2 słów jest celowy — jednowyrazowe
+# „Programowanie" zostawiamy, bo bywa realną deklaracją kandydata.
+_ACTIVITY_HEADS = frozenset(
+    {
+        "budowa",
+        "rozwój",
+        "rozwoj",
+        "wsparcie",
+        "analiza",
+        "współpraca",
+        "wspolpraca",
+        "zasady",
+        "obsługa",
+        "obsluga",
+        "utrzymanie",
+        "wykształcenie",
+        "wyksztalcenie",
+    }
+)
+_ACTIVITY_SUFFIXES = ("anie", "enie", "cie")
+
 _GATE_MAX_WORDS = 3
 _GATE_MAX_CHARS = 40
 
@@ -315,7 +346,13 @@ def is_gate_eligible_must(name: str) -> bool:
     words = text.lower().split()
     if not words or len(words) > _GATE_MAX_WORDS:
         return False
-    return not any(w in _PROSE_WORDS for w in words)
+    if any(w in _PROSE_WORDS for w in words):
+        return False
+    if len(words) >= 2:
+        head = words[0]
+        if head in _ACTIVITY_HEADS or head.endswith(_ACTIVITY_SUFFIXES):
+            return False
+    return True
 
 
 def gate_eligible_must_skills(must: Sequence[str]) -> list[str]:
