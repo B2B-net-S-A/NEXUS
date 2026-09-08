@@ -14,6 +14,7 @@ from app.services.order_mail_gate import evaluate
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
     OrderExtraction,
+    apply_document_rate_kind,
     apply_pfron_order_policy,
     pfron_end_date,
     pfron_order_number,
@@ -109,7 +110,7 @@ def test_pfron_corrects_document_and_row_and_preserves_unrelated_warning():
     result.uncertain_reasons.append("Nieczytelny numer VAT klienta")
     for _ in range(2):
         apply_pfron_order_policy(result, TEXT, filename=FILENAME)
-        svc.apply_document_rate_kind(result, TEXT)
+        apply_document_rate_kind(result, TEXT)
         assert result.title == "34"
         assert result.end_date == result.consultant_rows[0].end_date == "2026-09-30"
         assert result.confidence == {"title": 1.0, "end_date": 1.0}

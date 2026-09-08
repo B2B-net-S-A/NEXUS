@@ -895,6 +895,37 @@ async def test_extraction_reports_which_client_policy_applied(
     assert data["title"] == "COA-4500030222"
 
 
+async def test_nordea_endpoint_reads_net_hourly_rate_without_quantity_or_summary(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.api import client_orders as co
+    from tests.test_nordea_pdf_policy import ORDER, SUMMARY, model_extraction
+
+    client_id = await _seed_client("Nordea PDF regression")
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(client_id))
+    monkeypatch.setattr(co, "extract_text", lambda *args: ORDER + SUMMARY)
+
+    async def parse(text):
+        assert "Summary" not in text
+        assert "Quantity" not in text
+        assert "1 728" not in text
+        return model_extraction()
+
+    monkeypatch.setattr(co, "parse_order_document", parse)
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/orders/extract",
+        files={"file": ("nordea.pdf", b"%PDF-dummy", "application/pdf")},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert Decimal(str(data["rate_client"])) == Decimal("175")
+    assert data["rate_unit"] == "hour"
+    assert data["md_total"] is None
+    assert data["rate_client_gross"] is None
+    assert data["uncertain"] is False
+
+
 async def test_extraction_says_when_a_client_has_no_rules_yet(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

@@ -409,7 +409,9 @@ dokumentu.** Przy oznaczeniu brutto system dzieli kwotę przez **1,23** przed
 wpisaniem jej do planu. Na przykład **100,08 zł/h brutto → 81,37 zł/h netto**;
 obok stawki netto widać oryginalną kwotę brutto. Jawne netto pozostaje bez
 przeliczenia. Brak jednoznacznego oznaczenia oznacza niepewny odczyt do
-weryfikacji — sam klient nie rozstrzyga rodzaju stawki.
+weryfikacji. **Wyjątkiem jest Nordea: stawka jest zawsze netto za godzinę,
+bez dzielenia przez 1,23. Kolumna „Quantity (max Xh/month)” nie określa
+liczby godzin ani MD w planie. Summary jest pomijane przed odczytem danych.**
 
 **„Przelicz plan"** odświeża oczekujący wpis z zachowanego PDF-a i aktualnej
 listy konsultantów. Użyj go po poprawieniu przypisania osoby albo zasad odczytu.
@@ -781,7 +783,15 @@ o tym komunikat w banerze — ale **pole numeru nie zostanie wyczyszczone**: je�
 coś już w nim stało (numer z poprzedniego zamówienia albo wartość zastępcza ze
 szkicu), zostanie tam nietknięte i zapisze się razem z zamówieniem. Po odczycie
 u Nordei **zawsze przeczytaj pole numeru** i wpisz właściwy ręcznie.
-Pozostałe pola (daty, stawka) czytane są normalnie.
+**Stawka z PDF-a jest zawsze netto za godzinę (zł/h)**, niezależnie od
+nagłówka Rate i oznaczenia brutto/netto. System nie dzieli jej przez 1,23
+ani nie przelicza z dni lub miesięcy. **Quantity (max Xh/month) jest
+ignorowane**: nie uzupełnia godzin ani MD i nie służy do kontroli
+„ilość × stawka = subtotal”. Przy odczycie załącznika brane jest właściwe
+zamówienie, bez sekcji/strony **summary** i bez powielania jej osób.
+Te trzy reguły nie powodują „odczytu niepewnego”; inne błędy, np. niejasna
+osoba lub okres, nadal wymagają weryfikacji. „Przelicz plan” ponownie
+odczytuje osoby z właściwej tabeli zapisanego PDF-a Nordea.
 
 **2. Import zamówień z CSV — nie dla Ciebie.** W zakładce „Zamówienia" jest
 zwijany panel **„Import zamówień Nordea z CSV"**, ale **widzi go wyłącznie
@@ -1009,7 +1019,7 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   stawki stoi „brutto", stawka jest dzielona przez **1,23** (obok pola widać
   kwotę brutto z dokumentu do porównania); gdy stoi „netto" albo nie ma żadnego
   oznaczenia, kwota zostaje bez zmian; **brak oznaczenia albo konflikt
-  brutto/netto wymaga weryfikacji**. Dotyczy to **każdego klienta**, także
+  brutto/netto wymaga weryfikacji**. Dotyczy to **klientów poza Nordea**, także
   spoza listy wyżej — jeżeli więc dokument nowego klienta ma stawkę brutto,
   system ją przeliczy. U Erste i PFRON dokumenty są zwykle brutto, ale i tam
   decyduje zapis w dokumencie: jawne „netto" przy stawce **wygrywa** i wtedy

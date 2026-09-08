@@ -19,10 +19,13 @@ from app.services.order_policies.registry import (
     PolicyContext,
     active_policies,
     apply_policies,
+    apply_rate_kind,
     client_ids_from_env,
     is_client_in_policy,
     parse_plan,
     policy_by_key,
+    prepare_document_text,
+    prepare_parser_text,
 )
 
 __all__ = [
@@ -31,8 +34,11 @@ __all__ = [
     "PolicyContext",
     "active_policies",
     "apply_policies",
+    "apply_rate_kind",
     "client_ids_from_env",
     "is_client_in_policy",
     "parse_plan",
     "policy_by_key",
+    "prepare_document_text",
+    "prepare_parser_text",
 ]
