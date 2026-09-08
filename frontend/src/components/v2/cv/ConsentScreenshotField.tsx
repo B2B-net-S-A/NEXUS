@@ -119,7 +119,8 @@ export function ConsentScreenshotField({
           )}
         </div>
       ) : (
-        <div className="flex items-center gap-2">
+        // Keep the absolute sr-only input in the form's scroll container, too.
+        <div className="relative flex items-center gap-2">
           <input
             ref={inputRef}
             id={inputId}
