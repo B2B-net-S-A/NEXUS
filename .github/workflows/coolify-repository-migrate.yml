@@ -1,0 +1,42 @@
+name: Coolify Repository Migration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Point NEXUS application at organization repository
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -euo pipefail
+          base="${COOLIFY_URL%/}"
+          auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
+          current="$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$COOLIFY_APP_UUID")"
+          repository="$(jq -r '.git_repository // ""' <<<"$current")"
+          case "$repository" in
+            *B2B-net-S-A/NEXUS*)
+              echo "Coolify already points at the organization repository."
+              ;;
+            *artur-t-96/Nexus*|*artur-t-96/NEXUS*)
+              updated="${repository/artur-t-96\/Nexus/B2B-net-S-A\/NEXUS}"
+              updated="${updated/artur-t-96\/NEXUS/B2B-net-S-A\/NEXUS}"
+              curl -fsS -X PATCH "${auth[@]}" -H "Content-Type: application/json" \
+                --data "$(jq -n --arg repository "$updated" '{git_repository:$repository}')" \
+                "$base/api/v1/applications/$COOLIFY_APP_UUID" >/dev/null
+              ;;
+            *)
+              echo "::error::Unexpected Coolify repository; refusing to overwrite it."
+              exit 1
+              ;;
+          esac
+          verified="$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$COOLIFY_APP_UUID" | jq -r '.git_repository // ""')"
+          [[ "$verified" == *B2B-net-S-A/NEXUS* ]]
+          echo "Coolify repository migration verified."
