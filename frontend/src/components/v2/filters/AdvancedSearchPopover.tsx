@@ -36,23 +36,27 @@ const MIN_PHRASE_LEN = 2;
 
 type Tone = "emerald" | "sky" | "rose";
 
+// Tony na TOKENACH, nie na palecie emerald/sky/rose: „wszystkie/musi" =
+// success, „którakolwiek" = info, „żadna/wyklucz" = destructive. Te same trzy
+// tony co kubełki skilli w `FiltersPanel`, więc cały panel wyszukiwania mówi
+// jednym językiem kolorów i poprawnie reaguje na motyw (dawne kolory były
+// wpisane na sztywno i nie zmieniały się z paletą).
 const TONE_CLASSES: Record<Tone, string> = {
-  emerald:
-    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800",
-  sky: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-200 dark:border-sky-800",
-  rose: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-200 dark:border-rose-800",
+  emerald: "border border-success/25 bg-success-muted text-success-muted-foreground",
+  sky: "border border-info/25 bg-info-muted text-info-muted-foreground",
+  rose: "border border-destructive/25 bg-destructive-muted text-destructive-muted-foreground",
 };
 
 const LABEL_TONE_CLASSES: Record<Tone, string> = {
-  emerald: "text-emerald-700 dark:text-emerald-300",
-  sky: "text-sky-700 dark:text-sky-300",
-  rose: "text-rose-700 dark:text-rose-300",
+  emerald: "text-success-muted-foreground",
+  sky: "text-info-muted-foreground",
+  rose: "text-destructive-muted-foreground",
 };
 
 const DOT_TONE_CLASSES: Record<Tone, string> = {
-  emerald: "bg-emerald-500",
-  sky: "bg-sky-500",
-  rose: "bg-rose-500",
+  emerald: "bg-success",
+  sky: "bg-info",
+  rose: "bg-destructive",
 };
 
 /** Section heading with a tone-colored dot + colored text to set each bucket apart. */
@@ -143,7 +147,7 @@ function ChipField({
                 type="button"
                 onClick={() => removeAt(i)}
                 title="Usuń frazę"
-                className="inline-flex items-center justify-center rounded hover:bg-black/10 dark:hover:bg-card/10"
+                className="inline-flex items-center justify-center rounded hover:bg-foreground/10"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -310,7 +314,7 @@ export function AdvancedSearchPopover({
                   onClick={() => removeGroup(gi)}
                   title="Usuń grupę"
                   aria-label={`Usuń grupę ${gi + 1}`}
-                  className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-900/30"
+                  className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive-muted hover:text-destructive-muted-foreground"
                 >
                   <X className="h-4 w-4" />
                 </button>
