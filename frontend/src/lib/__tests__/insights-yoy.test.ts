@@ -52,6 +52,9 @@ function metric(over: Partial<InsightsYoYMetric> = {}): InsightsYoYMetric {
     lower_is_better: false,
     definition: null,
     note: null,
+    // Domyślnie „z kontraktów" — to podstawa dotknięta luką w ewidencji,
+    // więc test bez jawnego wyboru pracuje na wariancie ostrożniejszym.
+    basis: "contracts",
     series: {},
     ...over,
   };

@@ -149,3 +149,37 @@ harmonogramy stawek. Kontrakty ładowane są RAZ na odpowiedź, kursy NBP jednym
 zapytaniem na wszystkie dni wyceny, a wynik cache'owany na 15 minut (trzy razy
 dłużej niż kafle — siatka opisuje zamknięte miesiące, które się nie zmienią).
 Limit `years` ≤ 5 jest sufitem kosztu, nie kaprysem.
+
+### Poprawka po weryfikacji na produkcji (08.09.2026)
+
+Pierwsze wydanie siatki renderowało się poprawnie i pokazywało **+935% wzrostu
+przychodu rok do roku**. To nie był wzrost biznesu.
+
+Zmierzone na żywo — liczba konsultantów w sierpniu: **2024: 24 · 2025: 44 ·
+2026: 452**, przy placementach w tych samych miesiącach 12 / 14 / 23.
+DynaReporter na 2024 podaje ~320 konsultantów. Wniosek: **ewidencja kontraktów
+w NEXUSIE jest młodsza niż firma.** Placementy przyszły z importu Traffita
+i sięgają wstecz; kontrakty zaczęły powstawać później i nie zostały uzupełnione.
+
+Liczba była arytmetycznie poprawna i semantycznie fałszywa — członek Rady
+wyciągnąłby z niej wniosek o dziesięciokrotnym wzroście firmy. To dokładnie ta
+klasa defektu, którą ten moduł miał likwidować, a nie produkować.
+
+**Naprawa:** każda metryka niesie `basis` (`contracts` | `pipeline`), odpowiedź
+niesie `coverage.contracts_by_year` (fakt: średnia liczba wycenionych kontraktów
+w miesiącu), a widok stawia ostrzeżenie **przy grupach liczonych z kontraktów** —
+nie jednym banerem na górze, bo Dywersyfikacja i hit ratio idą z pipeline'u
+i są porównywalne między latami.
+
+Kolumny NIE są ukrywane: rok 2026 jest prawdziwy i użyteczny, a schowanie ich
+zabrałoby jedyną działającą część tabeli. Zamiast tego strona mówi wprost,
+czego dotyczy różnica między latami.
+
+Progiem ostrzeżenia jest udział podstawy najstarszego roku w najnowszym
+(< 50%). Próg jest heurystyką i celowo ostrzega raczej za często: fałszywy alarm
+każe spojrzeć na podstawę, przeoczenie każe uwierzyć w nieistniejący wzrost.
+Sama podstawa jest faktem, nie heurystyką.
+
+**Do rozważenia osobno:** uzupełnienie historii kontraktów wstecz (backfill).
+Dopóki go nie ma, porównania międzyroczne pieniędzy i headcountu w tej zakładce
+pozostają nieporównywalne — i mają to napisane.
