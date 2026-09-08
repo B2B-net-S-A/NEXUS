@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CvHandoffError,
+  computeMarginPreview,
   describeCvHandoffFailure,
   describeCvHandoffSuccess,
   runCvHandoff,
@@ -160,5 +161,90 @@ describe("describeCvHandoffSuccess", () => {
     expect(msg).toContain("403");
     expect(msg).toContain("uzupełnij ją z profilu kandydata");
     expect(msg).toContain("Link dla klienta utworzony");
+  });
+});
+
+/**
+ * Podgląd marży (makieta kroku 06). Najważniejsza asercja jest NEGATYWNA:
+ * marży nie wolno policzyć, gdy stawki są w różnych jednostkach — dzienna
+ * przeczytana jako godzinowa daje liczbę poprawną arytmetycznie i całkowicie
+ * fałszywą handlowo (ta sama pułapka co `rate_unit` w module zamówień).
+ */
+describe("computeMarginPreview", () => {
+  it("liczy różnicę i udział, gdy jednostka i waluta się zgadzają", () => {
+    const m = computeMarginPreview({
+      clientRate: "165",
+      clientUnit: "hourly",
+      candidateRate: 118,
+      candidateUnit: "hourly",
+    });
+    expect(m.value).toBe(47);
+    expect(m.label).toContain("47");
+    expect(m.label).toContain("PLN/h");
+    expect(m.label).toContain("28 %");
+    expect(m.reason).toBeNull();
+  });
+
+  it("przecinek dziesiętny i string z backendu liczą się tak samo", () => {
+    const m = computeMarginPreview({
+      clientRate: "165,50",
+      clientUnit: "daily",
+      candidateRate: "118,50",
+      candidateUnit: "daily",
+    });
+    expect(m.value).toBe(47);
+  });
+
+  it("różne jednostki → myślnik z powodem, NIGDY przeliczona liczba", () => {
+    const m = computeMarginPreview({
+      clientRate: "165",
+      clientUnit: "hourly",
+      candidateRate: 544,
+      candidateUnit: "daily",
+    });
+    expect(m.value).toBeNull();
+    expect(m.label).toBe("—");
+    expect(m.reason).toContain("Różne jednostki");
+  });
+
+  it("różne waluty → myślnik z powodem (kursu nie zgadujemy)", () => {
+    const m = computeMarginPreview({
+      clientRate: "165",
+      clientUnit: "hourly",
+      candidateRate: 118,
+      candidateUnit: "hourly",
+      candidateCurrency: "EUR",
+    });
+    expect(m.value).toBeNull();
+    expect(m.reason).toContain("Różne waluty");
+  });
+
+  it("brak którejkolwiek stawki mówi, CZEGO brakuje", () => {
+    expect(
+      computeMarginPreview({
+        clientRate: "",
+        clientUnit: "hourly",
+        candidateRate: 118,
+        candidateUnit: "hourly",
+      }).reason,
+    ).toContain("Wpisz stawkę do klienta");
+    expect(
+      computeMarginPreview({
+        clientRate: "165",
+        clientUnit: "hourly",
+        candidateRate: null,
+        candidateUnit: "hourly",
+      }).reason,
+    ).toContain("stawki oczekiwanej");
+  });
+
+  it("marża ujemna jest liczona, nie chowana — stawka poniżej kosztu to fakt", () => {
+    const m = computeMarginPreview({
+      clientRate: "100",
+      clientUnit: "hourly",
+      candidateRate: 120,
+      candidateUnit: "hourly",
+    });
+    expect(m.value).toBe(-20);
   });
 });

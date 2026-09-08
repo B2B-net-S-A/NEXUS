@@ -36,6 +36,23 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError }),
 }));
 
+// SLA klienta pochodzi z KARTY KLIENTA — nagłówek kolejki i progi kropek
+// liczą się od niego, więc test go podaje zamiast udawać stałą.
+vi.mock("@/lib/client-playbooks", () => ({
+  useClientPlaybook: () => ({
+    data: { sla_business_days: 5, client_name: "PKO BP" },
+    isLoading: false,
+  }),
+}));
+// Modal odrzucenia ma własne zapytania i własne reguły maila — zakładka tylko
+// go otwiera, więc do jej testów wystarczy stub.
+vi.mock("@/components/v2/modals/RejectionV2", () => ({
+  RejectionV2: () => <div data-testid="rejection-stub" />,
+}));
+vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
+  CVOriginalPreviewModal: () => <div data-testid="cv-original-stub" />,
+}));
+
 import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
@@ -318,6 +335,70 @@ describe("ScreeningWorkbench", () => {
     // Nowy etap ma id 99 (odpowiedź `move`) — tam trafia kopia arkusza.
     await waitFor(() => expect(submitScreening).toHaveBeenCalledWith(99, answers));
     expect(showSuccess).toHaveBeenCalled();
+  });
+
+  // ── Parytet z makietą (fala 3) ─────────────────────────────────────────
+  it("nagłówek mówi „Krok · Nazwisko” i liczy dzień wobec SLA klienta", async () => {
+    renderWorkbench({ clientId: 3, clientName: "PKO BP" });
+    expect(
+      await screen.findByRole("heading", {
+        name: "Screening · Grzegorz Żebrowski",
+      }),
+    ).toBeTruthy();
+    // Bez SLA byłoby „3 dni na etapie" — z SLA wiadomo, ile zostało.
+    expect(screen.getByText(/dzień 3 z 5 SLA/)).toBeTruthy();
+    expect(screen.getByText("SLA PKO BP: 5 d")).toBeTruthy();
+  });
+
+  it("listwa stanu pokazuje ocenę i policzone odpowiedzi, zanim ktoś przewinie arkusz", async () => {
+    renderWorkbench();
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    expect(
+      await screen.findByText("0 z 1 pytania odpowiedzianych"),
+    ).toBeTruthy();
+    expect(screen.getByText(/Ogólna ocena dopasowania: —/)).toBeTruthy();
+    // Reguła deal-breakera jest wypisana, a nie schowana w wiedzy plemiennej.
+    expect(screen.getByText(/zeruje wynik screeningu Championa/)).toBeTruthy();
+  });
+
+  it("dok ma zakładki makiety i wypisuje wynik screeningu per pytanie", async () => {
+    renderWorkbench();
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    expect(screen.getByRole("tab", { name: "Stawka i decyzja" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Notatki" })).toBeTruthy();
+    // Pytanie bez odpowiedzi jest w doku oznaczone jako brak, nie pominięte.
+    expect(await screen.findByText("Wynik screeningu")).toBeTruthy();
+    expect(screen.getByText("brak")).toBeTruthy();
+  });
+
+  it("„Odrzuć z powodem” idzie tym samym modalem co decyzja z tablicy", async () => {
+    const cols = columns([item()]);
+    cols.push({
+      stage: "rejected",
+      name: "Odrzucony",
+      category: "terminal",
+      terminal_type: "rejected",
+      stage_def_id: 9,
+      count: 0,
+      items: [],
+    });
+    renderWorkbench({ columns: cols });
+    await screen.findByRole("heading", { name: /Screening · Grzegorz/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Odrzuć z powodem/ }),
+    );
+    expect(await screen.findByTestId("rejection-stub")).toBeTruthy();
+    // Odrzucenie NIE idzie ścieżką „Zweryfikowany" — to inny ruch.
+    expect(move).not.toHaveBeenCalled();
+  });
+
+  it("bez kolumny „Odrzucony” przycisk jest wyłączony z powodem, nie znika", async () => {
+    renderWorkbench();
+    const button = await screen.findByRole("button", {
+      name: /Odrzuć z powodem/,
+    });
+    expect(button).toBeDisabled();
+    expect(button.getAttribute("title")).toContain("nie ma kolumny");
   });
 
   it("gdy kopia arkusza na nowy etap padnie, ruch zostaje, a komunikat mówi, co zrobić", async () => {

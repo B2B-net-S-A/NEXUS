@@ -1,6 +1,6 @@
 import enum
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Optional
 
 import httpx
@@ -466,6 +466,79 @@ class PriorityWorkJobFilter(str, enum.Enum):
     either = "either"
 
 
+# ── Predykaty filtrów „Szybkie" (lewa kolumna listy rekrutacji) ──────────────
+#
+# Każdy z nich jest WSPÓŁDZIELONY przez ``list_jobs`` i ``jobs_quick_counts``.
+# To nie jest kosmetyka: licznik przy filtrze i lista, którą ten filtr zwraca,
+# muszą odpowiadać na DOKŁADNIE to samo pytanie.  Dwie kopie predykatu
+# rozjeżdżają się przy pierwszej poprawce jednej z nich, a objaw — „pisze 63,
+# pokazuje 41" — jest cichy: obie liczby są poprawne, tylko liczą co innego.
+
+
+def jobs_register_base_clause():
+    """Wspólna podstawa rejestru: nigdy nie pokazuj rekrutacji bez klienta.
+
+    Od migracji 0120 (2026-05-27) baza ma na tej kolumnie NOT NULL — filtr
+    zostaje jako defense-in-depth, gdyby ktoś kiedyś ograniczenie zdjął.
+    """
+    return Job.client_id.is_not(None)
+
+
+def jobs_mine_clause(current_user: User):
+    """„Moje projekty" — właściciel operacyjny ALBO współpracownik."""
+    collab_subq = select(JobCollaborator.job_id).where(
+        JobCollaborator.user_id == current_user.id
+    )
+    return or_(
+        operational_owner_clause(Job.recruiter_id, current_user),
+        Job.id.in_(collab_subq),
+    )
+
+
+def jobs_open_only_clause():
+    """„Niezamknięte" — wszystko poza ``closed``; Draft też się liczy."""
+    return Job.status != JobStatus.closed
+
+
+def jobs_needs_sourcing_clause(value: bool = True):
+    """„Potrzebny search" — flaga postawiona przez Delivery Leada."""
+    return Job.needs_sourcing.is_(value)
+
+
+def jobs_active_in_search_clause(value: bool = True):
+    """„Aktywni w searchu" — rekrutacja ma czynnego współpracownika."""
+    active_collab_subq = select(JobCollaborator.job_id).where(
+        JobCollaborator.removed_from_auto_cc.is_(False)
+    )
+    if value:
+        return Job.id.in_(active_collab_subq)
+    return Job.id.not_in(active_collab_subq)
+
+
+def jobs_owner_missing_clause(value: bool = True):
+    """„Brak ownera requestu" — LUSTRO warunku, który liczyła przeglądarka.
+
+    Kolumną jest ``tac_id``, nie ``recruiter_id``: „owner requestu" to TAC,
+    który request przyjął, a ``recruiter_id`` niesie właściciela prowadzącego
+    i wychodzi w odpowiedzi jako ``primary_owner``.  Do 09.2026 ten filtr żył
+    WYŁĄCZNIE w przeglądarce (``lib/jobs-quick-filters.ts``), bo lista nie
+    miała czego zapytać — zawężał więc już wczytaną stronę, nie bazę.
+    """
+    return Job.tac_id.is_(None) if value else Job.tac_id.is_not(None)
+
+
+def jobs_deadline_clauses(
+    deadline_from: Optional[date], deadline_to: Optional[date]
+) -> list:
+    """Granice okna terminu — każda niezależnie, obie opcjonalne."""
+    clauses = []
+    if deadline_from is not None:
+        clauses.append(Job.deadline >= deadline_from)
+    if deadline_to is not None:
+        clauses.append(Job.deadline <= deadline_to)
+    return clauses
+
+
 @router.get("")
 async def list_jobs(
     current_user: CurrentUser,
@@ -555,6 +628,15 @@ async def list_jobs(
             "True → only jobs with a deadline set. False → only jobs with no deadline."
         ),
     ),
+    owner_missing: Optional[bool] = Query(
+        None,
+        description=(
+            "'Brak ownera requestu' — True → only jobs with no TAC owner "
+            "(`tac_id IS NULL`). False → only jobs that have one. Mirrors the "
+            "badge shown on every row; before this param the filter could only "
+            "narrow the already-loaded page in the browser."
+        ),
+    ),
     mine: bool = Query(
         False,
         description=(
@@ -626,11 +708,11 @@ async def list_jobs(
     # Defense-in-depth: nigdy nie zwracaj jobs z NULL client_id na liście.
     # Od migracji 0120 (2026-05-27) DB ma NOT NULL constraint — ten filtr
     # chroni przed regresją gdyby ktoś kiedyś constraint zdjął.
-    query = query.where(Job.client_id.is_not(None))
+    query = query.where(jobs_register_base_clause())
     if status:
         query = query.where(Job.status.in_(status))
     if open_only:
-        query = query.where(Job.status != JobStatus.closed)
+        query = query.where(jobs_open_only_clause())
     if recruitment_type:
         query = query.where(Job.recruitment_type == recruitment_type)
     if client_id:
@@ -649,19 +731,13 @@ async def list_jobs(
     if competence_category_id:
         query = query.where(Job.competence_category_id.in_(competence_category_id))
     if needs_sourcing is not None:
-        query = query.where(Job.needs_sourcing.is_(needs_sourcing))
+        query = query.where(jobs_needs_sourcing_clause(needs_sourcing))
     if active_in_search is not None:
-        active_collab_subq = select(JobCollaborator.job_id).where(
-            JobCollaborator.removed_from_auto_cc.is_(False)
-        )
-        if active_in_search:
-            query = query.where(Job.id.in_(active_collab_subq))
-        else:
-            query = query.where(Job.id.not_in(active_collab_subq))
-    if deadline_from is not None:
-        query = query.where(Job.deadline >= deadline_from)
-    if deadline_to is not None:
-        query = query.where(Job.deadline <= deadline_to)
+        query = query.where(jobs_active_in_search_clause(active_in_search))
+    if owner_missing is not None:
+        query = query.where(jobs_owner_missing_clause(owner_missing))
+    for deadline_clause in jobs_deadline_clauses(deadline_from, deadline_to):
+        query = query.where(deadline_clause)
     if has_deadline is not None:
         if has_deadline:
             query = query.where(Job.deadline.is_not(None))
@@ -670,15 +746,7 @@ async def list_jobs(
     if delivery_lead_id is not None:
         query = query.where(Job.delivery_lead_id == delivery_lead_id)
     if mine:
-        collab_subq = select(JobCollaborator.job_id).where(
-            JobCollaborator.user_id == current_user.id
-        )
-        query = query.where(
-            or_(
-                operational_owner_clause(Job.recruiter_id, current_user),
-                Job.id.in_(collab_subq),
-            )
-        )
+        query = query.where(jobs_mine_clause(current_user))
     if priority_work == PriorityWorkJobFilter.assigned:
         query = query.where(Job.id.in_(priority_assignment_job_ids))
     elif priority_work == PriorityWorkJobFilter.carry_over:
@@ -890,6 +958,82 @@ async def list_jobs(
         items.append(d)
 
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+# Trasa MUSI stać przed ``GET /{job_id}`` — FastAPI dopasowuje w kolejności
+# deklaracji, więc zarejestrowana później „quick-counts" wpadłaby w parametr
+# ścieżki i skończyła się 422 (ten sam powód, dla którego „/train-names" też
+# stoi wyżej).
+@router.get("/quick-counts")
+async def jobs_quick_counts(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    deadline_from: Optional[date] = Query(
+        None,
+        description=(
+            "Lower bound of the 'Deadline ≤ 7 dni' window. Defaults to today. "
+            "The list view sends the window IT uses, so the counter can never "
+            "disagree with the rows the same filter returns."
+        ),
+    ),
+    deadline_to: Optional[date] = Query(
+        None,
+        description=(
+            "Upper bound of the 'Deadline ≤ 7 dni' window. Defaults to today + 7 days."
+        ),
+    ),
+):
+    """Liczniki sześciu filtrów „Szybkie" — GLOBALNE, nie „z tej strony".
+
+    Do 09.2026 lista potrafiła podać tylko jedną z tych liczb i tylko dla już
+    wczytanej strony wyników (``lib/jobs-quick-filters.ts``).  „63" przy filtrze
+    znaczyło wtedy „63 na dwudziestu widocznych wierszach", a nie „63 w bazie" —
+    czyli liczbę, której nikt nie potrafił zinterpretować.
+
+    Każdy licznik używa **tego samego predykatu**, co odpowiadający mu filtr
+    w ``list_jobs`` (funkcje ``jobs_*_clause`` wyżej), więc kliknięcie filtra nie
+    może dać innej liczby wierszy niż ta wypisana obok jego nazwy.
+
+    Zakres widoczności jest ten sam co rejestru: świadomie ogólnofirmowy (patrz
+    komentarz przy zapytaniu w ``list_jobs``).  Liczniki NIE są zawężane
+    pozostałymi aktywnymi filtrami — opisują całą bazę, tak jak w makiecie.
+
+    Wszystko idzie JEDNYM zapytaniem (``count(*) FILTER (WHERE …)``), a nie
+    sześcioma — sześć osobnych rund po bazie przy każdej zmianie filtra jest
+    dokładnie tym kosztem, przez który tych liczników wcześniej nie było.
+    """
+    today = date.today()
+    window_from = deadline_from if deadline_from is not None else today
+    window_to = deadline_to if deadline_to is not None else today + timedelta(days=7)
+    deadline_clauses = jobs_deadline_clauses(window_from, window_to)
+
+    row = (
+        await db.execute(
+            select(
+                func.count().filter(jobs_mine_clause(current_user)).label("mine"),
+                func.count().filter(jobs_open_only_clause()).label("open"),
+                func.count()
+                .filter(jobs_needs_sourcing_clause())
+                .label("needs_sourcing"),
+                func.count()
+                .filter(jobs_active_in_search_clause())
+                .label("active_in_search"),
+                func.count().filter(jobs_owner_missing_clause()).label("owner_missing"),
+                func.count().filter(and_(*deadline_clauses)).label("deadline_7d"),
+            )
+            .select_from(Job)
+            .where(jobs_register_base_clause())
+        )
+    ).one()
+
+    return {
+        "mine": row.mine,
+        "open": row.open,
+        "needs_sourcing": row.needs_sourcing,
+        "active_in_search": row.active_in_search,
+        "owner_missing": row.owner_missing,
+        "deadline_7d": row.deadline_7d,
+    }
 
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)

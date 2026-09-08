@@ -7,7 +7,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
-import { CHAMPION_SECTIONS } from "@/lib/champion-section-state";
+import {
+  CHAMPION_SECTION_STATE_LABEL,
+  CHAMPION_SECTIONS,
+} from "@/lib/champion-section-state";
 
 const getMock = vi.fn();
 
@@ -76,7 +79,7 @@ describe("ChampionSectionNav — stan sekcji", () => {
     }
   });
 
-  it("profil wypełniony ze znacznikiem AI — kropka sekcji 'basics' ma tytuł „Z AI”", async () => {
+  it("profil wypełniony ze znacznikiem AI — kropka sekcji 'basics' ma tytuł „wypełnione”", async () => {
     getMock.mockResolvedValue({
       data: {
         job_id: 501,
@@ -89,11 +92,36 @@ describe("ChampionSectionNav — stan sekcji", () => {
     renderNav();
     const basicsLabel = CHAMPION_SECTIONS.find((s) => s.id === "basics")!.label;
     await waitFor(() => {
-      // Dostępna nazwa = etykieta + stan dla czytnika ekranu („…, Wypełniona").
+      // Dostępna nazwa = etykieta + stan dla czytnika ekranu („…, wypełnione").
       const link = screen.getByRole("link", { name: (n: string) => n.startsWith(basicsLabel) });
       const dot = link.querySelector("span[title]");
       // Pochodzenie „z AI" nie jest stanem sekcji (znacznik całoprofilowy).
-      expect(dot).toHaveAttribute("title", "Wypełniona");
+      expect(dot).toHaveAttribute("title", CHAMPION_SECTION_STATE_LABEL.filled);
     });
+  });
+});
+
+describe("ChampionSectionNav — kolejność kroku 02", () => {
+  it("stack (3) stoi ZARAZ po podstawach (1), przed prozą (2 · 4 · 5) i klientem (6)", () => {
+    getMock.mockReturnValue(new Promise(() => {}));
+    renderNav();
+    const order = screen
+      .getAllByRole("link")
+      .map((link) => link.textContent ?? "");
+    expect(order[0]).toContain("Podstawowe informacje");
+    expect(order[1]).toContain("Stack technologiczny");
+    expect(order[2]).toContain("Co wpisać (search)");
+    expect(order[5]).toContain("O kliencie");
+  });
+
+  it("numery w etykietach zostają szablonowe — wiążą ekran ze wzorem Word", () => {
+    getMock.mockReturnValue(new Promise(() => {}));
+    renderNav();
+    const order = screen
+      .getAllByRole("link")
+      .map((link) => link.textContent ?? "");
+    // Drugi wpis na liście nosi numer 3, nie 2 — kolejność jest robocza,
+    // numeracja szablonowa.
+    expect(order[1].startsWith("3 · ")).toBe(true);
   });
 });

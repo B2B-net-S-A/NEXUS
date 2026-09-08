@@ -1892,6 +1892,21 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   - **Marża na godzinę wyklucza ryczałt z LICZNIKA i MIANOWNIKA naraz.**
     Kwota miesięczna nie niesie godzin, a podstawienie 160 zamieniłoby
     wskaźnik w marżę podzieloną przez wymyśloną stałą.
+  - **EWIDENCJA KONTRAKTÓW JEST MŁODSZA NIŻ FIRMA — i bez tego tabela kłamie.**
+    Zmierzone na produkcji 08.09.2026: styczeń 2024 → **17** wycenionych
+    kontraktów, sierpień 2026 → **452**, przy realnej liczbie ~320 konsultantów
+    w 2024 (dane DynaReportera). Placementy przyszły z importu Traffita
+    i sięgają lat wstecz; kontrakty zaczęły powstawać w NEXUSIE później i nie
+    zostały uzupełnione wstecz. Pierwsze wydanie pokazywało to jako **+935%
+    wzrostu przychodu** — liczbę arytmetycznie poprawną i semantycznie
+    fałszywą. Dlatego każda metryka niesie `basis` (`contracts` | `pipeline`),
+    odpowiedź niesie `coverage.contracts_by_year`, a widok stawia ostrzeżenie
+    PRZY grupach liczonych z kontraktów. **Nie usuwaj tego ostrzeżenia „bo
+    brzydkie" — usuń je dopiero, gdy historia kontraktów zostanie uzupełniona
+    wstecz.** Ostrzeżenie stoi przy grupach, a nie jednym banerem na górze:
+    Dywersyfikacja i hit ratio liczą się z pipeline'u i są porównywalne, więc
+    baner zbiorczy podważałby także je, a ostrzeżenie podważające wszystko
+    uczy ignorować ostrzeżenia.
   - **Poza zakresem świadomie: „Zysk" (marża − pozostałe koszty)** — NEXUS nie
     zna „pozostałych kosztów", a w DynaReporterze ta tabela była pusta we
     wszystkich 36 miesiącach. Tabela rok-do-roku NIE wchodzi też do eksportu
