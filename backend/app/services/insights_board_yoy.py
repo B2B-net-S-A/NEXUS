@@ -260,7 +260,7 @@ def _departures_by_month(contracts) -> tuple:
     return departures, resignations, unspecified
 
 
-def _contract_coverage(priced_by_month: dict, years: list) -> dict:
+def _contract_coverage(priced_by_month: dict, years: list, metrics: list) -> dict:
     """Ile kontraktów stoi za kwotami każdego roku — i czy da się je porównać.
 
     **To jest najważniejsza rzecz na tej powierzchni, a nie jej ozdoba.**
@@ -283,6 +283,13 @@ def _contract_coverage(priced_by_month: dict, years: list) -> dict:
     za rzadko: fałszywy alarm każe spojrzeć na podstawę, przeoczenie każe
     uwierzyć w nieistniejący wzrost.
     """
+    # Lista metryk WOLNYCH od problemu wyprowadzana jest z `basis`, a nie
+    # pisana ręcznie w zdaniu. Pierwsza wersja wymieniała tam „zejścia" —
+    # a te liczą się z zakończonych kontraktów, czyli z tej samej rzadkiej
+    # ewidencji. Ostrzeżenie pojawiało się nad grupą HR WŁAŚNIE przez nie
+    # i w tym samym zdaniu twierdziło, że są w porządku. Komunikat, który
+    # zaprzecza własnej przyczynie, jest gorszy niż jego brak.
+    exempt = [m["label"] for m in metrics if m.get("basis") == "pipeline"]
     per_year: dict = {}
     for year in years:
         values = [v for v in priced_by_month[str(year)] if v is not None]
@@ -295,12 +302,21 @@ def _contract_coverage(priced_by_month: dict, years: list) -> dict:
         if newest and oldest / newest < CONTRACT_COVERAGE_WARN_RATIO:
             comparable = False
             message = (
-                f"Kwoty i liczba konsultantów liczą się z kontraktów zapisanych "
-                f"w NEXUSIE, a ta ewidencja jest młodsza niż firma: w {known[0][0]} "
+                # „Metryki liczone z kontraktów", a nie ręczna lista („kwoty
+                # i liczba konsultantów") — ta pomijała zejścia i rezygnacje,
+                # które też stąd pochodzą, i przy dołożeniu kolejnej metryki
+                # rozjechałaby się ponownie.
+                f"Metryki liczone z kontraktów zapisanych w NEXUSIE opierają "
+                f"się na ewidencji młodszej niż firma: w {known[0][0]} "
                 f"stoi za nimi średnio {oldest:g} kontraktów, w {known[-1][0]} — "
                 f"{newest:g}. Różnica między latami opisuje więc głównie "
-                f"rozrastanie się ewidencji, a nie wynik. Placementy, zejścia "
-                f"i hit ratio idą z historii pipeline'u i tego problemu NIE mają."
+                f"rozrastanie się ewidencji, a nie wynik. "
+                + (
+                    f"Bez tego problemu liczą się: {', '.join(exempt)} — "
+                    "idą z historii pipeline'u, która sięga wstecz."
+                    if exempt
+                    else ""
+                )
             )
     return {
         "contracts_by_year": per_year,
@@ -443,8 +459,6 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         priced_by_month[y][idx] = fold.priced_contracts
         series["margin_per_hour_pln"][y][idx] = margin_per_hour(fold)
 
-    coverage = _contract_coverage(priced_by_month, years)
-
     metrics = [
         _metric(
             "revenue_monthly_pln",
@@ -544,6 +558,9 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             basis="pipeline",
         ),
     ]
+
+    # PO zbudowaniu metryk: komunikat cytuje ich etykiety, więc musi je znać.
+    coverage = _contract_coverage(priced_by_month, years, metrics)
 
     degraded: Optional[dict] = None
     reasons: list = []
