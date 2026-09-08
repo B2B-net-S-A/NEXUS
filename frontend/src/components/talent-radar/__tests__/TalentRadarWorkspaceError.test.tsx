@@ -31,6 +31,9 @@ vi.mock("next/link", () => ({
 
 vi.mock("@/lib/talent-radar-api", () => ({
   talentRadarApi: {
+    interpret: async (body: { must_skills?: string[]; nice_skills?: string[] }) => ({
+      must: body.must_skills ?? ["Python"], nice: body.nice_skills ?? [], excluded: ["Java"], uncertain: [],
+    }),
     search: (...args: unknown[]) => mocks.search(...args),
     parseChampion: (...args: unknown[]) => mocks.parseChampion(...args),
   },
@@ -85,7 +88,10 @@ async function searchOnce() {
   );
   await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
   await user.type(screen.getByLabelText("Treść requestu"), QUERY_TEXT);
-  await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
+  if (screen.queryByRole("button", { name: /Sprawdź wymagania/ })) {
+      await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
+    }
+    await user.click(await screen.findByRole("button", { name: /Szukaj kandydatów/ }));
   return user;
 }
 

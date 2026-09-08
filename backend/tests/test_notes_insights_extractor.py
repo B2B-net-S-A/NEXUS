@@ -82,15 +82,8 @@ def test_human_rate_is_never_overwritten():
 
 
 def test_our_own_rate_updates_from_newer_note():
-    cand = _cand(
-        expected_rate_hourly=Decimal("120"),
-        cv_extracted_data={
-            "_notes_insights": {
-                "_rate_from_notes": True,
-                "expected_rate": {"value": 120, "period": "h"},
-            }
-        },
-    )
+    cand = _cand()
+    _apply(cand, {"expected_rate": {"value": 120, "currency": "PLN", "period": "h"}})
     stats = _apply(
         cand,
         {"expected_rate": {"value": 140, "currency": "PLN", "period": "h"}},
@@ -99,9 +92,8 @@ def test_our_own_rate_updates_from_newer_note():
     assert stats["rate_updated"] == 1
 
 
-def test_rate_equal_to_prior_extraction_counts_as_ours_without_marker():
-    # Import 08.2026 nie stemplował _rate_from_notes — równość kolumny
-    # z poprzednią ekstrakcją identyfikuje nasz wpis.
+def test_legacy_amount_equality_does_not_prove_ai_ownership():
+    # Legacy equality is ambiguous: a recruiter may have confirmed that amount.
     cand = _cand(
         expected_rate_hourly=Decimal("95"),
         cv_extracted_data={
@@ -109,7 +101,7 @@ def test_rate_equal_to_prior_extraction_counts_as_ours_without_marker():
         },
     )
     _apply(cand, {"expected_rate": {"value": 110, "period": "h"}})
-    assert cand.expected_rate_hourly == Decimal("110")
+    assert cand.expected_rate_hourly == Decimal("95")
 
 
 def test_manual_skills_lock_respected():
@@ -280,7 +272,7 @@ def test_malformed_rate_strings_never_raise():
 
     # Numeryczny string przechodzi (import 08.2026 zapisywał verbatim).
     cand2 = _cand()
-    _apply(cand2, {"expected_rate": {"value": "150", "period": "h"}})
+    _apply(cand2, {"expected_rate": {"value": "150", "currency": "PLN", "period": "h"}})
     assert cand2.expected_rate_hourly == Decimal("150.0")
 
     # Zepsuty prior nie wywraca ścieżki "czy to nasz wpis".

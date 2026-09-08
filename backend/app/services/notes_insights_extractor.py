@@ -290,7 +290,7 @@ def apply_insights(
     *,
     fingerprint: str,
     now_iso: Optional[str] = None,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Zastosuj wynik ekstrakcji do kandydata (mutuje obiekt ORM, bez commitu).
 
     Zwraca statystyki zmian; ``changed`` > 0 oznacza, że wołający powinien
@@ -330,7 +330,10 @@ def apply_insights(
 
     # ── skills: APPEND z dedupem, szanuj ręczną blokadę ────────────────────
     evidenced = parsed.get("skills_evidenced") or []
-    if evidenced and extracted.get("_manual_override_skills"):
+    if evidenced and (
+        extracted.get("_manual_override_skills")
+        or getattr(candidate, "skills_manually_curated", False)
+    ):
         stats["locked_skills"] = 1
     elif evidenced:
         names = [
@@ -365,35 +368,48 @@ def apply_insights(
         if isinstance(parsed.get("expected_rate"), dict)
         else {}
     )
+    from app.services.candidate_profile_rate import write_profile_rate
+
     value = _safe_rate_value(rate.get("value"))
-    if value is not None and rate.get("period") == "h" and 0 < value < 2000:
-        new_rate = Decimal(str(value))
-        if candidate.expected_rate_hourly is None:
-            candidate.expected_rate_hourly = new_rate
-            if not candidate.expected_rate_currency:
-                candidate.expected_rate_currency = (rate.get("currency") or "PLN")[:3]
-            insights["_rate_from_notes"] = True
-            stats["rate_written"] = 1
-            changed = True
-        else:
-            # Overwrite dozwolony wyłącznie dla wartości, którą sami wpisaliśmy
-            # z notatek (marker albo równość z poprzednią ekstrakcją) — świeższa
-            # notatka aktualizuje nasz własny wpis, nigdy ludzki.
-            prior_rate = prior.get("expected_rate")
-            prior_value = _safe_rate_value(
-                prior_rate.get("value") if isinstance(prior_rate, dict) else None
-            )
-            ours = bool(prior.get("_rate_from_notes")) or (
-                prior_value is not None
-                and candidate.expected_rate_hourly == Decimal(str(prior_value))
-            )
-            if ours and candidate.expected_rate_hourly != new_rate:
-                candidate.expected_rate_hourly = new_rate
-                insights["_rate_from_notes"] = True
-                stats["rate_updated"] = 1
+    currency = str(rate.get("currency") or "").strip().upper()
+    prior_write = prior.get("_rate_written")
+    version = getattr(candidate, "profile_rate_version", 0) or 0
+    # Legacy boolean markers or coincidentally equal amounts prove no ownership.
+    ours = isinstance(prior_write, dict) and prior_write == {
+        "amount": str(candidate.expected_rate_hourly),
+        "currency": candidate.expected_rate_currency,
+        "version": version,
+    }
+    if ours:
+        insights["_rate_from_notes"] = True
+        insights["_rate_written"] = prior_write
+    if value is not None:
+        if currency != "PLN" or rate.get("period") != "h":
+            # Retain the raw pair in insights for review; never relabel foreign
+            # currency or infer an absent currency as canonical PLN/hour.
+            insights["_rate_requires_verification"] = True
+        elif (
+            0 < value < 2000
+            and not extracted.get("_manual_override_rate")
+            and (candidate.expected_rate_hourly is None or ours)
+        ):
+            new_rate = Decimal(str(value)).quantize(Decimal("0.01"))
+            if (
+                candidate.expected_rate_hourly != new_rate
+                or candidate.expected_rate_currency != "PLN"
+            ):
+                was_empty = candidate.expected_rate_hourly is None
+                stats["rate_audit"] = write_profile_rate(
+                    candidate, new_rate, source="notes_ai"
+                )
+                stats["rate_written" if was_empty else "rate_updated"] = 1
                 changed = True
-            elif ours:
-                insights["_rate_from_notes"] = True
+            insights["_rate_from_notes"] = True
+            insights["_rate_written"] = {
+                "amount": str(candidate.expected_rate_hourly),
+                "currency": candidate.expected_rate_currency,
+                "version": candidate.profile_rate_version,
+            }
 
     # ── dostępność → kolumny (FILL_EMPTY) ──────────────────────────────────
     availability = parsed.get("availability")

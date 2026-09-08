@@ -205,7 +205,14 @@ def _record_health(started: float, *, failed: bool) -> None:
         pass
 
 
-def _record_tokens(message: Any) -> None:
+def _record_tokens(
+    message: Any,
+    *,
+    model: str = "unknown",
+    latency_ms: int = 0,
+    inference_geo: str = "global",
+    standard_pricing: bool = True,
+) -> None:
     """Dolicz tokeny udanego wywołania do zadeklarowanej operacji (nigdy nie rzuca).
 
     Granica dostawcy jest jedynym miejscem, które WIDZI `message.usage` dla
@@ -214,17 +221,30 @@ def _record_tokens(message: Any) -> None:
     w czterech serwisach i do nikąd w pozostałych).
     """
     try:
-        from app.services.ai_quota import record_token_usage
+        from app.services.ai_quota import record_token_usage, current_ai_call
+        from app.services.ai_metering import response_event, persist_response
 
         usage = getattr(message, "usage", None)
-        if usage is None:
-            return
         record_token_usage(
             input_tokens=getattr(usage, "input_tokens", None),
             output_tokens=getattr(usage, "output_tokens", None),
         )
+        context = current_ai_call()
+        if context is not None and context.state and context.state.operation_id:
+            event = response_event(
+                context.state.operation_id,
+                message,
+                model=model,
+                latency_ms=latency_ms,
+                inference_geo=inference_geo,
+                standard_pricing=standard_pricing,
+            )
+            if not persist_response(event):
+                context.pending_responses.append(event)
     except Exception:  # noqa: BLE001 — telemetria nie może wywrócić wywołania
-        pass
+        logger.error(
+            "ai-metering: could not prepare provider usage event", exc_info=True
+        )
 
 
 def _assert_declared(model: str) -> None:
@@ -293,6 +313,7 @@ def _call_one_model(
     last_retryable = False
 
     for attempt in range(retries + 1):
+        attempt_started = time.monotonic()
         try:
             message = client.messages.create(
                 model=model,
@@ -305,7 +326,13 @@ def _call_one_model(
             # na zdrowym Claude, a pominięcie tokenów zaniżałoby rachunek
             # dokładnie tam, gdzie zużyto ich najwięcej.
             _record_health(started, failed=False)
-            _record_tokens(message)
+            _record_tokens(
+                message,
+                model=model,
+                latency_ms=int((time.monotonic() - attempt_started) * 1000),
+                inference_geo=kwargs.get("inference_geo", "global"),
+                standard_pricing=not kwargs.get("speed") and not kwargs.get("tools"),
+            )
 
             if getattr(message, "stop_reason", None) == "max_tokens":
                 # Logujemy ZAWSZE, rzucamy tylko na życzenie. Trzy ścieżki

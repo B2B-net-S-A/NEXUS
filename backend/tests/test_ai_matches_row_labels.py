@@ -121,13 +121,16 @@ class TestRequiredSkillsSource:
         job = _job(
             must_skills=None,
             champion_profile={"role_name": "Senior Backend"},
-            requirements="Szukamy osoby ze znajomością Kubernetes.",
+            requirements="Wymagana znajomość Kubernetes.",
         )
         skills, source = _required_skills_with_source(job)
         assert skills == ["kubernetes"]
         assert source == "champion_narrative"
 
     def test_requirements_text_is_the_last_resort(self) -> None:
+        from app.services import scoring_service as ss
+
+        ss.set_alias_map({"java": "java", "spring boot": "spring boot"})
         job = _job(
             must_skills=None,
             champion_profile=None,
@@ -377,7 +380,9 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     assert ok_row["office_fit"] == "ok"
     assert ok_row["missing_must"] == []
     warn_row = _match(body_fallback, warn_id)
-    assert warn_row is not None, "warn musi zostać wierszem, żeby dało się zobaczyć etykiety"
+    assert warn_row is not None, (
+        "warn musi zostać wierszem, żeby dało się zobaczyć etykiety"
+    )
     assert warn_row["rate_fit"] == "over_budget"
     assert warn_row["office_fit"] == "days_exceeded"
     assert warn_row["missing_must"] == ["python"]

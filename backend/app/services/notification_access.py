@@ -37,6 +37,10 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
     }
 )
 
+ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
+    {NotificationType.ai_spend_alert}
+)
+
 # Context-sensitive types are handled separately below.  Every other enum
 # value must appear here or in ``ALWAYS_VISIBLE_NOTIFICATION_TYPES``.
 NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
@@ -149,6 +153,8 @@ def user_can_receive_notification(
         return False
     if user.has_role(UserRole.admin):
         return True
+    if notification_type in ADMIN_ONLY_NOTIFICATION_TYPES:
+        return False
     if notification_type in ALWAYS_VISIBLE_NOTIFICATION_TYPES:
         return True
 
@@ -379,6 +385,7 @@ def unmapped_notification_types() -> frozenset[NotificationType]:
 
     return frozenset(NotificationType) - (
         ALWAYS_VISIBLE_NOTIFICATION_TYPES
+        | ADMIN_ONLY_NOTIFICATION_TYPES
         | frozenset(NOTIFICATION_SECTION_BY_TYPE)
         | CONTEXTUAL_NOTIFICATION_TYPES
     )

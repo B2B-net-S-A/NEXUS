@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -76,3 +77,32 @@ def conflicting_profile_rate_currency_clause(currency_column):  # type: ignore[n
     """SQL predicate for explicit values that require manual correction."""
 
     return ~canonical_profile_rate_currency_clause(currency_column)
+
+
+def write_profile_rate(candidate: Any, amount: Decimal | None, *, source: str) -> dict:
+    """Mutate the complete PLN/hour fact and version under the caller's row lock.
+
+    All canonical writers use this primitive; the caller records the returned
+    audit payload and invalidates matching in the same transaction.
+    """
+    amount = amount.quantize(Decimal("0.01")) if amount is not None else None
+    old_version = getattr(candidate, "profile_rate_version", 0) or 0
+    details = {
+        "old_amount": str(candidate.expected_rate_hourly)
+        if candidate.expected_rate_hourly is not None
+        else None,
+        "old_currency": candidate.expected_rate_currency,
+        "new_amount": str(amount) if amount is not None else None,
+        "new_currency": "PLN" if amount is not None else None,
+        "unit": "hour",
+        "tax_basis": "net",
+        "contract_type": "b2b",
+        "old_version": old_version,
+        "new_version": old_version + 1,
+        "source": source,
+    }
+    candidate.expected_rate_hourly = amount
+    candidate.expected_rate_currency = details["new_currency"]
+    candidate.profile_rate_version = old_version + 1
+    candidate.profile_rate_updated_at = datetime.now(timezone.utc)
+    return details

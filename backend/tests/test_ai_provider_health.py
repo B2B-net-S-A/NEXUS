@@ -247,50 +247,17 @@ def test_ai_features_healthy_only_when_webhook_set_and_loop_runs():
     assert spend_alarm_status(_RUNNING, webhook_set=True) == "healthy"
 
 
-def test_ai_features_never_trips_uptime_probe_prefixes():
-    """uptime-probe.yml:258 tworzy issue dla ^(unhealthy|misconfigured|critical
-    |crashed). `ai_features` liczy się na KAŻDYM pollu, więc żaden jego stan nie
-    może zaczynać się od tych prefiksów — inaczej brak webhooka (stan O-1)
-    spamowałby issue co godzinę."""
-    from app.services.background_task_health import spend_alarm_status
+def test_ai_alarm_runs_without_slack_and_stopped_loop_is_unhealthy():
+    from app.services.background_task_health import (
+        spend_alarm_status,
+        stopped_webhook_alarms,
+    )
 
-    for cls, webhook in [
-        (_RUNNING, True),
-        (_STOPPED, True),
-        (_STOPPED, False),
-        ({}, False),
-    ]:
-        val = spend_alarm_status(cls, webhook_set=webhook)
-        assert not val.startswith(_FORBIDDEN_PREFIXES), val
-
-
-def test_ai_features_names_the_missing_webhook():
-    """Brak SLACK_WEBHOOK_URL = budżet AI bez alarmu — musi być WIDOCZNE, ale
-    nie jako awaria (to stan-do-skonfigurowania, O-1)."""
-    from app.services.background_task_health import spend_alarm_status
-
-    val = spend_alarm_status(_STOPPED, webhook_set=False)
-    assert "SLACK_WEBHOOK_URL" in val and "off" in val
-
-
-def test_ai_features_flags_loop_down_despite_webhook():
-    """Webhook ustawiony, a pętla nie biegnie — informacyjnie tu (alarm leci
-    przez background_tasks), ale stan musi być czytelny, nie `healthy`."""
-    from app.services.background_task_health import spend_alarm_status
-
-    val = spend_alarm_status(_STOPPED, webhook_set=True)
-    assert val != "healthy"
-    assert not val.startswith(_FORBIDDEN_PREFIXES), val
-
-
-def test_background_tasks_flags_stopped_alarm_only_when_webhook_set():
-    """Config-bramka: cichy alarm alarmuje (issue) TYLKO gdy webhook jest — inaczej
-    to stan O-1 i flagowanie go co godzinę byłoby fałszywym alarmem."""
-    from app.services.background_task_health import stopped_webhook_alarms
-
-    assert stopped_webhook_alarms(_STOPPED, webhook_set=True) == ["ai_spend_alerts"]
-    assert stopped_webhook_alarms(_STOPPED, webhook_set=False) == []
-    assert stopped_webhook_alarms(_RUNNING, webhook_set=True) == []
+    assert spend_alarm_status(_RUNNING, webhook_set=False).startswith("healthy")
+    for webhook in (False, True):
+        assert spend_alarm_status(_STOPPED, webhook_set=webhook).startswith("unhealthy")
+    # Only Slack-specific loops depend on webhook configuration now.
+    assert stopped_webhook_alarms(_STOPPED, webhook_set=True) == []
 
 
 def test_probe_source_uses_the_shared_classifier():

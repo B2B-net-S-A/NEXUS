@@ -121,6 +121,7 @@ export interface TalentRadarSearchRequest {
    */
   must_skills?: string[];
   nice_skills?: string[];
+  requirements_reviewed?: boolean;
 }
 
 export interface ChampionParseSummary {
@@ -146,6 +147,8 @@ export interface ChampionParseResponse {
 }
 
 export const talentRadarApi = {
+  interpret: (body: TalentRadarSearchRequest) =>
+    api.post<{ must: string[]; nice: string[]; excluded: string[]; uncertain: string[] }>("/api/talent-radar/interpret", body).then(r => r.data),
   search: (
     payload: TalentRadarSearchRequest,
   ): Promise<TalentRadarSearchResponse> =>

@@ -107,13 +107,7 @@ def test_normalize_skill_names_matches_the_parser_shape():
     assert len(tr.normalize_skill_names(["x" * 500])[0]) == 100
 
 
-def test_structured_skills_are_off_by_default_and_off_means_identical():
-    """Asercja ROLLBACKU, nie funkcji.
-
-    Bez niej „OFF" po cichu staje się „prawie OFF" — a cała wartość tej flagi
-    polega na tym, że przy OFF namespace jest bajt w bajt dzisiejszy: ten sam
-    tekst zapytania, ta sama pula, te same score'y.
-    """
+def test_explicit_skills_survive_the_legacy_flag_default():
     job = build_ephemeral_job(
         RadarQuery(
             client_id=7,
@@ -122,7 +116,8 @@ def test_structured_skills_are_off_by_default_and_off_means_identical():
             nice_skills=["Go"],
         )
     )
-    assert job.must_skills is None and job.nice_skills is None
+    assert job.must_skills == [{"name": "Python", "level": None}]
+    assert job.nice_skills == [{"name": "Go", "level": None}]
 
 
 def test_structured_skills_reach_the_job_in_the_jsonb_shape(monkeypatch):
@@ -164,7 +159,7 @@ def test_structured_skills_change_the_query_text_not_only_the_score(monkeypatch)
     monkeypatch.setattr(tr.settings, "TALENT_RADAR_STRUCTURED_SKILLS_ENABLED", True)
     on = _build_job_text(build_ephemeral_job(query))
 
-    assert "Kafka" not in off
+    assert "Kafka" in off
     assert "Kafka" in on
 
 
@@ -810,9 +805,7 @@ def test_role_words_from_the_title_do_not_become_requirements():
     )
     # Taksonomia zna „software developer" jako alias — o to właśnie chodzi:
     # bez filtra tytuł wstrzykiwałby go jako wymaganie.
-    set_alias_map(
-        {"software developer": "Software Developer", "java": "Java"}
-    )
+    set_alias_map({"software developer": "Software Developer", "java": "Java"})
     try:
         derived = {d["name"].lower() for d in _extract_skills_from_champion(job)}
     finally:
@@ -827,7 +820,9 @@ def test_radar_weight_profile_sums_to_one_hundred():
     `champion_fit` KAŻDY wynik radaru spadłby o 6,5 względem dzisiejszego —
     co wyglądałoby jak regres jakości, a byłoby błędem arytmetycznym."""
     p = tr.RADAR_PROFILE
-    total = p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    total = (
+        p.semantic + p.skills + p.salary + p.location + p.availability + p.champion_fit
+    )
     assert total == 100.0
     # Dwie warstwy, które w radarze nie mają czego oceniać.
     assert p.champion_fit == 0.0

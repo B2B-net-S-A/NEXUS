@@ -420,13 +420,13 @@ def test_explicit_stack_does_not_depend_on_the_skill_taxonomy() -> None:
         scoring_service.ALIAS_MAP.update(original)
         scoring_service._CHAMPION_ALIAS_PATTERN = None
 
-    # Nazwa spoza taksonomii przechodzi surowa — Delivery Lead wpisujący
+    # Nazwa spoza taksonomii przechodzi z normalizacją wielkości liter — DL
     # technologię, której nie znamy, opisuje realne wymaganie, nie literówkę.
-    assert found == ["Java", "WłasnyFramework"]
+    assert found == ["java", "własnyframework"]
 
 
-def test_empty_stack_falls_back_to_narrative_extraction() -> None:
-    """Profil bez sekcji 3 wraca do zgadywania z prozy — jak przed przebudową.
+def test_empty_stack_keeps_unlabelled_narrative_skills_for_review() -> None:
+    """Profil bez sekcji 3 zachowuje skille z prozy jako niejasne, nie MUST.
 
     Taksonomia jest tu ZASIANA ręcznie: w gołym teście jednostkowym `ALIAS_MAP`
     jest pusta (wypełnia ją `set_alias_map` przy starcie aplikacji), a ścieżka
@@ -453,13 +453,15 @@ def test_empty_stack_falls_back_to_narrative_extraction() -> None:
         found = {
             item["name"] for item in scoring_service._extract_skills_from_champion(job)
         }
+        interpreted = scoring_service.job_skill_requirements(job)
     finally:
         scoring_service.ALIAS_MAP.clear()
         scoring_service.ALIAS_MAP.update(original)
         scoring_service._CHAMPION_ALIAS_PATTERN = None
 
     # Z prozy starego profilu (`sourcing.keywords` = "java, kafka, spring").
-    assert found == {"Java", "Kafka"}
+    assert found == set()
+    assert set(interpreted["uncertain"]) == {"Java", "Kafka"}
 
 
 # ── kontrakt API: front dostaje NOWY kształt, zawsze ────────────────────────

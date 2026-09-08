@@ -35,6 +35,9 @@ vi.mock("next/link", () => ({
 
 vi.mock("@/lib/talent-radar-api", () => ({
   talentRadarApi: {
+    interpret: async (body: { must_skills?: string[]; nice_skills?: string[] }) => ({
+      must: body.must_skills ?? ["Python"], nice: body.nice_skills ?? [], excluded: ["Java"], uncertain: [],
+    }),
     search: (...args: unknown[]) => mocks.search(...args),
     parseChampion: (...args: unknown[]) => mocks.parseChampion(...args),
   },
@@ -138,7 +141,10 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
     await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
     await uploadProfile(user);
 
-    await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
+    if (screen.queryByRole("button", { name: /Sprawdź wymagania/ })) {
+      await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
+    }
+    await user.click(await screen.findByRole("button", { name: /Szukaj kandydatów/ }));
 
     await waitFor(() => expect(mocks.search).toHaveBeenCalled());
     expect(mocks.search.mock.calls[0][0]).toMatchObject({
@@ -160,11 +166,28 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
       screen.getByLabelText("Treść requestu"),
       "Szukamy senior python developera z FastAPI i Postgresem w projekcie.",
     );
-    await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
+    if (screen.queryByRole("button", { name: /Sprawdź wymagania/ })) {
+      await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
+    }
+    await user.click(await screen.findByRole("button", { name: /Szukaj kandydatów/ }));
 
     await waitFor(() => expect(mocks.search).toHaveBeenCalled());
     const body = mocks.search.mock.calls[0][0];
-    expect(body.must_skills).toBeUndefined();
-    expect(body.nice_skills).toBeUndefined();
+    expect(body.must_skills).toEqual(["Python"]); // new text interpretation, not the removed profile
+    expect(body.nice_skills).toEqual([]);
+    expect(body.requirements_reviewed).toBe(true);
   });
+  it("edytuje i czyści wymagania bez przywracania ich z prozy", async () => {
+    const user = renderWorkspace();
+    await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
+    await uploadProfile(user);
+    await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
+    await user.clear(await screen.findByLabelText("Obowiązkowe"));
+    await user.clear(screen.getByLabelText("Dodatkowe"));
+    await user.type(screen.getByLabelText("Dodatkowe"), "Python");
+    await user.click(screen.getByRole("button", { name: /Szukaj kandydatów/ }));
+    await waitFor(() => expect(mocks.search).toHaveBeenCalled());
+    expect(mocks.search.mock.calls[0][0]).toMatchObject({ must_skills: [], nice_skills: ["Python"], requirements_reviewed: true });
+  });
+
 });

@@ -531,6 +531,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_7d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_3d'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_deadline_1d'",
+    # AI metering 0280: optional Slack no longer disables in-app budget alerts.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'ai_spend_alert'",
     # Nowy typ dokumentu „Zamówienie" na kontrakcie (migracja
     # 0160_contract_document_type_order). Bez tej wartości upload dokumentu
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie

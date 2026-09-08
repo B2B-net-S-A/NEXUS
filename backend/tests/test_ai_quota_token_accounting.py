@@ -16,7 +16,6 @@ ma tu własny test, a nie jest założeniem w komentarzu.
 from __future__ import annotations
 
 import ast
-import os
 from pathlib import Path
 
 import pytest
@@ -262,7 +261,7 @@ async def test_persisting_tokens_never_raises_even_when_the_write_fails(monkeypa
     context = AiCallContext(
         feature=AIFeatureKey.uop_check, user_id=None, state=_state()
     )
-    context.usage.add(input_tokens=10, output_tokens=1)
+    context.pending_responses.append({"event_key": "synthetic"})
     await ai_quota._persist_token_usage(context)  # nie rzuca
 
 
@@ -287,39 +286,6 @@ async def test_zero_usage_does_not_touch_the_database(monkeypatch):
     assert opened is False
 
 
-@pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL"),
-    reason="wymaga PostgreSQL (realny wiersz ai_usage_log)",
-)
-async def test_tokens_land_on_the_usage_row():
-    """Pełna ścieżka: naliczenie → wywołanie → tokeny w tym samym wierszu."""
-    from sqlalchemy import select
-
-    from app.core.database import AsyncSessionLocal
-    from app.models.ai_feature import AIUsageLog
-    from app.services.ai_quota import ai_feature
-
-    feature = AIFeatureKey.uop_check
-
-    async def _row_tokens() -> tuple[int, int]:
-        async with AsyncSessionLocal() as session:
-            row = (
-                await session.execute(
-                    select(AIUsageLog.input_tokens, AIUsageLog.output_tokens).where(
-                        AIUsageLog.feature == feature,
-                        AIUsageLog.period_start == ai_quota._current_period_start(),
-                        AIUsageLog.user_id.is_(None),
-                    )
-                )
-            ).first()
-        return (0, 0) if row is None else (row[0], row[1])
-
-    before = await _row_tokens()
-
-    async with AsyncSessionLocal() as db:
-        async with ai_feature(db, feature):
-            await db.commit()  # wzorzec „naliczamy dopuszczenie" z handlerów
-            record_token_usage(input_tokens=777, output_tokens=111)
-
-    after = await _row_tokens()
-    assert after == (before[0] + 777, before[1] + 111)
+# PostgreSQL transaction and response-idempotency coverage lives in
+# test_ai_metering_postgres.py. The legacy test selected the first NULL actor
+# aggregate row and therefore failed to detect token fanout.

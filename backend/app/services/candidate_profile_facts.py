@@ -265,33 +265,30 @@ async def update_candidate_profile_rate(
     if candidate.profile_rate_version != expected_version:
         raise ProfileFactsVersionConflictError(candidate.profile_rate_version)
 
-    old_amount = candidate.expected_rate_hourly
-    old_currency = candidate.expected_rate_currency
-    normalized_amount = amount.quantize(Decimal("0.01")) if amount is not None else None
-    now = datetime.now(timezone.utc)
-    candidate.expected_rate_hourly = normalized_amount
-    candidate.expected_rate_currency = "PLN" if normalized_amount is not None else None
-    candidate.profile_rate_version += 1
-    candidate.profile_rate_updated_at = now
+    from app.services.candidate_profile_rate import write_profile_rate
 
+    details = write_profile_rate(candidate, amount, source="manual")
+    extracted = (
+        dict(candidate.cv_extracted_data)
+        if isinstance(candidate.cv_extracted_data, dict)
+        else {}
+    )
+    # Includes clearing the field: an explicit human deletion is also ownership.
+    extracted["_manual_override_rate"] = True
+    prior = extracted.get("_notes_insights")
+    if isinstance(prior, dict):
+        extracted["_notes_insights"] = {
+            key: value
+            for key, value in prior.items()
+            if key not in {"_rate_from_notes", "_rate_written"}
+        }
+    candidate.cv_extracted_data = extracted
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.PROFILE_RATE_CHANGED,
         user_id=actor_id,
         entity_id=candidate_id,
-        details={
-            "old_amount": str(old_amount) if old_amount is not None else None,
-            "old_currency": old_currency,
-            "new_amount": (
-                str(normalized_amount) if normalized_amount is not None else None
-            ),
-            "new_currency": "PLN" if normalized_amount is not None else None,
-            "unit": "hour",
-            "tax_basis": "net",
-            "contract_type": "b2b",
-            "old_version": expected_version,
-            "new_version": candidate.profile_rate_version,
-        },
+        details=details,
     )
     from app.services.match_score_cache import mark_stale_for_candidate
 

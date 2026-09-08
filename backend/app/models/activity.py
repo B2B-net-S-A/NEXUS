@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy import ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,15 @@ class Activity(Base, TimestampMixin):
     """
 
     __tablename__ = "activities"
+    __table_args__ = (
+        Index(
+            "ix_activities_candidate_manual_edit",
+            "entity_type",
+            "entity_id",
+            "action",
+            "external_source",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 

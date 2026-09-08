@@ -263,6 +263,7 @@ def scoring_algorithm_version() -> str:
     # samym profile_id=0, więc bez tego wpisu stary cache mieszałby dwie skale.
     # Edycje profili z BAZY zostają poza digestem — je unieważnia punktowo
     # `mark_stale_for_profile` (patrz docstring wyżej).
+    payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -744,85 +745,82 @@ def job_explicit_must_skills(job) -> list[str]:
     pustą listę zamiast `AttributeError`.
     """
     explicit = canonical_skill_names(getattr(job, "must_skills", None))
-    if explicit:
+    if explicit or getattr(job, "requirements_reviewed", False):
         return explicit
     return canonical_skill_names(_champion_stack_must_names(job))
 
 
-def _extract_skills_from_champion(job: Job) -> list[dict]:
-    """Return [{name: canonical}, ...] derived from job narrative text.
-
-    Fallback chain (first hit wins):
-      0. `champion_profile.stack.must` — wymagania PODANE WPROST (sekcja 3)
-      1. `job.champion_profile` — Traffit-style curated profile (highest signal)
-      2. `job.requirements` + `job.description` — narrative from JD itself
-
-    Used as implicit must_skills when `job.must_skills` is empty (the case for
-    ~88% of prod jobs as of 2026-05-08). Without this fallback the skills
-    layer in scoring short-circuits to max points → all candidates score the
-    same → matching is decided purely by semantic + metadata signals.
-
-    Pattern matching uses the seed taxonomy (153 canonical skills + 277
-    aliases). Word-boundary regex avoids false hits like "java" in "javascript".
-    """
-    # Tier 0: sekcja 3 „Stack technologiczny" — wymagania PODANE WPROST.
-    #
-    # Cała reszta tej funkcji zgaduje: przepuszcza prozę przez regex aliasów i
-    # bierze, co się trafi. Zgadywanie było jedynym wyjściem, dopóki Champion
-    # nie miał pola na listę technologii — i to ono kazało trzymać w profilu
-    # długie opowiadanie, bo im więcej prozy, tym więcej trafień. Gdy sekcja 3
-    # jest wypełniona, nie ma czego zgadywać, więc krótkie „O projekcie" nie
-    # kosztuje już ani jednego skilla.
-    stack_names = _champion_stack_must_names(job)
-    if stack_names:
-        return [{"name": n} for n in stack_names]
-
-    # Dopiero TERAZ wymagamy taksonomii — i ani chwili wcześniej. Tier 0 czyta
-    # listę wpisaną ręcznie, więc regex aliasów nie jest mu do niczego potrzebny;
-    # bramka postawiona nad nim kasowałaby jawnie podane wymagania wszędzie tam,
-    # gdzie `ALIAS_MAP` nie zdążył się załadować.
-    pattern = _alias_pattern()
-    if pattern is None:
-        return []
-
-    parts: list[str] = []
-
-    # Tier 1: Champion Profile narrative (when populated by recruiter).
-    # `champion_view` czyta i stary, i nowy kształt profilu.
-    parts.extend(champion_view.narrative_parts(job))
-
-    # Tier 2: JD text (when Champion not yet populated — current prod state).
+def job_skill_requirements(job) -> dict[str, list[str]]:
+    """Shared interpretation for scoring, preview and explicit hard gates."""
+    must = canonical_skill_names(getattr(job, "must_skills", None))
+    nice = canonical_skill_names(getattr(job, "nice_skills", None))
+    if getattr(job, "requirements_reviewed", False):
+        return {
+            "must": must,
+            "nice": [s for s in nice if s not in must],
+            "excluded": [],
+            "uncertain": [],
+        }
+    stack = champion_view.stack(job)
+    stack_must = canonical_skill_names(stack.get("must"))
+    stack_nice = canonical_skill_names(stack.get("nice"))
+    if must or nice or stack_must or stack_nice:
+        must = must or stack_must
+        nice = nice or stack_nice
+        return {
+            "must": must,
+            "nice": [s for s in nice if s not in must],
+            "excluded": [],
+            "uncertain": [],
+        }
+    parts = champion_view.narrative_parts(job)
     if not parts:
         cap = _skill_scan_cap(job)
         for attr in ("requirements", "description"):
-            v = getattr(job, attr, None)
-            if isinstance(v, str) and v.strip():
-                # Sufit na pole. Domyślne 4K trzyma czas regexa w ryzach przy
-                # długich ogłoszeniach, ale dla oferty EFEMERYCZNEJ radaru
-                # obcinało wklejony request tak, że wymagania stojące na końcu
-                # maila w ogóle nie istniały dla scoringu.
-                parts.append(v[:cap] if cap else v)
+            value = getattr(job, attr, None)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            value = value[:cap] if cap else value
+            # Legacy requirements fields also contain bare technology lists.
+            # Only an exact taxonomy-only list carries that implicit label;
+            # ordinary prose still needs explicit modality or human review.
+            entries = [
+                s.strip().lstrip("•-–*·").strip()
+                for s in re.split(r"[,;\n]", value)
+                if s.strip()
+            ]
+            pattern = _alias_pattern()
+            if (
+                attr == "requirements"
+                and pattern is not None
+                and entries
+                and all(pattern.fullmatch(s) for s in entries)
+            ):
+                value = "Wymagane:\n" + value
+            parts.append(value)
+    from app.services.requirement_modality import classify_requirements
 
-    # Tier 3: title only (Traffit imports often have empty desc/req but the
-    # title carries the role + tech: "Senior Angular Developer", "PKO BP:
-    # Programista Java"). Always added as a low-cost extra signal so even
-    # well-described jobs get title-extracted skills folded in.
+    result = classify_requirements("\n\n".join(parts), _alias_pattern(), ALIAS_MAP)
+    # A technology explicitly naming the role supplies a soft requirement.
+    # It still cannot become a hard dealbreaker (job_explicit_must_skills).
     title = getattr(job, "title", None)
     if isinstance(title, str) and title.strip():
-        parts.append(_strip_role_words(title))
+        title_skills = classify_requirements(
+            "Wymagane: " + _strip_role_words(title), _alias_pattern(), ALIAS_MAP
+        )["must"]
+        result["must"] = sorted(
+            set(result["must"])
+            | (set(title_skills) - set(result["excluded"]) - set(result["nice"]))
+        )
+        result["uncertain"] = [
+            s for s in result["uncertain"] if s not in result["must"]
+        ]
+    return result
 
-    text = " ".join(parts)
-    if not text.strip():
-        return []
 
-    found_canonicals: set[str] = set()
-    for match in pattern.finditer(text):
-        alias = match.group(1).lower()
-        canonical = ALIAS_MAP.get(alias)
-        if canonical:
-            found_canonicals.add(canonical)
-
-    return [{"name": c} for c in sorted(found_canonicals)]
+def _extract_skills_from_champion(job: Job) -> list[dict]:
+    """Compatibility accessor: required skills only, never nice/negated terms."""
+    return [{"name": name} for name in job_skill_requirements(job)["must"]]
 
 
 def canonical_skill_names(raw) -> List[str]:
@@ -939,28 +937,28 @@ def _skills_from_raw_cv(candidate) -> List[str]:
 
 
 def candidate_skill_names(candidate) -> set[str]:
-    """Canonical skill set for a candidate, with Traffit-aware fallbacks.
+    """Merge independent evidence; only an explicit human override is complete.
 
-    On prod ~99% of imported candidates have an EMPTY structured ``skills``
-    field — their tech lives in ``cv_extracted_data.traffit_technologie`` or only
-    in ``raw_cv_text``. Without these fallbacks the skills layer scored 0 for
-    nearly everyone, so every required skill rendered as a red ✗ gap and the
-    composite score was artificially depressed (the "Targ ocenia za surowo" bug).
-
-    Priority (first non-empty wins): structured ``skills`` + ``verified_tech``
-    → CV-extracted tech → raw CV text → tags. Fallbacks only ADD candidate
-    skills, so they can turn false gaps into matches but never invent a gap.
+    Automatic notes enrichment is additive. It must not hide imported CV skills
+    merely by making the structured column nonempty. A curated replacement,
+    including an empty one, prevents removed skills reappearing from older CVs.
     """
+    structured = canonical_skill_names(getattr(candidate, "skills", None))
+    extracted = getattr(candidate, "cv_extracted_data", None)
+    if getattr(candidate, "skills_manually_curated", False) or (
+        isinstance(extracted, dict) and extracted.get("_manual_override_skills")
+    ):
+        return set(structured)
+    cv_skills = _skills_from_cv_extracted(candidate)
+    if not cv_skills:
+        cv_skills = _skills_from_raw_cv(candidate)
     cand = set(
-        canonical_skill_names(candidate.skills)
+        structured
         + canonical_skill_names(getattr(candidate, "verified_tech", None))
+        + canonical_skill_names(cv_skills)
     )
     if not cand:
-        cand = set(canonical_skill_names(_skills_from_cv_extracted(candidate)))
-    if not cand:
-        cand = set(canonical_skill_names(_skills_from_raw_cv(candidate)))
-    if not cand and candidate.tags:
-        cand = set(canonical_skill_names(candidate.tags))
+        cand.update(canonical_skill_names(getattr(candidate, "tags", None)))
     return cand
 
 
@@ -994,26 +992,14 @@ def _score_skills(
     candidate: Candidate, job: Job, profile: WeightProfile = DEFAULT_PROFILE
 ) -> tuple[LayerResult, List[str], List[str], List[str], List[str]]:
     """Return (LayerResult, matching_must, gap_must, matching_nice, gap_nice)."""
-    must = canonical_skill_names(job.must_skills)
-    nice = canonical_skill_names(job.nice_skills)
-
-    # Champion-driven fallback: when `must_skills` is empty (the case for ~88%
-    # of prod jobs as of 2026-05-08 baseline), derive implicit must skills
-    # from the Champion Profile narrative or — failing that — the JD text
-    # itself (description + requirements). Eliminates the "skills layer
-    # short-circuits to max" pattern that flattened candidate ranking on
-    # imported jobs. See `_extract_skills_from_champion` for source priority.
-    must_source = "structured"
-    if not must:
-        derived = _extract_skills_from_champion(job)
-        if derived:
-            must = canonical_skill_names(derived)
-            must_source = (
-                "champion"
-                if isinstance(getattr(job, "champion_profile", None), dict)
-                and (job.champion_profile or {})
-                else "jd_text"
-            )
+    requirements = job_skill_requirements(job)
+    must, nice = requirements["must"], requirements["nice"]
+    must_source = (
+        "structured"
+        if getattr(job, "must_skills", None)
+        or getattr(job, "requirements_reviewed", False)
+        else ("champion" if getattr(job, "champion_profile", None) else "jd_text")
+    )
 
     # Candidate skills with Traffit-aware fallbacks (structured → CV-extracted
     # → raw CV → tags). ~99% of imported candidates have an empty `skills`

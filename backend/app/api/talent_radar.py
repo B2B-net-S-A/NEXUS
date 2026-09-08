@@ -87,6 +87,29 @@ class TalentRadarSearchRequest(BaseModel):
     # normalizatorze, nie odrzucana.
     must_skills: Optional[list[str]] = Field(default=None, max_length=50)
     nice_skills: Optional[list[str]] = Field(default=None, max_length=50)
+    requirements_reviewed: bool = False
+
+
+@router.post("/talent-radar/interpret")
+async def interpret_requirements(
+    payload: TalentRadarSearchRequest, _: CurrentUser
+) -> dict:
+    """Preview the same deterministic requirements used by the ranking."""
+    from app.services.scoring_service import job_skill_requirements
+    from app.services.talent_radar_search import build_ephemeral_job
+
+    return job_skill_requirements(
+        build_ephemeral_job(
+            RadarQuery(
+                client_id=payload.client_id,
+                text=payload.text,
+                title=payload.title,
+                champion_profile=payload.champion_profile,
+                must_skills=normalize_skill_names(payload.must_skills),
+                nice_skills=normalize_skill_names(payload.nice_skills),
+            )
+        )
+    )
 
 
 @router.post("/talent-radar/search")
@@ -126,6 +149,7 @@ async def talent_radar_search(
                 # wprost, z pominięciem parsowania profilu.
                 must_skills=normalize_skill_names(payload.must_skills),
                 nice_skills=normalize_skill_names(payload.nice_skills),
+                requirements_reviewed=payload.requirements_reviewed,
             ),
         )
     except TalentRadarError as exc:

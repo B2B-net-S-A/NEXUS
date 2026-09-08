@@ -17,12 +17,14 @@ from sqlalchemy import (
     String,
     Text,
     text,
+    select,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, column_property
 
 from app.core.database import Base
 from app.models.base import TimestampMixin
+from app.models.activity import Activity
 from app.models.linkedin_snapshot import LinkedinSyncStatus
 
 
@@ -81,6 +83,22 @@ class Candidate(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # Read-only provenance for edits predating the explicit override marker.
+    # The indexed audit lookup prevents source merging from resurrecting skills
+    # a recruiter removed before 0280. No historical candidate data is rewritten.
+    skills_manually_curated: Mapped[bool] = column_property(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "candidate",
+            Activity.entity_id == id,
+            Activity.action == "updated",
+            Activity.external_source == "manual",
+            Activity.user_id.is_not(None),
+            Activity.details.has_key("skills"),
+        )
+        .correlate_except(Activity)
+        .exists()
+    )
 
     # Dane osobowe
     name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)

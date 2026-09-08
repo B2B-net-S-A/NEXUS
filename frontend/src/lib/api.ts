@@ -5368,6 +5368,13 @@ export interface AIFeatureConfigDto {
 export interface AIFeatureUsageDto {
   feature: AIFeatureKey;
   used: number;
+  provider_calls?: number;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  estimated_cost_usd?: number | null;
+  unpriced_calls?: number;
+  legacy_usage_present?: boolean;
+  operations_without_response?: number;
   input_tokens: number;
   output_tokens: number;
   limit: number;
@@ -5376,6 +5383,7 @@ export interface AIFeatureUsageDto {
 }
 
 export interface AISettingsResponse {
+  spend_alerts?: { in_app_enabled: boolean; slack_configured: boolean; pending_deliveries: number; last_delivered_at: string | null };
   master_enabled: boolean;
   features: AIFeatureConfigDto[];
   usage: AIFeatureUsageDto[];
@@ -5387,6 +5395,7 @@ export interface AIFeatureUpdate {
 }
 
 export const aiSettingsApi = {
+  testAlert: () => api.post<{ delivered: boolean; alert_id: number }>("/api/settings/ai/alerts/test"),
   get: () => api.get<AISettingsResponse>("/api/settings/ai"),
   setMaster: (enabled: boolean) =>
     api.patch<AISettingsResponse>("/api/settings/ai/master", { enabled }),

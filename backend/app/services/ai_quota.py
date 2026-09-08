@@ -11,7 +11,7 @@ any AI-touching endpoint. Raises `AIQuotaExceeded` if blocked — the API layer
 should catch and convert to HTTP 503.
 
 Atomicity:
-- Two reads (master, feature config) + one upsert (usage row).
+- Toggle/limit reads plus an independently committed operation.
 - Race: if two requests pass the check simultaneously they both increment
   past the limit by 1. Acceptable for our scale (≤200 users) — exact
   enforcement would need SELECT … FOR UPDATE which adds latency. Quota is
@@ -26,10 +26,13 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.ai_metering import AIOperation, AIProviderCall
 
 from app.models.ai_feature import (
     AIFeatureConfig,
@@ -63,6 +66,7 @@ class QuotaState:
     used: int
     limit: int
     period_start: date
+    operation_id: str | None = None
 
     @property
     def remaining(self) -> int:
@@ -104,7 +108,7 @@ async def get_usage(
 ) -> int:
     """Sum of calls for (feature, user, period). Returns 0 if no row."""
     period = period_start or _current_period_start()
-    stmt = select(AIUsageLog.count).where(
+    stmt = select(func.coalesce(func.sum(AIUsageLog.count), 0)).where(
         AIUsageLog.feature == feature,
         AIUsageLog.period_start == period,
     )
@@ -114,8 +118,16 @@ async def get_usage(
         stmt = stmt.where(AIUsageLog.user_id.is_(None))
 
     result = await db.execute(stmt)
-    count = result.scalar_one_or_none()
-    return count or 0
+    count = result.scalar_one_or_none() or 0
+    measured = await db.scalar(
+        select(func.coalesce(func.sum(AIOperation.units), 0)).where(
+            AIOperation.feature == feature.value,
+            AIOperation.period_start == period,
+            AIOperation.actor_key
+            == (f"user:{user_id}" if user_id is not None else "system"),
+        )
+    )
+    return int(count + (measured or 0))
 
 
 async def get_total_usage_for_period(
@@ -133,7 +145,14 @@ async def get_total_usage_for_period(
             AIUsageLog.period_start == period,
         )
     )
-    return int(result.scalar() or 0)
+    legacy = int(result.scalar() or 0)
+    measured = await db.scalar(
+        select(func.coalesce(func.sum(AIOperation.units), 0)).where(
+            AIOperation.feature == feature.value,
+            AIOperation.period_start == period,
+        )
+    )
+    return legacy + int(measured or 0)
 
 
 async def get_usage_summary_for_period(
@@ -163,9 +182,26 @@ async def get_usage_summary_for_period(
         .where(AIUsageLog.period_start == period)
         .group_by(cast(AIUsageLog.feature, Text))
     )
+    counts = {str(feat): int(count or 0) for feat, count, _tin, _tout in result.all()}
+    operations = await db.execute(
+        select(AIOperation.feature, func.sum(AIOperation.units))
+        .where(AIOperation.period_start == period)
+        .group_by(AIOperation.feature)
+    )
+    for feature, count in operations.all():
+        counts[feature] = counts.get(feature, 0) + int(count)
+    from app.services.ai_metering import measured_usage
+
+    measured = await measured_usage(db, period)
+    # Historical token aggregates are untrustworthy. Keep them in storage for
+    # reconciliation, but never blend them into the new measured totals.
     return {
-        str(feat): (int(count or 0), int(tin or 0), int(tout or 0))
-        for feat, count, tin, tout in result.all()
+        feature: (
+            count,
+            int(measured.get(feature, {}).get("input_tokens") or 0),
+            int(measured.get(feature, {}).get("output_tokens") or 0),
+        )
+        for feature, count in counts.items()
     }
 
 
@@ -179,8 +215,7 @@ async def check_and_increment(
     """Atomic-ish quota check + increment.
 
     Raises ``AIQuotaExceeded`` if blocked. Returns post-increment state on
-    success. Caller is expected to ``await db.commit()`` if the broader unit
-    of work succeeds.
+    success. Admission is durably committed independently of business work.
 
     ``units`` obsługuje operacje, które są JEDNĄ decyzją użytkownika, ale
     kilkoma wywołaniami modelu — dziś tylko lint reguł CV (jedno pole = jedno
@@ -231,31 +266,28 @@ async def check_and_increment(
             limit=limit,
         )
 
-    # 3. Upsert per-user counter for this period.
-    now = datetime.now(timezone.utc)
-    stmt = (
-        pg_insert(AIUsageLog)
-        .values(
-            feature=feature,
-            user_id=user_id,
-            period_start=period,
-            count=units,
-            last_call_at=now,
-        )
-        .on_conflict_do_update(
-            constraint="uq_ai_usage_feature_user_period",
-            set_={
-                "count": AIUsageLog.count + units,
-                "last_call_at": now,
-            },
-        )
-    )
-    await db.execute(stmt)
+    # A distinct, durable operation replaces the nullable monthly upsert.
+    # No FK to caller-owned records and no locks shared with its transaction.
+    # Business rollback must not refund an admitted provider call.
+    from app.core.database import AsyncSessionLocal
 
+    operation_id = str(uuid4())
+    async with AsyncSessionLocal() as metering_db:
+        metering_db.add(
+            AIOperation(
+                id=operation_id,
+                feature=feature.value,
+                actor_key=f"user:{user_id}" if user_id is not None else "system",
+                period_start=period,
+                units=units,
+            )
+        )
+        await metering_db.commit()
     return QuotaState(
         used=total_used + units,
         limit=limit,
         period_start=period,
+        operation_id=operation_id,
     )
 
 
@@ -325,6 +357,7 @@ class AiCallContext:
     # `frozen=True` zabrania PODMIANY atrybutu, nie mutacji obiektu, na który
     # wskazuje — więc akumulator może tu mieszkać bez odmrażania reszty.
     usage: TokenUsage = field(default_factory=TokenUsage)
+    pending_responses: list[dict] = field(default_factory=list)
 
 
 class AIQuotaUngated(RuntimeError):
@@ -348,54 +381,23 @@ def record_token_usage(
 
 
 async def _persist_token_usage(context: "AiCallContext") -> None:
-    """Dopisz zebrane tokeny do wiersza zużycia. Best-effort, WŁASNA sesja.
-
-    Osobna sesja, nie sesja wołającego — z dwóch powodów, oba zmierzone
-    w istniejącym kodzie:
-
-    1. **Wołający zwykle commituje WEWNĄTRZ bloku** i nigdy więcej (wzorzec
-       „naliczamy dopuszczenie, nie sukces round-tripu" — `cv_match_preview`,
-       `match_justification_service`, MINDY). UPDATE dopisany do jego sesji po
-       tym commicie otwierałby transakcję, której nikt nie domyka, więc tokeny
-       przepadałyby po cichu.
-    2. **Ścieżka błędu robi rollback.** Tokeny opisują wywołanie, które
-       NAPRAWDĘ poszło do dostawcy i zostało opłacone — cofnięcie ich razem
-       z nieudaną jednostką pracy zaniżałoby rachunek dokładnie w miesiącu,
-       w którym coś się psuje i retry mnoży koszt.
-
-    Nigdy nie rzuca: to telemetria doklejona do `finally`, a wyjątek stąd
-    przykryłby prawdziwy wyjątek z bloku wołającego.
-    """
-    usage = context.usage
-    if not usage.any():
+    """Retry buffered provider responses; idempotent by provider event ID."""
+    if not context.pending_responses:
         return
     try:
         from app.core.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
-            await session.execute(
-                update(AIUsageLog)
-                .where(
-                    AIUsageLog.feature == context.feature,
-                    AIUsageLog.period_start == context.state.period_start,
-                    (
-                        AIUsageLog.user_id == context.user_id
-                        if context.user_id is not None
-                        else AIUsageLog.user_id.is_(None)
-                    ),
+            for event in context.pending_responses:
+                await session.execute(
+                    pg_insert(AIProviderCall).values(**event).on_conflict_do_nothing()
                 )
-                .values(
-                    input_tokens=AIUsageLog.input_tokens + usage.input_tokens,
-                    output_tokens=AIUsageLog.output_tokens + usage.output_tokens,
-                )
-            )
             await session.commit()
-    except Exception:  # noqa: BLE001 — telemetria nie może wywrócić wywołania
-        logger.warning(
-            "[ai-quota] nie udało się zapisać tokenów dla %s (in=%s out=%s)",
-            context.feature.value,
-            usage.input_tokens,
-            usage.output_tokens,
+        context.pending_responses.clear()
+    except Exception:
+        logger.critical(
+            "ai-metering: usage remains unpersisted operation=%s",
+            context.state.operation_id,
             exc_info=True,
         )
 
@@ -408,22 +410,11 @@ async def ai_feature(
     user_id: Optional[int] = None,
     units: int = 1,
 ):
-    """Charge the quota and mark the surrounding block as a declared AI call.
+    """Admit and durably count an operation before calling the provider.
 
-    Charge-before-spend on purpose: the increment happens before the provider
-    is called, so a call that reaches the API and then fails cannot come back
-    for a free retry.
-
-    That intent only survives if the caller commits. The increment lives in the
-    caller's session, so a handler that lets the exception propagate — or wraps
-    this in `async with db.begin()` — rolls the charge back with everything
-    else, and the failed call ends up free after all. This matches the previous
-    `_gate_and_count` behaviour and is not a regression, but do not read the
-    paragraph above as a guarantee: to actually charge a failed call, the caller
-    has to commit the increment on the error path itself.
-
-    The context propagates into `run_in_threadpool` — `anyio.to_thread.run_sync`
-    copies the contextvars — so the synchronous `call_claude` sees it.
+    Quota reads use the caller's session; the operation and provider responses
+    use independent short transactions. No metering row is locked across AI.
+    The context (including its accumulator) propagates into worker threads.
     """
     # Nested declarations of the SAME feature do not charge twice. A handler
     # may declare the call and then hand off to a service that declares it
@@ -482,17 +473,21 @@ def declared_call(
     tego prymitywu polega na jej braku. Bramka stoi w handlerze i tam ma
     zostać: odmowa w tle zostawiłaby wiersz „failed" zamiast czytelnego 503.
 
-    Synchroniczny, bo nie dotyka bazy — naliczenie już się odbyło. Tokeny
-    zebrane w tle NIE są dopisywane: sesja handlera dawno zamknięta, a
-    otwieranie własnej z zadania w tle po to, żeby doliczyć telemetrię,
-    kosztowałoby więcej niż jest warte. Licznik WYWOŁAŃ jest poprawny — a alarm
-    wydatków (``ai_spend_alerts``) liczy właśnie ``count``, nie tokeny, więc
-    pominięcie telemetrii tokenów w tej ścieżce nie osłabia ochrony budżetu.
+    Provider responses are persisted at the synchronous provider boundary,
+    also for background jobs. A failed write is retried when leaving this scope.
     """
-    token = _AI_CALL_CONTEXT.set(
-        AiCallContext(feature=feature, user_id=user_id, state=state)
-    )
+    context = AiCallContext(feature=feature, user_id=user_id, state=state)
+    token = _AI_CALL_CONTEXT.set(context)
     try:
         yield
     finally:
         _AI_CALL_CONTEXT.reset(token)
+        if context.pending_responses:
+            from app.services.ai_metering import persist_response
+
+            for event in context.pending_responses:
+                if not persist_response(event):
+                    logger.critical(
+                        "ai-metering: background usage unpersisted event=%s",
+                        event["event_key"],
+                    )
