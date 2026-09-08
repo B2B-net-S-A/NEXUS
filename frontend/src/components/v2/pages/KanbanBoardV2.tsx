@@ -1075,31 +1075,54 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  * Zwinięta grupa pustych etapów — JEDNA kolumna-zastępnik zamiast trzech
  * pustych („Default B2B" ma trzynaście pustych kolumn z piętnastu).
  *
- * CELOWO nie jest `Droppable`: upuszczenie karty na zastępnik znaczyłoby ruch
- * na przypadkowy z trzech etapów, których on reprezentuje. Stoi poza listą
- * `Droppable`, więc nie ma też żadnego indeksu, który `@hello-pangea/dnd`
- * mógłby pomylić. Gdy którakolwiek kolumna grupy dostanie kartę, grupa
- * rozwija się z powrotem w pełne kolumny.
+ * Zastępnik JEST celem upuszczenia — pod `droppableId` PIERWSZEJ kolumny swojej
+ * grupy („CV Wysłane" dla etapów u klienta, „Umowa wysłana" dla umowy). Bez
+ * tego zwijanie zabierałoby najczęstszy ruch w produkcie: pierwsze CV do
+ * klienta przeciągane ze Screeningu na pusty jeszcze etap „CV Wysłane"
+ * wymagałoby wcześniejszego kliknięcia „Rozwiń etapy", czyli regresu
+ * domyślnego zachowania w zamian za porządek na ekranie.
+ *
+ * Dwie rzeczy, na których to stoi:
+ *  1. `onDragEnd` rozwiązuje cel po `droppableId` (`stageCols.find(c => colId(c)
+ *     === res.destination.droppableId)`), NIE po indeksie — więc upuszczenie tu
+ *     wpada w tę samą ścieżkę `requestMove` co każdy inny drop, z całą bramką
+ *     i modalami (stawka do klienta, weto HM, powód odrzucenia). Zero nowej
+ *     logiki ruchu.
+ *  2. Kolumna, której id pożyczamy, jest zwinięta, więc NIE jest renderowana —
+ *     `droppableId` nie dubluje się (biblioteka tego wymaga). Gdy grupa się
+ *     rozwija, zastępnik znika razem z tym id.
+ *
+ * Karta trafia zawsze na PIERWSZY etap grupy, nie na „przypadkowy" — to jest
+ * ten etap, na który i tak prowadzi kolejność szablonu.
  */
 const CollapsedGroupColumn = memo(function CollapsedGroupColumn({
  group,
  fullPipelineDesktop,
  desktopOverview,
+ readOnly,
  onExpand,
 }: {
  group: PipelineColumnGroup;
  fullPipelineDesktop: boolean;
  desktopOverview: boolean;
+ readOnly: boolean;
  onExpand: () => void;
 }) {
  const label = PIPELINE_GROUP_SHORT_LABEL[group.key];
+ // Grupa zwija się dopiero od dwóch kolumn, więc pierwsza zawsze istnieje.
+ const dropTarget = group.columns[0];
+ // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant na
+ // `isDropDisabled`. Ta sama wartość ląduje w atrybucie niżej, żeby test
+ // wiązał się z NIĄ, a nie z własną kopią flagi (DnD nie odpala się w jsdom).
+ const noDrop = Boolean(readOnly);
  return (
  <div
  data-collapsed-group={group.key}
+ data-drop-disabled={noDrop}
  role="group"
  aria-label={`${label}, grupa pustych etapów: ${group.columns
  .map((c) => columnLabel(c))
- .join(", ")}`}
+ .join(", ")}. Upuszczenie karty przenosi ją na etap ${columnLabel(dropTarget)}.`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-border bg-background/40 sm:min-w-[19rem]",
  fullPipelineDesktop && desktopOverview && "xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
@@ -1120,10 +1143,29 @@ const CollapsedGroupColumn = memo(function CollapsedGroupColumn({
  {group.columns.map((c) => columnLabel(c)).join(" · ")}
  </span>
  </div>
- <div className="flex flex-1 flex-col gap-2 p-2.5 text-[10.5px] leading-snug text-muted-foreground">
+ <Droppable droppableId={colId(dropTarget)} isDropDisabled={noDrop}>
+ {(provided, snapshot) => (
+ <div
+ ref={provided.innerRef}
+ {...provided.droppableProps}
+ className={cn(
+ "flex flex-1 flex-col gap-2 p-2.5 text-[10.5px] leading-snug text-muted-foreground transition-colors",
+ snapshot.isDraggingOver && "bg-primary/10"
+ )}
+ >
+ {snapshot.isDraggingOver ? (
+ // Ghost z makiety (linia 1110): w trakcie przeciągania zastępnik
+ // mówi WPROST, na który etap trafi karta — inaczej upuszczenie na
+ // kolumnę podpisaną nazwą grupy byłoby zgadywanką.
+ <div className="grid place-items-center rounded-lg border-[1.5px] border-dashed border-primary/45 bg-primary/5 px-2 py-3 text-center font-medium text-primary">
+ upuść tutaj → {columnLabel(dropTarget)}
+ </div>
+ ) : (
+ <>
  <p>
  {countPl(group.columns.length, "etap", "etapy", "etapów")} zwinięte,
- dopóki są puste.
+ dopóki są puste. Upuszczenie karty tutaj przenosi ją na etap
+ „{columnLabel(dropTarget)}".
  </p>
  <button
  type="button"
@@ -1132,7 +1174,12 @@ const CollapsedGroupColumn = memo(function CollapsedGroupColumn({
  >
  Rozwiń etapy
  </button>
+ </>
+ )}
+ {provided.placeholder}
  </div>
+ )}
+ </Droppable>
  </div>
  );
 });
@@ -2530,6 +2577,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  group={entry.group}
  fullPipelineDesktop={fullPipelineDesktop}
  desktopOverview={desktopOverview}
+ readOnly={readOnly}
  onExpand={() => expandGroup(entry.group.key)}
  />
  ) : (

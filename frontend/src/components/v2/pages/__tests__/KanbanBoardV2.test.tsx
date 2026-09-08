@@ -737,10 +737,73 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     // plus dwa zastępniki = 9 pozycji na tablicy.
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(7);
     expect(container.querySelectorAll("[data-collapsed-group]")).toHaveLength(2);
-    // Zastępnik NIE jest celem upuszczenia — nie ma żadnego `data-colid`.
+    // Zastępnik nie jest KOLUMNĄ (brak `data-colid`), ale JEST celem
+    // upuszczenia — patrz test niżej.
     const placeholder = container.querySelector('[data-collapsed-group="client"]');
     expect(placeholder).toBeTruthy();
     expect(placeholder?.querySelector("[data-colid]")).toBeNull();
+  });
+
+  // Bez tego zwijanie zabierałoby NAJCZĘSTSZY ruch w produkcie: pierwsze CV do
+  // klienta przeciągane ze Screeningu na pusty jeszcze etap „CV Wysłane".
+  it("zwinięta grupa JEST celem upuszczenia — pod id pierwszego swojego etapu", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    // „CV Wysłane" to szósta kolumna szablonu → stage_def_id 305.
+    const drop = container.querySelectorAll('[data-rfd-droppable-id="def:305"]');
+    expect(drop).toHaveLength(1);
+    // …i leży WEWNĄTRZ zastępnika grupy klienta.
+    expect(
+      container
+        .querySelector('[data-collapsed-group="client"]')
+        ?.querySelector('[data-rfd-droppable-id="def:305"]'),
+    ).toBeTruthy();
+    // Prawdziwa kolumna „CV Wysłane" nie jest renderowana, więc id się NIE
+    // dubluje (twardy wymóg @hello-pangea/dnd).
+    expect(container.querySelector('[data-colid="def:305"]')).toBeNull();
+
+    // Grupa umowy tak samo — pod id „Umowa wysłana" (dziesiąta kolumna).
+    expect(
+      container.querySelectorAll('[data-rfd-droppable-id="def:309"]'),
+    ).toHaveLength(1);
+  });
+
+  it("po „Rozwiń etapy” cel wraca do prawdziwej kolumny, wciąż bez duplikatu id", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    const placeholder = container.querySelector<HTMLElement>(
+      '[data-collapsed-group="client"]',
+    );
+    await userEvent.click(
+      placeholder!.querySelector("button") as HTMLButtonElement,
+    );
+
+    expect(container.querySelector('[data-colid="def:305"]')).toBeTruthy();
+    expect(
+      container.querySelectorAll('[data-rfd-droppable-id="def:305"]'),
+    ).toHaveLength(1);
+  });
+
+  it("bez prawa zapisu zastępnik nie przyjmuje upuszczenia", async () => {
+    const { container } = renderBoard(defaultB2BColumns(), undefined, true);
+    await screen.findByTestId("pipeline-board");
+
+    // Wiążemy się z TĄ SAMĄ wartością, którą dostaje `isDropDisabled` —
+    // DnD nie jest odpalalne w jsdom, więc kopia flagi nic by nie dowiodła.
+    expect(
+      container.querySelector('[data-collapsed-group="client"]'),
+    ).toHaveAttribute("data-drop-disabled", "true");
+  });
+
+  it("z prawem zapisu zastępnik jest otwarty na upuszczenie", async () => {
+    const { container } = renderBoard(defaultB2BColumns());
+    await screen.findByTestId("pipeline-board");
+
+    expect(
+      container.querySelector('[data-collapsed-group="client"]'),
+    ).toHaveAttribute("data-drop-disabled", "false");
   });
 
   it("„Rozwiń etapy” przywraca prawdziwe kolumny grupy", async () => {
