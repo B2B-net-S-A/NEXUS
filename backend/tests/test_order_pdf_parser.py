@@ -1369,11 +1369,13 @@ class TestPfronOrderPolicy:
             source="claude",
         )
         document = (
-            "Termin realizacji usług: od 01.09.2026 do 31.12.2026 "
+            "Termin wykonania Prac: od 01.09.2026 do 31.12.2026 "
             "z możliwością przedłużenia. Stawka 1230 PLN brutto."
         )
 
-        enforced = m.apply_pfron_order_policy(result, document)
+        enforced = m.apply_pfron_order_policy(
+            result, document, filename="Zlecenie nr 34.pdf"
+        )
 
         assert enforced.end_date == "2026-12-31"
         assert enforced.confidence["end_date"] == 1.0
@@ -1389,10 +1391,9 @@ class TestPfronOrderPolicy:
     @pytest.mark.parametrize(
         "document",
         [
-            "Data zakończenia realizacji usług: 31.12.2026 "
-            "(z możliwością przedłużenia)",
-            "Okres realizacji usług: 01.09.2026 – 31.12.2026; możliwość przedłużenia",
-            "Termin realizacji usług do dnia 31-12-2026, z możliwością przedłużenia",
+            "Termin wykonania Prac: 31.12.2026 (z możliwością przedłużenia)",
+            "Termin wykonania Prac: 01.09.2026 – 31.12.2026; możliwość przedłużenia",
+            "Termin wykonania Prac do dnia 31-12-2026, z możliwością przedłużenia",
         ],
     )
     def test_supported_explicit_end_date_forms(self, document):
@@ -1412,7 +1413,9 @@ class TestPfronOrderPolicy:
             "Okres opcjonalny od 01.01.2027 do 31.03.2027. Stawka 1230 PLN brutto."
         )
 
-        enforced = m.apply_pfron_order_policy(result, document)
+        enforced = m.apply_pfron_order_policy(
+            result, document, filename="Zlecenie nr 34.pdf"
+        )
 
         assert enforced.end_date is None
         assert enforced.md_total is None
@@ -1445,11 +1448,15 @@ class TestPfronOrderPolicy:
             source="claude",
         )
         document = (
-            "Termin realizacji: od 01.09.2026 do 31.12.2026. Stawka 1230 PLN brutto"
+            "Termin wykonania Prac: od 01.09.2026 do 31.12.2026. Stawka 1230 PLN brutto"
         )
 
-        once = m.apply_pfron_order_policy(result, document)
-        twice = m.apply_pfron_order_policy(once, document)
+        once = m.apply_pfron_order_policy(
+            result, document, filename="Zlecenie nr 34.pdf"
+        )
+        twice = m.apply_pfron_order_policy(
+            once, document, filename="Zlecenie nr 34.pdf"
+        )
 
         assert twice is once
         assert twice.rate_client_gross == Decimal("1230")

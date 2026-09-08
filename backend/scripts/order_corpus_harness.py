@@ -97,7 +97,7 @@ async def run_one(
         except KeyError:
             policies = []
     extraction, applied = apply_policies(
-        extraction, PolicyContext(document_text=text), policies
+        extraction, PolicyContext(document_text=text, filename=path.name), policies
     )
     # Bez modelu wiersze osób mogą pochodzić wyłącznie z deterministycznego
     # ekstraktora polityki — to jest ten sam mechanizm, którym bramka automatu
