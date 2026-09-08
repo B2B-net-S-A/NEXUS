@@ -22,9 +22,9 @@
  *    akceptacji; dok pokazuje wartość i prowadzi do tej jedynej ścieżki.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
   CheckCircle2,
@@ -32,24 +32,29 @@ import {
   ExternalLink,
   HandCoins,
   Loader2,
-  Send,
+  Sparkles,
   UserX,
   X,
 } from "lucide-react";
 
-import api, { extractErrorMsg } from "@/lib/api";
-import { useToast } from "@/components/Toast";
+import api from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TabbedNav } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
-import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
+import { formatExpectedRate } from "@/lib/pipeline-flow";
 import {
   colId,
   type KanbanColumn,
   type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
+import {
+  DockActions,
+  DockNotesPanel,
+  DockSection,
+  KvList,
+  WorkbenchDock,
+} from "@/components/v2/jobs/workbench-chrome";
 import {
   dialogUnavailableReason,
   moveDialogFor,
@@ -75,14 +80,6 @@ const OFFER_RESPONSE_LABEL: Record<string, string> = {
   accepted: "Przyjął",
   declined: "Odrzucił",
 };
-
-interface NoteListItem {
-  id: number;
-  content: string;
-  content_rendered?: string | null;
-  author_name?: string | null;
-  created_at: string;
-}
 
 /** Wiersz `GET /api/pipeline/history/{candidate}/{job}` (`CandidateStageResponse`). */
 interface StageHistoryItem {
@@ -172,62 +169,17 @@ export function InterviewDecisionDock({
   withdrawnColumn,
   stageLabel,
 }: InterviewDecisionDockProps) {
-  const { showSuccess, showError } = useToast();
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<DockTab>("decision");
-  const [noteText, setNoteText] = useState("");
 
-  // Zmiana kandydata — wróć na pierwszą zakładkę i wyczyść niedokończony
-  // draft notatki (inaczej dok pokazuje cudzy niewysłany tekst).
+  // Zmiana kandydata — wróć na pierwszą zakładkę (draft notatki czyści się
+  // sam: `DockNotesPanel` montuje się z kluczem kandydata).
   useEffect(() => {
     setActiveTab("decision");
-    setNoteText("");
   }, [item.candidate_id]);
 
   const fullName =
     `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
-  const initials = fullName
-    .split(/\s+/)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
-  const notesQueryKey = useMemo(
-    () => [...candidateQueryKeys.notes(item.candidate_id), jobId] as const,
-    [item.candidate_id, jobId],
-  );
-  const notesQuery = useQuery<{ items?: NoteListItem[] }>({
-    queryKey: notesQueryKey,
-    queryFn: () =>
-      api
-        .get(`/api/notes?candidate_id=${item.candidate_id}&job_id=${jobId}`)
-        .then((r) => r.data),
-    enabled: activeTab === "notes",
-  });
-  const addNoteMutation = useMutation({
-    mutationFn: (content: string) =>
-      api.post("/api/notes", {
-        candidate_id: item.candidate_id,
-        job_id: jobId,
-        content,
-        note_type: "general",
-      }),
-    onSuccess: () => {
-      setNoteText("");
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.notes(item.candidate_id),
-      });
-      // Notatka jest też wpisem osi czasu profilu (lustro `PipelineCandidateDock`).
-      queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.timelineRoot(item.candidate_id),
-      });
-      showSuccess("Notatka dodana.");
-    },
-    onError: (e) =>
-      showError(extractErrorMsg(e) || "Nie udało się dodać notatki"),
-  });
 
   const historyQuery = useQuery<StageHistoryItem[]>({
     queryKey: ["candidate-stage-history", item.candidate_id, jobId],
@@ -240,46 +192,15 @@ export function InterviewDecisionDock({
     enabled: activeTab === "history",
   });
 
-  const submitNote = () => {
-    const content = noteText.trim();
-    if (!content || addNoteMutation.isPending) return;
-    addNoteMutation.mutate(content);
-  };
-
   const offerResponse = item.candidate_offer_response ?? null;
 
   return (
-    <div className="flex max-h-[calc(100vh-2rem)] flex-col rounded-xl border border-border bg-card">
-      {/* ── Nagłówek ──────────────────────────────────────────────────── */}
-      <div className="space-y-2.5 border-b border-border p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-              {initials}
-            </div>
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold tracking-wide text-primary uppercase">
-                Decyzja
-              </div>
-              <div className="truncate text-sm font-semibold text-foreground">
-                {fullName}
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
-            aria-label="Zamknij dok"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <Badge variant="outline" size="sm">
-            {currentStageLabel}
-          </Badge>
+    <WorkbenchDock
+      name="Decyzja"
+      who={fullName}
+      whoSub={
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span>{currentStageLabel}</span>
           {item.days_in_stage != null && (
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3 w-3" />
@@ -291,19 +212,29 @@ export function InterviewDecisionDock({
               <UserX className="h-2.5 w-2.5" /> Weto HM
             </Badge>
           )}
-        </div>
-
-        <TabbedNav
-          ariaLabel="Zakładki decyzji"
-          value={activeTab}
-          onValueChange={(v) => setActiveTab(v as DockTab)}
-          tabs={DOCK_TABS}
-          overflow="scroll"
-        />
-      </div>
-
-      {/* ── Treść zakładki ───────────────────────────────────────────── */}
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        </span>
+      }
+      headerRight={
+        <button
+          type="button"
+          onClick={onClose}
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
+          aria-label="Zamknij dok"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      }
+      tabs={DOCK_TABS}
+      activeTab={activeTab}
+      onTabChange={(v) => setActiveTab(v as DockTab)}
+      footer={
+        <>
+          <Sparkles className="h-3 w-3 shrink-0" />„Przyjął” = konfetti jak dziś
+          (kids mode) i powiadomienia stage’owe wg reguł klienta.
+        </>
+      }
+    >
+      <>
         {activeTab === "decision" && (
           <div className="space-y-3">
             {moveTargets.length > 0 ? (
@@ -349,58 +280,73 @@ export function InterviewDecisionDock({
                 Ten szablon procesu nie ma innych etapów niż bieżący.
               </p>
             )}
+
+            {/* Reguły odrzucenia i wycofania — wypisane, żeby nikt nie musiał
+                ich pamiętać (makieta kroku 07). */}
+            <section className="space-y-2 rounded-lg border border-destructive/30 bg-destructive-muted/20 px-3 py-2.5">
+              <h4 className="text-[10px] font-bold uppercase tracking-[0.1em] text-destructive-muted-foreground">
+                Odrzucenie / wycofanie
+              </h4>
+              <KvList
+                rows={[
+                  {
+                    k: "Powód",
+                    v: "ze słownika szablonu (fallback: wolny tekst); „Wycofany” ZAWSZE ze słownika",
+                  },
+                  {
+                    k: "Mail",
+                    v: "tylko dla „Odrzucony” z etapu zewnętrznego · wysyłka za 15 min · „Cofnij wysyłkę” (10 s)",
+                  },
+                ]}
+              />
+            </section>
           </div>
         )}
 
         {activeTab === "offer" && (
           <div className="space-y-3">
-            <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
-              <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-2 gap-y-1">
-                <span className="text-muted-foreground">Stawka kandydata</span>
-                <span>
-                  {item.expected_rate_value != null ? (
-                    <span className="font-medium tabular-nums text-foreground">
-                      {item.expected_rate_value}{" "}
-                      {item.expected_rate_currency ?? "PLN"}
-                      {item.expected_rate_unit
-                        ? `/${item.expected_rate_unit}`
-                        : ""}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">brak danych</span>
-                  )}
-                </span>
-                <span className="text-muted-foreground">Budżet oferty</span>
-                <span>
-                  {item.budget_max_at_move != null ? (
-                    <span className="font-medium tabular-nums text-foreground">
-                      do {item.budget_max_at_move}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">brak danych</span>
-                  )}
-                </span>
-                <span className="text-muted-foreground">Reakcja</span>
-                <span>
-                  {offerResponse ? (
-                    <Badge
-                      size="sm"
-                      variant={
-                        offerResponse === "accepted"
-                          ? "success"
-                          : offerResponse === "declined"
-                            ? "danger"
-                            : "warning"
-                      }
-                    >
-                      {OFFER_RESPONSE_LABEL[offerResponse] ?? offerResponse}
-                    </Badge>
-                  ) : (
-                    <span className="text-muted-foreground">nie zapisano</span>
-                  )}
-                </span>
-              </div>
-            </div>
+            <DockSection title="Oferta i reakcja kandydata">
+              <KvList
+                rows={[
+                  {
+                    k: "Stawka kandydata",
+                    v:
+                      formatExpectedRate(item) ??
+                      (<span className="text-muted-foreground">brak danych</span>),
+                  },
+                  {
+                    k: "Budżet oferty",
+                    v:
+                      item.budget_max_at_move != null ? (
+                        <span className="tabular-nums">
+                          do {item.budget_max_at_move}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">brak danych</span>
+                      ),
+                  },
+                  {
+                    k: "Reakcja",
+                    v: offerResponse ? (
+                      <Badge
+                        size="sm"
+                        variant={
+                          offerResponse === "accepted"
+                            ? "success"
+                            : offerResponse === "declined"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {OFFER_RESPONSE_LABEL[offerResponse] ?? offerResponse}
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">nie zapisano</span>
+                    ),
+                  },
+                ]}
+              />
+            </DockSection>
             <p className="text-[11px] text-muted-foreground">
               Reakcję kandydata zapisuje wyłącznie wycofanie po akceptacji — to
               jedyna ścieżka, którą zna backend. Stąd nie da się jej ustawić
@@ -420,64 +366,12 @@ export function InterviewDecisionDock({
         )}
 
         {activeTab === "notes" && (
-          <div className="space-y-3">
-            {!readOnly && (
-              <div className="space-y-1.5">
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      submitNote();
-                    }
-                  }}
-                  placeholder="Dodaj notatkę… (Enter wysyła, Shift+Enter nowa linia)"
-                  rows={2}
-                  className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs focus:ring-2 focus:ring-primary focus:outline-hidden"
-                />
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={submitNote}
-                    disabled={!noteText.trim() || addNoteMutation.isPending}
-                    loading={addNoteMutation.isPending}
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    Dodaj notatkę
-                  </Button>
-                </div>
-              </div>
-            )}
-            {notesQuery.isLoading ? (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-              </div>
-            ) : (notesQuery.data?.items ?? []).length > 0 ? (
-              <div className="space-y-2">
-                {(notesQuery.data?.items ?? []).map((n) => (
-                  <div
-                    key={n.id}
-                    className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs"
-                  >
-                    <div className="mb-1 flex items-center justify-between text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {n.author_name ?? "Nieznany autor"}
-                      </span>
-                      <span>{formatDate(n.created_at)}</span>
-                    </div>
-                    <p className="whitespace-pre-line text-foreground">
-                      {n.content_rendered ?? n.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Brak notatek dla tej rekrutacji.
-              </p>
-            )}
-          </div>
+          <DockNotesPanel
+            candidateId={item.candidate_id}
+            jobId={jobId}
+            readOnly={readOnly}
+            enabled={activeTab === "notes"}
+          />
         )}
 
         {activeTab === "history" && (
@@ -512,37 +406,37 @@ export function InterviewDecisionDock({
             )}
           </div>
         )}
-      </div>
 
-      {/* ── Akcje (zawsze widoczne) ──────────────────────────────────── */}
-      <div className="space-y-2 border-t border-border bg-muted/10 p-4">
-        <div className="grid grid-cols-2 gap-1.5">
-          <Link
-            href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
-            className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-muted-foreground hover:bg-muted"
-          >
-            <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
-          </Link>
-          <Link
-            href={`/jobs/${jobId}/prep/${item.candidate_id}`}
-            className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-muted-foreground hover:bg-muted"
-            title={`Prep-kit dla rekrutacji ${jobLabel}`}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" /> Prep-kit
-          </Link>
+        {/* ── Akcje (zawsze widoczne, na dole treści doku) ─────────────── */}
+        <div className="space-y-1.5 border-t border-border pt-3">
+          <DockActions>
+            <Link
+              href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+              className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-muted-foreground hover:bg-muted"
+            >
+              <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
+            </Link>
+            <Link
+              href={`/jobs/${jobId}/prep/${item.candidate_id}`}
+              className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-muted-foreground hover:bg-muted"
+              title={`Prep-kit dla rekrutacji ${jobLabel}`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Prep-kit
+            </Link>
+            {rejectedColumn && !readOnly && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onTerminal(rejectedColumn, "rejected")}
+                className="col-span-2 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
+              </Button>
+            )}
+          </DockActions>
         </div>
-        {rejectedColumn && !readOnly && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => onTerminal(rejectedColumn, "rejected")}
-            className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
-          </Button>
-        )}
-      </div>
-    </div>
+      </>
+    </WorkbenchDock>
   );
 }
 

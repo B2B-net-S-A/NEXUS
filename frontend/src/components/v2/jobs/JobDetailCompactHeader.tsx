@@ -26,6 +26,7 @@ import {
 import { EntityHeader } from "@/components/ds/EntityHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { JobHeaderKpi, JobHeaderKpiTone } from "@/lib/job-header-kpis";
 import {
   Collapsible,
   CollapsibleContent,
@@ -67,9 +68,20 @@ const SOURCING_TABS = new Set<JobDetailTab>([
 
 interface JobDetailCompactHeaderProps {
   title: ReactNode;
+  /**
+   * Klient dopisany do tytułu (makieta: „Programista Python (ZOB-2947) ·
+   * PKO Bank Polski"). Do 09.2026 nagłówka rekrutacji nie było w nim W OGÓLE,
+   * więc na każdej zakładce poza listą trzeba było pamiętać, czyja to
+   * rekrutacja — a to pierwsza rzecz, którą sprawdza się przed rozmową.
+   */
+  clientName?: string | null;
   referenceNumber?: string | null;
   badges?: ReactNode;
+  /** Jedna linia faktów pod tytułem (patrz `lib/job-header-subtitle.ts`). */
+  subtitle?: ReactNode;
   metadata?: ReactNode;
+  /** Trzy liczby właściwe dla aktywnego kroku (`lib/job-header-kpis.ts`). */
+  kpis?: JobHeaderKpi[];
   presence?: ReactNode;
   activeTab: JobDetailTab;
   onTabChange: (tab: JobDetailTab) => void;
@@ -112,7 +124,12 @@ function WorkspaceButton({
       variant="ghost"
       size="sm"
       className={cn(
-        "h-10 rounded-none border-b-2 px-3 whitespace-nowrap",
+        // `px-2` + `text-[13px]`, nie `px-3`/`text-sm`: przy 1440 px jedenaście
+        // kroków ze starym paddingiem nie mieściło się w pasku, a `nav` miał
+        // `overflow-x-auto`, więc ostatnia etykieta („Baza pytań") była UCIĘTA
+        // do samej ikony. Ucięta etykieta czyta się jak brak funkcji, nie jak
+        // brak miejsca — a przewijanego paska w poziomie nikt tam nie szukał.
+        "h-10 gap-1.5 rounded-none border-b-2 px-2 text-[13px] whitespace-nowrap",
         active
           ? "border-primary text-primary"
           : "border-transparent text-muted-foreground",
@@ -123,6 +140,56 @@ function WorkspaceButton({
     >
       {children}
     </Button>
+  );
+}
+
+/**
+ * Ikony w listwie kroków tylko na bardzo szerokich ekranach.
+ *
+ * Zmierzone na prodzie (okno 1615 px): listwa potrzebowała 1448 px, a miała
+ * 1261 — osiem ikon po ~22 px i etykieta „Zespół i priorytet" (170 px)
+ * łamały ją na dwa wiersze, choć makieta ma jeden. Poniżej 1800 px krok
+ * rozpoznaje się po etykiecie; ikona wraca, gdy jest na nią miejsce.
+ */
+const STRIP_ICON = "hidden min-[1800px]:block h-4 w-4";
+
+const KPI_TONE_CLASS: Record<JobHeaderKpiTone, string> = {
+  neutral: "text-foreground",
+  ok: "text-success",
+  warn: "text-warning",
+  bad: "text-destructive",
+};
+
+/**
+ * Klaster trzech liczb po prawej stronie jobbara.
+ *
+ * `value === null` renderuje „—", nigdy zera: kanban i ranking ładują się
+ * osobno, a zero jest zdaniem o rekrutacji, którego w tym momencie nikt
+ * jeszcze nie sprawdził.
+ */
+function JobHeaderKpiCluster({ kpis }: { kpis: JobHeaderKpi[] }) {
+  return (
+    <div
+      className="flex items-center gap-4 pr-1"
+      data-testid="job-header-kpis"
+      aria-label="Wskaźniki tego kroku"
+    >
+      {kpis.map((kpi) => (
+        <div key={kpi.key} className="text-right leading-tight">
+          <div
+            className={cn(
+              "text-sm font-bold tabular-nums",
+              KPI_TONE_CLASS[kpi.tone],
+            )}
+          >
+            {kpi.value ?? "—"}
+          </div>
+          <div className="text-[9.5px] uppercase tracking-eyebrow text-muted-foreground">
+            {kpi.label}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -152,9 +219,12 @@ function CountBadge({ value }: { value: number }) {
  */
 export function JobDetailCompactHeader({
   title,
+  clientName,
   referenceNumber,
   badges,
+  subtitle,
   metadata,
+  kpis,
   presence,
   activeTab,
   onTabChange,
@@ -181,10 +251,40 @@ export function JobDetailCompactHeader({
   return (
     <Collapsible open={contextOpen} onOpenChange={onContextOpenChange}>
       <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <div className="px-4 py-3">
+        <div className="px-4 py-2.5">
           <EntityHeader
             density="compact"
-            title={title}
+            avatar={
+              <span
+                aria-hidden="true"
+                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
+              >
+                <Target className="h-4 w-4" />
+              </span>
+            }
+            title={
+              clientName ? (
+                // Tytuł i klient w JEDNEJ linii: pełna nazwa prawna klienta
+                // („Powszechna Kasa Oszczędności Bank Polski S.A") łamała
+                // nagłówek na dwa wiersze na każdej zakładce. Tytuł zostaje
+                // w całości, klient się ucina (pełna nazwa w `title`).
+                <span className="flex min-w-0 items-baseline gap-x-2">
+                  <span className="shrink-0">{title}</span>
+                  {/* Separator i nazwa klienta w JEDNYM węźle tekstowym —
+                      `{" · "}{clientName}` rozpadało się na trzy węzły, przez
+                      co spacja przy kropce ginęła przy pierwszej zmianie
+                      formatowania. */}
+                  <span
+                    className="min-w-0 truncate text-lg font-normal text-muted-foreground"
+                    title={clientName}
+                  >
+                    {` · ${clientName}`}
+                  </span>
+                </span>
+              ) : (
+                title
+              )
+            }
             badges={
               referenceNumber || badges ? (
                 <>
@@ -201,9 +301,13 @@ export function JobDetailCompactHeader({
                 </>
               ) : undefined
             }
+            subtitle={subtitle}
             metadata={metadata}
             actions={
               <>
+                {kpis && kpis.length > 0 ? (
+                  <JobHeaderKpiCluster kpis={kpis} />
+                ) : null}
                 {presence}
                 {onAddCandidate ? (
                   <Button
@@ -270,19 +374,29 @@ export function JobDetailCompactHeader({
           />
         </div>
 
-        {/* Listwa kroków — kolejność procesu, Historia i Chat po prawej. */}
-        <div className="flex min-w-0 items-center justify-between gap-2 border-t border-border px-1">
+        {/* Listwa kroków — kolejność procesu, Historia i Chat po prawej.
+
+            `flex-wrap` zamiast `overflow-x-auto`: przy ciasnym oknie listwa ma
+            się ZŁAMAĆ na dwa wiersze, a nie schować końcówkę za niewidoczny
+            pasek przewijania. Krok, którego nie widać, nie istnieje dla
+            użytkownika — a to jedyna nawigacja tego ekranu. */}
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 border-t border-border px-1">
           <nav
-            className="flex min-w-0 items-center overflow-x-auto overscroll-x-contain"
+            className="flex min-w-0 flex-wrap items-center"
             aria-label="Sekcje rekrutacji"
           >
             <WorkspaceButton
               active={activeTab === "champion"}
               onClick={() => onTabChange("champion")}
               data-testid="tab-champion"
+              title="Zlecenie i Champion"
             >
-              <PencilLine className="h-4 w-4" />
-              Zlecenie i Champion
+              <PencilLine className={STRIP_ICON} />
+              {/* Spacja w tekście RODZICA („Zlecenie ”), nie w spanie: algorytm
+                  nazwy dostępnej ucina białe znaki na brzegach każdego elementu,
+                  więc `<span> i Champion</span>` dawał „Zleceniei Champion". */}
+              {"Zlecenie "}
+              <span className="hidden 2xl:inline">i Champion</span>
             </WorkspaceButton>
 
             <DropdownMenu>
@@ -291,7 +405,7 @@ export function JobDetailCompactHeader({
                   active={sourcingActive}
                   aria-label="Pozyskaj kandydatów"
                 >
-                  <Target className="h-4 w-4" />
+                  <Target className={STRIP_ICON} />
                   Pozyskiwanie
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </WorkspaceButton>
@@ -327,7 +441,7 @@ export function JobDetailCompactHeader({
               active={activeTab === "pipeline"}
               onClick={() => onTabChange("pipeline")}
             >
-              <LayoutGrid className="h-4 w-4" />
+              <LayoutGrid className={STRIP_ICON} />
               Pipeline
               {typeof pipelineCount === "number" ? (
                 <CountBadge value={pipelineCount} />
@@ -340,7 +454,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("screening")}
               data-testid="tab-screening"
             >
-              <ClipboardCheck className="h-4 w-4" />
+              <ClipboardCheck className={STRIP_ICON} />
               Screening
               {typeof screeningCount === "number" ? (
                 <CountBadge value={screeningCount} />
@@ -353,7 +467,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("cv")}
               data-testid="tab-cv"
             >
-              <FileText className="h-4 w-4" />
+              <FileText className={STRIP_ICON} />
               CV do klienta
               {typeof cvCount === "number" ? <CountBadge value={cvCount} /> : null}
             </WorkspaceButton>
@@ -366,9 +480,11 @@ export function JobDetailCompactHeader({
               active={activeTab === "interviews"}
               onClick={() => onTabChange("interviews")}
               data-testid="tab-interviews"
+              title="Rozmowy i decyzja"
             >
-              <CalendarClock className="h-4 w-4" />
-              Rozmowy i decyzja
+              <CalendarClock className={STRIP_ICON} />
+              {"Rozmowy "}
+              <span className="hidden 2xl:inline">i decyzja</span>
               {typeof interviewsCount === "number" ? (
                 <CountBadge value={interviewsCount} />
               ) : null}
@@ -379,7 +495,7 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("contract")}
               data-testid="tab-contract"
             >
-              <FileSignature className="h-4 w-4" />
+              <FileSignature className={STRIP_ICON} />
               Umowa
               {typeof contractCount === "number" ? (
                 <CountBadge value={contractCount} />
@@ -393,18 +509,18 @@ export function JobDetailCompactHeader({
               onClick={() => onTabChange("questions")}
               data-testid="tab-questions"
             >
-              <BookOpen className="h-4 w-4" />
+              <BookOpen className={STRIP_ICON} />
               Baza pytań
             </WorkspaceButton>
           </nav>
 
-          <div className="flex shrink-0 items-center">
+          <div className="ml-auto flex shrink-0 items-center">
             <WorkspaceButton
               active={activeTab === "history"}
               onClick={() => onTabChange("history")}
               data-testid="tab-history"
             >
-              <History className="h-4 w-4" />
+              <History className={STRIP_ICON} />
               Historia
             </WorkspaceButton>
             <WorkspaceButton
@@ -413,7 +529,7 @@ export function JobDetailCompactHeader({
               data-testid="tab-chat"
               aria-label={unreadLabel}
             >
-              <MessageCircle className="h-4 w-4" />
+              <MessageCircle className={STRIP_ICON} />
               Chat
               {chatUnreadCount > 0 ? (
                 <Badge
@@ -439,7 +555,10 @@ export function JobDetailCompactHeader({
                 title={contextOpen ? "Ukryj zespół i priorytet" : "Pokaż zespół i priorytet"}
               >
                 <UserCheck className="h-4 w-4" />
-                <span className="hidden sm:inline">Zespół i priorytet</span>
+                {/* Etykieta dopiero od 2xl: przy 1440 px pełna listwa kroków
+                    + Historia + Chat + ta etykieta łamały pasek na dwa wiersze
+                    (makieta ma jeden). Ikona + `title` zostają zawsze. */}
+                <span className="hidden min-[1800px]:inline">Zespół i priorytet</span>
                 {contextOpen ? (
                   <ChevronUp className="h-4 w-4" />
                 ) : (

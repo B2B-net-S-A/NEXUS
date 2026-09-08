@@ -557,3 +557,88 @@ def test_zero_billing_hours_is_a_value_not_a_missing_field():
 
     monthly = SimpleNamespace(rate_unit=RateUnit.monthly, billing_hours_per_month=None)
     assert _billable_hours(monthly) is None
+
+
+def test_coverage_flags_years_whose_contract_basis_is_a_fraction_of_the_latest():
+    """Rosnąca EWIDENCJA nie może udawać rosnącego biznesu.
+
+    Zmierzone na produkcji 08.09.2026: styczeń 2024 → 17 wycenionych
+    kontraktów, sierpień 2026 → 452, przy realnej liczbie ~320 konsultantów
+    w 2024 (dane DynaReportera). Kontrakty zaczęły powstawać w NEXUSIE później
+    niż firma i nie zostały uzupełnione wstecz, więc wiersz „Przychody"
+    pokazywał **+935% wzrostu** — liczbę arytmetycznie poprawną i semantycznie
+    fałszywą. Członek Rady wyciągnąłby z niej wniosek o dziesięciokrotnym
+    wzroście firmy.
+
+    Podstawa (`contracts_by_year`) jest FAKTEM; heurystyczny jest wyłącznie
+    próg ostrzeżenia i celowo ostrzega raczej za często: fałszywy alarm każe
+    spojrzeć na podstawę, przeoczenie każe uwierzyć w nieistniejący wzrost.
+    """
+    from app.services.insights_board_yoy import _contract_coverage
+
+    # Ewidencja narastająca — dokładnie kształt z produkcji.
+    metrics = [
+        {"label": "Przychody (MRR)", "basis": "contracts"},
+        {"label": "Liczba zejść", "basis": "contracts"},
+        {"label": "Liczba placementów", "basis": "pipeline"},
+        {"label": "Hit ratio", "basis": "pipeline"},
+    ]
+    growing = _contract_coverage(
+        {
+            "2024": [17] * 12,
+            "2025": [26] * 12,
+            "2026": [191] * 9 + [None] * 3,
+        },
+        [2024, 2025, 2026],
+        metrics,
+    )
+    assert growing["money_comparable_across_years"] is False
+    assert growing["message"] is not None
+    assert "17" in growing["message"] and "191" in growing["message"]
+    # Wiadomość musi wskazać, KTÓRE metryki problemu NIE mają — inaczej
+    # ostrzeżenie podważa całą stronę i uczy je ignorować.
+    assert "Liczba placementów" in growing["message"]
+    assert "Hit ratio" in growing["message"]
+    # ...i NIE MOŻE wymieniać metryk liczonych z kontraktów. Pierwsza wersja
+    # wpisywała tam „zejścia", czyli metrykę, przez którą to ostrzeżenie
+    # w ogóle pojawia się nad grupą HR — komunikat zaprzeczał własnej
+    # przyczynie. Lista jest wyprowadzana z `basis`, więc rozjazd wymagałby
+    # zmiany danych, nie tylko zdania.
+    assert "zejść" not in growing["message"]
+    assert "Przychody" not in growing["message"]
+
+    # Stabilna ewidencja — żadnego ostrzeżenia, mimo realnego wzrostu.
+    stable = _contract_coverage(
+        {"2024": [300] * 12, "2025": [330] * 12, "2026": [360] * 9 + [None] * 3},
+        [2024, 2025, 2026],
+        metrics,
+    )
+    assert stable["money_comparable_across_years"] is True
+    assert stable["message"] is None
+    assert stable["contracts_by_year"] == {"2024": 300, "2025": 330, "2026": 360}
+
+    # Brak danych nie jest ostrzeżeniem — nie ma czego porównać.
+    empty = _contract_coverage(
+        {"2024": [None] * 12, "2025": [None] * 12}, [2024, 2025], metrics
+    )
+    assert empty["money_comparable_across_years"] is True
+    assert empty["contracts_by_year"] == {"2024": None, "2025": None}
+
+
+def test_metrics_say_whether_the_contract_backlog_affects_them():
+    """`basis` oddziela metryki dotknięte luką w ewidencji od reszty.
+
+    Pieniądze, konsultanci i zejścia idą z kontraktów; placementy, klienci
+    i hit ratio z historii pipeline'u (import Traffita), która sięga wstecz.
+    Bez tego rozróżnienia ostrzeżenie o pokryciu wisiałoby nad tabelami,
+    których nie dotyczy — a ostrzeżenie podważające wszystko uczy ignorować
+    ostrzeżenia.
+    """
+    from app.services.insights_board_yoy import _metric
+
+    series = {k: {"2026": [1] * 12} for k in ("a", "b")}
+    assert _metric("a", "finanse", "A", "pln", "avg", series)["basis"] == "contracts"
+    assert (
+        _metric("b", "hr", "B", "count", "sum", series, basis="pipeline")["basis"]
+        == "pipeline"
+    )

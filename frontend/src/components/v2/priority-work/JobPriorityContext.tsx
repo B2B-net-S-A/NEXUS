@@ -23,6 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
+import { countPl } from "@/lib/plural-pl"
 import {
   priorityWorkApi,
   priorityWorkQueryKeys,
@@ -62,7 +63,27 @@ function assignmentHint(
     : "Można obsługiwać istniejących kandydatów, ale nie dodawać nowych."
 }
 
-export function JobPriorityContext({ jobId }: { jobId: number }) {
+export type JobPriorityContextVariant = "full" | "summary"
+
+export interface JobPriorityContextProps {
+  jobId: number
+  /**
+   * `"summary"` — jedna linia stanu do doku „Gotowość" kroku 02 (makieta:
+   * sekcja `Priority Work · Carry-over: N`). Te same dane i ta sama funkcja
+   * `assignmentHint`, co pełna karta: dwa zdania o jednym trybie, liczone
+   * osobno, rozjechałyby się przy pierwszej zmianie polityki.
+   *
+   * Świadomie NIE montuje `JobAllocationSummary` (własne zapytanie z
+   * `refetchInterval: 30_000`) — dok stoi otwarty przez cały czas pracy nad
+   * zleceniem, a to jest sekcja pomocnicza, nie tablica alokacji.
+   */
+  variant?: JobPriorityContextVariant
+}
+
+export function JobPriorityContext({
+  jobId,
+  variant = "full",
+}: JobPriorityContextProps) {
   const user = useAuthStore((state) => state.user)
   const hydrated = useAuthStore((state) => state.hydrated)
   const canView = hasRole(
@@ -95,6 +116,22 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
   if (!hydrated || !canView) return null
   if (query.isPending) return <PriorityWorkLoading rows={1} />
   if (query.isError) {
+    // Wariant skrócony dzieli tę samą regułę 403 → nic (patrz niżej), ale awarię
+    // serwera pokazuje jedną linią: pełnowymiarowy `WidgetErrorBlock` w doku
+    // przykryłby akcje, dla których ten dok istnieje.
+    if (variant === "summary") {
+      const status = (query.error as { response?: { status?: number } })?.response
+        ?.status
+      if (status === 403) return null
+      return (
+        <p
+          className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground"
+          data-testid="job-priority-context-summary-error"
+        >
+          Nie udało się pobrać kontekstu Priority Work.
+        </p>
+      )
+    }
     // 403 to NIE awaria — `get_job_priority_context` woła `ensure_job_membership`,
     // więc rekruter/sourcer/TAC/DL oglądający rekrutację, do której zespołu nie
     // należy, dostaje odmowę zamiast danych. Strona szczegółów rekrutacji jest
@@ -124,6 +161,41 @@ export function JobPriorityContext({ jobId }: { jobId: number }) {
     data.assignments.length === 0 &&
     data.carry_over_count === 0 &&
     data.blockers.length === 0
+
+  if (variant === "summary") {
+    const assignmentLine =
+      data.assignments.length > 0
+        ? `${countPl(data.assignments.length, "osoba", "osoby", "osób")} w przydziale.`
+        : assignmentHint(mode, data.carry_over_count)
+    return (
+      <section
+        className="rounded-lg border border-border bg-muted/20 px-3 py-2.5"
+        data-testid="job-priority-context-summary"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+            <ShieldCheck className="h-3 w-3 text-primary" aria-hidden="true" />
+            Priority Work
+          </h4>
+          <Badge variant="outline" size="sm">
+            <History className="h-3 w-3" aria-hidden="true" />
+            Carry-over: {data.carry_over_count}
+          </Badge>
+        </div>
+        <p className="mt-1.5 text-[11px] leading-snug text-foreground">
+          {assignmentLine}
+        </p>
+        {/* Blockery są POWODEM, dla którego ktoś patrzy na tę sekcję — skrót,
+            który je przemilcza, jest gorszy niż jego brak. */}
+        {data.blockers.length > 0 ? (
+          <p className="mt-1 text-[11px] font-medium text-warning-muted-foreground">
+            {countPl(data.blockers.length, "blocker", "blockery", "blockerów")} —
+            szczegóły w zakładce „Zespół i priorytet".
+          </p>
+        ) : null}
+      </section>
+    )
+  }
 
   return (
     <Card data-testid="job-priority-context">

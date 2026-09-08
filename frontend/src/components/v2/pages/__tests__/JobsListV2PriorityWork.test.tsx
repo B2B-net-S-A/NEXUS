@@ -12,6 +12,21 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => getMock(...args),
   },
+  // Liczniki filtrów „Szybkie" — lista woła je przy każdym renderze; ten plik
+  // ich nie testuje, więc atrapa oddaje puste liczby.
+  jobsApi: {
+    quickCounts: () =>
+      Promise.resolve({
+        data: {
+          mine: 0,
+          open: 0,
+          needs_sourcing: 0,
+          active_in_search: 0,
+          owner_missing: 0,
+          deadline_7d: 0,
+        },
+      }),
+  },
 }))
 
 vi.mock("next/navigation", () => ({

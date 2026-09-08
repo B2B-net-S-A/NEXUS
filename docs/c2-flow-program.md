@@ -17,9 +17,30 @@
 | 2 | 03 Pozyskiwanie — rama źródeł | 4 karty nad C2 (AI Matching · Wyszukaj manualnie · Podobne projekty · Portale) z licznikami; „Podobne projekty" i „Rekomendowani" jako karty, nie bloki nad rankingiem; Historia requestu pod ramą + „N kandydatów → źródło" | **na prodzie** — fala 1 #1396 (zebrane z #1391) |
 | 3 | 04 Pipeline — dok „Karta w procesie" | dok obok kanbana (etapy, „Przenieś na etap" z bramką wyszarzoną z powodem, notatki, CV, warunki), karta z wiekiem/następną akcją/flagą, filtry lewej kolumny, „Ukryj puste" | **na prodzie** — fala 1 #1396 (+ #1399 kafelki) |
 | 4 | 01 Lista | lewa kolumna filtrów (typ, szybkie z licznikami: Moje/Niezamknięte/Potrzebny search/Aktywni/Brak ownera/Deadline ≤ 7 d), mini-lejek w wierszu, dok „Gotowość zlecenia" | **na prodzie** — fala 1 #1396 (+ #1399 kafelki) |
-| 5 | 02 Zlecenie i Champion | Champion na pełną szerokość ze stanem sekcji, dok „Gotowość" (readiness + weryfikacja + briefing + zespół + HM), handoff jako główna akcja | **fala 2 — w tym PR** (zebrane z #1401) |
-| 6 | 05 Screening + 06 CV do klienta | stanowisko screeningu (kolejka → arkusz → dok „Weryfikacja"); CV do klienta (reguły klienta przed generacją, jedna akcja „Wyślij") | **fala 2 — w tym PR** (zebrane z #1400) |
-| 7 | 07 Rozmowy i decyzja + 08 Umowa | karta rozmowy z feedbackiem HM (małe rozszerzenie `hiring_manager_verdicts`), karta zamknięcia + „Zamknij rekrutację z powodem" (`POST /jobs/{id}/close`) | **fala 2 — w tym PR** (zebrane z #1402) |
+| 5 | 02 Zlecenie i Champion | Champion na pełną szerokość ze stanem sekcji, dok „Gotowość" (readiness + weryfikacja + briefing + zespół + HM), handoff jako główna akcja | **na prodzie** — fala 2 #1403 (zebrane z #1401) |
+| 6 | 05 Screening + 06 CV do klienta | stanowisko screeningu (kolejka → arkusz → dok „Weryfikacja"); CV do klienta (reguły klienta przed generacją, jedna akcja „Wyślij") | **na prodzie** — fala 2 #1403 (zebrane z #1400) |
+| 7 | 07 Rozmowy i decyzja + 08 Umowa | karta rozmowy z feedbackiem HM (małe rozszerzenie `hiring_manager_verdicts`), karta zamknięcia + „Zamknij rekrutację z powodem" (`POST /jobs/{id}/close`) | **na prodzie** — fala 2 #1403 (zebrane z #1402) |
+| 8 | fala 3 — parytet z makietami | po obejrzeniu produ (8.09): układ zgodny z makietami, GĘSTOŚĆ nie — patrz sekcja „Fala 3" niżej; jeden PR zbierający czterech wykonawców | **fala 3 — w tym PR** |
+
+## Fala 3 — parytet z makietami (8.09.2026)
+
+Porównanie krok po kroku, prod vs makieta, na rekrutacji z makiet (`/jobs/552495`,
+„Programista Python (ZOB-2947)", 26 w procesie · 6 w screeningu · 3 zweryfikowanych).
+Układ trzech kolumn i listwa kroków zgadzają się; różni się to, **co niesie każdy element**.
+Zasada fali: żadna z różnic nie dokłada nowej domeny — to te same dane w gęstości makiety.
+
+| Krok | Prod (przed falą 3) | Makieta → co wchodzi |
+|---|---|---|
+| jobbar (02–08) | tytuł + badge'e; klienta w nagłówku nie ma; panel „Zespół i priorytet" ROZWINIĘTY domyślnie na każdej zakładce (~40 % ekranu); listwa obcina „Baza pytań" | `tytuł · klient` + subtytuł (lokalizacja/tryb · budżet PLN/h · deadline · właściciel) + **3 KPI per krok** z tego samego kanbana (`lib/job-header-kpis.ts`); panel domyślnie zwinięty (preferencja użytkownika wygrywa); listwa mieści wszystkie etykiety |
+| 01 Lista | liczniki tylko przy „Brak ownera requestu" (z bieżącej strony); Status jako select; osobna kolumna Klient; dok bez zakładek i nawigacji | `GET /api/jobs/quick-counts` (te same predykaty co filtry listy) + `owner_missing` w `list_jobs`; Status jako pigułki (`draft/published/closed` — tylko istniejące statusy); klient pod tytułem, mini-lejek z liczbami `13·2·0 / 15`, deadline `30.09 · 23 d`; dok: `‹ 1 z 12 ›`, zakładki Gotowość · Pipeline · Zespół · Historia, stopka „Ostatnia zmiana" |
+| 02 Champion | dok: 5 warunków + osobna lista weryfikacji, zakładki zawijają się; wszystkie 6 sekcji rozwinięte z chipem „Pusta" | dok: JEDNA lista 7 warunków (rozmowa z klientem · z konsultantem · briefing · stack · budżet · właściciel · HM) z akcjami Oznacz/Podepnij/Claim/Przypisz, gauge „N / 7 · zlecenie gotowe w X %", bramka jako jedna linia z rozwinięciem, box „Rekomendowane wyszukiwania (AI)" inline; edytor: Zlecenie (z widełkami klienta) → 1 → 3 (stack `Musi mieć · N`) → 2·4·5 zwinięte, gdy puste → 6 z kartą klienta |
+| 04 Pipeline | rail = 15 etapów; karta = wynik + nazwisko + „R: Imię"; puste kolumny stoją; dok bez osi czasu | rail = 6 grup (`groupKanbanColumns`) + „Bez następnej akcji" + SLA klienta z karty klienta; puste grupy „U klienta" / „Umowa → zatrudnieni" zwinięte do jednej kolumny-placeholdera (nie jest celem drop); karta = nazwisko + awatar rekrutera + wiek (bad ≥ 7 d) + **następna akcja** (`lib/pipeline-next-action.ts`, deterministycznie z kategorii etapu); nagłówek kolumny z linią SLA/„najstarszy N d"; dok: `‹ N z M ›`, oś czasu etapu, „Przenieś na etap: <następny>", Poprzedni/Następny |
+| 05–08 warsztaty | struktura trzech kolumn jest, brakuje nagłówków, pigułek stanu, zakładek doku, osi podpisu | nagłówki `Krok · Nazwisko` + subtytuł + pigułki; dok z zakładkami (Stawka i decyzja · Dopasowanie / Wyślij · Linki / Decyzja · Oferta / Po podpisie · Zamówienie · Alerty DL); reguły CV klienta jako lista warunków; marża (podgląd) przy stawce do klienta; oś czasu podpisu z `statusHistory`; „Odrzuć z powodem" przez tę samą ścieżkę `requestMove` |
+
+Poza falą 3 (świadomie): „Źródło" na tablicy (`KanbanItem` nie niesie źródła — backend),
+„Wiadomość" zbiorcza z tablicy (brak bulk e-maila), „Pliki" w doku pipeline'u, ocena ryzyka
+kandydata („Niskie ryzyko" — brak źródła), „Ostatnia aktywność: kto zmienił etap" (brak
+taniego feedu).
 
 ## Kontrakt wspólny (obowiązuje każdy PR)
 
