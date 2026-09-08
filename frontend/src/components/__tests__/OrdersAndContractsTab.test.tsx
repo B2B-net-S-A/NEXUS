@@ -414,24 +414,54 @@ describe("OrdersAndContractsTab card", () => {
     ).toBeInTheDocument();
   });
 
-  it("trzyma numer i OBIE stawki w jednej linii meta kafelka", async () => {
-    // Regresja układu: numer zamówienia, stawka kosztowa i stawka przychodowa
-    // stały wcześniej w TRZECH osobnych kontenerach (`div` na numer + `div` na
-    // stawki), więc kafelek rósł o wiersz niezależnie od szerokości ekranu.
-    // Test kotwiczy się na WSPÓLNYM rodzicu, a nie na klasach CSS — zawijanie
-    // przy wąskim oknie jest dozwolone, rozbicie na osobne bloki nie.
+  it("trzyma numer, obie stawki i okres w trzech stałych liniach", async () => {
+    // Regresja układu z ticketu: długość tekstu nie może decydować, czy okres
+    // sklei się ze stawkami. Test kotwiczy pola na trzech jawnych kontenerach,
+    // niezależnych od zawijania wewnątrz każdej linii.
     renderTab();
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
 
-    const numberRow = screen.getByTitle("Numer zamówienia").closest("div");
-    const costRow = screen.getByTitle("Stawka kosztowa").closest("div");
-    const revenueRow = screen.getByTitle("Stawka przychodowa").closest("div");
-    const periodRow = screen.getByTitle("Okres zamówienia").closest("div");
+    const numberRow = screen
+      .getByTitle("Numer zamówienia")
+      .closest('[data-order-detail-line="number"]');
+    const costRow = screen
+      .getByTitle("Stawka kosztowa")
+      .closest('[data-order-detail-line="rates"]');
+    const revenueRow = screen
+      .getByTitle("Stawka przychodowa")
+      .closest('[data-order-detail-line="rates"]');
+    const periodRow = screen
+      .getByTitle("Okres zamówienia")
+      .closest('[data-order-detail-line="period"]');
 
     expect(numberRow).not.toBeNull();
-    expect(costRow).toBe(numberRow);
-    expect(revenueRow).toBe(numberRow);
-    expect(periodRow).toBe(numberRow);
+    expect(costRow).not.toBeNull();
+    expect(revenueRow).toBe(costRow);
+    expect(periodRow).not.toBeNull();
+    expect(numberRow).not.toBe(costRow);
+    expect(costRow).not.toBe(periodRow);
+    expect(numberRow).not.toBe(periodRow);
+
+    expect(
+      screen
+        .getByRole("button", { name: "Edytuj: Numer zamówienia" })
+        .closest("[data-order-detail-line]"),
+    ).toBe(numberRow);
+    expect(
+      screen
+        .getByRole("button", { name: "Edytuj: Stawka kosztowa" })
+        .closest("[data-order-detail-line]"),
+    ).toBe(costRow);
+    expect(
+      screen
+        .getByRole("button", { name: "Edytuj: Stawka przychodowa" })
+        .closest("[data-order-detail-line]"),
+    ).toBe(costRow);
+    expect(
+      screen
+        .getByRole("button", { name: "Edytuj: okres zamówienia" })
+        .closest("[data-order-detail-line]"),
+    ).toBe(periodRow);
   });
 
   it("renames the section to Przyszłe zamówienie and lists the future order", async () => {
