@@ -457,9 +457,11 @@ export function JobContractTab({
         <WorkbenchDock
           name="Przekazanie do Delivery"
           who={selectedName ?? jobTitle}
+          // Bez wybranego kandydata nagłówek to tytuł rekrutacji — podtytuł
+          // nie może go powtarzać (na prodzie stało dwa razy to samo).
           whoSub={[
             primaryContract?.client_name,
-            jobTitle,
+            selectedName ? jobTitle : null,
             primaryContract?.start_date
               ? `od ${formatDate(primaryContract.start_date)}`
               : null,

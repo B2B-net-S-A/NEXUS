@@ -359,6 +359,11 @@ export function groupKeyForColumn(col: KanbanColumn): PipelineGroupKey {
  */
 export function groupKanbanColumns(columns: KanbanColumn[]): PipelineColumnGroup[] {
   const screeningIndex = columns.findIndex((c) => c.stage === SCREENING_STAGE);
+  // Pierwsza kolumna „u klienta" (CV wysłane albo cokolwiek zewnętrznego):
+  // od niej w prawo proces toczy się po stronie klienta.
+  const firstClientIndex = columns.findIndex(
+    (c) => groupKeyForColumn(c) === "client",
+  );
   const buckets = new Map<PipelineGroupKey, KanbanColumn[]>();
 
   columns.forEach((col, index) => {
@@ -369,6 +374,15 @@ export function groupKanbanColumns(columns: KanbanColumn[]): PipelineColumnGroup
     // już nie analizuje.
     if (key === "intake" && screeningIndex >= 0 && index > screeningIndex) {
       key = "verification";
+    }
+    // Własny etap bez legacy enuma, oznaczony w szablonie jako wewnętrzny,
+    // ale STOJĄCY między etapami klienta („Preparation Meeting" w „Default
+    // B2B" stoi za „CV Wysłane") — to spotkanie u klienta, nie weryfikacja.
+    // Bez tej korekty na tablicy pojawiała się samotna kolumna między dwoma
+    // zwiniętymi zastępnikami, a liczba kolumn przekraczała próg trybu
+    // przeglądowego, więc karty zwężały się do trybu kompaktowego.
+    if (key === "verification" && firstClientIndex >= 0 && index > firstClientIndex) {
+      key = "client";
     }
     const bucket = buckets.get(key);
     if (bucket) bucket.push(col);
