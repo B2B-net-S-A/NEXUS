@@ -29,7 +29,15 @@ from app.models.job import Job, JobStatus, RemotePolicy
 # Wartownik, bo `email=None` jest tu ZNACZĄCĄ wartością (kandydat bez adresu —
 # `test_shortlist_email_400_when_no_email`). Idiom `email or "<domyślny>"`
 # zamieniłby to `None` na adres i po cichu wyłączył tamten test.
-_AUTO_EMAIL = object()
+#
+# Wartownik jest instancją WŁASNEJ klasy, nie gołym `object()`: adnotacja
+# `str | None | object` upraszcza się do `object`, więc type-checker
+# przepuściłby dowolną wartość i adnotacja przestałaby cokolwiek znaczyć.
+class _Unset:
+    pass
+
+
+_AUTO_EMAIL = _Unset()
 
 
 def _unique_email() -> str:
@@ -39,7 +47,7 @@ def _unique_email() -> str:
     return f"shortlist-{uuid.uuid4().hex[:8]}@example.com"
 
 
-async def _seed_candidate(*, email: str | None | object = _AUTO_EMAIL) -> int:
+async def _seed_candidate(*, email: str | None | _Unset = _AUTO_EMAIL) -> int:
     if email is _AUTO_EMAIL:
         email = _unique_email()
     async with AsyncSessionLocal() as db:
