@@ -364,6 +364,12 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
         "onsite_days_per_week": 3,
         "office_location": "Warszawa",
         "must_skills": ["python"],
+        # 0278 + naprawa 08.09: rubryki mówią, które must-have REALNIE bramkują,
+        # a które są punktem wymagań i zostają wyłącznie sygnałem scoringowym.
+        # Bramka, która po cichu nie działa, jest tym samym błędem co ciche
+        # ukrywanie — patrz test_must_gate_prose_regression.py.
+        "must_skills_gating": ["python"],
+        "must_skills_ignored": [],
     }
     ok_row = _match(body_fallback, ok_id)
     assert ok_row is not None
