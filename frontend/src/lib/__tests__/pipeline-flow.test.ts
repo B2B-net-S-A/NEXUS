@@ -10,11 +10,13 @@ import {
   findStageColumn,
   groupKanbanColumns,
   groupKeyForColumn,
+  formatExpectedRate,
   itemFullName,
   moveBlockedReason,
   selectPendingVerifications,
   selectScreeningQueue,
   selectVerifiedQueue,
+  stageAgeTone,
 } from "@/lib/pipeline-flow";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
@@ -363,5 +365,61 @@ describe("groupKeyForColumn — bez znajomości reszty tablicy", () => {
   it("etykiety grup są jednym źródłem prawdy dla widoku", () => {
     expect(PIPELINE_GROUP_LABEL.closed).toBe("Odrzuceni / wycofani");
     expect(PIPELINE_GROUP_LABEL.client).toBe("U klienta (CV → interview)");
+  });
+});
+
+describe("stageAgeTone", () => {
+  it("brak wieku to `neutral`, nie „w porządku” — zielona kropka obiecywałaby wiedzę, której nie ma", () => {
+    expect(stageAgeTone(undefined)).toBe("neutral");
+    expect(stageAgeTone(null)).toBe("neutral");
+  });
+
+  it("bez SLA klienta trzyma progi z makiety: 7 dni to `bad`, 3 dni to `warn`", () => {
+    expect(stageAgeTone(1)).toBe("ok");
+    expect(stageAgeTone(3)).toBe("warn");
+    expect(stageAgeTone(8)).toBe("bad");
+  });
+
+  it("z SLA klienta progi liczą się OD NIEGO, nie od stałej", () => {
+    // SLA 5 dni: piątego dnia przekroczone, trzeciego (60 %) ostrzega.
+    expect(stageAgeTone(5, 5)).toBe("bad");
+    expect(stageAgeTone(3, 5)).toBe("warn");
+    expect(stageAgeTone(2, 5)).toBe("ok");
+    // Bez tego kandydat u klienta z 3-dniowym SLA byłby „ok" do siódmego dnia.
+    expect(stageAgeTone(4, 3)).toBe("bad");
+  });
+});
+
+describe("formatExpectedRate", () => {
+  it("skraca jednostkę tak, jak mówi o niej rekruter", () => {
+    expect(
+      formatExpectedRate(
+        item({ expected_rate_value: 118, expected_rate_unit: "hourly" }),
+      ),
+    ).toBe("118 PLN/h");
+    // Backend zwraca `Numeric` jako string — obie postaci muszą dać to samo.
+    expect(
+      formatExpectedRate(
+        item({ expected_rate_value: "544", expected_rate_unit: "daily" }),
+      ),
+    ).toBe("544 PLN/dzień");
+    expect(
+      formatExpectedRate(
+        item({ expected_rate_value: 20000, expected_rate_unit: "monthly" }),
+      ),
+    ).toBe("20000 PLN/mc");
+  });
+
+  it("brak stawki to `null` — pusty napis udawałby zero", () => {
+    expect(formatExpectedRate(item())).toBeNull();
+    expect(formatExpectedRate(item({ expected_rate_value: null }))).toBeNull();
+  });
+
+  it("bez jednostki pokazuje walutę, zamiast zmyślać godziny", () => {
+    expect(
+      formatExpectedRate(
+        item({ expected_rate_value: 118, expected_rate_currency: "EUR" }),
+      ),
+    ).toBe("118 EUR");
   });
 });

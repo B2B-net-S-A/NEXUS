@@ -187,3 +187,88 @@ export function describeCvHandoffSuccess(
   }
   return parts.join(" ");
 }
+
+// ── Podgląd marży (makieta kroku 06) ───────────────────────────────────────
+
+export interface MarginPreviewInput {
+  /** Stawka do klienta wpisana w doku (surowa treść pola). */
+  clientRate: string;
+  clientUnit: RateUnit;
+  /** Stawka oczekiwana kandydata z karty pipeline'u. */
+  candidateRate: string | number | null | undefined;
+  candidateUnit: RateUnit | null | undefined;
+  candidateCurrency?: string | null;
+  clientCurrency?: string;
+}
+
+export interface MarginPreview {
+  /** Różnica w tej samej jednostce; `null` = nie da się policzyć. */
+  value: number | null;
+  /** Udział marży w stawce klienta (0–1); `null` razem z `value`. */
+  ratio: number | null;
+  /** Zdanie do pola „Marża (podgląd)" — zawsze niepuste. */
+  label: string;
+  /** Powód, dla którego nie liczymy — do `title`, nigdy zamiast liczby. */
+  reason: string | null;
+}
+
+/**
+ * Marża = stawka klienta − stawka kandydata, WYŁĄCZNIE w tej samej jednostce
+ * i walucie.
+ *
+ * Przeliczanie jednostek jest tu świadomie zabronione: `RATE_UNIT` rządzi
+ * także interpretacją stawki klienta, a dzienna stawka przeczytana jako
+ * godzinowa rozsadza marżę 8-krotnie (ta sama pułapka co w module zamówień).
+ * Nieporównywalne wejście daje „—" z powodem, nie liczbę „na oko".
+ */
+export function computeMarginPreview({
+  clientRate,
+  clientUnit,
+  candidateRate,
+  candidateUnit,
+  candidateCurrency,
+  clientCurrency = "PLN",
+}: MarginPreviewInput): MarginPreview {
+  const none = (reason: string): MarginPreview => ({
+    value: null,
+    ratio: null,
+    label: "—",
+    reason,
+  });
+
+  const client = Number.parseFloat(String(clientRate).replace(",", "."));
+  if (!Number.isFinite(client) || client <= 0) {
+    return none("Wpisz stawkę do klienta, żeby zobaczyć marżę.");
+  }
+  if (candidateRate == null || candidateRate === "") {
+    return none("Kandydat nie ma zapisanej stawki oczekiwanej.");
+  }
+  const candidate = Number.parseFloat(String(candidateRate).replace(",", "."));
+  if (!Number.isFinite(candidate)) {
+    return none("Stawki oczekiwanej kandydata nie da się odczytać jako liczby.");
+  }
+  if (!candidateUnit || candidateUnit !== clientUnit) {
+    return none(
+      "Różne jednostki stawek — marży nie liczymy, żeby nie pomylić dnia z godziną.",
+    );
+  }
+  const candidateCur = (candidateCurrency ?? "PLN").trim().toUpperCase();
+  if (candidateCur !== clientCurrency.trim().toUpperCase()) {
+    return none("Różne waluty stawek — marży nie liczymy bez kursu.");
+  }
+
+  const value = Math.round((client - candidate) * 100) / 100;
+  const ratio = value / client;
+  const unitLabel =
+    clientUnit === "hourly"
+      ? "PLN/h"
+      : clientUnit === "daily"
+        ? "PLN/dzień"
+        : "PLN/mc";
+  return {
+    value,
+    ratio,
+    label: `${value.toLocaleString("pl-PL")} ${unitLabel} · ${Math.round(ratio * 100)} %`,
+    reason: null,
+  };
+}

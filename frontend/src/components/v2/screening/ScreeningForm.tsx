@@ -37,6 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { FormField, TextareaField } from "@/components/v2/forms";
+import { cn } from "@/lib/utils";
 
 export const FIT_OPTIONS = [
   {
@@ -218,6 +219,13 @@ export function ScreeningFormFields({
     <div className="space-y-5">
       {questions.map((q, i) => {
         const dealBreakerName = `answers.${q.id}.deal_breaker_hit` as const;
+        // Chip stanu pytania — makieta kroku 05 pokazuje przy każdym pytaniu,
+        // czy jest odpowiedź, ZANIM ktoś rozwinie arkusz. Liczony z żywej
+        // wartości pola, nie z zapisu, żeby nie kłamał w trakcie pisania.
+        const answered = Boolean(
+          (methods.watch(`answers.${q.id}.response`) ?? "").trim(),
+        );
+        const dealBreakerHit = Boolean(methods.watch(dealBreakerName));
         return (
           <div
             key={q.id}
@@ -227,22 +235,48 @@ export function ScreeningFormFields({
               <Badge variant="soft" size="sm" className="shrink-0 font-mono">
                 Q{i + 1}
               </Badge>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-foreground">
-                  {q.question}
-                </p>
+              <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
+                {q.question}
+              </p>
+              <span
+                className={cn(
+                  "shrink-0 text-[10.5px] font-medium",
+                  dealBreakerHit
+                    ? "text-destructive-muted-foreground"
+                    : answered
+                      ? "text-success-muted-foreground"
+                      : "text-warning-muted-foreground",
+                )}
+              >
+                {dealBreakerHit
+                  ? "narusza deal-breaker"
+                  : answered
+                    ? "odpowiedziano"
+                    : "bez odpowiedzi"}
+              </span>
+            </div>
+            {(q.ideal_answer || q.deal_breaker) && (
+              <dl className="grid grid-cols-[92px_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-xs">
                 {q.ideal_answer && (
-                  <p className="mt-1 text-xs italic text-muted-foreground">
-                    Idealnie: {q.ideal_answer}
-                  </p>
+                  <>
+                    <dt className="text-[11px] text-muted-foreground">
+                      Idealnie
+                    </dt>
+                    <dd className="text-foreground">{q.ideal_answer}</dd>
+                  </>
                 )}
                 {q.deal_breaker && (
-                  <p className="mt-1 text-xs text-primary">
-                    Deal-breaker: {q.deal_breaker}
-                  </p>
+                  <>
+                    <dt className="text-[11px] text-muted-foreground">
+                      Deal-breaker
+                    </dt>
+                    <dd className="text-destructive-muted-foreground">
+                      {q.deal_breaker}
+                    </dd>
+                  </>
                 )}
-              </div>
-            </div>
+              </dl>
+            )}
             <FormField name={`answers.${q.id}.response`} label="Odpowiedź">
               <TextareaField
                 name={`answers.${q.id}.response`}
@@ -252,7 +286,7 @@ export function ScreeningFormFields({
             </FormField>
             <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
               <Checkbox
-                checked={!!methods.watch(dealBreakerName)}
+                checked={dealBreakerHit}
                 onCheckedChange={(v) =>
                   methods.setValue(dealBreakerName, !!v, {
                     shouldValidate: true,
@@ -329,12 +363,32 @@ export function ScreeningSubmitError({ message }: { message: string }) {
 }
 
 /** Rekrutacja bez pytań Championa — to nie jest awaria ani brak uprawnień. */
-export function ScreeningNoQuestions() {
+export function ScreeningNoQuestions({
+  onOpenChampion,
+}: {
+  /**
+   * Wejście do sekcji 5 Championa. Bez niego pusty stan mówi „poproś TAC"
+   * i zostawia czytelnika bez drogi — a pytania uzupełnia się o jedną
+   * zakładkę stąd.
+   */
+  onOpenChampion?: () => void;
+} = {}) {
   return (
     <div className="py-8 text-center text-sm text-muted-foreground">
       <AlertTriangle className="mx-auto mb-2 h-10 w-10 opacity-40" />
-      Ta rekrutacja nie ma skonfigurowanego Champion Profile — poproś TAC
-      o uzupełnienie pytań screeningowych.
+      <p>
+        Ta rekrutacja nie ma skonfigurowanego Champion Profile — poproś TAC
+        o uzupełnienie pytań screeningowych.
+      </p>
+      {onOpenChampion && (
+        <button
+          type="button"
+          onClick={onOpenChampion}
+          className="mt-2 text-xs font-medium text-primary hover:underline"
+        >
+          Otwórz Zlecenie i Champion (sekcja 5 — pytania screeningowe)
+        </button>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Krok 08 „Umowa" — program „flow w języku C2" (PR 7/7).
+ * Krok 08 „Umowa" — program „flow w języku C2" (układ z makiety, fala 3).
  *
  * Ostatni krok rozgrywa się dziś w trzech modułach POZA rekrutacją: Generator
  * Umów B2B (`/contracts/b2b-generator`), Kontrakty (`/contracts`) i Zamówienia
@@ -28,12 +28,12 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowUpRight,
+  BellRing,
   CheckCircle2,
-  ClipboardList,
   FileSignature,
+  HandHeart,
   Loader2,
   ShieldAlert,
-  XCircle,
 } from "lucide-react";
 
 import {
@@ -56,6 +56,23 @@ import {
   type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import {
+  ChromeTimeline,
+  ChromeTimelineEntry,
+  DockActions,
+  DockSection,
+  KvList,
+  RailRow,
+  RailSection,
+  ReadyItem,
+  ReqRow,
+  ToolPill,
+  WorkbenchCard,
+  WorkbenchDock,
+  WorkbenchHeader,
+  WorkbenchRail,
+  type DockTabItem,
+} from "@/components/v2/jobs/workbench-chrome";
 
 /**
  * Bramka aktywacji kontraktu — lustro `ACTIVATION_REQUIRED_FIELDS`
@@ -81,6 +98,8 @@ const CONTRACT_STATUS_LABEL: Record<string, string> = {
   suspended: "Bez projektu",
   closed: "Zakończona",
 };
+
+type DockTab = "after" | "order" | "alerts";
 
 export interface JobContractTabProps {
   jobId: number;
@@ -121,6 +140,7 @@ export function JobContractTab({
     null,
   );
   const [closeOpen, setCloseOpen] = useState(false);
+  const [dockTab, setDockTab] = useState<DockTab>("after");
 
   const entries = useMemo<ContractEntry[]>(
     () =>
@@ -145,6 +165,11 @@ export function JobContractTab({
       entries[0]
     );
   }, [entries, selectedCandidateId]);
+
+  const selectedName = selected
+    ? `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
+      "Kandydat"
+    : null;
 
   // Umowy wygenerowane DLA TEJ REKRUTACJI — filtr serwerowy (`job_id`), nie
   // przesiewanie pobranych `limit` wierszy rejestru.
@@ -186,69 +211,108 @@ export function JobContractTab({
   });
   const listBlocked = isBlockingViewState(listViewState);
 
+  const dockTabs: DockTabItem[] = [
+    { value: "after", label: "Po podpisie" },
+    { value: "order", label: "Zamówienie" },
+    { value: "alerts", label: "Alerty DL" },
+  ];
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {/* ── Lewa kolumna: na etapach umowy ─────────────────────────── */}
-      <aside className="space-y-4">
-        <section className="rounded-xl border border-border bg-card p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-xs font-semibold text-foreground">
-              Na etapach umowy
-            </h3>
-            <Badge variant="outline" size="sm" className="tabular-nums">
-              {entries.length}
-            </Badge>
+      {/* ── Szyna: na etapach umowy, podpis, alternatywy, moduły ────── */}
+      <WorkbenchRail
+        icon={<FileSignature className="h-4 w-4 text-primary" />}
+        title="Na etapach umowy"
+        count={entries.length}
+        meta={hiredCount > 0 ? `${hiredCount} zatrudnionych` : null}
+        footer={
+          primaryContract ? (
+            <SigningStatusHistory contract={primaryContract} />
+          ) : undefined
+        }
+      >
+        {listViewState === "loading" ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
           </div>
-          {listViewState === "loading" ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-            </div>
-          ) : listBlocked ? (
-            <QueryStateNotice
-              state={listViewState as "forbidden" | "not_found" | "error"}
-              description={
-                listViewState === "error"
-                  ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
-                  : undefined
-              }
-              onRetry={listViewState === "error" ? onColumnsRetry : undefined}
-            />
-          ) : listViewState === "empty" ? (
-            <p className="text-xs text-muted-foreground">
-              Nikt nie jest jeszcze na etapie umowy ani zatrudnienia.
-            </p>
-          ) : (
-            <ul className="space-y-1">
-              {entries.map(({ item, col }) => {
-                const active = item.candidate_id === selected?.item.candidate_id;
-                return (
-                  <li key={item.candidate_id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCandidateId(item.candidate_id)}
-                      aria-current={active ? "true" : undefined}
-                      className={cn(
-                        "w-full rounded-lg border px-2 py-1.5 text-left text-xs transition-colors",
-                        active
-                          ? "border-primary bg-primary/5 text-foreground"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted",
-                      )}
-                    >
-                      <span className="block truncate font-medium text-foreground">
-                        {`${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
-                          "Kandydat"}
-                      </span>
-                      <span className="truncate">{columnLabel(col)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
+        ) : listBlocked ? (
+          <QueryStateNotice
+            state={listViewState as "forbidden" | "not_found" | "error"}
+            description={
+              listViewState === "error"
+                ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
+                : undefined
+            }
+            onRetry={listViewState === "error" ? onColumnsRetry : undefined}
+          />
+        ) : listViewState === "empty" ? (
+          <p className="text-xs text-muted-foreground">
+            Nikt nie jest jeszcze na etapie umowy ani zatrudnienia.
+          </p>
+        ) : (
+          <div className="space-y-0.5" role="list" aria-label="Na etapach umowy">
+            {entries.map(({ item, col }) => (
+              <div key={item.candidate_id} role="listitem">
+                <RailRow
+                  tone="warn"
+                  label={
+                    `${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
+                    "Kandydat"
+                  }
+                  meta={columnLabel(col)}
+                  active={item.candidate_id === selected?.item.candidate_id}
+                  onSelect={() => setSelectedCandidateId(item.candidate_id)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
-        <section className="rounded-xl border border-border bg-card p-3 text-xs">
-          <h3 className="mb-1 font-semibold text-foreground">Moduły</h3>
+        <RailSection label="Podpis">
+          {contractsViewState === "loading" ? (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie umów…
+            </div>
+          ) : contractsViewState === "forbidden" ||
+            contractsViewState === "not_found" ||
+            contractsViewState === "error" ? (
+            // Komunikat awarii stoi RAZ, w karcie obok — dwa te same napisy
+            // na jednym ekranie czyta się jak dwie różne awarie.
+            <p className="text-[11px] text-warning-muted-foreground">
+              Stanu podpisu nie znamy — patrz komunikat w karcie zamknięcia.
+            </p>
+          ) : primaryContract ? (
+            <SigningTimeline contract={primaryContract} />
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Brak wygenerowanej umowy B2B dla tej rekrutacji.
+            </p>
+          )}
+        </RailSection>
+
+        <RailSection
+          label="Alternatywy (jak dziś)"
+          note="Wszystkie trzy akcje mieszkają w Generatorze Umów B2B — tu jest do nich wejście, nie ich kopia."
+        >
+          <div className="flex flex-wrap gap-1">
+            {["Oznacz wysłaną", "Wgraj podpisaną (PDF)", "Potwierdź w pełni podpisaną"].map(
+              (label) => (
+                <Link
+                  key={label}
+                  href="/contracts/b2b-generator"
+                  className="inline-flex h-6 items-center rounded-full border border-border px-2 text-[11px] text-foreground hover:border-primary hover:bg-primary/5"
+                >
+                  {label}
+                </Link>
+              ),
+            )}
+          </div>
+        </RailSection>
+
+        <RailSection
+          label="Moduły"
+          note="Te moduły nie zmieniają miejsca — ta zakładka czyta ich stan."
+        >
           <div className="flex flex-col gap-1">
             <ModuleLink href="/contracts/b2b-generator" label="Generator Umów B2B" />
             <ModuleLink href="/contracts" label="Kontrakty" />
@@ -259,13 +323,10 @@ export function JobContractTab({
               />
             )}
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Te moduły nie zmieniają miejsca — ta zakładka czyta ich stan.
-          </p>
-        </section>
-      </aside>
+        </RailSection>
+      </WorkbenchRail>
 
-      {/* ── Środek: podpis + hook + bramka aktywacji ───────────────── */}
+      {/* ── Środek: zamknięcie, hook i bramka aktywacji ────────────── */}
       <section className="min-w-0 space-y-4">
         {listBlocked ? null : listViewState === "empty" ? (
           <EmptyState
@@ -275,111 +336,112 @@ export function JobContractTab({
           />
         ) : (
           <>
-            <div className="rounded-xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[10px] font-semibold tracking-wide text-primary uppercase">
-                    Podpis
-                  </div>
-                  <h2 className="truncate text-base font-semibold text-foreground">
-                    {selected
-                      ? `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
-                        "Kandydat"
-                      : "Kandydat"}
-                  </h2>
-                  {selected && (
-                    <p className="text-xs text-muted-foreground">
-                      {columnLabel(selected.col)}
-                      {selected.item.days_in_stage != null
-                        ? ` · ${selected.item.days_in_stage} ${selected.item.days_in_stage === 1 ? "dzień" : "dni"} na etapie`
-                        : ""}
-                    </p>
-                  )}
-                </div>
-                {primaryContract && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant="outline" size="sm" className="font-mono">
-                      {primaryContract.contract_number}
-                    </Badge>
-                    <Badge
-                      size="sm"
-                      variant={
-                        primaryContract.signature_status === "signed_both"
-                          ? "success"
-                          : "warning"
-                      }
-                    >
-                      {SIGNATURE_LABEL[primaryContract.signature_status] ??
-                        primaryContract.signature_status}
-                    </Badge>
-                    <Badge size="sm" variant="soft">
-                      {CONTRACT_STATUS_LABEL[primaryContract.contract_status] ??
-                        primaryContract.contract_status}
-                    </Badge>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3">
-                {contractsViewState === "loading" ? (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie
-                    umów…
-                  </div>
-                ) : contractsViewState === "forbidden" ||
-                  contractsViewState === "not_found" ||
-                  contractsViewState === "error" ? (
-                  <QueryStateNotice
-                    state={contractsViewState}
-                    description={
-                      contractsViewState === "error"
-                        ? "Nie udało się wczytać umów tej rekrutacji. Umowy nadal istnieją — to nieudane pobranie listy."
-                        : undefined
+            <WorkbenchHeader
+              title={`Zamknięcie · ${selectedName ?? "Kandydat"}`}
+              subtitle={[
+                primaryContract
+                  ? `Umowa ${primaryContract.contract_number}`
+                  : "Bez wygenerowanej umowy B2B",
+                primaryContract?.start_date
+                  ? `start ${formatDate(primaryContract.start_date)}`
+                  : null,
+                primaryContract?.client_name,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              badges={
+                primaryContract ? (
+                  <Badge
+                    size="sm"
+                    variant={
+                      primaryContract.signature_status === "signed_both"
+                        ? "success"
+                        : "warning"
                     }
-                    onRetry={
-                      contractsViewState === "error"
-                        ? () => void contractsQuery.refetch()
-                        : undefined
-                    }
-                  />
-                ) : primaryContract ? (
-                  <>
-                    {selected &&
-                    primaryContract.candidate_id !== selected.item.candidate_id ? (
-                      <p className="mb-2 rounded-md border border-warning-muted bg-warning-muted/40 px-2 py-1 text-[11px] text-warning-muted-foreground">
-                        Ta umowa nie jest powiązana z żadnym kandydatem —
-                        pokazujemy ją, bo należy do tej rekrutacji. Powiązanie
-                        ustawia potwierdzenie podpisu w Generatorze B2B.
-                      </p>
-                    ) : null}
-                    <SigningTimeline contract={primaryContract} />
-                  </>
-                ) : (
-                  <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
-                    Dla tej rekrutacji nie wygenerowano jeszcze umowy B2B.
-                    Dokument tworzy Generator Umów B2B — hooki podpisu same
-                    przeniosą kandydata na „Umowa wysłana” i „Umowa podpisana”.
-                  </p>
-                )}
-              </div>
-
-              {primaryContract && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
+                  >
+                    {SIGNATURE_LABEL[primaryContract.signature_status] ??
+                      primaryContract.signature_status}
+                  </Badge>
+                ) : null
+              }
+              actions={
+                <>
                   <ModuleLink
                     href="/contracts/b2b-generator"
                     label="Otwórz w Generatorze B2B"
                     variant="button"
                   />
-                  {primaryContract.contract_id != null && (
+                  {primaryContract?.contract_id != null && (
                     <ModuleLink
                       href={`/contracts/${primaryContract.contract_id}`}
                       label="Kontrakt w rejestrze"
                       variant="button"
                     />
                   )}
-                </div>
-              )}
-            </div>
+                </>
+              }
+              tools={
+                <>
+                  {selected && (
+                    <ToolPill tone="warn">
+                      {columnLabel(selected.col)}
+                      {selected.item.days_in_stage != null
+                        ? ` · ${selected.item.days_in_stage} d`
+                        : ""}
+                    </ToolPill>
+                  )}
+                  <ToolPill
+                    tone={
+                      primaryContract?.contract_id != null ? "info" : "neutral"
+                    }
+                  >
+                    Kontrakt:{" "}
+                    {primaryContract?.contract_id != null
+                      ? `#${primaryContract.contract_id}`
+                      : "szkic po podpisie"}
+                  </ToolPill>
+                  <ToolPill>Zamówienie: szkic po podpisie</ToolPill>
+                  {primaryContract && (
+                    <ToolPill>
+                      {CONTRACT_STATUS_LABEL[primaryContract.contract_status] ??
+                        primaryContract.contract_status}
+                    </ToolPill>
+                  )}
+                </>
+              }
+            />
+
+            {contractsViewState === "forbidden" ||
+            contractsViewState === "not_found" ||
+            contractsViewState === "error" ? (
+              <QueryStateNotice
+                state={contractsViewState}
+                description={
+                  contractsViewState === "error"
+                    ? "Nie udało się wczytać umów tej rekrutacji. Umowy nadal istnieją — to nieudane pobranie listy."
+                    : undefined
+                }
+                onRetry={
+                  contractsViewState === "error"
+                    ? () => void contractsQuery.refetch()
+                    : undefined
+                }
+              />
+            ) : !primaryContract && contractsViewState !== "loading" ? (
+              <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
+                Dla tej rekrutacji nie wygenerowano jeszcze umowy B2B. Dokument
+                tworzy Generator Umów B2B — hooki podpisu same przeniosą
+                kandydata na „Umowa wysłana” i „Umowa podpisana”.
+              </p>
+            ) : selected &&
+              primaryContract &&
+              primaryContract.candidate_id !== selected.item.candidate_id ? (
+              <p className="rounded-md border border-warning-muted bg-warning-muted/40 px-2 py-1 text-[11px] text-warning-muted-foreground">
+                Ta umowa nie jest powiązana z żadnym kandydatem — pokazujemy ją,
+                bo należy do tej rekrutacji. Powiązanie ustawia potwierdzenie
+                podpisu w Generatorze B2B.
+              </p>
+            ) : null}
 
             <HiredHookCard clientId={clientId} hiredCount={hiredCount} />
 
@@ -392,73 +454,207 @@ export function JobContractTab({
 
       {/* ── Dok „Przekazanie do Delivery" ──────────────────────────── */}
       <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-        <div className="space-y-3 rounded-xl border border-border bg-card p-4">
-          <div>
-            <div className="text-[10px] font-semibold tracking-wide text-primary uppercase">
-              Przekazanie do Delivery
-            </div>
-            <h3 className="text-sm font-semibold text-foreground">
-              {jobTitle}
-            </h3>
-          </div>
+        <WorkbenchDock
+          name="Przekazanie do Delivery"
+          who={selectedName ?? jobTitle}
+          whoSub={[
+            primaryContract?.client_name,
+            jobTitle,
+            primaryContract?.start_date
+              ? `od ${formatDate(primaryContract.start_date)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          tabs={dockTabs}
+          activeTab={dockTab}
+          onTabChange={(v) => setDockTab(v as DockTab)}
+          footer={
+            <>
+              <ShieldAlert className="h-3 w-3 shrink-0" />
+              Automatu zamykania rekrutacji celowo nie ma — przycisk, nie skutek
+              uboczny.
+            </>
+          }
+        >
+          {dockTab === "after" && (
+            <>
+              <dl className="space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Na etapach umowy</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {entries.length}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Zatrudnieni</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {hiredCount}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground">Umowy tej rekrutacji</dt>
+                  <dd className="font-medium tabular-nums text-foreground">
+                    {contractsQuery.isLoading
+                      ? "—"
+                      : (contractsQuery.data ?? []).length}
+                  </dd>
+                </div>
+              </dl>
 
-          <dl className="space-y-2 text-xs">
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-muted-foreground">Na etapach umowy</dt>
-              <dd className="font-medium tabular-nums text-foreground">
-                {entries.length}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-muted-foreground">Zatrudnieni</dt>
-              <dd className="font-medium tabular-nums text-foreground">
-                {hiredCount}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <dt className="text-muted-foreground">Umowy tej rekrutacji</dt>
-              <dd className="font-medium tabular-nums text-foreground">
-                {contractsQuery.isLoading
-                  ? "—"
-                  : (contractsQuery.data ?? []).length}
-              </dd>
-            </div>
-          </dl>
-
-          <div className="space-y-1.5 border-t border-border pt-3">
-            <div className="text-xs font-semibold text-foreground">
-              Kto dostaje powiadomienie
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              Po ruchu na „Zatrudniony” Delivery Leadowie tego klienta dostają
-              „Nowy draft kontraktu + zamówienia” z linkiem do zakładki
-              Zamówienia. Finanse widzą kontrakt dopiero po jego aktywacji.
-            </p>
-          </div>
-
-          <div className="space-y-1.5 border-t border-border pt-3">
-            {canCloseJob && !readOnly ? (
-              <Button
-                type="button"
-                size="sm"
-                className="w-full justify-start"
-                onClick={() => setCloseOpen(true)}
+              <DockSection
+                title="Kontrakt"
+                right={
+                  primaryContract?.contract_id != null
+                    ? `/contracts/${primaryContract.contract_id}`
+                    : undefined
+                }
               >
-                <CheckCircle2 className="h-3.5 w-3.5" /> Zamknij rekrutację
-                z powodem
-              </Button>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                Zamknięcie rekrutacji wymaga roli TAC, Delivery Leada albo
-                administratora.
+                <KvList
+                  rows={[
+                    {
+                      k: "Status",
+                      v:
+                        primaryContract?.contract_id != null
+                          ? "Szkic → Aktywny po uzupełnieniu bramki"
+                          : "Szkic powstanie po ruchu na „Zatrudniony”",
+                    },
+                    {
+                      k: "Stawki",
+                      v: "w module Kontrakty (bramka finansowa Delivery)",
+                    },
+                    {
+                      k: "Okres",
+                      v: primaryContract?.start_date
+                        ? `${formatDate(primaryContract.start_date)} → bezterminowo, o ile nikt nie wpisze daty końca`
+                        : "start z umowy, koniec niewymagany",
+                    },
+                  ]}
+                />
+              </DockSection>
+
+              <DockSection title="Kto dostał powiadomienie">
+                <ul className="space-y-1 text-xs">
+                  <NotifiedRow
+                    label="Delivery Leadowie klienta"
+                    detail={
+                      clientId != null
+                        ? "„Nowy draft kontraktu + zamówienia” — po ruchu na „Zatrudniony”"
+                        : "wymaga klienta przypisanego do rekrutacji"
+                    }
+                    done={hiredCount > 0 && clientId != null}
+                  />
+                  <NotifiedRow
+                    label="TAC — właściciel requestu"
+                    detail="podpowiedź „komplet obsady — zamknij rekrutację”"
+                    done={hiredCount > 0}
+                  />
+                  <NotifiedRow
+                    label="Finanse"
+                    detail="dopiero po aktywacji kontraktu"
+                    done={false}
+                  />
+                </ul>
+              </DockSection>
+            </>
+          )}
+
+          {dockTab === "order" && (
+            <DockSection
+              title="Zamówienie"
+              right={
+                clientId != null
+                  ? `/clients/${clientId}?tab=zamowienia`
+                  : undefined
+              }
+            >
+              <KvList
+                rows={[
+                  { k: "Status", v: "Szkic · numer z PDF zamówienia (PO)" },
+                  {
+                    k: "Typ",
+                    v: "okresowe — chyba że klient jest kosztowy albo osoba jest na żywej linii grupy MD (wtedy szkic nie powstaje, z podanym powodem)",
+                  },
+                  {
+                    k: "Odczyt PDF",
+                    v: "reguły klienta stosują się przy wgraniu PO w module Zamówienia",
+                  },
+                ]}
+              />
+              {clientId != null ? (
+                <ModuleLink
+                  href={`/clients/${clientId}?tab=zamowienia`}
+                  label="Otwórz Zamówienia klienta"
+                  variant="button"
+                />
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Ta rekrutacja nie ma przypiętego klienta — bez niego nie ma
+                  zakładki Zamówienia ani odbiorcy powiadomienia.
+                </p>
+              )}
+            </DockSection>
+          )}
+
+          {dockTab === "alerts" && (
+            <DockSection title="Alerty Delivery Leada">
+              <p className="text-xs text-muted-foreground">
+                Po przekazaniu do Delivery kontraktem i zamówieniem opiekuje się
+                skaner alertów DL. Pięć typów spraw: kontrakt bez kompletu do
+                aktywacji, brak PDF zamówienia (PO), zbliżający się koniec
+                zamówienia, zbliżający się koniec kontraktu i wyczerpany budżet
+                MD. Nieobsłużona sprawa wraca co 7 dni jako NOWY wpis — dziennik
+                jest raportem czasu reakcji.
               </p>
-            )}
-            <p className="text-[11px] text-muted-foreground">
-              Automatu zamykania rekrutacji celowo nie ma — to przycisk, nie
-              skutek uboczny zatrudnienia.
-            </p>
+              {clientId != null && (
+                <ModuleLink
+                  href={`/clients/${clientId}?tab=zamowienia`}
+                  label="Sprawy tego klienta"
+                  variant="button"
+                />
+              )}
+            </DockSection>
+          )}
+
+          <div className="space-y-1.5 border-t border-border pt-3">
+            <DockActions>
+              {canCloseJob && !readOnly ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="col-span-2 w-full justify-start"
+                  onClick={() => setCloseOpen(true)}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {hiredCount > 0
+                    ? "Zamknij rekrutację: „Obsadzone przez nas”"
+                    : "Zamknij rekrutację z powodem"}
+                </Button>
+              ) : (
+                <p className="col-span-2 text-[11px] text-muted-foreground">
+                  Zamknięcie rekrutacji wymaga roli TAC, Delivery Leada albo
+                  administratora.
+                </p>
+              )}
+              {selected && (
+                <Link
+                  href={`/candidates/${selected.item.candidate_id}`}
+                  className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+                  title="Profil kandydata — onboarding i dokumenty"
+                >
+                  <HandHeart className="h-3.5 w-3.5" /> Onboarding →
+                </Link>
+              )}
+              <Link
+                href="/contracts"
+                className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+                title="Alerty DL prowadzi moduł Kontrakty i zakładka Zamówienia klienta"
+              >
+                <BellRing className="h-3.5 w-3.5" /> Alerty DL (5 typów)
+              </Link>
+            </DockActions>
           </div>
-        </div>
+        </WorkbenchDock>
       </aside>
 
       <JobCloseWithReasonDialog
@@ -476,6 +672,43 @@ export function JobContractTab({
 // ── Oś podpisu ──────────────────────────────────────────────────────────────
 
 function SigningTimeline({ contract }: { contract: B2BGeneratedContractRow }) {
+  const signed = contract.signature_status === "signed_both";
+  return (
+    <ChromeTimeline>
+      <ChromeTimelineEntry
+        tone="done"
+        title="Umowa wygenerowana"
+        meta={contract.contract_number}
+        who={[
+          contract.language ? `DOCX ${contract.language.toUpperCase()}` : null,
+          contract.created_at ? formatDate(contract.created_at) : null,
+          contract.created_by_name,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      />
+      <ChromeTimelineEntry
+        tone={signed ? "done" : "now"}
+        title={signed ? "Podpisana obustronnie" : "Czeka na podpis"}
+        meta={
+          contract.signing_date ? formatDate(contract.signing_date) : undefined
+        }
+        who={
+          contract.signed_at
+            ? `${formatDate(contract.signed_at)}${contract.signed_by_name ? ` · ${contract.signed_by_name}` : ""}`
+            : "→ „Umowa podpisana”, obie strony → „Zatrudniony”"
+        }
+      />
+    </ChromeTimeline>
+  );
+}
+
+/** Historia statusów umowy — rozwijana, w stopce szyny (jak w makiecie). */
+function SigningStatusHistory({
+  contract,
+}: {
+  contract: B2BGeneratedContractRow;
+}) {
   const historyQuery = useQuery<B2BStatusEvent[]>({
     queryKey: ["b2b-status-history", contract.id],
     queryFn: () => b2bGeneratorApi.statusHistory(contract.id),
@@ -491,120 +724,81 @@ function SigningTimeline({ contract }: { contract: B2BGeneratedContractRow }) {
   });
 
   return (
-    <div className="space-y-2">
-      <ol className="space-y-2 text-xs">
-        <TimelineRow
-          done
-          title="Umowa wygenerowana"
-          detail={[
-            contract.contract_number,
-            contract.created_at ? formatDate(contract.created_at) : null,
-            contract.created_by_name,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        />
-        <TimelineRow
-          done={contract.signature_status === "signed_both"}
-          title={
-            contract.signature_status === "signed_both"
-              ? "Podpisana obustronnie"
-              : "Czeka na podpis"
-          }
-          detail={
-            contract.signed_at
-              ? `${formatDate(contract.signed_at)}${contract.signed_by_name ? ` · ${contract.signed_by_name}` : ""}`
-              : "→ „Umowa podpisana”, obie strony → „Zatrudniony”"
-          }
-        />
-      </ol>
-
-      <details className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs">
-        <summary className="cursor-pointer font-medium text-foreground">
-          Historia statusów umowy
-        </summary>
-        <div className="mt-2 space-y-1.5">
-          {viewState === "loading" ? (
-            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-            </span>
-          ) : viewState === "forbidden" ||
-            viewState === "not_found" ||
-            viewState === "error" ? (
-            <QueryStateNotice
-              state={viewState}
-              onRetry={
-                viewState === "error"
-                  ? () => void historyQuery.refetch()
-                  : undefined
-              }
-            />
-          ) : viewState === "empty" ? (
-            <span className="text-muted-foreground">
-              Status tej umowy nie był jeszcze zmieniany.
-            </span>
-          ) : (
-            (historyQuery.data ?? []).map((event) => (
-              <div
-                key={event.id}
-                className="flex items-start justify-between gap-2 text-muted-foreground"
-              >
-                <span>
-                  <span className="font-medium text-foreground">
-                    {CONTRACT_STATUS_LABEL[event.to_status] ?? event.to_status}
-                  </span>
-                  {event.from_status
-                    ? ` ← ${CONTRACT_STATUS_LABEL[event.from_status] ?? event.from_status}`
+    <details className="rounded-lg border border-border bg-muted/20 p-2.5 text-xs">
+      <summary className="cursor-pointer font-medium text-foreground">
+        Historia statusów umowy
+      </summary>
+      <div className="mt-2 space-y-1.5">
+        {viewState === "loading" ? (
+          <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+          </span>
+        ) : viewState === "forbidden" ||
+          viewState === "not_found" ||
+          viewState === "error" ? (
+          <QueryStateNotice
+            state={viewState}
+            onRetry={
+              viewState === "error"
+                ? () => void historyQuery.refetch()
+                : undefined
+            }
+          />
+        ) : viewState === "empty" ? (
+          <span className="text-muted-foreground">
+            Status tej umowy nie był jeszcze zmieniany.
+          </span>
+        ) : (
+          (historyQuery.data ?? []).map((event) => (
+            <div
+              key={event.id}
+              className="flex items-start justify-between gap-2 text-muted-foreground"
+            >
+              <span>
+                <span className="font-medium text-foreground">
+                  {CONTRACT_STATUS_LABEL[event.to_status] ?? event.to_status}
+                </span>
+                {event.from_status
+                  ? ` ← ${CONTRACT_STATUS_LABEL[event.from_status] ?? event.from_status}`
+                  : ""}
+                {event.changed_by_name ? ` · ${event.changed_by_name}` : ""}
+              </span>
+              <span className="shrink-0">
+                {event.effective_date
+                  ? formatDate(event.effective_date)
+                  : event.created_at
+                    ? formatDate(event.created_at)
                     : ""}
-                  {event.changed_by_name ? ` · ${event.changed_by_name}` : ""}
-                </span>
-                <span className="shrink-0">
-                  {event.effective_date
-                    ? formatDate(event.effective_date)
-                    : event.created_at
-                      ? formatDate(event.created_at)
-                      : ""}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
-      </details>
-    </div>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </details>
   );
 }
 
-function TimelineRow({
-  done,
-  title,
+function NotifiedRow({
+  label,
   detail,
+  done,
 }: {
+  label: string;
+  detail: string;
   done: boolean;
-  title: string;
-  detail?: string | null;
 }) {
   return (
     <li className="flex items-start gap-2">
       <span
-        className={cn(
-          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
-          done
-            ? "bg-success-muted text-success-muted-foreground"
-            : "bg-warning-muted text-warning-muted-foreground",
-        )}
         aria-hidden="true"
-      >
-        {done ? (
-          <CheckCircle2 className="h-3 w-3" />
-        ) : (
-          <XCircle className="h-3 w-3" />
+        className={cn(
+          "mt-1 h-1.5 w-1.5 shrink-0 rounded-full",
+          done ? "bg-success" : "bg-border",
         )}
-      </span>
+      />
       <span className="min-w-0">
-        <span className="block font-medium text-foreground">{title}</span>
-        {detail ? (
-          <span className="block text-muted-foreground">{detail}</span>
-        ) : null}
+        <span className="font-medium text-foreground">{label}</span>{" "}
+        <span className="text-muted-foreground">— {detail}</span>
       </span>
     </li>
   );
@@ -620,57 +814,46 @@ function HiredHookCard({
   hiredCount: number;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <h3 className="text-sm font-semibold text-foreground">
-        Co zrobi system po „Zatrudniony”
-      </h3>
-      <p className="mt-1 text-xs text-muted-foreground">
+    <WorkbenchCard
+      title="Co zrobi system po „Zatrudniony”"
+      status="hook `hired` · jak dziś"
+    >
+      <p className="text-xs text-muted-foreground">
         Ruch na etap terminalny „Zatrudniony” wymaga jawnego potwierdzenia
         i uruchamia poniższe skutki. Zbiorczego zatrudniania nie ma — kartę
         przeciąga się pojedynczo.
       </p>
-      <ul className="mt-2 space-y-1.5 text-xs">
-        <HookRow
-          label="Szkic kontraktu (osoba × klient)"
-          detail="stawki, daty i tryb pracy do uzupełnienia w module Kontrakty"
+      <div>
+        <ReqRow
+          tone="y"
+          label="Szkic kontraktu (osoba × klient) — stawki, daty i tryb pracy do uzupełnienia"
+          tag="contracts"
         />
-        <HookRow
-          label="Szkic zamówienia klienta"
-          detail="pomijany z podanym powodem, gdy osoba jest już na żywej linii zamówienia MD albo klient jest kosztowy"
+        <ReqRow
+          tone="y"
+          label="Szkic zamówienia — pomijany z podanym powodem przy żywej linii grupy MD albo kliencie kosztowym"
+          tag="client_orders"
         />
-        <HookRow
-          label="Powiadomienie do Delivery Leadów klienta"
-          detail={
+        <ReqRow
+          tone={clientId != null ? "y" : "w"}
+          label={
             clientId != null
-              ? "„Nowy draft kontraktu + zamówienia” z linkiem do zakładki Zamówienia"
-              : "wymaga klienta przypisanego do rekrutacji"
+              ? "Powiadomienie do Delivery Leadów klienta: „Nowy draft kontraktu + zamówienia”"
+              : "Powiadomienie do Delivery Leadów — wymaga klienta przypisanego do rekrutacji"
           }
+          tag="notyfikacja"
         />
-        <HookRow
-          label="Podpowiedź zamknięcia rekrutacji"
-          detail={
+        <ReqRow
+          tone={hiredCount > 0 ? "w" : "n"}
+          label={
             hiredCount > 0
-              ? `Zatrudnionych: ${countPl(hiredCount, "osoba", "osoby", "osób")} — przy komplecie obsady system podpowiada „Obsadzone przez nas”.`
-              : "przy komplecie obsady system podpowiada powód „Obsadzone przez nas”"
+              ? `Zatrudnionych: ${countPl(hiredCount, "osoba", "osoby", "osób")} — przy komplecie obsady system podpowiada „Obsadzone przez nas”`
+              : "Przy komplecie obsady system podpowiada powód „Obsadzone przez nas”"
           }
+          tag="suggest_next_step"
         />
-      </ul>
-    </div>
-  );
-}
-
-function HookRow({ label, detail }: { label: string; detail: string }) {
-  return (
-    <li className="flex items-start gap-2">
-      <ClipboardList
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
-        aria-hidden="true"
-      />
-      <span>
-        <span className="font-medium text-foreground">{label}</span>{" "}
-        <span className="text-muted-foreground">— {detail}</span>
-      </span>
-    </li>
+      </div>
+    </WorkbenchCard>
   );
 }
 
@@ -678,51 +861,47 @@ function HookRow({ label, detail }: { label: string; detail: string }) {
 
 function ActivationGateCard({ contractId }: { contractId: number | null }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <ShieldAlert
-          className="h-4 w-4 text-warning-muted-foreground"
-          aria-hidden="true"
-        />
-        <h3 className="text-sm font-semibold text-foreground">
-          Czego wymaga aktywacja kontraktu
-        </h3>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">
+    <WorkbenchCard
+      title="Czego wymaga aktywacja kontraktu"
+      status={contractId != null ? undefined : "bramka, nie policzone braki"}
+    >
+      <p className="text-xs text-muted-foreground">
         Szkic przechodzi na „Aktywny” dopiero z kompletem tych pól. Backend
         odbija brak 409 z ich listą — tu jest ta sama lista, żeby nikt jej nie
         szukał po komunikacie błędu.
       </p>
-      <ul className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
+      <div className="space-y-1.5">
         {ACTIVATION_REQUIRED_FIELDS.map((field) => (
-          <li
+          <ReadyItem
             key={field}
-            className="rounded-md border border-border bg-muted/20 px-2 py-1 text-foreground"
-          >
-            {CONTRACT_FIELD_LABELS[field] ?? field}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Data zakończenia NIE jest wymagana — umowa bezterminowa jest stanem
-        docelowym, a nie brakiem danych.
-      </p>
-      {contractId != null ? (
-        <div className="mt-2">
-          <ModuleLink
-            href={`/contracts/${contractId}`}
-            label="Sprawdź braki na kontrakcie"
-            variant="button"
+            // `z`, nie `y`: nie wiemy, czy pole JEST wypełnione (wiersz
+            // kontraktu stoi za bramką Delivery). Zielony haczyk obiecywałby
+            // wiedzę, której ta zakładka nie ma.
+            tone="z"
+            title={CONTRACT_FIELD_LABELS[field] ?? field}
+            detail="wymagane do przejścia na „Aktywny”"
           />
-        </div>
+        ))}
+        <ReadyItem
+          tone="z"
+          title={CONTRACT_FIELD_LABELS.end_date ?? "end_date"}
+          detail="niewymagana — umowa bezterminowa jest stanem docelowym, a nie brakiem danych"
+        />
+      </div>
+      {contractId != null ? (
+        <ModuleLink
+          href={`/contracts/${contractId}`}
+          label="Sprawdź braki na kontrakcie"
+          variant="button"
+        />
       ) : (
-        <p className="mt-2 text-[11px] text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground">
           Lista braków POLICZONA dla konkretnego kontraktu żyje w module
           Kontrakty — pojawi się tu jako link, gdy umowa zostanie powiązana
           z kontraktem.
         </p>
       )}
-    </div>
+    </WorkbenchCard>
   );
 }
 
@@ -740,8 +919,8 @@ function ModuleLink({
       href={href}
       className={cn(
         variant === "button"
-          ? "inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
-          : "inline-flex items-center gap-1 text-muted-foreground hover:text-foreground",
+          ? "inline-flex h-8 w-fit items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+          : "inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground",
       )}
     >
       {label}

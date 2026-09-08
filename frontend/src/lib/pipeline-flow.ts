@@ -266,3 +266,49 @@ export function groupKanbanColumns(columns: KanbanColumn[]): PipelineColumnGroup
     };
   });
 }
+
+/**
+ * Ton kropki wiersza kolejki wg wieku na etapie (makieta kroków 05–08).
+ *
+ * Trzy stany, nie dwa: `neutral` znaczy „nie wiemy, ile ta karta tu stoi"
+ * (`days_in_stage` bywa nieobecne), a nie „jest w porządku" — zielona kropka
+ * przy nieznanym wieku obiecuje wiedzę, której nie mamy.
+ *
+ * Z SLA klienta (karta klienta, `sla_business_days`) progi liczą się od niego:
+ * przekroczone SLA to `bad`, 60 % SLA to `warn`. Bez SLA zostają progi
+ * z makiety — 7 dni `bad`, 3 dni `warn`.
+ */
+export function stageAgeTone(
+  days: number | null | undefined,
+  slaDays?: number | null,
+): "neutral" | "ok" | "warn" | "bad" {
+  if (days == null || !Number.isFinite(days)) return "neutral";
+  const hardLimit = slaDays != null && slaDays > 0 ? slaDays : 7;
+  const softLimit =
+    slaDays != null && slaDays > 0 ? Math.ceil(slaDays * 0.6) : 3;
+  if (days >= hardLimit) return "bad";
+  if (days >= softLimit) return "warn";
+  return "ok";
+}
+
+/**
+ * Stawka oczekiwana z karty jako „118 PLN/h" — albo `null`, gdy jej nie ma.
+ *
+ * Karta niesie `expected_rate_value` jako string LUB number (backend zwraca
+ * `Numeric` jako string), więc formatowanie mieszka w jednym miejscu, a nie
+ * w każdej szynie z osobna.
+ */
+export function formatExpectedRate(item: KanbanItem): string | null {
+  const raw = item.expected_rate_value;
+  if (raw == null || raw === "") return null;
+  const unit = item.expected_rate_unit;
+  const shortUnit =
+    unit === "hourly"
+      ? "PLN/h"
+      : unit === "daily"
+        ? "PLN/dzień"
+        : unit === "monthly"
+          ? "PLN/mc"
+          : (item.expected_rate_currency ?? "PLN");
+  return `${raw} ${shortUnit}`;
+}

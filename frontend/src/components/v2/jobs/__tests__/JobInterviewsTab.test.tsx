@@ -57,6 +57,12 @@ vi.mock("@/components/v2/modals/ScreeningSheet", () => ({
 vi.mock("@/components/v2/modals/RejectionV2", () => ({
   RejectionV2: () => <div data-testid="rejection-stub" />,
 }));
+vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
+  CVOriginalPreviewModal: () => <div data-testid="cv-original-stub" />,
+}));
+vi.mock("@/components/v2/modals/PrepInviteModal", () => ({
+  PrepInviteModal: () => <div data-testid="prep-invite-stub" />,
+}));
 
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -201,10 +207,17 @@ describe("JobInterviewsTab", () => {
     expect(
       (await screen.findAllByText("Grzegorz Żebrowski")).length,
     ).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Rozmowa u klienta")).toBeTruthy();
+    // Nagłówek kroku w języku makiety: „Krok · Nazwisko".
+    expect(
+      screen.getByRole("heading", {
+        name: "Rozmowa u klienta · Grzegorz Żebrowski",
+      }),
+    ).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Feedback klienta po rozmowie" }),
     ).toBeTruthy();
+    // Stan weta jako pigułka listwy — widoczny bez rozwijania czegokolwiek.
+    expect(screen.getByText("Weto HM: brak")).toBeTruthy();
   });
 
   /** Słownik powodów dociąga się osobnym zapytaniem — bez tego `select` ma
@@ -335,5 +348,48 @@ describe("JobInterviewsTab", () => {
     expect(
       await screen.findByText("Nie udało się pobrać danych"),
     ).toBeTruthy();
+  });
+
+  // ── Parytet z makietą (fala 3) ─────────────────────────────────────────
+  it("szyna ma sekcję „Przygotowanie” — trzy wejścia, które dotąd były rozsiane", async () => {
+    renderTab();
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    expect(screen.getByText("Przygotowanie")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /Prep-kit \(AI\)/ }),
+    ).toHaveAttribute("href", "/jobs/10/prep/42");
+    expect(
+      screen.getByRole("button", { name: /Screening Championa dla klienta/ }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Zaproszenie prep/ }),
+    ).toBeTruthy();
+  });
+
+  it("„Screening Championa dla klienta” z szyny otwiera TEN SAM arkusz co tablica", async () => {
+    renderTab();
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Screening Championa dla klienta/ }),
+    );
+    expect(await screen.findByTestId("screening-sheet-stub")).toBeTruthy();
+  });
+
+  it("„Zaproszenie prep” otwiera istniejący modal, a nie drugą jego kopię", async () => {
+    renderTab();
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zaproszenie prep/ }),
+    );
+    expect(await screen.findByTestId("prep-invite-stub")).toBeTruthy();
+  });
+
+  it("dok wypisuje reguły odrzucenia i regułę konfetti, zamiast kazać ich pamiętać", async () => {
+    renderTab();
+    await screen.findByRole("heading", { name: /Rozmowa u klienta/ });
+    expect(screen.getByText("Odrzucenie / wycofanie")).toBeTruthy();
+    expect(screen.getByText(/„Wycofany” ZAWSZE ze słownika/)).toBeTruthy();
+    expect(screen.getByText(/wysyłka za 15 min/)).toBeTruthy();
+    expect(screen.getByText(/konfetti jak dziś/)).toBeTruthy();
   });
 });

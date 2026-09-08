@@ -2,7 +2,7 @@
 
 /**
  * ScreeningWorkbench — stanowisko screeningu (krok 05 programu „flow w języku
- * C2", docs/c2-flow-program.md, PR 6/7).
+ * C2", docs/c2-flow-program.md; układ z makiety — fala 3).
  *
  * Dziś screening jest rozrzucony: arkusz wyskakuje jako modal po przeciągnięciu
  * karty, pytania przypięte do rekrutacji mieszkają w zakładce „Baza pytań",
@@ -14,20 +14,23 @@
  *
  * Zero nowych endpointów: kolumny przychodzą z `GET /api/pipeline/kanban/{id}`,
  * które strona rekrutacji pobiera już dla listwy kroków; arkusz woła
- * `…/stages/{id}/screening`, a ruch — `POST /api/pipeline/move` z
- * `expected_rate_*`, ten sam, którym przenosi karty `KanbanBoardV2`.
+ * `…/stages/{id}/screening`, ruch — `POST /api/pipeline/move` z
+ * `expected_rate_*`, a odrzucenie z powodem idzie TYM SAMYM modalem
+ * (`RejectionV2`) i tą samą trasą co decyzja z tablicy i z kroku 07.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Ban,
   BookOpen,
   CheckCircle2,
   ClipboardCheck,
   Clock,
   ExternalLink,
+  FileText,
   HelpCircle,
   Loader2,
   Save,
@@ -35,7 +38,7 @@ import {
   UserX,
 } from "lucide-react";
 
-import {
+import api, {
   extractErrorMsg,
   interviewQuestionsApi,
   pipelineApi,
@@ -50,26 +53,54 @@ import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form } from "@/components/v2/forms";
 import {
+  FIT_OPTIONS,
   ScreeningFormFields,
   ScreeningNoQuestions,
   ScreeningSubmitError,
   useScreeningForm,
 } from "@/components/v2/screening/ScreeningForm";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
+import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
+import {
+  RejectionV2,
+  type CandidateOfferResponse,
+} from "@/components/v2/modals/RejectionV2";
 import { evaluateRateGate } from "@/lib/verified-rate-gate";
+import { useClientPlaybook } from "@/lib/client-playbooks";
+import {
+  loadJobRejectionReasons,
+  type RejectionReasonOption,
+} from "@/lib/rejection-reasons";
+import { terminalOf } from "@/lib/kanban-terminal";
 import {
   VERIFIED_STAGE,
   findStageColumn,
+  formatExpectedRate,
   itemFullName,
   moveBlockedReason,
   selectPendingVerifications,
   selectScreeningQueue,
+  stageAgeTone,
   type FlowQueueEntry,
 } from "@/lib/pipeline-flow";
 import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { encodeJobBackRef } from "@/lib/url-filters";
+import {
+  ChromeBanner,
+  DockActions,
+  DockNotesPanel,
+  DockSection,
+  RailRow,
+  RailSection,
+  ReqRow,
+  ToolPill,
+  WorkbenchDock,
+  WorkbenchHeader,
+  WorkbenchRail,
+  type DockTabItem,
+} from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 
@@ -87,54 +118,16 @@ export interface ScreeningWorkbenchProps {
   onMoved: () => void;
   readOnly: boolean;
   onTabChange: (tab: JobDetailTab) => void;
+  /** Klient rekrutacji — SLA z karty klienta w nagłówku kolejki. */
+  clientId?: number | null;
+  /** Nazwa klienta do etykiety „SLA <klient>". */
+  clientName?: string | null;
 }
+
+type DockTab = "decision" | "notes";
 
 function daysLabel(n: number): string {
   return `${n} ${Math.abs(n) === 1 ? "dzień" : "dni"}`;
-}
-
-/** Wiersz kolejki — nazwisko, sygnał bramki, wiek na etapie. */
-function QueueRow({
-  entry,
-  active,
-  onSelect,
-  trailing,
-}: {
-  entry: FlowQueueEntry;
-  active: boolean;
-  onSelect: () => void;
-  trailing?: string;
-}) {
-  const { item } = entry;
-  const blocked = Boolean(item.hm_veto);
-  const pending = item.verification_status === "pending";
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={active ? "true" : undefined}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
-        active
-          ? "bg-primary/10 font-medium text-primary"
-          : "text-foreground hover:bg-accent",
-      )}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full",
-          blocked ? "bg-destructive" : pending ? "bg-warning" : "bg-primary",
-        )}
-      />
-      <span className="min-w-0 flex-1 truncate">{itemFullName(item)}</span>
-      {trailing ? (
-        <span className="shrink-0 tabular-nums text-muted-foreground">
-          {trailing}
-        </span>
-      ) : null}
-    </button>
-  );
 }
 
 export function ScreeningWorkbench({
@@ -149,8 +142,11 @@ export function ScreeningWorkbench({
   onMoved,
   readOnly,
   onTabChange,
+  clientId = null,
+  clientName = null,
 }: ScreeningWorkbenchProps) {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showActionToast } = useToast();
+  const queryClient = useQueryClient();
   // `/pending-verifications` jest bramkowane rolą approvera (admin / DL / HoR)
   // — link dla rekrutera prowadziłby wprost w 403.
   const authUser = useAuthStore((s) => s.user);
@@ -170,8 +166,15 @@ export function ScreeningWorkbench({
     () => findStageColumn(columns, VERIFIED_STAGE),
     [columns],
   );
+  const rejectedCol = useMemo(
+    () => columns.find((c) => terminalOf(c) === "rejected") ?? null,
+    [columns],
+  );
 
   const [selectedStageId, setSelectedStageId] = useState<number | null>(null);
+  const [dockTab, setDockTab] = useState<DockTab>("decision");
+  const [showOriginalCv, setShowOriginalCv] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
   // Pierwsze wejście (i zniknięcie wybranej karty po ruchu) wybiera pierwszą
   // pozycję kolejki. Bez tego stanowisko startuje puste, mimo że ktoś czeka.
   // Wybierać można z OBU list (kolejka screeningu i „czeka na akceptację") —
@@ -189,8 +192,12 @@ export function ScreeningWorkbench({
     );
   }, [queue, allEntries]);
 
-  const selected =
+  const selected: FlowQueueEntry | null =
     allEntries.find((e) => e.item.id === selectedStageId) ?? null;
+
+  // ── SLA klienta (karta klienta) — kontekst wieku na etapie ──────────────
+  const playbookQuery = useClientPlaybook(clientId);
+  const slaDays = playbookQuery.data?.sla_business_days ?? null;
 
   // ── Stawka (dok) — resetowana przy zmianie kandydata ────────────────────
   const [rate, setRate] = useState("");
@@ -198,6 +205,7 @@ export function ScreeningWorkbench({
   useEffect(() => {
     setRate("");
     setUnit("hourly");
+    setDockTab("decision");
   }, [selectedStageId]);
   const gate = evaluateRateGate({
     rawRate: rate,
@@ -215,18 +223,32 @@ export function ScreeningWorkbench({
   });
   const screeningSaved = screening.data?.screening_answers ?? null;
   const screeningDirty = screening.methods.formState.isDirty;
-  const answeredCount = screening.questions.filter((q) =>
-    (screening.methods.watch(`answers.${q.id}.response`) ?? "").trim(),
-  ).length;
-  const dealBreakerHit = screening.questions.some((q) =>
-    screening.methods.watch(`answers.${q.id}.deal_breaker_hit`),
-  );
+  const answers = screening.questions.map((q) => ({
+    id: q.id,
+    question: q.question,
+    response: (
+      screening.methods.watch(`answers.${q.id}.response`) ?? ""
+    ).trim(),
+    dealBreakerHit: Boolean(
+      screening.methods.watch(`answers.${q.id}.deal_breaker_hit`),
+    ),
+  }));
+  const answeredCount = answers.filter((a) => a.response).length;
+  const dealBreakerHit = answers.some((a) => a.dealBreakerHit);
+  const overallFit = screening.methods.watch("overall_fit");
 
   // ── Pytania przypięte do rekrutacji (zakładka „Baza pytań") ─────────────
   const pinnedQuery = useQuery({
     queryKey: ["job-questions", jobId],
     queryFn: () => interviewQuestionsApi.listForJob(jobId).then((r) => r.data),
     staleTime: 60_000,
+  });
+
+  // ── Słownik powodów odrzucenia — ten sam, co na tablicy i w kroku 07 ────
+  const reasonsQuery = useQuery<RejectionReasonOption[]>({
+    queryKey: ["job-rejection-reasons", jobId],
+    queryFn: () => loadJobRejectionReasons(jobId),
+    staleTime: 5 * 60_000,
   });
 
   // ── Ruch na „Zweryfikowany" — TEN SAM endpoint co drag&drop ─────────────
@@ -279,6 +301,62 @@ export function ScreeningWorkbench({
       showError(extractErrorMsg(e) || "Nie udało się przenieść kandydata."),
   });
 
+  /**
+   * Odrzucenie z powodem — ta sama trasa, co decyzja z tablicy i z kroku 07:
+   * `RejectionV2` → `POST /api/pipeline/move` z powodem, notatką i regułą
+   * maila (15 min + „Cofnij wysyłkę"). Zero drugiej implementacji reguł.
+   */
+  const rejectMut = useMutation({
+    mutationFn: async (vars: {
+      reasonId: string;
+      notes: string;
+      sendRejectionEmail: boolean | null;
+      offerResponse: CandidateOfferResponse | null;
+      freeReason?: string;
+    }) => {
+      if (!selected || !rejectedCol) throw new Error("Brak etapu docelowego.");
+      return api.post("/api/pipeline/move", {
+        candidate_id: selected.item.candidate_id,
+        job_id: jobId,
+        stage: rejectedCol.stage,
+        stage_def_id: rejectedCol.stage_def_id ?? undefined,
+        rejection_reason_id: vars.reasonId || undefined,
+        rejection_reason: vars.freeReason || undefined,
+        notes: vars.notes,
+        send_rejection_email: vars.sendRejectionEmail ?? undefined,
+        candidate_offer_response: vars.offerResponse ?? undefined,
+      });
+    },
+    onSuccess: (res) => {
+      setRejectOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      showSuccess("Zapisano decyzję.");
+      // 0045_rejection_emails — ta sama afordancja co na tablicy: backend
+      // zaplanował mail odrzucenia za 15 min, rekruter ma 10 s na „Cofnij".
+      const scheduledId = (
+        res as { data?: { scheduled_rejection_email_id?: number | null } } | null
+      )?.data?.scheduled_rejection_email_id;
+      if (scheduledId && showActionToast) {
+        showActionToast("Email odrzucenia zostanie wysłany za 15 minut.", {
+          actionLabel: "Cofnij wysyłkę",
+          onAction: async () => {
+            try {
+              await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
+              showSuccess("Anulowano wysyłkę emaila.");
+            } catch {
+              showError("Nie udało się anulować wysyłki.");
+            }
+          },
+          durationMs: 10_000,
+        });
+      }
+      onMoved();
+    },
+    onError: (e) =>
+      showError(extractErrorMsg(e) || "Nie udało się zapisać decyzji."),
+  });
+
   // Bramka ruchu — widoczna z powodem, nigdy 409 po kliknięciu.
   const moveBlocked = selected
     ? (moveBlockedReason({ item: selected.item, readOnly }) ??
@@ -328,31 +406,62 @@ export function ScreeningWorkbench({
     );
   }
 
+  const selectedName = selected ? itemFullName(selected.item) : null;
+  const dockTabs: DockTabItem[] = [
+    { value: "decision", label: "Stawka i decyzja" },
+    { value: "notes", label: "Notatki" },
+  ];
+  const slaMeta =
+    slaDays != null
+      ? `SLA ${clientName?.trim() || "klienta"}: ${slaDays} d`
+      : null;
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {/* ── Lewa kolumna: kolejki i źródła pytań ───────────────────────── */}
-      <aside className="space-y-4 self-start rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-          <ClipboardCheck className="h-4 w-4 text-primary" />
-          Kolejka screeningu
-          <Badge variant="outline" size="sm" className="ml-auto tabular-nums">
-            {queue.length}
-          </Badge>
-        </div>
-
+      {/* ── Szyna: kolejki i źródła pytań ──────────────────────────────── */}
+      <WorkbenchRail
+        icon={<ClipboardCheck className="h-4 w-4 text-primary" />}
+        title="Kolejka screeningu"
+        count={queue.length}
+        meta={slaMeta}
+        footer={
+          <Button
+            size="sm"
+            variant="outline"
+            className="justify-center"
+            disabled={!selected}
+            title={
+              selected
+                ? "Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
+                : "Wybierz kandydata z kolejki"
+            }
+            onClick={() => setShowOriginalCv(true)}
+          >
+            <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
+          </Button>
+        }
+      >
         {queue.length > 0 ? (
           <div className="space-y-0.5" role="list" aria-label="Kolejka screeningu">
             {queue.map((entry) => (
               <div key={entry.item.id} role="listitem">
-                <QueueRow
-                  entry={entry}
-                  active={entry.item.id === selectedStageId}
-                  onSelect={() => setSelectedStageId(entry.item.id)}
-                  trailing={
+                <RailRow
+                  tone={
+                    entry.item.hm_veto
+                      ? "bad"
+                      : entry.item.verification_status === "pending"
+                        ? "warn"
+                        : stageAgeTone(entry.item.days_in_stage, slaDays)
+                  }
+                  label={itemFullName(entry.item)}
+                  meta={
                     entry.item.days_in_stage != null
                       ? `${entry.item.days_in_stage} d`
                       : undefined
                   }
+                  metaTone={stageAgeTone(entry.item.days_in_stage, slaDays)}
+                  active={entry.item.id === selectedStageId}
+                  onSelect={() => setSelectedStageId(entry.item.id)}
                 />
               </div>
             ))}
@@ -364,23 +473,36 @@ export function ScreeningWorkbench({
           </p>
         )}
 
-        <div className="border-t border-border pt-3">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Czeka na akceptację stawki
-          </div>
+        <RailSection
+          label="Czeka na akceptację stawki"
+          note={
+            <>
+              Approverzy: admin · Delivery Lead · HoR.{" "}
+              {canApprove ? (
+                <Link
+                  href="/pending-verifications"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  <ExternalLink className="h-3 w-3" /> Kolejka globalna
+                </Link>
+              ) : (
+                "Kolejka globalna jest dla nich."
+              )}
+            </>
+          }
+        >
           {pendingQueue.length > 0 ? (
             <div className="space-y-0.5">
               {pendingQueue.map((entry) => (
-                <QueueRow
+                <RailRow
                   key={entry.item.id}
-                  entry={entry}
+                  tone="warn"
+                  label={itemFullName(entry.item)}
+                  secondary={formatExpectedRate(entry.item) ?? undefined}
+                  meta="pending"
+                  metaTone="warn"
                   active={entry.item.id === selectedStageId}
                   onSelect={() => setSelectedStageId(entry.item.id)}
-                  trailing={
-                    entry.item.expected_rate_value != null
-                      ? `${entry.item.expected_rate_value} ${entry.item.expected_rate_currency ?? "PLN"}`
-                      : "pending"
-                  }
                 />
               ))}
             </div>
@@ -389,62 +511,53 @@ export function ScreeningWorkbench({
               Nikt nie czeka na akceptację stawki.
             </p>
           )}
-          {canApprove && (
-            <Link
-              href="/pending-verifications"
-              className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-            >
-              <ExternalLink className="h-3 w-3" /> Kolejka akceptacji (globalna)
-            </Link>
-          )}
-        </div>
+        </RailSection>
 
-        <div className="border-t border-border pt-3">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Pytania do rozmowy
-          </div>
-          <ul className="space-y-1 text-xs text-muted-foreground">
-            <li className="flex items-center justify-between gap-2">
-              <span>Z Championa (sekcja 5)</span>
-              <span className="tabular-nums text-foreground">
-                {selected ? screening.questions.length : "—"}
-              </span>
-            </li>
-            <li className="flex items-center justify-between gap-2">
-              <span>Przypięte do rekrutacji</span>
-              <span className="tabular-nums text-foreground">
-                {pinnedQuery.isLoading
+        <RailSection label="Pytania do rozmowy">
+          <div className="space-y-0.5">
+            <RailRow
+              tone="info"
+              label="Z Championa (sekcja 5)"
+              meta={selected ? String(screening.questions.length) : "—"}
+            />
+            <RailRow
+              label="Przypięte do rekrutacji"
+              meta={
+                pinnedQuery.isLoading
                   ? "…"
                   : pinnedQuery.isError
                     ? "—"
-                    : (pinnedQuery.data?.length ?? 0)}
-              </span>
-            </li>
-          </ul>
-          <div className="mt-2 flex flex-col gap-1">
-            <button
-              type="button"
-              onClick={() => onTabChange("questions")}
-              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-            >
-              <BookOpen className="h-3 w-3" /> Baza pytań tej rekrutacji
-            </button>
+                    : String(pinnedQuery.data?.length ?? 0)
+              }
+              onSelect={() => onTabChange("questions")}
+            />
             {selected && (
-              // Prep-kit istniał od dawna pod adresem, do którego NIC nie
-              // linkowało — stanowisko screeningu jest jego naturalnym wejściem.
               <Link
                 href={`/jobs/${jobId}/prep/${selected.item.candidate_id}`}
-                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent"
               >
-                <Sparkles className="h-3 w-3" /> Prep-kit (AI) dla tej rozmowy
+                <Sparkles className="h-3 w-3 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1 truncate">
+                  Prep-kit (AI, z podobnych)
+                </span>
+                <span className="shrink-0 text-[10.5px] text-muted-foreground">
+                  otwórz
+                </span>
               </Link>
             )}
           </div>
-        </div>
-      </aside>
+          <button
+            type="button"
+            onClick={() => onTabChange("questions")}
+            className="flex h-7 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:bg-accent"
+          >
+            <BookOpen className="h-3 w-3" /> Szukaj w bazie pytań · + Dodaj
+          </button>
+        </RailSection>
+      </WorkbenchRail>
 
-      {/* ── Środek: arkusz screeningu ───────────────────────────────────── */}
-      <div className="min-w-0">
+      {/* ── Środek: nagłówek i arkusz screeningu ────────────────────────── */}
+      <div className="min-w-0 space-y-4">
         {!selected ? (
           <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
             <ClipboardCheck className="mx-auto mb-2 h-6 w-6 opacity-40" />
@@ -453,60 +566,83 @@ export function ScreeningWorkbench({
               : "Wybierz kandydata z kolejki po lewej."}
           </div>
         ) : (
-          <div className="rounded-xl border border-border bg-card">
-            <div className="space-y-2 border-b border-border p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-semibold text-foreground">
-                  Screening · {itemFullName(selected.item)}
-                </h2>
-                {selected.item.days_in_stage != null && (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    {daysLabel(selected.item.days_in_stage)} na etapie
-                  </span>
-                )}
-                {selected.item.verification_status === "pending" && (
-                  <Badge variant="warning" size="sm">
-                    <HelpCircle className="h-2.5 w-2.5" /> Pending
-                  </Badge>
-                )}
-                {selected.item.hm_veto && (
-                  <Badge
-                    variant="danger"
-                    size="sm"
-                    title={`Powód: ${selected.item.hm_veto.rejection_reason_name}`}
-                  >
-                    <UserX className="h-2.5 w-2.5" /> Weto HM
-                  </Badge>
-                )}
+          <>
+            <WorkbenchHeader
+              title={`Screening · ${selectedName}`}
+              subtitle={[
+                selected.col.name ?? "Screening",
+                selected.item.days_in_stage != null
+                  ? slaDays != null
+                    ? `dzień ${selected.item.days_in_stage} z ${slaDays} SLA`
+                    : `${daysLabel(selected.item.days_in_stage)} na etapie`
+                  : null,
+                formatExpectedRate(selected.item),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              badges={
+                <>
+                  {selected.item.verification_status === "pending" && (
+                    <Badge variant="warning" size="sm">
+                      <HelpCircle className="h-2.5 w-2.5" /> Pending
+                    </Badge>
+                  )}
+                  {selected.item.hm_veto && (
+                    <Badge
+                      variant="danger"
+                      size="sm"
+                      title={`Powód: ${selected.item.hm_veto.rejection_reason_name}`}
+                    >
+                      <UserX className="h-2.5 w-2.5" /> Weto HM
+                    </Badge>
+                  )}
+                </>
+              }
+              actions={
                 <Link
                   href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
-                  className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
                 >
-                  <ExternalLink className="h-3 w-3" /> Pełny profil
+                  <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
                 </Link>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>
-                  {screening.questions.length > 0
-                    ? `${answeredCount} z ${countPl(screening.questions.length, "pytania", "pytań", "pytań")} odpowiedzianych`
-                    : "Brak pytań Championa"}
-                </span>
-                {screeningSaved?.answered_at && (
-                  <span>
-                    · zapisano {formatDate(screeningSaved.answered_at)}
+              }
+              tools={
+                <>
+                  <ToolPill tone={overallFit === "fit" ? "ok" : "info"}>
+                    Ogólna ocena dopasowania:{" "}
+                    {screeningSaved || screeningDirty
+                      ? (FIT_OPTIONS.find((o) => o.value === overallFit)
+                          ?.label ?? "—")
+                      : "—"}
+                  </ToolPill>
+                  <ToolPill>
+                    {screening.questions.length > 0
+                      ? `${answeredCount} z ${countPl(screening.questions.length, "pytania", "pytań", "pytań")} odpowiedzianych`
+                      : "Brak pytań Championa"}
+                  </ToolPill>
+                  {dealBreakerHit && (
+                    <ToolPill tone="bad">
+                      <AlertTriangle className="h-3 w-3" /> deal-breaker
+                      zaznaczony
+                    </ToolPill>
+                  )}
+                </>
+              }
+              toolsRight={
+                screeningDirty ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-warning-muted-foreground">
+                    <Clock className="h-3 w-3" /> Niezapisane zmiany
                   </span>
-                )}
-                {dealBreakerHit && (
-                  <span className="inline-flex items-center gap-1 text-destructive">
-                    <AlertTriangle className="h-3 w-3" /> deal-breaker zaznaczony —
-                    wynik screeningu spadnie do 0
+                ) : screeningSaved?.answered_at ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Clock className="h-3 w-3" /> Zapisano{" "}
+                    {formatDate(screeningSaved.answered_at)}
                   </span>
-                )}
-              </div>
-            </div>
+                ) : null
+              }
+            />
 
-            <div className="p-4">
+            <div className="rounded-xl border border-border bg-card p-4">
               {screening.query.isLoading ? (
                 <div className="flex items-center gap-1.5 py-8 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" /> Ładowanie pytań
@@ -525,7 +661,9 @@ export function ScreeningWorkbench({
                   onRetry={() => void screening.query.refetch()}
                 />
               ) : screening.questions.length === 0 ? (
-                <ScreeningNoQuestions />
+                <ScreeningNoQuestions
+                  onOpenChampion={() => onTabChange("champion")}
+                />
               ) : (
                 <Form methods={screening.methods} onSubmit={screening.onSubmit}>
                   <ScreeningFormFields
@@ -548,28 +686,65 @@ export function ScreeningWorkbench({
                 </Form>
               )}
             </div>
-          </div>
+
+            {screening.questions.length > 0 && (
+              <ChromeBanner
+                tone="warn"
+                icon={<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+              >
+                Deal-breaker zaznaczony przy dowolnym pytaniu zeruje wynik
+                screeningu Championa (<code>match_percent = 0</code>) — tak jak
+                dziś.
+              </ChromeBanner>
+            )}
+          </>
         )}
       </div>
 
       {/* ── Dok: weryfikacja stawki i decyzja ───────────────────────────── */}
       <aside className="lg:col-span-2 xl:sticky xl:top-4 xl:col-span-1 xl:self-start">
-        <div className="space-y-4 rounded-xl border border-border bg-card p-4">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-              Weryfikacja
-            </div>
-            <div className="truncate text-sm font-semibold text-foreground">
-              {selected ? itemFullName(selected.item) : "Nikt nie wybrany"}
-            </div>
-          </div>
-
-          {selected ? (
+        <WorkbenchDock
+          name="Weryfikacja"
+          who={selectedName}
+          whoSub={
+            selected
+              ? [
+                  selected.col.name ?? "Screening",
+                  selected.item.days_in_stage != null
+                    ? `${selected.item.days_in_stage} d`
+                    : null,
+                  selected.item.added_to_job_by_name,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined
+          }
+          tabs={selected ? dockTabs : undefined}
+          activeTab={dockTab}
+          onTabChange={(v) => setDockTab(v as DockTab)}
+          footer={
             <>
-              <div className="space-y-2">
-                <div className="text-xs font-semibold text-foreground">
-                  Stawka oczekiwana
-                </div>
+              <FileText className="h-3 w-3 shrink-0" />
+              Snapshot CV oryginalnego robi się przy pierwszym ruchu — tak jak
+              dziś.
+            </>
+          }
+        >
+          {!selected ? (
+            <p className="text-xs text-muted-foreground">
+              Wybierz kandydata z kolejki, żeby wpisać stawkę i zamknąć
+              weryfikację.
+            </p>
+          ) : dockTab === "notes" ? (
+            <DockNotesPanel
+              candidateId={selected.item.candidate_id}
+              jobId={jobId}
+              readOnly={readOnly}
+              enabled={dockTab === "notes"}
+            />
+          ) : (
+            <>
+              <DockSection title="Stawka oczekiwana" right='gate „Zweryfikowany"'>
                 <VerifiedRateFields
                   rate={rate}
                   onRateChange={setRate}
@@ -579,79 +754,160 @@ export function ScreeningWorkbench({
                   disabled={readOnly}
                   idPrefix="screening-dock-rate"
                 />
-              </div>
+                <p className="text-[10.5px] text-muted-foreground">
+                  Powyżej budżetu albo nieznana jednostka → karta „Pending”
+                  i powiadomienie approverów (admin / DL / HoR). Normalizacja:
+                  h×168, dzień×21.
+                </p>
+              </DockSection>
 
-              <div className="space-y-1.5 border-t border-border pt-3">
-                <div className="text-xs font-semibold text-foreground">
-                  Wynik screeningu
-                </div>
-                {screeningSaved ? (
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-muted-foreground">Ocena ogólna</span>
-                    <Badge
-                      size="sm"
-                      variant={
-                        screeningSaved.overall_fit === "fit"
-                          ? "success"
-                          : screeningSaved.overall_fit === "miss"
-                            ? "danger"
-                            : "warning"
-                      }
-                    >
-                      {screeningSaved.overall_fit === "fit"
-                        ? "Pasuje"
-                        : screeningSaved.overall_fit === "miss"
-                          ? "Nie pasuje"
-                          : "Niepewne"}
-                    </Badge>
+              <DockSection title="Wynik screeningu">
+                {answers.length > 0 ? (
+                  <div>
+                    {answers.map((a) => (
+                      <ReqRow
+                        key={a.id}
+                        tone={
+                          a.dealBreakerHit ? "n" : a.response ? "y" : "w"
+                        }
+                        label={a.question}
+                        tag={
+                          a.dealBreakerHit
+                            ? "narusza"
+                            : a.response
+                              ? "ok"
+                              : "brak"
+                        }
+                      />
+                    ))}
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    Arkusz jeszcze niezapisany dla tego etapu.
+                    Ta rekrutacja nie ma pytań Championa — wynik screeningu
+                    będzie sam z siebie pusty.
                   </p>
                 )}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {FIT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={readOnly || screening.questions.length === 0}
+                      aria-pressed={overallFit === opt.value}
+                      title={opt.description}
+                      onClick={() =>
+                        screening.methods.setValue("overall_fit", opt.value, {
+                          shouldDirty: true,
+                        })
+                      }
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                        overallFit === opt.value
+                          ? "border-primary bg-primary/10 font-medium text-primary"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10.5px] text-muted-foreground">
+                  Te same pigułki co „Ogólna ocena dopasowania” w arkuszu —
+                  jeden stan, dwa miejsca. Zapisuje je „Zapisz screening”.
+                </p>
                 {screeningDirty && (
-                  <p className="inline-flex items-start gap-1 text-xs text-warning-muted-foreground">
+                  <p className="inline-flex items-start gap-1 text-[11px] text-warning-muted-foreground">
                     <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                     Masz niezapisane odpowiedzi w arkuszu.
                   </p>
                 )}
-              </div>
+              </DockSection>
 
               {!readOnly && (
-                <div className="space-y-1.5 border-t border-border pt-3">
+                <DockActions>
                   <Button
-                    className="w-full justify-center"
+                    className="col-span-2 w-full justify-start"
+                    size="sm"
                     disabled={Boolean(moveBlocked) || moveMut.isPending}
                     loading={moveMut.isPending}
                     title={moveBlocked ?? undefined}
                     onClick={() => moveMut.mutate()}
                   >
-                    <CheckCircle2 className="h-4 w-4" />
+                    <CheckCircle2 className="h-3.5 w-3.5" />
                     Zweryfikowany — zapisz stawkę i przenieś
                   </Button>
-                  {moveBlocked && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {moveBlocked}
-                    </p>
-                  )}
-                </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-start"
+                    title="Zostaw kandydata w kolejce i wróć do niego później"
+                    onClick={() => setSelectedStageId(null)}
+                  >
+                    <Clock className="h-3.5 w-3.5" /> Wróć później
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={!rejectedCol}
+                    title={
+                      rejectedCol
+                        ? "Ten sam modal powodu i ta sama reguła maila co na tablicy"
+                        : "Szablon tej rekrutacji nie ma kolumny „Odrzucony”."
+                    }
+                    onClick={() => setRejectOpen(true)}
+                  >
+                    <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
+                  </Button>
+                </DockActions>
+              )}
+              {moveBlocked && !readOnly && (
+                <p className="text-[11px] text-muted-foreground">
+                  {moveBlocked}
+                </p>
               )}
             </>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Wybierz kandydata z kolejki, żeby wpisać stawkę i zamknąć
-              weryfikację.
-            </p>
           )}
-
-          <p className="border-t border-border pt-3 text-[11px] text-muted-foreground">
-            Odrzucenie z powodem, etapy terminalne i pozostałe ruchy zostają na
-            tablicy Pipeline — ten ekran domyka wyłącznie screening
-            i weryfikację stawki.
-          </p>
-        </div>
+        </WorkbenchDock>
       </aside>
+
+      {selected && showOriginalCv && (
+        <CVOriginalPreviewModal
+          open
+          onOpenChange={setShowOriginalCv}
+          stageId={selected.item.id}
+          jobTitle={`Rekrutacja #${jobId}`}
+          candidateName={selectedName ?? "Kandydat"}
+        />
+      )}
+
+      {selected && rejectedCol && rejectOpen && (
+        <RejectionV2
+          open
+          onOpenChange={setRejectOpen}
+          terminalType="rejected"
+          reasons={reasonsQuery.data ?? []}
+          previousStageCategory={
+            selected.col.category === "external" ? "external" : "internal"
+          }
+          previousStage={selected.col.stage}
+          onConfirm={(
+            reasonId,
+            notes,
+            sendRejectionEmail,
+            offerResponse,
+            freeReason,
+          ) =>
+            rejectMut.mutate({
+              reasonId,
+              notes,
+              sendRejectionEmail,
+              offerResponse: offerResponse ?? null,
+              freeReason,
+            })
+          }
+        />
+      )}
     </div>
   );
 }
