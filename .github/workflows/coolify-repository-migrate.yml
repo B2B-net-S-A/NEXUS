@@ -2,6 +2,11 @@ name: Coolify Repository Migration
 
 on:
   workflow_dispatch:
+    inputs:
+      audit_deploy_keys:
+        description: "List relevant apps and their public deploy keys"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,3 +45,22 @@ jobs:
           verified="$(curl -fsS "${auth[@]}" "$base/api/v1/applications/$COOLIFY_APP_UUID" | jq -r '.git_repository // ""')"
           [[ "$verified" == *B2B-net-S-A/NEXUS* ]]
           echo "Coolify repository migration verified."
+      - name: Audit organization application deploy keys
+        if: inputs.audit_deploy_keys
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+          base="${COOLIFY_URL%/}"
+          auth=(-H "Authorization: Bearer ${COOLIFY_TOKEN}" -H "Accept: application/json")
+          curl -fsS "${auth[@]}" "$base/api/v1/applications" -o /tmp/apps.json
+          curl -fsS "${auth[@]}" "$base/api/v1/security/keys" -o /tmp/keys.json
+          jq -r --slurpfile keys /tmp/keys.json '
+            .[]
+            | select((.git_repository // "") | test("/(NEXUS|Nexus|COMPASS|Compass|ELEVATE|Elevate|ATLAS|Atlas)(\\.git)?$"))
+            | . as $app
+            | ($keys[0][] | select(.id == $app.private_key_id)) as $key
+            | [($app.name // ""), ($app.git_repository // ""), ($key.fingerprint // ""), ($key.public_key // "")]
+            | @tsv
+          ' /tmp/apps.json
