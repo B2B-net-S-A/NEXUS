@@ -254,16 +254,23 @@ export function JobDetailCompactHeader({
             }
             title={
               clientName ? (
-                <>
-                  {title}
+                // Tytuł i klient w JEDNEJ linii: pełna nazwa prawna klienta
+                // („Powszechna Kasa Oszczędności Bank Polski S.A") łamała
+                // nagłówek na dwa wiersze na każdej zakładce. Tytuł zostaje
+                // w całości, klient się ucina (pełna nazwa w `title`).
+                <span className="flex min-w-0 items-baseline gap-x-2">
+                  <span className="shrink-0">{title}</span>
                   {/* Separator i nazwa klienta w JEDNYM węźle tekstowym —
                       `{" · "}{clientName}` rozpadało się na trzy węzły, przez
                       co spacja przy kropce ginęła przy pierwszej zmianie
                       formatowania. */}
-                  <span className="font-normal text-muted-foreground">
-                    {` · ${clientName}`}
+                  <span
+                    className="min-w-0 truncate text-lg font-normal text-muted-foreground"
+                    title={clientName}
+                  >
+                    {` · ${clientName}`}
                   </span>
-                </>
+                </span>
               ) : (
                 title
               )
@@ -531,7 +538,10 @@ export function JobDetailCompactHeader({
                 title={contextOpen ? "Ukryj zespół i priorytet" : "Pokaż zespół i priorytet"}
               >
                 <UserCheck className="h-4 w-4" />
-                <span className="hidden sm:inline">Zespół i priorytet</span>
+                {/* Etykieta dopiero od 2xl: przy 1440 px pełna listwa kroków
+                    + Historia + Chat + ta etykieta łamały pasek na dwa wiersze
+                    (makieta ma jeden). Ikona + `title` zostają zawsze. */}
+                <span className="hidden 2xl:inline">Zespół i priorytet</span>
                 {contextOpen ? (
                   <ChevronUp className="h-4 w-4" />
                 ) : (

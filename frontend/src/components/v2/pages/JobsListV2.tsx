@@ -322,7 +322,10 @@ function QuickFilterRow({
               : "bg-muted-foreground/40",
         )}
       />
-      <span className="flex-1 truncate">{label}</span>
+      {/* Etykieta ZAWIJA się zamiast ucinać: przy czterocyfrowym liczniku
+          („Brak ownera requestu 4236") `truncate` zostawiał „Brak ownera req…",
+          a to ta sama etykieta, po której użytkownik rozpoznaje filtr. */}
+      <span className="min-w-0 flex-1 leading-snug">{label}</span>
       {count != null && (
         <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
           {count}

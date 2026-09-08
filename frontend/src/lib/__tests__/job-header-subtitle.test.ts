@@ -114,6 +114,6 @@ describe("preferencja zwiniętego nagłówka", () => {
   });
 
   it("klucz zostaje na :v2 — podbicie skasowałoby zapamiętany wybór użytkownikom", () => {
-    expect(JOB_HEADER_COLLAPSED_STORAGE_KEY).toBe("nexus:jobHeaderCollapsed:v2");
+    expect(JOB_HEADER_COLLAPSED_STORAGE_KEY).toBe("nexus:jobHeaderCollapsed:v3");
   });
 });

@@ -542,3 +542,36 @@ describe("formatExpectedRate", () => {
     ).toBe("118 EUR");
   });
 });
+
+describe("groupKanbanColumns — własny etap między etapami klienta (follow-up fali 3)", () => {
+  it("„Preparation Meeting” oznaczony jako wewnętrzny, ale stojący za „CV Wysłane”, trafia do „U klienta”", () => {
+    // Na prodzie ten etap szablonu „Default B2B" nie ma legacy enuma i jest
+    // oznaczony jako wewnętrzny — po pozycji jest spotkaniem u klienta.
+    const columns = defaultB2B().map((c) =>
+      c.name === "Preparation Meeting" ? { ...c, category: "internal" as const } : c,
+    );
+    const groups = groupKanbanColumns(columns);
+    const client = groups.find((g) => g.key === "client");
+    const verification = groups.find((g) => g.key === "verification");
+    expect(client?.columns.map((c) => c.name)).toEqual([
+      "CV Wysłane",
+      "Preparation Meeting",
+      "Interview Klient",
+      "Akceptacja",
+    ]);
+    expect(verification?.columns.map((c) => c.name)).toEqual([
+      "Zweryfikowany",
+      "Przepuszczony przez DZ",
+      "Wysłać do Cpro",
+    ]);
+  });
+
+  it("etap wewnętrzny PRZED pierwszym etapem klienta zostaje w weryfikacji", () => {
+    const groups = groupKanbanColumns(defaultB2B());
+    expect(groups.find((g) => g.key === "verification")?.columns.map((c) => c.name)).toEqual([
+      "Zweryfikowany",
+      "Przepuszczony przez DZ",
+      "Wysłać do Cpro",
+    ]);
+  });
+});

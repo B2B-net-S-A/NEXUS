@@ -323,3 +323,33 @@ describe("oldestDaysInColumn", () => {
     ).toBeNull();
   });
 });
+
+describe("nextActionFor — zatrudniony z zaległą bramką (follow-up fali 3)", () => {
+  it("zatrudniony z zaległym `pending` dostaje „Przekaż do Delivery”, nie bramkę stawki", () => {
+    const action = nextActionFor(
+      item({ verification_status: "pending" }),
+      hiredCol,
+    );
+    expect(action).toEqual({
+      label: "Przekaż do Delivery",
+      tone: "normal",
+      kind: "contract",
+    });
+  });
+
+  it("zatrudniony ze starym wetem HM też dostaje „Przekaż do Delivery”", () => {
+    const action = nextActionFor(
+      item({
+        hm_veto: {
+          hiring_manager_contact_id: 1,
+          source_job_id: 2,
+          rejected_at: "2026-09-01T10:00:00Z",
+          rejection_reason_name: "Brak dopasowania",
+        },
+      }),
+      hiredCol,
+    );
+    expect(action.label).toBe("Przekaż do Delivery");
+    expect(action.tone).toBe("normal");
+  });
+});

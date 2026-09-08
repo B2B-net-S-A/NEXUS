@@ -100,6 +100,15 @@ export function nextActionFor(
     return { label: "", tone: "normal", kind: "none" };
   }
 
+  // „Zatrudniony" jest terminalem, ale należy do grupy „Umowa → zatrudnieni",
+  // więc guard wyżej go nie łapie. Bramki niżej też nie mogą: karta osoby już
+  // zatrudnionej z zaległym `pending` albo wetem HM (schemat tego nie
+  // wyklucza) mówiłaby „czeka na akceptację stawki" o kimś, kogo nikt
+  // nie rusza. Jedyna prawdziwa następna akcja to przekazanie do Delivery.
+  if (terminalOf(column) === "hired") {
+    return { label: "Przekaż do Delivery", tone: "normal", kind: "contract" };
+  }
+
   if (item.verification_status === "pending") {
     return {
       label: "Czeka na akceptację stawki",

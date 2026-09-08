@@ -101,6 +101,20 @@ worktree od `origin/main`, cherry-pick na `claude/flow-wave-3-parity`, jeden PR)
   neutralnie, nie zielono — wiersz kontraktu stoi za bramką Delivery, więc ekran nie wie,
   które pola są wypełnione.
 
+**Po deployu (zrzuty z produkcji obok makiet, 8.09 ~09:00):** lista, jobbar, pipeline i cztery
+warsztaty odpowiadają makietom. Sześć rzeczy wyszło dopiero na zrzutach i weszło w follow-upie
+(jeden PR): pełna nazwa prawna klienta łamała nagłówek na dwa wiersze (klient ucina się
+w jednej linii, pełna nazwa w `title`); przy 1440 px listwa kroków łamała się na dwa wiersze
+(etykieta „Zespół i priorytet" dopiero od `2xl`, ikona i `title` zawsze); własny etap
+„Preparation Meeting" oznaczony w szablonie jako wewnętrzny stał samotnie między dwoma
+zwiniętymi zastępnikami — reguła pozycyjna w `groupKanbanColumns` (etap za pierwszą kolumną
+klienta jest etapem klienta) zbija „Default B2B" do dziewięciu pozycji, czyli do progu pełnej
+karty; dok umowy bez wybranego kandydata powtarzał tytuł rekrutacji w podtytule; etykieta
+szybkiego filtra ucinała się przy czterocyfrowym liczniku; klucz preferencji panelu „Zespół
+i priorytet" podbity do `:v3`, bo preferencja „rozwinięty" pochodzi z czasów, gdy panel był
+jedynym miejscem właściciela i hiring managera. Do tego znalezisko auto-review PR #1410:
+`nextActionFor` dla „Zatrudniony" z zaległym `pending`/wetem HM.
+
 Poza falą (świadomie, brak źródła danych albo osobny zakres): „Źródło" na tablicy
 (`KanbanItem` nie niesie źródła), „Wiadomość" zbiorcza, „Pliki" w doku pipeline'u, ocena ryzyka
 kandydata, aktor „ostatniej aktywności", „Zaloguj rozmowę"/„Przełóż (M365)", licznik dni
