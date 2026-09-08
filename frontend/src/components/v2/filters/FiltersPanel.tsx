@@ -172,49 +172,55 @@ export function FiltersPanel({
   return (
     <div
       className={cn(
-        "space-y-4 rounded-lg border bg-card p-4 dark:border-zinc-800",
+        "space-y-4 rounded-lg border border-border bg-card p-4",
         className,
       )}
     >
-      {/* Free text + boolean popover */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={value.q ?? ""}
-          onChange={(e) => patch({ q: e.target.value || null })}
-          placeholder={
-            value.search_mode === "hybrid"
-              ? "Szukaj semantycznie (BM25 + dense + rerank)…"
-              : "Szukaj w CV (full-text)…"
-          }
-          className="flex-1 min-w-[16rem]"
-        />
-        <Button
-          type="button"
-          variant={value.search_mode === "hybrid" ? "primary" : "outline"}
-          size="sm"
-          onClick={() =>
-            patch({
-              search_mode:
-                value.search_mode === "hybrid" ? "boolean" : "hybrid",
-            })
-          }
-          title={
-            value.search_mode === "hybrid"
-              ? "Tryb hybrydowy: Postgres FTS + Voyage embeddings + RRF fusion + Voyage Rerank 2.5. Wyższa jakość, dłuższa latencja (~600ms rerank)."
-              : "Włącz wyszukiwanie semantyczne (BM25 + dense + rerank)."
-          }
-        >
-          {value.search_mode === "hybrid" ? "Semantycznie ✓" : "Semantycznie"}
-        </Button>
+      {/* Pasek wyszukiwania (pole + tryb + wyczyść) w JEDNYM wierszu; blok
+          „Zaawansowane wyszukiwanie" NIŻEJ, na pełną szerokość. Wcześniej
+          wszystkie cztery elementy siedziały w jednym `flex items-center`, więc
+          krótkie pole i przyciski były pionowo WYŚRODKOWANE względem wysokiego
+          bloku fraz — pływały w pustej lewej połowie obok niego. */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={value.q ?? ""}
+            onChange={(e) => patch({ q: e.target.value || null })}
+            placeholder={
+              value.search_mode === "hybrid"
+                ? "Szukaj semantycznie (BM25 + dense + rerank)…"
+                : "Szukaj w CV (full-text)…"
+            }
+            className="min-w-[16rem] flex-1"
+          />
+          <Button
+            type="button"
+            variant={value.search_mode === "hybrid" ? "primary" : "outline"}
+            size="sm"
+            onClick={() =>
+              patch({
+                search_mode:
+                  value.search_mode === "hybrid" ? "boolean" : "hybrid",
+              })
+            }
+            title={
+              value.search_mode === "hybrid"
+                ? "Tryb hybrydowy: Postgres FTS + Voyage embeddings + RRF fusion + Voyage Rerank 2.5. Wyższa jakość, dłuższa latencja (~600ms rerank)."
+                : "Włącz wyszukiwanie semantyczne (BM25 + dense + rerank)."
+            }
+          >
+            {value.search_mode === "hybrid" ? "Semantycznie ✓" : "Semantycznie"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={clearAll}>
+            Wyczyść
+          </Button>
+        </div>
         <AdvancedSearchPopover value={advanced} onChange={setAdvanced} />
-        <Button variant="ghost" size="sm" onClick={clearAll}>
-          Wyczyść
-        </Button>
       </div>
 
       {/* Competence Category — flagship filter */}
       <div className="space-y-2">
-        <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+        <Label className="text-xs font-medium text-muted-foreground">
           Kategoria kompetencji
         </Label>
         <CompetenceCategoryFilter
@@ -235,9 +241,9 @@ export function FiltersPanel({
       <div className="grid gap-3 sm:grid-cols-3">
         {(
           [
-            ["must", "Skills (preferowane)", "emerald"],
-            ["any", "Skills (dodatkowe)", "sky"],
-            ["none", "Skills (wyklucz)", "rose"],
+            ["must", "Skills (preferowane)", "success"],
+            ["any", "Skills (dodatkowe)", "info"],
+            ["none", "Skills (wyklucz)", "danger"],
           ] as const
         ).map(([bucket, label, tone]) => {
           const key =
@@ -249,24 +255,12 @@ export function FiltersPanel({
           const items = (value[key] as string[] | undefined) ?? [];
           return (
             <div key={bucket} className="space-y-1.5">
-              <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <Label className="text-xs font-medium text-muted-foreground">
                 {label}
               </Label>
               <div className="flex flex-wrap items-center gap-1.5">
                 {items.map((s, i) => (
-                  <Badge
-                    key={`${s}-${i}`}
-                    variant="neutral"
-                    className={cn(
-                      "gap-1",
-                      tone === "emerald" &&
-                        "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200",
-                      tone === "sky" &&
-                        "bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-200",
-                      tone === "rose" &&
-                        "bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200",
-                    )}
-                  >
+                  <Badge key={`${s}-${i}`} variant={tone} className="gap-1">
                     {s}
                     <button
                       type="button"
@@ -292,7 +286,7 @@ export function FiltersPanel({
           );
         })}
       </div>
-      <p className="-mt-1 text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
+      <p className="-mt-1 text-[11px] leading-snug text-muted-foreground">
         „Preferowane" i „dodatkowe" <strong className="font-medium">podbijają ranking</strong>,
         ale nikogo nie usuwają z wyników — kandydat bez wpisanej umiejętności nadal
         się pokaże, tylko niżej. Twardo wyklucza wyłącznie pole „wyklucz".
@@ -301,7 +295,7 @@ export function FiltersPanel({
       {/* Experience years range */}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <Label className="text-xs font-medium text-muted-foreground">
             Lata doświadczenia (min – max)
           </Label>
           <div className="flex items-center gap-2">
@@ -320,7 +314,7 @@ export function FiltersPanel({
               placeholder="min"
               className="w-20 text-sm"
             />
-            <span className="text-zinc-400">–</span>
+            <span className="text-muted-foreground">–</span>
             <Input
               type="number"
               min={0}
@@ -341,7 +335,7 @@ export function FiltersPanel({
 
         {/* City picker */}
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <Label className="text-xs font-medium text-muted-foreground">
             Miasto
           </Label>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -377,7 +371,7 @@ export function FiltersPanel({
       {/* Status + availability — chip toggles */}
       <div className="flex flex-wrap items-start gap-4">
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <Label className="text-xs font-medium text-muted-foreground">
             Status
           </Label>
           <div className="flex flex-wrap gap-1.5">
@@ -405,7 +399,7 @@ export function FiltersPanel({
         </div>
 
         <div className="space-y-1.5">
-          <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <Label className="text-xs font-medium text-muted-foreground">
             Dostępność
           </Label>
           <div className="flex flex-wrap gap-1.5">
@@ -484,7 +478,7 @@ export function FiltersPanel({
 
             {/* Languages picker */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <Label className="text-xs font-medium text-muted-foreground">
                 Języki
               </Label>
               <div className="space-y-1.5">
@@ -539,7 +533,7 @@ export function FiltersPanel({
 
             {/* Tags picker */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              <Label className="text-xs font-medium text-muted-foreground">
                 Tagi
               </Label>
               <div className="flex flex-wrap items-center gap-1.5">
