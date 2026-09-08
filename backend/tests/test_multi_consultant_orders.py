@@ -15,6 +15,8 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from tests.test_contract_analytics_fx import _free_test_currency
+
 _TODAY = date.today()
 
 
@@ -1309,7 +1311,8 @@ async def test_options_hide_foreign_rate_when_fx_is_missing(
 ):
     """Brak FX nie może zamienić surowej waluty obcej w rzekome PLN 1:1."""
     surname = f"MissingFx{uuid.uuid4().hex[:6]}"
-    currency = f"X{uuid.uuid4().hex[:2].upper()}"
+    # Shardy współdzielą bazę między testami: losowy kod może mieć już kurs.
+    currency = await _free_test_currency()
     client_id, _, _ = await _seed_client_with_contracts(0)
     _enable_for(monkeypatch, client_id)
     candidate_id, _ = await _seed_person_with_contract(
@@ -1461,7 +1464,7 @@ async def test_options_ignore_other_clients_and_same_client_rates_do_not_warn(
     from app.models.fx_rate import FxRate
 
     surname = f"Stawka{uuid.uuid4().hex[:6]}"
-    foreign_currency = f"X{uuid.uuid4().hex[:2].upper()}"
+    foreign_currency = await _free_test_currency()
     client_id, _, _ = await _seed_client_with_contracts(0)
     other_client = await _seed_bare_client()
     _enable_for(monkeypatch, client_id)
