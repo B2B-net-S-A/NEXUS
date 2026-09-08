@@ -10,6 +10,13 @@ zdarzeniowa, emitowana w chwili, w której budżet spada do zera
 (``services/cost_orders.settle_group`` + ścieżka importu). Skaner powtarzałby
 ją co tydzień, a ona opisuje stan, który się już nie zmienia.
 
+Tu jest natomiast jej BACKSTOP: gdy w chwili wyczerpania klient nie miał
+przypisanego Delivery Leada, emisja szła do pustej listy i alert przepadał bez
+śladu. ``reconcile_exhausted_group_budget_alerts`` (dobowo, poza rejestrem
+``ALERT_RULES``, bo to nie reguła stanowa z powtórką) dostarcza go po
+przypisaniu DL — dla zamówień kosztowych i wspólnej puli MD to jedyny sygnał
+o końcu budżetu.
+
 Trzy pozostałe są STANOWE: warunek trwa, dopóki ktoś czegoś nie uzupełni, więc
 powtarzają się co ``DL_ALERT_REPEAT_DAYS`` dni — każda powtórka jako nowy wiersz
 w logu, żeby raport pokazywał, ile tygodni sprawa czekała.
@@ -43,7 +50,11 @@ from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
 )
-from app.services.dl_alerts import dl_user_ids_for_client, emit
+from app.services.dl_alerts import (
+    dl_user_ids_for_client,
+    emit,
+    reconcile_exhausted_group_budget_alerts,
+)
 from app.services.shared_md_orders import uses_shared_md_pool
 
 logger = logging.getLogger(__name__)
@@ -359,6 +370,19 @@ async def _run_rules(db: AsyncSession) -> dict[str, int]:
             # warunki. Savepoint cofa wyłącznie jej własną pracę.
             logger.exception("dl_alerts rule %s failed", name)
             created[name] = 0
+    # Backstop dla JEDNORAZOWEGO alertu wyczerpania budżetu: dostarcza go, gdy
+    # w chwili wyczerpania klient nie miał przypisanego DL (emisja w próżnię).
+    # Osobno od ALERT_RULES — to nie reguła stanowa z powtórką co N dni.
+    try:
+        async with db.begin_nested():
+            created[
+                "exhausted_budget_backstop"
+            ] = await reconcile_exhausted_group_budget_alerts(db)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("dl_alerts exhausted-budget backstop failed")
+        created["exhausted_budget_backstop"] = 0
     await db.commit()
     return created
 
